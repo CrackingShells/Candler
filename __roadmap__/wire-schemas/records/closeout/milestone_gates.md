@@ -2,7 +2,7 @@
 
 **Goal**: The README says what exists, and every gate of the milestone leaf passes on the integrated `feat/wire-schemas`.
 **Pre-conditions**:
-- [ ] Every leaf of `../` is `done` and merged on `feat/wire-schemas`
+- [x] Every leaf of `../` is `done` and merged on `feat/wire-schemas`
 **Success Gates**:
 - ⬜ `cargo build --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` pass
 - ⬜ `cargo test -p candler-schemas` passes

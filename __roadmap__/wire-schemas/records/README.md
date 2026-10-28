@@ -25,10 +25,10 @@ Level 1 of `wire-schemas`: runs after `workspace.md` (primitives, drift harness,
 ## Status
 ```mermaid
 graph TD
-    outcome_record[Outcome record]:::inprogress
-    catalog_snapshot[Tool-catalog snapshot]:::inprogress
-    release_ci[Release tooling and CI workflows]:::inprogress
-    closeout[Close-out]:::planned
+    outcome_record[Outcome record]:::done
+    catalog_snapshot[Tool-catalog snapshot]:::done
+    release_ci[Release tooling and CI workflows]:::done
+    closeout[Close-out]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -39,10 +39,10 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `outcome_record.md` | 📄 Leaf Task | 🔄 In Progress |
-| `catalog_snapshot.md` | 📄 Leaf Task | 🔄 In Progress |
-| `release_ci.md` | 📄 Leaf Task | 🔄 In Progress |
-| `closeout/` | 📁 Directory | ⬜ Planned |
+| `outcome_record.md` | 📄 Leaf Task | ✅ Done |
+| `catalog_snapshot.md` | 📄 Leaf Task | ✅ Done |
+| `release_ci.md` | 📄 Leaf Task | ✅ Done |
+| `closeout/` | 📁 Directory | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

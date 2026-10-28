@@ -10,7 +10,7 @@ Level 2 of `wire-schemas`, after every `records/` leaf has merged. The coordinat
 The README says what exists, and every gate of the milestone leaf passes on `feat/wire-schemas`.
 
 ## Pre-conditions
-- [ ] Every leaf of `../` is `done` and merged on `feat/wire-schemas`
+- [x] Every leaf of `../` is `done` and merged on `feat/wire-schemas`
 
 ## Success Gates
 - ⬜ Every Success Gate of `../../../candler-v1/wire_schemas.md` passes on `feat/wire-schemas`
@@ -18,7 +18,7 @@ The README says what exists, and every gate of the milestone leaf passes on `fea
 ## Status
 ```mermaid
 graph TD
-    milestone_gates[README status and the milestone gate sweep]:::planned
+    milestone_gates[README status and the milestone gate sweep]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -29,7 +29,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `milestone_gates.md` | 📄 Leaf Task | ⬜ Planned |
+| `milestone_gates.md` | 📄 Leaf Task | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
