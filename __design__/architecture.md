@@ -513,10 +513,12 @@ source_path, source_digest, transport (stdio / http / sse), tools[]}`. Tools are
 `tool-catalog-snapshot/0` is this shape with `servers_dir` and `stubbed_modules` at the top level;
 its capture script and loader move them under `ext`.
 
-Server names are unique within a snapshot and tool names within a server; both are non-empty.
-The snapshot keeps every key and value given, except three things: object key order; integers
-beyond the 64-bit range, read as floats, and numbers beyond `f64`, refused; and documents nested
-deeper than about 120 levels, refused by the reader.
+Server names are unique within a snapshot and tool names within a server, compared byte for
+byte; both are non-empty. A reader keeps every key of a tool, `ext` and `environment`, and every
+value, except: keys not defined for a snapshot or a server are dropped; of repeated keys the last
+is kept; object keys are sorted; numbers are held as `i64`, `u64` or `f64`, so an integer beyond
+the 64-bit range becomes a float, a decimal beyond `f64` precision is rounded and a magnitude
+beyond `f64` is refused; and text nested deeper than about 120 levels is refused.
 
 ### Wire encodings
 
