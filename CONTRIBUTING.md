@@ -4,7 +4,7 @@ Humans and agents both commit here. The rules below are what the commit-lint and
 
 ## Commit messages
 
-[Conventional Commits](https://www.conventionalcommits.org/), with a mandatory scope:
+[Conventional Commits](https://www.conventionalcommits.org/), with a mandatory scope and three types of our own (`merge`, `rdm`, `reports`):
 
 ```
 <type>(<scope>): <why this change exists, imperative, lowercase>
@@ -30,7 +30,9 @@ Humans and agents both commit here. The rules below are what the commit-lint and
 | `refactor` | Restructuring with no behaviour change |
 | `style` | Formatting only |
 | `test` | Tests and fixtures only |
-| `docs` | Documentation, reports and roadmaps |
+| `docs` | Documentation outside `__roadmap__/` and `__reports__/` |
+| `rdm` | Roadmaps in `__roadmap__/` |
+| `reports` | Reports in `__reports__/` |
 | `build` | Packaging, dependencies, environments |
 | `ci` | CI workflows |
 | `chore` | Repository upkeep that fits nothing above |
@@ -39,7 +41,7 @@ Humans and agents both commit here. The rules below are what the commit-lint and
 
 ### Scopes
 
-A scope names the topic of the commit, never the action or a layer (`core`, `misc`, `update` are not scopes). Related commits share one scope so the history reads as a story. Use these, and add a new one only when no existing scope fits:
+A scope names the topic of the commit, never the action or a layer (`core`, `misc`, `update` are not scopes). Related commits share one scope so the history reads as a story: a milestone's plan, merge and close-out share the scope of what it builds (`rdm(schemas)`, `merge(schemas)`, `reports(schemas)`). Use these, and add a new one only when no existing scope fits:
 
 | Area | Scopes |
 |---|---|
@@ -51,7 +53,7 @@ A scope names the topic of the commit, never the action or a layer (`core`, `mis
 | Analysis | `analysis`, `stats` |
 | Surfaces | `library`, `cli`, `mcp` |
 | Wire schemas | `schemas` |
-| Documents | `design`, `reports`, `roadmap`, `readme`, `contributing` |
+| Documents | `design`, `readme`, `contributing` |
 | Repository | `repo`, `release`, `deps` |
 
 ## Versioning
