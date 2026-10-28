@@ -313,6 +313,24 @@ an HTTP pre-stop action, collects through the export command with the observed s
 factor (changing it changes the treatment, I7). Not yet confirmed: the JSON event schema, exit
 codes, signal behaviour, budget options and the binary name; the driver work checks them first.
 
+### Session runner (M4)
+
+Headless runs end at the first final answer, which kills background tasks, so behaviour between
+turns (background-task notifications, monitor events, wake-ups) never happens in them. The session
+runner keeps a stream-json session's input open so a notification starts a further turn.
+
+- **End rule:** the session ends when it has been idle for at least Q seconds *and* the last Stop
+  payload lists no background task and no session cron, or when a per-run cap or the budget is
+  reached. A pending wake-up keeps the session open. Ending closes the input, then waits for
+  SessionEnd; `ended_by` is recorded.
+- **Controls:** positive control C1 (a task that must survive the end rule) and negative control C2
+  (a task that must end at idle) run in every session experiment.
+- **`init_tools`:** the tool list the harness reports at start is captured per run; when it differs
+  between arms of one stratum, that stratum is invalid (I7).
+- **Observation hooks** never deny or modify a tool call (I9).
+- **Per-model environment profiles** carry model-specific flags (for example a reasoning-effort
+  level a gateway model requires).
+
 ## Plug-ins
 
 ### Plug-in manifest (static; on the `schemas@` line)
@@ -610,14 +628,20 @@ request files under the new evaluator version; `diff` compares versions.
 `(run, expectation)`: 10,320 rows.
 
 **Legacy import mapping.** `score` / `max_score` → `weight`; `blocked_by` → `cause {artifact}`;
-text values (D-E1, D-E2) → text `value`; per-row `role` kept. Integrity `incomplete`
+text values → text `value`; per-row `role` kept. `expectations.jsonl` carries `status`, `value`,
+`score`, `max_score` and `role` only: `blocked_by` and the evidence are in each run's
+`eval-N-grading.json`, so the importer reads those. In this corpus no row has a text value (every
+D-E1 and D-E2 row is `blocked` or `not_measured`) and no row is `not_applicable`; fixtures for those
+cases are synthetic. Integrity `incomplete`
 (`missing_genuine_output`, the agent never produced the file; 56 runs) is a **valid** run;
 `contaminated` is `invalid(input_leak)`. Invalid runs are never sent to `evaluate`.
 
 **Parity test.** Candler plus the HTN plug-in, with its checker pinned at `28be2c15` and run one
 forked child per expectation with a 60 s deadline, reproduces `(status, value, weight, cause)` for
 all 10,320 rows. That includes the reference's known defects: C-M2's bijection check false-fires on
-88 of 89 failing runs, and D-E1–D-E4 are `not_measured` (no plan replay for a live cluster). Fixes
+88 of 89 failing runs, and D-E1–D-E4 are `not_measured` on 184 runs (no plan replay for a live
+cluster) and `blocked` on the 56 runs without a mapping. Statuses over all rows: pass 8,291, blocked
+802, not_measured 742, fail 485. Fixes
 come after parity, as evaluator version bumps, visible through `diff`.
 
 **Mismatch triage, in order:** the instrument digest differs from the pin (re-pin, rerun) → an
