@@ -14,14 +14,16 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::num::NonZeroU64;
 
-use crate::primitives::{
-    Digest, EvidenceRef, ExpectationId, FormatError, InstrumentDigest, NAME_PATTERN, NameVersion,
-    ReasonCode, RelPath, RequestId, RunKey, SEMVER_PATTERN,
-};
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::de::value::MapAccessDeserializer;
 use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::json;
+
+use crate::primitives::{
+    Digest, EvidenceRef, ExpectationId, FormatError, InstrumentDigest, NAME_PATTERN, NameVersion,
+    ReasonCode, RelPath, RequestId, RunKey, SEMVER_PATTERN,
+};
 
 /// Why an outcome record or one of its members is not valid.
 ///
@@ -456,7 +458,7 @@ impl Value {
 
 /// The contribution of an outcome to a rate, written as an object with the integers `num` and `den`: `num` out of `den`, with `num` at most `den`.
 #[derive(Deserialize, JsonSchema)]
-#[schemars(deny_unknown_fields, rename = "Weight")]
+#[schemars(deny_unknown_fields, rename = "Weight", transform = weight_schema_transform)]
 struct RawWeight {
     /// The numerator, an integer from 0 up to `den`.
     #[schemars(extend("$comment" = "Fits in 64 bits; the Rust reader enforces it."))]
@@ -525,7 +527,7 @@ impl Weight {
 
 /// The exact tool that made a measurement.
 #[derive(Serialize, Deserialize, JsonSchema)]
-#[schemars(deny_unknown_fields, rename = "Instrument")]
+#[schemars(deny_unknown_fields, rename = "Instrument", transform = instrument_schema_transform)]
 struct RawInstrument {
     /// The instrument's name, a non-empty string with neither `@` nor white space.
     #[schemars(regex(pattern = NAME_PATTERN))]
@@ -619,7 +621,7 @@ impl Instrument {
 
 /// A pointer to, or a remark about, what an outcome rests on; at least one of `ref` and `note` is present.
 #[derive(Deserialize, JsonSchema)]
-#[schemars(deny_unknown_fields, rename = "Evidence")]
+#[schemars(deny_unknown_fields, rename = "Evidence", transform = evidence_schema_transform)]
 struct RawEvidence {
     /// An evidence reference string: `event:<session-id>#<seq>`, or `path:<run-relative path>` with an optional line anchor.
     #[serde(default, rename = "ref", deserialize_with = "present")]
@@ -784,7 +786,7 @@ impl Probability {
 
 /// The result of one evaluator for one expectation of one run, written as an object; `status` decides which `cause` and `weight` the object may carry, and `role` decides whether it may carry a `probability` and a dirty instrument.
 #[derive(Deserialize, JsonSchema)]
-#[schemars(deny_unknown_fields, rename = "OutcomeRecord")]
+#[schemars(deny_unknown_fields, rename = "OutcomeRecord", transform = outcome_schema_transform)]
 struct RawOutcomeRecord {
     /// The key of the run that was evaluated: an object with its cell digest, replicate and attempt.
     run: RunKey,
@@ -1258,14 +1260,170 @@ impl OutcomeRecordBuilder {
     }
 }
 
+/// What the instrument schema says about the version numbers.
+const VERSION_COMMENT: &str =
+    "Each of the version's three numbers fits in 64 bits; the Rust reader enforces it.";
+
 /// The key under which the legacy cause is written.
 const LEGACY_KEY: &str = "legacy";
+
+/// What the record schema says about the weight rules that it cannot state.
+const WEIGHT_COMMENT: &str = concat!(
+    "A pass has a weight with num equal to den and a fail has num below den; ",
+    "the schema does not compare the two, and the Rust reader enforces both. ",
+    "The schema states the blocked rule, num 0."
+);
+
+/// The statuses that require a cause.
+const CAUSE_REQUIRED: [Status; 3] = [Status::Blocked, Status::NotMeasured, Status::NotApplicable];
+/// The statuses whose cause, if any, is the legacy cause.
+const CAUSE_LEGACY_ONLY: [Status; 2] = [Status::Pass, Status::Fail];
+/// The statuses that carry no weight.
+const WEIGHT_ABSENT: [Status; 2] = [Status::NotMeasured, Status::NotApplicable];
+/// The roles whose records carry no probability and no dirty instrument.
+const GRADED: [Role; 2] = [Role::Gate, Role::Quality];
+
+/// The schema of a record whose `status` is one of `statuses`.
+fn status_is(statuses: &[Status]) -> serde_json::Value {
+    // BORROW: Status::as_str is the wire spelling of the status
+    let names: Vec<&str> = statuses.iter().map(|status| status.as_str()).collect();
+    json!({"properties": {"status": {"enum": names}}, "required": ["status"]})
+}
+
+/// The schema of a record whose `role` is one of `roles`.
+fn role_is(roles: &[Role]) -> serde_json::Value {
+    // BORROW: Role::as_str is the wire spelling of the role
+    let names: Vec<&str> = roles.iter().map(|role| role.as_str()).collect();
+    json!({"properties": {"role": {"enum": names}}, "required": ["role"]})
+}
+
+/// Adds an `allOf` clause to `schema`.
+fn push_clause(schema: &mut Schema, clause: serde_json::Value) {
+    if let Some(object) = schema.as_object_mut() {
+        let clauses = object
+            .entry("allOf")
+            .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+        if let serde_json::Value::Array(clauses) = clauses {
+            clauses.push(clause);
+        }
+    }
+}
+
+/// Adds the rules of [`OutcomeRecord::validate`] that a schema can state, as `if`/`then` clauses:
+/// the cause by status, the weight by status, the legacy cause that a `0/0` weight requires, and
+/// the probability and instruments of the graded roles.
+fn outcome_schema_transform(schema: &mut Schema) {
+    let legacy = json!({"properties": {"cause": {"required": [LEGACY_KEY]}}});
+    push_clause(
+        schema,
+        json!({
+            "description": "A cause is required for blocked, not_measured and not_applicable.",
+            "if": status_is(&CAUSE_REQUIRED),
+            "then": {"required": ["cause"]},
+        }),
+    );
+    push_clause(
+        schema,
+        json!({
+            "description": "A pass or fail carries no cause other than the legacy cause.",
+            "if": status_is(&CAUSE_LEGACY_ONLY),
+            "then": legacy,
+        }),
+    );
+    push_clause(
+        schema,
+        json!({
+            "description": "A not_measured or not_applicable carries no weight.",
+            "if": status_is(&WEIGHT_ABSENT),
+            "then": {"not": {"required": ["weight"]}},
+        }),
+    );
+    push_clause(
+        schema,
+        json!({
+            "description": "The weight of a blocked has num 0 and den of at least 1.",
+            "if": status_is(&[Status::Blocked]),
+            "then": {"properties": {"weight": {
+                "properties": {"num": {"const": 0}, "den": {"minimum": 1}},
+                "required": ["num", "den"],
+            }}},
+        }),
+    );
+    let zero_denominator = json!({"properties": {"den": {"const": 0}}, "required": ["den"]});
+    push_clause(
+        schema,
+        json!({
+            "description": "A weight of 0/0 requires the legacy cause.",
+            "if": {
+                "properties": {"weight": zero_denominator},
+                "required": ["weight"],
+            },
+            "then": {"required": ["cause"], "properties": {"cause": {"required": [LEGACY_KEY]}}},
+        }),
+    );
+    push_clause(
+        schema,
+        json!({
+            "description": "A gate or quality record carries no probability.",
+            "if": role_is(&GRADED),
+            "then": {"not": {"required": ["probability"]}},
+        }),
+    );
+    push_clause(
+        schema,
+        json!({
+            "description": "A gate or quality record lists no dirty instrument.",
+            "if": role_is(&GRADED),
+            "then": {"properties": {"instruments": {"items": {
+                "properties": {"dirty": {"const": false}},
+            }}}},
+        }),
+    );
+    schema.insert(
+        // BORROW: .to_owned() makes the owned key `Schema::insert` takes
+        "$comment".to_owned(),
+        WEIGHT_COMMENT.into(),
+    );
+}
+
+/// States that `num` is at most `den`, which a schema cannot compare.
+fn weight_schema_transform(schema: &mut Schema) {
+    schema.insert(
+        // BORROW: .to_owned() makes the owned key `Schema::insert` takes
+        "$comment".to_owned(),
+        "The numerator is at most the denominator; the Rust reader enforces it.".into(),
+    );
+}
+
+/// Requires a clean tree for a git digest and bounds the version numbers.
+fn instrument_schema_transform(schema: &mut Schema) {
+    // BORROW: .to_owned() makes the owned key `Schema::insert` takes
+    schema.insert("$comment".to_owned(), VERSION_COMMENT.into());
+    push_clause(
+        schema,
+        json!({
+            "description": "A git digest names the commit of a clean tree.",
+            "if": {"properties": {"digest": {"pattern": "^git:"}}, "required": ["digest"]},
+            "then": {"properties": {"dirty": {"const": false}}},
+        }),
+    );
+}
+
+/// Requires at least one of `ref` and `note`.
+fn evidence_schema_transform(schema: &mut Schema) {
+    schema.insert(
+        // BORROW: .to_owned() makes the owned key `Schema::insert` takes
+        "anyOf".to_owned(),
+        json!([{"required": ["ref"]}, {"required": ["note"]}]),
+    );
+}
 
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::generate::GeneratedSchema;
 
     const HEX: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     const REQUEST: &str = "01926b3a-7c3e-7a1b-8c4d-5e6f7a8b9c0d";
@@ -1337,6 +1495,12 @@ mod tests {
     /// The number 2^64, which no `u64` holds.
     fn past_u64() -> serde_json::Value {
         serde_json::from_str("18446744073709551616").expect("a JSON number")
+    }
+
+    /// The text of a JSON string.
+    fn text(value: &serde_json::Value) -> &str {
+        // BORROW: serde_json::Value::as_str reads a JSON string as text
+        value.as_str().expect("a JSON string")
     }
 
     #[test]
@@ -1966,5 +2130,214 @@ mod tests {
         assert!(!reason("x").is_legacy());
         assert_eq!(Status::NotApplicable.to_string(), "not_applicable");
         assert_eq!(Role::Descriptive.to_string(), "descriptive");
+    }
+
+    fn schema_text() -> serde_json::Value {
+        GeneratedSchema::of::<OutcomeRecord>("outcome-record")
+            .schema
+            .to_value()
+    }
+
+    fn validator() -> jsonschema::Validator {
+        jsonschema::validator_for(&schema_text()).expect("the schema compiles")
+    }
+
+    /// Collects the values of every key called `key` in a JSON document.
+    fn collect<'a>(
+        value: &'a serde_json::Value,
+        key: &str,
+        found: &mut Vec<&'a serde_json::Value>,
+    ) {
+        match value {
+            serde_json::Value::Object(map) => {
+                for (name, inner) in map {
+                    // BORROW: explicit .as_str() to match the key against the argument
+                    if name.as_str() == key {
+                        found.push(inner);
+                    }
+                    collect(inner, key, found);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    collect(item, key, found);
+                }
+            }
+            serde_json::Value::Null
+            | serde_json::Value::Bool(_)
+            | serde_json::Value::Number(_)
+            | serde_json::Value::String(_) => {}
+        }
+    }
+
+    #[test]
+    fn outcome_schema_is_strict_and_states_the_by_status_rules() {
+        let schema = validator();
+        let valid = |value: &serde_json::Value| schema.is_valid(value);
+        assert!(valid(&base_json("pass")));
+        let with = |status: &str, edits: &[(&str, serde_json::Value)]| {
+            let mut record = base_json(status);
+            for (key, value) in edits {
+                record[*key] = value.clone();
+            }
+            record
+        };
+        let reason = json!({"reason": "deadline"});
+        let legacy = json!({"legacy": "zero_weight"});
+        let zero = json!({"num": 0, "den": 0});
+        let half = json!({"num": 1, "den": 2});
+        for status in ["blocked", "not_measured", "not_applicable"] {
+            assert!(!valid(&with(status, &[])), "{status} needs a cause");
+            assert!(valid(&with(status, &[("cause", reason.clone())])));
+            assert!(valid(&with(status, &[("cause", legacy.clone())])));
+        }
+        for status in ["pass", "fail"] {
+            assert!(valid(&with(status, &[("cause", legacy.clone())])));
+            assert!(!valid(&with(status, &[("cause", reason.clone())])));
+        }
+        for status in ["not_measured", "not_applicable"] {
+            let edits = [("cause", reason.clone()), ("weight", half.clone())];
+            assert!(!valid(&with(status, &edits)), "{status} has no weight");
+        }
+        // A blocked weighs num 0; the schema does not compare num with den for a pass or a fail.
+        let blocked = |weight: &serde_json::Value| {
+            with(
+                "blocked",
+                &[("cause", reason.clone()), ("weight", weight.clone())],
+            )
+        };
+        assert!(valid(&blocked(&json!({"num": 0, "den": 3}))));
+        assert!(!valid(&blocked(&half)));
+        assert!(valid(&with("pass", &[("weight", half.clone())])));
+        assert!(valid(&with(
+            "fail",
+            &[("weight", json!({"num": 2, "den": 2}))]
+        )));
+        assert!(!valid(&with("pass", &[("weight", zero.clone())])));
+        assert!(valid(&with(
+            "pass",
+            &[("weight", zero.clone()), ("cause", legacy)]
+        )));
+        assert!(!valid(&blocked(&zero)));
+        assert!(!valid(&with("pass", &[("future", json!(1))])));
+        assert!(!valid(&with("pass", &[("value", json!(null))])));
+    }
+
+    #[test]
+    fn outcome_schema_states_the_rules_of_the_graded_roles() {
+        let schema = validator();
+        let probability = json!({"p": 0.5, "calibration_ref": "c"});
+        let dirty = json!([instrument_json("i", "1.0.0", "sha256:", true)]);
+        let clean = json!([instrument_json("i", "1.0.0", "sha256:", false)]);
+        for role in ["gate", "quality", "descriptive"] {
+            let mut record = base_json("pass");
+            record["role"] = json!(role);
+            assert!(schema.is_valid(&record));
+            record["instruments"] = clean.clone();
+            assert!(schema.is_valid(&record));
+            let graded = role != "descriptive";
+            let mut with_probability = record.clone();
+            with_probability["probability"] = probability.clone();
+            assert_eq!(schema.is_valid(&with_probability), !graded, "{role}");
+            let mut with_dirty = record.clone();
+            with_dirty["instruments"] = dirty.clone();
+            assert_eq!(schema.is_valid(&with_dirty), !graded, "{role}");
+        }
+    }
+
+    #[test]
+    fn outcome_schema_marks_exactly_the_legacy_cause_deprecated() {
+        let schema = schema_text();
+        let mut deprecated = Vec::new();
+        collect(&schema, "deprecated", &mut deprecated);
+        assert_eq!(deprecated, [&json!(true)]);
+        let legacy = &schema["$defs"]["Cause"]["oneOf"];
+        let marked: Vec<&serde_json::Value> = legacy
+            .as_array()
+            .expect("the cause is a oneOf")
+            .iter()
+            .filter(|variant| variant["deprecated"] == json!(true))
+            .collect();
+        assert_eq!(marked.len(), 1);
+        assert_eq!(
+            marked.first().map(|variant| &variant["required"]),
+            Some(&json!(["legacy"]))
+        );
+    }
+
+    #[test]
+    fn outcome_schema_names_what_it_cannot_state() {
+        let schema = schema_text();
+        let defs = &schema["$defs"];
+        assert!(text(&defs["Weight"]["$comment"]).contains("numerator is at most the denominator"));
+        assert!(text(&schema["$comment"]).contains("A pass has a weight with num equal to den"));
+        let limit = "fits in 64 bits; the rust reader enforces it";
+        let fits = |comment: &serde_json::Value| text(comment).to_lowercase().contains(limit);
+        for comment in [
+            &defs["Weight"]["properties"]["num"]["$comment"],
+            &defs["Weight"]["properties"]["den"]["$comment"],
+            &defs["Instrument"]["$comment"],
+        ] {
+            assert!(fits(comment), "{comment}");
+        }
+        let variants = defs["Value"]["oneOf"].as_array().expect("a oneOf");
+        let find = |kind: &str| {
+            variants
+                .iter()
+                .find(|variant| variant["properties"]["kind"]["const"] == json!(kind))
+                .expect("a variant of that kind")
+        };
+        assert!(fits(&find("count")["properties"]["count"]["$comment"]));
+        assert!(fits(&find("counts")["properties"]["counts"]["$comment"]));
+        assert!(fits(&find("fraction")["properties"]["num"]["$comment"]));
+        assert!(fits(&find("fraction")["properties"]["den"]["$comment"]));
+    }
+
+    #[test]
+    fn outcome_the_schema_cannot_order_num_and_den_or_bound_an_integer_and_the_reader_does() {
+        let schema = validator();
+        let mut record = base_json("fail");
+        record["weight"] = json!({"num": 1, "den": 2});
+        assert!(schema.is_valid(&record) && read(record).is_ok());
+        for (status, weight) in [
+            ("pass", json!({"num": 1, "den": 2})),
+            ("fail", json!({"num": 2, "den": 2})),
+        ] {
+            let mut record = base_json(status);
+            record["weight"] = weight;
+            assert!(schema.is_valid(&record), "the schema compares num with den");
+            assert!(read(record).is_err());
+        }
+        let mut record = base_json("pass");
+        record["value"] = json!({"kind": "count", "count": past_u64()});
+        assert!(schema.is_valid(&record), "the schema bounds count");
+        assert!(read(record).is_err());
+    }
+
+    #[test]
+    fn outcome_schema_has_no_null_no_line_break_and_closes_every_object() {
+        let schema = schema_text();
+        let mut descriptions = Vec::new();
+        collect(&schema, "description", &mut descriptions);
+        assert!(descriptions.len() > 10);
+        for description in descriptions {
+            let text = text(description);
+            assert!(!text.contains('\n'), "line break in {text:?}");
+            assert!(!text.contains("fields below"), "{text:?}");
+        }
+        assert!(
+            !serde_json::to_string(&schema)
+                .expect("text")
+                .contains("null")
+        );
+        let mut closed = Vec::new();
+        collect(&schema, "additionalProperties", &mut closed);
+        // Every object with fixed properties is closed; the one open map is `counts`.
+        let falses = closed
+            .iter()
+            .filter(|value| ***value == json!(false))
+            .count();
+        assert_eq!(falses + 1, closed.len());
+        assert!(falses >= 10, "only {falses} closed objects");
     }
 }
