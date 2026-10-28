@@ -36,7 +36,7 @@ Candler 1.0.0: execution and evaluation behind one operation API, with the HTN e
 ## Status
 ```mermaid
 graph TD
-    wire_schemas[Wire schemas: outcome record and catalog snapshot]:::inprogress
+    wire_schemas[Wire schemas: outcome record and catalog snapshot]:::done
     contracts[Contracts]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -48,7 +48,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `wire_schemas.md` | 📄 Leaf Task | 🔄 In Progress |
+| `wire_schemas.md` | 📄 Leaf Task | ✅ Done |
 | `contracts/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log

@@ -8,11 +8,11 @@
 - [x] The HTN eval environment runs the snapshot capture: `uv run --directory .claude/skills/htn-creator-workspace/infrastructure …` in mcp-python-ingestion
 - [x] Reminder `candler-schemas` (list "Candler") read: its notes are the original brief, written before Rust was chosen; where they differ, this leaf wins
 **Success Gates**:
-- ⬜ `cargo build --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` pass
-- ⬜ `cargo test -p candler-schemas` passes, including tests that validate against the generated JSON Schema: the rikyu snapshot, a bio-opentrons snapshot, golden outcomes of the four statuses the corpus has (pass, fail, blocked with its artifact cause, not_measured), and synthetic `not_applicable` and text-valued outcomes
-- ⬜ The committed JSON Schema files match the structs: the check mode fails on a deliberate drift and passes after regeneration
-- ⬜ `cog check` passes on the branch history, and the `commit-msg` hook rejects a message without a scope
-- ⬜ HTN Phase 4.5 (`pro-htn-phase-4.5-skill`) can start: the catalog snapshot schema is on `main`
+- ✅ `cargo build --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` pass
+- ✅ `cargo test -p candler-schemas` passes, including tests that validate against the generated JSON Schema: the rikyu snapshot, a bio-opentrons snapshot, golden outcomes of the four statuses the corpus has (pass, fail, blocked with its artifact cause, not_measured), and synthetic `not_applicable` and text-valued outcomes
+- ✅ The committed JSON Schema files match the structs: the check mode fails on a deliberate drift and passes after regeneration
+- ✅ `cog check` passes on the branch history, and the `commit-msg` hook rejects a message without a scope
+- ✅ HTN Phase 4.5 (`pro-htn-phase-4.5-skill`) can start: the catalog snapshot schema is on `main`
 **References**: [R01 §Workspace, §Wire schema: outcome record, §Wire schema: tool-catalog snapshot](../../__design__/architecture.md) — crates, tooling, the two record shapes
 
 ## Step 1: Plan the milestone
