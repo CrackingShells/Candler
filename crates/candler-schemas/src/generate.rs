@@ -15,6 +15,8 @@ use schemars::transform::{Transform, transform_subschemas};
 use schemars::{JsonSchema, Schema};
 use serde_json::{Map, Value, json};
 
+use crate::catalog::CatalogSnapshot;
+
 /// The extension every generated schema file carries.
 const FILE_SUFFIX: &str = ".schema.json";
 
@@ -59,7 +61,9 @@ impl GeneratedSchema {
 /// Every wire root schema, in file-name order.
 #[must_use]
 pub fn generated_schemas() -> Vec<GeneratedSchema> {
-    in_file_name_order(Vec::new())
+    in_file_name_order(vec![GeneratedSchema::of::<CatalogSnapshot>(
+        "catalog-snapshot",
+    )])
 }
 
 /// Sorts roots by file name, the order the committed files are listed in.
