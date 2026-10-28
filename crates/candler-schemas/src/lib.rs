@@ -3,4 +3,5 @@
 
 pub mod catalog;
 pub mod generate;
+pub mod outcome;
 pub mod primitives;
