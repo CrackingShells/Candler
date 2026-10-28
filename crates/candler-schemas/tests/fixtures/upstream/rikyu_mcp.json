@@ -1,0 +1,2709 @@
+{
+  "schema": "tool-catalog-snapshot/0",
+  "captured_at": "2026-10-28T01:09:04+00:00",
+  "provider": "htn-creator-eval/scripts/capture_catalog_snapshot.py@1",
+  "environment": {
+    "python": "3.12.12",
+    "hpc-agent-core": "0.5.0",
+    "mcp": "2.0.0",
+    "pydantic": "2.13.4"
+  },
+  "servers_dir": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp",
+  "stubbed_modules": [
+    "hpc_agent_core.compute",
+    "hpc_agent_core.compute.slurm",
+    "hpc_agent_core.middleware",
+    "hpc_agent_core.rag",
+    "hpc_agent_core.rag.store",
+    "hpc_agent_core.serving"
+  ],
+  "servers": [
+    {
+      "name": "rikyu-hpc",
+      "source_path": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp/hpc_server.py",
+      "source_digest": "sha256:b2af8a23ff6f5ceef36217b7727bf515fbf345472d81e1872bbed43b57e55b4b",
+      "transport": "stdio",
+      "tools": [
+        {
+          "name": "cancel_job",
+          "description": "Cancel a queued or running job via scancel. (IRI: DELETE /compute/job/{job_id})",
+          "inputSchema": {
+            "properties": {
+              "job_id": {
+                "title": "Job Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "job_id"
+            ],
+            "title": "cancel_jobArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "$defs": {
+              "Container": {
+                "description": "Container specification (IRI Container); executed via singularity exec.\n\nimage must be a path to a .sif file (absolute or using $HOME) or a\ndocker:// URI. GPU passthrough is added automatically by the rendering\nbackend when the job requests GPUs (vendor-specific flag chosen by that\nmachine's config, e.g. --nv vs --rocm). launcher (e.g. 'srun') is placed\noutside singularity exec so MPI works.",
+                "properties": {
+                  "image": {
+                    "description": "Singularity image path or URI (e.g. docker://ubuntu:22.04)",
+                    "title": "Image",
+                    "type": "string"
+                  },
+                  "volume_mounts": {
+                    "items": {
+                      "$ref": "#/$defs/VolumeMount"
+                    },
+                    "title": "Volume Mounts",
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "image"
+                ],
+                "title": "Container",
+                "type": "object"
+              },
+              "Job": {
+                "description": "IRI Job: identifier + current status + originating spec.",
+                "properties": {
+                  "id": {
+                    "title": "Id",
+                    "type": "string"
+                  },
+                  "status": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/JobStatus"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
+                  "job_spec": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/JobSpec"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "title": "Job",
+                "type": "object"
+              },
+              "JobAttributes": {
+                "description": "Scheduler attributes (IRI/PSI/J JobAttributes subset).\n\nqueue_name has no cross-machine default \u2014 each machine's tool layer\nshould supply its own default_partition (from that machine's config)\nwhen a JobSpec omits one.",
+                "properties": {
+                  "duration": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ],
+                    "default": 3600,
+                    "description": "Wall time as integer seconds or HH:MM:SS / D-HH:MM:SS string",
+                    "title": "Duration"
+                  },
+                  "queue_name": {
+                    "default": "",
+                    "description": "Scheduler partition/queue; machine-specific default applied by the tool layer if omitted",
+                    "title": "Queue Name",
+                    "type": "string"
+                  },
+                  "account": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Account/project to charge",
+                    "title": "Account"
+                  },
+                  "reservation_id": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Scheduler reservation name (--reservation)",
+                    "title": "Reservation Id"
+                  },
+                  "custom_attributes": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "title": "Custom Attributes",
+                    "type": "object"
+                  },
+                  "scheduler": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/Scheduler"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Override which SchedulerBackend handles this job, on a machine with more than one; None means the machine's tool layer decides (e.g. from queue_name)"
+                  },
+                  "parallel_env": {
+                    "default": "smp",
+                    "description": "Grid Engine parallel environment (-pe); ignored by Slurm backends",
+                    "title": "Parallel Env",
+                    "type": "string"
+                  }
+                },
+                "title": "JobAttributes",
+                "type": "object"
+              },
+              "JobSpec": {
+                "description": "Job specification (IRI/PSI/J JobSpec subset).\n\nexecutable plus arguments form the command run inside the batch script;\nexecutable may be a shell line (e.g. 'module load foo && srun ./app').\nlauncher, if set, is prepended to executable (e.g. 'srun').\npre_launch / post_launch are script lines inserted before / after.\nIf container is set, the command is wrapped in 'singularity exec'.",
+                "properties": {
+                  "name": {
+                    "default": "agent-job",
+                    "title": "Name",
+                    "type": "string"
+                  },
+                  "executable": {
+                    "title": "Executable",
+                    "type": "string"
+                  },
+                  "arguments": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "title": "Arguments",
+                    "type": "array"
+                  },
+                  "directory": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Working directory for the job",
+                    "title": "Directory"
+                  },
+                  "environment": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "title": "Environment",
+                    "type": "object"
+                  },
+                  "inherit_environment": {
+                    "default": true,
+                    "description": "Inherit submission environment variables",
+                    "title": "Inherit Environment",
+                    "type": "boolean"
+                  },
+                  "stdin_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Path to use as stdin (--input)",
+                    "title": "Stdin Path"
+                  },
+                  "stdout_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Stdout Path"
+                  },
+                  "stderr_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Stderr Path"
+                  },
+                  "resources": {
+                    "$ref": "#/$defs/ResourceSpec"
+                  },
+                  "attributes": {
+                    "$ref": "#/$defs/JobAttributes"
+                  },
+                  "pre_launch": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Script lines to insert before executable",
+                    "title": "Pre Launch"
+                  },
+                  "post_launch": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Script lines to insert after executable",
+                    "title": "Post Launch"
+                  },
+                  "launcher": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Launcher prefix, e.g. 'srun' or 'mpirun -np 4'",
+                    "title": "Launcher"
+                  },
+                  "container": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/Container"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Run inside a Singularity container"
+                  }
+                },
+                "required": [
+                  "executable"
+                ],
+                "title": "JobSpec",
+                "type": "object"
+              },
+              "JobState": {
+                "description": "Normalized job states (IRI/PSI-J), mapped from scheduler-native states.",
+                "enum": [
+                  "new",
+                  "queued",
+                  "held",
+                  "active",
+                  "completed",
+                  "failed",
+                  "canceled",
+                  "unknown"
+                ],
+                "title": "JobState",
+                "type": "string"
+              },
+              "JobStatus": {
+                "description": "IRI-compliant job status (state + time + message + exit_code + meta_data).\n\nScheduler-specific detail (native_state, partition, nodes, workdir,\nelapsed, start/end times, queue reason) is carried in meta_data.",
+                "properties": {
+                  "state": {
+                    "$ref": "#/$defs/JobState"
+                  },
+                  "time": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Epoch seconds: end_time if finished, start_time if running",
+                    "title": "Time"
+                  },
+                  "message": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Human-readable status (queue reason, error, etc.)",
+                    "title": "Message"
+                  },
+                  "exit_code": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Exit Code"
+                  },
+                  "meta_data": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Scheduler-specific fields: native_state, partition, nodes, workdir, elapsed, etc.",
+                    "title": "Meta Data"
+                  }
+                },
+                "required": [
+                  "state"
+                ],
+                "title": "JobStatus",
+                "type": "object"
+              },
+              "ResourceSpec": {
+                "description": "Resources for a job (PSI/J ResourceSpec + a GPU extension).\n\ngpus is a total-for-the-job GPU count extension (not in upstream PSI/J);\ngpu_cores_per_process is the PSI/J standard equivalent. If both are set,\ngpus takes precedence. How gpus maps to a scheduler flag (--gpus,\n--gres=gpu:N, --gpus-per-node) and whether node_count is derived from it\nor must be set explicitly is a per-machine SchedulerBackend concern \u2014\nsee that machine's compute/ module and config.",
+                "properties": {
+                  "node_count": {
+                    "default": 1,
+                    "title": "Node Count",
+                    "type": "integer"
+                  },
+                  "process_count": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Total processes (alternative to processes_per_node \u00d7 node_count)",
+                    "title": "Process Count"
+                  },
+                  "processes_per_node": {
+                    "default": 1,
+                    "title": "Processes Per Node",
+                    "type": "integer"
+                  },
+                  "cpu_cores_per_process": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Cpu Cores Per Process"
+                  },
+                  "gpu_cores_per_process": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "PSI/J standard GPU field; prefer gpus where a machine supports it",
+                    "title": "Gpu Cores Per Process"
+                  },
+                  "gpus": {
+                    "default": 0,
+                    "description": "Total GPUs requested for the job (machine-specific extension); 0 means no GPU request",
+                    "title": "Gpus",
+                    "type": "integer"
+                  },
+                  "exclusive_node_use": {
+                    "default": false,
+                    "description": "Request exclusive node allocation (--exclusive)",
+                    "title": "Exclusive Node Use",
+                    "type": "boolean"
+                  },
+                  "memory": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Memory per node in bytes (maps to --mem)",
+                    "title": "Memory"
+                  }
+                },
+                "title": "ResourceSpec",
+                "type": "object"
+              },
+              "Scheduler": {
+                "description": "Target batch scheduler for a job submission \u2014 only meaningful on a\nmachine that composes more than one SchedulerBackend (e.g. a cluster\nwith both a Slurm partition and a Grid Engine partition). Single-scheduler\nmachines can ignore this field entirely.",
+                "enum": [
+                  "slurm",
+                  "gridengine"
+                ],
+                "title": "Scheduler",
+                "type": "string"
+              },
+              "VolumeMount": {
+                "description": "A host path mounted into a container (IRI VolumeMount).",
+                "properties": {
+                  "source": {
+                    "description": "Host path to mount",
+                    "title": "Source",
+                    "type": "string"
+                  },
+                  "target": {
+                    "description": "Path inside the container",
+                    "title": "Target",
+                    "type": "string"
+                  },
+                  "read_only": {
+                    "default": true,
+                    "description": "Mount as read-only",
+                    "title": "Read Only",
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "source",
+                  "target"
+                ],
+                "title": "VolumeMount",
+                "type": "object"
+              }
+            },
+            "properties": {
+              "result": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Job"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "title": "Result"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "cancel_jobOutput",
+            "type": "object"
+          }
+        },
+        {
+          "name": "fs_checksum",
+          "description": "SHA-256 checksum of a remote file. (IRI: GET /filesystem/checksum)",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "title": "Path",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "title": "fs_checksumArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "fs_checksumOutput",
+            "type": "object"
+          }
+        },
+        {
+          "name": "fs_chmod",
+          "description": "Change a file/directory's permissions, e.g. mode=\"755\". (IRI: POST /filesystem/chmod)",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "title": "Path",
+                "type": "string"
+              },
+              "mode": {
+                "title": "Mode",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "mode"
+            ],
+            "title": "fs_chmodArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "fs_chmodOutput",
+            "type": "object"
+          }
+        },
+        {
+          "name": "fs_chown",
+          "description": "Change a file/directory's owner (and optionally group, as\n    \"user:group\"). Most users can only chown within their own group's\n    permissions \u2014 Slurm/Lustre still enforces the actual ACL. (IRI: POST /filesystem/chown)",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "title": "Path",
+                "type": "string"
+              },
+              "owner": {
+                "title": "Owner",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "owner"
+            ],
+            "title": "fs_chownArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "fs_chownOutput",
+            "type": "object"
+          }
+        },
+        {
+          "name": "fs_compress",
+          "description": "Create a tar archive from one or more remote paths. (IRI: POST /filesystem/compress)",
+          "inputSchema": {
+            "$defs": {
+              "CompressionType": {
+                "description": "Compression format for fs_compress / fs_extract (IRI CompressionType).",
+                "enum": [
+                  "none",
+                  "bzip2",
+                  "gzip",
+                  "xz"
+                ],
+                "title": "CompressionType",
+                "type": "string"
+              }
+            },
+            "properties": {
+              "paths": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Paths",
+                "type": "array"
+              },
+              "archive_path": {
+                "title": "Archive Path",
+                "type": "string"
+              },
+              "compression": {
+                "$ref": "#/$defs/CompressionType",
+                "default": "gzip"
+              }
+            },
+            "required": [
+              "paths",
+              "archive_path"
+            ],
+            "title": "fs_compressArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "fs_compressOutput",
+            "type": "object"
+          }
+        },
+        {
+          "name": "fs_cp",
+          "description": "Copy a file or (with recursive=True) a directory tree on the\n    cluster. (IRI: POST /filesystem/cp)",
+          "inputSchema": {
+            "properties": {
+              "source": {
+                "title": "Source",
+                "type": "string"
+              },
+              "dest": {
+                "title": "Dest",
+                "type": "string"
+              },
+              "recursive": {
+                "default": false,
+                "title": "Recursive",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "source",
+              "dest"
+            ],
+            "title": "fs_cpArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "fs_cpOutput",
+            "type": "object"
+          }
+        },
+        {
+          "name": "fs_download",
+          "description": "Download a file from RIKYU via rsync (falling back to scp), with a\n    SHA-256 verification of the transfer. (IRI: GET /filesystem/download)",
+          "inputSchema": {
+            "properties": {
+              "remote_path": {
+                "title": "Remote Path",
+                "type": "string"
+              },
+              "local_path": {
+                "title": "Local Path",
+                "type": "string"
+              }
+            },
+            "required": [
+              "remote_path",
+              "local_path"
+            ],
+            "title": "fs_downloadArguments",
+            "type": "object"
+          }
+        },
+        {
+          "name": "fs_extract",
+          "description": "Extract an archive on the cluster into dest_dir (created if needed).\n    Compression format is auto-detected by tar. (IRI: POST /filesystem/extract)",
+          "inputSchema": {
+            "properties": {
+              "archive_path": {
+                "title": "Archive Path",
+                "type": "string"
+              },
+              "dest_dir": {
+                "default": ".",
+                "title": "Dest Dir",
+                "type": "string"
+              }
+            },
+            "required": [
+              "archive_path"
+            ],
+            "title": "fs_extractArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "fs_extractOutput",
+            "type": "object"
+          }
+        },
+        {
+          "name": "fs_head",
+          "description": "Read the first N lines of a file. (IRI: GET /filesystem/head)",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "title": "Path",
+                "type": "string"
+              },
+              "lines": {
+                "default": 20,
+                "title": "Lines",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "title": "fs_headArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "fs_headOutput",
+            "type": "object"
+          }
+        },
+        {
+          "name": "fs_ls",
+          "description": "List a directory's contents (long form). (IRI: GET /filesystem/ls)",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "default": ".",
+                "title": "Path",
+                "type": "string"
+              }
+            },
+            "title": "fs_lsArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "fs_lsOutput",
+            "type": "object"
+          }
+        },
+        {
+          "name": "fs_mkdir",
+          "description": "Create a directory, including parents as needed. (IRI: POST /filesystem/mkdir)",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "title": "Path",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "title": "fs_mkdirArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "fs_mkdirOutput",
+            "type": "object"
+          }
+        },
+        {
+          "name": "fs_mv",
+          "description": "Move or rename a file/directory on the cluster. (IRI: POST /filesystem/mv)",
+          "inputSchema": {
+            "properties": {
+              "source": {
+                "title": "Source",
+                "type": "string"
+              },
+              "dest": {
+                "title": "Dest",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "dest"
+            ],
+            "title": "fs_mvArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "fs_mvOutput",
+            "type": "object"
+          }
+        },
+        {
+          "name": "fs_stat",
+          "description": "File/directory metadata: size, permissions, timestamps, owner. (IRI: GET /filesystem/stat)",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "title": "Path",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "title": "fs_statArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "fs_statOutput",
+            "type": "object"
+          }
+        },
+        {
+          "name": "fs_symlink",
+          "description": "Create a symbolic link at link_name pointing to target. (IRI: POST /filesystem/symlink)",
+          "inputSchema": {
+            "properties": {
+              "target": {
+                "title": "Target",
+                "type": "string"
+              },
+              "link_name": {
+                "title": "Link Name",
+                "type": "string"
+              }
+            },
+            "required": [
+              "target",
+              "link_name"
+            ],
+            "title": "fs_symlinkArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "fs_symlinkOutput",
+            "type": "object"
+          }
+        },
+        {
+          "name": "fs_tail",
+          "description": "Read the last N lines of a file \u2014 useful for checking a running\n    job's stdout/stderr. (IRI: GET /filesystem/tail)",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "title": "Path",
+                "type": "string"
+              },
+              "lines": {
+                "default": 20,
+                "title": "Lines",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "title": "fs_tailArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "fs_tailOutput",
+            "type": "object"
+          }
+        },
+        {
+          "name": "fs_upload",
+          "description": "Upload a local file to RIKYU via rsync (falling back to scp), with a\n    SHA-256 verification of the transfer. (IRI: POST /filesystem/upload)",
+          "inputSchema": {
+            "properties": {
+              "local_path": {
+                "title": "Local Path",
+                "type": "string"
+              },
+              "remote_path": {
+                "title": "Remote Path",
+                "type": "string"
+              }
+            },
+            "required": [
+              "local_path",
+              "remote_path"
+            ],
+            "title": "fs_uploadArguments",
+            "type": "object"
+          }
+        },
+        {
+          "name": "fs_view",
+          "description": "Read a whole text file's contents. (IRI: GET /filesystem/view)",
+          "inputSchema": {
+            "properties": {
+              "path": {
+                "title": "Path",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "title": "fs_viewArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "fs_viewOutput",
+            "type": "object"
+          }
+        },
+        {
+          "name": "get_drained_nodes",
+          "description": "Nodes currently drained/down and why, via sinfo -R (extension \u2014 not\n    an IRI endpoint, but directly useful for \"why won't my job start\").",
+          "inputSchema": {
+            "properties": {},
+            "title": "get_drained_nodesArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "title": "Result",
+                "type": "array"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "get_drained_nodesOutput",
+            "type": "object"
+          }
+        },
+        {
+          "name": "get_facility",
+          "description": "Static RIKYU facility facts: the gpu partition, the GPU-count ->\n    node/CPU/memory table, storage tiers, modules, and Spack. (IRI: GET /facility)",
+          "inputSchema": {
+            "properties": {},
+            "title": "get_facilityArguments",
+            "type": "object"
+          }
+        },
+        {
+          "name": "get_job_status",
+          "description": "Status of a single job. (IRI: GET /compute/job/{job_id})",
+          "inputSchema": {
+            "properties": {
+              "job_id": {
+                "title": "Job Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "job_id"
+            ],
+            "title": "get_job_statusArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "$defs": {
+              "Container": {
+                "description": "Container specification (IRI Container); executed via singularity exec.\n\nimage must be a path to a .sif file (absolute or using $HOME) or a\ndocker:// URI. GPU passthrough is added automatically by the rendering\nbackend when the job requests GPUs (vendor-specific flag chosen by that\nmachine's config, e.g. --nv vs --rocm). launcher (e.g. 'srun') is placed\noutside singularity exec so MPI works.",
+                "properties": {
+                  "image": {
+                    "description": "Singularity image path or URI (e.g. docker://ubuntu:22.04)",
+                    "title": "Image",
+                    "type": "string"
+                  },
+                  "volume_mounts": {
+                    "items": {
+                      "$ref": "#/$defs/VolumeMount"
+                    },
+                    "title": "Volume Mounts",
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "image"
+                ],
+                "title": "Container",
+                "type": "object"
+              },
+              "JobAttributes": {
+                "description": "Scheduler attributes (IRI/PSI/J JobAttributes subset).\n\nqueue_name has no cross-machine default \u2014 each machine's tool layer\nshould supply its own default_partition (from that machine's config)\nwhen a JobSpec omits one.",
+                "properties": {
+                  "duration": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ],
+                    "default": 3600,
+                    "description": "Wall time as integer seconds or HH:MM:SS / D-HH:MM:SS string",
+                    "title": "Duration"
+                  },
+                  "queue_name": {
+                    "default": "",
+                    "description": "Scheduler partition/queue; machine-specific default applied by the tool layer if omitted",
+                    "title": "Queue Name",
+                    "type": "string"
+                  },
+                  "account": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Account/project to charge",
+                    "title": "Account"
+                  },
+                  "reservation_id": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Scheduler reservation name (--reservation)",
+                    "title": "Reservation Id"
+                  },
+                  "custom_attributes": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "title": "Custom Attributes",
+                    "type": "object"
+                  },
+                  "scheduler": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/Scheduler"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Override which SchedulerBackend handles this job, on a machine with more than one; None means the machine's tool layer decides (e.g. from queue_name)"
+                  },
+                  "parallel_env": {
+                    "default": "smp",
+                    "description": "Grid Engine parallel environment (-pe); ignored by Slurm backends",
+                    "title": "Parallel Env",
+                    "type": "string"
+                  }
+                },
+                "title": "JobAttributes",
+                "type": "object"
+              },
+              "JobSpec": {
+                "description": "Job specification (IRI/PSI/J JobSpec subset).\n\nexecutable plus arguments form the command run inside the batch script;\nexecutable may be a shell line (e.g. 'module load foo && srun ./app').\nlauncher, if set, is prepended to executable (e.g. 'srun').\npre_launch / post_launch are script lines inserted before / after.\nIf container is set, the command is wrapped in 'singularity exec'.",
+                "properties": {
+                  "name": {
+                    "default": "agent-job",
+                    "title": "Name",
+                    "type": "string"
+                  },
+                  "executable": {
+                    "title": "Executable",
+                    "type": "string"
+                  },
+                  "arguments": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "title": "Arguments",
+                    "type": "array"
+                  },
+                  "directory": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Working directory for the job",
+                    "title": "Directory"
+                  },
+                  "environment": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "title": "Environment",
+                    "type": "object"
+                  },
+                  "inherit_environment": {
+                    "default": true,
+                    "description": "Inherit submission environment variables",
+                    "title": "Inherit Environment",
+                    "type": "boolean"
+                  },
+                  "stdin_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Path to use as stdin (--input)",
+                    "title": "Stdin Path"
+                  },
+                  "stdout_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Stdout Path"
+                  },
+                  "stderr_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Stderr Path"
+                  },
+                  "resources": {
+                    "$ref": "#/$defs/ResourceSpec"
+                  },
+                  "attributes": {
+                    "$ref": "#/$defs/JobAttributes"
+                  },
+                  "pre_launch": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Script lines to insert before executable",
+                    "title": "Pre Launch"
+                  },
+                  "post_launch": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Script lines to insert after executable",
+                    "title": "Post Launch"
+                  },
+                  "launcher": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Launcher prefix, e.g. 'srun' or 'mpirun -np 4'",
+                    "title": "Launcher"
+                  },
+                  "container": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/Container"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Run inside a Singularity container"
+                  }
+                },
+                "required": [
+                  "executable"
+                ],
+                "title": "JobSpec",
+                "type": "object"
+              },
+              "JobState": {
+                "description": "Normalized job states (IRI/PSI-J), mapped from scheduler-native states.",
+                "enum": [
+                  "new",
+                  "queued",
+                  "held",
+                  "active",
+                  "completed",
+                  "failed",
+                  "canceled",
+                  "unknown"
+                ],
+                "title": "JobState",
+                "type": "string"
+              },
+              "JobStatus": {
+                "description": "IRI-compliant job status (state + time + message + exit_code + meta_data).\n\nScheduler-specific detail (native_state, partition, nodes, workdir,\nelapsed, start/end times, queue reason) is carried in meta_data.",
+                "properties": {
+                  "state": {
+                    "$ref": "#/$defs/JobState"
+                  },
+                  "time": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Epoch seconds: end_time if finished, start_time if running",
+                    "title": "Time"
+                  },
+                  "message": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Human-readable status (queue reason, error, etc.)",
+                    "title": "Message"
+                  },
+                  "exit_code": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Exit Code"
+                  },
+                  "meta_data": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Scheduler-specific fields: native_state, partition, nodes, workdir, elapsed, etc.",
+                    "title": "Meta Data"
+                  }
+                },
+                "required": [
+                  "state"
+                ],
+                "title": "JobStatus",
+                "type": "object"
+              },
+              "ResourceSpec": {
+                "description": "Resources for a job (PSI/J ResourceSpec + a GPU extension).\n\ngpus is a total-for-the-job GPU count extension (not in upstream PSI/J);\ngpu_cores_per_process is the PSI/J standard equivalent. If both are set,\ngpus takes precedence. How gpus maps to a scheduler flag (--gpus,\n--gres=gpu:N, --gpus-per-node) and whether node_count is derived from it\nor must be set explicitly is a per-machine SchedulerBackend concern \u2014\nsee that machine's compute/ module and config.",
+                "properties": {
+                  "node_count": {
+                    "default": 1,
+                    "title": "Node Count",
+                    "type": "integer"
+                  },
+                  "process_count": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Total processes (alternative to processes_per_node \u00d7 node_count)",
+                    "title": "Process Count"
+                  },
+                  "processes_per_node": {
+                    "default": 1,
+                    "title": "Processes Per Node",
+                    "type": "integer"
+                  },
+                  "cpu_cores_per_process": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Cpu Cores Per Process"
+                  },
+                  "gpu_cores_per_process": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "PSI/J standard GPU field; prefer gpus where a machine supports it",
+                    "title": "Gpu Cores Per Process"
+                  },
+                  "gpus": {
+                    "default": 0,
+                    "description": "Total GPUs requested for the job (machine-specific extension); 0 means no GPU request",
+                    "title": "Gpus",
+                    "type": "integer"
+                  },
+                  "exclusive_node_use": {
+                    "default": false,
+                    "description": "Request exclusive node allocation (--exclusive)",
+                    "title": "Exclusive Node Use",
+                    "type": "boolean"
+                  },
+                  "memory": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Memory per node in bytes (maps to --mem)",
+                    "title": "Memory"
+                  }
+                },
+                "title": "ResourceSpec",
+                "type": "object"
+              },
+              "Scheduler": {
+                "description": "Target batch scheduler for a job submission \u2014 only meaningful on a\nmachine that composes more than one SchedulerBackend (e.g. a cluster\nwith both a Slurm partition and a Grid Engine partition). Single-scheduler\nmachines can ignore this field entirely.",
+                "enum": [
+                  "slurm",
+                  "gridengine"
+                ],
+                "title": "Scheduler",
+                "type": "string"
+              },
+              "VolumeMount": {
+                "description": "A host path mounted into a container (IRI VolumeMount).",
+                "properties": {
+                  "source": {
+                    "description": "Host path to mount",
+                    "title": "Source",
+                    "type": "string"
+                  },
+                  "target": {
+                    "description": "Path inside the container",
+                    "title": "Target",
+                    "type": "string"
+                  },
+                  "read_only": {
+                    "default": true,
+                    "description": "Mount as read-only",
+                    "title": "Read Only",
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "source",
+                  "target"
+                ],
+                "title": "VolumeMount",
+                "type": "object"
+              }
+            },
+            "description": "IRI Job: identifier + current status + originating spec.",
+            "properties": {
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "status": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/JobStatus"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "job_spec": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/JobSpec"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "title": "Job",
+            "type": "object"
+          }
+        },
+        {
+          "name": "get_job_statuses",
+          "description": "Status of several jobs, or \u2014 if job_ids is empty \u2014 every job the\n    current user has touched in roughly the last two days (RIKYU has Slurm\n    accounting, so this includes finished jobs, not just the live queue).\n    (IRI: GET /compute/jobs)",
+          "inputSchema": {
+            "properties": {
+              "job_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Job Ids",
+                "type": "array"
+              }
+            },
+            "required": [
+              "job_ids"
+            ],
+            "title": "get_job_statusesArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "$defs": {
+              "Container": {
+                "description": "Container specification (IRI Container); executed via singularity exec.\n\nimage must be a path to a .sif file (absolute or using $HOME) or a\ndocker:// URI. GPU passthrough is added automatically by the rendering\nbackend when the job requests GPUs (vendor-specific flag chosen by that\nmachine's config, e.g. --nv vs --rocm). launcher (e.g. 'srun') is placed\noutside singularity exec so MPI works.",
+                "properties": {
+                  "image": {
+                    "description": "Singularity image path or URI (e.g. docker://ubuntu:22.04)",
+                    "title": "Image",
+                    "type": "string"
+                  },
+                  "volume_mounts": {
+                    "items": {
+                      "$ref": "#/$defs/VolumeMount"
+                    },
+                    "title": "Volume Mounts",
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "image"
+                ],
+                "title": "Container",
+                "type": "object"
+              },
+              "Job": {
+                "description": "IRI Job: identifier + current status + originating spec.",
+                "properties": {
+                  "id": {
+                    "title": "Id",
+                    "type": "string"
+                  },
+                  "status": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/JobStatus"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
+                  "job_spec": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/JobSpec"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "title": "Job",
+                "type": "object"
+              },
+              "JobAttributes": {
+                "description": "Scheduler attributes (IRI/PSI/J JobAttributes subset).\n\nqueue_name has no cross-machine default \u2014 each machine's tool layer\nshould supply its own default_partition (from that machine's config)\nwhen a JobSpec omits one.",
+                "properties": {
+                  "duration": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ],
+                    "default": 3600,
+                    "description": "Wall time as integer seconds or HH:MM:SS / D-HH:MM:SS string",
+                    "title": "Duration"
+                  },
+                  "queue_name": {
+                    "default": "",
+                    "description": "Scheduler partition/queue; machine-specific default applied by the tool layer if omitted",
+                    "title": "Queue Name",
+                    "type": "string"
+                  },
+                  "account": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Account/project to charge",
+                    "title": "Account"
+                  },
+                  "reservation_id": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Scheduler reservation name (--reservation)",
+                    "title": "Reservation Id"
+                  },
+                  "custom_attributes": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "title": "Custom Attributes",
+                    "type": "object"
+                  },
+                  "scheduler": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/Scheduler"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Override which SchedulerBackend handles this job, on a machine with more than one; None means the machine's tool layer decides (e.g. from queue_name)"
+                  },
+                  "parallel_env": {
+                    "default": "smp",
+                    "description": "Grid Engine parallel environment (-pe); ignored by Slurm backends",
+                    "title": "Parallel Env",
+                    "type": "string"
+                  }
+                },
+                "title": "JobAttributes",
+                "type": "object"
+              },
+              "JobSpec": {
+                "description": "Job specification (IRI/PSI/J JobSpec subset).\n\nexecutable plus arguments form the command run inside the batch script;\nexecutable may be a shell line (e.g. 'module load foo && srun ./app').\nlauncher, if set, is prepended to executable (e.g. 'srun').\npre_launch / post_launch are script lines inserted before / after.\nIf container is set, the command is wrapped in 'singularity exec'.",
+                "properties": {
+                  "name": {
+                    "default": "agent-job",
+                    "title": "Name",
+                    "type": "string"
+                  },
+                  "executable": {
+                    "title": "Executable",
+                    "type": "string"
+                  },
+                  "arguments": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "title": "Arguments",
+                    "type": "array"
+                  },
+                  "directory": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Working directory for the job",
+                    "title": "Directory"
+                  },
+                  "environment": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "title": "Environment",
+                    "type": "object"
+                  },
+                  "inherit_environment": {
+                    "default": true,
+                    "description": "Inherit submission environment variables",
+                    "title": "Inherit Environment",
+                    "type": "boolean"
+                  },
+                  "stdin_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Path to use as stdin (--input)",
+                    "title": "Stdin Path"
+                  },
+                  "stdout_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Stdout Path"
+                  },
+                  "stderr_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Stderr Path"
+                  },
+                  "resources": {
+                    "$ref": "#/$defs/ResourceSpec"
+                  },
+                  "attributes": {
+                    "$ref": "#/$defs/JobAttributes"
+                  },
+                  "pre_launch": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Script lines to insert before executable",
+                    "title": "Pre Launch"
+                  },
+                  "post_launch": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Script lines to insert after executable",
+                    "title": "Post Launch"
+                  },
+                  "launcher": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Launcher prefix, e.g. 'srun' or 'mpirun -np 4'",
+                    "title": "Launcher"
+                  },
+                  "container": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/Container"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Run inside a Singularity container"
+                  }
+                },
+                "required": [
+                  "executable"
+                ],
+                "title": "JobSpec",
+                "type": "object"
+              },
+              "JobState": {
+                "description": "Normalized job states (IRI/PSI-J), mapped from scheduler-native states.",
+                "enum": [
+                  "new",
+                  "queued",
+                  "held",
+                  "active",
+                  "completed",
+                  "failed",
+                  "canceled",
+                  "unknown"
+                ],
+                "title": "JobState",
+                "type": "string"
+              },
+              "JobStatus": {
+                "description": "IRI-compliant job status (state + time + message + exit_code + meta_data).\n\nScheduler-specific detail (native_state, partition, nodes, workdir,\nelapsed, start/end times, queue reason) is carried in meta_data.",
+                "properties": {
+                  "state": {
+                    "$ref": "#/$defs/JobState"
+                  },
+                  "time": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Epoch seconds: end_time if finished, start_time if running",
+                    "title": "Time"
+                  },
+                  "message": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Human-readable status (queue reason, error, etc.)",
+                    "title": "Message"
+                  },
+                  "exit_code": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Exit Code"
+                  },
+                  "meta_data": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Scheduler-specific fields: native_state, partition, nodes, workdir, elapsed, etc.",
+                    "title": "Meta Data"
+                  }
+                },
+                "required": [
+                  "state"
+                ],
+                "title": "JobStatus",
+                "type": "object"
+              },
+              "ResourceSpec": {
+                "description": "Resources for a job (PSI/J ResourceSpec + a GPU extension).\n\ngpus is a total-for-the-job GPU count extension (not in upstream PSI/J);\ngpu_cores_per_process is the PSI/J standard equivalent. If both are set,\ngpus takes precedence. How gpus maps to a scheduler flag (--gpus,\n--gres=gpu:N, --gpus-per-node) and whether node_count is derived from it\nor must be set explicitly is a per-machine SchedulerBackend concern \u2014\nsee that machine's compute/ module and config.",
+                "properties": {
+                  "node_count": {
+                    "default": 1,
+                    "title": "Node Count",
+                    "type": "integer"
+                  },
+                  "process_count": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Total processes (alternative to processes_per_node \u00d7 node_count)",
+                    "title": "Process Count"
+                  },
+                  "processes_per_node": {
+                    "default": 1,
+                    "title": "Processes Per Node",
+                    "type": "integer"
+                  },
+                  "cpu_cores_per_process": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Cpu Cores Per Process"
+                  },
+                  "gpu_cores_per_process": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "PSI/J standard GPU field; prefer gpus where a machine supports it",
+                    "title": "Gpu Cores Per Process"
+                  },
+                  "gpus": {
+                    "default": 0,
+                    "description": "Total GPUs requested for the job (machine-specific extension); 0 means no GPU request",
+                    "title": "Gpus",
+                    "type": "integer"
+                  },
+                  "exclusive_node_use": {
+                    "default": false,
+                    "description": "Request exclusive node allocation (--exclusive)",
+                    "title": "Exclusive Node Use",
+                    "type": "boolean"
+                  },
+                  "memory": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Memory per node in bytes (maps to --mem)",
+                    "title": "Memory"
+                  }
+                },
+                "title": "ResourceSpec",
+                "type": "object"
+              },
+              "Scheduler": {
+                "description": "Target batch scheduler for a job submission \u2014 only meaningful on a\nmachine that composes more than one SchedulerBackend (e.g. a cluster\nwith both a Slurm partition and a Grid Engine partition). Single-scheduler\nmachines can ignore this field entirely.",
+                "enum": [
+                  "slurm",
+                  "gridengine"
+                ],
+                "title": "Scheduler",
+                "type": "string"
+              },
+              "VolumeMount": {
+                "description": "A host path mounted into a container (IRI VolumeMount).",
+                "properties": {
+                  "source": {
+                    "description": "Host path to mount",
+                    "title": "Source",
+                    "type": "string"
+                  },
+                  "target": {
+                    "description": "Path inside the container",
+                    "title": "Target",
+                    "type": "string"
+                  },
+                  "read_only": {
+                    "default": true,
+                    "description": "Mount as read-only",
+                    "title": "Read Only",
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "source",
+                  "target"
+                ],
+                "title": "VolumeMount",
+                "type": "object"
+              }
+            },
+            "properties": {
+              "result": {
+                "items": {
+                  "$ref": "#/$defs/Job"
+                },
+                "title": "Result",
+                "type": "array"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "get_job_statusesOutput",
+            "type": "object"
+          }
+        },
+        {
+          "name": "get_resource",
+          "description": "Live occupancy for one named partition. (IRI: GET /resources/{name})",
+          "inputSchema": {
+            "properties": {
+              "name": {
+                "title": "Name",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "title": "get_resourceArguments",
+            "type": "object"
+          }
+        },
+        {
+          "name": "get_resources",
+          "description": "Live occupancy for RIKYU's compute partitions (\"resources\" in IRI\n    terms) via sinfo \u2014 allocated/idle/other/total node counts, i.e. \"will a\n    job start soon\". RIKYU has exactly one partition, \"gpu\", covering all\n    400 nodes, but the occupancy numbers themselves change constantly, so\n    this is a live query (hpc_agent_core's SlurmBackend.get_live_resources),\n    not the static rikyu_config.json get_facility reads from.\n    (IRI: GET /resources)\n    ",
+          "inputSchema": {
+            "properties": {},
+            "title": "get_resourcesArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "title": "Result",
+                "type": "array"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "get_resourcesOutput",
+            "type": "object"
+          }
+        },
+        {
+          "name": "run_command_on_cluster",
+          "description": "Run an arbitrary shell command on the login node (extension \u2014 not an\n    IRI endpoint). Before calling this, show the user the exact command (or\n    script) and a one-line explanation of what it does, then call it \u2014 skip\n    the preview only if the user explicitly asked to just run something. Do\n    not run heavy computation on the login node \u2014 submit a job instead.\n    ",
+          "inputSchema": {
+            "properties": {
+              "command": {
+                "title": "Command",
+                "type": "string"
+              }
+            },
+            "required": [
+              "command"
+            ],
+            "title": "run_command_on_clusterArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "run_command_on_clusterOutput",
+            "type": "object"
+          }
+        },
+        {
+          "name": "submit_job",
+          "description": "Submit a job to RIKYU's Slurm scheduler. Show the user the spec\n    before submitting unless they asked to just run it (mirrors\n    run_command_on_cluster's rule below). If spec.attributes.queue_name is\n    left blank, it defaults to RIKYU's only partition, \"gpu\". (IRI: POST /compute/job)\n    ",
+          "inputSchema": {
+            "$defs": {
+              "Container": {
+                "description": "Container specification (IRI Container); executed via singularity exec.\n\nimage must be a path to a .sif file (absolute or using $HOME) or a\ndocker:// URI. GPU passthrough is added automatically by the rendering\nbackend when the job requests GPUs (vendor-specific flag chosen by that\nmachine's config, e.g. --nv vs --rocm). launcher (e.g. 'srun') is placed\noutside singularity exec so MPI works.",
+                "properties": {
+                  "image": {
+                    "description": "Singularity image path or URI (e.g. docker://ubuntu:22.04)",
+                    "title": "Image",
+                    "type": "string"
+                  },
+                  "volume_mounts": {
+                    "items": {
+                      "$ref": "#/$defs/VolumeMount"
+                    },
+                    "title": "Volume Mounts",
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "image"
+                ],
+                "title": "Container",
+                "type": "object"
+              },
+              "JobAttributes": {
+                "description": "Scheduler attributes (IRI/PSI/J JobAttributes subset).\n\nqueue_name has no cross-machine default \u2014 each machine's tool layer\nshould supply its own default_partition (from that machine's config)\nwhen a JobSpec omits one.",
+                "properties": {
+                  "duration": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ],
+                    "default": 3600,
+                    "description": "Wall time as integer seconds or HH:MM:SS / D-HH:MM:SS string",
+                    "title": "Duration"
+                  },
+                  "queue_name": {
+                    "default": "",
+                    "description": "Scheduler partition/queue; machine-specific default applied by the tool layer if omitted",
+                    "title": "Queue Name",
+                    "type": "string"
+                  },
+                  "account": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Account/project to charge",
+                    "title": "Account"
+                  },
+                  "reservation_id": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Scheduler reservation name (--reservation)",
+                    "title": "Reservation Id"
+                  },
+                  "custom_attributes": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "title": "Custom Attributes",
+                    "type": "object"
+                  },
+                  "scheduler": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/Scheduler"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Override which SchedulerBackend handles this job, on a machine with more than one; None means the machine's tool layer decides (e.g. from queue_name)"
+                  },
+                  "parallel_env": {
+                    "default": "smp",
+                    "description": "Grid Engine parallel environment (-pe); ignored by Slurm backends",
+                    "title": "Parallel Env",
+                    "type": "string"
+                  }
+                },
+                "title": "JobAttributes",
+                "type": "object"
+              },
+              "JobSpec": {
+                "description": "Job specification (IRI/PSI/J JobSpec subset).\n\nexecutable plus arguments form the command run inside the batch script;\nexecutable may be a shell line (e.g. 'module load foo && srun ./app').\nlauncher, if set, is prepended to executable (e.g. 'srun').\npre_launch / post_launch are script lines inserted before / after.\nIf container is set, the command is wrapped in 'singularity exec'.",
+                "properties": {
+                  "name": {
+                    "default": "agent-job",
+                    "title": "Name",
+                    "type": "string"
+                  },
+                  "executable": {
+                    "title": "Executable",
+                    "type": "string"
+                  },
+                  "arguments": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "title": "Arguments",
+                    "type": "array"
+                  },
+                  "directory": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Working directory for the job",
+                    "title": "Directory"
+                  },
+                  "environment": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "title": "Environment",
+                    "type": "object"
+                  },
+                  "inherit_environment": {
+                    "default": true,
+                    "description": "Inherit submission environment variables",
+                    "title": "Inherit Environment",
+                    "type": "boolean"
+                  },
+                  "stdin_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Path to use as stdin (--input)",
+                    "title": "Stdin Path"
+                  },
+                  "stdout_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Stdout Path"
+                  },
+                  "stderr_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Stderr Path"
+                  },
+                  "resources": {
+                    "$ref": "#/$defs/ResourceSpec"
+                  },
+                  "attributes": {
+                    "$ref": "#/$defs/JobAttributes"
+                  },
+                  "pre_launch": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Script lines to insert before executable",
+                    "title": "Pre Launch"
+                  },
+                  "post_launch": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Script lines to insert after executable",
+                    "title": "Post Launch"
+                  },
+                  "launcher": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Launcher prefix, e.g. 'srun' or 'mpirun -np 4'",
+                    "title": "Launcher"
+                  },
+                  "container": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/Container"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Run inside a Singularity container"
+                  }
+                },
+                "required": [
+                  "executable"
+                ],
+                "title": "JobSpec",
+                "type": "object"
+              },
+              "ResourceSpec": {
+                "description": "Resources for a job (PSI/J ResourceSpec + a GPU extension).\n\ngpus is a total-for-the-job GPU count extension (not in upstream PSI/J);\ngpu_cores_per_process is the PSI/J standard equivalent. If both are set,\ngpus takes precedence. How gpus maps to a scheduler flag (--gpus,\n--gres=gpu:N, --gpus-per-node) and whether node_count is derived from it\nor must be set explicitly is a per-machine SchedulerBackend concern \u2014\nsee that machine's compute/ module and config.",
+                "properties": {
+                  "node_count": {
+                    "default": 1,
+                    "title": "Node Count",
+                    "type": "integer"
+                  },
+                  "process_count": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Total processes (alternative to processes_per_node \u00d7 node_count)",
+                    "title": "Process Count"
+                  },
+                  "processes_per_node": {
+                    "default": 1,
+                    "title": "Processes Per Node",
+                    "type": "integer"
+                  },
+                  "cpu_cores_per_process": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Cpu Cores Per Process"
+                  },
+                  "gpu_cores_per_process": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "PSI/J standard GPU field; prefer gpus where a machine supports it",
+                    "title": "Gpu Cores Per Process"
+                  },
+                  "gpus": {
+                    "default": 0,
+                    "description": "Total GPUs requested for the job (machine-specific extension); 0 means no GPU request",
+                    "title": "Gpus",
+                    "type": "integer"
+                  },
+                  "exclusive_node_use": {
+                    "default": false,
+                    "description": "Request exclusive node allocation (--exclusive)",
+                    "title": "Exclusive Node Use",
+                    "type": "boolean"
+                  },
+                  "memory": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Memory per node in bytes (maps to --mem)",
+                    "title": "Memory"
+                  }
+                },
+                "title": "ResourceSpec",
+                "type": "object"
+              },
+              "Scheduler": {
+                "description": "Target batch scheduler for a job submission \u2014 only meaningful on a\nmachine that composes more than one SchedulerBackend (e.g. a cluster\nwith both a Slurm partition and a Grid Engine partition). Single-scheduler\nmachines can ignore this field entirely.",
+                "enum": [
+                  "slurm",
+                  "gridengine"
+                ],
+                "title": "Scheduler",
+                "type": "string"
+              },
+              "VolumeMount": {
+                "description": "A host path mounted into a container (IRI VolumeMount).",
+                "properties": {
+                  "source": {
+                    "description": "Host path to mount",
+                    "title": "Source",
+                    "type": "string"
+                  },
+                  "target": {
+                    "description": "Path inside the container",
+                    "title": "Target",
+                    "type": "string"
+                  },
+                  "read_only": {
+                    "default": true,
+                    "description": "Mount as read-only",
+                    "title": "Read Only",
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "source",
+                  "target"
+                ],
+                "title": "VolumeMount",
+                "type": "object"
+              }
+            },
+            "properties": {
+              "spec": {
+                "$ref": "#/$defs/JobSpec"
+              }
+            },
+            "required": [
+              "spec"
+            ],
+            "title": "submit_jobArguments",
+            "type": "object"
+          }
+        },
+        {
+          "name": "update_job",
+          "description": "Modify an already-submitted job's Slurm attributes via `scontrol\n    update`, e.g. {\"TimeLimit\": \"02:00:00\"} to extend the wall time. Only\n    affects jobs still queued or running, and is subject to Slurm's own\n    permission rules (some fields can only be lowered, not raised, by a\n    non-admin). (IRI: PUT /compute/job/{job_id})\n    ",
+          "inputSchema": {
+            "properties": {
+              "job_id": {
+                "title": "Job Id",
+                "type": "string"
+              },
+              "updates": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "title": "Updates",
+                "type": "object"
+              }
+            },
+            "required": [
+              "job_id",
+              "updates"
+            ],
+            "title": "update_jobArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "update_jobOutput",
+            "type": "object"
+          }
+        }
+      ]
+    },
+    {
+      "name": "rikyu-docs",
+      "source_path": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp/docs_server.py",
+      "source_digest": "sha256:527acd8f431571903257dd51578b2a21bf8bb27b20d274e6fdfe82169968d638",
+      "transport": "stdio",
+      "tools": [
+        {
+          "name": "list_doc_sections",
+          "description": "List every section of the bundled guide (table of contents).",
+          "inputSchema": {
+            "properties": {},
+            "title": "list_doc_sectionsArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "list_doc_sectionsOutput",
+            "type": "object"
+          }
+        },
+        {
+          "name": "read_doc_section",
+          "description": "Read one guide section in full by its breadcrumb.\n\n        Args:\n            breadcrumb: Section path as shown by list_doc_sections or\n                search_docs, e.g. 'Running jobs'. Partial matches work.\n        ",
+          "inputSchema": {
+            "properties": {
+              "breadcrumb": {
+                "title": "Breadcrumb",
+                "type": "string"
+              }
+            },
+            "required": [
+              "breadcrumb"
+            ],
+            "title": "read_doc_sectionArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "read_doc_sectionOutput",
+            "type": "object"
+          }
+        },
+        {
+          "name": "search_docs",
+          "description": "Search the machine's bundled documentation guide.\n\n        Always call this first before answering any machine-specific\n        question \u2014 job submission, modules, storage, login procedure, or\n        any other cluster-specific detail. Do not rely on prior knowledge or\n        the orientation facts embedded in skills \u2014 those are fallback aids,\n        not authoritative.\n\n        If a result carries no \"Source:\" line, that's deliberate (see this\n        server's module docstring) \u2014 do not invent or guess a URL to send\n        the user to.\n\n        If this tool errors or returns no results, fall back to the inline\n        facts in the active skill and note that docs were unavailable.\n\n        When results begin with `[search_method: bm25]`, inform the user\n        that keyword search was used because the embedding server could not\n        be reached. Results may miss semantically relevant sections that\n        don't share exact keywords with the query.\n\n        Args:\n            query: Natural-language question or keywords.\n            top_k: Number of sections to return.\n        ",
+          "inputSchema": {
+            "properties": {
+              "query": {
+                "title": "Query",
+                "type": "string"
+              },
+              "top_k": {
+                "default": 4,
+                "title": "Top K",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "title": "search_docsArguments",
+            "type": "object"
+          },
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "search_docsOutput",
+            "type": "object"
+          }
+        }
+      ]
+    }
+  ]
+}
