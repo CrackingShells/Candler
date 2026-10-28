@@ -51,7 +51,7 @@ A scope names the topic of the commit, never the action or a layer (`core`, `mis
 | Analysis | `analysis`, `stats` |
 | Surfaces | `library`, `cli`, `mcp` |
 | Wire schemas | `schemas` |
-| Documents | `reports`, `roadmap`, `readme`, `contributing` |
+| Documents | `design`, `reports`, `roadmap`, `readme`, `contributing` |
 | Repository | `repo`, `release`, `deps` |
 
 ## Versioning
