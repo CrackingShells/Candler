@@ -479,10 +479,10 @@ that bundles several MCP calls), `tool_result` (`is_error`, `denied?`), `notific
 | `request_id` | id | |
 | `status` | `pass` / `fail` / `blocked` / `not_measured` / `not_applicable` | five-state algebra |
 | `value?` | number / fraction `{num, den}` / count / text / named counts | a fraction carries its counts |
-| `weight?` | `{num, den}` | contribution to a rate; defaults: pass 1/1, fail 0/1, blocked 0/1 |
-| `probability?` | number in [0, 1] + `calibration_ref` | reserved; never set by deterministic evaluators |
-| `evidence[]` | `{ref, note}` | ref = session/seq or run-relative path |
-| `cause?` | `{expectation: id}` / `{artifact: path}` / `{reason: code}` | required for `blocked`, `not_measured`, `not_applicable` |
+| `weight?` | `{num, den}`, `1 ≤ den`, `num ≤ den` | contribution to a rate; defaults: pass 1/1, fail 0/1, blocked 0/1; absent on `not_measured` and `not_applicable` |
+| `probability?` | `{p, calibration_ref}`, `p` in [0, 1] | reserved; never set by deterministic evaluators |
+| `evidence[]` | `{ref?, note?}`, at least one | ref = `event:<session>#<seq>` or `path:<run-relative path>` |
+| `cause?` | `{expectation: id}` / `{artifact: path}` / `{reason: code}` / `{legacy: code}` (deprecated) | required for `blocked`, `not_measured`, `not_applicable`; absent on `pass` and `fail` except `legacy` |
 
 **Identity key:** `(run, expectation_id, evaluator@version, instruments digest, suite_entry_digest,
 context_digest)`.
@@ -500,8 +500,38 @@ and weights are read from the outcomes, never from today's suite.
 
 ### Wire schema: tool-catalog snapshot
 
-`captured_at`, `provider@version`, `servers[] {name, source_path, source_digest, transport,
-tools[]}` with tools in MCP `tools/list` shape.
+What the MCP servers a run targets actually offered, captured per run by a catalog provider. HTN's
+Tier D grades a mapping against it, the run manifest records its digest as a comparability field
+(I7), and evaluators receive it through `needs.snapshots[]`.
+
+`schema: "tool-catalog-snapshot/1"`, `captured_at`, `provider@version`, `environment?` (string →
+string: versions the capture depended on), `ext?` (opaque, provider-specific), `servers[] {name,
+source_path, source_digest, transport (stdio / http / sse), tools[]}`. Tools are in MCP
+`tools/list` shape, camelCase kept: `name`, `inputSchema`, `title?`, `description?`,
+`outputSchema?`, `annotations?`, and every other key preserved as given. HTN's
+`tool-catalog-snapshot/0` is this shape with `servers_dir` and `stubbed_modules` at the top level;
+its capture script and loader move them under `ext`.
+
+### Wire encodings
+
+The rules every wire type of the `schemas@` line follows.
+
+| Topic | Rule |
+|---|---|
+| Unions | Internally tagged on `kind`, with the payload named after the variant: `{"kind": "number", "number": 1.46}`, `{"kind": "count", "count": 14}`, `{"kind": "fraction", "num": 0, "den": 14}`, `{"kind": "text", "text": "…"}`, `{"kind": "counts", "counts": {"measured": 3}}`. A value fraction has `den ≥ 1`. |
+| Causes | One-key objects, as in the outcome record table. Reason codes match `^[a-z][a-z0-9_]*$`; the core reserves `not_applicable_to_arm`, `instrument_error` and `deadline`. |
+| Legacy marker | `{legacy: code}` marks a record whose clean form cannot be stated. It is deprecated (`deprecated: true` in the schema, `#[deprecated]` in Rust), written only by the legacy importer and refused from evaluators. It is the only cause a `pass` or `fail` may carry, and the only way to carry a `0/0` weight. It is removed at the first schema major after M2a's parity is signed off. |
+| Absent vs null | An optional field is omitted when absent. `null` is never written, and both the schema and the Rust reader reject it. Collections are always present, possibly empty. |
+| Unknown fields | Schemas are strict (`additionalProperties: false`): they define what a writer at that version emits. Rust readers ignore unknown fields (I18). MCP tool objects, `inputSchema`, `outputSchema` and `ext` are open. |
+| Run key | `{"cell": "sha256:<hex>", "replicate": n, "attempt": m}` in records, both counters from 1. Paths and `CANDLER_RUN` use `<cell hex>-r<n>-a<m>`. |
+| Digests | `sha256:` + 64 lowercase hex; blob paths use the bare hex. An instrument digest may also be `git:<40 or 64 hex>`, a commit of a clean tree, valid only with `dirty: false`. Digests of JSON values (`suite_entry_digest`, `context_digest`, the cell digest) are taken over RFC 8785 canonical JSON. |
+| `name@version` | Split at the last `@`; the name has no `@` or whitespace. Evaluator and instrument versions are SemVer 2.0; a catalog provider's version is a free token `[0-9A-Za-z.+-]+`. |
+| Ids, paths, times | `request_id`: UUIDv7, lowercase hyphenated. `expectation_id`: `^[A-Za-z0-9][A-Za-z0-9._-]*$`. Run-relative paths: POSIX, non-empty, no leading `/`, no `.` or `..` segment, no `\`. Timestamps: RFC 3339 with an explicit offset, kept as written. |
+| Version marker | A standalone document (the catalog snapshot) carries its `schema` tag. Records that travel inside versioned messages or files (the outcome record) carry none. |
+| Schema files | JSON Schema 2020-12, generated by `schemars` from the structs, one self-contained file per root in `crates/candler-schemas/schema/<name>.schema.json`, `$id` `urn:candler:schemas:<name>`, no crate version inside. Cross-field rules are `if`/`then` clauses; rules JSON Schema cannot state (`num ≤ den`) are enforced in Rust and stated in a `$comment`. `///` docs become `description`s, so a doc edit on a wire type is a schema patch. |
+| Drift check | `tests/schema_drift.rs` compares every root in `generated_schemas()` byte for byte with its committed file; `CANDLER_BLESS_SCHEMAS=1` rewrites them. |
+| Rust shape | Wire structs are `#[non_exhaustive]`, built through validating builders and deserialised through `try_from`, so a record is valid however it was made and a new optional field is a minor in Rust as in the schema. Evolving enums are `#[non_exhaustive]`; `Status` and `Role` are closed. `serde_json` has `float_roundtrip`. |
+| Source files | Source says what is: comments, docs, `#[deprecated]` notes and `$comment`s carry no history, origin or meta-discourse. Reasons live in `__design__/` and `__reports__/`. |
 
 ### The `schemas@` line holds
 
@@ -627,10 +657,17 @@ request files under the new evaluator version; `diff` compares versions.
 `candler-m2a-golden`; the published `main` is untouched. `expectations.jsonl` holds one row per
 `(run, expectation)`: 10,320 rows.
 
-**Legacy import mapping.** `score` / `max_score` → `weight`; `blocked_by` → `cause {artifact}`;
-text values → text `value`; per-row `role` kept. `expectations.jsonl` carries `status`, `value`,
-`score`, `max_score` and `role` only: `blocked_by` and the evidence are in each run's
-`eval-N-grading.json`, so the importer reads those. In this corpus no row has a text value (every
+**Legacy import mapping.** `score` / `max_score` → `weight` (omitted when it equals the default,
+dropped on `not_measured`); `blocked_by` → `cause {artifact}`; an integer value → `count`, a float
+→ `number`, text → `text`; per-row `role` kept; evaluator `htn-creator-eval@0.4.2`, instrument
+`htn_creator_scripts` `0.4.2` with digest `git:28be2c15…` and `dirty: false`. What the clean model
+cannot state takes the legacy marker: a `not_measured` row has no cause column, so its cause is
+`{legacy: <code>}` with the `reason=` of its `TIER_D_REPLAY` marker (`no_replay_target`, 181 runs ×
+4), `zero_mappings` (the mapping declares no entries, 3 runs), or `unrecorded`; a `pass` weighing
+`0/0` (209 gate rows) carries `{legacy: zero_weight}`. `expectations.jsonl` carries `status`,
+`value`, `score`, `max_score` and `role` only: `blocked_by` and the evidence are in each run's
+`eval-N-grading.json`, so the importer reads those (half of those blobs are AppleDouble `._*`
+files, which it skips). In this corpus no row has a text value (every
 D-E1 and D-E2 row is `blocked` or `not_measured`) and no row is `not_applicable`; fixtures for those
 cases are synthetic. Integrity `incomplete`
 (`missing_genuine_output`, the agent never produced the file; 56 runs) is a **valid** run;
@@ -638,7 +675,8 @@ cases are synthetic. Integrity `incomplete`
 
 **Parity test.** Candler plus the HTN plug-in, with its checker pinned at `28be2c15` and run one
 forked child per expectation with a 60 s deadline, reproduces `(status, value, weight, cause)` for
-all 10,320 rows. That includes the reference's known defects: C-M2's bijection check false-fires on
+all 10,320 rows: exactly on clean rows, and through an explicit legacy ↔ clean equivalence table,
+written by the M2a plan, on legacy-marked rows. The plug-in emits clean records only. That includes the reference's known defects: C-M2's bijection check false-fires on
 88 of 89 failing runs, and D-E1–D-E4 are `not_measured` on 184 runs (no plan replay for a live
 cluster) and `blocked` on the 56 runs without a mapping. Statuses over all rows: pass 8,291, blocked
 802, not_measured 742, fail 485. Fixes
