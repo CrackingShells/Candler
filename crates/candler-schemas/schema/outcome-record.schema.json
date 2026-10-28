@@ -236,6 +236,7 @@
       "description": "The identity of one run: the digest of its cell, and its replicate and attempt numbers, both counted from 1.",
       "properties": {
         "attempt": {
+          "$comment": "Fits in 32 bits; the reader enforces it.",
           "description": "Attempt number, from 1.",
           "format": "uint32",
           "minimum": 1,
@@ -246,6 +247,7 @@
           "description": "The digest of the cell the run belongs to."
         },
         "replicate": {
+          "$comment": "Fits in 32 bits; the reader enforces it.",
           "description": "Replicate number, from 1.",
           "format": "uint32",
           "minimum": 1,

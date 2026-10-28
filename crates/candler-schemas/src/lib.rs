@@ -3,5 +3,6 @@
 
 pub mod catalog;
 pub mod generate;
+mod map_only;
 pub mod outcome;
 pub mod primitives;

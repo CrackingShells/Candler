@@ -14,6 +14,8 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::map_only::MapOnly;
+
 /// A text that does not have the shape of the format it was parsed as.
 ///
 /// Every variant names the format, what is wrong with the text, and the offending text.
@@ -623,16 +625,37 @@ impl FromStr for Timestamp {
 }
 
 /// The identity of one run: the digest of its cell, and its replicate and attempt numbers, both counted from 1.
-#[derive(
-    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
-)]
-#[schemars(deny_unknown_fields)]
-pub struct RunKey {
+#[derive(Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields, rename = "RunKey")]
+struct RawRunKey {
     /// The digest of the cell the run belongs to.
     cell: Digest,
     /// Replicate number, from 1.
-    replicate: NonZeroU32,
+    #[schemars(range(min = 1))]
+    #[schemars(extend("$comment" = "Fits in 32 bits; the reader enforces it."))]
+    replicate: u32,
     /// Attempt number, from 1.
+    #[schemars(range(min = 1))]
+    #[schemars(extend("$comment" = "Fits in 32 bits; the reader enforces it."))]
+    attempt: u32,
+}
+
+impl TryFrom<MapOnly<RawRunKey>> for RunKey {
+    type Error = FormatError;
+
+    fn try_from(raw: MapOnly<RawRunKey>) -> Result<Self, Self::Error> {
+        Self::new(raw.0.cell, raw.0.replicate, raw.0.attempt)
+    }
+}
+
+/// The identity of one run: the digest of its cell, and its replicate and attempt numbers, both counted from 1.
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(try_from = "MapOnly<RawRunKey>")]
+pub struct RunKey {
+    cell: Digest,
+    replicate: NonZeroU32,
     attempt: NonZeroU32,
 }
 
@@ -1253,6 +1276,50 @@ mod tests {
                     "serde should refuse {object}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn run_key_reader_takes_an_object_and_nothing_else() {
+        let schema = validator::<RunKey>();
+        for list in [
+            json!([HEX_DIGEST, 1, 1]),
+            json!([]),
+            json!(HEX_DIGEST),
+            json!(1),
+            json!(null),
+        ] {
+            assert!(
+                serde_json::from_value::<RunKey>(list.clone()).is_err(),
+                "{list}"
+            );
+            assert!(!schema.is_valid(&list), "{list}");
+        }
+        let object = json!({"cell": HEX_DIGEST, "replicate": 1, "attempt": 1});
+        assert!(serde_json::from_value::<RunKey>(object.clone()).is_ok());
+        assert!(schema.is_valid(&object));
+    }
+
+    #[test]
+    fn run_key_counters_past_32_bits_pass_the_schema_and_fail_the_reader() {
+        let schema = validator::<RunKey>();
+        for (replicate, attempt) in [(4_294_967_296_u64, 1_u64), (1, 4_294_967_296)] {
+            let object = json!({"cell": HEX_DIGEST, "replicate": replicate, "attempt": attempt});
+            assert!(schema.is_valid(&object), "{object}");
+            assert!(serde_json::from_value::<RunKey>(object).is_err());
+        }
+    }
+
+    #[test]
+    fn run_key_counters_state_their_32_bit_limit_in_the_schema() {
+        let root = GeneratedSchema::of::<RunKey>("under-test")
+            .schema
+            .to_value();
+        for field in ["replicate", "attempt"] {
+            assert_eq!(
+                root["properties"][field]["$comment"],
+                json!("Fits in 32 bits; the reader enforces it.")
+            );
         }
     }
 
