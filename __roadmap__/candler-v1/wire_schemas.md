@@ -6,7 +6,7 @@
 - [x] Golden reference frozen: `agenticai4hpc26-artifact` tag `candler-m2a-golden`, `campaign/20260806-cont-train/expectations.jsonl` holds 10,320 rows (read it with `git show candler-m2a-golden:<path>`; the regrade worktree is gone)
 - [x] Rikyu snapshot at mcp-python-ingestion tag `htn-creator-eval@0.4.2`: `.claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/catalogs/rikyu_mcp.json`
 - [x] The HTN eval environment runs the snapshot capture: `uv run --directory .claude/skills/htn-creator-workspace/infrastructure …` in mcp-python-ingestion
-- [ ] Reminder `candler-schemas` (list "Candler") read: its notes are the original brief, written before Rust was chosen; where they differ, this leaf wins
+- [x] Reminder `candler-schemas` (list "Candler") read: its notes are the original brief, written before Rust was chosen; where they differ, this leaf wins
 **Success Gates**:
 - ⬜ `cargo build --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` pass
 - ⬜ `cargo test -p candler-schemas` passes, including tests that validate against the generated JSON Schema: the rikyu snapshot, a bio-opentrons snapshot, golden outcomes of the four statuses the corpus has (pass, fail, blocked with its artifact cause, not_measured), and synthetic `not_applicable` and text-valued outcomes
