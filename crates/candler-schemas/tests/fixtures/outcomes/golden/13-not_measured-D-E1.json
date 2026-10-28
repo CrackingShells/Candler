@@ -1,0 +1,26 @@
+{
+  "run": {
+    "cell": "sha256:05f29a8eb454d042ec5af6b738513c8e6b254ee642372f01cb3c62be71d99b2b",
+    "replicate": 20,
+    "attempt": 1
+  },
+  "expectation_id": "D-E1",
+  "role": "descriptive",
+  "evaluator": "htn-creator-eval@0.4.2",
+  "instruments": [
+    {
+      "name": "htn_creator_scripts",
+      "version": "0.4.2",
+      "digest": "git:28be2c158fbc6ee786a789242c2d8fd47bfde9a8",
+      "dirty": false
+    }
+  ],
+  "suite_entry_digest": "sha256:609069bd7353a717ca7feef46fef7f12bfc04f866cacb3131607526be75a50f4",
+  "context_digest": "sha256:114ad883d0bde744b4ee05ad8a3958b9e8d7997f064aaf3015f79903148b24d5",
+  "request_id": "01926b3a-7c3e-7a1b-8c4d-5e6f7a8b9c0d",
+  "status": "not_measured",
+  "evidence": [],
+  "cause": {
+    "legacy": "zero_mappings"
+  }
+}

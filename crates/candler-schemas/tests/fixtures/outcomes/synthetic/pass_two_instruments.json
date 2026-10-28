@@ -1,0 +1,29 @@
+{
+  "run": {
+    "cell": "sha256:b28a6587f9984281103bf4150867bbca481889e3046c60ec7c27f2b31d562a22",
+    "replicate": 1,
+    "attempt": 1
+  },
+  "expectation_id": "A2",
+  "role": "descriptive",
+  "evaluator": "synthetic-eval@1.0.0",
+  "instruments": [
+    {
+      "name": "htn_creator_scripts",
+      "version": "0.4.2",
+      "digest": "git:28be2c158fbc6ee786a789242c2d8fd47bfde9a8",
+      "dirty": false
+    },
+    {
+      "name": "local_checker",
+      "version": "2.0.0-rc.1+build.5",
+      "digest": "sha256:12a7b211dac79eae174e43dcdf641aefcdfa010c9f0d8bb47aae1ef951095b6d",
+      "dirty": true
+    }
+  ],
+  "suite_entry_digest": "sha256:db5ffb644a544b44a7034ec65dbf5ce2954e1eeec609f9e5312e0aed1ca7218b",
+  "context_digest": "sha256:5147c732e8fcaab35b0b94ee60119c8a397f34c74fd20db83062b9f576ef6a80",
+  "request_id": "01926b3a-7c3e-7a1b-8c4d-5e6f7a8b9c0d",
+  "status": "pass",
+  "evidence": []
+}

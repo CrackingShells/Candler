@@ -1,0 +1,19 @@
+{
+  "run": {
+    "cell": "sha256:b28a6587f9984281103bf4150867bbca481889e3046c60ec7c27f2b31d562a22",
+    "replicate": 1,
+    "attempt": 1
+  },
+  "expectation_id": "S1",
+  "role": "descriptive",
+  "evaluator": "synthetic-eval@1.0.0",
+  "instruments": [],
+  "suite_entry_digest": "sha256:54c1d4939040a23a230b11cc0c0bd34ee4b5fab186be9db8250ae77781ab9804",
+  "context_digest": "sha256:fe3f5db25f7d7f9b1c90313376222e31a4995df7cbf62f13e34814b0b2d3f0f0",
+  "request_id": "01926b3a-7c3e-7a1b-8c4d-5e6f7a8b9c0d",
+  "status": "not_applicable",
+  "evidence": [],
+  "cause": {
+    "reason": "not_applicable_to_arm"
+  }
+}

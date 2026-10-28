@@ -1,0 +1,27 @@
+{
+  "run": {
+    "cell": "sha256:6547b9bce1edc1d4d656a48c3cd3b22f8e98f45cb853f5262e5dda3037daa65b",
+    "replicate": 6,
+    "attempt": 1
+  },
+  "expectation_id": "C-X3",
+  "role": "gate",
+  "evaluator": "htn-creator-eval@0.4.2",
+  "instruments": [
+    {
+      "name": "htn_creator_scripts",
+      "version": "0.4.2",
+      "digest": "git:28be2c158fbc6ee786a789242c2d8fd47bfde9a8",
+      "dirty": false
+    }
+  ],
+  "suite_entry_digest": "sha256:3a73507ba0c4c8b969ff86cdfd7c1fcdfdaf6a6b95a90df5fc85ff2b26b905d5",
+  "context_digest": "sha256:18923badac32e81ea3bc4649a3840ee79b2997d1f6069834ec918c26646a9ebc",
+  "request_id": "01926b3a-7c3e-7a1b-8c4d-5e6f7a8b9c0d",
+  "status": "fail",
+  "weight": {
+    "num": 1,
+    "den": 2
+  },
+  "evidence": []
+}

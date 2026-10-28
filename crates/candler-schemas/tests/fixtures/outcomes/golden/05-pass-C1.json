@@ -1,0 +1,27 @@
+{
+  "run": {
+    "cell": "sha256:6547b9bce1edc1d4d656a48c3cd3b22f8e98f45cb853f5262e5dda3037daa65b",
+    "replicate": 1,
+    "attempt": 1
+  },
+  "expectation_id": "C1",
+  "role": "descriptive",
+  "evaluator": "htn-creator-eval@0.4.2",
+  "instruments": [
+    {
+      "name": "htn_creator_scripts",
+      "version": "0.4.2",
+      "digest": "git:28be2c158fbc6ee786a789242c2d8fd47bfde9a8",
+      "dirty": false
+    }
+  ],
+  "suite_entry_digest": "sha256:a9db0933c3bb31226e2b773cdbc49d1ae2737ea0646a1d3eb53dabf367c7cf67",
+  "context_digest": "sha256:15fed69b5c6314ba2bf7fd102c58a9a44ae5f93cef819243bcc6518d0ab162b5",
+  "request_id": "01926b3a-7c3e-7a1b-8c4d-5e6f7a8b9c0d",
+  "status": "pass",
+  "value": {
+    "kind": "count",
+    "count": 14
+  },
+  "evidence": []
+}
