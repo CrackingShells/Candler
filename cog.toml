@@ -43,11 +43,14 @@ reports = { changelog_title = "Reports" }
 
 # cog verifies type and scope but does not require a scope, so the hook
 # checks the subject's `type(scope):` shape first. A checkout without
-# cog.toml has no convention to check and passes.
+# cog.toml has no convention to check and passes, and git's own
+# fixup!, squash! and amend! subjects pass because autosquash folds them
+# into the commit they name.
 [git_hooks.commit-msg]
 script = """#!/bin/sh
 set -e
 [ -f cog.toml ] || exit 0
+head -n 1 "$1" | grep -Eq '^(fixup|squash|amend)! ' && exit 0
 head -n 1 "$1" | grep -Eq '^[a-z]+\\([a-z0-9-]+\\)!?: ' || {
     echo "commit-msg: the subject needs a scope: <type>(<scope>): <subject>" >&2
     exit 1
