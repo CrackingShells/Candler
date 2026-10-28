@@ -110,4 +110,11 @@ Git does not copy hooks on clone, so `cog install-hook --all` is the per-clone s
 
 ## Enforcement
 
-A local `commit-msg` hook gives immediate feedback, and CI checks every pull request against the same rules. Both are added together with the release tooling, once the implementation language is fixed.
+| Check | Runs | Rejects |
+|---|---|---|
+| `commit-msg` hook | On every local commit, once `cog install-hook --all` has been run | A subject without a `type(scope):` prefix, then, through `cog verify`, a type or scope outside the tables above |
+| `cog check <base>..<head>` | In CI, on the range a pull request pushes (run it by hand as `cog check main..HEAD`; the CI workflow is not in the repository yet) | The same, for every commit in the range |
+
+The types and scopes live in `cog.toml` and equal the tables in this file; change both together. `cog` itself does not require a scope, which is why the hook checks the prefix first. A checkout without `cog.toml` passes the hook, so a branch cut before the file landed can still commit.
+
+Commits made before `cog.toml` landed on `main` are outside every checked range: a pull request's range starts at `main`, so CI never sees them.
