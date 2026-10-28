@@ -92,6 +92,22 @@ The highest bump across the batch wins. The core stays at `0.y.z` until the eval
 - Integrate by rebasing the branch onto `main`, then merging with `--no-ff`. The merge commit is `merge(<scope>): <what landed and why>`, so the merge itself records the reason.
 - Remove the branch and its worktree once it has landed.
 
+## Tools
+
+| Tool | Used for | Version checked |
+|---|---|---|
+| `cog` (cocogitto) | Checking commit messages, locally and in CI | 7.0.0 |
+| `release-plz` | Versions, changelogs and releases from the commits | 0.4.2 |
+| `cargo-nextest` | Running the tests | 0.9.150 |
+
+```
+brew install cocogitto cargo-nextest
+cargo install --locked release-plz   # Homebrew has no release-plz formula
+cog install-hook --all               # once per clone, from the main checkout
+```
+
+Git does not copy hooks on clone, so `cog install-hook --all` is the per-clone step. It writes into the repository's `.git/hooks/`, which every worktree shares, and fails when run inside a linked worktree.
+
 ## Enforcement
 
 A local `commit-msg` hook gives immediate feedback, and CI checks every pull request against the same rules. Both are added together with the release tooling, once the implementation language is fixed.
