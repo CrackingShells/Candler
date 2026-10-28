@@ -125,33 +125,49 @@ macro_rules! semver_re {
     };
 }
 
+/// The end of the text: a negative lookahead for any character.
+macro_rules! end_re {
+    () => {
+        r"(?![\s\S])"
+    };
+}
+
+/// White space as Unicode's `White_Space` set plus the byte-order mark, as the inside of a character class.
+macro_rules! blank_class_re {
+    () => {
+        r"\t\n\v\f\r\x20\u0085\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF"
+    };
+}
+
 /// One character of a name: neither `@` nor white space.
 macro_rules! name_char_re {
     () => {
-        r"[^@\s\u0085\uFEFF]"
+        concat!("[^@", blank_class_re!(), "]")
     };
 }
 
 /// One character of a session id: neither `#` nor white space.
 macro_rules! session_char_re {
     () => {
-        r"[^#\s\u0085\uFEFF]"
+        concat!("[^#", blank_class_re!(), "]")
     };
 }
 
 /// A run-relative POSIX path as a regular expression, without anchors.
 ///
-/// `$seg` is the class of characters a segment may hold and `$end` what may follow the path, so
-/// that a `.` or `..` segment is refused wherever the path stops.
+/// `$seg` is the class of characters a segment may hold and `$stop` the extra text that may follow
+/// the path besides its end, so that a `.` or `..` segment is refused wherever the path stops.
 macro_rules! rel_path_re {
-    ($seg:literal, $end:literal) => {
+    ($seg:literal, $stop:literal) => {
         concat!(
             r"(?!\.\.?(?:/|",
-            $end,
+            $stop,
+            end_re!(),
             r"))",
             $seg,
             r"+(?:/(?!\.\.?(?:/|",
-            $end,
+            $stop,
+            end_re!(),
             r"))",
             $seg,
             r"+)*"
@@ -160,27 +176,36 @@ macro_rules! rel_path_re {
 }
 
 /// The pattern of a name: non-empty, with neither `@` nor white space.
-pub(crate) const NAME_PATTERN: &str = concat!("^", name_char_re!(), "+$");
+pub(crate) const NAME_PATTERN: &str = concat!("^", name_char_re!(), "+", end_re!());
 /// The pattern of a `SemVer` 2.0 version.
-pub(crate) const SEMVER_PATTERN: &str = concat!("^", semver_re!(), "$");
-const DIGEST_PATTERN: &str = "^sha256:[0-9a-f]{64}$";
-const INSTRUMENT_DIGEST_PATTERN: &str =
-    "^(?:sha256:[0-9a-f]{64}|git:(?:[0-9a-f]{40}|[0-9a-f]{64}))$";
-const NAME_VERSION_PATTERN: &str = concat!("^", name_char_re!(), "+@", semver_re!(), "$");
-const NAME_TOKEN_PATTERN: &str = concat!("^", name_char_re!(), "+@[0-9A-Za-z.+-]+$");
-const REL_PATH_PATTERN: &str = concat!("^", rel_path_re!(r"[^/\\\x00]", "$"), "$");
-const TIMESTAMP_PATTERN: &str = r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$";
-const REQUEST_ID_PATTERN: &str =
-    "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
+pub(crate) const SEMVER_PATTERN: &str = concat!("^", semver_re!(), end_re!());
+const DIGEST_PATTERN: &str = concat!("^sha256:[0-9a-f]{64}", end_re!());
+const INSTRUMENT_DIGEST_PATTERN: &str = concat!(
+    "^(?:sha256:[0-9a-f]{64}|git:(?:[0-9a-f]{40}|[0-9a-f]{64}))",
+    end_re!()
+);
+const NAME_VERSION_PATTERN: &str = concat!("^", name_char_re!(), "+@", semver_re!(), end_re!());
+const NAME_TOKEN_PATTERN: &str = concat!("^", name_char_re!(), "+@[0-9A-Za-z.+-]+", end_re!());
+const REL_PATH_PATTERN: &str = concat!("^", rel_path_re!(r"[^/\\\x00]", ""), end_re!());
+const TIMESTAMP_PATTERN: &str = concat!(
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?",
+    r"(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])",
+    end_re!()
+);
+const REQUEST_ID_PATTERN: &str = concat!(
+    "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+    end_re!()
+);
 const EVIDENCE_REF_PATTERN: &str = concat!(
     "^(?:event:",
     session_char_re!(),
     "+#(?:0|[1-9][0-9]*)|path:",
-    rel_path_re!(r"[^/\\#\x00]", "#|$"),
-    r"(?:#L[1-9][0-9]*(?:-[1-9][0-9]*)?)?)$"
+    rel_path_re!(r"[^/\\#\x00]", "#|"),
+    r"(?:#L[1-9][0-9]*(?:-[1-9][0-9]*)?)?)",
+    end_re!()
 );
-const EXPECTATION_ID_PATTERN: &str = "^[A-Za-z0-9][A-Za-z0-9._-]*$";
-const REASON_CODE_PATTERN: &str = "^[a-z][a-z0-9_]*$";
+const EXPECTATION_ID_PATTERN: &str = concat!("^[A-Za-z0-9][A-Za-z0-9._-]*", end_re!());
+const REASON_CODE_PATTERN: &str = concat!("^[a-z][a-z0-9_]*", end_re!());
 
 const DIGEST_PREFIX: &str = "sha256:";
 const GIT_PREFIX: &str = "git:";
@@ -1011,6 +1036,8 @@ mod tests {
             "x@1.0.0-0A.is.legal",
             "vendor/pkg_name.v2@10.20.30",
             "évaluateur@1.0.0",
+            "a\u{1c}b@1.0.0",
+            "a\u{180e}b@1.0.0",
         ]);
         let parsed: NameVersion = "tier-a@2.0.1-beta".parse().expect("valid");
         assert_eq!(parsed.name(), "tier-a");
@@ -1037,6 +1064,11 @@ mod tests {
             "a\u{a0}b@1.0.0",
             "a\u{85}b@1.0.0",
             "a\u{feff}b@1.0.0",
+            "a\u{1680}b@1.0.0",
+            "a\u{2028}b@1.0.0",
+            "a\u{202f}b@1.0.0",
+            "a\u{3000}b@1.0.0",
+            "a\tb@1.0.0",
         ]);
     }
 
@@ -1067,6 +1099,9 @@ mod tests {
             "..a",
             "a..",
             "é/ü",
+            "a/..\n",
+            "..\n",
+            "a/.\n/b",
         ]);
     }
 
@@ -1279,6 +1314,10 @@ mod tests {
             "path:a/b#L3-9",
             "path:a#L5-5",
             "path:a/.../b",
+            "path:..\n",
+            "path:a/.\n#L1",
+            "event:s\u{1c}1#0",
+            "event:s\u{180e}1#0",
         ]);
     }
 
@@ -1312,6 +1351,9 @@ mod tests {
             "path:a#L3#L4",
             "path:a\\b",
             "path:a\0b",
+            "event:s\u{2028}1#0",
+            "event:s\u{1680}1#0",
+            "event:s\u{a0}1#0",
             "file:a",
             "event:s#1\n",
         ]);
@@ -1391,5 +1433,71 @@ mod tests {
         assert!(parse("a@1.2.0") < parse("a@1.10.0"));
         assert!(parse("a@9.0.0") < parse("b@1.0.0"));
         assert!(parse("a@1.0.0-rc.1") < parse("a@1.0.0"));
+    }
+
+    /// Compiles `pattern` as the pattern of a string schema, as a consumer of the schemas would.
+    fn pattern_validator(pattern: &str) -> jsonschema::Validator {
+        jsonschema::validator_for(&json!({"type": "string", "pattern": pattern}))
+            .expect("the pattern compiles")
+    }
+
+    #[test]
+    fn name_and_session_classes_hold_exactly_the_characters_the_parser_refuses() {
+        let name = pattern_validator(NAME_PATTERN);
+        let session = pattern_validator(EVIDENCE_REF_PATTERN);
+        for c in (0_u32..=0x0010_FFFF).filter_map(char::from_u32) {
+            let named = name.is_valid(&json!(c.to_string()));
+            assert_eq!(
+                named,
+                c != '@' && !is_blank(c),
+                "name class at U+{:04X}",
+                u32::from(c)
+            );
+            let event = session.is_valid(&json!(format!("event:{c}#0")));
+            assert_eq!(
+                event,
+                c != '#' && !is_blank(c),
+                "session class at U+{:04X}",
+                u32::from(c)
+            );
+        }
+    }
+
+    #[test]
+    fn the_reader_refuses_an_unpaired_surrogate_escape() {
+        for text in [r#""\ud800""#, r#""\udc00""#, r#""a\ud800b""#] {
+            assert!(serde_json::from_str::<ReasonCode>(text).is_err(), "{text}");
+            assert!(serde_json::from_str::<String>(text).is_err(), "{text}");
+        }
+        assert!(serde_json::from_str::<ReasonCode>(r#""\u0061""#).is_ok());
+    }
+
+    #[test]
+    fn every_text_pattern_ends_with_the_engine_neutral_anchor() {
+        use crate::generate::{END_ANCHOR, pattern_problem, patterns_in};
+
+        fn check<T: JsonSchema>() {
+            let root = GeneratedSchema::of::<T>("under-test");
+            let patterns = patterns_in(root.schema.as_value(), "");
+            assert_ne!(patterns.len(), 0);
+            for (pointer, pattern) in patterns {
+                assert_eq!(pattern_problem(&pattern), None, "{pointer}: {pattern}");
+                assert!(pattern.ends_with(END_ANCHOR), "{pointer}: {pattern}");
+            }
+        }
+        check::<Digest>();
+        check::<InstrumentDigest>();
+        check::<NameVersion>();
+        check::<NameToken>();
+        check::<RelPath>();
+        check::<Timestamp>();
+        check::<RequestId>();
+        check::<EvidenceRef>();
+        check::<ExpectationId>();
+        check::<ReasonCode>();
+        for pattern in [NAME_PATTERN, SEMVER_PATTERN] {
+            assert_eq!(pattern_problem(pattern), None);
+            assert!(pattern.ends_with(END_ANCHOR));
+        }
     }
 }
