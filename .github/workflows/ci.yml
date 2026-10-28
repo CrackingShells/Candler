@@ -1,0 +1,81 @@
+# The gates of AGENTS.md and the commit check of CONTRIBUTING, on every push
+# and pull request.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gates:
+    name: Gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install the toolchain pinned in rust-toolchain.toml
+        run: rustup toolchain install
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - name: Format
+        run: cargo fmt --check
+      - name: Lint
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Build
+        run: cargo build --workspace
+      - name: Test
+        run: cargo nextest run --workspace
+      - name: Document
+        run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  commits:
+    name: Commit messages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the full history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install cocogitto
+        uses: cocogitto/cocogitto-action@v4
+        with:
+          install-only: true
+      - name: Check the pushed range
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+        run: |
+          set -eu
+          if [ "$EVENT" = pull_request ]; then
+            cog check "$PR_BASE..$PR_HEAD"
+          elif [ "$PUSH_BEFORE" = 0000000000000000000000000000000000000000 ]; then
+            # A first push has no earlier tip; its head commit is the range.
+            if git rev-parse --verify --quiet "$PUSH_AFTER^" >/dev/null; then
+              cog check "$PUSH_AFTER^..$PUSH_AFTER"
+            else
+              git log -1 --format=%B "$PUSH_AFTER" > "$RUNNER_TEMP/root-message"
+              cog verify --file "$RUNNER_TEMP/root-message"
+            fi
+          else
+            cog check "$PUSH_BEFORE..$PUSH_AFTER"
+          fi
