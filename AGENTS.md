@@ -31,7 +31,7 @@ The workspace lints in the root `Cargo.toml` (`[workspace.lints]`, inherited by 
 `[lints] workspace = true`) are the enforced subset of these rules. Passing them is necessary, not
 sufficient: the rules above and the skill's checklist still apply where no lint reaches.
 
-Rule 1 holds without exception: public functions that return a borrow name its lifetime
+Rule 1 holds without exception: public functions that return a borrow name their lifetime
 (`fn name<'a>(&'a self) -> &'a str`). `clippy::needless_lifetimes` is allowed workspace-wide for
 that reason, so do not elide them.
 
