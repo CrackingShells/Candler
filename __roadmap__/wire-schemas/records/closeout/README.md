@@ -13,12 +13,12 @@ The README says what exists, and every gate of the milestone leaf passes on `fea
 - [x] Every leaf of `../` is `done` and merged on `feat/wire-schemas`
 
 ## Success Gates
-- ⬜ Every Success Gate of `../../../candler-v1/wire_schemas.md` passes on `feat/wire-schemas`
+- ✅ Every Success Gate of `../../../candler-v1/wire_schemas.md` passes on `feat/wire-schemas`
 
 ## Status
 ```mermaid
 graph TD
-    milestone_gates[README status and the milestone gate sweep]:::inprogress
+    milestone_gates[README status and the milestone gate sweep]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -29,7 +29,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `milestone_gates.md` | 📄 Leaf Task | 🔄 In Progress |
+| `milestone_gates.md` | 📄 Leaf Task | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

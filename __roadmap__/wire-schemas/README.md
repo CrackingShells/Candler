@@ -20,11 +20,11 @@ The workspace, its commit and release tooling, and `candler-schemas` with the ou
 - [x] The wire encodings are recorded in R01 §Data Model on `feat/wire-schemas` (5f49685)
 
 ## Success Gates
-- ⬜ `cargo build --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` pass
-- ⬜ `cargo test -p candler-schemas` passes, including tests that validate against the generated JSON Schema: the rikyu snapshot, a bio-opentrons snapshot, golden outcomes of the four statuses the corpus has (pass, fail, blocked with its artifact cause, not_measured), and synthetic `not_applicable` and text-valued outcomes
-- ⬜ The committed JSON Schema files match the structs: the drift test fails on a deliberate drift and passes after `CANDLER_BLESS_SCHEMAS=1`
-- ⬜ `cog check main..HEAD` passes, and the `commit-msg` hook rejects a message without a scope
-- ⬜ The catalog snapshot schema is ready to land on `main` for HTN Phase 4.5
+- ✅ `cargo build --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` pass
+- ✅ `cargo test -p candler-schemas` passes, including tests that validate against the generated JSON Schema: the rikyu snapshot, a bio-opentrons snapshot, golden outcomes of the four statuses the corpus has (pass, fail, blocked with its artifact cause, not_measured), and synthetic `not_applicable` and text-valued outcomes
+- ✅ The committed JSON Schema files match the structs: the drift test fails on a deliberate drift and passes after `CANDLER_BLESS_SCHEMAS=1`
+- ✅ `cog check main..HEAD` passes, and the `commit-msg` hook rejects a message without a scope
+- ✅ The catalog snapshot schema is ready to land on `main` for HTN Phase 4.5
 
 ## Gotchas
 - Half the `*-grading.json` blobs in the golden tag are AppleDouble `._*` files; skip them.
@@ -45,7 +45,7 @@ graph TD
     workspace[Workspace and schema foundation]:::done
     commit_tooling[Commit tooling: installs, cog and the commit-msg hook]:::done
     fixtures[Fixtures: golden shape classes, real catalogs, MCP spec]:::done
-    records[Records]:::inprogress
+    records[Records]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -59,7 +59,7 @@ graph TD
 | `workspace.md` | 📄 Leaf Task | ✅ Done |
 | `commit_tooling.md` | 📄 Leaf Task | ✅ Done |
 | `fixtures.md` | 📄 Leaf Task | ✅ Done |
-| `records/` | 📁 Directory | 🔄 In Progress |
+| `records/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

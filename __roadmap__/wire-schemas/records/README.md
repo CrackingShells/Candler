@@ -14,9 +14,9 @@ Level 1 of `wire-schemas`: runs after `workspace.md` (primitives, drift harness,
 - [x] `../workspace.md`, `../commit_tooling.md` and `../fixtures.md` are `done` and merged on `feat/wire-schemas`
 
 ## Success Gates
-- ⬜ `cargo nextest run -p candler-schemas` passes with both roots registered in `generated_schemas()`
-- ⬜ `cargo clippy --workspace --all-targets -- -D warnings` passes
-- ⬜ `actionlint .github/workflows/*.yml` passes
+- ✅ `cargo nextest run -p candler-schemas` passes with both roots registered in `generated_schemas()`
+- ✅ `cargo clippy --workspace --all-targets -- -D warnings` passes
+- ✅ `actionlint .github/workflows/*.yml` passes
 
 ## Gotchas
 - `outcome_record.md` and `catalog_snapshot.md` both add a `pub mod` line to `lib.rs` and one entry to `generated_schemas()`; the coordinator resolves that conflict at integration.
@@ -28,7 +28,7 @@ graph TD
     outcome_record[Outcome record]:::done
     catalog_snapshot[Tool-catalog snapshot]:::done
     release_ci[Release tooling and CI workflows]:::done
-    closeout[Close-out]:::inprogress
+    closeout[Close-out]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -42,7 +42,7 @@ graph TD
 | `outcome_record.md` | 📄 Leaf Task | ✅ Done |
 | `catalog_snapshot.md` | 📄 Leaf Task | ✅ Done |
 | `release_ci.md` | 📄 Leaf Task | ✅ Done |
-| `closeout/` | 📁 Directory | 🔄 In Progress |
+| `closeout/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

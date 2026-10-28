@@ -4,13 +4,13 @@
 **Pre-conditions**:
 - [x] Every leaf of `../` is `done` and merged on `feat/wire-schemas`
 **Success Gates**:
-- ⬜ `cargo build --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` pass
-- ⬜ `cargo test -p candler-schemas` passes
-- ⬜ The drift test fails on a deliberate drift and passes after `CANDLER_BLESS_SCHEMAS=1` (scratch change reverted)
-- ⬜ `cog check main..HEAD` passes, and the hook rejects `feat: no scope`
-- ⬜ `actionlint .github/workflows/*.yml` passes
-- ⬜ `dirtree-rdm validate __roadmap__/wire-schemas/` and `dirtree-rdm validate __roadmap__/candler-v1/` pass
-- ⬜ R01 §Wire encodings matches what was built (coordinator's read, differences fixed in a `docs(design)` commit before this one)
+- ✅ `cargo build --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` pass
+- ✅ `cargo test -p candler-schemas` passes
+- ✅ The drift test fails on a deliberate drift and passes after `CANDLER_BLESS_SCHEMAS=1` (scratch change reverted)
+- ✅ `cog check main..HEAD` passes, and the hook rejects `feat: no scope`
+- ✅ `actionlint .github/workflows/*.yml` passes
+- ✅ `dirtree-rdm validate __roadmap__/wire-schemas/` and `dirtree-rdm validate __roadmap__/candler-v1/` pass
+- ✅ R01 §Wire encodings matches what was built (coordinator's read, differences fixed in a `docs(design)` commit before this one)
 **References**: [R01 Milestone leaf](../../../candler-v1/wire_schemas.md) — the gates; [R02 README](../../../../README.md) — §Status
 
 ## Step 1: Say what exists
