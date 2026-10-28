@@ -2,8 +2,8 @@
 
 **Goal**: The raw examples the record leaves test against are committed, with their provenance: golden rows chosen by shape class, two real catalogs, and MCP's own tool schema.
 **Pre-conditions**:
-- [ ] `git -C /Users/hacker/Documents/src/External/PCfVW/agenticai4hpc26-artifact rev-parse candler-m2a-golden^{commit}` prints `7efa1b7…`
-- [ ] `git -C /Users/hacker/Documents/src/External/PCfVW/mcp-python-ingestion rev-parse 'htn-creator-eval@0.4.2^{commit}'` prints `28be2c15…`
+- [x] `git -C /Users/hacker/Documents/src/External/PCfVW/agenticai4hpc26-artifact rev-parse candler-m2a-golden^{commit}` prints `7efa1b7…`
+- [x] `git -C /Users/hacker/Documents/src/External/PCfVW/mcp-python-ingestion rev-parse 'htn-creator-eval@0.4.2^{commit}'` prints `28be2c15…`
 **Success Gates**:
 - ⬜ Re-running `python3 -I crates/candler-schemas/tests/fixtures/legacy/select_golden.py` leaves `git status --porcelain crates/candler-schemas/tests/fixtures/` empty
 - ⬜ `jq -r .status crates/candler-schemas/tests/fixtures/legacy/golden_rows.jsonl | sort -u` prints `blocked`, `fail`, `not_measured`, `pass`

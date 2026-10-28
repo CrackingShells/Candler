@@ -2,7 +2,7 @@
 
 **Goal**: `cog`, `release-plz` and `cargo-nextest` are installed and documented, and every commit is checked against CONTRIBUTING's convention locally.
 **Pre-conditions**:
-- [ ] CONTRIBUTING declares the `rdm` and `reports` types (`feat/wire-schemas`, commit `docs(contributing): give roadmaps and reports their own commit types`)
+- [x] CONTRIBUTING declares the `rdm` and `reports` types (`feat/wire-schemas`, commit `docs(contributing): give roadmaps and reports their own commit types`)
 **Success Gates**:
 - ⬜ `cog --version`, `release-plz --version` and `cargo nextest --version` each exit 0
 - ⬜ `cog check main..HEAD` passes on this branch (confirm the range syntax with `cog check --help`)

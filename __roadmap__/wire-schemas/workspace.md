@@ -2,7 +2,7 @@
 
 **Goal**: The cargo workspace exists under Grit's lints, and `candler-schemas` holds the shared string formats and the schema drift check every wire type uses.
 **Pre-conditions**:
-- [ ] The wire encodings are recorded in R01 §Wire encodings on `feat/wire-schemas`
+- [x] The wire encodings are recorded in R01 §Wire encodings on `feat/wire-schemas`
 - [ ] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints this leaf's worktree path (after Step 1)
 **Success Gates**:
 - ⬜ `cargo build --workspace`, `cargo fmt --check` and `cargo clippy --workspace --all-targets -- -D warnings` pass

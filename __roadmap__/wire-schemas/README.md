@@ -17,7 +17,7 @@ The workspace, its commit and release tooling, and `candler-schemas` with the ou
 ## Pre-conditions
 - [x] The pre-conditions of `../candler-v1/wire_schemas.md` hold
 - [x] Eliott approved the plan (2026-10-28)
-- [ ] The wire encodings are recorded in R01 §Data Model on `feat/wire-schemas`
+- [x] The wire encodings are recorded in R01 §Data Model on `feat/wire-schemas` (5f49685)
 
 ## Success Gates
 - ⬜ `cargo build --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` pass
@@ -41,9 +41,9 @@ The workspace, its commit and release tooling, and `candler-schemas` with the ou
 ## Status
 ```mermaid
 graph TD
-    workspace[Workspace and schema foundation]:::planned
-    commit_tooling[Commit tooling: installs, cog and the commit-msg hook]:::planned
-    fixtures[Fixtures: golden shape classes, real catalogs, MCP spec]:::planned
+    workspace[Workspace and schema foundation]:::inprogress
+    commit_tooling[Commit tooling: installs, cog and the commit-msg hook]:::inprogress
+    fixtures[Fixtures: golden shape classes, real catalogs, MCP spec]:::inprogress
     records[Records]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -55,9 +55,9 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `workspace.md` | 📄 Leaf Task | ⬜ Planned |
-| `commit_tooling.md` | 📄 Leaf Task | ⬜ Planned |
-| `fixtures.md` | 📄 Leaf Task | ⬜ Planned |
+| `workspace.md` | 📄 Leaf Task | 🔄 In Progress |
+| `commit_tooling.md` | 📄 Leaf Task | 🔄 In Progress |
+| `fixtures.md` | 📄 Leaf Task | 🔄 In Progress |
 | `records/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
