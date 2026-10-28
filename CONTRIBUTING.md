@@ -1,6 +1,6 @@
 # Contributing to Candler
 
-Humans and agents both commit here. The rules below are what the commit-lint and release machinery enforce once they are installed; until then they are the convention every commit follows.
+Humans and agents both commit here. The rules below are what the `commit-msg` hook, `cog` and `release-plz` enforce (see [Enforcement](#enforcement)).
 
 ## Commit messages
 
