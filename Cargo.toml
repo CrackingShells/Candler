@@ -20,6 +20,7 @@ uuid = "1"
 
 jsonschema = "0.60"
 proptest = "1"
+tempfile = "3"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

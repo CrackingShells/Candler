@@ -824,13 +824,14 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::generate::GeneratedSchema;
 
     const ZERO: &str = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
     const HEX: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     fn validator<T: JsonSchema>() -> jsonschema::Validator {
-        let root = SchemaGenerator::default().into_root_schema_for::<T>();
-        jsonschema::validator_for(root.as_value()).expect("the generated schema compiles")
+        let root = GeneratedSchema::of::<T>("under-test");
+        jsonschema::validator_for(root.schema.as_value()).expect("the generated schema compiles")
     }
 
     /// Every text parses, round-trips through serde and satisfies the generated schema.
