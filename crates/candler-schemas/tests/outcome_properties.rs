@@ -1190,6 +1190,24 @@ fn outcome_the_schema_bounds_an_integer_only_by_its_type_and_the_rust_reader_by_
 }
 
 #[test]
+fn outcome_run_key_counters_past_32_bits_pass_the_schema_and_fail_the_reader() {
+    for field in ["replicate", "attempt"] {
+        let mut document = base("pass");
+        document["run"][field] = json!(4_294_967_296_u64);
+        assert!(
+            schema_accepts(&document),
+            "the schema refuses a {field} past 32 bits"
+        );
+        assert!(
+            !rust_accepts(&document),
+            "the reader accepts a {field} past 32 bits"
+        );
+        document["run"][field] = json!(u32::MAX);
+        assert!(schema_accepts(&document) && rust_accepts(&document));
+    }
+}
+
+#[test]
 fn outcome_a_probability_of_exactly_zero_and_one_is_valid_for_both_readers() {
     for p in [0.0, 1.0] {
         let mut document = base("pass");
@@ -1201,8 +1219,8 @@ fn outcome_a_probability_of_exactly_zero_and_one_is_valid_for_both_readers() {
 
 #[test]
 fn outcome_both_readers_refuse_a_struct_written_as_a_list() {
-    // The run key is read by `RunKey`, which accepts a list; it is left out of this case.
     let lists = [
+        ("run", json!([good_digest(), 2, 1])),
         ("weight", json!([2, 2])),
         ("probability", json!([0.5, "c"])),
         ("evidence", json!([["event:s#0", "n"]])),

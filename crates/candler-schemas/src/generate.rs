@@ -287,6 +287,63 @@ fn first_difference(left: &str, right: &str) -> usize {
         + 1
 }
 
+/// The end-of-text anchor the published patterns use in place of `$`.
+#[cfg(test)]
+pub(crate) const END_ANCHOR: &str = r"(?![\s\S])";
+
+/// Names what a published pattern reads differently in ECMAScript, Rust and Python, if anything.
+///
+/// It flags a `$` outside a character class, a `.` outside a character class, the shorthand
+/// classes and assertions `\s`, `\d`, `\w`, `\b`, `\A`, `\Z` and their negations, and the
+/// property classes `\p` and `\P`. The one use of `\s` the patterns keep is the end anchor.
+#[cfg(test)]
+pub(crate) fn pattern_problem(pattern: &str) -> Option<String> {
+    let rest = pattern.replace(END_ANCHOR, "");
+    let mut chars = rest.chars();
+    let mut in_class = false;
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => {
+                if let Some(escaped) = chars.next()
+                    && "sSdDwWbBAZzpP".contains(escaped)
+                {
+                    return Some(format!("uses the engine-dependent escape `\\{escaped}`"));
+                }
+            }
+            '[' => in_class = true,
+            ']' => in_class = false,
+            '$' if !in_class => return Some("uses a bare `$` anchor".to_owned()),
+            '.' if !in_class => return Some("uses a bare `.`".to_owned()),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Every `pattern` string in a schema, with the JSON pointer it sits at.
+#[cfg(test)]
+pub(crate) fn patterns_in(value: &Value, pointer: &str) -> Vec<(String, String)> {
+    match value {
+        Value::Object(map) => map
+            .iter()
+            .flat_map(|(key, inner)| {
+                let here = format!("{pointer}/{key}");
+                let own = match inner.as_str() {
+                    Some(text) if key == "pattern" => vec![(here.clone(), text.to_owned())],
+                    _ => Vec::new(),
+                };
+                own.into_iter().chain(patterns_in(inner, &here))
+            })
+            .collect(),
+        Value::Array(items) => items
+            .iter()
+            .enumerate()
+            .flat_map(|(index, inner)| patterns_in(inner, &format!("{pointer}/{index}")))
+            .collect(),
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => Vec::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use schemars::JsonSchema;
@@ -561,5 +618,49 @@ mod tests {
         ordered.dedup();
         assert_eq!(names.len(), ordered.len());
         assert!(names.iter().all(|n| n.ends_with(FILE_SUFFIX)));
+    }
+
+    #[test]
+    fn pattern_check_flags_engine_dependent_syntax() {
+        assert!(pattern_problem("^a$").is_some());
+        assert!(pattern_problem("^(?:a|b$)").is_some());
+        assert!(pattern_problem(r"^\s+(?![\s\S])").is_some());
+        assert!(pattern_problem(r"^\d(?![\s\S])").is_some());
+        assert!(pattern_problem(r"^a\Z").is_some());
+        assert!(pattern_problem(r"^a.b(?![\s\S])").is_some());
+        assert!(pattern_problem(r"^\p{L}(?![\s\S])").is_some());
+        assert!(pattern_problem(r"^\PL(?![\s\S])").is_some());
+        assert!(pattern_problem(r"^a\.b[.](?![\s\S])").is_none());
+        assert!(pattern_problem(r"^a(?![\s\S])").is_none());
+        assert!(pattern_problem(r"^[a$]\$(?![\s\S])").is_none());
+        assert!(pattern_problem("^git:").is_none());
+    }
+
+    #[test]
+    fn no_published_pattern_depends_on_the_regex_engine() {
+        let roots = generated_schemas();
+        let patterns: Vec<(String, String)> = roots
+            .iter()
+            .flat_map(|root| patterns_in(root.schema.as_value(), &root.file_name))
+            .collect();
+        assert!(roots.is_empty() || !patterns.is_empty());
+        for (pointer, pattern) in &patterns {
+            assert_eq!(pattern_problem(pattern), None, "{pointer}: {pattern}");
+        }
+    }
+
+    #[test]
+    fn committed_schema_files_hold_no_pattern_that_depends_on_the_regex_engine() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("schema");
+        let mut count = 0;
+        for root in generated_schemas() {
+            let text = fs::read_to_string(dir.join(&root.file_name)).expect("committed file");
+            let value: Value = serde_json::from_str(&text).expect("committed JSON");
+            for (pointer, pattern) in patterns_in(&value, &root.file_name) {
+                count += 1;
+                assert_eq!(pattern_problem(&pattern), None, "{pointer}: {pattern}");
+            }
+        }
+        assert!(count > 0, "the committed schemas hold patterns");
     }
 }

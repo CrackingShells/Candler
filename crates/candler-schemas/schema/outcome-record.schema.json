@@ -61,7 +61,7 @@
     },
     "Digest": {
       "description": "A content digest: `sha256:` followed by 64 lowercase hex digits.",
-      "pattern": "^sha256:[0-9a-f]{64}$",
+      "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])",
       "type": "string"
     },
     "Evidence": {
@@ -95,12 +95,12 @@
     "EvidenceRef": {
       "$comment": "In a line range the first line is at most the last line, and the sequence and line numbers fit in 64 bits; the parser enforces both.",
       "description": "A pointer to the evidence behind an outcome: `event:<session-id>#<seq>`, or `path:<run-relative path>` optionally followed by `#L<n>` or `#L<n>-<m>`. The session id is non-empty and holds neither `#` nor white space, `seq` is a decimal without leading zeros, line numbers count from 1, and a path in a reference holds no `#`.",
-      "pattern": "^(?:event:[^#\\s\\u0085\\uFEFF]+#(?:0|[1-9][0-9]*)|path:(?!\\.\\.?(?:/|#|$))[^/\\\\#\\x00]+(?:/(?!\\.\\.?(?:/|#|$))[^/\\\\#\\x00]+)*(?:#L[1-9][0-9]*(?:-[1-9][0-9]*)?)?)$",
+      "pattern": "^(?:event:[^#\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+#(?:0|[1-9][0-9]*)|path:(?!\\.\\.?(?:/|#|(?![\\s\\S])))[^/\\\\#\\x00]+(?:/(?!\\.\\.?(?:/|#|(?![\\s\\S])))[^/\\\\#\\x00]+)*(?:#L[1-9][0-9]*(?:-[1-9][0-9]*)?)?)(?![\\s\\S])",
       "type": "string"
     },
     "ExpectationId": {
       "description": "An expectation identifier: a letter or digit, then letters, digits, `.`, `_` or `-`.",
-      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*(?![\\s\\S])",
       "type": "string"
     },
     "Finite": {
@@ -145,12 +145,12 @@
         },
         "name": {
           "description": "The instrument's name, a non-empty string with neither `@` nor white space.",
-          "pattern": "^[^@\\s\\u0085\\uFEFF]+$",
+          "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+(?![\\s\\S])",
           "type": "string"
         },
         "version": {
           "description": "The instrument's version, a `SemVer` 2.0 string.",
-          "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?$",
+          "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?(?![\\s\\S])",
           "type": "string"
         }
       },
@@ -164,13 +164,13 @@
     },
     "InstrumentDigest": {
       "description": "The digest of an instrument: a content digest, or `git:` followed by the 40 or 64 lowercase hex digits of a commit.",
-      "pattern": "^(?:sha256:[0-9a-f]{64}|git:(?:[0-9a-f]{40}|[0-9a-f]{64}))$",
+      "pattern": "^(?:sha256:[0-9a-f]{64}|git:(?:[0-9a-f]{40}|[0-9a-f]{64}))(?![\\s\\S])",
       "type": "string"
     },
     "NameVersion": {
       "$comment": "The major, minor and patch numbers each fit in 64 bits; the parser enforces it.",
       "description": "An evaluator or instrument reference, `name@version`, split at the last `@`: the name is non-empty and holds neither `@` nor white space, and the version is `SemVer` 2.0.",
-      "pattern": "^[^@\\s\\u0085\\uFEFF]+@(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?$",
+      "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+@(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?(?![\\s\\S])",
       "type": "string"
     },
     "Probability": {
@@ -198,17 +198,17 @@
     },
     "ReasonCode": {
       "description": "A reason code: a lowercase letter, then lowercase letters, digits or `_`.",
-      "pattern": "^[a-z][a-z0-9_]*$",
+      "pattern": "^[a-z][a-z0-9_]*(?![\\s\\S])",
       "type": "string"
     },
     "RelPath": {
       "description": "A run-relative POSIX path: non-empty, with no leading `/`, no empty segment, no `.` or `..` segment, no NUL and no `\\`.",
-      "pattern": "^(?!\\.\\.?(?:/|$))[^/\\\\\\x00]+(?:/(?!\\.\\.?(?:/|$))[^/\\\\\\x00]+)*$",
+      "pattern": "^(?!\\.\\.?(?:/|(?![\\s\\S])))[^/\\\\\\x00]+(?:/(?!\\.\\.?(?:/|(?![\\s\\S])))[^/\\\\\\x00]+)*(?![\\s\\S])",
       "type": "string"
     },
     "RequestId": {
       "description": "A request id: a `UUIDv7` in lowercase hyphenated form.",
-      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![\\s\\S])",
       "type": "string"
     },
     "Role": {
@@ -236,6 +236,7 @@
       "description": "The identity of one run: the digest of its cell, and its replicate and attempt numbers, both counted from 1.",
       "properties": {
         "attempt": {
+          "$comment": "Fits in 32 bits; the reader enforces it.",
           "description": "Attempt number, from 1.",
           "format": "uint32",
           "minimum": 1,
@@ -246,6 +247,7 @@
           "description": "The digest of the cell the run belongs to."
         },
         "replicate": {
+          "$comment": "Fits in 32 bits; the reader enforces it.",
           "description": "Replicate number, from 1.",
           "format": "uint32",
           "minimum": 1,
