@@ -42,10 +42,10 @@ The workspace, its commit and release tooling, and `candler-schemas` with the ou
 ## Status
 ```mermaid
 graph TD
-    workspace[Workspace and schema foundation]:::inprogress
-    commit_tooling[Commit tooling: installs, cog and the commit-msg hook]:::inprogress
-    fixtures[Fixtures: golden shape classes, real catalogs, MCP spec]:::inprogress
-    records[Records]:::planned
+    workspace[Workspace and schema foundation]:::done
+    commit_tooling[Commit tooling: installs, cog and the commit-msg hook]:::done
+    fixtures[Fixtures: golden shape classes, real catalogs, MCP spec]:::done
+    records[Records]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -56,10 +56,10 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `workspace.md` | 📄 Leaf Task | 🔄 In Progress |
-| `commit_tooling.md` | 📄 Leaf Task | 🔄 In Progress |
-| `fixtures.md` | 📄 Leaf Task | 🔄 In Progress |
-| `records/` | 📁 Directory | ⬜ Planned |
+| `workspace.md` | 📄 Leaf Task | ✅ Done |
+| `commit_tooling.md` | 📄 Leaf Task | ✅ Done |
+| `fixtures.md` | 📄 Leaf Task | ✅ Done |
+| `records/` | 📁 Directory | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

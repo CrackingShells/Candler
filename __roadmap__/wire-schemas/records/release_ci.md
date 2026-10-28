@@ -2,7 +2,7 @@
 
 **Goal**: release-plz versions the core and the schemas on their own tag lines without publishing anything, and CI runs the local gates from the first push.
 **Pre-conditions**:
-- [ ] `../workspace.md` and `../commit_tooling.md` are `done` and merged on `feat/wire-schemas`
+- [x] `../workspace.md` and `../commit_tooling.md` are `done` and merged on `feat/wire-schemas`
 **Success Gates**:
 - ⬜ `actionlint .github/workflows/*.yml` passes
 - ⬜ In a throwaway clone of the branch (`git clone --branch feat/wire-schemas <repo> <tmp>`), `release-plz update` exits 0 and writes changelog and version proposals for `candler-schemas` and for the core group

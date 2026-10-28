@@ -2,7 +2,7 @@
 
 **Goal**: `OutcomeRecord` carries every field of R01 §Wire schema: outcome record under the rules of §Wire encodings. It is valid however it was made, its schema is generated and drift-checked, and three test layers check it.
 **Pre-conditions**:
-- [ ] `../workspace.md` and `../fixtures.md` are `done` and merged on `feat/wire-schemas`
+- [x] `../workspace.md` and `../fixtures.md` are `done` and merged on `feat/wire-schemas`
 - [ ] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints this leaf's worktree path
 **Success Gates**:
 - ⬜ `cargo nextest run -p candler-schemas outcome` passes

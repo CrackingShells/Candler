@@ -2,7 +2,7 @@
 
 **Goal**: `CatalogSnapshot` records per run what the targeted MCP servers offered, in MCP `tools/list` shape and without loss. Its schema is generated and drift-checked, and it is tested by properties, the MCP specification and two real catalogs.
 **Pre-conditions**:
-- [ ] `../workspace.md` and `../fixtures.md` are `done` and merged on `feat/wire-schemas`
+- [x] `../workspace.md` and `../fixtures.md` are `done` and merged on `feat/wire-schemas`
 - [ ] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints this leaf's worktree path
 **Success Gates**:
 - ⬜ `cargo nextest run -p candler-schemas catalog` passes

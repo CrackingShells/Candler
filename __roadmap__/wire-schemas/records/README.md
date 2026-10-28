@@ -11,7 +11,7 @@ Level 1 of `wire-schemas`: runs after `workspace.md` (primitives, drift harness,
 `OutcomeRecord` and `CatalogSnapshot` exist with generated, drift-checked schemas and three test layers, and release-plz and CI are configured.
 
 ## Pre-conditions
-- [ ] `../workspace.md`, `../commit_tooling.md` and `../fixtures.md` are `done` and merged on `feat/wire-schemas`
+- [x] `../workspace.md`, `../commit_tooling.md` and `../fixtures.md` are `done` and merged on `feat/wire-schemas`
 
 ## Success Gates
 - ⬜ `cargo nextest run -p candler-schemas` passes with both roots registered in `generated_schemas()`
@@ -25,9 +25,9 @@ Level 1 of `wire-schemas`: runs after `workspace.md` (primitives, drift harness,
 ## Status
 ```mermaid
 graph TD
-    outcome_record[Outcome record]:::planned
-    catalog_snapshot[Tool-catalog snapshot]:::planned
-    release_ci[Release tooling and CI workflows]:::planned
+    outcome_record[Outcome record]:::inprogress
+    catalog_snapshot[Tool-catalog snapshot]:::inprogress
+    release_ci[Release tooling and CI workflows]:::inprogress
     closeout[Close-out]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -39,9 +39,9 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `outcome_record.md` | 📄 Leaf Task | ⬜ Planned |
-| `catalog_snapshot.md` | 📄 Leaf Task | ⬜ Planned |
-| `release_ci.md` | 📄 Leaf Task | ⬜ Planned |
+| `outcome_record.md` | 📄 Leaf Task | 🔄 In Progress |
+| `catalog_snapshot.md` | 📄 Leaf Task | 🔄 In Progress |
+| `release_ci.md` | 📄 Leaf Task | 🔄 In Progress |
 | `closeout/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
