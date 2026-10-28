@@ -26,7 +26,7 @@ In plan mode, author the campaign with `managing-roadmaps`, covering:
 R05 holds the earlier design for between-turn behaviour. Adversarial verification is required for driver-trait fit: attack anything OpenCode needed that the trait could not express.
 **Deliverables**: `__roadmap__/m4-session-runner/README.md` and its leaves
 **Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/m4-session-runner/` (expected: PASS)
-**Commit**: `docs(roadmap): plan the m4-session-runner milestone`
+**Commit**: `rdm(runner): plan the m4-session-runner milestone`
 
 ## Step 2: Build and land
 
@@ -44,4 +44,4 @@ Execute the campaign on `feat/m4-session-runner`, then land it on `main` with on
 Write a knowledge-transfer report under `__reports__/m4-session-runner/`. Mark this leaf `done` with `dirtree-rdm update`. Propose the reminder reconciliation to Eliott: `candler-M4` complete; `candler-M5` startable. Apply only on his yes, through `sw_write.py`.
 **Deliverables**: `__reports__/m4-session-runner/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/surfaces/README.md`
 **Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/surfaces/` (expected: PASS)
-**Commit**: `docs(reports): close the m4-session-runner milestone`
+**Commit**: `reports(runner): close the m4-session-runner milestone`

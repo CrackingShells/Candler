@@ -22,7 +22,7 @@ In plan mode, author the campaign with `managing-roadmaps`, covering: `evaluate`
 Adversarial verification is required for `analyze` only (measurement semantics: denominators, `blocked` counted as a failure, rates carrying their counts, I2); the CLI gates are mechanical.
 **Deliverables**: `__roadmap__/m3-lean-cli/README.md` and its leaves
 **Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/m3-lean-cli/` (expected: PASS)
-**Commit**: `docs(roadmap): plan the m3-lean-cli milestone`
+**Commit**: `rdm(cli): plan the m3-lean-cli milestone`
 
 ## Step 2: Build and land
 
@@ -40,4 +40,4 @@ Execute the campaign on `feat/m3-lean-cli`, then land it on `main` with one `--n
 Write a knowledge-transfer report under `__reports__/m3-lean-cli/`. Mark this leaf `done` with `dirtree-rdm update`. Propose the reminder reconciliation to Eliott: `candler-M3` complete; `candler-M7` startable. Apply only on his yes, through `sw_write.py`.
 **Deliverables**: `__reports__/m3-lean-cli/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/surfaces/README.md`
 **Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/surfaces/` (expected: PASS)
-**Commit**: `docs(reports): close the m3-lean-cli milestone`
+**Commit**: `reports(cli): close the m3-lean-cli milestone`

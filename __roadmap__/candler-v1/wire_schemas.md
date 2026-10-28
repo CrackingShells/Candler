@@ -32,7 +32,7 @@ Decide in the plan, and record in `__design__/architecture.md`: how the `value` 
 Adversarial verification is required for the schemas: they are the persisted contract every milestone and the HTN repo depend on. Attack golden rows that cannot be expressed, absent-versus-null ambiguity, float round-trip, and enum spellings that differ from today's records.
 **Deliverables**: `__roadmap__/wire-schemas/README.md` and its leaves
 **Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/wire-schemas/` (expected: PASS)
-**Commit**: `docs(roadmap): plan the wire-schemas milestone`
+**Commit**: `rdm(schemas): plan the wire-schemas milestone`
 
 ## Step 2: Build and land
 
@@ -50,4 +50,4 @@ Execute the campaign on `feat/wire-schemas`, then land it on `main` with one `--
 Write a knowledge-transfer report with `writing-reports` under `__reports__/wire-schemas/`. Mark this leaf `done` with `dirtree-rdm update`. Propose the reminder reconciliation to Eliott: `candler-schemas` complete, and a log line on `pro-htn-phase-4.5-skill` saying its gate can read the snapshot schema. Apply only on his yes, through the scheduling-work skill's `sw_write.py`.
 **Deliverables**: `__reports__/wire-schemas/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/README.md`
 **Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/` (expected: PASS)
-**Commit**: `docs(reports): close the wire-schemas milestone`
+**Commit**: `reports(schemas): close the wire-schemas milestone`

@@ -19,7 +19,7 @@ In plan mode, author the campaign with `managing-roadmaps`, covering: the MCP se
 Adversarial verification is required for budget enforcement and I8 at the surface: attack every way a driving agent could spend without a budget or read a live run's ground truth.
 **Deliverables**: `__roadmap__/m7-mcp-server/README.md` and its leaves
 **Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/m7-mcp-server/` (expected: PASS)
-**Commit**: `docs(roadmap): plan the m7-mcp-server milestone`
+**Commit**: `rdm(mcp): plan the m7-mcp-server milestone`
 
 ## Step 2: Build and land
 
@@ -37,4 +37,4 @@ Execute the campaign on `feat/m7-mcp-server`, then land it on `main` with one `-
 Write a knowledge-transfer report under `__reports__/m7-mcp-server/`. Mark this leaf `done` with `dirtree-rdm update`. Propose the reminder reconciliation to Eliott: `candler-M7` complete. Apply only on his yes, through `sw_write.py`.
 **Deliverables**: `__reports__/m7-mcp-server/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/surfaces/isolation/README.md`
 **Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/surfaces/isolation/` (expected: PASS)
-**Commit**: `docs(reports): close the m7-mcp-server milestone`
+**Commit**: `reports(mcp): close the m7-mcp-server milestone`
