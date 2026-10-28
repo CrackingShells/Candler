@@ -18,6 +18,7 @@ Module `candler_schemas::catalog`:
 - `CatalogSnapshot { schema: "tool-catalog-snapshot/1", captured_at: Timestamp, provider: NameToken, environment: Option<BTreeMap<String, String>>, ext: Option<Map<String, Value>>, servers: Vec<CatalogServer> }`;
 - `CatalogServer { name, source_path: RelPath, source_digest: Digest, transport: Transport, tools: Vec<Tool> }`;
 - `Transport`: `stdio`, `http`, `sse`;
+- server names are unique within a snapshot and tool names within a server, compared byte for byte, and both are non-empty; the module doc states what a reader does not keep (unknown snapshot and server keys, repeated keys, key order, numbers beyond 64 bits or `f64` precision, nesting beyond about 120 levels);
 - `Tool`: serde names in MCP's camelCase. `name` and `inputSchema` (a JSON object) are required; `title`, `description`, `outputSchema` and `annotations` are optional. Every other key is kept in a `#[serde(flatten)]` map, and its schema allows additional properties.
 
 Same Grit shape as the outcome record:
@@ -42,4 +43,4 @@ Register the root in `generated_schemas()` and bless `catalog-snapshot.schema.js
 3. **Real catalogs:** an in-test conversion from HTN's `tool-catalog-snapshot/0` to `/1` sets the tag and moves `servers_dir` and `stubbed_modules` under `ext`. Both converted upstream files validate, deserialise and round-trip `Value`-equal, keeping their server and tool counts (rikyu: 2 servers, 29 tools). The verbatim `/0` file is rejected.
 **Deliverables**: `crates/candler-schemas/tests/catalog_properties.rs`; `crates/candler-schemas/tests/catalog_fixtures.rs`
 **Consistency Checks**: `cargo nextest run -p candler-schemas catalog` (expected: PASS)
-**Commit**: `test(schemas): validate the catalog snapshot by properties, the MCP spec and real catalogs`
+**Commit**: `test(schemas): validate the catalog by properties, MCP spec, real data`

@@ -5,8 +5,8 @@
 - [x] `../workspace.md` and `../commit_tooling.md` are `done` and merged on `feat/wire-schemas`
 **Success Gates**:
 - ⬜ `actionlint .github/workflows/*.yml` passes
-- ⬜ In a throwaway clone of the branch (`git clone --branch feat/wire-schemas <repo> <tmp>`), `release-plz update` exits 0 and writes changelog and version proposals for `candler-schemas` and for the core group
-- ⬜ In the same clone, `release-plz release --dry-run` names the tags `v0.1.0` and `schemas@0.1.0` and publishes nothing. If the dry run needs a forge or a token, the report says so and the `update` gate stands alone
+- ⬜ In a throwaway clone of the branch that carries the configuration, `release-plz update` exits 0, computes `candler-schemas` 0.1.0 against tags `schemas@*` and the core group against tags `v*`, and a probe shows a `fix(schemas)` bumps only the schemas and a `feat(api)` only the core group
+- ⬜ `release-plz.toml` runs git-only (`git_only = true`) with `publish = false` and `git_release_enable = false`; `release-plz release --dry-run` needs a forge and a token, so it is not a gate before the first push
 - ⬜ No workflow and no config publishes to crates.io or creates a GitHub release: `grep -nE 'publish *= *true|git_release_enable *= *true|CARGO_REGISTRY_TOKEN' release-plz.toml .github/workflows/*.yml` prints nothing
 **References**: [R06 CONTRIBUTING §Versioning](../../../CONTRIBUTING.md) — the two lines and their bump rules; [R01 §Workspace](../../../__design__/architecture.md) — release lines per crate
 
@@ -35,13 +35,13 @@ Also set `publish = false` in each crate's `Cargo.toml` if release-plz still ver
 ## Step 3: Run the local gates in CI
 **Goal**: Every push and pull request runs the same commands that pass locally.
 **Implementation Logic**:
-`.github/workflows/ci.yml` runs on push and on pull requests. Its steps:
+`.github/workflows/ci.yml` runs on push and on pull requests (cog through `cocogitto/cocogitto-action`, which `taiki-e/install-action` does not carry). Its steps:
 - the pinned toolchain from `rust-toolchain.toml`;
 - `cargo fmt --check`;
 - `cargo clippy --workspace --all-targets -- -D warnings`;
 - `cargo build --workspace`;
 - `cargo nextest run --workspace` (nextest through `taiki-e/install-action`);
-- `cog check` on the pushed range (cocogitto through `taiki-e/install-action`).
+- `cog check` on the pushed range (cocogitto through `cocogitto/cocogitto-action`).
 
 The commands are the same strings as the campaign's gates.
 **Deliverables**: `.github/workflows/ci.yml`

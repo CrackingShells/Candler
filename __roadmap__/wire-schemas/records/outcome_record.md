@@ -27,16 +27,20 @@
    - `Role`: `gate`, `quality`, `descriptive`.
    - `Value`: tagged on `kind`: `number`, `count`, `fraction`, `text`, `counts`.
    - `Fraction`: `{num, den}` with `den ≥ 1`.
-   - `Weight`: `{num, den}` with `num ≤ den` and `den ≥ 1`; `0/0` is accepted only with a legacy cause.
+   - `Weight`: `{num, den}` with `num ≤ den` and `den ≥ 1`; `0/0` is accepted only on a `pass` with a legacy cause.
+   - `Finite`: a finite `f64` (refusing NaN and infinities), the payload of a `number` value.
    - `Instrument`: `{name, version (SemVer), digest: InstrumentDigest, dirty}`; a `git:` digest requires `dirty: false`.
    - `Evidence`: `{ref?: EvidenceRef, note?}`, at least one present.
    - `Cause`: one key: `expectation`, `artifact` (a `RelPath`), `reason` (a `ReasonCode`), or `legacy` (a `ReasonCode`).
    - `Probability`: `{p ∈ [0, 1], calibration_ref}`.
 3. The cross-field rules, in `OutcomeRecord::validate()`:
-   - a non-legacy cause is required on `blocked`, `not_measured` and `not_applicable`, and absent on `pass` and `fail`;
+   - a cause (legacy included) is required on `blocked`, `not_measured` and `not_applicable`, and absent on `pass` and `fail` unless it is legacy;
+   - a `pass` weighs `num = den`, a `fail` `num < den`, a `blocked` `num = 0`;
+   - a `gate` or `quality` record carries no `probability` and no dirty instrument (I5, I6);
    - `legacy` is the only cause `pass` and `fail` may carry;
    - `weight` is absent on `not_measured` and `not_applicable`;
-   - `effective_weight()` returns the default when `weight` is absent (pass 1/1, fail 0/1, blocked 0/1).
+   - `effective_weight()` returns the stated weight or the status default (pass 1/1, fail 0/1, blocked 0/1), and `None` for `not_measured` and `not_applicable`.
+   - every struct is read from a JSON object only, never from an array.
 4. Grit shape:
    - every struct is `#[non_exhaustive]` and built with `OutcomeRecordBuilder` (and builders for its members), whose `build()` runs `validate()`;
    - deserialisation goes through a private `RawOutcomeRecord` and `#[serde(try_from)]`;
@@ -51,7 +55,7 @@
 ## Step 2: Publish its JSON Schema
 **Goal**: `outcome-record.schema.json` is generated, states the by-status rules, and is drift-checked.
 **Implementation Logic**:
-Register the root in `generated_schemas()`. A schemars transform adds, as `if`/`then` clauses, the rules serde cannot derive: cause by status, weight by status, and a `legacy` cause on `pass`/`fail` and `0/0` weights. It also sets `deprecated: true` on the `legacy` variant. The rules JSON Schema cannot express (`num ≤ den`) stay in `validate()`, and the schema states them in a `$comment` that says what holds. Bless the file.
+Register the root in `generated_schemas()`. A schemars transform adds, as `if`/`then` clauses, the rules serde cannot derive: cause by status, weight by status, and a `legacy` cause on `pass`/`fail` and `0/0` weights. It also sets `deprecated: true` on the `legacy` variant. The rules JSON Schema cannot express (`num ≤ den`, the pass and fail weight rules, name and 64-bit limits) stay in `validate()`, and the schema states them in a `$comment` that says what holds. Bless the file.
 **Deliverables**: `crates/candler-schemas/src/outcome.rs` (`outcome_schema_transform`); `crates/candler-schemas/src/generate.rs` (the root's entry); `crates/candler-schemas/schema/outcome-record.schema.json`
 **Consistency Checks**: `cargo nextest run -p candler-schemas drift` (expected: PASS)
 **Commit**: `feat(schemas): publish the outcome record as JSON Schema`
@@ -75,4 +79,4 @@ Register the root in `generated_schemas()`. A schemars transform adds, as `if`/`
    Identity fields are synthetic, and `outcomes/golden/README.md` says so. A mapping test re-derives each expected `(status, value, weight, cause, role)` from the raw row and grading entry through a table written in the test, independent of the fixtures, and compares. A float test checks that every value in `legacy/golden_floats.json` re-serialises to the same text.
 **Deliverables**: `crates/candler-schemas/tests/outcome_properties.rs`; `crates/candler-schemas/tests/outcome_fixtures.rs`; `crates/candler-schemas/tests/fixtures/outcomes/{synthetic,golden}/*.json`; `crates/candler-schemas/tests/fixtures/outcomes/golden/README.md`
 **Consistency Checks**: `cargo nextest run -p candler-schemas outcome` (expected: PASS)
-**Commit**: `test(schemas): validate the outcome record by properties, variants and golden rows`
+**Commit**: `test(schemas): validate the outcome record by properties and fixtures`
