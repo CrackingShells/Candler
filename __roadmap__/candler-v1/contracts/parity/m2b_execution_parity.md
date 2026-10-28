@@ -34,7 +34,7 @@ Adversarial verification is required for supervision (failures are silent: pid r
 Gotchas: Claude Code 2.1.304 starts its Bash shell and its hooks detached, in new sessions, so a group kill misses them; `CLAUDECODE` must never reach the child; today's resume deletes partial runs, Candler must not; the confinement hook is the only confinement today (permission deny-rules were inert); Docker is not needed before M5.
 **Deliverables**: `__roadmap__/m2b-execution-parity/README.md` and its leaves
 **Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/m2b-execution-parity/` (expected: PASS)
-**Commit**: `docs(roadmap): plan the m2b-execution-parity milestone`
+**Commit**: `rdm(orchestrator): plan the m2b-execution-parity milestone`
 
 ## Step 2: Build and land
 
@@ -52,4 +52,4 @@ Execute the campaign on `feat/m2b-execution-parity`, then land it on `main` with
 Write a knowledge-transfer report under `__reports__/m2b-execution-parity/`. Mark this leaf `done` with `dirtree-rdm update`. Propose the reminder reconciliation to Eliott: `candler-M2b` complete; `candler-M3` and `candler-M4` startable. Apply only on his yes, through `sw_write.py`.
 **Deliverables**: `__reports__/m2b-execution-parity/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/README.md`
 **Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/` (expected: PASS)
-**Commit**: `docs(reports): close the m2b-execution-parity milestone`
+**Commit**: `reports(orchestrator): close the m2b-execution-parity milestone`

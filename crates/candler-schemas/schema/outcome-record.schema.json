@@ -1,0 +1,712 @@
+{
+  "$comment": "A pass has a weight with num equal to den and a fail has num below den; the schema does not compare the two, and the Rust reader enforces both. The schema states the blocked rule, num 0.",
+  "$defs": {
+    "Cause": {
+      "description": "Why the outcome has its status: an object with exactly one of the keys `expectation`, `artifact`, `reason` and `legacy`.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The identifier of the expectation whose outcome this one depends on, under the key `expectation`.",
+          "properties": {
+            "expectation": {
+              "$ref": "#/$defs/ExpectationId"
+            }
+          },
+          "required": [
+            "expectation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The run-relative POSIX path of the artifact the run did not produce, under the key `artifact`.",
+          "properties": {
+            "artifact": {
+              "$ref": "#/$defs/RelPath"
+            }
+          },
+          "required": [
+            "artifact"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A reason code string, under the key `reason`; the codes `not_applicable_to_arm`, `instrument_error` and `deadline` have meanings assigned by the Candler core, and an evaluator's own codes do not reuse them.",
+          "properties": {
+            "reason": {
+              "$ref": "#/$defs/ReasonCode"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "deprecated": true,
+          "description": "A reason code string, under the key `legacy`, for a record whose status, weight or cause the other causes cannot state exactly, such as a zero weight `0/0` on a `pass`; the code says which case. Evaluators never emit it. It is the only cause a `pass` or `fail` may carry, and a zero weight `0/0` requires it.",
+          "properties": {
+            "legacy": {
+              "$ref": "#/$defs/ReasonCode"
+            }
+          },
+          "required": [
+            "legacy"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Digest": {
+      "description": "A content digest: `sha256:` followed by 64 lowercase hex digits.",
+      "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])",
+      "type": "string"
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "ref"
+          ]
+        },
+        {
+          "required": [
+            "note"
+          ]
+        }
+      ],
+      "description": "A pointer to, or a remark about, what an outcome rests on; at least one of `ref` and `note` is present.",
+      "properties": {
+        "note": {
+          "description": "What the evidence says, a non-empty string.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "ref": {
+          "$ref": "#/$defs/EvidenceRef",
+          "description": "An evidence reference string: `event:<session-id>#<seq>`, or `path:<run-relative path>` with an optional line anchor."
+        }
+      },
+      "type": "object"
+    },
+    "EvidenceRef": {
+      "$comment": "In a line range the first line is at most the last line, and the sequence and line numbers fit in 64 bits; the parser enforces both.",
+      "description": "A pointer to the evidence behind an outcome: `event:<session-id>#<seq>`, or `path:<run-relative path>` optionally followed by `#L<n>` or `#L<n>-<m>`. The session id is non-empty and holds neither `#` nor white space, `seq` is a decimal without leading zeros, line numbers count from 1, and a path in a reference holds no `#`.",
+      "pattern": "^(?:event:[^#\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+#(?:0|[1-9][0-9]*)|path:(?!\\.\\.?(?:/|#|(?![\\s\\S])))[^/\\\\#\\x00]+(?:/(?!\\.\\.?(?:/|#|(?![\\s\\S])))[^/\\\\#\\x00]+)*(?:#L[1-9][0-9]*(?:-[1-9][0-9]*)?)?)(?![\\s\\S])",
+      "type": "string"
+    },
+    "ExpectationId": {
+      "description": "An expectation identifier: a letter or digit, then letters, digits, `.`, `_` or `-`.",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*(?![\\s\\S])",
+      "type": "string"
+    },
+    "Finite": {
+      "description": "A finite real number: neither `NaN` nor infinite. Negative zero is finite.",
+      "format": "double",
+      "type": "number"
+    },
+    "Instrument": {
+      "$comment": "Each of the version's three numbers fits in 64 bits; the Rust reader enforces it.",
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "description": "A git digest names the commit of a clean tree.",
+          "if": {
+            "properties": {
+              "digest": {
+                "pattern": "^git:"
+              }
+            },
+            "required": [
+              "digest"
+            ]
+          },
+          "then": {
+            "properties": {
+              "dirty": {
+                "const": false
+              }
+            }
+          }
+        }
+      ],
+      "description": "The exact tool that made a measurement.",
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/InstrumentDigest",
+          "description": "What identifies the instrument's content: a `sha256:` content digest, or a `git:` commit hash of a clean tree."
+        },
+        "dirty": {
+          "description": "Whether the instrument differs from what its digest names, a boolean; always false for a `git:` digest.",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "The instrument's name, a non-empty string with neither `@` nor white space.",
+          "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+(?![\\s\\S])",
+          "type": "string"
+        },
+        "version": {
+          "description": "The instrument's version, a `SemVer` 2.0 string.",
+          "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?(?![\\s\\S])",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "digest",
+        "dirty"
+      ],
+      "type": "object"
+    },
+    "InstrumentDigest": {
+      "description": "The digest of an instrument: a content digest, or `git:` followed by the 40 or 64 lowercase hex digits of a commit.",
+      "pattern": "^(?:sha256:[0-9a-f]{64}|git:(?:[0-9a-f]{40}|[0-9a-f]{64}))(?![\\s\\S])",
+      "type": "string"
+    },
+    "NameVersion": {
+      "$comment": "The major, minor and patch numbers each fit in 64 bits; the parser enforces it.",
+      "description": "An evaluator or instrument reference, `name@version`, split at the last `@`: the name is non-empty and holds neither `@` nor white space, and the version is `SemVer` 2.0.",
+      "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+@(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?(?![\\s\\S])",
+      "type": "string"
+    },
+    "Probability": {
+      "additionalProperties": false,
+      "description": "A calibrated probability that the expectation holds, written as an object with the number `p` and the string `calibration_ref`.",
+      "properties": {
+        "calibration_ref": {
+          "description": "A non-empty string that names the calibration backing the probability.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "p": {
+          "description": "The probability, a number from 0 to 1.",
+          "format": "double",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "p",
+        "calibration_ref"
+      ],
+      "type": "object"
+    },
+    "ReasonCode": {
+      "description": "A reason code: a lowercase letter, then lowercase letters, digits or `_`.",
+      "pattern": "^[a-z][a-z0-9_]*(?![\\s\\S])",
+      "type": "string"
+    },
+    "RelPath": {
+      "description": "A run-relative POSIX path: non-empty, with no leading `/`, no empty segment, no `.` or `..` segment, no NUL and no `\\`.",
+      "pattern": "^(?!\\.\\.?(?:/|(?![\\s\\S])))[^/\\\\\\x00]+(?:/(?!\\.\\.?(?:/|(?![\\s\\S])))[^/\\\\\\x00]+)*(?![\\s\\S])",
+      "type": "string"
+    },
+    "RequestId": {
+      "description": "A request id: a `UUIDv7` in lowercase hyphenated form.",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![\\s\\S])",
+      "type": "string"
+    },
+    "Role": {
+      "description": "The part an expectation plays in grading, copied from its suite entry when it was graded.",
+      "oneOf": [
+        {
+          "const": "gate",
+          "description": "A requirement the run must meet.",
+          "type": "string"
+        },
+        {
+          "const": "quality",
+          "description": "A measure of how well the run did.",
+          "type": "string"
+        },
+        {
+          "const": "descriptive",
+          "description": "A measurement reported without a verdict on the run.",
+          "type": "string"
+        }
+      ]
+    },
+    "RunKey": {
+      "additionalProperties": false,
+      "description": "The identity of one run: the digest of its cell, and its replicate and attempt numbers, both counted from 1.",
+      "properties": {
+        "attempt": {
+          "$comment": "Fits in 32 bits; the reader enforces it.",
+          "description": "Attempt number, from 1.",
+          "format": "uint32",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "cell": {
+          "$ref": "#/$defs/Digest",
+          "description": "The digest of the cell the run belongs to."
+        },
+        "replicate": {
+          "$comment": "Fits in 32 bits; the reader enforces it.",
+          "description": "Replicate number, from 1.",
+          "format": "uint32",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cell",
+        "replicate",
+        "attempt"
+      ],
+      "type": "object"
+    },
+    "Status": {
+      "description": "The five-state result of an outcome.",
+      "oneOf": [
+        {
+          "const": "pass",
+          "description": "The expectation holds.",
+          "type": "string"
+        },
+        {
+          "const": "fail",
+          "description": "The expectation was measured and does not hold.",
+          "type": "string"
+        },
+        {
+          "const": "blocked",
+          "description": "The expectation could not be measured because something the measurement needs is missing; it counts as a failure and is attributed to its cause.",
+          "type": "string"
+        },
+        {
+          "const": "not_measured",
+          "description": "The evaluator could not measure the expectation; it is excluded from rates and reported with its cause.",
+          "type": "string"
+        },
+        {
+          "const": "not_applicable",
+          "description": "The expectation does not apply to the run; it is excluded from rates and reported with its cause.",
+          "type": "string"
+        }
+      ]
+    },
+    "Value": {
+      "description": "What an evaluator measured: an object whose `kind` is `number`, `count`, `fraction`, `text` or `counts`, with the payload under the key named after the kind, except that `fraction` carries `num` and `den` directly.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A finite real number, under the key `number`.",
+          "properties": {
+            "kind": {
+              "const": "number",
+              "type": "string"
+            },
+            "number": {
+              "$ref": "#/$defs/Finite",
+              "description": "The measured number, a finite JSON number."
+            }
+          },
+          "required": [
+            "kind",
+            "number"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A whole number of things, under the key `count`.",
+          "properties": {
+            "count": {
+              "$comment": "Fits in 64 bits; the Rust reader enforces it.",
+              "description": "The count, an integer of at least 0.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "count",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "count"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A count out of a total, as the keys `num` and `den` beside `kind`.",
+          "properties": {
+            "den": {
+              "$comment": "Fits in 64 bits; the Rust reader enforces it.",
+              "description": "The count of parts that were looked at; an integer of at least 1.",
+              "format": "uint64",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "fraction",
+              "type": "string"
+            },
+            "num": {
+              "$comment": "Fits in 64 bits; the Rust reader enforces it.",
+              "description": "The count of parts that were found; an integer of at least 0.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "num",
+            "den"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A piece of text, under the key `text`.",
+          "properties": {
+            "kind": {
+              "const": "text",
+              "type": "string"
+            },
+            "text": {
+              "description": "The text, a JSON string that may be empty.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Counts by name, under the key `counts`.",
+          "properties": {
+            "counts": {
+              "$comment": "Each count fits in 64 bits; the Rust reader enforces it.",
+              "additionalProperties": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "description": "An object that maps each name, a string, to its count, an integer of at least 0.",
+              "type": "object"
+            },
+            "kind": {
+              "const": "counts",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "counts"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Weight": {
+      "$comment": "The numerator is at most the denominator; the Rust reader enforces it.",
+      "additionalProperties": false,
+      "description": "The contribution of an outcome to a rate, written as an object with the integers `num` and `den`: `num` out of `den`, with `num` at most `den`.",
+      "properties": {
+        "den": {
+          "$comment": "Fits in 64 bits; the Rust reader enforces it.",
+          "description": "The denominator, an integer of at least 1, or 0 in the zero weight `0/0`, which is carried only with a legacy cause on a `pass`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "num": {
+          "$comment": "Fits in 64 bits; the Rust reader enforces it.",
+          "description": "The numerator, an integer from 0 up to `den`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "num",
+        "den"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:candler:schemas:outcome-record",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "description": "A cause is required for blocked, not_measured and not_applicable.",
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "blocked",
+              "not_measured",
+              "not_applicable"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "required": [
+          "cause"
+        ]
+      }
+    },
+    {
+      "description": "A pass or fail carries no cause other than the legacy cause.",
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "pass",
+              "fail"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "cause": {
+            "required": [
+              "legacy"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "description": "A not_measured or not_applicable carries no weight.",
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "not_measured",
+              "not_applicable"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "not": {
+          "required": [
+            "weight"
+          ]
+        }
+      }
+    },
+    {
+      "description": "The weight of a blocked has num 0 and den of at least 1.",
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "blocked"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "weight": {
+            "properties": {
+              "den": {
+                "minimum": 1
+              },
+              "num": {
+                "const": 0
+              }
+            },
+            "required": [
+              "num",
+              "den"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "description": "A weight of 0/0 requires the legacy cause.",
+      "if": {
+        "properties": {
+          "weight": {
+            "properties": {
+              "den": {
+                "const": 0
+              }
+            },
+            "required": [
+              "den"
+            ]
+          }
+        },
+        "required": [
+          "weight"
+        ]
+      },
+      "then": {
+        "properties": {
+          "cause": {
+            "required": [
+              "legacy"
+            ]
+          }
+        },
+        "required": [
+          "cause"
+        ]
+      }
+    },
+    {
+      "description": "A gate or quality record carries no probability.",
+      "if": {
+        "properties": {
+          "role": {
+            "enum": [
+              "gate",
+              "quality"
+            ]
+          }
+        },
+        "required": [
+          "role"
+        ]
+      },
+      "then": {
+        "not": {
+          "required": [
+            "probability"
+          ]
+        }
+      }
+    },
+    {
+      "description": "A gate or quality record lists no dirty instrument.",
+      "if": {
+        "properties": {
+          "role": {
+            "enum": [
+              "gate",
+              "quality"
+            ]
+          }
+        },
+        "required": [
+          "role"
+        ]
+      },
+      "then": {
+        "properties": {
+          "instruments": {
+            "items": {
+              "properties": {
+                "dirty": {
+                  "const": false
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "description": "The result of one evaluator for one expectation of one run, written as an object; `status` decides which `cause` and `weight` the object may carry, and `role` decides whether it may carry a `probability` and a dirty instrument.",
+  "properties": {
+    "cause": {
+      "$ref": "#/$defs/Cause",
+      "description": "Why the outcome has its status; required for `blocked`, `not_measured` and `not_applicable`, absent for `pass` and `fail` unless it is the legacy cause."
+    },
+    "context_digest": {
+      "$ref": "#/$defs/Digest",
+      "description": "A `sha256:` digest of the canonical JSON of the artifacts, snapshots, inputs and metadata the evaluator received."
+    },
+    "evaluator": {
+      "$ref": "#/$defs/NameVersion",
+      "description": "The evaluator that produced the outcome, as `name@version` with a `SemVer` version."
+    },
+    "evidence": {
+      "description": "An array of the pieces of evidence the outcome rests on; empty when there are none.",
+      "items": {
+        "$ref": "#/$defs/Evidence"
+      },
+      "type": "array"
+    },
+    "expectation_id": {
+      "$ref": "#/$defs/ExpectationId",
+      "description": "The identifier of the expectation that was evaluated; it names an entry of the suite."
+    },
+    "instruments": {
+      "description": "An array of the instruments the evaluator measured with; empty when there are none, and with no dirty instrument when the role is `gate` or `quality`.",
+      "items": {
+        "$ref": "#/$defs/Instrument"
+      },
+      "type": "array"
+    },
+    "probability": {
+      "$ref": "#/$defs/Probability",
+      "description": "A calibrated probability that the expectation holds, as an object; deterministic evaluators never set it, and it is absent when the role is `gate` or `quality`."
+    },
+    "request_id": {
+      "$ref": "#/$defs/RequestId",
+      "description": "The identifier of the request that produced the outcome: a `UUIDv7` in lowercase hyphenated form."
+    },
+    "role": {
+      "$ref": "#/$defs/Role",
+      "description": "The role of the expectation, copied from its suite entry when it was graded: `gate`, `quality` or `descriptive`."
+    },
+    "run": {
+      "$ref": "#/$defs/RunKey",
+      "description": "The key of the run that was evaluated: an object with its cell digest, replicate and attempt."
+    },
+    "status": {
+      "$ref": "#/$defs/Status",
+      "description": "The result: `pass`, `fail`, `blocked`, `not_measured` or `not_applicable`."
+    },
+    "suite_entry_digest": {
+      "$ref": "#/$defs/Digest",
+      "description": "A `sha256:` digest of the canonical JSON of the suite entry's `kind`, `params`, `role`, `applies_to` and `depends_on`."
+    },
+    "value": {
+      "$ref": "#/$defs/Value",
+      "description": "What was measured, as a value object, if the evaluator reports one."
+    },
+    "weight": {
+      "$ref": "#/$defs/Weight",
+      "description": "The contribution to a rate; absent means the default of the status: `pass` 1/1, `fail` 0/1, `blocked` 0/1. A `pass` has `num` equal to `den`, a `fail` has `num` below `den` and a `blocked` has `num` 0. Absent for `not_measured` and `not_applicable`."
+    }
+  },
+  "required": [
+    "run",
+    "expectation_id",
+    "role",
+    "evaluator",
+    "instruments",
+    "suite_entry_digest",
+    "context_digest",
+    "request_id",
+    "status",
+    "evidence"
+  ],
+  "title": "OutcomeRecord",
+  "type": "object"
+}

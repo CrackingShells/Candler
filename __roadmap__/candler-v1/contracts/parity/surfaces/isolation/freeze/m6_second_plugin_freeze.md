@@ -20,7 +20,7 @@ In plan mode, author the campaign with `managing-roadmaps`, covering: the `waiti
 Adversarial verification is required for the freeze: attack anything the second plug-in needed that the contract lacked, before it becomes a breaking change.
 **Deliverables**: `__roadmap__/m6-second-plugin-freeze/README.md` and its leaves
 **Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/m6-second-plugin-freeze/` (expected: PASS)
-**Commit**: `docs(roadmap): plan the m6-second-plugin-freeze milestone`
+**Commit**: `rdm(release): plan the m6-second-plugin-freeze milestone`
 
 ## Step 2: Build and land
 
@@ -38,4 +38,4 @@ Execute the campaign on `feat/m6-second-plugin-freeze`, then land it on `main` w
 Write a knowledge-transfer report under `__reports__/m6-second-plugin-freeze/`. Mark this leaf `done` with `dirtree-rdm update`, and check the campaign README's Success Gates. Propose the reminder reconciliation to Eliott: `candler-M6` complete. Apply only on his yes, through `sw_write.py`.
 **Deliverables**: `__reports__/m6-second-plugin-freeze/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/surfaces/isolation/freeze/README.md`
 **Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/surfaces/isolation/freeze/` (expected: PASS)
-**Commit**: `docs(reports): close the m6-second-plugin-freeze milestone`
+**Commit**: `reports(release): close the m6-second-plugin-freeze milestone`

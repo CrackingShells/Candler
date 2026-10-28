@@ -1,0 +1,85 @@
+{
+  "name": "search_documents",
+  "title": "Document Search",
+  "description": "Search the document index and return the best matches",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Search text"
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50,
+        "default": 10
+      }
+    },
+    "required": [
+      "query"
+    ]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "hits": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "score": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "id",
+            "score"
+          ]
+        }
+      },
+      "total": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "hits",
+      "total"
+    ]
+  },
+  "annotations": {
+    "title": "Search documents",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
+  "icons": [
+    {
+      "src": "https://example.com/search-light.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "48x48",
+        "96x96"
+      ],
+      "theme": "light"
+    },
+    {
+      "src": "https://example.com/search-dark.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": [
+        "any"
+      ],
+      "theme": "dark"
+    }
+  ],
+  "_meta": {
+    "com.example/index": "documents-v2",
+    "com.example/cost": {
+      "credits": 1
+    }
+  }
+}

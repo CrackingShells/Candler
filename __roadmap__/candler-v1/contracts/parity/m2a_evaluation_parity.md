@@ -30,7 +30,7 @@ Adversarial verification is required for golden parity (measurement semantics). 
 Gotchas: test `fork` on macOS early, with its fallback; the reference's causes come from the per-run `eval-N-grading.json` (`blocked_by`), not from `expectations.jsonl`, which has no cause column; in this corpus D-E1 and D-E2 are only `blocked` or `not_measured`, so the text-value path is tested with synthetic fixtures; C-M2's false-fires (88 of 89) must be reproduced, not fixed; work in mcp-python-ingestion follows that repo's commit vocabulary and runs pytest with `mamba run -n forMpyIn`. Parity unblocks `pro-htn-phase-6-matrix` and `pro-htn-phase-7-tier`.
 **Deliverables**: `__roadmap__/m2a-evaluation-parity/README.md` and its leaves
 **Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/m2a-evaluation-parity/` (expected: PASS)
-**Commit**: `docs(roadmap): plan the m2a-evaluation-parity milestone`
+**Commit**: `rdm(evaluation): plan the m2a-evaluation-parity milestone`
 
 ## Step 2: Build and land
 
@@ -48,4 +48,4 @@ Execute the campaign on `feat/m2a-evaluation-parity` in Candler, and on a topic 
 Write a knowledge-transfer report under `__reports__/m2a-evaluation-parity/`. Mark this leaf `done` with `dirtree-rdm update`. Propose the reminder reconciliation to Eliott: `candler-M2a` complete; log lines on `pro-htn-phase-6-matrix` and `pro-htn-phase-7-tier`. Apply only on his yes, through `sw_write.py`.
 **Deliverables**: `__reports__/m2a-evaluation-parity/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/README.md`
 **Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/` (expected: PASS)
-**Commit**: `docs(reports): close the m2a-evaluation-parity milestone`
+**Commit**: `reports(evaluation): close the m2a-evaluation-parity milestone`

@@ -31,7 +31,7 @@ Decide in the plan, and record in `__design__/architecture.md`: the field mappin
 Gotchas: the corpus is read from the tag (`git -C <artifact repo> worktree add <dir> candler-m2a-golden`); git dropped 4 empty `outputs/` directories, which must be recreated empty; `planner.sandbox.version` is `null` in the corpus and must be labelled, not guessed.
 **Deliverables**: `__roadmap__/m1-contracts/README.md` and its leaves
 **Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/m1-contracts/` (expected: PASS)
-**Commit**: `docs(roadmap): plan the m1-contracts milestone`
+**Commit**: `rdm(importer): plan the m1-contracts milestone`
 
 ## Step 2: Build and land
 
@@ -49,4 +49,4 @@ Execute the campaign on `feat/m1-contracts`, then land it on `main` with one `--
 Write a knowledge-transfer report under `__reports__/m1-contracts/`. Mark this leaf `done` with `dirtree-rdm update`. Propose the reminder reconciliation to Eliott: `candler-M1` complete; `candler-M2a` and `candler-M2b` startable. Apply only on his yes, through `sw_write.py`.
 **Deliverables**: `__reports__/m1-contracts/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/README.md`
 **Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/` (expected: PASS)
-**Commit**: `docs(reports): close the m1-contracts milestone`
+**Commit**: `reports(importer): close the m1-contracts milestone`

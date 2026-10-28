@@ -1,0 +1,30 @@
+{
+  "run": {
+    "cell": "sha256:b28a6587f9984281103bf4150867bbca481889e3046c60ec7c27f2b31d562a22",
+    "replicate": 1,
+    "attempt": 1
+  },
+  "expectation_id": "D-E1",
+  "role": "descriptive",
+  "evaluator": "synthetic-eval@1.0.0",
+  "instruments": [
+    {
+      "name": "htn_creator_scripts",
+      "version": "0.4.2",
+      "digest": "git:28be2c158fbc6ee786a789242c2d8fd47bfde9a8",
+      "dirty": false
+    }
+  ],
+  "suite_entry_digest": "sha256:14d88d269dd8e525ac4efee9e315234eeeee5534d5b6e1cb05fcf0150f29b296",
+  "context_digest": "sha256:efb32c7efd11edace120da65942c29eeef32fe7d05773a16aff573fd2be5e281",
+  "request_id": "01926b3a-7c3e-7a1b-8c4d-5e6f7a8b9c0d",
+  "status": "not_measured",
+  "evidence": [
+    {
+      "note": "the checker exited with status 2"
+    }
+  ],
+  "cause": {
+    "reason": "instrument_error"
+  }
+}

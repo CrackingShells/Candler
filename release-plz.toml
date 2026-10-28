@@ -1,0 +1,56 @@
+# Versions, changelogs and tags only. Nothing is published to crates.io and no
+# GitHub release is created; enabling either is a separate decision.
+#
+# git_only reads each package's current version from its git tag, so no
+# registry is consulted and no crate has to exist on crates.io.
+[workspace]
+git_only = true
+publish = false
+git_release_enable = false
+git_tag_enable = false
+features_always_increment_minor = true
+# Release-triggering commits (CONTRIBUTING, Versioning): feat, fix, perf,
+# refactor, style, revert, breaking changes and docs(readme).
+release_commits = '^(feat|fix|perf|refactor|style|revert)(\(|!|:)|^docs\(readme\)'
+
+# Core line: one tag, v<version>, for the four core crates. Every member names
+# the template so each finds its baseline tag; only `candler` creates it.
+[[package]]
+name = "candler"
+version_group = "core"
+git_tag_enable = true
+git_tag_name = "v{{ version }}"
+
+[[package]]
+name = "candler-core"
+version_group = "core"
+git_tag_name = "v{{ version }}"
+
+[[package]]
+name = "candler-harness"
+version_group = "core"
+git_tag_name = "v{{ version }}"
+
+[[package]]
+name = "candler-harness-claude-code"
+version_group = "core"
+git_tag_name = "v{{ version }}"
+
+# Schema line: schemas@<version>.
+[[package]]
+name = "candler-schemas"
+git_tag_enable = true
+git_tag_name = "schemas@{{ version }}"
+
+[changelog]
+protect_breaking_commits = true
+commit_parsers = [
+    { message = '^(rdm|reports|merge|test|ci|build|chore)(\(|!|:)', skip = true },
+    { message = '^feat', group = "Features" },
+    { message = '^fix', group = "Fixes" },
+    { message = '^perf', group = "Performance" },
+    { message = '^refactor', group = "Refactoring" },
+    { message = '^style', group = "Style" },
+    { message = '^revert', group = "Reverts" },
+    { message = '^docs', group = "Documentation" },
+]

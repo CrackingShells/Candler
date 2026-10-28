@@ -1,0 +1,170 @@
+{
+  "$defs": {
+    "CatalogServer": {
+      "additionalProperties": false,
+      "description": "One MCP server of a run and the tools it offered.",
+      "properties": {
+        "name": {
+          "description": "The name of the server: at least one character, and unique among the servers of its snapshot.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "source_digest": {
+          "$ref": "#/$defs/Digest",
+          "description": "The digest of the server's source file."
+        },
+        "source_path": {
+          "$ref": "#/$defs/RelPath",
+          "description": "The path of the server's source file: a POSIX path relative to the project root."
+        },
+        "tools": {
+          "$comment": "Tool names are unique within the array, compared byte for byte (case-sensitive, without Unicode normalisation); JSON Schema cannot state this, and the Rust reader refuses a repeated name.",
+          "description": "The tools the server offered, with names unique among them.",
+          "items": {
+            "$ref": "#/$defs/Tool"
+          },
+          "type": "array"
+        },
+        "transport": {
+          "$ref": "#/$defs/Transport",
+          "description": "How a client reaches the server."
+        }
+      },
+      "required": [
+        "name",
+        "source_path",
+        "source_digest",
+        "transport",
+        "tools"
+      ],
+      "type": "object"
+    },
+    "Digest": {
+      "description": "A content digest: `sha256:` followed by 64 lowercase hex digits.",
+      "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])",
+      "type": "string"
+    },
+    "NameToken": {
+      "description": "A catalog provider reference, `name@token`, split at the last `@`: the name is non-empty and holds neither `@` nor white space, and the token matches `[0-9A-Za-z.+-]+`.",
+      "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+@[0-9A-Za-z.+-]+(?![\\s\\S])",
+      "type": "string"
+    },
+    "RelPath": {
+      "description": "A run-relative POSIX path: non-empty, with no leading `/`, no empty segment, no `.` or `..` segment, no NUL and no `\\`.",
+      "pattern": "^(?!\\.\\.?(?:/|(?![\\s\\S])))[^/\\\\\\x00]+(?:/(?!\\.\\.?(?:/|(?![\\s\\S])))[^/\\\\\\x00]+)*(?![\\s\\S])",
+      "type": "string"
+    },
+    "Timestamp": {
+      "$comment": "The pattern states the lexical form; a date or time that names no instant, such as month 13, and a fraction of more than nine digits are refused by the parser.",
+      "description": "An RFC 3339 timestamp with an uppercase `T` and an explicit offset, `Z` or `±HH:MM`.",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])(?![\\s\\S])",
+      "type": "string"
+    },
+    "Tool": {
+      "additionalProperties": true,
+      "description": "A tool in MCP `tools/list` shape: the named keys of the MCP `Tool` definition, and every other key as the server gave it.",
+      "properties": {
+        "annotations": {
+          "additionalProperties": true,
+          "description": "Hints about the behaviour of the tool: an open object whose keys are kept as given.",
+          "type": "object"
+        },
+        "description": {
+          "description": "A human-readable description of the tool.",
+          "type": "string"
+        },
+        "inputSchema": {
+          "additionalProperties": true,
+          "description": "The JSON Schema object that describes the arguments of the tool. Its `type` is not required to be `object`.",
+          "type": "object"
+        },
+        "name": {
+          "description": "The name of the tool, as the server gave it: at least one character, and unique among the tools of its server.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "outputSchema": {
+          "additionalProperties": true,
+          "description": "The JSON Schema object that describes the structured output of the tool.",
+          "type": "object"
+        },
+        "title": {
+          "description": "A human-readable title of the tool.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "inputSchema"
+      ],
+      "type": "object"
+    },
+    "Transport": {
+      "description": "How a client reaches an MCP server.",
+      "oneOf": [
+        {
+          "const": "stdio",
+          "description": "The server runs as a subprocess and is spoken to over its standard input and output.",
+          "type": "string"
+        },
+        {
+          "const": "http",
+          "description": "The server is reached over streamable HTTP.",
+          "type": "string"
+        },
+        {
+          "const": "sse",
+          "description": "The server is reached over server-sent events.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$id": "urn:candler:schemas:catalog-snapshot",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "What the MCP servers targeted by a run offered: for each server, its tools in the shape of an MCP `tools/list` result.",
+  "properties": {
+    "captured_at": {
+      "$ref": "#/$defs/Timestamp",
+      "description": "When the snapshot was captured."
+    },
+    "environment": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "The versions the capture depended on, as an object from a name to its version text.",
+      "type": "object"
+    },
+    "ext": {
+      "additionalProperties": true,
+      "description": "Provider-specific data: an open JSON object that Candler does not interpret.",
+      "type": "object"
+    },
+    "provider": {
+      "$ref": "#/$defs/NameToken",
+      "description": "The catalog provider that captured the snapshot, as `name@token`."
+    },
+    "schema": {
+      "const": "tool-catalog-snapshot/1",
+      "description": "The version marker of the document: always `tool-catalog-snapshot/1`.",
+      "type": "string"
+    },
+    "servers": {
+      "$comment": "Server names are unique within the array, compared byte for byte (case-sensitive, without Unicode normalisation); JSON Schema cannot state this, and the Rust reader refuses a repeated name.",
+      "description": "The servers the run targeted, each with the tools it offered, with names unique among them.",
+      "items": {
+        "$ref": "#/$defs/CatalogServer"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema",
+    "captured_at",
+    "provider",
+    "servers"
+  ],
+  "title": "CatalogSnapshot",
+  "type": "object"
+}

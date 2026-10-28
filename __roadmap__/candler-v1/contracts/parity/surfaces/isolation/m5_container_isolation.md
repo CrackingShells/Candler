@@ -21,7 +21,7 @@ In plan mode, author the campaign with `managing-roadmaps`, covering: the contai
 Adversarial verification is required for I8: attack every path by which ground truth could enter the boundary (mounts, environment, logs, the driver's files).
 **Deliverables**: `__roadmap__/m5-container-isolation/README.md` and its leaves
 **Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/m5-container-isolation/` (expected: PASS)
-**Commit**: `docs(roadmap): plan the m5-container-isolation milestone`
+**Commit**: `rdm(isolation): plan the m5-container-isolation milestone`
 
 ## Step 2: Build and land
 
@@ -39,4 +39,4 @@ Execute the campaign on `feat/m5-container-isolation`, then land it on `main` wi
 Write a knowledge-transfer report under `__reports__/m5-container-isolation/`. Mark this leaf `done` with `dirtree-rdm update`. Propose the reminder reconciliation to Eliott: `candler-M5` complete; a log line on `pro-htn-phase-8-skill`. Apply only on his yes, through `sw_write.py`.
 **Deliverables**: `__reports__/m5-container-isolation/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/surfaces/isolation/README.md`
 **Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/surfaces/isolation/` (expected: PASS)
-**Commit**: `docs(reports): close the m5-container-isolation milestone`
+**Commit**: `reports(isolation): close the m5-container-isolation milestone`

@@ -1,10 +1,10 @@
 # Contributing to Candler
 
-Humans and agents both commit here. The rules below are what the commit-lint and release machinery enforce once they are installed; until then they are the convention every commit follows.
+Humans and agents both commit here. The rules below are what the `commit-msg` hook, `cog` and `release-plz` enforce (see [Enforcement](#enforcement)).
 
 ## Commit messages
 
-[Conventional Commits](https://www.conventionalcommits.org/), with a mandatory scope:
+[Conventional Commits](https://www.conventionalcommits.org/), with a mandatory scope and three types of our own (`merge`, `rdm`, `reports`):
 
 ```
 <type>(<scope>): <why this change exists, imperative, lowercase>
@@ -30,7 +30,9 @@ Humans and agents both commit here. The rules below are what the commit-lint and
 | `refactor` | Restructuring with no behaviour change |
 | `style` | Formatting only |
 | `test` | Tests and fixtures only |
-| `docs` | Documentation, reports and roadmaps |
+| `docs` | Documentation outside `__roadmap__/` and `__reports__/` |
+| `rdm` | Roadmaps in `__roadmap__/` |
+| `reports` | Reports in `__reports__/` |
 | `build` | Packaging, dependencies, environments |
 | `ci` | CI workflows |
 | `chore` | Repository upkeep that fits nothing above |
@@ -39,7 +41,7 @@ Humans and agents both commit here. The rules below are what the commit-lint and
 
 ### Scopes
 
-A scope names the topic of the commit, never the action or a layer (`core`, `misc`, `update` are not scopes). Related commits share one scope so the history reads as a story. Use these, and add a new one only when no existing scope fits:
+A scope names the topic of the commit, never the action or a layer (`core`, `misc`, `update` are not scopes). Related commits share one scope so the history reads as a story: a milestone's plan, merge and close-out share the scope of what it builds (`rdm(schemas)`, `merge(schemas)`, `reports(schemas)`). Use these, and add a new one only when no existing scope fits:
 
 | Area | Scopes |
 |---|---|
@@ -51,7 +53,7 @@ A scope names the topic of the commit, never the action or a layer (`core`, `mis
 | Analysis | `analysis`, `stats` |
 | Surfaces | `library`, `cli`, `mcp` |
 | Wire schemas | `schemas` |
-| Documents | `design`, `reports`, `roadmap`, `readme`, `contributing` |
+| Documents | `design`, `readme`, `contributing` |
 | Repository | `repo`, `release`, `deps` |
 
 ## Versioning
@@ -90,6 +92,29 @@ The highest bump across the batch wins. The core stays at `0.y.z` until the eval
 - Integrate by rebasing the branch onto `main`, then merging with `--no-ff`. The merge commit is `merge(<scope>): <what landed and why>`, so the merge itself records the reason.
 - Remove the branch and its worktree once it has landed.
 
+## Tools
+
+| Tool | Used for | Version checked |
+|---|---|---|
+| `cog` (cocogitto) | Checking commit messages, locally and in CI | 7.0.0 |
+| `release-plz` | Versions, changelogs and releases from the commits | 0.4.2 |
+| `cargo-nextest` | Running the tests | 0.9.150 |
+
+```
+brew install cocogitto cargo-nextest
+cargo install --locked release-plz   # Homebrew has no release-plz formula
+cog install-hook --all               # once per clone, from the main checkout
+```
+
+Git does not copy hooks on clone, so `cog install-hook --all` is the per-clone step. It writes into the repository's `.git/hooks/`, which every worktree shares, and fails when run inside a linked worktree.
+
 ## Enforcement
 
-A local `commit-msg` hook gives immediate feedback, and CI checks every pull request against the same rules. Both are added together with the release tooling, once the implementation language is fixed.
+| Check | Runs | Rejects |
+|---|---|---|
+| `commit-msg` hook | On every local commit, once `cog install-hook --all` has been run | A subject without a `type(scope):` prefix, then, through `cog verify`, a type or scope outside the tables above |
+| `cog check <base>..<head>` | In CI, on the range a pull request pushes (run it by hand as `cog check main..HEAD`; the CI workflow is not in the repository yet) | The same, for every commit in the range |
+
+The types and scopes live in `cog.toml` and equal the tables in this file; change both together. `cog` itself does not require a scope, which is why the hook checks the prefix first. A checkout without `cog.toml` passes the hook, so a branch cut before the file landed can still commit.
+
+Commits made before `cog.toml` landed on `main` are outside every checked range: a pull request's range starts at `main`, so CI never sees them.
