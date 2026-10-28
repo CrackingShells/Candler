@@ -399,7 +399,7 @@ fn split_name<'a>(text: &'a str) -> Result<(&'a str, &'a str), &'static str> {
 text_type!(NameVersion {
     description: "An evaluator or instrument reference, `name@version`, split at the last `@`: the name is non-empty and holds neither `@` nor white space, and the version is `SemVer` 2.0.",
     pattern: NAME_VERSION_PATTERN,
-    comment: "Each version number fits in 64 bits; the parser enforces it.",
+    comment: "The major, minor and patch numbers each fit in 64 bits; the parser enforces it.",
     fields: { name: String, version: semver::Version },
 });
 
@@ -556,7 +556,7 @@ fn has_rfc3339_shape(text: &str) -> bool {
 }
 
 text_type!(Timestamp {
-    description: "An RFC 3339 timestamp with an uppercase `T` and an explicit offset, `Z` or `±HH:MM`, kept as written.",
+    description: "An RFC 3339 timestamp with an uppercase `T` and an explicit offset, `Z` or `±HH:MM`.",
     pattern: TIMESTAMP_PATTERN,
     comment: "The pattern states the lexical form; a date or time that names no instant, such as month 13, and a fraction of more than nine digits are refused by the parser.",
     fields: { instant: jiff::Timestamp },
@@ -1369,11 +1369,13 @@ mod tests {
         let utc_four = parse("2026-10-29T04:00:00Z");
         let utc_three = parse("2026-10-29T03:00:00Z");
         // The instant decides before the text does: the earlier instant has the later text.
+        // BORROW: explicit .as_str() to compare the written forms
         assert!(utc_four.as_str() < tokyo_noon.as_str());
         assert!(tokyo_noon.instant() < utc_four.instant());
         assert!(tokyo_noon < utc_four);
         // The same instant written two ways orders by text, and the two are not equal.
         assert_eq!(tokyo_noon.instant(), utc_three.instant());
+        // BORROW: explicit .as_str() to compare the written forms
         assert!(utc_three.as_str() < tokyo_noon.as_str());
         assert!(utc_three < tokyo_noon);
         assert_ne!(utc_three, tokyo_noon);

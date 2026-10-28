@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use candler_schemas::generate::{check_or_bless, generated_schemas, unexpected_files};
+use candler_schemas::generate::{BLESS_ENV, check_or_bless, generated_schemas, unexpected_files};
 
 fn schema_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("schema")
@@ -13,7 +13,7 @@ fn schema_dir() -> PathBuf {
 
 #[test]
 fn committed_schemas_have_no_drift() {
-    let bless = std::env::var("CANDLER_BLESS_SCHEMAS").is_ok_and(|value| value == "1");
+    let bless = std::env::var(BLESS_ENV).is_ok_and(|value| value == "1");
     for root in generated_schemas() {
         if let Err(e) = check_or_bless(&root, &schema_dir(), bless) {
             panic!("{e}");

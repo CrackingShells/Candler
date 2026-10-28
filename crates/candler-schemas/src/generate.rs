@@ -160,6 +160,10 @@ impl fmt::Display for SchemaFileAction {
     }
 }
 
+/// The environment variable that, set to `1`, makes the drift test write the schema files
+/// instead of comparing them.
+pub const BLESS_ENV: &str = "CANDLER_BLESS_SCHEMAS";
+
 /// Why a committed schema file could not be checked or written.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -175,13 +179,13 @@ pub enum SchemaFileError {
         source: io::Error,
     },
     /// The committed file does not exist.
-    #[error("schema file {} is missing (run with CANDLER_BLESS_SCHEMAS=1 to write it)", .path.display())]
+    #[error("schema file {} is missing (run with {BLESS_ENV}=1 to write it)", .path.display())]
     Missing {
         /// The expected location of the file.
         path: PathBuf,
     },
     /// The committed file differs from the generated text.
-    #[error("schema file {} differs from its generated form (first difference at line {line}; run with CANDLER_BLESS_SCHEMAS=1 to rewrite it)", .path.display())]
+    #[error("schema file {} differs from its generated form (first difference at line {line}; run with {BLESS_ENV}=1 to rewrite it)", .path.display())]
     Drift {
         /// The committed file.
         path: PathBuf,
@@ -305,10 +309,12 @@ mod tests {
         GeneratedSchema::of::<Probe>("probe")
     }
 
-    /// Reports whether a schema still allows `null`: a `null` type, a `null` default or constant.
+    /// Reports whether a schema still allows `null`: a `null` type, a `null` default or constant, or
+    /// `null` among the values of an `enum`.
     fn mentions_null(value: &Value) -> bool {
         match value {
             Value::Object(map) => map.iter().any(|(key, inner)| {
+                // BORROW: explicit .as_str() to match the key against literals
                 let here = match key.as_str() {
                     "type" => {
                         inner == "null"
@@ -317,6 +323,9 @@ mod tests {
                                 .is_some_and(|types| types.iter().any(|t| t == "null"))
                     }
                     "default" | "const" => inner.is_null(),
+                    "enum" => inner
+                        .as_array()
+                        .is_some_and(|values| values.iter().any(Value::is_null)),
                     _ => false,
                 };
                 here || mentions_null(inner)
@@ -335,6 +344,7 @@ mod tests {
         assert!(mentions_null(
             &json!({"properties": {"a": {"default": null}}})
         ));
+        assert!(mentions_null(&json!({"enum": ["a", null]})));
         assert!(!mentions_null(
             &json!({"type": "string", "properties": {"type": {}}})
         ));
@@ -453,11 +463,11 @@ mod tests {
     fn drift_errors_say_how_to_regenerate() {
         let dir = tempfile::tempdir().expect("temporary directory");
         let missing = check_or_bless(&probe(), dir.path(), false).expect_err("no file yet");
-        assert!(missing.to_string().contains("CANDLER_BLESS_SCHEMAS=1"));
+        assert!(missing.to_string().contains(&format!("{BLESS_ENV}=1")));
         check_or_bless(&probe(), dir.path(), true).expect("bless");
         fs::write(dir.path().join("probe.schema.json"), "{}\n").expect("mutate");
         let drift = check_or_bless(&probe(), dir.path(), false).expect_err("drifted");
-        assert!(drift.to_string().contains("CANDLER_BLESS_SCHEMAS=1"));
+        assert!(drift.to_string().contains(&format!("{BLESS_ENV}=1")));
     }
 
     #[test]
@@ -497,6 +507,7 @@ mod tests {
         let roots = [probe()];
         let none: Vec<String> = Vec::new();
         assert_eq!(unexpected_files(&roots, dir.path()).expect("list"), none);
+        // INDEX: roots holds exactly one element, built on the line above
         check_or_bless(&roots[0], dir.path(), true).expect("bless");
         fs::write(dir.path().join(".gitkeep"), "").expect("keep file");
         fs::write(dir.path().join("README.md"), "").expect("other file");
