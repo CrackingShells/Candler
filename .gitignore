@@ -1,0 +1,16 @@
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Secrets and local environment
+.env
+.env.*
+*.pem
+*.key
+
+# Agent worktrees and local agent state
+.claude/worktrees/
+.claude/settings.local.json
