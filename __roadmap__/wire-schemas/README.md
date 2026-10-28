@@ -33,7 +33,8 @@ The workspace, its commit and release tooling, and `candler-schemas` with the ou
 - MCP tool objects keep their camelCase keys (`inputSchema`, `outputSchema`); every other Candler key is snake_case.
 - schemars turns `///` docs into schema `description`s: editing a doc comment on a wire type drifts the committed schema, and that commit is `schemas`-scoped.
 - Source files say what is: no history, origin or meta-discourse in comments, docs, `#[deprecated(note)]` or `$comment`. Reasons go to `__design__/` or `__reports__/`.
-- `wildcard_enum_match_arm = deny` meets downstream matches on `#[non_exhaustive]` enums in M1; `workspace.md` records how they interact.
+- `wildcard_enum_match_arm = deny`: in the defining crate it flags any `_` arm. Downstream, `#[non_exhaustive]` makes `_` mandatory, and the lint fires only when `_` still covers a nameable variant. List every current variant, then `_` (checked on clippy 1.99).
+- schemars 1.2 has no setting to drop `null` from `Option`; the `OmitNull` transform in `generate.rs` strips it. serde still accepts an explicit `null` into `Option`, so record deserialisation must refuse it itself.
 - Identity fields of the golden fixtures (cell digest, `suite_entry_digest`, `context_digest`, `request_id`) are synthetic; M1's importer owns their real derivation.
 - Judge every gate by exit status. In a worktree, first check that `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints the worktree path.
 - Nothing is pushed in any repository; nothing is published.

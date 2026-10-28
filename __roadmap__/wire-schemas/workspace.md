@@ -54,7 +54,7 @@ Each type has tests that accept its valid forms and reject each malformed form, 
 3. `tests/schema_drift.rs`: for every root, compare the generated text byte for byte with `crates/candler-schemas/schema/<file_name>`; with `CANDLER_BLESS_SCHEMAS=1`, write the file instead. The comparison and the write are one function, `check_or_bless(root, dir, bless)`, so a unit test can run it on a test-only root in a temporary directory: it passes on a fresh bless, fails after the file is mutated, and passes again after a second bless.
 **Deliverables**: `crates/candler-schemas/src/generate.rs` (`GeneratedSchema`, `generated_schemas`, `schema_settings`, `check_or_bless`); `crates/candler-schemas/tests/schema_drift.rs`; `crates/candler-schemas/schema/` (created, empty but for `.gitkeep`)
 **Consistency Checks**: `cargo nextest run -p candler-schemas drift` (expected: PASS)
-**Commit**: `feat(schemas): fail the build when a committed schema drifts from its struct`
+**Commit**: `feat(schemas): fail the build when a schema drifts from its struct`
 
 ## Step 4: Give agents the Rust rules
 **Goal**: Every agent working in the repository finds Grit's rules and the source-file rule without being told.
