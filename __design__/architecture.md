@@ -133,7 +133,8 @@ expectation with its deadline; instrument digests and dirty flags; models genera
 Schema.
 
 Tooling: Rust 2024 edition, Grit `rust-conventions`, `release-plz` (per-crate versions and
-changelogs from Conventional Commits, publishing to crates.io), `cocogitto` (`cog verify` in a
+changelogs from Conventional Commits; git-only, with publishing to crates.io off until it is
+enabled), `cocogitto` (`cog verify` in a
 `commit-msg` hook and in CI). `serde_json` with `float_roundtrip`.
 
 ## Operation API
@@ -473,14 +474,14 @@ that bundles several MCP calls), `tool_result` (`is_error`, `denied?`), `notific
 | `expectation_id` | string | must exist in the suite |
 | `role` | gate / quality / descriptive | copied from the suite entry when graded |
 | `evaluator` | `name@version` | |
-| `instruments[]` | `{name, version, digest, dirty}` | I6 |
+| `instruments[]` | `{name, version, digest, dirty}` | I6: a `gate` or `quality` record has no dirty instrument |
 | `suite_entry_digest` | hash | of the expectation's `kind`, `params`, `role`, `applies_to`, `depends_on` |
 | `context_digest` | hash | of the artifacts, snapshots, inputs and metadata sent |
 | `request_id` | id | |
 | `status` | `pass` / `fail` / `blocked` / `not_measured` / `not_applicable` | five-state algebra |
 | `value?` | number / fraction `{num, den}` / count / text / named counts | a fraction carries its counts |
-| `weight?` | `{num, den}`, `1 ≤ den`, `num ≤ den` | contribution to a rate; defaults: pass 1/1, fail 0/1, blocked 0/1; absent on `not_measured` and `not_applicable` |
-| `probability?` | `{p, calibration_ref}`, `p` in [0, 1] | reserved; never set by deterministic evaluators |
+| `weight?` | `{num, den}`, `1 ≤ den`, `num ≤ den` | contribution to a rate; defaults: pass 1/1, fail 0/1, blocked 0/1; a `pass` has `num = den`, a `fail` `num < den`, a `blocked` `num = 0`; absent on `not_measured` and `not_applicable`, which have no effective weight |
+| `probability?` | `{p, calibration_ref}`, `p` in [0, 1] | reserved; never set by deterministic evaluators, so never on a `gate` or `quality` record (I5) |
 | `evidence[]` | `{ref?, note?}`, at least one | ref = `event:<session>#<seq>` or `path:<run-relative path>` |
 | `cause?` | `{expectation: id}` / `{artifact: path}` / `{reason: code}` / `{legacy: code}` (deprecated) | required for `blocked`, `not_measured`, `not_applicable`; absent on `pass` and `fail` except `legacy` |
 
@@ -512,6 +513,11 @@ source_path, source_digest, transport (stdio / http / sse), tools[]}`. Tools are
 `tool-catalog-snapshot/0` is this shape with `servers_dir` and `stubbed_modules` at the top level;
 its capture script and loader move them under `ext`.
 
+Server names are unique within a snapshot and tool names within a server; both are non-empty.
+The snapshot keeps every key and value given, except three things: object key order; integers
+beyond the 64-bit range, read as floats, and numbers beyond `f64`, refused; and documents nested
+deeper than about 120 levels, refused by the reader.
+
 ### Wire encodings
 
 The rules every wire type of the `schemas@` line follows.
@@ -522,7 +528,7 @@ The rules every wire type of the `schemas@` line follows.
 | Causes | One-key objects, as in the outcome record table. Reason codes match `^[a-z][a-z0-9_]*$`; the core reserves `not_applicable_to_arm`, `instrument_error` and `deadline`. |
 | Legacy marker | `{legacy: code}` marks a record whose clean form cannot be stated. It is deprecated (`deprecated: true` in the schema, `#[deprecated]` in Rust), written only by the legacy importer and refused from evaluators. It is the only cause a `pass` or `fail` may carry, and the only way to carry a `0/0` weight. It is removed at the first schema major after M2a's parity is signed off. |
 | Absent vs null | An optional field is omitted when absent. `null` is never written, and both the schema and the Rust reader reject it: the generator strips the `null` type schemars gives `Option`, and record deserialisation refuses an explicit `null`. Collections are always present, possibly empty. |
-| Unknown fields | Schemas are strict (`additionalProperties: false`): they define what a writer at that version emits. Rust readers ignore unknown fields (I18). MCP tool objects, `inputSchema`, `outputSchema` and `ext` are open. |
+| Unknown fields | Schemas are strict (`additionalProperties: false`): they define what a writer at that version emits. Rust readers ignore unknown fields (I18) but read objects only, never a struct written as an array. MCP tool objects, `inputSchema`, `outputSchema` and `ext` are open. |
 | Run key | `{"cell": "sha256:<hex>", "replicate": n, "attempt": m}` in records, both counters from 1. Paths and `CANDLER_RUN` use `<cell hex>-r<n>-a<m>`. |
 | Digests | `sha256:` + 64 lowercase hex; blob paths use the bare hex. An instrument digest may also be `git:<40 or 64 hex>`, a commit of a clean tree, valid only with `dirty: false`. Digests of JSON values (`suite_entry_digest`, `context_digest`, the cell digest) are taken over RFC 8785 canonical JSON. |
 | `name@version` | Split at the last `@`; the name has no `@` or whitespace. Evaluator and instrument versions are SemVer 2.0; a catalog provider's version is a free token `[0-9A-Za-z.+-]+`. |
