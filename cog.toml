@@ -1,0 +1,56 @@
+# Commit convention (CONTRIBUTING.md §Commit messages). `cog verify` and
+# `cog check` read the types and scopes below; releases are owned by
+# release-plz, so there are no changelog or bump settings here.
+
+scopes = [
+    # Operation API
+    "api", "resolve", "jobs", "budgets",
+    # Execution
+    "experiment", "orchestrator", "runner", "isolation", "injection", "census", "catalog",
+    # Ingestion
+    "trace-model", "adapter-claude-code", "importer",
+    # Storage
+    "run-store", "manifest", "outcome-store",
+    # Evaluation
+    "evaluation", "outcome-algebra", "evaluator-protocol", "registry",
+    # Analysis
+    "analysis", "stats",
+    # Surfaces
+    "library", "cli", "mcp",
+    # Wire schemas
+    "schemas",
+    # Documents
+    "design", "readme", "contributing",
+    # Repository
+    "repo", "release", "deps",
+]
+
+[commit_types]
+feat = { changelog_title = "Features" }
+fix = { changelog_title = "Fixes" }
+perf = { changelog_title = "Performance" }
+refactor = { changelog_title = "Refactoring" }
+style = { changelog_title = "Style" }
+test = { changelog_title = "Tests" }
+docs = { changelog_title = "Documentation" }
+build = { changelog_title = "Build" }
+ci = { changelog_title = "CI" }
+chore = { changelog_title = "Chores" }
+revert = { changelog_title = "Reverts" }
+merge = { changelog_title = "Merges" }
+rdm = { changelog_title = "Roadmaps" }
+reports = { changelog_title = "Reports" }
+
+# cog verifies type and scope but does not require a scope, so the hook
+# checks the subject's `type(scope):` shape first. A checkout without
+# cog.toml has no convention to check and passes.
+[git_hooks.commit-msg]
+script = """#!/bin/sh
+set -e
+[ -f cog.toml ] || exit 0
+head -n 1 "$1" | grep -Eq '^[a-z]+\\([a-z0-9-]+\\)!?: ' || {
+    echo "commit-msg: the subject needs a scope: <type>(<scope>): <subject>" >&2
+    exit 1
+}
+cog verify --file "$1"
+"""
