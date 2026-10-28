@@ -159,6 +159,10 @@ macro_rules! rel_path_re {
     };
 }
 
+/// The pattern of a name: non-empty, with neither `@` nor white space.
+pub(crate) const NAME_PATTERN: &str = concat!("^", name_char_re!(), "+$");
+/// The pattern of a `SemVer` 2.0 version.
+pub(crate) const SEMVER_PATTERN: &str = concat!("^", semver_re!(), "$");
 const DIGEST_PATTERN: &str = "^sha256:[0-9a-f]{64}$";
 const INSTRUMENT_DIGEST_PATTERN: &str =
     "^(?:sha256:[0-9a-f]{64}|git:(?:[0-9a-f]{40}|[0-9a-f]{64}))$";

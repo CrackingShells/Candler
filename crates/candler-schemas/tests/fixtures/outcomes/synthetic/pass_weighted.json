@@ -1,0 +1,27 @@
+{
+  "run": {
+    "cell": "sha256:b28a6587f9984281103bf4150867bbca481889e3046c60ec7c27f2b31d562a22",
+    "replicate": 1,
+    "attempt": 1
+  },
+  "expectation_id": "A5",
+  "role": "quality",
+  "evaluator": "synthetic-eval@1.0.0",
+  "instruments": [
+    {
+      "name": "htn_creator_scripts",
+      "version": "0.4.2",
+      "digest": "git:28be2c158fbc6ee786a789242c2d8fd47bfde9a8",
+      "dirty": false
+    }
+  ],
+  "suite_entry_digest": "sha256:4419f4e414225d352b732fb52cd14d56cc61ba0732acb48cef09d78cb80be500",
+  "context_digest": "sha256:02ffbfe0bec28de323dfd35341156e0edb0a8449c7f771cbe7d17e3c72c3ec65",
+  "request_id": "01926b3a-7c3e-7a1b-8c4d-5e6f7a8b9c0d",
+  "status": "pass",
+  "weight": {
+    "num": 35,
+    "den": 35
+  },
+  "evidence": []
+}

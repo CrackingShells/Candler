@@ -1,0 +1,31 @@
+{
+  "run": {
+    "cell": "sha256:b28a6587f9984281103bf4150867bbca481889e3046c60ec7c27f2b31d562a22",
+    "replicate": 1,
+    "attempt": 1
+  },
+  "expectation_id": "E1",
+  "role": "descriptive",
+  "evaluator": "synthetic-eval@1.0.0",
+  "instruments": [
+    {
+      "name": "htn_creator_scripts",
+      "version": "0.4.2",
+      "digest": "git:28be2c158fbc6ee786a789242c2d8fd47bfde9a8",
+      "dirty": false
+    }
+  ],
+  "suite_entry_digest": "sha256:6677e2be2c9873b2380ccad2ed5a456349b9c56bbece7896bb61b06e61e9a40b",
+  "context_digest": "sha256:8d0a48dea54e3ff0c9802e29ebbb800f78c4086c9a59348768b07e2e43b61dc8",
+  "request_id": "01926b3a-7c3e-7a1b-8c4d-5e6f7a8b9c0d",
+  "status": "pass",
+  "value": {
+    "kind": "text",
+    "text": "the plan replays without an error"
+  },
+  "evidence": [
+    {
+      "note": "read from the replay report"
+    }
+  ]
+}

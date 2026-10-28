@@ -1,0 +1,27 @@
+{
+  "run": {
+    "cell": "sha256:b28a6587f9984281103bf4150867bbca481889e3046c60ec7c27f2b31d562a22",
+    "replicate": 1,
+    "attempt": 1
+  },
+  "expectation_id": "C-X3",
+  "role": "quality",
+  "evaluator": "synthetic-eval@1.0.0",
+  "instruments": [
+    {
+      "name": "htn_creator_scripts",
+      "version": "0.4.2",
+      "digest": "git:28be2c158fbc6ee786a789242c2d8fd47bfde9a8",
+      "dirty": false
+    }
+  ],
+  "suite_entry_digest": "sha256:da7045cdbb695ee7be2ac061740a0e3d70b3c210d5d96a90438a3e99de027d68",
+  "context_digest": "sha256:f8c4d23fcfafd2b8db6c604bf9e8728cab25d21d1972a86f3d44ee845fbb8b5d",
+  "request_id": "01926b3a-7c3e-7a1b-8c4d-5e6f7a8b9c0d",
+  "status": "fail",
+  "weight": {
+    "num": 1,
+    "den": 2
+  },
+  "evidence": []
+}
