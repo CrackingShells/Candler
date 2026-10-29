@@ -113,7 +113,8 @@ Git does not copy hooks on clone, so `cog install-hook --all` is the per-clone s
 | Check | Runs | Rejects |
 |---|---|---|
 | `commit-msg` hook | On every local commit, once `cog install-hook --all` has been run | A subject without a `type(scope):` prefix, then, through `cog verify`, a type or scope outside the tables above |
-| `cog check <base>..<head>` | In CI, on the range a pull request pushes (run it by hand as `cog check main..HEAD`; the CI workflow is not in the repository yet) | The same, for every commit in the range |
+| `cog check <base>..<head>` | In CI (`.github/workflows/ci.yml`), on the range each push or pull request adds (run it by hand as `cog check main..HEAD`) | The same, for every commit in the range |
+| `release-plz` | In CI (`.github/workflows/release-plz.yml`), on every push to `main`: `release` tags each package version that has no tag yet, then `release-pr` opens or updates the release PR | Nothing; it publishes nothing, and a release lands only when its PR is merged |
 
 The types and scopes live in `cog.toml` and equal the tables in this file; change both together. `cog` itself does not require a scope, which is why the hook checks the prefix first. A checkout without `cog.toml` passes the hook, so a branch cut before the file landed can still commit.
 
