@@ -1,5 +1,5 @@
 # The gates of AGENTS.md and the commit check of CONTRIBUTING, on every push
-# and pull request.
+# and pull request; on a push to main that passes both, the release.
 name: ci
 
 on:
@@ -11,7 +11,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A run on main may be releasing, so it always finishes.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -79,3 +80,49 @@ jobs:
           else
             cog check "$PUSH_BEFORE..$PUSH_AFTER"
           fi
+
+  release:
+    name: Release
+    needs: [gates, commits]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Check out the full history and tags
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          # The version commit is pushed with the git CLI.
+          persist-credentials: true
+      - name: Install the toolchain pinned in rust-toolchain.toml
+        run: rustup toolchain install
+      - name: Install release-plz
+        uses: taiki-e/install-action@v2
+        with:
+          tool: release-plz@0.4.2
+      - name: Commit the new versions and changelogs
+        run: |
+          set -eu
+          release-plz update --repo-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" > "$RUNNER_TEMP/bumps"
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "Nothing to release."
+            exit 0
+          fi
+          {
+            echo "chore(release): bump the versions and changelogs [skip ci]"
+            echo
+            grep -E '^\* ' "$RUNNER_TEMP/bumps"
+          } > "$RUNNER_TEMP/message"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -F "$RUNNER_TEMP/message"
+          git push origin HEAD:main
+      - name: Tag each new version and create its GitHub release
+        uses: release-plz/action@v0.5
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,5 +1,6 @@
-# Versions, changelogs and tags only. Nothing is published to crates.io and no
-# GitHub release is created; enabling either is a separate decision.
+# Versions, changelogs, tags and GitHub releases, made by the release job of
+# .github/workflows/ci.yml on every push to main. Nothing is published to
+# crates.io; enabling it is a separate decision.
 #
 # git_only reads each package's current version from its git tag, so no
 # registry is consulted and no crate has to exist on crates.io.
@@ -20,6 +21,9 @@ name = "candler"
 version_group = "core"
 git_tag_enable = true
 git_tag_name = "v{{ version }}"
+git_release_enable = true
+# The core's changelog and release notes cover the whole group.
+changelog_include = ["candler-core", "candler-harness", "candler-harness-claude-code"]
 
 [[package]]
 name = "candler-core"
@@ -41,6 +45,7 @@ git_tag_name = "v{{ version }}"
 name = "candler-schemas"
 git_tag_enable = true
 git_tag_name = "schemas@{{ version }}"
+git_release_enable = true
 
 [changelog]
 protect_breaking_commits = true
