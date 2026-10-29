@@ -1,5 +1,7 @@
-# Opens or updates the release PR from the Conventional Commits on main.
-# Publishing is off: this workflow has no registry token and no release job.
+# On every push to main: tags each package version that has no tag yet, then
+# opens or updates the release PR from the Conventional Commits since the tags.
+# Publishing is off: git_only makes `release` create tags only, and this
+# workflow has no registry token.
 name: release-plz
 
 on:
@@ -10,8 +12,30 @@ on:
 permissions: {}
 
 jobs:
+  release:
+    name: Release tags
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Check out the full history and tags
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install the toolchain pinned in rust-toolchain.toml
+        run: rustup toolchain install
+      - name: Tag the untagged versions
+        uses: release-plz/action@v0.5
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   release-pr:
     name: Release PR
+    needs: release
     runs-on: ubuntu-latest
     permissions:
       contents: write
