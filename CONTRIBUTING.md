@@ -88,9 +88,11 @@ The highest bump across the batch wins. The core stays at `0.y.z` until the eval
 
 ## Branches and integration
 
-- `main` is always releasable. Work happens on a topic branch named `<type>/<topic>`, for example `feat/outcome-record`.
-- Integrate by rebasing the branch onto `main`, then merging with `--no-ff`. The merge commit is `merge(<scope>): <what landed and why>`, so the merge itself records the reason.
-- Remove the branch and its worktree once it has landed.
+- `main` is always releasable and changes only through pull requests. Work happens on a topic branch named `<type>/<topic>`, for example `feat/outcome-record`.
+- Push the branch and open a pull request against `main`. Its title becomes the merge commit's subject, `merge(<scope>): <what lands and why>`, so the merge itself records the reason. Its body becomes the merge commit's body; an agent-authored one ends with the `Co-Authored-By:` trailer.
+- CI runs the gates and the commit check on the pull request. Before merging, rebase the branch onto `main` (`git rebase origin/main`, then `git push --force-with-lease`).
+- Merge with a merge commit; the repository refuses squash and rebase merges. The merge is a push to `main`, which runs CI again and then the release (see [Enforcement](#enforcement)).
+- GitHub deletes the merged branch. Remove the local branch and its worktree, then pull `main`, which may also carry the release job's `chore(release)` commit.
 
 ## Tools
 
@@ -113,7 +115,8 @@ Git does not copy hooks on clone, so `cog install-hook --all` is the per-clone s
 | Check | Runs | Rejects |
 |---|---|---|
 | `commit-msg` hook | On every local commit, once `cog install-hook --all` has been run | A subject without a `type(scope):` prefix, then, through `cog verify`, a type or scope outside the tables above |
-| `cog check <base>..<head>` | In CI (`.github/workflows/ci.yml`), on the range each push or pull request adds (run it by hand as `cog check main..HEAD`) | The same, for every commit in the range |
+| `cog check <base>..<head>` | In CI (`.github/workflows/ci.yml`), on the range each pull request or push to `main` adds (run it by hand as `cog check main..HEAD`) | The same, for every commit in the range |
+| Pull request title | In CI, on every pull request, as the subject of the merge commit it becomes | A title that is not `merge(<scope>): …` with a scope from the tables above |
 | `release-plz` | In CI (`.github/workflows/ci.yml`), on a push to `main` once the gates and the commit check pass: `release-plz update` commits the new versions and changelogs as `chore(release): … [skip ci]`, then `release-plz release` tags each new version and creates its GitHub release | Nothing; a push with no release-triggering commit releases nothing, and nothing goes to crates.io |
 
 The types and scopes live in `cog.toml` and equal the tables in this file; change both together. `cog` itself does not require a scope, which is why the hook checks the prefix first. A checkout without `cog.toml` passes the hook, so a branch cut before the file landed can still commit.
