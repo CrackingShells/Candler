@@ -133,7 +133,8 @@ expectation with its deadline; instrument digests and dirty flags; models genera
 Schema.
 
 Tooling: Rust 2024 edition, Grit `rust-conventions`, `release-plz` (per-crate versions and
-changelogs from Conventional Commits; git-only, with publishing to crates.io off until it is
+changelogs from Conventional Commits; git-only, releasing from `main` on every push with a
+tag and a GitHub release per new version, and with publishing to crates.io off until it is
 enabled), `cocogitto` (`cog verify` in a
 `commit-msg` hook and in CI). `serde_json` with `float_roundtrip`.
 
