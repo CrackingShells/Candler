@@ -43,7 +43,7 @@ jobs:
       - name: Build
         run: cargo build --workspace
       - name: Test
-        run: cargo nextest run --workspace
+        run: cargo nextest run --workspace --no-fail-fast
       - name: Document
         run: cargo doc --workspace --no-deps
         env:
