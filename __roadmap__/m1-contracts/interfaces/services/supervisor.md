@@ -9,11 +9,13 @@
 **Success Gates**:
 - ⬜ [cmd] `cargo nextest run -p candler-core -E 'binary(guard_frames)'` passes, holding two B tests: for arbitrary bytes cut into arbitrary chunks, the frames' data concatenate to the input and frame N equals the N-th piece of `split_inclusive(b'\n')` (the standard library is the oracle); a table of nine literal cases (under `Lines`: empty stream, `"\n"`, `"a"`, `"a\n"`, `"a\nb"`, `"\r\n"`, `"\n\n"`, invalid UTF-8; under `Whole`: `"a\nb"` as one frame) with the exact records the test states
 - ⬜ [cmd] `cargo nextest run -p candler-core -E 'binary(guard_supervise)'` passes, holding ten B tests: no survivor; sweeper called; record on disk; forged record; handles; events; secret canary; pipe held; pre-stop failure; loopback (each described in the steps below)
+- ⬜ [cmd] `cargo nextest run -p candler-core -E 'binary(guard_signal)'` passes. This binary never spawns. It holds the I22 B tests against a recording fake `Signaller`: pgid 0, 1, -1 or another negative value, our own pgid, our own pid, a recycled pid with a different `start`, and a record from another store are each refused with zero recorded calls; a child this supervisor spawned is signalled, and the fake records exactly its pgid. Bite mutations on the guard, the child-table check or any pid or pgid value run only against this binary (I22; 2026-11-05 incident: a `.pgid(1)` bite run under `guard_supervise` sent `kill(-1, SIGKILL)`)
+- ⬜ [nl] Reading every call site confirms that the production `Signaller` is the only caller of rustix `kill_process` / `kill_process_group`, and that every signal passes the deny-by-default choke point
 - ⬜ [cmd] `cargo nextest run -p candler-core -E 'test(proc_stat)'` passes: the `/proc/<pid>/stat` parser reads field 22 from literal lines whose `comm` holds `) (`, spaces and a final `)`
 - ⬜ [cmd] `cargo clippy --target x86_64-unknown-linux-gnu --workspace --tests -- -D warnings` passes
 - ⬜ [cmd] STD and SUBJ pass
 - ⬜ [nl] The Linux run of `guard_supervise` is decided by the PR's CI; the leaf report records the macOS run log
-- ⬜ [nl] The required adversarial verifier reports no open finding, having attacked deadline races, fd leaks, a zombie at record time, the `cfg(target_os = "linux")` code line by line, escalation under faults, and URL parsing
+- ⬜ [nl] The required adversarial verifier reports no open finding, having attacked the I22 guard with the fake signaller (none of its cases sends a real signal), deadline races, fd leaks, a zombie at record time, the `cfg(target_os = "linux")` code line by line, escalation under faults, and URL parsing
 - ⬜ [nl] The leaf report has a bite mutation per B test
 **References**: [R01 §Process supervision, §Agent environment and secrets, §Raw traces, §Job](../../../../__design__/architecture.md) — every rule; [R07](../../../candler-v1/contracts/parity/README.md) — `m2b_execution_parity.md` builds the job runner on this API
 
