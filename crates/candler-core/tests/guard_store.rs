@@ -11,7 +11,6 @@ use std::fs;
 use std::io::{Read, Write};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use candler_core::store::Store;
 use candler_core::store::outcome::OutcomeWriter;
@@ -162,6 +161,20 @@ fn drive(store: &Store, manifest: &RunManifest, existing: Existing, upto: usize)
 }
 
 /// Every regular file under `root`, by `/`-separated relative path.
+/// Copies the tree at `from` to `to`, directory by directory, with `std::fs` alone.
+fn copy_tree(from: &Path, to: &Path) {
+    fs::create_dir_all(to).expect("a directory");
+    for entry in fs::read_dir(from).expect("a listing") {
+        let entry = entry.expect("an entry");
+        let target = to.join(entry.file_name());
+        if entry.file_type().expect("a type").is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), &target).expect("a copy");
+        }
+    }
+}
+
 fn files_of(root: &Path) -> BTreeMap<String, Vec<u8>> {
     let mut found = BTreeMap::new();
     let mut pending = vec![root.to_path_buf()];
@@ -572,13 +585,7 @@ fn a_copied_store_reads_byte_equal() {
     store.put_blob(b"payload", None).expect("a blob");
 
     let copy = scratch.path().join("copy");
-    let status = Command::new("cp")
-        .arg("-R")
-        .arg(&original)
-        .arg(&copy)
-        .status()
-        .expect("run cp");
-    assert!(status.success());
+    copy_tree(&original, &copy);
     assert_eq!(files_of(&original), files_of(&copy));
     assert!(files_of(&copy).len() >= 10, "the walk saw the whole store");
 
