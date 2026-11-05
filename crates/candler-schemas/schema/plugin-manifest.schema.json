@@ -1,0 +1,128 @@
+{
+  "$defs": {
+    "Name": {
+      "description": "A plain name, such as that of a harness, a reader, a plug-in or a treatment: non-empty, with neither `@` nor white space.",
+      "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+(?![\\s\\S])",
+      "type": "string"
+    },
+    "PluginEnvironment": {
+      "description": "The environment a plug-in runs in: an object whose `kind` is `uv` (with the `project` and `lock` paths, relative to the plug-in directory) or `none`.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A `uv` project: the directory that holds `pyproject.toml` and the lock file, both relative to the plug-in directory.",
+          "properties": {
+            "kind": {
+              "const": "uv",
+              "type": "string"
+            },
+            "lock": {
+              "$ref": "#/$defs/RelPath",
+              "description": "The lock file, relative to the plug-in directory."
+            },
+            "project": {
+              "$ref": "#/$defs/RelPath",
+              "description": "The `uv` project directory, relative to the plug-in directory."
+            }
+          },
+          "required": [
+            "kind",
+            "project",
+            "lock"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The plug-in needs no prepared environment.",
+          "properties": {
+            "kind": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProtocolVersion": {
+      "additionalProperties": false,
+      "description": "The protocol version a plug-in or the core speaks, written as an object with the integers `major` and `minor`.",
+      "properties": {
+        "major": {
+          "$comment": "Fits in 32 bits; the reader enforces it.",
+          "description": "The major version; a different major is incompatible.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "minor": {
+          "$comment": "Fits in 32 bits; the reader enforces it.",
+          "description": "The minor version; a plug-in may offer a minor no newer than the core's.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "major",
+        "minor"
+      ],
+      "type": "object"
+    },
+    "RelPath": {
+      "description": "A run-relative POSIX path: non-empty, with no leading `/`, no empty segment, no `.` or `..` segment, no NUL and no `\\`.",
+      "pattern": "^(?!\\.\\.?(?:/|(?![\\s\\S])))[^/\\\\\\x00]+(?:/(?!\\.\\.?(?:/|(?![\\s\\S])))[^/\\\\\\x00]+)*(?![\\s\\S])",
+      "type": "string"
+    }
+  },
+  "$id": "urn:candler:schemas:plugin-manifest",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The static description of a plug-in, read without running anything: a manifest with the version marker `plugin-manifest/1` in `schema`.",
+  "properties": {
+    "command": {
+      "description": "The command that starts the plug-in as an argument vector, with at least one member, relative to the plug-in directory.",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "environment": {
+      "$ref": "#/$defs/PluginEnvironment",
+      "description": "The environment the plug-in runs in."
+    },
+    "name": {
+      "$ref": "#/$defs/Name",
+      "description": "The plug-in's name; `describe` returns the same name."
+    },
+    "protocol": {
+      "$ref": "#/$defs/ProtocolVersion",
+      "description": "The protocol version the plug-in speaks."
+    },
+    "schema": {
+      "const": "plugin-manifest/1",
+      "description": "The version marker of the document: always `plugin-manifest/1`.",
+      "type": "string"
+    },
+    "version": {
+      "description": "The plug-in's version, a `SemVer` 2.0 string; `describe` returns the same version.",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?(?![\\s\\S])",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "name",
+    "version",
+    "protocol",
+    "command",
+    "environment"
+  ],
+  "title": "PluginManifest",
+  "type": "object"
+}

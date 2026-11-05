@@ -1,0 +1,287 @@
+{
+  "$defs": {
+    "Digest": {
+      "description": "A content digest: `sha256:` followed by 64 lowercase hex digits.",
+      "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])",
+      "type": "string"
+    },
+    "EvaluatorEnvironment": {
+      "additionalProperties": false,
+      "description": "What an evaluator reports about the environment it runs in: the digest of its lock file when it has one, and the versions of its packages, written as an object with `lock_digest` omitted when absent and the map `packages` always present.",
+      "properties": {
+        "lock_digest": {
+          "$ref": "#/$defs/Digest",
+          "description": "The digest of the lock file the environment was built from; absent when there is none."
+        },
+        "packages": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The version of each installed package, keyed by package name.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "packages"
+      ],
+      "type": "object"
+    },
+    "EvaluatorKind": {
+      "description": "How an evaluator reaches a verdict: always the same one for the same input, or not.",
+      "oneOf": [
+        {
+          "const": "deterministic",
+          "description": "The same input always gives the same verdict.",
+          "type": "string"
+        },
+        {
+          "const": "probabilistic",
+          "description": "The verdict can differ between runs on the same input, as with a model that grades.",
+          "type": "string"
+        }
+      ]
+    },
+    "FieldPath": {
+      "description": "A dotted path to a field: one or more segments joined by `.`, each a lowercase letter followed by lowercase letters, digits or `_`.",
+      "pattern": "^[a-z][a-z0-9_]*(?:[.][a-z][a-z0-9_]*)*(?![\\s\\S])",
+      "type": "string"
+    },
+    "Instrument": {
+      "$comment": "Each of the version's three numbers fits in 64 bits; the Rust reader enforces it.",
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "description": "A git digest names the commit of a clean tree.",
+          "if": {
+            "properties": {
+              "digest": {
+                "pattern": "^git:"
+              }
+            },
+            "required": [
+              "digest"
+            ]
+          },
+          "then": {
+            "properties": {
+              "dirty": {
+                "const": false
+              }
+            }
+          }
+        }
+      ],
+      "description": "The exact tool that made a measurement.",
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/InstrumentDigest",
+          "description": "What identifies the instrument's content: a `sha256:` content digest, or a `git:` commit hash of a clean tree."
+        },
+        "dirty": {
+          "description": "Whether the instrument differs from what its digest names, a boolean; always false for a `git:` digest.",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "The instrument's name, a non-empty string with neither `@` nor white space.",
+          "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+(?![\\s\\S])",
+          "type": "string"
+        },
+        "version": {
+          "description": "The instrument's version, a `SemVer` 2.0 string.",
+          "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?(?![\\s\\S])",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "digest",
+        "dirty"
+      ],
+      "type": "object"
+    },
+    "InstrumentDigest": {
+      "description": "The digest of an instrument: a content digest, or `git:` followed by the 40 or 64 lowercase hex digits of a commit.",
+      "pattern": "^(?:sha256:[0-9a-f]{64}|git:(?:[0-9a-f]{40}|[0-9a-f]{64}))(?![\\s\\S])",
+      "type": "string"
+    },
+    "KindSpec": {
+      "additionalProperties": false,
+      "description": "One kind of check an evaluator performs, written as an object: the kind, the schema of its parameters, what it needs from a run and the deadline it gets by default.",
+      "properties": {
+        "default_deadline_ms": {
+          "$comment": "Fits in 64 bits; a reader that holds numbers as doubles is exact only below 2^53.",
+          "description": "The time the evaluator gives an item of this kind, in milliseconds, when the entry sets no deadline.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/Name",
+          "description": "The name of the kind, as an entry's `kind` names it."
+        },
+        "needs": {
+          "$ref": "#/$defs/Needs",
+          "description": "What the kind needs from a run."
+        },
+        "params_schema": {
+          "$comment": "Integers lie within ±(2^53 - 1); JSON Schema cannot state this, and the Rust reader refuses a larger one.",
+          "description": "The JSON Schema the parameters of an entry of this kind satisfy.",
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "array",
+            "object"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "params_schema",
+        "needs",
+        "default_deadline_ms"
+      ],
+      "type": "object"
+    },
+    "Name": {
+      "description": "A plain name, such as that of a harness, a reader, a plug-in or a treatment: non-empty, with neither `@` nor white space.",
+      "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+(?![\\s\\S])",
+      "type": "string"
+    },
+    "Needs": {
+      "additionalProperties": false,
+      "description": "What one kind of check needs from a run, written as an object whose five lists are all present, empty when the kind needs nothing of that sort.",
+      "properties": {
+        "artifacts": {
+          "description": "Globs, relative to the run, of the artifacts the check reads.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "inputs": {
+          "description": "The kinds of input the check reads.",
+          "items": {
+            "$ref": "#/$defs/Name"
+          },
+          "type": "array"
+        },
+        "metadata": {
+          "description": "The paths of the metadata fields the check reads.",
+          "items": {
+            "$ref": "#/$defs/FieldPath"
+          },
+          "type": "array"
+        },
+        "snapshots": {
+          "description": "The kinds of snapshot the check reads.",
+          "items": {
+            "$ref": "#/$defs/Name"
+          },
+          "type": "array"
+        },
+        "trace": {
+          "description": "Whether the check reads the normalised trace.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "trace",
+        "artifacts",
+        "snapshots",
+        "inputs",
+        "metadata"
+      ],
+      "type": "object"
+    },
+    "ProtocolVersion": {
+      "additionalProperties": false,
+      "description": "The protocol version a plug-in or the core speaks, written as an object with the integers `major` and `minor`.",
+      "properties": {
+        "major": {
+          "$comment": "Fits in 32 bits; the reader enforces it.",
+          "description": "The major version; a different major is incompatible.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "minor": {
+          "$comment": "Fits in 32 bits; the reader enforces it.",
+          "description": "The minor version; a plug-in may offer a minor no newer than the core's.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "major",
+        "minor"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:candler:schemas:evaluator-describe-result",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "What an evaluator says about itself in answer to `describe`, written as an object: the protocol it speaks, its name and version, the instruments it uses, its environment, whether it is deterministic, the kinds of check it performs and, when it has one, its reuse rule.",
+  "properties": {
+    "environment": {
+      "$ref": "#/$defs/EvaluatorEnvironment",
+      "description": "The environment the evaluator runs in."
+    },
+    "instruments": {
+      "description": "The tools that make the evaluator's measurements.",
+      "items": {
+        "$ref": "#/$defs/Instrument"
+      },
+      "type": "array"
+    },
+    "kind": {
+      "$ref": "#/$defs/EvaluatorKind",
+      "description": "Whether the evaluator is deterministic."
+    },
+    "kinds": {
+      "description": "The kinds of check the evaluator performs.",
+      "items": {
+        "$ref": "#/$defs/KindSpec"
+      },
+      "type": "array"
+    },
+    "name": {
+      "$ref": "#/$defs/Name",
+      "description": "The evaluator's name; the plug-in manifest carries the same name."
+    },
+    "protocol": {
+      "$ref": "#/$defs/ProtocolVersion",
+      "description": "The protocol version the evaluator speaks."
+    },
+    "reuse": {
+      "$comment": "Integers lie within ±(2^53 - 1); JSON Schema cannot state this, and the Rust reader refuses a larger one.",
+      "description": "The rule that decides when an earlier verdict can be reused; absent when the evaluator has none.",
+      "type": [
+        "string",
+        "number",
+        "boolean",
+        "array",
+        "object"
+      ]
+    },
+    "version": {
+      "description": "The evaluator's version, a `SemVer` 2.0 string; the plug-in manifest carries the same version.",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?(?![\\s\\S])",
+      "type": "string"
+    }
+  },
+  "required": [
+    "protocol",
+    "name",
+    "version",
+    "instruments",
+    "environment",
+    "kind",
+    "kinds"
+  ],
+  "title": "DescribeResult",
+  "type": "object"
+}
