@@ -22,7 +22,7 @@ graph TD
     run_store[Run store]:::done
     claude_code_reader[Claude Code trace reader]:::done
     legacy_mapping[Legacy mapping]:::done
-    import[Import]:::planned
+    import[Import]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -37,7 +37,7 @@ graph TD
 | `run_store.md` | 📄 Leaf Task | ✅ Done |
 | `claude_code_reader.md` | 📄 Leaf Task | ✅ Done |
 | `legacy_mapping.md` | 📄 Leaf Task | ✅ Done |
-| `import/` | 📁 Directory | ⬜ Planned |
+| `import/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

@@ -26,7 +26,7 @@ Every M1 contract and shared service exists on `feat/m1-contracts`, guarded by c
 - ⬜ [cmd] STD and DRIFT pass on `feat/m1-contracts`, and `cargo clippy --target x86_64-unknown-linux-gnu --workspace --tests -- -D warnings` passes
 - ⬜ [cmd] `CANDLER_GOLDEN_CORPUS="$GOLDEN" cargo nextest run -p candler-core --run-ignored only --no-tests=fail -E 'binary(guard_golden)'` passes: 240 runs, 10,320 schema-valid outcome records equal to the oracle
 - ⬜ [cmd] SUBJ passes over `origin/main..feat/m1-contracts`
-- ⬜ [cmd] `diff <(ls crates/candler-schemas/schema | sort) __roadmap__/m1-contracts/interfaces/services/import/closeout/expected_roots.txt` prints nothing
+- ⬜ [cmd] `diff <(cd crates/candler-schemas/schema && printf '%s\n' *.schema.json | sort) __roadmap__/m1-contracts/interfaces/services/import/closeout/expected_roots.txt` prints nothing
 - ⬜ [nl] Every leaf is `done` and every required verification and Grit review reports no open finding
 
 ## Gotchas
@@ -71,7 +71,7 @@ graph TD
     wire_foundations[Wire foundations: values, RFC 8785, child record]:::done
     wire_trace[Wire trace: raw frames and trace records]:::done
     golden_oracle[Golden oracle: independent expected rows]:::done
-    interfaces[Interfaces]:::planned
+    interfaces[Interfaces]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -85,7 +85,7 @@ graph TD
 | `wire_foundations.md` | 📄 Leaf Task | ✅ Done |
 | `wire_trace.md` | 📄 Leaf Task | ✅ Done |
 | `golden_oracle.md` | 📄 Leaf Task | ✅ Done |
-| `interfaces/` | 📁 Directory | ⬜ Planned |
+| `interfaces/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

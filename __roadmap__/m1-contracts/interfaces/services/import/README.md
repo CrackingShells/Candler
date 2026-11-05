@@ -19,7 +19,7 @@ The 240 golden runs import equal to the oracle, and the cross-leaf seams are gua
 graph TD
     legacy_import[Legacy import]:::done
     seams[Seams]:::done
-    closeout[Close-out]:::planned
+    closeout[Close-out]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -32,7 +32,7 @@ graph TD
 |:-----|:-----|:-------|
 | `legacy_import.md` | 📄 Leaf Task | ✅ Done |
 | `seams.md` | 📄 Leaf Task | ✅ Done |
-| `closeout/` | 📁 Directory | ⬜ Planned |
+| `closeout/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

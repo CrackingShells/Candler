@@ -21,7 +21,7 @@ graph TD
     wire_evaluation[Wire evaluation: plug-ins, suites, protocol]:::done
     harness_traits[Harness traits]:::done
     resolve_config[Resolve and config]:::done
-    services[Services]:::planned
+    services[Services]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -36,7 +36,7 @@ graph TD
 | `wire_evaluation.md` | 📄 Leaf Task | ✅ Done |
 | `harness_traits.md` | 📄 Leaf Task | ✅ Done |
 | `resolve_config.md` | 📄 Leaf Task | ✅ Done |
-| `services/` | 📁 Directory | ⬜ Planned |
+| `services/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

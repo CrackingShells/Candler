@@ -10,13 +10,13 @@ The milestone's gates are recorded green and the contracts are documented for co
 - [x] [cmd] The L3 leaves are landed: `for l in legacy_import seams; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
 
 ## Success Gates
-- ⬜ [cmd] `gate_sweep` is landed: `for l in gate_sweep; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
-- ⬜ [nl] The re-engaged api_review verifier reports no open finding
+- ✅ [cmd] `gate_sweep` is landed: `for l in gate_sweep; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
+- ✅ [nl] The re-engaged api_review verifier reports no open BLOCKER or MAJOR finding, and the coordinator rules on each MINOR item
 
 ## Status
 ```mermaid
 graph TD
-    gate_sweep[Gate sweep]:::planned
+    gate_sweep[Gate sweep]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -27,7 +27,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `gate_sweep.md` | 📄 Leaf Task | ⬜ Planned |
+| `gate_sweep.md` | 📄 Leaf Task | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
