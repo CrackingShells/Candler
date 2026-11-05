@@ -128,6 +128,35 @@ run `kill(-1, SIGKILL)`, which killed 394 of the user's processes. Since then:
 - **Module paths.** No crate re-exports anything, so import by module path, for example
   `candler_core::store::run::RunWriter`.
 
+### Containers, process identity and the test harness (from PR #2's Linux CI)
+
+- **A container needs a PID 1 that reaps orphans.** Run with tini or `docker run --init`, or
+  make the supervisor a child subreaper itself. Otherwise the killed grandchildren of a stopped
+  tree stay as zombies. A zombie is still a member of its group, so `group_empty` reads false.
+  - Evidence: with `su` as the container's PID 1, three `guard_supervise` tests failed every
+    run: `a_stopped_and_a_reaped_tree_leave_no_survivor`,
+    `the_sweeper_is_called_once_after_kill_group_and_run_stray_names_its_kill` and
+    `a_pre_stop_command_leaves_nothing_in_its_group`. `ps` showed the leftovers as `Z`,
+    reparented to PID 1. With `--init`, or with no `su`, the same tests pass.
+- **The `(pid, start)` identity has a limit (accepted deviation).**
+  - Linux start times count 10 ms ticks (`CLK_TCK` 100). Two processes that start in one tick
+    share a start time.
+  - Reuse is still caught: pids are handed out in turn, so a reused pid cannot start in its
+    earlier holder's tick.
+  - No start time catches a forged record that copies a live process's true start, and `reap`
+    adopts any record that verifies against the OS.
+  - The note is in the module docs of `crates/candler-core/src/supervise/platform.rs`.
+  - PR #2's first Linux CI failure came from this tick resolution. The test
+    `a_forged_record_does_not_read_alive` had forged a record that shared the child's tick. Its
+    setup was fixed in `c707764`; the guard itself was correct.
+- **Run the test suite as a non-root user.** As root,
+  `guard_import_mini::an_import_that_stopped_is_completed_by_the_next` fails, because root can
+  still read the artifact whose mode the test sets to 000. CI runs as non-root.
+
+**For M5 (container isolation):** the run container's PID 1 must reap orphans (tini or `--init`),
+or the supervisor must be a subreaper; without that, killed grandchildren stay as zombies and
+`group_empty` reads false. The evidence and the identity limit are in the subsection above.
+
 ## For M2a (evaluation)
 
 ### Deferred to M2a
