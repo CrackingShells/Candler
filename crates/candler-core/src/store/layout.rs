@@ -121,7 +121,7 @@ impl StoreLayout {
     /// The directory of one evaluator's outcome files for a run.
     #[must_use]
     pub fn evaluator_dir(&self, run: &RunKey, evaluator: &NameVersion) -> PathBuf {
-        self.run_outcomes_dir(run).join(evaluator.as_str())
+        self.run_outcomes_dir(run).join(evaluator.as_str()) // BORROW: explicit .as_str() instead of Deref coercion
     }
 
     /// The finished outcome file of one request.
@@ -146,7 +146,7 @@ impl StoreLayout {
     /// The directory of one job.
     #[must_use]
     pub fn job_dir(&self, job: &JobId) -> PathBuf {
-        self.root.join("jobs").join(job.as_str())
+        self.root.join("jobs").join(job.as_str()) // BORROW: explicit .as_str() instead of Deref coercion
     }
 
     /// The lock file of the supervisor of one experiment.
@@ -162,5 +162,23 @@ impl StoreLayout {
     #[must_use]
     pub fn index_dir(&self) -> PathBuf {
         self.root.join("index")
+    }
+
+    /// The index of sealed runs.
+    #[must_use]
+    pub fn index_runs(&self) -> PathBuf {
+        self.index_dir().join("runs.jsonl")
+    }
+
+    /// The index of finished outcome files.
+    #[must_use]
+    pub fn index_outcomes(&self) -> PathBuf {
+        self.index_dir().join("outcomes.jsonl")
+    }
+
+    /// The lock that serialises writers of the index.
+    #[must_use]
+    pub fn index_lock(&self) -> PathBuf {
+        self.index_dir().join("lock")
     }
 }

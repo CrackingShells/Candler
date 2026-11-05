@@ -46,7 +46,8 @@ pub struct OutcomeWriter {
 }
 
 impl OutcomeWriter {
-    /// Opens the `.partial` file of a request, replacing one an earlier writer left.
+    /// Opens the `.partial` file of a request as a new file, replacing one an earlier writer left;
+    /// a writer holds its own file, so no later writer reaches a file already published.
     ///
     /// # Errors
     /// Returns [`StoreError::OutcomeExists`] when the final file exists, and [`StoreError::Io`]
@@ -65,10 +66,14 @@ impl OutcomeWriter {
         let dir = layout.evaluator_dir(run, evaluator);
         fs::create_dir_all(&dir).map_err(io_error("create an outcome directory", &dir))?;
         let partial = layout.outcome_partial(run, evaluator, request);
+        match fs::remove_file(&partial) {
+            Ok(()) => {}
+            Err(source) if source.kind() == io::ErrorKind::NotFound => {}
+            Err(source) => return Err(io_error("remove a stale partial file", &partial)(source)),
+        }
         let file = OpenOptions::new()
             .write(true)
-            .create(true)
-            .truncate(true)
+            .create_new(true)
             .open(&partial)
             .map_err(io_error("open a partial outcome file", &partial))?;
         Ok(Self {
@@ -115,7 +120,8 @@ impl OutcomeWriter {
     ///
     /// # Errors
     /// Returns [`StoreError::OutcomeExists`] when the final file exists, and [`StoreError::Io`]
-    /// when a sync or the publication fails.
+    /// when a sync or the publication fails, or when the index line cannot be appended; in the
+    /// last case the file is published and `rebuild_index` repairs the index.
     pub fn commit(self) -> Result<(), StoreError> {
         let layout = self.store.layout();
         let last = layout.outcome(
@@ -139,10 +145,10 @@ impl OutcomeWriter {
         }
         fs::remove_file(&self.partial)
             .map_err(io_error("remove a published partial file", &self.partial))?;
-        match last.parent() {
-            Some(dir) => sync_dir(dir),
-            None => Ok(()),
+        if let Some(dir) = last.parent() {
+            sync_dir(dir)?;
         }
+        self.store.index_outcome(&self.target)
     }
 }
 
@@ -158,12 +164,13 @@ impl Store {
         for name in visible_names(&layout.run_outcomes_dir(run))? {
             // BORROW: explicit .as_str() instead of Deref coercion
             let Ok(evaluator) = name.as_str().parse::<NameVersion>() else {
+                // BORROW: explicit .as_str() instead of Deref coercion
                 continue;
             };
             for file in visible_names(&layout.evaluator_dir(run, &evaluator))? {
                 let stem = file
                     // BORROW: explicit .as_str() instead of Deref coercion
-                    .as_str()
+                    .as_str() // BORROW: explicit .as_str() instead of Deref coercion
                     .strip_suffix(&format!(".{OUTCOME_EXTENSION}"))
                     .and_then(|text| text.parse::<RequestId>().ok());
                 if let Some(request) = stem {

@@ -9,6 +9,7 @@ use candler_schemas::primitives::FormatError;
 use serde_json::Value;
 
 pub mod blob;
+pub mod index;
 pub mod layout;
 pub mod outcome;
 pub mod run;
@@ -88,6 +89,14 @@ pub enum StoreError {
     RecordMismatch {
         /// What differs.
         detail: &'static str,
+    },
+    /// A line of the index other than the last does not parse; `rebuild_index` repairs it.
+    #[error("{} line {line} does not parse", path.display())]
+    IndexCorrupt {
+        /// The index file.
+        path: PathBuf,
+        /// The line number, from 1.
+        line: usize,
     },
     /// A stored file is not a valid record.
     #[error("{} does not parse: {detail}", path.display())]
