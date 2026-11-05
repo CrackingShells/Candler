@@ -6,5 +6,9 @@
 //! runs every command and HTTP call a driver describes.
 //!
 //! - [`spec`] holds the data a driver returns to the core.
+//! - [`driver`] holds [`driver::HarnessDriver`] and its error.
+//! - [`reader`] holds [`reader::TraceReader`], its frame input and its error.
 
+pub mod driver;
+pub mod reader;
 pub mod spec;
