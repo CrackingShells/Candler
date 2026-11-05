@@ -1,19 +1,33 @@
 //! Guards for the process supervisor: records, liveness, handles, events, stops and reaping.
 #![cfg(test)]
 
+use std::fmt::Write as _;
 use std::fs;
+use std::io::{Read, Write};
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use candler_core::frames::FrameMode;
+use candler_core::supervise::http::is_loopback;
 use candler_core::supervise::platform::{Liveness, liveness};
-use candler_core::supervise::spawn::{SpawnRequest, SpawnRequestBuilder};
+use candler_core::supervise::signal::Signaller;
+use candler_core::supervise::spawn::{OutputSpec, SpawnRequest, SpawnRequestBuilder, StdinSpec};
+use candler_core::supervise::stop::Ended;
 use candler_core::supervise::{EventSink, Supervisor};
-use candler_schemas::execution::EventPayload;
-use candler_schemas::primitives::{Marker, RunKey};
-use candler_schemas::process::ChildRecord;
+use candler_harness::spec::{Action, CommandSpec, HttpMethod, StopSignal, StopSpec};
+use candler_schemas::execution::{Envelope, EventPayload};
+use candler_schemas::primitives::{Digest, JobId, Marker, RunKey, Timestamp};
+use candler_schemas::process::{ChildRecord, ExitStatus};
+use candler_schemas::raw::StreamName;
+use rustix::io::Errno;
+use rustix::process::{Pid, Signal};
 use serde_json::{Value, json};
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+mod support;
 
 /// The marker every test child receives.
 const MARKER: &str = "m1-supervisor-guard";
@@ -293,4 +307,625 @@ async fn a_forged_record_does_not_read_alive() {
         Liveness::Gone,
         "the dead child still reads alive"
     );
+}
+
+/// A job id for the envelopes the tests build.
+const JOB: &str = "018f2b3c-4d5e-7a6b-8c7d-9e0f1a2b3c4d";
+
+/// A shell that ignores `TERM`, creates the file named by its first argument and then becomes
+/// `sleep`, which keeps the ignored signal: only `SIGKILL` ends it. The file says the signal is
+/// ignored, so that a test stops the child only after that.
+fn stubborn(ready: &str) -> [&str; 5] {
+    [
+        "sh",
+        "-c",
+        "trap '' TERM; : > \"$1\"; exec sleep 30",
+        "sh",
+        ready,
+    ]
+}
+
+/// Waits until `path` exists, for at most 10 s.
+async fn until_ready(path: &Path) {
+    let until = Instant::now() + Duration::from_secs(10);
+    while !path.exists() {
+        assert!(Instant::now() < until, "the child never became ready");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+fn stop_spec(pre_stop: Option<Action>, grace_ms: u64) -> StopSpec {
+    StopSpec::new(pre_stop, StopSignal::Term, Duration::from_millis(grace_ms))
+}
+
+fn run_key() -> RunKey {
+    let cell: Digest = format!("sha256:{}", "a".repeat(64))
+        .parse()
+        .expect("a digest");
+    RunKey::new(cell, 1, 1).expect("a run key")
+}
+
+/// Every event the recorder holds, wrapped in an envelope and written to JSON.
+fn envelopes(recorder: &Recorder) -> Vec<Value> {
+    let events = recorder.events.lock().expect("a lock");
+    events
+        .iter()
+        .enumerate()
+        .map(|(seq, (run, payload))| {
+            let mut builder = Envelope::builder()
+                .seq(u64::try_from(seq).expect("a small index"))
+                .at("2026-01-02T03:04:05Z".parse::<Timestamp>().expect("a time"))
+                .job_id(JOB.parse::<JobId>().expect("a job id"))
+                .event(payload.clone()); // BORROW: .clone() keeps the recorded event
+            if let Some(run) = run {
+                builder = builder.run(run.clone()); // BORROW: .clone() keeps the recorded run key
+            }
+            serde_json::to_value(builder.build().expect("an envelope")).expect("JSON")
+        })
+        .collect()
+}
+
+/// The validator for the published `event-envelope` schema.
+fn envelope_validator() -> jsonschema::Validator {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("candler-schemas")
+        .join("schema")
+        .join("event-envelope.schema.json");
+    let text = fs::read_to_string(path).expect("the committed schema exists");
+    let schema: Value = serde_json::from_str(&text).expect("the schema is JSON");
+    jsonschema::validator_for(&schema).expect("the schema compiles")
+}
+
+/// `kind`, and `kind:step` for a stop step, of each envelope.
+fn shape(envelopes: &[Value]) -> Vec<String> {
+    envelopes
+        .iter()
+        .map(|envelope| {
+            let kind = at(envelope, &["kind"]).as_str().expect("a kind");
+            match at(envelope, &["payload", "step"]).as_str() {
+                Some(step) => format!("{kind}:{step}"),
+                None => kind.to_owned(), // BORROW: .to_owned() makes the owned label
+            }
+        })
+        .collect()
+}
+
+/// Guards: G3 and R01 §escalation — a stopped child's sink receives the ordered events `process.spawned`, the stop steps `signal`, `terminate_group`, `kill_group`, `sweep`, then `process.exited`, each stop step and the exit carrying the child's `{pid, start}` and the run key, and every envelope validates against the published `event-envelope` schema. Oracle: the literal ordered list written here from R01's ladder, and the schema file.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stopped_child_reports_each_step_in_order() {
+    let records = tempfile::tempdir().expect("a temp dir");
+    let ready = records.path().join("ready");
+    let ready_arg = ready.to_str().expect("a UTF-8 path");
+    let (supervisor, recorder) = supervisor();
+    let child = supervisor
+        .spawn(
+            request(&stubborn(ready_arg), records.path())
+                .run(run_key())
+                .stop(stop_spec(None, 300))
+                .build()
+                .expect("a request"),
+        )
+        .expect("a child");
+    let _cleanup = KillAll(&supervisor);
+    until_ready(&ready).await;
+    let record_json = serde_json::to_value(child.record()).expect("JSON");
+    let pid = child.record().pid();
+    let exit = child.stop().await.expect("an exit");
+
+    assert_eq!(exit.ended, Ended::Stopped);
+    assert!(exit.group_empty);
+    assert_eq!(exit.status, ExitStatus::Signal { signal: 9 });
+    let taken: Vec<String> = exit
+        .steps
+        .iter()
+        .map(|step| serde_json::to_value(step.step).expect("JSON").to_string())
+        .collect();
+    assert_eq!(
+        taken,
+        [
+            "\"signal\"",
+            "\"terminate_group\"",
+            "\"kill_group\"",
+            "\"sweep\""
+        ]
+    );
+
+    let all = envelopes(&recorder);
+    assert_eq!(
+        shape(&all),
+        [
+            "process.spawned",
+            "process.stop_step:signal",
+            "process.stop_step:terminate_group",
+            "process.stop_step:kill_group",
+            "process.stop_step:sweep",
+            "process.exited",
+        ]
+    );
+    let validator = envelope_validator();
+    let run = serde_json::to_value(run_key()).expect("JSON");
+    for envelope in &all {
+        let problems: Vec<String> = validator
+            .iter_errors(envelope)
+            .map(|problem| problem.to_string())
+            .collect();
+        assert!(problems.is_empty(), "{envelope}: {problems:?}");
+        assert_eq!(at(envelope, &["run"]), &run, "{envelope}");
+    }
+    for envelope in all.iter().skip(1) {
+        assert_eq!(at(envelope, &["payload", "pid"]), &json!(pid), "{envelope}");
+        assert_eq!(
+            at(envelope, &["payload", "start"]),
+            at(&record_json, &["start"]),
+            "{envelope}"
+        );
+    }
+    let last = all.last().expect("an exit event");
+    assert_eq!(
+        at(last, &["payload", "status"]),
+        &json!({"kind": "signal", "signal": 9})
+    );
+    assert_eq!(at(last, &["payload", "group_empty"]), &json!(true));
+}
+
+/// Guards: Cond 2 (no secret reaches disk, an event or a `Debug` print) — a canary placed in the child's environment appears in no file under `record_dir`, no event and no `Debug` output of the request, the supervisor, the child or the exit, and the child did receive it. Oracle: `tests/support::assert_clean` scanning the written files, and a `printf` child that echoes the variable as the positive control.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_secret_in_the_environment_is_written_nowhere() {
+    const CANARY: &str = "canary-7d3f9a51c2e84b06";
+    let records = tempfile::tempdir().expect("a temp dir");
+    let with_canary = |argv: &[&str]| {
+        request(argv, records.path())
+            .env(vec![
+                ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+                ("API_KEY".to_owned(), CANARY.to_owned()),
+            ])
+            .run(run_key())
+    };
+    let (supervisor, recorder) = supervisor();
+
+    // The positive control: the variable reaches the child.
+    let echoed = supervisor
+        .run_captured(
+            with_canary(&["sh", "-c", "printf %s \"$API_KEY\""])
+                .record_dir(tempfile::tempdir().expect("a temp dir").keep())
+                .build()
+                .expect("a request"),
+            1024,
+        )
+        .await
+        .expect("a probe");
+    assert_eq!(echoed.stdout, CANARY.as_bytes());
+
+    let built = with_canary(&["sleep", "30"]).build().expect("a request");
+    let mut debug = format!("{built:?}\n{supervisor:?}\n");
+    let child = supervisor.spawn(built).expect("a child");
+    let _cleanup = KillAll(&supervisor);
+    writeln!(debug, "{child:?}\n{:?}", child.record()).expect("a write");
+    let exit = child.stop().await.expect("an exit");
+    writeln!(debug, "{exit:?}\n{echoed:?}").expect("a write");
+
+    let scratch = tempfile::tempdir().expect("a temp dir");
+    let events = envelopes(&recorder)
+        .iter()
+        .map(Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(scratch.path().join("events.jsonl"), events).expect("written");
+    fs::write(scratch.path().join("debug.txt"), debug).expect("written");
+    support::assert_clean(records.path(), CANARY);
+    support::assert_clean(scratch.path(), CANARY);
+}
+
+/// Guards: R01 §escalation (wait ends by exit plus the grace) — a grandchild in another session that holds the child's standard output for 8 s does not hold `wait` past deadline + grace + 2 s, and the frames written before the cut-off are kept. Oracle: the wall clock around `wait`, with the held pipe proved by the grandchild's own `ready` line in the raw file.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_grandchild_holding_the_pipe_does_not_hold_wait() {
+    let records = tempfile::tempdir().expect("a temp dir");
+    let raw = tempfile::tempdir().expect("a temp dir");
+    let script = "perl -MPOSIX -e 'POSIX::setsid(); print qq(ready\\n); $|=1; exec q(sleep), q(8)' & exec sleep 30";
+    let (supervisor, _events) = supervisor();
+    let child = supervisor
+        .spawn(
+            request(&["sh", "-c", script], records.path())
+                .stdout(OutputSpec::framed(
+                    raw.path().to_path_buf(),
+                    "stdout".parse::<StreamName>().expect("a stream name"),
+                    FrameMode::Lines,
+                ))
+                .deadline(Duration::from_millis(1500))
+                .stop(stop_spec(None, 500))
+                .build()
+                .expect("a request"),
+        )
+        .expect("a child");
+    let _cleanup = KillAll(&supervisor);
+    let began = Instant::now();
+    let exit = child.wait().await.expect("an exit");
+    let took = began.elapsed();
+    assert_eq!(exit.ended, Ended::Deadline);
+    assert!(took >= Duration::from_millis(1500), "waited only {took:?}");
+    assert!(took < Duration::from_secs(4), "wait was held for {took:?}");
+    let file = exit.raw.first().expect("the stdout raw file");
+    assert!(file.frames >= 1, "the grandchild never wrote: {file:?}");
+}
+
+/// A request that fails or ignores its pre-stop and a child that ignores `TERM`.
+async fn stop_after_failed_pre_stop(action: Action) -> candler_core::supervise::stop::Exit {
+    let records = tempfile::tempdir().expect("a temp dir");
+    let ready = records.path().join("ready");
+    let ready_arg = ready.to_str().expect("a UTF-8 path");
+    let (supervisor, _events) = supervisor();
+    let child = supervisor
+        .spawn(
+            request(&stubborn(ready_arg), records.path())
+                .stop(stop_spec(Some(action), 400))
+                .build()
+                .expect("a request"),
+        )
+        .expect("a child");
+    let _cleanup = KillAll(&supervisor);
+    until_ready(&ready).await;
+    child.stop().await.expect("an exit")
+}
+
+/// Guards: R01 §escalation (a failed or timed-out pre-stop continues the ladder) — an HTTP pre-stop to a closed loopback port and a command pre-stop that sleeps past the grace each report their failure, then the child, which ignores `TERM`, is taken through `signal`, `terminate_group` and `kill_group` and dies of `SIGKILL`. Oracle: the literal step list and outcomes written here, and the OS exit status of the child.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_pre_stop_still_reaches_term_then_kill() {
+    let closed_port = {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a port");
+        listener.local_addr().expect("an address").port()
+    };
+    let sleeper = CommandSpec::builder()
+        .argv(vec!["sleep".to_owned(), "30".to_owned()])
+        .build()
+        .expect("a command");
+    let table: [(&str, Action, &str); 2] = [
+        (
+            "closed port",
+            Action::http(
+                HttpMethod::Get,
+                format!("http://127.0.0.1:{closed_port}/stop"),
+                None,
+            ),
+            "http failed: connect",
+        ),
+        (
+            "sleeping command",
+            Action::Command(sleeper),
+            "command timed out and was killed",
+        ),
+    ];
+    for (label, action, outcome) in table {
+        let exit = stop_after_failed_pre_stop(action).await;
+        let steps: Vec<(String, String)> = exit
+            .steps
+            .iter()
+            .map(|step| {
+                (
+                    serde_json::to_value(step.step)
+                        .expect("JSON")
+                        .as_str()
+                        .expect("a step name")
+                        .to_owned(), // BORROW: .to_owned() makes the owned name
+                    step.outcome.clone(), // BORROW: .clone() keeps the outcome
+                )
+            })
+            .collect();
+        let names: Vec<&str> = steps.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "pre_stop",
+                "signal",
+                "terminate_group",
+                "kill_group",
+                "sweep"
+            ],
+            "{label}"
+        );
+        let said = |n: usize| steps.get(n).map(|(_, text)| text.as_str()).expect("a step");
+        assert_eq!(said(0), outcome, "{label}");
+        assert_eq!(
+            said(1),
+            "signal sent; leader still running after grace",
+            "{label}"
+        );
+        assert_eq!(said(2), "group still has members after SIGTERM", "{label}");
+        assert_eq!(said(3), "group empty after SIGKILL", "{label}");
+        assert_eq!(exit.status, ExitStatus::Signal { signal: 9 }, "{label}");
+        assert!(exit.group_empty, "{label}");
+    }
+}
+
+/// Reads one request (headers and `body_len` body bytes) from the first connection to `listener`
+/// within 10 s, answers `204`, and returns the request text; `None` if nobody connects.
+fn serve_once(listener: &TcpListener, body_len: usize) -> Option<String> {
+    listener.set_nonblocking(true).expect("nonblocking");
+    let until = Instant::now() + Duration::from_secs(10);
+    let mut stream = loop {
+        match listener.accept() {
+            Ok((stream, _)) => break stream,
+            Err(_) if Instant::now() < until => std::thread::sleep(Duration::from_millis(10)),
+            Err(_) => return None,
+        }
+    };
+    stream.set_nonblocking(false).expect("blocking");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .expect("a timeout");
+    let mut seen = Vec::new();
+    let mut chunk = [0_u8; 256];
+    loop {
+        let count = stream.read(&mut chunk).expect("a read");
+        seen.extend_from_slice(chunk.get(..count).expect("a chunk"));
+        let text = String::from_utf8_lossy(&seen);
+        if let Some(split) = text.find("\r\n\r\n")
+            && seen.len() >= split + 4 + body_len
+        {
+            break;
+        }
+        assert!(count > 0, "the client closed early: {text:?}");
+    }
+    stream
+        .write_all(b"HTTP/1.1 204 No Content\r\n\r\n")
+        .expect("a reply");
+    Some(String::from_utf8_lossy(&seen).into_owned())
+}
+
+/// Guards: R01 §escalation and the loopback rule — only `http` URLs to `localhost`, `127.0.0.0/8` and `[::1]` without userinfo are loopback; an accepted URL is called with the literal request bytes below and a refused one opens no connection. Oracle: the hand-written URL table, and a listener that records the bytes it receives.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn only_loopback_urls_are_called() {
+    let accepted = [
+        "http://127.0.0.1:8080/x",
+        "http://127.1.2.3/",
+        "http://[::1]:9/",
+        "http://localhost/",
+        "http://localhost:3000/a?b=c",
+        "http://127.0.0.1#@evil.com/",
+        "http://2130706433/",
+        "http://0x7f.0.0.1/",
+    ];
+    let refused = [
+        "http://127.0.0.1.evil.com/",
+        "http://127.0.0.1@evil.com/",
+        "http://evil.com@127.0.0.1/",
+        "http://user:pw@127.0.0.1/",
+        "http://evil.com\\@127.0.0.1/",
+        "https://127.0.0.1/",
+        "http://[::ffff:127.0.0.1]/",
+        "http://0.0.0.0/",
+        "http://127.0.0.1:0/",
+        "http://localhost.evil.com/",
+        "http://10.0.0.1/",
+        "ftp://127.0.0.1/",
+        "127.0.0.1",
+        "",
+    ];
+    for url in accepted {
+        assert!(is_loopback(url), "{url:?} should be loopback");
+    }
+    for url in refused {
+        assert!(!is_loopback(url), "{url:?} should not be loopback");
+    }
+
+    // An accepted URL is called, with these exact bytes.
+    let listener = TcpListener::bind("127.0.0.1:0").expect("a port");
+    let port = listener.local_addr().expect("an address").port();
+    let served = std::thread::spawn(move || serve_once(&listener, 2));
+    let records = tempfile::tempdir().expect("a temp dir");
+    let (supervisor, _events) = supervisor();
+    let call = Action::http(
+        HttpMethod::Post,
+        format!("http://127.0.0.1:{port}/stop?now=1"),
+        Some("ok".to_owned()),
+    );
+    let child = supervisor
+        .spawn(
+            request(&["sleep", "30"], records.path())
+                .stop(stop_spec(Some(call), 400))
+                .build()
+                .expect("a request"),
+        )
+        .expect("a child");
+    let _cleanup = KillAll(&supervisor);
+    let exit = child.stop().await.expect("an exit");
+    let said = exit.steps.first().map(|step| step.outcome.as_str());
+    assert_eq!(said, Some("http 204"));
+    assert_eq!(
+        served.join().expect("the listener thread"),
+        Some(format!(
+            "POST /stop?now=1 HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Length: 2\r\n\r\nok"
+        ))
+    );
+
+    // A refused URL is not called, even though its text names the listener's address.
+    let listener = TcpListener::bind("127.0.0.1:0").expect("a port");
+    let port = listener.local_addr().expect("an address").port();
+    let watcher = std::thread::spawn(move || {
+        listener.set_nonblocking(true).expect("nonblocking");
+        std::thread::sleep(Duration::from_millis(1500));
+        listener.accept().is_ok()
+    });
+    let call = Action::http(
+        HttpMethod::Get,
+        format!("http://evil.com@127.0.0.1:{port}/"),
+        None,
+    );
+    let child = supervisor
+        .spawn(
+            request(&["sleep", "30"], records.path())
+                .stop(stop_spec(Some(call), 400))
+                .build()
+                .expect("a request"),
+        )
+        .expect("a child");
+    let _cleanup = KillAll(&supervisor);
+    let exit = child.stop().await.expect("an exit");
+    let said = exit.steps.first().map(|step| step.outcome.as_str());
+    assert_eq!(said, Some("refused: not loopback"));
+    assert!(
+        !watcher.join().expect("the watcher thread"),
+        "a connection arrived"
+    );
+}
+
+/// One row of the capture table: label, argv, limit, expected stdout, expected stderr.
+type Probe<'a> = (&'a str, &'a [&'a str], usize, &'a [u8], &'a [u8]);
+
+/// Guards: R01 §handles — bytes written through `take_stdin` of a `cat` child come back through `take_stdout`; a `StopHandle` request from another task ends a waiting child `Stopped`; `run_captured` returns the literal bytes, cut at the limit. Oracle: the bytes and the limits written here, and the OS exit status of `cat`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn handles_carry_bytes_requests_and_captures() {
+    let records = tempfile::tempdir().expect("a temp dir");
+    let (supervisor, _events) = supervisor();
+
+    let mut cat = supervisor
+        .spawn(
+            request(&["cat"], records.path())
+                .stdin(StdinSpec::Pipe)
+                .stdout(OutputSpec::Pipe)
+                .build()
+                .expect("a request"),
+        )
+        .expect("a child");
+    let _cat_cleanup = KillAll(&supervisor);
+    let mut stdin = cat.take_stdin().expect("the stdin pipe");
+    let mut stdout = cat.take_stdout().expect("the stdout pipe");
+    assert!(cat.take_stdin().is_none(), "the pipe is given once");
+    stdin.write_all(b"hello\nworld").await.expect("a write");
+    drop(stdin);
+    let mut echoed = Vec::new();
+    stdout.read_to_end(&mut echoed).await.expect("a read");
+    assert_eq!(echoed, b"hello\nworld");
+    let exit = cat.wait().await.expect("an exit");
+    assert_eq!(exit.ended, Ended::Exited);
+    assert_eq!(exit.status, ExitStatus::Code { code: 0 });
+
+    let records = tempfile::tempdir().expect("a temp dir");
+    let sleeper = supervisor
+        .spawn(
+            request(&["sleep", "20"], records.path())
+                .build()
+                .expect("a request"),
+        )
+        .expect("a child");
+    let _sleeper_cleanup = KillAll(&supervisor);
+    let handle = sleeper.stop_handle();
+    let asker = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        handle.request();
+    });
+    let began = Instant::now();
+    let exit = sleeper.wait().await.expect("an exit");
+    asker.await.expect("the asking task");
+    assert_eq!(exit.ended, Ended::Stopped);
+    assert!(
+        began.elapsed() < Duration::from_secs(15),
+        "the request was ignored"
+    );
+
+    let table: [Probe<'_>; 3] = [
+        (
+            "stdout",
+            &["printf", "%s", "lit\nbytes"],
+            1024,
+            b"lit\nbytes",
+            b"",
+        ),
+        ("cut", &["printf", "%s", "abcdef"], 3, b"abc", b""),
+        (
+            "both",
+            &["sh", "-c", "printf out; printf err >&2"],
+            1024,
+            b"out",
+            b"err",
+        ),
+    ];
+    for (label, argv, limit, out, err) in table {
+        let records = tempfile::tempdir().expect("a temp dir");
+        let captured = supervisor
+            .run_captured(
+                request(argv, records.path()).build().expect("a request"),
+                limit,
+            )
+            .await
+            .expect("a probe");
+        assert_eq!(captured.stdout, out, "{label}");
+        assert_eq!(captured.stderr, err, "{label}");
+        assert_eq!(
+            captured.exit.status,
+            ExitStatus::Code { code: 0 },
+            "{label}"
+        );
+    }
+}
+
+/// Records each group it is asked to signal and signals nothing.
+#[derive(Default)]
+struct Recording {
+    calls: Mutex<Vec<(i32, i32)>>,
+}
+
+impl Signaller for Recording {
+    fn signal_group(&self, group: Pid, signal: Signal) -> Result<(), Errno> {
+        self.calls
+            .lock()
+            .expect("a lock")
+            .push((group.as_raw_nonzero().get(), signal.as_raw()));
+        Ok(())
+    }
+}
+
+/// Guards: I22 — the core never signals a process group or pid it did not spawn and re-verify. Oracle: the fake's call log against the pid of the child the test spawned; the ladder of R01 §escalation (`TERM`, `TERM`, `KILL`). The fake signals nothing, so the children are `sleep` commands that end on their own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_ladder_signals_exactly_the_group_it_spawned() {
+    let recording = Arc::new(Recording::default());
+    // TRAIT_OBJECT: the supervisor takes its signaller as a trait object
+    // BORROW: .clone() shares the log between the supervisor and the test
+    let signaller: Arc<dyn Signaller> = recording.clone();
+    let recorder = Arc::new(Recorder::default());
+    // TRAIT_OBJECT: the supervisor takes its sink as a trait object
+    // BORROW: .clone() shares the recorder between the supervisor and the test
+    let sink: Arc<dyn EventSink> = recorder.clone();
+    let supervisor = Supervisor::new(sink).with_signaller(signaller);
+    let records = tempfile::tempdir().expect("a temp dir");
+    let spawn = |argv: &[&str], deadline: Option<Duration>| {
+        let mut builder = request(argv, records.path()).stop(stop_spec(None, 200));
+        if let Some(limit) = deadline {
+            builder = builder.deadline(limit);
+        }
+        supervisor
+            .spawn(builder.build().expect("a request"))
+            .expect("a child")
+    };
+    let asked = spawn(&["sleep", "8"], None);
+    let late = spawn(&["sleep", "8"], Some(Duration::from_millis(300)));
+    let natural = spawn(&["sh", "-c", "exit 0"], None);
+    let (asked_pid, late_pid, natural_pid) = (
+        i32::try_from(asked.record().pid()).expect("a pid"),
+        i32::try_from(late.record().pid()).expect("a pid"),
+        i32::try_from(natural.record().pid()).expect("a pid"),
+    );
+    // The fake delivers nothing, so the two long children outlive the ladder and the waits end
+    // in an error; what is checked is what the guard let through.
+    let (_asked, _late, natural_exit) = tokio::join!(asked.stop(), late.wait(), natural.wait());
+    assert_eq!(
+        natural_exit.expect("an exit").status,
+        ExitStatus::Code { code: 0 }
+    );
+
+    let calls = recording.calls.lock().expect("a lock").clone(); // BORROW: .clone() copies the log out of the lock
+    let (term, kill) = (Signal::TERM.as_raw(), Signal::KILL.as_raw());
+    for (label, pid) in [("stopped", asked_pid), ("deadline", late_pid)] {
+        let own: Vec<(i32, i32)> = calls.iter().copied().filter(|(g, _)| *g == pid).collect();
+        assert_eq!(
+            own,
+            [(pid, term), (pid, term), (pid, kill)],
+            "{label}: {calls:?}"
+        );
+    }
+    assert!(
+        calls.iter().all(|(g, _)| [asked_pid, late_pid].contains(g)),
+        "a group the test did not spawn, or a child that exited by itself, was signalled: {calls:?} (natural child {natural_pid})"
+    );
+    assert_eq!(calls.len(), 6, "{calls:?}");
 }

@@ -15,12 +15,15 @@ use candler_schemas::execution::EventPayload;
 use candler_schemas::primitives::{RunKey, Timestamp};
 
 use self::signal::{Guard, OsSignaller, Signaller};
+use self::stop::StraySweeper;
 
+pub mod http;
 pub mod output;
 pub mod platform;
 pub mod record;
 pub mod signal;
 pub mod spawn;
+pub mod stop;
 
 /// Why a spawn, a wait or a stop failed.
 #[derive(Debug, thiserror::Error)]
@@ -68,6 +71,12 @@ pub enum SuperviseError {
         /// What the schema reported.
         detail: String,
     },
+    /// A child that is still running after `SIGKILL`.
+    #[error("process {pid} did not exit after SIGKILL")]
+    Survived {
+        /// The process id of the child.
+        pid: u32,
+    },
     /// A time that cannot be read or written.
     #[error("clock is unreadable: {detail}")]
     Clock {
@@ -86,6 +95,8 @@ pub trait EventSink: Send + Sync {
 pub struct Supervisor {
     // TRAIT_OBJECT: the sink is chosen by the job runner and by tests
     pub(crate) sink: Arc<dyn EventSink>,
+    // TRAIT_OBJECT: the sweeper is injected by the execution milestone
+    pub(crate) sweeper: Option<Arc<dyn StraySweeper>>,
     /// The table of children and the only path to a signal.
     pub(crate) guard: Arc<Guard>,
 }
@@ -97,6 +108,7 @@ impl Supervisor {
         // TRAIT_OBJECT: the sink is chosen by the job runner and by tests
         Self {
             sink,
+            sweeper: None,
             guard: Arc::new(Guard::new(Arc::new(OsSignaller))),
         }
     }
@@ -116,6 +128,15 @@ impl Supervisor {
     // TRAIT_OBJECT: tests replace the signaller with a recording fake
     pub fn with_signaller(mut self, signaller: Arc<dyn Signaller>) -> Self {
         self.guard = Arc::new(Guard::new(signaller));
+        self
+    }
+
+    /// The same supervisor with `sweeper` called after every group kill to find and kill the
+    /// processes of the run that left the group.
+    #[must_use]
+    // TRAIT_OBJECT: the sweeper is injected by the execution milestone
+    pub fn with_sweeper(mut self, sweeper: Arc<dyn StraySweeper>) -> Self {
+        self.sweeper = Some(sweeper);
         self
     }
 }

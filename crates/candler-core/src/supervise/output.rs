@@ -6,8 +6,10 @@
 //! the file, keeps reading and discards, so a full disk cannot block the child on a full pipe. The
 //! failure is reported when the pump ends.
 
-use std::io;
+use std::fs::File;
+use std::io::{self, Read, Seek, SeekFrom};
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Instant;
 
@@ -104,7 +106,6 @@ impl FramedStream {
 /// What a pump leaves behind when it ends.
 #[derive(Debug)]
 #[non_exhaustive]
-#[expect(dead_code, reason = "read by Child::wait")]
 pub(crate) struct Pumped {
     /// The finished raw frame file, or the error that lost it; `None` for a pump with no file.
     pub(crate) file: Option<io::Result<RawFileInfo>>,
@@ -146,5 +147,43 @@ pub(crate) async fn pump<R: AsyncRead + Unpin>(
     Pumped {
         file,
         tail: tail.into_bytes(),
+    }
+}
+
+/// The region of an output file that one child wrote: from the length the file had when the
+/// child was started to its end.
+#[derive(Debug)]
+pub(crate) struct FileTail {
+    path: PathBuf,
+    from: u64,
+}
+
+impl FileTail {
+    /// Marks the current end of `file`, which is open at `path`.
+    pub(crate) fn begin(path: PathBuf, file: &File) -> Result<Self, SuperviseError> {
+        let from = file
+            .metadata()
+            .map_err(|source| SuperviseError::Io {
+                context: "cannot measure the output file",
+                source,
+            })?
+            .len();
+        Ok(Self { path, from })
+    }
+
+    /// The last [`TAIL_LIMIT`] bytes of the region, or nothing if the file cannot be read.
+    pub(crate) fn read(&self) -> Vec<u8> {
+        self.try_read().unwrap_or_default()
+    }
+
+    fn try_read(&self) -> io::Result<Vec<u8>> {
+        let mut file = File::open(&self.path)?;
+        let end = file.metadata()?.len();
+        let limit = u64::try_from(TAIL_LIMIT).unwrap_or(u64::MAX);
+        let start = self.from.max(end.saturating_sub(limit));
+        file.seek(SeekFrom::Start(start))?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)?;
+        Ok(bytes)
     }
 }

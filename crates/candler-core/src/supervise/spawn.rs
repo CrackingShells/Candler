@@ -9,6 +9,7 @@ use std::fmt;
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 
 use candler_harness::spec::{StopSignal, StopSpec};
@@ -22,10 +23,12 @@ use tokio::process::{ChildStderr, ChildStdin, ChildStdout, Command};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use super::output::{FramedStream, Pumped, pump};
+use super::output::{FileTail, FramedStream, Pumped, pump};
 use super::platform::process_start;
 use super::record::write_record;
-use super::{SuperviseError, Supervisor, now};
+use super::signal::Guard;
+use super::stop::StraySweeper;
+use super::{EventSink, SuperviseError, Supervisor, now};
 use crate::frames::FrameMode;
 
 /// The environment variable that carries the marker of a run to its children.
@@ -170,6 +173,18 @@ impl SpawnRequest {
     #[must_use]
     pub fn builder() -> SpawnRequestBuilder {
         SpawnRequestBuilder::default()
+    }
+
+    /// The same request with both outputs replaced by pipes.
+    pub(crate) fn piped(mut self) -> Self {
+        self.stdout = OutputSpec::Pipe;
+        self.stderr = OutputSpec::Pipe;
+        self
+    }
+
+    /// How long the child gets between the stop signal and the group's termination.
+    pub(crate) const fn grace(&self) -> Duration {
+        self.stop.grace
     }
 }
 
@@ -402,12 +417,26 @@ fn check_env(env: &[(String, String)]) -> Result<(), SuperviseError> {
 }
 
 /// The pumps that move a child's framed output into files, and the switch that ends them.
-struct Pumps {
-    cutoff: watch::Sender<bool>,
-    #[expect(dead_code, reason = "joined by Child::wait")]
-    stdout: Option<JoinHandle<Pumped>>,
-    #[expect(dead_code, reason = "joined by Child::wait")]
-    stderr: Option<JoinHandle<Pumped>>,
+pub(crate) struct Pumps {
+    pub(crate) cutoff: watch::Sender<bool>,
+    pub(crate) stdout: Option<JoinHandle<Pumped>>,
+    pub(crate) stderr: Option<JoinHandle<Pumped>>,
+}
+
+/// What a child needs to be stopped, besides its process: where to report, how to stop it, and
+/// the environment its pre-stop command starts from.
+pub(crate) struct Context {
+    // TRAIT_OBJECT: the sink is chosen by the job runner and by tests
+    pub(crate) sink: Arc<dyn EventSink>,
+    // TRAIT_OBJECT: the sweeper is injected by the execution milestone
+    pub(crate) sweeper: Option<Arc<dyn StraySweeper>>,
+    pub(crate) guard: Arc<Guard>,
+    pub(crate) run: Option<RunKey>,
+    pub(crate) stop: StopSpec,
+    pub(crate) deadline: Option<Duration>,
+    pub(crate) env: Vec<(String, String)>,
+    pub(crate) cwd: Option<PathBuf>,
+    pub(crate) stderr_file: Option<FileTail>,
 }
 
 /// A running child: its record, its pipes, and the tasks that move its output.
@@ -416,10 +445,12 @@ struct Pumps {
 /// child's pipes close.
 #[non_exhaustive]
 pub struct Child {
-    record: ChildRecord,
-    process: tokio::process::Child,
-    pumps: Pumps,
-    stdin_task: Option<JoinHandle<()>>,
+    pub(crate) record: ChildRecord,
+    pub(crate) process: tokio::process::Child,
+    pub(crate) pumps: Pumps,
+    pub(crate) stdin_task: Option<JoinHandle<()>>,
+    pub(crate) switch: Arc<watch::Sender<bool>>,
+    pub(crate) context: Context,
 }
 
 impl Child {
@@ -475,9 +506,11 @@ fn open_append(path: &Path) -> Result<std::fs::File, SuperviseError> {
         })
 }
 
-/// What a child's output becomes: the stdio the process gets, and the framed stream that will
-/// receive the pipe, if the output is framed.
-fn prepare(output: OutputSpec) -> Result<(Stdio, Option<FramedStream>), SuperviseError> {
+/// What a child's output becomes: the stdio the process gets, the framed stream that will
+/// receive the pipe if the output is framed, and the file region to read back if it is a file.
+fn prepare(
+    output: OutputSpec,
+) -> Result<(Stdio, Option<FramedStream>, Option<FileTail>), SuperviseError> {
     match output {
         OutputSpec::Framed {
             dir,
@@ -487,10 +520,15 @@ fn prepare(output: OutputSpec) -> Result<(Stdio, Option<FramedStream>), Supervis
         } => Ok((
             Stdio::piped(),
             Some(FramedStream::create(&dir, stream, mode, observer)?),
+            None,
         )),
-        OutputSpec::Pipe => Ok((Stdio::piped(), None)),
-        OutputSpec::File(path) => Ok((Stdio::from(open_append(&path)?), None)),
-        OutputSpec::Null => Ok((Stdio::null(), None)),
+        OutputSpec::Pipe => Ok((Stdio::piped(), None, None)),
+        OutputSpec::File(path) => {
+            let file = open_append(&path)?;
+            let tail = FileTail::begin(path, &file)?;
+            Ok((Stdio::from(file), None, Some(tail)))
+        }
+        OutputSpec::Null => Ok((Stdio::null(), None, None)),
     }
 }
 
@@ -529,8 +567,8 @@ impl Supervisor {
             stdin,
             stdout,
             stderr,
-            deadline: _,
-            stop: _,
+            deadline,
+            stop,
             record_dir,
         } = request;
         let program = argv.first().ok_or_else(|| invalid("argv is empty"))?;
@@ -548,8 +586,8 @@ impl Supervisor {
             StdinSpec::Null => Stdio::null(),
             StdinSpec::Bytes(_) | StdinSpec::Pipe => Stdio::piped(),
         });
-        let (out_stdio, out_stream) = prepare(stdout)?;
-        let (err_stdio, err_stream) = prepare(stderr)?;
+        let (out_stdio, out_stream, _) = prepare(stdout)?;
+        let (err_stdio, err_stream, err_file) = prepare(stderr)?;
         command.stdout(out_stdio).stderr(err_stdio);
 
         // Read before the child exists, so that a clock failure leaves no child behind.
@@ -623,13 +661,23 @@ impl Supervisor {
             (Some(stream), Some(pipe)) => {
                 Some(tokio::spawn(pump(pipe, Some(stream), cutoff.subscribe())))
             }
-            (_, _) => None,
+            // An output left as a pipe is the caller's to take.
+            (None, pipe) => {
+                process.stdout = pipe;
+                None
+            }
+            (Some(_), None) => None,
         };
         let stderr_pump = match (err_stream, process.stderr.take()) {
             (Some(stream), Some(pipe)) => {
                 Some(tokio::spawn(pump(pipe, Some(stream), cutoff.subscribe())))
             }
-            (_, _) => None,
+            // An output left as a pipe is the caller's to take.
+            (None, pipe) => {
+                process.stderr = pipe;
+                None
+            }
+            (Some(_), None) => None,
         };
         let stdin_task = match (stdin, process.stdin.take()) {
             (StdinSpec::Bytes(bytes), Some(mut pipe)) => Some(tokio::spawn(async move {
@@ -650,6 +698,20 @@ impl Supervisor {
                 stderr: stderr_pump,
             },
             stdin_task,
+            switch: Arc::new(watch::channel(false).0),
+            context: Context {
+                // TRAIT_OBJECT: the sink is chosen by the job runner and by tests
+                sink: Arc::clone(&self.sink),
+                // TRAIT_OBJECT: the sweeper is injected by the execution milestone
+                sweeper: self.sweeper.as_ref().map(Arc::clone),
+                guard: Arc::clone(&self.guard),
+                run,
+                stop,
+                deadline,
+                env,
+                cwd,
+                stderr_file: err_file,
+            },
         })
     }
 }
