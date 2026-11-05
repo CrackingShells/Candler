@@ -52,7 +52,7 @@ fn field<'a>(table: &'a toml::Table, key: &str) -> Res<&'a toml::Value> {
 
 fn text<'a>(table: &'a toml::Table, key: &str) -> Res<&'a str> {
     Ok(field(table, key)?
-        .as_str() // BORROW: .as_str() gives borrows the text
+        .as_str() // BORROW: .as_str() borrows the text
         .ok_or(format!("`{key}` is not text"))?)
 }
 
@@ -185,8 +185,8 @@ fn expected_sessions(stream: &Stream) -> Res<Vec<(String, Option<String>, String
             let entry = table(entry, "a session")?;
             let ended = text(entry, "ended_by")?;
             let end = match (entry.get("cap"), entry.get("reason")) {
-                (Some(cap), _) => format!("{ended}:{}", cap.as_str().ok_or("cap")?), // BORROW: .as_str() gives borrows the text
-                (None, Some(reason)) => format!("{ended}/{}", reason.as_str().ok_or("reason")?), // BORROW: .as_str() gives borrows the text
+                (Some(cap), _) => format!("{ended}:{}", cap.as_str().ok_or("cap")?), // BORROW: .as_str() borrows the text
+                (None, Some(reason)) => format!("{ended}/{}", reason.as_str().ok_or("reason")?), // BORROW: .as_str() borrows the text
                 (None, None) => ended.to_owned(), // BORROW: owned label
             };
             Ok((
@@ -228,7 +228,7 @@ fn denied(output: &Output) -> Res<Vec<DenialRow>> {
         ) = (&record.event.kind, &record.event.span)
         {
             let by = serde_json::to_value(denial.by)?
-                .as_str() // BORROW: .as_str() gives borrows the text
+                .as_str() // BORROW: .as_str() borrows the text
                 .ok_or("a denial's `by` is not text")?
                 .to_owned(); // BORROW: owned wire name
             rows.push((
@@ -298,7 +298,7 @@ fn expected_facts() -> Res<()> {
             .iter()
             .filter_map(|session| {
                 let parent = session.parent_session()?;
-                let rest = session.id().as_str().strip_prefix(parent.as_str())?; // BORROW: .as_str() gives borrows the text
+                let rest = session.id().as_str().strip_prefix(parent.as_str())?; // BORROW: .as_str() borrows the text
                 rest.strip_prefix('/').map(str::to_owned) // BORROW: owned call id
             })
             .collect();
@@ -659,7 +659,7 @@ fn trace_digests_are_ratcheted() -> Res<()> {
     for (name, digest) in &now {
         assert_eq!(
             digests.get(name).and_then(toml::Value::as_str),
-            Some(digest.as_str()), // BORROW: .as_str() gives borrows the text
+            Some(digest.as_str()), // BORROW: .as_str() borrows the text
             "{name}: trace digest"
         );
     }

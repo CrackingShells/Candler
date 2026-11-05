@@ -39,7 +39,7 @@ fn entries() -> Res<Vec<Entry>> {
         let field = |key: &str| file.get(key).ok_or(format!("entry lacks `{key}`"));
         out.push(Entry {
             path: field("path")?
-                .as_str() // BORROW: .as_str() gives borrows the text
+                .as_str() // BORROW: .as_str() borrows the text
                 .ok_or("`path` is not a string")?
                 .to_owned(), // BORROW: owned entry
             sha256: field("sha256")?
