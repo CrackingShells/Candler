@@ -1,0 +1,37 @@
+{
+  "eval_id": 12,
+  "title": "tier-c-mapping",
+  "tier": "soundness",
+  "expectations": [
+    {
+      "id": "C-M1",
+      "tier": "soundness",
+      "text": "validate_mapping_config.py --domain finds no domain action lacking a mapping entry, and no present entry missing server/tool/output_extractors, in the generated domain.py/mapping pair (gating: a domain action with no mapping entry at all can never be executed at runtime)",
+      "role": "gate",
+      "scale": "binary",
+      "status": "fail",
+      "passed": false,
+      "evidence": "exit_code=1, stdout=\"Validation Results for: mappings/eval-staging-f77eec84.json\\n============================================================\\n\\nErrors (1):\\n  \u2717 Schema validation failed: 'mappings' is a required property\" | FAILED: stdout regex 'UNMAPPED_ACTIONS: count=0(?![0-9])' (got \"\\nValidation Results for: mappings/eval-staging-f77eec84.json\\n============================================================\\n\\nErrors (1):\\n  \u2717 Schema validation failed: 'mappings' is a required property\\n\\n\u2717 Configuration is invalid\\n============================================================\\n\\n============================================================\\nTIER C \u2014 MAPPING REPRESENTATIVENESS (C-M1/C-M2)\\n============================================================\\ndomain_actions=5 mapped_actions=0\\nUNMAPPED_ACTIONS: count=5 vars=['a_collect_training_results', 'a_monitor_job_execution', 'a_prepare_training_environment', 'a_query_gpu_resources', 'a_submit_training_job']\\nDANGLING_ENTRIES: count=0 vars=[]\\nINCOMPLETE_ENTRIES: count=0\\nBIJECTION_VIOLATIONS: count=0\\n============================================================\\n\\n\")",
+      "score": 0,
+      "max_score": 1
+    },
+    {
+      "id": "C-M2",
+      "tier": "soundness",
+      "text": "validate_mapping_config.py --domain finds no dangling mapping entry (action not in domain.py) and no duplicate action/tool bijection violation in the generated domain.py/mapping pair (gating: a dangling entry is dead configuration and a bijection violation means two actions silently share one tool binding)",
+      "role": "gate",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "exit_code=1, stdout=\"Validation Results for: mappings/eval-staging-1a872729.json\\n============================================================\\n\\nErrors (1):\\n  \u2717 Schema validation failed: 'mappings' is a required property\"",
+      "score": 1,
+      "max_score": 1
+    }
+  ],
+  "summary": {
+    "passed": 1,
+    "failed": 1,
+    "total": 2,
+    "pass_rate": 0.5
+  }
+}

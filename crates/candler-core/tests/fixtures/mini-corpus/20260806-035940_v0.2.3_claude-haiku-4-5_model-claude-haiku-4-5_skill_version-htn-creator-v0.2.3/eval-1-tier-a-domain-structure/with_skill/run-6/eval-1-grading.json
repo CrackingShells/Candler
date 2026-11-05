@@ -1,0 +1,49 @@
+{
+  "eval_id": 1,
+  "title": "tier-a-domain-structure",
+  "tier": "structure",
+  "expectations": [
+    {
+      "id": "A1",
+      "tier": "structure",
+      "text": "Running scripts/validate_domain.py on the generated domain.py exits with code 0 (no structural errors or warnings)",
+      "role": "gate",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "exit_code=0, stdout='============================================================\\nValidating: <ARTIFACT_ROOT>/campaign/20260806-cont-tra'",
+      "score": 1,
+      "max_score": 1
+    },
+    {
+      "id": "A3",
+      "tier": "structure",
+      "text": "domain.py contains a Domain() declaration with the name 'cont-train'",
+      "role": "quality",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "pattern='Domain\\\\(\"cont-train\"\\\\)', match=found",
+      "score": 1,
+      "max_score": 1
+    },
+    {
+      "id": "A5",
+      "tier": "structure",
+      "text": "domain.py uses no bare 'if not state.' precondition checks \u2014 all state guards use hasattr(state, ...)",
+      "role": "quality",
+      "scale": "ratio",
+      "status": "pass",
+      "passed": true,
+      "evidence": "pattern='if not state\\\\.', occurrences=0 (expected 0)",
+      "score": 9,
+      "max_score": 9
+    }
+  ],
+  "summary": {
+    "passed": 11,
+    "failed": 0,
+    "total": 11,
+    "pass_rate": 1.0
+  }
+}

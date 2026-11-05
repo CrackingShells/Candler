@@ -1,0 +1,39 @@
+{
+  "eval_id": 12,
+  "title": "tier-c-mapping",
+  "tier": "soundness",
+  "expectations": [
+    {
+      "id": "C-M1",
+      "tier": "soundness",
+      "text": "validate_mapping_config.py --domain finds no domain action lacking a mapping entry, and no present entry missing server/tool/output_extractors, in the generated domain.py/mapping pair (gating: a domain action with no mapping entry at all can never be executed at runtime)",
+      "role": "gate",
+      "scale": "binary",
+      "status": "blocked",
+      "passed": false,
+      "evidence": "staging failed: staging failed: cont-train.json not found in outputs",
+      "blocked_by": "cont-train.json",
+      "score": 0,
+      "max_score": 1
+    },
+    {
+      "id": "C-M2",
+      "tier": "soundness",
+      "text": "validate_mapping_config.py --domain finds no dangling mapping entry (action not in domain.py) and no duplicate action/tool bijection violation in the generated domain.py/mapping pair (gating: a dangling entry is dead configuration and a bijection violation means two actions silently share one tool binding)",
+      "role": "gate",
+      "scale": "binary",
+      "status": "blocked",
+      "passed": false,
+      "evidence": "staging failed: staging failed: cont-train.json not found in outputs",
+      "blocked_by": "cont-train.json",
+      "score": 0,
+      "max_score": 1
+    }
+  ],
+  "summary": {
+    "passed": 0,
+    "failed": 2,
+    "total": 2,
+    "pass_rate": 0.0
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "eval_id": 7,
+  "title": "tier-c-attribution",
+  "tier": "soundness",
+  "expectations": [
+    {
+      "id": "C-S2",
+      "tier": "soundness",
+      "text": "check_solvability.py runs the attribution mechanism on every generated domain/problems pair and always emits an ATTRIBUTION_SUMMARY marker (mechanism ran, independent of whether any scenario failed on this particular domain)",
+      "role": "descriptive",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "exit_code=0, stdout=\"Imported GTPyhop version 2.0.0\\nMessages from find_plan will be prefixed with 'FP>'.\\nMessages from run_lazy_lookahead will be prefixed with 'RLL>'.\\nUsing session-based architecture with structured log\"",
+      "score": 1,
+      "max_score": 1
+    },
+    {
+      "id": "C-S3",
+      "tier": "soundness",
+      "text": "check_solvability.py runs without error and any DISTANCE marker it emits is well-formed: a fraction in [0, 1] (or the explicit 'unknown' fallback when the decomposition tree could not be sized) \u2014 never a malformed or out-of-range value. Non-tautological coverage (every UNSOLVABLE scenario gets a DISTANCE, and the golden anchor orders correctly against a gross-failure counter-case) is proven directly against fixtures in test_selftest_grader.py, not against arbitrary agent output here.",
+      "role": "descriptive",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "exit_code=0, stdout=\"Imported GTPyhop version 2.0.0\\nMessages from find_plan will be prefixed with 'FP>'.\\nMessages from run_lazy_lookahead will be prefixed with 'RLL>'.\\nUsing session-based architecture with structured log\"",
+      "score": 1,
+      "max_score": 1
+    },
+    {
+      "id": "C-S4",
+      "tier": "soundness",
+      "text": "Graph localisation runs without error (descriptive/non-gating per the ratified catalogue: this expectation asserts only that the mechanism executes cleanly, never on graph content or on which vars/actions appear)",
+      "role": "descriptive",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "exit_code=0, stdout=\"Imported GTPyhop version 2.0.0\\nMessages from find_plan will be prefixed with 'FP>'.\\nMessages from run_lazy_lookahead will be prefixed with 'RLL>'.\\nUsing session-based architecture with structured log\"",
+      "score": 1,
+      "max_score": 1
+    }
+  ],
+  "summary": {
+    "passed": 3,
+    "failed": 0,
+    "total": 3,
+    "pass_rate": 1.0
+  }
+}

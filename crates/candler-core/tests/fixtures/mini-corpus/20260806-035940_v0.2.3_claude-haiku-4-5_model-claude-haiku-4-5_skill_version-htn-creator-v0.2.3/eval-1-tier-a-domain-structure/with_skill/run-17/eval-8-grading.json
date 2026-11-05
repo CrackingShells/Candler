@@ -1,0 +1,49 @@
+{
+  "eval_id": 8,
+  "title": "tier-c-state-namespace",
+  "tier": "soundness",
+  "expectations": [
+    {
+      "id": "C-N1",
+      "tier": "soundness",
+      "text": "check_state_closure.py finds no orphan preconditions and no negation conflicts in the generated domain.py (dead effects are reported but non-fatal \u2014 a [DATA] effect with no reader is not necessarily a defect)",
+      "role": "gate",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "exit_code=0, stdout=\"STATE_CLOSURE: precondition_vars=15 effect_vars=26\\nORPHAN_PRECONDITIONS: count=0 vars=[]\\nDEAD_EFFECTS: count=11 vars=['archive_path', 'checksums', 'facility_config', 'gpu_count', 'job_cancelled', 'job\"",
+      "score": 1,
+      "max_score": 1
+    },
+    {
+      "id": "C-N2",
+      "tier": "soundness",
+      "text": "check_state_init.py finds every precondition state-var initialised in the generated problems.py",
+      "role": "gate",
+      "scale": "ratio",
+      "status": "pass",
+      "passed": true,
+      "evidence": "exit_code=0, stdout='STATE_INIT_COVERAGE: precondition_vars=15 init_vars=29 coverage=1.0\\nUNINITIALISED_PRECONDITIONS: count=0 vars=[]'",
+      "score": 15,
+      "max_score": 15
+    },
+    {
+      "id": "C-N3",
+      "tier": "soundness",
+      "text": "check_referential.py finds no unresolved decomposition sub-task names in the generated domain.py (static, exhaustive gate \u2014 not the dynamic non-fatal warning in validate_method_decompositions)",
+      "role": "gate",
+      "scale": "ratio",
+      "status": "pass",
+      "passed": true,
+      "evidence": "exit_code=0, stdout='REFERENTIAL_INTEGRITY: total_subtasks=14 registered=19 unresolved=0\\nUNRESOLVED_SUBTASKS: count=0'",
+      "score": 14,
+      "max_score": 14
+    }
+  ],
+  "summary": {
+    "passed": 30,
+    "failed": 0,
+    "total": 30,
+    "pass_rate": 1.0
+  }
+}

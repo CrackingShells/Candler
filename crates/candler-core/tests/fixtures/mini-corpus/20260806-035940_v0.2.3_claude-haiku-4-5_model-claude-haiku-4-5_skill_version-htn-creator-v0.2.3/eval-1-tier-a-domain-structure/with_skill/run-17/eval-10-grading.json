@@ -1,0 +1,26 @@
+{
+  "eval_id": 10,
+  "title": "tier-c-correspondence",
+  "tier": "soundness",
+  "expectations": [
+    {
+      "id": "C-XN1",
+      "tier": "soundness",
+      "text": "check_state_context_correspondence.py finds no missing state<->context funnels in the generated domain.py/mapping pair (gating: a data-carrying inter-action dependency with no producing output_extractor and/or no consuming ${context.X} ref can never actually flow its real runtime value between the two tool calls)",
+      "role": "gate",
+      "scale": "ratio",
+      "status": "blocked",
+      "passed": false,
+      "evidence": "exit_code=0, stdout=\"[grader] optional source 'cont-train.json' not found in outputs \u2014 skipped\\nDATA_DEPS: count=0\\nMISSING_FUNNELS: count=0\" | blocked: optional source(s) ['cont-train.json'] skipped from staging -- any result computed without them would be vacuous",
+      "blocked_by": "cont-train.json",
+      "score": 0,
+      "max_score": 1
+    }
+  ],
+  "summary": {
+    "passed": 0,
+    "failed": 1,
+    "total": 1,
+    "pass_rate": 0.0
+  }
+}

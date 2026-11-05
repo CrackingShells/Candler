@@ -1,0 +1,1 @@
+{"timestamp": "2026-08-06T00:00:11+00:00", "config": "with_skill", "run_number": 1, "model": "claude-synthetic-1", "domain_name": "cont-train", "verdict": "contaminated", "reasons": [{"code": "input_leak", "filename": "domain.py", "evidence": ["synthetic leak"]}]}

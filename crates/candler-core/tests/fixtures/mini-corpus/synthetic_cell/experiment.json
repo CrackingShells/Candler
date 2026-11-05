@@ -1,0 +1,41 @@
+{
+  "schema_version": "1",
+  "resolved_skill_version": "v0.0.0-synthetic",
+  "provenance": {
+    "skill_version": "v0.0.0-synthetic",
+    "eval_infra": {
+      "tag": "htn-creator-eval@0.3.4",
+      "commits_ahead": 4,
+      "commit": "0e84a75",
+      "dirty": true
+    },
+    "sandbox_contract": "v5",
+    "planner": {
+      "runtime": {
+        "distribution": "gtpyhop-core",
+        "version": "2.0.0"
+      },
+      "sandbox": {
+        "distribution": null,
+        "version": null
+      }
+    }
+  },
+  "plan": {
+    "out_dir": ".claude/skills/htn-creator-workspace/results/synthetic_cell",
+    "model": "claude-synthetic-1",
+    "runs": 3,
+    "config": "with_skill",
+    "prompt_servers_path": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp",
+    "prompt_domain_topic": "containerization training of a specialized MDLM diffusion model on a remote GPU",
+    "prompt_domain_name": "cont-train",
+    "evals": ".claude/skills/htn-creator-workspace/infrastructure/evals/eval.json",
+    "skill_source": ".claude/skills/htn-creator",
+    "skill_version": "htn-creator@v0.0.0-synthetic",
+    "keep_sandbox": false,
+    "no_stream_archive": false,
+    "no_color": false,
+    "base_url": null,
+    "auth_token_env": null
+  }
+}

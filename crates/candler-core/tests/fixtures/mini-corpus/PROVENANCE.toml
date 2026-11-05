@@ -1,0 +1,989 @@
+# Source path and sha256 of every vendored file.
+# Real files are copied byte for byte from the golden corpus by select_mini.py;
+# synthetic files are written by make_synthetic.py.
+source_tag = "candler-m2a-golden"
+source_root = "campaign/20260806-cont-train"
+
+[[runs]]
+name = "real_clean"
+cell = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3"
+run = "run-6"
+synthetic = false
+
+[[runs]]
+name = "real_incomplete"
+cell = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3"
+run = "run-17"
+synthetic = false
+
+[[runs]]
+name = "real_zero_mappings"
+cell = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6"
+run = "run-12"
+synthetic = false
+
+[[runs]]
+name = "synthetic_contaminated"
+cell = "synthetic_cell"
+run = "run-1"
+synthetic = true
+
+[[runs]]
+name = "synthetic_text_value"
+cell = "synthetic_cell"
+run = "run-2"
+synthetic = true
+
+[[runs]]
+name = "synthetic_not_applicable"
+cell = "synthetic_cell"
+run = "run-3"
+synthetic = true
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/.DS_Store"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/.DS_Store"
+sha256 = "1cdaeb94c9617bca0bbee2cb4ce0806527c717cd401113f858c4b57912d0a5c8"
+owner = "cell"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-17/agent_stderr.txt"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-17/agent_stderr.txt"
+sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-17/agent_stream.jsonl.gz"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-17/agent_stream.jsonl.gz"
+sha256 = "a4c693d0716b53c83611516a6becba0dd35d3a56eabf41b013dcb1bd09ea8a93"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-17/outputs/domain.py"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-17/outputs/domain.py"
+sha256 = "9796f2ffee49bed8fcb2d2f6b6a79ae0b615a17d30743f167287730f51e45733"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-17/outputs/problems.py"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-17/outputs/problems.py"
+sha256 = "242e73f98151c800389f902d956a1193d1abfeb12beaff734f3c84b7cbcc58da"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-17/run_complete.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-17/run_complete.json"
+sha256 = "89a637bd3dd4d9acdd8e8d3a5dfcc00d84abb944cc208550c58e4567f01d00ee"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-6/agent_stderr.txt"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-6/agent_stderr.txt"
+sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-6/agent_stream.jsonl.gz"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-6/agent_stream.jsonl.gz"
+sha256 = "b0d65361ff36368dde359021a228167b95459b75691858143d12a0c2bbdee7ea"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-6/outputs/cont-train.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-6/outputs/cont-train.json"
+sha256 = "9e79641026c088d5977727a252eccb44aa5a440399011f497b5504e82ce33e0b"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-6/outputs/domain.py"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-6/outputs/domain.py"
+sha256 = "67bc1eac7242670159d22fcfa503416b4f0874a405c206eb4c6a0d1126130b61"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-6/outputs/problems.py"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-6/outputs/problems.py"
+sha256 = "57d084dc0f9ea0b8a555d66fba8a0fc441a14675442af09964a2f1f9ef710d28"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-6/run_complete.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-6/run_complete.json"
+sha256 = "11363051a83bf85f4346f527bd7477215adb2e98ee63ac5ff9ea692dc0b193c1"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/contamination_catalog.jsonl"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/contamination_catalog.jsonl"
+sha256 = "2c3d8be3fc462227623df48813f64812a9cc1e9227ae84cd1b1ad7b08e3dd6d9"
+owner = "cell"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-1-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-1-grading.json"
+sha256 = "6697babd70ab346a230310812e3d982d0e0f093f2d920edc91a6ad8194bfe873"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-10-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-10-grading.json"
+sha256 = "1f2e3f5b606c8443eadc8de56391554a2ebacf8960a3646aa72839e6632c7695"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-11-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-11-grading.json"
+sha256 = "e30b3688323045fd4d8d222c8ce34de55cfcdbb89276549906bdc0fa69811a1a"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-12-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-12-grading.json"
+sha256 = "e3153eda39c691066689d133b6c3653b6f8fa8b1cd41171a564d21a3b1496151"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-13-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-13-grading.json"
+sha256 = "87ccb108ebbc591e3367ad4360ceaa41be4c456aefc140080cc0330e04160a6c"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-2-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-2-grading.json"
+sha256 = "e90935931a7fe389f6bfc76cc705493da70f71b37543011fa2e038a028db71c9"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-3-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-3-grading.json"
+sha256 = "02ca8930e7a695c9c3c4fcc8d974a60972c897e60a48f00e0452de6a56ca1a34"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-4-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-4-grading.json"
+sha256 = "f6b53e921758f245b8fa5e2147638902f95818e7dc50976e70d38ab38caeac74"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-5-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-5-grading.json"
+sha256 = "ae810c8d3ffabda9ce702ec8d7b8d493dc7f68d9e1fb2c6ddc1662bc4426c413"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-6-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-6-grading.json"
+sha256 = "1b2a1327e440c7afa649488d9953d243023bdb829ae07c3d3d5a43b37299c2b9"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-7-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-7-grading.json"
+sha256 = "936be94d992bdffc3b0660b33eb607e7a078756bf7323497d3b7b5aca6ee80dd"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-8-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-8-grading.json"
+sha256 = "94e85644ce5991db39d560a7621a192d155125ea932bcd832d607307979f71c9"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-9-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval-9-grading.json"
+sha256 = "17366718871d69da4321113426f9050fa4297c3d33f1bf3845b00ccb71584586"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/eval_metadata.json"
+sha256 = "29d2a38109cd0c08c844fe6a1694acc1711bdc6b554d848bde2b3777ffc0f7c8"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/grading_summary.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/grading_summary.json"
+sha256 = "467b1bf740ab11c0456c509c02f5cdd72c3272c95fab4d1b083b498b9bee9eaf"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/metrics.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/metrics.json"
+sha256 = "edf93e643465afbc94052e4356c8b26c28602909a8a55f9d948e86412a63b49a"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/timing.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/timing.json"
+sha256 = "7edf2ee7d21ac74aff4d0f39682f972772ea5608a09e4b02785cb61b96cedbef"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-1-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-1-grading.json"
+sha256 = "2f03ff54f7f1b5c85ad47f2d171ee8b0818ce0c33514d275fa5ad98a69017593"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-10-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-10-grading.json"
+sha256 = "9f5797c0ea44d1cfac360b730bdbf4e72a73cbe99054fd106637389ef7882606"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-11-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-11-grading.json"
+sha256 = "765ff8b62d253af4d739e27198d11d46062bb49980e552f572e2823c771ec401"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-12-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-12-grading.json"
+sha256 = "77fc34091b9338312df8806c7ecf443b8db8c8af0128b26526bef041e320496a"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-13-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-13-grading.json"
+sha256 = "5433df3cc7f73f85c7b5889babd050480f87b3287170a1fb1ab4dba57c0a8582"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-2-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-2-grading.json"
+sha256 = "e90935931a7fe389f6bfc76cc705493da70f71b37543011fa2e038a028db71c9"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-3-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-3-grading.json"
+sha256 = "4eded68be64137f4fdad0877a8b8afb02f1f01a0933a357ebb74ec0f7bf469a4"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-4-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-4-grading.json"
+sha256 = "464e9b5c7e2c3257913e25df59415b0ab80668fbb8db905463efd6ab41ceb51a"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-5-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-5-grading.json"
+sha256 = "8b1aa9e1510e2deb7e6186dd14fad6815b66ae861deebb70b6329af12c97ba53"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-6-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-6-grading.json"
+sha256 = "bc46244126b8fe9804ffc055bf673486b2b6b592f77f509995a11a9054f348d6"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-7-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-7-grading.json"
+sha256 = "936be94d992bdffc3b0660b33eb607e7a078756bf7323497d3b7b5aca6ee80dd"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-8-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-8-grading.json"
+sha256 = "f83d0c55d0699e5af4000525f2839b05e37c4aa0428cb224ff5d0ce4ea9b27cb"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-9-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval-9-grading.json"
+sha256 = "65e9d995fb5e7f61ebf83d34a0fd473dcc66f918570e88e06d5ac4fa9a503c44"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/eval_metadata.json"
+sha256 = "606e723f153efc1a4482308073b2802f0b57523e5d814958d0b23a1180000a7a"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/grading_summary.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/grading_summary.json"
+sha256 = "74b6b7145187ecfd775e67d229ee7236517d8d17f2a526e8c1a041843a5a48f0"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/metrics.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/metrics.json"
+sha256 = "ab70c951fe7de9d56c11eb90fa73c8b0e8a693459e11206e52c1530ecba7d317"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/timing.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/timing.json"
+sha256 = "19394827614ea674c8393317dadefbdd2a7c4292002f9e558dfac1327958d7ab"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-10-tier-c-correspondence/with_skill/run-17/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-10-tier-c-correspondence/with_skill/run-17/eval_metadata.json"
+sha256 = "f6c7b94898001ebd01fc12ad8f1fd43d24dfcd931b2152ca2f7131530a2689be"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-10-tier-c-correspondence/with_skill/run-6/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-10-tier-c-correspondence/with_skill/run-6/eval_metadata.json"
+sha256 = "1fd0bbd2311bd5b04cf68360debed654776bbd1f178910261c437b2d07a3dcdb"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-11-tier-c-hygiene/with_skill/run-17/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-11-tier-c-hygiene/with_skill/run-17/eval_metadata.json"
+sha256 = "9ea6d1d14c679fe87d2a532262f88fad1f9900154559679f298ad00dddc04b62"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-11-tier-c-hygiene/with_skill/run-6/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-11-tier-c-hygiene/with_skill/run-6/eval_metadata.json"
+sha256 = "5c91a10fa7b1fefc04d51a3c9d4431cc36f45f10b922de918e7b2b4bee9463ab"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-12-tier-c-mapping/with_skill/run-17/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-12-tier-c-mapping/with_skill/run-17/eval_metadata.json"
+sha256 = "2b13487a2382062c445c733349142ddd3ea145c29346886867b4bfb5f8656302"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-12-tier-c-mapping/with_skill/run-6/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-12-tier-c-mapping/with_skill/run-6/eval_metadata.json"
+sha256 = "b083408e8d5f10f0a11414d93cb653fd481ca2aa0e665c8c3e0c165bf72b5dd8"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-13-tier-d-executability/with_skill/run-17/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-13-tier-d-executability/with_skill/run-17/eval_metadata.json"
+sha256 = "fc59ec0c97d8ad4a971503700093ebca58fdad391f936ec8783b4289a5ff1ab8"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-13-tier-d-executability/with_skill/run-6/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-13-tier-d-executability/with_skill/run-6/eval_metadata.json"
+sha256 = "4207558a06d602c5cf847c01f2026b29ee5cd58f5bd2e4f6f188687ca8fb12a7"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-2-tier-a-coverage-documentation/with_skill/run-17/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-2-tier-a-coverage-documentation/with_skill/run-17/eval_metadata.json"
+sha256 = "0db8eb6652e7ee5b83c81fe194555f2c6022f98d2d7328a09e4ac335cd50a73f"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-2-tier-a-coverage-documentation/with_skill/run-6/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-2-tier-a-coverage-documentation/with_skill/run-6/eval_metadata.json"
+sha256 = "ff3aacfc5524cfe957543e2d9d27072aa40c22c8c0c90b27b6c04a5292e8ff69"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-3-tier-b-process-pass1-pass2/with_skill/run-17/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-3-tier-b-process-pass1-pass2/with_skill/run-17/eval_metadata.json"
+sha256 = "42bfd3df9e51fc4a621f1d00fae77b783518f8c03e6de5cf7b75890edc036ddb"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-3-tier-b-process-pass1-pass2/with_skill/run-6/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-3-tier-b-process-pass1-pass2/with_skill/run-6/eval_metadata.json"
+sha256 = "991de3ffd5ada9ca689badadca8ccf518f083c406cedab43d41db3c15d842a39"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-4-tier-b-process-pass3-context-flow/with_skill/run-17/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-4-tier-b-process-pass3-context-flow/with_skill/run-17/eval_metadata.json"
+sha256 = "0308b40b686c370a2b62448019e9ae8d2682a265dd7041c66d9067710e073a13"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-4-tier-b-process-pass3-context-flow/with_skill/run-6/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-4-tier-b-process-pass3-context-flow/with_skill/run-6/eval_metadata.json"
+sha256 = "d21fb1e0f2f85b5230aab9cda7b05226319850b1a07622b121ed45e2f24ab400"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-5-descriptive-annex-quantitative-metrics/with_skill/run-17/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-5-descriptive-annex-quantitative-metrics/with_skill/run-17/eval_metadata.json"
+sha256 = "6c6380a0932d26d75263b3697d12d6ccf053ee324d3bf47e15e0b5aa61d49788"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-5-descriptive-annex-quantitative-metrics/with_skill/run-6/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-5-descriptive-annex-quantitative-metrics/with_skill/run-6/eval_metadata.json"
+sha256 = "b778cc632e10869dacc09994a29b49ff57ab36a1325295788f384dfcce1e28b1"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-6-tier-c-solvability/with_skill/run-17/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-6-tier-c-solvability/with_skill/run-17/eval_metadata.json"
+sha256 = "d72db16b1f6c1d6382c655d7cc183afbd229cdce4a072b613f052ac4129a7839"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-6-tier-c-solvability/with_skill/run-6/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-6-tier-c-solvability/with_skill/run-6/eval_metadata.json"
+sha256 = "1d37c3e37a6f4682af9d3768170489b3ad5431f4e5f101f5c20bccaa37195b9d"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-7-tier-c-attribution/with_skill/run-17/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-7-tier-c-attribution/with_skill/run-17/eval_metadata.json"
+sha256 = "69d0203fac3317dd5c1991dfdb4bb4316549c920d14476adac280fd08a53d81e"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-7-tier-c-attribution/with_skill/run-6/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-7-tier-c-attribution/with_skill/run-6/eval_metadata.json"
+sha256 = "b5ef5de9d56f099393d807c860fc039f3795e7b4002a6975ed0551bf8ffcbad0"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-8-tier-c-state-namespace/with_skill/run-17/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-8-tier-c-state-namespace/with_skill/run-17/eval_metadata.json"
+sha256 = "cbd1092fb23f99b47a65c0595510997dc1372cd80c2d716135b362372a4fd9e5"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-8-tier-c-state-namespace/with_skill/run-6/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-8-tier-c-state-namespace/with_skill/run-6/eval_metadata.json"
+sha256 = "5173006ac97afe2af0fa1e095fac55ff16d814892505a3fb45872970282bbf10"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-9-tier-c-context-namespace/with_skill/run-17/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-9-tier-c-context-namespace/with_skill/run-17/eval_metadata.json"
+sha256 = "649aed675339f3633d0ad6d1085165065c5e586669b8ba3a2cbe95bee011a544"
+owner = "incomplete"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-9-tier-c-context-namespace/with_skill/run-6/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-9-tier-c-context-namespace/with_skill/run-6/eval_metadata.json"
+sha256 = "b61fd7bc23f2a6eefea5c10f80699d3e984559989766702dfcfb2fe21721f747"
+owner = "clean"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/experiment.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/experiment.json"
+sha256 = "7bfbb3c57c62891e6268c8e11375321b5e6ca42d895e56f3f295cc88364eb60d"
+owner = "cell"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/progress.jsonl"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/progress.jsonl"
+sha256 = "a1a7ed704c8383430fac5a94468ab471e33c767aa313a020bf98c29e0bc9cdec"
+owner = "cell"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/shared_with_skill/cont-train.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/shared_with_skill/cont-train.json"
+sha256 = "7cd06c2c01aade042d9ac92269002f1e05920aa51b73e41034d912659d3c2d92"
+owner = "cell"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/shared_with_skill/domain.py"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/shared_with_skill/domain.py"
+sha256 = "3a90912c2c4009970b7d1ae574f7e5d578a1fd5dbef7fb51b50e631201e5529a"
+owner = "cell"
+
+[[files]]
+path = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/shared_with_skill/problems.py"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/shared_with_skill/problems.py"
+sha256 = "a4cb71c5f74659c5d2cfcf9f7bba09745db7b97666a23f16a97caa4c701c7936"
+owner = "cell"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/_run_cache/with_skill/run-12/agent_stderr.txt"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/_run_cache/with_skill/run-12/agent_stderr.txt"
+sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/_run_cache/with_skill/run-12/agent_stream.jsonl.gz"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/_run_cache/with_skill/run-12/agent_stream.jsonl.gz"
+sha256 = "a296c607eecf9b980cf734b2d996ff7e26aa3504a4909ac868681468ccb54c23"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/_run_cache/with_skill/run-12/outputs/cont-train.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/_run_cache/with_skill/run-12/outputs/cont-train.json"
+sha256 = "d1238cde58dc83c8a22ec512974681b3c4f30c7eeeab977d5e3096058f318552"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/_run_cache/with_skill/run-12/outputs/domain.py"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/_run_cache/with_skill/run-12/outputs/domain.py"
+sha256 = "12b3cddb89db9df478e0f38a2b5ae531ddb968d330c3d8b71295b101795cb83f"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/_run_cache/with_skill/run-12/outputs/problems.py"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/_run_cache/with_skill/run-12/outputs/problems.py"
+sha256 = "588434f85cfb10eca786c798729a2a1a315c61caa1a26d8ff0504a5a39918fd4"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/_run_cache/with_skill/run-12/run_complete.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/_run_cache/with_skill/run-12/run_complete.json"
+sha256 = "47127d8b5fc3fe78cb729794365aa1b3d3d4eddf87309feb43b5bee1e368d457"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/contamination_catalog.jsonl"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/contamination_catalog.jsonl"
+sha256 = "954cd1b564fdc3223a8a3d0a32589f79920eabccf295402bcec1530cb5f5bcad"
+owner = "cell"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-1-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-1-grading.json"
+sha256 = "5c39928c1013b514253e1aa756303dc46057441f58d2d47695b36543db78e1fa"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-10-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-10-grading.json"
+sha256 = "9f5797c0ea44d1cfac360b730bdbf4e72a73cbe99054fd106637389ef7882606"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-11-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-11-grading.json"
+sha256 = "9c81e24a0349fa01b60690783a1530f6d7a593af86a6bfbf9e5919c267ebfaca"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-12-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-12-grading.json"
+sha256 = "bc6ce7cba1d9a96c50c9164d7ec2e30384dea2cc1d4aedbf3f956bb1e55e3bc1"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-13-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-13-grading.json"
+sha256 = "9988371c39e2421931555535ff26a17c80b5654a66d661f2e8e6815557aafd19"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-2-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-2-grading.json"
+sha256 = "e90935931a7fe389f6bfc76cc705493da70f71b37543011fa2e038a028db71c9"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-3-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-3-grading.json"
+sha256 = "8068c862beb7ef62c0751ed06e8b21afcdfced568cdc2675d616ec2e731ba4b3"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-4-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-4-grading.json"
+sha256 = "0bbb9a27f4a0224ed57646ec79ab8183b437cbcbe053e31e5366dd1a284bea66"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-5-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-5-grading.json"
+sha256 = "272de77dc41c1c8afbcf96a7ba25cf4ff009dd5ff81ace01f4142ab221012aa2"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-6-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-6-grading.json"
+sha256 = "3484c82e95c2ad651fd9c5c964c7ad096468cd40e034027d1977eb9ebdec2ac6"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-7-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-7-grading.json"
+sha256 = "936be94d992bdffc3b0660b33eb607e7a078756bf7323497d3b7b5aca6ee80dd"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-8-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-8-grading.json"
+sha256 = "750892bd13d996a19f2a18de6d7d6efd232e03a8923d3da61c699d3e86ba57f4"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-9-grading.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval-9-grading.json"
+sha256 = "785863bc1eb235181bc35747258cb459ba14b72be83a3ad083723b8cd048342a"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/eval_metadata.json"
+sha256 = "081fa335e14d67d263fb491f0b586104a8a2f7c0871409c672cd3d6c99a10938"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/grading_summary.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/grading_summary.json"
+sha256 = "f09f59ae7f30f3b9d9ea273aa5d1112113cb6b375df41cb85ba52fc1f04d5b7c"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/metrics.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/metrics.json"
+sha256 = "e1f69edf8a7a5cf80ad7da40e10069c17628d0b6fd7f3ec155d679b0b149a374"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/timing.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/timing.json"
+sha256 = "c0d3ad7fd9d8a191c193c0eece6a26c6367484b1ae8c77882b8a1ad67850ba33"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-10-tier-c-correspondence/with_skill/run-12/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-10-tier-c-correspondence/with_skill/run-12/eval_metadata.json"
+sha256 = "f2ecf04af2ac5b708dd92be17318e330b59e2b932dce168bc7f53f38605ece6b"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-11-tier-c-hygiene/with_skill/run-12/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-11-tier-c-hygiene/with_skill/run-12/eval_metadata.json"
+sha256 = "c74b177389595616cef42e86f6e3fba65160bc979358de3e629742ebce3b39c4"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-12-tier-c-mapping/with_skill/run-12/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-12-tier-c-mapping/with_skill/run-12/eval_metadata.json"
+sha256 = "16f0378357b23803ec76a757f4023347c6953d7d476062f1a8a937854e57ab85"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-13-tier-d-executability/with_skill/run-12/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-13-tier-d-executability/with_skill/run-12/eval_metadata.json"
+sha256 = "4d7386775e9958efa4cc690c1b40a2c24819c7bb8235b55512563f48e7c82313"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-2-tier-a-coverage-documentation/with_skill/run-12/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-2-tier-a-coverage-documentation/with_skill/run-12/eval_metadata.json"
+sha256 = "3253df052ebebeca02eb7c8fba68ebd8a2f886d75a54415e3171924503a23bcb"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-3-tier-b-process-pass1-pass2/with_skill/run-12/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-3-tier-b-process-pass1-pass2/with_skill/run-12/eval_metadata.json"
+sha256 = "0bba1fac46426251eb773ec275e8ec511aeec663354df4b720b70b690daef0d6"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-4-tier-b-process-pass3-context-flow/with_skill/run-12/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-4-tier-b-process-pass3-context-flow/with_skill/run-12/eval_metadata.json"
+sha256 = "609923684701b35a8b1983f101fd65a16c8ce4b5e4169ef65d52ff58746c1976"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-5-descriptive-annex-quantitative-metrics/with_skill/run-12/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-5-descriptive-annex-quantitative-metrics/with_skill/run-12/eval_metadata.json"
+sha256 = "347edab192a6776b883e1330ae278fc1b6f3550845a36bd6139ea02eec878cf5"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-6-tier-c-solvability/with_skill/run-12/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-6-tier-c-solvability/with_skill/run-12/eval_metadata.json"
+sha256 = "6bc34359edf258d20ac96bc05c3638f73c23f5062815e20e42f6fa1b318f2984"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-7-tier-c-attribution/with_skill/run-12/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-7-tier-c-attribution/with_skill/run-12/eval_metadata.json"
+sha256 = "be03ff91aaebbc818c6fd131d0ef93f8d81d33d78eead0ffb1b7c30541aade26"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-8-tier-c-state-namespace/with_skill/run-12/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-8-tier-c-state-namespace/with_skill/run-12/eval_metadata.json"
+sha256 = "93c3dce2816f302db0b14da52806d93d43ae233e20ad9407419e8d73675692b0"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-9-tier-c-context-namespace/with_skill/run-12/eval_metadata.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-9-tier-c-context-namespace/with_skill/run-12/eval_metadata.json"
+sha256 = "cbccb464f51888278bf17392ecdcfe5a45d83e22d8171c771b92e4b9c4971de8"
+owner = "zero_mappings"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/experiment.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/experiment.json"
+sha256 = "b87dbbc11cf84c2b47113e2651e33c79a99ce5c99f041fbedf685c7001fe08a3"
+owner = "cell"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/progress.jsonl"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/progress.jsonl"
+sha256 = "6a94a414557de3c0b1b4537c6c159c531056c92738867845af7364c0d092e74e"
+owner = "cell"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/shared_with_skill/cont-train.json"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/shared_with_skill/cont-train.json"
+sha256 = "a413921734d38ab7831ec132505888676e5f27a6443f3452ea875bcf5f5b6274"
+owner = "cell"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/shared_with_skill/domain.py"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/shared_with_skill/domain.py"
+sha256 = "ddd4a1f8496052d08f96ed5208be856db821ecb13baeefffbaf13fb37fca0312"
+owner = "cell"
+
+[[files]]
+path = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/shared_with_skill/problems.py"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/shared_with_skill/problems.py"
+sha256 = "4c058511291b54056074bd520693ea213e0a6a22aa9433c7a61405da644c7ffe"
+owner = "cell"
+
+[[files]]
+path = "PROVENANCE.json"
+source = "derived: campaign/20260806-cont-train/PROVENANCE.json without status_counts_by_expectation and caveats, runs[] and corpus.cells trimmed to the vendored runs; plus the synthetic rows of make_synthetic.py"
+sha256 = "233209bf37124ba6a81eda321e4eab30c0214b66d991d059a27d3271bb89ed83"
+owner = "corpus"
+
+[[files]]
+path = "__MACOSX/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/._eval-10-grading.json"
+source = "campaign/20260806-cont-train/__MACOSX/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-17/._eval-10-grading.json"
+sha256 = "67c1207a56a8fba5e8f4407d1f8eca914e4b3c081c210ef9df95445e1e0e28ed"
+owner = "incomplete"
+
+[[files]]
+path = "__MACOSX/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/._eval-10-grading.json"
+source = "campaign/20260806-cont-train/__MACOSX/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/eval-1-tier-a-domain-structure/with_skill/run-6/._eval-10-grading.json"
+sha256 = "67c1207a56a8fba5e8f4407d1f8eca914e4b3c081c210ef9df95445e1e0e28ed"
+owner = "clean"
+
+[[files]]
+path = "__MACOSX/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/._eval-10-grading.json"
+source = "campaign/20260806-cont-train/__MACOSX/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/eval-1-tier-a-domain-structure/with_skill/run-12/._eval-10-grading.json"
+sha256 = "67c1207a56a8fba5e8f4407d1f8eca914e4b3c081c210ef9df95445e1e0e28ed"
+owner = "zero_mappings"
+
+[[files]]
+path = "expectations.jsonl"
+source = "derived: campaign/20260806-cont-train/expectations.jsonl rows of the vendored runs; plus the synthetic rows of make_synthetic.py"
+sha256 = "de5e9e8b46bddb009cbe969a5ded4066f155c74544abd043c90297a05d4585a8"
+owner = "corpus"
+
+[[files]]
+path = "synthetic_cell/_run_cache/with_skill/run-1/agent_stderr.txt"
+source = "synthetic: make_synthetic.py"
+sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/_run_cache/with_skill/run-1/agent_stream.jsonl.gz"
+source = "synthetic: make_synthetic.py"
+sha256 = "5c78f056a71cf878df9b18d071f1275723dc08892b14c02fbacfcf0da22154aa"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/_run_cache/with_skill/run-1/outputs/domain.py"
+source = "synthetic: make_synthetic.py"
+sha256 = "cc37589647c27a8d0211b36fbdc64e9e184bffa344b2e7df06d55e314570028a"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/_run_cache/with_skill/run-1/outputs/problems.py"
+source = "synthetic: make_synthetic.py"
+sha256 = "cc37589647c27a8d0211b36fbdc64e9e184bffa344b2e7df06d55e314570028a"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/_run_cache/with_skill/run-1/run_complete.json"
+source = "synthetic: make_synthetic.py"
+sha256 = "e7315174408cf70cdacd5a5c592042e7d36c65b4782a66aa893cd86014c0b486"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/_run_cache/with_skill/run-2/agent_stderr.txt"
+source = "synthetic: make_synthetic.py"
+sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/_run_cache/with_skill/run-2/agent_stream.jsonl.gz"
+source = "synthetic: make_synthetic.py"
+sha256 = "c662d30d50aac6d27bb74694f607c879aaf1d99c1d8dcfd262862bee4cb11906"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/_run_cache/with_skill/run-2/outputs/domain.py"
+source = "synthetic: make_synthetic.py"
+sha256 = "16956c37c12c9e82459d31d6c0a1d19178b86cb7229cc98a21dd16d90d58d3f3"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/_run_cache/with_skill/run-2/outputs/problems.py"
+source = "synthetic: make_synthetic.py"
+sha256 = "16956c37c12c9e82459d31d6c0a1d19178b86cb7229cc98a21dd16d90d58d3f3"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/_run_cache/with_skill/run-2/run_complete.json"
+source = "synthetic: make_synthetic.py"
+sha256 = "75142c7af99c3afc1cdb1996a77ec9ac20da51ebe315c97b0e07fbe3728fd5b0"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/_run_cache/with_skill/run-3/agent_stderr.txt"
+source = "synthetic: make_synthetic.py"
+sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/_run_cache/with_skill/run-3/agent_stream.jsonl.gz"
+source = "synthetic: make_synthetic.py"
+sha256 = "142be48cff14c64cd26a9937596687b86c4a79a56a9d22a79426d7e95e657d2c"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/_run_cache/with_skill/run-3/outputs/domain.py"
+source = "synthetic: make_synthetic.py"
+sha256 = "5efde30fce85ce4e8ef56c716eddd851164fa525f518f0403a4455c337221646"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/_run_cache/with_skill/run-3/outputs/problems.py"
+source = "synthetic: make_synthetic.py"
+sha256 = "5efde30fce85ce4e8ef56c716eddd851164fa525f518f0403a4455c337221646"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/_run_cache/with_skill/run-3/run_complete.json"
+source = "synthetic: make_synthetic.py"
+sha256 = "8a7cea4f76294f1b343fae07673332b06cfec9d1a6d56dc93a61c0c44eb1d32d"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/contamination_catalog.jsonl"
+source = "synthetic: make_synthetic.py"
+sha256 = "0695874a58454b139d1d99ccac22cee754edb74d3307c5a562a9ef2e593a0cd1"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/eval-1-tier-a-domain-structure/with_skill/run-1/eval-1-grading.json"
+source = "synthetic: make_synthetic.py"
+sha256 = "07ce6c10f3f18e84f6847a791b3218ad4a645e599e287f84acc29e55396f7b8c"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/eval-1-tier-a-domain-structure/with_skill/run-1/eval_metadata.json"
+source = "synthetic: make_synthetic.py"
+sha256 = "70c74c5715bf176a0e8c77d6a8ad6e9461b050dd2059c8c6af05be00dea1941e"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/eval-1-tier-a-domain-structure/with_skill/run-1/metrics.json"
+source = "synthetic: make_synthetic.py"
+sha256 = "9e3ddf854c8c9d3ebcaf21b2a76c3f81702688380293095c48c30b85e7b0f1cb"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/eval-1-tier-a-domain-structure/with_skill/run-1/timing.json"
+source = "synthetic: make_synthetic.py"
+sha256 = "3cef5f53a96950b765b1e0c00645cfecf6a5afb4a0b4feaf0792e4d2403e4d48"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/eval-1-tier-a-domain-structure/with_skill/run-2/eval-1-grading.json"
+source = "synthetic: make_synthetic.py"
+sha256 = "150e95dc7041e4669206209cf71275f2c4ab525d8db39d63817dc33697cf46a4"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/eval-1-tier-a-domain-structure/with_skill/run-2/eval-5-grading.json"
+source = "synthetic: make_synthetic.py"
+sha256 = "3ee7df949aa1efcdfd9d4584b5cb5acf7c9743ac7712f7a14905c3bb09526383"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/eval-1-tier-a-domain-structure/with_skill/run-2/eval_metadata.json"
+source = "synthetic: make_synthetic.py"
+sha256 = "6bf97c381c96c4c8649fc4df555e0f2ff2e5d1eaa628969005d2d12944e0273a"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/eval-1-tier-a-domain-structure/with_skill/run-2/metrics.json"
+source = "synthetic: make_synthetic.py"
+sha256 = "9e3ddf854c8c9d3ebcaf21b2a76c3f81702688380293095c48c30b85e7b0f1cb"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/eval-1-tier-a-domain-structure/with_skill/run-2/timing.json"
+source = "synthetic: make_synthetic.py"
+sha256 = "3cef5f53a96950b765b1e0c00645cfecf6a5afb4a0b4feaf0792e4d2403e4d48"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/eval-1-tier-a-domain-structure/with_skill/run-3/eval-1-grading.json"
+source = "synthetic: make_synthetic.py"
+sha256 = "204fd9be3a35ef13c42457cf125efc9f9a8f3ead380235551baf9a29fff1b622"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/eval-1-tier-a-domain-structure/with_skill/run-3/eval_metadata.json"
+source = "synthetic: make_synthetic.py"
+sha256 = "d72c276bad7df332d507436aa0cebd0e0ade8b9d9a2acfa79a5b958620e24b99"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/eval-1-tier-a-domain-structure/with_skill/run-3/metrics.json"
+source = "synthetic: make_synthetic.py"
+sha256 = "9e3ddf854c8c9d3ebcaf21b2a76c3f81702688380293095c48c30b85e7b0f1cb"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/eval-1-tier-a-domain-structure/with_skill/run-3/timing.json"
+source = "synthetic: make_synthetic.py"
+sha256 = "3cef5f53a96950b765b1e0c00645cfecf6a5afb4a0b4feaf0792e4d2403e4d48"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/eval-5-descriptive-annex-quantitative-metrics/with_skill/run-1/eval_metadata.json"
+source = "synthetic: make_synthetic.py"
+sha256 = "ef25d6a5ec00b7dcc96c9f1d0c706c8e89a9428556dd0f6294c7e4d02cd0b6a8"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/eval-5-descriptive-annex-quantitative-metrics/with_skill/run-2/eval_metadata.json"
+source = "synthetic: make_synthetic.py"
+sha256 = "214da0e6040b47205b352c93090cfbfa5947dad4584f5de4cbc495f975d4ea34"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/eval-5-descriptive-annex-quantitative-metrics/with_skill/run-3/eval_metadata.json"
+source = "synthetic: make_synthetic.py"
+sha256 = "e9ec09cecfe47817b4950e7703b57dd44c3424f1e2dc0518e46d0958ddc4dbf9"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/experiment.json"
+source = "synthetic: make_synthetic.py"
+sha256 = "ac3de21c4a9e4479937fe9d60d8c9d9176db38b0067e59bb36f18e163e47f207"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/progress.jsonl"
+source = "synthetic: make_synthetic.py"
+sha256 = "5d250852d540f422da2f7218ff5d81a64e4368af0dbf678195bb3014fa433a4a"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/shared_with_skill/domain.py"
+source = "synthetic: make_synthetic.py"
+sha256 = "ea9a23d9f339567d8d18b410ab02b4b637c42c046ca87c3b3994b25a1a508e75"
+owner = "synthetic"
+
+[[files]]
+path = "synthetic_cell/shared_with_skill/problems.py"
+source = "synthetic: make_synthetic.py"
+sha256 = "ea9a23d9f339567d8d18b410ab02b4b637c42c046ca87c3b3994b25a1a508e75"
+owner = "synthetic"

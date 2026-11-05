@@ -1,0 +1,891 @@
+{
+  "evals": [
+    {
+      "eval_id": 1,
+      "title": "tier-a-domain-structure",
+      "tier": "structure",
+      "passed": 37,
+      "failed": 0,
+      "total": 37,
+      "pass_rate": 1.0,
+      "expectations": [
+        {
+          "id": "A1",
+          "passed": true,
+          "value": null,
+          "score": 1,
+          "max_score": 1,
+          "status": "pass",
+          "role": "gate",
+          "scale": "binary",
+          "blocked_by": null
+        },
+        {
+          "id": "A3",
+          "passed": true,
+          "value": null,
+          "score": 1,
+          "max_score": 1,
+          "status": "pass",
+          "role": "quality",
+          "scale": "binary",
+          "blocked_by": null
+        },
+        {
+          "id": "A5",
+          "passed": true,
+          "value": null,
+          "score": 35,
+          "max_score": 35,
+          "status": "pass",
+          "role": "quality",
+          "scale": "ratio",
+          "blocked_by": null
+        }
+      ]
+    },
+    {
+      "eval_id": 2,
+      "title": "tier-a-coverage-documentation",
+      "tier": "structure",
+      "passed": 3,
+      "failed": 0,
+      "total": 3,
+      "pass_rate": 1.0,
+      "expectations": [
+        {
+          "id": "A2",
+          "passed": true,
+          "value": null,
+          "score": 1,
+          "max_score": 1,
+          "status": "pass",
+          "role": "gate",
+          "scale": "binary",
+          "blocked_by": null
+        },
+        {
+          "id": "A6",
+          "passed": true,
+          "value": null,
+          "score": 2,
+          "max_score": 2,
+          "status": "pass",
+          "role": "quality",
+          "scale": "ratio",
+          "blocked_by": null
+        }
+      ]
+    },
+    {
+      "eval_id": 3,
+      "title": "tier-b-process-pass1-pass2",
+      "tier": "process",
+      "passed": 6,
+      "failed": 0,
+      "total": 6,
+      "pass_rate": 1.0,
+      "expectations": [
+        {
+          "id": "B1",
+          "passed": true,
+          "value": null,
+          "score": 1,
+          "max_score": 1,
+          "status": "pass",
+          "role": "quality",
+          "scale": "binary",
+          "blocked_by": null
+        },
+        {
+          "id": "B2",
+          "passed": true,
+          "value": null,
+          "score": 1,
+          "max_score": 1,
+          "status": "pass",
+          "role": "quality",
+          "scale": "binary",
+          "blocked_by": null
+        },
+        {
+          "id": "B3",
+          "passed": true,
+          "value": null,
+          "score": 1,
+          "max_score": 1,
+          "status": "pass",
+          "role": "quality",
+          "scale": "binary",
+          "blocked_by": null
+        },
+        {
+          "id": "B7",
+          "passed": true,
+          "value": null,
+          "score": 3,
+          "max_score": 3,
+          "status": "pass",
+          "role": "gate",
+          "scale": "ratio",
+          "blocked_by": null
+        }
+      ]
+    },
+    {
+      "eval_id": 4,
+      "title": "tier-b-process-pass3-context-flow",
+      "tier": "process",
+      "passed": 0,
+      "failed": 2,
+      "total": 2,
+      "pass_rate": 0.0,
+      "expectations": [
+        {
+          "id": "B8",
+          "passed": false,
+          "value": null,
+          "score": 0,
+          "max_score": 1,
+          "status": "fail",
+          "role": "gate",
+          "scale": "binary",
+          "blocked_by": null
+        },
+        {
+          "id": "B9",
+          "passed": false,
+          "value": null,
+          "score": 0,
+          "max_score": 1,
+          "status": "blocked",
+          "role": "quality",
+          "scale": "binary",
+          "blocked_by": "cont-train.json"
+        }
+      ]
+    },
+    {
+      "eval_id": 5,
+      "title": "descriptive-annex-quantitative-metrics",
+      "tier": "annex",
+      "passed": 9,
+      "failed": 0,
+      "total": 9,
+      "pass_rate": 1.0,
+      "expectations": [
+        {
+          "id": "C1",
+          "passed": true,
+          "value": 13,
+          "score": 1,
+          "max_score": 1,
+          "status": "pass",
+          "role": "descriptive",
+          "scale": "binary",
+          "blocked_by": null
+        },
+        {
+          "id": "C2",
+          "passed": true,
+          "value": 3,
+          "score": 1,
+          "max_score": 1,
+          "status": "pass",
+          "role": "descriptive",
+          "scale": "binary",
+          "blocked_by": null
+        },
+        {
+          "id": "C3",
+          "passed": true,
+          "value": 2,
+          "score": 1,
+          "max_score": 1,
+          "status": "pass",
+          "role": "descriptive",
+          "scale": "binary",
+          "blocked_by": null
+        },
+        {
+          "id": "C4",
+          "passed": true,
+          "value": 0,
+          "score": 1,
+          "max_score": 1,
+          "status": "pass",
+          "role": "descriptive",
+          "scale": "binary",
+          "blocked_by": null
+        },
+        {
+          "id": "C5",
+          "passed": true,
+          "value": 0,
+          "score": 1,
+          "max_score": 1,
+          "status": "pass",
+          "role": "descriptive",
+          "scale": "binary",
+          "blocked_by": null
+        },
+        {
+          "id": "C6",
+          "passed": true,
+          "value": 0.0,
+          "score": 1,
+          "max_score": 1,
+          "status": "pass",
+          "role": "descriptive",
+          "scale": "binary",
+          "blocked_by": null
+        },
+        {
+          "id": "C7",
+          "passed": true,
+          "value": 14,
+          "score": 1,
+          "max_score": 1,
+          "status": "pass",
+          "role": "descriptive",
+          "scale": "binary",
+          "blocked_by": null
+        },
+        {
+          "id": "C8",
+          "passed": true,
+          "value": 0,
+          "score": 1,
+          "max_score": 1,
+          "status": "pass",
+          "role": "descriptive",
+          "scale": "binary",
+          "blocked_by": null
+        },
+        {
+          "id": "C9",
+          "passed": true,
+          "value": 0,
+          "score": 1,
+          "max_score": 1,
+          "status": "pass",
+          "role": "descriptive",
+          "scale": "binary",
+          "blocked_by": null
+        }
+      ]
+    },
+    {
+      "eval_id": 6,
+      "title": "tier-c-solvability",
+      "tier": "soundness",
+      "passed": 2,
+      "failed": 0,
+      "total": 2,
+      "pass_rate": 1.0,
+      "expectations": [
+        {
+          "id": "D1",
+          "passed": true,
+          "value": 1.0,
+          "score": 2,
+          "max_score": 2,
+          "status": "pass",
+          "role": "gate",
+          "scale": "binary",
+          "blocked_by": null
+        }
+      ]
+    },
+    {
+      "eval_id": 7,
+      "title": "tier-c-attribution",
+      "tier": "soundness",
+      "passed": 3,
+      "failed": 0,
+      "total": 3,
+      "pass_rate": 1.0,
+      "expectations": [
+        {
+          "id": "C-S2",
+          "passed": true,
+          "value": null,
+          "score": 1,
+          "max_score": 1,
+          "status": "pass",
+          "role": "descriptive",
+          "scale": "binary",
+          "blocked_by": null
+        },
+        {
+          "id": "C-S3",
+          "passed": true,
+          "value": null,
+          "score": 1,
+          "max_score": 1,
+          "status": "pass",
+          "role": "descriptive",
+          "scale": "binary",
+          "blocked_by": null
+        },
+        {
+          "id": "C-S4",
+          "passed": true,
+          "value": null,
+          "score": 1,
+          "max_score": 1,
+          "status": "pass",
+          "role": "descriptive",
+          "scale": "binary",
+          "blocked_by": null
+        }
+      ]
+    },
+    {
+      "eval_id": 8,
+      "title": "tier-c-state-namespace",
+      "tier": "soundness",
+      "passed": 30,
+      "failed": 0,
+      "total": 30,
+      "pass_rate": 1.0,
+      "expectations": [
+        {
+          "id": "C-N1",
+          "passed": true,
+          "value": null,
+          "score": 1,
+          "max_score": 1,
+          "status": "pass",
+          "role": "gate",
+          "scale": "binary",
+          "blocked_by": null
+        },
+        {
+          "id": "C-N2",
+          "passed": true,
+          "value": null,
+          "score": 15,
+          "max_score": 15,
+          "status": "pass",
+          "role": "gate",
+          "scale": "ratio",
+          "blocked_by": null
+        },
+        {
+          "id": "C-N3",
+          "passed": true,
+          "value": null,
+          "score": 14,
+          "max_score": 14,
+          "status": "pass",
+          "role": "gate",
+          "scale": "ratio",
+          "blocked_by": null
+        }
+      ]
+    },
+    {
+      "eval_id": 9,
+      "title": "tier-c-context-namespace",
+      "tier": "soundness",
+      "passed": 1,
+      "failed": 3,
+      "total": 4,
+      "pass_rate": 0.25,
+      "expectations": [
+        {
+          "id": "C-X1",
+          "passed": false,
+          "value": null,
+          "score": 0,
+          "max_score": 1,
+          "status": "blocked",
+          "role": "gate",
+          "scale": "ratio",
+          "blocked_by": "cont-train.json"
+        },
+        {
+          "id": "C-X2",
+          "passed": false,
+          "value": null,
+          "score": 0,
+          "max_score": 1,
+          "status": "blocked",
+          "role": "descriptive",
+          "scale": "binary",
+          "blocked_by": "cont-train.json"
+        },
+        {
+          "id": "C-X3",
+          "passed": false,
+          "value": null,
+          "score": 0,
+          "max_score": 1,
+          "status": "blocked",
+          "role": "gate",
+          "scale": "ratio",
+          "blocked_by": "cont-train.json"
+        },
+        {
+          "id": "C-X4",
+          "passed": true,
+          "value": null,
+          "score": 0,
+          "max_score": 0,
+          "status": "pass",
+          "role": "gate",
+          "scale": "ratio",
+          "blocked_by": null
+        },
+        {
+          "id": "C-X5",
+          "passed": true,
+          "value": null,
+          "score": 1,
+          "max_score": 1,
+          "status": "pass",
+          "role": "descriptive",
+          "scale": "binary",
+          "blocked_by": null
+        }
+      ]
+    },
+    {
+      "eval_id": 10,
+      "title": "tier-c-correspondence",
+      "tier": "soundness",
+      "passed": 0,
+      "failed": 1,
+      "total": 1,
+      "pass_rate": 0.0,
+      "expectations": [
+        {
+          "id": "C-XN1",
+          "passed": false,
+          "value": null,
+          "score": 0,
+          "max_score": 1,
+          "status": "blocked",
+          "role": "gate",
+          "scale": "ratio",
+          "blocked_by": "cont-train.json"
+        }
+      ]
+    },
+    {
+      "eval_id": 11,
+      "title": "tier-c-hygiene",
+      "tier": "soundness",
+      "passed": 2,
+      "failed": 0,
+      "total": 2,
+      "pass_rate": 1.0,
+      "expectations": [
+        {
+          "id": "C-H1",
+          "passed": true,
+          "value": null,
+          "score": 1,
+          "max_score": 1,
+          "status": "pass",
+          "role": "gate",
+          "scale": "binary",
+          "blocked_by": null
+        },
+        {
+          "id": "C-H2",
+          "passed": true,
+          "value": null,
+          "score": 1,
+          "max_score": 1,
+          "status": "pass",
+          "role": "gate",
+          "scale": "binary",
+          "blocked_by": null
+        }
+      ]
+    },
+    {
+      "eval_id": 12,
+      "title": "tier-c-mapping",
+      "tier": "soundness",
+      "passed": 0,
+      "failed": 2,
+      "total": 2,
+      "pass_rate": 0.0,
+      "expectations": [
+        {
+          "id": "C-M1",
+          "passed": false,
+          "value": null,
+          "score": 0,
+          "max_score": 1,
+          "status": "blocked",
+          "role": "gate",
+          "scale": "binary",
+          "blocked_by": "cont-train.json"
+        },
+        {
+          "id": "C-M2",
+          "passed": false,
+          "value": null,
+          "score": 0,
+          "max_score": 1,
+          "status": "blocked",
+          "role": "gate",
+          "scale": "binary",
+          "blocked_by": "cont-train.json"
+        }
+      ]
+    },
+    {
+      "eval_id": 13,
+      "title": "tier-d-executability",
+      "tier": "executability",
+      "passed": 0,
+      "failed": 6,
+      "total": 6,
+      "pass_rate": 0.0,
+      "expectations": [
+        {
+          "id": "D-E1",
+          "passed": false,
+          "value": null,
+          "score": 0,
+          "max_score": 1,
+          "status": "blocked",
+          "role": "descriptive",
+          "scale": "binary",
+          "blocked_by": "cont-train.json"
+        },
+        {
+          "id": "D-E2",
+          "passed": false,
+          "value": null,
+          "score": 0,
+          "max_score": 1,
+          "status": "blocked",
+          "role": "descriptive",
+          "scale": "ratio",
+          "blocked_by": "cont-train.json"
+        },
+        {
+          "id": "D-E3",
+          "passed": false,
+          "value": null,
+          "score": 0,
+          "max_score": 1,
+          "status": "blocked",
+          "role": "gate",
+          "scale": "binary",
+          "blocked_by": "cont-train.json"
+        },
+        {
+          "id": "D-E4",
+          "passed": false,
+          "value": null,
+          "score": 0,
+          "max_score": 1,
+          "status": "blocked",
+          "role": "gate",
+          "scale": "binary",
+          "blocked_by": "cont-train.json"
+        },
+        {
+          "id": "D-E5",
+          "passed": false,
+          "value": null,
+          "score": 0,
+          "max_score": 1,
+          "status": "blocked",
+          "role": "gate",
+          "scale": "binary",
+          "blocked_by": "cont-train.json"
+        },
+        {
+          "id": "D-E6",
+          "passed": false,
+          "value": null,
+          "score": 0,
+          "max_score": 1,
+          "status": "blocked",
+          "role": "gate",
+          "scale": "binary",
+          "blocked_by": "cont-train.json"
+        }
+      ]
+    }
+  ],
+  "tier_A_pass_rate": 1.0,
+  "tier_B_pass_rate": 0.5,
+  "tier_C_pass_rate": 0.6071,
+  "annex_metrics": {
+    "action_count": 13,
+    "method_count": 3,
+    "scenario_count": 2,
+    "context_variable_consumers": 0,
+    "context_variable_producers": 0,
+    "extractor_density": 0.0,
+    "total_subtasks": 14,
+    "decomposition_warnings": 0,
+    "decomposition_failures": 0
+  },
+  "instructed_coverage": {
+    "status": "measured",
+    "evidence": null,
+    "skill_version": "v0.2.3",
+    "source_sha256": "17823890f2a1490cbf61eb81bc6e40ce764bc330792131070b876b9968c9cf0e",
+    "items": {
+      "https://github.com/PCfVW/GTPyhop/blob/pip/docs/gtpyhop_domain_style_guide.md": {
+        "kind": "fetch",
+        "role": null,
+        "passes": [
+          1
+        ],
+        "state": "unused"
+      },
+      "python_find_plan": {
+        "kind": "mcp_tool",
+        "role": null,
+        "passes": [
+          3
+        ],
+        "state": "not_offered"
+      },
+      "python_ingest_domain": {
+        "kind": "mcp_tool",
+        "role": null,
+        "passes": [
+          3
+        ],
+        "state": "not_offered"
+      },
+      "python_ingest_problems": {
+        "kind": "mcp_tool",
+        "role": null,
+        "passes": [
+          3
+        ],
+        "state": "not_offered"
+      },
+      "python_list_domains": {
+        "kind": "mcp_tool",
+        "role": null,
+        "passes": [
+          3
+        ],
+        "state": "not_offered"
+      },
+      "python_query_by_domain": {
+        "kind": "mcp_tool",
+        "role": null,
+        "passes": [
+          3
+        ],
+        "state": "not_offered"
+      },
+      "references/anti-patterns.md": {
+        "kind": "read",
+        "role": null,
+        "passes": [
+          1,
+          2
+        ],
+        "state": "used_passing"
+      },
+      "references/domain-patterns.md": {
+        "kind": "read",
+        "role": null,
+        "passes": [
+          1
+        ],
+        "state": "used_passing"
+      },
+      "references/mapping-structure.md": {
+        "kind": "read",
+        "role": null,
+        "passes": [
+          2,
+          3
+        ],
+        "state": "unused"
+      },
+      "references/pass-1-structure.md": {
+        "kind": "read",
+        "role": null,
+        "passes": [
+          1
+        ],
+        "state": "used_passing"
+      },
+      "references/pass-2-dataflow.md": {
+        "kind": "read",
+        "role": null,
+        "passes": [
+          2
+        ],
+        "state": "unused"
+      },
+      "references/pass-3-binding.md": {
+        "kind": "read",
+        "role": null,
+        "passes": [
+          3
+        ],
+        "state": "unused"
+      },
+      "references/problems-patterns.md": {
+        "kind": "read",
+        "role": null,
+        "passes": [
+          1
+        ],
+        "state": "used_passing"
+      },
+      "references/validation-checklist.md": {
+        "kind": "read",
+        "role": null,
+        "passes": [
+          1
+        ],
+        "state": "unused"
+      },
+      "htn-analyze-context": {
+        "kind": "script",
+        "role": "Gate",
+        "passes": [
+          3
+        ],
+        "state": "unused"
+      },
+      "htn-analyze-dataflow": {
+        "kind": "script",
+        "role": "Analysis",
+        "passes": [
+          2,
+          3
+        ],
+        "state": "unused"
+      },
+      "htn-analyze-methods": {
+        "kind": "script",
+        "role": "Analysis",
+        "passes": [
+          2
+        ],
+        "state": "unused"
+      },
+      "htn-discover-paths": {
+        "kind": "script",
+        "role": "Analysis",
+        "passes": [
+          3
+        ],
+        "state": "unused"
+      },
+      "htn-populate-mappings": {
+        "kind": "script",
+        "role": "Execution",
+        "passes": [
+          3
+        ],
+        "state": "unused"
+      },
+      "htn-validate-domain": {
+        "kind": "script",
+        "role": "Gate",
+        "passes": [
+          1,
+          2
+        ],
+        "state": "used_passing"
+      },
+      "htn-validate-mappings": {
+        "kind": "script",
+        "role": "Gate",
+        "passes": [
+          3
+        ],
+        "state": "unused"
+      },
+      "htn-validate-methods": {
+        "kind": "script",
+        "role": "Gate",
+        "passes": [
+          2
+        ],
+        "state": "unused"
+      },
+      "htn-validate-problems": {
+        "kind": "script",
+        "role": "Gate",
+        "passes": [
+          1
+        ],
+        "state": "used_passing"
+      }
+    },
+    "by_pass": {
+      "1": {
+        "https://github.com/PCfVW/GTPyhop/blob/pip/docs/gtpyhop_domain_style_guide.md": "unused",
+        "references/anti-patterns.md": "used_passing",
+        "references/domain-patterns.md": "used_passing",
+        "references/pass-1-structure.md": "used_passing",
+        "references/problems-patterns.md": "used_passing",
+        "references/validation-checklist.md": "unused",
+        "htn-validate-domain": "used_passing",
+        "htn-validate-problems": "used_passing"
+      },
+      "2": {
+        "references/anti-patterns.md": "used_passing",
+        "references/mapping-structure.md": "unused",
+        "references/pass-2-dataflow.md": "unused",
+        "htn-analyze-dataflow": "unused",
+        "htn-analyze-methods": "unused",
+        "htn-validate-domain": "used_passing",
+        "htn-validate-methods": "unused"
+      },
+      "3": {
+        "python_find_plan": "not_offered",
+        "python_ingest_domain": "not_offered",
+        "python_ingest_problems": "not_offered",
+        "python_list_domains": "not_offered",
+        "python_query_by_domain": "not_offered",
+        "references/mapping-structure.md": "unused",
+        "references/pass-3-binding.md": "unused",
+        "htn-analyze-context": "unused",
+        "htn-analyze-dataflow": "unused",
+        "htn-discover-paths": "unused",
+        "htn-populate-mappings": "unused",
+        "htn-validate-mappings": "unused"
+      }
+    },
+    "counts": {
+      "read": {
+        "used_passing": 4,
+        "used_failing": 0,
+        "unused": 4,
+        "not_offered": 0
+      },
+      "fetch": {
+        "used_passing": 0,
+        "used_failing": 0,
+        "unused": 1,
+        "not_offered": 0
+      },
+      "script": {
+        "used_passing": 2,
+        "used_failing": 0,
+        "unused": 7,
+        "not_offered": 0
+      },
+      "mcp_tool": {
+        "used_passing": 0,
+        "used_failing": 0,
+        "unused": 0,
+        "not_offered": 5
+      }
+    }
+  }
+}

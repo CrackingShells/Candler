@@ -1,0 +1,61 @@
+{
+  "eval_id": 3,
+  "title": "tier-b-process-pass1-pass2",
+  "tier": "process",
+  "expectations": [
+    {
+      "id": "B1",
+      "tier": "process",
+      "text": "Pass 1 gate: validate_domain.py exits 0 with 'Validation passed' and no 'Warning:' in output",
+      "role": "quality",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "exit_code=0, stdout='============================================================\\nValidating: <ARTIFACT_ROOT>/campaign/20260806-cont-tra'",
+      "score": 1,
+      "max_score": 1
+    },
+    {
+      "id": "B2",
+      "tier": "process",
+      "text": "Pass 1 gate: validate_problems.py exits 0 with 'Validation passed' and no 'Warning:' in output",
+      "role": "quality",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "exit_code=0, stdout='============================================================\\nValidating: <ARTIFACT_ROOT>/campaign/20260806-cont-tra'",
+      "score": 1,
+      "max_score": 1
+    },
+    {
+      "id": "B3",
+      "tier": "process",
+      "text": "Pass 2 gate: analyze_domain_data_flow.py exits 0 and produces 'ACTIONS FOUND:' output with no 'Error:' markers",
+      "role": "quality",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "exit_code=0, stdout='================================================================================\\nDOMAIN DATA FLOW ANALYSIS\\n================================================================================\\n\\nACTIONS FOU'",
+      "score": 1,
+      "max_score": 1
+    },
+    {
+      "id": "B7",
+      "tier": "process",
+      "text": "Pass 2 anti-pattern: domain.py method return values do not contain nested method calls (no 'm_xxx(' inside a return list)",
+      "role": "gate",
+      "scale": "ratio",
+      "status": "pass",
+      "passed": true,
+      "evidence": "pattern='return \\\\[.*m_[a-z][a-z_]*\\\\(', occurrences=0 (expected 0)",
+      "score": 5,
+      "max_score": 5
+    }
+  ],
+  "summary": {
+    "passed": 8,
+    "failed": 0,
+    "total": 8,
+    "pass_rate": 1.0
+  }
+}
