@@ -120,3 +120,38 @@ mod store_surface {
         );
     }
 }
+
+// ---- legacy_mapping ----
+mod legacy_mapping {
+    use candler_core::import::ImportError;
+    use candler_core::import::grading::map_grading;
+    use candler_core::import::manifest::{MappedRun, map_runs};
+    use candler_core::import::read::{LegacyFolder, SkipReason};
+    use candler_core::import::rules::{
+        HarnessRule, ImportRules, MarkerCode, MarkerRule, SnapshotRule, TreatmentRule,
+    };
+
+    /// Names from outside the crate the import rules and their parts, the reader of a legacy
+    /// folder, the two mappings and their error and skip types.
+    #[test]
+    fn the_import_surface_is_nameable() {
+        let _ = (
+            ImportRules::builder,
+            HarnessRule::new,
+            TreatmentRule::new,
+            SnapshotRule::new,
+            MarkerRule::new,
+            LegacyFolder::read,
+            map_runs,
+            map_grading,
+        );
+        let _ = (
+            None::<ImportRules>,
+            None::<MarkerCode>,
+            None::<LegacyFolder>,
+            None::<MappedRun>,
+            None::<ImportError>,
+            None::<SkipReason>,
+        );
+    }
+}
