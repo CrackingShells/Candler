@@ -9,8 +9,6 @@ mod parse;
 mod sessions;
 mod usage;
 
-use std::sync::LazyLock;
-
 use candler_harness::reader::{FrameIn, ReaderError, TraceReader};
 use candler_harness::spec::{Confidence, FormatVersion, Framing, Observed};
 use candler_schemas::primitives::{Name, NameVersion, Timestamp};
@@ -27,13 +25,20 @@ pub const SUPPORTED: &str = ">=2.1.220, <2.2.0";
 /// The name of the harness that produced the streams the reader reads.
 const HARNESS: &str = "claude-code";
 
-/// The identity of this reader: `claude-code-stream-json@<reader version>`, whose version changes whenever the reader's output does.
-#[allow(clippy::expect_used)] // EXPLICIT: the literal is a valid `name@version`, which no input can change
-pub static READER: LazyLock<NameVersion> = LazyLock::new(|| {
-    "claude-code-stream-json@0.2.0"
-        .parse()
-        .expect("the reader identity is a valid name@version")
-});
+/// The identity of this reader as text, `claude-code-stream-json@<reader version>`; the version changes whenever the reader's output does.
+pub const READER: &str = "claude-code-stream-json@0.2.0";
+
+/// Why a [`ClaudeCodeReader`] could not be built.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ClaudeCodeError {
+    /// The reader identity [`READER`] is not a valid `name@version`.
+    #[error("the reader identity is not a valid name@version ({detail})")]
+    InvalidReaderIdentity {
+        /// What is wrong with the identity.
+        detail: String,
+    },
+}
 
 /// A frame that arrived before any session was known.
 struct Held {
@@ -46,9 +51,10 @@ struct Held {
 }
 
 /// Reads Claude Code stream-json frames into sessions and events.
-#[derive(Default)]
 #[non_exhaustive]
 pub struct ClaudeCodeReader {
+    /// The identity of the reader, parsed from [`READER`].
+    identity: NameVersion,
     /// The sessions seen so far.
     registry: Registry,
     /// The Claude Code version of the first init line.
@@ -59,9 +65,22 @@ pub struct ClaudeCodeReader {
 
 impl ClaudeCodeReader {
     /// A reader that has seen no frame.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
+    ///
+    /// # Errors
+    /// Returns [`ClaudeCodeError::InvalidReaderIdentity`] when [`READER`] is not a valid `name@version`; the shipped value always is.
+    pub fn new() -> Result<Self, ClaudeCodeError> {
+        let identity = READER.parse::<NameVersion>().map_err(|error| {
+            ClaudeCodeError::InvalidReaderIdentity {
+                // BORROW: .to_string() makes the owned text the error keeps
+                detail: error.to_string(),
+            }
+        })?;
+        Ok(Self {
+            identity,
+            registry: Registry::default(),
+            harness_version: None,
+            pending: Vec::new(),
+        })
     }
 
     /// The events of one frame whose session is known.
@@ -129,8 +148,8 @@ impl ClaudeCodeReader {
 
 impl TraceReader for ClaudeCodeReader {
     fn id(&self) -> NameVersion {
-        // BORROW: .clone() copies the reader identity out of its static
-        READER.clone()
+        // BORROW: .clone() copies the reader identity out of the reader
+        self.identity.clone()
     }
 
     fn framing(&self) -> Framing {
@@ -190,7 +209,7 @@ impl TraceReader for ClaudeCodeReader {
             text.parse::<Name>()
                 .map_err(|error| incomplete(&error.to_string())) // BORROW: .to_string() gives owned text
         };
-        let reader = READER.clone(); // BORROW: copies the reader identity out of its static
+        let reader = self.identity;
         let source = SessionSource::new(
             name(HARNESS)?,
             version,

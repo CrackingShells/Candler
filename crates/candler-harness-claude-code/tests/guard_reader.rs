@@ -123,7 +123,7 @@ fn load_streams() -> Res<Vec<Stream>> {
 /// Feeds `lines` to a fresh reader, asking it what it has observed after every frame when `watch` is set.
 fn run(lines: &[Vec<u8>], watch: bool) -> Res<Output> {
     let stream: StreamName = STREAM.parse()?;
-    let mut reader = ClaudeCodeReader::new();
+    let mut reader = ClaudeCodeReader::new()?;
     let mut events = Vec::new();
     for (index, line) in lines.iter().enumerate() {
         let frame = RawFrame::new(None, FrameData::from_bytes(line));
@@ -150,7 +150,7 @@ fn trace_bytes(stream: &Stream, output: Output) -> Res<Vec<u8>> {
         STREAM.parse()?,
         Digest::from_hex(&sha256_hex(&stream.bytes)?)?,
     );
-    let header = TraceHeader::new(ClaudeCodeReader::new().id(), vec![raw]);
+    let header = TraceHeader::new(ClaudeCodeReader::new()?.id(), vec![raw]);
     Ok(TraceFile::new(header, output.sessions, output.events)?.write())
 }
 
@@ -538,7 +538,7 @@ fn usage_equals_the_committed_totals() -> Res<()> {
 
 /// Guards: Cond 4 — only an init line of Claude Code `>=2.1.220, <2.2.0` is recognised, with certainty. Oracle: eight literal first lines, two of them pre-releases, and the range the architecture states.
 #[test]
-fn version_table() {
+fn version_table() -> Res<()> {
     let init = |version: &str| {
         format!(
             r#"{{"type":"system","subtype":"init","session_id":"S","claude_code_version":"{version}"}}"#
@@ -560,7 +560,12 @@ fn version_table() {
         ),
         ("this is not json".to_owned(), None), // BORROW: .to_owned() gives owned copy of the text
     ];
-    let reader = ClaudeCodeReader::new();
+    let reader = ClaudeCodeReader::new()?; // the shipped identity parses, so `new` never takes its `Err` path
+    assert_eq!(
+        reader.id().to_string(),
+        READER,
+        "the identity names the shipped reader"
+    ); // BORROW: .to_string() gives owned text
     for (sample, want) in rows {
         let got = reader
             .detect(sample.as_bytes())
@@ -571,6 +576,7 @@ fn version_table() {
             "sample {sample}"
         );
     }
+    Ok(())
 }
 
 /// Guards: I3 — a reader that is asked what it has observed after every frame writes the same trace file as one that is not. Oracle: byte equality of the two trace files, and the root ids that `observed()` lists against the sessions without a parent.
@@ -580,7 +586,7 @@ fn replay_is_deterministic() -> Res<()> {
         let plain = trace_bytes(&stream, run(&stream.lines, false)?)?;
         let watched = trace_bytes(&stream, run(&stream.lines, true)?)?;
         assert!(plain == watched, "{}: the trace files differ", stream.name);
-        let mut reader = ClaudeCodeReader::new();
+        let mut reader = ClaudeCodeReader::new()?;
         let name: StreamName = STREAM.parse()?;
         for (index, line) in stream.lines.iter().enumerate() {
             let frame = RawFrame::new(None, FrameData::from_bytes(line));
