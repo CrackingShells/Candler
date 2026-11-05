@@ -626,8 +626,10 @@ frame time in the raw file, else it is absent.
   space, so they read as the session part of an `event:` evidence ref.
 - **Usage.** A message split over several lines reports its usage once, on the first line carrying
   its message id. A `session_total` is the session's running total, so a later one supersedes an
-  earlier one. An unknown line becomes a `notification` with the line in `ext`, and readers skip
-  kinds they do not know (I18).
+  earlier one. For Claude Code it sums the usage of the session's result lines; it does not
+  reconcile with the result's `modelUsage`, which accumulates across the whole process, and only
+  the cost agrees between the two. An unknown line becomes a `notification` with the line in
+  `ext`, and readers skip kinds they do not know (I18).
 - **Reproducibility.** The trace is a function of the raw files and the reader at its version (I3):
   feeding the same frames, however they are chunked, gives the same file byte for byte.
 
@@ -711,7 +713,7 @@ The rules every wire type of the `schemas@` line follows.
 
 Outcome record · catalog snapshot · raw frames · normalised trace (header, session, event records)
 · workspace tree (`run-tree/1`) · child record · evaluator messages (`describe` result, `evaluate`
-params, notifications) · plug-in manifest · suite file · run manifest · job record, event envelope
+params, notifications, and the request side: method names, `{reported}` and `-32800`) · plug-in manifest · suite file · run manifest · job record, event envelope
 and event payloads · experiment file. All are generated from `candler-schemas`.
 
 ## Key Flows
@@ -794,13 +796,13 @@ request files under the new evaluator version; `diff` compares versions.
 | I8 | Ground truth never exists inside the isolation boundary, and no surface exposes it while its run is live. |
 | I9 | Observation never alters behaviour. |
 | I10 | An invalid run is never a failure. Invalid runs are reported per arm, with a reason. |
-| I11 | Outcomes, events and run attempts are append-only. Nothing is deleted. |
+| I11 | Outcomes, events and run attempts are append-only. A sealed record (a run with `run.done`, a committed outcome file, a written event) is never replaced or deleted; what never sealed, such as a `.partial` or an unfinished import, is not a record. |
 | I12 | Every resolved argument records its source. Nothing is defaulted silently. |
 | I13 | A `run` without a budget is refused on the MCP surface. |
 | I14 | One front door, one environment. Plug-in environments are provisioned by the core from their manifests. Relative paths given as arguments resolve against the caller's working directory; relative paths written in a config file resolve against that file's directory. |
 | I15 | The core supervises every process it starts, and reaps it and its descendants. Drivers never act on processes. An evaluator may run children only inside its own request; they die with it. |
 | I16 | Nothing of Candler runs when no job runs. |
-| I17 | Stored records hold only run-relative paths. |
+| I17 | Every path-typed field of a stored record is relative: to the run root, or, for what an import read, to the imported cell or folder. Content a harness wrote is kept as written (I3), so a raw stream or a trace event's `ext` may hold absolute paths. |
 | I18 | Event and message consumers skip kinds they do not know. |
 | I19 | Secret values are never written to the store, a job directory, an event or a log. |
 | I20 | An end caused by the experimenter (job budget, kill, lost supervisor) is never charged to an arm. |
@@ -891,8 +893,10 @@ input the legacy importer reconstructed (importer defect) → anything left is a
   evaluator@version)`.
 - **Edges.** An invalid run gets no outcomes; its grading files stay as blobs. A reader failure lands
   the run without a trace and is listed in the import report. A run without `outputs/` is refused.
-- **Re-import (I11).** A byte-identical re-import is a no-op; a run that began importing but has no
-  `run.done` is replaced; a finished run whose sources differ is refused.
+- **Re-import (I11).** A byte-identical re-import is a no-op. Every finished run is compared with the
+  folder, manifest and workspace tree, before the first write, and one that differs is refused, so a
+  refused import writes nothing. A run that began importing but has no `run.done` is moved aside,
+  its moved-aside copy is deleted, and it is imported again: it never sealed, so I11 does not hold it.
 
 **Known gaps:** the corpus is `with_skill` only, so parity does not exercise `not_applicable` or a
 contaminated run. The sandbox planner version is `null` in `experiment.json`, which is written when
