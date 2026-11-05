@@ -177,6 +177,7 @@ version = "0.1.0"
 name = "candler-core"
 version = "0.1.0"
 dependencies = [
+ "candler-core",
  "candler-harness",
  "candler-harness-claude-code",
  "candler-schemas",

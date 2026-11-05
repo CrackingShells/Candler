@@ -155,3 +155,101 @@ mod legacy_mapping {
         );
     }
 }
+
+// ---- supervisor ----
+mod supervisor {
+    use candler_core::frames::{
+        FrameMode, FrameReader, FrameWriter, FramesError, RawFileInfo, frame_bytes,
+    };
+    use candler_core::supervise::http::is_loopback;
+    use candler_core::supervise::platform::{Liveness, liveness, parse_proc_stat, process_start};
+    use candler_core::supervise::reap::{ReapRefusal, ReapReport};
+    use candler_core::supervise::record::{record_path, write_record};
+    use candler_core::supervise::spawn::{
+        Child, DEFAULT_GRACE, FrameObserver, OutputSpec, SpawnRequest, SpawnRequestBuilder,
+        StdinSpec,
+    };
+    use candler_core::supervise::stop::{
+        Captured, Ended, Exit, StepRecord, StopHandle, StraySweeper,
+    };
+    use candler_core::supervise::{EventSink, SuperviseError, Supervisor};
+
+    fn send_sync<T: Send + Sync + ?Sized>() {}
+
+    /// Names every frames and supervise item the execution milestone consumes; the sink, the
+    /// sweeper and the observer are trait objects.
+    #[test]
+    fn frames_and_supervise_items_are_nameable() {
+        send_sync::<Supervisor>();
+        send_sync::<StopHandle>();
+        send_sync::<dyn EventSink>(); // TRAIT_OBJECT: the job runner chooses where events go
+        send_sync::<dyn StraySweeper>(); // TRAIT_OBJECT: the execution milestone provides the sweep
+        let _ = None::<Box<dyn FrameObserver>>; // TRAIT_OBJECT: a live reader observes frames
+        let _ = (
+            FrameWriter::create,
+            FrameWriter::write,
+            FrameWriter::flush_tail,
+            FrameWriter::frames,
+            FrameWriter::finish,
+            frame_bytes,
+            FrameReader::open,
+            FrameReader::header,
+            RawFileInfo::new,
+        );
+        let _ = (
+            Supervisor::new,
+            Supervisor::with_sweeper,
+            Supervisor::spawn,
+            Supervisor::run_captured,
+            Supervisor::reap,
+            SpawnRequest::builder,
+            SpawnRequestBuilder::argv,
+            SpawnRequestBuilder::env,
+            SpawnRequestBuilder::marker,
+            SpawnRequestBuilder::run,
+            SpawnRequestBuilder::cwd,
+            SpawnRequestBuilder::stdin,
+            SpawnRequestBuilder::stdout,
+            SpawnRequestBuilder::stderr,
+            SpawnRequestBuilder::deadline,
+            SpawnRequestBuilder::stop,
+            SpawnRequestBuilder::record_dir,
+            SpawnRequestBuilder::build,
+            OutputSpec::framed,
+            OutputSpec::with_observer,
+        );
+        let _ = (
+            Child::record,
+            Child::take_stdin,
+            Child::take_stdout,
+            Child::take_stderr,
+            Child::stop_handle,
+            Child::wait,
+            Child::stop,
+            StopHandle::request,
+            StepRecord::new,
+            Exit::new,
+            Captured::new,
+            ReapReport::new,
+            ReapRefusal::guard,
+            FrameWriter::discard,
+        );
+        let _ = (
+            is_loopback,
+            liveness,
+            process_start,
+            parse_proc_stat,
+            record_path,
+            write_record,
+            DEFAULT_GRACE,
+        );
+        let _ = (
+            None::<FrameMode>,
+            None::<FramesError>,
+            None::<SuperviseError>,
+            None::<StdinSpec>,
+            None::<Ended>,
+            None::<Liveness>,
+        );
+    }
+}
