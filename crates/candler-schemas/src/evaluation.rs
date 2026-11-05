@@ -57,7 +57,14 @@ pub const ERROR_REQUEST_CANCELLED: i32 = -32800;
 
 /// The wire root schemas this module publishes.
 pub(crate) fn roots() -> Vec<GeneratedSchema> {
-    Vec::new()
+    vec![
+        GeneratedSchema::of::<PluginManifest>("plugin-manifest"),
+        GeneratedSchema::of::<SuiteFile>("suite"),
+        GeneratedSchema::of::<DescribeResult>("evaluator-describe-result"),
+        GeneratedSchema::of::<EvaluateParams>("evaluator-evaluate-params"),
+        GeneratedSchema::of::<Notification>("evaluator-notification"),
+        GeneratedSchema::of::<RequestSide>("evaluator-request-side"),
+    ]
 }
 
 /// Why an evaluation record could not be built or read.
