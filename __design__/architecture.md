@@ -301,6 +301,15 @@ worked, is an agent error: the run is valid and graded, never retried as a gatew
   `ProcessExit` and in the `process.exited` payload.
 - **Reaping from a record.** `reap(record, stop)` stops a group from its child record alone, so
   resume and `kill` reap a lost job's children with the same escalation.
+- **Signalling (I22).** Every signal goes through one choke point, which denies by default. It
+  signals only a pid or group this supervisor spawned and still holds in its live child table,
+  re-verified (leader pid and `start` match the child record) right before the signal. It also
+  refuses a pid or group of 1 or less, its own pid and its own process group, since `kill(-1)`
+  signals every process the user owns. A group read back from disk (`reap`, the stray sweep, a
+  container census by marker) passes the same re-verification; a mismatch is refused and
+  reported, never signalled. Delivery sits behind a `Signaller` seam: the guard and the
+  escalation logic are tested against a recording fake, and real-signal tests only check end to
+  end that spawned children die.
 - **Pre-stop over HTTP** reaches loopback only: the host is parsed, never matched as text, and must
   be `localhost`, `127.0.0.0/8` or `::1`; redirects are not followed. A failed or timed-out pre-stop
   continues the escalation.
@@ -796,6 +805,7 @@ request files under the new evaluator version; `diff` compares versions.
 | I19 | Secret values are never written to the store, a job directory, an event or a log. |
 | I20 | An end caused by the experimenter (job budget, kill, lost supervisor) is never charged to an arm. |
 | I21 | Analysis reads roles and weights from outcomes, never from the current suite. |
+| I22 | The core never signals a process group or pid it did not spawn and re-verify. |
 
 ### Error model
 
