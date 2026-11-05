@@ -1,0 +1,91 @@
+{
+  "$defs": {
+    "Digest": {
+      "description": "A content digest: `sha256:` followed by 64 lowercase hex digits.",
+      "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])",
+      "type": "string"
+    },
+    "RelPath": {
+      "description": "A run-relative POSIX path: non-empty, with no leading `/`, no empty segment, no `.` or `..` segment, no NUL and no `\\`.",
+      "pattern": "^(?!\\.\\.?(?:/|(?![\\s\\S])))[^/\\\\\\x00]+(?:/(?!\\.\\.?(?:/|(?![\\s\\S])))[^/\\\\\\x00]+)*(?![\\s\\S])",
+      "type": "string"
+    },
+    "TreeEntry": {
+      "description": "One path of a run's workspace when the run ended: a file with its content digest, or a directory that holds nothing.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A file: the store keeps its bytes as the blob `blobs/<hex of sha256>`.",
+          "properties": {
+            "executable": {
+              "description": "Whether the file had an execute bit.",
+              "type": "boolean"
+            },
+            "kind": {
+              "const": "file",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/$defs/RelPath",
+              "description": "The run-relative path of the file."
+            },
+            "sha256": {
+              "$ref": "#/$defs/Digest",
+              "description": "The digest of the file's bytes."
+            }
+          },
+          "required": [
+            "kind",
+            "path",
+            "sha256",
+            "executable"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A directory that holds nothing; a directory with content is implied by its entries.",
+          "properties": {
+            "kind": {
+              "const": "dir",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/$defs/RelPath",
+              "description": "The run-relative path of the directory."
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$id": "urn:candler:schemas:run-tree",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The workspace of a run when it ended: every file with its content digest and every empty directory, sorted by path, with the version marker `run-tree/1` in `schema`.",
+  "properties": {
+    "entries": {
+      "description": "The entries, sorted by path text without a repeat; no entry lies below a file or below an empty directory.",
+      "items": {
+        "$ref": "#/$defs/TreeEntry"
+      },
+      "type": "array"
+    },
+    "schema": {
+      "const": "run-tree/1",
+      "description": "The version marker of the document: always `run-tree/1`.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "entries"
+  ],
+  "title": "RunTree",
+  "type": "object"
+}

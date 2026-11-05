@@ -1,0 +1,251 @@
+{
+  "$defs": {
+    "Budget": {
+      "additionalProperties": false,
+      "description": "The caps of an experiment: those of one run, and those of the job that runs its cells, with the number of runs that may be in flight at once.",
+      "properties": {
+        "max_cost_usd": {
+          "$comment": "Above 0 and finite; the reader enforces it.",
+          "description": "The cap on the cost of the job in US dollars, above 0.",
+          "format": "double",
+          "type": "number"
+        },
+        "max_parallel": {
+          "$comment": "Fits in 32 bits; the reader enforces it.",
+          "default": 1,
+          "description": "The number of agent runs or evaluator processes in flight at once, from 1; 1 when absent.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_runs": {
+          "$comment": "Fits in 32 bits; the reader enforces it.",
+          "description": "The cap on the runs the job starts, from 1.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_tokens": {
+          "$comment": "Fits in 64 bits; a reader that holds numbers as doubles is exact only below 2^53.",
+          "description": "The cap on the tokens the job spends, from 1.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "per_run": {
+          "$ref": "#/$defs/PerRunCaps",
+          "description": "The caps on one agent run."
+        },
+        "wall_s": {
+          "$comment": "Fits in 32 bits; the reader enforces it.",
+          "description": "The wall-clock cap of the job in seconds, from 1.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "per_run"
+      ],
+      "type": "object"
+    },
+    "Factor": {
+      "additionalProperties": false,
+      "description": "A field that varies across the cells of an experiment: its path and its levels, in the order they are written.",
+      "properties": {
+        "levels": {
+          "description": "The values the field takes, one cell per value; at least one.",
+          "items": {
+            "$comment": "A leaf of an object level is any value that is not an object; the keys are field path segments, an object holds at least one leaf, and a leaf is not null. Integers lie within ±(2^53 - 1). JSON Schema cannot state this, and the Rust reader enforces it.",
+            "description": "One value of a factor: any JSON value except null, or an object whose leaves fill the paths under the factor's path.",
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "array",
+              "object"
+            ]
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "path": {
+          "$ref": "#/$defs/FieldPath",
+          "description": "The dotted path of the field."
+        }
+      },
+      "required": [
+        "path",
+        "levels"
+      ],
+      "type": "object"
+    },
+    "FieldPath": {
+      "description": "A dotted path to a field: one or more segments joined by `.`, each a lowercase letter followed by lowercase letters, digits or `_`.",
+      "pattern": "^[a-z][a-z0-9_]*(?:[.][a-z][a-z0-9_]*)*(?![\\s\\S])",
+      "type": "string"
+    },
+    "GitCommit": {
+      "description": "A git commit: 40 or 64 lowercase hex digits.",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})(?![\\s\\S])",
+      "type": "string"
+    },
+    "HarnessRequest": {
+      "additionalProperties": false,
+      "description": "The harness an experiment asks for: its name and, when it limits them, the versions that will do.",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/Name",
+          "description": "The name of the harness."
+        },
+        "version": {
+          "$comment": "The grammar is that of the Rust `semver` crate's `VersionReq`; the reader parses it.",
+          "description": "The versions of the harness that will do, as comparators such as `>=2.1, <3`; any version when absent.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "Name": {
+      "description": "A plain name, such as that of a harness, a reader, a plug-in or a treatment: non-empty, with neither `@` nor white space.",
+      "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+(?![\\s\\S])",
+      "type": "string"
+    },
+    "PerRunCaps": {
+      "additionalProperties": false,
+      "description": "The caps on one agent run: a treatment condition, the same for every arm.",
+      "properties": {
+        "max_cost_usd": {
+          "$comment": "Above 0 and finite; the reader enforces it.",
+          "description": "The cap on the cost of one run in US dollars, above 0.",
+          "format": "double",
+          "type": "number"
+        },
+        "turns": {
+          "$comment": "Fits in 32 bits; the reader enforces it.",
+          "description": "The cap on the turns of one run, from 1.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "wall_s": {
+          "$comment": "Fits in 32 bits; the reader enforces it.",
+          "description": "The wall-clock cap of one run in seconds, from 1.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "wall_s"
+      ],
+      "type": "object"
+    },
+    "SecretName": {
+      "description": "An environment-variable name: an uppercase ASCII letter or `_`, then uppercase letters, digits or `_`.",
+      "pattern": "^[A-Z_][A-Z0-9_]*(?![\\s\\S])",
+      "type": "string"
+    },
+    "TreatmentRef": {
+      "additionalProperties": false,
+      "description": "The treatment an experiment applies: a name, and the tag and commit it is pinned to.",
+      "properties": {
+        "commit": {
+          "$ref": "#/$defs/GitCommit",
+          "description": "The commit the treatment is pinned to."
+        },
+        "name": {
+          "$ref": "#/$defs/Name",
+          "description": "The name of the treatment."
+        },
+        "tag": {
+          "description": "The tag the treatment is pinned to, as its source names it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:candler:schemas:experiment",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "An experiment file: the values fixed in every cell, the factors whose levels make the cells, the replicates, the budget, the harness, the treatment and the names of the secrets the runs need.",
+  "properties": {
+    "budget": {
+      "$ref": "#/$defs/Budget",
+      "description": "The caps on a run and on the job."
+    },
+    "factors": {
+      "$comment": "No path of a factor, nor a path a level fills, equals or lies below or above another factor's path or a key of `fixed`; the Rust reader refuses an overlap.",
+      "default": [],
+      "description": "The factors, in the order the cells are made from them: the first factor varies slowest.",
+      "items": {
+        "$ref": "#/$defs/Factor"
+      },
+      "type": "array"
+    },
+    "fixed": {
+      "additionalProperties": false,
+      "default": {},
+      "description": "The values every cell holds, by dotted field path.",
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*(?:[.][a-z][a-z0-9_]*)*(?![\\s\\S])": {
+          "$comment": "Integers lie within ±(2^53 - 1); JSON Schema cannot state this, and the Rust reader refuses a larger one.",
+          "description": "Any JSON value except null at the top, with finite numbers.",
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "array",
+            "object"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "harness": {
+      "$ref": "#/$defs/HarnessRequest",
+      "description": "The harness the runs use."
+    },
+    "replicates": {
+      "$comment": "Fits in 32 bits; the reader enforces it.",
+      "description": "The runs of each cell, from 1.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "schema": {
+      "const": "experiment/1",
+      "description": "The version marker of the document: always `experiment/1`.",
+      "type": "string"
+    },
+    "secrets": {
+      "default": [],
+      "description": "The names of the environment variables the runs need; their values are never written.",
+      "items": {
+        "$ref": "#/$defs/SecretName"
+      },
+      "type": "array"
+    },
+    "treatment": {
+      "$ref": "#/$defs/TreatmentRef",
+      "description": "The treatment the runs apply."
+    }
+  },
+  "required": [
+    "schema",
+    "replicates",
+    "budget",
+    "harness",
+    "treatment"
+  ],
+  "title": "ExperimentFile",
+  "type": "object"
+}
