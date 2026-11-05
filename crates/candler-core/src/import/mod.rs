@@ -3,6 +3,7 @@
 mod assemble;
 mod assets;
 pub mod grading;
+mod legacy;
 pub mod manifest;
 pub mod read;
 mod report;

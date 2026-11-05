@@ -11,6 +11,9 @@ use flate2::read::GzDecoder;
 use serde_json::Value;
 
 use super::ImportError;
+use super::legacy::{
+    EVAL_METADATA_FILE, EXPECTATIONS_FILE, OUTPUTS, RUN_COMPLETE_FILE, STDERR_FILE, TIMING_FILE,
+};
 use super::rules::ImportRules;
 
 /// A file the import read: its path relative to the folder, the digest of its bytes and the bytes.
@@ -466,7 +469,7 @@ impl Reader<'_> {
             // BORROW: explicit .as_str() instead of Deref coercion
             match entry.name.as_str() {
                 "PROVENANCE.json" => provenance = Some(json_file(&file)?),
-                "expectations.jsonl" => expectations = Some(jsonl_rows(&file)?),
+                EXPECTATIONS_FILE => expectations = Some(jsonl_rows(&file)?),
                 // EXPLICIT: any other root file is kept as a folder source and read no further
                 _ => {}
             }
@@ -478,7 +481,7 @@ impl Reader<'_> {
             detail: "is missing from the folder's root".into(),
         };
         let provenance = provenance.ok_or_else(|| missing("PROVENANCE.json"))?;
-        let expectations = expectations.ok_or_else(|| missing("expectations.jsonl"))?;
+        let expectations = expectations.ok_or_else(|| missing(EXPECTATIONS_FILE))?;
         Ok((provenance, expectations, sources, cells))
     }
 
@@ -614,7 +617,7 @@ impl Reader<'_> {
             // BORROW: explicit .as_str() instead of Deref coercion
             let name = entry.name.as_str();
             if entry.is_dir {
-                if cache && name == "outputs" {
+                if cache && name == OUTPUTS {
                     run.has_outputs = true;
                     self.walk(&path, &mut run.outputs)?;
                 } else {
@@ -628,13 +631,13 @@ impl Reader<'_> {
                     run.stream = Some(file);
                     continue;
                 }
-                (true, "agent_stderr.txt") => {
+                (true, STDERR_FILE) => {
                     run.stderr = Some(file);
                     continue;
                 }
-                (true, "run_complete.json") => run.run_complete = Some(json_file(&file)?),
-                (false, "eval_metadata.json") => run.eval_metadata.push(json_file(&file)?),
-                (false, "timing.json") => {
+                (true, RUN_COMPLETE_FILE) => run.run_complete = Some(json_file(&file)?),
+                (false, EVAL_METADATA_FILE) => run.eval_metadata.push(json_file(&file)?),
+                (false, TIMING_FILE) => {
                     let copy = json_file(&file)?;
                     match &run.timing {
                         Some(first) if first.value != copy.value => {
@@ -701,7 +704,7 @@ impl Reader<'_> {
             detail: "is missing from the run".into(),
         };
         let stream = stream.ok_or_else(|| required("agent_stream.jsonl.gz"))?;
-        let timing = timing.ok_or_else(|| required("timing.json"))?;
+        let timing = timing.ok_or_else(|| required(TIMING_FILE))?;
         let harness_version = self.harness_version(&stream, &label)?;
         outputs.sort_by(|a, b| a.path.cmp(&b.path));
         sources.sort_by(|a, b| a.path.cmp(&b.path));

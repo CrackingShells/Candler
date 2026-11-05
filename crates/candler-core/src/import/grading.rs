@@ -14,11 +14,12 @@ use candler_schemas::primitives::{ExpectationId, Name, NameVersion, ReasonCode, 
 use serde_json::{Map, Value};
 
 use super::ImportError;
+use super::legacy::{BLOCKED_BY, CONFIG, EXPECTATIONS, EXPECTATIONS_FILE, OUTPUTS, ROLE};
 use super::manifest::{MappedRun, layout, pinned};
 use super::read::{JsonFile, LegacyFolder, LegacyRun, rel_path};
 use super::rules::{ImportRules, MarkerCode};
 
-/// The placeholder for an absolute path the digests do not hash.
+/// The placeholder for the root and the absolute paths of a run context: the architecture allows absolute paths in a run context outside the digest projection, and an imported run has no run root, so every absolute path in the context is this one.
 const ROOT: &str = "/legacy";
 
 /// The legacy statuses the importer knows.
@@ -60,7 +61,7 @@ fn rows_of<'a>(
     cell: &str,
     run: &'a LegacyRun,
 ) -> Result<Vec<Row<'a>>, ImportError> {
-    let table = "expectations.jsonl";
+    let table = EXPECTATIONS_FILE;
     let wanted = format!("run-{}", run.number);
     let mut entries: BTreeMap<(&str, &str), (&Value, &JsonFile)> = BTreeMap::new();
     for file in &run.gradings {
@@ -68,7 +69,7 @@ fn rows_of<'a>(
         let path = file.path.as_str();
         let list = file
             .value
-            .get("expectations")
+            .get(EXPECTATIONS)
             .and_then(Value::as_array)
             .ok_or_else(|| layout(path, &run.label, "`expectations` is not an array"))?;
         for entry in list {
@@ -85,7 +86,7 @@ fn rows_of<'a>(
     let mut used: BTreeSet<(&str, &str)> = BTreeSet::new();
     for row in &folder.expectations {
         let same = text(row, "cell", table, &run.label)? == cell
-            && text(row, "config", table, &run.label)? == run.config
+            && text(row, CONFIG, table, &run.label)? == run.config
             && text(row, "run", table, &run.label)? == wanted;
         if !same {
             continue;
@@ -123,7 +124,7 @@ fn rows_of<'a>(
 fn cross_check(row: &Row<'_>, run: &LegacyRun) -> Result<(), ImportError> {
     for (key, what) in [
         ("status", "statuses"),
-        ("role", "roles"),
+        (ROLE, "roles"),
         ("score", "scores"),
         ("max_score", "maximum scores"),
         ("value", "values"),
@@ -135,7 +136,7 @@ fn cross_check(row: &Row<'_>, run: &LegacyRun) -> Result<(), ImportError> {
                 what,
                 // BORROW: .clone() copies the run label into the error
                 run: run.label.clone(),
-                first: "expectations.jsonl".into(),
+                first: EXPECTATIONS_FILE.into(),
                 second: row.file.path.to_string(),
                 detail: format!("`{}`: `{from_row}` and `{from_entry}`", row.id),
             });
@@ -148,7 +149,7 @@ fn cross_check(row: &Row<'_>, run: &LegacyRun) -> Result<(), ImportError> {
 fn role_of(row: &Row<'_>, run: &LegacyRun) -> Result<Role, ImportError> {
     // BORROW: explicit .as_str() instead of Deref coercion
     let file = row.file.path.as_str();
-    match text(row.listed, "role", file, &run.label)? {
+    match text(row.listed, ROLE, file, &run.label)? {
         "gate" => Ok(Role::Gate),
         "quality" => Ok(Role::Quality),
         "descriptive" => Ok(Role::Descriptive),
@@ -238,7 +239,7 @@ struct Facts {
 fn facts_of(row: &Row<'_>, run: &LegacyRun, rules: &ImportRules) -> Result<Facts, ImportError> {
     // BORROW: explicit .as_str() instead of Deref coercion
     let file = row.file.path.as_str();
-    let table = "expectations.jsonl";
+    let table = EXPECTATIONS_FILE;
     let status_text = text(row.listed, "status", table, &run.label)?;
     let legacy_status = match status_text {
         "pass" => Legacy::Pass,
@@ -266,7 +267,7 @@ fn facts_of(row: &Row<'_>, run: &LegacyRun, rules: &ImportRules) -> Result<Facts
     };
     let (score, max) = (whole("score")?, whole("max_score")?);
     let weight = |num: u64, den: u64| Weight::new(num, den).map_err(|error| bad(error.to_string()));
-    let blocked_by = match row.entry.get("blocked_by") {
+    let blocked_by = match row.entry.get(BLOCKED_BY) {
         None | Some(Value::Null) => None,
         Some(Value::String(path)) => Some(rel_path(path)?),
         Some(Value::Bool(_) | Value::Number(_) | Value::Array(_) | Value::Object(_)) => {
@@ -391,7 +392,7 @@ fn run_context(
     run: &LegacyRun,
     rules: &ImportRules,
 ) -> Result<RunContext, ImportError> {
-    let bad = |detail: String| layout("outputs", &run.label, detail);
+    let bad = |detail: String| layout(OUTPUTS, &run.label, detail);
     let mut builder = RunContext::builder()
         // BORROW: .clone() copies the key into the context
         .run(mapped.key.clone())
@@ -402,11 +403,11 @@ fn run_context(
             .path
             // BORROW: explicit .as_str() instead of Deref coercion
             .as_str()
-            .split_once("/outputs/")
+            .split_once(&format!("/{OUTPUTS}/"))
             .ok_or_else(|| bad(format!("`{}` is not under `outputs/`", output.path)))?;
         builder = builder.artifact(ContextArtifact::new(
             rel_path(below)?,
-            format!("{ROOT}/outputs/{below}"),
+            format!("{ROOT}/{OUTPUTS}/{below}"),
             // BORROW: .clone() copies the digest into the context
             output.sha256.clone(),
         ));
@@ -463,7 +464,7 @@ pub fn map_grading(
 ) -> Result<Vec<OutcomeRecord>, ImportError> {
     let (cell, run) = folder.run(mapped.run).ok_or_else(|| {
         layout(
-            "expectations.jsonl",
+            EXPECTATIONS_FILE,
             "the folder",
             format!("the folder has no run at index {}", mapped.run),
         )

@@ -15,6 +15,10 @@ use serde_json::Value;
 use sha2::Digest as _;
 
 use super::ImportError;
+use super::legacy::{
+    COMPLETED_AT, CONFIG, COPIED_INPUTS, ELAPSED_SECONDS, EVENT_RUN_COMPLETE, EVENT_RUN_START,
+    ORIGINAL_INTEGRITY, OUT_DIR, PLAN, PROVENANCE, ROLE, RUN_NUMBER, RUNS, SHA256, VERDICT,
+};
 use super::read::{LegacyCell, LegacyFolder, LegacyRun, rel_path};
 use super::rules::ImportRules;
 
@@ -123,14 +127,19 @@ fn experiment_leaves(cell: &LegacyCell, rules: &ImportRules) -> Result<Leaves, I
     let doc = &cell.experiment.value;
     let mut plan = Vec::new();
     let mut provenance = Vec::new();
-    for (root, out) in [("plan", &mut plan), ("provenance", &mut provenance)] {
+    for (root, out) in [(PLAN, &mut plan), (PROVENANCE, &mut provenance)] {
         let part = doc
             .get(root)
             .filter(|part| part.is_object())
             .ok_or_else(|| layout(file, &cell.name, format!("`{root}` is not an object")))?;
         leaves(root, part, out);
     }
-    plan.retain(|(path, _)| path != "plan.out_dir" && !path.starts_with("plan.out_dir."));
+    plan.retain(|(path, _)| {
+        path != OUT_DIR
+            && !path
+                .strip_prefix(OUT_DIR)
+                .is_some_and(|rest| rest.starts_with('.'))
+    });
     // BORROW: explicit .as_str() instead of Deref coercion
     let resolved = rules.treatment.resolved.as_str();
     let version = doc
@@ -149,7 +158,7 @@ fn copied_inputs(run: &LegacyRun) -> Result<BTreeSet<DigestRef>, ImportError> {
     // BORROW: explicit .as_str() instead of Deref coercion
     let file = run.timing.path.as_str();
     let mut inputs = BTreeSet::new();
-    let Some(list) = run.timing.value.get("copied_inputs") else {
+    let Some(list) = run.timing.value.get(COPIED_INPUTS) else {
         return Ok(inputs);
     };
     let items = list
@@ -166,8 +175,8 @@ fn copied_inputs(run: &LegacyRun) -> Result<BTreeSet<DigestRef>, ImportError> {
                 )
             })
         };
-        let kind = Name::from_str(text("role")?)?;
-        let digest = Digest::from_hex(text("sha256")?)?;
+        let kind = Name::from_str(text(ROLE)?)?;
+        let digest = Digest::from_hex(text(SHA256)?)?;
         inputs.insert(DigestRef::new(kind, digest));
     }
     Ok(inputs)
@@ -293,7 +302,7 @@ fn integrity_of(
     let entry = folder
         .provenance
         .value
-        .get("runs")
+        .get(RUNS)
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
@@ -301,17 +310,17 @@ fn integrity_of(
             // BORROW: Value::as_str borrows the JSON string without copying
             entry.get("cell").and_then(Value::as_str) == Some(cell.name.as_str())
                 // BORROW: Value::as_str borrows the JSON string without copying
-                && entry.get("config").and_then(Value::as_str) == Some(run.config.as_str())
+                && entry.get(CONFIG).and_then(Value::as_str) == Some(run.config.as_str())
                 // BORROW: Value::as_str borrows the JSON string without copying
                 && entry.get("run").and_then(Value::as_str) == Some(wanted.as_str())
         })
         .ok_or_else(|| layout(file, &run.label, "no `runs` entry names this run"))?;
     let original = entry
-        .get("original_integrity")
+        .get(ORIGINAL_INTEGRITY)
         .filter(|block| block.is_object())
         .ok_or_else(|| layout(file, &run.label, "`original_integrity` is not an object"))?;
     let verdict = original
-        .get("verdict")
+        .get(VERDICT)
         // BORROW: Value::as_str borrows the JSON string without copying
         .and_then(Value::as_str)
         .ok_or_else(|| {
@@ -335,11 +344,11 @@ fn integrity_of(
     };
     let row = cell.catalog.iter().find(|row| {
         // BORROW: Value::as_str borrows the JSON string without copying
-        row.get("config").and_then(Value::as_str) == Some(run.config.as_str())
-            && row.get("run_number").and_then(Value::as_u64) == Some(u64::from(run.number))
+        row.get(CONFIG).and_then(Value::as_str) == Some(run.config.as_str())
+            && row.get(RUN_NUMBER).and_then(Value::as_u64) == Some(u64::from(run.number))
     });
     let catalog = row
-        .and_then(|row| row.get("verdict"))
+        .and_then(|row| row.get(VERDICT))
         // BORROW: Value::as_str borrows the JSON string without copying
         .and_then(Value::as_str)
         .unwrap_or("clean");
@@ -364,11 +373,11 @@ fn elapsed(cell: &LegacyCell, run: &LegacyRun, kind: &str) -> Option<f64> {
         .find(|event| {
             // BORROW: Value::as_str borrows the JSON string without copying
             event.get("kind").and_then(Value::as_str) == Some(kind)
-                && event.get("run_number").and_then(Value::as_u64) == Some(u64::from(run.number))
+                && event.get(RUN_NUMBER).and_then(Value::as_u64) == Some(u64::from(run.number))
                 // BORROW: Value::as_str borrows the JSON string without copying
-                && event.get("config").and_then(Value::as_str) == Some(run.config.as_str())
+                && event.get(CONFIG).and_then(Value::as_str) == Some(run.config.as_str())
         })
-        .and_then(|event| event.get("elapsed_seconds"))
+        .and_then(|event| event.get(ELAPSED_SECONDS))
         .and_then(Value::as_f64)
 }
 
@@ -395,14 +404,14 @@ fn timing_of(
     let file = complete.path.as_str();
     let text = complete
         .value
-        .get("completed_at")
+        .get(COMPLETED_AT)
         // BORROW: Value::as_str borrows the JSON string without copying
         .and_then(Value::as_str)
         .ok_or_else(|| layout(file, &run.label, "`completed_at` is not a string"))?;
     let ended = Timestamp::from_str(text)?;
     let (Some(start), Some(end)) = (
-        elapsed(cell, run, "run_start"),
-        elapsed(cell, run, "run_complete"),
+        elapsed(cell, run, EVENT_RUN_START),
+        elapsed(cell, run, EVENT_RUN_COMPLETE),
     ) else {
         return Ok((None, Some(ended)));
     };
@@ -472,8 +481,8 @@ fn measured_of(
     let mut seen: BTreeMap<String, (Value, &RelPath)> = BTreeMap::new();
     for copy in &run.eval_metadata {
         let mut found = Vec::new();
-        if let Some(block) = copy.value.get("provenance") {
-            leaves("provenance", block, &mut found);
+        if let Some(block) = copy.value.get(PROVENANCE) {
+            leaves(PROVENANCE, block, &mut found);
         }
         for (path, value) in found {
             // BORROW: explicit .as_str() instead of Deref coercion
