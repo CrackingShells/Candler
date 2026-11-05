@@ -19,15 +19,15 @@ Every M1 contract and shared service exists on `feat/m1-contracts`, guarded by c
 ## Pre-conditions
 - [x] [nl] Eliott approved the plan (2026-11-05)
 - [x] [cmd] `git merge-base --is-ancestor origin/main feat/m1-contracts`
-- [ ] [cmd] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints the checkout's path
-- [ ] [cmd] `rustup target list --installed | grep -qx x86_64-unknown-linux-gnu`
+- [x] [cmd] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints the checkout's path
+- [x] [cmd] `rustup target list --installed | grep -qx x86_64-unknown-linux-gnu`
 
 ## Success Gates
-- ⬜ [cmd] STD and DRIFT pass on `feat/m1-contracts`, and `cargo clippy --target x86_64-unknown-linux-gnu --workspace --tests -- -D warnings` passes
-- ⬜ [cmd] `CANDLER_GOLDEN_CORPUS="$GOLDEN" cargo nextest run -p candler-core --run-ignored only --no-tests=fail -E 'binary(guard_golden)'` passes: 240 runs, 10,320 schema-valid outcome records equal to the oracle
-- ⬜ [cmd] SUBJ passes over `origin/main..feat/m1-contracts`
-- ⬜ [cmd] `diff <(cd crates/candler-schemas/schema && printf '%s\n' *.schema.json | sort) __roadmap__/m1-contracts/interfaces/services/import/closeout/expected_roots.txt` prints nothing
-- ⬜ [nl] Every leaf is `done` and every required verification and Grit review reports no open finding
+- ✅ [cmd] STD and DRIFT pass on `feat/m1-contracts`, and `cargo clippy --target x86_64-unknown-linux-gnu --workspace --tests -- -D warnings` passes
+- ✅ [cmd] `CANDLER_GOLDEN_CORPUS="$GOLDEN" cargo nextest run -p candler-core --run-ignored only --no-tests=fail -E 'binary(guard_golden)'` passes: 240 runs, 10,320 schema-valid outcome records equal to the oracle
+- ✅ [cmd] SUBJ passes over `origin/main..feat/m1-contracts`
+- ✅ [cmd] `diff <(cd crates/candler-schemas/schema && printf '%s\n' *.schema.json | sort) __roadmap__/m1-contracts/interfaces/services/import/closeout/expected_roots.txt` prints nothing
+- ✅ [nl] Every leaf is `done` and every required verification and Grit review reports no open finding
 
 ## Gotchas
 - **Condition tags.** Every Pre-condition and Success Gate line starts with `[cmd]` (a command whose exit status decides) or `[nl]` (a judgement, naming a proxy check where one exists). An untagged line is a defect in the leaf.

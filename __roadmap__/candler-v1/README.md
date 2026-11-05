@@ -16,7 +16,7 @@ Candler 1.0.0: execution and evaluation behind one operation API, with the HTN e
 ## Pre-conditions
 - [x] Architecture approved and committed as `__design__/architecture.md` (2026-10-28)
 - [x] Golden reference frozen: tag `candler-m2a-golden` in `agenticai4hpc26-artifact`
-- [ ] `pro-htn-phase-6-golden` signed off by Eliott (gates M2a only)
+- [x] `pro-htn-phase-6-golden` signed off by Eliott (gates M2a only; 2026-10-28)
 
 ## Success Gates
 - ⬜ Every milestone leaf below is `done`

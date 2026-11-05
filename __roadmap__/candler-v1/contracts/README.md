@@ -15,7 +15,7 @@ Every contract and shared mechanism the two parity milestones need exists, and t
 ## Status
 ```mermaid
 graph TD
-    m1_contracts[M1 Contracts]:::planned
+    m1_contracts[M1 Contracts]:::done
     parity[Parity]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -27,7 +27,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `m1_contracts.md` | 📄 Leaf Task | ⬜ Planned |
+| `m1_contracts.md` | 📄 Leaf Task | ✅ Done |
 | `parity/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
