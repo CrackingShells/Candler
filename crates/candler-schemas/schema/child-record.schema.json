@@ -1,0 +1,143 @@
+{
+  "$defs": {
+    "BootId": {
+      "description": "The identifier of one boot of a Linux host: a UUID of any version in lowercase hyphenated form.",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![\\s\\S])",
+      "type": "string"
+    },
+    "Marker": {
+      "description": "The value of `CANDLER_RUN` in a child's environment: an ASCII letter or digit, then letters, digits, `.`, `_` or `-`.",
+      "pattern": "^[0-9A-Za-z][0-9A-Za-z._-]*(?![\\s\\S])",
+      "type": "string"
+    },
+    "ProcessStart": {
+      "description": "When a process started, in the form its host reports: an object whose `kind` is `linux` (with `boot_id` and `ticks`), `darwin` (with `sec` and `usec`) or `unavailable`.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A Linux process: the boot it ran in, and its start time in clock ticks since that boot.",
+          "properties": {
+            "boot_id": {
+              "$ref": "#/$defs/BootId",
+              "description": "The identifier of the boot, so ticks of different boots are never compared."
+            },
+            "kind": {
+              "const": "linux",
+              "type": "string"
+            },
+            "ticks": {
+              "$comment": "Fits in 64 bits; a reader that holds numbers as doubles is exact only below 2^53.",
+              "description": "The start time in clock ticks since boot, as `/proc/<pid>/stat` reports it.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "boot_id",
+            "ticks"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A macOS process: its start time as seconds and microseconds since the Unix epoch.",
+          "properties": {
+            "kind": {
+              "const": "darwin",
+              "type": "string"
+            },
+            "sec": {
+              "$comment": "Fits in 64 bits; a reader that holds numbers as doubles is exact only below 2^53.",
+              "description": "Whole seconds since the Unix epoch.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "usec": {
+              "$comment": "Fits in 32 bits; the reader enforces it.",
+              "description": "Microseconds, as the host reports them.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "sec",
+            "usec"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The host reported no start time; the record never reads as alive.",
+          "properties": {
+            "kind": {
+              "const": "unavailable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Timestamp": {
+      "$comment": "The pattern states the lexical form; a date or time that names no instant, such as month 13, and a fraction of more than nine digits are refused by the parser.",
+      "description": "An RFC 3339 timestamp with an uppercase `T` and an explicit offset, `Z` or `±HH:MM`.",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])(?![\\s\\S])",
+      "type": "string"
+    }
+  },
+  "$id": "urn:candler:schemas:child-record",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The record the supervisor writes for a child: its process id, process group, start time, marker and spawn time, with the version marker `child-record/1` in `schema`.",
+  "properties": {
+    "marker": {
+      "$ref": "#/$defs/Marker",
+      "description": "The value of `CANDLER_RUN` the child received."
+    },
+    "pgid": {
+      "$comment": "Fits in 32 bits; the reader enforces it.",
+      "description": "The process group of the child, from 1.",
+      "format": "uint32",
+      "minimum": 1,
+      "type": "integer"
+    },
+    "pid": {
+      "$comment": "Fits in 32 bits; the reader enforces it.",
+      "description": "The process id of the child, from 1.",
+      "format": "uint32",
+      "minimum": 1,
+      "type": "integer"
+    },
+    "schema": {
+      "const": "child-record/1",
+      "description": "The version marker of the document: always `child-record/1`.",
+      "type": "string"
+    },
+    "spawned_at": {
+      "$ref": "#/$defs/Timestamp",
+      "description": "When the supervisor spawned the child."
+    },
+    "start": {
+      "$ref": "#/$defs/ProcessStart",
+      "description": "When the process started."
+    }
+  },
+  "required": [
+    "schema",
+    "pid",
+    "pgid",
+    "start",
+    "marker",
+    "spawned_at"
+  ],
+  "title": "ChildRecord",
+  "type": "object"
+}
