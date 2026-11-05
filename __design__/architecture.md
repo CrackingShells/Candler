@@ -262,13 +262,15 @@ dotted: `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`.
 | End | Run status |
 |---|---|
 | Completed, agent error, or a per-run cap | valid; `ended_by` measured |
-| Gateway or provider error (connection refused, 0 tokens) | `invalid(gateway)`; retried once as a new attempt |
+| Gateway or provider error (connection refused, 0 tokens, or an error result carrying a provider status) | `invalid(gateway)`; retried once as a new attempt |
 | Job budget, `candler kill`, supervisor lost | `invalid(budget_stop \| killed \| interrupted)`; never charged to an arm |
 | Input passed off as output | `invalid(input_leak)` |
 | Collection failed, or the reader cannot parse the stream or does not know its format version | `invalid(collection_error \| reader_error \| format_unknown)`; raw kept |
 
 The driver's `classify_exit` sees the parsed sessions, so an exit 0 with an error result, or a run
 with zero tokens, is classified from the trace, not from the exit status.
+An error result with no provider status, such as a usage-policy refusal after the agent has
+worked, is an agent error: the run is valid and graded, never retried as a gateway failure.
 
 ### Process supervision
 
@@ -805,7 +807,7 @@ request files under the new evaluator version; `diff` compares versions.
 | Artifact the agent never produced | The evaluator emits `blocked` with cause `{artifact}`, or `fail` when the expectation is about that artifact's existence |
 | Artifact missing because collection failed | Run `invalid` (`collection_error`) |
 | Evaluator crash, item or request deadline, malformed message, outcome for an item it was not sent | Unreported items `not_measured` (`instrument_error` / `deadline`); stderr kept |
-| Gateway or provider error | Run `invalid(gateway)`; retried once as a new attempt |
+| Gateway or provider error (a transport failure, or an error result carrying a provider status) | Run `invalid(gateway)`; retried once as a new attempt |
 | Per-run cap reached | Valid run; `ended_by = cap` |
 | Job budget, kill, supervisor lost | Run `invalid` (`budget_stop` / `killed` / `interrupted`) |
 | Resume finds a re-checked value changed | Refused unless forced; a forced deviation is recorded per run |
