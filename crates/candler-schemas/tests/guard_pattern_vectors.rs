@@ -5,7 +5,7 @@ use std::path::Path;
 use std::str::FromStr;
 
 use candler_schemas::generate::GeneratedSchema;
-use candler_schemas::primitives::{FieldPath, FormatError, JobId, Marker};
+use candler_schemas::primitives::{BootId, FieldPath, FormatError, JobId, Marker};
 use schemars::JsonSchema;
 use serde_json::{Value, json};
 
@@ -82,13 +82,14 @@ where
 }
 
 /// Guards: I12, I15 — the patterns that name a resolved value's field (`FieldPath`), a job
-/// (`JobId`) and a child's run (`Marker`) accept and refuse the same hand-written
-/// strings (trailing newline, Unicode digits and spaces among them) in the Rust parser and in the
-/// schema's pattern. Oracle: the hand-written strings of `tests/vectors/patterns/cases.toml`,
+/// (`JobId`), a child's run (`Marker`) and a boot (`BootId`) accept and refuse the same
+/// hand-written strings (trailing newline, Unicode digits and spaces among them) in the Rust
+/// parser and in the schema's pattern. Oracle: the hand-written strings of `tests/vectors/patterns/cases.toml`,
 /// replayed once under Python `re` and Node by `probe.py` and `probe.mjs`.
 #[test]
 fn field_path_and_marker_patterns_agree_with_their_parsers_on_hand_written_vectors() {
     assert_vectors::<FieldPath>("field_path");
     assert_vectors::<Marker>("marker");
     assert_vectors::<JobId>("job_id");
+    assert_vectors::<BootId>("boot_id");
 }

@@ -102,6 +102,14 @@ pub enum FormatError {
         /// The text that was parsed.
         value: String,
     },
+    /// A [`BootId`] that is not a lowercase hyphenated UUID.
+    #[error("boot id {problem} (got {value:?})")]
+    BootId {
+        /// What is wrong with the text.
+        problem: &'static str,
+        /// The text that was parsed.
+        value: String,
+    },
     /// A [`FieldPath`] that is not dotted segments of `[a-z][a-z0-9_]*`.
     #[error("field path {problem} (got {value:?})")]
     FieldPath {
@@ -223,6 +231,10 @@ const REQUEST_ID_PATTERN: &str = concat!(
     end_re!()
 );
 const JOB_ID_PATTERN: &str = REQUEST_ID_PATTERN;
+const BOOT_ID_PATTERN: &str = concat!(
+    "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    end_re!()
+);
 const FIELD_PATH_PATTERN: &str = concat!("^[a-z][a-z0-9_]*(?:[.][a-z][a-z0-9_]*)*", end_re!());
 const MARKER_PATTERN: &str = concat!("^[0-9A-Za-z][0-9A-Za-z._-]*", end_re!());
 const EVIDENCE_REF_PATTERN: &str = concat!(
@@ -975,6 +987,29 @@ impl FromStr for JobId {
             }),
             None => Ok(Self { text: text.into() }),
         }
+    }
+}
+
+text_type!(BootId {
+    description: "The identifier of one boot of a Linux host: a UUID of any version in lowercase hyphenated form.",
+    pattern: BOOT_ID_PATTERN,
+});
+
+impl FromStr for BootId {
+    type Err = FormatError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let problem = match Uuid::try_parse(text) {
+            Err(_) => "is not a UUID",
+            Ok(uuid) if uuid.hyphenated().to_string() != text => {
+                "is not in lowercase hyphenated form"
+            }
+            Ok(_) => return Ok(Self { text: text.into() }),
+        };
+        Err(FormatError::BootId {
+            problem,
+            value: text.into(),
+        })
     }
 }
 
@@ -1865,6 +1900,7 @@ mod tests {
         check::<ExpectationId>();
         check::<ReasonCode>();
         check::<JobId>();
+        check::<BootId>();
         check::<FieldPath>();
         check::<Marker>();
         for pattern in [NAME_PATTERN, SEMVER_PATTERN] {
