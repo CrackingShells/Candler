@@ -1136,6 +1136,42 @@ async fn reap_refuses_a_record_whose_group_the_process_does_not_lead() {
     drop(template);
 }
 
+/// Guards: I22 — reaping the record of a group this supervisor already holds does not drop it from the table: the child's own handle may still stop it afterwards. Oracle: `holds_group` before and after, under a fake signaller that delivers nothing, so the child is ended by the test through its pid and start time. It needs a real record that verifies, so it cannot sit in the binary that never spawns.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reaping_a_group_the_supervisor_holds_leaves_it_held() {
+    let records = tempfile::tempdir().expect("a temp dir");
+    let recording = Arc::new(Recording::default());
+    // TRAIT_OBJECT: the supervisor takes its signaller as a trait object
+    // BORROW: .clone() shares the log with the supervisor
+    let signaller: Arc<dyn Signaller> = recording.clone();
+    let recorder = Arc::new(Recorder::default());
+    // TRAIT_OBJECT: the supervisor takes its sink as a trait object
+    // BORROW: .clone() shares the recorder with the supervisor
+    let sink: Arc<dyn EventSink> = recorder.clone();
+    let supervisor = Supervisor::new(sink).with_signaller(signaller);
+    let child = supervisor
+        .spawn(
+            request(&["sleep", "30"], records.path())
+                .build()
+                .expect("a request"),
+        )
+        .expect("a child");
+    let (_, _, record) = only_record(records.path());
+    let pid = record.pid();
+    let _child = KillPids(vec![(pid, process_start(pid))]);
+    assert!(supervisor.holds_group(pid), "the spawned group is not held");
+    let report = supervisor
+        .reap(None, &record, &stop_spec(None, 100))
+        .await
+        .expect("a report");
+    assert!(report.was_alive);
+    assert!(
+        supervisor.holds_group(pid),
+        "reap dropped a group the supervisor held"
+    );
+    drop(child);
+}
+
 /// The processes of `tests/fixtures/supervise/tree.sh`, as it wrote them.
 struct Tree {
     leader: u32,

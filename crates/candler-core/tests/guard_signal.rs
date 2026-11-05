@@ -10,7 +10,7 @@ use candler_core::supervise::platform::process_start;
 use candler_core::supervise::signal::{Guard, SignalError, Signaller};
 use candler_schemas::process::ProcessStart;
 use rustix::io::Errno;
-use rustix::process::{Pid, Signal, getpgrp, getppid, setpgid};
+use rustix::process::{Pid, Signal, getppid};
 
 /// Records each group it is asked to signal, signals nothing and answers `reply`.
 struct Fake {
@@ -171,6 +171,7 @@ fn other_start(start: &ProcessStart) -> ProcessStart {
         .and_then(serde_json::Value::as_u64)
         .expect("a number");
     if let Some(map) = json.as_object_mut() {
+        // BORROW: .to_owned() makes the owned key the map holds
         map.insert(field.to_owned(), serde_json::json!(value.wrapping_add(1)));
     }
     serde_json::from_value(json).expect("a start")
@@ -215,25 +216,23 @@ fn a_group_that_is_gone_reads_gone_and_a_system_error_reads_failed() {
     assert_eq!(fake.calls().len(), 1);
 }
 
-/// Guards: I22 and PID reuse — a leader whose process id now names another live process is refused even when a group with that number has members. Oracle: the fake's call log; the test process, made the leader of its own group so that its id is both a live process and a live group, stands in for the other process, and the table holds a start that is not its own.
+/// The verifier of a leader that is not the process that was spawned: whatever the system says.
+fn not_the_spawned_process(_pid: u32, _start: &ProcessStart) -> bool {
+    false
+}
+
+/// Guards: I22 and PID reuse — a leader whose process id now names another live process is refused. Oracle: the fake's call log, empty; the parent of the test process stands in for the other live process (it exists, nothing here spawned it), and the verifier says it is not the process that was spawned. The test process's own group is left as it is.
 #[test]
 fn a_leader_whose_pid_names_another_live_process_is_refused_though_the_group_lives() {
-    let me = std::process::id();
-    // A group leader is a live process whose id is also a live group. EPERM means the process
-    // already leads a session, and so a group.
-    let _ = setpgid(None, None);
-    assert_eq!(
-        u32::try_from(getpgrp().as_raw_nonzero().get()).expect("a positive group"),
-        me,
-        "the test process does not lead its own group"
-    );
+    let (other, start) = parent();
     // The guard's caller is told to be someone else, so that no rule about the caller refuses.
     let (guard, fake) = identified_guard(7_000_001, 7_000_002);
-    assert_eq!(guard.register(me, other_start(&process_start(me))), Ok(()));
-    let got = guard.signal_group(me, Signal::KILL);
+    let guard = guard.with_verifier(not_the_spawned_process);
+    guard.seed_unchecked(other, start);
+    let got = guard.signal_group(other, Signal::KILL);
     assert!(
         matches!(got, Err(SignalError::Refused { .. })),
-        "a recycled id with a living group: {got:?}"
+        "a recycled id naming a live process: {got:?}"
     );
     assert_eq!(fake.calls(), Vec::<(i32, i32)>::new());
 }
