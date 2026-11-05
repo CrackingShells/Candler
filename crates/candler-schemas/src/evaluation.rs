@@ -20,7 +20,7 @@ use serde_json::{Map, Value, json};
 use crate::canonical::{self, CanonicalError};
 use crate::generate::GeneratedSchema;
 use crate::map_only::MapOnly;
-use crate::outcome::Role;
+use crate::outcome::{Instrument, Role};
 use crate::primitives::{
     Digest, ExpectationId, FieldPath, Name, RelPath, SEMVER_PATTERN, object_only, present,
     schema_tag,
@@ -157,6 +157,63 @@ impl ProtocolVersion {
     pub const fn new(major: u32, minor: u32) -> Self {
         Self { major, minor }
     }
+}
+
+impl ProtocolVersion {
+    /// Checks that a plug-in speaking `offered` can talk to a core speaking `self`: the major is
+    /// the same and the offered minor is no newer than ours.
+    ///
+    /// # Errors
+    /// Returns a [`VersionMismatch`] that names the side to upgrade: the core when the plug-in
+    /// offers a newer major or minor, the plug-in when it offers an older major.
+    pub const fn accepts(&self, offered: &Self) -> Result<(), VersionMismatch> {
+        let upgrade = if offered.major > self.major
+            || (offered.major == self.major && offered.minor > self.minor)
+        {
+            Side::Core
+        } else if offered.major < self.major {
+            Side::Plugin
+        } else {
+            return Ok(());
+        };
+        Err(VersionMismatch {
+            ours: *self,
+            offered: *offered,
+            upgrade,
+        })
+    }
+}
+
+/// The side of a connection that has to be upgraded to make two protocol versions compatible.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Side {
+    /// The core, which is older than the plug-in.
+    Core,
+    /// The plug-in, which is older than the core.
+    Plugin,
+}
+
+impl fmt::Display for Side {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Core => "core",
+            Self::Plugin => "plug-in",
+        })
+    }
+}
+
+/// Two protocol versions that cannot talk to each other, with the side that has to be upgraded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error)]
+#[error("protocol {offered} is not accepted by protocol {ours} (upgrade the {upgrade})")]
+#[non_exhaustive]
+pub struct VersionMismatch {
+    /// The version the core speaks.
+    pub ours: ProtocolVersion,
+    /// The version the plug-in offered.
+    pub offered: ProtocolVersion,
+    /// The side to upgrade.
+    pub upgrade: Side,
 }
 
 impl fmt::Display for ProtocolVersion {
@@ -858,4 +915,228 @@ fn find_cycle<'a>(
         }
     }
     None
+}
+
+/// How an evaluator reaches a verdict: always the same one for the same input, or not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum EvaluatorKind {
+    /// The same input always gives the same verdict.
+    Deterministic,
+    /// The verdict can differ between runs on the same input, as with a model that grades.
+    Probabilistic,
+}
+
+/// What an evaluator reports about the environment it runs in: the digest of its lock file when it has one, and the versions of its packages, written as an object with `lock_digest` omitted when absent and the map `packages` always present.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct EvaluatorEnvironment {
+    /// The digest of the lock file the environment was built from; absent when there is none.
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub lock_digest: Option<Digest>,
+    /// The version of each installed package, keyed by package name.
+    pub packages: BTreeMap<String, String>,
+}
+
+object_only!(EvaluatorEnvironment);
+
+/// What one kind of check needs from a run, written as an object whose five lists are all present, empty when the kind needs nothing of that sort.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct Needs {
+    /// Whether the check reads the normalised trace.
+    pub trace: bool,
+    /// Globs, relative to the run, of the artifacts the check reads.
+    pub artifacts: Vec<String>,
+    /// The kinds of snapshot the check reads.
+    pub snapshots: Vec<Name>,
+    /// The kinds of input the check reads.
+    pub inputs: Vec<Name>,
+    /// The paths of the metadata fields the check reads.
+    pub metadata: Vec<FieldPath>,
+}
+
+object_only!(Needs);
+
+/// One kind of check an evaluator performs, written as an object: the kind, the schema of its parameters, what it needs from a run and the deadline it gets by default.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct KindSpec {
+    /// The name of the kind, as an entry's `kind` names it.
+    pub kind: Name,
+    /// The JSON Schema the parameters of an entry of this kind satisfy.
+    pub params_schema: JsonValue,
+    /// What the kind needs from a run.
+    pub needs: Needs,
+    /// The time the evaluator gives an item of this kind, in milliseconds, when the entry sets no deadline.
+    #[schemars(extend("$comment" = "Fits in 64 bits; a reader that holds numbers as doubles is exact only below 2^53."))]
+    pub default_deadline_ms: u64,
+}
+
+object_only!(KindSpec);
+
+impl KindSpec {
+    /// A kind of check.
+    #[must_use]
+    pub const fn new(
+        kind: Name,
+        params_schema: JsonValue,
+        needs: Needs,
+        default_deadline_ms: u64,
+    ) -> Self {
+        Self {
+            kind,
+            params_schema,
+            needs,
+            default_deadline_ms,
+        }
+    }
+}
+
+/// What an evaluator says about itself in answer to `describe`, written as an object: the protocol it speaks, its name and version, the instruments it uses, its environment, whether it is deterministic, the kinds of check it performs and, when it has one, its reuse rule.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct DescribeResult {
+    /// The protocol version the evaluator speaks.
+    pub protocol: ProtocolVersion,
+    /// The evaluator's name; the plug-in manifest carries the same name.
+    pub name: Name,
+    /// The evaluator's version, a `SemVer` 2.0 string; the plug-in manifest carries the same version.
+    #[serde(with = "version_text")]
+    #[schemars(with = "String", regex(pattern = SEMVER_PATTERN))]
+    pub version: semver::Version,
+    /// The tools that make the evaluator's measurements.
+    pub instruments: Vec<Instrument>,
+    /// The environment the evaluator runs in.
+    pub environment: EvaluatorEnvironment,
+    /// Whether the evaluator is deterministic.
+    pub kind: EvaluatorKind,
+    /// The kinds of check the evaluator performs.
+    pub kinds: Vec<KindSpec>,
+    /// The rule that decides when an earlier verdict can be reused; absent when the evaluator has none.
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub reuse: Option<JsonValue>,
+}
+
+object_only!(DescribeResult);
+
+impl DescribeResult {
+    /// Starts a builder.
+    #[must_use]
+    pub fn builder() -> DescribeResultBuilder {
+        DescribeResultBuilder::default()
+    }
+}
+
+/// Builds a [`DescribeResult`].
+///
+/// `protocol`, `name`, `version`, `environment` and `kind` are required. `instrument` and
+/// `kind_spec` add one member per call to `instruments` and `kinds`, which are empty until then;
+/// `reuse` is absent until set. The setter for the field `kind` keeps its name, so the one that adds
+/// to `kinds` is `kind_spec`.
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub struct DescribeResultBuilder {
+    protocol: Option<ProtocolVersion>,
+    name: Option<Name>,
+    version: Option<semver::Version>,
+    instruments: Vec<Instrument>,
+    environment: Option<EvaluatorEnvironment>,
+    kind: Option<EvaluatorKind>,
+    kinds: Vec<KindSpec>,
+    reuse: Option<JsonValue>,
+}
+
+impl DescribeResultBuilder {
+    /// Sets the protocol version.
+    #[must_use]
+    pub const fn protocol(mut self, protocol: ProtocolVersion) -> Self {
+        self.protocol = Some(protocol);
+        self
+    }
+
+    /// Sets the name.
+    #[must_use]
+    pub fn name(mut self, name: Name) -> Self {
+        self.name = Some(name);
+        self
+    }
+
+    /// Sets the version.
+    #[must_use]
+    pub fn version(mut self, version: semver::Version) -> Self {
+        self.version = Some(version);
+        self
+    }
+
+    /// Adds an instrument.
+    #[must_use]
+    pub fn instrument(mut self, instrument: Instrument) -> Self {
+        self.instruments.push(instrument);
+        self
+    }
+
+    /// Sets the environment.
+    #[must_use]
+    pub fn environment(mut self, environment: EvaluatorEnvironment) -> Self {
+        self.environment = Some(environment);
+        self
+    }
+
+    /// Sets whether the evaluator is deterministic.
+    #[must_use]
+    pub const fn kind(mut self, kind: EvaluatorKind) -> Self {
+        self.kind = Some(kind);
+        self
+    }
+
+    /// Adds a kind of check.
+    #[must_use]
+    pub fn kind_spec(mut self, spec: KindSpec) -> Self {
+        self.kinds.push(spec);
+        self
+    }
+
+    /// Sets the reuse rule.
+    #[must_use]
+    pub fn reuse(mut self, reuse: JsonValue) -> Self {
+        self.reuse = Some(reuse);
+        self
+    }
+
+    /// Builds the result.
+    ///
+    /// # Errors
+    /// Returns [`EvaluationError::MissingField`] if `protocol`, `name`, `version`, `environment`
+    /// or `kind` was not set.
+    pub fn build(self) -> Result<DescribeResult, EvaluationError> {
+        let missing = |field| EvaluationError::MissingField { field };
+        Ok(DescribeResult {
+            protocol: self.protocol.ok_or_else(|| missing("protocol"))?,
+            name: self.name.ok_or_else(|| missing("name"))?,
+            version: self.version.ok_or_else(|| missing("version"))?,
+            instruments: self.instruments,
+            environment: self.environment.ok_or_else(|| missing("environment"))?,
+            kind: self.kind.ok_or_else(|| missing("kind"))?,
+            kinds: self.kinds,
+            reuse: self.reuse,
+        })
+    }
 }
