@@ -6,20 +6,26 @@
 //! Unknown fields are ignored on input, and every struct and every tagged enum is read from an
 //! object only, never from a list.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
+use serde::ser::SerializeMap as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Number, Value};
 
 use crate::canonical::{self, CanonicalError};
 use crate::generate::GeneratedSchema;
 use crate::map_only::MapOnly;
+use crate::outcome::OutcomeRecord;
 use crate::primitives::{
-    Digest, FieldPath, FormatError, JobId, Name, NameToken, NameVersion, RelPath, RequestId,
-    RunKey, SEMVER_PATTERN, SecretName, Timestamp, object_only, present, schema_tag, text_type,
+    Digest, FieldPath, FormatError, JobId, Name, NameToken, NameVersion, ReasonCode, RelPath,
+    RequestId, RunKey, SEMVER_PATTERN, SecretName, Timestamp, object_only, present, schema_tag,
+    text_type,
 };
+use crate::process::{ChildRecord, ExitStatus, ProcessStart};
+use crate::trace::EndedBy;
 use crate::values::{JsonValue, MeasuredValue, ResolvedValue, SourceEntry, ValuesError};
 
 /// The version marker of an experiment file, written in its `schema` field.
@@ -31,6 +37,9 @@ pub const RUN_MANIFEST_SCHEMA: &str = "run-manifest/1";
 
 /// The version marker of a run tree, written in its `schema` field.
 pub const RUN_TREE_SCHEMA: &str = "run-tree/1";
+
+/// The version marker of a job record, written in its `schema` field.
+pub const JOB_RECORD_SCHEMA: &str = "job-record/1";
 
 /// The wire root schemas this module publishes.
 pub(crate) fn roots() -> Vec<GeneratedSchema> {
@@ -161,6 +170,12 @@ pub enum ExecutionError {
         path: String,
         /// What is wrong with it.
         problem: &'static str,
+    },
+    /// An event of a kind this version knows, built as an unknown one: it would not read back as such.
+    #[error("event kind `{kind}` is a kind this version knows")]
+    KnownKind {
+        /// The kind.
+        kind: String,
     },
     /// A tree entry below a path that holds a file.
     #[error("tree entry `{path}` lies below the file `{file}`")]
@@ -2496,5 +2511,909 @@ impl RunTreeBuilder {
             schema: RunTreeTag,
             entries: self.entries,
         })
+    }
+}
+
+schema_tag! {
+    /// The constant `schema` field of a job record.
+    pub JobRecordTag = JOB_RECORD_SCHEMA
+}
+
+/// Whether the supervisor of a job is still running it: `running` or `ended`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum JobState {
+    /// The supervisor is running the job.
+    Running,
+    /// The job ended; its events say how.
+    Ended,
+}
+
+/// How a job ended: `completed`, `budget_stop`, `killed` or `failed`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum JobEnd {
+    /// Every run finished.
+    Completed,
+    /// The budget stopped the job.
+    BudgetStop,
+    /// The job was killed.
+    Killed,
+    /// The job failed.
+    Failed,
+}
+
+/// A step of the ladder that stops a process: `pre_stop`, `signal`, `terminate_group`, `kill_group` or `sweep`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum StopStep {
+    /// The harness's own stop command ran.
+    PreStop,
+    /// The process was signalled.
+    Signal,
+    /// The process group was asked to terminate.
+    TerminateGroup,
+    /// The process group was killed.
+    KillGroup,
+    /// The sweep killed what was left of the group.
+    Sweep,
+}
+
+/// The supervisor of a job: its process id, which is at least 1, and when it started.
+#[derive(Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields, rename = "SupervisorIdentity")]
+struct RawSupervisorIdentity {
+    /// The process id of the supervisor, at least 1.
+    #[schemars(range(min = 1))]
+    pid: u32,
+    /// When the supervisor started, so a reused process id is never taken for it.
+    start: ProcessStart,
+}
+
+/// The supervisor of a job: its process id, which is at least 1, and when it started.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(try_from = "MapOnly<RawSupervisorIdentity>")]
+#[non_exhaustive]
+pub struct SupervisorIdentity {
+    pid: u32,
+    start: ProcessStart,
+}
+
+impl SupervisorIdentity {
+    /// A supervisor identity.
+    ///
+    /// # Errors
+    /// Returns [`ExecutionError::Zero`] if `pid` is 0.
+    pub fn new(pid: u32, start: ProcessStart) -> Result<Self, ExecutionError> {
+        if pid == 0 {
+            return Err(ExecutionError::Zero { field: "pid" });
+        }
+        Ok(Self { pid, start })
+    }
+
+    /// The process id of the supervisor.
+    #[must_use]
+    pub const fn pid(&self) -> u32 {
+        self.pid
+    }
+
+    /// When the supervisor started.
+    #[must_use]
+    pub const fn start<'a>(&'a self) -> &'a ProcessStart {
+        &self.start
+    }
+}
+
+impl TryFrom<MapOnly<RawSupervisorIdentity>> for SupervisorIdentity {
+    type Error = ExecutionError;
+
+    fn try_from(raw: MapOnly<RawSupervisorIdentity>) -> Result<Self, Self::Error> {
+        let RawSupervisorIdentity { pid, start } = raw.0;
+        Self::new(pid, start)
+    }
+}
+
+/// The record a job directory keeps of its supervisor: the job id, the supervisor, the digest of the job spec and whether the job still runs, with the version marker `job-record/1` in `schema`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct JobRecord {
+    /// The version marker of the document: always `job-record/1`.
+    schema: JobRecordTag,
+    /// The id of the job.
+    id: JobId,
+    /// The process that supervises the job.
+    supervisor: SupervisorIdentity,
+    /// The digest of the job spec the supervisor was started with.
+    spec_digest: Digest,
+    /// Whether the job still runs.
+    state: JobState,
+}
+
+object_only!(JobRecord);
+
+impl JobRecord {
+    /// Starts a record; every field must be set before it builds.
+    #[must_use]
+    pub fn builder() -> JobRecordBuilder {
+        JobRecordBuilder::default()
+    }
+
+    /// The id of the job.
+    #[must_use]
+    pub const fn id<'a>(&'a self) -> &'a JobId {
+        &self.id
+    }
+
+    /// The supervisor of the job.
+    #[must_use]
+    pub const fn supervisor<'a>(&'a self) -> &'a SupervisorIdentity {
+        &self.supervisor
+    }
+
+    /// The digest of the job spec.
+    #[must_use]
+    pub const fn spec_digest<'a>(&'a self) -> &'a Digest {
+        &self.spec_digest
+    }
+
+    /// Whether the job still runs.
+    #[must_use]
+    pub const fn state(&self) -> JobState {
+        self.state
+    }
+}
+
+/// Builds a [`JobRecord`].
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub struct JobRecordBuilder {
+    id: Option<JobId>,
+    supervisor: Option<SupervisorIdentity>,
+    spec_digest: Option<Digest>,
+    state: Option<JobState>,
+}
+
+impl JobRecordBuilder {
+    /// Sets the id of the job.
+    #[must_use]
+    pub fn id(mut self, id: JobId) -> Self {
+        self.id = Some(id);
+        self
+    }
+
+    /// Sets the supervisor.
+    #[must_use]
+    pub fn supervisor(mut self, supervisor: SupervisorIdentity) -> Self {
+        self.supervisor = Some(supervisor);
+        self
+    }
+
+    /// Sets the digest of the job spec.
+    #[must_use]
+    pub fn spec_digest(mut self, spec_digest: Digest) -> Self {
+        self.spec_digest = Some(spec_digest);
+        self
+    }
+
+    /// Sets whether the job still runs.
+    #[must_use]
+    pub fn state(mut self, state: JobState) -> Self {
+        self.state = Some(state);
+        self
+    }
+
+    /// Builds the record.
+    ///
+    /// # Errors
+    /// Returns [`ExecutionError::MissingField`] if a field is not set.
+    pub fn build(self) -> Result<JobRecord, ExecutionError> {
+        Ok(JobRecord {
+            schema: JobRecordTag,
+            id: self
+                .id
+                .ok_or(ExecutionError::MissingField { field: "id" })?,
+            supervisor: self.supervisor.ok_or(ExecutionError::MissingField {
+                field: "supervisor",
+            })?,
+            spec_digest: self.spec_digest.ok_or(ExecutionError::MissingField {
+                field: "spec_digest",
+            })?,
+            state: self
+                .state
+                .ok_or(ExecutionError::MissingField { field: "state" })?,
+        })
+    }
+}
+
+/// The constant `v` field of an event envelope: the number 1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct EnvelopeVersion;
+
+impl Serialize for EnvelopeVersion {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_u8(1)
+    }
+}
+
+impl<'de> Deserialize<'de> for EnvelopeVersion {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        match u64::deserialize(deserializer)? {
+            1 => Ok(Self),
+            other => Err(<D::Error as serde::de::Error>::custom(format!(
+                "envelope version is {other} (this reader reads 1)"
+            ))),
+        }
+    }
+}
+
+impl JsonSchema for EnvelopeVersion {
+    fn schema_name() -> Cow<'static, str> {
+        "EnvelopeVersion".into()
+    }
+
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "type": "integer",
+            "const": 1,
+        })
+    }
+}
+
+/// A process a run left behind: its process id, which is at least 1, and when it started.
+#[derive(Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields, rename = "StrayProcess")]
+struct RawStrayProcess {
+    /// The process id, at least 1.
+    #[schemars(range(min = 1))]
+    pid: u32,
+    /// When the process started, so a reused process id is never taken for it.
+    start: ProcessStart,
+}
+
+/// A process a run left behind: its process id, which is at least 1, and when it started.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(try_from = "MapOnly<RawStrayProcess>")]
+#[non_exhaustive]
+pub struct StrayProcess {
+    pid: u32,
+    start: ProcessStart,
+}
+
+impl StrayProcess {
+    /// A stray process.
+    ///
+    /// # Errors
+    /// Returns [`ExecutionError::Zero`] if `pid` is 0.
+    pub fn new(pid: u32, start: ProcessStart) -> Result<Self, ExecutionError> {
+        if pid == 0 {
+            return Err(ExecutionError::Zero { field: "pid" });
+        }
+        Ok(Self { pid, start })
+    }
+
+    /// The process id.
+    #[must_use]
+    pub const fn pid(&self) -> u32 {
+        self.pid
+    }
+
+    /// When the process started.
+    #[must_use]
+    pub const fn start<'a>(&'a self) -> &'a ProcessStart {
+        &self.start
+    }
+}
+
+impl TryFrom<MapOnly<RawStrayProcess>> for StrayProcess {
+    type Error = ExecutionError;
+
+    fn try_from(raw: MapOnly<RawStrayProcess>) -> Result<Self, Self::Error> {
+        let RawStrayProcess { pid, start } = raw.0;
+        Self::new(pid, start)
+    }
+}
+
+/// What happened, as an object with the event's name under `kind` and its members under `payload`; a kind this version does not know is read as [`EventPayload::Unknown`], which keeps its whole payload, so that writing reproduces what was read.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum EventPayload {
+    /// A job started.
+    #[non_exhaustive]
+    JobStarted {},
+    /// A job ended.
+    #[non_exhaustive]
+    JobEnded {
+        /// How it ended.
+        reason: JobEnd,
+    },
+    /// A run started.
+    #[non_exhaustive]
+    RunStarted {},
+    /// A run ended.
+    #[non_exhaustive]
+    RunEnded {
+        /// How the session ended.
+        ended_by: EndedBy,
+        /// How the harness process ended, if it did.
+        exit: Option<ExitStatus>,
+    },
+    /// A run could not be carried out.
+    #[non_exhaustive]
+    RunFailed {
+        /// Why it failed.
+        reason: ReasonCode,
+    },
+    /// Processes of a run outlived it.
+    #[non_exhaustive]
+    RunStray {
+        /// The processes found, each by process id and start time.
+        processes: Vec<StrayProcess>,
+    },
+    /// An evaluator gave its result for a run.
+    #[non_exhaustive]
+    EvaluationOutcome {
+        /// The result.
+        record: Box<OutcomeRecord>,
+    },
+    /// A child process was spawned.
+    #[non_exhaustive]
+    ProcessSpawned {
+        /// The record the supervisor wrote for the child.
+        record: ChildRecord,
+    },
+    /// A step of the ladder that stops a process was taken.
+    #[non_exhaustive]
+    ProcessStopStep {
+        /// The process id of the child the step was taken on, at least 1.
+        pid: u32,
+        /// When the child started, which with `pid` tells it from a reused process id.
+        start: ProcessStart,
+        /// The step.
+        step: StopStep,
+        /// When it was taken.
+        at: Timestamp,
+        /// What came of it, if the step reports; free text, such as `no sweeper`.
+        outcome: Option<String>,
+    },
+    /// A child process exited.
+    #[non_exhaustive]
+    ProcessExited {
+        /// The process id of the child, at least 1.
+        pid: u32,
+        /// When the child started, which with `pid` tells it from a reused process id.
+        start: ProcessStart,
+        /// How it ended.
+        status: ExitStatus,
+        /// Whether its process group was empty afterwards.
+        group_empty: bool,
+    },
+    /// A kind this version does not know, with its payload as written.
+    #[non_exhaustive]
+    Unknown {
+        /// The kind as written.
+        kind: String,
+        /// The payload as written; any JSON value.
+        payload: Value,
+    },
+}
+
+/// The kinds this version knows, as written.
+const KNOWN_EVENT_KINDS: [&str; 10] = [
+    "job.started",
+    "job.ended",
+    "run.started",
+    "run.ended",
+    "run.failed",
+    "run.stray",
+    "evaluation.outcome",
+    "process.spawned",
+    "process.stop_step",
+    "process.exited",
+];
+
+/// Refuses a process id of 0.
+const fn check_pid(pid: u32) -> Result<(), ExecutionError> {
+    if pid == 0 {
+        Err(ExecutionError::Zero { field: "pid" })
+    } else {
+        Ok(())
+    }
+}
+
+impl EventPayload {
+    /// A job started.
+    #[must_use]
+    pub const fn job_started() -> Self {
+        Self::JobStarted {}
+    }
+
+    /// A job ended.
+    #[must_use]
+    pub const fn job_ended(reason: JobEnd) -> Self {
+        Self::JobEnded { reason }
+    }
+
+    /// A run started.
+    #[must_use]
+    pub const fn run_started() -> Self {
+        Self::RunStarted {}
+    }
+
+    /// A run ended.
+    #[must_use]
+    pub const fn run_ended(ended_by: EndedBy, exit: Option<ExitStatus>) -> Self {
+        Self::RunEnded { ended_by, exit }
+    }
+
+    /// A run failed.
+    #[must_use]
+    pub const fn run_failed(reason: ReasonCode) -> Self {
+        Self::RunFailed { reason }
+    }
+
+    /// Processes of a run outlived it.
+    #[must_use]
+    pub const fn run_stray(processes: Vec<StrayProcess>) -> Self {
+        Self::RunStray { processes }
+    }
+
+    /// An evaluator's result.
+    #[must_use]
+    pub fn evaluation_outcome(record: OutcomeRecord) -> Self {
+        Self::EvaluationOutcome {
+            record: Box::new(record),
+        }
+    }
+
+    /// A child process was spawned.
+    #[must_use]
+    pub const fn process_spawned(record: ChildRecord) -> Self {
+        Self::ProcessSpawned { record }
+    }
+
+    /// A step of the stop ladder was taken on the child `pid` that started at `start`.
+    ///
+    /// # Errors
+    /// Returns [`ExecutionError::Zero`] if `pid` is 0.
+    pub fn process_stop_step(
+        pid: u32,
+        start: ProcessStart,
+        step: StopStep,
+        at: Timestamp,
+        outcome: Option<String>,
+    ) -> Result<Self, ExecutionError> {
+        check_pid(pid)?;
+        Ok(Self::ProcessStopStep {
+            pid,
+            start,
+            step,
+            at,
+            outcome,
+        })
+    }
+
+    /// The child `pid` that started at `start` exited.
+    ///
+    /// # Errors
+    /// Returns [`ExecutionError::Zero`] if `pid` is 0.
+    pub fn process_exited(
+        pid: u32,
+        start: ProcessStart,
+        status: ExitStatus,
+        group_empty: bool,
+    ) -> Result<Self, ExecutionError> {
+        check_pid(pid)?;
+        Ok(Self::ProcessExited {
+            pid,
+            start,
+            status,
+            group_empty,
+        })
+    }
+
+    /// A kind this version does not know.
+    ///
+    /// # Errors
+    /// Returns [`ExecutionError::KnownKind`] if `kind` is a kind this version knows.
+    pub fn unknown(kind: String, payload: Value) -> Result<Self, ExecutionError> {
+        // BORROW: explicit .as_str() instead of Deref coercion
+        if KNOWN_EVENT_KINDS.contains(&kind.as_str()) {
+            Err(ExecutionError::KnownKind { kind })
+        } else {
+            Ok(Self::Unknown { kind, payload })
+        }
+    }
+
+    /// The kind of the event as written.
+    #[must_use]
+    pub fn kind<'a>(&'a self) -> &'a str {
+        match self {
+            Self::JobStarted {} => "job.started",
+            Self::JobEnded { .. } => "job.ended",
+            Self::RunStarted {} => "run.started",
+            Self::RunEnded { .. } => "run.ended",
+            Self::RunFailed { .. } => "run.failed",
+            Self::RunStray { .. } => "run.stray",
+            Self::EvaluationOutcome { .. } => "evaluation.outcome",
+            Self::ProcessSpawned { .. } => "process.spawned",
+            Self::ProcessStopStep { .. } => "process.stop_step",
+            Self::ProcessExited { .. } => "process.exited",
+            Self::Unknown { kind, .. } => kind.as_str(), // BORROW: explicit .as_str()
+        }
+    }
+}
+
+/// What happened, as an object whose `kind` is one of the names below and whose `payload` is an object with the members of that kind.
+#[derive(Serialize, Deserialize, JsonSchema)]
+#[serde(
+    remote = "EventPayload",
+    tag = "kind",
+    content = "payload",
+    rename_all = "snake_case"
+)]
+#[schemars(deny_unknown_fields, rename = "EventPayload")]
+enum KnownPayload {
+    /// A job started.
+    #[serde(rename = "job.started")]
+    JobStarted {},
+    /// A job ended.
+    #[serde(rename = "job.ended")]
+    JobEnded {
+        /// How it ended.
+        reason: JobEnd,
+    },
+    /// A run started.
+    #[serde(rename = "run.started")]
+    RunStarted {},
+    /// A run ended.
+    #[serde(rename = "run.ended")]
+    RunEnded {
+        /// How the session ended.
+        ended_by: EndedBy,
+        /// How the harness process ended, if it did.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "present"
+        )]
+        exit: Option<ExitStatus>,
+    },
+    /// A run could not be carried out.
+    #[serde(rename = "run.failed")]
+    RunFailed {
+        /// Why it failed.
+        reason: ReasonCode,
+    },
+    /// Processes of a run outlived it.
+    #[serde(rename = "run.stray")]
+    RunStray {
+        /// The processes found, each by process id and start time.
+        processes: Vec<StrayProcess>,
+    },
+    /// An evaluator gave its result for a run.
+    #[serde(rename = "evaluation.outcome")]
+    EvaluationOutcome {
+        /// The result.
+        record: Box<OutcomeRecord>,
+    },
+    /// A child process was spawned.
+    #[serde(rename = "process.spawned")]
+    ProcessSpawned {
+        /// The record the supervisor wrote for the child.
+        record: ChildRecord,
+    },
+    /// A step of the ladder that stops a process was taken.
+    #[serde(rename = "process.stop_step")]
+    ProcessStopStep {
+        /// The process id of the child the step was taken on, at least 1.
+        #[schemars(range(min = 1))]
+        pid: u32,
+        /// When the child started, which with `pid` tells it from a reused process id.
+        start: ProcessStart,
+        /// The step.
+        step: StopStep,
+        /// When it was taken.
+        at: Timestamp,
+        /// What came of it, if the step reports; free text, such as `no sweeper`.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "present"
+        )]
+        outcome: Option<String>,
+    },
+    /// A child process exited.
+    #[serde(rename = "process.exited")]
+    ProcessExited {
+        /// The process id of the child, at least 1.
+        #[schemars(range(min = 1))]
+        pid: u32,
+        /// When the child started, which with `pid` tells it from a reused process id.
+        start: ProcessStart,
+        /// How it ended.
+        status: ExitStatus,
+        /// Whether its process group was empty afterwards.
+        group_empty: bool,
+    },
+    /// A kind this version does not know; it is not part of the schema.
+    #[serde(skip)]
+    Unknown { kind: String, payload: Value },
+}
+
+impl Serialize for EventPayload {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Unknown { kind, payload } => {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("kind", kind)?;
+                map.serialize_entry("payload", payload)?;
+                map.end()
+            }
+            Self::JobStarted {}
+            | Self::JobEnded { .. }
+            | Self::RunStarted {}
+            | Self::RunEnded { .. }
+            | Self::RunFailed { .. }
+            | Self::RunStray { .. }
+            | Self::EvaluationOutcome { .. }
+            | Self::ProcessSpawned { .. }
+            | Self::ProcessStopStep { .. }
+            | Self::ProcessExited { .. } => KnownPayload::serialize(self, serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for EventPayload {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error as _;
+        let mut map = Map::<String, Value>::deserialize(deserializer)?;
+        let kind = match map.remove("kind") {
+            Some(Value::String(kind)) => kind,
+            Some(_) => return Err(D::Error::custom("`kind` is not a string")),
+            None => return Err(D::Error::custom("missing field `kind`")),
+        };
+        let payload = map
+            .remove("payload")
+            .ok_or_else(|| D::Error::custom("missing field `payload`"))?;
+        // BORROW: explicit .as_str() instead of Deref coercion
+        if KNOWN_EVENT_KINDS.contains(&kind.as_str()) {
+            let mut tagged = Map::new();
+            tagged.insert(String::from("kind"), Value::String(kind));
+            tagged.insert(String::from("payload"), payload);
+            let event =
+                KnownPayload::deserialize(Value::Object(tagged)).map_err(D::Error::custom)?;
+            match &event {
+                Self::ProcessStopStep { pid, .. } | Self::ProcessExited { pid, .. } => {
+                    check_pid(*pid).map_err(D::Error::custom)?;
+                }
+                Self::JobStarted {}
+                | Self::JobEnded { .. }
+                | Self::RunStarted {}
+                | Self::RunEnded { .. }
+                | Self::RunFailed { .. }
+                | Self::RunStray { .. }
+                | Self::EvaluationOutcome { .. }
+                | Self::ProcessSpawned { .. }
+                | Self::Unknown { .. } => {} // EXPLICIT: no process id to check
+            }
+            Ok(event)
+        } else {
+            Ok(Self::Unknown { kind, payload })
+        }
+    }
+}
+
+impl JsonSchema for EventPayload {
+    fn schema_name() -> Cow<'static, str> {
+        KnownPayload::schema_name()
+    }
+
+    fn schema_id() -> Cow<'static, str> {
+        KnownPayload::schema_id()
+    }
+
+    fn inline_schema() -> bool {
+        KnownPayload::inline_schema()
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        KnownPayload::json_schema(generator)
+    }
+}
+
+/// One line of a job's event log: the format version, the place of the event in the log, when it happened, the job and run it belongs to, and what happened, whose `kind` and `payload` are written beside the other members.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
+#[non_exhaustive]
+pub struct Envelope {
+    /// The format version: always 1.
+    v: EnvelopeVersion,
+    /// The position of the event in the log of its job, counting from 0 without gaps.
+    #[schemars(extend("$comment" = "Fits in 64 bits; the Rust reader enforces it."))]
+    seq: u64,
+    /// When the event happened.
+    at: Timestamp,
+    /// The job the event belongs to.
+    job_id: JobId,
+    /// The run the event belongs to, if it belongs to one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    run: Option<RunKey>,
+    /// What happened.
+    #[serde(flatten)]
+    event: EventPayload,
+}
+
+object_only!(Envelope);
+
+impl Envelope {
+    /// Starts an envelope; the place, the time, the job and the event must be set before it builds.
+    #[must_use]
+    pub fn builder() -> EnvelopeBuilder {
+        EnvelopeBuilder::default()
+    }
+
+    /// The position of the event in the log of its job.
+    #[must_use]
+    pub const fn seq(&self) -> u64 {
+        self.seq
+    }
+
+    /// When the event happened.
+    #[must_use]
+    pub const fn at<'a>(&'a self) -> &'a Timestamp {
+        &self.at
+    }
+
+    /// The job the event belongs to.
+    #[must_use]
+    pub const fn job_id<'a>(&'a self) -> &'a JobId {
+        &self.job_id
+    }
+
+    /// The run the event belongs to, if it belongs to one.
+    #[must_use]
+    pub const fn run<'a>(&'a self) -> Option<&'a RunKey> {
+        self.run.as_ref()
+    }
+
+    /// What happened.
+    #[must_use]
+    pub const fn event<'a>(&'a self) -> &'a EventPayload {
+        &self.event
+    }
+}
+
+/// Builds an [`Envelope`].
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub struct EnvelopeBuilder {
+    seq: Option<u64>,
+    at: Option<Timestamp>,
+    job_id: Option<JobId>,
+    run: Option<RunKey>,
+    event: Option<EventPayload>,
+}
+
+impl EnvelopeBuilder {
+    /// Sets the position of the event in the log.
+    #[must_use]
+    pub const fn seq(mut self, seq: u64) -> Self {
+        self.seq = Some(seq);
+        self
+    }
+
+    /// Sets when the event happened.
+    #[must_use]
+    pub fn at(mut self, at: Timestamp) -> Self {
+        self.at = Some(at);
+        self
+    }
+
+    /// Sets the job.
+    #[must_use]
+    pub fn job_id(mut self, job_id: JobId) -> Self {
+        self.job_id = Some(job_id);
+        self
+    }
+
+    /// Sets the run.
+    #[must_use]
+    pub fn run(mut self, run: RunKey) -> Self {
+        self.run = Some(run);
+        self
+    }
+
+    /// Sets what happened.
+    #[must_use]
+    pub fn event(mut self, event: EventPayload) -> Self {
+        self.event = Some(event);
+        self
+    }
+
+    /// Builds the envelope.
+    ///
+    /// # Errors
+    /// Returns [`ExecutionError::MissingField`] if the position, the time, the job or the event is
+    /// not set.
+    pub fn build(self) -> Result<Envelope, ExecutionError> {
+        Ok(Envelope {
+            v: EnvelopeVersion,
+            seq: self
+                .seq
+                .ok_or(ExecutionError::MissingField { field: "seq" })?,
+            at: self
+                .at
+                .ok_or(ExecutionError::MissingField { field: "at" })?,
+            job_id: self
+                .job_id
+                .ok_or(ExecutionError::MissingField { field: "job_id" })?,
+            run: self.run,
+            event: self
+                .event
+                .ok_or(ExecutionError::MissingField { field: "event" })?,
+        })
+    }
+}
+
+#[cfg(test)]
+mod guards {
+    use super::{Envelope, EventPayload, ExecutionError};
+    use serde_json::json;
+
+    /// Guards: I18 — an envelope whose kind this version does not know is read with its payload intact and written back as the same bytes, and a known kind is never read as an unknown one. Oracle: a hand-written envelope line whose payload keys are in the sorted order the writer produces, with a `null` and a nested list inside the payload.
+    #[test]
+    fn unknown_event_kind() {
+        let line = concat!(
+            r#"{"v":1,"seq":7,"at":"2026-01-02T03:04:05Z","job_id":"018f2b3c-4d5e-7a6b-8c7d-9e0f1a2b3c4d","#,
+            r#""run":{"cell":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","replicate":1,"attempt":2},"#,
+            r#""kind":"cache.warmed","payload":{"a":[1,2,{"b":null}],"z":"x"}}"#,
+        );
+        let envelope: Envelope = serde_json::from_str(line).expect("the line reads");
+        assert_eq!(envelope.seq(), 7);
+        let EventPayload::Unknown { kind, payload } = envelope.event() else {
+            panic!("read as a known kind: {:?}", envelope.event());
+        };
+        assert_eq!(kind, "cache.warmed");
+        assert_eq!(payload, &json!({"a": [1, 2, {"b": null}], "z": "x"}));
+        assert_eq!(serde_json::to_string(&envelope).expect("writes"), line);
+
+        // A known kind with a payload of the wrong shape is refused, not kept as unknown.
+        let wrong = line.replace("cache.warmed", "job.ended");
+        let refused = serde_json::from_str::<Envelope>(wrong.as_str()).expect_err("wrong payload"); // BORROW: explicit .as_str()
+        assert!(refused.to_string().contains("reason"), "{refused}");
+        for listed in [
+            r#""kind":"job.started","payload":[]"#,
+            r#""kind":"job.ended","payload":["completed"]"#,
+        ] {
+            let text = line.replace(
+                r#""kind":"cache.warmed","payload":{"a":[1,2,{"b":null}],"z":"x"}"#,
+                listed,
+            );
+            // BORROW: explicit .as_str() instead of Deref coercion
+            assert!(
+                serde_json::from_str::<Envelope>(text.as_str()).is_err(),
+                "{listed}"
+            );
+        }
+
+        // The constructor refuses a known kind, which would not read back as unknown.
+        assert!(matches!(
+            EventPayload::unknown(String::from("run.ended"), json!({})),
+            Err(ExecutionError::KnownKind { .. })
+        ));
+        assert!(EventPayload::unknown(String::from("cache.warmed"), json!(null)).is_ok());
     }
 }
