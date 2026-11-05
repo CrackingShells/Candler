@@ -10,8 +10,8 @@ The milestone's gates are recorded green and the contracts are documented for co
 - [ ] [cmd] The L3 leaves are landed: `for l in legacy_import seams; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
 
 ## Success Gates
-- ✅ [cmd] `gate_sweep` is landed: `for l in gate_sweep; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
-- ✅ [nl] The re-engaged api_review verifier reports no open finding
+- ⬜ [cmd] `gate_sweep` is landed: `for l in gate_sweep; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
+- ⬜ [nl] The re-engaged api_review verifier reports no open finding
 
 ## Status
 ```mermaid

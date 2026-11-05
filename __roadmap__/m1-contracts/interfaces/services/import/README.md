@@ -10,9 +10,9 @@ The 240 golden runs import equal to the oracle, and the cross-leaf seams are gua
 - [ ] [cmd] The L2 leaves are landed: `for l in supervisor run_store claude_code_reader legacy_mapping; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
 
 ## Success Gates
-- ✅ [cmd] Both L3 leaves are landed: `for l in legacy_import seams; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
-- ✅ [cmd] `CANDLER_GOLDEN_CORPUS="$GOLDEN" cargo nextest run -p candler-core --run-ignored only --no-tests=fail -E 'binary(guard_golden)'` passes
-- ✅ [nl] legacy_import's required verifier (with the legacy_mapping diff) reports no open finding, and the level's Grit review is closed
+- ⬜ [cmd] Both L3 leaves are landed: `for l in legacy_import seams; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
+- ⬜ [cmd] `CANDLER_GOLDEN_CORPUS="$GOLDEN" cargo nextest run -p candler-core --run-ignored only --no-tests=fail -E 'binary(guard_golden)'` passes
+- ⬜ [nl] legacy_import's required verifier (with the legacy_mapping diff) reports no open finding, and the level's Grit review is closed
 
 ## Status
 ```mermaid
