@@ -22,7 +22,7 @@ pub const CHILD_RECORD_SCHEMA: &str = "child-record/1";
 
 /// The wire root schemas this module publishes.
 pub(crate) fn roots() -> Vec<GeneratedSchema> {
-    Vec::new()
+    vec![GeneratedSchema::of::<ChildRecord>("child-record")]
 }
 
 /// Why a child record could not be built.
