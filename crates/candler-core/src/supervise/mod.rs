@@ -20,6 +20,7 @@ use self::stop::StraySweeper;
 pub mod http;
 pub mod output;
 pub mod platform;
+pub mod reap;
 pub mod record;
 pub mod signal;
 pub mod spawn;

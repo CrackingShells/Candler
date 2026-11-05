@@ -41,7 +41,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep, timeout, timeout_at};
 
 use super::output::Pumped;
-use super::platform::process_start;
+use super::platform::{alive, process_start};
 use super::signal::{Guard, SignalError, group_exists};
 use super::spawn::{Child, Pumps, SpawnRequest};
 use super::{EventSink, SuperviseError, Supervisor, http, now};
@@ -229,6 +229,8 @@ pub(crate) enum Mode {
     Full,
     /// The leader has exited: end the group if members remain, then sweep.
     GroupOnly,
+    /// Only the sweep: the leader named by a record is not the process that was spawned.
+    SweepOnly,
 }
 
 /// The leader of the group being ended.
@@ -239,6 +241,13 @@ pub(crate) enum Leader<'a> {
         process: &'a mut tokio::process::Child,
         /// Its status, once it was reaped.
         status: Option<StdExitStatus>,
+    },
+    /// A process known by its record alone, which this process does not parent.
+    Record {
+        /// The process id.
+        pid: u32,
+        /// The start time the record holds.
+        start: &'a ProcessStart,
     },
 }
 
@@ -256,6 +265,8 @@ impl Leader<'_> {
                 }
                 false
             }
+            // A zombie reads as running until its parent reaps it.
+            Self::Record { pid, start } => !alive(*pid, start),
         }
     }
 }
@@ -365,6 +376,7 @@ impl Ladder<'_> {
                     self.kill(leader, &mut climb).await;
                 }
             }
+            Mode::SweepOnly => {}
         }
         self.sweep(&mut climb).await;
         climb
@@ -687,6 +699,8 @@ impl Child {
                 .await
                 .ok()
                 .and_then(Result::ok),
+            // `wait` never climbs for a record; a record has no status to report.
+            Leader::Record { .. } => None,
         };
         let Some(done) = reaped else {
             return Err(SuperviseError::Survived {

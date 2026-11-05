@@ -12,13 +12,13 @@ use std::time::{Duration, Instant};
 
 use candler_core::frames::FrameMode;
 use candler_core::supervise::http::is_loopback;
-use candler_core::supervise::platform::{Liveness, liveness};
+use candler_core::supervise::platform::{Liveness, liveness, process_start};
 use candler_core::supervise::signal::Signaller;
 use candler_core::supervise::spawn::{OutputSpec, SpawnRequest, SpawnRequestBuilder, StdinSpec};
-use candler_core::supervise::stop::Ended;
+use candler_core::supervise::stop::{Ended, StraySweeper};
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_harness::spec::{Action, CommandSpec, HttpMethod, StopSignal, StopSpec};
-use candler_schemas::execution::{Envelope, EventPayload};
+use candler_schemas::execution::{Envelope, EventPayload, StrayProcess};
 use candler_schemas::primitives::{Digest, JobId, Marker, RunKey, Timestamp};
 use candler_schemas::process::{ChildRecord, ExitStatus};
 use candler_schemas::raw::StreamName;
@@ -928,4 +928,157 @@ async fn the_ladder_signals_exactly_the_group_it_spawned() {
         "a group the test did not spawn, or a child that exited by itself, was signalled: {calls:?} (natural child {natural_pid})"
     );
     assert_eq!(calls.len(), 6, "{calls:?}");
+}
+
+/// A sweeper that finds nothing and notes the marker of every sweep.
+#[derive(Default)]
+struct Counting {
+    markers: Mutex<Vec<String>>,
+}
+
+impl StraySweeper for Counting {
+    fn sweep(&self, marker: &Marker) -> Vec<StrayProcess> {
+        self.markers
+            .lock()
+            .expect("a lock")
+            .push(marker.to_string());
+        Vec::new()
+    }
+}
+
+/// Guards: I22 — `reap` reads the record's leader from the operating system again and sends no signal for a record it cannot verify. Oracle: the fake's call log, empty for a forged start, a group the record does not lead, the test process's own id and process 1, and exactly `TERM`, `TERM`, `KILL` to the child's group for a true record (the positive control); POSIX kill(2) for pid <= 1.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reap_signals_nothing_for_a_record_it_cannot_verify() {
+    let records = tempfile::tempdir().expect("a temp dir");
+    let (spawner, _events) = supervisor();
+    let child = spawner
+        .spawn(
+            request(&["sleep", "30"], records.path())
+                .build()
+                .expect("a request"),
+        )
+        .expect("a child");
+    let _cleanup = KillAll(&spawner);
+    let (_, json, record) = only_record(records.path());
+    let pid = record.pid();
+    let me = std::process::id();
+    let with = |edits: &[(&str, Value)]| -> ChildRecord {
+        let mut forged = json.clone(); // BORROW: .clone() forges a copy and leaves the true record alone
+        if let Some(map) = forged.as_object_mut() {
+            for (field, value) in edits {
+                map.insert((*field).to_owned(), value.clone()); // BORROW: .clone() copies the edit into the record
+            }
+        }
+        serde_json::from_value(forged).expect("a forged record")
+    };
+    let start_of = |pid: u32| serde_json::to_value(process_start(pid)).expect("JSON");
+    let wrong_start = {
+        let mut start = at(&json, &["start"]).clone(); // BORROW: .clone() copies the true start
+        let field = if at(&start, &["kind"]).as_str() == Some("darwin") {
+            "usec"
+        } else {
+            "ticks"
+        };
+        let value = at(&start, &[field]).as_u64().expect("a start number");
+        let moved = if field == "usec" && value >= 999_999 {
+            value - 1
+        } else {
+            value + 1
+        };
+        if let Some(map) = start.as_object_mut() {
+            map.insert(field.to_owned(), json!(moved));
+        }
+        start
+    };
+    // Each row: a record the supervisor must not signal for, and whether the leader reads alive.
+    let table: [(&str, ChildRecord, Option<bool>); 4] = [
+        ("forged start", with(&[("start", wrong_start)]), Some(false)),
+        (
+            "a group the process does not lead",
+            with(&[("pgid", json!(1))]),
+            Some(true),
+        ),
+        (
+            "the test process itself",
+            with(&[
+                ("pid", json!(me)),
+                ("pgid", json!(me)),
+                ("start", start_of(me)),
+            ]),
+            Some(true),
+        ),
+        (
+            "process 1",
+            with(&[
+                ("pid", json!(1)),
+                ("pgid", json!(1)),
+                ("start", start_of(1)),
+            ]),
+            None,
+        ),
+    ];
+    for (label, forged, alive) in &table {
+        let recording = Arc::new(Recording::default());
+        let sweeper = Arc::new(Counting::default());
+        // TRAIT_OBJECT: the supervisor takes its signaller and sweeper as trait objects
+        // BORROW: .clone() shares the log and the sweeper with the test
+        let (signaller, sweeping): (Arc<dyn Signaller>, Arc<dyn StraySweeper>) =
+            (recording.clone(), sweeper.clone());
+        let recorder = Arc::new(Recorder::default());
+        // TRAIT_OBJECT: the supervisor takes its sink as a trait object
+        // BORROW: .clone() shares the recorder with the supervisor
+        let sink: Arc<dyn EventSink> = recorder.clone();
+        let reaper = Supervisor::new(sink)
+            .with_signaller(signaller)
+            .with_sweeper(sweeping);
+        let report = reaper
+            .reap(Some(&run_key()), forged, &stop_spec(None, 200))
+            .await
+            .expect("a report");
+        let calls = recording.calls.lock().expect("a lock").clone(); // BORROW: .clone() copies the log out of the lock
+        assert_eq!(calls, Vec::<(i32, i32)>::new(), "{label} was signalled");
+        assert!(report.refusal.is_some(), "{label}: {report:?}");
+        if let Some(expected) = alive {
+            assert_eq!(report.was_alive, *expected, "{label}");
+        }
+        let names: Vec<String> = report
+            .steps
+            .iter()
+            .map(|step| serde_json::to_value(step.step).expect("JSON").to_string())
+            .collect();
+        assert_eq!(names, ["\"sweep\""], "{label}");
+        assert_eq!(
+            sweeper.markers.lock().expect("a lock").len(),
+            1,
+            "{label}: the sweep did not run once"
+        );
+    }
+
+    // The positive control: the true record is signalled, exactly in the group of the child.
+    let recording = Arc::new(Recording::default());
+    // TRAIT_OBJECT: the supervisor takes its signaller as a trait object
+    // BORROW: .clone() shares the log with the supervisor
+    let signaller: Arc<dyn Signaller> = recording.clone();
+    let recorder = Arc::new(Recorder::default());
+    // TRAIT_OBJECT: the supervisor takes its sink as a trait object
+    // BORROW: .clone() shares the recorder with the supervisor
+    let sink: Arc<dyn EventSink> = recorder.clone();
+    let reaper = Supervisor::new(sink).with_signaller(signaller);
+    let report = reaper
+        .reap(None, &record, &stop_spec(None, 200))
+        .await
+        .expect("a report");
+    let group = i32::try_from(pid).expect("a pid");
+    let calls = recording.calls.lock().expect("a lock").clone(); // BORROW: .clone() copies the log out of the lock
+    assert_eq!(
+        calls,
+        [
+            (group, Signal::TERM.as_raw()),
+            (group, Signal::TERM.as_raw()),
+            (group, Signal::KILL.as_raw())
+        ]
+    );
+    assert!(report.was_alive);
+    assert_eq!(report.refusal, None);
+    drop(child);
 }

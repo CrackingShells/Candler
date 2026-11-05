@@ -221,7 +221,6 @@ impl Guard {
     }
 
     /// Whether the table holds a group led by `pgid`.
-    #[cfg(test)]
     pub(crate) fn holds(&self, pgid: u32) -> bool {
         let table = self.table.lock().unwrap_or_else(PoisonError::into_inner);
         table.iter().any(|entry| entry.pgid == pgid)
