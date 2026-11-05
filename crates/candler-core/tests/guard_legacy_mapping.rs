@@ -8,6 +8,7 @@
 mod legacy_rules;
 #[path = "oracle/mod.rs"]
 mod oracle;
+mod support;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -801,4 +802,45 @@ fn every_file_is_accounted_for_exactly_once() {
             "the model holds `{path}`, which is not on disk"
         );
     }
+}
+
+/// Guards: I17 — the mapped manifests and records hold no absolute path: neither the root of the
+/// folder that was read nor the root of the corpus it was copied from appears in them. Oracle: the
+/// shared scan of `tests/support` over the serialized manifests and records; the control is the
+/// same scan over a file that holds the folder's root, which it must find.
+#[test]
+fn the_mapped_values_hold_no_absolute_path() {
+    let copy = tempfile::tempdir().expect("a temporary directory");
+    copy_dir(&mini(), copy.path());
+    let imported = Imported::read(copy.path());
+    let out = tempfile::tempdir().expect("a temporary directory");
+    for (index, mapped) in imported.mapped.iter().enumerate() {
+        let (cell, number) = imported.name(index);
+        let manifest = serde_json::to_string(&mapped.manifest).expect("a manifest serializes");
+        let records = serde_json::to_string(imported.records.get(index).expect("records"))
+            .expect("records serialize");
+        let stem = format!(
+            "{index}-{}-run-{number}",
+            cell.chars().take(8).collect::<String>()
+        );
+        fs::write(out.path().join(format!("{stem}.manifest.json")), manifest).expect("write");
+        fs::write(out.path().join(format!("{stem}.records.json")), records).expect("write");
+    }
+    let roots = [
+        copy.path().to_path_buf(),
+        copy.path().canonicalize().expect("canonical path"),
+        mini(),
+    ];
+    let control = tempfile::tempdir().expect("a temporary directory");
+    fs::write(
+        control.path().join("root.txt"),
+        imported.folder.root.to_string_lossy().as_bytes(),
+    )
+    .expect("write the control");
+    for root in &roots {
+        let needle = root.to_string_lossy();
+        support::assert_clean(out.path(), &needle);
+    }
+    let found = support::scan(control.path(), &roots[0].to_string_lossy()).expect("scan");
+    assert_eq!(found.hits.len(), 1);
 }
