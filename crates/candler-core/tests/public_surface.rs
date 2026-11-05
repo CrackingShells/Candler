@@ -50,3 +50,29 @@ mod resolve_surface {
         );
     }
 }
+
+// ---- schema_ctors ----
+mod schema_ctors {
+    use candler_schemas::execution::{EventPayload, Integrity, InvalidReason, StrayProcess};
+    use candler_schemas::process::ProcessStart;
+
+    /// Builds from outside the crate the wire types that `#[non_exhaustive]` keeps out of reach
+    /// of a struct or variant literal.
+    #[test]
+    fn non_exhaustive_wire_types_are_constructible() {
+        let _ = (
+            Integrity::Valid,
+            Integrity::invalid(InvalidReason::BudgetStop),
+            Integrity::invalid(InvalidReason::Killed),
+            Integrity::invalid(InvalidReason::Interrupted),
+        );
+        let _ = (
+            ProcessStart::linux,
+            ProcessStart::darwin,
+            StrayProcess::new,
+            EventPayload::run_stray,
+            EventPayload::process_exited,
+            EventPayload::process_stop_step,
+        );
+    }
+}
