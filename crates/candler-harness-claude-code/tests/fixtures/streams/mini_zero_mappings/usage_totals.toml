@@ -1,0 +1,13 @@
+[message."803a72b6-cbd3-4b0d-9279-a6ff142555a1"]
+input_tokens = 323
+output_tokens = 1138
+cache_read_tokens = 3416198
+cache_creation_tokens = 74329
+
+[session_total."803a72b6-cbd3-4b0d-9279-a6ff142555a1"]
+input_tokens = 323
+output_tokens = 37921
+cache_read_tokens = 3416198
+cache_creation_tokens = 74329
+cost_usd = 0.6802058000000002
+

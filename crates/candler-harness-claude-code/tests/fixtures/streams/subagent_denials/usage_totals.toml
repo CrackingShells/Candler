@@ -1,0 +1,19 @@
+[message."c4795c86-ed65-45c8-9b21-e095d2025a1b"]
+input_tokens = 167
+output_tokens = 56
+cache_read_tokens = 1571263
+cache_creation_tokens = 76813
+
+[message."c4795c86-ed65-45c8-9b21-e095d2025a1b/toolu_013DzQNP5eghtZzg2B3yVjBD"]
+input_tokens = 77
+output_tokens = 112
+cache_read_tokens = 181110
+cache_creation_tokens = 25184
+
+[session_total."c4795c86-ed65-45c8-9b21-e095d2025a1b"]
+input_tokens = 167
+output_tokens = 23586
+cache_read_tokens = 1571263
+cache_creation_tokens = 76813
+cost_usd = 0.50419205
+

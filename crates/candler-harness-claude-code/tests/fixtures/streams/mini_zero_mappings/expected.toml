@@ -1,0 +1,15 @@
+# Hand-written from the raw lines with jq. The stream is the mini-corpus's copy, read by relative path.
+stream = "../../../../../candler-core/tests/fixtures/mini-corpus/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/_run_cache/with_skill/run-12/agent_stream.jsonl.gz"
+frames = 195
+blank_frames = []
+non_json_frames = []
+subagent_ids = []
+denials = []
+mcp_calls = []
+frame_sessions = []
+cost_reporting = "running"
+tokens_reporting = "per_turn"
+
+[[sessions]]
+id = "803a72b6-cbd3-4b0d-9279-a6ff142555a1"
+ended_by = "completed"

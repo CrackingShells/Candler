@@ -1,0 +1,32 @@
+# Hand-written from the raw lines with jq. The result is `subtype: success` with `is_error: true`,
+# `terminal_reason: "api_error"`, `stop_reason: "refusal"`; its `api_error_status` key is present
+# and null. 145 `tool_progress` lines carry a `parent_tool_use_id` that names a Bash call, not an
+# Agent call, so the stream has no subagent. `ended_by` is agent_error with reason api_error:
+# the model refused the request after 47 turns and no HTTP error status was reported, so it is
+# not a gateway error.
+stream = "agent_stream.jsonl.gz"
+frames = 278
+blank_frames = []
+non_json_frames = []
+subagent_ids = []
+mcp_calls = []
+frame_sessions = []
+cost_reporting = "running"
+tokens_reporting = "per_turn"
+
+[[sessions]]
+id = "50b18959-0cb5-4deb-b336-1c8c57970383"
+ended_by = "agent_error"
+reason = "api_error"
+
+[[denials]]
+tool_use_id = "toolu_01Thg1E955WUNoMx7KGjFQ3t"
+reason = "permission-rule"
+by = "harness"
+session = "50b18959-0cb5-4deb-b336-1c8c57970383"
+
+[[denials]]
+tool_use_id = "toolu_01KsbY7G8xTcnAyngvjNgG6t"
+reason = "permission-rule"
+by = "harness"
+session = "50b18959-0cb5-4deb-b336-1c8c57970383"

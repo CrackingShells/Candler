@@ -1,0 +1,188 @@
+# Provenance of every fixture file. `path` is relative to this directory; `source` is a
+# golden-suite path, a generator, or a hand-written marker. Regenerate with README.md.
+
+[[files]]
+path = "select_streams.py"
+source = "hand-written"
+sha256 = "1ac562f68367a961c04e5c36a1327cd61074fe4e45bd3b2d30ee6bccf34f0970"
+synthetic = false
+
+[[files]]
+path = "make_synthetic.py"
+source = "hand-written"
+sha256 = "b41df9337dfd9b990785fda70061b4af7ca1c0854e06bfa62f3fe06edcd91af9"
+synthetic = false
+
+[[files]]
+path = "usage_totals.jq"
+source = "hand-written"
+sha256 = "cd109038dc6bd5b552a3404736344f0d8c3d3936ae67f6ab29ebb6da09cddb31"
+synthetic = false
+
+[[files]]
+path = "streams/api_error/agent_stream.jsonl.gz"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.4_claude-sonnet-5_model-claude-sonnet-5_skill_version-htn-creator-0.2.4/_run_cache/with_skill/run-8/agent_stream.jsonl.gz"
+sha256 = "7df13cbf28308e269ac54a23a546921bbae9a7427d3b957f5c86491d5cc02294"
+synthetic = false
+
+[[files]]
+path = "streams/api_error/expected.toml"
+source = "hand-written from jq over the raw lines"
+sha256 = "8bb2fc851a086aded4bd73382f8044d49e9aef88ca11c162d566689bd2d01cba"
+synthetic = false
+
+[[files]]
+path = "streams/api_error/usage_totals.toml"
+source = "usage_totals.jq"
+sha256 = "c5485bb2f2b764532898fcc76d8563cc15b16236c8d2b1da8235e1a30228a19e"
+synthetic = false
+
+[[files]]
+path = "../../../candler-core/tests/fixtures/mini-corpus/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-6/agent_stream.jsonl.gz"
+source = "crates/candler-core/tests/fixtures/mini-corpus/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-6/agent_stream.jsonl.gz"
+sha256 = "b0d65361ff36368dde359021a228167b95459b75691858143d12a0c2bbdee7ea"
+synthetic = false
+
+[[files]]
+path = "streams/mini_clean/expected.toml"
+source = "hand-written from jq over the raw lines"
+sha256 = "dc14977220bb9e2067b7ab6033ab19b26763b92d6f6e1e94e3b341b86885534e"
+synthetic = false
+
+[[files]]
+path = "streams/mini_clean/usage_totals.toml"
+source = "usage_totals.jq"
+sha256 = "b82ce1d8fa362b7937951de8e4e81463dc090beb9ec5b6a6bb7327799b3e0df7"
+synthetic = false
+
+[[files]]
+path = "../../../candler-core/tests/fixtures/mini-corpus/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-17/agent_stream.jsonl.gz"
+source = "crates/candler-core/tests/fixtures/mini-corpus/20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3/_run_cache/with_skill/run-17/agent_stream.jsonl.gz"
+sha256 = "a4c693d0716b53c83611516a6becba0dd35d3a56eabf41b013dcb1bd09ea8a93"
+synthetic = false
+
+[[files]]
+path = "streams/mini_incomplete/expected.toml"
+source = "hand-written from jq over the raw lines"
+sha256 = "e1e7c3c8734bde2e6727f33b204a216a1c125afc6f66c1ce170f4ab27d2e0e81"
+synthetic = false
+
+[[files]]
+path = "streams/mini_incomplete/usage_totals.toml"
+source = "usage_totals.jq"
+sha256 = "48eb29c414787fa99855c155a8aeeb045de6b287c642b99fd414ba750de09426"
+synthetic = false
+
+[[files]]
+path = "../../../candler-core/tests/fixtures/mini-corpus/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/_run_cache/with_skill/run-12/agent_stream.jsonl.gz"
+source = "crates/candler-core/tests/fixtures/mini-corpus/20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6/_run_cache/with_skill/run-12/agent_stream.jsonl.gz"
+sha256 = "a296c607eecf9b980cf734b2d996ff7e26aa3504a4909ac868681468ccb54c23"
+synthetic = false
+
+[[files]]
+path = "streams/mini_zero_mappings/expected.toml"
+source = "hand-written from jq over the raw lines"
+sha256 = "ab7d6be178ce4b41c6126b956290212b89d5ee3e6b19a32c1653aea5a1a031dc"
+synthetic = false
+
+[[files]]
+path = "streams/mini_zero_mappings/usage_totals.toml"
+source = "usage_totals.jq"
+sha256 = "33838f4de713d83ffe6ae6757cec9106de581de90061d4866b1f457977014e03"
+synthetic = false
+
+[[files]]
+path = "streams/multi_init/agent_stream.jsonl.gz"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.5_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.5/_run_cache/with_skill/run-10/agent_stream.jsonl.gz"
+sha256 = "932610eccb10e957bbd3d2fdfa7c53b6ef3262d3ce10fd546d55b32d5f1a6ab1"
+synthetic = false
+
+[[files]]
+path = "streams/multi_init/expected.toml"
+source = "hand-written from jq over the raw lines"
+sha256 = "cd25036a0bada36b0bacf511f8f240ef948d3151d7e252e275a53d63e1750fe0"
+synthetic = false
+
+[[files]]
+path = "streams/multi_init/usage_totals.toml"
+source = "usage_totals.jq"
+sha256 = "957f1a6f0ac846a99faafb34b2a26fb3c597311bd329c78b580761105d7b6b1d"
+synthetic = false
+
+[[files]]
+path = "streams/subagent_denials/agent_stream.jsonl.gz"
+source = "campaign/20260806-cont-train/20260806-035940_v0.2.4_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.4/_run_cache/with_skill/run-12/agent_stream.jsonl.gz"
+sha256 = "e145933fb6204c515c8cfcd38815fc4eba935dc32e93e4a86e59f6b848c298f9"
+synthetic = false
+
+[[files]]
+path = "streams/subagent_denials/expected.toml"
+source = "hand-written from jq over the raw lines"
+sha256 = "e534d3795d9fe68c7fc60fb8edb5b6b85ceaef0f8a08df7c5165fc94c6aaf48f"
+synthetic = false
+
+[[files]]
+path = "streams/subagent_denials/usage_totals.toml"
+source = "usage_totals.jq"
+sha256 = "1920bf9c19595fe99d9f773f51600d3f3409c858ce39a4fe72af6b4b00324cf3"
+synthetic = false
+
+[[files]]
+path = "streams/synthetic_hooks/agent_stream.jsonl.gz"
+source = "make_synthetic.py"
+sha256 = "e46fd7e946d85f981166239e60688881273674c365a766aa1801d6491769abf3"
+synthetic = true
+
+[[files]]
+path = "streams/synthetic_hooks/expected.toml"
+source = "hand-written from jq over the raw lines"
+sha256 = "27351d86e0de40db31388c5d71e5d54086d279fbe9b72f93c37f5b328d8d1e21"
+synthetic = true
+
+[[files]]
+path = "streams/synthetic_hooks/usage_totals.toml"
+source = "usage_totals.jq"
+sha256 = "9c87f2cd34707d60a7b83417d248f98bf36ec809b9c5ed5a79bf5755075501bf"
+synthetic = true
+
+[[files]]
+path = "streams/synthetic_mcp/agent_stream.jsonl.gz"
+source = "make_synthetic.py"
+sha256 = "7225ec15607723ca6083b79f29d54f30c3d80ee2d7c8853103379abaac7f24b0"
+synthetic = true
+
+[[files]]
+path = "streams/synthetic_mcp/expected.toml"
+source = "hand-written from jq over the raw lines"
+sha256 = "102d9b72911088de7fd0304303994a00756883b0e3666ca6650f32074d8ca1d4"
+synthetic = true
+
+[[files]]
+path = "streams/synthetic_mcp/usage_totals.toml"
+source = "usage_totals.jq"
+sha256 = "6da967e9debe7a0158c387b93c315c2e703a781edf36920150692d980d4355d5"
+synthetic = true
+
+[[files]]
+path = "streams/synthetic_orphans/agent_stream.jsonl.gz"
+source = "make_synthetic.py"
+sha256 = "1dd85d56f24a146c702f7fe68886721eeb01c5910ed3f4c69e392ad7b854f299"
+synthetic = true
+
+[[files]]
+path = "streams/synthetic_orphans/expected.toml"
+source = "hand-written from jq over the raw lines"
+sha256 = "a21d6a12acbcd88b7013d146dd5e540a99de285ff9f248516b14baca01ccef70"
+synthetic = true
+
+[[files]]
+path = "streams/synthetic_orphans/usage_totals.toml"
+source = "usage_totals.jq"
+sha256 = "d6253972d461817f409303799dd048a689ad8555c20b07dbfea32c6e8d447ec3"
+synthetic = true
+
+[[files]]
+path = "README.md"
+source = "hand-written"
+sha256 = "08ad28866c3b0f31916c4d26f38cf3e712e4f3350c89e0f5ab4a66bde3424ee5"
+synthetic = false

@@ -1,0 +1,31 @@
+[message."22222222-2222-4222-8222-222222222222"]
+input_tokens = 13
+output_tokens = 6
+cache_read_tokens = 130
+cache_creation_tokens = 10
+
+[message."22222222-2222-4222-8222-222222222222/toolu_m_n1"]
+input_tokens = 3
+output_tokens = 1
+cache_read_tokens = 30
+cache_creation_tokens = 0
+
+[message."22222222-2222-4222-8222-222222222222/toolu_m_n1/toolu_m_n2"]
+input_tokens = 2
+output_tokens = 1
+cache_read_tokens = 20
+cache_creation_tokens = 0
+
+[message."33333333-3333-4333-8333-333333333333"]
+input_tokens = 0
+output_tokens = 0
+cache_read_tokens = 0
+cache_creation_tokens = 0
+
+[session_total."22222222-2222-4222-8222-222222222222"]
+input_tokens = 13
+output_tokens = 8
+cache_read_tokens = 130
+cache_creation_tokens = 10
+cost_usd = 0.1
+
