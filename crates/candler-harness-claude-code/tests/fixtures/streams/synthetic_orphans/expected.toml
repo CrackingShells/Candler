@@ -1,0 +1,27 @@
+# Hand-written from the raw lines with jq. Synthetic: see make_synthetic.py. Frames 0 and 1 have no
+# session_id and come before the init line of frame 2, so they belong to the first session the
+# stream opens: frame 0 is a `result` of subtype error_max_turns, which is the only result, so
+# the session ends with cap turns; frame 1 is the first line of message msg_o1, whose usage counts
+# once (frame 4 repeats the message id with another output count).
+stream = "agent_stream.jsonl.gz"
+frames = 6
+blank_frames = []
+non_json_frames = []
+subagent_ids = []
+denials = []
+mcp_calls = []
+cost_reporting = "running"
+tokens_reporting = "per_turn"
+
+[[sessions]]
+id = "44444444-4444-4444-8444-444444444444"
+ended_by = "cap"
+cap = "turns"
+
+[[frame_sessions]]
+frame = 0
+session = "44444444-4444-4444-8444-444444444444"
+
+[[frame_sessions]]
+frame = 1
+session = "44444444-4444-4444-8444-444444444444"

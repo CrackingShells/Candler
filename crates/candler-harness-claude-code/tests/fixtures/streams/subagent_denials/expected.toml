@@ -1,0 +1,26 @@
+# Hand-written from the raw lines with jq. One Agent call whose lines carry its id as
+# `parent_tool_use_id`, and one denied Bash call in the root.
+stream = "agent_stream.jsonl.gz"
+frames = 199
+blank_frames = []
+non_json_frames = []
+subagent_ids = ["toolu_013DzQNP5eghtZzg2B3yVjBD"]
+mcp_calls = []
+frame_sessions = []
+cost_reporting = "running"
+tokens_reporting = "per_turn"
+
+[[sessions]]
+id = "c4795c86-ed65-45c8-9b21-e095d2025a1b"
+ended_by = "completed"
+
+[[sessions]]
+id = "c4795c86-ed65-45c8-9b21-e095d2025a1b/toolu_013DzQNP5eghtZzg2B3yVjBD"
+parent = "c4795c86-ed65-45c8-9b21-e095d2025a1b"
+ended_by = "completed"
+
+[[denials]]
+tool_use_id = "toolu_01X5u9fEqbbE81797As5G5so"
+reason = "permission-rule"
+by = "harness"
+session = "c4795c86-ed65-45c8-9b21-e095d2025a1b"

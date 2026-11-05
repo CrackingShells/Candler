@@ -1,0 +1,15 @@
+# Digest of the trace file each fixture stream gives ClaudeCodeReader. A ratchet against unnoticed
+# change that proves nothing about correctness. Bless with CANDLER_BLESS_DIGESTS=1; blessing refuses
+# to change a line unless the reader version below changed.
+reader = "claude-code-stream-json@0.2.0"
+
+[digests]
+api_error = "33a9ff0bf40b0a72c46ada690b183ea96350ff3b42f4676f4e36747a6b01875a"
+mini_clean = "af830a88f54002ec6577d9230579b41ea02ed9dbd131c5571a1eea62c1e4d057"
+mini_incomplete = "a09a52435d29ec7af7075c511fbb4757e59ffcf8a55684d7a9bdb91614446f04"
+mini_zero_mappings = "24a8533417f8ec70796b811d1de8a47d04853ed3e6b5ca1dfe904e8c95e6d30d"
+multi_init = "c44493197d669f358126d91fe23a36feb2e4d85b1ede57e9a8692c7bef2b97af"
+subagent_denials = "563efaf5813fc1faa4683f8e49a6986d0ff3148113e44b9a76d5a9d3c97a9186"
+synthetic_hooks = "be33b2813ead66932c4eea262c70bcecd9b5e98c1a88416ad4ccaf5bff6d2895"
+synthetic_mcp = "018f342ed7717d4fa82765be16df23efb002ac84b237773fb5acf5ee248748d5"
+synthetic_orphans = "666016df76ad90fb7da6b3ccc3add33e75e3e9bc1a8da1c8ad9ff75c1cb49344"

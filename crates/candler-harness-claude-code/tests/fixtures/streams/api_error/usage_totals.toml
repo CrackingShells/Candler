@@ -1,0 +1,13 @@
+[message."50b18959-0cb5-4deb-b336-1c8c57970383"]
+input_tokens = 66
+output_tokens = 536
+cache_read_tokens = 2768628
+cache_creation_tokens = 105115
+
+[session_total."50b18959-0cb5-4deb-b336-1c8c57970383"]
+input_tokens = 66
+output_tokens = 42079
+cache_read_tokens = 2768628
+cache_creation_tokens = 105115
+cost_usd = 2.0926614000000003
+

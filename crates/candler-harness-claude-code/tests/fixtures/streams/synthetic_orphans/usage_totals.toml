@@ -1,0 +1,13 @@
+[message."44444444-4444-4444-8444-444444444444"]
+input_tokens = 6
+output_tokens = 3
+cache_read_tokens = 60
+cache_creation_tokens = 6
+
+[session_total."44444444-4444-4444-8444-444444444444"]
+input_tokens = 7
+output_tokens = 3
+cache_read_tokens = 70
+cache_creation_tokens = 9
+cost_usd = 0.5
+
