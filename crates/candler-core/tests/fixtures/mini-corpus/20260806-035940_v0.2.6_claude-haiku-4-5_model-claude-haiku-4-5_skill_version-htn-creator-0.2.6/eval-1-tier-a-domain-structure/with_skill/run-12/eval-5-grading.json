@@ -1,0 +1,141 @@
+{
+  "eval_id": 5,
+  "title": "descriptive-annex-quantitative-metrics",
+  "tier": "annex",
+  "expectations": [
+    {
+      "id": "C1",
+      "tier": "annex",
+      "text": "Action count is parseable from validate_domain.py output (always grader-run against the collected domain.py)",
+      "role": "descriptive",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "parsed from grader-run scripts/htn_creator_scripts/validate_domain.py: 5",
+      "value": 5,
+      "score": 1,
+      "max_score": 1
+    },
+    {
+      "id": "C2",
+      "tier": "annex",
+      "text": "Method count is parseable from validate_domain.py output (always grader-run against the collected domain.py)",
+      "role": "descriptive",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "parsed from grader-run scripts/htn_creator_scripts/validate_domain.py: 5",
+      "value": 5,
+      "score": 1,
+      "max_score": 1
+    },
+    {
+      "id": "C3",
+      "tier": "annex",
+      "text": "Scenario count is parseable from validate_problems.py output (always grader-run against the collected problems.py)",
+      "role": "descriptive",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "parsed from grader-run scripts/htn_creator_scripts/validate_problems.py: 3",
+      "value": 3,
+      "score": 1,
+      "max_score": 1
+    },
+    {
+      "id": "C4",
+      "tier": "annex",
+      "text": "Context variable consumer count from analyze_context_variable_flow.py (always grader-run; stages domain.py + bio-robot.json)",
+      "role": "descriptive",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "parsed from grader-run module htn_creator_scripts.analyze_context_variable_flow: 0",
+      "value": 0,
+      "score": 1,
+      "max_score": 1
+    },
+    {
+      "id": "C5",
+      "tier": "annex",
+      "text": "Context variable producer count from analyze_context_variable_flow.py (always grader-run; stages domain.py + bio-robot.json)",
+      "role": "descriptive",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "parsed from grader-run module htn_creator_scripts.analyze_context_variable_flow: 0",
+      "value": 0,
+      "score": 1,
+      "max_score": 1
+    },
+    {
+      "id": "C6",
+      "tier": "annex",
+      "text": "Output extractor density (context_variable_producers / action_count) is computable from C5 and C1",
+      "role": "descriptive",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "computed: context_variable_producers / action_count = 0.0",
+      "value": 0.0,
+      "score": 1,
+      "max_score": 1
+    },
+    {
+      "id": "C7",
+      "tier": "annex",
+      "text": "Total method subtask count from analyze_method_decompositions.py (always grader-run against the collected domain.py)",
+      "role": "descriptive",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "parsed from grader-run scripts/htn_creator_scripts/analyze_method_decompositions.py: 9",
+      "value": 9,
+      "score": 1,
+      "max_score": 1
+    },
+    {
+      "id": "C8",
+      "tier": "annex",
+      "text": "Decomposition warning count from validate_method_decompositions.py (count of lines containing 'Warning:'; 0 expected for fully compliant output)",
+      "role": "descriptive",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "counted 0 occurrence(s) of 'Warning:' in module output",
+      "value": 0,
+      "score": 1,
+      "max_score": 1
+    },
+    {
+      "id": "C9",
+      "tier": "annex",
+      "text": "Failed-method count from validate_method_decompositions.py SUMMARY line ('N failed'); 0 expected, recorded for visibility. No longer asserted (annex is non-gating; formerly consolidated B6's failed-method gate).",
+      "role": "descriptive",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "parsed from grader-run module htn_creator_scripts.validate_method_decompositions: 0",
+      "value": 0,
+      "score": 1,
+      "max_score": 1
+    }
+  ],
+  "summary": {
+    "passed": 9,
+    "failed": 0,
+    "total": 9,
+    "pass_rate": 1.0
+  },
+  "metrics": {
+    "action_count": 5,
+    "method_count": 5,
+    "scenario_count": 3,
+    "context_variable_consumers": 0,
+    "context_variable_producers": 0,
+    "extractor_density": 0.0,
+    "total_subtasks": 9,
+    "decomposition_warnings": 0,
+    "decomposition_failures": 0
+  }
+}

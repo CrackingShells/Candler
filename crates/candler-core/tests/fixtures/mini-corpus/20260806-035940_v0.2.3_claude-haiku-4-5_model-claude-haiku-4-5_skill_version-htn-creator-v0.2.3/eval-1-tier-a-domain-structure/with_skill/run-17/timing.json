@@ -1,0 +1,341 @@
+{
+  "total_duration_seconds": 152.33,
+  "wall_clock_seconds": 152.33,
+  "total_tokens": 18892,
+  "input_tokens": 99,
+  "output_tokens": 18793,
+  "cache_creation_tokens": 52500,
+  "cache_read_tokens": 746290,
+  "tool_calls": 23,
+  "tool_call_types": {
+    "Read": 11,
+    "Bash": 9,
+    "Write": 3
+  },
+  "agent_exit_code": 0,
+  "sandbox_path": "/tmp/htn_eval_with_skill_run17_1785960293_4a53ff0b",
+  "sandbox_inventory": [
+    {
+      "path": "pyproject.toml",
+      "size": 89,
+      "mtime": 1785960293.244
+    },
+    {
+      "path": "CONT_TRAIN_SUMMARY.md",
+      "size": 6800,
+      "mtime": 1785960423.357
+    },
+    {
+      "path": "scripts/pyproject.toml",
+      "size": 1136,
+      "mtime": 1779814053.0
+    },
+    {
+      "path": "scripts/htn_creator_scripts/validate_method_decompositions.py",
+      "size": 8479,
+      "mtime": 1779814053.0
+    },
+    {
+      "path": "scripts/htn_creator_scripts/analyze_method_decompositions.py",
+      "size": 8916,
+      "mtime": 1779814053.0
+    },
+    {
+      "path": "scripts/htn_creator_scripts/analyze_context_variable_flow.py",
+      "size": 7744,
+      "mtime": 1779814053.0
+    },
+    {
+      "path": "scripts/htn_creator_scripts/validate_problems.py",
+      "size": 13376,
+      "mtime": 1779814053.0
+    },
+    {
+      "path": "scripts/htn_creator_scripts/analyze_domain_data_flow.py",
+      "size": 6932,
+      "mtime": 1779814053.0
+    },
+    {
+      "path": "scripts/htn_creator_scripts/cst_extractors.py",
+      "size": 1378,
+      "mtime": 1779814053.0
+    },
+    {
+      "path": "scripts/htn_creator_scripts/__init__.py",
+      "size": 1,
+      "mtime": 1779814053.0
+    },
+    {
+      "path": "scripts/htn_creator_scripts/populate_action_tool_mappings.py",
+      "size": 8587,
+      "mtime": 1779814053.0
+    },
+    {
+      "path": "scripts/htn_creator_scripts/cst_helpers.py",
+      "size": 2590,
+      "mtime": 1779814053.0
+    },
+    {
+      "path": "scripts/htn_creator_scripts/discover_api_response_paths.py",
+      "size": 6881,
+      "mtime": 1779814053.0
+    },
+    {
+      "path": "scripts/htn_creator_scripts/validate_domain.py",
+      "size": 12629,
+      "mtime": 1779814053.0
+    },
+    {
+      "path": "scripts/htn_creator_scripts/validate_mapping_config.py",
+      "size": 19258,
+      "mtime": 1779814053.0
+    },
+    {
+      "path": "scripts/schemas/action_tool_mapping_schema.json",
+      "size": 2051,
+      "mtime": 1779814053.0
+    }
+  ],
+  "collected_outputs_paths": {
+    "domain.py": {
+      "matched": [
+        ".claude/skills/htn-creator/examples/orchestration_demo/cont-train/domain.py"
+      ],
+      "rejected": [],
+      "picked": ".claude/skills/htn-creator/examples/orchestration_demo/cont-train/domain.py"
+    },
+    "problems.py": {
+      "matched": [
+        ".claude/skills/htn-creator/examples/orchestration_demo/cont-train/problems.py"
+      ],
+      "rejected": [],
+      "picked": ".claude/skills/htn-creator/examples/orchestration_demo/cont-train/problems.py"
+    },
+    "cont-train.json": {
+      "matched": [],
+      "rejected": [],
+      "picked": null
+    }
+  },
+  "copied_inputs": [
+    {
+      "relpath": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp/compute.py",
+      "sha256": "7088adebfac2df26ff3fec70fd29a60798aa681d35e6b0f9cfc5f6845a3830b6",
+      "role": "server"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp/config.py",
+      "sha256": "9d9ec9c6547574065e74f9f0ed901dcf6f68f4476f8e02ebcd5db8f24baa3ee1",
+      "role": "server"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp/docs_server.py",
+      "sha256": "527acd8f431571903257dd51578b2a21bf8bb27b20d274e6fdfe82169968d638",
+      "role": "server"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp/doctor.py",
+      "sha256": "1fa5bb25af603e74e942eccf50fbfae60eb7aadf7f73b0a119693f8c52e35a3e",
+      "role": "server"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp/hpc_server.py",
+      "sha256": "b2af8a23ff6f5ceef36217b7727bf515fbf345472d81e1872bbed43b57e55b4b",
+      "role": "server"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp/ingest.py",
+      "sha256": "a81373ce830e9e94f6b497263ff8584192522ea41719fd80f0802225ca8a21f5",
+      "role": "server"
+    },
+    {
+      "relpath": "scripts/htn_creator_scripts/__init__.py",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "role": "script"
+    },
+    {
+      "relpath": "scripts/htn_creator_scripts/analyze_context_variable_flow.py",
+      "sha256": "24bf202246a128bfadc4e19a35532f891e70c06af60914758ebd21a7020f66c1",
+      "role": "script"
+    },
+    {
+      "relpath": "scripts/htn_creator_scripts/analyze_domain_data_flow.py",
+      "sha256": "cc3a767a342fa6484190069e110099090fb512151d1115e92ec0a2b5b7a68b7d",
+      "role": "script"
+    },
+    {
+      "relpath": "scripts/htn_creator_scripts/analyze_method_decompositions.py",
+      "sha256": "7f8e89a4b79c98f8695980f16cfc178bfc0fccc39af1e186e46918f3fa2b336b",
+      "role": "script"
+    },
+    {
+      "relpath": "scripts/htn_creator_scripts/cst_extractors.py",
+      "sha256": "49f8ecf6128b687dfd303d4f1b9076bd8799b962f0d0b4ee380cb70d70832581",
+      "role": "script"
+    },
+    {
+      "relpath": "scripts/htn_creator_scripts/cst_helpers.py",
+      "sha256": "93920e77becc1f4bf71781e51296137b4fd712face94034ca52da6cb621eb48d",
+      "role": "script"
+    },
+    {
+      "relpath": "scripts/htn_creator_scripts/discover_api_response_paths.py",
+      "sha256": "38e19560ba0e712a5b2d6c53a3f42fef08bf071a1e3b3bfa76049291d9266b6e",
+      "role": "script"
+    },
+    {
+      "relpath": "scripts/htn_creator_scripts/populate_action_tool_mappings.py",
+      "sha256": "3365cae4f00cfdd764586ea5cfd920de03b331a203c1be29e22fd9cda06794c8",
+      "role": "script"
+    },
+    {
+      "relpath": "scripts/htn_creator_scripts/validate_domain.py",
+      "sha256": "93ae4902a60394cb57c1b5f63c1f781156f1bebaa6b1feb3105d896233af4c56",
+      "role": "script"
+    },
+    {
+      "relpath": "scripts/htn_creator_scripts/validate_mapping_config.py",
+      "sha256": "78a1cad7c7a5be00a07aeaf92d925d738de4468c3733229c9f7782a687d78781",
+      "role": "script"
+    },
+    {
+      "relpath": "scripts/htn_creator_scripts/validate_method_decompositions.py",
+      "sha256": "f1558632ff8c9e25efc9d8df1e12110030fca99f5f7648b1f9e69a72be7c41bc",
+      "role": "script"
+    },
+    {
+      "relpath": "scripts/htn_creator_scripts/validate_problems.py",
+      "sha256": "ad072e4ec0862047c51b34817a11be90b0122da292e8e718ba36ed6616f180ba",
+      "role": "script"
+    },
+    {
+      "relpath": "scripts/pyproject.toml",
+      "sha256": "381b7718d5fa2676efb46f52d2835be5990d39d63edf38d0476bb7ea4288884f",
+      "role": "script"
+    },
+    {
+      "relpath": "scripts/schemas/action_tool_mapping_schema.json",
+      "sha256": "a28cd7e80a9bc2bb26ac9c3621015dbefa5b8d0fa41679e785bfffee1d80c6eb",
+      "role": "script"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/SKILL.md",
+      "sha256": "b11a1200456ae37404029c526ce122209a7dbd199911cb313a2222aa89d946bd",
+      "role": "skill"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/references/anti-patterns.md",
+      "sha256": "c76a90cb09c4726e72097b3fe4296708096f60a6c43db720f19e794004e5fff0",
+      "role": "skill"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/references/domain-patterns.md",
+      "sha256": "e2490c07ead227cc62e35b5cc124c5b3e9e3f5b052f0620cd6a9a257690ab575",
+      "role": "skill"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/references/mapping-structure.md",
+      "sha256": "9bf877d844099627fa8f32c70dfcc9bcc07c5b299f9ea9a065f9e498e95cea34",
+      "role": "skill"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/references/pass-1-structure.md",
+      "sha256": "1590a70749374647a2159223ae2af2faa1042c5ad637a58f0cd61330ff0a217d",
+      "role": "skill"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/references/pass-2-dataflow.md",
+      "sha256": "228f81b9d91ebf7b275c918f6ebfd929630c13674206e62670549f751d000b0b",
+      "role": "skill"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/references/pass-3-binding.md",
+      "sha256": "ff1a190b851c4e58c044068e66a14f6b4bacc38b6e82667978d118af1358cb2b",
+      "role": "skill"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/references/problems-patterns.md",
+      "sha256": "6c6940b8e3e703e485d772718dc51fc0bba203150e734b8f2d24ba45cd6e03ae",
+      "role": "skill"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/references/validation-checklist.md",
+      "sha256": "984e3c11e90dca031c66cdceaa006b8207d8dcef36c9388c6118dcead42d4c3f",
+      "role": "skill"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/scripts/htn_creator_scripts/__init__.py",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "role": "skill"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/scripts/htn_creator_scripts/analyze_context_variable_flow.py",
+      "sha256": "24bf202246a128bfadc4e19a35532f891e70c06af60914758ebd21a7020f66c1",
+      "role": "skill"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/scripts/htn_creator_scripts/analyze_domain_data_flow.py",
+      "sha256": "cc3a767a342fa6484190069e110099090fb512151d1115e92ec0a2b5b7a68b7d",
+      "role": "skill"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/scripts/htn_creator_scripts/analyze_method_decompositions.py",
+      "sha256": "7f8e89a4b79c98f8695980f16cfc178bfc0fccc39af1e186e46918f3fa2b336b",
+      "role": "skill"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/scripts/htn_creator_scripts/cst_extractors.py",
+      "sha256": "49f8ecf6128b687dfd303d4f1b9076bd8799b962f0d0b4ee380cb70d70832581",
+      "role": "skill"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/scripts/htn_creator_scripts/cst_helpers.py",
+      "sha256": "93920e77becc1f4bf71781e51296137b4fd712face94034ca52da6cb621eb48d",
+      "role": "skill"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/scripts/htn_creator_scripts/discover_api_response_paths.py",
+      "sha256": "38e19560ba0e712a5b2d6c53a3f42fef08bf071a1e3b3bfa76049291d9266b6e",
+      "role": "skill"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/scripts/htn_creator_scripts/populate_action_tool_mappings.py",
+      "sha256": "3365cae4f00cfdd764586ea5cfd920de03b331a203c1be29e22fd9cda06794c8",
+      "role": "skill"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/scripts/htn_creator_scripts/validate_domain.py",
+      "sha256": "93ae4902a60394cb57c1b5f63c1f781156f1bebaa6b1feb3105d896233af4c56",
+      "role": "skill"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/scripts/htn_creator_scripts/validate_mapping_config.py",
+      "sha256": "78a1cad7c7a5be00a07aeaf92d925d738de4468c3733229c9f7782a687d78781",
+      "role": "skill"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/scripts/htn_creator_scripts/validate_method_decompositions.py",
+      "sha256": "f1558632ff8c9e25efc9d8df1e12110030fca99f5f7648b1f9e69a72be7c41bc",
+      "role": "skill"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/scripts/htn_creator_scripts/validate_problems.py",
+      "sha256": "ad072e4ec0862047c51b34817a11be90b0122da292e8e718ba36ed6616f180ba",
+      "role": "skill"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/scripts/pyproject.toml",
+      "sha256": "381b7718d5fa2676efb46f52d2835be5990d39d63edf38d0476bb7ea4288884f",
+      "role": "skill"
+    },
+    {
+      "relpath": ".claude/skills/htn-creator/scripts/schemas/action_tool_mapping_schema.json",
+      "sha256": "a28cd7e80a9bc2bb26ac9c3621015dbefa5b8d0fa41679e785bfffee1d80c6eb",
+      "role": "skill"
+    }
+  ],
+  "agent_stream_path": "../../../_run_cache/with_skill/run-17/agent_stream.jsonl.gz",
+  "agent_stderr_path": "../../../_run_cache/with_skill/run-17/agent_stderr.txt",
+  "outputs_path": "../../../_run_cache/with_skill/run-17/outputs",
+  "env_reclaimed_bytes": 65486561
+}

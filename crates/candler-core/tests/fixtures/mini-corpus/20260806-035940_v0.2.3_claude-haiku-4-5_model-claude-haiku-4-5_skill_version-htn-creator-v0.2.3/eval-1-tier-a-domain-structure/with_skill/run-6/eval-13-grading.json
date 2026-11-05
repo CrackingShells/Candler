@@ -1,0 +1,85 @@
+{
+  "eval_id": 13,
+  "title": "tier-d-executability",
+  "tier": "executability",
+  "expectations": [
+    {
+      "id": "D-E1",
+      "tier": "executability",
+      "text": "check_tier_d.py replays the generated plan against the targeted mock MCP servers in-process (none when the catalog comes from a snapshot) (reusing _tier_d_executor.measure_scenario, never a second execution engine) and prints whether every action executed without erroring (descriptive: this asserts the marker is well-formed and surfaces its own first_failure_index as a value, never a specific pass/fail verdict for the run)",
+      "role": "descriptive",
+      "scale": "binary",
+      "status": "not_measured",
+      "passed": false,
+      "evidence": "exit_code=0, stdout='TIER_D_CATALOG: snapshot=rikyu_mcp.json digest=8e331d938505 replay=none\\nTIER_D_REPLAY: status=not_measured reason=no_replay_target\\nTIER_D_EXECUTION: pass=None first_failure_index=None\\nTIER_D_SPANS: me'",
+      "score": 0,
+      "max_score": 0
+    },
+    {
+      "id": "D-E2",
+      "tier": "executability",
+      "text": "check_tier_d.py reports the method-span triple (measured/not_reached/empty -- a SPAN count summed across every scenario in problems.py, never a row count) from the same plan replay D-E1 uses; descriptive, never gating, and a `not_reached` span is never reported as a vacuous 0.0",
+      "role": "descriptive",
+      "scale": "ratio",
+      "status": "not_measured",
+      "passed": false,
+      "evidence": "exit_code=0, stdout='TIER_D_CATALOG: snapshot=rikyu_mcp.json digest=8e331d938505 replay=none\\nTIER_D_REPLAY: status=not_measured reason=no_replay_target\\nTIER_D_EXECUTION: pass=None first_failure_index=None\\nTIER_D_SPANS: me'",
+      "score": 0,
+      "max_score": 0
+    },
+    {
+      "id": "D-E3",
+      "tier": "executability",
+      "text": "check_tier_d.py re-derives, from each executed step's own captured response, whether every declared output_extractors path resolves (reusing the now-shared _tier_d_executor.extractor_resolution rather than a second computation); gate (PI decision 2026-08-05: an unresolved extractor is a runtime-failure risk) -- a row that declared zero extractors is not_measured, never a vacuous pass",
+      "role": "gate",
+      "scale": "binary",
+      "status": "not_measured",
+      "passed": false,
+      "evidence": "exit_code=0, stdout='TIER_D_CATALOG: snapshot=rikyu_mcp.json digest=8e331d938505 replay=none\\nTIER_D_REPLAY: status=not_measured reason=no_replay_target\\nTIER_D_EXECUTION: pass=None first_failure_index=None\\nTIER_D_SPANS: me'",
+      "score": 0,
+      "max_score": 0
+    },
+    {
+      "id": "D-E4",
+      "tier": "executability",
+      "text": "check_tier_d.py statically scans the mapping's parameter_mapping values for a ${...} context placeholder (reusing the now-shared tier_d_tool_grader.placeholder_demand) and, when demand exists, whether it resolved at call time (tier_d_tool_grader.unbound_placeholder_count); gate (PI decision 2026-08-05: an unbound ${context.X} is a runtime-failure risk) -- not_measured corpus-wide today (zero placeholder occurrences in every discovered mapping), never a vacuous pass",
+      "role": "gate",
+      "scale": "binary",
+      "status": "not_measured",
+      "passed": false,
+      "evidence": "exit_code=0, stdout='TIER_D_CATALOG: snapshot=rikyu_mcp.json digest=8e331d938505 replay=none\\nTIER_D_REPLAY: status=not_measured reason=no_replay_target\\nTIER_D_EXECUTION: pass=None first_failure_index=None\\nTIER_D_SPANS: me'",
+      "score": 0,
+      "max_score": 0
+    },
+    {
+      "id": "D-E5",
+      "tier": "executability",
+      "text": "check_tier_d.py grades the mapping against the targeted servers' real list_tools() catalog (tier_d_tool_grader.grade_mapping, the same function the D-E5/D-E6 corpus sweep already uses) and reports tool-existence violations; gate (PI decision 2026-08-05: an unknown tool/server is a runtime-failure risk) -- binary (zero violations = pass), same convention as C-M1/C-X1's tightened zero-count regex",
+      "role": "gate",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "exit_code=0, stdout='TIER_D_CATALOG: snapshot=rikyu_mcp.json digest=8e331d938505 replay=none\\nTIER_D_REPLAY: status=not_measured reason=no_replay_target\\nTIER_D_EXECUTION: pass=None first_failure_index=None\\nTIER_D_SPANS: me'",
+      "score": 1,
+      "max_score": 1
+    },
+    {
+      "id": "D-E6",
+      "tier": "executability",
+      "text": "check_tier_d.py grades the mapping's parameter_mapping bindings against the targeted servers' real inputSchema (tier_d_tool_grader.grade_mapping, the same function D-E5 uses) and reports parameter-schema violations; gate (PI decision 2026-08-05: a bad argument shape is a runtime-failure risk) -- binary (zero violations = pass), same convention as C-M1/C-X1's tightened zero-count regex",
+      "role": "gate",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "exit_code=0, stdout='TIER_D_CATALOG: snapshot=rikyu_mcp.json digest=8e331d938505 replay=none\\nTIER_D_REPLAY: status=not_measured reason=no_replay_target\\nTIER_D_EXECUTION: pass=None first_failure_index=None\\nTIER_D_SPANS: me'",
+      "score": 1,
+      "max_score": 1
+    }
+  ],
+  "summary": {
+    "passed": 2,
+    "failed": 0,
+    "total": 2,
+    "pass_rate": 1.0
+  }
+}

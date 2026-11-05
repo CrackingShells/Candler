@@ -1,0 +1,32 @@
+{
+  "eval_id": 5,
+  "title": "descriptive-annex-quantitative-metrics",
+  "configuration": "with_skill",
+  "skill_version": "v0.2.6",
+  "run_number": 12,
+  "model": "claude-haiku-4-5",
+  "prompt": "/htn-creator I want to build the domain and problem files for using the MCP servers available at .claude/skills/htn-creator-workspace/servers/rikyu_mcp that are used in the context of containerization training of a specialized MDLM diffusion model on a remote GPU. Name the domain 'cont-train'.\n\n**Hard Context**: This is a non-interactive run \u2014 proceed without pausing for confirmation.",
+  "timestamp": "2026-08-05T20:43:26.452319+00:00",
+  "domain_name": "cont-train",
+  "base_url": null,
+  "provenance": {
+    "skill_version": "v0.2.6",
+    "eval_infra": {
+      "tag": "htn-creator-eval@0.3.4",
+      "commits_ahead": 4,
+      "commit": "0e84a75",
+      "dirty": true
+    },
+    "sandbox_contract": "v5",
+    "planner": {
+      "runtime": {
+        "distribution": "gtpyhop-core",
+        "version": "2.0.0"
+      },
+      "sandbox": {
+        "distribution": "gtpyhop-core",
+        "version": "2.0.1"
+      }
+    }
+  }
+}

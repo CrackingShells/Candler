@@ -1,0 +1,26 @@
+{
+  "eval_id": 6,
+  "title": "tier-c-solvability",
+  "tier": "soundness",
+  "expectations": [
+    {
+      "id": "D1",
+      "tier": "soundness",
+      "text": "Every scenario in problems.py is solvable by the planner (find_plan returns a plan); pass_rate is the solvable fraction",
+      "role": "gate",
+      "scale": "binary",
+      "status": "fail",
+      "passed": false,
+      "evidence": "0/3 scenarios solvable \u2014 basic_training: UNSOLVABLE (No plan found); gpu_constrained: UNSOLVABLE (No plan found); monitor_existing: UNSOLVABLE (No plan found)",
+      "value": 0.0,
+      "score": 0,
+      "max_score": 3
+    }
+  ],
+  "summary": {
+    "passed": 0,
+    "failed": 3,
+    "total": 3,
+    "pass_rate": 0.0
+  }
+}

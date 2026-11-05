@@ -1,0 +1,173 @@
+{
+  "domain": "cont_train",
+  "version": "1.0.0",
+  "description": "Action-to-MCP-tool mappings for containerized training orchestration on RIKYU HPC",
+  "mcp_servers": [
+    {
+      "name": "rikyu-hpc",
+      "description": "RIKYU HPC cluster access: job submission, status monitoring, filesystem operations",
+      "url": "mcp://rikyu-hpc"
+    }
+  ],
+  "action_mappings": {
+    "a_query_gpu_resources": {
+      "tool": "rikyu-hpc:get_resources",
+      "description": "Query GPU partition occupancy from RIKYU scheduler",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "output_extractors": {
+        "partition_occupancy": {
+          "type": "dict",
+          "path": "data[0]",
+          "description": "GPU partition occupancy dict with idle/allocated/total counts"
+        }
+      },
+      "context_producers": [
+        "partition_occupancy"
+      ]
+    },
+    "a_prepare_training_environment": {
+      "tool": "rikyu-hpc:fs_upload",
+      "description": "Upload training code and config to cluster",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "code_source": {
+            "type": "string",
+            "description": "Training code repository URI"
+          },
+          "config_source": {
+            "type": "string",
+            "description": "Training configuration file URI"
+          }
+        },
+        "required": ["code_source", "config_source"]
+      },
+      "output_extractors": {
+        "work_dir": {
+          "type": "string",
+          "path": "data.remote_path",
+          "description": "Cluster working directory path"
+        }
+      },
+      "context_producers": [
+        "training_env_ready",
+        "work_dir"
+      ]
+    },
+    "a_submit_training_job": {
+      "tool": "rikyu-hpc:submit_job",
+      "description": "Submit containerized training job to Slurm",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "model_type": {
+            "type": "string",
+            "description": "Model type identifier"
+          },
+          "num_gpus": {
+            "type": "integer",
+            "description": "GPU count for the job"
+          },
+          "training_steps": {
+            "type": "integer",
+            "description": "Total training steps"
+          }
+        },
+        "required": ["model_type", "num_gpus", "training_steps"]
+      },
+      "output_extractors": {
+        "job_id": {
+          "type": "string",
+          "path": "data.job_id",
+          "description": "Slurm job ID"
+        }
+      },
+      "context_producers": [
+        "job_id",
+        "job_status"
+      ]
+    },
+    "a_monitor_job_execution": {
+      "tool": "rikyu-hpc:get_job_status",
+      "description": "Monitor job status until completion",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "context_variable": "${context.job_id}",
+            "description": "Job ID from submission"
+          }
+        },
+        "required": ["job_id"]
+      },
+      "output_extractors": {
+        "job_status": {
+          "type": "string",
+          "path": "data.status",
+          "description": "Current job status"
+        },
+        "results_path": {
+          "type": "string",
+          "path": "data.work_dir",
+          "description": "Cluster path containing results"
+        }
+      },
+      "context_producers": [
+        "job_status",
+        "results_path"
+      ]
+    },
+    "a_collect_training_results": {
+      "tool": "rikyu-hpc:fs_download",
+      "description": "Download results from cluster to local system",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "results_path": {
+            "type": "string",
+            "context_variable": "${context.results_path}",
+            "description": "Cluster results directory path"
+          }
+        },
+        "required": ["results_path"]
+      },
+      "output_extractors": {
+        "local_results_path": {
+          "type": "string",
+          "path": "data.local_path",
+          "description": "Local filesystem path where results were downloaded"
+        }
+      },
+      "context_producers": [
+        "results_downloaded",
+        "local_results_path"
+      ]
+    }
+  },
+  "context_variable_flow": {
+    "job_id": {
+      "source": "a_submit_training_job",
+      "consumers": ["a_monitor_job_execution"],
+      "type": "string",
+      "description": "Job ID linking submission to monitoring"
+    },
+    "results_path": {
+      "source": "a_monitor_job_execution",
+      "consumers": ["a_collect_training_results"],
+      "type": "string",
+      "description": "Results path linking monitoring to collection"
+    },
+    "partition_occupancy": {
+      "source": "a_query_gpu_resources",
+      "consumers": ["m_launch_training"],
+      "type": "dict",
+      "description": "GPU occupancy data for launch decision"
+    }
+  },
+  "status": "Pass 1 complete — domain and problems validated. Pass 2/3 (data-flow binding and ingestion) pending."
+}

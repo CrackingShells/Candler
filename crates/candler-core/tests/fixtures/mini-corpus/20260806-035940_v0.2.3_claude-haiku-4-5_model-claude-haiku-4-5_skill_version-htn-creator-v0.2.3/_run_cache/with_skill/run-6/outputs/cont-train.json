@@ -1,0 +1,99 @@
+{
+  "domain": "cont-train",
+  "version": "1.0.0",
+  "description": "Containerized MDLM Diffusion Model Training - MCP Tool Bindings",
+  "verify_bijection": true,
+  "mappings": [
+    {
+      "action": "a_get_facility_info",
+      "server": "rikyu-hpc",
+      "tool": "get_facility",
+      "parameter_mapping": {},
+      "output_extractors": {
+        "facility_config": ".",
+        "facility_name": "metadata.name",
+        "gpu_partitions": "job_resources.supported_gpu_counts"
+      }
+    },
+    {
+      "action": "a_check_resource_availability",
+      "server": "rikyu-hpc",
+      "tool": "get_resources",
+      "parameter_mapping": {},
+      "output_extractors": {
+        "resource_status": "[0]",
+        "gpu_partition_name": "[0].partition",
+        "available_nodes": "[0].idle",
+        "occupied_nodes": "[0].allocated"
+      }
+    },
+    {
+      "action": "a_prepare_training_environment",
+      "server": "rikyu-hpc",
+      "tool": "fs_mkdir",
+      "parameter_mapping": {
+        "0": "path"
+      },
+      "output_extractors": {
+        "working_dir": "path",
+        "environment_status": "status"
+      }
+    },
+    {
+      "action": "a_upload_training_code",
+      "server": "rikyu-hpc",
+      "tool": "fs_upload",
+      "parameter_mapping": {
+        "0": "local_path",
+        "1": "remote_path"
+      },
+      "output_extractors": {
+        "upload_status": "status",
+        "checksum_uploaded": "checksum",
+        "bytes_transferred": "bytes_transferred"
+      }
+    },
+    {
+      "action": "a_submit_training_job",
+      "server": "rikyu-hpc",
+      "tool": "submit_job",
+      "parameter_mapping": {
+        "0": "spec"
+      },
+      "output_extractors": {
+        "job_id": "job_id",
+        "submission_time": "timestamp",
+        "job_script": "job_script"
+      }
+    },
+    {
+      "action": "a_monitor_job_progress",
+      "server": "rikyu-hpc",
+      "tool": "get_job_status",
+      "parameter_mapping": {
+        "0": "job_id"
+      },
+      "output_extractors": {
+        "job_status": "status",
+        "job_state": "state",
+        "job_progress": "progress_percent",
+        "cpu_seconds": "cpu_seconds"
+      }
+    },
+    {
+      "action": "a_retrieve_trained_model",
+      "server": "rikyu-hpc",
+      "tool": "fs_download",
+      "parameter_mapping": {
+        "0": "remote_path",
+        "1": "local_path"
+      },
+      "output_extractors": {
+        "download_status": "status",
+        "checksum_downloaded": "checksum",
+        "bytes_downloaded": "bytes_downloaded",
+        "local_model_path": "local_path"
+      }
+    }
+  ]
+}

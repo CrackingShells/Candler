@@ -1,0 +1,1 @@
+{"eval_id":1,"title":"tier-a-domain-structure","tier":"structure","expectations":[{"id":"A1","tier":"structure","text":"synthetic expectation A1","role":"gate","scale":"binary","status":"pass","passed":true,"evidence":"exit_code=0","score":1,"max_score":1}],"summary":{"passed":0,"failed":0,"total":1,"pass_rate":0.0}}

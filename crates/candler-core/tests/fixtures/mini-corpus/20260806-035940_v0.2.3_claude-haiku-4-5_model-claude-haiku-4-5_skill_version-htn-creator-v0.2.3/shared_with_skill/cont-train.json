@@ -1,0 +1,141 @@
+{
+  "domain": "cont-train",
+  "version": "1.0.0",
+  "verify_bijection": true,
+  "mappings": [
+    {
+      "action": "a_check_facility_info",
+      "server": "rikyu-hpc",
+      "tool": "get_facility",
+      "parameter_mapping": {},
+      "output_extractors": {
+        "facility_info": ".",
+        "partitions": "partitions",
+        "supported_gpu_counts": "job_resources.supported_gpu_counts",
+        "storage_tiers": "storage"
+      }
+    },
+    {
+      "action": "a_check_drained_nodes",
+      "server": "rikyu-hpc",
+      "tool": "get_drained_nodes",
+      "parameter_mapping": {},
+      "output_extractors": {
+        "drained_nodes": "."
+      }
+    },
+    {
+      "action": "a_get_resource_status",
+      "server": "rikyu-hpc",
+      "tool": "get_resources",
+      "parameter_mapping": {},
+      "output_extractors": {
+        "resource_status": ".",
+        "gpu_partition": "[0]",
+        "allocated_nodes": "[0].nodes_alloc",
+        "idle_nodes": "[0].nodes_idle",
+        "total_nodes": "[0].nodes_total"
+      }
+    },
+    {
+      "action": "a_create_job_directory",
+      "server": "rikyu-hpc",
+      "tool": "fs_mkdir",
+      "parameter_mapping": {
+        "0": "path"
+      },
+      "output_extractors": {
+        "job_path": "."
+      }
+    },
+    {
+      "action": "a_prepare_training_script",
+      "server": "rikyu-hpc",
+      "tool": "fs_view",
+      "parameter_mapping": {
+        "0": "path"
+      },
+      "output_extractors": {
+        "training_script_path": ".",
+        "script_content": "."
+      }
+    },
+    {
+      "action": "a_submit_training_job",
+      "server": "rikyu-hpc",
+      "tool": "submit_job",
+      "parameter_mapping": {
+        "0": "spec"
+      },
+      "output_extractors": {
+        "job_id": "job_id",
+        "slurm_response": "."
+      }
+    },
+    {
+      "action": "a_monitor_job_status",
+      "server": "rikyu-hpc",
+      "tool": "get_job_status",
+      "parameter_mapping": {
+        "0": "job_id"
+      },
+      "output_extractors": {
+        "job_status": ".",
+        "job_state": "status",
+        "job_exit_code": "exit_code",
+        "elapsed_time": "elapsed"
+      }
+    },
+    {
+      "action": "a_retrieve_job_logs",
+      "server": "rikyu-hpc",
+      "tool": "fs_tail",
+      "parameter_mapping": {
+        "0": "path",
+        "1": "lines"
+      },
+      "output_extractors": {
+        "stdout_content": "."
+      }
+    },
+    {
+      "action": "a_verify_output_artifacts",
+      "server": "rikyu-hpc",
+      "tool": "fs_ls",
+      "parameter_mapping": {
+        "0": "path"
+      },
+      "output_extractors": {
+        "artifacts_verified": ".",
+        "checkpoint_found": ".",
+        "metrics_files": "."
+      }
+    },
+    {
+      "action": "a_download_model_checkpoint",
+      "server": "rikyu-hpc",
+      "tool": "fs_download",
+      "parameter_mapping": {
+        "0": "remote_path",
+        "1": "local_path"
+      },
+      "output_extractors": {
+        "checkpoint_path": ".",
+        "download_status": "transfer_status",
+        "checksum_verified": "sha256_verified"
+      }
+    },
+    {
+      "action": "a_cleanup_job_workspace",
+      "server": "rikyu-hpc",
+      "tool": "fs_mv",
+      "parameter_mapping": {
+        "0": "source",
+        "1": "dest"
+      },
+      "output_extractors": {
+        "cleanup_status": "."
+      }
+    }
+  ]
+}
