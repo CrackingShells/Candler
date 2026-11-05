@@ -96,7 +96,7 @@ pub struct LegacyRun {
     pub stderr: Option<SourceFile>,
     /// Every file under `outputs/`, sorted by path.
     pub outputs: Vec<SourceFile>,
-    /// The run's timing file.
+    /// The run's timing file: the first copy, every copy holding the same document.
     pub timing: JsonFile,
     /// The run's completion file, when the run has it.
     pub run_complete: Option<JsonFile>,
@@ -632,17 +632,21 @@ impl Reader<'_> {
                 (true, "run_complete.json") => run.run_complete = Some(json_file(&file)?),
                 (false, "eval_metadata.json") => run.eval_metadata.push(json_file(&file)?),
                 (false, "timing.json") => {
-                    if let Some(first) = &run.timing {
-                        return Err(ImportError::Layout {
-                            file: file.path.to_string(),
-                            run: run.label.clone(), // BORROW: .clone() copies the run label into the error
-                            detail: format!(
-                                "is a second timing file for the run (the first is `{}`)",
-                                first.path
-                            ),
-                        });
+                    let copy = json_file(&file)?;
+                    match &run.timing {
+                        Some(first) if first.value != copy.value => {
+                            return Err(ImportError::Disagree {
+                                what: "timing files",
+                                run: run.label.clone(), // BORROW: .clone() copies the run label into the error
+                                first: first.path.to_string(),
+                                second: copy.path.to_string(),
+                                detail: "the copies of one run hold different documents".into(),
+                            });
+                        }
+                        // EXPLICIT: a copy equal to the first adds nothing to keep
+                        Some(_) => {}
+                        None => run.timing = Some(copy),
                     }
-                    run.timing = Some(json_file(&file)?);
                 }
                 (false, grading) if is_grading_name(grading) => {
                     let parsed = json_file(&file)?;

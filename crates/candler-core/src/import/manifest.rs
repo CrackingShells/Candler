@@ -8,7 +8,7 @@ use candler_schemas::execution::{
     Integrity, InvalidReason, RunManifest, TreatmentRef, experiment_digest, varying_paths,
 };
 use candler_schemas::primitives::{
-    Digest, FieldPath, Name, NameVersion, RelPath, RequestId, RunKey, Timestamp,
+    Digest, FieldPath, InstrumentDigest, Name, NameVersion, RelPath, RequestId, RunKey, Timestamp,
 };
 use candler_schemas::values::{JsonValue, MeasuredValue, ResolvedValue, SourceEntry, ValueSource};
 use serde_json::Value;
@@ -35,12 +35,16 @@ pub struct MappedRun {
 pub(super) struct Pinned {
     /// The evaluator, as `name@version`.
     pub(super) evaluator: NameVersion,
+    /// The digest of the evaluator's instrument: `git:` and the commit it ran at.
+    pub(super) instrument: InstrumentDigest,
+    /// Whether the evaluator's checkout had uncommitted changes.
+    pub(super) dirty: bool,
     /// When the regrade finished.
     pub(super) finished: Timestamp,
 }
 
 /// An import error that names `file` of `run` and says `detail`.
-fn layout(file: &str, run: &str, detail: impl Into<String>) -> ImportError {
+pub(super) fn layout(file: &str, run: &str, detail: impl Into<String>) -> ImportError {
     ImportError::Layout {
         file: file.into(),
         run: run.into(),
@@ -65,12 +69,26 @@ fn provenance_text<'a>(folder: &'a LegacyFolder, pointer: &str) -> Result<&'a st
         })
 }
 
-/// The evaluator and finish time the folder's provenance file pins.
+/// The evaluator, its instrument and finish time the folder's provenance file pins.
 pub(super) fn pinned(folder: &LegacyFolder) -> Result<Pinned, ImportError> {
+    // BORROW: explicit .as_str() instead of Deref coercion
+    let file = folder.provenance.path.as_str();
     let evaluator = NameVersion::from_str(provenance_text(folder, "/pinned/describe")?)?;
+    let instrument = InstrumentDigest::from_str(&format!(
+        "git:{}",
+        provenance_text(folder, "/pinned/commit")?
+    ))?;
+    let dirty = folder
+        .provenance
+        .value
+        .pointer("/pinned/dirty")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| layout(file, "the folder", "`/pinned/dirty` is not a boolean"))?;
     let finished = Timestamp::from_str(provenance_text(folder, "/regraded_at/finished")?)?;
     Ok(Pinned {
         evaluator,
+        instrument,
+        dirty,
         finished,
     })
 }
