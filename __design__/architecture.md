@@ -165,7 +165,8 @@ probe. No tokens are spent.
 
 **Preflight steps** are registered with the resolver, which runs them in registration order. Each
 step sees the configuration, the caller's working directory and the values resolved so far
-(including what earlier steps derived); a duplicate step name is refused. Every failed check is
+(including what earlier steps derived); a duplicate step name is refused, and so is a path that
+two steps both derive. Every failed check is
 reported before resolution fails. The milestones that own a check (evaluation, execution) register
 its step; `resolve` itself knows none.
 
@@ -173,7 +174,7 @@ its step; `resolve` itself knows none.
 
 | File | Where | Keys |
 |---|---|---|
-| Project config | `candler.toml` in the project root, the nearest ancestor of the working directory holding one | `store.root` (default `<project root>/.candler/store`), `plugins.dirs[]` |
+| Project config | `candler.toml` in the project root, the nearest ancestor of the working directory holding one | `store.root` (default `<project root>/.candler/store`; with no project, `$XDG_STATE_HOME/candler/store`, else `~/.local/state/candler/store`), `plugins.dirs[]` |
 | User config | `$XDG_CONFIG_HOME/candler/config.toml`, else `~/.config/candler/config.toml` | `slots.count` |
 
 Unknown keys are refused, naming the file and key. A machine-wide setting (`slots.count`) is
@@ -264,6 +265,7 @@ dotted: `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`.
 | Gateway or provider error (connection refused, 0 tokens) | `invalid(gateway)`; retried once as a new attempt |
 | Job budget, `candler kill`, supervisor lost | `invalid(budget_stop \| killed \| interrupted)`; never charged to an arm |
 | Input passed off as output | `invalid(input_leak)` |
+| Collection failed, or the reader cannot parse the stream or does not know its format version | `invalid(collection_error \| reader_error \| format_unknown)`; raw kept |
 
 The driver's `classify_exit` sees the parsed sessions, so an exit 0 with an error result, or a run
 with zero tokens, is classified from the trace, not from the exit status.
@@ -379,6 +381,13 @@ Drivers return data and never act on processes; the core runs every command and 
 describe. The reader is synchronous, so the core owns all async I/O and drivers stay usable as
 `dyn` trait objects. A reader can exist without a driver. Missing capabilities are refused at
 `resolve`.
+
+The core feeds the child's stdout to `live_reader()` whenever the driver returns one, and the ids
+that `collect` receives are that reader's `observed()`. A driver whose harness writes its events
+elsewhere (OpenCode v2) may still return a Lines reader over stdout that emits no events and only
+reports the session ids it sees; `live_events` then means only that events arrive before the exit.
+The export it collects goes to `offline_reader`. A run the experimenter stopped (job budget,
+`candler kill`) is classified by the core, whatever `classify_exit` returns (I20).
 
 Drivers are compiled in, one crate each, selected by the experiment at runtime. A third-party
 driver is a crate against `candler-harness`, contributed upstream or built in. The trait is part of
@@ -542,7 +551,9 @@ erDiagram
 An index can always be rebuilt from these files. Stored paths are relative to the run root (I17).
 
 - **Marker.** `store.json` `{schema: candler-store/1}` at the root; a directory without it is not
-  opened as a store. The default root is `<project root>/.candler/store`.
+  opened as a store. The default root is `<project root>/.candler/store`; outside any project it is
+  `$XDG_STATE_HOME/candler/store`, else `~/.local/state/candler/store`, beside the slot files, so a
+  command finds the same store from any working directory.
 - **Index.** `index/runs.jsonl` and `index/outcomes.jsonl` are a cache, internal to the core:
   appended under `index/lock`, rewritten atomically by `rebuild_index`, and read tolerating a torn
   last line.
@@ -567,12 +578,15 @@ host?, job?, integrity, import?}`.
   `snapshots`, `inputs` and `environments` fill the typed fields, every other path goes to
   `values`. Operational settings (config keys, explicit paths) are resolved apart and never enter
   it, and a string value that is an absolute path is refused: a file enters a cell as an `inputs[]`
-  digest. The per-run caps are cell values under `budget.per_run.*`; the job caps are not. A
+  digest. The per-run caps are cell values under `budget.per_run.*`; the job caps (every other
+  `budget.*` path) and `replicates` are operational settings, which `resolve` classifies by path. A
   snapshot's digest is that of its RFC 8785 form without `captured_at`.
 - **Cell digest** = `sha256` of the RFC 8785 form of `comparable`, computed by one function
   (`RunManifest::cell_digest`). Changing the digest an existing manifest yields requires a new
   schema tag.
-- **Outside the hash:** `sources[] {path, source}` (where each value came from, I12: moving a value
+- **Outside the hash:** `sources[] {path, source}` (where each value came from, I12: one entry for
+  every path in `values` and for every typed root present, or a path under it such as
+  `harness.version`; settings have no entry, since they never enter the manifest; moving a value
   from the command line to the experiment file keeps its cell), `secrets[] {name, present}` (I19),
   `measured[] {path, value, source}` (values observed during the run, the run's end under
   `run.ended_by` and `run.exit`), `deviations[]`, timestamps, host, job id and the attempt. This nuisance set is part of the schema, not an implementer's choice. Stored paths are
