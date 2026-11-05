@@ -116,8 +116,8 @@ struct CellModel {
 /// The `provenance.*` leaves of `experiment.json` and all the leaves a cell digest holds.
 type Leaves = (Vec<(String, Value)>, Vec<(String, Value)>);
 
-/// Reads the leaves of `experiment.json` under `plan.*` (without `plan.out_dir`), `provenance.*` and `resolved_skill_version`.
-fn experiment_leaves(cell: &LegacyCell) -> Result<Leaves, ImportError> {
+/// Reads the leaves of `experiment.json` under `plan.*` (without `plan.out_dir`), `provenance.*` and the rules' resolved-version key.
+fn experiment_leaves(cell: &LegacyCell, rules: &ImportRules) -> Result<Leaves, ImportError> {
     // BORROW: explicit .as_str() instead of Deref coercion
     let file = cell.experiment.path.as_str();
     let doc = &cell.experiment.value;
@@ -131,14 +131,16 @@ fn experiment_leaves(cell: &LegacyCell) -> Result<Leaves, ImportError> {
         leaves(root, part, out);
     }
     plan.retain(|(path, _)| path != "plan.out_dir" && !path.starts_with("plan.out_dir."));
-    let skill = doc
-        .get("resolved_skill_version")
-        .ok_or_else(|| layout(file, &cell.name, "`resolved_skill_version` is missing"))?;
+    // BORROW: explicit .as_str() instead of Deref coercion
+    let resolved = rules.treatment.resolved.as_str();
+    let version = doc
+        .get(resolved)
+        .ok_or_else(|| layout(file, &cell.name, format!("`{resolved}` is missing")))?;
     let mut all = plan;
     // BORROW: .clone() copies the provenance leaves; the cell digest holds them too
     all.extend(provenance.clone());
     // BORROW: .to_owned() and .clone() make the owned leaf
-    all.push(("resolved_skill_version".to_owned(), skill.clone()));
+    all.push((resolved.to_owned(), version.clone()));
     Ok((provenance, all))
 }
 
@@ -186,7 +188,7 @@ fn cell_model(
             "the experiment file is outside the cell",
         )
     })?)?;
-    let (provenance_leaves, all) = experiment_leaves(cell)?;
+    let (provenance_leaves, all) = experiment_leaves(cell, rules)?;
     let mut builder = Comparable::builder();
     for (path, value) in all {
         let path = FieldPath::from_str(&path)?;

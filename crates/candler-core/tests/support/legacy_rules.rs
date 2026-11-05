@@ -24,7 +24,10 @@ pub fn rules() -> ImportRules {
             name("claude-code"),
             "/claude_code_version".into(),
         ))
-        .treatment(TreatmentRule::new("/plan/skill_version".into()))
+        .treatment(TreatmentRule::new(
+            "/plan/skill_version".into(),
+            FieldPath::from_str("resolved_skill_version").unwrap_or_else(|e| panic!("{e}")),
+        ))
         .instrument(name("htn-creator-eval"))
         .snapshot(SnapshotRule::new(name("catalog"), "/catalog/sha256".into()))
         .marker(MarkerRule::new(

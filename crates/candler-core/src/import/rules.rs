@@ -26,19 +26,21 @@ impl HarnessRule {
     }
 }
 
-/// Where the treatment of a cell comes from: the JSON pointer into `experiment.json` to a value written `<name>@<tag>`.
+/// Where the treatment of a cell comes from: the JSON pointer into `experiment.json` to a value written `<name>@<tag>`, and the top-level key of `experiment.json` that holds the version the treatment resolved to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct TreatmentRule {
     /// The JSON pointer into `experiment.json`.
     pub pointer: String,
+    /// The top-level key of `experiment.json` that holds the resolved version; it is also the path of that value among the cell's values.
+    pub resolved: FieldPath,
 }
 
 impl TreatmentRule {
     /// A treatment rule.
     #[must_use]
-    pub const fn new(pointer: String) -> Self {
-        Self { pointer }
+    pub const fn new(pointer: String, resolved: FieldPath) -> Self {
+        Self { pointer, resolved }
     }
 }
 
@@ -237,6 +239,13 @@ impl ImportRules {
                     detail: format!("`{field}` is not a JSON pointer (got {pointer:?})"),
                 });
             }
+        }
+        // BORROW: explicit .as_str() instead of Deref coercion
+        let resolved = self.treatment.resolved.as_str();
+        if resolved.contains('.') {
+            return Err(ImportError::Rules {
+                detail: format!("`treatment.resolved` is not a top-level key (got {resolved:?})"),
+            });
         }
         for marker in &self.markers {
             if let MarkerCode::Capture(group) = &marker.code
