@@ -152,11 +152,38 @@ enabled), `cocogitto` (`cog verify` in a
 | `diff` | two evaluator versions or two outcome sets | per-expectation changes | no |
 
 **Resolution order (all surfaces):** explicit argument > experiment or suite file > project config
-> derived value > core default. `resolve` reports each value's source and the manifest records it.
-Values that can be known are derived, never asked for. `resolve` is the real preflight: skill
-checkout at the pinned tag, isolation build, plug-in environments (built once per lock digest),
-evaluator `describe`, harness version and capabilities, secrets present, gateway auth probe. No
-tokens are spent.
+> user config > derived value > core default. `resolve` reports each value's source and the
+manifest records it. Values that can be known are derived, never asked for. `resolve` is the real
+preflight: skill checkout at the pinned tag, isolation build, plug-in environments (built once per
+lock digest), evaluator `describe`, harness version and capabilities, secrets present, gateway auth
+probe. No tokens are spent.
+
+**Value sources** (`ValueSource`, recorded per value): `explicit_argument`, `experiment_file`,
+`project_config`, `user_config`, `derived {step}` (the preflight step that derived it),
+`core_default`, `imported {file}` (the legacy importer, naming the run-relative source file), and
+`unrecorded`, which carries no value: the source system did not record it, and nothing guesses it.
+
+**Preflight steps** are registered with the resolver, which runs them in registration order. Each
+step sees the configuration, the caller's working directory and the values resolved so far
+(including what earlier steps derived); a duplicate step name is refused. Every failed check is
+reported before resolution fails. The milestones that own a check (evaluation, execution) register
+its step; `resolve` itself knows none.
+
+### Configuration
+
+| File | Where | Keys |
+|---|---|---|
+| Project config | `candler.toml` in the project root, the nearest ancestor of the working directory holding one | `store.root` (default `<project root>/.candler/store`), `plugins.dirs[]` |
+| User config | `$XDG_CONFIG_HOME/candler/config.toml`, else `~/.config/candler/config.toml` | `slots.count` |
+
+Unknown keys are refused, naming the file and key. A machine-wide setting (`slots.count`) is
+refused in a project config. A relative path written in a config file resolves against that file's
+directory; a relative path given as an argument resolves against the caller's working directory
+(I14).
+
+**Formats.** Documents people write (configs, experiment and suite files, plug-in manifests) are
+TOML; records and messages are JSON. Either is validated, after parsing, against its JSON Schema.
+Keys with a unit carry it: `deadline_ms`, `grace_ms`, `wall_s`, `max_cost_usd`.
 
 ### Budget
 
@@ -169,6 +196,18 @@ tokens are spent.
 Across jobs, without a daemon: each agent or evaluator process holds one of N machine-wide slot
 files (`~/.local/state/candler/slots/<n>.lock`, taken with `flock`, released by the kernel when the
 holder dies). N comes from user config (*provisional* default).
+
+### Experiment file (`experiment/1`, on the `schemas@` line)
+
+A TOML document: `schema`; `fixed` (field path → value, the same in every cell); `factors` (field
+path → its levels, in order); `replicates`; `budget` (the fields above, with units in the keys:
+`per_run.wall_s`, `per_run.turns`, `per_run.max_cost_usd`, `max_runs`, `max_tokens`,
+`max_cost_usd`, `wall_s`, `max_parallel`); `harness`; `treatment`; `secrets[]` (variable names
+only). A level is a value, or a table that fills the values under its path (a model level sets the
+model id and its provider settings together). The cells are the cartesian product of the factor
+levels, in the order the factors and levels are written; listing them is a pure function of the
+file (`ExperimentFile::cells`), and running them belongs to the orchestrator. A field path is
+dotted: `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`.
 
 ### CLI surface over the jobs
 
@@ -197,7 +236,8 @@ holder dies). N comes from user config (*provisional* default).
   Consumers skip kinds they do not know.
 - **First event set** (*provisional*): `job.started`, `job.ended`; `run.started`, `run.ended` (with
   `ended_by` and exit status), `run.failed` (reason code), `run.stray` (survivors found by the
-  sweep); `evaluation.outcome`.
+  sweep); `evaluation.outcome`; `process.spawned`, `process.stop_step`, `process.exited`. The job
+  record (`job.json`), the envelope and these payloads are on the `schemas@` line.
 - **Order of delivery:** `run` + events + `ps` + `kill` → `watch --json` → `ls` + `watch --live`.
 
 ### Run identity and resume
@@ -205,13 +245,16 @@ holder dies). N comes from user config (*provisional* default).
 - **Run key** = `(cell digest, replicate, attempt)`. The cell digest hashes the cell's comparability
   fields (see the run manifest). Replicates count valid attempts only.
 - **One supervisor per experiment:** `<store>/experiments/<digest>/lock`, held with `flock`.
-- **Completion** = `run.done`, written (fsync, then rename) after collect and ingest.
+- **Completion** = `run.done`, written (fsync, then rename) after collect and ingest. It seals the
+  run: nothing in its directory changes afterwards, and the manifest's `integrity` says whether the
+  run counts. The manifest may be rewritten until then.
 - **Resume** replays the stored resolved values, never re-derives them. If a value that is re-checked
   differs (a harness that auto-updated, a missing secret, a moved tag), resume refuses unless forced,
   and a forced deviation is recorded on every run it affects. Before reusing a run, resume reaps the
   recorded children of any lost job.
-- An attempt without `run.done` becomes `invalid(interrupted)` and stays in the ledger; the next
-  attempt gets the next number. Nothing is ever deleted.
+- An attempt without `run.done` is sealed `invalid(interrupted)` and stays in the ledger; the next
+  attempt gets the next number. Nothing is ever deleted. A forced deviation is listed in the
+  manifest's `deviations[] {path, stored?, observed?}`, outside the hash.
 
 ### Ends
 
@@ -236,11 +279,29 @@ with zero tokens, is classified from the trace, not from the exit status.
 - **Stray sweep.** Harnesses start descendants in new sessions (Claude Code 2.1.304 spawns its Bash
   shell and its hooks detached), so a group kill misses them. On Linux the supervisor is a child
   subreaper and scans `/proc` for the marker; on macOS it scans same-user processes for the marker.
-  Survivors are evented as `run.stray`, then killed. The same scan serves the process census.
-- **Supervisor death.** On Linux children get a parent-death signal (set from one long-lived spawner
-  thread). On macOS, `ps`, `kill` and `run` reap a lost job's recorded children and strays; until one
-  of them runs, an orphaned agent may keep going (*provisional*: a watchdog may follow).
-- Liveness checks compare pid *and* start time, so a reused pid never looks alive.
+  Survivors are evented as `run.stray`, then killed. The same scan serves the process census. The
+  supervisor core calls an injected sweeper after the group kill; the execution milestone provides
+  the scans and the subreaper.
+- **Supervisor death.** `ps`, `kill` and `run` reap a lost job's recorded children and strays; until
+  one of them runs, an orphaned agent may keep going (*provisional*: a watchdog may follow). A Linux
+  parent-death signal would end children with their supervisor, but setting it needs a `pre_exec`
+  hook, which `forbid(unsafe_code)` excludes, so M1 ships without it. The execution milestone
+  decides between an isolated `unsafe` module (relaxing the lint for that module alone) and no
+  parent-death signal, relying on the child subreaper (safe through `rustix`) and the marker sweep.
+- **Child record** (`child-record/1`, on the `schemas@` line): `{pid, pgid, start, marker,
+  spawned_at}`, written and fsynced in `children/` before `spawn` returns. `start` is `{kind: linux,
+  boot_id, ticks}` (field 22 of `/proc/<pid>/stat`), `{kind: darwin, sec, usec}`, or `{kind:
+  unavailable}`. A liveness check compares the pid *and* `start`, so a reused pid never looks alive;
+  `unavailable` never reads as alive.
+- **Exit status** `{kind: code, code}` or `{kind: signal, signal}`, the same type in the driver's
+  `ProcessExit` and in the `process.exited` payload.
+- **Reaping from a record.** `reap(record, stop)` stops a group from its child record alone, so
+  resume and `kill` reap a lost job's children with the same escalation.
+- **Pre-stop over HTTP** reaches loopback only: the host is parsed, never matched as text, and must
+  be `localhost`, `127.0.0.0/8` or `::1`; redirects are not followed. A failed or timed-out pre-stop
+  continues the escalation.
+- **Supervision events:** `process.spawned`, `process.stop_step` (which step, and when),
+  `process.exited`. The sink that receives them owns the envelope's `seq`, `job_id` and `at`.
 
 ### Agent environment and secrets
 
@@ -253,9 +314,26 @@ with zero tokens, is classified from the trace, not from the exit status.
 
 ### Raw traces
 
-The supervisor archives each harness output stream as framed records `{t_mono_ns, data}` with one
-wall-clock anchor in the header, compressed when the run closes. That framed file is the raw input
-of I3, so event times are reproducible even where the harness emits none.
+The supervisor archives each harness output stream as a framed file. That file is the raw input of
+I3, so event times are reproducible even where the harness emits none.
+
+**`raw-frames/1`** (JSONL, on the `schemas@` line):
+
+- **Header**, the first line: `{kind: header, schema, stream, clock, source?}`. `stream` is a stream
+  name (`stdout`, `stderr`, or a collected file's name). `clock` is `{kind: monotonic, anchor{wall,
+  mono_ns}}`, one wall-clock reading paired with the monotonic clock, or `{kind: unrecorded}`.
+  `source` is the digest of the file the frames were cut from, when they were cut after the fact.
+- **Frames**, the following lines: `{kind: frame, t_mono_ns?, data}`, with `data` either `{kind: text,
+  text}` (valid UTF-8) or `{kind: bytes, base64}`. Frame indices count the lines after the header,
+  from 0.
+- **Line framing.** One frame per line of the stream, its `\n` kept. A trailing line without `\n` is
+  its own frame. Concatenating the frames' data reproduces the stream byte for byte. A stream read
+  by a `Document` reader is framed whole instead: one frame holding the stream.
+- **Writing.** The file is written plain and flushed after each frame; on close it is gzipped (header
+  mtime 0) and renamed into place. A stream framed after the fact (an imported legacy stream) has
+  `clock: unrecorded` and no `t_mono_ns`.
+- **Times.** `Event.at`, `Session.started_at` and `Session.ended_at` are optional. Each comes from
+  the harness's timestamp, else from the frame time; neither is ever interpolated.
 
 ## Harness drivers
 
@@ -282,13 +360,18 @@ of I3, so event times are reproducible even where the harness emits none.
   - `prepare(cell, workspace) -> { files[], env_overlay }`
   - `command(cell, workspace) -> CommandSpec { argv, env_overlay, cwd }`
   - `stop() -> StopSpec { pre_stop: Option<Action>, signal, grace }`, with `Action = Command(CommandSpec) | Http { method, url, body }`
-  - `live_reader() -> Option<Box<dyn TraceReader>>`
-  - `classify_exit(status, tail, sessions) -> EndedBy`
+  - `live_reader() -> Option<Box<dyn TraceReader>>`; `offline_reader(stream) -> Option<Box<dyn TraceReader>>`
+    for a stream the core collected (an export)
+  - `classify_exit(exit {status, ended, tail}, sessions) -> EndedBy`, `ended` saying whether the
+    process exited, hit its deadline or was stopped
   - `collect(workspace, observed) -> CollectSpec[]`, with `CollectSpec = File(glob) | Command(CommandSpec, name)`
 - `TraceReader`
+  - `id() -> name@version`, written into the trace header; the version is bumped whenever the
+    reader's output changes
   - `framing() -> Lines | Document`
   - `detect(sample) -> Option<(FormatVersion, Confidence)>`
-  - `feed(record) -> Event[]` (one line, or the whole document)
+  - `feed(frame {raw_ref, at?, record}) -> Event[]` (one line, or the whole document); the core
+    supplies the frame's place and its wall time from the raw header's clock
   - `observed() -> Observed { session_ids[] }`
   - `finish() -> Result<Session[], ReaderError>` (root first; children linked by `parent_session`)
 
@@ -388,6 +471,16 @@ isolation, I8); `metadata` (the declared manifest fields). Absolute paths are va
 evaluator runs (host or container) and exist only in requests. `scratch` is the evaluator's; the run
 store is read-only to it.
 
+**Digests of a request.** Both are `sha256` over RFC 8785 JSON, so any language recomputes them.
+
+- `context_digest` covers the projection `{artifacts: [{path, sha256}], snapshots: [{kind,
+  digest}], inputs: [{kind, digest}], metadata: {<field path>: value}}`: lists sorted by `path` or
+  by `(kind, digest)`, every key present (lists possibly empty). Absolute paths, `root`, `trace`,
+  `raw[]` and `scratch` are outside it: they say where the run is, not what was graded.
+- `suite_entry_digest` covers `{kind, params, role, depends_on, applies_to?}` of one suite entry:
+  `depends_on` sorted, `applies_to` omitted when absent. `id`, `group`, `evaluator` and
+  `deadline_ms` are outside it, so renaming an expectation or moving its deadline keeps its digest.
+
 **Lifetime.** The core starts one evaluator process per request, in its own process group, sends
 `describe` then `evaluate`, and keeps stdin open until the `evaluate` result arrives; it then closes
 stdin. End of input means "finish in-flight work, then exit". On cancel: send `cancel`, close stdin,
@@ -440,7 +533,7 @@ erDiagram
 
 | Path | Holds |
 |---|---|
-| `runs/<run key>/` | `manifest.json`, `run.done`, `raw/` (framed), `trace.jsonl`, `tree.json` (workspace paths → sha256) |
+| `runs/<run key>/` | `manifest.json`, `run.done`, `raw/` (`raw-frames/1`), `trace.jsonl` (`normalised-trace/1`), `tree.json` (`run-tree/1`: workspace paths → sha256) |
 | `blobs/<sha256>` | Artifact contents, once |
 | `outcomes/<run key>/<evaluator@version>/<request id>.jsonl` | One request's outcomes; written as `.partial`, renamed when the result arrives; one writer, no locks |
 | `jobs/<job id>/` | `job.json`, `events.jsonl`, `children/`, `lock` |
@@ -448,24 +541,70 @@ erDiagram
 
 An index can always be rebuilt from these files. Stored paths are relative to the run root (I17).
 
-### Run manifest (on the `schemas@` line)
+- **Marker.** `store.json` `{schema: candler-store/1}` at the root; a directory without it is not
+  opened as a store. The default root is `<project root>/.candler/store`.
+- **Index.** `index/runs.jsonl` and `index/outcomes.jsonl` are a cache, internal to the core:
+  appended under `index/lock`, rewritten atomically by `rebuild_index`, and read tolerating a torn
+  last line.
+- **Blobs** are written to a temporary file, verified against their digest, renamed, and made
+  read-only (0444). A blob that exists is never rewritten.
+- **Outcome files** are written as `.partial`, fsynced, and renamed when the request ends. Readers
+  never see a `.partial`; a final file is never replaced.
+- **Runs.** `raw/` holds finished `raw-frames/1` files (`<stream>.jsonl.gz`); the store does no
+  framing itself. `run.done` is written last.
 
-Run key; experiment digest; cell factor values; every resolved value with its source (secrets as
-`{name, present}`); harness `{name, version, driver@version}`; isolation; treatment reference (skill
-tag and commit); catalog snapshot and input digests; plug-in environment lock digests; start and end
-times; host; job id; integrity verdict.
+### Run manifest (`run-manifest/1`, on the `schemas@` line)
 
-**Comparability fields** (used by I7 and by the cell digest): the cell factor values and every
-resolved value, except a fixed nuisance set: timestamps, absolute paths, pids, host, job id, attempt.
-The nuisance set is part of the schema, not an implementer's choice.
+`{run, experiment, factors[], comparable, sources[], secrets[], measured[], started_at?, ended_at?,
+host?, job?, integrity, import?}`.
 
-### Normalised trace model
+- **`comparable`** `{values[] {path, value?}, harness {name, version, driver?}, treatment,
+  snapshots[], inputs[], environments[]}`: every resolved value by field path (isolation under
+  `isolation.*`), the harness, the treatment reference (skill tag and commit), the catalog snapshot
+  and input digests, and the plug-in environment lock digests. A value without `value` was
+  `unrecorded`. Every list is sorted and holds no duplicate; a reader refuses one that is not.
+  `Comparable::from_resolved` builds it from the resolved values: the roots `harness`, `treatment`,
+  `snapshots`, `inputs` and `environments` fill the typed fields, every other path goes to
+  `values`. Operational settings (config keys, explicit paths) are resolved apart and never enter
+  it, and a string value that is an absolute path is refused: a file enters a cell as an `inputs[]`
+  digest. The per-run caps are cell values under `budget.per_run.*`; the job caps are not. A
+  snapshot's digest is that of its RFC 8785 form without `captured_at`.
+- **Cell digest** = `sha256` of the RFC 8785 form of `comparable`, computed by one function
+  (`RunManifest::cell_digest`). Changing the digest an existing manifest yields requires a new
+  schema tag.
+- **Outside the hash:** `sources[] {path, source}` (where each value came from, I12: moving a value
+  from the command line to the experiment file keeps its cell), `secrets[] {name, present}` (I19),
+  `measured[] {path, value, source}` (values observed during the run, the run's end under
+  `run.ended_by` and `run.exit`), `deviations[]`, timestamps, host, job id and the attempt. This nuisance set is part of the schema, not an implementer's choice. Stored paths are
+  run-relative (I17).
+- **`factors[]`** names the field paths that vary across the experiment's cells; **`experiment`** is
+  the digest of the sorted cell digests. One function computes each.
+- **`integrity`** `{kind: valid}` or `{kind: invalid, reason}`. **`import`** records how an imported
+  run was read: format label, base commit, the legacy integrity block, `sources[] {path,
+  sha256}`, each stored as a blob, and `requests[] {evaluator, request}`, the outcome files it
+  wrote, by which a diff finds the imported reference.
 
-`Session {id, source{harness, harness_version, reader, reader_version}, model, started_at, ended_at,
-ended_by, parent_session?, raw_ref}`; `Event {seq, at, kind, span?, raw_ref, ext}` with kinds
-`user_message`, `assistant_message`, `tool_call` (`origin`, `argv?`, `wrapped_calls[]?` for a call
-that bundles several MCP calls), `tool_result` (`is_error`, `denied?`), `notification`, `usage`.
-`at` comes from the harness when it emits one, else from the receive time in the raw frame.
+### Normalised trace model (`normalised-trace/1`, on the `schemas@` line)
+
+`Session {id, source{harness, harness_version, reader, reader_version}, model, started_at?,
+ended_at?, ended_by, parent_session?, raw_ref}`; `Event {seq, at?, kind, span?, raw_ref, ext}` with
+kinds `user_message`, `assistant_message`, `tool_call` (`origin`, `argv?`, `wrapped_calls[]?` for a
+call that bundles several MCP calls), `tool_result` (`is_error`, `denied?`), `notification`, `usage`
+(`scope: message | session_total`). `at` comes from the harness when it emits one, else from the
+frame time in the raw file, else it is absent.
+
+- **File.** JSONL: a header `{schema, reader: name@version, raw[]}`; then the sessions, root first and
+  each parent before its children; then the events `{session, event}` in feed order.
+- `seq` counts from 0 in each session, without gaps. `span` is the harness's id pairing a call with
+  its result (Claude Code's `tool_use` id). `raw_ref` is `{stream, frame}`.
+- **Session ids.** A child session's id is `<parent id>/<tool_use id>`; ids hold no `#` or white
+  space, so they read as the session part of an `event:` evidence ref.
+- **Usage.** A message split over several lines reports its usage once, on the first line carrying
+  its message id. A `session_total` is the session's running total, so a later one supersedes an
+  earlier one. An unknown line becomes a `notification` with the line in `ext`, and readers skip
+  kinds they do not know (I18).
+- **Reproducibility.** The trace is a function of the raw files and the reader at its version (I3):
+  feeding the same frames, however they are chunked, gives the same file byte for byte.
 
 ### Wire schema: outcome record
 
@@ -545,9 +684,10 @@ The rules every wire type of the `schemas@` line follows.
 
 ### The `schemas@` line holds
 
-Outcome record · catalog snapshot · normalised trace · evaluator messages (`describe` result,
-`evaluate` params, notifications) · plug-in manifest · suite file · run manifest · job record and
-event envelope · experiment file. All are generated from `candler-schemas`.
+Outcome record · catalog snapshot · raw frames · normalised trace (header, session, event records)
+· workspace tree (`run-tree/1`) · child record · evaluator messages (`describe` result, `evaluate`
+params, notifications) · plug-in manifest · suite file · run manifest · job record, event envelope
+and event payloads · experiment file. All are generated from `candler-schemas`.
 
 ## Key Flows
 
@@ -632,7 +772,7 @@ request files under the new evaluator version; `diff` compares versions.
 | I11 | Outcomes, events and run attempts are append-only. Nothing is deleted. |
 | I12 | Every resolved argument records its source. Nothing is defaulted silently. |
 | I13 | A `run` without a budget is refused on the MCP surface. |
-| I14 | One front door, one environment. Plug-in environments are provisioned by the core from their manifests. Relative paths resolve against the caller's working directory. |
+| I14 | One front door, one environment. Plug-in environments are provisioned by the core from their manifests. Relative paths given as arguments resolve against the caller's working directory; relative paths written in a config file resolve against that file's directory. |
 | I15 | The core supervises every process it starts, and reaps it and its descendants. Drivers never act on processes. An evaluator may run children only inside its own request; they die with it. |
 | I16 | Nothing of Candler runs when no job runs. |
 | I17 | Stored records hold only run-relative paths. |
@@ -695,9 +835,44 @@ come after parity, as evaluator version bumps, visible through `diff`.
 **Mismatch triage, in order:** the instrument digest differs from the pin (re-pin, rerun) → an
 input the legacy importer reconstructed (importer defect) → anything left is a core defect.
 
+**Importing the corpus (M1).**
+
+- **Extraction.** The corpus is read from a `git archive` of the tag, with the empty directories the
+  archive drops recreated; nothing is written in the artifact repository.
+- **Manifest fields.**
+
+| Field | From | Rule |
+|---|---|---|
+| `comparable.values` | `experiment.json` `plan.*`, `provenance.*`, `resolved_skill_version` | Each JSON leaf becomes a dotted field path with source `imported{experiment.json}`; a `null` leaf has no value and is `unrecorded`. `plan.out_dir` goes to `import`. |
+| `comparable.harness` | the stream's init line, `claude_code_version` | Must agree across a cell, else the import is refused |
+| `measured` | each run's `eval_metadata.json` `provenance.*`, where the cell-level value is `null` | Source `imported{<run-relative path>}`; the copies within one run must agree, else the import is refused |
+| `factors` | — | The field paths whose values differ across the imported cells |
+| `experiment` | — | The digest of the sorted cell digests |
+| `run` | — | `(cell digest, N, 1)`, N from the run folder |
+| `started_at`, `ended_at` | `progress.jsonl` `run_start` + `elapsed_seconds`, `run_complete.completed_at` | |
+| `integrity` | `PROVENANCE.json` `runs[].original_integrity.verdict` | `clean` and `incomplete` → `valid`; `contaminated` → `invalid{input_leak}`; any other value is refused; cross-checked with the cell's `contamination_catalog.jsonl` |
+| `import` | — | The format label, base commit, legacy integrity block, and every source file read with its sha256, each kept as a blob |
+
+- **Evaluator identity** comes from `PROVENANCE.json` `pinned` (`describe`, `commit`, `dirty`). The
+  instrument name, the marker patterns and the format label come from import rules the caller
+  supplies, so the core names no domain (I1).
+- **Outcome identity.** One request per run per evaluator. `request_id` is a UUIDv7 whose 48-bit
+  time is the regrade's finish time in milliseconds (`PROVENANCE.json` `regraded_at.finished`) and
+  whose 74 random bits are the first 74 bits of `sha256(<run key path form> 0x00 <evaluator
+  name@version>)` (12 bits of `rand_a`, then 62 of `rand_b`), so a re-import yields the same id. `suite_entry_digest` is computed over a synthesised suite entry and
+  `context_digest` over the context projection, with the functions live runs use. Imported digests
+  never equal live ones, so M2a joins imported and live outcomes on `(run, expectation_id,
+  evaluator@version)`.
+- **Edges.** An invalid run gets no outcomes; its grading files stay as blobs. A reader failure lands
+  the run without a trace and is listed in the import report. A run without `outputs/` is refused.
+- **Re-import (I11).** A byte-identical re-import is a no-op; a run that began importing but has no
+  `run.done` is replaced; a finished run whose sources differ is refused.
+
 **Known gaps:** the corpus is `with_skill` only, so parity does not exercise `not_applicable` or a
-contaminated run; the agent-side planner version of those runs is unrecorded (`null`) and must be
-labelled so in any analysis.
+contaminated run. The sandbox planner version is `null` in `experiment.json`, which is written when
+the experiment is planned; the value each run actually used is in its `eval_metadata.json`, written
+by the original artifact commit `36290ab`, and is imported under `measured`. At cell level it stays
+`unrecorded`.
 
 ## Alternatives Considered
 
@@ -721,7 +896,7 @@ labelled so in any analysis.
 |---|---|
 | The trace model drops signal (side-chains, denials, hook payloads, bundled MCP calls) | `ext`, `raw_ref`, `wrapped_calls`; a fixture corpus per harness format version |
 | The driver trait ends up shaped like Claude Code | OpenCode v2 before the freeze; its known differences are already in the trait |
-| Detached descendants or orphans survive (Claude Code starts its shells in new sessions) | Marker sweep after every group kill; child records; Linux subreaper and parent-death signal; a test kills a supervisor mid-run and checks no marked process survives |
+| Detached descendants or orphans survive (Claude Code starts its shells in new sessions) | Marker sweep after every group kill; child records; Linux child subreaper; reaping from records by `ps`, `kill` and `run`; a test kills a supervisor mid-run and checks no marked process survives. A Linux parent-death signal is not in place: the execution milestone decides between an isolated `unsafe` module and the subreaper plus marker sweep alone |
 | `fork` after imports is unsafe on macOS when threads or system frameworks are loaded | The helper refuses to fork when more than one thread exists and falls back to one process per item; tested on macOS in M2a |
 | Parity mismatches are instrument drift | Instrument digests and dirty flags; the pinned reference; the triage order |
 | The legacy importer reconstructs inputs wrongly | Importer fixtures; triage step 2 |
