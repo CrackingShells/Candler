@@ -17,12 +17,17 @@ use crate::canonical::{self, CanonicalError};
 use crate::generate::GeneratedSchema;
 use crate::map_only::MapOnly;
 use crate::primitives::{
-    Digest, FieldPath, FormatError, Name, SecretName, object_only, present, schema_tag, text_type,
+    Digest, FieldPath, FormatError, JobId, Name, NameToken, NameVersion, RelPath, RequestId,
+    RunKey, SEMVER_PATTERN, SecretName, Timestamp, object_only, present, schema_tag, text_type,
 };
-use crate::values::{JsonValue, ResolvedValue, ValuesError};
+use crate::values::{JsonValue, MeasuredValue, ResolvedValue, SourceEntry, ValuesError};
 
 /// The version marker of an experiment file, written in its `schema` field.
 pub const EXPERIMENT_SCHEMA: &str = "experiment/1";
+
+/// The version marker of a run manifest, written in its `schema` field. A change to the digest an
+/// existing manifest yields requires a new marker.
+pub const RUN_MANIFEST_SCHEMA: &str = "run-manifest/1";
 
 /// The wire root schemas this module publishes.
 pub(crate) fn roots() -> Vec<GeneratedSchema> {
@@ -124,6 +129,36 @@ pub enum ExecutionError {
         /// The repeated entry, by its key.
         value: String,
     },
+    /// A resolved value at a reserved root that is not the root alone, or has no value.
+    #[error("reserved root `{path}` {problem}")]
+    ReservedRoot {
+        /// The path of the value.
+        path: String,
+        /// What is wrong with it.
+        problem: &'static str,
+    },
+    /// A value at a reserved root that is not the shape the root takes.
+    #[error("value of reserved root `{root}` is malformed ({detail})")]
+    ReservedValue {
+        /// The reserved root.
+        root: &'static str,
+        /// The reader's explanation.
+        detail: String,
+    },
+    /// A value that holds a string that is an absolute path, at any depth: a file enters a cell as an input digest.
+    #[error("value at `{path}` holds an absolute path (a file enters a cell as an input digest)")]
+    AbsolutePath {
+        /// The path of the value.
+        path: String,
+    },
+    /// A `sources` list that does not cover the values and the typed roots, or names a path that is neither.
+    #[error("source of `{path}` {problem}")]
+    SourcesMismatch {
+        /// The path concerned.
+        path: String,
+        /// What is wrong with it.
+        problem: &'static str,
+    },
 }
 
 const GIT_COMMIT_PATTERN: &str = r"^(?:[0-9a-f]{40}|[0-9a-f]{64})(?![\s\S])";
@@ -151,6 +186,47 @@ impl FromStr for GitCommit {
                 value: text.to_owned(),
             })
         }
+    }
+}
+
+/// A `SemVer` version written as text, for fields that hold a [`semver::Version`].
+mod version_text {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub(super) fn serialize<S: Serializer>(
+        version: &semver::Version,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(version)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<semver::Version, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        // BORROW: explicit .as_str() instead of Deref coercion
+        semver::Version::parse(text.as_str()).map_err(serde::de::Error::custom)
+    }
+}
+
+/// The schema of a [`semver::Version`] field: `SemVer` 2.0 text.
+struct VersionText;
+
+impl JsonSchema for VersionText {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "VersionText".into()
+    }
+
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "type": "string",
+            "description": "A SemVer 2.0 version.",
+            "pattern": SEMVER_PATTERN,
+        })
     }
 }
 
@@ -1017,4 +1093,1198 @@ pub fn varying_paths(cells: &[Vec<ResolvedValue>]) -> Vec<FieldPath> {
         // BORROW: .clone() copies the path into the result
         .map(|(path, _)| path.clone())
         .collect()
+}
+
+schema_tag! {
+    /// The constant `schema` field of a run manifest.
+    pub RunManifestTag = RUN_MANIFEST_SCHEMA
+}
+
+/// The harness a run used, as it identified itself: its name, its version and, when one drove it, the driver as `name@version`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct HarnessIdentity {
+    /// The name of the harness.
+    pub name: Name,
+    /// The version of the harness.
+    #[serde(with = "version_text")]
+    #[schemars(with = "VersionText")]
+    pub version: semver::Version,
+    /// The driver that ran the harness, as `name@version`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub driver: Option<NameVersion>,
+}
+
+object_only!(HarnessIdentity);
+
+impl HarnessIdentity {
+    /// A harness without a driver.
+    #[must_use]
+    pub const fn new(name: Name, version: semver::Version) -> Self {
+        Self {
+            name,
+            version,
+            driver: None,
+        }
+    }
+}
+
+/// A digest and the kind of thing it identifies: a catalog snapshot or an input.
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(remote = "Self")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct DigestRef {
+    /// What the digest identifies, as a plain name.
+    pub kind: Name,
+    /// The digest.
+    pub digest: Digest,
+}
+
+object_only!(DigestRef);
+
+impl DigestRef {
+    /// A digest of a `kind` of thing.
+    #[must_use]
+    pub const fn new(kind: Name, digest: Digest) -> Self {
+        Self { kind, digest }
+    }
+}
+
+/// The lock digest of a plug-in environment, with the plug-in as `name@version`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct EnvironmentRef {
+    /// The plug-in, as `name@version`.
+    pub plugin: NameVersion,
+    /// The digest of the plug-in's lock file.
+    pub lock_digest: Digest,
+}
+
+object_only!(EnvironmentRef);
+
+impl EnvironmentRef {
+    /// The environment of `plugin`, locked at `lock_digest`.
+    #[must_use]
+    pub const fn new(plugin: NameVersion, lock_digest: Digest) -> Self {
+        Self {
+            plugin,
+            lock_digest,
+        }
+    }
+}
+
+/// The roots a preflight step derives into the typed fields of a [`Comparable`].
+const RESERVED_ROOTS: [&str; 5] = [
+    "harness",
+    "treatment",
+    "snapshots",
+    "inputs",
+    "environments",
+];
+
+/// The fields of a cell as the hash sees them, borrowed.
+#[derive(Serialize)]
+struct ComparableBody<'a> {
+    values: &'a [ResolvedValue],
+    harness: &'a HarnessIdentity,
+    treatment: &'a TreatmentRef,
+    snapshots: &'a [DigestRef],
+    inputs: &'a [DigestRef],
+    environments: &'a [EnvironmentRef],
+}
+
+/// Checks that `items` rise strictly by `key`: an equal neighbour is a duplicate, a lower one is out of order.
+fn check_ascending<'a, T, K: Ord>(
+    list: &'static str,
+    by: &'static str,
+    items: &'a [T],
+    key: impl Fn(&'a T) -> K,
+    show: impl Fn(&'a T) -> String,
+) -> Result<(), ExecutionError> {
+    for pair in items.windows(2) {
+        if let [first, second] = pair {
+            match key(first).cmp(&key(second)) {
+                // EXPLICIT: an ascending pair has nothing to report
+                std::cmp::Ordering::Less => {}
+                std::cmp::Ordering::Equal => {
+                    return Err(ExecutionError::Duplicate {
+                        list,
+                        value: show(second),
+                    });
+                }
+                std::cmp::Ordering::Greater => {
+                    return Err(ExecutionError::Unsorted { list, key: by });
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn environment_order(first: &EnvironmentRef, second: &EnvironmentRef) -> std::cmp::Ordering {
+    first
+        .plugin
+        // BORROW: explicit .as_str() instead of Deref coercion
+        .as_str()
+        .cmp(second.plugin.as_str())
+        .then_with(|| first.lock_digest.cmp(&second.lock_digest))
+}
+
+/// What the cell digest hashes: every resolved value, the harness, the treatment, the catalog snapshots, the inputs and the plug-in environments of a run, each list sorted and without duplicates.
+#[derive(Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields, rename = "Comparable")]
+struct RawComparable {
+    /// Every resolved value by field path, sorted by path; a value without `value` was not recorded.
+    #[schemars(extend(
+        "$comment" = "Sorted by path in code point order, without a repeated path; JSON Schema cannot state this, and the Rust reader refuses a list that is not."
+    ))]
+    values: Vec<ResolvedValue>,
+    /// The harness that ran the agent.
+    harness: HarnessIdentity,
+    /// The treatment the run applied.
+    treatment: TreatmentRef,
+    /// The digests of the catalog snapshots, sorted by kind and digest.
+    #[schemars(extend(
+        "$comment" = "Sorted by kind then digest in code point order, without a repeated entry; the Rust reader refuses a list that is not."
+    ))]
+    snapshots: Vec<DigestRef>,
+    /// The digests of the inputs, sorted by kind and digest.
+    #[schemars(extend(
+        "$comment" = "Sorted by kind then digest in code point order, without a repeated entry; the Rust reader refuses a list that is not."
+    ))]
+    inputs: Vec<DigestRef>,
+    /// The plug-in environments, sorted by plug-in text and lock digest.
+    #[schemars(extend(
+        "$comment" = "Sorted by the text of the plug-in then the lock digest in code point order, without a repeated entry; the Rust reader refuses a list that is not."
+    ))]
+    environments: Vec<EnvironmentRef>,
+}
+
+impl TryFrom<MapOnly<RawComparable>> for Comparable {
+    type Error = ExecutionError;
+
+    fn try_from(raw: MapOnly<RawComparable>) -> Result<Self, Self::Error> {
+        let RawComparable {
+            values,
+            harness,
+            treatment,
+            snapshots,
+            inputs,
+            environments,
+        } = raw.0;
+        Self::assemble(values, harness, treatment, snapshots, inputs, environments)
+    }
+}
+
+/// What the cell digest hashes: every resolved value, the harness, the treatment, the catalog snapshots, the inputs and the plug-in environments of a run, each list sorted and without duplicates.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(try_from = "MapOnly<RawComparable>")]
+#[non_exhaustive]
+pub struct Comparable {
+    values: Vec<ResolvedValue>,
+    harness: HarnessIdentity,
+    treatment: TreatmentRef,
+    snapshots: Vec<DigestRef>,
+    inputs: Vec<DigestRef>,
+    environments: Vec<EnvironmentRef>,
+    #[serde(skip)]
+    #[schemars(skip)]
+    digest: Digest,
+}
+
+impl Comparable {
+    /// Starts a cell; the harness and the treatment must be set before it builds.
+    #[must_use]
+    pub fn builder() -> ComparableBuilder {
+        ComparableBuilder::default()
+    }
+
+    /// Checks the order of every list and computes the digest.
+    fn assemble(
+        values: Vec<ResolvedValue>,
+        harness: HarnessIdentity,
+        treatment: TreatmentRef,
+        snapshots: Vec<DigestRef>,
+        inputs: Vec<DigestRef>,
+        environments: Vec<EnvironmentRef>,
+    ) -> Result<Self, ExecutionError> {
+        check_ascending(
+            "values",
+            "path",
+            // BORROW: explicit .as_slice() instead of Deref coercion
+            values.as_slice(),
+            ResolvedValue::path,
+            |value| value.path().to_string(),
+        )?;
+        for (list, items) in [("snapshots", &snapshots), ("inputs", &inputs)] {
+            check_ascending(
+                list,
+                "kind and digest",
+                // BORROW: explicit .as_slice() instead of Deref coercion
+                items.as_slice(),
+                |entry| (entry.kind.as_str(), entry.digest.as_str()),
+                |entry| entry.digest.to_string(),
+            )?;
+        }
+        check_ascending(
+            "environments",
+            "plugin and lock digest",
+            // BORROW: explicit .as_slice() instead of Deref coercion
+            environments.as_slice(),
+            |entry| (entry.plugin.as_str(), entry.lock_digest.as_str()),
+            |entry| entry.plugin.to_string(),
+        )?;
+        let body = ComparableBody {
+            // BORROW: explicit .as_slice() instead of Deref coercion
+            values: values.as_slice(),
+            harness: &harness,
+            treatment: &treatment,
+            snapshots: snapshots.as_slice(),
+            // BORROW: explicit .as_slice() instead of Deref coercion
+            inputs: inputs.as_slice(),
+            // BORROW: explicit .as_slice() instead of Deref coercion
+            environments: environments.as_slice(),
+        };
+        let json = serde_json::to_value(&body).map_err(|e| CanonicalError::Syntax {
+            detail: e.to_string(),
+        })?;
+        let digest = Digest::of_canonical(&json)?;
+        Ok(Self {
+            values,
+            harness,
+            treatment,
+            snapshots,
+            inputs,
+            environments,
+            digest,
+        })
+    }
+
+    /// Builds a cell from resolved values.
+    ///
+    /// The path `harness` fills the harness, `treatment` the treatment, `snapshots` the snapshot
+    /// digests, `inputs` the input digests and `environments` the plug-in environments; each
+    /// takes one value, read as the typed field reads. Every other path goes to `values`, and a
+    /// path below one of the five roots is refused. A settings path is not a value and never
+    /// reaches this function.
+    ///
+    /// # Errors
+    /// Returns [`ExecutionError::ReservedRoot`] if a reserved root has no value or a path below
+    /// it, [`ExecutionError::ReservedValue`] if its value is not the shape the root takes,
+    /// [`ExecutionError::MissingField`] if `harness` or `treatment` is absent,
+    /// [`ExecutionError::Duplicate`] if a path or a root appears twice,
+    /// [`ExecutionError::AbsolutePath`] if a value holds an absolute path as a string, at the top
+    /// or at any depth of an array or object, and the errors of [`ComparableBuilder::build`].
+    pub fn from_resolved(resolved: &[ResolvedValue]) -> Result<Self, ExecutionError> {
+        let mut builder = Self::builder();
+        let mut seen: BTreeSet<&'static str> = BTreeSet::new();
+        for value in resolved {
+            let root = value.path().segments().next().unwrap_or_default();
+            let Some(reserved) = RESERVED_ROOTS.iter().copied().find(|name| *name == root) else {
+                if value
+                    .value()
+                    .is_some_and(|json| holds_absolute_path(json.as_value()))
+                {
+                    return Err(ExecutionError::AbsolutePath {
+                        path: value.path().to_string(),
+                    });
+                }
+                // BORROW: .clone() gives the cell its own value
+                builder = builder.value(value.clone());
+                continue;
+            };
+            // BORROW: explicit .as_str() instead of Deref coercion
+            if value.path().as_str() != reserved {
+                return Err(ExecutionError::ReservedRoot {
+                    path: value.path().to_string(),
+                    problem: "is a path below a reserved root, which takes one value",
+                });
+            }
+            let Some(json) = value.value() else {
+                return Err(ExecutionError::ReservedRoot {
+                    path: value.path().to_string(),
+                    problem: "has no value",
+                });
+            };
+            if !seen.insert(reserved) {
+                return Err(ExecutionError::Duplicate {
+                    list: "reserved roots",
+                    // BORROW: .to_owned() makes the owned value
+                    value: reserved.to_owned(),
+                });
+            }
+            // BORROW: .clone() hands the value to the typed reader
+            builder = builder.reserved(reserved, json.as_value().clone())?;
+        }
+        builder.build()
+    }
+
+    /// Builds a cell and the manifest `sources` from a resolution, in one step.
+    ///
+    /// `resolved` and `sources` are the values and the sources of the resolution, and `settings`
+    /// are the paths it marks as settings. A setting never enters the manifest, so a value at a
+    /// setting path, or below one, is dropped before the cell is built, and so is the source of
+    /// such a path. The sources that remain are those of the cell's values and those at a typed
+    /// root or below it, ready for [`RunManifestBuilder::source`]. The cell is built as
+    /// [`Comparable::from_resolved`] builds it.
+    ///
+    /// # Errors
+    /// Returns [`ExecutionError::SourcesMismatch`] if a source is of a path that is neither a
+    /// value path of the cell nor at or below a typed root (a source at or below a setting path
+    /// is dropped, not refused), and the errors of [`Comparable::from_resolved`].
+    pub fn from_resolution(
+        resolved: &[ResolvedValue],
+        sources: &[SourceEntry],
+        settings: &[FieldPath],
+    ) -> Result<(Self, Vec<SourceEntry>), ExecutionError> {
+        let is_setting = |path: &FieldPath| {
+            settings.iter().any(|setting| {
+                // BORROW: explicit .as_str() instead of Deref coercion
+                path.as_str()
+                    // BORROW: explicit .as_str() instead of Deref coercion
+                    .strip_prefix(setting.as_str())
+                    .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
+            })
+        };
+        let values: Vec<ResolvedValue> = resolved
+            .iter()
+            .filter(|value| !is_setting(value.path()))
+            // BORROW: .cloned() gives the cell its own values
+            .cloned()
+            .collect();
+        let comparable = Self::from_resolved(values.as_slice())?;
+        let held: BTreeSet<&FieldPath> = values.iter().map(ResolvedValue::path).collect();
+        let mut kept = Vec::new();
+        for source in sources {
+            let path = source.path();
+            if is_setting(path) {
+                continue;
+            }
+            if held.contains(path) || under_typed_root(path) {
+                // BORROW: .clone() gives the manifest its own entry
+                kept.push(source.clone());
+            } else {
+                return Err(stray_source(path));
+            }
+        }
+        Ok((comparable, kept))
+    }
+
+    /// Every resolved value, sorted by path.
+    #[must_use]
+    pub fn values<'a>(&'a self) -> &'a [ResolvedValue] {
+        // BORROW: explicit .as_slice() instead of Deref coercion
+        self.values.as_slice()
+    }
+
+    /// The harness.
+    #[must_use]
+    pub const fn harness<'a>(&'a self) -> &'a HarnessIdentity {
+        &self.harness
+    }
+
+    /// The treatment.
+    #[must_use]
+    pub const fn treatment<'a>(&'a self) -> &'a TreatmentRef {
+        &self.treatment
+    }
+
+    /// The catalog snapshot digests, sorted.
+    #[must_use]
+    pub fn snapshots<'a>(&'a self) -> &'a [DigestRef] {
+        // BORROW: explicit .as_slice() instead of Deref coercion
+        self.snapshots.as_slice()
+    }
+
+    /// The input digests, sorted.
+    #[must_use]
+    pub fn inputs<'a>(&'a self) -> &'a [DigestRef] {
+        // BORROW: explicit .as_slice() instead of Deref coercion
+        self.inputs.as_slice()
+    }
+
+    /// The plug-in environments, sorted.
+    #[must_use]
+    pub fn environments<'a>(&'a self) -> &'a [EnvironmentRef] {
+        // BORROW: explicit .as_slice() instead of Deref coercion
+        self.environments.as_slice()
+    }
+
+    /// The digest of the cell: `sha256` of the RFC 8785 form of the cell, as `comparable` is
+    /// written. A change to the digest an existing manifest yields requires a new schema tag.
+    #[must_use]
+    pub fn digest(&self) -> Digest {
+        // BORROW: .clone() hands out an owned digest
+        self.digest.clone()
+    }
+}
+
+/// Reports whether `value`, or a string nested in it at any depth, is an absolute path.
+fn holds_absolute_path(value: &Value) -> bool {
+    match value {
+        Value::String(text) => is_absolute_path(text),
+        Value::Array(items) => items.iter().any(holds_absolute_path),
+        Value::Object(fields) => fields.values().any(holds_absolute_path),
+        Value::Null | Value::Bool(_) | Value::Number(_) => false,
+    }
+}
+
+/// Reports whether `text` is an absolute path: it starts with `/` or `\`, or with a drive letter and a separator.
+fn is_absolute_path(text: &str) -> bool {
+    let mut bytes = text.bytes();
+    match (bytes.next(), bytes.next(), bytes.next()) {
+        (Some(b'/' | b'\\'), _, _) => true,
+        (Some(drive), Some(b':'), Some(b'/' | b'\\')) => drive.is_ascii_alphabetic(),
+        _ => false,
+    }
+}
+
+/// Builds a [`Comparable`]: it sorts every list and refuses a duplicate.
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub struct ComparableBuilder {
+    values: Vec<ResolvedValue>,
+    harness: Option<HarnessIdentity>,
+    treatment: Option<TreatmentRef>,
+    snapshots: Vec<DigestRef>,
+    inputs: Vec<DigestRef>,
+    environments: Vec<EnvironmentRef>,
+}
+
+impl ComparableBuilder {
+    /// Adds a resolved value.
+    #[must_use]
+    pub fn value(mut self, value: ResolvedValue) -> Self {
+        self.values.push(value);
+        self
+    }
+
+    /// Sets the harness.
+    #[must_use]
+    pub fn harness(mut self, harness: HarnessIdentity) -> Self {
+        self.harness = Some(harness);
+        self
+    }
+
+    /// Sets the treatment.
+    #[must_use]
+    pub fn treatment(mut self, treatment: TreatmentRef) -> Self {
+        self.treatment = Some(treatment);
+        self
+    }
+
+    /// Adds a catalog snapshot digest.
+    #[must_use]
+    pub fn snapshot(mut self, snapshot: DigestRef) -> Self {
+        self.snapshots.push(snapshot);
+        self
+    }
+
+    /// Adds an input digest.
+    #[must_use]
+    pub fn input(mut self, input: DigestRef) -> Self {
+        self.inputs.push(input);
+        self
+    }
+
+    /// Adds a plug-in environment.
+    #[must_use]
+    pub fn environment(mut self, environment: EnvironmentRef) -> Self {
+        self.environments.push(environment);
+        self
+    }
+
+    /// Reads the value of a reserved root into its typed field.
+    fn reserved(mut self, root: &'static str, json: Value) -> Result<Self, ExecutionError> {
+        let malformed = |e: serde_json::Error| ExecutionError::ReservedValue {
+            root,
+            detail: e.to_string(),
+        };
+        match root {
+            "harness" => self.harness = Some(serde_json::from_value(json).map_err(malformed)?),
+            "treatment" => self.treatment = Some(serde_json::from_value(json).map_err(malformed)?),
+            "snapshots" => {
+                // The list is read as written; `build` sorts and refuses a duplicate.
+                self.snapshots = serde_json::from_value(json).map_err(malformed)?;
+            }
+            "inputs" => self.inputs = serde_json::from_value(json).map_err(malformed)?,
+            "environments" => {
+                self.environments = serde_json::from_value(json).map_err(malformed)?;
+            }
+            _ => {
+                return Err(ExecutionError::ReservedRoot {
+                    // BORROW: .to_owned() makes the owned value
+                    path: root.to_owned(),
+                    problem: "is not a reserved root",
+                });
+            }
+        }
+        Ok(self)
+    }
+
+    /// Sorts every list and builds the cell.
+    ///
+    /// # Errors
+    /// Returns [`ExecutionError::MissingField`] if the harness or the treatment is not set,
+    /// [`ExecutionError::Duplicate`] if a list holds an entry twice, and
+    /// [`ExecutionError::Canonical`] if the cell has no canonical form.
+    pub fn build(self) -> Result<Comparable, ExecutionError> {
+        let Self {
+            mut values,
+            harness,
+            treatment,
+            mut snapshots,
+            mut inputs,
+            mut environments,
+        } = self;
+        let harness = harness.ok_or(ExecutionError::MissingField { field: "harness" })?;
+        let treatment = treatment.ok_or(ExecutionError::MissingField { field: "treatment" })?;
+        values.sort_by(|a, b| a.path().cmp(b.path()));
+        snapshots.sort();
+        inputs.sort();
+        environments.sort_by(environment_order);
+        Comparable::assemble(values, harness, treatment, snapshots, inputs, environments)
+    }
+}
+
+/// Whether a secret the run needs was present in the environment, by name; the value is never written.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct SecretPresence {
+    /// The name of the environment variable.
+    pub name: SecretName,
+    /// Whether the variable was set.
+    pub present: bool,
+}
+
+object_only!(SecretPresence);
+
+impl SecretPresence {
+    /// Records whether the secret `name` was present.
+    #[must_use]
+    pub const fn new(name: SecretName, present: bool) -> Self {
+        Self { name, present }
+    }
+}
+
+/// A re-checked value that a forced resume accepted although it differed from the stored one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct Deviation {
+    /// The path of the value.
+    pub path: FieldPath,
+    /// The value the manifest stored; absent when none was recorded.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub stored: Option<JsonValue>,
+    /// The value the resume observed; absent when none was recorded.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub observed: Option<JsonValue>,
+}
+
+object_only!(Deviation);
+
+impl Deviation {
+    /// A deviation at `path`.
+    #[must_use]
+    pub const fn new(
+        path: FieldPath,
+        stored: Option<JsonValue>,
+        observed: Option<JsonValue>,
+    ) -> Self {
+        Self {
+            path,
+            stored,
+            observed,
+        }
+    }
+}
+
+/// Why a run is invalid: a cause that is not the arm's doing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum InvalidReason {
+    /// The gateway or the provider failed.
+    Gateway,
+    /// The job budget stopped the run.
+    BudgetStop,
+    /// The run was killed.
+    Killed,
+    /// The supervisor was lost while the run ran.
+    Interrupted,
+    /// A secret or ground truth reached the run's isolation boundary.
+    InputLeak,
+    /// The collection of the run's files failed.
+    CollectionError,
+    /// A reader of the run's output failed.
+    ReaderError,
+    /// The format of the run's output is not one a reader knows.
+    FormatUnknown,
+}
+
+/// Whether a run counts: `valid`, or `invalid` with the reason it does not.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self", tag = "kind", rename_all = "snake_case")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub enum Integrity {
+    /// The run counts.
+    Valid,
+    /// The run does not count, and the reason says why.
+    #[non_exhaustive]
+    Invalid {
+        /// Why the run is invalid.
+        reason: InvalidReason,
+    },
+}
+
+object_only!(Integrity);
+
+/// A file the import read, kept as a blob: its run-relative path and its `sha256`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct ImportSource {
+    /// The run-relative path of the file in the legacy run.
+    pub path: RelPath,
+    /// The digest of the file's bytes.
+    pub sha256: Digest,
+}
+
+object_only!(ImportSource);
+
+impl ImportSource {
+    /// A source file with its digest.
+    #[must_use]
+    pub const fn new(path: RelPath, sha256: Digest) -> Self {
+        Self { path, sha256 }
+    }
+}
+
+/// An outcome file the import wrote, found by its evaluator and request.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct ImportedRequest {
+    /// The evaluator, as `name@version`.
+    pub evaluator: NameVersion,
+    /// The request id of the outcome file.
+    pub request: RequestId,
+}
+
+object_only!(ImportedRequest);
+
+impl ImportedRequest {
+    /// An imported request of `evaluator`.
+    #[must_use]
+    pub const fn new(evaluator: NameVersion, request: RequestId) -> Self {
+        Self { evaluator, request }
+    }
+}
+
+/// How an imported run was read: the format label, the base commit, the legacy integrity block, the source files and the outcome files written.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct ImportRecord {
+    /// The label of the legacy format, as `name@token`.
+    pub format: NameToken,
+    /// The commit of the legacy repository the run was read at.
+    pub base_commit: GitCommit,
+    /// The legacy integrity block as it was written; any JSON value except `null`.
+    pub legacy_integrity: JsonValue,
+    /// The files the import read, each stored as a blob.
+    pub sources: Vec<ImportSource>,
+    /// The outcome files the import wrote.
+    pub requests: Vec<ImportedRequest>,
+}
+
+object_only!(ImportRecord);
+
+impl ImportRecord {
+    /// An import record with no source and no request yet.
+    #[must_use]
+    pub const fn new(
+        format: NameToken,
+        base_commit: GitCommit,
+        legacy_integrity: JsonValue,
+    ) -> Self {
+        Self {
+            format,
+            base_commit,
+            legacy_integrity,
+            sources: Vec::new(),
+            requests: Vec::new(),
+        }
+    }
+}
+
+/// A run's manifest: what it was, what it resolved and how it ended, with the version marker `run-manifest/1` in `schema`.
+#[derive(Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields, rename = "RunManifest")]
+struct RawRunManifest {
+    /// The version marker of the document: always `run-manifest/1`.
+    schema: RunManifestTag,
+    /// The key of the run.
+    run: RunKey,
+    /// The digest of the experiment's sorted cell digests.
+    experiment: Digest,
+    /// The field paths that vary across the experiment's cells.
+    factors: Vec<FieldPath>,
+    /// What the cell digest hashes.
+    comparable: Comparable,
+    /// Where each value came from: one entry per value, and one or more entries under each typed root the cell holds; never an entry for a setting.
+    #[schemars(extend(
+        "$comment" = "Each path of `comparable.values` has exactly one entry, and each of `harness`, `treatment` and the non-empty lists `snapshots`, `inputs` and `environments` has an entry at the root path or at a path under it; no other path appears and no path repeats. JSON Schema cannot state this, and the Rust reader refuses a list that differs."
+    ))]
+    sources: Vec<SourceEntry>,
+    /// The secrets the run needed and whether each was present; never their values.
+    secrets: Vec<SecretPresence>,
+    /// The values observed during the run, with the run's end under `run.ended_by` and `run.exit`.
+    measured: Vec<MeasuredValue>,
+    /// The re-checked values a forced resume accepted.
+    deviations: Vec<Deviation>,
+    /// When the run started.
+    #[serde(default, deserialize_with = "present")]
+    started_at: Option<Timestamp>,
+    /// When the run ended.
+    #[serde(default, deserialize_with = "present")]
+    ended_at: Option<Timestamp>,
+    /// The host that ran it.
+    #[serde(default, deserialize_with = "present")]
+    host: Option<String>,
+    /// The job that ran it.
+    #[serde(default, deserialize_with = "present")]
+    job: Option<JobId>,
+    /// Whether the run counts.
+    integrity: Integrity,
+    /// How an imported run was read.
+    #[serde(default, deserialize_with = "present")]
+    import: Option<ImportRecord>,
+}
+
+impl TryFrom<MapOnly<RawRunManifest>> for RunManifest {
+    type Error = ExecutionError;
+
+    fn try_from(raw: MapOnly<RawRunManifest>) -> Result<Self, Self::Error> {
+        let RawRunManifest {
+            schema: RunManifestTag,
+            run,
+            experiment,
+            factors,
+            comparable,
+            sources,
+            secrets,
+            measured,
+            deviations,
+            started_at,
+            ended_at,
+            host,
+            job,
+            integrity,
+            import,
+        } = raw.0;
+        // BORROW: explicit .as_slice() instead of Deref coercion
+        check_sources(&comparable, sources.as_slice())?;
+        Ok(Self {
+            schema: RunManifestTag,
+            run,
+            experiment,
+            factors,
+            comparable,
+            sources,
+            secrets,
+            measured,
+            deviations,
+            started_at,
+            ended_at,
+            host,
+            job,
+            integrity,
+            import,
+        })
+    }
+}
+
+/// Reports whether `path` is a typed root or lies below one.
+fn under_typed_root(path: &FieldPath) -> bool {
+    let root = path.segments().next().unwrap_or_default();
+    RESERVED_ROOTS.contains(&root)
+}
+
+/// The error for a source whose path is neither a value path nor at or below a typed root.
+fn stray_source(path: &FieldPath) -> ExecutionError {
+    ExecutionError::SourcesMismatch {
+        path: path.to_string(),
+        problem: "names no value and lies under no typed root",
+    }
+}
+
+/// Checks that `sources` covers the cell: one entry for each value path, and an entry at the root path or below it for `harness`, `treatment` and each non-empty list among `snapshots`, `inputs` and `environments`. A source of any other path is refused, and so is a repeated path (I12).
+fn check_sources(comparable: &Comparable, sources: &[SourceEntry]) -> Result<(), ExecutionError> {
+    let mut own: BTreeSet<&FieldPath> = BTreeSet::new();
+    for source in sources {
+        if !own.insert(source.path()) {
+            return Err(ExecutionError::Duplicate {
+                list: "sources",
+                value: source.path().to_string(),
+            });
+        }
+    }
+    let held: BTreeSet<&FieldPath> = comparable
+        .values()
+        .iter()
+        .map(ResolvedValue::path)
+        .collect();
+    if let Some(path) = held.difference(&own).next() {
+        return Err(ExecutionError::SourcesMismatch {
+            path: path.to_string(),
+            problem: "is missing",
+        });
+    }
+    let root_of = |path: &FieldPath| path.segments().next().unwrap_or_default().to_owned(); // BORROW: .to_owned() keeps the root text
+    let roots_with_source: BTreeSet<String> = own
+        .iter()
+        .filter(|path| !held.contains(**path))
+        .map(|path| root_of(path))
+        .collect();
+    for path in own.iter().filter(|path| !held.contains(**path)) {
+        if !under_typed_root(path) {
+            return Err(stray_source(path));
+        }
+    }
+    let required = [
+        ("harness", true),
+        ("treatment", true),
+        ("snapshots", !comparable.snapshots().is_empty()),
+        ("inputs", !comparable.inputs().is_empty()),
+        ("environments", !comparable.environments().is_empty()),
+    ];
+    for (root, needed) in required {
+        if needed && !roots_with_source.contains(root) {
+            return Err(ExecutionError::SourcesMismatch {
+                path: root.to_owned(), // BORROW: .to_owned() makes the owned path text
+                problem: "is missing",
+            });
+        }
+    }
+    Ok(())
+}
+
+/// A run's manifest: what it was, what it resolved and how it ended, with the version marker `run-manifest/1` in `schema`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(try_from = "MapOnly<RawRunManifest>")]
+#[non_exhaustive]
+pub struct RunManifest {
+    schema: RunManifestTag,
+    run: RunKey,
+    experiment: Digest,
+    factors: Vec<FieldPath>,
+    comparable: Comparable,
+    sources: Vec<SourceEntry>,
+    secrets: Vec<SecretPresence>,
+    measured: Vec<MeasuredValue>,
+    deviations: Vec<Deviation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    started_at: Option<Timestamp>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ended_at: Option<Timestamp>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    host: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    job: Option<JobId>,
+    integrity: Integrity,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    import: Option<ImportRecord>,
+}
+
+impl RunManifest {
+    /// Starts a manifest; the run, the experiment digest, the cell and the integrity must be set
+    /// before it builds.
+    #[must_use]
+    pub fn builder() -> RunManifestBuilder {
+        RunManifestBuilder::default()
+    }
+
+    /// The digest of the cell: the only function that hashes one.
+    #[must_use]
+    pub fn cell_digest(&self) -> Digest {
+        self.comparable.digest()
+    }
+
+    /// The key of the run.
+    #[must_use]
+    pub const fn run<'a>(&'a self) -> &'a RunKey {
+        &self.run
+    }
+
+    /// The digest of the experiment.
+    #[must_use]
+    pub const fn experiment<'a>(&'a self) -> &'a Digest {
+        &self.experiment
+    }
+
+    /// The field paths that vary across the experiment's cells.
+    #[must_use]
+    pub fn factors<'a>(&'a self) -> &'a [FieldPath] {
+        // BORROW: explicit .as_slice() instead of Deref coercion
+        self.factors.as_slice()
+    }
+
+    /// What the cell digest hashes.
+    #[must_use]
+    pub const fn comparable<'a>(&'a self) -> &'a Comparable {
+        &self.comparable
+    }
+
+    /// Where each value came from.
+    #[must_use]
+    pub fn sources<'a>(&'a self) -> &'a [SourceEntry] {
+        // BORROW: explicit .as_slice() instead of Deref coercion
+        self.sources.as_slice()
+    }
+
+    /// The secrets the run needed.
+    #[must_use]
+    pub fn secrets<'a>(&'a self) -> &'a [SecretPresence] {
+        // BORROW: explicit .as_slice() instead of Deref coercion
+        self.secrets.as_slice()
+    }
+
+    /// The values observed during the run.
+    #[must_use]
+    pub fn measured<'a>(&'a self) -> &'a [MeasuredValue] {
+        // BORROW: explicit .as_slice() instead of Deref coercion
+        self.measured.as_slice()
+    }
+
+    /// The values a forced resume accepted although they differed.
+    #[must_use]
+    pub fn deviations<'a>(&'a self) -> &'a [Deviation] {
+        // BORROW: explicit .as_slice() instead of Deref coercion
+        self.deviations.as_slice()
+    }
+
+    /// When the run started, if known.
+    #[must_use]
+    pub const fn started_at<'a>(&'a self) -> Option<&'a Timestamp> {
+        self.started_at.as_ref()
+    }
+
+    /// When the run ended, if known.
+    #[must_use]
+    pub const fn ended_at<'a>(&'a self) -> Option<&'a Timestamp> {
+        self.ended_at.as_ref()
+    }
+
+    /// The host that ran it, if known.
+    #[must_use]
+    pub fn host<'a>(&'a self) -> Option<&'a str> {
+        self.host.as_deref()
+    }
+
+    /// The job that ran it, if any.
+    #[must_use]
+    pub const fn job<'a>(&'a self) -> Option<&'a JobId> {
+        self.job.as_ref()
+    }
+
+    /// Whether the run counts.
+    #[must_use]
+    pub const fn integrity<'a>(&'a self) -> &'a Integrity {
+        &self.integrity
+    }
+
+    /// How an imported run was read; absent for a live run.
+    #[must_use]
+    pub const fn import<'a>(&'a self) -> Option<&'a ImportRecord> {
+        self.import.as_ref()
+    }
+}
+
+/// Builds a [`RunManifest`].
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub struct RunManifestBuilder {
+    run: Option<RunKey>,
+    experiment: Option<Digest>,
+    factors: Vec<FieldPath>,
+    comparable: Option<Comparable>,
+    sources: Vec<SourceEntry>,
+    secrets: Vec<SecretPresence>,
+    measured: Vec<MeasuredValue>,
+    deviations: Vec<Deviation>,
+    started_at: Option<Timestamp>,
+    ended_at: Option<Timestamp>,
+    host: Option<String>,
+    job: Option<JobId>,
+    integrity: Option<Integrity>,
+    import: Option<ImportRecord>,
+}
+
+impl RunManifestBuilder {
+    /// Sets the key of the run.
+    #[must_use]
+    pub fn run(mut self, run: RunKey) -> Self {
+        self.run = Some(run);
+        self
+    }
+
+    /// Sets the digest of the experiment.
+    #[must_use]
+    pub fn experiment(mut self, experiment: Digest) -> Self {
+        self.experiment = Some(experiment);
+        self
+    }
+
+    /// Adds a field path that varies across the experiment's cells.
+    #[must_use]
+    pub fn factor(mut self, factor: FieldPath) -> Self {
+        self.factors.push(factor);
+        self
+    }
+
+    /// Sets what the cell digest hashes.
+    #[must_use]
+    pub fn comparable(mut self, comparable: Comparable) -> Self {
+        self.comparable = Some(comparable);
+        self
+    }
+
+    /// Adds the source of a value.
+    #[must_use]
+    pub fn source(mut self, source: SourceEntry) -> Self {
+        self.sources.push(source);
+        self
+    }
+
+    /// Adds a secret the run needed.
+    #[must_use]
+    pub fn secret(mut self, secret: SecretPresence) -> Self {
+        self.secrets.push(secret);
+        self
+    }
+
+    /// Adds a value observed during the run.
+    #[must_use]
+    pub fn measured(mut self, measured: MeasuredValue) -> Self {
+        self.measured.push(measured);
+        self
+    }
+
+    /// Adds a deviation a forced resume accepted.
+    #[must_use]
+    pub fn deviation(mut self, deviation: Deviation) -> Self {
+        self.deviations.push(deviation);
+        self
+    }
+
+    /// Sets when the run started.
+    #[must_use]
+    pub fn started_at(mut self, started_at: Timestamp) -> Self {
+        self.started_at = Some(started_at);
+        self
+    }
+
+    /// Sets when the run ended.
+    #[must_use]
+    pub fn ended_at(mut self, ended_at: Timestamp) -> Self {
+        self.ended_at = Some(ended_at);
+        self
+    }
+
+    /// Sets the host that ran it.
+    #[must_use]
+    pub fn host(mut self, host: String) -> Self {
+        self.host = Some(host);
+        self
+    }
+
+    /// Sets the job that ran it.
+    #[must_use]
+    pub fn job(mut self, job: JobId) -> Self {
+        self.job = Some(job);
+        self
+    }
+
+    /// Sets whether the run counts.
+    #[must_use]
+    pub fn integrity(mut self, integrity: Integrity) -> Self {
+        self.integrity = Some(integrity);
+        self
+    }
+
+    /// Sets how an imported run was read.
+    #[must_use]
+    pub fn import(mut self, import: ImportRecord) -> Self {
+        self.import = Some(import);
+        self
+    }
+
+    /// Builds the manifest.
+    ///
+    /// # Errors
+    /// Returns [`ExecutionError::MissingField`] if the run, the experiment digest, the cell or the
+    /// integrity is not set, [`ExecutionError::SourcesMismatch`] if the sources do not cover the cell's values and
+    /// typed roots or name another path, and [`ExecutionError::Duplicate`] if a path has two
+    /// sources.
+    pub fn build(self) -> Result<RunManifest, ExecutionError> {
+        let run = self
+            .run
+            .ok_or(ExecutionError::MissingField { field: "run" })?;
+        let experiment = self.experiment.ok_or(ExecutionError::MissingField {
+            field: "experiment",
+        })?;
+        let comparable = self.comparable.ok_or(ExecutionError::MissingField {
+            field: "comparable",
+        })?;
+        let integrity = self
+            .integrity
+            .ok_or(ExecutionError::MissingField { field: "integrity" })?;
+        // BORROW: explicit .as_slice() instead of Deref coercion
+        check_sources(&comparable, self.sources.as_slice())?;
+        Ok(RunManifest {
+            schema: RunManifestTag,
+            run,
+            experiment,
+            factors: self.factors,
+            comparable,
+            sources: self.sources,
+            secrets: self.secrets,
+            measured: self.measured,
+            deviations: self.deviations,
+            started_at: self.started_at,
+            ended_at: self.ended_at,
+            host: self.host,
+            job: self.job,
+            integrity,
+            import: self.import,
+        })
+    }
 }

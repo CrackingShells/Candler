@@ -1,0 +1,89 @@
+# Which paths of a run manifest the cell digest hashes, written by hand from R01 §Run manifest
+# ("Data Model"), never from the schema. A path covers itself and everything below it. A path of the
+# manifest schema that no entry covers fails `guard_cell_digest`, so adding a field forces a decision.
+# Changing this table, or a vector of `cell_digest.toml`, requires a `comparable/N` bump.
+
+# R01: "`comparable` {values[] {path, value?}, harness {name, version, driver?}, treatment,
+# snapshots[], inputs[], environments[]}" and "Cell digest = sha256 of the RFC 8785 form of `comparable`".
+[[path]]
+name = "comparable.values"
+class = "hashed"
+
+[[path]]
+name = "comparable.harness"
+class = "hashed"
+
+[[path]]
+name = "comparable.treatment"
+class = "hashed"
+
+[[path]]
+name = "comparable.snapshots"
+class = "hashed"
+
+[[path]]
+name = "comparable.inputs"
+class = "hashed"
+
+[[path]]
+name = "comparable.environments"
+class = "hashed"
+
+# R01: "Outside the hash: sources[], secrets[], measured[], deviations[], timestamps, host, job id and
+# the attempt." The version marker, the run key (which holds the attempt), the experiment digest,
+# `factors`, `integrity` and `import` are not in `comparable`, so they are outside the hash too.
+[[path]]
+name = "schema"
+class = "nuisance"
+
+[[path]]
+name = "run"
+class = "nuisance"
+
+[[path]]
+name = "experiment"
+class = "nuisance"
+
+[[path]]
+name = "factors"
+class = "nuisance"
+
+[[path]]
+name = "sources"
+class = "nuisance"
+
+[[path]]
+name = "secrets"
+class = "nuisance"
+
+[[path]]
+name = "measured"
+class = "nuisance"
+
+[[path]]
+name = "deviations"
+class = "nuisance"
+
+[[path]]
+name = "started_at"
+class = "nuisance"
+
+[[path]]
+name = "ended_at"
+class = "nuisance"
+
+[[path]]
+name = "host"
+class = "nuisance"
+
+[[path]]
+name = "job"
+class = "nuisance"
+
+[[path]]
+name = "integrity"
+class = "nuisance"
+
+[[path]]
+name = "import"
+class = "nuisance"
