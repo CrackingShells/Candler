@@ -10,7 +10,7 @@ use std::fmt;
 use std::num::NonZeroU32;
 use std::str::FromStr;
 
-use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
+use schemars::{JsonSchema, Schema, json_schema};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -89,6 +89,30 @@ pub enum FormatError {
     /// A [`RequestId`] that is not a lowercase hyphenated `UUIDv7`.
     #[error("request id {problem} (got {value:?})")]
     RequestId {
+        /// What is wrong with the text.
+        problem: &'static str,
+        /// The text that was parsed.
+        value: String,
+    },
+    /// A [`JobId`] that is not a lowercase hyphenated `UUIDv7`.
+    #[error("job id {problem} (got {value:?})")]
+    JobId {
+        /// What is wrong with the text.
+        problem: &'static str,
+        /// The text that was parsed.
+        value: String,
+    },
+    /// A [`FieldPath`] that is not dotted segments of `[a-z][a-z0-9_]*`.
+    #[error("field path {problem} (got {value:?})")]
+    FieldPath {
+        /// What is wrong with the text.
+        problem: &'static str,
+        /// The text that was parsed.
+        value: String,
+    },
+    /// A [`Marker`] outside `[0-9A-Za-z][0-9A-Za-z._-]*`.
+    #[error("marker {problem} (got {value:?})")]
+    Marker {
         /// What is wrong with the text.
         problem: &'static str,
         /// The text that was parsed.
@@ -198,6 +222,9 @@ const REQUEST_ID_PATTERN: &str = concat!(
     "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
     end_re!()
 );
+const JOB_ID_PATTERN: &str = REQUEST_ID_PATTERN;
+const FIELD_PATH_PATTERN: &str = concat!("^[a-z][a-z0-9_]*(?:[.][a-z][a-z0-9_]*)*", end_re!());
+const MARKER_PATTERN: &str = concat!("^[0-9A-Za-z][0-9A-Za-z._-]*", end_re!());
 const EVIDENCE_REF_PATTERN: &str = concat!(
     "^(?:event:",
     session_char_re!(),
@@ -213,7 +240,7 @@ const DIGEST_PREFIX: &str = "sha256:";
 const GIT_PREFIX: &str = "git:";
 
 /// The schema of a text format: a string with a description, a pattern and an optional `$comment`.
-fn text_schema(description: &str, pattern: &str, comment: Option<&str>) -> Schema {
+pub(crate) fn text_schema(description: &str, pattern: &str, comment: Option<&str>) -> Schema {
     let mut schema = json_schema!({
         "type": "string",
         "description": description,
@@ -249,7 +276,17 @@ macro_rules! text_type {
         }
     ) => {
         #[doc = $description]
-        #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+        #[derive(
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            Hash,
+            PartialOrd,
+            Ord,
+            ::serde::Serialize,
+            ::serde::Deserialize,
+        )]
         #[serde(try_from = "String", into = "String")]
         pub struct $ty {
             // Derived values come first, so they order values before the text does.
@@ -267,14 +304,14 @@ macro_rules! text_type {
             }
         }
 
-        impl fmt::Display for $ty {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        impl ::core::fmt::Display for $ty {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 f.write_str(self.as_str())
             }
         }
 
         impl TryFrom<String> for $ty {
-            type Error = FormatError;
+            type Error = <$ty as ::core::str::FromStr>::Err;
 
             fn try_from(text: String) -> Result<Self, Self::Error> {
                 // BORROW: explicit .as_str() instead of Deref coercion
@@ -288,21 +325,149 @@ macro_rules! text_type {
             }
         }
 
-        impl JsonSchema for $ty {
-            fn schema_name() -> std::borrow::Cow<'static, str> {
+        impl ::schemars::JsonSchema for $ty {
+            fn schema_name() -> ::std::borrow::Cow<'static, str> {
                 stringify!($ty).into()
             }
 
-            fn schema_id() -> std::borrow::Cow<'static, str> {
+            fn schema_id() -> ::std::borrow::Cow<'static, str> {
                 concat!(module_path!(), "::", stringify!($ty)).into()
             }
 
-            fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-                text_schema($description, $pattern, text_type!(@comment $($comment)?))
+            fn json_schema(_generator: &mut ::schemars::SchemaGenerator) -> ::schemars::Schema {
+                $crate::primitives::text_schema($description, $pattern, $crate::primitives::text_type!(@comment $($comment)?))
             }
         }
     };
 }
+
+pub(crate) use text_type;
+
+/// A `schema` field whose text is not the version marker its document carries.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("schema tag differs from `{expected}` (got {value:?})")]
+pub(crate) struct SchemaTagError {
+    /// The version marker the document carries.
+    pub(crate) expected: &'static str,
+    /// The text the field held.
+    pub(crate) value: String,
+}
+
+/// Checks that the text of a `schema` field is the version marker `expected`.
+pub(crate) fn check_schema_tag(expected: &'static str, value: &str) -> Result<(), SchemaTagError> {
+    if value == expected {
+        Ok(())
+    } else {
+        Err(SchemaTagError {
+            expected,
+            // BORROW: .to_owned() keeps the offending text in the error
+            value: value.to_owned(),
+        })
+    }
+}
+
+/// Defines the constant `schema` field of a standalone document: a unit type that writes the
+/// version marker, reads only that marker, and publishes `{"type": "string", "const": <marker>}`.
+macro_rules! schema_tag {
+    ($(#[$meta:meta])* $vis:vis $name:ident = $tag:expr) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        $vis struct $name;
+
+        impl ::serde::Serialize for $name {
+            fn serialize<S: ::serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.serialize_str($tag)
+            }
+        }
+
+        impl<'de> ::serde::Deserialize<'de> for $name {
+            fn deserialize<D: ::serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                let value = <String as ::serde::Deserialize>::deserialize(deserializer)?;
+                // BORROW: explicit .as_str() to compare with the marker
+                $crate::primitives::check_schema_tag($tag, value.as_str())
+                    .map(|()| Self)
+                    .map_err(<D::Error as ::serde::de::Error>::custom)
+            }
+        }
+
+        impl ::schemars::JsonSchema for $name {
+            fn schema_name() -> ::std::borrow::Cow<'static, str> {
+                stringify!($name).into()
+            }
+
+            fn inline_schema() -> bool {
+                true
+            }
+
+            fn json_schema(_generator: &mut ::schemars::SchemaGenerator) -> ::schemars::Schema {
+                ::schemars::json_schema!({
+                    "type": "string",
+                    "const": $tag,
+                })
+            }
+        }
+    };
+}
+
+pub(crate) use schema_tag;
+
+/// Reads an optional field, refusing an explicit `null`.
+///
+/// Used with `#[serde(default)]`, so that an absent field is `None` and a present one is `Some`.
+pub(crate) fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: ::serde::Deserializer<'de>,
+    T: ::serde::Deserialize<'de>,
+{
+    match Option::<T>::deserialize(deserializer)? {
+        Some(value) => Ok(Some(value)),
+        None => Err(<D::Error as ::serde::de::Error>::custom(
+            "optional field is null (an absent field is omitted)",
+        )),
+    }
+}
+
+/// Gives a tagged enum its [`Serialize`] and [`Deserialize`] impls, the reader taking the enum
+/// from an object and from nothing else, so a list that starts with a kind name is refused.
+///
+/// The enum derives both traits with `#[serde(remote = "Self")]`, which makes the derived
+/// functions inherent; the macro wraps them in the trait impls.
+macro_rules! object_only {
+    ($ty:ty) => {
+        impl ::serde::Serialize for $ty {
+            fn serialize<S: ::serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                <$ty>::serialize(self, serializer)
+            }
+        }
+
+        impl<'de> ::serde::Deserialize<'de> for $ty {
+            fn deserialize<D: ::serde::Deserializer<'de>>(
+                deserializer: D,
+            ) -> Result<Self, D::Error> {
+                struct ObjectOnly;
+
+                impl<'de> ::serde::de::Visitor<'de> for ObjectOnly {
+                    type Value = $ty;
+
+                    fn expecting(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                        f.write_str("an object")
+                    }
+
+                    fn visit_map<A>(self, map: A) -> Result<$ty, A::Error>
+                    where
+                        A: ::serde::de::MapAccess<'de>,
+                    {
+                        <$ty>::deserialize(::serde::de::value::MapAccessDeserializer::new(map))
+                    }
+                }
+
+                deserializer.deserialize_map(ObjectOnly)
+            }
+        }
+    };
+}
+
+pub(crate) use object_only;
 
 fn is_lower_hex(text: &str) -> bool {
     text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
@@ -741,25 +906,139 @@ text_type!(RequestId {
     pattern: REQUEST_ID_PATTERN,
 });
 
+/// Returns what is wrong with `text` as a lowercase hyphenated `UUIDv7`, or `None` if nothing is.
+fn uuid_v7_problem(text: &str) -> Option<&'static str> {
+    let Ok(uuid) = Uuid::try_parse(text) else {
+        return Some("is not a UUID");
+    };
+    if uuid.hyphenated().to_string() != text {
+        Some("is not in lowercase hyphenated form")
+    } else if uuid.get_version() != Some(uuid::Version::SortRand) {
+        Some("is not version 7")
+    } else if uuid.get_variant() != uuid::Variant::RFC4122 {
+        Some("is not of the RFC 4122 variant")
+    } else {
+        None
+    }
+}
+
 impl FromStr for RequestId {
     type Err = FormatError;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
-        let fail = |problem| FormatError::RequestId {
-            problem,
-            value: text.into(),
-        };
-        let uuid = Uuid::try_parse(text).map_err(|_| fail("is not a UUID"))?;
-        if uuid.hyphenated().to_string() != text {
-            return Err(fail("is not in lowercase hyphenated form"));
+        match uuid_v7_problem(text) {
+            Some(problem) => Err(FormatError::RequestId {
+                problem,
+                value: text.into(),
+            }),
+            None => Ok(Self { text: text.into() }),
         }
-        if uuid.get_version() != Some(uuid::Version::SortRand) {
-            return Err(fail("is not version 7"));
+    }
+}
+
+text_type!(JobId {
+    description: "A job id: a `UUIDv7` in lowercase hyphenated form.",
+    pattern: JOB_ID_PATTERN,
+});
+
+impl FromStr for JobId {
+    type Err = FormatError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        match uuid_v7_problem(text) {
+            Some(problem) => Err(FormatError::JobId {
+                problem,
+                value: text.into(),
+            }),
+            None => Ok(Self { text: text.into() }),
         }
-        if uuid.get_variant() != uuid::Variant::RFC4122 {
-            return Err(fail("is not of the RFC 4122 variant"));
+    }
+}
+
+/// Reports whether `segment` is a lowercase letter followed by lowercase letters, digits or `_`.
+fn is_field_segment(segment: &str) -> bool {
+    let mut bytes = segment.bytes();
+    bytes.next().is_some_and(|b| b.is_ascii_lowercase())
+        && bytes.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+}
+
+text_type!(FieldPath {
+    description: "A dotted path to a field: one or more segments joined by `.`, each a lowercase letter followed by lowercase letters, digits or `_`.",
+    pattern: FIELD_PATH_PATTERN,
+});
+
+impl FieldPath {
+    /// The segments of the path, in order.
+    pub fn segments<'a>(&'a self) -> impl Iterator<Item = &'a str> {
+        // BORROW: explicit .as_str() instead of Deref coercion
+        self.text.as_str().split('.')
+    }
+
+    /// Reports whether `prefix` names this path or one of its ancestors, comparing whole segments.
+    #[must_use]
+    pub fn starts_with(&self, prefix: &Self) -> bool {
+        let mut own = self.segments();
+        prefix.segments().all(|segment| own.next() == Some(segment))
+    }
+
+    /// Appends one segment, or several joined by `.`.
+    ///
+    /// # Errors
+    /// Returns [`FormatError::FieldPath`] if `segments` is not itself a field path.
+    pub fn join(&self, segments: &str) -> Result<Self, FormatError> {
+        format!("{}.{segments}", self.text)
+            .parse()
+            .map_err(|_| FormatError::FieldPath {
+                problem: "is joined with a segment that is not `[a-z][a-z0-9_]*`",
+                value: segments.into(),
+            })
+    }
+}
+
+impl FromStr for FieldPath {
+    type Err = FormatError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        if text.split('.').all(is_field_segment) {
+            Ok(Self { text: text.into() })
+        } else {
+            Err(FormatError::FieldPath {
+                problem: "is not segments of `[a-z][a-z0-9_]*` joined by `.`",
+                value: text.into(),
+            })
         }
-        Ok(Self { text: text.into() })
+    }
+}
+
+text_type!(Marker {
+    description: "The value of `CANDLER_RUN` in a child's environment: an ASCII letter or digit, then letters, digits, `.`, `_` or `-`.",
+    pattern: MARKER_PATTERN,
+});
+
+impl Marker {
+    /// The marker of a run: its path form `<cell hex>-r<replicate>-a<attempt>`.
+    #[must_use]
+    pub fn for_run(run: &RunKey) -> Self {
+        Self {
+            text: run.to_string(),
+        }
+    }
+}
+
+impl FromStr for Marker {
+    type Err = FormatError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let mut bytes = text.bytes();
+        let first = bytes.next().is_some_and(|b| b.is_ascii_alphanumeric());
+        if first && bytes.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-')) {
+            Ok(Self { text: text.into() })
+        } else {
+            Err(FormatError::Marker {
+                problem: "does not match `[0-9A-Za-z][0-9A-Za-z._-]*`",
+                value: text.into(),
+            })
+        }
     }
 }
 
@@ -1562,6 +1841,9 @@ mod tests {
         check::<EvidenceRef>();
         check::<ExpectationId>();
         check::<ReasonCode>();
+        check::<JobId>();
+        check::<FieldPath>();
+        check::<Marker>();
         for pattern in [NAME_PATTERN, SEMVER_PATTERN] {
             assert_eq!(pattern_problem(pattern), None);
             assert!(pattern.ends_with(END_ANCHOR));

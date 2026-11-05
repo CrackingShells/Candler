@@ -656,6 +656,13 @@ mod tests {
         assert!(roots.is_empty() || !patterns.is_empty());
         for (pointer, pattern) in &patterns {
             assert_eq!(pattern_problem(pattern), None, "{pointer}: {pattern}");
+            // A pattern inside an `if` only tells variants apart by a prefix, such as `^git:`; the
+            // pattern that constrains the whole text sits elsewhere in the schema.
+            let discriminates = pointer.contains("/if/");
+            assert!(
+                discriminates || pattern.ends_with(END_ANCHOR),
+                "{pointer}: {pattern}"
+            );
         }
     }
 
