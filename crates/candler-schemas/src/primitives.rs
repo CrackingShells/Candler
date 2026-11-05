@@ -102,6 +102,14 @@ pub enum FormatError {
         /// The text that was parsed.
         value: String,
     },
+    /// A [`Name`] that is empty or holds `@` or white space.
+    #[error("name {problem} (got {value:?})")]
+    Name {
+        /// What is wrong with the text.
+        problem: &'static str,
+        /// The text that was parsed.
+        value: String,
+    },
     /// A [`SecretName`] outside `[A-Z_][A-Z0-9_]*`.
     #[error("secret name {problem} (got {value:?})")]
     SecretName {
@@ -991,6 +999,32 @@ impl FromStr for JobId {
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         match uuid_v7_problem(text) {
             Some(problem) => Err(FormatError::JobId {
+                problem,
+                value: text.into(),
+            }),
+            None => Ok(Self { text: text.into() }),
+        }
+    }
+}
+
+text_type!(Name {
+    description: "A plain name, such as that of a harness, a reader, a plug-in or a treatment: non-empty, with neither `@` nor white space.",
+    pattern: NAME_PATTERN,
+});
+
+impl FromStr for Name {
+    type Err = FormatError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let problem = if text.is_empty() {
+            Some("is empty")
+        } else if text.chars().any(|c| c == '@' || is_blank(c)) {
+            Some("holds `@` or white space")
+        } else {
+            None
+        };
+        match problem {
+            Some(problem) => Err(FormatError::Name {
                 problem,
                 value: text.into(),
             }),
@@ -1934,6 +1968,7 @@ mod tests {
         check::<ReasonCode>();
         check::<JobId>();
         check::<BootId>();
+        check::<Name>();
         check::<SecretName>();
         check::<FieldPath>();
         check::<Marker>();
