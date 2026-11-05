@@ -229,7 +229,7 @@ fn join(parent: &str, name: &str) -> String {
 }
 
 /// Reads `text` as a run-relative path.
-fn rel_path(text: &str) -> Result<RelPath, ImportError> {
+pub(super) fn rel_path(text: &str) -> Result<RelPath, ImportError> {
     text.parse::<RelPath>().map_err(|error| ImportError::Path {
         path: text.into(),
         detail: error.to_string(),
