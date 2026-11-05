@@ -53,6 +53,8 @@ pub(super) const TOKEN_COUNTERS: [&str; 4] = [
     "cache_creation_tokens",
     "cache_read_tokens",
 ];
+/// The key of the timing file that names the outputs the legacy grader collected.
+pub(super) const COLLECTED_OUTPUTS: &str = "collected_outputs_paths";
 /// The pointer of the evaluator's `name@version` in the folder's provenance file.
 pub(super) const PINNED_DESCRIBE: &str = "/pinned/describe";
 /// The pointer of the commit the evaluator ran at in the folder's provenance file.
