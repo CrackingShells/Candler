@@ -118,10 +118,12 @@ jobs:
           persist-credentials: true
       - name: Install the toolchain pinned in rust-toolchain.toml
         run: rustup toolchain install
+      # 0.4.3 at least: the musl builds of 0.4.2 fail every changelog with
+      # "stack limit reached" (release-plz#3299, fixed by pest 2.9.5).
       - name: Install release-plz
         uses: taiki-e/install-action@v2
         with:
-          tool: release-plz@0.4.2
+          tool: release-plz@0.4.3
       - name: Commit the new versions and changelogs
         run: |
           set -eu
