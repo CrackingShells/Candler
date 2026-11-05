@@ -537,6 +537,78 @@ fn edit_grading_status(root: &Path, status: &str) {
     });
 }
 
+/// Edits A1 of `V3` run-6 in `expectations.jsonl` with `listed` and in its grading file with
+/// `entry`, so that the two copies keep agreeing wherever the edits agree.
+fn edit_a1(root: &Path, listed: impl Fn(&mut Value), entry: impl Fn(&mut Value)) {
+    let path = root.join("expectations.jsonl");
+    let text = fs::read_to_string(&path).expect("read expectations.jsonl");
+    let mut out = String::new();
+    let mut changed = 0;
+    for line in text.lines() {
+        let mut row: Value = serde_json::from_str(line).expect("a row");
+        // BORROW: Value::as_str borrows the JSON string without copying
+        if row.get("cell").and_then(Value::as_str) == Some(V3)
+            // BORROW: Value::as_str borrows the JSON string without copying
+            && row.get("run").and_then(Value::as_str) == Some("run-6")
+            // BORROW: Value::as_str borrows the JSON string without copying
+            && row.get("id").and_then(Value::as_str) == Some("A1")
+        {
+            listed(&mut row);
+            changed += 1;
+        }
+        out.push_str(&serde_json::to_string(&row).expect("serialize"));
+        out.push('\n');
+    }
+    assert_eq!(changed, 1);
+    fs::write(&path, out).expect("write expectations.jsonl");
+    let files = run_files(root, V3, 6, "eval-1-grading.json");
+    assert_eq!(files.len(), 1);
+    edit_json(files.first().expect("a grading file"), |value| {
+        let found = value
+            .get_mut("expectations")
+            .and_then(Value::as_array_mut)
+            .and_then(|list| {
+                list.iter_mut()
+                    // BORROW: Value::as_str borrows the JSON string without copying
+                    .find(|item| item.get("id").and_then(Value::as_str) == Some("A1"))
+            })
+            .expect("A1");
+        entry(found);
+    });
+}
+
+/// Sets `key` of both copies of A1 to `value`.
+fn set_a1(root: &Path, key: &'static str, value: &Value) {
+    let both = |item: &mut Value| {
+        // BORROW: `.clone()` copies the value into each copy
+        item[key] = value.clone();
+    };
+    edit_a1(root, both, both);
+}
+
+/// Removes `key` from both copies of A1.
+fn remove_a1(root: &Path, key: &'static str) {
+    let both = |item: &mut Value| {
+        item.as_object_mut().expect("an object").remove(key);
+    };
+    edit_a1(root, both, both);
+}
+
+/// Makes A1 a `status` row weighing `score/max_score`.
+fn grade_a1(root: &Path, status: &str, score: u64, max: u64) {
+    set_a1(root, "status", &Value::String(status.into()));
+    set_a1(root, "score", &Value::from(score));
+    set_a1(root, "max_score", &Value::from(max));
+}
+
+/// Sets `blocked_by` of the grading copy of A1 only; the listed row has no such key.
+fn block_a1(root: &Path, blocked_by: &Value) {
+    edit_a1(root, |_| {}, |item| item["blocked_by"] = blocked_by.clone());
+}
+
+/// A name, the edit of A1, the expected status, the expected weight and the expected cause.
+type UnusualCase<'a> = (&'a str, fn(&Path), &'a str, Option<&'a str>, &'a str);
+
 /// Reads, maps and grades every run of the folder at `root`.
 fn import_all(root: &Path, resolved: &str) -> Result<usize, ImportError> {
     let rules = legacy_rules::try_rules(resolved)?;
@@ -674,6 +746,81 @@ fn faults() -> Vec<Fault> {
             resolved: RESOLVED,
         },
         Fault {
+            name: "a fail that weighs 0/0",
+            inject: |root| grade_a1(root, "fail", 0, 0),
+            refused: |e| matches!(e, ImportError::Layout { .. }),
+            names: &["eval-1-grading.json", "run-6", "A1"],
+            resolved: RESOLVED,
+        },
+        Fault {
+            name: "a blocked row that weighs 0/0",
+            inject: |root| grade_a1(root, "blocked", 0, 0),
+            refused: |e| matches!(e, ImportError::Layout { .. }),
+            names: &["eval-1-grading.json", "run-6", "A1"],
+            resolved: RESOLVED,
+        },
+        Fault {
+            name: "a row without a score",
+            inject: |root| remove_a1(root, "score"),
+            refused: |e| matches!(e, ImportError::Layout { .. }),
+            names: &["eval-1-grading.json", "run-6", "A1"],
+            resolved: RESOLVED,
+        },
+        Fault {
+            name: "a row without a maximum score",
+            inject: |root| remove_a1(root, "max_score"),
+            refused: |e| matches!(e, ImportError::Layout { .. }),
+            names: &["eval-1-grading.json", "run-6", "A1"],
+            resolved: RESOLVED,
+        },
+        Fault {
+            name: "a blocked_by that is an absolute path",
+            inject: |root| {
+                grade_a1(root, "blocked", 0, 1);
+                block_a1(root, &Value::String("/etc/passwd".into()));
+            },
+            refused: |e| matches!(e, ImportError::Layout { .. }),
+            names: &["eval-1-grading.json", "run-6", "A1", "/etc/passwd"],
+            resolved: RESOLVED,
+        },
+        Fault {
+            name: "a blocked_by that climbs out with ..",
+            inject: |root| {
+                grade_a1(root, "blocked", 0, 1);
+                block_a1(root, &Value::String("../outside.py".into()));
+            },
+            refused: |e| matches!(e, ImportError::Layout { .. }),
+            names: &["eval-1-grading.json", "run-6", "A1", "../outside.py"],
+            resolved: RESOLVED,
+        },
+        Fault {
+            name: "a blocked_by that is empty",
+            inject: |root| {
+                grade_a1(root, "blocked", 0, 1);
+                block_a1(root, &Value::String(String::new()));
+            },
+            refused: |e| matches!(e, ImportError::Layout { .. }),
+            names: &["eval-1-grading.json", "run-6", "A1", "relative path"],
+            resolved: RESOLVED,
+        },
+        Fault {
+            name: "a blocked_by that is not a string",
+            inject: |root| {
+                grade_a1(root, "blocked", 0, 1);
+                block_a1(root, &Value::from(7));
+            },
+            refused: |e| matches!(e, ImportError::Layout { .. }),
+            names: &["eval-1-grading.json", "run-6", "A1"],
+            resolved: RESOLVED,
+        },
+        Fault {
+            name: "a blocked_by on a row that is not blocked",
+            inject: |root| block_a1(root, &Value::String("domain.py".into())),
+            refused: |e| matches!(e, ImportError::Layout { .. }),
+            names: &["eval-1-grading.json", "run-6", "A1"],
+            resolved: RESOLVED,
+        },
+        Fault {
             name: "a resolved-version key that is not a top-level key",
             inject: |_| {},
             refused: |e| matches!(e, ImportError::Rules { .. }),
@@ -715,6 +862,58 @@ fn every_fault_is_refused_naming_its_file_and_run() {
                 fault.name
             );
         }
+    }
+}
+
+/// Guards: D6 — a `pass` weighing 0/0 gets the cause `{legacy: zero_weight}` and keeps its 0/0
+/// weight, and a blocked row with no `blocked_by`, or a null one, gets the cause
+/// `{legacy: unrecorded}` with the default weight left out. Oracle: the mapping rules of the
+/// `legacy_mapping` leaf (D6, step 2), written here as literals.
+#[test]
+fn unusual_grades_get_the_causes_the_leaf_names() {
+    let a1 = |root: &Path| -> ExpectedRow {
+        let imported = Imported::read(root);
+        let record = imported
+            .records_of(V3, 6)
+            .iter()
+            .find(|record| text_of(record, "expectation_id") == "A1")
+            .expect("A1 of run-6");
+        project(V3, 6, record)
+    };
+    let cases: [UnusualCase<'_>; 3] = [
+        (
+            "pass 0/0",
+            |root| grade_a1(root, "pass", 0, 0),
+            "pass",
+            Some("0/0"),
+            "legacy: zero_weight",
+        ),
+        (
+            "blocked without blocked_by",
+            |root| grade_a1(root, "blocked", 0, 1),
+            "blocked",
+            None,
+            "legacy: unrecorded",
+        ),
+        (
+            "blocked with a null blocked_by",
+            |root| {
+                grade_a1(root, "blocked", 0, 1);
+                block_a1(root, &Value::Null);
+            },
+            "blocked",
+            None,
+            "legacy: unrecorded",
+        ),
+    ];
+    for (name, inject, status, weight, cause) in cases {
+        let copy = tempfile::tempdir().expect("a temporary directory");
+        copy_dir(&mini(), copy.path());
+        inject(copy.path());
+        let row = a1(copy.path());
+        assert_eq!(row.status, status, "{name}");
+        assert_eq!(row.weight.as_deref(), weight, "{name}");
+        assert_eq!(row.cause.as_deref(), Some(cause), "{name}");
     }
 }
 
