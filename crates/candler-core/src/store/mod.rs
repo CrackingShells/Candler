@@ -63,12 +63,12 @@ pub enum StoreError {
         run: String,
     },
     /// A manifest does not belong to the run it was written for.
-    #[error("manifest of run {run} {problem}")]
+    #[error("manifest of run {run} {detail}")]
     ManifestMismatch {
         /// The key of the run.
         run: String,
         /// How the manifest differs.
-        problem: &'static str,
+        detail: &'static str,
     },
     /// A raw stream is already stored in the run.
     #[error("stream {stream} of run {run} is already stored")]

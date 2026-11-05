@@ -80,7 +80,7 @@ impl RunWriter {
         if key.cell() != &manifest.cell_digest() {
             return Err(StoreError::ManifestMismatch {
                 run: key.to_string(),
-                problem: "names a cell other than the digest of its comparable fields",
+                detail: "names a cell other than the digest of its comparable fields",
             });
         }
         let layout = store.layout();
@@ -144,7 +144,7 @@ impl RunWriter {
         if manifest.run() != &self.key {
             return Err(StoreError::ManifestMismatch {
                 run: self.key.to_string(),
-                problem: "names another run",
+                detail: "names another run",
             });
         }
         let path = self.store.layout().manifest(&self.key);
