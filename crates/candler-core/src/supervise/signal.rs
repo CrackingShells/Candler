@@ -7,9 +7,10 @@
 //! (`kill(-1, sig)` signals every process the user owns), the caller's own process group, and the
 //! caller's own process id.
 //!
-//! The only code that calls a `kill` function of `rustix` is [`OsSignaller`] and the two
-//! existence probes below. Tests replace the signaller with a recording fake, so that the logic of
-//! the guard and of the escalation is checked without a signal being sent.
+//! The only code that calls a `kill` function of `rustix` is `OsSignaller` and the two existence
+//! probes below. With the `test-support` feature, tests replace the signaller with a recording
+//! fake, so that the logic of the guard and of the escalation is checked without a signal being
+//! sent. Without the feature this module is private to the crate.
 
 use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -22,9 +23,8 @@ use rustix::process::{
 
 use super::platform::{alive, pid_of};
 
-/// Delivers a signal to a process group. Implemented by [`OsSignaller`] for production and by a
+/// Delivers a signal to a process group. Implemented by `OsSignaller` for production and by a
 /// recording fake in tests; no other type sends a signal.
-#[doc(hidden)]
 pub trait Signaller: Send + Sync {
     /// Sends `signal` to every member of the process group `group`.
     ///
@@ -34,9 +34,8 @@ pub trait Signaller: Send + Sync {
 }
 
 /// The signaller of production: `killpg`.
-#[doc(hidden)]
 #[derive(Debug, Clone, Copy, Default)]
-pub struct OsSignaller;
+pub(crate) struct OsSignaller;
 
 impl Signaller for OsSignaller {
     fn signal_group(&self, group: Pid, signal: Signal) -> Result<(), Errno> {
@@ -72,7 +71,7 @@ pub(crate) fn group_exists(pgid: u32) -> bool {
 /// Why a signal was not delivered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub(crate) enum SignalError {
+pub enum SignalError {
     /// The guard refused the group and sent nothing.
     Refused {
         /// Which rule refused it.
@@ -106,7 +105,7 @@ struct Entry {
 }
 
 /// The table of children and the signaller that may signal them.
-pub(crate) struct Guard {
+pub struct Guard {
     // TRAIT_OBJECT: production sends real signals, tests record them
     signaller: Arc<dyn Signaller>,
     table: Mutex<Vec<Entry>>,
@@ -114,7 +113,7 @@ pub(crate) struct Guard {
     identity: Option<(u32, u32)>,
     /// What answers "is this leader still the process that was spawned", when a test replaces
     /// the operating system's answer.
-    #[cfg(test)]
+    #[cfg(feature = "test-support")]
     verifier: Option<fn(u32, &ProcessStart) -> bool>,
 }
 
@@ -132,37 +131,44 @@ fn raw(pid: Pid) -> u32 {
 impl Guard {
     /// A guard with an empty table that signals through `signaller`.
     // TRAIT_OBJECT: production sends real signals, tests record them
-    pub(crate) fn new(signaller: Arc<dyn Signaller>) -> Self {
+    pub fn new(signaller: Arc<dyn Signaller>) -> Self {
         Self {
             signaller,
             table: Mutex::new(Vec::new()),
             identity: None,
-            #[cfg(test)]
+            #[cfg(feature = "test-support")]
             verifier: None,
         }
     }
 
     /// The same guard with the caller's process group and process id fixed, so that a test does
     /// not depend on the process it runs in.
-    #[cfg(test)]
-    pub(crate) fn with_identity(mut self, own_group: u32, own_pid: u32) -> Self {
+    #[cfg(feature = "test-support")]
+    #[must_use]
+    pub fn with_identity(mut self, own_group: u32, own_pid: u32) -> Self {
         self.identity = Some((own_group, own_pid));
         self
     }
 
     /// The same guard with the answer of the leader check fixed by `verifier`, so that a test can
     /// reach a rule that comes after it, for a process whose start the system will not tell.
-    #[cfg(test)]
-    pub(crate) fn with_verifier(mut self, verifier: fn(u32, &ProcessStart) -> bool) -> Self {
+    #[cfg(feature = "test-support")]
+    #[must_use]
+    pub fn with_verifier(mut self, verifier: fn(u32, &ProcessStart) -> bool) -> Self {
         self.verifier = Some(verifier);
         self
     }
 
     /// Whether the process `pid` is the one that was spawned with `start`.
-    // Outside tests no field is read: the answer is the operating system's.
-    #[cfg_attr(not(test), allow(clippy::unused_self))]
+    #[cfg_attr(
+        not(feature = "test-support"),
+        allow(
+            clippy::unused_self,
+            reason = "without the feature no field is read: the answer is the operating system's"
+        )
+    )]
     fn leader_alive(&self, pid: u32, start: &ProcessStart) -> bool {
-        #[cfg(test)]
+        #[cfg(feature = "test-support")]
         if let Some(verifier) = self.verifier {
             return verifier(pid, start);
         }
@@ -182,7 +188,7 @@ impl Guard {
     ///
     /// # Errors
     /// [`SignalError::Refused`] for such a number; the table is left as it was.
-    pub(crate) fn register(&self, pid: u32, start: ProcessStart) -> Result<(), SignalError> {
+    pub fn register(&self, pid: u32, start: ProcessStart) -> Result<(), SignalError> {
         if pid_of(pid).is_none() || pid <= 1 {
             return Err(SignalError::Refused {
                 detail: "not a process group number a child can lead",
@@ -211,8 +217,8 @@ impl Guard {
 
     /// Puts a leader in the table without the refusals of [`Guard::register`], so that a test can
     /// show each rule of [`Guard::signal_group`] refusing on its own.
-    #[cfg(test)]
-    pub(crate) fn seed_unchecked(&self, pid: u32, start: ProcessStart) {
+    #[cfg(feature = "test-support")]
+    pub fn seed_unchecked(&self, pid: u32, start: ProcessStart) {
         self.insert(Entry {
             pid,
             pgid: pid,
@@ -221,14 +227,15 @@ impl Guard {
     }
 
     /// Whether the table holds a group led by `pgid`.
-    pub(crate) fn holds(&self, pgid: u32) -> bool {
+    pub fn holds(&self, pgid: u32) -> bool {
         let table = self.table.lock().unwrap_or_else(PoisonError::into_inner);
         table.iter().any(|entry| entry.pgid == pgid)
     }
 
     /// Sends `signal` to every group in the table, each through [`Guard::signal_group`], and
     /// ignores what comes back: this is how a test cleans up after itself.
-    pub(crate) fn signal_all(&self, signal: Signal) {
+    #[cfg(feature = "test-support")]
+    pub fn signal_all(&self, signal: Signal) {
         let pgids: Vec<u32> = {
             let table = self.table.lock().unwrap_or_else(PoisonError::into_inner);
             table.iter().map(|entry| entry.pgid).collect()
@@ -239,7 +246,7 @@ impl Guard {
     }
 
     /// Drops a child that has ended.
-    pub(crate) fn forget(&self, pid: u32) {
+    pub fn forget(&self, pid: u32) {
         let mut table = self.table.lock().unwrap_or_else(PoisonError::into_inner);
         table.retain(|entry| entry.pid != pid);
     }
@@ -249,7 +256,7 @@ impl Guard {
     /// # Errors
     /// [`SignalError::Refused`] when a rule refuses, with nothing sent; [`SignalError::Gone`]
     /// when the group has no member; [`SignalError::Failed`] for any other system error.
-    pub(crate) fn signal_group(&self, pgid: u32, signal: Signal) -> Result<(), SignalError> {
+    pub fn signal_group(&self, pgid: u32, signal: Signal) -> Result<(), SignalError> {
         let refused = |detail| Err(SignalError::Refused { detail });
         let Some(target) = pid_of(pgid).filter(|_| pgid > 1) else {
             return refused("not a process group number a child can lead");

@@ -534,7 +534,7 @@ fn prepare(
 
 /// Ends a child that was started and could not be taken into the signal guard's table.
 ///
-/// This is the one kill outside [`Signaller`](super::signal::Signaller). The child is still this
+/// This is the one kill outside the signal guard. The child is still this
 /// process's own, unreaped child, held through its `tokio` handle: its process id cannot name
 /// another process, which is the only thing the guard protects against. The handle signals that
 /// one process and reaps it in the background; a grandchild started in the instants since the

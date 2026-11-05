@@ -6,5 +6,6 @@ pub mod frames;
 pub mod import;
 pub mod resolve;
 pub mod store;
+#[cfg(unix)]
 pub mod supervise;
 pub mod trace;

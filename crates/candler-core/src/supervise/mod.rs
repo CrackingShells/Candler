@@ -14,7 +14,9 @@ use std::sync::Arc;
 use candler_schemas::execution::EventPayload;
 use candler_schemas::primitives::{RunKey, Timestamp};
 
-use self::signal::{Guard, OsSignaller, Signaller};
+#[cfg(feature = "test-support")]
+use self::signal::Signaller;
+use self::signal::{Guard, OsSignaller};
 use self::stop::StraySweeper;
 
 pub mod http;
@@ -22,9 +24,15 @@ pub mod output;
 pub mod platform;
 pub mod reap;
 pub mod record;
-pub mod signal;
 pub mod spawn;
 pub mod stop;
+
+/// Signal delivery and the guard that decides what may be signalled. It is public only with the
+/// `test-support` feature, which tests turn on.
+#[cfg(feature = "test-support")]
+pub mod signal;
+#[cfg(not(feature = "test-support"))]
+pub(crate) mod signal;
 
 /// Why a spawn, a wait or a stop failed.
 #[derive(Debug, thiserror::Error)]
@@ -116,15 +124,22 @@ impl Supervisor {
 
     /// Kills every group this supervisor still holds, each through the guard. It is for tests
     /// that must leave no process behind when an assertion fails.
-    #[doc(hidden)]
+    #[cfg(feature = "test-support")]
     pub fn kill_all(&self) {
         self.guard.signal_all(rustix::process::Signal::KILL);
+    }
+
+    /// Whether this supervisor's table still holds the group led by `pgid`.
+    #[cfg(feature = "test-support")]
+    #[must_use]
+    pub fn holds_group(&self, pgid: u32) -> bool {
+        self.guard.holds(pgid)
     }
 
     /// The same supervisor signalling through `signaller` instead of the operating system, with
     /// an empty table of children: call it before the first spawn. Tests use it to record the
     /// signals the guard lets through.
-    #[doc(hidden)]
+    #[cfg(feature = "test-support")]
     #[must_use]
     // TRAIT_OBJECT: tests replace the signaller with a recording fake
     pub fn with_signaller(mut self, signaller: Arc<dyn Signaller>) -> Self {
