@@ -1,6 +1,6 @@
 """Generate the digest and identity vectors, with a second engine, from R01's text.
 
-    uv run --with rfc8785 python gen_vectors.py          # write the five TOML files here
+    uv run --with rfc8785 python gen_vectors.py          # write the six TOML files here
     uv run --with rfc8785 python gen_vectors.py --check  # regenerate in memory and compare
 
 Every digest is `sha256` of the RFC 8785 form (python `rfc8785`) of a JSON value built here from
@@ -36,6 +36,19 @@ ASSUMED (also listed under Findings in the leaf report)
  9. Sorting by `path`, `(kind, digest)` and `(plugin, lock_digest)` is by Unicode code point
     (the order of UTF-8 bytes); the vectors keep their sort keys ASCII.
 10. The `cell` key of a vector is the mini-corpus cell directory name, or `invented-<n>`.
+
+ASSUMED for imported runs (`context_digest_runs.toml` only; the other files keep notes 1-10)
+11. Imported runs (`context_digest_runs.toml`; legacy_mapping.md Step 3 item 4): `artifacts` holds
+    one `{path, sha256}` per regular file found under the run's `_run_cache/<config>/run-N/outputs/`
+    at any depth, the path relative to `outputs/` with `/` separators and no prefix, the sha256
+    over the raw file bytes; an empty `outputs/` gives `[]`. Nothing else under the run enters it.
+12. Imported runs: `snapshots` and `inputs` are the run's cell's (the manifest's, ASSUMED 1),
+    so every run of a cell has the same two lists; `metadata` is one key per `rules.metadata`
+    path (`plan.model`, as in `tests/support/legacy_rules.rs`), the key the dotted path itself
+    and the value the manifest's `comparable.values` entry for it, that is the JSON leaf of the
+    cell's `experiment.json`, not a `measured` value and not read from the run's files.
+13. The `run` key of a runs vector is `<config>/run-<N>` (`with_skill/run-6`), the run folder
+    relative to `_run_cache/`.
 """
 
 import argparse
@@ -51,7 +64,9 @@ import tomllib
 
 import rfc8785
 
-ASSUMED = __doc__.split("ASSUMED (also listed under Findings in the leaf report)\n", 1)[1].rsplit('"""', 1)[0]
+_NOTES = __doc__.split("ASSUMED (also listed under Findings in the leaf report)\n", 1)[1]
+ASSUMED, ASSUMED_RUNS = _NOTES.split("\nASSUMED for imported runs", 1)
+ASSUMED_RUNS = ASSUMED_RUNS.split("\n", 1)[1].rsplit('"""', 1)[0]
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MINI = os.path.normpath(os.path.join(HERE, "..", "..", "fixtures", "mini-corpus"))
@@ -62,12 +77,14 @@ CELLS = (
     "synthetic_cell",
 )
 REAL_RUNS = ((CELLS[0], 6), (CELLS[0], 17), (CELLS[1], 12))
+METADATA_PATHS = ("plan.model",)
 FILES = (
     "cell_digest.toml",
     "context_digest.toml",
     "suite_entry_digest.toml",
     "catalog_content_digest.toml",
     "request_id.toml",
+    "context_digest_runs.toml",
 )
 
 
@@ -93,7 +110,7 @@ def toml_str(text):
     return json.dumps(text, ensure_ascii=False)
 
 
-def header(name, what):
+def header(name, what, extra=""):
     version = importlib.metadata.version("rfc8785")
     lines = [
         f"# {name}: {what}",
@@ -103,6 +120,7 @@ def header(name, what):
         "# Spellings that R01 leaves open are marked ASSUMED, as in gen_vectors.py:",
     ]
     lines += ["# " + l.rstrip() if l.strip() else "#" for l in ASSUMED.splitlines()]
+    lines += ["# " + l.rstrip() if l.strip() else "#" for l in extra.splitlines()]
     lines.append("")
     return "\n".join(lines) + "\n"
 
@@ -388,6 +406,54 @@ def context_vectors():
     return "\n".join(out), cases
 
 
+def run_artifacts(cell, config, n):
+    """ASSUMED 11: every file under the run's `outputs/`, by relative path and raw-byte sha256."""
+    root = os.path.join(MINI, cell, "_run_cache", config, f"run-{n}", "outputs")
+    assert os.path.isdir(root), root
+    found = []
+    for dirpath, _dirs, names in os.walk(root):
+        for name in names:
+            full = os.path.join(dirpath, name)
+            rel = os.path.relpath(full, root).replace(os.sep, "/")
+            with open(full, "rb") as f:
+                found.append({"path": rel, "sha256": "sha256:" + hashlib.sha256(f.read()).hexdigest()})
+    return found
+
+
+def run_metadata(cell):
+    """ASSUMED 12: the `rules.metadata` paths read from the cell's comparable values."""
+    c = mini_cell(cell)
+    by_path = {v["path"]: v for v in c["values"]}
+    return {p: by_path[p]["value"] for p in METADATA_PATHS}
+
+
+def run_context(cell, config, n):
+    c = mini_cell(cell)
+    return context_projection(
+        run_artifacts(cell, config, n), c["snapshots"], c["inputs"], run_metadata(cell)
+    )
+
+
+def run_context_vectors():
+    out = [header("context_digest_runs.toml", "context digests of the three real mini-corpus runs (R01 §Golden corpus).", ASSUMED_RUNS)]
+    out.append(
+        "# One `[[run]]` per real run: `projection` is the context projection (JSON text, sorted as\n"
+        "# R01 says) of legacy_mapping.md Step 3 item 4, and `digest` its context digest.\n"
+    )
+    rows = []
+    for cell, n in REAL_RUNS:
+        proj = run_context(cell, "with_skill", n)
+        digest = digest_of(proj)
+        rows.append((cell, f"with_skill/run-{n}", proj, digest))
+        out.append("[[run]]")
+        out.append(f"cell = {toml_str(cell)}")
+        out.append(f"run = {toml_str(f'with_skill/run-{n}')}")
+        out.append(f"projection = {toml_str(jtext(proj))}")
+        out.append(f"digest = {toml_str(digest)}")
+        out.append("")
+    return "\n".join(out), rows
+
+
 # ---------------------------------------------------------------- suite entries
 
 
@@ -580,8 +646,9 @@ def generate():
     suite_text, suite_entries = suite_vectors()
     catalog_text, catalog_docs = catalog_vectors()
     request_text, request_rows = request_vectors(comparables)
+    runs_text, _runs = run_context_vectors()
     texts = dict(
-        zip(FILES, (cells_text, context_text, suite_text, catalog_text, request_text))
+        zip(FILES, (cells_text, context_text, suite_text, catalog_text, request_text, runs_text))
     )
     return texts, comparables, context_cases, suite_entries, catalog_docs, request_rows
 

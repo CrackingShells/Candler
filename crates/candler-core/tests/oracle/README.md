@@ -14,3 +14,5 @@ The corpus is then at `<dest>/campaign/20260806-cont-train`; pass that path as
 
 `select_mini.py` and `make_synthetic.py` build the vendored mini-corpus in
 `../fixtures/mini-corpus`; `vectors/gen_vectors.py` writes the digest and identity vectors.
+
+`vectors/context_digest_runs.toml` pins the context projection and digest of each real mini-corpus run (`legacy_mapping.md` Step 3), computed in Python from the raw files.
