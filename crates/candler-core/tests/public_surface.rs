@@ -76,3 +76,47 @@ mod schema_ctors {
         );
     }
 }
+
+// ---- run_store ----
+
+mod store_surface {
+    use candler_core::store::layout::StoreLayout;
+    use candler_core::store::outcome::{OutcomeFileRef, OutcomeWriter};
+    use candler_core::store::run::{Existing, RunEntry, RunWriter};
+    use candler_core::store::{Store, StoreError};
+
+    /// Names every store item and the readers of runs, outcomes and the index.
+    #[test]
+    fn store_items_are_nameable() {
+        let _ = (
+            Store::init,
+            Store::open,
+            Store::layout,
+            Store::put_blob,
+            Store::put_blob_from_path,
+            Store::blob_path,
+            Store::next_attempt,
+            Store::seal_interrupted,
+            Store::runs,
+            Store::read_manifest,
+            Store::read_tree,
+            Store::read_trace,
+            Store::raw_path,
+            Store::outcome_files,
+            Store::read_outcomes,
+            Store::rebuild_index,
+            Store::indexed_runs,
+            Store::indexed_outcomes,
+            StoreLayout::new,
+            RunWriter::create,
+            OutcomeWriter::create,
+            OutcomeFileRef::new,
+        );
+        let _ = (
+            Existing::Refuse,
+            Existing::ReplaceUnfinished,
+            None::<RunEntry>,
+            None::<StoreError>,
+        );
+    }
+}
