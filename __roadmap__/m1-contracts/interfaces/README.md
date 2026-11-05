@@ -7,7 +7,7 @@ Level 1 of the campaign. It builds on the L0 wire foundations, trace wire and go
 The L1 contracts land and pass a contract-fit review against their consumers before any service is built on them.
 
 ## Pre-conditions
-- [ ] [cmd] The L0 leaves are landed: `for l in wire_foundations wire_trace golden_oracle; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
+- ✅ [cmd] The L0 leaves are landed: `for l in wire_foundations wire_trace golden_oracle; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
 
 ## Success Gates
 - ✅ [cmd] The four L1 leaves are landed: `for l in wire_execution wire_evaluation harness_traits resolve_config; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
@@ -17,10 +17,10 @@ The L1 contracts land and pass a contract-fit review against their consumers bef
 ## Status
 ```mermaid
 graph TD
-    wire_execution[Wire execution: experiment, manifest, job]:::planned
-    wire_evaluation[Wire evaluation: plug-ins, suites, protocol]:::planned
-    harness_traits[Harness traits]:::planned
-    resolve_config[Resolve and config]:::planned
+    wire_execution[Wire execution: experiment, manifest, job]:::done
+    wire_evaluation[Wire evaluation: plug-ins, suites, protocol]:::done
+    harness_traits[Harness traits]:::done
+    resolve_config[Resolve and config]:::done
     services[Services]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -32,10 +32,10 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `wire_execution.md` | 📄 Leaf Task | ⬜ Planned |
-| `wire_evaluation.md` | 📄 Leaf Task | ⬜ Planned |
-| `harness_traits.md` | 📄 Leaf Task | ⬜ Planned |
-| `resolve_config.md` | 📄 Leaf Task | ⬜ Planned |
+| `wire_execution.md` | 📄 Leaf Task | ✅ Done |
+| `wire_evaluation.md` | 📄 Leaf Task | ✅ Done |
+| `harness_traits.md` | 📄 Leaf Task | ✅ Done |
+| `resolve_config.md` | 📄 Leaf Task | ✅ Done |
 | `services/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
