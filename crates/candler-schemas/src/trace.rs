@@ -5,13 +5,18 @@
 //! keeps any `null` inside it. Unknown fields are ignored on input, and every struct and every
 //! tagged enum is read from an object only, never from a list.
 
+use std::borrow::Cow;
 use std::str::FromStr;
 
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use schemars::{JsonSchema, Schema, SchemaGenerator};
+use serde::de::Error as _;
+use serde::ser::SerializeMap as _;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::{Map, Value};
 
 use crate::generate::GeneratedSchema;
 use crate::map_only::MapOnly;
+use crate::outcome::Finite;
 use crate::primitives::{
     NAME_PATTERN, ReasonCode, SEMVER_PATTERN, Timestamp, object_only, present, text_type,
 };
@@ -52,6 +57,14 @@ pub enum TraceError {
     SourceVersion {
         /// The text that was parsed.
         value: String,
+    },
+    /// A kind given to [`EventKind::unknown`] that this version knows, or a body that has a `kind` key.
+    #[error("unknown event kind {kind:?} {problem}")]
+    UnknownKind {
+        /// What is wrong with the kind.
+        problem: &'static str,
+        /// The kind that was given.
+        kind: String,
     },
     /// A session whose `parent_session` is not the id of its parent followed by `/` and a span.
     #[error("session {session:?} is not `<parent>/<span>` of its parent session {parent:?}")]
@@ -587,6 +600,502 @@ impl SessionBuilder {
             parent_session: self.parent_session,
             raw_ref: self.raw_ref.ok_or_else(|| missing("raw_ref"))?,
         })
+    }
+}
+
+/// Where a tool call is served from: an object whose `kind` is `builtin`, `mcp`, with the `server` that offers the tool, or `other`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self", tag = "kind", rename_all = "snake_case")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub enum ToolOrigin {
+    /// A tool the harness itself provides.
+    Builtin,
+    /// A tool an MCP server offers.
+    #[non_exhaustive]
+    Mcp {
+        /// The name of the MCP server.
+        server: String,
+    },
+    /// Any other source.
+    Other,
+}
+
+object_only!(ToolOrigin);
+
+impl ToolOrigin {
+    /// An MCP tool of `server`.
+    #[must_use]
+    pub const fn mcp(server: String) -> Self {
+        Self::Mcp { server }
+    }
+}
+
+/// One MCP call that a bundling tool call contains: the tool it names and where the tool is served from.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct WrappedCall {
+    /// The name of the wrapped tool.
+    pub name: String,
+    /// Where the wrapped tool is served from.
+    pub origin: ToolOrigin,
+}
+
+object_only!(WrappedCall);
+
+impl WrappedCall {
+    /// Builds a wrapped call.
+    #[must_use]
+    pub const fn new(name: String, origin: ToolOrigin) -> Self {
+        Self { name, origin }
+    }
+}
+
+/// Who refused a tool call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum DeniedBy {
+    /// The harness refused the call by its own rules.
+    Harness,
+    /// A hook refused the call.
+    Hook,
+    /// The user refused the call.
+    User,
+}
+
+/// A refusal of a tool call: who refused it and, when it says, why.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct Denial {
+    /// Who refused the call.
+    pub by: DeniedBy,
+    /// The reason given, if any.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub reason: Option<String>,
+}
+
+object_only!(Denial);
+
+impl Denial {
+    /// Builds a denial.
+    #[must_use]
+    pub const fn new(by: DeniedBy, reason: Option<String>) -> Self {
+        Self { by, reason }
+    }
+}
+
+/// What a usage event counts: one message, or the running total of the session, where a later `session_total` of a session supersedes an earlier one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum UsageScope {
+    /// The usage of one message, reported once, on the first line that carries the message id.
+    Message,
+    /// The running total of the session so far; a later one supersedes an earlier one.
+    SessionTotal,
+}
+
+/// What happened at one point of a session.
+///
+/// A kind this version does not know is read as [`EventKind::Unknown`], which keeps its whole
+/// body, so that writing reproduces what was read.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum EventKind {
+    /// The user said something.
+    #[non_exhaustive]
+    UserMessage {
+        /// The text, if the harness records it.
+        text: Option<String>,
+    },
+    /// The assistant said something.
+    #[non_exhaustive]
+    AssistantMessage {
+        /// The text, if the harness records it.
+        text: Option<String>,
+    },
+    /// The assistant called a tool.
+    #[non_exhaustive]
+    ToolCall {
+        /// The name of the tool.
+        name: String,
+        /// Where the tool is served from.
+        origin: ToolOrigin,
+        /// The command line, if the tool runs one.
+        argv: Option<Vec<String>>,
+        /// The MCP calls this call bundles; empty when it bundles none.
+        wrapped_calls: Vec<WrappedCall>,
+    },
+    /// A tool call came back.
+    #[non_exhaustive]
+    ToolResult {
+        /// Whether the result is an error.
+        is_error: bool,
+        /// Who refused the call, when it was refused.
+        denied: Option<Denial>,
+    },
+    /// A line of the stream that is none of the other kinds; its content is in the event's `ext`.
+    #[non_exhaustive]
+    Notification,
+    /// Token counts and cost.
+    #[non_exhaustive]
+    Usage {
+        /// Whether the counts are one message's or the session's running total.
+        scope: UsageScope,
+        /// Input tokens.
+        input_tokens: u64,
+        /// Output tokens.
+        output_tokens: u64,
+        /// Input tokens served from the cache.
+        cache_read_tokens: u64,
+        /// Input tokens written to the cache.
+        cache_creation_tokens: u64,
+        /// The cost in US dollars, if the harness reports it.
+        cost_usd: Option<Finite>,
+    },
+    /// A kind this version does not know, with everything else that was written beside `kind`.
+    #[non_exhaustive]
+    Unknown {
+        /// The kind as written.
+        kind: String,
+        /// The other keys of the object, as written.
+        body: Map<String, Value>,
+    },
+}
+
+/// The kinds this version knows, as written.
+const KNOWN_KINDS: [&str; 6] = [
+    "user_message",
+    "assistant_message",
+    "tool_call",
+    "tool_result",
+    "notification",
+    "usage",
+];
+
+impl EventKind {
+    /// A user message.
+    #[must_use]
+    pub const fn user_message(text: Option<String>) -> Self {
+        Self::UserMessage { text }
+    }
+
+    /// An assistant message.
+    #[must_use]
+    pub const fn assistant_message(text: Option<String>) -> Self {
+        Self::AssistantMessage { text }
+    }
+
+    /// A tool call.
+    #[must_use]
+    pub const fn tool_call(
+        name: String,
+        origin: ToolOrigin,
+        argv: Option<Vec<String>>,
+        wrapped_calls: Vec<WrappedCall>,
+    ) -> Self {
+        Self::ToolCall {
+            name,
+            origin,
+            argv,
+            wrapped_calls,
+        }
+    }
+
+    /// A tool result.
+    #[must_use]
+    pub const fn tool_result(is_error: bool, denied: Option<Denial>) -> Self {
+        Self::ToolResult { is_error, denied }
+    }
+
+    /// A notification.
+    #[must_use]
+    pub const fn notification() -> Self {
+        Self::Notification
+    }
+
+    /// A usage event.
+    #[must_use]
+    pub const fn usage(
+        scope: UsageScope,
+        input_tokens: u64,
+        output_tokens: u64,
+        cache_read_tokens: u64,
+        cache_creation_tokens: u64,
+        cost_usd: Option<Finite>,
+    ) -> Self {
+        Self::Usage {
+            scope,
+            input_tokens,
+            output_tokens,
+            cache_read_tokens,
+            cache_creation_tokens,
+            cost_usd,
+        }
+    }
+
+    /// A kind this version does not know.
+    ///
+    /// # Errors
+    /// Returns [`TraceError::UnknownKind`] if `kind` is a kind this version knows, or if `body`
+    /// has a key `kind`.
+    pub fn unknown(kind: String, body: Map<String, Value>) -> Result<Self, TraceError> {
+        // BORROW: explicit .as_str() instead of Deref coercion
+        let problem = if KNOWN_KINDS.contains(&kind.as_str()) {
+            Some("is a kind this version knows")
+        } else if body.contains_key("kind") {
+            Some("has a body with the key `kind`")
+        } else {
+            None
+        };
+        match problem {
+            Some(problem) => Err(TraceError::UnknownKind { problem, kind }),
+            None => Ok(Self::Unknown { kind, body }),
+        }
+    }
+}
+
+/// What happened at one point of a session: an object whose `kind` is `user_message`, `assistant_message`, `tool_call`, `tool_result`, `notification` or `usage`, with the members of that kind beside it.
+#[derive(Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "EventKind", tag = "kind", rename_all = "snake_case")]
+#[schemars(deny_unknown_fields, rename = "EventKind")]
+enum KnownKind {
+    /// The user said something.
+    UserMessage {
+        /// The text, if the harness records it.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "present"
+        )]
+        text: Option<String>,
+    },
+    /// The assistant said something.
+    AssistantMessage {
+        /// The text, if the harness records it.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "present"
+        )]
+        text: Option<String>,
+    },
+    /// The assistant called a tool.
+    ToolCall {
+        /// The name of the tool.
+        name: String,
+        /// Where the tool is served from.
+        origin: ToolOrigin,
+        /// The command line, if the tool runs one.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "present"
+        )]
+        argv: Option<Vec<String>>,
+        /// The MCP calls this call bundles; an empty array when it bundles none.
+        wrapped_calls: Vec<WrappedCall>,
+    },
+    /// A tool call came back.
+    ToolResult {
+        /// Whether the result is an error.
+        is_error: bool,
+        /// Who refused the call, when it was refused.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "present"
+        )]
+        denied: Option<Denial>,
+    },
+    /// A line of the stream that is none of the other kinds; its content is in the event's `ext`.
+    Notification,
+    /// Token counts and cost; a `session_total` is the running total of the session, so a later one supersedes an earlier one.
+    Usage {
+        /// Whether the counts are one message's or the session's running total.
+        scope: UsageScope,
+        /// Input tokens.
+        #[schemars(extend("$comment" = "Fits in 64 bits; the Rust reader enforces it."))]
+        input_tokens: u64,
+        /// Output tokens.
+        #[schemars(extend("$comment" = "Fits in 64 bits; the Rust reader enforces it."))]
+        output_tokens: u64,
+        /// Input tokens served from the cache.
+        #[schemars(extend("$comment" = "Fits in 64 bits; the Rust reader enforces it."))]
+        cache_read_tokens: u64,
+        /// Input tokens written to the cache.
+        #[schemars(extend("$comment" = "Fits in 64 bits; the Rust reader enforces it."))]
+        cache_creation_tokens: u64,
+        /// The cost in US dollars, a finite number, if the harness reports it.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "present"
+        )]
+        cost_usd: Option<Finite>,
+    },
+    /// A kind this version does not know; it is not part of the schema.
+    #[serde(skip)]
+    Unknown {
+        kind: String,
+        body: Map<String, Value>,
+    },
+}
+
+impl Serialize for EventKind {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Unknown { kind, body } => {
+                let mut map = serializer.serialize_map(Some(body.len() + 1))?;
+                map.serialize_entry("kind", kind)?;
+                for (key, value) in body {
+                    map.serialize_entry(key, value)?;
+                }
+                map.end()
+            }
+            Self::UserMessage { .. }
+            | Self::AssistantMessage { .. }
+            | Self::ToolCall { .. }
+            | Self::ToolResult { .. }
+            | Self::Notification
+            | Self::Usage { .. } => KnownKind::serialize(self, serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for EventKind {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let mut map = Map::<String, Value>::deserialize(deserializer)?;
+        let kind = match map.get("kind") {
+            Some(Value::String(kind)) => kind.clone(),
+            Some(_) => return Err(D::Error::custom("`kind` is not a string")),
+            None => return Err(D::Error::custom("missing field `kind`")),
+        };
+        // BORROW: explicit .as_str() instead of Deref coercion
+        if KNOWN_KINDS.contains(&kind.as_str()) {
+            KnownKind::deserialize(Value::Object(map)).map_err(D::Error::custom)
+        } else {
+            map.remove("kind");
+            Ok(Self::Unknown { kind, body: map })
+        }
+    }
+}
+
+impl JsonSchema for EventKind {
+    fn schema_name() -> Cow<'static, str> {
+        KnownKind::schema_name()
+    }
+
+    fn schema_id() -> Cow<'static, str> {
+        KnownKind::schema_id()
+    }
+
+    fn inline_schema() -> bool {
+        KnownKind::inline_schema()
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        KnownKind::json_schema(generator)
+    }
+}
+
+/// One event of a session: its place in the session, what happened, the frame it came from, and the keys of the line that no field holds.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct Event {
+    /// The position of the event in its session, counting from 0 without gaps.
+    #[schemars(extend("$comment" = "Fits in 64 bits; the Rust reader enforces it."))]
+    pub seq: u64,
+    /// When the event happened, if the harness or the frame time says.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub at: Option<Timestamp>,
+    /// What happened.
+    pub kind: EventKind,
+    /// The harness's id that pairs a call with its result, if the event has one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub span: Option<SpanId>,
+    /// The frame the event was read from.
+    pub raw_ref: RawRef,
+    /// Data of the harness that no other field holds: an open JSON object, empty when there is none, whose content is open, so a `null` inside it is kept and written back.
+    pub ext: Map<String, Value>,
+}
+
+object_only!(Event);
+
+impl Event {
+    /// Builds an event with no time, no span and an empty `ext`.
+    #[must_use]
+    pub fn new(seq: u64, kind: EventKind, raw_ref: RawRef) -> Self {
+        Self {
+            seq,
+            at: None,
+            kind,
+            span: None,
+            raw_ref,
+            ext: Map::new(),
+        }
+    }
+
+    /// Sets when the event happened.
+    #[must_use]
+    pub fn with_at(mut self, at: Timestamp) -> Self {
+        self.at = Some(at);
+        self
+    }
+
+    /// Sets the span.
+    #[must_use]
+    pub fn with_span(mut self, span: SpanId) -> Self {
+        self.span = Some(span);
+        self
+    }
+
+    /// Sets the harness data.
+    #[must_use]
+    pub fn with_ext(mut self, ext: Map<String, Value>) -> Self {
+        self.ext = ext;
+        self
+    }
+}
+
+/// An event with the session it belongs to: the record a reader's `feed` returns.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct SessionEvent {
+    /// The id of the session the event belongs to.
+    pub session: SessionId,
+    /// The event.
+    pub event: Event,
+}
+
+object_only!(SessionEvent);
+
+impl SessionEvent {
+    /// Pairs an event with its session.
+    #[must_use]
+    pub const fn new(session: SessionId, event: Event) -> Self {
+        Self { session, event }
     }
 }
 
