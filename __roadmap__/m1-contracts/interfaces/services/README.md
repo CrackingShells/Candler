@@ -7,21 +7,21 @@ Level 2. On the L1 contracts it builds the process supervisor and framed raw str
 Each service lands with its guards green and its required verification closed.
 
 ## Pre-conditions
-- ✅ [cmd] The L1 leaves are landed: `for l in wire_execution wire_evaluation harness_traits resolve_config; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
-- ✅ [nl] api_review reports no open finding
+- [x] [cmd] The L1 leaves are landed: `for l in wire_execution wire_evaluation harness_traits resolve_config; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
+- [x] [nl] api_review reports no open finding
 
 ## Success Gates
-- ⬜ [cmd] The four L2 leaves are landed: `for l in supervisor run_store claude_code_reader legacy_mapping; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
-- ⬜ [cmd] STD passes on `feat/m1-contracts`, and `cargo clippy --target x86_64-unknown-linux-gnu --workspace --tests -- -D warnings` passes
-- ⬜ [nl] The supervisor's required verifier and the claude_code_reader verifier report no open finding, and the level's Grit review is closed
+- ✅ [cmd] The four L2 leaves are landed: `for l in supervisor run_store claude_code_reader legacy_mapping; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
+- ✅ [cmd] STD passes on `feat/m1-contracts`, and `cargo clippy --target x86_64-unknown-linux-gnu --workspace --tests -- -D warnings` passes
+- ✅ [nl] The supervisor's required verifier and the claude_code_reader verifier report no open finding, and the level's Grit review is closed
 
 ## Status
 ```mermaid
 graph TD
-    supervisor[Process supervisor]:::planned
-    run_store[Run store]:::planned
-    claude_code_reader[Claude Code trace reader]:::planned
-    legacy_mapping[Legacy mapping]:::planned
+    supervisor[Process supervisor]:::done
+    run_store[Run store]:::done
+    claude_code_reader[Claude Code trace reader]:::done
+    legacy_mapping[Legacy mapping]:::done
     import[Import]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -33,10 +33,10 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `supervisor.md` | 📄 Leaf Task | ⬜ Planned |
-| `run_store.md` | 📄 Leaf Task | ⬜ Planned |
-| `claude_code_reader.md` | 📄 Leaf Task | ⬜ Planned |
-| `legacy_mapping.md` | 📄 Leaf Task | ⬜ Planned |
+| `supervisor.md` | 📄 Leaf Task | ✅ Done |
+| `run_store.md` | 📄 Leaf Task | ✅ Done |
+| `claude_code_reader.md` | 📄 Leaf Task | ✅ Done |
+| `legacy_mapping.md` | 📄 Leaf Task | ✅ Done |
 | `import/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log

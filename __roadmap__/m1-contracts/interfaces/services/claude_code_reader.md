@@ -8,19 +8,19 @@
 - [ ] [cmd] `command -v jq`
 - [ ] [cmd] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints this leaf's worktree path
 **Success Gates**:
-- ⬜ [cmd] `cargo nextest run -p candler-harness-claude-code -E 'binary(guard_reader)'` passes, holding six B tests:
+- ✅ [cmd] `cargo nextest run -p candler-harness-claude-code -E 'binary(guard_reader)'` passes, holding six B tests:
   - **expected facts**: for each of the eight streams (three in the adapter, three by relative path in the mini-corpus, two synthetic), the sessions, subagent ids, denial count and `ended_by` equal its hand-written `expected.toml`, which states absent facts too (a stream with no subagent lists none);
   - **no silent loss**: every frame that is not blank is cited by at least one event's `raw_ref`;
   - **usage**: per session, the summed `usage {scope: message}` tokens equal `usage_totals.toml`, computed once by the committed `usage_totals.jq` over the first line of each `message.id`; no `jq` runs at test time;
   - **version table**: six rows of first lines, `2.1.219` refused, `2.1.220` and `2.1.304` accepted, `2.2.0` refused, a first line that is not an init line and a non-JSON line both `None`;
   - **replay** (I3): two fresh readers fed the same frames, one calling `observed()` after every frame, write byte-identical trace files;
   - **ratchet**: the trace file of each stream hashes to its entry in `digests.toml` (a ratchet against unnoticed change, not correctness evidence)
-- ⬜ [cmd] `cargo nextest run -p candler-harness-claude-code -E 'binary(guard_fixture_provenance)'` passes: every fixture's sha256 recomputes to `PROVENANCE.toml`, no fixture file is unlisted, and every `synthetic_` file has `synthetic = true`
-- ⬜ [cmd] `! git diff origin/main -- crates/candler-harness-claude-code/tests/fixtures/digests.toml | grep -E '^-[^-]'`
-- ⬜ [cmd] `du -sk crates/candler-harness-claude-code/tests/fixtures | awk '$1>1024{exit 1}'`
-- ⬜ [cmd] STD and SUBJ pass
-- ⬜ [nl] The verifier reports no open finding, having attacked subagent attribution, the denial rule, `ended_by` on the `api_error` run and `Usage.scope`
-- ⬜ [nl] The leaf report has a bite mutation per B test
+- ✅ [cmd] `cargo nextest run -p candler-harness-claude-code -E 'binary(guard_fixture_provenance)'` passes: every fixture's sha256 recomputes to `PROVENANCE.toml`, no fixture file is unlisted, and every `synthetic_` file has `synthetic = true`
+- ✅ [cmd] `! git diff origin/main -- crates/candler-harness-claude-code/tests/fixtures/digests.toml | grep -E '^-[^-]'`
+- ✅ [cmd] `du -sk crates/candler-harness-claude-code/tests/fixtures | awk '$1>1024{exit 1}'`
+- ✅ [cmd] STD and SUBJ pass
+- ✅ [nl] The verifier reports no open finding, having attacked subagent attribution, the denial rule, `ended_by` on the `api_error` run and `Usage.scope`
+- ✅ [nl] The leaf report has a bite mutation per B test
 **References**: [R01 §Normalised trace model, §Raw traces, §Ends, §Harness drivers (Traits)](../../../../__design__/architecture.md) — the target shapes; [R03](/Users/hacker/Documents/src/External/PCfVW/agenticai4hpc26-artifact) — the 240 streams at `candler-m2a-golden`, read from `$GOLDEN`; [R04](../../../../__reports__/m1-contracts/00-test_definition_v0.md) — `guard_reader`, the ratchet ruling
 
 ## Step 1: Vendor stream fixtures from the golden tag
@@ -38,10 +38,10 @@
 ## Step 2: Detect and parse stream-json lines
 **Goal**: The reader recognises a supported stream and turns each line into events, keeping unknown lines.
 **Implementation Logic**:
-1. `ClaudeCodeReader::new() -> ClaudeCodeReader` implementing `TraceReader` with `framing() = Lines` and `id() = READER`; `READER: NameVersion` (`claude-code-stream-json@<reader version>`), the version bumped whenever output changes; `SUPPORTED`: `>=2.1.220, <2.2.0`.
+1. `ClaudeCodeReader::new() -> Result<ClaudeCodeReader, ClaudeCodeError>` (no `Default`; it parses `READER` and returns `ClaudeCodeError::InvalidReaderIdentity` if the literal does not parse, so library code holds no `expect`) implementing `TraceReader` with `framing() = Lines` and `id()` the parsed `READER`; `READER: &str` (`claude-code-stream-json@<reader version>`), the version bumped whenever output changes; `SUPPORTED`: `>=2.1.220, <2.2.0`.
 2. `detect(sample)`: the first JSON line is `type: system`, `subtype: init` with a `claude_code_version` in `SUPPORTED` → `Some((version, Certain))`; anything else → `None`.
 3. `feed(FrameIn)`: one JSON line → events: `user` and `assistant` messages, `tool_use` blocks → `tool_call` (`span` = the `tool_use` id; `mcp__<server>__<tool>` → `origin: mcp {server}`), `tool_result` blocks → `tool_result`, `system` lines other than init and every unknown `type` → `notification` with the line in `ext`. `raw_ref` is `FrameIn.raw_ref`; `at` from the line's `timestamp` when present, else `FrameIn.at`, else absent; never interpolated. A blank frame yields nothing; a line that is not JSON → `notification` with the text in `ext`.
-**Deliverables**: `crates/candler-harness-claude-code/src/{lib.rs,detect.rs,parse.rs}` (`ClaudeCodeReader`, `READER`, `SUPPORTED`)
+**Deliverables**: `crates/candler-harness-claude-code/src/{lib.rs,detect.rs,parse.rs}` (`ClaudeCodeReader`, `ClaudeCodeError`, `READER`, `SUPPORTED`)
 **Consistency Checks**: `cargo clippy -p candler-harness-claude-code --all-targets -- -D warnings` (expected: PASS)
 **Commit**: `feat(adapter-claude-code): detect and parse stream-json lines`
 
