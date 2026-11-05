@@ -1803,6 +1803,14 @@ pub enum Integrity {
 
 object_only!(Integrity);
 
+impl Integrity {
+    /// A run that does not count, for `reason`.
+    #[must_use]
+    pub const fn invalid(reason: InvalidReason) -> Self {
+        Self::Invalid { reason }
+    }
+}
+
 /// A file the import read, kept as a blob: its run-relative path and its `sha256`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(remote = "Self")]
