@@ -19,7 +19,7 @@ use crate::generate::GeneratedSchema;
 use crate::map_only::MapOnly;
 use crate::outcome::Finite;
 use crate::primitives::{
-    Digest, NAME_PATTERN, NameVersion, ReasonCode, SEMVER_PATTERN, Timestamp, object_only, present,
+    Digest, Name, NameVersion, ReasonCode, SEMVER_PATTERN, Timestamp, object_only, present,
     schema_tag, text_type,
 };
 use crate::raw::{RawRef, StreamName};
@@ -44,14 +44,6 @@ pub enum TraceError {
     /// A [`SpanId`] that is empty or holds `#` or white space.
     #[error("span id {problem} (got {value:?})")]
     SpanId {
-        /// What is wrong with the text.
-        problem: &'static str,
-        /// The text that was parsed.
-        value: String,
-    },
-    /// A [`SourceName`] that is empty or holds `@` or white space.
-    #[error("source name {problem} (got {value:?})")]
-    SourceName {
         /// What is wrong with the text.
         problem: &'static str,
         /// The text that was parsed.
@@ -169,16 +161,6 @@ fn session_id_problem(text: &str) -> Result<(), &'static str> {
     }
 }
 
-fn source_name_problem(text: &str) -> Result<(), &'static str> {
-    if text.is_empty() {
-        Err("is empty")
-    } else if text.chars().any(|c| c == '@' || is_blank(c)) {
-        Err("holds `@` or white space")
-    } else {
-        Ok(())
-    }
-}
-
 /// The pattern of a session or span id: non-empty, with neither `#` nor white space.
 macro_rules! id_pattern {
     () => {
@@ -256,29 +238,6 @@ impl FromStr for SpanId {
     }
 }
 
-text_type!(SourceName {
-    description: "The name of a harness or a reader: non-empty, with neither `@` nor white space.",
-    pattern: NAME_PATTERN,
-});
-
-impl FromStr for SourceName {
-    type Err = TraceError;
-
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
-        match source_name_problem(text) {
-            // BORROW: .to_owned() makes the owned text the value keeps
-            Ok(()) => Ok(Self {
-                text: text.to_owned(),
-            }),
-            // BORROW: .to_owned() makes the owned text the error keeps
-            Err(problem) => Err(TraceError::SourceName {
-                problem,
-                value: text.to_owned(),
-            }),
-        }
-    }
-}
-
 const VERSION_COMMENT: &str =
     "The major, minor and patch numbers each fit in 64 bits; the Rust reader enforces it.";
 
@@ -287,12 +246,12 @@ const VERSION_COMMENT: &str =
 #[schemars(deny_unknown_fields, rename = "SessionSource", extend("$comment" = VERSION_COMMENT))]
 struct RawSessionSource {
     /// The name of the harness that ran the session.
-    harness: SourceName,
+    harness: Name,
     /// The harness version, a `SemVer` 2.0 string.
     #[schemars(regex(pattern = SEMVER_PATTERN))]
     harness_version: String,
     /// The name of the reader that normalised the session.
-    reader: SourceName,
+    reader: Name,
     /// The reader version, a `SemVer` 2.0 string.
     #[schemars(regex(pattern = SEMVER_PATTERN))]
     reader_version: String,
@@ -337,9 +296,9 @@ fn parse_version(text: &str) -> Result<semver::Version, TraceError> {
 #[serde(try_from = "MapOnly<RawSessionSource>", into = "RawSessionSource")]
 #[non_exhaustive]
 pub struct SessionSource {
-    harness: SourceName,
+    harness: Name,
     harness_version: semver::Version,
-    reader: SourceName,
+    reader: Name,
     reader_version: semver::Version,
 }
 
@@ -347,9 +306,9 @@ impl SessionSource {
     /// Builds a source.
     #[must_use]
     pub const fn new(
-        harness: SourceName,
+        harness: Name,
         harness_version: semver::Version,
-        reader: SourceName,
+        reader: Name,
         reader_version: semver::Version,
     ) -> Self {
         Self {
@@ -362,7 +321,7 @@ impl SessionSource {
 
     /// The name of the harness.
     #[must_use]
-    pub const fn harness<'a>(&'a self) -> &'a SourceName {
+    pub const fn harness<'a>(&'a self) -> &'a Name {
         &self.harness
     }
 
@@ -374,7 +333,7 @@ impl SessionSource {
 
     /// The name of the reader.
     #[must_use]
-    pub const fn reader<'a>(&'a self) -> &'a SourceName {
+    pub const fn reader<'a>(&'a self) -> &'a Name {
         &self.reader
     }
 

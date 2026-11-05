@@ -407,6 +407,11 @@
       "format": "double",
       "type": "number"
     },
+    "Name": {
+      "description": "A plain name, such as that of a harness, a reader, a plug-in or a treatment: non-empty, with neither `@` nor white space.",
+      "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+(?![\\s\\S])",
+      "type": "string"
+    },
     "NameVersion": {
       "$comment": "The major, minor and patch numbers each fit in 64 bits; the parser enforces it.",
       "description": "An evaluator or instrument reference, `name@version`, split at the last `@`: the name is non-empty and holds neither `@` nor white space, and the version is `SemVer` 2.0.",
@@ -470,7 +475,7 @@
       "description": "The harness and the reader that produced a session, written as an object with the names and `SemVer` versions of both.",
       "properties": {
         "harness": {
-          "$ref": "#/$defs/SourceName",
+          "$ref": "#/$defs/Name",
           "description": "The name of the harness that ran the session."
         },
         "harness_version": {
@@ -479,7 +484,7 @@
           "type": "string"
         },
         "reader": {
-          "$ref": "#/$defs/SourceName",
+          "$ref": "#/$defs/Name",
           "description": "The name of the reader that normalised the session."
         },
         "reader_version": {
@@ -495,11 +500,6 @@
         "reader_version"
       ],
       "type": "object"
-    },
-    "SourceName": {
-      "description": "The name of a harness or a reader: non-empty, with neither `@` nor white space.",
-      "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+(?![\\s\\S])",
-      "type": "string"
     },
     "SpanId": {
       "description": "The id of a harness call, which pairs a call with its result and names the child session the call started: non-empty, with neither `#` nor white space.",
