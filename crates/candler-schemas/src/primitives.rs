@@ -102,6 +102,14 @@ pub enum FormatError {
         /// The text that was parsed.
         value: String,
     },
+    /// A [`SecretName`] outside `[A-Z_][A-Z0-9_]*`.
+    #[error("secret name {problem} (got {value:?})")]
+    SecretName {
+        /// What is wrong with the text.
+        problem: &'static str,
+        /// The text that was parsed.
+        value: String,
+    },
     /// A [`BootId`] that is not a lowercase hyphenated UUID.
     #[error("boot id {problem} (got {value:?})")]
     BootId {
@@ -246,6 +254,7 @@ const EVIDENCE_REF_PATTERN: &str = concat!(
     end_re!()
 );
 const EXPECTATION_ID_PATTERN: &str = concat!("^[A-Za-z0-9][A-Za-z0-9._-]*", end_re!());
+const SECRET_NAME_PATTERN: &str = concat!("^[A-Z_][A-Z0-9_]*", end_re!());
 const REASON_CODE_PATTERN: &str = concat!("^[a-z][a-z0-9_]*", end_re!());
 
 const DIGEST_PREFIX: &str = "sha256:";
@@ -986,6 +995,30 @@ impl FromStr for JobId {
                 value: text.into(),
             }),
             None => Ok(Self { text: text.into() }),
+        }
+    }
+}
+
+text_type!(SecretName {
+    description: "An environment-variable name: an uppercase ASCII letter or `_`, then uppercase letters, digits or `_`.",
+    pattern: SECRET_NAME_PATTERN,
+});
+
+impl FromStr for SecretName {
+    type Err = FormatError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let mut bytes = text.bytes();
+        let first = bytes
+            .next()
+            .is_some_and(|b| b.is_ascii_uppercase() || b == b'_');
+        if first && bytes.all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_') {
+            Ok(Self { text: text.into() })
+        } else {
+            Err(FormatError::SecretName {
+                problem: "does not match `[A-Z_][A-Z0-9_]*`",
+                value: text.into(),
+            })
         }
     }
 }
@@ -1901,6 +1934,7 @@ mod tests {
         check::<ReasonCode>();
         check::<JobId>();
         check::<BootId>();
+        check::<SecretName>();
         check::<FieldPath>();
         check::<Marker>();
         for pattern in [NAME_PATTERN, SEMVER_PATTERN] {
