@@ -6,15 +6,57 @@
 //! by the guard once more. A record whose leader is gone, or whose process id now names another
 //! process, is never signalled: the stray sweep by marker is all that runs.
 
+use std::fmt;
+
 use candler_harness::spec::StopSpec;
 use candler_schemas::execution::StrayProcess;
 use candler_schemas::primitives::RunKey;
 use candler_schemas::process::ChildRecord;
+use rustix::process::getpgid;
 
-use super::platform::{Liveness, liveness};
+use super::platform::{Liveness, liveness, pid_of};
 use super::signal::{group_exists, process_exists};
 use super::stop::{Ladder, Leader, Mode, StepRecord};
 use super::{SuperviseError, Supervisor};
+
+/// Why no signal was sent to the group a record names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ReapRefusal {
+    /// The record names a group that its own process does not lead.
+    NotLeader,
+    /// The record's process id now names another process.
+    PidReused,
+    /// The operating system puts the process in another group than the record names.
+    GroupMismatch,
+    /// The signal guard refused the group.
+    #[non_exhaustive]
+    Guard {
+        /// Which rule of the guard refused it.
+        detail: String,
+    },
+}
+
+impl ReapRefusal {
+    /// A refusal by the signal guard, with the rule that refused.
+    #[must_use]
+    pub const fn guard(detail: String) -> Self {
+        Self::Guard { detail }
+    }
+}
+
+impl fmt::Display for ReapRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotLeader => f.write_str("the record's group is not led by its own process"),
+            Self::PidReused => f.write_str("the record's process id now names another process"),
+            Self::GroupMismatch => f.write_str(
+                "the operating system puts the process in another group than the record",
+            ),
+            Self::Guard { detail } => write!(f, "the signal guard refused the group: {detail}"),
+        }
+    }
+}
 
 /// What reaping a record did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,10 +72,8 @@ pub struct ReapReport {
     pub strays: Vec<StrayProcess>,
     /// Whether the process group was empty afterwards.
     pub group_empty: bool,
-    /// Why no signal was sent to the group although the record named one, if that is so: the
-    /// process id now names another process, or the record does not describe a group this
-    /// supervisor may signal.
-    pub refusal: Option<String>,
+    /// Why no signal was sent to the group although the record named one, if that is so.
+    pub refusal: Option<ReapRefusal>,
 }
 
 impl ReapReport {
@@ -44,7 +84,7 @@ impl ReapReport {
         steps: Vec<StepRecord>,
         strays: Vec<StrayProcess>,
         group_empty: bool,
-        refusal: Option<String>,
+        refusal: Option<ReapRefusal>,
     ) -> Self {
         Self {
             was_alive,
@@ -83,17 +123,20 @@ impl Supervisor {
         let mut adopted = false;
         let held_before = self.guard.holds(record.pgid());
         if was_alive {
-            if record.pgid() == pid {
+            if record.pgid() != pid {
+                refusal = Some(ReapRefusal::NotLeader);
+            } else if group_of(pid) != Some(record.pgid()) {
+                // The record says the process leads its group; the system must say so too.
+                refusal = Some(ReapRefusal::GroupMismatch);
+            } else {
                 match self.guard.register(pid, record.start().clone()) {
                     // BORROW: .clone() gives the table its own start
                     Ok(()) => adopted = true,
-                    Err(error) => refusal = Some(error.to_string()),
+                    Err(error) => refusal = Some(ReapRefusal::guard(error.to_string())),
                 }
-            } else {
-                refusal = Some("the record's group is not led by its own process".to_owned()); // BORROW: .to_owned() makes the owned reason from a literal
             }
         } else if process_exists(pid) {
-            refusal = Some("the record's process id now names another process".to_owned()); // BORROW: .to_owned() makes the owned reason from a literal
+            refusal = Some(ReapRefusal::PidReused);
         }
 
         let ladder = Ladder {
@@ -128,4 +171,11 @@ impl Supervisor {
             refusal,
         ))
     }
+}
+
+/// The process group the operating system puts the process `pid` in, if it answers.
+fn group_of(pid: u32) -> Option<u32> {
+    let target = pid_of(pid)?;
+    let group = getpgid(Some(target)).ok()?;
+    u32::try_from(group.as_raw_nonzero().get()).ok()
 }
