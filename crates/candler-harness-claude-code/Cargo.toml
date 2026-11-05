@@ -8,5 +8,18 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[dependencies]
+candler-harness.workspace = true
+candler-schemas.workspace = true
+semver.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+flate2.workspace = true
+sha2.workspace = true
+toml.workspace = true
+
 [lints]
 workspace = true

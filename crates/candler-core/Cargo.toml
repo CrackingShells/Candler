@@ -8,5 +8,34 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[dependencies]
+candler-harness.workspace = true
+candler-schemas.workspace = true
+flate2.workspace = true
+futures.workspace = true
+jiff.workspace = true
+regex.workspace = true
+rustix.workspace = true
+semver.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+shell-words.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+toml.workspace = true
+url.workspace = true
+uuid.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libproc.workspace = true
+
+[dev-dependencies]
+candler-harness-claude-code.workspace = true
+jsonschema.workspace = true
+proptest.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
 [lints]
 workspace = true

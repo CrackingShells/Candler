@@ -61,10 +61,20 @@ impl GeneratedSchema {
 /// Every wire root schema, in file-name order.
 #[must_use]
 pub fn generated_schemas() -> Vec<GeneratedSchema> {
-    in_file_name_order(vec![
-        GeneratedSchema::of::<CatalogSnapshot>("catalog-snapshot"),
-        GeneratedSchema::of::<crate::outcome::OutcomeRecord>("outcome-record"),
-    ])
+    let modules = [
+        vec![
+            GeneratedSchema::of::<CatalogSnapshot>("catalog-snapshot"),
+            GeneratedSchema::of::<crate::outcome::OutcomeRecord>("outcome-record"),
+        ],
+        crate::values::roots(),
+        crate::canonical::roots(),
+        crate::process::roots(),
+        crate::raw::roots(),
+        crate::trace::roots(),
+        crate::execution::roots(),
+        crate::evaluation::roots(),
+    ];
+    in_file_name_order(modules.into_iter().flatten().collect())
 }
 
 /// Sorts roots by file name, the order the committed files are listed in.
