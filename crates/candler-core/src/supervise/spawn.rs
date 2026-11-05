@@ -626,10 +626,13 @@ impl Supervisor {
                 });
             }
         };
-        let pid = process.id().ok_or_else(|| SuperviseError::Io {
-            context: "the child has no process id",
-            source: std::io::Error::other("the child was reaped before its record was written"),
-        })?;
+        let Some(pid) = process.id() else {
+            discard_streams(out_stream, err_stream);
+            return Err(SuperviseError::Io {
+                context: "the child has no process id",
+                source: std::io::Error::other("the child was reaped before its record was written"),
+            });
+        };
         // The deadline runs from here: the child exists.
         let deadline = deadline.map(|limit| Instant::now() + limit);
         // The child leads the group it was started in, so its process group id is its own id.

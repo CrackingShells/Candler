@@ -154,6 +154,7 @@ impl Guard {
 
     /// The same guard with the answer of the leader check fixed by `verifier`, so that a test can
     /// reach a rule that comes after it, for a process whose start the system will not tell.
+    /// For tests only: it replaces the check that a leader is the process that was spawned.
     #[cfg(feature = "test-support")]
     #[must_use]
     pub fn with_verifier(mut self, verifier: fn(u32, &ProcessStart) -> bool) -> Self {
@@ -218,7 +219,8 @@ impl Guard {
     }
 
     /// Puts a leader in the table without the refusals of [`Guard::register`], so that a test can
-    /// show each rule of [`Guard::signal_group`] refusing on its own.
+    /// show each rule of [`Guard::signal_group`] refusing on its own. For tests only: it can put a
+    /// number in the table that a real child never has.
     #[cfg(feature = "test-support")]
     pub fn seed_unchecked(&self, pid: u32, start: ProcessStart) {
         self.insert(Entry {

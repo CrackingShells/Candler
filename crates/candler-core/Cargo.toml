@@ -11,7 +11,8 @@ publish = false
 [features]
 # Seams for tests: the signal guard and its signaller, `Supervisor::with_signaller`,
 # `Supervisor::kill_all` and `Supervisor::holds_group`. Off by default; the crate's own tests turn
-# it on through the dev-dependency on itself.
+# it on through the dev-dependency on itself. It is for the crate's own tests; never enable it on
+# a production dependency edge.
 test-support = []
 
 [dependencies]
