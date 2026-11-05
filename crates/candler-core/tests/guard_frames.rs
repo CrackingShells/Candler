@@ -137,6 +137,7 @@ fn the_nine_cases_frame_as_the_design_states() {
         let wanted: Vec<Value> = frames
             .into_iter()
             .map(|mut f| {
+                // INDEX: serde_json's IndexMut inserts the key into an object value
                 f["kind"] = json!("frame");
                 f
             })
@@ -159,8 +160,10 @@ fn the_nine_cases_frame_as_the_design_states() {
                 .iter()
                 .map(|f| {
                     let mut v = serde_json::to_value(f).expect("a frame value");
+                    // INDEX: serde_json's IndexMut inserts the key into an object value
                     v["kind"] = json!("frame");
                     // The writer stamps each frame with the chunk's time; the case states the shape only.
+                    // INDEX: serde_json's Index on a missing key reads as Null, so it cannot panic
                     assert!(v["t_mono_ns"].is_u64());
                     v.as_object_mut().expect("an object").remove("t_mono_ns");
                     v

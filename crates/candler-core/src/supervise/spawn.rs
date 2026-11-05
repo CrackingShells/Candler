@@ -170,7 +170,8 @@ pub struct SpawnRequest {
 }
 
 impl SpawnRequest {
-    /// Starts a request; `argv`, `marker` and `record_dir` must be set before it builds.
+    /// Starts a request; `argv`, `marker` and `record_dir` must be set before it builds. It takes
+    /// no arguments: `build` reports which required field is missing.
     #[must_use]
     pub fn builder() -> SpawnRequestBuilder {
         SpawnRequestBuilder::default()

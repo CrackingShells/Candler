@@ -104,6 +104,13 @@ impl Supervisor {
     /// or its process id names a later process, only the sweep runs, and the report says which of
     /// the two it was. The same events as for a stop are emitted under `run`, except
     /// `process.exited`: the status of a process that is not this process's child is unknown.
+    /// No event reports a refusal either: a new event kind would change the event schema, so the
+    /// refusal is in the returned [`ReapReport`] only.
+    ///
+    /// `run` is optional, unlike the other entry points: a reap after a crash may not know which
+    /// run the record belonged to. Any record that verifies against the operating system is
+    /// adopted, not only one this supervisor spawned, because a crashed supervisor's successor
+    /// has an empty table and is the caller that must end what the record names.
     ///
     /// Must be called within a Tokio runtime.
     ///

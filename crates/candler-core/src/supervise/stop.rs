@@ -141,7 +141,10 @@ pub struct Exit {
     /// another session is the sweeper's. A zombie leader whose parent does not reap it keeps the
     /// group non-empty.
     pub group_empty: bool,
-    /// The raw frame files of the framed streams that finished, standard output first.
+    /// The raw frame files of the framed streams that finished, standard output first. This and
+    /// `stderr_tail` go beyond the status, the steps and `group_empty` that the exit of a stop
+    /// strictly needs: the caller that waits is the one that holds the streams, so they are
+    /// returned here and not through another call.
     pub raw: Vec<RawFileInfo>,
     /// The last 64 KiB of a framed or file standard error; empty for a pipe or no output.
     pub stderr_tail: Vec<u8>,
