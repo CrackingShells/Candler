@@ -372,5 +372,5 @@ impl RawRef {
 
 /// The wire root schemas this module publishes.
 pub(crate) fn roots() -> Vec<GeneratedSchema> {
-    Vec::new()
+    vec![GeneratedSchema::of::<RawRecord>("raw-frames")]
 }

@@ -182,7 +182,10 @@ fn source_name_problem(text: &str) -> Result<(), &'static str> {
 /// The pattern of a session or span id: non-empty, with neither `#` nor white space.
 macro_rules! id_pattern {
     () => {
-        concat!(r"^[^#\t\n\v\f\r\x20\u0085   -     　﻿]+", r"(?![\s\S])")
+        concat!(
+            r"^[^#\t\n\v\f\r\x20\u0085\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]+",
+            r"(?![\s\S])"
+        )
     };
 }
 
@@ -1431,5 +1434,5 @@ fn check_records(
 
 /// The wire root schemas this module publishes.
 pub(crate) fn roots() -> Vec<GeneratedSchema> {
-    Vec::new()
+    vec![GeneratedSchema::of::<TraceRecord>("normalised-trace")]
 }
