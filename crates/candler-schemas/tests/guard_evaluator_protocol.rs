@@ -2,7 +2,15 @@
 //! The suite file and the evaluator protocol: the 43 expectations of the golden corpus, the
 //! graph rules of a suite and the refusal of a list where an object is written.
 
-use candler_schemas::evaluation::{EvaluationError, PluginManifest, SuiteFile};
+use candler_schemas::evaluation::{
+    CancelParams, Condition, ContextArtifact, ContextRaw, ContextRef, DescribeParams,
+    DescribeResult, EvaluateParams, EvaluateResult, EvaluationError, EvaluatorEnvironment,
+    EvaluatorRef, Item, KindSpec, LogParams, Needs, Notification, OutcomeParams, PluginEnvironment,
+    PluginManifest, ProgressParams, ProtocolVersion, Request, RequestCancelled, RequestSide,
+    RunContext, SuiteFile,
+};
+use candler_schemas::outcome::{Instrument, OutcomeRecord};
+use serde::de::DeserializeOwned;
 
 /// The translated suite, written by `tests/vectors/suite/translate_eval_json.py`.
 const CONT_TRAIN: &str = include_str!("vectors/suite/cont_train.toml");
@@ -195,5 +203,189 @@ fn a_suite_graph_is_checked() {
         ))
         .is_err(),
         "an entry written as a list"
+    );
+}
+
+/// A `not_measured` outcome record written by hand, with the cause object `cause`.
+fn record(cause: &str) -> String {
+    format!(
+        r#"{{"run":{{"cell":"sha256:b28a6587f9984281103bf4150867bbca481889e3046c60ec7c27f2b31d562a22","replicate":1,"attempt":1}},"expectation_id":"D-E2","role":"descriptive","evaluator":"synthetic-eval@1.0.0","instruments":[],"suite_entry_digest":"sha256:015b60579b1ff8dac24c2e453898bee9888fff7f0c7eba8345db7a87227f5764","context_digest":"sha256:b28b531af1ae51ed826ac1ab4587bc7e2680d8652cf476f0fd7ef86566378fc1","request_id":"01926b3a-7c3e-7a1b-8c4d-5e6f7a8b9c0d","status":"not_measured","evidence":[],"cause":{cause}}}"#
+    )
+}
+
+/// Reads `valid` as a `T` and refuses `list`, the same members written as a JSON list.
+fn object_not_list<T: DeserializeOwned>(name: &str, valid: &str, list: &str) {
+    serde_json::from_str::<T>(valid).unwrap_or_else(|e| panic!("{name}: the object form: {e}"));
+    assert!(
+        serde_json::from_str::<T>(list).is_err(),
+        "{name}: the list form is refused"
+    );
+}
+
+/// Guards: Cond 7 — an `outcome` notification whose record carries the legacy cause is refused,
+/// by the reader and by the builder, while the same record with a `reason` cause is accepted and
+/// the outcome record itself still reads the legacy cause; every message type of the protocol
+/// refuses a list where an object is written. Oracle: a record written by hand, with the
+/// `not_measured` status that admits both causes.
+#[test]
+fn an_outcome_notification_refuses_the_legacy_cause() {
+    let legacy = record(r#"{"legacy":"no_replay_target"}"#);
+    let reason = record(r#"{"reason":"instrument_error"}"#);
+    let wrap = |record: &str| format!(r#"{{"record":{record}}}"#);
+
+    serde_json::from_str::<OutcomeRecord>(&legacy).expect("the record keeps the legacy cause");
+    let accepted = serde_json::from_str::<OutcomeParams>(&wrap(&reason)).expect("a reason cause");
+    // BORROW: .as_str() reads the id as text
+    assert_eq!(accepted.record().expectation_id().as_str(), "D-E2");
+
+    let error = serde_json::from_str::<OutcomeParams>(&wrap(&legacy)).expect_err("legacy");
+    assert!(error.to_string().contains("D-E2"), "{error}");
+    let record = serde_json::from_str::<OutcomeRecord>(&legacy).expect("a record");
+    let built = OutcomeParams::builder().record(record).build();
+    // BORROW: .as_str() reads the id as text
+    assert!(
+        matches!(built, Err(EvaluationError::LegacyCause { ref expectation_id }) if expectation_id.as_str() == "D-E2"),
+        "{built:?}"
+    );
+
+    let digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+    let run = r#"{"cell":"sha256:b28a6587f9984281103bf4150867bbca481889e3046c60ec7c27f2b31d562a22","replicate":1,"attempt":1}"#;
+    let context = format!(
+        r#"{{"run":{run},"root":"/r","raw":[],"artifacts":[],"snapshots":[],"inputs":[],"metadata":{{}}}}"#
+    );
+    let context_list = format!(r#"[{run},"/r","/t",[],[],[],[],{{}}]"#);
+    let needs = r#"{"trace":false,"artifacts":[],"snapshots":[],"inputs":[],"metadata":[]}"#;
+    let needs_list = r"[false,[],[],[],[]]";
+    let id = "01926b3a-7c3e-7a1b-8c4d-5e6f7a8b9c0d";
+    let describe = r#"{"protocol":{"major":1,"minor":0},"name":"e","version":"1.0.0","instruments":[],"environment":{"packages":{}},"kind":"deterministic","kinds":[]}"#;
+    object_not_list::<OutcomeParams>("OutcomeParams", &wrap(&reason), &format!("[{reason}]"));
+    object_not_list::<CancelParams>(
+        "CancelParams",
+        &format!(r#"{{"request_id":"{id}"}}"#),
+        &format!(r#"["{id}"]"#),
+    );
+    object_not_list::<ProgressParams>("ProgressParams", r#"{"done":1}"#, "[1]");
+    object_not_list::<LogParams>("LogParams", r#"{"line":"x"}"#, "[1]");
+    object_not_list::<EvaluateResult>("EvaluateResult", r#"{"reported":3}"#, "[3]");
+    object_not_list::<RunContext>("RunContext", &context, &context_list);
+    object_not_list::<EvaluateParams>(
+        "EvaluateParams",
+        &format!(r#"{{"context":{context},"items":[],"prior":[],"scratch":"/s"}}"#),
+        &format!(r#"[{context},[],[],"/s"]"#),
+    );
+    object_not_list::<Item>(
+        "Item",
+        r#"{"expectation_id":"A1","kind":"k","params":{},"deadline_ms":5}"#,
+        r#"["A1","k",{},5]"#,
+    );
+    object_not_list::<ContextRaw>(
+        "ContextRaw",
+        r#"{"stream":"stdout","path":"/p"}"#,
+        r#"["stdout","/p"]"#,
+    );
+    object_not_list::<ContextArtifact>(
+        "ContextArtifact",
+        &format!(r#"{{"path":"a.txt","abs":"/a","sha256":"{digest}"}}"#),
+        &format!(r#"["a.txt","/a","{digest}"]"#),
+    );
+    object_not_list::<ContextRef>(
+        "ContextRef",
+        &format!(r#"{{"kind":"k","path":"/p","digest":"{digest}"}}"#),
+        &format!(r#"["k","/p","{digest}"]"#),
+    );
+    object_not_list::<Needs>("Needs", needs, needs_list);
+    object_not_list::<KindSpec>(
+        "KindSpec",
+        &format!(r#"{{"kind":"k","params_schema":{{}},"needs":{needs},"default_deadline_ms":5}}"#),
+        &format!(r#"["k",{{}},{needs},5]"#),
+    );
+    object_not_list::<EvaluatorEnvironment>(
+        "EvaluatorEnvironment",
+        r#"{"packages":{}}"#,
+        &format!(r#"["{digest}",{{}}]"#),
+    );
+    object_not_list::<DescribeResult>(
+        "DescribeResult",
+        describe,
+        r#"[{"major":1,"minor":0},"e","1.0.0",[],{"packages":{}},"deterministic",[]]"#,
+    );
+    object_not_list::<ProtocolVersion>("ProtocolVersion", r#"{"major":1,"minor":0}"#, "[1,0]");
+    object_not_list::<PluginEnvironment>("PluginEnvironment", r#"{"kind":"none"}"#, r#"["none"]"#);
+    object_not_list::<EvaluatorRef>(
+        "EvaluatorRef",
+        r#"{"name":"e","range":"^1"}"#,
+        r#"["e","^1"]"#,
+    );
+    object_not_list::<Condition>(
+        "Condition",
+        r#"{"path":"a.b","any_of":[1]}"#,
+        r#"["a.b",[1]]"#,
+    );
+    object_not_list::<Instrument>(
+        "Instrument",
+        &format!(r#"{{"name":"x","version":"1.0.0","digest":"{digest}","dirty":false}}"#),
+        &format!(r#"["x","1.0.0","{digest}",false]"#),
+    );
+    let cancel = format!(r#"{{"request_id":"{id}"}}"#);
+    object_not_list::<Notification>(
+        "Notification",
+        &format!(r#"{{"method":"cancel","params":{cancel}}}"#),
+        &format!(r#"["cancel",{cancel}]"#),
+    );
+    object_not_list::<Notification>(
+        "Notification cancel with params as a list",
+        &format!(r#"{{"method":"cancel","params":{cancel}}}"#),
+        &format!(r#"{{"method":"cancel","params":["{id}"]}}"#),
+    );
+    object_not_list::<Notification>(
+        "Notification progress with params as a list",
+        r#"{"method":"progress","params":{"done":1}}"#,
+        r#"{"method":"progress","params":[1]}"#,
+    );
+    object_not_list::<Notification>(
+        "Notification log with params as a list",
+        r#"{"method":"log","params":{"line":"x"}}"#,
+        r#"{"method":"log","params":[1]}"#,
+    );
+    object_not_list::<Notification>(
+        "Notification outcome with params as a list",
+        &format!(r#"{{"method":"outcome","params":{}}}"#, wrap(&reason)),
+        &format!(r#"{{"method":"outcome","params":[{reason}]}}"#),
+    );
+
+    let params = format!(r#"{{"context":{context},"items":[],"prior":[],"scratch":"/s"}}"#);
+    object_not_list::<DescribeParams>("DescribeParams", "{}", "[]");
+    object_not_list::<Request>(
+        "Request describe",
+        r#"{"method":"describe","params":{}}"#,
+        r#"["describe",{}]"#,
+    );
+    object_not_list::<Request>(
+        "Request describe with params as a list",
+        r#"{"method":"describe","params":{}}"#,
+        r#"{"method":"describe","params":[]}"#,
+    );
+    object_not_list::<Request>(
+        "Request evaluate with params as a list",
+        &format!(r#"{{"method":"evaluate","params":{params}}}"#),
+        &format!(r#"{{"method":"evaluate","params":[{context},[],[],"/s"]}}"#),
+    );
+    object_not_list::<RequestCancelled>(
+        "RequestCancelled",
+        r#"{"code":-32800,"message":"cancelled"}"#,
+        r#"[-32800,"cancelled"]"#,
+    );
+    // a request, a result and a cancelled error each read through `RequestSide`
+    let sides = [
+        r#"{"method":"describe","params":{}}"#,
+        r#"{"reported":3}"#,
+        r#"{"code":-32800,"message":"cancelled"}"#,
+    ];
+    for text in sides {
+        serde_json::from_str::<RequestSide>(text).unwrap_or_else(|e| panic!("{text}: {e}"));
+    }
+    assert!(
+        serde_json::from_str::<RequestCancelled>(r#"{"code":-32801,"message":"x"}"#).is_err(),
+        "another error code is refused"
     );
 }
