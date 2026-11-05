@@ -43,6 +43,7 @@ struct Row<'a> {
 fn text<'a>(object: &'a Value, key: &str, file: &str, run: &str) -> Result<&'a str, ImportError> {
     object
         .get(key)
+        // BORROW: Value::as_str borrows the JSON string without copying
         .and_then(Value::as_str)
         .ok_or_else(|| layout(file, run, format!("`{key}` is not a string")))
 }
@@ -212,6 +213,7 @@ fn marker_code(rules: &ImportRules, evidence: &str) -> Result<Cause, ImportError
                 deprecated,
                 reason = "the imported record marks what the clean model cannot state"
             )]
+            // BORROW: .clone() copies the value into the owned result
             MarkerCode::Fixed(code) => return Ok(Cause::Legacy(code.clone())),
             MarkerCode::Capture(group) => {
                 // BORROW: explicit .as_str() instead of Deref coercion
@@ -247,6 +249,7 @@ fn facts_of(row: &Row<'_>, run: &LegacyRun, rules: &ImportRules) -> Result<Facts
         other => {
             return Err(ImportError::Status {
                 file: table.into(),
+                // BORROW: .clone() copies the value into the owned result
                 run: run.label.clone(),
                 id: row.id.into(),
                 status: other.into(),
@@ -276,6 +279,7 @@ fn facts_of(row: &Row<'_>, run: &LegacyRun, rules: &ImportRules) -> Result<Facts
     let evidence = row
         .entry
         .get("evidence")
+        // BORROW: Value::as_str borrows the JSON string without copying
         .and_then(Value::as_str)
         .unwrap_or_default();
     Ok(match legacy_status {
@@ -374,6 +378,7 @@ fn suite_entry(
         .role(role)
         // BORROW: .clone() copies the evaluator reference and the kind into the entry
         .evaluator(evaluator.clone())
+        // BORROW: .clone() copies the value into the owned result
         .kind(rules.suite_kind.clone())
         .params(params)
         .build()
@@ -395,6 +400,7 @@ fn run_context(
         // BORROW: explicit .as_str() instead of Deref coercion
         let (_, below) = output
             .path
+            // BORROW: explicit .as_str() instead of Deref coercion
             .as_str()
             .split_once("/outputs/")
             .ok_or_else(|| bad(format!("`{}` is not under `outputs/`", output.path)))?;
@@ -409,16 +415,20 @@ fn run_context(
     for snapshot in comparable.snapshots() {
         // BORROW: .clone() copies the kind and digest into the context
         builder = builder.snapshot(ContextRef::new(
+            // BORROW: .clone() copies the value into the owned result
             snapshot.kind.clone(),
             format!("{ROOT}/snapshots/{}", snapshot.kind),
+            // BORROW: .clone() copies the value into the owned result
             snapshot.digest.clone(),
         ));
     }
     for input in comparable.inputs() {
         // BORROW: .clone() copies the kind and digest into the context
         builder = builder.input(ContextRef::new(
+            // BORROW: .clone() copies the value into the owned result
             input.kind.clone(),
             format!("{ROOT}/inputs/{}", input.kind),
+            // BORROW: .clone() copies the value into the owned result
             input.digest.clone(),
         ));
     }
@@ -486,6 +496,7 @@ pub fn map_grading(
         let facts = facts_of(&row, run, rules)?;
         let role = role_of(&row, run)?;
         let suite = suite_entry(&row, run, role, rules, &evaluator_ref)?;
+        // BORROW: Value::as_str borrows the JSON string without copying
         let evidence_text = match row.entry.get("evidence").and_then(Value::as_str) {
             Some(note) if !note.is_empty() => note,
             Some(_) | None => "no legacy evidence",
@@ -498,10 +509,14 @@ pub fn map_grading(
             .run(mapped.key.clone())
             .expectation_id(ExpectationId::from_str(row.id)?)
             .role(role)
+            // BORROW: .clone() copies the value into the owned result
             .evaluator(pinned.evaluator.clone())
+            // BORROW: .clone() copies the value into the owned result
             .instrument(instrument.clone())
             .suite_entry_digest(suite.digest())
+            // BORROW: .clone() copies the value into the owned result
             .context_digest(context.clone())
+            // BORROW: .clone() copies the value into the owned result
             .request_id(request.clone())
             .status(facts.status)
             .evidence(evidence);

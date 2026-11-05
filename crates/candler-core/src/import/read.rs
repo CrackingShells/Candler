@@ -64,6 +64,7 @@ impl SkipReason {
 
 impl fmt::Display for SkipReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // BORROW: explicit .as_str() instead of Deref coercion
         f.write_str(self.as_str())
     }
 }
@@ -284,6 +285,7 @@ fn file_name<'a>(path: &'a RelPath) -> &'a str {
 
 /// Parses a JSON file.
 fn json_file(file: &SourceFile) -> Result<JsonFile, ImportError> {
+    // BORROW: .as_slice() views the vector as a slice
     let value = serde_json::from_slice::<Value>(file.bytes.as_slice()).map_err(|error| {
         ImportError::Json {
             file: file.path.to_string(),
@@ -303,6 +305,7 @@ fn jsonl_rows(file: &SourceFile) -> Result<Vec<Value>, ImportError> {
         file: file.path.to_string(),
         detail,
     };
+    // BORROW: .as_slice() views the vector as a slice
     let text = std::str::from_utf8(file.bytes.as_slice()).map_err(|e| json(e.to_string()))?;
     let mut rows = Vec::new();
     for (index, line) in text.lines().enumerate() {

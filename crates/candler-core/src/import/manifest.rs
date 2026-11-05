@@ -58,6 +58,7 @@ fn provenance_text<'a>(folder: &'a LegacyFolder, pointer: &str) -> Result<&'a st
         .provenance
         .value
         .pointer(pointer)
+        // BORROW: Value::as_str borrows the JSON string without copying
         .and_then(Value::as_str)
         .ok_or_else(|| {
             layout(
@@ -154,6 +155,7 @@ fn copied_inputs(run: &LegacyRun) -> Result<BTreeSet<DigestRef>, ImportError> {
         .ok_or_else(|| layout(file, &run.label, "`copied_inputs` is not an array"))?;
     for item in items {
         let text = |key: &str| {
+            // BORROW: Value::as_str borrows the JSON string without copying
             item.get(key).and_then(Value::as_str).ok_or_else(|| {
                 layout(
                     file,
@@ -204,6 +206,7 @@ fn cell_model(
         if run.harness_version != first.harness_version {
             return Err(ImportError::Disagree {
                 what: "harness versions",
+                // BORROW: .clone() copies the value into the owned result
                 run: cell.name.clone(),
                 first: first.stream.path.to_string(),
                 second: run.stream.path.to_string(),
@@ -230,6 +233,7 @@ fn cell_model(
         .experiment
         .value
         .pointer(pointer)
+        // BORROW: Value::as_str borrows the JSON string without copying
         .and_then(Value::as_str)
         .and_then(|text| text.split_once('@'))
         .ok_or_else(|| {
@@ -254,6 +258,7 @@ fn cell_model(
         if inputs != first_inputs {
             return Err(ImportError::Disagree {
                 what: "copied inputs",
+                // BORROW: .clone() copies the value into the owned result
                 run: cell.name.clone(),
                 first: first.timing.path.to_string(),
                 second: run.timing.path.to_string(),
@@ -291,8 +296,11 @@ fn integrity_of(
         .into_iter()
         .flatten()
         .find(|entry| {
+            // BORROW: Value::as_str borrows the JSON string without copying
             entry.get("cell").and_then(Value::as_str) == Some(cell.name.as_str())
+                // BORROW: Value::as_str borrows the JSON string without copying
                 && entry.get("config").and_then(Value::as_str) == Some(run.config.as_str())
+                // BORROW: Value::as_str borrows the JSON string without copying
                 && entry.get("run").and_then(Value::as_str) == Some(wanted.as_str())
         })
         .ok_or_else(|| layout(file, &run.label, "no `runs` entry names this run"))?;
@@ -302,6 +310,7 @@ fn integrity_of(
         .ok_or_else(|| layout(file, &run.label, "`original_integrity` is not an object"))?;
     let verdict = original
         .get("verdict")
+        // BORROW: Value::as_str borrows the JSON string without copying
         .and_then(Value::as_str)
         .ok_or_else(|| {
             layout(
@@ -316,22 +325,26 @@ fn integrity_of(
         other => {
             return Err(ImportError::Verdict {
                 file: file.into(),
+                // BORROW: .clone() copies the value into the owned result
                 run: run.label.clone(),
                 verdict: other.into(),
             });
         }
     };
     let row = cell.catalog.iter().find(|row| {
+        // BORROW: Value::as_str borrows the JSON string without copying
         row.get("config").and_then(Value::as_str) == Some(run.config.as_str())
             && row.get("run_number").and_then(Value::as_u64) == Some(u64::from(run.number))
     });
     let catalog = row
         .and_then(|row| row.get("verdict"))
+        // BORROW: Value::as_str borrows the JSON string without copying
         .and_then(Value::as_str)
         .unwrap_or("clean");
     if catalog != verdict {
         return Err(ImportError::Disagree {
             what: "integrity verdicts",
+            // BORROW: .clone() copies the value into the owned result
             run: run.label.clone(),
             first: file.into(),
             second: format!("{}/contamination_catalog.jsonl", cell.name),
@@ -347,8 +360,10 @@ fn elapsed(cell: &LegacyCell, run: &LegacyRun, kind: &str) -> Option<f64> {
     cell.progress
         .iter()
         .find(|event| {
+            // BORROW: Value::as_str borrows the JSON string without copying
             event.get("kind").and_then(Value::as_str) == Some(kind)
                 && event.get("run_number").and_then(Value::as_u64) == Some(u64::from(run.number))
+                // BORROW: Value::as_str borrows the JSON string without copying
                 && event.get("config").and_then(Value::as_str) == Some(run.config.as_str())
         })
         .and_then(|event| event.get("elapsed_seconds"))
@@ -379,6 +394,7 @@ fn timing_of(
     let text = complete
         .value
         .get("completed_at")
+        // BORROW: Value::as_str borrows the JSON string without copying
         .and_then(Value::as_str)
         .ok_or_else(|| layout(file, &run.label, "`completed_at` is not a string"))?;
     let ended = Timestamp::from_str(text)?;
@@ -448,6 +464,7 @@ fn measured_of(
         .provenance_leaves
         .iter()
         .filter(|(_, value)| value.is_null())
+        // BORROW: explicit .as_str() instead of Deref coercion
         .map(|(path, _)| path.as_str())
         .collect();
     let mut seen: BTreeMap<String, (Value, &RelPath)> = BTreeMap::new();
@@ -457,6 +474,7 @@ fn measured_of(
             leaves("provenance", block, &mut found);
         }
         for (path, value) in found {
+            // BORROW: explicit .as_str() instead of Deref coercion
             if value.is_null() || !nulls.contains(path.as_str()) {
                 continue;
             }
@@ -464,6 +482,7 @@ fn measured_of(
                 Some((first, first_path)) if *first != value => {
                     return Err(ImportError::Disagree {
                         what: "eval_metadata provenance copies",
+                        // BORROW: .clone() copies the value into the owned result
                         run: run.label.clone(),
                         first: first_path.to_string(),
                         second: copy.path.to_string(),
@@ -482,6 +501,7 @@ fn measured_of(
         let file = cell.relative(from).ok_or_else(|| {
             // BORROW: explicit .as_str() instead of Deref coercion
             layout(
+                // BORROW: explicit .as_str() instead of Deref coercion
                 from.as_str(),
                 &run.label,
                 "the metadata copy is outside the cell",
@@ -524,11 +544,13 @@ fn import_sources(
         let relative = cell.relative(&file.path).ok_or_else(|| {
             // BORROW: explicit .as_str() instead of Deref coercion
             layout(
+                // BORROW: explicit .as_str() instead of Deref coercion
                 file.path.as_str(),
                 &run.label,
                 "the source is outside the cell",
             )
         })?;
+        // BORROW: .to_owned() makes the owned copy
         add_source(&mut by_path, relative.to_owned(), &file.sha256, run)?;
     }
     for file in &folder.sources {
@@ -556,6 +578,7 @@ pub fn map_runs(folder: &LegacyFolder, rules: &ImportRules) -> Result<Vec<Mapped
         // BORROW: explicit .as_str() instead of Deref coercion
         .map_err(|error| {
             layout(
+                // BORROW: explicit .as_str() instead of Deref coercion
                 folder.provenance.path.as_str(),
                 "the folder",
                 error.to_string(),
@@ -594,9 +617,13 @@ pub fn map_runs(folder: &LegacyFolder, rules: &ImportRules) -> Result<Vec<Mapped
             let (started, ended) = timing_of(cell, run)?;
             // BORROW: .clone() copies the key, the digest and the cell into the manifest
             let mut builder = RunManifest::builder()
+                // BORROW: .clone() copies the value into the owned result
                 .run(key.clone())
+                // BORROW: .clone() copies the value into the owned result
                 .experiment(experiment.clone())
+                // BORROW: .clone() copies the value into the owned result
                 .comparable(model.comparable.clone())
+                // BORROW: .clone() copies the value into the owned result
                 .integrity(integrity.clone());
             for factor in &factors {
                 // BORROW: .clone() copies the factor into the manifest
@@ -615,19 +642,25 @@ pub fn map_runs(folder: &LegacyFolder, rules: &ImportRules) -> Result<Vec<Mapped
             // BORROW: .clone() copies the typed roots and paths into the source entries
             builder = builder
                 .source(SourceEntry::new(
+                    // BORROW: .clone() copies the value into the owned result
                     harness.clone(),
                     ValueSource::imported(relative(&run.stream.path)?),
                 ))
                 .source(SourceEntry::new(
+                    // BORROW: .clone() copies the value into the owned result
                     treatment.clone(),
+                    // BORROW: .clone() copies the value into the owned result
                     ValueSource::imported(model.experiment.clone()),
                 ))
                 .source(SourceEntry::new(
+                    // BORROW: .clone() copies the value into the owned result
                     snapshots.clone(),
+                    // BORROW: .clone() copies the value into the owned result
                     ValueSource::imported(folder.provenance.path.clone()),
                 ));
             if !model.comparable.inputs().is_empty() {
                 builder = builder.source(SourceEntry::new(
+                    // BORROW: .clone() copies the value into the owned result
                     inputs.clone(),
                     ValueSource::imported(relative(&run.timing.path)?),
                 ));

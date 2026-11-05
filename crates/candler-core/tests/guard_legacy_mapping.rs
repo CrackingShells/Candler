@@ -44,8 +44,10 @@ fn field<'v>(value: &'v Value, key: &str) -> &'v Value {
 fn text_of(value: &Value, key: &str) -> String {
     // BORROW: `.to_owned()` of a `&str` for the owned result
     field(value, key)
+        // BORROW: explicit .as_str() instead of Deref coercion
         .as_str()
         .unwrap_or_else(|| panic!("`{key}` is not a string in {value}"))
+        // BORROW: .to_owned() makes the owned copy
         .to_owned()
 }
 
@@ -305,6 +307,7 @@ fn vectors(name: &str) -> Vec<toml::Table> {
 fn vector_text<'t>(vector: &'t toml::Table, key: &str) -> &'t str {
     vector
         .get(key)
+        // BORROW: Value::as_str borrows the JSON string without copying
         .and_then(toml::Value::as_str)
         .unwrap_or_else(|| panic!("vector has no `{key}`"))
 }
@@ -475,7 +478,9 @@ fn edit_provenance_verdict(root: &Path, verdict: &str) {
         let entry = runs
             .iter_mut()
             .find(|entry| {
+                // BORROW: Value::as_str borrows the JSON string without copying
                 entry.get("cell").and_then(Value::as_str) == Some(V3)
+                    // BORROW: Value::as_str borrows the JSON string without copying
                     && entry.get("run").and_then(Value::as_str) == Some("run-6")
             })
             .expect("the entry of run-6");
@@ -494,8 +499,11 @@ fn edit_expectation_status(root: &Path, status: &str) {
     let mut changed = 0;
     for line in text.lines() {
         let mut row: Value = serde_json::from_str(line).expect("a row");
+        // BORROW: Value::as_str borrows the JSON string without copying
         if row.get("cell").and_then(Value::as_str) == Some(V3)
+            // BORROW: Value::as_str borrows the JSON string without copying
             && row.get("run").and_then(Value::as_str) == Some("run-6")
+            // BORROW: Value::as_str borrows the JSON string without copying
             && row.get("id").and_then(Value::as_str) == Some("A1")
         {
             *row.get_mut("status").expect("a status") = Value::String(status.into());
@@ -518,6 +526,7 @@ fn edit_grading_status(root: &Path, status: &str) {
             .and_then(Value::as_array_mut)
             .and_then(|list| {
                 list.iter_mut()
+                    // BORROW: Value::as_str borrows the JSON string without copying
                     .find(|entry| entry.get("id").and_then(Value::as_str) == Some("A1"))
             })
             .expect("A1");
