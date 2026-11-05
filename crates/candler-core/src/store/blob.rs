@@ -134,7 +134,7 @@ impl Store {
 }
 
 /// Copies `from` to the new file `to` and syncs it.
-fn copy_synced(from: &Path, to: &Path) -> Result<(), StoreError> {
+pub(crate) fn copy_synced(from: &Path, to: &Path) -> Result<(), StoreError> {
     let mut source = File::open(from).map_err(io_error("open a blob source", from))?;
     let mut target = OpenOptions::new()
         .write(true)

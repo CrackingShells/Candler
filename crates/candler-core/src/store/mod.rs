@@ -10,6 +10,7 @@ use serde_json::Value;
 
 pub mod blob;
 pub mod layout;
+pub mod run;
 
 use layout::StoreLayout;
 
@@ -45,6 +46,43 @@ pub enum StoreError {
         expected: String,
         /// The digest of the bytes.
         actual: String,
+    },
+    /// A run directory exists and the caller did not ask to replace it, or a finished run cannot
+    /// be replaced.
+    #[error("run {run} already exists")]
+    RunExists {
+        /// The key of the run.
+        run: String,
+    },
+    /// The run is sealed by `run.done` and cannot change.
+    #[error("run {run} is sealed")]
+    RunSealed {
+        /// The key of the run.
+        run: String,
+    },
+    /// A manifest does not belong to the run it was written for.
+    #[error("manifest of run {run} {problem}")]
+    ManifestMismatch {
+        /// The key of the run.
+        run: String,
+        /// How the manifest differs.
+        problem: &'static str,
+    },
+    /// A raw stream is already stored in the run.
+    #[error("stream {stream} of run {run} is already stored")]
+    StreamExists {
+        /// The key of the run.
+        run: String,
+        /// The stream name.
+        stream: String,
+    },
+    /// A stored file is not a valid record.
+    #[error("{} does not parse: {detail}", path.display())]
+    Parse {
+        /// The file.
+        path: PathBuf,
+        /// What the reader said.
+        detail: String,
     },
     /// A digest or key could not be formed.
     #[error(transparent)]
@@ -127,6 +165,30 @@ pub(crate) fn temp_sibling(target: &Path) -> PathBuf {
         .unwrap_or_default();
     let name = format!(".tmp-{}-{n}-{stem}", std::process::id());
     target.with_file_name(name)
+}
+
+/// Reports whether a directory entry name belongs to a reader: not hidden and not a partial.
+pub(crate) fn is_visible(name: &str) -> bool {
+    !name.starts_with('.') && !name.ends_with(".partial")
+}
+
+/// The sorted names of the visible entries of `dir`; a missing directory has none.
+pub(crate) fn visible_names(dir: &Path) -> Result<Vec<String>, StoreError> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(source) => return Err(io_error("list a directory", dir)(source)),
+    };
+    let mut names = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(io_error("list a directory", dir))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if is_visible(&name) {
+            names.push(name);
+        }
+    }
+    names.sort();
+    Ok(names)
 }
 
 /// Flushes the entries of a directory to disk.
