@@ -1,0 +1,68 @@
+# Wire execution: experiment, manifest, job
+
+**Goal**: `candler_schemas::execution` defines `experiment/1` with its budget and cell listing, `run-manifest/1` with the one cell-digest function, the workspace tree `run-tree/1`, and the job record, event envelope and event payloads, all published and drift-checked.
+**Pre-conditions**:
+- [ ] [cmd] DEP(wire_foundations), DEP(wire_trace) and DEP(golden_oracle) hold: `for l in wire_foundations wire_trace golden_oracle; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
+- [ ] [cmd] `test -s crates/candler-core/tests/oracle/vectors/cell_digest.toml && test -s crates/candler-core/tests/oracle/vectors/catalog_content_digest.toml`
+- [ ] [cmd] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints this leaf's worktree path
+**Success Gates**:
+- ✅ [cmd] `cargo nextest run -p candler-schemas -E 'binary(guard_cell_digest)'` passes, holding six B tests: every path of the manifest schema is classified `hashed` or `nuisance` in the hand-written `hashed_paths.toml` (a schema path missing from the table fails); the digests equal the oracle's `cell_digest.toml`; each shuffled twin built through the builder gives the same digest; each nuisance twin gives the same digest; one refusal table reading manifest JSON whose `values`, `snapshots`, `inputs` or `environments` is unsorted, and each duplicated, with the sorted base accepted; **reserved roots**: `Comparable::from_resolved` on a hand-written value list equals a hand-built `Comparable`, an absolute-path string value is refused (a relative one is the positive control), and `CatalogSnapshot::content_digest` equals `catalog_content_digest.toml` and is unchanged when only `captured_at` differs
+- ✅ [cmd] `cargo nextest run -p candler-schemas -E 'binary(guard_experiment_file)'` passes: `tests/vectors/experiment/cont_train.toml`, translated by the committed script from R03's `harness/evals/plans/cont-train-version-matrix.yaml`, validates and `cells()` lists 12 cells, a count the test states by hand from the YAML's axes (3 models × 4 skill versions)
+- ✅ [cmd] `cargo nextest run -p candler-schemas -E 'test(unknown_event_kind)'` passes: a hand-written envelope line with an unknown `kind` reads and writes back byte-identical (I18)
+- ✅ [cmd] STD, DRIFT and SUBJ pass
+- ✅ [nl] The leaf report has a bite mutation per B test; api_review (end of this level) reports no open finding on this leaf
+**References**: [R01 §Budget, §Experiment file, §Job, §Run identity and resume, §Process supervision, §Data Model (Run manifest), §Golden corpus (Importing the corpus)](../../../__design__/architecture.md) — every field; [R03](/Users/hacker/Documents/src/External/PCfVW/agenticai4hpc26-artifact) — `harness/evals/plans/cont-train-version-matrix.yaml` at `candler-m2a-golden`; [R07](../../candler-v1/contracts/parity/README.md) — M2b reads the experiment file, the manifest and the events
+
+## Step 1: Define the experiment file and budget
+**Goal**: An experiment file is read from TOML into a validated value whose cells are a pure function of it.
+**Implementation Logic**:
+1. `ExperimentFile {schema: "experiment/1", fixed: BTreeMap<FieldPath, JsonValue>, factors: Vec<Factor {path: FieldPath, levels: Vec<Level>}>, replicates: u32 (≥ 1), budget: Budget, harness: HarnessRequest {name: NameToken, version?: semver::VersionReq}, treatment: TreatmentRef, secrets: Vec<SecretName>}`. `factors` is a TOML table read in written order (an array of tables if the TOML crate does not keep order).
+2. `Level`: a `JsonValue`, or a table whose leaves fill paths under the factor's path. A factor path or a filled path that is also in `fixed`, or two factors whose paths overlap, is refused.
+3. `Budget {per_run: PerRunCaps {wall_s, turns?, max_cost_usd?}, max_runs?, max_tokens?, max_cost_usd?, wall_s?, max_parallel (default 1)}`; units in the keys (R01 §Formats).
+4. `TreatmentRef {name: NameToken, tag?: String, commit?: GitCommit}`; `SecretName` is the shared primitive in `candler_schemas::primitives` (an environment-variable name), not defined here.
+5. `ExperimentFile::from_toml_str(&str)` parses TOML, converts to JSON, and validates; `cells(&self) -> Vec<Vec<ResolvedValue>>` gives the cartesian product in written order, each cell holding `fixed`, one level per factor, and the per-run caps as `budget.per_run.wall_s`, `budget.per_run.turns` and `budget.per_run.max_cost_usd` (a treatment condition, R01 §Budget; the job caps are not cell values). `experiment_digest(&[Digest]) -> Digest` (over the sorted, deduplicated cell digests) and `varying_paths(&[Vec<ResolvedValue>]) -> Vec<FieldPath>` (a manifest's `factors`) are the only functions computing those two fields, for live runs and the importer alike.
+6. `tests/guard_experiment_file.rs` and `tests/vectors/experiment/{translate_run_config.py,cont_train.toml}`: the script reads the YAML from R03 with `git show` and writes the TOML; the test never reads the YAML.
+**Deliverables**: `crates/candler-schemas/src/execution.rs` (`ExperimentFile`, `Factor`, `Level`, `Budget`, `PerRunCaps`, `HarnessRequest`, `TreatmentRef`, `GitCommit`, `ExecutionError`, `ExperimentFile::from_toml_str`, `ExperimentFile::cells`, `experiment_digest`, `varying_paths`, `EXPERIMENT_SCHEMA`); `crates/candler-schemas/tests/guard_experiment_file.rs`; `crates/candler-schemas/tests/vectors/experiment/`
+**Consistency Checks**: `cargo nextest run -p candler-schemas -E 'binary(guard_experiment_file)'` (expected: PASS)
+**Commit**: `feat(schemas): define the experiment file and budget`
+
+## Step 2: Define the run manifest and its cell digest
+**Goal**: `RunManifest` holds R01's fields, and `cell_digest` is the only function that hashes a cell.
+**Implementation Logic**:
+1. `Comparable {values: Vec<ResolvedValue>, harness: HarnessIdentity {name, version: semver::Version, driver?: NameVersion}, treatment: TreatmentRef, snapshots: Vec<DigestRef {kind: NameToken, digest: Digest}>, inputs: Vec<DigestRef>, environments: Vec<EnvironmentRef {plugin: NameVersion, lock_digest: Digest}>}`. The builder sorts every list (values by path, the others by their fields in order) and refuses duplicates; deserialisation refuses an unsorted or duplicated list. `Comparable::from_resolved(&[ResolvedValue]) -> Result<Comparable, ExecutionError>` takes the reserved roots `harness`, `treatment`, `snapshots`, `inputs` and `environments` into the typed fields (a preflight step derives them as JSON at those paths) and every other path into `values`; it refuses a malformed reserved value and a string value that is an absolute path, at any depth (api_review G7) (I17: a file enters a cell as an `inputs[]` digest, never as a path). A `snapshots[]` digest is `CatalogSnapshot::content_digest()`, `Digest::of_canonical` of the snapshot without `captured_at`, so a capture time never splits a cell.
+2. `RunManifest {schema: "run-manifest/1", run: RunKey, experiment: Digest, factors: Vec<FieldPath>, comparable, sources: Vec<SourceEntry>, secrets: Vec<SecretPresence {name: SecretName, present: bool}>, measured: Vec<MeasuredValue>, deviations: Vec<Deviation {path: FieldPath, stored?: JsonValue, observed?: JsonValue}>, started_at?, ended_at?, host?: String, job?: JobId, integrity: Integrity, import?: ImportRecord}`. `sources` holds one entry for each `comparable.values` path and at least one at or below each present typed root (`harness`, `treatment`, and `snapshots`, `inputs`, `environments` when non-empty), and nothing else: a setting has no source in the manifest (I12; api_review G1). `Comparable::from_resolution(resolved, sources, settings: &[FieldPath])` builds the cell from a resolve `Resolution` and drops the sources at or below a setting path. `measured` holds the run's end under reserved paths, `run.ended_by` (an `EndedBy`) and `run.exit` (an `ExitStatus`); `deviations` lists the re-checked values a forced resume accepted (R01 §Run identity and resume). Both lie outside the hash.
+3. `Integrity`, tagged: `valid` | `invalid {reason: InvalidReason}` with `gateway`, `budget_stop`, `killed`, `interrupted`, `input_leak`, `collection_error`, `reader_error`, `format_unknown` (`#[non_exhaustive]`; api_review G4). `ImportRecord {format: NameToken, base_commit: GitCommit, legacy_integrity: JsonValue, sources: Vec<ImportSource {path: RelPath, sha256: Digest}>, requests: Vec<ImportedRequest {evaluator: NameVersion, request: RequestId}>}`: `requests` names the outcome files the import wrote, so a later diff finds the imported reference by request, not by evaluator version.
+4. `RunManifest::cell_digest(&self) -> Digest` and `Comparable::digest(&self) -> Digest`: `Digest::of_canonical` of `comparable` serialised. Its doc says a changed digest for an existing manifest needs a new schema tag.
+5. `tests/guard_cell_digest.rs` with `tests/vectors/manifest/hashed_paths.toml`, written by hand from R01 §Run manifest; the test walks the generated schema's property paths and fails on one the table does not classify. It reads the oracle vectors from `../candler-core/tests/oracle/vectors/cell_digest.toml`.
+**Deliverables**: `crates/candler-schemas/src/execution.rs` (`RunManifest`, `RunManifestBuilder`, `Comparable`, `ComparableBuilder`, `HarnessIdentity`, `DigestRef`, `EnvironmentRef`, `SecretPresence`, `Deviation`, `Integrity`, `InvalidReason`, `ImportRecord`, `ImportSource`, `ImportedRequest`, `RunManifest::cell_digest`, `Comparable::digest`, `Comparable::from_resolved`, `RUN_MANIFEST_SCHEMA`); `crates/candler-schemas/src/catalog.rs` (`CatalogSnapshot::content_digest`); `crates/candler-schemas/tests/guard_cell_digest.rs`; `crates/candler-schemas/tests/vectors/manifest/hashed_paths.toml`
+**Consistency Checks**: `cargo nextest run -p candler-schemas -E 'binary(guard_cell_digest)'` (expected: PASS)
+**Commit**: `feat(schemas): define the run manifest and its cell digest`
+
+## Step 3: Define the workspace tree of a run
+**Goal**: `run-tree/1` states which content each workspace path held when the run ended, empty directories included.
+**Implementation Logic**:
+1. `RunTree {schema: "run-tree/1", entries: Vec<TreeEntry>}`; `TreeEntry`, tagged on `kind`: `file {path: RelPath, sha256: Digest, executable: bool}` or `dir {path: RelPath}`, a `dir` entry only for a directory that holds nothing.
+2. The builder sorts entries by path and refuses a duplicate path, a path under a `file` entry, and a `dir` entry with an entry below it; deserialisation refuses the same.
+3. Paths are run-relative (I17); the store's blob for a `file` entry is `blobs/<hex of sha256>`.
+**Deliverables**: `crates/candler-schemas/src/execution.rs` (`RunTree`, `RunTreeBuilder`, `TreeEntry`, `RUN_TREE_SCHEMA`)
+**Consistency Checks**: `cargo clippy -p candler-schemas --all-targets -- -D warnings` (expected: PASS)
+**Commit**: `feat(schemas): define the workspace tree of a run`
+
+## Step 4: Define the job record and the event envelope
+**Goal**: The job directory's records and every first-set event payload are typed, and unknown kinds pass through.
+**Implementation Logic**:
+1. `JobRecord {schema: "job-record/1", id: JobId, supervisor: SupervisorIdentity {pid: u32, start: ProcessStart}, spec_digest: Digest, state: running | ended}`.
+2. `Envelope {v: 1, seq: u64, at: Timestamp, job_id: JobId, run?: RunKey, event: EventPayload}`, where `EventPayload` is adjacently tagged (`kind`, `payload`) and flattened into the envelope: `job.started {}`, `job.ended {reason: JobEnd (completed | budget_stop | killed | failed)}`, `run.started {}`, `run.ended {ended_by: EndedBy, exit?: ExitStatus}`, `run.failed {reason: ReasonCode}`, `run.stray {processes: Vec<StrayProcess {pid, start: ProcessStart}>}`, `evaluation.outcome {record: OutcomeRecord}`, `process.spawned {record: ChildRecord}`, `process.stop_step {pid, start: ProcessStart, step: pre_stop | signal | terminate_group | kill_group | sweep, at: Timestamp, outcome?: String}`, `process.exited {pid, start: ProcessStart, status: ExitStatus, group_empty: bool}` (api_review G3: `pid` at least 1), and `Unknown {kind: String, payload: serde_json::Value}` kept for reading and writing (I18).
+3. `EventPayload` and the envelope are what `EventSink` receives in the supervisor leaf: the sink assigns `seq`, `job_id` and `at`.
+4. `unknown_event_kind` sits in a `#[cfg(test)] mod guards` in `execution.rs`; its envelope line is a hand-written byte literal.
+**Deliverables**: `crates/candler-schemas/src/execution.rs` (`JobRecord`, `JobState`, `JobEnd`, `SupervisorIdentity`, `Envelope`, `EventPayload`, `StopStep`, `JOB_RECORD_SCHEMA`, `mod guards` with `unknown_event_kind`)
+**Consistency Checks**: `cargo nextest run -p candler-schemas -E 'test(unknown_event_kind)'` (expected: PASS)
+**Commit**: `feat(schemas): define the job record and the event envelope`
+
+## Step 5: Publish the execution schemas
+**Goal**: The five roots are generated and drift-checked, and the scaffolding is gone.
+**Implementation Logic**:
+`execution::roots()` returns `experiment`, `run-manifest`, `run-tree`, `job-record` and `event-envelope`. Bless and read the diff. Delete every `mod scaffold` and write the bite record.
+**Deliverables**: `crates/candler-schemas/src/execution.rs` (`roots`); `crates/candler-schemas/schema/{experiment,run-manifest,run-tree,job-record,event-envelope}.schema.json`
+**Consistency Checks**: `cargo nextest run -p candler-schemas -E 'binary(schema_drift) | test(no_published_pattern_depends_on_the_regex_engine)' && ! git grep --untracked -n 'mod scaffold' -- crates/candler-schemas` (expected: PASS)
+**Commit**: `feat(schemas): publish the execution schemas`

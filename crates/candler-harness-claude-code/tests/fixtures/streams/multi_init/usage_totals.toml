@@ -1,0 +1,19 @@
+[message."ea98d538-0c5d-4bb7-a243-1b890dda15d3"]
+input_tokens = 88
+output_tokens = 296
+cache_read_tokens = 439546
+cache_creation_tokens = 45972
+
+[message."ea98d538-0c5d-4bb7-a243-1b890dda15d3/toolu_01GvxyCVQDtQf2ByXX2qt9gx"]
+input_tokens = 204
+output_tokens = 74
+cache_read_tokens = 1333438
+cache_creation_tokens = 102910
+
+[session_total."ea98d538-0c5d-4bb7-a243-1b890dda15d3"]
+input_tokens = 88
+output_tokens = 4062
+cache_read_tokens = 439546
+cache_creation_tokens = 45972
+cost_usd = 0.5153769000000001
+

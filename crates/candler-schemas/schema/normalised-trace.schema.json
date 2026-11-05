@@ -1,0 +1,721 @@
+{
+  "$defs": {
+    "Cap": {
+      "description": "Which per-run cap ended a session.",
+      "oneOf": [
+        {
+          "const": "turns",
+          "description": "The cap on conversation turns.",
+          "type": "string"
+        },
+        {
+          "const": "cost",
+          "description": "The cap on cost.",
+          "type": "string"
+        },
+        {
+          "const": "wall",
+          "description": "The cap on wall-clock time.",
+          "type": "string"
+        }
+      ]
+    },
+    "Denial": {
+      "additionalProperties": false,
+      "description": "A refusal of a tool call: who refused it and, when it says, why.",
+      "properties": {
+        "by": {
+          "$ref": "#/$defs/DeniedBy",
+          "description": "Who refused the call."
+        },
+        "reason": {
+          "description": "The reason given, if any.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "by"
+      ],
+      "type": "object"
+    },
+    "DeniedBy": {
+      "description": "Who refused a tool call.",
+      "oneOf": [
+        {
+          "const": "harness",
+          "description": "The harness refused the call by its own rules.",
+          "type": "string"
+        },
+        {
+          "const": "hook",
+          "description": "A hook refused the call.",
+          "type": "string"
+        },
+        {
+          "const": "user",
+          "description": "The user refused the call.",
+          "type": "string"
+        }
+      ]
+    },
+    "Digest": {
+      "description": "A content digest: `sha256:` followed by 64 lowercase hex digits.",
+      "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])",
+      "type": "string"
+    },
+    "EndedBy": {
+      "description": "How a session ended: an object whose `kind` is `completed`, `agent_error`, `cap`, `gateway_error`, `budget_stop`, `killed`, `interrupted` or `unknown`.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The agent finished its work.",
+          "properties": {
+            "kind": {
+              "const": "completed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The agent reported an error, optionally with a reason code under `reason`.",
+          "properties": {
+            "kind": {
+              "const": "agent_error",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/$defs/ReasonCode",
+              "description": "Why the agent failed, when it says."
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A per-run cap stopped the session; the key `cap` names it.",
+          "properties": {
+            "cap": {
+              "$ref": "#/$defs/Cap",
+              "description": "The cap that was reached."
+            },
+            "kind": {
+              "const": "cap",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "cap"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The gateway or the provider failed.",
+          "properties": {
+            "kind": {
+              "const": "gateway_error",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The job budget stopped the session.",
+          "properties": {
+            "kind": {
+              "const": "budget_stop",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The session was killed.",
+          "properties": {
+            "kind": {
+              "const": "killed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The supervisor was lost while the session ran.",
+          "properties": {
+            "kind": {
+              "const": "interrupted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The trace does not say how the session ended.",
+          "properties": {
+            "kind": {
+              "const": "unknown",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Event": {
+      "additionalProperties": false,
+      "description": "One event of a session: its place in the session, what happened, the frame it came from, and the keys of the line that no field holds.",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/Timestamp",
+          "description": "When the event happened, if the harness or the frame time says."
+        },
+        "ext": {
+          "additionalProperties": true,
+          "description": "Data of the harness that no other field holds: an open JSON object, empty when there is none, whose content is open, so a `null` inside it is kept and written back.",
+          "type": "object"
+        },
+        "kind": {
+          "$ref": "#/$defs/EventKind",
+          "description": "What happened."
+        },
+        "raw_ref": {
+          "$ref": "#/$defs/RawRef",
+          "description": "The frame the event was read from."
+        },
+        "seq": {
+          "$comment": "Fits in 64 bits; the Rust reader enforces it.",
+          "description": "The position of the event in its session, counting from 0 without gaps.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "span": {
+          "$ref": "#/$defs/SpanId",
+          "description": "The harness's id that pairs a call with its result, if the event has one."
+        }
+      },
+      "required": [
+        "seq",
+        "kind",
+        "raw_ref",
+        "ext"
+      ],
+      "type": "object"
+    },
+    "EventKind": {
+      "description": "What happened at one point of a session: an object whose `kind` is `user_message`, `assistant_message`, `tool_call`, `tool_result`, `notification` or `usage`, with the members of that kind beside it.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The user said something.",
+          "properties": {
+            "kind": {
+              "const": "user_message",
+              "type": "string"
+            },
+            "text": {
+              "description": "The text, if the harness records it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The assistant said something.",
+          "properties": {
+            "kind": {
+              "const": "assistant_message",
+              "type": "string"
+            },
+            "text": {
+              "description": "The text, if the harness records it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The assistant called a tool.",
+          "properties": {
+            "argv": {
+              "description": "The command line, if the tool runs one.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "tool_call",
+              "type": "string"
+            },
+            "name": {
+              "description": "The name of the tool.",
+              "type": "string"
+            },
+            "origin": {
+              "$ref": "#/$defs/ToolOrigin",
+              "description": "Where the tool is served from."
+            },
+            "wrapped_calls": {
+              "description": "The MCP calls this call bundles; an empty array when it bundles none.",
+              "items": {
+                "$ref": "#/$defs/WrappedCall"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "origin",
+            "wrapped_calls"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A tool call came back.",
+          "properties": {
+            "denied": {
+              "$ref": "#/$defs/Denial",
+              "description": "Who refused the call, when it was refused."
+            },
+            "is_error": {
+              "description": "Whether the result is an error.",
+              "type": "boolean"
+            },
+            "kind": {
+              "const": "tool_result",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "is_error"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A line of the stream that is none of the other kinds; its content is in the event's `ext`.",
+          "properties": {
+            "kind": {
+              "const": "notification",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Token counts and cost; a `session_total` is the running total of the session, so a later one supersedes an earlier one.",
+          "properties": {
+            "cache_creation_tokens": {
+              "$comment": "Fits in 64 bits; the Rust reader enforces it.",
+              "description": "Input tokens written to the cache.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "cache_read_tokens": {
+              "$comment": "Fits in 64 bits; the Rust reader enforces it.",
+              "description": "Input tokens served from the cache.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "cost_usd": {
+              "$ref": "#/$defs/Finite",
+              "description": "The cost in US dollars, a finite number, if the harness reports it."
+            },
+            "input_tokens": {
+              "$comment": "Fits in 64 bits; the Rust reader enforces it.",
+              "description": "Input tokens.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "usage",
+              "type": "string"
+            },
+            "output_tokens": {
+              "$comment": "Fits in 64 bits; the Rust reader enforces it.",
+              "description": "Output tokens.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "scope": {
+              "$ref": "#/$defs/UsageScope",
+              "description": "Whether the counts are one message's or the session's running total."
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "input_tokens",
+            "output_tokens",
+            "cache_read_tokens",
+            "cache_creation_tokens"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Finite": {
+      "description": "A finite real number: neither `NaN` nor infinite. Negative zero is finite.",
+      "format": "double",
+      "type": "number"
+    },
+    "Name": {
+      "description": "A plain name, such as that of a harness, a reader, a plug-in or a treatment: non-empty, with neither `@` nor white space.",
+      "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+(?![\\s\\S])",
+      "type": "string"
+    },
+    "NameVersion": {
+      "$comment": "The major, minor and patch numbers each fit in 64 bits; the parser enforces it.",
+      "description": "An evaluator or instrument reference, `name@version`, split at the last `@`: the name is non-empty and holds neither `@` nor white space, and the version is `SemVer` 2.0.",
+      "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+@(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?(?![\\s\\S])",
+      "type": "string"
+    },
+    "RawFileRef": {
+      "additionalProperties": false,
+      "description": "The streams the raw files of a trace archive, each with the digest of its file.",
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/Digest",
+          "description": "The digest of the framed raw file of the stream."
+        },
+        "stream": {
+          "$ref": "#/$defs/StreamName",
+          "description": "The name of the archived stream."
+        }
+      },
+      "required": [
+        "stream",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "RawRef": {
+      "additionalProperties": false,
+      "description": "A pointer to one frame: the stream and the index of the frame, counting the lines after the header from 0.",
+      "properties": {
+        "frame": {
+          "$comment": "Fits in 64 bits; the Rust reader enforces it.",
+          "description": "The index of the frame, from 0.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stream": {
+          "$ref": "#/$defs/StreamName",
+          "description": "The stream the frame belongs to."
+        }
+      },
+      "required": [
+        "stream",
+        "frame"
+      ],
+      "type": "object"
+    },
+    "ReasonCode": {
+      "description": "A reason code: a lowercase letter, then lowercase letters, digits or `_`.",
+      "pattern": "^[a-z][a-z0-9_]*(?![\\s\\S])",
+      "type": "string"
+    },
+    "SessionId": {
+      "description": "The id of a session: non-empty, with neither `#` nor white space, so that it reads as the session part of an `event:<session-id>#<seq>` evidence reference. A child session's id is its parent's id, `/`, and the id of the call that started it.",
+      "pattern": "^[^#\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+(?![\\s\\S])",
+      "type": "string"
+    },
+    "SessionSource": {
+      "$comment": "The major, minor and patch numbers each fit in 64 bits; the Rust reader enforces it.",
+      "additionalProperties": false,
+      "description": "The harness and the reader that produced a session, written as an object with the names and `SemVer` versions of both.",
+      "properties": {
+        "harness": {
+          "$ref": "#/$defs/Name",
+          "description": "The name of the harness that ran the session."
+        },
+        "harness_version": {
+          "description": "The harness version, a `SemVer` 2.0 string.",
+          "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?(?![\\s\\S])",
+          "type": "string"
+        },
+        "reader": {
+          "$ref": "#/$defs/Name",
+          "description": "The name of the reader that normalised the session."
+        },
+        "reader_version": {
+          "description": "The reader version, a `SemVer` 2.0 string.",
+          "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?(?![\\s\\S])",
+          "type": "string"
+        }
+      },
+      "required": [
+        "harness",
+        "harness_version",
+        "reader",
+        "reader_version"
+      ],
+      "type": "object"
+    },
+    "SpanId": {
+      "description": "The id of a harness call, which pairs a call with its result and names the child session the call started: non-empty, with neither `#` nor white space.",
+      "pattern": "^[^#\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+(?![\\s\\S])",
+      "type": "string"
+    },
+    "StreamName": {
+      "description": "The name of an archived stream: `stdout`, `stderr`, or the name of a collected file, matching `[a-z0-9][a-z0-9._-]*`.",
+      "pattern": "^[a-z0-9][a-z0-9._-]*(?![\\s\\S])",
+      "type": "string"
+    },
+    "Timestamp": {
+      "$comment": "The pattern states the lexical form; a date or time that names no instant, such as month 13, and a fraction of more than nine digits are refused by the parser.",
+      "description": "An RFC 3339 timestamp with an uppercase `T` and an explicit offset, `Z` or `±HH:MM`.",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])(?![\\s\\S])",
+      "type": "string"
+    },
+    "ToolOrigin": {
+      "description": "Where a tool call is served from: an object whose `kind` is `builtin`, `mcp`, with the `server` that offers the tool, or `other`.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A tool the harness itself provides.",
+          "properties": {
+            "kind": {
+              "const": "builtin",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A tool an MCP server offers.",
+          "properties": {
+            "kind": {
+              "const": "mcp",
+              "type": "string"
+            },
+            "server": {
+              "description": "The name of the MCP server.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "server"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Any other source.",
+          "properties": {
+            "kind": {
+              "const": "other",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "UsageScope": {
+      "description": "What a usage event counts: one message, or the running total of the session, where a later `session_total` of a session supersedes an earlier one.",
+      "oneOf": [
+        {
+          "const": "message",
+          "description": "The usage of one message, reported once, on the first line that carries the message id.",
+          "type": "string"
+        },
+        {
+          "const": "session_total",
+          "description": "The running total of the session so far; a later one supersedes an earlier one.",
+          "type": "string"
+        }
+      ]
+    },
+    "WrappedCall": {
+      "additionalProperties": false,
+      "description": "One MCP call that a bundling tool call contains: the tool it names and where the tool is served from.",
+      "properties": {
+        "name": {
+          "description": "The name of the wrapped tool.",
+          "type": "string"
+        },
+        "origin": {
+          "$ref": "#/$defs/ToolOrigin",
+          "description": "Where the wrapped tool is served from."
+        }
+      },
+      "required": [
+        "name",
+        "origin"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:candler:schemas:normalised-trace",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One line of a trace file: an object whose `kind` is `header`, `session` or `event`.",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "description": "The first line of the file.",
+      "properties": {
+        "kind": {
+          "const": "header",
+          "type": "string"
+        },
+        "raw": {
+          "description": "The raw files the trace was read from; every `raw_ref` of the file names one of their streams.",
+          "items": {
+            "$ref": "#/$defs/RawFileRef"
+          },
+          "type": "array"
+        },
+        "reader": {
+          "$ref": "#/$defs/NameVersion",
+          "description": "The reader and its version, as `name@version` with a `SemVer` version."
+        },
+        "schema": {
+          "const": "normalised-trace/1",
+          "description": "The version marker: always `normalised-trace/1`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "schema",
+        "reader",
+        "raw"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "description": "A session, after the header and before every event.",
+      "properties": {
+        "ended_at": {
+          "$ref": "#/$defs/Timestamp",
+          "description": "When the session ended, if the harness or the frame times say."
+        },
+        "ended_by": {
+          "$ref": "#/$defs/EndedBy",
+          "description": "How the session ended."
+        },
+        "id": {
+          "$ref": "#/$defs/SessionId",
+          "description": "The id of the session: non-empty, with neither `#` nor white space; a child's id is its parent's id, `/`, and the id of the call that started it."
+        },
+        "kind": {
+          "const": "session",
+          "type": "string"
+        },
+        "model": {
+          "description": "The model the session ran, as the harness names it, if it says.",
+          "type": "string"
+        },
+        "parent_session": {
+          "$comment": "The session id is this id followed by `/` and a non-empty call id; JSON Schema cannot state this, and the Rust reader enforces it.",
+          "$ref": "#/$defs/SessionId",
+          "description": "The id of the session that started this one; the session's own id is that id, `/`, and a call id."
+        },
+        "raw_ref": {
+          "$ref": "#/$defs/RawRef",
+          "description": "The frame the session starts at."
+        },
+        "source": {
+          "$ref": "#/$defs/SessionSource",
+          "description": "The harness and the reader that produced the session."
+        },
+        "started_at": {
+          "$ref": "#/$defs/Timestamp",
+          "description": "When the session started, if the harness or the frame times say."
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "source",
+        "ended_by",
+        "raw_ref"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "description": "An event with the session it belongs to.",
+      "properties": {
+        "event": {
+          "$ref": "#/$defs/Event",
+          "description": "The event."
+        },
+        "kind": {
+          "const": "event",
+          "type": "string"
+        },
+        "session": {
+          "$ref": "#/$defs/SessionId",
+          "description": "The id of the session the event belongs to."
+        }
+      },
+      "required": [
+        "kind",
+        "session",
+        "event"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "TraceRecord"
+}

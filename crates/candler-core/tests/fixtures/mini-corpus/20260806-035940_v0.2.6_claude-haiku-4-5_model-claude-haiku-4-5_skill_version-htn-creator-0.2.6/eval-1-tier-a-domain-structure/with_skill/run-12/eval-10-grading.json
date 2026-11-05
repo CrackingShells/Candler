@@ -1,0 +1,25 @@
+{
+  "eval_id": 10,
+  "title": "tier-c-correspondence",
+  "tier": "soundness",
+  "expectations": [
+    {
+      "id": "C-XN1",
+      "tier": "soundness",
+      "text": "check_state_context_correspondence.py finds no missing state<->context funnels in the generated domain.py/mapping pair (gating: a data-carrying inter-action dependency with no producing output_extractor and/or no consuming ${context.X} ref can never actually flow its real runtime value between the two tool calls)",
+      "role": "gate",
+      "scale": "ratio",
+      "status": "pass",
+      "passed": true,
+      "evidence": "exit_code=0, stdout='DATA_DEPS: count=0\\nMISSING_FUNNELS: count=0'",
+      "score": 0,
+      "max_score": 0
+    }
+  ],
+  "summary": {
+    "passed": 0,
+    "failed": 0,
+    "total": 0,
+    "pass_rate": null
+  }
+}

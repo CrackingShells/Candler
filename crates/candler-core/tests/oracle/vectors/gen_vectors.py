@@ -1,0 +1,713 @@
+"""Generate the digest and identity vectors, with a second engine, from R01's text.
+
+    uv run --with rfc8785 python gen_vectors.py          # write the six TOML files here
+    uv run --with rfc8785 python gen_vectors.py --check  # regenerate in memory and compare
+
+Every digest is `sha256` of the RFC 8785 form (python `rfc8785`) of a JSON value built here from
+R01 (§Run manifest, §Digests of a request, §Wire schema: tool-catalog snapshot, §Golden corpus).
+No Candler code runs. JSON values travel inside the TOML files as JSON text, so number tokens
+and key order reach the Rust test exactly as written.
+
+The spellings below are the most literal reading where R01 or a leaf leaves one open:
+
+ASSUMED (also listed under Findings in the leaf report)
+ 1. Imported cells (`cell_digest.toml`, the three mini-corpus cells; rules of
+    legacy_mapping.md Step 2 item 3): `comparable.values` holds each JSON leaf of
+    `experiment.json` under `plan.*` (without `plan.out_dir`), `provenance.*` and
+    `resolved_skill_version`, as a dotted path, a `null` leaf without `value`; the root
+    `schema_version` is left out. `harness` is `{name: "claude-code", version: <init line
+    claude_code_version>}` without `driver`. `treatment` is `{name, tag}` split from
+    `/plan/skill_version` (`htn-creator@v0.2.3`). `snapshots` is one `{kind: "catalog", digest:
+    "sha256:" + PROVENANCE.json /catalog/sha256}`. `inputs` is `timing.json` `copied_inputs[]`
+    as `{kind: <role>, digest: "sha256:" + <sha256>}` (`relpath` is dropped; the copies of a
+    cell must agree). `environments` is empty.
+ 2. `NameVersion` is the string `name@version` wherever it appears in a JSON value
+    (`harness.driver`, `environments[].plugin`, catalog `provider`).
+ 3. A digest inside a JSON value is the string `sha256:<64 hex>` (`artifacts[].sha256`,
+    `snapshots[].digest`, `inputs[].digest`, `lock_digest`, `source_digest`).
+ 4. `applies_to` keeps its written order; only `depends_on` is sorted.
+ 5. The run key path form is `<cell hex>-r<n>-a<m>` with the cell hex the 64 bare hex digits of
+    the cell digest and `m` = 1 for an import.
+ 6. "The three mini-corpus runs" of `request_id.toml` are the three real runs (run-6, run-17,
+    run-12); a contaminated run gets no request, and the two valid synthetic runs are left out.
+ 7. "The first 74 bits of the hash" read the sha256 as a big-endian integer: `rand_a` is bits
+    0..12 and `rand_b` bits 12..74, counted from the most significant bit.
+ 8. `regraded_at.finished` has no fraction, so the 48-bit time is its whole seconds times 1000.
+ 9. Sorting by `path`, `(kind, digest)` and `(plugin, lock_digest)` is by Unicode code point
+    (the order of UTF-8 bytes); the vectors keep their sort keys ASCII.
+10. The `cell` key of a vector is the mini-corpus cell directory name, or `invented-<n>`.
+
+ASSUMED for imported runs (`context_digest_runs.toml` only; the other files keep notes 1-10)
+11. Imported runs (`context_digest_runs.toml`; legacy_mapping.md Step 3 item 4): `artifacts` holds
+    one `{path, sha256}` per regular file found under the run's `_run_cache/<config>/run-N/outputs/`
+    at any depth, the path relative to `outputs/` with `/` separators and no prefix, the sha256
+    over the raw file bytes; an empty `outputs/` gives `[]`. Nothing else under the run enters it.
+12. Imported runs: `snapshots` and `inputs` are the run's cell's (the manifest's, ASSUMED 1),
+    so every run of a cell has the same two lists; `metadata` is one key per `rules.metadata`
+    path (`plan.model`, as in `tests/support/legacy_rules.rs`), the key the dotted path itself
+    and the value the manifest's `comparable.values` entry for it, that is the JSON leaf of the
+    cell's `experiment.json`, not a `measured` value and not read from the run's files.
+13. The `run` key of a runs vector is `<config>/run-<N>` (`with_skill/run-6`), the run folder
+    relative to `_run_cache/`.
+"""
+
+import argparse
+import datetime
+import gzip
+import hashlib
+import importlib.metadata
+import json
+import os
+import random
+import sys
+import tomllib
+
+import rfc8785
+
+_NOTES = __doc__.split("ASSUMED (also listed under Findings in the leaf report)\n", 1)[1]
+ASSUMED, ASSUMED_RUNS = _NOTES.split("\nASSUMED for imported runs", 1)
+ASSUMED_RUNS = ASSUMED_RUNS.split("\n", 1)[1].rsplit('"""', 1)[0]
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+MINI = os.path.normpath(os.path.join(HERE, "..", "..", "fixtures", "mini-corpus"))
+EVALUATOR = "htn-creator-eval@0.4.2"
+CELLS = (
+    "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3",
+    "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6",
+    "synthetic_cell",
+)
+REAL_RUNS = ((CELLS[0], 6), (CELLS[0], 17), (CELLS[1], 12))
+METADATA_PATHS = ("plan.model",)
+FILES = (
+    "cell_digest.toml",
+    "context_digest.toml",
+    "suite_entry_digest.toml",
+    "catalog_content_digest.toml",
+    "request_id.toml",
+    "context_digest_runs.toml",
+)
+
+
+# ---------------------------------------------------------------- helpers
+
+
+def digest_of(value):
+    """`sha256:` plus the hex of the RFC 8785 form of `value`."""
+    return "sha256:" + hashlib.sha256(rfc8785.dumps(value)).hexdigest()
+
+
+def hexd(label):
+    """A fixed, readable 64-digit digest for an invented input."""
+    return "sha256:" + hashlib.sha256(label.encode()).hexdigest()
+
+
+def jtext(value):
+    """JSON text that keeps key order and number tokens; ASCII only."""
+    return json.dumps(value, ensure_ascii=True, separators=(",", ":"), allow_nan=False)
+
+
+def toml_str(text):
+    return json.dumps(text, ensure_ascii=False)
+
+
+def header(name, what, extra=""):
+    version = importlib.metadata.version("rfc8785")
+    lines = [
+        f"# {name}: {what}",
+        "# Generated by tests/oracle/vectors/gen_vectors.py (python, `uv run --with rfc8785`),",
+        f"# rfc8785 {version}. Do not edit: run the generator and commit the result.",
+        "# JSON values are carried as JSON text; every digest is sha256 of the RFC 8785 form.",
+        "# Spellings that R01 leaves open are marked ASSUMED, as in gen_vectors.py:",
+    ]
+    lines += ["# " + l.rstrip() if l.strip() else "#" for l in ASSUMED.splitlines()]
+    lines += ["# " + l.rstrip() if l.strip() else "#" for l in extra.splitlines()]
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def reordered(items, seed):
+    """The same items in another order."""
+    out = list(items)
+    random.Random(seed).shuffle(out)
+    if out == list(items) and len(out) > 1:
+        out.reverse()
+    return out
+
+
+# ---------------------------------------------------------------- cells
+
+
+def leaves(value, prefix, out):
+    if isinstance(value, dict):
+        for key, inner in value.items():
+            leaves(inner, f"{prefix}.{key}" if prefix else key, out)
+    else:
+        out.append((prefix, value))
+
+
+def sort_comparable(c):
+    """R01: values by path, the other lists by their fields in order."""
+    c = json.loads(jtext(c))
+    c["values"].sort(key=lambda v: v["path"])
+    c["snapshots"].sort(key=lambda r: (r["kind"], r["digest"]))
+    c["inputs"].sort(key=lambda r: (r["kind"], r["digest"]))
+    c["environments"].sort(key=lambda r: (r["plugin"], r["lock_digest"]))
+    return c
+
+
+def comparable(values, harness, treatment, snapshots, inputs, environments):
+    unsorted = {
+        "values": values,
+        "harness": harness,
+        "treatment": treatment,
+        "snapshots": snapshots,
+        "inputs": inputs,
+        "environments": environments,
+    }
+    return sort_comparable(unsorted)
+
+
+def shuffled(c, seed):
+    out = json.loads(jtext(c))
+    for i, key in enumerate(("values", "snapshots", "inputs", "environments")):
+        out[key] = reordered(out[key], seed * 10 + i)
+    return out
+
+
+def stream_version(cell):
+    versions = set()
+    root = os.path.join(MINI, cell, "_run_cache", "with_skill")
+    for run in sorted(os.listdir(root)):
+        path = os.path.join(root, run, "agent_stream.jsonl.gz")
+        if not os.path.isfile(path):
+            continue
+        with gzip.open(path, "rt") as f:
+            init = json.loads(f.readline())
+        assert init["subtype"] == "init", path
+        versions.add(init["claude_code_version"])
+    assert len(versions) == 1, (cell, versions)
+    return versions.pop()
+
+
+def cell_inputs(cell):
+    """The `copied_inputs[]` of the cell's `timing.json` files, as `{kind, digest}`; they agree."""
+    seen = set()
+    for dirpath, _dirs, names in os.walk(os.path.join(MINI, cell)):
+        if "timing.json" in names:
+            with open(os.path.join(dirpath, "timing.json")) as f:
+                copied = json.load(f)["copied_inputs"]
+            seen.add(jtext([{"kind": c["role"], "digest": "sha256:" + c["sha256"]} for c in copied]))
+    assert len(seen) == 1, (cell, len(seen))
+    return json.loads(seen.pop())
+
+
+def mini_cell(cell):
+    """ASSUMED 1: the comparable of an imported cell."""
+    with open(os.path.join(MINI, cell, "experiment.json")) as f:
+        experiment = json.load(f)
+    with open(os.path.join(MINI, "PROVENANCE.json")) as f:
+        catalog_sha = json.load(f)["catalog"]["sha256"]
+    found = []
+    leaves(experiment["plan"], "plan", found)
+    leaves(experiment["provenance"], "provenance", found)
+    found.append(("resolved_skill_version", experiment["resolved_skill_version"]))
+    values = []
+    for path, value in found:
+        if path == "plan.out_dir":
+            continue
+        values.append({"path": path} if value is None else {"path": path, "value": value})
+    name, tag = experiment["plan"]["skill_version"].rsplit("@", 1)
+    return comparable(
+        values,
+        {"name": "claude-code", "version": stream_version(cell)},
+        {"name": name, "tag": tag},
+        [{"kind": "catalog", "digest": "sha256:" + catalog_sha}],
+        cell_inputs(cell),
+        [],
+    )
+
+
+def invented_cells():
+    one = comparable(
+        [],
+        {"name": "scripted", "version": "0.1.0", "driver": "pty-driver@1.0.0"},
+        {"name": "bare-skill"},
+        [],
+        [],
+        [],
+    )
+    two = comparable(
+        [
+            {"path": "plan.model", "value": "model-éè"},
+            {"path": "budget.per_run.wall_s", "value": 600},
+            {"path": "budget.per_run.max_cost_usd", "value": 1.5},
+            {"path": "isolation.network", "value": False},
+            {"path": "plan.nested", "value": {"😀": 1, "€": 2, "b": [3, 2, 1], "A": {"z": None}}},
+            {"path": "plan.max_int", "value": 9007199254740991},
+            {"path": "plan.min_int", "value": -9007199254740991},
+            {"path": "plan.negative_zero", "value": -0.0},
+        ],
+        {"name": "claude-code", "version": "2.1.220", "driver": "headless@0.3.0"},
+        {"name": "skill-b", "tag": "v1.2.0", "commit": "0123456789abcdef0123456789abcdef01234567"},
+        [
+            {"kind": "tool-catalog", "digest": hexd("catalog-b")},
+            {"kind": "tool-catalog", "digest": hexd("catalog-a")},
+        ],
+        [
+            {"kind": "prompt", "digest": hexd("prompt-1")},
+            {"kind": "domain", "digest": hexd("domain-1")},
+        ],
+        [
+            {"plugin": "htn-creator-eval@0.4.2", "lock_digest": hexd("lock-b")},
+            {"plugin": "another-eval@1.0.0", "lock_digest": hexd("lock-a")},
+        ],
+    )
+    three = comparable(
+        [
+            {"path": "plan.config", "value": "with_skill"},
+            {"path": "plan.base_url"},
+            {"path": "plan.escapes", "value": "quote \" backslash \\ bell \u0007 newline \n tab \t slash /"},
+            {"path": "plan.big_float", "value": 1e21},
+            {"path": "plan.small_float", "value": 1e-7},
+            {"path": "plan.tenth", "value": 0.1},
+            {"path": "plan.whole_float", "value": 100.0},
+            {"path": "plan.list", "value": [True, None, 1.5, "x", {"k": []}]},
+            {"path": "plan.empty_text", "value": ""},
+        ],
+        {"name": "claude-code", "version": "2.2.0-rc.1+build.5"},
+        {"name": "skill-c", "commit": "fedcba9876543210fedcba9876543210fedcba98"},
+        [{"kind": "tool-catalog", "digest": hexd("catalog-c")}],
+        [],
+        [{"plugin": "htn-creator-eval@0.4.2", "lock_digest": hexd("lock-c")}],
+    )
+    return [("invented-1", one), ("invented-2", two), ("invented-3", three)]
+
+
+def outside_hash(n, variant):
+    """The nuisance set of R01 §Run manifest: sources, secrets, measured, timestamps, host."""
+    if variant == "a":
+        return {
+            "sources": [{"path": "plan.model", "source": {"kind": "experiment_file"}}],
+            "secrets": [{"name": "ANTHROPIC_API_KEY", "present": True}],
+            "measured": [
+                {"path": "run.exit", "value": {"code": 0}, "source": {"kind": "core_default"}}
+            ],
+            "started_at": "2026-08-06T03:59:40Z",
+            "ended_at": "2026-08-06T04:10:00Z",
+            "host": f"host-a-{n}",
+        }
+    return {
+        "sources": [
+            {"path": "plan.model", "source": {"kind": "explicit_argument"}},
+            {"path": "plan.runs", "source": {"kind": "user_config"}},
+        ],
+        "secrets": [],
+        "measured": [],
+        "started_at": "2027-01-02T10:00:00+09:00",
+        "ended_at": "2027-01-02T11:30:15.250+09:00",
+        "host": f"other-host-{n}",
+    }
+
+
+def cell_vectors():
+    cells = [(name, mini_cell(name)) for name in CELLS] + invented_cells()
+    out = [header("cell_digest.toml", "cell digest vectors (R01 §Run manifest, §Golden corpus).")]
+    out.append(
+        "# `comparable` is sorted and unique; `shuffled` has the same content with every list in\n"
+        "# another order (the builder sorts it); `outside` and `outside_twin` are two different\n"
+        "# values of the fields outside the hash. All three give `digest`.\n"
+    )
+    for n, (name, c) in enumerate(cells, start=1):
+        out.append("[[vector]]")
+        out.append(f"cell = {toml_str(name)}")
+        out.append(f"comparable = {toml_str(jtext(c))}")
+        out.append(f"digest = {toml_str(digest_of(c))}")
+        out.append(f"shuffled = {toml_str(jtext(shuffled(c, n)))}")
+        out.append(f"outside = {toml_str(jtext(outside_hash(n, 'a')))}")
+        out.append(f"outside_twin = {toml_str(jtext(outside_hash(n, 'b')))}")
+        out.append("")
+    return "\n".join(out), dict(cells)
+
+
+# ---------------------------------------------------------------- context
+
+
+def context_projection(artifacts, snapshots, inputs, metadata):
+    return {
+        "artifacts": sorted(artifacts, key=lambda a: a["path"]),
+        "snapshots": sorted(snapshots, key=lambda r: (r["kind"], r["digest"])),
+        "inputs": sorted(inputs, key=lambda r: (r["kind"], r["digest"])),
+        "metadata": metadata,
+    }
+
+
+def context_vectors():
+    cases = [
+        ("empty lists and empty metadata", [], [], [], {}),
+        (
+            "one of each",
+            [{"path": "outputs/plan.json", "sha256": hexd("plan")}],
+            [{"kind": "tool-catalog", "digest": hexd("catalog")}],
+            [{"kind": "mapping", "digest": hexd("mapping")}],
+            {"plan.model": "claude-haiku-4-5"},
+        ),
+        (
+            "unsorted input: uppercase before lowercase, kind before digest",
+            [
+                {"path": "outputs/b.txt", "sha256": hexd("b")},
+                {"path": "outputs/a.txt", "sha256": hexd("a")},
+                {"path": "Outputs/Z.txt", "sha256": hexd("z")},
+            ],
+            [
+                {"kind": "tool-catalog", "digest": hexd("c2")},
+                {"kind": "environment", "digest": hexd("e1")},
+                {"kind": "tool-catalog", "digest": hexd("c1")},
+            ],
+            [
+                {"kind": "prompt", "digest": hexd("p2")},
+                {"kind": "mapping", "digest": hexd("m1")},
+            ],
+            {"plan.model": "m", "plan.config": "with_skill"},
+        ),
+        (
+            "metadata with nested values, floats, a key-order trap and a bare list",
+            [{"path": "outputs/plan.json", "sha256": hexd("plan")}],
+            [],
+            [],
+            {
+                "plan.nested": {"😀": 1, "€": [2, 2.50, 1e21], "a": {"b": None, "A": True}},
+                "plan.runs": 20,
+                "plan.ratio": 0.1,
+                "plan.list": [3, 1, 2],
+                "budget.per_run.wall_s": 600,
+            },
+        ),
+    ]
+    out = [header("context_digest.toml", "context digest vectors (R01 §Digests of a request).")]
+    out.append(
+        "# `input` is the projection as a caller may hold it (lists in any order); the digest is\n"
+        "# over the projection with `artifacts` sorted by `path` and `snapshots` and `inputs` by\n"
+        "# (kind, digest). The projection is returned in `sorted`.\n"
+    )
+    for title, artifacts, snapshots, inputs, metadata in cases:
+        raw = {
+            "artifacts": artifacts,
+            "snapshots": snapshots,
+            "inputs": inputs,
+            "metadata": metadata,
+        }
+        proj = context_projection(artifacts, snapshots, inputs, metadata)
+        out.append("[[vector]]")
+        out.append(f"title = {toml_str(title)}")
+        out.append(f"input = {toml_str(jtext(raw))}")
+        out.append(f"sorted = {toml_str(jtext(proj))}")
+        out.append(f"digest = {toml_str(digest_of(proj))}")
+        out.append("")
+    return "\n".join(out), cases
+
+
+def run_artifacts(cell, config, n):
+    """ASSUMED 11: every file under the run's `outputs/`, by relative path and raw-byte sha256."""
+    root = os.path.join(MINI, cell, "_run_cache", config, f"run-{n}", "outputs")
+    assert os.path.isdir(root), root
+    found = []
+    for dirpath, _dirs, names in os.walk(root):
+        for name in names:
+            full = os.path.join(dirpath, name)
+            rel = os.path.relpath(full, root).replace(os.sep, "/")
+            with open(full, "rb") as f:
+                found.append({"path": rel, "sha256": "sha256:" + hashlib.sha256(f.read()).hexdigest()})
+    return found
+
+
+def run_metadata(cell):
+    """ASSUMED 12: the `rules.metadata` paths read from the cell's comparable values."""
+    c = mini_cell(cell)
+    by_path = {v["path"]: v for v in c["values"]}
+    return {p: by_path[p]["value"] for p in METADATA_PATHS}
+
+
+def run_context(cell, config, n):
+    c = mini_cell(cell)
+    return context_projection(
+        run_artifacts(cell, config, n), c["snapshots"], c["inputs"], run_metadata(cell)
+    )
+
+
+def run_context_vectors():
+    out = [header("context_digest_runs.toml", "context digests of the three real mini-corpus runs (R01 §Golden corpus).", ASSUMED_RUNS)]
+    out.append(
+        "# One `[[run]]` per real run: `projection` is the context projection (JSON text, sorted as\n"
+        "# R01 says) of legacy_mapping.md Step 3 item 4, and `digest` its context digest.\n"
+    )
+    rows = []
+    for cell, n in REAL_RUNS:
+        proj = run_context(cell, "with_skill", n)
+        digest = digest_of(proj)
+        rows.append((cell, f"with_skill/run-{n}", proj, digest))
+        out.append("[[run]]")
+        out.append(f"cell = {toml_str(cell)}")
+        out.append(f"run = {toml_str(f'with_skill/run-{n}')}")
+        out.append(f"projection = {toml_str(jtext(proj))}")
+        out.append(f"digest = {toml_str(digest)}")
+        out.append("")
+    return "\n".join(out), rows
+
+
+# ---------------------------------------------------------------- suite entries
+
+
+def suite_projection(entry):
+    proj = {
+        "kind": entry["kind"],
+        "params": entry["params"],
+        "role": entry["role"],
+        "depends_on": sorted(entry["depends_on"]),
+    }
+    if "applies_to" in entry:
+        proj["applies_to"] = entry["applies_to"]
+    return proj
+
+
+def suite_cases():
+    cond = lambda *levels: {"path": "plan.config", "any_of": list(levels)}
+    one = {
+        "id": "A1",
+        "group": "1",
+        "role": "gate",
+        "evaluator": {"name": "htn-creator-eval", "range": "^0.4"},
+        "kind": "file_exists",
+        "params": {},
+        "depends_on": [],
+        "deadline_ms": 60000,
+    }
+    two = {
+        "id": "B7",
+        "group": "3",
+        "role": "quality",
+        "evaluator": {"name": "htn-creator-eval", "range": "^0.4"},
+        "kind": "method_count",
+        "params": {"min": 3, "ratio": 0.5, "names": ["x", "y"]},
+        "depends_on": ["B2", "A1", "A10"],
+        "applies_to": [cond("with_skill")],
+        "deadline_ms": 30000,
+    }
+    three = {
+        "id": "D-E3",
+        "role": "descriptive",
+        "evaluator": {"name": "htn-creator-eval", "range": "^0.4"},
+        "kind": "replay",
+        "params": {"nested": {"€": 1.0, "😀": [1e21, 2.50], "a": None}, "text": "café \"q\""},
+        "depends_on": ["C-M1", "B9"],
+        "applies_to": [cond("with_skill", "without_skill"), {"path": "plan.model", "any_of": ["m1", 2, 0.5]}],
+    }
+    return [one, two, three]
+
+
+def twin(entry, n):
+    out = json.loads(jtext(entry))
+    out["id"] = entry["id"] + f"-renamed-{n}"
+    out["evaluator"] = {"name": "other-eval", "range": ">=1.0.0, <2.0.0"}
+    out["deadline_ms"] = 123456 + n
+    out["group"] = f"moved-{n}"
+    return out
+
+
+def suite_vectors():
+    out = [header("suite_entry_digest.toml", "suite entry digest vectors (R01 §Digests of a request).")]
+    out.append(
+        "# `entry` is a suite entry as written (`depends_on` possibly unsorted); `twin` differs\n"
+        "# only in `id`, `group`, `evaluator` and `deadline_ms`, which are outside the hash.\n"
+        "# Both give `digest`.\n"
+    )
+    entries = suite_cases()
+    for n, entry in enumerate(entries, start=1):
+        proj = suite_projection(entry)
+        out.append("[[vector]]")
+        out.append(f"entry = {toml_str(jtext(entry))}")
+        out.append(f"twin = {toml_str(jtext(twin(entry, n)))}")
+        out.append(f"digest = {toml_str(digest_of(proj))}")
+        out.append("")
+    return "\n".join(out), entries
+
+
+# ---------------------------------------------------------------- catalog
+
+
+def catalog(captured_at, tool_two_description):
+    return {
+        "schema": "tool-catalog-snapshot/1",
+        "captured_at": captured_at,
+        "provider": "rikyu-catalog@0.1.0",
+        "environment": {"python": "3.12.4", "mcp": "1.9.0"},
+        "servers": [
+            {
+                "name": "rikyu",
+                "source_path": "servers/rikyu_mcp",
+                "source_digest": hexd("rikyu-source"),
+                "transport": "stdio",
+                "tools": [
+                    {
+                        "name": "submit_job",
+                        "description": "Submit a batch job.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {"script": {"type": "string"}, "nodes": {"type": "integer"}},
+                            "required": ["script"],
+                        },
+                        "annotations": {"readOnlyHint": False},
+                    },
+                    {
+                        "name": "get_job_status",
+                        "description": tool_two_description,
+                        "inputSchema": {"type": "object", "properties": {"job_id": {"type": "string"}}},
+                        "title": "Job status",
+                    },
+                ],
+            }
+        ],
+    }
+
+
+def catalog_vectors():
+    a = catalog("2026-10-01T00:00:00Z", "Report a job's state.")
+    b = catalog("2026-10-28T12:34:56+09:00", "Report a job's state.")
+    c = catalog("2026-10-01T00:00:00Z", "Report the state of a job.")
+
+    def without_time(doc):
+        return {k: v for k, v in doc.items() if k != "captured_at"}
+
+    out = [header("catalog_content_digest.toml", "catalog snapshot content digests (R01 §Wire schema: tool-catalog snapshot).")]
+    out.append(
+        "# `document_a` and `document_b` differ only in `captured_at` and share `digest_ab`;\n"
+        "# `document_c` differs in one tool description and has `digest_c`. Each digest is over the\n"
+        "# RFC 8785 form of the document without `captured_at`.\n"
+    )
+    out.append("[[vector]]")
+    out.append(f"document_a = {toml_str(jtext(a))}")
+    out.append(f"document_b = {toml_str(jtext(b))}")
+    out.append(f"document_c = {toml_str(jtext(c))}")
+    out.append(f"digest_ab = {toml_str(digest_of(without_time(a)))}")
+    out.append(f"digest_c = {toml_str(digest_of(without_time(c)))}")
+    out.append("")
+    return "\n".join(out), (a, b, c, without_time)
+
+
+# ---------------------------------------------------------------- request id
+
+
+def uuid7(unix_ms, hash_hex):
+    bits = int(hash_hex, 16)
+    top = bits >> (256 - 74)
+    rand_a = top >> 62
+    rand_b = top & ((1 << 62) - 1)
+    value = (unix_ms << 80) | (0x7 << 76) | (rand_a << 64) | (0b10 << 62) | rand_b
+    h = f"{value:032x}"
+    return f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}"
+
+
+def request_vectors(cell_comparables):
+    with open(os.path.join(MINI, "PROVENANCE.json")) as f:
+        finished = json.load(f)["regraded_at"]["finished"]
+    when = datetime.datetime.strptime(finished, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+    unix_ms = int(when.timestamp()) * 1000
+    out = [header("request_id.toml", "import request ids (R01 §Golden corpus, Outcome identity).")]
+    out.append(
+        "# `path_form` is `<cell hex>-r<n>-a1`; `hash` is sha256(path_form, 0x00, evaluator); the\n"
+        "# id is a UUIDv7 with `unix_ms` as its time, `rand_a` the first 12 bits of the hash and\n"
+        "# `rand_b` the next 62.\n"
+    )
+    rows = []
+    for cell, n in REAL_RUNS:
+        cell_hex = digest_of(cell_comparables[cell]).removeprefix("sha256:")
+        path_form = f"{cell_hex}-r{n}-a1"
+        h = hashlib.sha256(path_form.encode() + b"\x00" + EVALUATOR.encode()).hexdigest()
+        rid = uuid7(unix_ms, h)
+        rows.append((cell, n, path_form, h, rid))
+        out.append("[[vector]]")
+        out.append(f"cell = {toml_str(cell)}")
+        out.append(f"run = {n}")
+        out.append(f"path_form = {toml_str(path_form)}")
+        out.append(f"evaluator = {toml_str(EVALUATOR)}")
+        out.append(f"finished = {toml_str(finished)}")
+        out.append(f"unix_ms = {unix_ms}")
+        out.append(f"hash = {toml_str(h)}")
+        out.append(f"request_id = {toml_str(rid)}")
+        out.append("")
+    return "\n".join(out), rows
+
+
+# ---------------------------------------------------------------- driver
+
+
+def generate():
+    cells_text, comparables = cell_vectors()
+    context_text, context_cases = context_vectors()
+    suite_text, suite_entries = suite_vectors()
+    catalog_text, catalog_docs = catalog_vectors()
+    request_text, request_rows = request_vectors(comparables)
+    runs_text, _runs = run_context_vectors()
+    texts = dict(
+        zip(FILES, (cells_text, context_text, suite_text, catalog_text, request_text, runs_text))
+    )
+    return texts, comparables, context_cases, suite_entries, catalog_docs, request_rows
+
+
+def invariants(comparables, context_cases, suite_entries, catalog_docs, request_rows):
+    """Properties of the vectors themselves, checked independently of the files."""
+    for name, c in comparables.items():
+        base = digest_of(c)
+        assert digest_of(sort_comparable(shuffled(c, 7))) == base, name
+        assert digest_of(sort_comparable(shuffled(c, 8))) == base, name
+        for key in ("values", "snapshots", "inputs", "environments"):
+            if len(c[key]) > 1:
+                assert shuffled(c, 7)[key] != c[key] or shuffled(c, 8)[key] != c[key], (name, key)
+    assert len({digest_of(c) for c in comparables.values()}) == len(comparables)
+    for _title, artifacts, snapshots, inputs, metadata in context_cases:
+        proj = context_projection(artifacts, snapshots, inputs, metadata)
+        assert proj["artifacts"] == sorted(artifacts, key=lambda a: a["path"])
+    assert len({digest_of(context_projection(*c[1:])) for c in context_cases}) == len(context_cases)
+    for n, entry in enumerate(suite_entries, start=1):
+        assert digest_of(suite_projection(entry)) == digest_of(suite_projection(twin(entry, n)))
+    assert len({digest_of(suite_projection(e)) for e in suite_entries}) == len(suite_entries)
+    a, b, c, without_time = catalog_docs
+    assert digest_of(without_time(a)) == digest_of(without_time(b)) != digest_of(without_time(c))
+    assert digest_of(a) != digest_of(b)
+    assert len({r[4] for r in request_rows}) == len(request_rows)
+    for _cell, _n, _path, _hash, rid in request_rows:
+        assert len(rid) == 36 and rid[14] == "7" and rid[19] in "89ab" and rid == rid.lower(), rid
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--check", action="store_true", help="compare with the files on disk")
+    args = ap.parse_args()
+    texts, comparables, context_cases, suite_entries, catalog_docs, request_rows = generate()
+    invariants(comparables, context_cases, suite_entries, catalog_docs, request_rows)
+    for name, text in texts.items():
+        tomllib.loads(text)
+    if not args.check:
+        for name, text in texts.items():
+            with open(os.path.join(HERE, name), "w", encoding="utf-8", newline="\n") as f:
+                f.write(text)
+            print(f"wrote {name}")
+        return 0
+    bad = []
+    for name, text in texts.items():
+        path = os.path.join(HERE, name)
+        if not os.path.isfile(path):
+            bad.append(f"missing {name}")
+            continue
+        with open(path, encoding="utf-8", newline="") as f:
+            if f.read() != text:
+                bad.append(f"differs {name}")
+    if bad:
+        print("\n".join(bad), file=sys.stderr)
+        return 1
+    print("vectors OK: " + ", ".join(FILES))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.dont_write_bytecode = True
+    sys.exit(main())

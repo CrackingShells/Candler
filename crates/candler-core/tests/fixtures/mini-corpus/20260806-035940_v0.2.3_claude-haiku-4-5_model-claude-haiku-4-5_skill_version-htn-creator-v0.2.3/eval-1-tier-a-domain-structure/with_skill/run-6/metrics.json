@@ -1,0 +1,11 @@
+{
+  "action_count": 7,
+  "method_count": 2,
+  "scenario_count": 2,
+  "context_variable_consumers": 1,
+  "context_variable_producers": 23,
+  "extractor_density": 3.29,
+  "total_subtasks": 8,
+  "decomposition_warnings": 0,
+  "decomposition_failures": 0
+}

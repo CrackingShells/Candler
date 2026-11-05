@@ -1,0 +1,26 @@
+{
+  "eval_id": 6,
+  "title": "tier-c-solvability",
+  "tier": "soundness",
+  "expectations": [
+    {
+      "id": "D1",
+      "tier": "soundness",
+      "text": "Every scenario in problems.py is solvable by the planner (find_plan returns a plan); pass_rate is the solvable fraction",
+      "role": "gate",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "2/2 scenarios solvable \u2014 mdlm_single_gpu_training: SOLVED (plan_len=12); mdlm_multi_gpu_training: SOLVED (plan_len=12)",
+      "value": 1.0,
+      "score": 2,
+      "max_score": 2
+    }
+  ],
+  "summary": {
+    "passed": 2,
+    "failed": 0,
+    "total": 2,
+    "pass_rate": 1.0
+  }
+}

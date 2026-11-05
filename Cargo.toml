@@ -10,15 +10,31 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/CrackingShells/Candler"
 
 [workspace.dependencies]
+candler-harness = { path = "crates/candler-harness" }
+candler-harness-claude-code = { path = "crates/candler-harness-claude-code" }
+candler-schemas = { path = "crates/candler-schemas" }
+
+base64 = "0.23"
+flate2 = "1"
+futures = "0.3"
 jiff = "0.2"
+libproc = "0.15"
+regex = "1"
+rustix = { version = "1", features = ["fs", "process"] }
+ryu-js = "1"
 schemars = "1"
 semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
+sha2 = "0.11"
+shell-words = "1"
 thiserror = "2"
+tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt", "sync", "time"] }
+toml = "1"
+url = "2"
 uuid = "1"
 
-jsonschema = "0.60"
+jsonschema = { version = "0.60", default-features = false }
 proptest = "1"
 tempfile = "3"
 

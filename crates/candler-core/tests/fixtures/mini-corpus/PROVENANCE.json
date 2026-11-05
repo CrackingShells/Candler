@@ -1,0 +1,200 @@
+{
+  "purpose": "Golden reference for Candler milestone M2a (evaluation parity): the 240 runs of results/20260806-035940_* regraded by htn-creator-eval at one clean, pinned commit.",
+  "reminder": "pro-htn-phase-6-golden",
+  "regraded_by": "htn-creator-eval 0.4.2 (mcp-python-ingestion, tag htn-creator-eval@0.4.2)",
+  "regraded_at": {
+    "started": "2026-10-28T01:53:27Z",
+    "finished": "2026-10-28T02:17:58Z"
+  },
+  "original_grading": "eval_infra.commit 0e84a75 (htn-creator-eval@0.3.4 + 4), dirty = true; D-E5/D-E6 graded against the bio-opentrons catalog; no instructed coverage. Kept in this repository's history (the parent of this commit).",
+  "pinned": {
+    "commit": "28be2c158fbc6ee786a789242c2d8fd47bfde9a8",
+    "describe": "htn-creator-eval@0.4.2",
+    "dirty": false,
+    "note": "one SHA pins the eval package and the htn_creator_scripts the grader runs (editable, same checkout)"
+  },
+  "eval_infra": {
+    "htn-creator-eval": "0.4.2",
+    "uv.lock_sha256": "b63bd3679ca2f805517099a829d6edfd6c822676fc3e51dad772cdd839137dee",
+    "eval.json": {
+      "path": ".claude/skills/htn-creator-workspace/infrastructure/evals/eval.json",
+      "sha256": "ca7f12afee55152ed0e543a1d9b457c29fc5c02fd49e1ec6a417a9dcc1c97f9e"
+    },
+    "python": "3.12.12",
+    "planner": {
+      "distribution": "gtpyhop-core",
+      "version": "2.0.0"
+    },
+    "mcp": "1.28.1"
+  },
+  "catalog": {
+    "path": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/catalogs/rikyu_mcp.json",
+    "sha256": "8e331d938505087e34839ba8d8d0b596032041af2dd1710315684c8d39f5b438",
+    "schema": "tool-catalog-snapshot/0",
+    "captured_at": "2026-10-28T01:09:04+00:00",
+    "provider": "htn-creator-eval/scripts/capture_catalog_snapshot.py@1",
+    "environment": {
+      "python": "3.12.12",
+      "hpc-agent-core": "0.5.0",
+      "mcp": "2.0.0",
+      "pydantic": "2.13.4"
+    },
+    "servers_dir": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp",
+    "stubbed_modules": [
+      "hpc_agent_core.compute",
+      "hpc_agent_core.compute.slurm",
+      "hpc_agent_core.middleware",
+      "hpc_agent_core.rag",
+      "hpc_agent_core.rag.store",
+      "hpc_agent_core.serving"
+    ],
+    "servers": [
+      {
+        "name": "rikyu-hpc",
+        "source_path": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp/hpc_server.py",
+        "source_digest": "sha256:b2af8a23ff6f5ceef36217b7727bf515fbf345472d81e1872bbed43b57e55b4b",
+        "transport": "stdio",
+        "tools": 26
+      },
+      {
+        "name": "rikyu-docs",
+        "source_path": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp/docs_server.py",
+        "source_digest": "sha256:527acd8f431571903257dd51578b2a21bf8bb27b20d274e6fdfe82169968d638",
+        "transport": "stdio",
+        "tools": 3
+      }
+    ],
+    "D-E_rows_by_catalog": {
+      "absent": 354,
+      "snapshot=rikyu_mcp.json": 1086
+    },
+    "D-E_rows_without_catalog_marker": "check_tier_d printed no markers for these runs: no mapping file (blocked), no domain.py (blocked), or a mapping with zero entries (not_measured). No row was graded against another catalog.",
+    "snapshot_refusals": 0
+  },
+  "corpus": {
+    "repository": "agenticai4hpc26-artifact (https://github.com/PCfVW/agenticai4hpc26-artifact)",
+    "base_commit": "c9703b8c4d9a57cbd7fa40a3ae4712de4d44bb25",
+    "path": "campaign/20260806-cont-train",
+    "cells": [
+      "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3",
+      "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6",
+      "synthetic_cell"
+    ],
+    "runs": 240,
+    "command": "uv run --directory <REPO_ROOT>/.claude/skills/htn-creator-workspace/infrastructure --frozen htn-creator-eval grade <cell> --skills <REPO_ROOT> --no-color, once per cell",
+    "empty_outputs_restored": "4 runs whose agent wrote nothing have an empty outputs/ directory, which git does not keep; it was recreated before grading so they are regraded too.",
+    "paths": "absolute paths rewritten as in README's path-sanitisation note: the mcp-python-ingestion checkout -> <REPO_ROOT>, this repository's checkout -> <ARTIFACT_ROOT>, any other /Users/<user> -> <HOME>."
+  },
+  "runs": [
+    {
+      "cell": "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3",
+      "config": "with_skill",
+      "run": "run-6",
+      "model": "claude-haiku-4-5",
+      "skill_version": "v0.2.3",
+      "tier_rates": {
+        "tier_A_pass_rate": 1.0,
+        "tier_B_pass_rate": 1.0,
+        "tier_C_pass_rate": 0.9722
+      },
+      "instructed_coverage_status": "measured",
+      "original_integrity": {
+        "verdict": "clean",
+        "reasons": []
+      }
+    },
+    {
+      "cell": "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3",
+      "config": "with_skill",
+      "run": "run-17",
+      "model": "claude-haiku-4-5",
+      "skill_version": "v0.2.3",
+      "tier_rates": {
+        "tier_A_pass_rate": 1.0,
+        "tier_B_pass_rate": 0.5,
+        "tier_C_pass_rate": 0.6071
+      },
+      "instructed_coverage_status": "measured",
+      "original_integrity": {
+        "verdict": "incomplete",
+        "reasons": [
+          {
+            "code": "missing_genuine_output",
+            "filename": "cont-train.json",
+            "evidence": []
+          }
+        ]
+      }
+    },
+    {
+      "cell": "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6",
+      "config": "with_skill",
+      "run": "run-12",
+      "model": "claude-haiku-4-5",
+      "skill_version": "v0.2.6",
+      "tier_rates": {
+        "tier_A_pass_rate": 0.9643,
+        "tier_B_pass_rate": 0.5,
+        "tier_C_pass_rate": 0.75
+      },
+      "instructed_coverage_status": "measured",
+      "original_integrity": {
+        "verdict": "clean",
+        "reasons": []
+      }
+    },
+    {
+      "cell": "synthetic_cell",
+      "config": "with_skill",
+      "run": "run-1",
+      "model": "claude-synthetic-1",
+      "skill_version": "v0.0.0-synthetic",
+      "tier_rates": {
+        "tier_A_pass_rate": 1.0
+      },
+      "instructed_coverage_status": "measured",
+      "original_integrity": {
+        "verdict": "contaminated",
+        "reasons": [
+          {
+            "code": "input_leak",
+            "filename": "domain.py",
+            "evidence": [
+              "synthetic leak"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "cell": "synthetic_cell",
+      "config": "with_skill",
+      "run": "run-2",
+      "model": "claude-synthetic-1",
+      "skill_version": "v0.0.0-synthetic",
+      "tier_rates": {
+        "tier_A_pass_rate": 1.0
+      },
+      "instructed_coverage_status": "measured",
+      "original_integrity": {
+        "verdict": "clean",
+        "reasons": []
+      }
+    },
+    {
+      "cell": "synthetic_cell",
+      "config": "with_skill",
+      "run": "run-3",
+      "model": "claude-synthetic-1",
+      "skill_version": "v0.0.0-synthetic",
+      "tier_rates": {
+        "tier_A_pass_rate": 1.0
+      },
+      "instructed_coverage_status": "measured",
+      "original_integrity": {
+        "verdict": "clean",
+        "reasons": []
+      }
+    }
+  ]
+}

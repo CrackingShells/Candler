@@ -27,6 +27,7 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 
+use crate::canonical::CanonicalError;
 use crate::primitives::{Digest, NameToken, RelPath, Timestamp};
 
 /// The version marker every snapshot carries in its `schema` field.
@@ -485,6 +486,23 @@ impl CatalogSnapshot {
     pub const fn servers<'a>(&'a self) -> &'a [CatalogServer] {
         // BORROW: explicit .as_slice() instead of Deref coercion
         self.servers.as_slice()
+    }
+
+    /// The digest of the snapshot's content: `sha256` of the RFC 8785 form of the snapshot
+    /// without `captured_at`, so that a capture time never splits a cell.
+    ///
+    /// # Errors
+    /// Returns the [`CanonicalError`] of [`Digest::of_canonical`] if the snapshot has no canonical
+    /// form, which an integer outside ±(2^53 − 1) in `ext` causes: the snapshot reader does not
+    /// check numbers.
+    pub fn content_digest(&self) -> Result<Digest, CanonicalError> {
+        let mut json = serde_json::to_value(self).map_err(|e| CanonicalError::Syntax {
+            detail: e.to_string(),
+        })?;
+        if let Value::Object(fields) = &mut json {
+            fields.remove("captured_at");
+        }
+        Digest::of_canonical(&json)
     }
 }
 

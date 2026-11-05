@@ -1,0 +1,37 @@
+{
+  "eval_id": 11,
+  "title": "tier-c-hygiene",
+  "tier": "soundness",
+  "expectations": [
+    {
+      "id": "C-H1",
+      "tier": "soundness",
+      "text": "check_hygiene.py --rule state-arg finds no state.X read forwarded as a decomposition sub-task argument in the generated domain.py (gating: a forwarded state.X read captures a stale planning-time value instead of the ${context.X} execution-time substitution)",
+      "role": "gate",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "exit_code=0, stdout='STATE_READ_ARGS: count=0 methods_scanned=5'",
+      "score": 1,
+      "max_score": 1
+    },
+    {
+      "id": "C-H2",
+      "tier": "soundness",
+      "text": "check_hygiene.py --rule hardcoded-id finds no hardcoded real-world ID literal in the generated domain.py's string constants (gating: domain.py is the planning layer; real IDs belong in the execution layer's output_extractors, not baked into planning-time source)",
+      "role": "gate",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "exit_code=0, stdout='HARDCODED_IDS: count=0 constants_scanned=215'",
+      "score": 1,
+      "max_score": 1
+    }
+  ],
+  "summary": {
+    "passed": 2,
+    "failed": 0,
+    "total": 2,
+    "pass_rate": 1.0
+  }
+}

@@ -5,11 +5,11 @@
 - [ ] `../wire_schemas.md` is `done` and merged on `main`
 - [ ] Reminder `candler-M1` read: its notes predate the architecture's final version; where they differ, this leaf wins (its "one trivial evaluator end to end" exit moves to M2a, which builds the evaluation engine)
 **Success Gates**:
-- ⬜ The 240 golden runs import into a Candler store: 10,320 schema-valid outcome records. A test checks each against its `expectations.jsonl` row and its grading JSON's `blocked_by` through a mapping table written in the test itself, independent of the importer's code
-- ⬜ All 240 `agent_stream.jsonl.gz` normalise into traces: the expected count of `invalid` runs is 0, and any other count is explained run by run in the import report
-- ⬜ The integrity mapping holds: the 56 `incomplete` golden runs are valid, and a synthetic `contaminated` fixture run, built by this milestone, imports as `invalid(input_leak)`
-- ⬜ A supervisor test spawns a process tree in its own group, stops it by escalation and finds no survivor; the child record is on disk before the supervisor's spawn API returns to its caller
-- ⬜ Every new wire type is generated and drift-checked like the first two
+- ✅ The 240 golden runs import into a Candler store: 10,320 schema-valid outcome records. A test checks each against its `expectations.jsonl` row and its grading JSON's `blocked_by` through a mapping table written in the test itself, independent of the importer's code
+- ✅ All 240 `agent_stream.jsonl.gz` normalise into traces: the expected count of `invalid` runs is 0, and any other count is explained run by run in the import report
+- ✅ The integrity mapping holds: the 56 `incomplete` golden runs are valid, and a synthetic `contaminated` fixture run, built by this milestone, imports as `invalid(input_leak)`
+- ✅ A supervisor test spawns a process tree in its own group, stops it by escalation and finds no survivor; the child record is on disk before the supervisor's spawn API returns to its caller
+- ✅ Every new wire type is generated and drift-checked like the first two
 **References**: [R01 §Data Model, §Harness drivers, §Jobs, runs and supervision, §Golden corpus](../../../__design__/architecture.md) — the types, traits, store, supervisor and mapping
 
 ## Step 1: Plan the milestone

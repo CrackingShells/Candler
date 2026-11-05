@@ -1,0 +1,178 @@
+{
+  "$defs": {
+    "Condition": {
+      "additionalProperties": false,
+      "description": "A condition on a run: the run's value at `path` is one of the listed values, written as an object with the string `path` and the non-empty list `any_of`.",
+      "properties": {
+        "any_of": {
+          "description": "The values the field may hold, at least one.",
+          "items": {
+            "$comment": "Integers lie within ±(2^53 - 1); JSON Schema cannot state this, and the Rust reader refuses a larger one.",
+            "description": "Any JSON value except null at the top, with finite numbers.",
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "array",
+              "object"
+            ]
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "path": {
+          "$ref": "#/$defs/FieldPath",
+          "description": "The dotted path of the run field the condition reads."
+        }
+      },
+      "required": [
+        "path",
+        "any_of"
+      ],
+      "type": "object"
+    },
+    "EvaluatorRef": {
+      "additionalProperties": false,
+      "description": "The evaluator a suite entry asks for: a name and the range of versions that may grade it, written as an object with the string `name` and the `SemVer` requirement `range`.",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/Name",
+          "description": "The evaluator's name."
+        },
+        "range": {
+          "$comment": "The text is a SemVer requirement; the Rust reader enforces the grammar.",
+          "description": "The versions that may grade the entry, a `SemVer` requirement such as `^0.4`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "range"
+      ],
+      "type": "object"
+    },
+    "ExpectationId": {
+      "description": "An expectation identifier: a letter or digit, then letters, digits, `.`, `_` or `-`.",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*(?![\\s\\S])",
+      "type": "string"
+    },
+    "FieldPath": {
+      "description": "A dotted path to a field: one or more segments joined by `.`, each a lowercase letter followed by lowercase letters, digits or `_`.",
+      "pattern": "^[a-z][a-z0-9_]*(?:[.][a-z][a-z0-9_]*)*(?![\\s\\S])",
+      "type": "string"
+    },
+    "Name": {
+      "description": "A plain name, such as that of a harness, a reader, a plug-in or a treatment: non-empty, with neither `@` nor white space.",
+      "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+(?![\\s\\S])",
+      "type": "string"
+    },
+    "Role": {
+      "description": "The part an expectation plays in grading, copied from its suite entry when it was graded.",
+      "oneOf": [
+        {
+          "const": "gate",
+          "description": "A requirement the run must meet.",
+          "type": "string"
+        },
+        {
+          "const": "quality",
+          "description": "A measure of how well the run did.",
+          "type": "string"
+        },
+        {
+          "const": "descriptive",
+          "description": "A measurement reported without a verdict on the run.",
+          "type": "string"
+        }
+      ]
+    },
+    "SuiteEntry": {
+      "additionalProperties": false,
+      "description": "One expectation of a suite, written as an object: what to check (`kind` and `params`), who checks it (`evaluator`), how it counts (`role`), what it waits for (`depends_on`) and when it applies (`applies_to`).",
+      "properties": {
+        "applies_to": {
+          "description": "The conditions that must all hold for the expectation to apply to a run; absent when it applies to every run, otherwise at least one.",
+          "items": {
+            "$ref": "#/$defs/Condition"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "deadline_ms": {
+          "$comment": "Fits in 64 bits; a reader that holds numbers as doubles is exact only below 2^53.",
+          "description": "The time the evaluator may spend on the expectation, in milliseconds; absent when the evaluator's default for the kind applies.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "depends_on": {
+          "description": "The ids of the expectations that must not fail or be blocked for this one to be graded.",
+          "items": {
+            "$ref": "#/$defs/ExpectationId"
+          },
+          "type": "array"
+        },
+        "evaluator": {
+          "$ref": "#/$defs/EvaluatorRef",
+          "description": "The evaluator that grades the expectation."
+        },
+        "group": {
+          "$ref": "#/$defs/Name",
+          "description": "The group the expectation belongs to."
+        },
+        "id": {
+          "$ref": "#/$defs/ExpectationId",
+          "description": "The expectation's identifier, unique in the suite."
+        },
+        "kind": {
+          "$ref": "#/$defs/Name",
+          "description": "The kind of check, one of the kinds the evaluator describes."
+        },
+        "params": {
+          "$comment": "Integers lie within ±(2^53 - 1); JSON Schema cannot state this, and the Rust reader refuses a larger one.",
+          "additionalProperties": true,
+          "description": "The parameters of the check, read by the evaluator and never expanded as templates.",
+          "type": "object"
+        },
+        "role": {
+          "$ref": "#/$defs/Role",
+          "description": "The part the expectation plays in grading."
+        }
+      },
+      "required": [
+        "id",
+        "role",
+        "evaluator",
+        "kind",
+        "params",
+        "depends_on"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:candler:schemas:suite",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The expectations a run is graded against: a suite with the version marker `suite/1` in `schema` and the list `expectations`, whose ids are unique, whose dependencies name entries of the list and whose dependency graph has no cycle.",
+  "properties": {
+    "expectations": {
+      "$comment": "Unique ids, dependencies that name entries and the absence of a dependency cycle are enforced in Rust; JSON Schema cannot state them.",
+      "description": "The expectations, in the order written.",
+      "items": {
+        "$ref": "#/$defs/SuiteEntry"
+      },
+      "type": "array"
+    },
+    "schema": {
+      "const": "suite/1",
+      "description": "The version marker of the document: always `suite/1`.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "expectations"
+  ],
+  "title": "SuiteFile",
+  "type": "object"
+}

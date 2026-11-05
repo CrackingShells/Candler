@@ -1,0 +1,23 @@
+# Hand-written from the raw lines with jq. Two init lines and two result lines share one session id.
+# Claude Code reports `total_cost_usd` as a running total: the second result (0.5153769000000001)
+# equals the stream's final `modelUsage` cost and is not the sum of 0.11967005 and itself; the
+# `usage` tokens of a result are per turn (78 then 10 input tokens), so a reader sums them.
+stream = "agent_stream.jsonl.gz"
+frames = 226
+blank_frames = []
+non_json_frames = []
+subagent_ids = ["toolu_01GvxyCVQDtQf2ByXX2qt9gx"]
+denials = []
+mcp_calls = []
+frame_sessions = []
+cost_reporting = "running"
+tokens_reporting = "per_turn"
+
+[[sessions]]
+id = "ea98d538-0c5d-4bb7-a243-1b890dda15d3"
+ended_by = "completed"
+
+[[sessions]]
+id = "ea98d538-0c5d-4bb7-a243-1b890dda15d3/toolu_01GvxyCVQDtQf2ByXX2qt9gx"
+parent = "ea98d538-0c5d-4bb7-a243-1b890dda15d3"
+ended_by = "completed"

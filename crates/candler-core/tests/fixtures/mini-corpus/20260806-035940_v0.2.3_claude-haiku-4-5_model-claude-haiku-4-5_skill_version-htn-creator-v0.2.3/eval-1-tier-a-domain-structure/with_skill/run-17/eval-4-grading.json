@@ -1,0 +1,38 @@
+{
+  "eval_id": 4,
+  "title": "tier-b-process-pass3-context-flow",
+  "tier": "process",
+  "expectations": [
+    {
+      "id": "B8",
+      "tier": "process",
+      "text": "Pass 3 output: bio-robot.json exists and passes validate_mapping_config.py schema validation ('Configuration is valid')",
+      "role": "gate",
+      "scale": "binary",
+      "status": "fail",
+      "passed": false,
+      "evidence": "cont-train.json not found in outputs",
+      "score": 0,
+      "max_score": 1
+    },
+    {
+      "id": "B9",
+      "tier": "process",
+      "text": "Pass 3 binding quality: mapping JSON contains at least one parameter_mapping entry (confirms action parameters were bound to tool arguments)",
+      "role": "quality",
+      "scale": "binary",
+      "status": "blocked",
+      "passed": false,
+      "evidence": "cont-train.json not found",
+      "blocked_by": "cont-train.json",
+      "score": 0,
+      "max_score": 1
+    }
+  ],
+  "summary": {
+    "passed": 0,
+    "failed": 2,
+    "total": 2,
+    "pass_rate": 0.0
+  }
+}

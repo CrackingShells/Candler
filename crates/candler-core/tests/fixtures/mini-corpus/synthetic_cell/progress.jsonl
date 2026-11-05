@@ -1,0 +1,7 @@
+{"kind": "cell_start", "elapsed_seconds": 0.5, "config": ["with_skill"], "model": "claude-synthetic-1", "runs": 3}
+{"kind": "run_start", "elapsed_seconds": 10.0, "config": "with_skill", "run_number": 1}
+{"kind": "run_complete", "elapsed_seconds": 15.0, "config": "with_skill", "run_number": 1}
+{"kind": "run_start", "elapsed_seconds": 20.0, "config": "with_skill", "run_number": 2}
+{"kind": "run_complete", "elapsed_seconds": 25.0, "config": "with_skill", "run_number": 2}
+{"kind": "run_start", "elapsed_seconds": 30.0, "config": "with_skill", "run_number": 3}
+{"kind": "run_complete", "elapsed_seconds": 35.0, "config": "with_skill", "run_number": 3}

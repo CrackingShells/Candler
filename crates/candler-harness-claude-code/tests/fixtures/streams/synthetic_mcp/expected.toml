@@ -1,0 +1,41 @@
+# Hand-written from the raw lines with jq. Synthetic: see make_synthetic.py. The first session
+# ends with `error_max_turns`. Its Agent call n1 has a result, so its child ends completed; the
+# call n2 made inside that child has none, so the grandchild ends unknown. A second init
+# with another session id starts a second root that has no result.
+stream = "agent_stream.jsonl.gz"
+frames = 14
+blank_frames = []
+non_json_frames = []
+subagent_ids = ["toolu_m_n1", "toolu_m_n2"]
+denials = []
+mcp_calls = [
+  { tool_use_id = "toolu_m_fac", server = "rikyu-hpc" },
+  { tool_use_id = "toolu_m_ls", server = "plugin_banyan_banyan-hpc" },
+]
+cost_reporting = "running"
+tokens_reporting = "per_turn"
+
+[[sessions]]
+id = "22222222-2222-4222-8222-222222222222"
+ended_by = "cap"
+cap = "turns"
+
+[[sessions]]
+id = "22222222-2222-4222-8222-222222222222/toolu_m_n1"
+parent = "22222222-2222-4222-8222-222222222222"
+ended_by = "completed"
+
+[[sessions]]
+id = "22222222-2222-4222-8222-222222222222/toolu_m_n1/toolu_m_n2"
+parent = "22222222-2222-4222-8222-222222222222/toolu_m_n1"
+ended_by = "unknown"
+
+[[sessions]]
+id = "33333333-3333-4333-8333-333333333333"
+ended_by = "unknown"
+
+# Frame 8 is a tool_progress line whose parent_tool_use_id names toolu_m_deep, a Bash call held by
+# the grandchild: the line belongs to the grandchild, not to the root.
+[[frame_sessions]]
+frame = 8
+session = "22222222-2222-4222-8222-222222222222/toolu_m_n1/toolu_m_n2"

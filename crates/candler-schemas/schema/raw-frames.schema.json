@@ -1,0 +1,194 @@
+{
+  "$defs": {
+    "Base64Bytes": {
+      "description": "Bytes as standard-alphabet base64 with `=` padding.",
+      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?(?![\\s\\S])",
+      "type": "string"
+    },
+    "Clock": {
+      "description": "The clock the frame times of a stream were taken from: an object whose `kind` is `monotonic`, with an `anchor`, or `unrecorded`, which has no frame times.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Frame times are nanoseconds of a monotonic clock, anchored to one wall-clock reading.",
+          "properties": {
+            "anchor": {
+              "$ref": "#/$defs/ClockAnchor",
+              "description": "The wall-clock reading and the monotonic reading taken together."
+            },
+            "kind": {
+              "const": "monotonic",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "anchor"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The stream was framed after the fact and its frames have no times.",
+          "properties": {
+            "kind": {
+              "const": "unrecorded",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ClockAnchor": {
+      "additionalProperties": false,
+      "description": "One wall-clock reading paired with the monotonic clock at the same moment.",
+      "properties": {
+        "mono_ns": {
+          "$comment": "Fits in 64 bits; the Rust reader enforces it.",
+          "description": "The monotonic clock in nanoseconds at that reading.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "wall": {
+          "$ref": "#/$defs/Timestamp",
+          "description": "The wall-clock reading, an RFC 3339 timestamp."
+        }
+      },
+      "required": [
+        "wall",
+        "mono_ns"
+      ],
+      "type": "object"
+    },
+    "Digest": {
+      "description": "A content digest: `sha256:` followed by 64 lowercase hex digits.",
+      "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])",
+      "type": "string"
+    },
+    "FrameData": {
+      "description": "The content of one frame: an object whose `kind` is `text`, with valid UTF-8 under `text`, or `bytes`, with standard base64 under `base64`.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The frame's bytes are valid UTF-8, written as text.",
+          "properties": {
+            "kind": {
+              "const": "text",
+              "type": "string"
+            },
+            "text": {
+              "description": "The frame's text.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The frame's bytes are not valid UTF-8, written as base64.",
+          "properties": {
+            "base64": {
+              "$ref": "#/$defs/Base64Bytes",
+              "description": "The frame's bytes in standard base64 with padding."
+            },
+            "kind": {
+              "const": "bytes",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "base64"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "StreamName": {
+      "description": "The name of an archived stream: `stdout`, `stderr`, or the name of a collected file, matching `[a-z0-9][a-z0-9._-]*`.",
+      "pattern": "^[a-z0-9][a-z0-9._-]*(?![\\s\\S])",
+      "type": "string"
+    },
+    "Timestamp": {
+      "$comment": "The pattern states the lexical form; a date or time that names no instant, such as month 13, and a fraction of more than nine digits are refused by the parser.",
+      "description": "An RFC 3339 timestamp with an uppercase `T` and an explicit offset, `Z` or `±HH:MM`.",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])(?![\\s\\S])",
+      "type": "string"
+    }
+  },
+  "$id": "urn:candler:schemas:raw-frames",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One line of a raw frame file: an object whose `kind` is `header` or `frame`.",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "description": "The first line of the file.",
+      "properties": {
+        "clock": {
+          "$ref": "#/$defs/Clock",
+          "description": "The clock of the frame times."
+        },
+        "kind": {
+          "const": "header",
+          "type": "string"
+        },
+        "schema": {
+          "const": "raw-frames/1",
+          "description": "The version marker: always `raw-frames/1`.",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/Digest",
+          "description": "The digest of the file the frames were cut from, when they were cut after the fact."
+        },
+        "stream": {
+          "$ref": "#/$defs/StreamName",
+          "description": "The name of the archived stream."
+        }
+      },
+      "required": [
+        "kind",
+        "schema",
+        "stream",
+        "clock"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "description": "A following line.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/FrameData",
+          "description": "What the frame holds."
+        },
+        "kind": {
+          "const": "frame",
+          "type": "string"
+        },
+        "t_mono_ns": {
+          "$comment": "Fits in 64 bits; the Rust reader enforces it.",
+          "description": "The monotonic time of the frame in nanoseconds; absent when the clock is unrecorded.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "data"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "RawRecord"
+}

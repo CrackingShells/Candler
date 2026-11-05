@@ -1,0 +1,16 @@
+catalog-snapshot.schema.json
+child-record.schema.json
+evaluator-describe-result.schema.json
+evaluator-evaluate-params.schema.json
+evaluator-notification.schema.json
+evaluator-request-side.schema.json
+event-envelope.schema.json
+experiment.schema.json
+job-record.schema.json
+normalised-trace.schema.json
+outcome-record.schema.json
+plugin-manifest.schema.json
+raw-frames.schema.json
+run-manifest.schema.json
+run-tree.schema.json
+suite.schema.json

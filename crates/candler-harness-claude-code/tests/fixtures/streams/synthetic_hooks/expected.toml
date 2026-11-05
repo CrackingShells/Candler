@@ -1,0 +1,49 @@
+# Hand-written from the raw lines with jq. Synthetic: see make_synthetic.py. The Bash call
+# `toolu_h_bash` fails without being denied; `toolu_h_child_bash` is denied inside the subagent;
+# `toolu_h_rm` is denied with `user-rejected`. Frame 13 is blank, frame 14 is not JSON, frame 15
+# has an unknown type.
+stream = "agent_stream.jsonl.gz"
+frames = 23
+blank_frames = [13]
+non_json_frames = [14]
+subagent_ids = ["toolu_h_agent"]
+mcp_calls = []
+frame_sessions = []
+cost_reporting = "running"
+tokens_reporting = "per_turn"
+
+[[sessions]]
+id = "11111111-1111-4111-8111-111111111111"
+ended_by = "completed"
+
+[[sessions]]
+id = "11111111-1111-4111-8111-111111111111/toolu_h_agent"
+parent = "11111111-1111-4111-8111-111111111111"
+ended_by = "completed"
+
+[[denials]]
+tool_use_id = "toolu_h_child_bash"
+reason = "permission-rule"
+by = "harness"
+session = "11111111-1111-4111-8111-111111111111/toolu_h_agent"
+
+[[denials]]
+tool_use_id = "toolu_h_rm"
+reason = "user-rejected"
+by = "harness"
+session = "11111111-1111-4111-8111-111111111111"
+
+[[denials]]
+tool_use_id = "toolu_h_c"
+reason = "permission-rule"
+by = "harness"
+session = "11111111-1111-4111-8111-111111111111"
+
+[[denials]]
+tool_use_id = "toolu_h_d"
+reason = "user-rejected"
+by = "harness"
+session = "11111111-1111-4111-8111-111111111111"
+
+# Frame 21 answers toolu_h_ok, toolu_h_c and toolu_h_d in one user line and lists its two denials
+# in the other order than the calls; toolu_h_ok is not denied.

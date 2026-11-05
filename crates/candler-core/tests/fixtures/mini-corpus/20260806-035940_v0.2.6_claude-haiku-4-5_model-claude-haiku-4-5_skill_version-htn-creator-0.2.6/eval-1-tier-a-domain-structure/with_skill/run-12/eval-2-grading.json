@@ -1,0 +1,37 @@
+{
+  "eval_id": 2,
+  "title": "tier-a-coverage-documentation",
+  "tier": "structure",
+  "expectations": [
+    {
+      "id": "A2",
+      "tier": "structure",
+      "text": "Running scripts/validate_problems.py on the generated problems.py exits with code 0 (no structural errors or warnings)",
+      "role": "gate",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "exit_code=0, stdout='============================================================\\nValidating: <ARTIFACT_ROOT>/campaign/20260806-cont-tra'",
+      "score": 1,
+      "max_score": 1
+    },
+    {
+      "id": "A6",
+      "tier": "structure",
+      "text": "domain.py state property map uses (P) precondition and (E) effect annotations",
+      "role": "quality",
+      "scale": "ratio",
+      "status": "pass",
+      "passed": true,
+      "evidence": "all patterns found",
+      "score": 2,
+      "max_score": 2
+    }
+  ],
+  "summary": {
+    "passed": 3,
+    "failed": 0,
+    "total": 3,
+    "pass_rate": 1.0
+  }
+}

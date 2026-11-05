@@ -1,0 +1,500 @@
+{
+  "domain": "cont-train",
+  "version": "1.0.0",
+  "description": "Containerized Training Domain - Action-Tool Bindings and Output Extractors",
+  "mcp_servers": {
+    "rikyu-hpc": {
+      "description": "RIKYU HPC cluster compute, filesystem, and health tools",
+      "base_url": "mcp://rikyu-hpc",
+      "server_module": "rikyu_mcp.hpc_server"
+    },
+    "rikyu-docs": {
+      "description": "RIKYU documentation search and knowledge base",
+      "base_url": "mcp://rikyu-docs",
+      "server_module": "rikyu_mcp.docs_server"
+    },
+    "rikyu-doctor": {
+      "description": "RIKYU system health checks and diagnostics",
+      "base_url": "mcp://rikyu-doctor",
+      "server_module": "rikyu_mcp.doctor"
+    }
+  },
+  "action_tool_bindings": [
+    {
+      "action": "a_run_health_check",
+      "mcp_server": "rikyu-doctor",
+      "tool_name": "health_check",
+      "parameters": {},
+      "output_extractors": {
+        "health_report": "data.health_check",
+        "system_healthy": "data.health_check.scheduler_available && data.health_check.cluster_connected"
+      },
+      "state_effects": {
+        "health_report": "dict",
+        "system_healthy": "bool"
+      }
+    },
+    {
+      "action": "a_get_facility_info",
+      "mcp_server": "rikyu-hpc",
+      "tool_name": "get_facility",
+      "parameters": {},
+      "output_extractors": {
+        "facility_config": "data.get_facility"
+      },
+      "state_effects": {
+        "facility_config": "dict",
+        "facility_loaded": "bool"
+      }
+    },
+    {
+      "action": "a_check_resource_availability",
+      "mcp_server": "rikyu-hpc",
+      "tool_name": "get_resources",
+      "parameters": {},
+      "output_extractors": {
+        "resource_occupancy": "data.get_resources[0]"
+      },
+      "state_effects": {
+        "resource_occupancy": "dict",
+        "resources_checked": "bool"
+      }
+    },
+    {
+      "action": "a_check_drained_nodes",
+      "mcp_server": "rikyu-hpc",
+      "tool_name": "get_drained_nodes",
+      "parameters": {},
+      "output_extractors": {
+        "drained_nodes": "data.get_drained_nodes"
+      },
+      "state_effects": {
+        "drained_nodes": "list"
+      }
+    },
+    {
+      "action": "a_create_working_directory",
+      "mcp_server": "rikyu-hpc",
+      "tool_name": "fs_mkdir",
+      "parameters": {
+        "path": "${context.working_dir}"
+      },
+      "output_extractors": {
+        "directory_created_output": "data.fs_mkdir"
+      },
+      "state_effects": {
+        "training_dir": "str",
+        "directory_created": "bool"
+      }
+    },
+    {
+      "action": "a_upload_training_config",
+      "mcp_server": "rikyu-hpc",
+      "tool_name": "fs_upload",
+      "parameters": {
+        "local_path": "${context.local_config_path}",
+        "remote_path": "${context.training_dir}/${context.config_filename}"
+      },
+      "output_extractors": {
+        "config_checksum": "data.fs_upload.sha256",
+        "bytes_transferred": "data.fs_upload.bytes_transferred"
+      },
+      "state_effects": {
+        "remote_config_path": "str",
+        "config_checksum": "str",
+        "config_uploaded": "bool"
+      }
+    },
+    {
+      "action": "a_submit_training_job",
+      "mcp_server": "rikyu-hpc",
+      "tool_name": "submit_job",
+      "parameters": {
+        "spec": "${context.job_spec}"
+      },
+      "output_extractors": {
+        "job_id": "data.submit_job.job_id",
+        "job_status": "data.submit_job.status",
+        "job_submitted_at": "data.submit_job.started_at"
+      },
+      "state_effects": {
+        "job_id": "str",
+        "job_submitted_at": "str",
+        "job_submitted": "bool"
+      }
+    },
+    {
+      "action": "a_get_job_status",
+      "mcp_server": "rikyu-hpc",
+      "tool_name": "get_job_status",
+      "parameters": {
+        "job_id": "${context.job_id}"
+      },
+      "output_extractors": {
+        "job_status": "data.get_job_status.status",
+        "job_exit_code": "data.get_job_status.exit_code",
+        "job_completed_at": "data.get_job_status.completed_at",
+        "training_complete": "data.get_job_status.status == 'COMPLETED'"
+      },
+      "state_effects": {
+        "job_status": "str",
+        "job_exit_code": "int",
+        "job_completed_at": "str",
+        "training_complete": "bool"
+      }
+    },
+    {
+      "action": "a_cancel_training_job",
+      "mcp_server": "rikyu-hpc",
+      "tool_name": "cancel_job",
+      "parameters": {
+        "job_id": "${context.job_id}"
+      },
+      "output_extractors": {
+        "cancellation_result": "data.cancel_job"
+      },
+      "state_effects": {
+        "job_cancelled": "bool"
+      }
+    },
+    {
+      "action": "a_list_training_artifacts",
+      "mcp_server": "rikyu-hpc",
+      "tool_name": "fs_ls",
+      "parameters": {
+        "path": "${context.training_dir}"
+      },
+      "output_extractors": {
+        "artifacts_list": "data.fs_ls"
+      },
+      "state_effects": {
+        "artifacts_list": "str",
+        "artifacts_ready": "bool"
+      }
+    },
+    {
+      "action": "a_compress_artifacts",
+      "mcp_server": "rikyu-hpc",
+      "tool_name": "fs_compress",
+      "parameters": {
+        "paths": [
+          "${context.training_dir}"
+        ],
+        "archive_path": "${context.training_dir}/${context.archive_name}",
+        "compression": "GZIP"
+      },
+      "output_extractors": {
+        "compress_result": "data.fs_compress"
+      },
+      "state_effects": {
+        "archive_path": "str",
+        "artifacts_compressed": "bool"
+      }
+    },
+    {
+      "action": "a_download_training_results",
+      "mcp_server": "rikyu-hpc",
+      "tool_name": "fs_download",
+      "parameters": {
+        "remote_path": "${context.training_dir}",
+        "local_path": "${context.local_download_path}"
+      },
+      "output_extractors": {
+        "results_sha256": "data.fs_download.sha256",
+        "download_bytes_transferred": "data.fs_download.bytes_transferred"
+      },
+      "state_effects": {
+        "results_path": "str",
+        "results_checksum": "str",
+        "results_downloaded": "bool"
+      }
+    },
+    {
+      "action": "a_verify_transfer_integrity",
+      "mcp_server": "rikyu-hpc",
+      "tool_name": "fs_checksum",
+      "parameters": {
+        "path": "${context.results_path}"
+      },
+      "output_extractors": {
+        "local_checksum": "data.fs_checksum"
+      },
+      "state_effects": {
+        "checksum_match": "bool",
+        "transfer_verified": "bool"
+      }
+    },
+    {
+      "action": "a_copy_training_data",
+      "mcp_server": "rikyu-hpc",
+      "tool_name": "fs_cp",
+      "parameters": {
+        "source": "${context.source_path}",
+        "dest": "${context.dest_path}",
+        "recursive": true
+      },
+      "output_extractors": {
+        "copy_result": "data.fs_cp"
+      },
+      "state_effects": {
+        "data_copied": "bool"
+      }
+    },
+    {
+      "action": "a_search_documentation",
+      "mcp_server": "rikyu-docs",
+      "tool_name": "search_docs",
+      "parameters": {
+        "query": "${context.doc_query}"
+      },
+      "output_extractors": {
+        "doc_results": "data.search_docs"
+      },
+      "state_effects": {
+        "doc_results": "dict",
+        "docs_searched": "bool"
+      }
+    }
+  ],
+  "context_variables": {
+    "working_dir": {
+      "type": "str",
+      "source": "action_parameter",
+      "action": "a_create_working_directory",
+      "description": "Remote directory path for training artifacts"
+    },
+    "local_config_path": {
+      "type": "str",
+      "source": "action_parameter",
+      "action": "a_upload_training_config",
+      "description": "Local path to training configuration file"
+    },
+    "config_filename": {
+      "type": "str",
+      "source": "derived",
+      "derived_from": "local_config_path",
+      "description": "Extracted filename from local_config_path"
+    },
+    "training_dir": {
+      "type": "str",
+      "source": "state_effect",
+      "action": "a_create_working_directory",
+      "description": "Remote working directory path for training"
+    },
+    "job_spec": {
+      "type": "object",
+      "source": "action_parameter",
+      "action": "a_submit_training_job",
+      "description": "JobSpec object defining training job parameters"
+    },
+    "job_id": {
+      "type": "str",
+      "source": "state_effect",
+      "action": "a_submit_training_job",
+      "description": "Slurm job ID returned by submit_job"
+    },
+    "local_download_path": {
+      "type": "str",
+      "source": "action_parameter",
+      "action": "a_download_training_results",
+      "description": "Local directory path for results download"
+    },
+    "archive_name": {
+      "type": "str",
+      "source": "action_parameter",
+      "action": "a_compress_artifacts",
+      "description": "Name for the tar archive (e.g., 'training_results.tar.gz')"
+    },
+    "results_path": {
+      "type": "str",
+      "source": "state_effect",
+      "action": "a_download_training_results",
+      "description": "Local path to downloaded training results"
+    },
+    "source_path": {
+      "type": "str",
+      "source": "action_parameter",
+      "action": "a_copy_training_data",
+      "description": "Source path on cluster for data copy"
+    },
+    "dest_path": {
+      "type": "str",
+      "source": "action_parameter",
+      "action": "a_copy_training_data",
+      "description": "Destination path on cluster for data copy"
+    },
+    "doc_query": {
+      "type": "str",
+      "source": "action_parameter",
+      "action": "a_search_documentation",
+      "description": "Search query for RIKYU documentation"
+    }
+  },
+  "scenarios": [
+    {
+      "name": "quick_training_setup",
+      "description": "Quick training run: health check, resource check, setup, and submit",
+      "initial_state_function": "h_quick_training_setup",
+      "todo_list": [
+        [
+          "health_check_and_setup"
+        ],
+        [
+          "a_check_resource_availability"
+        ],
+        [
+          "setup_training_environment",
+          "/tmp/training_run_001",
+          "/tmp/config.yaml"
+        ],
+        [
+          "submit_training_job_with_monitoring",
+          "/tmp/job_spec.json"
+        ]
+      ],
+      "expected_plan_length": 8,
+      "success_criteria": [
+        "system_healthy == True",
+        "resources_checked == True",
+        "config_uploaded == True",
+        "job_submitted == True"
+      ],
+      "plan_length": 8,
+      "actions_in_plan": [
+        "a_run_health_check",
+        "a_get_facility_info",
+        "a_check_drained_nodes",
+        "a_check_resource_availability",
+        "a_create_working_directory",
+        "a_upload_training_config",
+        "a_submit_training_job",
+        "a_get_job_status"
+      ],
+      "plan_verified": true
+    },
+    {
+      "name": "full_training_with_monitoring",
+      "description": "Complete pipeline with job monitoring and result retrieval",
+      "initial_state_function": "h_full_training_with_monitoring",
+      "todo_list": [
+        [
+          "full_training_pipeline",
+          "/tmp/training_run_002",
+          "/tmp/config.yaml",
+          "/tmp/job_spec.json",
+          "/tmp/results"
+        ]
+      ],
+      "expected_plan_length": 11,
+      "success_criteria": [
+        "system_healthy == True",
+        "training_complete == True",
+        "results_downloaded == True",
+        "transfer_verified == True"
+      ],
+      "plan_length": 11,
+      "actions_in_plan": [
+        "a_run_health_check",
+        "a_get_facility_info",
+        "a_check_drained_nodes",
+        "a_check_resource_availability",
+        "a_create_working_directory",
+        "a_upload_training_config",
+        "a_submit_training_job",
+        "a_get_job_status",
+        "a_list_training_artifacts",
+        "a_download_training_results",
+        "a_verify_transfer_integrity"
+      ],
+      "plan_verified": true
+    },
+    {
+      "name": "health_check_and_docs",
+      "description": "Diagnostic run with health checks and documentation search",
+      "initial_state_function": "h_health_check_and_docs",
+      "todo_list": [
+        [
+          "health_check_and_setup"
+        ],
+        [
+          "a_search_documentation",
+          "MDLM training best practices"
+        ]
+      ],
+      "expected_plan_length": 4,
+      "success_criteria": [
+        "system_healthy == True",
+        "facility_loaded == True",
+        "docs_searched == True"
+      ],
+      "plan_length": 4,
+      "actions_in_plan": [
+        "a_run_health_check",
+        "a_get_facility_info",
+        "a_check_drained_nodes",
+        "a_search_documentation"
+      ],
+      "plan_verified": true
+    }
+  ],
+  "validation_rules": {
+    "action_tool_uniqueness": "Each action must map to exactly one MCP tool",
+    "parameter_extraction": "All context variable references use ${context.variable_name} syntax",
+    "output_extractor_syntax": "JSONPath notation with dot-separation and array indexing",
+    "context_flow": "All consumed variables must be produced by some action or provided as input"
+  },
+  "status": {
+    "pass_1_domain_validation": "COMPLETE",
+    "pass_2_problem_validation": "COMPLETE",
+    "pass_3_mapping_creation": "COMPLETE",
+    "pass_3_mapping_validation": "COMPLETE",
+    "pass_3_arangodb_ingestion": "PENDING",
+    "pass_3_plan_generation": "COMPLETE",
+    "pass_3_verification": "COMPLETE"
+  },
+  "plan_summary": {
+    "total_scenarios": 3,
+    "successful_plans": 3,
+    "total_plan_steps": 23,
+    "per_scenario": {
+      "quick_training_setup": {
+        "plan_length": 8,
+        "actions_in_plan": [
+          "a_run_health_check",
+          "a_get_facility_info",
+          "a_check_drained_nodes",
+          "a_check_resource_availability",
+          "a_create_working_directory",
+          "a_upload_training_config",
+          "a_submit_training_job",
+          "a_get_job_status"
+        ]
+      },
+      "full_training_with_monitoring": {
+        "plan_length": 11,
+        "actions_in_plan": [
+          "a_run_health_check",
+          "a_get_facility_info",
+          "a_check_drained_nodes",
+          "a_check_resource_availability",
+          "a_create_working_directory",
+          "a_upload_training_config",
+          "a_submit_training_job",
+          "a_get_job_status",
+          "a_list_training_artifacts",
+          "a_download_training_results",
+          "a_verify_transfer_integrity"
+        ]
+      },
+      "health_check_and_docs": {
+        "plan_length": 4,
+        "actions_in_plan": [
+          "a_run_health_check",
+          "a_get_facility_info",
+          "a_check_drained_nodes",
+          "a_search_documentation"
+        ]
+      }
+    }
+  }
+}

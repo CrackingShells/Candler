@@ -1,0 +1,76 @@
+{
+  "eval_id": 9,
+  "title": "tier-c-context-namespace",
+  "tier": "soundness",
+  "expectations": [
+    {
+      "id": "C-X1",
+      "tier": "soundness",
+      "text": "check_context_flow.py finds no orphan ${context.X} consumers in the generated domain.py/mapping pair (gating: a dangling consumer is a silent runtime tool-call failure)",
+      "role": "gate",
+      "scale": "ratio",
+      "status": "blocked",
+      "passed": false,
+      "evidence": "exit_code=0, stdout=\"[grader] optional source 'cont-train.json' not found in outputs \u2014 skipped\\nORPHAN_CONSUMERS: count=0 vars=[] total_consumers=0\\nORPHAN_PRODUCERS: count=0 vars=[] (of 0 total producers)\\nORDERING_VIOLATIO\" | blocked: optional source(s) ['cont-train.json'] skipped from staging -- any result computed without them would be vacuous",
+      "blocked_by": "cont-train.json",
+      "score": 0,
+      "max_score": 1
+    },
+    {
+      "id": "C-X2",
+      "tier": "soundness",
+      "text": "check_context_flow.py runs the orphan-producer count on every generated domain/mapping pair and always emits an ORPHAN_PRODUCERS marker (descriptive/non-gating per the ratified catalogue and the C4=0 triage verdict: this expectation asserts only that the mechanism ran cleanly and emitted a well-formed marker, never that the count is zero -- on current domains it is expected to be non-zero)",
+      "role": "descriptive",
+      "scale": "binary",
+      "status": "blocked",
+      "passed": false,
+      "evidence": "exit_code=0, stdout=\"[grader] optional source 'cont-train.json' not found in outputs \u2014 skipped\\nORPHAN_CONSUMERS: count=0 vars=[] total_consumers=0\\nORPHAN_PRODUCERS: count=0 vars=[] (of 0 total producers)\\nORDERING_VIOLATIO\" | blocked: optional source(s) ['cont-train.json'] skipped from staging -- any result computed without them would be vacuous",
+      "blocked_by": "cont-train.json",
+      "score": 0,
+      "max_score": 1
+    },
+    {
+      "id": "C-X3",
+      "tier": "soundness",
+      "text": "check_context_flow.py finds no producer-before-consumer ordering violations in the generated domain.py/mapping pair (gating: a consumer reached before its producer in the domain's own decomposition order can never see the value at runtime)",
+      "role": "gate",
+      "scale": "ratio",
+      "status": "blocked",
+      "passed": false,
+      "evidence": "exit_code=0, stdout=\"[grader] optional source 'cont-train.json' not found in outputs \u2014 skipped\\nORPHAN_CONSUMERS: count=0 vars=[] total_consumers=0\\nORPHAN_PRODUCERS: count=0 vars=[] (of 0 total producers)\\nORDERING_VIOLATIO\" | blocked: optional source(s) ['cont-train.json'] skipped from staging -- any result computed without them would be vacuous",
+      "blocked_by": "cont-train.json",
+      "score": 0,
+      "max_score": 1
+    },
+    {
+      "id": "C-X4",
+      "tier": "soundness",
+      "text": "check_context_grammar.py finds no malformed ${context.X} references in the generated domain.py (gating: an UNCLOSED/EMPTY/INVALID_NAME ref is silently dropped or mis-substituted by middleware.py's substitute_context_variables today)",
+      "role": "gate",
+      "scale": "ratio",
+      "status": "pass",
+      "passed": true,
+      "evidence": "exit_code=0, stdout='MALFORMED_CONTEXT_REFS: count=0 total_well_formed_refs=0'",
+      "score": 0,
+      "max_score": 0
+    },
+    {
+      "id": "C-X5",
+      "tier": "soundness",
+      "text": "check_reuse_coverage.py runs on the generated domain.py and always emits a well-formed REUSE_RATIO marker (descriptive/non-gating per the ratified catalogue: this expectation asserts only that the mechanism ran cleanly and the ratio is well-formed, never on the ratio's value -- expected near 0 on current domains per the C4=0 triage verdict)",
+      "role": "descriptive",
+      "scale": "binary",
+      "status": "pass",
+      "passed": true,
+      "evidence": "exit_code=0, stdout='REUSE_RATIO: 0.000 (templated=0/total_inter_step_deps=0)\\nTOP_LEVEL_BINDING: free=3 bound=0 free_fraction=1.000'",
+      "score": 1,
+      "max_score": 1
+    }
+  ],
+  "summary": {
+    "passed": 1,
+    "failed": 3,
+    "total": 4,
+    "pass_rate": 0.25
+  }
+}

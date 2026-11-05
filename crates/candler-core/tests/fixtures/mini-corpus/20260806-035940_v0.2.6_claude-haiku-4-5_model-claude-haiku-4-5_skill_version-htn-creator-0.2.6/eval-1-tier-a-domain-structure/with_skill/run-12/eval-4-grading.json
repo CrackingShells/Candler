@@ -1,0 +1,37 @@
+{
+  "eval_id": 4,
+  "title": "tier-b-process-pass3-context-flow",
+  "tier": "process",
+  "expectations": [
+    {
+      "id": "B8",
+      "tier": "process",
+      "text": "Pass 3 output: bio-robot.json exists and passes validate_mapping_config.py schema validation ('Configuration is valid')",
+      "role": "gate",
+      "scale": "binary",
+      "status": "fail",
+      "passed": false,
+      "evidence": "exit_code=1, stdout='Validation Results for: <ARTIFACT_ROOT>/campaign/20260806-cont-train/20260806-035940_v0.2.6_claude-haiku-4-5_model' | FAILED: exit_code expected 0, got 1; stdout contains 'Configuration is valid' (sample: '\u21b5Validation Results for: <HOME>/Documents/tmp/claude-worktrees/agenticai4')",
+      "score": 0,
+      "max_score": 1
+    },
+    {
+      "id": "B9",
+      "tier": "process",
+      "text": "Pass 3 binding quality: mapping JSON contains at least one parameter_mapping entry (confirms action parameters were bound to tool arguments)",
+      "role": "quality",
+      "scale": "binary",
+      "status": "fail",
+      "passed": false,
+      "evidence": "pattern='\"parameter_mapping\":', match=NOT found",
+      "score": 0,
+      "max_score": 1
+    }
+  ],
+  "summary": {
+    "passed": 0,
+    "failed": 2,
+    "total": 2,
+    "pass_rate": 0.0
+  }
+}

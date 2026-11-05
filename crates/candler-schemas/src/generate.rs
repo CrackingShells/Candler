@@ -61,10 +61,20 @@ impl GeneratedSchema {
 /// Every wire root schema, in file-name order.
 #[must_use]
 pub fn generated_schemas() -> Vec<GeneratedSchema> {
-    in_file_name_order(vec![
-        GeneratedSchema::of::<CatalogSnapshot>("catalog-snapshot"),
-        GeneratedSchema::of::<crate::outcome::OutcomeRecord>("outcome-record"),
-    ])
+    let modules = [
+        vec![
+            GeneratedSchema::of::<CatalogSnapshot>("catalog-snapshot"),
+            GeneratedSchema::of::<crate::outcome::OutcomeRecord>("outcome-record"),
+        ],
+        crate::values::roots(),
+        crate::canonical::roots(),
+        crate::process::roots(),
+        crate::raw::roots(),
+        crate::trace::roots(),
+        crate::execution::roots(),
+        crate::evaluation::roots(),
+    ];
+    in_file_name_order(modules.into_iter().flatten().collect())
 }
 
 /// Sorts roots by file name, the order the committed files are listed in.
@@ -646,6 +656,13 @@ mod tests {
         assert!(roots.is_empty() || !patterns.is_empty());
         for (pointer, pattern) in &patterns {
             assert_eq!(pattern_problem(pattern), None, "{pointer}: {pattern}");
+            // A pattern inside an `if` only tells variants apart by a prefix, such as `^git:`; the
+            // pattern that constrains the whole text sits elsewhere in the schema.
+            let discriminates = pointer.contains("/if/");
+            assert!(
+                discriminates || pattern.ends_with(END_ANCHOR),
+                "{pointer}: {pattern}"
+            );
         }
     }
 
