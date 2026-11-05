@@ -237,6 +237,10 @@ async fn record_on_disk_equals_what_the_os_reports() {
 /// Guards: I15 and PID reuse — a record whose start differs by one tick (or microsecond), whose start is unavailable, or whose pid names another live process reads `Gone` while the child runs; the true record reads `Alive` and then `Gone` once the child is dead. Oracle: hand-forged records built from the true one, and the OS for the child's life.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_forged_record_does_not_read_alive() {
+    // The test process stands in for another live process. On Linux a start time counts clock
+    // ticks of 10 ms, and a test process can spawn its child within the tick it started in, so
+    // the child is spawned at least 30 ms later: the two start times then differ by three ticks.
+    tokio::time::sleep(Duration::from_millis(30)).await;
     let records = tempfile::tempdir().expect("a temp dir");
     let (supervisor, _events) = supervisor();
     let child = supervisor
@@ -280,6 +284,12 @@ async fn a_forged_record_does_not_read_alive() {
         }
         start
     };
+    let other = std::process::id();
+    assert_ne!(
+        serde_json::to_value(process_start(other)).expect("JSON"),
+        true_start,
+        "the fixture's other live process shares the child's start time"
+    );
     let table: [(&str, ChildRecord); 3] = [
         ("one off", with_start(off_by_one, None)),
         (
@@ -288,7 +298,7 @@ async fn a_forged_record_does_not_read_alive() {
         ),
         (
             "another live pid",
-            with_start(true_start.clone(), Some(std::process::id())), // BORROW: .clone() copies the true start
+            with_start(true_start.clone(), Some(other)), // BORROW: .clone() copies the true start
         ),
     ];
     for (label, forged) in &table {
