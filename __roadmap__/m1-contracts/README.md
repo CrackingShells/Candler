@@ -68,9 +68,9 @@ Every M1 contract and shared service exists on `feat/m1-contracts`, guarded by c
 ## Status
 ```mermaid
 graph TD
-    wire_foundations[Wire foundations: values, RFC 8785, child record]:::planned
-    wire_trace[Wire trace: raw frames and trace records]:::planned
-    golden_oracle[Golden oracle: independent expected rows]:::planned
+    wire_foundations[Wire foundations: values, RFC 8785, child record]:::done
+    wire_trace[Wire trace: raw frames and trace records]:::done
+    golden_oracle[Golden oracle: independent expected rows]:::done
     interfaces[Interfaces]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -82,9 +82,9 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `wire_foundations.md` | 📄 Leaf Task | ⬜ Planned |
-| `wire_trace.md` | 📄 Leaf Task | ⬜ Planned |
-| `golden_oracle.md` | 📄 Leaf Task | ⬜ Planned |
+| `wire_foundations.md` | 📄 Leaf Task | ✅ Done |
+| `wire_trace.md` | 📄 Leaf Task | ✅ Done |
+| `golden_oracle.md` | 📄 Leaf Task | ✅ Done |
 | `interfaces/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log

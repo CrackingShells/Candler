@@ -7,12 +7,12 @@
 - [ ] [cmd] `uv run --with rfc8785 python -c 'import rfc8785'`
 - [ ] [nl] The implementer of this leaf is not the implementer of `interfaces/services/legacy_mapping.md` or `interfaces/services/import/legacy_import.md`, and reads no importer code (none exists yet)
 **Success Gates**:
-- ⬜ [cmd] `B=$(git -C /Users/hacker/Documents/src/External/PCfVW/agenticai4hpc26-artifact status --porcelain | shasum) && D=$(mktemp -d) && bash crates/candler-core/tests/oracle/extract_corpus.sh /Users/hacker/Documents/src/External/PCfVW/agenticai4hpc26-artifact "$D" && test "$(git -C /Users/hacker/Documents/src/External/PCfVW/agenticai4hpc26-artifact status --porcelain | shasum)" = "$B"`
-- ⬜ [cmd] `CANDLER_GOLDEN_CORPUS="$GOLDEN" cargo nextest run -p candler-core --run-ignored only --no-tests=fail -E 'test(oracle_aggregates)'` passes: it asserts 240 runs and 10,320 rows first, then the per-role sums of `_outcome.py` (gate 10420/11645, quality 5080/5189, descriptive 3281/3472) and the status counts of R01 §Golden corpus (pass 8,291, blocked 802, not_measured 742, fail 485)
-- ⬜ [cmd] `cargo nextest run -p candler-core -E 'binary(guard_oracle_mini)'` passes: the oracle's rows for the mini-corpus have the count and the per-status counts written by hand in the test
-- ⬜ [cmd] `du -sk crates/candler-core/tests/fixtures/mini-corpus | awk '$1>1536{exit 1}'`
-- ⬜ [cmd] STD and SUBJ pass
-- ⬜ [nl] The leaf report lists each oracle rule with the corpus field it reads, and a bite mutation per B test
+- ✅ [cmd] `B=$(git -C /Users/hacker/Documents/src/External/PCfVW/agenticai4hpc26-artifact status --porcelain | shasum) && D=$(mktemp -d) && bash crates/candler-core/tests/oracle/extract_corpus.sh /Users/hacker/Documents/src/External/PCfVW/agenticai4hpc26-artifact "$D" && test "$(git -C /Users/hacker/Documents/src/External/PCfVW/agenticai4hpc26-artifact status --porcelain | shasum)" = "$B"`
+- ✅ [cmd] `CANDLER_GOLDEN_CORPUS="$GOLDEN" cargo nextest run -p candler-core --run-ignored only --no-tests=fail -E 'test(oracle_aggregates)'` passes: it asserts 240 runs and 10,320 rows first, then the per-role sums of `_outcome.py` (gate 10420/11645, quality 5080/5189, descriptive 3281/3472) and the status counts of R01 §Golden corpus (pass 8,291, blocked 802, not_measured 742, fail 485)
+- ✅ [cmd] `cargo nextest run -p candler-core -E 'binary(guard_oracle_mini)'` passes: the oracle's rows for the mini-corpus have the count and the per-status counts written by hand in the test
+- ✅ [cmd] `du -sk crates/candler-core/tests/fixtures/mini-corpus | awk '$1>1536{exit 1}'`
+- ✅ [cmd] STD and SUBJ pass
+- ✅ [nl] The leaf report lists each oracle rule with the corpus field it reads, and a bite mutation per B test
 **References**: [R01 §Golden corpus, §Evaluator protocol (Digests of a request), §Data Model (Run manifest), §Wire encodings](../../__design__/architecture.md) — mapping, identity, digests; [R03](/Users/hacker/Documents/src/External/PCfVW/agenticai4hpc26-artifact) — tag `candler-m2a-golden`; `htn_creator_eval/_outcome.py` in mcp-python-ingestion at tag `htn-creator-eval@0.4.2` — the role sums; [R04](../../__reports__/m1-contracts/00-test_definition_v0.md) — oracle rules
 
 ## Step 1: Extract the golden corpus without touching its repo

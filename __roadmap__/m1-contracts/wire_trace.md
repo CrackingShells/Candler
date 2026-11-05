@@ -5,10 +5,10 @@
 - [ ] [cmd] `git log --format=%s feat/m1-contracts | grep -qx 'build(repo): scaffold the m1 crates, modules and dependencies'`
 - [ ] [cmd] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints this leaf's worktree path
 **Success Gates**:
-- ⬜ [cmd] `cargo nextest run -p candler-schemas -E 'binary(guard_trace_wire)'` passes, holding four B tests: a hand-authored byte-literal trace file carrying `ext` and an unknown event kind reads and writes back byte-identical (I3, I18); a single-fault refusal table of seven mutations of one valid file, each refusal naming the offending session or `seq`, plus the valid base; `SessionId` accepts exactly the ids `EvidenceRef` accepts in `event:<id>#0`; hand-written frame vectors (CR, invalid UTF-8, no final `\n`, an empty line, `\r\n`) give the literal JSON lines the test states
-- ⬜ [cmd] STD, DRIFT and SUBJ pass
-- ⬜ [nl] The leaf report has a bite mutation per B test
-- ⬜ [nl] The level's Grit review reports no open finding
+- ✅ [cmd] `cargo nextest run -p candler-schemas -E 'binary(guard_trace_wire)'` passes, holding five B tests: a hand-authored byte-literal trace file carrying `ext` and an unknown event kind reads and writes back byte-identical (I3, I18); a single-fault refusal table of seven mutations of one valid file, each refusal naming the offending session or `seq`, plus the valid base; `SessionId` accepts exactly the ids `EvidenceRef` accepts in `event:<id>#0`; hand-written frame vectors (CR, invalid UTF-8, no final `\n`, an empty line, `\r\n`) give the literal JSON lines the test states; a record written as a JSON list, or with an explicit `null` optional, is refused naming its line (D2 wire rule), each with the valid base
+- ✅ [cmd] STD, DRIFT and SUBJ pass
+- ✅ [nl] The leaf report has a bite mutation per B test
+- ✅ [nl] The level's Grit review reports no open finding
 **References**: [R01 §Raw traces, §Normalised trace model, §Wire encodings (Evidence refs)](../../__design__/architecture.md) — every shape and rule; [R04](../../__reports__/m1-contracts/00-test_definition_v0.md) — `guard_trace_wire`
 
 ## Step 1: Define raw frames and stream names
@@ -57,7 +57,7 @@
 1. `TraceHeader {schema: "normalised-trace/1", reader: NameVersion, raw: Vec<RawFileRef {stream: StreamName, digest: Digest}>}`; `TraceRecord`, tagged on `kind`: `header` | `session` | `event` (the event record is a `SessionEvent`).
 2. `TraceFile {header, sessions: Vec<Session>, events: Vec<SessionEvent>}`; `TraceFile::read(&[u8]) -> Result<_, TraceError>` and `write(&self) -> Vec<u8>` (one compact JSON object per line, fields in declaration order, `\n` after each).
 3. `read` refuses, each with an error naming the session or `seq`: a missing or second header; a session after an event; a child before its parent; a child id that is not `<parent>/<span>`; an event for an undeclared session; a `seq` gap or repeat within a session; a `raw_ref.stream` absent from `header.raw`.
-4. `tests/guard_trace_wire.rs`: the four B tests of the Success Gates. The byte-literal file is written by hand from R01, in the writer's field order; it is a literal in the test, not a blessed output.
+4. `tests/guard_trace_wire.rs`: the five B tests of the Success Gates. The byte-literal file is written by hand from R01, in the writer's field order; it is a literal in the test, not a blessed output.
 **Deliverables**: `crates/candler-schemas/src/trace.rs` (`TraceHeader`, `RawFileRef`, `TraceRecord`, `TraceFile`, `TraceFile::read`, `TraceFile::write`, `NORMALISED_TRACE_SCHEMA`); `crates/candler-schemas/tests/guard_trace_wire.rs`
 **Consistency Checks**: `cargo nextest run -p candler-schemas -E 'binary(guard_trace_wire)'` (expected: PASS)
 **Commit**: `feat(schemas): define the trace file and its ordering rules`

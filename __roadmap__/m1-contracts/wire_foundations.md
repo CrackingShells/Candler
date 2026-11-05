@@ -6,11 +6,11 @@
 - [ ] [cmd] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints this leaf's worktree path
 - [ ] [cmd] `node --version && uv --version`
 **Success Gates**:
-- ⬜ [cmd] `cargo nextest run -p candler-schemas -E 'binary(guard_jcs)'` passes: RFC 8785 Appendix B number vectors, the RFC's §3.2.3 sorting sample, the committed Node-generated double vectors, and one refusal table (integers beyond ±(2^53 − 1), a lone surrogate escape in JSON text)
-- ⬜ [cmd] `cargo nextest run -p candler-schemas -E 'binary(guard_pattern_vectors)'` passes, and `cargo nextest run -p candler-schemas -E 'test(no_published_pattern_depends_on_the_regex_engine)'` passes over every root of `generated_schemas()`
-- ⬜ [cmd] STD, DRIFT and SUBJ pass
-- ⬜ [nl] The leaf report records the one-off 10^5 random-double comparison against Node and the `uv run` cross-engine probe of each new pattern (Rust, Python `re`, Node), and a bite mutation per B test
-- ⬜ [nl] The level's Grit review reports no open finding
+- ✅ [cmd] `cargo nextest run -p candler-schemas -E 'binary(guard_jcs)'` passes: RFC 8785 Appendix B number vectors, the RFC's §3.2.3 sorting sample, the committed Node-generated double vectors, and one refusal table (integers beyond ±(2^53 − 1), a lone surrogate escape in JSON text)
+- ✅ [cmd] `cargo nextest run -p candler-schemas -E 'binary(guard_pattern_vectors)'` passes, and `cargo nextest run -p candler-schemas -E 'test(no_published_pattern_depends_on_the_regex_engine)'` passes over every root of `generated_schemas()`
+- ✅ [cmd] STD, DRIFT and SUBJ pass
+- ✅ [nl] The leaf report records the one-off 10^5 random-double comparison against Node and the `uv run` cross-engine probe of each new pattern (Rust, Python `re`, Node), and a bite mutation per B test
+- ✅ [nl] The level's Grit review reports no open finding
 **References**: [R01 §Operation API (Value sources), §Process supervision, §Wire encodings](../../__design__/architecture.md) — value sources, child record, exit status, digests over RFC 8785; [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785) — §3.2.2.3 numbers, §3.2.3 sorting, Appendix B; [R04](../../__reports__/m1-contracts/00-test_definition_v0.md) — guards `guard_jcs`, `guard_pattern_vectors`, the ruling on `check::<T>()`
 
 ## Step 1: Add job ids, field paths and resolved values
