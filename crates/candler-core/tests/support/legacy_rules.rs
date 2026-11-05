@@ -3,6 +3,7 @@
 
 use std::str::FromStr as _;
 
+use candler_core::import::ImportError;
 use candler_core::import::rules::{
     HarnessRule, ImportRules, MarkerCode, MarkerRule, SnapshotRule, TreatmentRule,
 };
@@ -16,6 +17,20 @@ use regex::Regex;
 /// Panics if a literal below is not the primitive it names.
 #[must_use]
 pub fn rules() -> ImportRules {
+    try_rules("resolved_skill_version")
+        .unwrap_or_else(|e| panic!("the rules of the mini-corpus are valid: {e}"))
+}
+
+/// The rules of the mini-corpus with `resolved` as the resolved-version key.
+///
+/// # Errors
+///
+/// Returns the builder's error when the rules do not hold, such as a dotted `resolved`.
+///
+/// # Panics
+///
+/// Panics if a literal below is not the primitive it names.
+pub fn try_rules(resolved: &str) -> Result<ImportRules, ImportError> {
     let name = |text: &str| Name::from_str(text).unwrap_or_else(|e| panic!("{text}: {e}"));
     let pattern = |text: &str| Regex::new(text).unwrap_or_else(|e| panic!("{text}: {e}"));
     ImportRules::builder()
@@ -26,7 +41,7 @@ pub fn rules() -> ImportRules {
         ))
         .treatment(TreatmentRule::new(
             "/plan/skill_version".into(),
-            FieldPath::from_str("resolved_skill_version").unwrap_or_else(|e| panic!("{e}")),
+            FieldPath::from_str(resolved).unwrap_or_else(|e| panic!("{e}")),
         ))
         .instrument(name("htn-creator-eval"))
         .snapshot(SnapshotRule::new(name("catalog"), "/catalog/sha256".into()))
@@ -43,5 +58,4 @@ pub fn rules() -> ImportRules {
         .suite_kind(name("legacy-check"))
         .metadata(FieldPath::from_str("plan.model").unwrap_or_else(|e| panic!("{e}")))
         .build()
-        .unwrap_or_else(|e| panic!("the rules of the mini-corpus are valid: {e}"))
 }

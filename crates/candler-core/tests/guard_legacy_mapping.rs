@@ -28,6 +28,8 @@ use sha2::Digest as _;
 
 const V3: &str = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3";
 const V6: &str = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6";
+/// The key of `experiment.json` that holds the resolved version.
+const RESOLVED: &str = "resolved_skill_version";
 const SYNTHETIC: &str = "synthetic_cell";
 
 fn mini() -> PathBuf {
@@ -536,8 +538,8 @@ fn edit_grading_status(root: &Path, status: &str) {
 }
 
 /// Reads, maps and grades every run of the folder at `root`.
-fn import_all(root: &Path) -> Result<usize, ImportError> {
-    let rules = legacy_rules::rules();
+fn import_all(root: &Path, resolved: &str) -> Result<usize, ImportError> {
+    let rules = legacy_rules::try_rules(resolved)?;
     let folder = LegacyFolder::read(root, &rules)?;
     let mapped = map_runs(&folder, &rules)?;
     let mut records = 0;
@@ -554,6 +556,7 @@ struct Fault {
     inject: fn(&Path),
     refused: fn(&ImportError) -> bool,
     names: &'static [&'static str],
+    resolved: &'static str,
 }
 
 fn faults() -> Vec<Fault> {
@@ -563,12 +566,14 @@ fn faults() -> Vec<Fault> {
             inject: |root| edit_provenance_verdict(root, "murky"),
             refused: |e| matches!(e, ImportError::Verdict { .. }),
             names: &["PROVENANCE.json", "run-6", "murky"],
+            resolved: RESOLVED,
         },
         Fault {
             name: "PROVENANCE and the contamination catalog disagree",
             inject: |root| edit_provenance_verdict(root, "incomplete"),
             refused: |e| matches!(e, ImportError::Disagree { .. }),
             names: &["PROVENANCE.json", "contamination_catalog.jsonl", "run-6"],
+            resolved: RESOLVED,
         },
         Fault {
             name: "eval_metadata provenance copies disagree within a run",
@@ -583,6 +588,7 @@ fn faults() -> Vec<Fault> {
             },
             refused: |e| matches!(e, ImportError::Disagree { .. }),
             names: &["eval_metadata.json", "run-6", "9.9.9"],
+            resolved: RESOLVED,
         },
         Fault {
             name: "two harness versions in a cell",
@@ -602,6 +608,7 @@ fn faults() -> Vec<Fault> {
             },
             refused: |e| matches!(e, ImportError::Disagree { .. }),
             names: &["2.1.220", "2.1.221", "run-17"],
+            resolved: RESOLVED,
         },
         Fault {
             name: "copied_inputs disagree within a cell",
@@ -619,6 +626,7 @@ fn faults() -> Vec<Fault> {
             },
             refused: |e| matches!(e, ImportError::Disagree { .. }),
             names: &["timing.json", "run-17"],
+            resolved: RESOLVED,
         },
         Fault {
             name: "a run without outputs/",
@@ -628,12 +636,14 @@ fn faults() -> Vec<Fault> {
             },
             refused: |e| matches!(e, ImportError::NoOutputs { .. }),
             names: &["run-6", "outputs"],
+            resolved: RESOLVED,
         },
         Fault {
             name: "a status differs between expectations.jsonl and its grading file",
             inject: |root| edit_grading_status(root, "fail"),
             refused: |e| matches!(e, ImportError::Disagree { .. }),
             names: &["eval-1-grading.json", "expectations.jsonl", "run-6"],
+            resolved: RESOLVED,
         },
         Fault {
             name: "an unknown legacy status",
@@ -643,6 +653,7 @@ fn faults() -> Vec<Fault> {
             },
             refused: |e| matches!(e, ImportError::Status { .. }),
             names: &["expectations.jsonl", "run-6", "maybe", "A1"],
+            resolved: RESOLVED,
         },
         Fault {
             name: "a grading file name in two eval directories",
@@ -660,6 +671,14 @@ fn faults() -> Vec<Fault> {
             },
             refused: |e| matches!(e, ImportError::DuplicateGrading { .. }),
             names: &["eval-1-grading.json", "run-6"],
+            resolved: RESOLVED,
+        },
+        Fault {
+            name: "a resolved-version key that is not a top-level key",
+            inject: |_| {},
+            refused: |e| matches!(e, ImportError::Rules { .. }),
+            names: &["treatment.resolved", "plan.skill_version"],
+            resolved: "plan.skill_version",
         },
     ]
 }
@@ -674,14 +693,15 @@ fn every_fault_is_refused_naming_its_file_and_run() {
     let control = tempfile::tempdir().expect("a temporary directory");
     copy_dir(&mini(), control.path());
     assert_eq!(
-        import_all(control.path()).expect("the control imports"),
+        import_all(control.path(), RESOLVED).expect("the control imports"),
         136
     );
     for fault in faults() {
         let copy = tempfile::tempdir().expect("a temporary directory");
         copy_dir(&mini(), copy.path());
         (fault.inject)(copy.path());
-        let error = import_all(copy.path()).expect_err(&format!("`{}` is not refused", fault.name));
+        let error = import_all(copy.path(), fault.resolved)
+            .expect_err(&format!("`{}` is not refused", fault.name));
         assert!(
             (fault.refused)(&error),
             "{}: wrong error {error:?}",
@@ -841,6 +861,10 @@ fn the_mapped_values_hold_no_absolute_path() {
         let needle = root.to_string_lossy();
         support::assert_clean(out.path(), &needle);
     }
-    let found = support::scan(control.path(), &roots[0].to_string_lossy()).expect("scan");
+    let found = support::scan(
+        control.path(),
+        &roots.first().expect("a root").to_string_lossy(),
+    )
+    .expect("scan");
     assert_eq!(found.hits.len(), 1);
 }
