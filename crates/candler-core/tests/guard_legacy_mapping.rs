@@ -386,7 +386,7 @@ fn the_mapped_identity_is_the_oracle_vectors() {
     );
 }
 
-/// Guards: D6 — a contaminated run is `invalid` with the reason `input_leak` and has no outcome
+/// Guards: I10 — a contaminated run is `invalid` with the reason `input_leak` and has no outcome
 /// record, and an `incomplete` run is `valid` with every row it has. Oracle: the run listing of
 /// `PROVENANCE.json` read with `jq` (`synthetic_cell` run-1 is `contaminated`, `{V3}` run-17 is
 /// `incomplete`) and the 43 entries per real run counted by hand in the raw grading files.
@@ -663,7 +663,7 @@ fn faults() -> Vec<Fault> {
     ]
 }
 
-/// Guards: Cond 2 — a fault in the folder is refused with an error that names the file and the
+/// Guards: D6 — a fault in the folder is refused with an error that names the file and the
 /// run, and the same folder without the fault imports: the unmodified copy is the positive
 /// control. Oracle: the faults are written by hand, one per row of the table, into a copy of the
 /// mini-corpus; the expected variant and the file and run names come from the error contract of
@@ -707,10 +707,11 @@ fn digest(bytes: &[u8]) -> String {
     format!("sha256:{hex}")
 }
 
-/// Guards: Cond 1 — every file of the folder is exactly one of a source of the folder, a cell or a
+/// Guards: I12 — every file of the folder is exactly one of a source of the folder, a cell or a
 /// run, an artifact under `outputs/`, a stream or stderr file, or a skipped entry whose directory
 /// covers the files below it; every file of the model exists on disk, with the digest of its
-/// bytes. Oracle: a `std::fs` walk of the mini-corpus and a SHA-256 of each file's bytes made in
+/// bytes; a file the model neither holds nor lists as skipped with its reason would be left out
+/// silently. Oracle: a `std::fs` walk of the mini-corpus and a SHA-256 of each file's bytes made in
 /// the test.
 #[test]
 fn every_file_is_accounted_for_exactly_once() {
