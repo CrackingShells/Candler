@@ -1,11 +1,14 @@
 //! One stream-json line, read into the events it holds.
 
+use candler_schemas::outcome::Finite;
 use candler_schemas::primitives::Timestamp;
 use candler_schemas::raw::{FrameData, RawFrame};
-use candler_schemas::trace::{EventKind, SpanId, ToolOrigin};
+use candler_schemas::trace::{Denial, DeniedBy, EndedBy, EventKind, SpanId, ToolOrigin};
 use serde_json::{Map, Value};
 
 use crate::detect;
+use crate::sessions::ended_by_of;
+use crate::usage::Tokens;
 
 /// An event before it has a session, a sequence number or a frame.
 #[derive(Debug)]
@@ -28,8 +31,17 @@ impl Draft {
         }
     }
 
+    /// A draft of `kind` holding `ext`.
+    pub(crate) const fn with_ext(kind: EventKind, ext: Map<String, Value>) -> Self {
+        Self {
+            kind,
+            span: None,
+            ext,
+        }
+    }
+
     /// A notification holding `ext`.
-    fn notification(ext: Map<String, Value>) -> Self {
+    pub(crate) fn notification(ext: Map<String, Value>) -> Self {
         Self {
             kind: EventKind::notification(),
             span: None,
@@ -46,11 +58,39 @@ impl Draft {
     }
 }
 
+/// The usage of an assistant message, on the first line that carries the message id.
+#[derive(Debug)]
+pub(crate) struct MessageLine {
+    /// The `message.id`.
+    pub(crate) id: String,
+    /// The `message.usage`, when the line has one.
+    pub(crate) tokens: Option<Tokens>,
+}
+
+/// A `result` line.
+#[derive(Debug)]
+pub(crate) struct ResultLine {
+    /// The tokens of the turn the line ends.
+    pub(crate) tokens: Tokens,
+    /// Whether the line reports usage or a cost.
+    pub(crate) reports_usage: bool,
+    /// The running cost of the session.
+    pub(crate) cost: Option<Finite>,
+    /// How the line says the session ended.
+    pub(crate) ended_by: EndedBy,
+    /// The whole line.
+    pub(crate) line: Map<String, Value>,
+}
+
 /// What one frame holds, as far as the reader needs it.
 #[derive(Debug)]
 pub(crate) struct Parsed {
     /// The `session_id` of the line.
     pub(crate) session_id: Option<String>,
+    /// The `parent_tool_use_id` of the line.
+    pub(crate) parent: Option<String>,
+    /// Whether the line is an `assistant` or `user` line, the only lines that start a child session.
+    pub(crate) message_line: bool,
     /// The `timestamp` of the line, when it is a valid RFC 3339 time.
     pub(crate) at: Option<Timestamp>,
     /// The Claude Code version, when the line is an init line.
@@ -59,6 +99,10 @@ pub(crate) struct Parsed {
     pub(crate) model: Option<String>,
     /// The events of the line, in order.
     pub(crate) drafts: Vec<Draft>,
+    /// The message id and usage, when the line is an assistant line with a message id.
+    pub(crate) message: Option<MessageLine>,
+    /// The result, when the line is a `result` line.
+    pub(crate) result: Option<ResultLine>,
 }
 
 impl Parsed {
@@ -67,14 +111,18 @@ impl Parsed {
         Self::of(Vec::new())
     }
 
-    /// A frame with no session, time, version or model that holds `drafts`.
+    /// A frame with no session, time, version, model, message or result that holds `drafts`.
     fn of(drafts: Vec<Draft>) -> Self {
         Self {
             session_id: None,
+            parent: None,
+            message_line: false,
             at: None,
             harness_version: None,
             model: None,
             drafts,
+            message: None,
+            result: None,
         }
     }
 }
@@ -124,28 +172,75 @@ fn object_line(line: Map<String, Value>) -> Parsed {
     let session_id = text_of("session_id").map(str::to_owned);
     let at = text_of("timestamp").and_then(|time| time.parse::<Timestamp>().ok());
     let kind = text_of("type");
-    let harness_version = detect::init_version(&line);
+    let message = line.get("message");
+    let message_id = message
+        .and_then(|message| message.get("id"))
+        .and_then(Value::as_str);
+    // BORROW: .to_owned() makes the owned model the result keeps
     let model = match kind {
-        // BORROW: .to_owned() makes the owned model the result keeps
         Some("system") if text_of("subtype") == Some("init") => text_of("model").map(str::to_owned),
-        Some("assistant") => line
-            .get("message")
+        Some("assistant") => message
             .and_then(|message| message.get("model"))
             .and_then(Value::as_str)
             .map(str::to_owned),
         _ => None,
     };
-    let drafts = match kind {
-        Some("assistant") => message_drafts(&line, Role::Assistant),
-        Some("user") => message_drafts(&line, Role::User),
-        _ => vec![Draft::notification(line)],
-    };
-    Parsed {
+    let mut parsed = Parsed {
         session_id,
         at,
-        harness_version,
+        harness_version: detect::init_version(&line),
         model,
-        drafts,
+        ..Parsed::empty()
+    };
+    // BORROW: .to_owned() makes the owned id the result keeps
+    let parent = text_of("parent_tool_use_id").map(str::to_owned);
+    match kind {
+        Some("assistant") => {
+            parsed.drafts = message_drafts(&line, Role::Assistant);
+            parsed.message_line = true;
+            parsed.parent = parent;
+            parsed.message = message_id.map(|id| MessageLine {
+                // BORROW: .to_owned() makes the owned id the result keeps
+                id: id.to_owned(),
+                tokens: message
+                    .and_then(|message| message.get("usage"))
+                    .map(Tokens::from_usage),
+            });
+            if let Some(id) = message_id {
+                for draft in &mut parsed.drafts {
+                    // BORROW: .to_owned() makes the owned key and id the map keeps
+                    draft
+                        .ext
+                        .insert("message_id".to_owned(), Value::String(id.to_owned()));
+                }
+            }
+        }
+        Some("user") => {
+            parsed.drafts = message_drafts(&line, Role::User);
+            parsed.message_line = true;
+            parsed.parent = parent;
+        }
+        Some("result") => parsed.result = Some(result_line(line)),
+        _ => {
+            parsed.parent = parent;
+            parsed.drafts = vec![Draft::notification(line)];
+        }
+    }
+    parsed
+}
+
+/// Reads a `result` line.
+fn result_line(line: Map<String, Value>) -> ResultLine {
+    let usage = line.get("usage");
+    let cost = line.get("total_cost_usd");
+    ResultLine {
+        tokens: usage.map(Tokens::from_usage).unwrap_or_default(),
+        reports_usage: usage.is_some() || cost.is_some(),
+        cost: cost
+            .and_then(Value::as_f64)
+            .and_then(|number| Finite::new(number).ok()),
+        ended_by: ended_by_of(&line),
+        line,
     }
 }
 
@@ -159,7 +254,7 @@ fn message_drafts(line: &Map<String, Value>, role: Role) -> Vec<Draft> {
         Some(Value::String(text)) => vec![message_draft(role, text.clone())],
         Some(Value::Array(blocks)) => blocks
             .iter()
-            .map(|block| block_draft(role, block))
+            .map(|block| block_draft(role, block, line))
             .collect(),
         Some(Value::Null | Value::Bool(_) | Value::Number(_) | Value::Object(_)) | None => {
             Vec::new()
@@ -181,7 +276,7 @@ fn message_draft(role: Role, text: String) -> Draft {
 }
 
 /// The event of one content block.
-fn block_draft(role: Role, block: &Value) -> Draft {
+fn block_draft(role: Role, block: &Value, line: &Map<String, Value>) -> Draft {
     let text_of = |key: &str| block.get(key).and_then(Value::as_str);
     match (role, text_of("type")) {
         // BORROW: .to_owned() makes the owned text the event keeps
@@ -199,7 +294,7 @@ fn block_draft(role: Role, block: &Value) -> Draft {
                     .get("is_error")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                let mut draft = Draft::new(EventKind::tool_result(is_error, None));
+                let mut draft = Draft::new(EventKind::tool_result(is_error, denial_of(line, id)));
                 draft.span = span_of(id, &mut draft.ext);
                 draft
             }
@@ -207,6 +302,18 @@ fn block_draft(role: Role, block: &Value) -> Draft {
         },
         _ => unknown_block(block),
     }
+}
+
+/// The refusal of the call `id`, when the line's `tool_result_meta` says the call did not run: the harness refused it, and the kind it gives is the reason.
+fn denial_of(line: &Map<String, Value>, id: &str) -> Option<Denial> {
+    line.get("tool_result_meta")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|entry| entry.get("id").and_then(Value::as_str) == Some(id))
+        .and_then(|entry| entry.get("non_execution_kind"))
+        .and_then(Value::as_str)
+        // BORROW: .to_owned() makes the owned reason the denial keeps
+        .map(|kind| Denial::new(DeniedBy::Harness, Some(kind.to_owned())))
 }
 
 /// A notification that keeps a content block this reader has no event for.

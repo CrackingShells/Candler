@@ -6,6 +6,8 @@
 
 pub mod detect;
 mod parse;
+mod sessions;
+mod usage;
 
 use std::sync::LazyLock;
 
@@ -13,9 +15,11 @@ use candler_harness::reader::{FrameIn, ReaderError, TraceReader};
 use candler_harness::spec::{Confidence, FormatVersion, Framing, Observed};
 use candler_schemas::primitives::{Name, NameVersion, Timestamp};
 use candler_schemas::raw::RawRef;
-use candler_schemas::trace::{EndedBy, Event, Session, SessionEvent, SessionId, SessionSource};
+use candler_schemas::trace::{Session, SessionEvent, SessionSource, UsageScope};
+use serde_json::{Map, Value};
 
-use crate::parse::Draft;
+use crate::parse::{Draft, Parsed};
+use crate::sessions::Registry;
 
 /// The Claude Code versions the reader supports, as a `SemVer` requirement: `>=2.1.220, <2.2.0`.
 pub const SUPPORTED: &str = ">=2.1.220, <2.2.0";
@@ -26,45 +30,31 @@ const HARNESS: &str = "claude-code";
 /// The identity of this reader: `claude-code-stream-json@<reader version>`, whose version changes whenever the reader's output does.
 #[allow(clippy::expect_used)] // EXPLICIT: the literal is a valid `name@version`, which no input can change
 pub static READER: LazyLock<NameVersion> = LazyLock::new(|| {
-    "claude-code-stream-json@0.1.0"
+    "claude-code-stream-json@0.2.0"
         .parse()
         .expect("the reader identity is a valid name@version")
 });
 
-/// An event that arrived before any session was known.
-struct Pending {
-    /// The frame of the event.
+/// A frame that arrived before any session was known.
+struct Held {
+    /// The parsed line.
+    parsed: Parsed,
+    /// The frame of the line.
     raw_ref: RawRef,
-    /// The time of the event.
+    /// The time of the line.
     at: Option<Timestamp>,
-    /// The event.
-    draft: Draft,
-}
-
-/// A root session: one `session_id` of the stream.
-struct Root {
-    /// The id of the session.
-    id: SessionId,
-    /// The `seq` of its next event.
-    next_seq: u64,
-    /// The first frame that names the session.
-    raw_ref: RawRef,
-    /// The model the session ran, once a line names it.
-    model: Option<String>,
 }
 
 /// Reads Claude Code stream-json frames into sessions and events.
 #[derive(Default)]
 #[non_exhaustive]
 pub struct ClaudeCodeReader {
-    /// The root sessions, in the order they appeared.
-    roots: Vec<Root>,
-    /// The root session of the latest line that named one.
-    current: Option<usize>,
+    /// The sessions seen so far.
+    registry: Registry,
     /// The Claude Code version of the first init line.
     harness_version: Option<semver::Version>,
-    /// Events that arrived before any session was known.
-    pending: Vec<Pending>,
+    /// Frames that arrived before any session was known, replayed when the first session opens.
+    pending: Vec<Held>,
 }
 
 impl ClaudeCodeReader {
@@ -74,38 +64,67 @@ impl ClaudeCodeReader {
         Self::default()
     }
 
-    /// The index of the root session `text`, which a frame at `raw_ref` names; the session is added when it is new.
-    fn root_index(&mut self, text: &str, raw_ref: &RawRef) -> Result<usize, ReaderError> {
-        let id = text.parse::<SessionId>()?;
-        if let Some(index) = self.roots.iter().position(|root| root.id == id) {
-            return Ok(index);
+    /// The events of one frame whose session is known.
+    fn apply(&mut self, held: Held) -> Result<Vec<SessionEvent>, ReaderError> {
+        let Held {
+            parsed,
+            raw_ref,
+            at,
+        } = held;
+        let Parsed {
+            session_id,
+            parent,
+            message_line,
+            at: _,
+            harness_version: _,
+            model,
+            drafts,
+            message,
+            result,
+        } = parsed;
+        let registry = &mut self.registry;
+        let Some(target) = registry.resolve(
+            session_id.as_deref(),
+            parent.as_deref(),
+            message_line,
+            &raw_ref,
+        )?
+        else {
+            return Err(ReaderError::Incomplete {
+                // BORROW: .to_owned() makes the owned text the error keeps
+                detail: "a frame names no session".to_owned(),
+            });
+        };
+        registry.set_model(target, model)?;
+        let mut events = Vec::new();
+        for draft in drafts {
+            events.push(registry.emit(target, &raw_ref, at.as_ref(), draft)?);
         }
-        self.roots.push(Root {
-            id,
-            next_seq: 0,
-            // BORROW: .clone() keeps the frame of the first mention in the session
-            raw_ref: raw_ref.clone(),
-            model: None,
-        });
-        Ok(self.roots.len().saturating_sub(1))
+        if let Some(message) = message
+            && let (true, Some(tokens)) =
+                (registry.first_line_of_message(&message.id), message.tokens)
+        {
+            let mut ext = Map::new();
+            // BORROW: .to_owned() makes the owned key the map keeps
+            ext.insert("message_id".to_owned(), Value::String(message.id));
+            let draft = Draft::with_ext(tokens.event(UsageScope::Message, None), ext);
+            events.push(registry.emit(target, &raw_ref, at.as_ref(), draft)?);
+        }
+        if let Some(result) = result {
+            let draft = if result.reports_usage {
+                let total = registry.add_turn(target, result.tokens)?;
+                Draft::with_ext(
+                    total.event(UsageScope::SessionTotal, result.cost),
+                    result.line,
+                )
+            } else {
+                Draft::notification(result.line)
+            };
+            events.push(registry.emit(target, &raw_ref, at.as_ref(), draft)?);
+            registry.set_ended_by(target, result.ended_by)?;
+        }
+        Ok(events)
     }
-}
-
-/// The event `draft` of `root`, read from the frame `raw_ref` at time `at`.
-fn emit(root: &mut Root, raw_ref: &RawRef, at: Option<&Timestamp>, draft: Draft) -> SessionEvent {
-    let seq = root.next_seq;
-    root.next_seq = seq.saturating_add(1);
-    // BORROW: .clone() keeps the frame of the event
-    let mut event = Event::new(seq, draft.kind, raw_ref.clone()).with_ext(draft.ext);
-    if let Some(span) = draft.span {
-        event = event.with_span(span);
-    }
-    if let Some(at) = at {
-        // BORROW: .clone() keeps the time of the event
-        event = event.with_at(at.clone());
-    }
-    // BORROW: .clone() keeps the id of the session in the record
-    SessionEvent::new(root.id.clone(), event)
 }
 
 impl TraceReader for ClaudeCodeReader {
@@ -123,50 +142,37 @@ impl TraceReader for ClaudeCodeReader {
     }
 
     fn feed(&mut self, frame: FrameIn<'_>) -> Result<Vec<SessionEvent>, ReaderError> {
-        let parsed = parse::parse(frame.frame);
-        let at = parsed.at.or(frame.at);
+        let mut parsed = parse::parse(frame.frame);
+        let at = parsed.at.take().or(frame.at);
+        let version = parsed.harness_version.take();
         if self.harness_version.is_none() {
-            self.harness_version = parsed.harness_version;
+            self.harness_version = version;
         }
-        let index = match parsed.session_id {
-            Some(text) => {
-                let index = self.root_index(&text, &frame.raw_ref)?;
-                self.current = Some(index);
-                Some(index)
-            }
-            None => self.current,
+        let held = Held {
+            parsed,
+            raw_ref: frame.raw_ref,
+            at,
         };
-        let Some(root) = index.and_then(|index| self.roots.get_mut(index)) else {
-            self.pending
-                .extend(parsed.drafts.into_iter().map(|draft| Pending {
-                    // BORROW: .clone() keeps the frame of the event
-                    raw_ref: frame.raw_ref.clone(),
-                    // BORROW: .clone() keeps the time of the event
-                    at: at.clone(),
-                    draft,
-                }));
+        if let Some(id) = held.parsed.session_id.as_deref() {
+            let first = self
+                .pending
+                .first()
+                .map_or(&held.raw_ref, |earlier| &earlier.raw_ref);
+            self.registry.enter(id, first)?;
+        } else if !self.registry.has_session() {
+            self.pending.push(held);
             return Ok(Vec::new());
-        };
-        if root.model.is_none() {
-            root.model = parsed.model;
         }
-        let mut events: Vec<SessionEvent> = self
-            .pending
-            .drain(..)
-            .map(|held| emit(root, &held.raw_ref, held.at.as_ref(), held.draft))
-            .collect();
-        events.extend(
-            parsed
-                .drafts
-                .into_iter()
-                .map(|draft| emit(root, &frame.raw_ref, at.as_ref(), draft)),
-        );
+        let mut events = Vec::new();
+        for earlier in std::mem::take(&mut self.pending) {
+            events.extend(self.apply(earlier)?);
+        }
+        events.extend(self.apply(held)?);
         Ok(events)
     }
 
     fn observed(&self) -> Observed {
-        // BORROW: .clone() copies the ids out of the reader
-        Observed::new(self.roots.iter().map(|root| root.id.clone()).collect())
+        Observed::new(self.registry.root_ids())
     }
 
     fn finish(self: Box<Self>) -> Result<Vec<Session>, ReaderError> {
@@ -174,6 +180,9 @@ impl TraceReader for ClaudeCodeReader {
             // BORROW: .to_owned() makes the owned text the error keeps
             detail: detail.to_owned(),
         };
+        if !self.pending.is_empty() {
+            return Err(incomplete("the stream has frames before any session"));
+        }
         let version = self
             .harness_version
             .ok_or_else(|| incomplete("the stream has no init line"))?;
@@ -189,20 +198,6 @@ impl TraceReader for ClaudeCodeReader {
             // BORROW: .clone() copies the reader version
             reader.version().clone(),
         );
-        self.roots
-            .into_iter()
-            .map(|root| {
-                let mut session = Session::builder()
-                    .id(root.id)
-                    // BORROW: .clone() gives each session its own source
-                    .source(source.clone())
-                    .ended_by(EndedBy::Unknown)
-                    .raw_ref(root.raw_ref);
-                if let Some(model) = root.model {
-                    session = session.model(model);
-                }
-                session.build().map_err(ReaderError::from)
-            })
-            .collect()
+        self.registry.into_sessions(&source)
     }
 }
