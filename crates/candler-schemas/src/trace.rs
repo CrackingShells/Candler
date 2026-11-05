@@ -6,6 +6,7 @@
 //! tagged enum is read from an object only, never from a list.
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::str::FromStr;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator};
@@ -18,9 +19,13 @@ use crate::generate::GeneratedSchema;
 use crate::map_only::MapOnly;
 use crate::outcome::Finite;
 use crate::primitives::{
-    NAME_PATTERN, ReasonCode, SEMVER_PATTERN, Timestamp, object_only, present, text_type,
+    Digest, NAME_PATTERN, NameVersion, ReasonCode, SEMVER_PATTERN, Timestamp, object_only, present,
+    schema_tag, text_type,
 };
-use crate::raw::RawRef;
+use crate::raw::{RawRef, StreamName};
+
+/// The version marker of a trace file, written in its header.
+pub const NORMALISED_TRACE_SCHEMA: &str = "normalised-trace/1";
 
 /// Why a trace record or one of its members is not valid.
 ///
@@ -65,6 +70,73 @@ pub enum TraceError {
         problem: &'static str,
         /// The kind that was given.
         kind: String,
+    },
+    /// A line of a trace file that is not a valid record.
+    #[error("line {line} is not a valid record: {detail}")]
+    Line {
+        /// The line, counting from 1.
+        line: usize,
+        /// What the record reader reported.
+        detail: String,
+    },
+    /// A trace file with no header, or a record before the header.
+    #[error("the trace file has no header before its first session or event")]
+    MissingHeader,
+    /// A second header record.
+    #[error("line {line} is a second header")]
+    SecondHeader {
+        /// The line, counting from 1.
+        line: usize,
+    },
+    /// A session record after an event record.
+    #[error("session {session:?} is declared after an event")]
+    SessionAfterEvent {
+        /// The session that is declared late.
+        session: String,
+    },
+    /// A session declared twice.
+    #[error("session {session:?} is declared twice")]
+    DuplicateSession {
+        /// The session that is declared again.
+        session: String,
+    },
+    /// A child session declared before its parent.
+    #[error("session {session:?} is declared before its parent {parent:?}")]
+    ChildBeforeParent {
+        /// The child session.
+        session: String,
+        /// The parent it names.
+        parent: String,
+    },
+    /// An event of a session that no session record declares.
+    #[error("event seq {seq} belongs to session {session:?}, which is not declared")]
+    UndeclaredSession {
+        /// The session the event names.
+        session: String,
+        /// The event's `seq`.
+        seq: u64,
+    },
+    /// An event whose `seq` does not follow its predecessor in its session.
+    #[error("session {session:?} has an event with seq {found} where seq {expected} is next")]
+    SeqOrder {
+        /// The session of the event.
+        session: String,
+        /// The `seq` that is next in the session.
+        expected: u64,
+        /// The `seq` that was found.
+        found: u64,
+    },
+    /// A `raw_ref` whose stream the header's `raw` does not list.
+    #[error(
+        "session {session:?} (seq {seq:?}) points at stream {stream:?}, which the header does not list"
+    )]
+    StreamNotListed {
+        /// The session of the record.
+        session: String,
+        /// The event's `seq`, or `None` for the session record itself.
+        seq: Option<u64>,
+        /// The stream that is not listed.
+        stream: String,
     },
     /// A session whose `parent_session` is not the id of its parent followed by `/` and a span.
     #[error("session {session:?} is not `<parent>/<span>` of its parent session {parent:?}")]
@@ -1097,6 +1169,264 @@ impl SessionEvent {
     pub const fn new(session: SessionId, event: Event) -> Self {
         Self { session, event }
     }
+}
+
+/// The streams the raw files of a trace archive, each with the digest of its file.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct RawFileRef {
+    /// The name of the archived stream.
+    pub stream: StreamName,
+    /// The digest of the framed raw file of the stream.
+    pub digest: Digest,
+}
+
+object_only!(RawFileRef);
+
+impl RawFileRef {
+    /// Names a raw file by its stream and digest.
+    #[must_use]
+    pub const fn new(stream: StreamName, digest: Digest) -> Self {
+        Self { stream, digest }
+    }
+}
+
+schema_tag! {
+    /// The version marker of a trace file: always `normalised-trace/1`.
+    pub NormalisedTraceTag = NORMALISED_TRACE_SCHEMA
+}
+
+/// The first line of a trace file: the reader that produced it and the raw files it was read from.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct TraceHeader {
+    /// The version marker: always `normalised-trace/1`.
+    pub schema: NormalisedTraceTag,
+    /// The reader and its version, as `name@version` with a `SemVer` version.
+    pub reader: NameVersion,
+    /// The raw files the trace was read from; every `raw_ref` of the file names one of their streams.
+    pub raw: Vec<RawFileRef>,
+}
+
+object_only!(TraceHeader);
+
+impl TraceHeader {
+    /// Builds a header.
+    #[must_use]
+    pub const fn new(reader: NameVersion, raw: Vec<RawFileRef>) -> Self {
+        Self {
+            schema: NormalisedTraceTag,
+            reader,
+            raw,
+        }
+    }
+}
+
+/// One line of a trace file: an object whose `kind` is `header`, `session` or `event`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self", tag = "kind", rename_all = "snake_case")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub enum TraceRecord {
+    /// The first line of the file.
+    Header(TraceHeader),
+    /// A session, after the header and before every event.
+    Session(Session),
+    /// An event with the session it belongs to.
+    Event(SessionEvent),
+}
+
+object_only!(TraceRecord);
+
+/// A record borrowed for writing; it is written exactly as the [`TraceRecord`] it stands for.
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum RecordRef<'a> {
+    Header(&'a TraceHeader),
+    Session(&'a Session),
+    Event(&'a SessionEvent),
+}
+
+/// A trace file: its header, its sessions with each parent before its children, and its events in feed order.
+///
+/// A file is valid however it was made: every session id is declared once, a child follows its
+/// parent, every event belongs to a declared session and counts its `seq` from 0 without gaps in
+/// that session, and every `raw_ref` names a stream of the header.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct TraceFile {
+    header: TraceHeader,
+    sessions: Vec<Session>,
+    events: Vec<SessionEvent>,
+}
+
+impl TraceFile {
+    /// Builds a file, checking the rules that relate its records.
+    ///
+    /// # Errors
+    /// Returns the [`TraceError`] of the first rule the records break: a repeated session, a child
+    /// before its parent, an event for an undeclared session, a `seq` that does not follow its
+    /// predecessor in the session, or a `raw_ref.stream` that the header does not list.
+    pub fn new(
+        header: TraceHeader,
+        sessions: Vec<Session>,
+        events: Vec<SessionEvent>,
+    ) -> Result<Self, TraceError> {
+        check_records(&header, &sessions, &events)?;
+        Ok(Self {
+            header,
+            sessions,
+            events,
+        })
+    }
+
+    /// The header.
+    #[must_use]
+    pub const fn header<'a>(&'a self) -> &'a TraceHeader {
+        &self.header
+    }
+
+    /// The sessions, root first, each parent before its children.
+    #[must_use]
+    pub const fn sessions<'a>(&'a self) -> &'a [Session] {
+        self.sessions.as_slice()
+    }
+
+    /// The events in feed order.
+    #[must_use]
+    pub const fn events<'a>(&'a self) -> &'a [SessionEvent] {
+        self.events.as_slice()
+    }
+
+    /// Reads a trace file: one JSON object per line, the header first, then the sessions, then the events.
+    ///
+    /// # Errors
+    /// Returns [`TraceError::MissingHeader`] if a record comes before the header or there is no
+    /// header, [`TraceError::SecondHeader`] for a second header,
+    /// [`TraceError::SessionAfterEvent`] for a session after an event,
+    /// [`TraceError::Line`] for a line that is not a valid record (a child whose id is not
+    /// `<parent>/<span>` is such a line), and the errors of [`TraceFile::new`] for the rest.
+    pub fn read(bytes: &[u8]) -> Result<Self, TraceError> {
+        if bytes.is_empty() {
+            return Err(TraceError::MissingHeader);
+        }
+        let mut header = None;
+        let mut sessions = Vec::new();
+        let mut events = Vec::new();
+        let text = bytes.strip_suffix(b"\n").unwrap_or(bytes);
+        for (index, line) in text.split(|byte| *byte == b'\n').enumerate() {
+            let number = index + 1;
+            let record =
+                serde_json::from_slice::<TraceRecord>(line).map_err(|e| TraceError::Line {
+                    line: number,
+                    detail: e.to_string(),
+                })?;
+            match record {
+                TraceRecord::Header(first) if header.is_none() => header = Some(first),
+                TraceRecord::Header(_) => return Err(TraceError::SecondHeader { line: number }),
+                TraceRecord::Session(session) if header.is_some() && events.is_empty() => {
+                    sessions.push(session);
+                }
+                TraceRecord::Session(session) if header.is_some() => {
+                    return Err(TraceError::SessionAfterEvent {
+                        session: session.id().to_string(),
+                    });
+                }
+                TraceRecord::Event(event) if header.is_some() => events.push(event),
+                TraceRecord::Session(_) | TraceRecord::Event(_) => {
+                    return Err(TraceError::MissingHeader);
+                }
+            }
+        }
+        let header = header.ok_or(TraceError::MissingHeader)?;
+        Self::new(header, sessions, events)
+    }
+
+    /// Writes the file: one compact JSON object per line, fields in declaration order, `\n` after each.
+    #[must_use]
+    pub fn write(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        push_line(&mut out, &RecordRef::Header(&self.header));
+        for session in &self.sessions {
+            push_line(&mut out, &RecordRef::Session(session));
+        }
+        for event in &self.events {
+            push_line(&mut out, &RecordRef::Event(event));
+        }
+        out
+    }
+}
+
+/// Appends `record` and a line feed.
+fn push_line<T: Serialize>(out: &mut Vec<u8>, record: &T) {
+    // EXPLICIT: serialisation fails only for a map with non-string keys, and these records hold
+    // none, so there is no failure to report and `write` keeps returning bytes
+    if serde_json::to_writer(&mut *out, record).is_ok() {
+        out.push(b'\n');
+    }
+}
+
+/// Checks the rules that relate the sessions and events of a file to its header and to each other.
+fn check_records(
+    header: &TraceHeader,
+    sessions: &[Session],
+    events: &[SessionEvent],
+) -> Result<(), TraceError> {
+    let listed = |stream: &StreamName| header.raw.iter().any(|raw| raw.stream == *stream);
+    let mut next_seq: BTreeMap<&SessionId, u64> = BTreeMap::new();
+    for session in sessions {
+        let id = session.id();
+        if next_seq.contains_key(id) {
+            return Err(TraceError::DuplicateSession {
+                session: id.to_string(),
+            });
+        }
+        if let Some(parent) = session.parent_session()
+            && !next_seq.contains_key(parent)
+        {
+            return Err(TraceError::ChildBeforeParent {
+                session: id.to_string(),
+                parent: parent.to_string(),
+            });
+        }
+        if !listed(&session.raw_ref().stream) {
+            return Err(TraceError::StreamNotListed {
+                session: id.to_string(),
+                seq: None,
+                stream: session.raw_ref().stream.to_string(),
+            });
+        }
+        next_seq.insert(id, 0);
+    }
+    for record in events {
+        let event = &record.event;
+        let Some(expected) = next_seq.get_mut(&record.session) else {
+            return Err(TraceError::UndeclaredSession {
+                session: record.session.to_string(),
+                seq: event.seq,
+            });
+        };
+        if event.seq != *expected {
+            return Err(TraceError::SeqOrder {
+                session: record.session.to_string(),
+                expected: *expected,
+                found: event.seq,
+            });
+        }
+        *expected += 1;
+        if !listed(&event.raw_ref.stream) {
+            return Err(TraceError::StreamNotListed {
+                session: record.session.to_string(),
+                seq: Some(event.seq),
+                stream: event.raw_ref.stream.to_string(),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// The wire root schemas this module publishes.
