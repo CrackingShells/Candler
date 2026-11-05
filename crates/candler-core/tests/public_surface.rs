@@ -253,3 +253,64 @@ mod supervisor {
         );
     }
 }
+
+// ---- legacy_import ----
+
+/// Guards: the legacy import's public surface — the `import` module with its entry point, the
+/// report and each of its entry types and constructors, the reader factory, the asset, stream and
+/// trace functions, the two error variants of the import and `trace::normalise` with its error are
+/// nameable from outside the crate, at the paths the leaf gives. Oracle: the names written here.
+#[test]
+fn the_legacy_import_surface_is_public() {
+    use candler_core::import::ImportError;
+    use candler_core::import::assemble::import;
+    use candler_core::import::assets::{
+        ImportedAssets, TreeDiff, import_assets, plan_assets, put_sources,
+    };
+    use candler_core::import::report::{ImportReport, InvalidRun, SkippedEntry};
+    use candler_core::import::streams::{
+        ReaderFactory, TraceFailure, UsageDiff, frame_streams, usage_diffs,
+    };
+    use candler_core::trace::{NormaliseError, normalise};
+
+    let _ = (
+        import,
+        normalise,
+        import_assets,
+        plan_assets,
+        put_sources,
+        frame_streams,
+        usage_diffs,
+    );
+    let _ = (
+        ImportReport::new,
+        InvalidRun::new,
+        SkippedEntry::new,
+        TraceFailure::new,
+        UsageDiff::new,
+        TreeDiff::new,
+    );
+    let _ = (
+        None::<ImportReport>,
+        None::<InvalidRun>,
+        None::<SkippedEntry>,
+        None::<TraceFailure>,
+        None::<UsageDiff>,
+        None::<TreeDiff>,
+        None::<ImportedAssets>,
+        None::<NormaliseError>,
+        None::<Box<ReaderFactory>>,
+    );
+    // The two variants name their members.
+    let store = ImportError::Store {
+        run: String::new(),
+        detail: String::new(),
+    };
+    let conflict = ImportError::Conflict {
+        run: String::new(),
+        file: String::new(),
+        detail: String::new(),
+    };
+    assert!(matches!(store, ImportError::Store { .. }));
+    assert!(matches!(conflict, ImportError::Conflict { .. }));
+}

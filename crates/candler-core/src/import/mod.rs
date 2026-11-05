@@ -1,14 +1,14 @@
 //! Import of a legacy results folder into a Candler store.
 
-mod assemble;
-mod assets;
+pub mod assemble;
+pub mod assets;
 pub mod grading;
 mod legacy;
 pub mod manifest;
 pub mod read;
-mod report;
+pub mod report;
 pub mod rules;
-mod streams;
+pub mod streams;
 
 use candler_schemas::primitives::FormatError;
 
@@ -130,6 +130,26 @@ pub enum ImportError {
         /// The run, as `<cell>/<config>/run-N`.
         run: String,
         /// The record reader's explanation.
+        detail: String,
+    },
+    /// A store that refuses a write or a read of an imported run.
+    #[error("the store failed for `{run}` ({detail})")]
+    Store {
+        /// The run, as `<cell>/<config>/run-N`, or the store when no run applies.
+        run: String,
+        /// The store's explanation.
+        detail: String,
+    },
+    /// A run the store already holds finished with a manifest that differs from the one the folder maps to.
+    #[error(
+        "run `{run}` is finished in the store and differs from the folder at `{file}` ({detail})"
+    )]
+    Conflict {
+        /// The run, as `<cell>/<config>/run-N`.
+        run: String,
+        /// The first source or output path that differs, or the part of the manifest that does.
+        file: String,
+        /// What differs.
         detail: String,
     },
     /// A string format of the shared primitives that does not hold.

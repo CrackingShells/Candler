@@ -16,8 +16,10 @@ use sha2::Digest as _;
 
 use super::ImportError;
 use super::legacy::{
-    COMPLETED_AT, CONFIG, COPIED_INPUTS, ELAPSED_SECONDS, EVENT_RUN_COMPLETE, EVENT_RUN_START,
-    ORIGINAL_INTEGRITY, OUT_DIR, PLAN, PROVENANCE, ROLE, RUN_NUMBER, RUNS, SHA256, VERDICT,
+    COMPLETED_AT, CONFIG, CONTAMINATION_CATALOG_FILE, COPIED_INPUTS, CORPUS_BASE_COMMIT,
+    ELAPSED_SECONDS, EVENT_RUN_COMPLETE, EVENT_RUN_START, ORIGINAL_INTEGRITY, OUT_DIR,
+    PINNED_COMMIT, PINNED_DESCRIBE, PINNED_DIRTY, PLAN, PROVENANCE, ROLE, RUN_NUMBER, RUNS, SHA256,
+    VERDICT,
 };
 use super::read::{LegacyCell, LegacyFolder, LegacyRun, rel_path};
 use super::rules::ImportRules;
@@ -78,15 +80,13 @@ fn provenance_text<'a>(folder: &'a LegacyFolder, pointer: &str) -> Result<&'a st
 pub(super) fn pinned(folder: &LegacyFolder) -> Result<Pinned, ImportError> {
     // BORROW: explicit .as_str() instead of Deref coercion
     let file = folder.provenance.path.as_str();
-    let evaluator = NameVersion::from_str(provenance_text(folder, "/pinned/describe")?)?;
-    let instrument = InstrumentDigest::from_str(&format!(
-        "git:{}",
-        provenance_text(folder, "/pinned/commit")?
-    ))?;
+    let evaluator = NameVersion::from_str(provenance_text(folder, PINNED_DESCRIBE)?)?;
+    let instrument =
+        InstrumentDigest::from_str(&format!("git:{}", provenance_text(folder, PINNED_COMMIT)?))?;
     let dirty = folder
         .provenance
         .value
-        .pointer("/pinned/dirty")
+        .pointer(PINNED_DIRTY)
         .and_then(Value::as_bool)
         .ok_or_else(|| layout(file, "the folder", "`/pinned/dirty` is not a boolean"))?;
     let finished = Timestamp::from_str(provenance_text(folder, "/regraded_at/finished")?)?;
@@ -358,7 +358,7 @@ fn integrity_of(
             // BORROW: .clone() copies the value into the owned result
             run: run.label.clone(),
             first: file.into(),
-            second: format!("{}/contamination_catalog.jsonl", cell.name),
+            second: format!("{}/{CONTAMINATION_CATALOG_FILE}", cell.name),
             detail: format!("`{verdict}` and `{catalog}`"),
         });
     }
@@ -585,7 +585,7 @@ fn import_sources(
 /// [`ImportError::Format`] for a value that is not the primitive it must be.
 pub fn map_runs(folder: &LegacyFolder, rules: &ImportRules) -> Result<Vec<MappedRun>, ImportError> {
     let pinned = pinned(folder)?;
-    let base_commit = GitCommit::from_str(provenance_text(folder, "/corpus/base_commit")?)
+    let base_commit = GitCommit::from_str(provenance_text(folder, CORPUS_BASE_COMMIT)?)
         // BORROW: explicit .as_str() instead of Deref coercion
         .map_err(|error| {
             layout(

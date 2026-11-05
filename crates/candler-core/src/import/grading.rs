@@ -14,7 +14,9 @@ use candler_schemas::primitives::{ExpectationId, Name, NameVersion, ReasonCode, 
 use serde_json::{Map, Value};
 
 use super::ImportError;
-use super::legacy::{BLOCKED_BY, CONFIG, EXPECTATIONS, EXPECTATIONS_FILE, OUTPUTS, ROLE};
+use super::legacy::{
+    BLOCKED_BY, CONFIG, ENTRY_PARAMS, EXPECTATIONS, EXPECTATIONS_FILE, OUTPUTS, ROLE,
+};
 use super::manifest::{MappedRun, layout, pinned};
 use super::read::{JsonFile, LegacyFolder, LegacyRun, rel_path};
 use super::rules::{ImportRules, MarkerCode};
@@ -269,7 +271,11 @@ fn facts_of(row: &Row<'_>, run: &LegacyRun, rules: &ImportRules) -> Result<Facts
     let weight = |num: u64, den: u64| Weight::new(num, den).map_err(|error| bad(error.to_string()));
     let blocked_by = match row.entry.get(BLOCKED_BY) {
         None | Some(Value::Null) => None,
-        Some(Value::String(path)) => Some(rel_path(path)?),
+        Some(Value::String(path)) => Some(rel_path(path).map_err(|error| {
+            bad(format!(
+                "has a `blocked_by` that is not a run-relative path ({error})"
+            ))
+        })?),
         Some(Value::Bool(_) | Value::Number(_) | Value::Array(_) | Value::Object(_)) => {
             return Err(bad("has a `blocked_by` that is not a path".into()));
         }
@@ -365,7 +371,7 @@ fn suite_entry(
     // BORROW: explicit .as_str() instead of Deref coercion
     let file = row.file.path.as_str();
     let mut params = Map::new();
-    for key in ["scale", "text", "tier"] {
+    for key in ENTRY_PARAMS {
         let value = row
             .entry
             .get(key)

@@ -12,11 +12,13 @@ use serde_json::Value;
 
 use super::ImportError;
 use super::legacy::{
-    EVAL_METADATA_FILE, EXPECTATIONS_FILE, OUTPUTS, RUN_COMPLETE_FILE, STDERR_FILE, TIMING_FILE,
+    CONTAMINATION_CATALOG_FILE, EVAL_METADATA_FILE, EVAL_PREFIX, EXPECTATIONS_FILE,
+    EXPERIMENT_FILE, GRADING_SUFFIX, OUTPUTS, PROGRESS_FILE, RUN_COMPLETE_FILE, STDERR_FILE,
+    TIMING_FILE,
 };
 use super::rules::ImportRules;
 
-/// A file the import read: its path relative to the folder, the digest of its bytes and the bytes.
+/// A file the import read: its path relative to the folder, the digest of its bytes, the bytes and its `executable` flag.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct SourceFile {
@@ -26,6 +28,8 @@ pub struct SourceFile {
     pub sha256: Digest,
     /// The bytes of the file.
     pub bytes: Vec<u8>,
+    /// Whether the file has an execute bit for its owner, its group or others.
+    pub executable: bool,
 }
 
 /// A JSON file the model interprets: its path relative to the folder's root and its parsed value. The same file is also kept as a [`SourceFile`].
@@ -39,7 +43,8 @@ pub struct JsonFile {
 }
 
 /// Why a file or directory is not read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum SkipReason {
     /// An `AppleDouble` file, whose name starts with `._`.
@@ -100,6 +105,8 @@ pub struct LegacyRun {
     pub stderr: Option<SourceFile>,
     /// Every file under `outputs/`, sorted by path.
     pub outputs: Vec<SourceFile>,
+    /// Every directory under `outputs/` that holds nothing, sorted by path.
+    pub empty_dirs: Vec<RelPath>,
     /// The run's timing file: the first copy, every copy holding the same document.
     pub timing: JsonFile,
     /// The run's completion file, when the run has it.
@@ -160,6 +167,12 @@ pub struct LegacyFolder {
 
 impl LegacyFolder {
     /// Reads the folder at `root`: one pass over every file, each becoming a source, an artifact, a stream or a skipped entry.
+    ///
+    /// # Memory
+    /// The whole folder is held in memory at once: every file's bytes stay in the returned model
+    /// until the import ends, so the peak is about the size of the folder plus its decompressed
+    /// streams (about 379 MB for the 240-run golden corpus in a debug build). There is no cap and
+    /// no streaming in this version.
     ///
     /// # Errors
     /// Returns [`ImportError::Io`] for a file or directory that cannot be read,
@@ -240,6 +253,19 @@ pub(super) fn rel_path(text: &str) -> Result<RelPath, ImportError> {
     })
 }
 
+/// Reports whether `meta` has an execute bit for the owner, the group or others.
+#[cfg(unix)]
+fn is_executable(meta: &fs::Metadata) -> bool {
+    use std::os::unix::fs::PermissionsExt as _;
+    meta.permissions().mode() & 0o111 != 0
+}
+
+/// Reports whether `meta` has an execute bit; a platform without mode bits has none.
+#[cfg(not(unix))]
+fn is_executable(_meta: &fs::Metadata) -> bool {
+    false
+}
+
 /// The reason a file or directory is skipped, if it is.
 fn skip_reason(entry: &Entry) -> Option<SkipReason> {
     // BORROW: explicit .as_str() instead of Deref coercion
@@ -268,15 +294,15 @@ fn run_number(name: &str) -> Option<u32> {
 
 /// Reports whether `name` is `eval-K-<title>`, the directory of one eval.
 fn is_eval_dir(name: &str) -> bool {
-    name.strip_prefix("eval-")
+    name.strip_prefix(EVAL_PREFIX)
         .and_then(|rest| rest.split_once('-'))
         .is_some_and(|(k, _)| !k.is_empty() && k.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// Reports whether `name` is `eval-K-grading.json`.
 fn is_grading_name(name: &str) -> bool {
-    name.strip_prefix("eval-")
-        .and_then(|rest| rest.strip_suffix("-grading.json"))
+    name.strip_prefix(EVAL_PREFIX)
+        .and_then(|rest| rest.strip_suffix(GRADING_SUFFIX))
         .is_some_and(|k| !k.is_empty() && k.bytes().all(|b| b.is_ascii_digit()))
 }
 
@@ -333,6 +359,7 @@ struct RunBuilder {
     label: String,
     has_outputs: bool,
     outputs: Vec<SourceFile>,
+    empty_dirs: Vec<RelPath>,
     stream: Option<SourceFile>,
     stderr: Option<SourceFile>,
     sources: Vec<SourceFile>,
@@ -350,6 +377,7 @@ impl RunBuilder {
             label: format!("{cell}/{config}/run-{number}"),
             has_outputs: false,
             outputs: Vec::new(),
+            empty_dirs: Vec::new(),
             stream: None,
             stderr: None,
             sources: Vec::new(),
@@ -416,11 +444,18 @@ impl Reader<'_> {
             path: path.display().to_string(),
             detail: error.to_string(),
         })?;
+        let executable = fs::metadata(&path)
+            .map_err(|error| ImportError::Io {
+                path: path.display().to_string(),
+                detail: error.to_string(),
+            })
+            .map(|meta| is_executable(&meta))?;
         Ok(SourceFile {
             path: rel_path(rel)?,
             // BORROW: explicit .as_slice() instead of Deref coercion
             sha256: digest_of(bytes.as_slice())?,
             bytes,
+            executable,
         })
     }
 
@@ -445,6 +480,31 @@ impl Reader<'_> {
             let path = join(rel, &entry.name);
             if entry.is_dir {
                 self.walk(&path, files)?;
+            } else {
+                files.push(self.source(&path)?);
+            }
+        }
+        Ok(())
+    }
+
+    /// Reads every file below `rel` into `files` and records each directory that holds nothing in `empty`.
+    fn walk_outputs(
+        &mut self,
+        rel: &str,
+        files: &mut Vec<SourceFile>,
+        empty: &mut Vec<RelPath>,
+    ) -> Result<(), ImportError> {
+        let entries = self.list(rel)?;
+        if entries.is_empty() {
+            empty.push(rel_path(rel)?);
+        }
+        for entry in entries {
+            if self.skip(rel, &entry)? {
+                continue;
+            }
+            let path = join(rel, &entry.name);
+            if entry.is_dir {
+                self.walk_outputs(&path, files, empty)?;
             } else {
                 files.push(self.source(&path)?);
             }
@@ -510,9 +570,9 @@ impl Reader<'_> {
             }
             let file = self.source(&path)?;
             match entry_name {
-                "experiment.json" => experiment = Some(json_file(&file)?),
-                "progress.jsonl" => progress = Some(jsonl_rows(&file)?),
-                "contamination_catalog.jsonl" => catalog = Some(jsonl_rows(&file)?),
+                EXPERIMENT_FILE => experiment = Some(json_file(&file)?),
+                PROGRESS_FILE => progress = Some(jsonl_rows(&file)?),
+                CONTAMINATION_CATALOG_FILE => catalog = Some(jsonl_rows(&file)?),
                 // EXPLICIT: any other cell file is kept as a cell source and read no further
                 _ => {}
             }
@@ -619,7 +679,7 @@ impl Reader<'_> {
             if entry.is_dir {
                 if cache && name == OUTPUTS {
                     run.has_outputs = true;
-                    self.walk(&path, &mut run.outputs)?;
+                    self.walk_outputs(&path, &mut run.outputs, &mut run.empty_dirs)?;
                 } else {
                     self.walk(&path, &mut run.sources)?;
                 }
@@ -643,7 +703,8 @@ impl Reader<'_> {
                         Some(first) if first.value != copy.value => {
                             return Err(ImportError::Disagree {
                                 what: "timing files",
-                                run: run.label.clone(), // BORROW: .clone() copies the run label into the error
+                                // BORROW: .clone() copies the run label into the error
+                                run: run.label.clone(),
                                 first: first.path.to_string(),
                                 second: copy.path.to_string(),
                                 detail: "the copies of one run hold different documents".into(),
@@ -662,7 +723,8 @@ impl Reader<'_> {
                         .find(|other| file_name(&other.path) == grading)
                     {
                         return Err(ImportError::DuplicateGrading {
-                            run: run.label.clone(), // BORROW: .clone() copies the run label into the error
+                            // BORROW: .clone() copies the run label into the error
+                            run: run.label.clone(),
                             name: grading.into(),
                             first: first.path.to_string(),
                             second: file.path.to_string(),
@@ -686,6 +748,7 @@ impl Reader<'_> {
             label,
             has_outputs,
             mut outputs,
+            mut empty_dirs,
             stream,
             stderr,
             mut sources,
@@ -707,6 +770,7 @@ impl Reader<'_> {
         let timing = timing.ok_or_else(|| required(TIMING_FILE))?;
         let harness_version = self.harness_version(&stream, &label)?;
         outputs.sort_by(|a, b| a.path.cmp(&b.path));
+        empty_dirs.sort();
         sources.sort_by(|a, b| a.path.cmp(&b.path));
         eval_metadata.sort_by(|a, b| a.path.cmp(&b.path));
         gradings.sort_by(|a, b| a.path.cmp(&b.path));
@@ -718,6 +782,7 @@ impl Reader<'_> {
             stream,
             stderr,
             outputs,
+            empty_dirs,
             timing,
             run_complete,
             eval_metadata,
