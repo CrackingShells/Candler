@@ -314,3 +314,24 @@ fn the_legacy_import_surface_is_public() {
     assert!(matches!(store, ImportError::Store { .. }));
     assert!(matches!(conflict, ImportError::Conflict { .. }));
 }
+
+// ---- gate_sweep ----
+
+mod writer_steps {
+    use candler_core::store::outcome::OutcomeWriter;
+    use candler_core::store::run::RunWriter;
+
+    /// Names the steps of a run writer and of an outcome writer, which the runner and the
+    /// evaluation engine call in order after `create`.
+    #[test]
+    fn writer_steps_are_nameable() {
+        let _ = (
+            RunWriter::manifest,
+            RunWriter::tree,
+            RunWriter::raw,
+            RunWriter::trace,
+            RunWriter::done,
+        );
+        let _ = (OutcomeWriter::append, OutcomeWriter::commit);
+    }
+}
