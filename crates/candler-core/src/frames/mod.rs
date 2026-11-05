@@ -28,7 +28,10 @@ const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 
 /// How a stream is cut into frames.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(clippy::exhaustive_enums)] // EXHAUSTIVE: a stream is framed by lines or as one document, and in no third way
+#[allow(
+    clippy::exhaustive_enums,
+    reason = "EXHAUSTIVE: a stream is framed by lines or as one document, and in no third way"
+)]
 pub enum FrameMode {
     /// One frame per line, its `\n` kept.
     Lines,
@@ -290,6 +293,12 @@ impl FrameWriter {
     #[must_use]
     pub const fn frames(&self) -> u64 {
         self.frames
+    }
+
+    /// Removes the plain file of a stream that will never be finished, such as one whose child
+    /// could not be started. A failure to remove it is ignored: nothing reads the file.
+    pub fn discard(self) {
+        let _ = fs::remove_file(&self.tmp_path);
     }
 
     /// Flushes the tail, gzips the file with header mtime 0 to `<stream>.jsonl.gz`, syncs it and

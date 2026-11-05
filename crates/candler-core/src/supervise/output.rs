@@ -92,6 +92,11 @@ impl FramedStream {
         Ok(())
     }
 
+    /// Removes the file of a stream whose child was never started.
+    pub(crate) fn discard(self) {
+        self.writer.discard();
+    }
+
     /// Emits the trailing frame, then gzips the file into place.
     fn finish(mut self) -> io::Result<RawFileInfo> {
         if let Some((index, frame)) = self.writer.flush_tail()?

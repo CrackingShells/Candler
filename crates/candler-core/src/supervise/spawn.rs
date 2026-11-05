@@ -22,6 +22,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::{ChildStderr, ChildStdin, ChildStdout, Command};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
 
 use super::output::{FileTail, FramedStream, Pumped, pump};
 use super::platform::process_start;
@@ -433,7 +434,8 @@ pub(crate) struct Context {
     pub(crate) guard: Arc<Guard>,
     pub(crate) run: Option<RunKey>,
     pub(crate) stop: StopSpec,
-    pub(crate) deadline: Option<Duration>,
+    /// When the child must be ended if it is still running: its deadline counted from the spawn.
+    pub(crate) deadline: Option<Instant>,
     pub(crate) env: Vec<(String, String)>,
     pub(crate) cwd: Option<PathBuf>,
     pub(crate) stderr_file: Option<FileTail>,
@@ -532,6 +534,13 @@ fn prepare(
     }
 }
 
+/// Removes the frame files of a spawn that failed, so that it leaves no `.jsonl.tmp` behind.
+fn discard_streams(out: Option<FramedStream>, err: Option<FramedStream>) {
+    for stream in [out, err].into_iter().flatten() {
+        stream.discard();
+    }
+}
+
 /// Ends a child that was started and could not be taken into the signal guard's table.
 ///
 /// This is the one kill outside the signal guard. The child is still this
@@ -540,6 +549,7 @@ fn prepare(
 /// one process and reaps it in the background; a grandchild started in the instants since the
 /// spawn is not signalled.
 fn end_unreaped(mut process: tokio::process::Child) {
+    // EXPLICIT: handle kill of this process's own unreaped child; no pid or group number is passed
     let _ = process.start_kill();
     tokio::spawn(async move {
         let _ = process.wait().await;
@@ -587,20 +597,40 @@ impl Supervisor {
             StdinSpec::Bytes(_) | StdinSpec::Pipe => Stdio::piped(),
         });
         let (out_stdio, out_stream, _) = prepare(stdout)?;
-        let (err_stdio, err_stream, err_file) = prepare(stderr)?;
+        let (err_stdio, err_stream, err_file) = match prepare(stderr) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                discard_streams(out_stream, None);
+                return Err(error);
+            }
+        };
         command.stdout(out_stdio).stderr(err_stdio);
 
         // Read before the child exists, so that a clock failure leaves no child behind.
-        let spawned_at = now()?;
-        let mut process = command.spawn().map_err(|source| SuperviseError::Spawn {
-            // BORROW: .to_owned() keeps the program name in the error
-            program: program.to_owned(),
-            source,
-        })?;
+        let spawned_at = match now() {
+            Ok(at) => at,
+            Err(error) => {
+                discard_streams(out_stream, err_stream);
+                return Err(error);
+            }
+        };
+        let mut process = match command.spawn() {
+            Ok(process) => process,
+            Err(source) => {
+                discard_streams(out_stream, err_stream);
+                return Err(SuperviseError::Spawn {
+                    // BORROW: .to_owned() keeps the program name in the error
+                    program: program.to_owned(),
+                    source,
+                });
+            }
+        };
         let pid = process.id().ok_or_else(|| SuperviseError::Io {
             context: "the child has no process id",
             source: std::io::Error::other("the child was reaped before its record was written"),
         })?;
+        // The deadline runs from here: the child exists.
+        let deadline = deadline.map(|limit| Instant::now() + limit);
         // The child leads the group it was started in, so its process group id is its own id.
         let start = process_start(pid);
         // The guard signals only a leader whose start it can read again, so a child whose start
@@ -622,6 +652,7 @@ impl Supervisor {
         };
         if let Err(error) = registered {
             end_unreaped(process);
+            discard_streams(out_stream, err_stream);
             return Err(error);
         }
         let started = ChildRecord::builder()
@@ -649,6 +680,7 @@ impl Supervisor {
                 // group is not signalled.
                 let _ = self.guard.signal_group(pid, Signal::KILL);
                 self.guard.forget(pid);
+                discard_streams(out_stream, err_stream);
                 return Err(error);
             }
         };

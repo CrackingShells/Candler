@@ -50,6 +50,7 @@ pub(crate) fn process_exists(pid: u32) -> bool {
     let Some(target) = pid_of(pid) else {
         return false;
     };
+    // EXPLICIT: signal 0 delivers nothing; the call only asks whether the process exists
     match test_kill_process(target) {
         Ok(()) => true,
         Err(error) => error == Errno::PERM,
@@ -62,6 +63,7 @@ pub(crate) fn group_exists(pgid: u32) -> bool {
     let Some(target) = pid_of(pgid) else {
         return false;
     };
+    // EXPLICIT: signal 0 delivers nothing; the call only asks whether a member exists
     match test_kill_process_group(target) {
         Ok(()) => true,
         Err(error) => error == Errno::PERM,

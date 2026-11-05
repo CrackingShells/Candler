@@ -38,7 +38,7 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
-use tokio::time::{Instant, sleep, timeout, timeout_at};
+use tokio::time::{Instant, sleep, sleep_until, timeout, timeout_at};
 
 use super::output::Pumped;
 use super::platform::{alive, process_start};
@@ -313,13 +313,19 @@ pub(crate) struct Ladder<'a> {
     pub(crate) cwd: Option<&'a Path>,
 }
 
+/// The signal a stop request names.
+#[allow(
+    clippy::wildcard_enum_match_arm,
+    clippy::match_same_arms,
+    reason = "StopSignal is non-exhaustive; a signal this core does not know falls back to TERM, which Term names too"
+)]
 fn signal_of(signal: StopSignal) -> Signal {
-    if signal == StopSignal::Int {
-        Signal::INT
-    } else if signal == StopSignal::Hup {
-        Signal::HUP
-    } else {
-        Signal::TERM
+    match signal {
+        StopSignal::Term => Signal::TERM,
+        StopSignal::Int => Signal::INT,
+        StopSignal::Hup => Signal::HUP,
+        // EXPLICIT: an unknown stop signal is ended the way the default is, with TERM
+        _ => Signal::TERM,
     }
 }
 
@@ -442,8 +448,10 @@ impl Ladder<'_> {
             .args(spec.argv().iter().skip(1))
             .env_clear()
             .envs(self.env.iter().map(|(name, value)| (name, value)));
+        // The command starts from the child's own environment, which may hold secrets the
+        // request carried, and from the marker. Of the command's own overlay, only literal values
+        // are set: an overlay entry that names a secret is skipped.
         for entry in spec.env_overlay() {
-            // A secret is never handed to a command the core runs on the harness's behalf.
             if let EnvValue::Literal(value) = &entry.value {
                 command.env(&entry.name, value);
             }
@@ -475,6 +483,7 @@ impl Ladder<'_> {
             if !taken {
                 // The guard cannot signal what it cannot identify. The command is still this
                 // process's own unreaped child, so the handle ends it, as in `Supervisor::spawn`.
+                // EXPLICIT: handle kill of this process's own unreaped child; no pid or group number is passed
                 let _ = child.start_kill();
                 let _ = timeout(KILL_WAIT, child.wait()).await;
                 return "command refused: its identity could not be recorded".to_owned(); // BORROW: .to_owned() makes the owned outcome from a literal
@@ -493,6 +502,10 @@ impl Ladder<'_> {
             }
         };
         if let Some(pid) = group {
+            // The command's leader has been reaped. What it left in its group is ended, through the
+            // guard, which signals a reaped leader's group only while it has members; a group that
+            // is already empty reads as gone.
+            let _ = self.guard.signal_group(pid, Signal::KILL);
             self.guard.forget(pid);
         }
         outcome
@@ -546,9 +559,17 @@ impl Ladder<'_> {
         let (outcome, strays) = if let Some(sweeper) = self.sweeper {
             let sweeper = Arc::clone(sweeper); // TRAIT_OBJECT: the sweeper runs on a blocking thread
             let marker = self.record.marker().clone(); // BORROW: .clone() gives the blocking thread its own marker
-            match tokio::task::spawn_blocking(move || sweeper.sweep(&marker)).await {
-                Ok(found) => (format!("swept {} process(es)", found.len()), found),
-                Err(_) => ("sweeper failed".to_owned(), Vec::new()), // BORROW: .to_owned() makes the owned outcome from a literal
+            // The sweeper runs on a blocking thread that cannot be cancelled, so the wait for it is
+            // bounded by the grace; a sweeper that overruns is left to finish and its finds are
+            // unknown.
+            let sweeping = tokio::task::spawn_blocking(move || sweeper.sweep(&marker));
+            match timeout(self.stop.grace, sweeping).await {
+                Ok(Ok(found)) => (format!("swept {} process(es)", found.len()), found),
+                Ok(Err(_)) => ("sweeper failed".to_owned(), Vec::new()), // BORROW: .to_owned() makes the owned outcome from a literal
+                Err(_) => (
+                    "sweeper timed out; what it found is unknown".to_owned(), // BORROW: .to_owned() makes the owned outcome from a literal
+                    Vec::new(),
+                ),
             }
         } else {
             ("no sweeper".to_owned(), Vec::new()) // BORROW: .to_owned() makes the owned outcome from a literal
@@ -641,8 +662,8 @@ impl Child {
         let mut requested = self.switch.subscribe();
         let deadline = self.context.deadline;
         let sleeper = async {
-            if let Some(limit) = deadline {
-                sleep(limit).await;
+            if let Some(at) = deadline {
+                sleep_until(at).await;
             } else {
                 std::future::pending::<()>().await;
             }
@@ -719,6 +740,12 @@ impl Child {
                 .unwrap_or_default()
         });
         let group_empty = !group_exists(self.record.pgid());
+        if group_empty {
+            // The leader is reaped and no member is left: nothing in this group may be signalled
+            // again. A group that still has members stays, so that `stop` and `kill_all` can end
+            // it.
+            self.context.guard.forget(self.record.pid());
+        }
         match EventPayload::process_exited(
             self.record.pid(),
             self.record.start().clone(), // BORROW: .clone() gives the event its own start

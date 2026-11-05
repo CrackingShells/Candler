@@ -14,7 +14,10 @@ use super::signal::process_exists;
 
 /// Whether the process a record names is still running.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(clippy::exhaustive_enums)] // EXHAUSTIVE: a process is running or it is not, and in no third state
+#[allow(
+    clippy::exhaustive_enums,
+    reason = "EXHAUSTIVE: a process is running or it is not, and in no third state"
+)]
 pub enum Liveness {
     /// The process id exists and its start time is the record's.
     Alive,
