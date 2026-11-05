@@ -1,0 +1,752 @@
+{
+  "$defs": {
+    "Comparable": {
+      "additionalProperties": false,
+      "description": "What the cell digest hashes: every resolved value, the harness, the treatment, the catalog snapshots, the inputs and the plug-in environments of a run, each list sorted and without duplicates.",
+      "properties": {
+        "environments": {
+          "$comment": "Sorted by the text of the plug-in then the lock digest in code point order, without a repeated entry; the Rust reader refuses a list that is not.",
+          "description": "The plug-in environments, sorted by plug-in text and lock digest.",
+          "items": {
+            "$ref": "#/$defs/EnvironmentRef"
+          },
+          "type": "array"
+        },
+        "harness": {
+          "$ref": "#/$defs/HarnessIdentity",
+          "description": "The harness that ran the agent."
+        },
+        "inputs": {
+          "$comment": "Sorted by kind then digest in code point order, without a repeated entry; the Rust reader refuses a list that is not.",
+          "description": "The digests of the inputs, sorted by kind and digest.",
+          "items": {
+            "$ref": "#/$defs/DigestRef"
+          },
+          "type": "array"
+        },
+        "snapshots": {
+          "$comment": "Sorted by kind then digest in code point order, without a repeated entry; the Rust reader refuses a list that is not.",
+          "description": "The digests of the catalog snapshots, sorted by kind and digest.",
+          "items": {
+            "$ref": "#/$defs/DigestRef"
+          },
+          "type": "array"
+        },
+        "treatment": {
+          "$ref": "#/$defs/TreatmentRef",
+          "description": "The treatment the run applied."
+        },
+        "values": {
+          "$comment": "Sorted by path in code point order, without a repeated path; JSON Schema cannot state this, and the Rust reader refuses a list that is not.",
+          "description": "Every resolved value by field path, sorted by path; a value without `value` was not recorded.",
+          "items": {
+            "$ref": "#/$defs/ResolvedValue"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "values",
+        "harness",
+        "treatment",
+        "snapshots",
+        "inputs",
+        "environments"
+      ],
+      "type": "object"
+    },
+    "Deviation": {
+      "additionalProperties": false,
+      "description": "A re-checked value that a forced resume accepted although it differed from the stored one.",
+      "properties": {
+        "observed": {
+          "$comment": "Integers lie within ±(2^53 - 1); JSON Schema cannot state this, and the Rust reader refuses a larger one.",
+          "description": "The value the resume observed; absent when none was recorded.",
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "array",
+            "object"
+          ]
+        },
+        "path": {
+          "$ref": "#/$defs/FieldPath",
+          "description": "The path of the value."
+        },
+        "stored": {
+          "$comment": "Integers lie within ±(2^53 - 1); JSON Schema cannot state this, and the Rust reader refuses a larger one.",
+          "description": "The value the manifest stored; absent when none was recorded.",
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "array",
+            "object"
+          ]
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "Digest": {
+      "description": "A content digest: `sha256:` followed by 64 lowercase hex digits.",
+      "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])",
+      "type": "string"
+    },
+    "DigestRef": {
+      "additionalProperties": false,
+      "description": "A digest and the kind of thing it identifies: a catalog snapshot or an input.",
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/Digest",
+          "description": "The digest."
+        },
+        "kind": {
+          "$ref": "#/$defs/Name",
+          "description": "What the digest identifies, as a plain name."
+        }
+      },
+      "required": [
+        "kind",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "EnvironmentRef": {
+      "additionalProperties": false,
+      "description": "The lock digest of a plug-in environment, with the plug-in as `name@version`.",
+      "properties": {
+        "lock_digest": {
+          "$ref": "#/$defs/Digest",
+          "description": "The digest of the plug-in's lock file."
+        },
+        "plugin": {
+          "$ref": "#/$defs/NameVersion",
+          "description": "The plug-in, as `name@version`."
+        }
+      },
+      "required": [
+        "plugin",
+        "lock_digest"
+      ],
+      "type": "object"
+    },
+    "FieldPath": {
+      "description": "A dotted path to a field: one or more segments joined by `.`, each a lowercase letter followed by lowercase letters, digits or `_`.",
+      "pattern": "^[a-z][a-z0-9_]*(?:[.][a-z][a-z0-9_]*)*(?![\\s\\S])",
+      "type": "string"
+    },
+    "GitCommit": {
+      "description": "A git commit: 40 or 64 lowercase hex digits.",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})(?![\\s\\S])",
+      "type": "string"
+    },
+    "HarnessIdentity": {
+      "additionalProperties": false,
+      "description": "The harness a run used, as it identified itself: its name, its version and, when one drove it, the driver as `name@version`.",
+      "properties": {
+        "driver": {
+          "$ref": "#/$defs/NameVersion",
+          "description": "The driver that ran the harness, as `name@version`."
+        },
+        "name": {
+          "$ref": "#/$defs/Name",
+          "description": "The name of the harness."
+        },
+        "version": {
+          "description": "The version of the harness.",
+          "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?(?![\\s\\S])",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "type": "object"
+    },
+    "ImportRecord": {
+      "additionalProperties": false,
+      "description": "How an imported run was read: the format label, the base commit, the legacy integrity block, the source files and the outcome files written.",
+      "properties": {
+        "base_commit": {
+          "$ref": "#/$defs/GitCommit",
+          "description": "The commit of the legacy repository the run was read at."
+        },
+        "format": {
+          "$ref": "#/$defs/NameToken",
+          "description": "The label of the legacy format, as `name@token`."
+        },
+        "legacy_integrity": {
+          "$comment": "Integers lie within ±(2^53 - 1); JSON Schema cannot state this, and the Rust reader refuses a larger one.",
+          "description": "The legacy integrity block as it was written; any JSON value except `null`.",
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "array",
+            "object"
+          ]
+        },
+        "requests": {
+          "description": "The outcome files the import wrote.",
+          "items": {
+            "$ref": "#/$defs/ImportedRequest"
+          },
+          "type": "array"
+        },
+        "sources": {
+          "description": "The files the import read, each stored as a blob.",
+          "items": {
+            "$ref": "#/$defs/ImportSource"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "format",
+        "base_commit",
+        "legacy_integrity",
+        "sources",
+        "requests"
+      ],
+      "type": "object"
+    },
+    "ImportSource": {
+      "additionalProperties": false,
+      "description": "A file the import read, kept as a blob: its run-relative path and its `sha256`.",
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/RelPath",
+          "description": "The run-relative path of the file in the legacy run."
+        },
+        "sha256": {
+          "$ref": "#/$defs/Digest",
+          "description": "The digest of the file's bytes."
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "ImportedRequest": {
+      "additionalProperties": false,
+      "description": "An outcome file the import wrote, found by its evaluator and request.",
+      "properties": {
+        "evaluator": {
+          "$ref": "#/$defs/NameVersion",
+          "description": "The evaluator, as `name@version`."
+        },
+        "request": {
+          "$ref": "#/$defs/RequestId",
+          "description": "The request id of the outcome file."
+        }
+      },
+      "required": [
+        "evaluator",
+        "request"
+      ],
+      "type": "object"
+    },
+    "Integrity": {
+      "description": "Whether a run counts: `valid`, or `invalid` with the reason it does not.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The run counts.",
+          "properties": {
+            "kind": {
+              "const": "valid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The run does not count, and the reason says why.",
+          "properties": {
+            "kind": {
+              "const": "invalid",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/$defs/InvalidReason",
+              "description": "Why the run is invalid."
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "InvalidReason": {
+      "description": "Why a run is invalid: a cause that is not the arm's doing.",
+      "oneOf": [
+        {
+          "const": "gateway",
+          "description": "The gateway or the provider failed.",
+          "type": "string"
+        },
+        {
+          "const": "budget_stop",
+          "description": "The job budget stopped the run.",
+          "type": "string"
+        },
+        {
+          "const": "killed",
+          "description": "The run was killed.",
+          "type": "string"
+        },
+        {
+          "const": "interrupted",
+          "description": "The supervisor was lost while the run ran.",
+          "type": "string"
+        },
+        {
+          "const": "input_leak",
+          "description": "A secret or ground truth reached the run's isolation boundary.",
+          "type": "string"
+        },
+        {
+          "const": "collection_error",
+          "description": "The collection of the run's files failed.",
+          "type": "string"
+        },
+        {
+          "const": "reader_error",
+          "description": "A reader of the run's output failed.",
+          "type": "string"
+        },
+        {
+          "const": "format_unknown",
+          "description": "The format of the run's output is not one a reader knows.",
+          "type": "string"
+        }
+      ]
+    },
+    "JobId": {
+      "description": "A job id: a `UUIDv7` in lowercase hyphenated form.",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![\\s\\S])",
+      "type": "string"
+    },
+    "MeasuredValue": {
+      "additionalProperties": false,
+      "description": "A value together with its source, written as an object with the string `path`, the JSON `value` and the object `source`.",
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/FieldPath",
+          "description": "The dotted path of the field."
+        },
+        "source": {
+          "$ref": "#/$defs/ValueSource",
+          "description": "Where the value came from."
+        },
+        "value": {
+          "$comment": "Integers lie within ±(2^53 - 1); JSON Schema cannot state this, and the Rust reader refuses a larger one.",
+          "description": "The value.",
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "array",
+            "object"
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "value",
+        "source"
+      ],
+      "type": "object"
+    },
+    "Name": {
+      "description": "A plain name, such as that of a harness, a reader, a plug-in or a treatment: non-empty, with neither `@` nor white space.",
+      "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+(?![\\s\\S])",
+      "type": "string"
+    },
+    "NameToken": {
+      "description": "A catalog provider reference, `name@token`, split at the last `@`: the name is non-empty and holds neither `@` nor white space, and the token matches `[0-9A-Za-z.+-]+`.",
+      "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+@[0-9A-Za-z.+-]+(?![\\s\\S])",
+      "type": "string"
+    },
+    "NameVersion": {
+      "$comment": "The major, minor and patch numbers each fit in 64 bits; the parser enforces it.",
+      "description": "An evaluator or instrument reference, `name@version`, split at the last `@`: the name is non-empty and holds neither `@` nor white space, and the version is `SemVer` 2.0.",
+      "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+@(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?(?![\\s\\S])",
+      "type": "string"
+    },
+    "RelPath": {
+      "description": "A run-relative POSIX path: non-empty, with no leading `/`, no empty segment, no `.` or `..` segment, no NUL and no `\\`.",
+      "pattern": "^(?!\\.\\.?(?:/|(?![\\s\\S])))[^/\\\\\\x00]+(?:/(?!\\.\\.?(?:/|(?![\\s\\S])))[^/\\\\\\x00]+)*(?![\\s\\S])",
+      "type": "string"
+    },
+    "RequestId": {
+      "description": "A request id: a `UUIDv7` in lowercase hyphenated form.",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![\\s\\S])",
+      "type": "string"
+    },
+    "ResolvedValue": {
+      "additionalProperties": false,
+      "description": "A value resolved for a field, written as an object with the string `path` and, unless the source system did not record it, the JSON `value`.",
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/FieldPath",
+          "description": "The dotted path of the field the value belongs to."
+        },
+        "value": {
+          "$comment": "Integers lie within ±(2^53 - 1); JSON Schema cannot state this, and the Rust reader refuses a larger one.",
+          "description": "The resolved value; absent when the source system did not record one.",
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "array",
+            "object"
+          ]
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "RunKey": {
+      "additionalProperties": false,
+      "description": "The identity of one run: the digest of its cell, and its replicate and attempt numbers, both counted from 1.",
+      "properties": {
+        "attempt": {
+          "$comment": "Fits in 32 bits; the reader enforces it.",
+          "description": "Attempt number, from 1.",
+          "format": "uint32",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "cell": {
+          "$ref": "#/$defs/Digest",
+          "description": "The digest of the cell the run belongs to."
+        },
+        "replicate": {
+          "$comment": "Fits in 32 bits; the reader enforces it.",
+          "description": "Replicate number, from 1.",
+          "format": "uint32",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cell",
+        "replicate",
+        "attempt"
+      ],
+      "type": "object"
+    },
+    "SecretName": {
+      "description": "An environment-variable name: an uppercase ASCII letter or `_`, then uppercase letters, digits or `_`.",
+      "pattern": "^[A-Z_][A-Z0-9_]*(?![\\s\\S])",
+      "type": "string"
+    },
+    "SecretPresence": {
+      "additionalProperties": false,
+      "description": "Whether a secret the run needs was present in the environment, by name; the value is never written.",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/SecretName",
+          "description": "The name of the environment variable."
+        },
+        "present": {
+          "description": "Whether the variable was set.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "present"
+      ],
+      "type": "object"
+    },
+    "SourceEntry": {
+      "additionalProperties": false,
+      "description": "The source of the value of one field, written as an object with the string `path` and the object `source`.",
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/FieldPath",
+          "description": "The dotted path of the field."
+        },
+        "source": {
+          "$ref": "#/$defs/ValueSource",
+          "description": "Where the field's value came from."
+        }
+      },
+      "required": [
+        "path",
+        "source"
+      ],
+      "type": "object"
+    },
+    "Timestamp": {
+      "$comment": "The pattern states the lexical form; a date or time that names no instant, such as month 13, and a fraction of more than nine digits are refused by the parser.",
+      "description": "An RFC 3339 timestamp with an uppercase `T` and an explicit offset, `Z` or `±HH:MM`.",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])(?![\\s\\S])",
+      "type": "string"
+    },
+    "TreatmentRef": {
+      "additionalProperties": false,
+      "description": "The treatment an experiment applies: a name, and the tag and commit it is pinned to.",
+      "properties": {
+        "commit": {
+          "$ref": "#/$defs/GitCommit",
+          "description": "The commit the treatment is pinned to."
+        },
+        "name": {
+          "$ref": "#/$defs/Name",
+          "description": "The name of the treatment."
+        },
+        "tag": {
+          "description": "The tag the treatment is pinned to, as its source names it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "ValueSource": {
+      "description": "Where a resolved value came from: an object whose `kind` names the source, with `step` for `derived` and `file` for `imported`.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "An argument given on the command line or in a request.",
+          "properties": {
+            "kind": {
+              "const": "explicit_argument",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The experiment or suite file.",
+          "properties": {
+            "kind": {
+              "const": "experiment_file",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The project configuration file.",
+          "properties": {
+            "kind": {
+              "const": "project_config",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The user configuration file.",
+          "properties": {
+            "kind": {
+              "const": "user_config",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A value a preflight step derived, under the key `step`.",
+          "properties": {
+            "kind": {
+              "const": "derived",
+              "type": "string"
+            },
+            "step": {
+              "$ref": "#/$defs/NameToken",
+              "description": "The preflight step that derived the value, as `name@token`."
+            }
+          },
+          "required": [
+            "kind",
+            "step"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The default the core ships.",
+          "properties": {
+            "kind": {
+              "const": "core_default",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A value read from a legacy run, under the key `file`.",
+          "properties": {
+            "file": {
+              "$ref": "#/$defs/RelPath",
+              "description": "The run-relative file the value was read from."
+            },
+            "kind": {
+              "const": "imported",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "file"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A value the source system did not record; it carries no value and nothing guesses one.",
+          "properties": {
+            "kind": {
+              "const": "unrecorded",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$id": "urn:candler:schemas:run-manifest",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A run's manifest: what it was, what it resolved and how it ended, with the version marker `run-manifest/1` in `schema`.",
+  "properties": {
+    "comparable": {
+      "$ref": "#/$defs/Comparable",
+      "description": "What the cell digest hashes."
+    },
+    "deviations": {
+      "description": "The re-checked values a forced resume accepted.",
+      "items": {
+        "$ref": "#/$defs/Deviation"
+      },
+      "type": "array"
+    },
+    "ended_at": {
+      "$ref": "#/$defs/Timestamp",
+      "description": "When the run ended."
+    },
+    "experiment": {
+      "$ref": "#/$defs/Digest",
+      "description": "The digest of the experiment's sorted cell digests."
+    },
+    "factors": {
+      "description": "The field paths that vary across the experiment's cells.",
+      "items": {
+        "$ref": "#/$defs/FieldPath"
+      },
+      "type": "array"
+    },
+    "host": {
+      "description": "The host that ran it.",
+      "type": "string"
+    },
+    "import": {
+      "$ref": "#/$defs/ImportRecord",
+      "description": "How an imported run was read."
+    },
+    "integrity": {
+      "$ref": "#/$defs/Integrity",
+      "description": "Whether the run counts."
+    },
+    "job": {
+      "$ref": "#/$defs/JobId",
+      "description": "The job that ran it."
+    },
+    "measured": {
+      "description": "The values observed during the run, with the run's end under `run.ended_by` and `run.exit`.",
+      "items": {
+        "$ref": "#/$defs/MeasuredValue"
+      },
+      "type": "array"
+    },
+    "run": {
+      "$ref": "#/$defs/RunKey",
+      "description": "The key of the run."
+    },
+    "schema": {
+      "const": "run-manifest/1",
+      "description": "The version marker of the document: always `run-manifest/1`.",
+      "type": "string"
+    },
+    "secrets": {
+      "description": "The secrets the run needed and whether each was present; never their values.",
+      "items": {
+        "$ref": "#/$defs/SecretPresence"
+      },
+      "type": "array"
+    },
+    "sources": {
+      "$comment": "Each path of `comparable.values` has exactly one entry, and each of `harness`, `treatment` and the non-empty lists `snapshots`, `inputs` and `environments` has an entry at the root path or at a path under it; no other path appears and no path repeats. JSON Schema cannot state this, and the Rust reader refuses a list that differs.",
+      "description": "Where each value came from: one entry per value, and one or more entries under each typed root the cell holds; never an entry for a setting.",
+      "items": {
+        "$ref": "#/$defs/SourceEntry"
+      },
+      "type": "array"
+    },
+    "started_at": {
+      "$ref": "#/$defs/Timestamp",
+      "description": "When the run started."
+    }
+  },
+  "required": [
+    "schema",
+    "run",
+    "experiment",
+    "factors",
+    "comparable",
+    "sources",
+    "secrets",
+    "measured",
+    "deviations",
+    "integrity"
+  ],
+  "title": "RunManifest",
+  "type": "object"
+}

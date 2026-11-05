@@ -1,0 +1,1457 @@
+{
+  "$defs": {
+    "BootId": {
+      "description": "The identifier of one boot of a Linux host: a UUID of any version in lowercase hyphenated form.",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![\\s\\S])",
+      "type": "string"
+    },
+    "Cap": {
+      "description": "Which per-run cap ended a session.",
+      "oneOf": [
+        {
+          "const": "turns",
+          "description": "The cap on conversation turns.",
+          "type": "string"
+        },
+        {
+          "const": "cost",
+          "description": "The cap on cost.",
+          "type": "string"
+        },
+        {
+          "const": "wall",
+          "description": "The cap on wall-clock time.",
+          "type": "string"
+        }
+      ]
+    },
+    "Cause": {
+      "description": "Why the outcome has its status: an object with exactly one of the keys `expectation`, `artifact`, `reason` and `legacy`.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The identifier of the expectation whose outcome this one depends on, under the key `expectation`.",
+          "properties": {
+            "expectation": {
+              "$ref": "#/$defs/ExpectationId"
+            }
+          },
+          "required": [
+            "expectation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The run-relative POSIX path of the artifact the run did not produce, under the key `artifact`.",
+          "properties": {
+            "artifact": {
+              "$ref": "#/$defs/RelPath"
+            }
+          },
+          "required": [
+            "artifact"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A reason code string, under the key `reason`; the codes `not_applicable_to_arm`, `instrument_error` and `deadline` have meanings assigned by the Candler core, and an evaluator's own codes do not reuse them.",
+          "properties": {
+            "reason": {
+              "$ref": "#/$defs/ReasonCode"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "deprecated": true,
+          "description": "A reason code string, under the key `legacy`, for a record whose status, weight or cause the other causes cannot state exactly, such as a zero weight `0/0` on a `pass`; the code says which case. Evaluators never emit it. It is the only cause a `pass` or `fail` may carry, and a zero weight `0/0` requires it.",
+          "properties": {
+            "legacy": {
+              "$ref": "#/$defs/ReasonCode"
+            }
+          },
+          "required": [
+            "legacy"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ChildRecord": {
+      "additionalProperties": false,
+      "description": "The record the supervisor writes for a child: its process id, process group, start time, marker and spawn time, with the version marker `child-record/1` in `schema`.",
+      "properties": {
+        "marker": {
+          "$ref": "#/$defs/Marker",
+          "description": "The value of `CANDLER_RUN` the child received."
+        },
+        "pgid": {
+          "$comment": "Fits in 32 bits; the reader enforces it.",
+          "description": "The process group of the child, from 1.",
+          "format": "uint32",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "pid": {
+          "$comment": "Fits in 32 bits; the reader enforces it.",
+          "description": "The process id of the child, from 1.",
+          "format": "uint32",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "schema": {
+          "const": "child-record/1",
+          "description": "The version marker of the document: always `child-record/1`.",
+          "type": "string"
+        },
+        "spawned_at": {
+          "$ref": "#/$defs/Timestamp",
+          "description": "When the supervisor spawned the child."
+        },
+        "start": {
+          "$ref": "#/$defs/ProcessStart",
+          "description": "When the process started."
+        }
+      },
+      "required": [
+        "schema",
+        "pid",
+        "pgid",
+        "start",
+        "marker",
+        "spawned_at"
+      ],
+      "type": "object"
+    },
+    "Digest": {
+      "description": "A content digest: `sha256:` followed by 64 lowercase hex digits.",
+      "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])",
+      "type": "string"
+    },
+    "EndedBy": {
+      "description": "How a session ended: an object whose `kind` is `completed`, `agent_error`, `cap`, `gateway_error`, `budget_stop`, `killed`, `interrupted` or `unknown`.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The agent finished its work.",
+          "properties": {
+            "kind": {
+              "const": "completed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The agent reported an error, optionally with a reason code under `reason`.",
+          "properties": {
+            "kind": {
+              "const": "agent_error",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/$defs/ReasonCode",
+              "description": "Why the agent failed, when it says."
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A per-run cap stopped the session; the key `cap` names it.",
+          "properties": {
+            "cap": {
+              "$ref": "#/$defs/Cap",
+              "description": "The cap that was reached."
+            },
+            "kind": {
+              "const": "cap",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "cap"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The gateway or the provider failed.",
+          "properties": {
+            "kind": {
+              "const": "gateway_error",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The job budget stopped the session.",
+          "properties": {
+            "kind": {
+              "const": "budget_stop",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The session was killed.",
+          "properties": {
+            "kind": {
+              "const": "killed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The supervisor was lost while the session ran.",
+          "properties": {
+            "kind": {
+              "const": "interrupted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The trace does not say how the session ended.",
+          "properties": {
+            "kind": {
+              "const": "unknown",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "ref"
+          ]
+        },
+        {
+          "required": [
+            "note"
+          ]
+        }
+      ],
+      "description": "A pointer to, or a remark about, what an outcome rests on; at least one of `ref` and `note` is present.",
+      "properties": {
+        "note": {
+          "description": "What the evidence says, a non-empty string.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "ref": {
+          "$ref": "#/$defs/EvidenceRef",
+          "description": "An evidence reference string: `event:<session-id>#<seq>`, or `path:<run-relative path>` with an optional line anchor."
+        }
+      },
+      "type": "object"
+    },
+    "EvidenceRef": {
+      "$comment": "In a line range the first line is at most the last line, and the sequence and line numbers fit in 64 bits; the parser enforces both.",
+      "description": "A pointer to the evidence behind an outcome: `event:<session-id>#<seq>`, or `path:<run-relative path>` optionally followed by `#L<n>` or `#L<n>-<m>`. The session id is non-empty and holds neither `#` nor white space, `seq` is a decimal without leading zeros, line numbers count from 1, and a path in a reference holds no `#`.",
+      "pattern": "^(?:event:[^#\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+#(?:0|[1-9][0-9]*)|path:(?!\\.\\.?(?:/|#|(?![\\s\\S])))[^/\\\\#\\x00]+(?:/(?!\\.\\.?(?:/|#|(?![\\s\\S])))[^/\\\\#\\x00]+)*(?:#L[1-9][0-9]*(?:-[1-9][0-9]*)?)?)(?![\\s\\S])",
+      "type": "string"
+    },
+    "ExitStatus": {
+      "description": "How a process ended: an object whose `kind` is `code` (with the integer `code`) or `signal` (with the integer `signal`).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The process exited with a status code.",
+          "properties": {
+            "code": {
+              "description": "The exit code.",
+              "format": "int32",
+              "type": "integer"
+            },
+            "kind": {
+              "const": "code",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A signal ended the process.",
+          "properties": {
+            "kind": {
+              "const": "signal",
+              "type": "string"
+            },
+            "signal": {
+              "description": "The signal number.",
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "signal"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ExpectationId": {
+      "description": "An expectation identifier: a letter or digit, then letters, digits, `.`, `_` or `-`.",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*(?![\\s\\S])",
+      "type": "string"
+    },
+    "Finite": {
+      "description": "A finite real number: neither `NaN` nor infinite. Negative zero is finite.",
+      "format": "double",
+      "type": "number"
+    },
+    "Instrument": {
+      "$comment": "Each of the version's three numbers fits in 64 bits; the Rust reader enforces it.",
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "description": "A git digest names the commit of a clean tree.",
+          "if": {
+            "properties": {
+              "digest": {
+                "pattern": "^git:"
+              }
+            },
+            "required": [
+              "digest"
+            ]
+          },
+          "then": {
+            "properties": {
+              "dirty": {
+                "const": false
+              }
+            }
+          }
+        }
+      ],
+      "description": "The exact tool that made a measurement.",
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/InstrumentDigest",
+          "description": "What identifies the instrument's content: a `sha256:` content digest, or a `git:` commit hash of a clean tree."
+        },
+        "dirty": {
+          "description": "Whether the instrument differs from what its digest names, a boolean; always false for a `git:` digest.",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "The instrument's name, a non-empty string with neither `@` nor white space.",
+          "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+(?![\\s\\S])",
+          "type": "string"
+        },
+        "version": {
+          "description": "The instrument's version, a `SemVer` 2.0 string.",
+          "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?(?![\\s\\S])",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "digest",
+        "dirty"
+      ],
+      "type": "object"
+    },
+    "InstrumentDigest": {
+      "description": "The digest of an instrument: a content digest, or `git:` followed by the 40 or 64 lowercase hex digits of a commit.",
+      "pattern": "^(?:sha256:[0-9a-f]{64}|git:(?:[0-9a-f]{40}|[0-9a-f]{64}))(?![\\s\\S])",
+      "type": "string"
+    },
+    "JobEnd": {
+      "description": "How a job ended: `completed`, `budget_stop`, `killed` or `failed`.",
+      "oneOf": [
+        {
+          "const": "completed",
+          "description": "Every run finished.",
+          "type": "string"
+        },
+        {
+          "const": "budget_stop",
+          "description": "The budget stopped the job.",
+          "type": "string"
+        },
+        {
+          "const": "killed",
+          "description": "The job was killed.",
+          "type": "string"
+        },
+        {
+          "const": "failed",
+          "description": "The job failed.",
+          "type": "string"
+        }
+      ]
+    },
+    "JobId": {
+      "description": "A job id: a `UUIDv7` in lowercase hyphenated form.",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![\\s\\S])",
+      "type": "string"
+    },
+    "Marker": {
+      "description": "The value of `CANDLER_RUN` in a child's environment: an ASCII letter or digit, then letters, digits, `.`, `_` or `-`.",
+      "pattern": "^[0-9A-Za-z][0-9A-Za-z._-]*(?![\\s\\S])",
+      "type": "string"
+    },
+    "NameVersion": {
+      "$comment": "The major, minor and patch numbers each fit in 64 bits; the parser enforces it.",
+      "description": "An evaluator or instrument reference, `name@version`, split at the last `@`: the name is non-empty and holds neither `@` nor white space, and the version is `SemVer` 2.0.",
+      "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+@(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?(?![\\s\\S])",
+      "type": "string"
+    },
+    "OutcomeRecord": {
+      "$comment": "A pass has a weight with num equal to den and a fail has num below den; the schema does not compare the two, and the Rust reader enforces both. The schema states the blocked rule, num 0.",
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "description": "A cause is required for blocked, not_measured and not_applicable.",
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "blocked",
+                  "not_measured",
+                  "not_applicable"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "cause"
+            ]
+          }
+        },
+        {
+          "description": "A pass or fail carries no cause other than the legacy cause.",
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "pass",
+                  "fail"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "cause": {
+                "required": [
+                  "legacy"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "description": "A not_measured or not_applicable carries no weight.",
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "not_measured",
+                  "not_applicable"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "weight"
+              ]
+            }
+          }
+        },
+        {
+          "description": "The weight of a blocked has num 0 and den of at least 1.",
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "blocked"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "weight": {
+                "properties": {
+                  "den": {
+                    "minimum": 1
+                  },
+                  "num": {
+                    "const": 0
+                  }
+                },
+                "required": [
+                  "num",
+                  "den"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "description": "A weight of 0/0 requires the legacy cause.",
+          "if": {
+            "properties": {
+              "weight": {
+                "properties": {
+                  "den": {
+                    "const": 0
+                  }
+                },
+                "required": [
+                  "den"
+                ]
+              }
+            },
+            "required": [
+              "weight"
+            ]
+          },
+          "then": {
+            "properties": {
+              "cause": {
+                "required": [
+                  "legacy"
+                ]
+              }
+            },
+            "required": [
+              "cause"
+            ]
+          }
+        },
+        {
+          "description": "A gate or quality record carries no probability.",
+          "if": {
+            "properties": {
+              "role": {
+                "enum": [
+                  "gate",
+                  "quality"
+                ]
+              }
+            },
+            "required": [
+              "role"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "probability"
+              ]
+            }
+          }
+        },
+        {
+          "description": "A gate or quality record lists no dirty instrument.",
+          "if": {
+            "properties": {
+              "role": {
+                "enum": [
+                  "gate",
+                  "quality"
+                ]
+              }
+            },
+            "required": [
+              "role"
+            ]
+          },
+          "then": {
+            "properties": {
+              "instruments": {
+                "items": {
+                  "properties": {
+                    "dirty": {
+                      "const": false
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "description": "The result of one evaluator for one expectation of one run, written as an object; `status` decides which `cause` and `weight` the object may carry, and `role` decides whether it may carry a `probability` and a dirty instrument.",
+      "properties": {
+        "cause": {
+          "$ref": "#/$defs/Cause",
+          "description": "Why the outcome has its status; required for `blocked`, `not_measured` and `not_applicable`, absent for `pass` and `fail` unless it is the legacy cause."
+        },
+        "context_digest": {
+          "$ref": "#/$defs/Digest",
+          "description": "A `sha256:` digest of the canonical JSON of the artifacts, snapshots, inputs and metadata the evaluator received."
+        },
+        "evaluator": {
+          "$ref": "#/$defs/NameVersion",
+          "description": "The evaluator that produced the outcome, as `name@version` with a `SemVer` version."
+        },
+        "evidence": {
+          "description": "An array of the pieces of evidence the outcome rests on; empty when there are none.",
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "type": "array"
+        },
+        "expectation_id": {
+          "$ref": "#/$defs/ExpectationId",
+          "description": "The identifier of the expectation that was evaluated; it names an entry of the suite."
+        },
+        "instruments": {
+          "description": "An array of the instruments the evaluator measured with; empty when there are none, and with no dirty instrument when the role is `gate` or `quality`.",
+          "items": {
+            "$ref": "#/$defs/Instrument"
+          },
+          "type": "array"
+        },
+        "probability": {
+          "$ref": "#/$defs/Probability",
+          "description": "A calibrated probability that the expectation holds, as an object; deterministic evaluators never set it, and it is absent when the role is `gate` or `quality`."
+        },
+        "request_id": {
+          "$ref": "#/$defs/RequestId",
+          "description": "The identifier of the request that produced the outcome: a `UUIDv7` in lowercase hyphenated form."
+        },
+        "role": {
+          "$ref": "#/$defs/Role",
+          "description": "The role of the expectation, copied from its suite entry when it was graded: `gate`, `quality` or `descriptive`."
+        },
+        "run": {
+          "$ref": "#/$defs/RunKey",
+          "description": "The key of the run that was evaluated: an object with its cell digest, replicate and attempt."
+        },
+        "status": {
+          "$ref": "#/$defs/Status",
+          "description": "The result: `pass`, `fail`, `blocked`, `not_measured` or `not_applicable`."
+        },
+        "suite_entry_digest": {
+          "$ref": "#/$defs/Digest",
+          "description": "A `sha256:` digest of the canonical JSON of the suite entry's `kind`, `params`, `role`, `applies_to` and `depends_on`."
+        },
+        "value": {
+          "$ref": "#/$defs/Value",
+          "description": "What was measured, as a value object, if the evaluator reports one."
+        },
+        "weight": {
+          "$ref": "#/$defs/Weight",
+          "description": "The contribution to a rate; absent means the default of the status: `pass` 1/1, `fail` 0/1, `blocked` 0/1. A `pass` has `num` equal to `den`, a `fail` has `num` below `den` and a `blocked` has `num` 0. Absent for `not_measured` and `not_applicable`."
+        }
+      },
+      "required": [
+        "run",
+        "expectation_id",
+        "role",
+        "evaluator",
+        "instruments",
+        "suite_entry_digest",
+        "context_digest",
+        "request_id",
+        "status",
+        "evidence"
+      ],
+      "type": "object"
+    },
+    "Probability": {
+      "additionalProperties": false,
+      "description": "A calibrated probability that the expectation holds, written as an object with the number `p` and the string `calibration_ref`.",
+      "properties": {
+        "calibration_ref": {
+          "description": "A non-empty string that names the calibration backing the probability.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "p": {
+          "description": "The probability, a number from 0 to 1.",
+          "format": "double",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "p",
+        "calibration_ref"
+      ],
+      "type": "object"
+    },
+    "ProcessStart": {
+      "description": "When a process started, in the form its host reports: an object whose `kind` is `linux` (with `boot_id` and `ticks`), `darwin` (with `sec` and `usec`) or `unavailable`.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A Linux process: the boot it ran in, and its start time in clock ticks since that boot.",
+          "properties": {
+            "boot_id": {
+              "$ref": "#/$defs/BootId",
+              "description": "The identifier of the boot, so ticks of different boots are never compared."
+            },
+            "kind": {
+              "const": "linux",
+              "type": "string"
+            },
+            "ticks": {
+              "$comment": "Fits in 64 bits; a reader that holds numbers as doubles is exact only below 2^53.",
+              "description": "The start time in clock ticks since boot, as `/proc/<pid>/stat` reports it.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "boot_id",
+            "ticks"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A macOS process: its start time as seconds and microseconds since the Unix epoch.",
+          "properties": {
+            "kind": {
+              "const": "darwin",
+              "type": "string"
+            },
+            "sec": {
+              "$comment": "Fits in 64 bits; a reader that holds numbers as doubles is exact only below 2^53.",
+              "description": "Whole seconds since the Unix epoch.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "usec": {
+              "$comment": "Fits in 32 bits; the reader enforces it.",
+              "description": "Microseconds, as the host reports them.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "sec",
+            "usec"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The host reported no start time; the record never reads as alive.",
+          "properties": {
+            "kind": {
+              "const": "unavailable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ReasonCode": {
+      "description": "A reason code: a lowercase letter, then lowercase letters, digits or `_`.",
+      "pattern": "^[a-z][a-z0-9_]*(?![\\s\\S])",
+      "type": "string"
+    },
+    "RelPath": {
+      "description": "A run-relative POSIX path: non-empty, with no leading `/`, no empty segment, no `.` or `..` segment, no NUL and no `\\`.",
+      "pattern": "^(?!\\.\\.?(?:/|(?![\\s\\S])))[^/\\\\\\x00]+(?:/(?!\\.\\.?(?:/|(?![\\s\\S])))[^/\\\\\\x00]+)*(?![\\s\\S])",
+      "type": "string"
+    },
+    "RequestId": {
+      "description": "A request id: a `UUIDv7` in lowercase hyphenated form.",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![\\s\\S])",
+      "type": "string"
+    },
+    "Role": {
+      "description": "The part an expectation plays in grading, copied from its suite entry when it was graded.",
+      "oneOf": [
+        {
+          "const": "gate",
+          "description": "A requirement the run must meet.",
+          "type": "string"
+        },
+        {
+          "const": "quality",
+          "description": "A measure of how well the run did.",
+          "type": "string"
+        },
+        {
+          "const": "descriptive",
+          "description": "A measurement reported without a verdict on the run.",
+          "type": "string"
+        }
+      ]
+    },
+    "RunKey": {
+      "additionalProperties": false,
+      "description": "The identity of one run: the digest of its cell, and its replicate and attempt numbers, both counted from 1.",
+      "properties": {
+        "attempt": {
+          "$comment": "Fits in 32 bits; the reader enforces it.",
+          "description": "Attempt number, from 1.",
+          "format": "uint32",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "cell": {
+          "$ref": "#/$defs/Digest",
+          "description": "The digest of the cell the run belongs to."
+        },
+        "replicate": {
+          "$comment": "Fits in 32 bits; the reader enforces it.",
+          "description": "Replicate number, from 1.",
+          "format": "uint32",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cell",
+        "replicate",
+        "attempt"
+      ],
+      "type": "object"
+    },
+    "Status": {
+      "description": "The five-state result of an outcome.",
+      "oneOf": [
+        {
+          "const": "pass",
+          "description": "The expectation holds.",
+          "type": "string"
+        },
+        {
+          "const": "fail",
+          "description": "The expectation was measured and does not hold.",
+          "type": "string"
+        },
+        {
+          "const": "blocked",
+          "description": "The expectation could not be measured because something the measurement needs is missing; it counts as a failure and is attributed to its cause.",
+          "type": "string"
+        },
+        {
+          "const": "not_measured",
+          "description": "The evaluator could not measure the expectation; it is excluded from rates and reported with its cause.",
+          "type": "string"
+        },
+        {
+          "const": "not_applicable",
+          "description": "The expectation does not apply to the run; it is excluded from rates and reported with its cause.",
+          "type": "string"
+        }
+      ]
+    },
+    "StopStep": {
+      "description": "A step of the ladder that stops a process: `pre_stop`, `signal`, `terminate_group`, `kill_group` or `sweep`.",
+      "oneOf": [
+        {
+          "const": "pre_stop",
+          "description": "The harness's own stop command ran.",
+          "type": "string"
+        },
+        {
+          "const": "signal",
+          "description": "The process was signalled.",
+          "type": "string"
+        },
+        {
+          "const": "terminate_group",
+          "description": "The process group was asked to terminate.",
+          "type": "string"
+        },
+        {
+          "const": "kill_group",
+          "description": "The process group was killed.",
+          "type": "string"
+        },
+        {
+          "const": "sweep",
+          "description": "The sweep killed what was left of the group.",
+          "type": "string"
+        }
+      ]
+    },
+    "StrayProcess": {
+      "additionalProperties": false,
+      "description": "A process a run left behind: its process id, which is at least 1, and when it started.",
+      "properties": {
+        "pid": {
+          "description": "The process id, at least 1.",
+          "format": "uint32",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "start": {
+          "$ref": "#/$defs/ProcessStart",
+          "description": "When the process started, so a reused process id is never taken for it."
+        }
+      },
+      "required": [
+        "pid",
+        "start"
+      ],
+      "type": "object"
+    },
+    "Timestamp": {
+      "$comment": "The pattern states the lexical form; a date or time that names no instant, such as month 13, and a fraction of more than nine digits are refused by the parser.",
+      "description": "An RFC 3339 timestamp with an uppercase `T` and an explicit offset, `Z` or `±HH:MM`.",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])(?![\\s\\S])",
+      "type": "string"
+    },
+    "Value": {
+      "description": "What an evaluator measured: an object whose `kind` is `number`, `count`, `fraction`, `text` or `counts`, with the payload under the key named after the kind, except that `fraction` carries `num` and `den` directly.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A finite real number, under the key `number`.",
+          "properties": {
+            "kind": {
+              "const": "number",
+              "type": "string"
+            },
+            "number": {
+              "$ref": "#/$defs/Finite",
+              "description": "The measured number, a finite JSON number."
+            }
+          },
+          "required": [
+            "kind",
+            "number"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A whole number of things, under the key `count`.",
+          "properties": {
+            "count": {
+              "$comment": "Fits in 64 bits; the Rust reader enforces it.",
+              "description": "The count, an integer of at least 0.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "count",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "count"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A count out of a total, as the keys `num` and `den` beside `kind`.",
+          "properties": {
+            "den": {
+              "$comment": "Fits in 64 bits; the Rust reader enforces it.",
+              "description": "The count of parts that were looked at; an integer of at least 1.",
+              "format": "uint64",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "fraction",
+              "type": "string"
+            },
+            "num": {
+              "$comment": "Fits in 64 bits; the Rust reader enforces it.",
+              "description": "The count of parts that were found; an integer of at least 0.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "num",
+            "den"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A piece of text, under the key `text`.",
+          "properties": {
+            "kind": {
+              "const": "text",
+              "type": "string"
+            },
+            "text": {
+              "description": "The text, a JSON string that may be empty.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Counts by name, under the key `counts`.",
+          "properties": {
+            "counts": {
+              "$comment": "Each count fits in 64 bits; the Rust reader enforces it.",
+              "additionalProperties": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "description": "An object that maps each name, a string, to its count, an integer of at least 0.",
+              "type": "object"
+            },
+            "kind": {
+              "const": "counts",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "counts"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Weight": {
+      "$comment": "The numerator is at most the denominator; the Rust reader enforces it.",
+      "additionalProperties": false,
+      "description": "The contribution of an outcome to a rate, written as an object with the integers `num` and `den`: `num` out of `den`, with `num` at most `den`.",
+      "properties": {
+        "den": {
+          "$comment": "Fits in 64 bits; the Rust reader enforces it.",
+          "description": "The denominator, an integer of at least 1, or 0 in the zero weight `0/0`, which is carried only with a legacy cause on a `pass`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "num": {
+          "$comment": "Fits in 64 bits; the Rust reader enforces it.",
+          "description": "The numerator, an integer from 0 up to `den`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "num",
+        "den"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:candler:schemas:event-envelope",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One line of a job's event log: the format version, the place of the event in the log, when it happened, the job and run it belongs to, and what happened, whose `kind` and `payload` are written beside the other members.",
+  "oneOf": [
+    {
+      "description": "A job started.",
+      "properties": {
+        "kind": {
+          "const": "job.started",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": false,
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "payload"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A job ended.",
+      "properties": {
+        "kind": {
+          "const": "job.ended",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "$ref": "#/$defs/JobEnd",
+              "description": "How it ended."
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "payload"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A run started.",
+      "properties": {
+        "kind": {
+          "const": "run.started",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": false,
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "payload"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A run ended.",
+      "properties": {
+        "kind": {
+          "const": "run.ended",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": false,
+          "properties": {
+            "ended_by": {
+              "$ref": "#/$defs/EndedBy",
+              "description": "How the session ended."
+            },
+            "exit": {
+              "$ref": "#/$defs/ExitStatus",
+              "description": "How the harness process ended, if it did."
+            }
+          },
+          "required": [
+            "ended_by"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "payload"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A run could not be carried out.",
+      "properties": {
+        "kind": {
+          "const": "run.failed",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "$ref": "#/$defs/ReasonCode",
+              "description": "Why it failed."
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "payload"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Processes of a run outlived it.",
+      "properties": {
+        "kind": {
+          "const": "run.stray",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": false,
+          "properties": {
+            "processes": {
+              "description": "The processes found, each by process id and start time.",
+              "items": {
+                "$ref": "#/$defs/StrayProcess"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "processes"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "payload"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "An evaluator gave its result for a run.",
+      "properties": {
+        "kind": {
+          "const": "evaluation.outcome",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": false,
+          "properties": {
+            "record": {
+              "$ref": "#/$defs/OutcomeRecord",
+              "description": "The result."
+            }
+          },
+          "required": [
+            "record"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "payload"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A child process was spawned.",
+      "properties": {
+        "kind": {
+          "const": "process.spawned",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": false,
+          "properties": {
+            "record": {
+              "$ref": "#/$defs/ChildRecord",
+              "description": "The record the supervisor wrote for the child."
+            }
+          },
+          "required": [
+            "record"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "payload"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A step of the ladder that stops a process was taken.",
+      "properties": {
+        "kind": {
+          "const": "process.stop_step",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": false,
+          "properties": {
+            "at": {
+              "$ref": "#/$defs/Timestamp",
+              "description": "When it was taken."
+            },
+            "outcome": {
+              "description": "What came of it, if the step reports; free text, such as `no sweeper`.",
+              "type": "string"
+            },
+            "pid": {
+              "description": "The process id of the child the step was taken on, at least 1.",
+              "format": "uint32",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "start": {
+              "$ref": "#/$defs/ProcessStart",
+              "description": "When the child started, which with `pid` tells it from a reused process id."
+            },
+            "step": {
+              "$ref": "#/$defs/StopStep",
+              "description": "The step."
+            }
+          },
+          "required": [
+            "pid",
+            "start",
+            "step",
+            "at"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "payload"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A child process exited.",
+      "properties": {
+        "kind": {
+          "const": "process.exited",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": false,
+          "properties": {
+            "group_empty": {
+              "description": "Whether its process group was empty afterwards.",
+              "type": "boolean"
+            },
+            "pid": {
+              "description": "The process id of the child, at least 1.",
+              "format": "uint32",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "start": {
+              "$ref": "#/$defs/ProcessStart",
+              "description": "When the child started, which with `pid` tells it from a reused process id."
+            },
+            "status": {
+              "$ref": "#/$defs/ExitStatus",
+              "description": "How it ended."
+            }
+          },
+          "required": [
+            "pid",
+            "start",
+            "status",
+            "group_empty"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "payload"
+      ],
+      "type": "object"
+    }
+  ],
+  "properties": {
+    "at": {
+      "$ref": "#/$defs/Timestamp",
+      "description": "When the event happened."
+    },
+    "job_id": {
+      "$ref": "#/$defs/JobId",
+      "description": "The job the event belongs to."
+    },
+    "run": {
+      "$ref": "#/$defs/RunKey",
+      "description": "The run the event belongs to, if it belongs to one."
+    },
+    "seq": {
+      "$comment": "Fits in 64 bits; the Rust reader enforces it.",
+      "description": "The position of the event in the log of its job, counting from 0 without gaps.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "v": {
+      "const": 1,
+      "description": "The format version: always 1.",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "v",
+    "seq",
+    "at",
+    "job_id"
+  ],
+  "title": "Envelope",
+  "type": "object"
+}

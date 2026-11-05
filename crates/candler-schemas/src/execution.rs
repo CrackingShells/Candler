@@ -43,7 +43,13 @@ pub const JOB_RECORD_SCHEMA: &str = "job-record/1";
 
 /// The wire root schemas this module publishes.
 pub(crate) fn roots() -> Vec<GeneratedSchema> {
-    Vec::new()
+    vec![
+        GeneratedSchema::of::<ExperimentFile>("experiment"),
+        GeneratedSchema::of::<RunManifest>("run-manifest"),
+        GeneratedSchema::of::<RunTree>("run-tree"),
+        GeneratedSchema::of::<JobRecord>("job-record"),
+        GeneratedSchema::of::<Envelope>("event-envelope"),
+    ]
 }
 
 /// Why an execution record could not be built or read.
