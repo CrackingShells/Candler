@@ -10,6 +10,7 @@ use serde_json::Value;
 
 pub mod blob;
 pub mod layout;
+pub mod outcome;
 pub mod run;
 
 use layout::StoreLayout;
@@ -75,6 +76,18 @@ pub enum StoreError {
         run: String,
         /// The stream name.
         stream: String,
+    },
+    /// The final outcome file of a request exists and is never replaced.
+    #[error("outcome file {} already exists", path.display())]
+    OutcomeExists {
+        /// The final file.
+        path: PathBuf,
+    },
+    /// A record does not belong to the request its writer was opened for.
+    #[error("record does not belong to this outcome file: {detail}")]
+    RecordMismatch {
+        /// What differs.
+        detail: &'static str,
     },
     /// A stored file is not a valid record.
     #[error("{} does not parse: {detail}", path.display())]
