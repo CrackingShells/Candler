@@ -29,6 +29,9 @@ pub const EXPERIMENT_SCHEMA: &str = "experiment/1";
 /// existing manifest yields requires a new marker.
 pub const RUN_MANIFEST_SCHEMA: &str = "run-manifest/1";
 
+/// The version marker of a run tree, written in its `schema` field.
+pub const RUN_TREE_SCHEMA: &str = "run-tree/1";
+
 /// The wire root schemas this module publishes.
 pub(crate) fn roots() -> Vec<GeneratedSchema> {
     Vec::new()
@@ -158,6 +161,22 @@ pub enum ExecutionError {
         path: String,
         /// What is wrong with it.
         problem: &'static str,
+    },
+    /// A tree entry below a path that holds a file.
+    #[error("tree entry `{path}` lies below the file `{file}`")]
+    PathUnderFile {
+        /// The entry that cannot exist.
+        path: String,
+        /// The file that is in its way.
+        file: String,
+    },
+    /// A `dir` entry with an entry below it: only a directory that holds nothing is listed.
+    #[error("tree directory `{dir}` is listed as empty but holds `{path}`")]
+    DirNotEmpty {
+        /// The directory listed as empty.
+        dir: String,
+        /// The entry below it.
+        path: String,
     },
 }
 
@@ -2285,6 +2304,197 @@ impl RunManifestBuilder {
             job: self.job,
             integrity,
             import: self.import,
+        })
+    }
+}
+
+schema_tag! {
+    /// The constant `schema` field of a run tree.
+    pub RunTreeTag = RUN_TREE_SCHEMA
+}
+
+/// One path of a run's workspace when the run ended: a file with its content digest, or a directory that holds nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self", tag = "kind", rename_all = "snake_case")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub enum TreeEntry {
+    /// A file: the store keeps its bytes as the blob `blobs/<hex of sha256>`.
+    #[non_exhaustive]
+    File {
+        /// The run-relative path of the file.
+        path: RelPath,
+        /// The digest of the file's bytes.
+        sha256: Digest,
+        /// Whether the file had an execute bit.
+        executable: bool,
+    },
+    /// A directory that holds nothing; a directory with content is implied by its entries.
+    #[non_exhaustive]
+    Dir {
+        /// The run-relative path of the directory.
+        path: RelPath,
+    },
+}
+
+object_only!(TreeEntry);
+
+impl TreeEntry {
+    /// A file entry.
+    #[must_use]
+    pub const fn file(path: RelPath, sha256: Digest, executable: bool) -> Self {
+        Self::File {
+            path,
+            sha256,
+            executable,
+        }
+    }
+
+    /// An empty directory entry.
+    #[must_use]
+    pub const fn dir(path: RelPath) -> Self {
+        Self::Dir { path }
+    }
+
+    /// The run-relative path of the entry.
+    #[must_use]
+    pub const fn path<'a>(&'a self) -> &'a RelPath {
+        match self {
+            Self::File { path, .. } | Self::Dir { path } => path,
+        }
+    }
+
+    /// Reports whether the entry is a file.
+    #[must_use]
+    pub const fn is_file(&self) -> bool {
+        matches!(self, Self::File { .. })
+    }
+}
+
+/// The workspace of a run when it ended: every file with its content digest and every empty directory, sorted by path, with the version marker `run-tree/1` in `schema`.
+#[derive(Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields, rename = "RunTree")]
+struct RawRunTree {
+    /// The version marker of the document: always `run-tree/1`.
+    schema: RunTreeTag,
+    /// The entries, sorted by path text without a repeat; no entry lies below a file or below an empty directory.
+    entries: Vec<TreeEntry>,
+}
+
+/// The workspace of a run when it ended: every file with its content digest and every empty directory, sorted by path, with the version marker `run-tree/1` in `schema`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(try_from = "MapOnly<RawRunTree>")]
+#[non_exhaustive]
+pub struct RunTree {
+    schema: RunTreeTag,
+    entries: Vec<TreeEntry>,
+}
+
+impl TryFrom<MapOnly<RawRunTree>> for RunTree {
+    type Error = ExecutionError;
+
+    fn try_from(raw: MapOnly<RawRunTree>) -> Result<Self, Self::Error> {
+        let RawRunTree {
+            schema: RunTreeTag,
+            entries,
+        } = raw.0;
+        check_ascending(
+            "entries",
+            "path",
+            entries.as_slice(), // BORROW: explicit .as_slice() instead of Deref coercion
+            TreeEntry::path,
+            |entry| entry.path().to_string(),
+        )?;
+        check_ancestors(entries.as_slice())?; // BORROW: explicit .as_slice()
+        Ok(Self {
+            schema: RunTreeTag,
+            entries,
+        })
+    }
+}
+
+/// Checks that no entry lies below a file or below an entry listed as an empty directory.
+fn check_ancestors(entries: &[TreeEntry]) -> Result<(), ExecutionError> {
+    let by_path: BTreeMap<&str, &TreeEntry> = entries
+        .iter()
+        .map(|entry| (entry.path().as_str(), entry)) // BORROW: explicit .as_str()
+        .collect();
+    for entry in entries {
+        let path = entry.path().as_str(); // BORROW: explicit .as_str()
+        for (slash, _) in path.match_indices('/') {
+            let Some(ancestor) = path.get(..slash) else {
+                continue;
+            };
+            match by_path.get(ancestor) {
+                Some(found) if found.is_file() => {
+                    return Err(ExecutionError::PathUnderFile {
+                        path: path.to_owned(),     // BORROW: error carries owned text
+                        file: ancestor.to_owned(), // BORROW: error carries owned text
+                    });
+                }
+                Some(_) => {
+                    return Err(ExecutionError::DirNotEmpty {
+                        dir: ancestor.to_owned(), // BORROW: error carries owned text
+                        path: path.to_owned(),    // BORROW: error carries owned text
+                    });
+                }
+                // EXPLICIT: no entry at this ancestor, so nothing is in the way
+                None => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+impl RunTree {
+    /// Starts a tree with no entry.
+    #[must_use]
+    pub fn builder() -> RunTreeBuilder {
+        RunTreeBuilder::default()
+    }
+
+    /// The entries, sorted by path.
+    #[must_use]
+    pub fn entries<'a>(&'a self) -> &'a [TreeEntry] {
+        // BORROW: explicit .as_slice() instead of Deref coercion
+        self.entries.as_slice()
+    }
+}
+
+/// Builds a [`RunTree`]: it sorts the entries by path.
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub struct RunTreeBuilder {
+    entries: Vec<TreeEntry>,
+}
+
+impl RunTreeBuilder {
+    /// Adds an entry.
+    #[must_use]
+    pub fn entry(mut self, entry: TreeEntry) -> Self {
+        self.entries.push(entry);
+        self
+    }
+
+    /// Builds the tree.
+    ///
+    /// # Errors
+    /// Returns [`ExecutionError::Duplicate`] if a path is listed twice,
+    /// [`ExecutionError::PathUnderFile`] if an entry lies below a file and
+    /// [`ExecutionError::DirNotEmpty`] if an entry lies below an empty directory.
+    pub fn build(mut self) -> Result<RunTree, ExecutionError> {
+        self.entries.sort_by(|a, b| a.path().cmp(b.path()));
+        check_ascending(
+            "entries",
+            "path",
+            self.entries.as_slice(), // BORROW: explicit .as_slice() instead of Deref coercion
+            TreeEntry::path,
+            |entry| entry.path().to_string(),
+        )?;
+        check_ancestors(self.entries.as_slice())?; // BORROW: explicit .as_slice()
+        Ok(RunTree {
+            schema: RunTreeTag,
+            entries: self.entries,
         })
     }
 }
