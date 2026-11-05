@@ -5,6 +5,12 @@
 //! identifier on Linux, and from the BSD process information of `libproc` on macOS. Elsewhere, and
 //! whenever the system does not answer, the start time is [`ProcessStart::Unavailable`], and a
 //! record with no start time never reads as alive.
+//!
+//! On Linux the start time counts clock ticks (`CLK_TCK`, 100 a second), so two processes that
+//! start in the same tick share it. That does not weaken the name against reuse: the kernel hands
+//! out ids in turn and gives an id back only after it has gone through the others, which takes
+//! far longer than a tick. The start time tells a reused id apart; it does not tell a forged
+//! record apart, since a record that copies a live process's true start reads as alive.
 
 use candler_schemas::process::{ChildRecord, ProcessStart};
 use rustix::process::Pid;
