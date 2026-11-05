@@ -8,7 +8,7 @@ pub mod manifest;
 pub mod read;
 mod report;
 pub mod rules;
-mod streams;
+pub mod streams;
 
 use candler_schemas::primitives::FormatError;
 

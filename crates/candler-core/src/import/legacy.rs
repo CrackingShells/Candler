@@ -46,3 +46,30 @@ pub(super) const ELAPSED_SECONDS: &str = "elapsed_seconds";
 pub(super) const EVENT_RUN_START: &str = "run_start";
 /// The kind of the progress event that closes a run.
 pub(super) const EVENT_RUN_COMPLETE: &str = "run_complete";
+/// The keys of the timing file that count tokens, in the order a report lists them.
+pub(super) const TOKEN_COUNTERS: [&str; 4] = [
+    "input_tokens",
+    "output_tokens",
+    "cache_creation_tokens",
+    "cache_read_tokens",
+];
+/// The pointer of the evaluator's `name@version` in the folder's provenance file.
+pub(super) const PINNED_DESCRIBE: &str = "/pinned/describe";
+/// The pointer of the commit the evaluator ran at in the folder's provenance file.
+pub(super) const PINNED_COMMIT: &str = "/pinned/commit";
+/// The pointer of the flag that says the evaluator's checkout had uncommitted changes.
+pub(super) const PINNED_DIRTY: &str = "/pinned/dirty";
+/// The pointer of the commit of the legacy repository the corpus was read at.
+pub(super) const CORPUS_BASE_COMMIT: &str = "/corpus/base_commit";
+/// The file of a cell that lists the contamination catalog's rows.
+pub(super) const CONTAMINATION_CATALOG_FILE: &str = "contamination_catalog.jsonl";
+/// The file of a cell that lists its progress events.
+pub(super) const PROGRESS_FILE: &str = "progress.jsonl";
+/// The file of a cell that holds its experiment.
+pub(super) const EXPERIMENT_FILE: &str = "experiment.json";
+/// The prefix of an eval directory and of a grading file name.
+pub(super) const EVAL_PREFIX: &str = "eval-";
+/// The suffix of a grading file name.
+pub(super) const GRADING_SUFFIX: &str = "-grading.json";
+/// The keys of a grading entry that a suite entry takes as parameters, in the order they are read.
+pub(super) const ENTRY_PARAMS: [&str; 3] = ["scale", "text", "tier"];
