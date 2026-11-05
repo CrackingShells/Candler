@@ -20,10 +20,10 @@ use candler_core::supervise::{EventSink, Supervisor};
 use candler_harness::spec::{Action, CommandSpec, HttpMethod, StopSignal, StopSpec};
 use candler_schemas::execution::{Envelope, EventPayload, StrayProcess};
 use candler_schemas::primitives::{Digest, JobId, Marker, RunKey, Timestamp};
-use candler_schemas::process::{ChildRecord, ExitStatus};
+use candler_schemas::process::{ChildRecord, ExitStatus, ProcessStart};
 use candler_schemas::raw::StreamName;
 use rustix::io::Errno;
-use rustix::process::{Pid, Signal};
+use rustix::process::{Pid, Signal, kill_process, test_kill_process};
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
@@ -1081,4 +1081,293 @@ async fn reap_signals_nothing_for_a_record_it_cannot_verify() {
     assert!(report.was_alive);
     assert_eq!(report.refusal, None);
     drop(child);
+}
+
+/// The processes of `tests/fixtures/supervise/tree.sh`, as it wrote them.
+struct Tree {
+    leader: u32,
+    group: u32,
+    detached: u32,
+}
+
+impl Tree {
+    /// Every process of the tree with its start time as the system reports it now.
+    fn starts(&self) -> Vec<(u32, ProcessStart)> {
+        [self.leader, self.group, self.detached]
+            .into_iter()
+            .map(|pid| (pid, process_start(pid)))
+            .collect()
+    }
+}
+
+/// The argv that runs `tree.sh`, writing its process ids to `pidfile`.
+fn tree_argv(pidfile: &Path) -> Vec<String> {
+    let script = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("supervise")
+        .join("tree.sh");
+    vec![
+        "sh".to_owned(),
+        script.to_str().expect("a UTF-8 path").to_owned(), // BORROW: .to_owned() makes the owned argument
+        pidfile.to_str().expect("a UTF-8 path").to_owned(), // BORROW: .to_owned() makes the owned argument
+    ]
+}
+
+/// A request for the tree, writing its process ids to `pidfile`.
+fn tree_request(pidfile: &Path, records: &Path) -> SpawnRequestBuilder {
+    let argv = tree_argv(pidfile);
+    let parts: Vec<&str> = argv.iter().map(String::as_str).collect();
+    request(&parts, records)
+}
+
+/// Waits for the `ready` line of the tree and reads its process ids, for at most 10 s.
+async fn read_tree(pidfile: &Path) -> Tree {
+    let until = Instant::now() + Duration::from_secs(10);
+    loop {
+        let text = fs::read_to_string(pidfile).unwrap_or_default();
+        if text.lines().any(|line| line == "ready") {
+            let pid_of = |label: &str| -> u32 {
+                text.lines()
+                    .find_map(|line| line.strip_prefix(label)?.trim().parse().ok())
+                    .unwrap_or_else(|| panic!("no {label} line in {text:?}"))
+            };
+            return Tree {
+                leader: pid_of("leader "),
+                group: pid_of("group "),
+                detached: pid_of("detached "),
+            };
+        }
+        assert!(Instant::now() < until, "the tree never became ready");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// Whether the process `pid` is gone, as the system answers a signal-0 probe, or is another
+/// process than the one that started at `before`.
+fn gone(pid: u32, before: &ProcessStart) -> bool {
+    let Some(target) = i32::try_from(pid).ok().and_then(Pid::from_raw) else {
+        return true;
+    };
+    match test_kill_process(target) {
+        Ok(()) => process_start(pid) != *before,
+        Err(error) => error == Errno::SRCH,
+    }
+}
+
+/// Waits up to 5 s for every process of `starts` to be gone.
+async fn all_gone(starts: &[(u32, ProcessStart)]) -> bool {
+    let until = Instant::now() + Duration::from_secs(5);
+    loop {
+        if starts.iter().all(|(pid, before)| gone(*pid, before)) {
+            return true;
+        }
+        if Instant::now() >= until {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// Kills, when it goes out of scope, each process that still has the start time it was noted
+/// with, so a failed assertion leaves no process. It signals one process id at a time, never a
+/// group, and never 0, 1 or the test process.
+struct KillPids(Vec<(u32, ProcessStart)>);
+
+impl Drop for KillPids {
+    fn drop(&mut self) {
+        for (pid, start) in &self.0 {
+            let own = std::process::id();
+            let target = i32::try_from(*pid).ok().and_then(Pid::from_raw);
+            if let Some(target) = target
+                && *pid > 1
+                && *pid != own
+                && process_start(*pid) == *start
+            {
+                let _ = kill_process(target, Signal::KILL);
+            }
+        }
+    }
+}
+
+/// Guards: R01 §escalation (no survivor in the group) — after `Child::stop` of a tree that ignores `TERM`, and after `reap` of a second such tree from its record alone, every process that was in the group at spawn is gone, and the group is empty. Oracle: `kill(pid, 0)` answering `ESRCH` or the OS start time of the pid differing from the one read at spawn, polled for 5 s; the process ids are those `tree.sh` wrote.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stopped_and_a_reaped_tree_leave_no_survivor() {
+    let work = tempfile::tempdir().expect("a temp dir");
+
+    // Stopped through its handle.
+    let records = tempfile::tempdir().expect("a temp dir");
+    let pidfile = work.path().join("stopped.pids");
+    let (stopper, _events) = supervisor();
+    let child = stopper
+        .spawn(
+            tree_request(&pidfile, records.path())
+                .stop(stop_spec(None, 300))
+                .build()
+                .expect("a request"),
+        )
+        .expect("a child");
+    let _cleanup = KillAll(&stopper);
+    let tree = read_tree(&pidfile).await;
+    let starts = tree.starts();
+    let _detached = KillPids(vec![(tree.detached, process_start(tree.detached))]);
+    let in_group: Vec<(u32, ProcessStart)> = starts
+        .iter()
+        .filter(|(pid, _)| *pid != tree.detached)
+        .cloned() // BORROW: .cloned() copies the starts for the poll
+        .collect();
+    assert_eq!(in_group.len(), 2);
+    let exit = child.stop().await.expect("an exit");
+    assert_eq!(exit.ended, Ended::Stopped);
+    assert!(exit.group_empty, "the group still has members");
+    assert!(
+        all_gone(&in_group).await,
+        "a process of the group survived the stop"
+    );
+
+    // Reaped from its record alone: the handle is dropped, as it would be after a crash.
+    let records = tempfile::tempdir().expect("a temp dir");
+    let pidfile = work.path().join("reaped.pids");
+    let (spawner, _events) = supervisor();
+    let child = spawner
+        .spawn(
+            tree_request(&pidfile, records.path())
+                .build()
+                .expect("a request"),
+        )
+        .expect("a child");
+    let _spawner_cleanup = KillAll(&spawner);
+    let tree = read_tree(&pidfile).await;
+    let _detached = KillPids(vec![(tree.detached, process_start(tree.detached))]);
+    let in_group: Vec<(u32, ProcessStart)> = tree
+        .starts()
+        .into_iter()
+        .filter(|(pid, _)| *pid != tree.detached)
+        .collect();
+    let (_, _, record) = only_record(records.path());
+    drop(child);
+    let (reaper, _events) = supervisor();
+    let report = reaper
+        .reap(Some(&run_key()), &record, &stop_spec(None, 300))
+        .await
+        .expect("a report");
+    assert!(report.was_alive);
+    assert_eq!(report.refusal, None);
+    assert!(report.group_empty, "the group still has members");
+    assert!(
+        all_gone(&in_group).await,
+        "a process of the group survived the reap"
+    );
+}
+
+/// A sweeper that kills the process `tree.sh` wrote as `detached`, if it still has the start time
+/// it was noted with, and notes the marker of every sweep. It signals one process id, never a
+/// group.
+struct Killer {
+    pidfile: PathBuf,
+    noted: Mutex<Option<(u32, ProcessStart)>>,
+    markers: Mutex<Vec<String>>,
+}
+
+impl StraySweeper for Killer {
+    fn sweep(&self, marker: &Marker) -> Vec<StrayProcess> {
+        self.markers
+            .lock()
+            .expect("a lock")
+            .push(marker.to_string());
+        let Some((pid, start)) = self.noted.lock().expect("a lock").clone() else {
+            // BORROW: .clone() copies the noted process out of the lock
+            return Vec::new();
+        };
+        let text = fs::read_to_string(&self.pidfile).unwrap_or_default();
+        let written = text
+            .lines()
+            .any(|line| line.strip_prefix("detached ") == Some(pid.to_string().as_str()));
+        let target = i32::try_from(pid).ok().and_then(Pid::from_raw);
+        match target {
+            Some(target)
+                if written
+                    && pid > 1
+                    && pid != std::process::id()
+                    && process_start(pid) == start
+                    && kill_process(target, Signal::KILL).is_ok() =>
+            {
+                StrayProcess::new(pid, start).into_iter().collect()
+            }
+            Some(_) | None => Vec::new(),
+        }
+    }
+}
+
+/// Guards: R01 §escalation (the sweep) and G3 — the injected sweeper is called once per stop, after `kill_group`, with the run's marker; the process that left the group is then gone and a `run.stray` event names it, and every envelope validates against the published schema. Oracle: the call log of the test's sweeper, the literal event order written here, the schema file, and `kill(pid, 0)`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_sweeper_is_called_once_after_kill_group_and_run_stray_names_its_kill() {
+    let work = tempfile::tempdir().expect("a temp dir");
+    let records = tempfile::tempdir().expect("a temp dir");
+    let pidfile = work.path().join("tree.pids");
+    let killer = Arc::new(Killer {
+        pidfile: pidfile.clone(), // BORROW: .clone() gives the sweeper its own path
+        noted: Mutex::new(None),
+        markers: Mutex::new(Vec::new()),
+    });
+    let recorder = Arc::new(Recorder::default());
+    // TRAIT_OBJECT: the supervisor takes its sink and sweeper as trait objects
+    // BORROW: .clone() shares the recorder and the sweeper with the supervisor
+    let (sink, sweeping): (Arc<dyn EventSink>, Arc<dyn StraySweeper>) =
+        (recorder.clone(), killer.clone());
+    let supervisor = Supervisor::new(sink).with_sweeper(sweeping);
+    let child = supervisor
+        .spawn(
+            tree_request(&pidfile, records.path())
+                .run(run_key())
+                .stop(stop_spec(None, 300))
+                .build()
+                .expect("a request"),
+        )
+        .expect("a child");
+    let _cleanup = KillAll(&supervisor);
+    let tree = read_tree(&pidfile).await;
+    let detached = (tree.detached, process_start(tree.detached));
+    *killer.noted.lock().expect("a lock") = Some(detached.clone()); // BORROW: .clone() gives the sweeper its own copy
+    let _detached = KillPids(vec![detached.clone()]); // BORROW: .clone() gives the cleanup its own copy
+    let exit = child.stop().await.expect("an exit");
+    assert!(exit.group_empty);
+
+    assert_eq!(
+        *killer.markers.lock().expect("a lock"),
+        [MARKER.to_owned()],
+        "the sweeper was not called once with the marker"
+    );
+    assert!(all_gone(&[detached]).await, "the detached process survived");
+    let all = envelopes(&recorder);
+    assert_eq!(
+        shape(&all),
+        [
+            "process.spawned",
+            "process.stop_step:signal",
+            "process.stop_step:terminate_group",
+            "process.stop_step:kill_group",
+            "process.stop_step:sweep",
+            "run.stray",
+            "process.exited",
+        ]
+    );
+    let validator = envelope_validator();
+    for envelope in &all {
+        let problems: Vec<String> = validator
+            .iter_errors(envelope)
+            .map(|problem| problem.to_string())
+            .collect();
+        assert!(problems.is_empty(), "{envelope}: {problems:?}");
+    }
+    let stray = all.get(5).expect("the run.stray event");
+    let named: Vec<&Value> = stray
+        .get("payload")
+        .and_then(|payload| payload.get("processes"))
+        .and_then(Value::as_array)
+        .expect("a process list")
+        .iter()
+        .map(|process| at(process, &["pid"]))
+        .collect();
+    assert_eq!(named, [&json!(tree.detached)]);
 }
