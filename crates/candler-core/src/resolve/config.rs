@@ -178,7 +178,7 @@ impl ProjectConfig {
         if let Some(slots) = table.get("slots") {
             let key = match slots.as_table().and_then(|t| t.keys().next()) {
                 Some(first) => format!("slots.{first}"),
-                None => "slots".to_owned(),
+                None => "slots".to_owned(), // BORROW: owned key for the error
             };
             return Err(ConfigError::MachineWideKey { file, key });
         }
@@ -357,6 +357,7 @@ fn check_keys(file: &Path, table: &Table, tables: &[(&str, &[&str])]) -> Result<
 /// A string value as a path, made absolute against `base`.
 fn path_value(file: &Path, key: &str, value: &Value, base: &Path) -> Result<PathBuf, ConfigError> {
     value
+        // BORROW: `.as_str()` views the TOML string as a `&str`
         .as_str()
         .map(|text| base.join(text))
         .ok_or_else(|| ConfigError::WrongType {
@@ -384,6 +385,7 @@ fn path_list(
         .as_array()
         .ok_or_else(wrong)?
         .iter()
+        // BORROW: `.as_str()` views the TOML string as a `&str`
         .map(|item| item.as_str().map(|text| base.join(text)).ok_or_else(wrong))
         .collect()
 }

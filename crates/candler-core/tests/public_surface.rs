@@ -1,3 +1,52 @@
 //! The public items other crates consume, used from outside the crate: usage only, with no
 //! behaviour asserted. It is the contract the API review diffs.
 #![cfg(test)]
+
+// --- resolve: config, layers, preflight ---
+mod resolve_surface {
+    use std::sync::Arc;
+
+    use candler_core::resolve::config::{
+        Config, ConfigEnv, ConfigError, ProjectConfig, UserConfig,
+    };
+    use candler_core::resolve::layers::{
+        FileValues, Layered, Resolution, ResolveInput, is_setting,
+    };
+    use candler_core::resolve::preflight::{
+        CheckResult, PreflightError, PreflightStep, ResolveContext, ResolveError, Resolver,
+        StepError, StepReport,
+    };
+
+    fn send_sync<T: Send + Sync + ?Sized>() {}
+
+    /// Names every resolve item; `Box<dyn PreflightStep>` is `Send + Sync`.
+    #[test]
+    fn resolve_items_are_nameable() {
+        send_sync::<Box<dyn PreflightStep>>(); // TRAIT_OBJECT: the resolver holds steps of different types
+        send_sync::<Resolver>();
+        send_sync::<ResolveContext>();
+        let _ = (
+            ConfigEnv::new,
+            ConfigEnv::from_process,
+            ProjectConfig::discover,
+            UserConfig::load,
+            Config::new,
+            Config::load,
+            Layered::new,
+            FileValues::new,
+            is_setting,
+            Resolver::new,
+            StepReport::new,
+            CheckResult::new,
+        );
+        let _ = ResolveInput::default();
+        let _ = (
+            None::<ConfigError>,
+            None::<Resolution>,
+            None::<ResolveError>,
+            None::<PreflightError>,
+            None::<StepError>,
+            None::<Arc<ResolveContext>>,
+        );
+    }
+}
