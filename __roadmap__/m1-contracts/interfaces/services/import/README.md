@@ -7,7 +7,7 @@ Level 3. It joins the L2 services: the legacy importer lands the golden corpus i
 The 240 golden runs import equal to the oracle, and the cross-leaf seams are guarded.
 
 ## Pre-conditions
-- [ ] [cmd] The L2 leaves are landed: `for l in supervisor run_store claude_code_reader legacy_mapping; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
+- [x] [cmd] The L2 leaves are landed: `for l in supervisor run_store claude_code_reader legacy_mapping; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
 
 ## Success Gates
 - ⬜ [cmd] Both L3 leaves are landed: `for l in legacy_import seams; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
