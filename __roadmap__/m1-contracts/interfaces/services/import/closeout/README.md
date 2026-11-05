@@ -7,7 +7,7 @@ Level 4, the last. It runs the milestone's gates on the joined branch, re-review
 The milestone's gates are recorded green and the contracts are documented for cold-start consumers.
 
 ## Pre-conditions
-- [ ] [cmd] The L3 leaves are landed: `for l in legacy_import seams; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
+- [x] [cmd] The L3 leaves are landed: `for l in legacy_import seams; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
 
 ## Success Gates
 - ⬜ [cmd] `gate_sweep` is landed: `for l in gate_sweep; do git log --first-parent --format=%s feat/m1-contracts | grep -qx "merge(.*): land $l" || exit 1; done`
