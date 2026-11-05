@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use candler_core::frames::FrameMode;
 use candler_core::supervise::http::is_loopback;
 use candler_core::supervise::platform::{Liveness, liveness, process_start};
+use candler_core::supervise::reap::ReapRefusal;
 use candler_core::supervise::signal::Signaller;
 use candler_core::supervise::spawn::{OutputSpec, SpawnRequest, SpawnRequestBuilder, StdinSpec};
 use candler_core::supervise::stop::{Ended, StraySweeper};
@@ -1083,6 +1084,58 @@ async fn reap_signals_nothing_for_a_record_it_cannot_verify() {
     drop(child);
 }
 
+/// Guards: I22 — `reap` refuses a record whose process the operating system puts in another group than the record names, though the pid and the start time verify. Oracle: the fake's call log is empty, the report names `GroupMismatch`, and the child, which is in the test's own group, is alive after the reap; getpgid(2) for the group of a process that never called setpgid.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reap_refuses_a_record_whose_group_the_process_does_not_lead() {
+    let records = tempfile::tempdir().expect("a temp dir");
+    let (spawner, _events) = supervisor();
+    let template = spawner
+        .spawn(
+            request(&["sleep", "30"], records.path())
+                .build()
+                .expect("a request"),
+        )
+        .expect("a child");
+    let _cleanup = KillAll(&spawner);
+    let (_, json, _) = only_record(records.path());
+    // A child that stays in the test's own group, with a record that says it leads its own.
+    let mut bystander = Command::new("sleep").arg("30").spawn().expect("a child");
+    let pid = bystander.id();
+    let mut forged = json.clone(); // BORROW: .clone() forges a copy and leaves the true record alone
+    if let Some(map) = forged.as_object_mut() {
+        map.insert("pid".to_owned(), json!(pid));
+        map.insert("pgid".to_owned(), json!(pid));
+        map.insert(
+            "start".to_owned(),
+            serde_json::to_value(process_start(pid)).expect("JSON"),
+        );
+    }
+    let record: ChildRecord = serde_json::from_value(forged).expect("a forged record");
+
+    let recording = Arc::new(Recording::default());
+    // TRAIT_OBJECT: the supervisor takes its signaller as a trait object
+    // BORROW: .clone() shares the log with the supervisor
+    let signaller: Arc<dyn Signaller> = recording.clone();
+    let recorder = Arc::new(Recorder::default());
+    // TRAIT_OBJECT: the supervisor takes its sink as a trait object
+    // BORROW: .clone() shares the recorder with the supervisor
+    let sink: Arc<dyn EventSink> = recorder.clone();
+    let reaper = Supervisor::new(sink).with_signaller(signaller);
+    let report = reaper
+        .reap(None, &record, &stop_spec(None, 200))
+        .await
+        .expect("a report");
+    let calls = recording.calls.lock().expect("a lock").clone(); // BORROW: .clone() copies the log out of the lock
+    let alive_after = bystander.try_wait().expect("a status").is_none();
+    // EXPLICIT: handle kill of this test's own unreaped child; no pid or group number is passed
+    let _ = bystander.kill();
+    let _ = bystander.wait();
+    assert_eq!(calls, Vec::<(i32, i32)>::new(), "a signal was sent");
+    assert_eq!(report.refusal, Some(ReapRefusal::GroupMismatch));
+    assert!(alive_after, "the bystander was ended");
+    drop(template);
+}
+
 /// The processes of `tests/fixtures/supervise/tree.sh`, as it wrote them.
 struct Tree {
     leader: u32,
@@ -1182,8 +1235,11 @@ impl Drop for KillPids {
             if let Some(target) = target
                 && *pid > 1
                 && *pid != own
+                // An unreadable start equals any other unreadable start, so it identifies nothing.
+                && *start != ProcessStart::Unavailable
                 && process_start(*pid) == *start
             {
+                // EXPLICIT: single-pid kill of a process this test spawned, re-verified by its start time
                 let _ = kill_process(target, Signal::KILL);
             }
         }
@@ -1289,7 +1345,9 @@ impl StraySweeper for Killer {
                 if written
                     && pid > 1
                     && pid != std::process::id()
+                    && start != ProcessStart::Unavailable
                     && process_start(pid) == start
+                    // EXPLICIT: single-pid kill of a process this test spawned, re-verified by its start time
                     && kill_process(target, Signal::KILL).is_ok() =>
             {
                 StrayProcess::new(pid, start).into_iter().collect()
@@ -1370,4 +1428,346 @@ async fn the_sweeper_is_called_once_after_kill_group_and_run_stray_names_its_kil
         .map(|process| at(process, &["pid"]))
         .collect();
     assert_eq!(named, [&json!(tree.detached)]);
+}
+
+/// Guards: R01 §escalation (a spawn that fails leaves nothing behind) — a program that cannot start leaves no `.jsonl.tmp` in the raw directory, and a program that starts leaves its `.jsonl.gz`. Oracle: the directory listing, with the successful spawn as the positive control.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_spawn_leaves_no_frame_file() {
+    let records = tempfile::tempdir().expect("a temp dir");
+    let raw = tempfile::tempdir().expect("a temp dir");
+    let framed = || {
+        OutputSpec::framed(
+            raw.path().to_path_buf(),
+            "stdout".parse::<StreamName>().expect("a stream name"),
+            FrameMode::Lines,
+        )
+    };
+    let names = || -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(raw.path())
+            .expect("a directory")
+            .map(|entry| {
+                entry
+                    .expect("an entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        names.sort();
+        names
+    };
+    let (supervisor, _events) = supervisor();
+    let refused = supervisor.spawn(
+        request(&["/nonexistent/candler-program"], records.path())
+            .stdout(framed())
+            .build()
+            .expect("a request"),
+    );
+    assert!(refused.is_err(), "the program started");
+    assert_eq!(names(), Vec::<String>::new());
+
+    let child = supervisor
+        .spawn(
+            request(&["sh", "-c", "echo hi"], records.path())
+                .stdout(framed())
+                .build()
+                .expect("a request"),
+        )
+        .expect("a child");
+    let _cleanup = KillAll(&supervisor);
+    child.wait().await.expect("an exit");
+    assert_eq!(names(), ["stdout.jsonl.gz"]);
+}
+
+/// Guards: I22 — a group is forgotten when its leader is reaped and the group is empty, and kept while it has members. Oracle: the fake's call log across `kill_all`: nothing is sent to a forgotten group and exactly one `KILL` to a kept one. The fake signals nothing, so the member of the kept group is ended by the test through its pid and start time.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_group_is_forgotten_when_it_is_empty_and_kept_while_it_has_members() {
+    let work = tempfile::tempdir().expect("a temp dir");
+    let table: [(&str, &str, bool); 2] = [
+        ("an empty group", "exit 0", false),
+        (
+            "a group with a member",
+            "sleep 30 & echo $! > \"$1\"; exit 0",
+            true,
+        ),
+    ];
+    for (label, script, kept) in table {
+        let records = tempfile::tempdir().expect("a temp dir");
+        let member_file = work
+            .path()
+            .join(format!("{}.member", label.replace(' ', "_")));
+        let recording = Arc::new(Recording::default());
+        // TRAIT_OBJECT: the supervisor takes its signaller as a trait object
+        // BORROW: .clone() shares the log with the supervisor
+        let signaller: Arc<dyn Signaller> = recording.clone();
+        let recorder = Arc::new(Recorder::default());
+        // TRAIT_OBJECT: the supervisor takes its sink as a trait object
+        // BORROW: .clone() shares the recorder with the supervisor
+        let sink: Arc<dyn EventSink> = recorder.clone();
+        let supervisor = Supervisor::new(sink).with_signaller(signaller);
+        let member_arg = member_file.to_str().expect("a UTF-8 path");
+        let child = supervisor
+            .spawn(
+                request(&["sh", "-c", script, "sh", member_arg], records.path())
+                    .stop(stop_spec(None, 100))
+                    .build()
+                    .expect("a request"),
+            )
+            .expect("a child");
+        let pid = child.record().pid();
+        let exit = child.wait().await.expect("an exit");
+        let member = fs::read_to_string(&member_file)
+            .ok()
+            .and_then(|text| text.trim().parse::<u32>().ok());
+        let _member = KillPids(
+            member
+                .map(|pid| (pid, process_start(pid)))
+                .into_iter()
+                .collect(),
+        );
+        assert_eq!(exit.group_empty, !kept, "{label}");
+        assert_eq!(supervisor.holds_group(pid), kept, "{label}");
+        let before = recording.calls.lock().expect("a lock").len();
+        supervisor.kill_all();
+        let after = recording.calls.lock().expect("a lock").clone(); // BORROW: .clone() copies the log out of the lock
+        let group = i32::try_from(pid).expect("a pid");
+        let sent: Vec<&(i32, i32)> = after.iter().skip(before).collect();
+        if kept {
+            assert_eq!(sent, [&(group, Signal::KILL.as_raw())], "{label}");
+        } else {
+            assert_eq!(
+                sent,
+                Vec::<&(i32, i32)>::new(),
+                "{label}: a forgotten group was signalled"
+            );
+        }
+    }
+}
+
+/// Guards: R01 §escalation and the leaf (the deadline counts from the spawn) — a child spawned with a 2 s deadline whose `wait` is called 1.2 s later ends by the deadline within about 0.8 s of that call. Oracle: the wall clock around `wait`, with 0.9 s of slack below the 2 s a deadline counted from `wait` would take.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_deadline_counts_from_the_spawn() {
+    let records = tempfile::tempdir().expect("a temp dir");
+    let (supervisor, _events) = supervisor();
+    // Taken before the spawn, so that the deadline cannot fall before it.
+    let spawned = Instant::now();
+    let child = supervisor
+        .spawn(
+            request(&["sleep", "30"], records.path())
+                .deadline(Duration::from_millis(2000))
+                .stop(stop_spec(None, 300))
+                .build()
+                .expect("a request"),
+        )
+        .expect("a child");
+    let _cleanup = KillAll(&supervisor);
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    let called = Instant::now();
+    let exit = child.wait().await.expect("an exit");
+    let after_call = called.elapsed();
+    assert_eq!(exit.ended, Ended::Deadline);
+    assert!(
+        spawned.elapsed() >= Duration::from_millis(2000),
+        "ended early"
+    );
+    assert!(
+        after_call < Duration::from_millis(1700),
+        "the deadline was counted from wait: {after_call:?}"
+    );
+}
+
+/// A sweeper that blocks for `block` and finds nothing.
+struct Slow {
+    block: Duration,
+}
+
+impl StraySweeper for Slow {
+    fn sweep(&self, _marker: &Marker) -> Vec<StrayProcess> {
+        std::thread::sleep(self.block);
+        Vec::new()
+    }
+}
+
+/// Guards: R01 §escalation (the sweep is bounded) — a sweeper that blocks for 2 s with a grace of 0.3 s does not hold `stop` for more than 1.5 s, and the `sweep` step says it timed out. Oracle: the wall clock around `stop` and the literal outcome written here.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_sweeper_that_overruns_the_grace_is_not_waited_for() {
+    let records = tempfile::tempdir().expect("a temp dir");
+    let recorder = Arc::new(Recorder::default());
+    // TRAIT_OBJECT: the supervisor takes its sink and sweeper as trait objects
+    // BORROW: .clone() shares the recorder with the supervisor
+    let (sink, sweeping): (Arc<dyn EventSink>, Arc<dyn StraySweeper>) = (
+        recorder.clone(),
+        Arc::new(Slow {
+            block: Duration::from_secs(2),
+        }),
+    );
+    let supervisor = Supervisor::new(sink).with_sweeper(sweeping);
+    let child = supervisor
+        .spawn(
+            request(&["sleep", "30"], records.path())
+                .stop(stop_spec(None, 300))
+                .build()
+                .expect("a request"),
+        )
+        .expect("a child");
+    let _cleanup = KillAll(&supervisor);
+    let began = Instant::now();
+    let exit = child.stop().await.expect("an exit");
+    let took = began.elapsed();
+    assert!(
+        took < Duration::from_millis(1500),
+        "stop was held for {took:?}"
+    );
+    let sweep = exit.steps.last().expect("a sweep step");
+    assert_eq!(sweep.outcome, "sweeper timed out; what it found is unknown");
+}
+
+/// Guards: R01 §escalation (the events of a child that exits by itself) — a child that exits with no stop reports `process.spawned`, the one `sweep` step, then `process.exited`, each validating against the published schema. Oracle: the literal ordered list written here.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_child_that_exits_by_itself_reports_spawn_sweep_exit() {
+    let records = tempfile::tempdir().expect("a temp dir");
+    let (supervisor, recorder) = supervisor();
+    let child = supervisor
+        .spawn(
+            request(&["sh", "-c", "exit 0"], records.path())
+                .run(run_key())
+                .stop(stop_spec(None, 200))
+                .build()
+                .expect("a request"),
+        )
+        .expect("a child");
+    let _cleanup = KillAll(&supervisor);
+    let exit = child.wait().await.expect("an exit");
+    assert_eq!(exit.ended, Ended::Exited);
+    let all = envelopes(&recorder);
+    assert_eq!(
+        shape(&all),
+        [
+            "process.spawned",
+            "process.stop_step:sweep",
+            "process.exited"
+        ]
+    );
+    let validator = envelope_validator();
+    for envelope in &all {
+        let problems: Vec<String> = validator
+            .iter_errors(envelope)
+            .map(|problem| problem.to_string())
+            .collect();
+        assert!(problems.is_empty(), "{envelope}: {problems:?}");
+    }
+}
+
+/// Guards: R01 §escalation (the pre-stop command's group) — what a pre-stop command leaves in its own group after it exits is ended by the stop. Oracle: the pid the command wrote for its background `sleep 37`, polled for 5 s against `kill(pid, 0)`; the command's own exit is the only thing that would otherwise end it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pre_stop_command_leaves_nothing_in_its_group() {
+    let records = tempfile::tempdir().expect("a temp dir");
+    let ready = records.path().join("ready");
+    let ready_arg = ready.to_str().expect("a UTF-8 path");
+    let left = records.path().join("left");
+    let left_arg = left.to_str().expect("a UTF-8 path");
+    let command = CommandSpec::builder()
+        .argv(
+            ["sh", "-c", "sleep 37 & echo $! > \"$1\"", "sh", left_arg]
+                .map(str::to_owned)
+                .to_vec(),
+        )
+        .build()
+        .expect("a command");
+    let (supervisor, _events) = supervisor();
+    let child = supervisor
+        .spawn(
+            request(&stubborn(ready_arg), records.path())
+                .stop(stop_spec(Some(Action::Command(command)), 400))
+                .build()
+                .expect("a request"),
+        )
+        .expect("a child");
+    let _cleanup = KillAll(&supervisor);
+    until_ready(&ready).await;
+    child.stop().await.expect("an exit");
+    let pid: u32 = fs::read_to_string(&left)
+        .expect("the command wrote a pid")
+        .trim()
+        .parse()
+        .expect("a pid");
+    let start = process_start(pid);
+    let _left = KillPids(vec![(pid, start.clone())]); // BORROW: .clone() gives the cleanup its own start
+    assert!(
+        all_gone(&[(pid, start)]).await,
+        "what the pre-stop command left survived the stop"
+    );
+}
+
+/// Guards: Cond 2 and I22 (the child's environment is exactly the request's) — a child started with only `PATH` and a canary does not see the parent's `HOME`, sees the canary and the marker, and a pre-stop command sees the child's environment and not the parent's. Oracle: what the children print themselves; the test process's own `HOME`, asserted present so that the absence means something.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_parents_environment_reaches_neither_the_child_nor_its_pre_stop() {
+    assert!(
+        std::env::var_os("HOME").is_some(),
+        "the test needs a HOME in its own environment"
+    );
+    let records = tempfile::tempdir().expect("a temp dir");
+    let (supervisor, _events) = supervisor();
+    let seen = supervisor
+        .run_captured(
+            request(
+                &[
+                    "sh",
+                    "-c",
+                    "printf '%s|%s|%s' \"${HOME-unset}\" \"${CANARY-unset}\" \"${CANDLER_RUN-unset}\"",
+                ],
+                records.path(),
+            )
+            .env(vec![
+                ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+                ("CANARY".to_owned(), "from-request".to_owned()),
+            ])
+            .build()
+            .expect("a request"),
+            1024,
+        )
+        .await
+        .expect("a probe");
+    assert_eq!(
+        String::from_utf8_lossy(&seen.stdout),
+        format!("unset|from-request|{MARKER}")
+    );
+
+    let ready = records.path().join("ready");
+    let ready_arg = ready.to_str().expect("a UTF-8 path");
+    let printed = records.path().join("printed");
+    let printed_arg = printed.to_str().expect("a UTF-8 path");
+    let command = CommandSpec::builder()
+        .argv(
+            [
+                "sh",
+                "-c",
+                "printf '%s|%s' \"${HOME-unset}\" \"${CANARY-unset}\" > \"$1\"",
+                "sh",
+                printed_arg,
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+        )
+        .build()
+        .expect("a command");
+    let child = supervisor
+        .spawn(
+            request(&stubborn(ready_arg), records.path())
+                .env(vec![
+                    ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+                    ("CANARY".to_owned(), "from-request".to_owned()),
+                ])
+                .stop(stop_spec(Some(Action::Command(command)), 300))
+                .build()
+                .expect("a request"),
+        )
+        .expect("a child");
+    let _cleanup = KillAll(&supervisor);
+    until_ready(&ready).await;
+    child.stop().await.expect("an exit");
+    assert_eq!(
+        fs::read_to_string(&printed).expect("the command printed"),
+        "unset|from-request"
+    );
 }

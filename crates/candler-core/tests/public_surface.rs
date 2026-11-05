@@ -163,7 +163,7 @@ mod supervisor {
     };
     use candler_core::supervise::http::is_loopback;
     use candler_core::supervise::platform::{Liveness, liveness, parse_proc_stat, process_start};
-    use candler_core::supervise::reap::ReapReport;
+    use candler_core::supervise::reap::{ReapRefusal, ReapReport};
     use candler_core::supervise::record::{record_path, write_record};
     use candler_core::supervise::spawn::{
         Child, DEFAULT_GRACE, FrameObserver, OutputSpec, SpawnRequest, SpawnRequestBuilder,
@@ -231,6 +231,8 @@ mod supervisor {
             Exit::new,
             Captured::new,
             ReapReport::new,
+            ReapRefusal::guard,
+            FrameWriter::discard,
         );
         let _ = (
             is_loopback,
