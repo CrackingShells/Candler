@@ -580,6 +580,29 @@ impl FromStr for InstrumentDigest {
     }
 }
 
+impl Digest {
+    /// The digest of the RFC 8785 canonical text of `value`: `sha256:` and the hex of the SHA-256 of
+    /// the UTF-8 bytes.
+    ///
+    /// # Errors
+    /// Returns the [`CanonicalError`](crate::canonical::CanonicalError) of
+    /// [`to_jcs`](crate::canonical::to_jcs) if `value` has no canonical text.
+    pub fn of_canonical(
+        value: &serde_json::Value,
+    ) -> Result<Self, crate::canonical::CanonicalError> {
+        use sha2::Digest as _;
+        let text = crate::canonical::to_jcs(value)?;
+        let mut hex = String::with_capacity(64);
+        for byte in sha2::Sha256::digest(text.as_bytes()) {
+            hex.extend(char::from_digit(u32::from(byte >> 4), 16));
+            hex.extend(char::from_digit(u32::from(byte & 0xf), 16));
+        }
+        Ok(Self {
+            text: format!("{DIGEST_PREFIX}{hex}"),
+        })
+    }
+}
+
 /// Splits `name@version` at its last `@` and checks the name.
 fn split_name<'a>(text: &'a str) -> Result<(&'a str, &'a str), &'static str> {
     let (name, version) = text.rsplit_once('@').ok_or("lacks an `@`")?;

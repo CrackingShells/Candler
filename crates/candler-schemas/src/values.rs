@@ -12,6 +12,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
+use crate::canonical::{self, CanonicalError};
 use crate::generate::GeneratedSchema;
 use crate::map_only::MapOnly;
 use crate::primitives::{FieldPath, NameToken, RelPath, object_only, present};
@@ -28,12 +29,9 @@ pub enum ValuesError {
     /// A value that is `null` at the top.
     #[error("value is null (an absent value is omitted)")]
     Null,
-    /// An integer outside ±(2^53 − 1).
-    #[error("integer is outside ±(2^53 - 1) (got {value})")]
-    IntegerRange {
-        /// The integer, in decimal.
-        value: String,
-    },
+    /// A value that has no canonical form, such as an integer outside ±(2^53 − 1).
+    #[error(transparent)]
+    Canonical(#[from] CanonicalError),
 }
 
 /// Where a resolved value came from: an object whose `kind` names the source, with `step` for `derived` and `file` for `imported`.
@@ -84,26 +82,6 @@ impl ValueSource {
     }
 }
 
-/// The largest integer magnitude a JSON value may hold: 2^53 − 1.
-const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
-
-/// Returns the first integer in `value` outside ±(2^53 − 1), in decimal.
-fn integer_out_of_range(value: &Value) -> Option<String> {
-    match value {
-        Value::Number(number) => {
-            let beyond = match (number.as_i64(), number.as_u64()) {
-                (Some(signed), _) => signed.unsigned_abs() > MAX_SAFE_INTEGER,
-                (None, Some(unsigned)) => unsigned > MAX_SAFE_INTEGER,
-                (None, None) => false,
-            };
-            beyond.then(|| number.to_string())
-        }
-        Value::Array(items) => items.iter().find_map(integer_out_of_range),
-        Value::Object(map) => map.values().find_map(integer_out_of_range),
-        Value::Null | Value::Bool(_) | Value::String(_) => None,
-    }
-}
-
 /// A JSON value that can be hashed: not `null` at the top, with integers within ±(2^53 − 1) and finite numbers. A `null` nested inside an array or object is data and is kept.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(transparent)]
@@ -114,15 +92,14 @@ impl JsonValue {
     ///
     /// # Errors
     /// Returns [`ValuesError::Null`] if `value` is `null`.
-    /// Returns [`ValuesError::IntegerRange`] if an integer inside `value` lies outside ±(2^53 − 1).
+    /// Returns [`ValuesError::Canonical`] if `value` has no canonical form, such as an integer
+    /// outside ±(2^53 − 1).
     pub fn new(value: Value) -> Result<Self, ValuesError> {
         if value.is_null() {
             return Err(ValuesError::Null);
         }
-        match integer_out_of_range(&value) {
-            Some(value) => Err(ValuesError::IntegerRange { value }),
-            None => Ok(Self(value)),
-        }
+        canonical::check(&value)?;
+        Ok(Self(value))
     }
 
     /// The JSON value.
