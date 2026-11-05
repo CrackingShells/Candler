@@ -1,0 +1,1584 @@
+schema = "suite/1"
+
+[source]
+ref = "htn-creator-eval@0.4.2"
+path = ".claude/skills/htn-creator-workspace/infrastructure/evals/eval.json"
+sha256 = "ca7f12afee55152ed0e543a1d9b457c29fc5c02fd49e1ec6a417a9dcc1c97f9e"
+
+[[expectations]]
+id = "A1"
+group = "1"
+role = "gate"
+kind = "run_script"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+script = "scripts/htn_creator_scripts/validate_domain.py"
+target_file = "domain.py"
+text = "Running scripts/validate_domain.py on the generated domain.py exits with code 0 (no structural errors or warnings)"
+question = "Does domain.py pass structural validation?"
+tier = "structure"
+scale = "binary"
+
+[expectations.params.check]
+field = "exit_code"
+op = "eq"
+value = 0
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "A3"
+group = "1"
+role = "quality"
+kind = "grep_present"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+file = "domain.py"
+pattern = "Domain\\(\"{domain_name}\"\\)"
+text = "domain.py contains a Domain() declaration with the name '{domain_name}'"
+question = "Is the Domain(\"{domain_name}\") declaration present and named?"
+tier = "structure"
+scale = "binary"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "A5"
+group = "1"
+role = "quality"
+kind = "grep_absent"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+file = "domain.py"
+pattern = "if not state\\."
+text = "domain.py uses no bare 'if not state.' precondition checks — all state guards use hasattr(state, ...)"
+question = "Are precondition guards free of the bare `if not state.` anti-pattern?"
+tier = "structure"
+scale = "ratio"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "A2"
+group = "2"
+role = "gate"
+kind = "run_script"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+script = "scripts/htn_creator_scripts/validate_problems.py"
+target_file = "problems.py"
+text = "Running scripts/validate_problems.py on the generated problems.py exits with code 0 (no structural errors or warnings)"
+question = "Does problems.py pass structural validation?"
+tier = "structure"
+scale = "binary"
+
+[expectations.params.check]
+field = "exit_code"
+op = "eq"
+value = 0
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "A6"
+group = "2"
+role = "quality"
+kind = "grep_all_present"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+file = "domain.py"
+patterns = [
+    "\\(P\\)",
+    "\\(E\\)",
+]
+text = "domain.py state property map uses (P) precondition and (E) effect annotations"
+question = "Is the state map annotated with (P)/(E)?"
+tier = "structure"
+scale = "ratio"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "B1"
+group = "3"
+role = "quality"
+kind = "run_script"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+script = "scripts/htn_creator_scripts/validate_domain.py"
+target_file = "domain.py"
+checks = [
+    { field = "exit_code", op = "eq", value = 0 },
+    { field = "stdout", op = "contains", value = "Validation passed" },
+    { field = "stdout", op = "not_contains", value = "Warning:" },
+]
+text = "Pass 1 gate: validate_domain.py exits 0 with 'Validation passed' and no 'Warning:' in output"
+question = "Pass-1 domain gate clean (exit 0, \"Validation passed\", no \"Warning:\")?"
+tier = "process"
+scale = "binary"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+]
+
+[[expectations]]
+id = "B2"
+group = "3"
+role = "quality"
+kind = "run_script"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+script = "scripts/htn_creator_scripts/validate_problems.py"
+target_file = "problems.py"
+checks = [
+    { field = "exit_code", op = "eq", value = 0 },
+    { field = "stdout", op = "contains", value = "Validation passed" },
+    { field = "stdout", op = "not_contains", value = "Warning:" },
+]
+text = "Pass 1 gate: validate_problems.py exits 0 with 'Validation passed' and no 'Warning:' in output"
+question = "Pass-1 problems gate clean?"
+tier = "process"
+scale = "binary"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+]
+
+[[expectations]]
+id = "B3"
+group = "3"
+role = "quality"
+kind = "run_script"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+script = "scripts/htn_creator_scripts/analyze_domain_data_flow.py"
+target_file = "domain.py"
+checks = [
+    { field = "exit_code", op = "eq", value = 0 },
+    { field = "stdout", op = "contains", value = "ACTIONS FOUND:" },
+    { field = "stdout", op = "not_contains", value = "Error:" },
+]
+text = "Pass 2 gate: analyze_domain_data_flow.py exits 0 and produces 'ACTIONS FOUND:' output with no 'Error:' markers"
+question = "Pass-2 data-flow analyzer runs and finds actions, no errors?"
+tier = "process"
+scale = "binary"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+]
+
+[[expectations]]
+id = "B7"
+group = "3"
+role = "gate"
+kind = "grep_absent"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+file = "domain.py"
+pattern = "return \\[.*m_[a-z][a-z_]*\\("
+text = "Pass 2 anti-pattern: domain.py method return values do not contain nested method calls (no 'm_xxx(' inside a return list)"
+question = "No nested method calls in return lists (anti-pattern)?"
+tier = "process"
+scale = "ratio"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+]
+
+[[expectations]]
+id = "B8"
+group = "4"
+role = "gate"
+kind = "run_script"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+script = "scripts/htn_creator_scripts/validate_mapping_config.py"
+target_file = "{domain_name}.json"
+checks = [
+    { field = "exit_code", op = "eq", value = 0 },
+    { field = "stdout", op = "contains", value = "Configuration is valid" },
+]
+text = "Pass 3 output: bio-robot.json exists and passes validate_mapping_config.py schema validation ('Configuration is valid')"
+question = "Pass-3 mapping JSON exists and is schema-valid?"
+tier = "process"
+scale = "binary"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+]
+
+[[expectations]]
+id = "B9"
+group = "4"
+role = "quality"
+kind = "grep_present"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+file = "{domain_name}.json"
+pattern = "\"parameter_mapping\":"
+text = "Pass 3 binding quality: mapping JSON contains at least one parameter_mapping entry (confirms action parameters were bound to tool arguments)"
+question = "Mapping has ≥1 parameter_mapping entry?"
+tier = "process"
+scale = "binary"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+]
+
+[[expectations]]
+id = "C1"
+group = "5"
+role = "descriptive"
+kind = "metric_extract"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+metric_name = "action_count"
+source = "grader_run"
+cast = "int"
+text = "Action count is parseable from validate_domain.py output (always grader-run against the collected domain.py)"
+question = "How many actions? (action_count)"
+tier = "annex"
+scale = "binary"
+
+[expectations.params.fallback_script]
+script = "scripts/htn_creator_scripts/validate_domain.py"
+target_file = "domain.py"
+regexes = [
+    { pattern = "Found (\\d+) actions", group = 1 },
+]
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C2"
+group = "5"
+role = "descriptive"
+kind = "metric_extract"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+metric_name = "method_count"
+source = "grader_run"
+cast = "int"
+text = "Method count is parseable from validate_domain.py output (always grader-run against the collected domain.py)"
+question = "How many methods? (method_count)"
+tier = "annex"
+scale = "binary"
+
+[expectations.params.fallback_script]
+script = "scripts/htn_creator_scripts/validate_domain.py"
+target_file = "domain.py"
+regexes = [
+    { pattern = "Found \\d+ actions, (\\d+) methods", group = 1 },
+]
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C3"
+group = "5"
+role = "descriptive"
+kind = "metric_extract"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+metric_name = "scenario_count"
+source = "grader_run"
+cast = "int"
+text = "Scenario count is parseable from validate_problems.py output (always grader-run against the collected problems.py)"
+question = "How many scenarios? (scenario_count)"
+tier = "annex"
+scale = "binary"
+
+[expectations.params.fallback_script]
+script = "scripts/htn_creator_scripts/validate_problems.py"
+target_file = "problems.py"
+regexes = [
+    { pattern = "(\\d+) scenario", group = 1 },
+]
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C4"
+group = "5"
+role = "descriptive"
+kind = "metric_extract"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+metric_name = "context_variable_consumers"
+source = "grader_run"
+cast = "int"
+text = "Context variable consumer count from analyze_context_variable_flow.py (always grader-run; stages domain.py + bio-robot.json)"
+question = "How many ctx-var consumers?"
+tier = "annex"
+scale = "binary"
+
+[expectations.params.fallback_script_module]
+module = "htn_creator_scripts.analyze_context_variable_flow"
+module_args = [
+    "--domain-path",
+    "domain.py",
+    "--mapping-path",
+    "{domain_name}.json",
+]
+stage_files = [
+    { source_file = "domain.py" },
+    { source_file = "{domain_name}.json" },
+]
+regexes = [
+    { pattern = "CONSUMERS[^:]*:\\s*(\\d+)", group = 1 },
+]
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C5"
+group = "5"
+role = "descriptive"
+kind = "metric_extract"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+metric_name = "context_variable_producers"
+source = "grader_run"
+cast = "int"
+text = "Context variable producer count from analyze_context_variable_flow.py (always grader-run; stages domain.py + bio-robot.json)"
+question = "How many ctx-var producers?"
+tier = "annex"
+scale = "binary"
+
+[expectations.params.fallback_script_module]
+module = "htn_creator_scripts.analyze_context_variable_flow"
+module_args = [
+    "--domain-path",
+    "domain.py",
+    "--mapping-path",
+    "{domain_name}.json",
+]
+stage_files = [
+    { source_file = "domain.py" },
+    { source_file = "{domain_name}.json" },
+]
+regexes = [
+    { pattern = "PRODUCERS[^:]*:\\s*(\\d+)", group = 1 },
+]
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C6"
+group = "5"
+role = "descriptive"
+kind = "metric_compute"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+metric_name = "extractor_density"
+formula = "context_variable_producers / action_count"
+cast = "float"
+round = 2
+text = "Output extractor density (context_variable_producers / action_count) is computable from C5 and C1"
+question = "Extractor density (producers / actions)?"
+tier = "annex"
+scale = "binary"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C7"
+group = "5"
+role = "descriptive"
+kind = "metric_extract"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+metric_name = "total_subtasks"
+source = "grader_run"
+cast = "int"
+text = "Total method subtask count from analyze_method_decompositions.py (always grader-run against the collected domain.py)"
+question = "Total subtasks across methods?"
+tier = "annex"
+scale = "binary"
+
+[expectations.params.fallback_script]
+script = "scripts/htn_creator_scripts/analyze_method_decompositions.py"
+target_file = "domain.py"
+regexes = [
+    { pattern = "Total subtasks:\\s*(\\d+)", group = 1 },
+]
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C8"
+group = "5"
+role = "descriptive"
+kind = "metric_count"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+metric_name = "decomposition_warnings"
+source = "grader_run"
+log_path = "pass2.validate_method_decompositions.output"
+pattern = "Warning:"
+text = "Decomposition warning count from validate_method_decompositions.py (count of lines containing 'Warning:'; 0 expected for fully compliant output)"
+question = "Validator \"Warning:\" count?"
+tier = "annex"
+scale = "binary"
+
+[expectations.params.fallback_script_module]
+module = "htn_creator_scripts.validate_method_decompositions"
+module_args = [
+    "--domain-path",
+    "examples/orchestration_demo/{alias}/domain.py",
+]
+
+[[expectations.params.fallback_script_module.stage_files]]
+source_file = "domain.py"
+stage_path_template = "examples/orchestration_demo/{alias}/domain.py"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C9"
+group = "5"
+role = "descriptive"
+kind = "metric_extract"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+metric_name = "decomposition_failures"
+source = "grader_run"
+cast = "int"
+text = "Failed-method count from validate_method_decompositions.py SUMMARY line ('N failed'); 0 expected, recorded for visibility. No longer asserted (annex is non-gating; formerly consolidated B6's failed-method gate)."
+question = "Validator \"N failed\" count?"
+tier = "annex"
+scale = "binary"
+
+[expectations.params.fallback_script_module]
+module = "htn_creator_scripts.validate_method_decompositions"
+module_args = [
+    "--domain-path",
+    "examples/orchestration_demo/{alias}/domain.py",
+]
+regexes = [
+    { pattern = "(\\d+) failed", group = 1 },
+]
+
+[[expectations.params.fallback_script_module.stage_files]]
+source_file = "domain.py"
+stage_path_template = "examples/orchestration_demo/{alias}/domain.py"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "D1"
+group = "6"
+role = "gate"
+kind = "planner_solvability"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+module = "htn_creator_scripts.check_solvability"
+module_args = [
+    "--domain-path",
+    "examples/orchestration_demo/{alias}/domain.py",
+]
+text = "Every scenario in problems.py is solvable by the planner (find_plan returns a plan); pass_rate is the solvable fraction"
+question = "Does find_plan solve every scenario?"
+tier = "soundness"
+scale = "binary"
+
+[[expectations.params.stage_files]]
+source_file = "domain.py"
+stage_path_template = "examples/orchestration_demo/{alias}/domain.py"
+
+[[expectations.params.stage_files]]
+source_file = "problems.py"
+stage_path_template = "examples/orchestration_demo/{alias}/problems.py"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C-S2"
+group = "7"
+role = "descriptive"
+kind = "run_script_module"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+module = "htn_creator_scripts.check_solvability"
+module_args = [
+    "--domain-path",
+    "examples/orchestration_demo/{alias}/domain.py",
+]
+checks = [
+    { field = "exit_code", op = "eq", value = 0 },
+    { field = "stdout", op = "regex", value = "ATTRIBUTION_SUMMARY: unsolvable=\\d+" },
+]
+text = "check_solvability.py runs the attribution mechanism on every generated domain/problems pair and always emits an ATTRIBUTION_SUMMARY marker (mechanism ran, independent of whether any scenario failed on this particular domain)"
+question = "Failure = scenario-fault or encoding-fault?"
+tier = "soundness"
+scale = "binary"
+
+[[expectations.params.stage_files]]
+source_file = "domain.py"
+stage_path_template = "examples/orchestration_demo/{alias}/domain.py"
+
+[[expectations.params.stage_files]]
+source_file = "problems.py"
+stage_path_template = "examples/orchestration_demo/{alias}/problems.py"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C-S3"
+group = "7"
+role = "descriptive"
+kind = "run_script_module"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+module = "htn_creator_scripts.check_solvability"
+module_args = [
+    "--domain-path",
+    "examples/orchestration_demo/{alias}/domain.py",
+]
+text = "check_solvability.py runs without error and any DISTANCE marker it emits is well-formed: a fraction in [0, 1] (or the explicit 'unknown' fallback when the decomposition tree could not be sized) — never a malformed or out-of-range value. Non-tautological coverage (every UNSOLVABLE scenario gets a DISTANCE, and the golden anchor orders correctly against a gross-failure counter-case) is proven directly against fixtures in test_selftest_grader.py, not against arbitrary agent output here."
+question = "Distance-to-solvable well-formed?"
+tier = "soundness"
+scale = "binary"
+
+[[expectations.params.stage_files]]
+source_file = "domain.py"
+stage_path_template = "examples/orchestration_demo/{alias}/domain.py"
+
+[[expectations.params.stage_files]]
+source_file = "problems.py"
+stage_path_template = "examples/orchestration_demo/{alias}/problems.py"
+
+[[expectations.params.checks]]
+field = "exit_code"
+op = "eq"
+value = 0
+
+[[expectations.params.checks]]
+field = "stdout"
+op = "not_regex"
+value = "DISTANCE: \\S+=(?!(0(\\.\\d+)?|1(\\.0+)?|unknown))"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C-S4"
+group = "7"
+role = "descriptive"
+kind = "run_script_module"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+module = "htn_creator_scripts.check_solvability"
+module_args = [
+    "--domain-path",
+    "examples/orchestration_demo/{alias}/domain.py",
+]
+checks = [
+    { field = "exit_code", op = "eq", value = 0 },
+]
+text = "Graph localisation runs without error (descriptive/non-gating per the ratified catalogue: this expectation asserts only that the mechanism executes cleanly, never on graph content or on which vars/actions appear)"
+question = "Graph localisation ran cleanly?"
+tier = "soundness"
+scale = "binary"
+
+[[expectations.params.stage_files]]
+source_file = "domain.py"
+stage_path_template = "examples/orchestration_demo/{alias}/domain.py"
+
+[[expectations.params.stage_files]]
+source_file = "problems.py"
+stage_path_template = "examples/orchestration_demo/{alias}/problems.py"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C-N1"
+group = "8"
+role = "gate"
+kind = "run_script_module"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+module = "htn_creator_scripts.check_state_closure"
+module_args = [
+    "--domain-path",
+    "examples/orchestration_demo/{alias}/domain.py",
+]
+checks = [
+    { field = "exit_code", op = "eq", value = 0 },
+]
+text = "check_state_closure.py finds no orphan preconditions and no negation conflicts in the generated domain.py (dead effects are reported but non-fatal — a [DATA] effect with no reader is not necessarily a defect)"
+question = "State precond/effect closure (orphan/dead/negation)?"
+tier = "soundness"
+scale = "binary"
+
+[[expectations.params.stage_files]]
+source_file = "domain.py"
+stage_path_template = "examples/orchestration_demo/{alias}/domain.py"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C-N2"
+group = "8"
+role = "gate"
+kind = "run_script_module"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+module = "htn_creator_scripts.check_state_init"
+module_args = [
+    "--domain-path",
+    "examples/orchestration_demo/{alias}/domain.py",
+]
+checks = [
+    { field = "exit_code", op = "eq", value = 0 },
+]
+text = "check_state_init.py finds every precondition state-var initialised in the generated problems.py"
+question = "All precondition state-vars initialised in problems.py?"
+tier = "soundness"
+scale = "ratio"
+
+[[expectations.params.stage_files]]
+source_file = "domain.py"
+stage_path_template = "examples/orchestration_demo/{alias}/domain.py"
+
+[[expectations.params.stage_files]]
+source_file = "problems.py"
+stage_path_template = "examples/orchestration_demo/{alias}/problems.py"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C-N3"
+group = "8"
+role = "gate"
+kind = "run_script_module"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+module = "htn_creator_scripts.check_referential"
+module_args = [
+    "--domain-path",
+    "examples/orchestration_demo/{alias}/domain.py",
+]
+checks = [
+    { field = "exit_code", op = "eq", value = 0 },
+]
+text = "check_referential.py finds no unresolved decomposition sub-task names in the generated domain.py (static, exhaustive gate — not the dynamic non-fatal warning in validate_method_decompositions)"
+question = "Sub-task strings resolve to registered a_*/m_* keys?"
+tier = "soundness"
+scale = "ratio"
+
+[[expectations.params.stage_files]]
+source_file = "domain.py"
+stage_path_template = "examples/orchestration_demo/{alias}/domain.py"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C-X1"
+group = "9"
+role = "gate"
+kind = "run_script_module"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+module = "htn_creator_scripts.check_context_flow"
+module_args = [
+    "--domain-path",
+    "domain.py",
+    "--mapping-path",
+    "{domain_name}.json",
+]
+stage_files = [
+    { source_file = "domain.py" },
+    { source_file = "{domain_name}.json", required = false },
+]
+checks = [
+    { field = "stdout", op = "regex", value = "ORPHAN_CONSUMERS: count=0(?![0-9])" },
+]
+text = "check_context_flow.py finds no orphan ${context.X} consumers in the generated domain.py/mapping pair (gating: a dangling consumer is a silent runtime tool-call failure)"
+question = "Every ${context.X} has a producing extractor?"
+tier = "soundness"
+scale = "ratio"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C-X2"
+group = "9"
+role = "descriptive"
+kind = "run_script_module"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+module = "htn_creator_scripts.check_context_flow"
+module_args = [
+    "--domain-path",
+    "domain.py",
+    "--mapping-path",
+    "{domain_name}.json",
+]
+stage_files = [
+    { source_file = "domain.py" },
+    { source_file = "{domain_name}.json", required = false },
+]
+checks = [
+    { field = "stdout", op = "regex", value = "ORPHAN_PRODUCERS: count=\\d+" },
+]
+text = "check_context_flow.py runs the orphan-producer count on every generated domain/mapping pair and always emits an ORPHAN_PRODUCERS marker (descriptive/non-gating per the ratified catalogue and the C4=0 triage verdict: this expectation asserts only that the mechanism ran cleanly and emitted a well-formed marker, never that the count is zero -- on current domains it is expected to be non-zero)"
+question = "Every extractor is consumed (no orphan producer)?"
+tier = "soundness"
+scale = "binary"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C-X3"
+group = "9"
+role = "gate"
+kind = "run_script_module"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+module = "htn_creator_scripts.check_context_flow"
+module_args = [
+    "--domain-path",
+    "domain.py",
+    "--mapping-path",
+    "{domain_name}.json",
+]
+stage_files = [
+    { source_file = "domain.py" },
+    { source_file = "{domain_name}.json", required = false },
+]
+checks = [
+    { field = "stdout", op = "regex", value = "ORDERING_VIOLATIONS: count=0(?![0-9])" },
+]
+text = "check_context_flow.py finds no producer-before-consumer ordering violations in the generated domain.py/mapping pair (gating: a consumer reached before its producer in the domain's own decomposition order can never see the value at runtime)"
+question = "Producer step ordered before consumer?"
+tier = "soundness"
+scale = "ratio"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C-X4"
+group = "9"
+role = "gate"
+kind = "run_script_module"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+module = "htn_creator_scripts.check_context_grammar"
+module_args = [
+    "--domain-path",
+    "examples/orchestration_demo/{alias}/domain.py",
+]
+checks = [
+    { field = "exit_code", op = "eq", value = 0 },
+    { field = "stdout", op = "regex", value = "MALFORMED_CONTEXT_REFS: count=\\d+" },
+]
+text = "check_context_grammar.py finds no malformed ${context.X} references in the generated domain.py (gating: an UNCLOSED/EMPTY/INVALID_NAME ref is silently dropped or mis-substituted by middleware.py's substitute_context_variables today)"
+question = "Every ${context.X} well-formed vs grammar?"
+tier = "soundness"
+scale = "ratio"
+
+[[expectations.params.stage_files]]
+source_file = "domain.py"
+stage_path_template = "examples/orchestration_demo/{alias}/domain.py"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C-X5"
+group = "9"
+role = "descriptive"
+kind = "run_script_module"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+module = "htn_creator_scripts.check_reuse_coverage"
+module_args = [
+    "--domain-path",
+    "examples/orchestration_demo/{alias}/domain.py",
+]
+checks = [
+    { field = "exit_code", op = "eq", value = 0 },
+    { field = "stdout", op = "regex", value = "REUSE_RATIO: (0(\\.\\d+)?|1(\\.0+)?)" },
+]
+text = "check_reuse_coverage.py runs on the generated domain.py and always emits a well-formed REUSE_RATIO marker (descriptive/non-gating per the ratified catalogue: this expectation asserts only that the mechanism ran cleanly and the ratio is well-formed, never on the ratio's value -- expected near 0 on current domains per the C4=0 triage verdict)"
+question = "Reuse coverage well-formed (templated ÷ total)?"
+tier = "soundness"
+scale = "binary"
+
+[[expectations.params.stage_files]]
+source_file = "domain.py"
+stage_path_template = "examples/orchestration_demo/{alias}/domain.py"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C-XN1"
+group = "10"
+role = "gate"
+kind = "run_script_module"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+module = "htn_creator_scripts.check_state_context_correspondence"
+module_args = [
+    "--domain-path",
+    "domain.py",
+    "--mapping-path",
+    "{domain_name}.json",
+]
+stage_files = [
+    { source_file = "domain.py" },
+    { source_file = "{domain_name}.json", required = false },
+]
+checks = [
+    { field = "exit_code", op = "eq", value = 0 },
+    { field = "stdout", op = "regex", value = "MISSING_FUNNELS: count=\\d+" },
+]
+text = "check_state_context_correspondence.py finds no missing state<->context funnels in the generated domain.py/mapping pair (gating: a data-carrying inter-action dependency with no producing output_extractor and/or no consuming ${context.X} ref can never actually flow its real runtime value between the two tool calls)"
+question = "Every inter-action state data dep has a ${context.X} funnel?"
+tier = "soundness"
+scale = "ratio"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C-H1"
+group = "11"
+role = "gate"
+kind = "run_script_module"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+module = "htn_creator_scripts.check_hygiene"
+module_args = [
+    "--rule",
+    "state-arg",
+    "--domain-path",
+    "examples/orchestration_demo/{alias}/domain.py",
+]
+checks = [
+    { field = "exit_code", op = "eq", value = 0 },
+    { field = "stdout", op = "regex", value = "STATE_READ_ARGS: count=\\d+" },
+]
+text = "check_hygiene.py --rule state-arg finds no state.X read forwarded as a decomposition sub-task argument in the generated domain.py (gating: a forwarded state.X read captures a stale planning-time value instead of the ${context.X} execution-time substitution)"
+question = "No state.X read passed as a decomposition arg (#4)?"
+tier = "soundness"
+scale = "binary"
+
+[[expectations.params.stage_files]]
+source_file = "domain.py"
+stage_path_template = "examples/orchestration_demo/{alias}/domain.py"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C-H2"
+group = "11"
+role = "gate"
+kind = "run_script_module"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+module = "htn_creator_scripts.check_hygiene"
+module_args = [
+    "--rule",
+    "hardcoded-id",
+    "--domain-path",
+    "examples/orchestration_demo/{alias}/domain.py",
+]
+checks = [
+    { field = "exit_code", op = "eq", value = 0 },
+    { field = "stdout", op = "regex", value = "HARDCODED_IDS: count=\\d+" },
+]
+text = "check_hygiene.py --rule hardcoded-id finds no hardcoded real-world ID literal in the generated domain.py's string constants (gating: domain.py is the planning layer; real IDs belong in the execution layer's output_extractors, not baked into planning-time source)"
+question = "No hardcoded real IDs in domain.py (#2)?"
+tier = "soundness"
+scale = "binary"
+
+[[expectations.params.stage_files]]
+source_file = "domain.py"
+stage_path_template = "examples/orchestration_demo/{alias}/domain.py"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C-M1"
+group = "12"
+role = "gate"
+kind = "run_script_module"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+module = "htn_creator_scripts.validate_mapping_config"
+module_args = [
+    "mappings/{alias}.json",
+    "--domain",
+    "examples/orchestration_demo/{alias}/domain.py",
+]
+checks = [
+    { field = "stdout", op = "regex", value = "UNMAPPED_ACTIONS: count=0(?![0-9])" },
+    { field = "stdout", op = "regex", value = "INCOMPLETE_ENTRIES: count=0(?![0-9])" },
+]
+text = "validate_mapping_config.py --domain finds no domain action lacking a mapping entry, and no present entry missing server/tool/output_extractors, in the generated domain.py/mapping pair (gating: a domain action with no mapping entry at all can never be executed at runtime)"
+question = "Every action has a complete mapping entry?"
+tier = "soundness"
+scale = "binary"
+
+[[expectations.params.stage_files]]
+source_file = "domain.py"
+stage_path_template = "examples/orchestration_demo/{alias}/domain.py"
+
+[[expectations.params.stage_files]]
+source_file = "{domain_name}.json"
+stage_path_template = "mappings/{alias}.json"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "C-M2"
+group = "12"
+role = "gate"
+kind = "run_script_module"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+module = "htn_creator_scripts.validate_mapping_config"
+module_args = [
+    "mappings/{alias}.json",
+    "--domain",
+    "examples/orchestration_demo/{alias}/domain.py",
+]
+checks = [
+    { field = "stdout", op = "regex", value = "DANGLING_ENTRIES: count=0(?![0-9])" },
+    { field = "stdout", op = "regex", value = "BIJECTION_VIOLATIONS: count=0(?![0-9])" },
+]
+text = "validate_mapping_config.py --domain finds no dangling mapping entry (action not in domain.py) and no duplicate action/tool bijection violation in the generated domain.py/mapping pair (gating: a dangling entry is dead configuration and a bijection violation means two actions silently share one tool binding)"
+question = "Mapping internally consistent (no dangling/conflicting bindings)?"
+tier = "soundness"
+scale = "binary"
+
+[[expectations.params.stage_files]]
+source_file = "domain.py"
+stage_path_template = "examples/orchestration_demo/{alias}/domain.py"
+
+[[expectations.params.stage_files]]
+source_file = "{domain_name}.json"
+stage_path_template = "mappings/{alias}.json"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "D-E1"
+group = "13"
+role = "descriptive"
+kind = "run_script_module"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+status_regex = "TIER_D_REPLAY: status=(pass|not_measured)"
+module = "htn_creator_eval.check_tier_d"
+module_args = [
+    "--domain-path",
+    "domain.py",
+    "--problems-path",
+    "problems.py",
+    "--mapping-path",
+    "{domain_name}.json",
+    "--servers-dir",
+    "{servers_dir}",
+]
+stage_files = [
+    { source_file = "domain.py" },
+    { source_file = "problems.py" },
+    { source_file = "{domain_name}.json", required = false },
+]
+text = "check_tier_d.py replays the generated plan against the targeted mock MCP servers in-process (none when the catalog comes from a snapshot) (reusing _tier_d_executor.measure_scenario, never a second execution engine) and prints whether every action executed without erroring (descriptive: this asserts the marker is well-formed and surfaces its own first_failure_index as a value, never a specific pass/fail verdict for the run)"
+question = "Did the whole plan execute against the mock servers without any action erroring?"
+tier = "executability"
+scale = "binary"
+
+[[expectations.params.checks]]
+field = "stdout"
+op = "regex"
+value = "TIER_D_EXECUTION: pass=(True|False|None) first_failure_index=(\\d+|None)"
+
+[expectations.params.value_extract]
+pattern = "TIER_D_EXECUTION: pass=(?:True|False) first_failure_index=(\\d+|None)"
+group = 1
+cast = "str"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "D-E2"
+group = "13"
+role = "descriptive"
+kind = "run_script_module"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+status_regex = "TIER_D_REPLAY: status=(pass|not_measured)"
+module = "htn_creator_eval.check_tier_d"
+module_args = [
+    "--domain-path",
+    "domain.py",
+    "--problems-path",
+    "problems.py",
+    "--mapping-path",
+    "{domain_name}.json",
+    "--servers-dir",
+    "{servers_dir}",
+]
+stage_files = [
+    { source_file = "domain.py" },
+    { source_file = "problems.py" },
+    { source_file = "{domain_name}.json", required = false },
+]
+text = "check_tier_d.py reports the method-span triple (measured/not_reached/empty -- a SPAN count summed across every scenario in problems.py, never a row count) from the same plan replay D-E1 uses; descriptive, never gating, and a `not_reached` span is never reported as a vacuous 0.0"
+question = "Where, in the method-span structure, did execution actually run, and with what per-span success ratio?"
+tier = "executability"
+scale = "ratio"
+
+[[expectations.params.checks]]
+field = "stdout"
+op = "regex"
+value = "TIER_D_SPANS: measured=\\d+ not_reached=\\d+ empty=\\d+"
+
+[expectations.params.value_extract]
+pattern = "TIER_D_SPANS: (measured=\\d+ not_reached=\\d+ empty=\\d+)"
+group = 1
+cast = "str"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "D-E3"
+group = "13"
+role = "gate"
+kind = "run_script_module"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+module = "htn_creator_eval.check_tier_d"
+module_args = [
+    "--domain-path",
+    "domain.py",
+    "--problems-path",
+    "problems.py",
+    "--mapping-path",
+    "{domain_name}.json",
+    "--servers-dir",
+    "{servers_dir}",
+]
+stage_files = [
+    { source_file = "domain.py" },
+    { source_file = "problems.py" },
+    { source_file = "{domain_name}.json", required = false },
+]
+status_regex = "TIER_D_GATE_STATUS:.*\\bDE3=(pass|fail|not_measured)"
+text = "check_tier_d.py re-derives, from each executed step's own captured response, whether every declared output_extractors path resolves (reusing the now-shared _tier_d_executor.extractor_resolution rather than a second computation); gate (PI decision 2026-08-05: an unresolved extractor is a runtime-failure risk) -- a row that declared zero extractors is not_measured, never a vacuous pass"
+question = "For actions with a declared output_extractors path, does every declared path resolve against that action's OWN captured response?"
+tier = "executability"
+scale = "binary"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "D-E4"
+group = "13"
+role = "gate"
+kind = "run_script_module"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+module = "htn_creator_eval.check_tier_d"
+module_args = [
+    "--domain-path",
+    "domain.py",
+    "--problems-path",
+    "problems.py",
+    "--mapping-path",
+    "{domain_name}.json",
+    "--servers-dir",
+    "{servers_dir}",
+]
+stage_files = [
+    { source_file = "domain.py" },
+    { source_file = "problems.py" },
+    { source_file = "{domain_name}.json", required = false },
+]
+status_regex = "TIER_D_GATE_STATUS:.*\\bDE4=(pass|fail|not_measured)"
+text = "check_tier_d.py statically scans the mapping's parameter_mapping values for a ${...} context placeholder (reusing the now-shared tier_d_tool_grader.placeholder_demand) and, when demand exists, whether it resolved at call time (tier_d_tool_grader.unbound_placeholder_count); gate (PI decision 2026-08-05: an unbound ${context.X} is a runtime-failure risk) -- not_measured corpus-wide today (zero placeholder occurrences in every discovered mapping), never a vacuous pass"
+question = "Does any action's parameter_mapping, anywhere in the document, declare a ${...} context placeholder at all?"
+tier = "executability"
+scale = "binary"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "D-E5"
+group = "13"
+role = "gate"
+kind = "run_script_module"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+module = "htn_creator_eval.check_tier_d"
+module_args = [
+    "--domain-path",
+    "domain.py",
+    "--problems-path",
+    "problems.py",
+    "--mapping-path",
+    "{domain_name}.json",
+    "--servers-dir",
+    "{servers_dir}",
+]
+stage_files = [
+    { source_file = "domain.py" },
+    { source_file = "problems.py" },
+    { source_file = "{domain_name}.json", required = false },
+]
+checks = [
+    { field = "stdout", op = "regex", value = "TOOL_EXISTENCE_VIOLATIONS: count=0(?![0-9])" },
+]
+text = "check_tier_d.py grades the mapping against the targeted servers' real list_tools() catalog (tier_d_tool_grader.grade_mapping, the same function the D-E5/D-E6 corpus sweep already uses) and reports tool-existence violations; gate (PI decision 2026-08-05: an unknown tool/server is a runtime-failure risk) -- binary (zero violations = pass), same convention as C-M1/C-X1's tightened zero-count regex"
+question = "Does every tool a run's mapping names actually exist on the server it names?"
+tier = "executability"
+scale = "binary"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
+
+[[expectations]]
+id = "D-E6"
+group = "13"
+role = "gate"
+kind = "run_script_module"
+depends_on = []
+
+[expectations.evaluator]
+name = "htn-creator-eval"
+range = "^0.4"
+
+[expectations.params]
+module = "htn_creator_eval.check_tier_d"
+module_args = [
+    "--domain-path",
+    "domain.py",
+    "--problems-path",
+    "problems.py",
+    "--mapping-path",
+    "{domain_name}.json",
+    "--servers-dir",
+    "{servers_dir}",
+]
+stage_files = [
+    { source_file = "domain.py" },
+    { source_file = "problems.py" },
+    { source_file = "{domain_name}.json", required = false },
+]
+checks = [
+    { field = "stdout", op = "regex", value = "PARAM_SCHEMA_VIOLATIONS: count=0(?![0-9])" },
+]
+text = "check_tier_d.py grades the mapping's parameter_mapping bindings against the targeted servers' real inputSchema (tier_d_tool_grader.grade_mapping, the same function D-E5 uses) and reports parameter-schema violations; gate (PI decision 2026-08-05: a bad argument shape is a runtime-failure risk) -- binary (zero violations = pass), same convention as C-M1/C-X1's tightened zero-count regex"
+question = "Do a run's mapped arguments satisfy the tool's own real inputSchema?"
+tier = "executability"
+scale = "binary"
+
+[[expectations.applies_to]]
+path = "plan.config"
+any_of = [
+    "with_skill",
+    "without_skill",
+]
