@@ -19,6 +19,7 @@ use candler_schemas::trace::{
 };
 use sha2::{Digest as _, Sha256};
 
+// TRAIT_OBJECT: a test returns any error its steps raise; the error is only printed
 type Res<T> = Result<T, Box<dyn Error>>;
 
 /// The stream name every fixture is read under.
@@ -51,7 +52,7 @@ fn field<'a>(table: &'a toml::Table, key: &str) -> Res<&'a toml::Value> {
 
 fn text<'a>(table: &'a toml::Table, key: &str) -> Res<&'a str> {
     Ok(field(table, key)?
-        .as_str()
+        .as_str() // BORROW: .as_str() gives borrows the text
         .ok_or(format!("`{key}` is not text"))?)
 }
 
@@ -156,23 +157,23 @@ fn trace_bytes(stream: &Stream, output: Output) -> Res<Vec<u8>> {
 /// `completed`, `gateway_error`, `unknown`, `agent_error` or `cap:<cap>`, the way `expected.toml` writes an end.
 fn label(ended_by: &EndedBy) -> String {
     match ended_by {
-        EndedBy::Completed => "completed".to_owned(),
+        EndedBy::Completed => "completed".to_owned(), // BORROW: .to_owned() gives owned copy of the text
         EndedBy::AgentError { reason, .. } => reason.as_ref().map_or_else(
-            || "agent_error".to_owned(),
+            || "agent_error".to_owned(), // BORROW: .to_owned() gives owned copy of the text
             |reason| format!("agent_error/{reason}"),
         ),
         EndedBy::Cap { cap, .. } => match cap {
-            Cap::Turns => "cap:turns".to_owned(),
-            Cap::Cost => "cap:cost".to_owned(),
-            Cap::Wall => "cap:wall".to_owned(),
-            _ => "cap:other".to_owned(), // EXPLICIT: a cap this test does not know fails the comparison
+            Cap::Turns => "cap:turns".to_owned(), // BORROW: .to_owned() gives owned copy of the text
+            Cap::Cost => "cap:cost".to_owned(), // BORROW: .to_owned() gives owned copy of the text
+            Cap::Wall => "cap:wall".to_owned(), // BORROW: .to_owned() gives owned copy of the text
+            _ => "cap:other".to_owned(), // BORROW: .to_owned() gives owned copy of the text // EXPLICIT: a cap this test does not know fails the comparison
         },
-        EndedBy::GatewayError => "gateway_error".to_owned(),
-        EndedBy::BudgetStop => "budget_stop".to_owned(),
-        EndedBy::Killed => "killed".to_owned(),
-        EndedBy::Interrupted => "interrupted".to_owned(),
-        EndedBy::Unknown => "unknown".to_owned(),
-        _ => "other".to_owned(), // EXPLICIT: an end this test does not know fails the comparison
+        EndedBy::GatewayError => "gateway_error".to_owned(), // BORROW: .to_owned() gives owned copy of the text
+        EndedBy::BudgetStop => "budget_stop".to_owned(), // BORROW: .to_owned() gives owned copy of the text
+        EndedBy::Killed => "killed".to_owned(), // BORROW: .to_owned() gives owned copy of the text
+        EndedBy::Interrupted => "interrupted".to_owned(), // BORROW: .to_owned() gives owned copy of the text
+        EndedBy::Unknown => "unknown".to_owned(), // BORROW: .to_owned() gives owned copy of the text
+        _ => "other".to_owned(), // BORROW: .to_owned() gives owned copy of the text // EXPLICIT: an end this test does not know fails the comparison
     }
 }
 
@@ -184,8 +185,8 @@ fn expected_sessions(stream: &Stream) -> Res<Vec<(String, Option<String>, String
             let entry = table(entry, "a session")?;
             let ended = text(entry, "ended_by")?;
             let end = match (entry.get("cap"), entry.get("reason")) {
-                (Some(cap), _) => format!("{ended}:{}", cap.as_str().ok_or("cap")?),
-                (None, Some(reason)) => format!("{ended}/{}", reason.as_str().ok_or("reason")?),
+                (Some(cap), _) => format!("{ended}:{}", cap.as_str().ok_or("cap")?), // BORROW: .as_str() gives borrows the text
+                (None, Some(reason)) => format!("{ended}/{}", reason.as_str().ok_or("reason")?), // BORROW: .as_str() gives borrows the text
                 (None, None) => ended.to_owned(), // BORROW: owned label
             };
             Ok((
@@ -227,7 +228,7 @@ fn denied(output: &Output) -> Res<Vec<DenialRow>> {
         ) = (&record.event.kind, &record.event.span)
         {
             let by = serde_json::to_value(denial.by)?
-                .as_str()
+                .as_str() // BORROW: .as_str() gives borrows the text
                 .ok_or("a denial's `by` is not text")?
                 .to_owned(); // BORROW: owned wire name
             rows.push((
@@ -260,8 +261,8 @@ fn expected_denials(stream: &Stream) -> Res<Vec<DenialRow>> {
 /// The `result` line of a session `S` of a stream that starts with an init line of Claude Code 2.1.220.
 fn stream_with(result: Option<&str>) -> Vec<Vec<u8>> {
     let init = r#"{"type":"system","subtype":"init","session_id":"S","model":"m","claude_code_version":"2.1.220"}"#;
-    let mut lines = vec![init.as_bytes().to_vec()];
-    lines.extend(result.map(|line| line.as_bytes().to_vec()));
+    let mut lines = vec![init.as_bytes().to_vec()]; // BORROW: .to_vec() gives owned bytes
+    lines.extend(result.map(|line| line.as_bytes().to_vec())); // BORROW: .to_vec() gives owned bytes
     lines
 }
 
@@ -285,7 +286,7 @@ fn expected_facts() -> Res<()> {
             .iter()
             .map(|session| {
                 (
-                    session.id().to_string(),
+                    session.id().to_string(), // BORROW: .to_string() gives owned text
                     session.parent_session().map(ToString::to_string),
                     label(session.ended_by()),
                 )
@@ -297,7 +298,7 @@ fn expected_facts() -> Res<()> {
             .iter()
             .filter_map(|session| {
                 let parent = session.parent_session()?;
-                let rest = session.id().as_str().strip_prefix(parent.as_str())?;
+                let rest = session.id().as_str().strip_prefix(parent.as_str())?; // BORROW: .as_str() gives borrows the text
                 rest.strip_prefix('/').map(str::to_owned) // BORROW: owned call id
             })
             .collect();
@@ -317,7 +318,7 @@ fn expected_facts() -> Res<()> {
                 .events
                 .iter()
                 .filter(|record| record.event.raw_ref.frame == frame)
-                .map(|record| record.session.to_string())
+                .map(|record| record.session.to_string()) // BORROW: .to_string() gives owned text
                 .collect();
             assert_eq!(
                 holders,
@@ -342,8 +343,8 @@ fn expected_facts() -> Res<()> {
         for call in list(&stream.expected, "mcp_calls")? {
             let call = table(call, "an mcp call")?;
             want_mcp.push((
-                text(call, "tool_use_id")?.to_owned(),
-                text(call, "server")?.to_owned(),
+                text(call, "tool_use_id")?.to_owned(), // BORROW: .to_owned() gives owned copy of the text
+                text(call, "server")?.to_owned(), // BORROW: .to_owned() gives owned copy of the text
             )); // BORROW: owned copies
         }
         assert_eq!(mcp, want_mcp, "{name}: MCP calls");
@@ -481,7 +482,7 @@ fn usage_equals_the_committed_totals() -> Res<()> {
         let mut messages: BTreeMap<String, Counts> = output
             .sessions
             .iter()
-            .map(|session| (session.id().to_string(), [0; 4]))
+            .map(|session| (session.id().to_string(), [0; 4])) // BORROW: .to_string() gives owned text
             .collect();
         let mut totals: BTreeMap<String, (Counts, Option<u64>)> = BTreeMap::new();
         for record in &output.events {
@@ -501,7 +502,7 @@ fn usage_equals_the_committed_totals() -> Res<()> {
                     *cache_read_tokens,
                     *cache_creation_tokens,
                 ];
-                let session = record.session.to_string();
+                let session = record.session.to_string(); // BORROW: .to_string() gives owned text
                 match scope {
                     UsageScope::Message => {
                         let sum = messages.entry(session).or_default();
@@ -554,19 +555,19 @@ fn version_table() {
         (init("2.2.0-rc.1"), None),
         (init("2.1.221-rc.1"), None),
         (
-            r#"{"type":"assistant","session_id":"S","message":{"content":[]}}"#.to_owned(),
+            r#"{"type":"assistant","session_id":"S","message":{"content":[]}}"#.to_owned(), // BORROW: .to_owned() gives owned copy of the text
             None,
         ),
-        ("this is not json".to_owned(), None),
+        ("this is not json".to_owned(), None), // BORROW: .to_owned() gives owned copy of the text
     ];
     let reader = ClaudeCodeReader::new();
     for (sample, want) in rows {
         let got = reader
             .detect(sample.as_bytes())
-            .map(|(version, confidence)| (version.to_string(), confidence));
+            .map(|(version, confidence)| (version.to_string(), confidence)); // BORROW: .to_string() gives owned text
         assert_eq!(
             got,
-            want.map(|version| (version.to_owned(), Confidence::Certain)),
+            want.map(|version| (version.to_owned(), Confidence::Certain)), // BORROW: .to_owned() gives owned copy of the text
             "sample {sample}"
         );
     }
@@ -596,14 +597,14 @@ fn replay_is_deterministic() -> Res<()> {
             .finish()?
             .iter()
             .filter(|session| session.parent_session().is_none())
-            .map(|session| session.id().to_string())
+            .map(|session| session.id().to_string()) // BORROW: .to_string() gives owned text
             .collect();
         assert_eq!(roots, want, "{}: observed roots", stream.name);
     }
     Ok(())
 }
 
-/// Guards: I3 version discipline — the trace file of each stream is the one blessed for this reader version; a ratchet against unnoticed change, not evidence of correctness. Oracle: the SHA-256 recorded in `digests.toml`.
+/// Guards: I3 version discipline — the trace file of each stream is the one blessed for this reader version. This is a blessed ratchet against unnoticed change, guarded by the digests diff gate (no removed line against origin/main), and is not correctness evidence. Oracle: the SHA-256 recorded in `digests.toml`, blessed from the reader's own output.
 #[test]
 fn trace_digests_are_ratcheted() -> Res<()> {
     let path = fixtures().join("digests.toml");
@@ -629,7 +630,7 @@ fn trace_digests_are_ratcheted() -> Res<()> {
             }
             for (name, digest) in old_digests {
                 blessed
-                    .entry(name.clone())
+                    .entry(name.clone()) // BORROW: .clone() gives owned copy
                     .or_insert(digest.as_str().ok_or("not text")?.to_owned()); // BORROW: owned copy
             }
         }
@@ -652,7 +653,7 @@ fn trace_digests_are_ratcheted() -> Res<()> {
     for (name, digest) in &now {
         assert_eq!(
             digests.get(name).and_then(toml::Value::as_str),
-            Some(digest.as_str()),
+            Some(digest.as_str()), // BORROW: .as_str() gives borrows the text
             "{name}: trace digest"
         );
     }

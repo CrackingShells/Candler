@@ -155,7 +155,7 @@ pub(crate) fn parse(frame: &RawFrame) -> Parsed {
         }
         FrameData::Bytes { base64 } => Parsed::of(vec![Draft::notification_of(
             "base64",
-            Value::String(base64.to_string()),
+            Value::String(base64.to_string()), // BORROW: .to_string() gives owned text
         )]),
         // A frame form this version does not know is kept as a marker; the frame itself stays in the raw file.
         _ => Parsed::of(vec![Draft::notification_of(
@@ -182,7 +182,7 @@ fn object_line(line: Map<String, Value>) -> Parsed {
         Some("assistant") => message
             .and_then(|message| message.get("model"))
             .and_then(Value::as_str)
-            .map(str::to_owned),
+            .map(str::to_owned), // BORROW: str::to_owned gives owned copy of the text
         _ => None,
     };
     let mut parsed = Parsed {

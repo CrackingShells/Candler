@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 /// Files that sit in the fixtures directory without a `PROVENANCE.toml` entry.
 const EXEMPT: [&str; 2] = ["PROVENANCE.toml", "digests.toml"];
 
+// TRAIT_OBJECT: a test returns any error its steps raise; the error is only printed
 type Res<T> = Result<T, Box<dyn Error>>;
 
 struct Entry {
@@ -38,7 +39,7 @@ fn entries() -> Res<Vec<Entry>> {
         let field = |key: &str| file.get(key).ok_or(format!("entry lacks `{key}`"));
         out.push(Entry {
             path: field("path")?
-                .as_str()
+                .as_str() // BORROW: .as_str() gives borrows the text
                 .ok_or("`path` is not a string")?
                 .to_owned(), // BORROW: owned entry
             sha256: field("sha256")?

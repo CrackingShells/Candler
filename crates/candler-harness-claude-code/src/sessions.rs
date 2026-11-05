@@ -250,7 +250,7 @@ impl Registry {
                 node.started_at = Some(at.clone());
             }
             if node.ended_at.as_ref().is_none_or(|last| at > last) {
-                node.ended_at = Some(at.clone());
+                node.ended_at = Some(at.clone()); // BORROW: .clone() gives owned copy
             }
         }
         // BORROW: .clone() keeps the id of the session in the record

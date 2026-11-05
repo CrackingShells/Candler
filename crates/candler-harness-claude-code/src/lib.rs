@@ -188,7 +188,7 @@ impl TraceReader for ClaudeCodeReader {
             .ok_or_else(|| incomplete("the stream has no init line"))?;
         let name = |text: &str| {
             text.parse::<Name>()
-                .map_err(|error| incomplete(&error.to_string()))
+                .map_err(|error| incomplete(&error.to_string())) // BORROW: .to_string() gives owned text
         };
         let reader = READER.clone(); // BORROW: copies the reader identity out of its static
         let source = SessionSource::new(
