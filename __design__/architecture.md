@@ -376,8 +376,10 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
 - **The model token never enters the agent container.** The agent sits alone on a per-job
   internal network with a gateway sidecar, which holds the token (passed through stdin into a
   tmpfs file, never env or argv) and forwards to the provider. The agent gets a base URL and a
-  dummy token that mean nothing off that network. A cell may ask for the `bridge` network
-  (`isolation.network`) when the agent needs the internet.
+  dummy token that mean nothing off that network. The sidecar reaches the provider on the job's
+  second network, a user-defined egress network. A cell may ask for `bridge`
+  (`isolation.network`) when the agent needs the internet: its container then joins the egress
+  network as well (two `--network` flags on one `docker run`, Docker Engine 25 or newer).
 - **The configuration surface.** Each path is a cell value (hashed and compared), a setting
   (dropped from `Comparable`) or a typed root (filled by derived steps, never by the file):
 
