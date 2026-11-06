@@ -333,6 +333,11 @@
           "const": "format_unknown",
           "description": "The format of the run's output is not one a reader knows.",
           "type": "string"
+        },
+        {
+          "const": "infrastructure",
+          "description": "The container engine or the machine failed the run: the engine reported an error or no start, the container ran out of memory, or something else killed it.",
+          "type": "string"
         }
       ]
     },

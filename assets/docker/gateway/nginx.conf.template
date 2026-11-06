@@ -1,0 +1,73 @@
+# Rendered by entrypoint.sh: only the four GW_ variables are substituted, the other dollar
+# signs are nginx's own. /run/gw/auth.conf holds the credential lines and is never rendered here.
+load_module /usr/lib/nginx/modules/ngx_http_js_module.so;
+worker_processes 1;
+error_log /dev/stderr warn;
+pid /tmp/nginx.pid;
+events { worker_connections 512; }
+http {
+  access_log off;
+  js_import gw from /etc/gw/gw.js;
+  # "1" when the request holds the job's dummy token and no other credential.
+  js_set $gw_authentic gw.authentic;
+  # The model name, unquoted-regex form of a map key.
+  map $request_body $gw_model {
+    "~\"model\"[[:space:]]*:[[:space:]]*\"(?<m>[A-Za-z0-9._:/@-]+)\"" $m;
+    default "-";
+  }
+  # The run key and the tag of the request, from the `/r/<tag>/run/<run key>` prefix the
+  # agent's base url carries. Anything else logs `-`.
+  map $request_uri $gw_run {
+    "~^/r/[0-9a-f]{32}/run/(?<r>[0-9A-Za-z._-]+)(/|$)" $r;
+    default "-";
+  }
+  map $request_uri $gw_tag {
+    "~^/r/(?<n>[0-9a-f]{32})/run/" $n;
+    default "-";
+  }
+  # No Authorization, no query string, no prompt. Every value is json-escaped and the path, the
+  # one value an agent writes, is the last field and quoted, so it cannot forge another field.
+  log_format gw escape=json 'ts=$time_iso8601 run=$gw_run tag=$gw_tag method=$request_method status=$status up_status=$upstream_status req_ms=$request_time up_ms=$upstream_response_time req_bytes=$request_length resp_bytes=$bytes_sent model=$gw_model path="$uri"';
+  limit_conn_zone "all" zone=gw:1m;
+  client_body_buffer_size 8m;
+  client_max_body_size 64m;
+  server {
+    listen 8080;
+    access_log /dev/stdout gw;
+    location = /healthz {
+      access_log off;
+      default_type text/plain;
+      return 200 "ok\n";
+    }
+    location / {
+      limit_conn gw ${GW_MAX_PARALLEL};
+      limit_conn_status 429;
+      # set $gw_token, set $gw_dummy, proxy_set_header Authorization, proxy_set_header x-api-key
+      # and sub_filter, from stdin. It comes first: `rewrite ... break` ends the set directives.
+      include /run/gw/auth.conf;
+      if ($gw_authentic = "0") {
+        return 401 "{\"error\":\"not the job's token\"}";
+      }
+      rewrite "^/r/[0-9a-f]{32}/run/[0-9A-Za-z._-]+(/.*)$" $1 break;
+      js_header_filter gw.strip;
+      sub_filter_once off;
+      sub_filter_types *;
+      proxy_http_version 1.1;
+      proxy_set_header Connection "";
+      proxy_set_header Accept-Encoding "";
+      proxy_set_header Host ${GW_UPSTREAM_AUTHORITY};
+      proxy_ssl_server_name on;
+      proxy_ssl_name ${GW_UPSTREAM_HOST};
+      proxy_ssl_verify on;
+      proxy_ssl_verify_depth 3;
+      proxy_ssl_protocols TLSv1.2 TLSv1.3;
+      proxy_ssl_trusted_certificate ${GW_CA};
+      proxy_hide_header Authorization;
+      proxy_hide_header x-api-key;
+      proxy_buffering off;
+      proxy_request_buffering on;
+      proxy_read_timeout 600s;
+      proxy_pass https://${GW_UPSTREAM_AUTHORITY};
+    }
+  }
+}

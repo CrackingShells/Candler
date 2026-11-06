@@ -1,0 +1,14 @@
+# Exact claude command line of the reference runner. Tag htn-creator-eval@0.4.2.
+# One flag per line. <placeholders> are substituted per run.
+# source: .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:898-916 (cmd list); env/cwd: .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:787-850, 921
+claude
+--print <prompt>
+--model <model>
+--output-format stream-json
+--verbose
+--setting-sources project,local
+--permission-mode bypassPermissions
+# NOT passed: --bare (skill discovery must work), --allowedTools, --max-budget-usd
+# cwd = <sandbox_dir> (unique per run); env CONFINE_WORK_DIR=<sandbox_dir resolved>
+# child env: full host env, minus scrubbed vars; ANTHROPIC_AUTH_TOKEN from the named env var
+# timeout: 3600 s (.claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:609, 920-929)

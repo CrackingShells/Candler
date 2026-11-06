@@ -266,11 +266,16 @@ dotted: `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`.
 | Job budget, `candler kill`, supervisor lost | `invalid(budget_stop \| killed \| interrupted)`; never charged to an arm |
 | Input passed off as output | `invalid(input_leak)` |
 | Collection failed, or the reader cannot parse the stream or does not know its format version | `invalid(collection_error \| reader_error \| format_unknown)`; raw kept |
+| Infrastructure: the daemon failed (`docker run` exit 125, or the container never started), the container was OOM-killed or killed by someone else (137 with no stop of ours), or the trace is silent | `invalid(infrastructure)`; `ended_by` unknown; never retried |
 
 The driver's `classify_exit` sees the parsed sessions, so an exit 0 with an error result, or a run
 with zero tokens, is classified from the trace, not from the exit status.
 An error result with no provider status, such as a usage-policy refusal after the agent has
 worked, is an agent error: the run is valid and graded, never retried as a gateway failure.
+In a container the end also reads `docker inspect` (`State.OOMKilled`, `ExitCode`). The entrypoint's
+own `timeout` (exit 124) is the wall cap, as is the supervisor's deadline. When several signals
+hold, the first match wins: our stop (`budget_stop`, `killed`), daemon facts, OOM, a foreign 137,
+the gateway, the reader, the trace's gateway signals, collection, input leak, then the valid ends.
 
 ### Process supervision
 
@@ -278,20 +283,33 @@ worked, is an agent error: the run is valid and graded, never retried as a gatew
   for evaluators) in its environment. Its pid, pgid and start time are written to `children/` as soon
   as the spawn returns.
 - **Stop escalation:** the driver's pre-stop action, if any (an HTTP call or a command the core
-  runs) → the driver's stop signal and grace → terminate the process group → kill it → **stray
-  sweep** → destroy the container when isolation is a container. Every step is an event.
+  runs) → the request's stop hook, if any → the driver's stop signal and grace → terminate the
+  process group → kill it → **stray sweep** → the stop hook's destroy step. Every step is an event.
+- **Containers (Docker, through the `docker` CLI).** The supervised child is the `docker run`
+  client; its stdout is the stream. Killing the client does not stop the container, so a run in a
+  container carries a **stop hook**, attached per spawn request: at pre-stop it reads the cidfile,
+  re-verifies the container and runs `docker stop -t <grace>`; its destroy step runs only when the
+  escalation ended the child. A run that exits by itself is inspected, collected, then destroyed.
+  Agent and gateway containers never use `--rm`, so the exit facts survive for the inspect.
+- **Container records.** Each container gets `children/container-<cid12>.json`
+  (`container-record/1`: `{cid, labels {job, run, experiment}, created_at, image_id, role:
+  agent|gateway, spawned_at}`) and the labels `candler.job`, `candler.run`, `candler.experiment`.
+  The entrypoint runs under `timeout <wall_s + 60 s>`, so an orphaned container expires by itself
+  on any engine.
 - **Stray sweep.** Harnesses start descendants in new sessions (Claude Code 2.1.304 spawns its Bash
-  shell and its hooks detached), so a group kill misses them. On Linux the supervisor is a child
-  subreaper and scans `/proc` for the marker; on macOS it scans same-user processes for the marker.
-  Survivors are evented as `run.stray`, then killed. The same scan serves the process census. The
-  supervisor core calls an injected sweeper after the group kill; the execution milestone provides
-  the scans and the subreaper.
-- **Supervisor death.** `ps`, `kill` and `run` reap a lost job's recorded children and strays; until
-  one of them runs, an orphaned agent may keep going (*provisional*: a watchdog may follow). A Linux
-  parent-death signal would end children with their supervisor, but setting it needs a `pre_exec`
-  hook, which `forbid(unsafe_code)` excludes, so M1 ships without it. The execution milestone
-  decides between an isolated `unsafe` module (relaxing the lint for that module alone) and no
-  parent-death signal, relying on the child subreaper (safe through `rustix`) and the marker sweep.
+  shell and its hooks detached), so a group kill misses them. Inside a container they die with the
+  container. On the host, on Linux, the job supervisor is a child subreaper and scans `/proc` for
+  the marker; orphans it adopts are signalled one pid at a time after their parent (itself) and
+  start time are re-verified, and reaped with `waitpid(pid)`, never `waitpid(-1)`. macOS has no
+  host scan: its only host children are the docker client and first-party commands, and the gap
+  is recorded. The container sweep lists the job's labelled containers and destroys the strays
+  among them. Survivors are evented as `run.stray`, then killed.
+- **Supervisor death.** A job is lost when its lock is free and its events have no `job.ended`.
+  `ps`, `kill` and `run` reap a lost job's recorded children, its labelled containers, its network
+  and its strays; until one of them runs, an orphaned container runs at most to its own `timeout`.
+  There is no parent-death signal: setting one needs a `pre_exec` hook, which
+  `forbid(unsafe_code)` excludes, and a container outlives its client anyway. Labels, self-expiry
+  and the Linux child subreaper (safe through `rustix`) bound orphans instead.
 - **Child record** (`child-record/1`, on the `schemas@` line): `{pid, pgid, start, marker,
   spawned_at}`, written and fsynced in `children/` before `spawn` returns. `start` is `{kind: linux,
   boot_id, ticks}` (field 22 of `/proc/<pid>/stat`), `{kind: darwin, sec, usec}`, or `{kind:
@@ -309,7 +327,32 @@ worked, is an agent error: the run is valid and graded, never retried as a gatew
   container census by marker) passes the same re-verification; a mismatch is refused and
   reported, never signalled. Delivery sits behind a `Signaller` seam: the guard and the
   escalation logic are tested against a recording fake, and real-signal tests only check end to
-  end that spawned children die.
+  end that spawned children die. The guard also signals two kinds of process this supervisor did
+  not spawn, the class of call behind the `kill(-1)` incident, so their rules are stricter:
+  - a host stray found by the marker scan (`signal_marked`), and an orphan the subreaper adopted
+    (`signal_adopted`, its parent is this process);
+  - right before the signal, the guard re-verifies the target's pid, its `start` and the run
+    marker read again from that process (on Linux, `/proc/<pid>/environ`); a marker match from
+    an earlier scan never suffices;
+  - it refuses a pid of 1 or less, its own pid, its own process group, a process of another uid,
+    and a target that no longer carries the marker. A refusal is a recorded outcome, never a
+    fallback to a wider signal;
+  - each call names one pid. No path takes a pattern, a name or "all": `kill --all` walks the
+    job records one verified target at a time;
+  - a group is adopted for stopping only when the job's `children/` records list it and its
+    verification passes, never on a marker scan alone;
+  - an orphan the subreaper adopted is signalled only if, right before each signal, its parent
+    is this process, its `start` is later than the supervisor's own, the marker re-read from it
+    matches and its uid is ours. The guard signals that pid; it signals the pid's group only if
+    the group's leader passes the same check, never because one member passed. A reparented
+    process without the marker is refused and left alive.
+- **Destroying containers (I22 for containers).** Destroying a container or a network is as
+  dangerous as a signal, so one guard holds the only destroy capability. It never destroys by name,
+  pattern or "all". A container is destroyable if the job's `children/` records it, or if it is
+  labelled for the current job or a lost one (its lock is free) with the matching run, and
+  `docker inspect` re-verifies its labels and creation time right before `stop` or `rm`. A
+  mismatch is refused and reported. The gateway sidecar and the per-job network follow the same
+  rule. The destroy calls sit behind a seam with a recording fake, as `Signaller` does.
 - **Pre-stop over HTTP** reaches loopback only: the host is parsed, never matched as text, and must
   be `localhost`, `127.0.0.0/8` or `::1`; redirects are not followed. A failed or timed-out pre-stop
   continues the escalation.
@@ -324,6 +367,35 @@ worked, is an agent error: the run is valid and graded, never retried as a gatew
   arrive).
 - Secrets are referenced by variable name in the experiment, resolved when the process is spawned,
   checked at `resolve` and again at resume, and recorded as `{name, present}`, never as a value.
+- **In a container** the environment is built from nothing and passed with `-e` only; the docker
+  client itself gets its own allowlist (`DOCKER_HOST`, `DOCKER_CONTEXT`, its config dir). The
+  container runs non-root, with a read-only root, tmpfs `/tmp`, no capabilities,
+  `no-new-privileges`, and pids, memory and CPU limits. Only the workspace and a per-run HOME (a
+  host directory outside the workspace, so sub-agent transcripts survive) are writable; inputs are
+  mounted read-only at their workspace paths.
+- **The model token never enters the agent container.** The agent sits alone on a per-job
+  internal network with a gateway sidecar, which holds the token (passed through stdin into a
+  tmpfs file, never env or argv) and forwards to the provider. The agent gets a base URL and a
+  dummy token that mean nothing off that network. The sidecar reaches the provider on the job's
+  second network, a user-defined egress network. A cell may ask for `bridge`
+  (`isolation.network`) when the agent needs the internet: its container then joins the egress
+  network as well (two `--network` flags on one `docker run`, Docker Engine 25 or newer).
+- **The configuration surface.** Each path is a cell value (hashed and compared), a setting
+  (dropped from `Comparable`) or a typed root (filled by derived steps, never by the file):
+
+  | Path | Class |
+  |---|---|
+  | `model.id`, `model.endpoint`, `model.effort` | cell value |
+  | `tools.allowed`, `tools.disallowed`, `mcp.*`, `permission_mode` | cell value |
+  | `prompt.template`, `prompt.values` | cell value |
+  | `isolation.image` (the derived local image ID), `isolation.network`, `isolation.env_lock`, `isolation.limits.*` | cell value |
+  | `budget.per_run.{wall_s, turns, max_cost_usd}` | cell value |
+  | `isolation.build.{dockerfile, context}` (its content enters `inputs[]`); `isolation.build.{requirements, lock}` (the lock they give enters the cell as `isolation.env_lock`) | setting |
+  | `request.harness`, `request.treatment`, `request.treatment_source`, `model.token_secret` | setting |
+  | `harness`, `treatment`, `inputs[]`, `snapshots`, `environments` (reserved) | typed root |
+
+  A CLI path resolves against the caller's cwd, a path in the experiment file against that
+  file's directory (I14).
 
 ### Raw traces
 
@@ -553,7 +625,7 @@ erDiagram
 
 | Path | Holds |
 |---|---|
-| `runs/<run key>/` | `manifest.json`, `run.done`, `raw/` (`raw-frames/1`), `trace.jsonl` (`normalised-trace/1`), `tree.json` (`run-tree/1`: workspace paths → sha256) |
+| `runs/<run key>/` | `manifest.json`, `run.done`, `raw/` (`raw-frames/1`), `trace.jsonl` (`normalised-trace/1`), `tree.json` (`run-tree/1`: workspace paths → sha256), and under container isolation the kept `workspace/` and the per-run `home/` |
 | `blobs/<sha256>` | Artifact contents, once |
 | `outcomes/<run key>/<evaluator@version>/<request id>.jsonl` | One request's outcomes; written as `.partial`, renamed when the result arrives; one writer, no locks |
 | `jobs/<job id>/` | `job.json`, `events.jsonl`, `children/`, `lock` |
@@ -942,7 +1014,10 @@ Decided during development: pairing keys, execution order and a declared blockin
 times are recorded from M2b); a `without_skill` fixture for the parity suite; reporting
 `instrument_error` and `deadline` counts per arm; event kinds beyond the first set; where `ls` looks;
 how plug-ins are registered; the slot count default; a macOS orphan watchdog; long-lived workers; the
-container backend; the MCP tool shapes; the store root default.
+MCP tool shapes; the store root default. The container backend is decided (M2b): Docker through
+its CLI, one `docker run` per run; `Isolation` turns a plan into a spawn request, then collects
+and destroys. The long-lived handle's `exec`, `inject` and whole-container `census` are M5's, as
+are a host backend and an egress allowlist.
 
 ## Implementation
 

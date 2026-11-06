@@ -1,0 +1,82 @@
+# The real-Docker guards (guard_container_e2e) on a Linux engine: the
+# supervision gates that need the child subreaper, /proc and a host uid that
+# differs from the container's. They are ignored by default and run here only.
+name: container-e2e
+
+on:
+  pull_request:
+    paths:
+      - crates/**
+      - Cargo.toml
+      - Cargo.lock
+      - assets/docker/**
+      - .config/nextest.toml
+      - .github/workflows/container-e2e.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  e2e:
+    name: Container e2e (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install the toolchain pinned in rust-toolchain.toml
+        run: rustup toolchain install
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - name: Report the engine
+        run: docker version && docker info --format '{{.Driver}} {{.DriverStatus}}'
+      # The image leaf pins its env layer with FROM candler-base:<id12>@sha256:<id>.
+      # That form was proven only on the containerd store; on a classic overlay2
+      # store the image ID is not a manifest digest. Record which form works here.
+      - name: Probe the pinned FROM on this store
+        run: |
+          set -eu
+          work="$RUNNER_TEMP/from-probe"
+          mkdir -p "$work/base" "$work/env"
+          # The same pinned digest as assets/docker/testagent: CI never pulls an unpinned tag.
+          printf 'FROM busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec\nLABEL candler.test=1\nRUN echo base > /base.txt\n' > "$work/base/Dockerfile"
+          docker build -q -t candler-probe-base:latest "$work/base" > "$work/id"
+          id="$(cut -d: -f2 "$work/id")"
+          id12="$(printf '%s' "$id" | cut -c1-12)"
+          docker tag candler-probe-base:latest "candler-probe-base:$id12"
+          printf 'ARG BASE\nFROM ${BASE}\nLABEL candler.test=1\nRUN cat /base.txt\n' > "$work/env/Dockerfile"
+          if docker build -q --build-arg "BASE=candler-probe-base:$id12@sha256:$id" "$work/env" > /dev/null; then
+            pinned=works
+          else
+            pinned=fails
+          fi
+          docker build -q --build-arg "BASE=candler-probe-base:$id12" "$work/env" > "$work/env-id"
+          base_layer="$(docker image inspect -f '{{index .RootFS.Layers 0}}' "candler-probe-base:$id12")"
+          env_layer="$(docker image inspect -f '{{index .RootFS.Layers 0}}' "$(cat "$work/env-id")")"
+          [ "$base_layer" = "$env_layer" ] && fallback=works || fallback=fails
+          driver="$(docker info --format '{{.Driver}}')"
+          {
+            echo "### Pinned FROM probe"
+            echo "- storage driver: \`$driver\`"
+            echo "- \`FROM tag@sha256:<image id>\`: $pinned"
+            echo "- fallback \`FROM tag\` plus RootFS layer check: $fallback"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "driver=$driver pinned=$pinned fallback=$fallback"
+          [ "$pinned" = works ] || [ "$fallback" = works ]
+      - name: Build the testagent image
+        run: docker build --label candler.test=1 -t candler-testagent:test assets/docker/testagent
+      - name: Run the container guards
+        run: >-
+          cargo nextest run -p candler-core --run-ignored only --no-tests=fail
+          --no-fail-fast -E 'binary(guard_container_e2e)'
