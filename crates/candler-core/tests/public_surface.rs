@@ -575,7 +575,33 @@ mod registry_surface {
 }
 
 /// The `evaluation::context` items, filled by the `run_context` leaf.
-mod run_context_surface {}
+mod run_context_surface {
+    use candler_core::evaluation::context::{
+        Assembled, AssembledArtifact, ContextError, FileRule, Workspace, assemble, file_rule_keeps,
+        materialise,
+    };
+
+    /// Names the context items: assembling a run's context from needs, materialising it into a
+    /// workspace, the file rule and its error, so that the engine can call them in order.
+    #[test]
+    fn context_items_are_nameable() {
+        let _ = (
+            assemble,
+            materialise,
+            file_rule_keeps,
+            FileRule::new,
+            FileRule::keeps,
+            Workspace::prepare,
+            Workspace::root,
+            Workspace::outputs_dir,
+            Assembled::run,
+            Assembled::store_root,
+            Assembled::artifacts,
+            Assembled::metadata,
+        );
+        let _ = (None::<AssembledArtifact>, None::<ContextError>);
+    }
+}
 
 /// The `evaluation::client` items, filled by the `protocol_client` leaf.
 #[cfg(unix)]
