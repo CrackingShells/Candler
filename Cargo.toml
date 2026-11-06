@@ -38,9 +38,7 @@ uuid = "1"
 
 jsonschema = { version = "0.60", default-features = false }
 proptest = "1"
-rcgen = "0.14"
 tempfile = "3"
-tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
