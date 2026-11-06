@@ -20,6 +20,7 @@ candler-harness.workspace = true
 candler-schemas.workspace = true
 flate2.workspace = true
 futures.workspace = true
+globset.workspace = true
 jiff.workspace = true
 regex.workspace = true
 rustix.workspace = true
