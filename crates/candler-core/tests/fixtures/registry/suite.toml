@@ -1,0 +1,14 @@
+schema = "suite/1"
+
+[[expectations]]
+id = "A1"
+role = "gate"
+kind = "grep_present"
+depends_on = []
+
+[expectations.evaluator]
+name = "synthetic"
+range = "^1"
+
+[expectations.params]
+pattern = "domain"

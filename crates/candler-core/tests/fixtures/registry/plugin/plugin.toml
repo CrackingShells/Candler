@@ -1,0 +1,13 @@
+schema = "plugin-manifest/1"
+name = "synthetic"
+version = "1.0.0"
+command = ["run"]
+
+[protocol]
+major = 1
+minor = 0
+
+[environment]
+kind = "uv"
+project = "env"
+lock = "env/uv.lock"
