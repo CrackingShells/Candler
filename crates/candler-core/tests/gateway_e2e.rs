@@ -10,27 +10,30 @@
 use std::fmt::Write as _;
 use std::io::Read as _;
 use std::io::Write as _;
+use std::net::TcpListener;
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use candler_core::isolation::docker::DockerError;
+use candler_core::isolation::container::guard::ContainerGuard;
+use candler_core::isolation::docker::{ClientEnv, DockerCli as DockerClient, DockerDestroyer};
 use candler_core::isolation::driver::{DestroyDriver, DockerDriver};
 use candler_core::isolation::gateway::{
-    ChildRecorder, DockerCli, DockerGateway, Gateway, GatewayError, GatewaySignal, GatewayStart,
-    GatewayStatus, NotReadyCause, SecretError, SecretSource, SecretValue, UpstreamConfig,
+    ChildRecorder, DockerCli, DockerGateway, Gateway, GatewayStart, SecretError, SecretSource,
+    SecretValue, UpstreamConfig, assert_clean,
 };
 use candler_core::isolation::model::{
-    BuildRequest, ContainerRef, GatewayHandle, ImageId, ImageInfo, ImageRef, Inspect, InspectState,
-    LabelSel, Labels, NetworkInfo, NetworkName,
+    GatewayHandle, ImageId, ImageRef, LabelSel, NetworkName, SweepScope,
 };
-use candler_core::isolation::testing::AllowlistDriver;
+use candler_core::isolation::testing::{AllowlistDriver, FakeJobView};
+use candler_core::jobs::view::ChildEntry;
 use candler_core::supervise::{EventSink, Supervisor};
-use candler_schemas::container::ContainerRecord;
+use candler_schemas::container::{ContainerRecord, ContainerRole};
 use candler_schemas::execution::EventPayload;
-use candler_schemas::primitives::{Digest, JobId, RunKey, Timestamp};
-use futures::future::BoxFuture;
+use candler_schemas::primitives::{Digest, JobId, RunKey};
 
 /// The directory of the sidecar image's build context.
 const GATEWAY_CONTEXT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/docker/gateway");
@@ -172,252 +175,6 @@ fn random_job() -> JobId {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The two drivers the tests supply, until the real ones land with container_stop.
-// ---------------------------------------------------------------------------------------------
-
-/// The read half of docker, on the command line.
-struct CliDocker;
-
-fn failed(what: &str, ran: &Ran) -> DockerError {
-    DockerError::Failed {
-        detail: format!("{what}: {}", ran.err.trim()),
-    }
-}
-
-fn unreadable(detail: &str) -> DockerError {
-    DockerError::Unreadable {
-        detail: String::from(detail),
-    }
-}
-
-/// The labels of a `Config.Labels` or `Labels` object.
-fn labels_of(object: &serde_json::Value) -> Labels {
-    let mut labels = Labels::new();
-    if let Some(map) = object.as_object() {
-        for (key, value) in map {
-            // BORROW: explicit .as_str() instead of Deref coercion
-            if let Some(text) = value.as_str() {
-                labels = labels.with(key, text);
-            }
-        }
-    }
-    labels
-}
-
-/// A timestamp from docker's text: its fraction is cut to what the schema reads.
-fn timestamp_of(text: &str) -> Result<Timestamp, DockerError> {
-    let cut = text.split('.').next().unwrap_or(text).trim_end_matches('Z');
-    format!("{cut}Z")
-        .parse()
-        .map_err(|_| unreadable("a timestamp"))
-}
-
-fn inspect_blocking(id: &str) -> Result<Inspect, DockerError> {
-    let ran = docker(&["inspect", id]);
-    if !ran.ok() {
-        return Err(failed("docker inspect", &ran));
-    }
-    let all: serde_json::Value =
-        serde_json::from_str(&ran.out).map_err(|_| unreadable("inspect json"))?;
-    let first = all.get(0).ok_or_else(|| unreadable("an empty inspect"))?;
-    let text = |pointer: &str| {
-        first
-            .pointer(pointer)
-            .and_then(serde_json::Value::as_str)
-            .map(String::from)
-            .ok_or_else(|| unreadable(pointer))
-    };
-    let flag = |pointer: &str| first.pointer(pointer).and_then(serde_json::Value::as_bool);
-    let state = InspectState::new(
-        text("/State/Status")?,
-        flag("/State/Running").unwrap_or(false),
-        first
-            .pointer("/State/ExitCode")
-            .and_then(serde_json::Value::as_i64)
-            .unwrap_or(0),
-        flag("/State/OOMKilled").unwrap_or(false),
-        None,
-        None,
-    );
-    Ok(Inspect::new(
-        text("/Id")?.parse().map_err(|_| unreadable("an id"))?,
-        ImageId(text("/Image")?),
-        timestamp_of(&text("/Created")?)?,
-        labels_of(
-            first
-                .pointer("/Config/Labels")
-                .unwrap_or(&serde_json::Value::Null),
-        ),
-        state,
-    ))
-}
-
-impl DockerDriver for CliDocker {
-    fn inspect<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Inspect, DockerError>> {
-        Box::pin(async move { inspect_blocking(id) })
-    }
-
-    fn ps_by_label<'a>(
-        &'a self,
-        sel: &'a LabelSel,
-    ) -> BoxFuture<'a, Result<Vec<ContainerRef>, DockerError>> {
-        Box::pin(async move {
-            let filter = format!("label={}={}", sel.key, sel.value);
-            let ran = docker(&["ps", "-a", "-q", "--no-trunc", "--filter", &filter]);
-            if !ran.ok() {
-                return Err(failed("docker ps", &ran));
-            }
-            let mut found = Vec::new();
-            for id in ran.out.split_whitespace() {
-                let seen = inspect_blocking(id)?;
-                found.push(ContainerRef::new(seen.id, seen.labels, seen.created));
-            }
-            Ok(found)
-        })
-    }
-
-    fn network_create<'a>(
-        &'a self,
-        name: &'a NetworkName,
-        internal: bool,
-        labels: &'a Labels,
-    ) -> BoxFuture<'a, Result<(), DockerError>> {
-        Box::pin(async move {
-            let mut args = vec![String::from("network"), String::from("create")];
-            if internal {
-                args.push(String::from("--internal"));
-            }
-            for (key, value) in labels.iter() {
-                args.push(String::from("--label"));
-                args.push(format!("{key}={value}"));
-            }
-            args.push(String::from("--label"));
-            args.push(String::from("candler.test=gateway"));
-            // BORROW: explicit .as_str() instead of Deref coercion
-            args.push(String::from(name.as_str()));
-            let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
-            let ran = docker(&borrowed);
-            if ran.ok() {
-                Ok(())
-            } else {
-                Err(failed("docker network create", &ran))
-            }
-        })
-    }
-
-    fn network_inspect<'a>(
-        &'a self,
-        name: &'a NetworkName,
-    ) -> BoxFuture<'a, Result<NetworkInfo, DockerError>> {
-        Box::pin(async move {
-            // BORROW: explicit .as_str() instead of Deref coercion
-            let ran = docker(&["network", "inspect", name.as_str()]);
-            if !ran.ok() {
-                return Err(failed("docker network inspect", &ran));
-            }
-            let all: serde_json::Value =
-                serde_json::from_str(&ran.out).map_err(|_| unreadable("network json"))?;
-            let first = all.get(0).ok_or_else(|| unreadable("an empty network"))?;
-            Ok(NetworkInfo {
-                // BORROW: .clone() returns the name the caller asked about
-                name: name.clone(),
-                internal: first
-                    .get("Internal")
-                    .and_then(serde_json::Value::as_bool)
-                    .unwrap_or(false),
-                labels: labels_of(first.get("Labels").unwrap_or(&serde_json::Value::Null)),
-            })
-        })
-    }
-
-    fn image_inspect<'a>(
-        &'a self,
-        _reference: &'a str,
-    ) -> BoxFuture<'a, Result<Option<ImageInfo>, DockerError>> {
-        Box::pin(async {
-            Err(DockerError::Unavailable {
-                detail: String::from("image_inspect"),
-            })
-        })
-    }
-
-    fn build<'a>(
-        &'a self,
-        _request: &'a BuildRequest,
-    ) -> BoxFuture<'a, Result<ImageInfo, DockerError>> {
-        Box::pin(async {
-            Err(DockerError::Unavailable {
-                detail: String::from("build"),
-            })
-        })
-    }
-}
-
-/// The destroy half of docker for these tests. Before it stops or removes anything it reads the
-/// object's `candler.job` label and panics unless it is this test's job: a second fence behind
-/// the allowlist.
-struct CliDestroyer {
-    job: String,
-}
-
-impl CliDestroyer {
-    fn fence(&self, inspect: &[&str], id: &str, format: &str) {
-        let mut args = Vec::from(inspect);
-        args.extend(["inspect", "--format", format, id]);
-        let ran = docker(&args);
-        assert_eq!(
-            ran.out.trim(),
-            self.job,
-            "`{id}` does not carry this test's candler.job label"
-        );
-    }
-}
-
-impl DestroyDriver for CliDestroyer {
-    fn stop<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<(), DockerError>> {
-        Box::pin(async move {
-            self.fence(&[], id, "{{index .Config.Labels \"candler.job\"}}");
-            let ran = docker(&["stop", "-t", "1", id]);
-            if ran.ok() {
-                Ok(())
-            } else {
-                Err(failed("docker stop", &ran))
-            }
-        })
-    }
-
-    fn rm<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<(), DockerError>> {
-        Box::pin(async move {
-            self.fence(&[], id, "{{index .Config.Labels \"candler.job\"}}");
-            let ran = docker(&["rm", id]);
-            if ran.ok() {
-                Ok(())
-            } else {
-                Err(failed("docker rm", &ran))
-            }
-        })
-    }
-
-    fn network_rm<'a>(&'a self, name: &'a NetworkName) -> BoxFuture<'a, Result<(), DockerError>> {
-        Box::pin(async move {
-            self.fence(
-                &["network"],
-                // BORROW: explicit .as_str() instead of Deref coercion
-                name.as_str(),
-                "{{index .Labels \"candler.job\"}}",
-            );
-            // BORROW: explicit .as_str() instead of Deref coercion
-            let ran = docker(&["network", "rm", name.as_str()]);
-            if ran.ok() {
-                Ok(())
-            } else {
-                Err(failed("docker network rm", &ran))
-            }
-        })
-    }
-}
-
-// ---------------------------------------------------------------------------------------------
 // One test's world.
 // ---------------------------------------------------------------------------------------------
 
@@ -467,46 +224,67 @@ fn require_python_image() {
     }
 }
 
-/// A test's labels, drivers and temporary directory.
+/// Takes the records `start` writes, as the job directory would.
+#[derive(Default)]
+struct Recorder {
+    seen: std::sync::Mutex<Vec<ContainerRecord>>,
+}
+
+impl ChildRecorder for Recorder {
+    fn record_child(&self, record: &ContainerRecord) -> std::io::Result<()> {
+        self.seen
+            .lock()
+            .expect("a lock")
+            // BORROW: .clone() keeps the record for the assertions
+            .push(record.clone());
+        Ok(())
+    }
+}
+
+/// A test's job label, the real docker client, the allowlisted destroy half behind the guard,
+/// and a temporary directory. Nothing is removed but through the guard.
 struct Rig {
     job: JobId,
+    /// The run the test's agent, fake and control carry in `candler.run`.
+    run: RunKey,
     dir: tempfile::TempDir,
-    driver: AllowlistDriver<CliDocker>,
-    destroyer: AllowlistDriver<CliDestroyer>,
-    /// The bridge network the sidecar and the fake share. It is labelled with this job; only its
-    /// name comes from another id, because a network name is made from a job id.
-    egress: NetworkName,
+    sup: Arc<Supervisor>,
+    cli: Arc<DockerClient>,
+    destroyer: Arc<AllowlistDriver<DockerDestroyer>>,
+    /// What the gateway's `start` recorded: the job directory's children.
+    recorder: Recorder,
 }
 
 impl Rig {
     fn new() -> Self {
         require_agent_image();
         require_python_image();
-        let job = random_job();
-        let rig = Self {
-            dir: tempfile::tempdir().expect("a temporary directory"),
-            driver: AllowlistDriver::new(CliDocker),
-            destroyer: AllowlistDriver::new(CliDestroyer {
-                // BORROW: explicit .as_str() instead of Deref coercion
-                job: String::from(job.as_str()),
-            }),
-            egress: NetworkName::for_job(&random_job()),
-            job,
-        };
-        docker(&[
-            "network",
-            "create",
-            "--label",
-            &format!("candler.job={}", rig.job),
-            "--label",
-            "candler.test=gateway",
-            // BORROW: explicit .as_str() instead of Deref coercion
-            rig.egress.as_str(),
-        ])
-        .must("creating the egress network");
-        // BORROW: explicit .as_str() instead of Deref coercion
-        rig.destroyer.allow_network(rig.egress.as_str());
-        rig
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        std::fs::create_dir_all(dir.path().join("control")).expect("a control directory");
+        // TRAIT_OBJECT: the supervisor takes its sink as a trait object
+        let sink: Arc<dyn EventSink> = Arc::new(NullSink);
+        let sup = Arc::new(Supervisor::new(sink));
+        let cli = DockerClient::new(
+            Arc::clone(&sup),
+            ClientEnv::from_process(),
+            dir.path().join("control"),
+        )
+        .expect("a docker client");
+        let destroyer = Arc::new(AllowlistDriver::new(cli.destroyer_for_tests()));
+        Self {
+            job: random_job(),
+            run: run_key(1),
+            dir,
+            sup,
+            cli: Arc::new(cli),
+            destroyer,
+            recorder: Recorder::default(),
+        }
+    }
+
+    /// The job's egress network, which `start` creates for the sidecar and the fake.
+    fn egress_network(&self) -> NetworkName {
+        NetworkName::egress_for_job(&self.job)
     }
 
     /// The job's own network, the one the agent joins.
@@ -530,21 +308,53 @@ impl Rig {
         path
     }
 
-    /// Stops and removes what carries this job's label, then the two networks, each through the
-    /// allowlisted destroyer.
-    fn teardown(&self) {
-        for id in self.containers() {
-            self.destroyer.allow_container(&id);
-            let _ = futures::executor::block_on(self.destroyer.stop(&id));
-            let _ = futures::executor::block_on(self.destroyer.rm(&id));
+    /// The guard over the real client, deciding from the records `start` wrote.
+    fn guard(&self) -> ContainerGuard {
+        let children = self
+            .recorder
+            .seen
+            .lock()
+            .expect("a lock")
+            .iter()
+            // BORROW: .clone() gives the view its own records
+            .map(|record| ChildEntry::Container(record.clone()))
+            .collect();
+        // BORROW: .clone() gives the view its own job
+        let view = FakeJobView::new(self.job.clone())
+            .with_children(children)
+            .shared();
+        // TRAIT_OBJECT: the guard holds its drivers as trait objects
+        let destroy: Arc<dyn DestroyDriver> = self.destroyer.clone(); // BORROW: .clone() shares the allowlist
+        // TRAIT_OBJECT: the guard holds its drivers as trait objects
+        let docker: Arc<dyn DockerDriver> = self.cli.clone(); // BORROW: .clone() shares the client
+        ContainerGuard::new(destroy, docker, view)
+    }
+
+    /// Destroys every container that carries this job's label, then the two networks, each
+    /// through the guard. The gateway is recorded, so the guard finds it in the current job; the
+    /// others carry the test's run. A failure is printed and does not stop the rest.
+    async fn teardown(&self) {
+        let guard = self.guard();
+        let sel = LabelSel {
+            key: String::from("candler.job"),
+            value: self.job.to_string(),
+        };
+        let listed = self.cli.ps_by_label(&sel).await.unwrap_or_default();
+        for container in listed {
+            self.destroyer.allow_container(container.cid.as_str()); // BORROW: .as_str() names the container
+            let scope = if container.labels.get("candler.role") == Some("gateway") {
+                SweepScope::CurrentJob
+            } else {
+                SweepScope::Run(self.run.clone()) // BORROW: .clone() gives the scope its own key
+            };
+            if let Err(error) = guard.destroy(&container, &scope).await {
+                eprintln!("teardown: {} was not destroyed: {error}", container.cid);
+            }
         }
-        let job_net = self.job_network();
-        for net in [&job_net, &self.egress] {
-            // BORROW: explicit .as_str() instead of Deref coercion
-            if docker(&["network", "inspect", net.as_str()]).ok() {
-                // BORROW: explicit .as_str() instead of Deref coercion
-                self.destroyer.allow_network(net.as_str());
-                let _ = futures::executor::block_on(self.destroyer.network_rm(net));
+        for net in [self.job_network(), self.egress_network()] {
+            self.destroyer.allow_network(net.as_str()); // BORROW: .as_str() names the network
+            if let Err(error) = guard.destroy_network(&net, &SweepScope::CurrentJob).await {
+                eprintln!("teardown: {} was not destroyed: {error}", net.as_str());
             }
         }
     }
@@ -552,7 +362,9 @@ impl Rig {
 
 impl Drop for Rig {
     fn drop(&mut self) {
-        self.teardown();
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(self.teardown());
+        });
     }
 }
 
@@ -672,37 +484,61 @@ fn make_server_cert(dir: &Path, ca: &str) {
     .must("openssl x509 of the server certificate");
 }
 
+/// The upstream's certificates: the authority the server's certificate chains to.
+struct Certs {
+    dir: PathBuf,
+    ca_pem: Vec<u8>,
+}
+
+/// Makes the fake's authority and server certificate with the `openssl` CLI.
+fn make_certs(rig: &Rig) -> Certs {
+    let dir = rig.work_dir("fake");
+    make_ca(&dir, "ca");
+    make_server_cert(&dir, "ca");
+    Certs {
+        ca_pem: std::fs::read(dir.join("ca.pem")).expect("the authority"),
+        dir,
+    }
+}
+
 /// The running upstream fake.
 struct Fake {
     cid: String,
-    /// The authority the server's certificate chains to.
-    ca_pem: Vec<u8>,
-    /// Another authority, which signed nothing the fake serves.
-    rogue_ca_pem: Vec<u8>,
 }
 
-/// Starts the TLS upstream on the job's egress network as `upstream.test`, expecting `token`.
-fn start_fake(rig: &Rig, token: &str) -> Fake {
-    let dir = rig.work_dir("fake");
-    make_ca(&dir, "ca");
-    make_ca(&dir, "rogue");
-    make_server_cert(&dir, "ca");
+/// Starts the TLS upstream as `upstream.test` on the job's egress network, expecting `token`.
+/// The network does not exist until the gateway's `start` creates it, so this waits for it; call
+/// it beside `start`.
+fn run_fake(job: &JobId, run: &RunKey, egress: &NetworkName, dir: &Path, token: &str) -> Fake {
     std::fs::write(dir.join("token"), format!("{token}\n")).expect("a token file");
     std::fs::write(dir.join("tls_upstream.py"), FAKE_SCRIPT).expect("the fake script");
+    let deadline = Instant::now() + Duration::from_secs(60);
+    // BORROW: explicit .as_str() instead of Deref coercion
+    while !docker(&["network", "inspect", egress.as_str()]).ok() {
+        assert!(
+            Instant::now() < deadline,
+            "the egress network never appeared"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
     let mount = format!("{}:/fake:ro", dir.display());
     let port = UPSTREAM_PORT.to_string();
     let cid = docker(&[
         "run",
         "-d",
         "--label",
-        &format!("candler.job={}", rig.job),
+        &format!("candler.job={job}"),
         "--label",
-        "candler.role=upstream",
+        // The guard knows two roles; the fake stands in for the agent's role and carries the
+        // test's run, so a sweep of that run reaches it.
+        "candler.role=agent",
+        "--label",
+        &format!("candler.run={run}"),
         "--label",
         "candler.test=gateway",
         "--network",
         // BORROW: explicit .as_str() instead of Deref coercion
-        rig.egress.as_str(),
+        egress.as_str(),
         "--network-alias",
         UPSTREAM_HOST,
         "-v",
@@ -728,11 +564,7 @@ fn start_fake(rig: &Rig, token: &str) -> Fake {
         );
         std::thread::sleep(Duration::from_millis(300));
     }
-    Fake {
-        cid,
-        ca_pem: std::fs::read(dir.join("ca.pem")).expect("the authority"),
-        rogue_ca_pem: std::fs::read(dir.join("rogue.pem")).expect("the other authority"),
-    }
+    Fake { cid }
 }
 
 /// Every request the fake has seen, oldest first.
@@ -760,8 +592,7 @@ fn field(record: &serde_json::Value, key: &str) -> String {
 // ---------------------------------------------------------------------------------------------
 
 /// A gateway to the fake: `ca` is the authority it trusts, `max_parallel` its cap.
-fn gateway(rig: &Rig, ca: &[u8], max_parallel: u32) -> (DockerGateway, Arc<Supervisor>) {
-    let sup = Arc::new(Supervisor::new(Arc::new(NullSink)));
+fn gateway(rig: &Rig, ca: &[u8], max_parallel: u32) -> DockerGateway {
     let cli = DockerCli::new(
         client_env(),
         "gateway".parse().expect("a marker"),
@@ -774,300 +605,463 @@ fn gateway(rig: &Rig, ca: &[u8], max_parallel: u32) -> (DockerGateway, Arc<Super
         .ca_pem(Vec::from(ca))
         .build()
         .expect("an upstream");
-    (
-        DockerGateway::new(
-            sidecar_image(),
-            upstream,
-            max_parallel,
-            cli,
-            Arc::clone(&sup),
-        ),
-        sup,
+    DockerGateway::new(
+        sidecar_image(),
+        upstream,
+        max_parallel,
+        cli,
+        Arc::clone(&rig.sup),
     )
 }
 
-/// Starts the sidecar on the job's internal network with `token`.
-async fn start(
+/// The experiment digest the sidecar is labelled with.
+const EXPERIMENT: &str = "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd";
+
+/// A world with a gateway up: the upstream fake, the gateway, its handle and what it recorded.
+struct World {
+    fake: Fake,
+    gw: DockerGateway,
+    handle: GatewayHandle,
+}
+
+/// Starts the gateway with `token` and, beside it, the fake upstream the gateway's readiness
+/// probe needs. `start` creates both networks and the sidecar.
+async fn up(rig: &Rig, token: &str) -> World {
+    let certs = make_certs(rig);
+    let gw = gateway(rig, &certs.ca_pem, 4);
+    let experiment: Digest = EXPERIMENT.parse().expect("a digest");
+    let fake_task = {
+        // BORROW: .clone() moves owned copies to the blocking thread
+        let (job, run, egress, dir, secret) = (
+            rig.job.clone(),
+            rig.run.clone(),
+            rig.egress_network(),
+            certs.dir.clone(),
+            String::from(token),
+        );
+        tokio::task::spawn_blocking(move || run_fake(&job, &run, &egress, &dir, &secret))
+    };
+    let started = gw
+        .start(
+            &rig.sup,
+            rig.cli.as_ref(),
+            GatewayStart {
+                job: &rig.job,
+                experiment: &experiment,
+                recorder: &rig.recorder,
+                token: &Fixed(String::from(token)),
+                secret: SECRET_NAME,
+            },
+        )
+        .await;
+    let fake = fake_task.await.expect("the fake's thread");
+    World {
+        fake,
+        gw,
+        handle: started.expect("a started gateway"),
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The agent container.
+// ---------------------------------------------------------------------------------------------
+
+/// The agent: the test agent image on the job's internal network.
+struct Agent {
+    cid: String,
+    workspace: PathBuf,
+}
+
+/// Starts an agent that runs `script` under `sh`, holding `api_key` as `ANTHROPIC_API_KEY` and
+/// the run's base url as `ANTHROPIC_BASE_URL`, with a bind-mounted workspace and a tmpfs HOME.
+fn start_agent(
     rig: &Rig,
-    gw: &DockerGateway,
-    sup: &Supervisor,
-    token: &str,
-) -> Result<GatewayHandle, GatewayError> {
-    struct NoRecord;
-    impl ChildRecorder for NoRecord {
-        fn record_child(&self, _record: &ContainerRecord) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    let experiment: Digest = format!("sha256:{}", "c".repeat(64))
-        .parse()
-        .expect("a digest");
-    gw.start(
-        sup,
-        &rig.driver,
-        GatewayStart {
-            job: &rig.job,
-            experiment: &experiment,
-            recorder: &NoRecord,
-            token: &Fixed(String::from(token)),
-            secret: SECRET_NAME,
-        },
-    )
-    .await
-}
-
-/// A GET, or a POST of `post`, from inside the sidecar to its own listener, headers included.
-fn from_sidecar(handle: &GatewayHandle, path: &str, post: Option<&str>) -> Ran {
-    let cid = handle.container.cid.to_string();
-    let url = format!("http://127.0.0.1:8080{path}");
-    let mut args = vec!["wget", "-q", "-S", "-T", "10", "-O-"];
-    if let Some(body) = post {
-        args.extend([
-            "--header",
-            "Content-Type: application/json",
-            "--post-data",
-            body,
-        ]);
-    }
-    args.push(&url);
-    exec(&cid, &args)
-}
-
-// ---------------------------------------------------------------------------------------------
-// The sidecar against the TLS fake.
-// ---------------------------------------------------------------------------------------------
-
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs Docker; run with --run-ignored only"]
-async fn gateway_tls_sends_the_real_token_with_host_and_sni() {
-    let rig = Rig::new();
-    let token = canary();
-    let fake = start_fake(&rig, &token);
-    let (gw, sup) = gateway(&rig, &fake.ca_pem, 4);
-    let handle = start(&rig, &gw, &sup, &token)
-        .await
-        .expect("a started gateway");
-    assert_eq!(gw.probe(&handle).await, GatewayStatus::Ready);
-
-    let key = run_key(1);
-    let echo = from_sidecar(&handle, &format!("/run/{key}/echo"), None);
-    assert!(echo.ok(), "echo: {}", echo.both());
-    // The fake echoed `Authorization`; the sidecar's body filter replaced the token.
-    assert!(echo.out.contains("Bearer <redacted>"), "body: {}", echo.out);
-    assert!(!echo.both().contains(&token));
-
-    let seen = records(&fake);
-    let last = seen
-        .iter()
-        .rev()
-        .find(|record| field(record, "path") == "/echo")
-        .expect("the echo request reached the fake");
-    // Oracle: the fake's own record of the TLS handshake and of the request it received.
-    assert_eq!(field(last, "sni"), UPSTREAM_HOST);
-    assert_eq!(
-        field(last, "host"),
-        format!("{UPSTREAM_HOST}:{UPSTREAM_PORT}")
-    );
-    assert_eq!(field(last, "authorization"), format!("Bearer {token}"));
-    assert_eq!(field(last, "x_api_key"), token);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs Docker; run with --run-ignored only"]
-async fn gateway_tls_untrusted_certificate_fails_closed() {
-    let rig = Rig::new();
-    let token = canary();
-    let fake = start_fake(&rig, &token);
-    // The sidecar trusts an authority that signed nothing the fake serves.
-    let (gw, sup) = gateway(&rig, &fake.rogue_ca_pem, 4);
-    let started = start(&rig, &gw, &sup, &token).await;
-    assert!(
-        matches!(
-            started,
-            Err(GatewayError::NotReady {
-                cause: NotReadyCause::Upstream(502)
-            })
-        ),
-        "an untrusted certificate must not serve: {started:?}"
-    );
-    // The handshake failed, so no request reached the fake.
-    assert!(records(&fake).is_empty(), "{:?}", records(&fake));
-}
-
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs Docker; run with --run-ignored only"]
-async fn gateway_tls_serves_nothing_until_the_credential_arrives() {
-    let rig = Rig::new();
-    let token = canary();
-    let fake = start_fake(&rig, &token);
-    // The sidecar as `start` makes it, minus the injection: it must wait, and serve nothing.
-    let image = sidecar_image();
+    handle: &GatewayHandle,
+    run: &RunKey,
+    api_key: &str,
+    script: &str,
+) -> Agent {
+    let workspace = rig.work_dir("workspace");
+    std::fs::set_permissions(&workspace, std::fs::Permissions::from_mode(0o777))
+        .expect("a world-writable workspace");
+    let base_url = handle.run_base_url(run);
     let cid = docker(&[
         "run",
         "-d",
         "--init",
-        "--read-only",
         "--label",
         &format!("candler.job={}", rig.job),
         "--label",
-        "candler.role=gateway",
+        "candler.role=agent",
+        "--label",
+        &format!("candler.run={}", rig.run),
         "--label",
         "candler.test=gateway",
         "--network",
         // BORROW: explicit .as_str() instead of Deref coercion
-        rig.egress.as_str(),
-        "--tmpfs",
-        "/run/gw:rw,mode=0700,uid=101,gid=101,size=64k,noexec,nosuid",
-        "--tmpfs",
-        "/tmp:rw,mode=1777,uid=101,gid=101,size=8m,noexec,nosuid",
-        "--tmpfs",
-        "/var/cache/nginx:rw,mode=0700,uid=101,gid=101,size=64m,noexec,nosuid",
+        handle.network.as_str(),
+        "--add-host",
+        "host.docker.internal:host-gateway",
+        "--user",
+        "1000:1000",
         "-e",
-        &format!("GW_UPSTREAM_HOST={UPSTREAM_HOST}"),
+        &format!("ANTHROPIC_API_KEY={api_key}"),
         "-e",
-        &format!("GW_UPSTREAM_AUTHORITY={UPSTREAM_HOST}:{UPSTREAM_PORT}"),
+        &format!("ANTHROPIC_BASE_URL={base_url}"),
         "-e",
-        "GW_MAX_PARALLEL=4",
-        &image.id.0,
+        "HOME=/home/agent",
+        "--tmpfs",
+        "/home/agent:rw,mode=1777",
+        "-v",
+        &format!("{}:/workspace", workspace.display()),
+        "-w",
+        "/workspace",
+        "--entrypoint",
+        "sh",
+        AGENT_IMAGE,
+        "-c",
+        script,
     ])
-    .must("starting a sidecar without a credential");
-    let cid = String::from(cid.trim());
-    std::thread::sleep(Duration::from_secs(4));
-    let state = docker(&["inspect", "--format", "{{.State.Running}}", &cid]).must("inspect");
-    assert_eq!(
-        state.trim(),
-        "true",
-        "the entrypoint waits, it does not exit early"
+    .must("starting the agent");
+    Agent {
+        cid: String::from(cid.trim()),
+        workspace,
+    }
+}
+
+/// Waits until the agent's script has written `/workspace/done`.
+fn wait_done(agent: &Agent) {
+    let marker = agent.workspace.join("done");
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while !marker.exists() {
+        assert!(Instant::now() < deadline, "the agent did not finish");
+        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
+/// The bytes of every file under `dir`, one after the other.
+fn read_tree(dir: &Path) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let mut pending = vec![PathBuf::from(dir)];
+    while let Some(next) = pending.pop() {
+        for entry in std::fs::read_dir(&next).expect("a directory").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                bytes.extend(std::fs::read(&path).expect("a file"));
+            }
+        }
+    }
+    bytes
+}
+
+/// The agent's side of one HTTP/1.0 call through the gateway, written to `$3`.
+const AGENT_REQUEST: &str = r#"
+P=${ANTHROPIC_BASE_URL#http://gateway:8080}
+req() {
+  { printf '%s %s HTTP/1.0\r\nHost: gateway\r\nAuthorization: Bearer %s\r\nx-api-key: %s\r\nContent-Length: 0\r\n\r\n' "$1" "$P$2" "$ANTHROPIC_API_KEY" "$ANTHROPIC_API_KEY"; sleep 2; } | nc -w 5 gateway 8080 > "$3"
+}
+"#;
+
+/// The python that calls the fake directly, as a client on the bridge network would, with the
+/// credential given as argument one. It prints the status.
+const DIRECT_CALL: &str = "import ssl, http.client, sys\n\
+c = ssl.create_default_context()\n\
+c.check_hostname = False\n\
+c.verify_mode = ssl.CERT_NONE\n\
+h = http.client.HTTPSConnection('127.0.0.1', 8443, context=c)\n\
+h.request('GET', '/v1/models', headers={'Authorization': 'Bearer ' + sys.argv[1], 'x-api-key': sys.argv[1]})\n\
+print(h.getresponse().status)\n";
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs Docker; run with --run-ignored only"]
+/// Guards: B17 — the real token never enters the agent container.
+/// Oracle: a random canary with `assert_clean` over the agent's env, `/proc/1/environ`, every
+/// process's environ and command line, the workspace, HOME, every labelled container's
+/// `docker inspect` and the gateway logs, while the upstream echoes `Authorization` in a 200 and in
+/// an error page and the canary demonstrably reached the upstream.
+/// Bite: put the real token in the agent's `-e ANTHROPIC_API_KEY`.
+async fn b17_canary_absent() {
+    let rig = Rig::new();
+    let token = canary();
+    let world = up(&rig, &token).await;
+    let (fake, handle) = (&world.fake, &world.handle);
+    let run = run_key(1);
+
+    // The sidecar was recorded once, with its labels, before it held the token.
+    let record = {
+        let recorded = rig.recorder.seen.lock().expect("a lock");
+        assert_eq!(recorded.len(), 1, "one container record");
+        // BORROW: .clone() releases the lock before the awaits below
+        recorded.first().expect("the record").clone()
+    };
+    assert_eq!(record.cid(), &handle.container.cid);
+    assert_eq!(record.role(), ContainerRole::Gateway);
+    assert_eq!(record.labels().job, rig.job);
+    assert_eq!(record.labels().run.to_string(), "gateway");
+    assert_eq!(record.labels().experiment.to_string(), EXPERIMENT);
+    let sidecar_labels = docker(&[
+        "inspect",
+        "--format",
+        "{{json .Config.Labels}}",
+        &handle.container.cid.to_string(),
+    ])
+    .must("docker inspect of the sidecar");
+    let sidecar_labels: serde_json::Value =
+        serde_json::from_str(sidecar_labels.trim()).expect("labels json");
+    for (key, want) in [
+        ("candler.job", rig.job.to_string()),
+        ("candler.role", String::from("gateway")),
+        ("candler.run", String::from("gateway")),
+        ("candler.experiment", String::from(EXPERIMENT)),
+    ] {
+        assert_eq!(field(&sidecar_labels, key), want, "label {key}");
+    }
+    let egress = rig
+        .cli
+        .network_inspect(&rig.egress_network())
+        .await
+        .expect("the egress network");
+    assert!(!egress.internal, "the egress network is not internal");
+
+    let script = format!(
+        "{AGENT_REQUEST}
+req GET /echo /workspace/echo.txt
+req GET /error-page /workspace/error.txt
+req GET /v1/models /workspace/models.txt
+echo profile > \"$HOME/.agent-profile\"
+echo agent-ready
+echo done > /workspace/done
+exec sleep 600
+"
     );
-    let models = exec(
-        &cid,
-        &[
-            "wget",
-            "-q",
-            "-T",
-            "2",
-            "-O-",
-            "http://127.0.0.1:8080/v1/models",
-        ],
+    let agent_key = &handle.dummy_token;
+    let agent = start_agent(&rig, handle, &run, agent_key, &script);
+    wait_done(&agent);
+
+    // The agent holds the dummy and what the gateway let back through.
+    let env = exec(&agent.cid, &["env"]).must("env");
+    assert!(
+        env.contains(&handle.dummy_token),
+        "the dummy is the agent's token"
     );
-    let health = exec(
-        &cid,
-        &[
-            "wget",
-            "-q",
-            "-T",
-            "2",
-            "-O-",
-            "http://127.0.0.1:8080/healthz",
-        ],
+
+    // The canary really travelled: the upstream got it, so its absence below is not vacuous.
+    let seen = records(fake);
+    assert!(
+        seen.iter().any(|r| field(r, "path").ends_with("/echo")
+            && field(r, "authorization") == format!("Bearer {token}")),
+        "the real token never reached the upstream: {seen:?}"
+    );
+    let echo =
+        String::from_utf8_lossy(&std::fs::read(agent.workspace.join("echo.txt")).expect("echo"))
+            .into_owned();
+    let error =
+        String::from_utf8_lossy(&std::fs::read(agent.workspace.join("error.txt")).expect("error"))
+            .into_owned();
+    assert!(
+        echo.contains("200") && echo.contains("Bearer <redacted>"),
+        "{echo}"
     );
     assert!(
-        !models.ok() && !health.ok(),
-        "nothing may listen before the credential"
+        error.contains("500") && error.contains("<redacted>"),
+        "{error}"
     );
-    assert_eq!(records(&fake).len(), 0, "the fake saw a request");
-}
 
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs Docker; run with --run-ignored only"]
-async fn gateway_tls_restart_empties_the_credential_and_reinject_restores_it() {
-    let rig = Rig::new();
-    let token = canary();
-    let fake = start_fake(&rig, &token);
-    let (gw, sup) = gateway(&rig, &fake.ca_pem, 4);
-    let handle = start(&rig, &gw, &sup, &token)
+    // The dummy opens nothing at the upstream; a direct call with it is refused.
+    let direct = exec(
+        &fake.cid,
+        &["python3", "-c", DIRECT_CALL, &handle.dummy_token],
+    )
+    .must("direct call");
+    assert_eq!(direct.trim(), "401", "the dummy token authenticated");
+
+    let proc_files = exec(
+        &agent.cid,
+        &[
+            "sh",
+            "-c",
+            "cat /proc/[0-9]*/environ /proc/[0-9]*/cmdline 2>/dev/null | tr '\\0' '\\n'",
+        ],
+    )
+    .out;
+    let pid1 = exec(
+        &agent.cid,
+        &["sh", "-c", "tr '\\0' '\\n' < /proc/1/environ"],
+    )
+    .out;
+    let home = exec(
+        &agent.cid,
+        &[
+            "sh",
+            "-c",
+            "cat /home/agent/.agent-profile; ls -la /home/agent",
+        ],
+    )
+    .out;
+    let agent_log = docker(&["logs", &agent.cid]).both();
+    let workspace = read_tree(&agent.workspace);
+    let logs = world
+        .gw
+        .logs()
+        .read(handle)
         .await
-        .expect("a started gateway");
-    let served = records(&fake).len();
-    assert!(served >= 1, "the readiness probe reached the fake");
+        .expect("the gateway logs");
+    let inspects: Vec<(String, String)> = rig
+        .containers()
+        .into_iter()
+        .map(|id| {
+            let text = docker(&["inspect", &id]).must("docker inspect");
+            (format!("docker inspect {id}"), text)
+        })
+        .collect();
 
-    let cid = handle.container.cid.to_string();
-    docker(&["restart", "-t", "1", &cid]).must("docker restart");
-    // The tmpfs is empty again: the sidecar waits for its credential and forwards nothing.
-    let down = from_sidecar(&handle, "/v1/models", None);
-    assert!(!down.ok(), "served without a credential: {}", down.both());
-    assert_eq!(records(&fake).len(), served, "the fake saw a request");
-
-    // BORROW: explicit .as_str() instead of Deref coercion
-    gw.reinject(&handle, &Fixed(String::from(token.as_str())), SECRET_NAME)
-        .await
-        .expect("a re-injected credential");
-    let up = from_sidecar(&handle, "/v1/models", None);
-    assert!(up.ok(), "{}", up.both());
-    assert!(records(&fake).len() > served);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs Docker; run with --run-ignored only"]
-async fn gateway_log_line_carries_the_model_and_never_the_credential() {
-    let rig = Rig::new();
-    let token = canary();
-    let fake = start_fake(&rig, &token);
-    let (gw, sup) = gateway(&rig, &fake.ca_pem, 4);
-    let handle = start(&rig, &gw, &sup, &token)
-        .await
-        .expect("a started gateway");
-    let key = run_key(1);
-    let model = format!("m-{}", random_hex());
-    let body = format!("{{\"model\":\"{model}\"}}");
-    let sent = from_sidecar(&handle, &format!("/run/{key}/v1/messages"), Some(&body));
-    assert!(sent.ok(), "{}", sent.both());
-
-    let log = gw.logs().read(&handle).await.expect("the logs");
-    // Oracle: the access log is the only place the model can be read from. The quoted-tilde form
-    // of the map passes `nginx -t` and matches nothing, so `model=-` here would be that defect.
-    let line = log
-        .lines()
-        .find(|line| line.contains(&format!("model={model}")))
-        .unwrap_or_else(|| panic!("no log line carries the model; log:\n{log}"));
-    assert!(line.contains(&format!("run={key}")), "{line}");
+    let mut haystacks: Vec<(&str, &[u8])> = vec![
+        ("agent env", env.as_bytes()),
+        ("agent /proc/1/environ", pid1.as_bytes()),
+        (
+            "agent every process environ and cmdline",
+            proc_files.as_bytes(),
+        ),
+        ("agent workspace", &workspace),
+        ("agent HOME", home.as_bytes()),
+        ("agent docker logs", agent_log.as_bytes()),
+        ("gateway logs", logs.as_bytes()),
+    ];
+    for (name, text) in &inspects {
+        // BORROW: explicit .as_str() instead of Deref coercion
+        haystacks.push((name.as_str(), text.as_bytes()));
+    }
     assert!(
-        line.contains("method=POST") && line.contains("status=200"),
-        "{line}"
+        inspects.len() >= 3,
+        "agent, gateway and upstream are labelled"
     );
-    assert!(!log.contains(&token) && !log.contains("Bearer") && !log.contains("Authorization"));
+    if let Err(leak) = assert_clean(&token, &haystacks) {
+        panic!("the real token leaked: {leak:?}");
+    }
 }
+
+/// A TCP listener on the host that counts the connections it accepts.
+struct HostListener {
+    port: u16,
+    accepted: Arc<AtomicUsize>,
+    stop: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl HostListener {
+    fn start() -> Self {
+        let listener = TcpListener::bind("0.0.0.0:0").expect("a host listener");
+        listener
+            .set_nonblocking(true)
+            .expect("a non-blocking listener");
+        let port = listener.local_addr().expect("an address").port();
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+        let (count, halt) = (Arc::clone(&accepted), Arc::clone(&stop));
+        let thread = std::thread::spawn(move || {
+            while !halt.load(Ordering::SeqCst) {
+                if listener.accept().is_ok() {
+                    count.fetch_add(1, Ordering::SeqCst);
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        });
+        Self {
+            port,
+            accepted,
+            stop,
+            thread: Some(thread),
+        }
+    }
+
+    fn accepted(&self) -> usize {
+        self.accepted.load(Ordering::SeqCst)
+    }
+}
+
+impl Drop for HostListener {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// The shell function both the agent and the control use: `probe <host> <port> <name>` prints
+/// `<name>=open` or `<name>=fail`.
+const PROBE_FN: &str = "probe() { if nc -w 3 \"$1\" \"$2\" </dev/null >/dev/null 2>&1; then echo \"$3=open\"; else echo \"$3=fail\"; fi; }\n";
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs Docker; run with --run-ignored only"]
-async fn gateway_log_cap_answers_429_once_and_the_run_signal_reports_it() {
+/// Guards: B18 — the agent has no route to the host or the internet.
+/// Oracle: the agent on the job's network reaches the sidecar and fails to reach a host listener,
+/// the internet and a public resolver, while a control container on the default bridge reaches the
+/// same host listener and the listener counts exactly that one connection.
+/// Bite: drop `--internal` from the network the driver creates.
+async fn b18_internal_network_no_route() {
     let rig = Rig::new();
     let token = canary();
-    let fake = start_fake(&rig, &token);
-    let (gw, sup) = gateway(&rig, &fake.ca_pem, 2);
-    let handle = start(&rig, &gw, &sup, &token)
+    let world = up(&rig, &token).await;
+    let handle = &world.handle;
+    let net = rig
+        .cli
+        .network_inspect(&rig.job_network())
         .await
-        .expect("a started gateway");
-    let key = run_key(7);
-    let path = format!("/run/{key}/slow");
-    // N + 1 simultaneous calls at a cap of N = 2: the fake holds each for three seconds.
-    let answers: Vec<Ran> = std::thread::scope(|scope| {
-        let workers: Vec<_> = (0..3)
-            .map(|_| scope.spawn(|| from_sidecar(&handle, &path, None)))
-            .collect();
-        workers
-            .into_iter()
-            .map(|worker| worker.join().expect("a worker"))
-            .collect()
-    });
-    let capped = answers
-        .iter()
-        .filter(|ran| ran.both().contains("429"))
-        .count();
-    let served = answers.iter().filter(|ran| ran.ok()).count();
-    assert_eq!(
-        (capped, served),
-        (1, 2),
-        "{:?}",
-        answers.iter().map(Ran::both).collect::<Vec<_>>()
-    );
+        .expect("the job's network");
+    assert!(net.internal, "the job's network is internal");
 
-    let signals = gw.run_signals(&handle, &key).await.expect("the signals");
-    assert_eq!(signals, vec![GatewaySignal::UpstreamStatus(429)]);
-    // The other run saw nothing.
-    let other = gw
-        .run_signals(&handle, &run_key(8))
-        .await
-        .expect("the signals");
-    assert_eq!(other.len(), 0);
+    let host = HostListener::start();
+    let port = host.port;
+    let script = format!(
+        "{PROBE_FN}{{ probe gateway 8080 sidecar; probe host.docker.internal {port} host; probe 1.1.1.1 443 internet; probe 8.8.8.8 53 resolver; }} > /workspace/net.txt\necho done > /workspace/done\n"
+    );
+    let agent = start_agent(&rig, handle, &run_key(1), &handle.dummy_token, &script);
+    wait_done(&agent);
+    let seen = std::fs::read_to_string(agent.workspace.join("net.txt")).expect("the probe output");
+    assert!(
+        seen.contains("sidecar=open"),
+        "the agent reaches the gateway: {seen}"
+    );
+    assert!(
+        seen.contains("host=fail"),
+        "the agent reached the host: {seen}"
+    );
+    assert!(
+        seen.contains("internet=fail"),
+        "the agent reached the internet: {seen}"
+    );
+    assert!(
+        seen.contains("resolver=fail"),
+        "the agent reached a resolver: {seen}"
+    );
+    assert_eq!(host.accepted(), 0, "the host listener saw the agent");
+
+    // Control: a container on the default bridge reaches the same listener.
+    let control_script = format!("{PROBE_FN}probe host.docker.internal {port} host\n");
+    // It carries no `candler.job` label, so no sweep of the job meets it, and `--rm` has docker
+    // remove it when its script ends.
+    let said = docker(&[
+        "run",
+        "--rm",
+        "--label",
+        "candler.role=control",
+        "--label",
+        "candler.test=gateway",
+        "--add-host",
+        "host.docker.internal:host-gateway",
+        "--entrypoint",
+        "sh",
+        AGENT_IMAGE,
+        "-c",
+        &control_script,
+    ])
+    .must("running the control");
+    assert!(
+        said.contains("host=open"),
+        "the control must reach the host listener: {said}"
+    );
+    assert_eq!(host.accepted(), 1, "only the control reached the listener");
 }
