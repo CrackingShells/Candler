@@ -158,6 +158,7 @@ impl JobEvents {
             .map_err(io_error("read the event log", &self.path))?;
         let mut events = Vec::new();
         let mut offset = from.0;
+        // BORROW: `.as_slice()` views the bytes as a slice
         let mut rest = bytes.as_slice();
         while let Some(at) = rest.iter().position(|b| *b == b'\n') {
             let (line, after) = rest.split_at(at);

@@ -216,8 +216,8 @@ pub fn skill_files(tar: &[u8]) -> Result<Vec<PreparedFile>, DriverError> {
             b'g' | b'5' => {}
             b'x' => {
                 for (key, value) in pax_records(data)? {
+                    // BORROW: explicit .as_str()
                     match key.as_str() {
-                        // BORROW: explicit .as_str()
                         "path" => long_path = Some(value),
                         "linkpath" => {
                             return Err(invalid(TREATMENT, "an entry is a link".to_owned())); // BORROW: .to_owned() makes the owned text

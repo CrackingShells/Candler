@@ -193,6 +193,7 @@ impl Runner {
                 }
             },
             Ended::Deadline | Ended::Stopped => Err(DockerError::Failed {
+                // BORROW: the error owns its text
                 detail: "the supervisor ended the docker client before it finished".to_owned(),
             }),
         }
@@ -254,6 +255,7 @@ impl DockerCli {
             .as_ref()
             .and_then(find_docker)
             .ok_or_else(|| DockerError::Unavailable {
+                // BORROW: the error owns its text
                 detail: "no absolute `docker` on PATH".to_owned(),
             })?;
         Ok(Self::with_binary(supervisor, binary, env, record_dir))
@@ -331,6 +333,7 @@ fn network_inspect_args(name: &NetworkName) -> Vec<String> {
         "inspect",
         "--format",
         "{{json .}}",
+        // BORROW: `.as_str()` borrows the text of the name
         name.as_str(),
     ])
 }
@@ -487,6 +490,7 @@ fn parse_inspect(text: &str) -> Result<Inspect, DockerError> {
 fn parse_network(text: &str, asked: &NetworkName) -> Result<NetworkInfo, DockerError> {
     let raw: RawNetwork =
         serde_json::from_str(text).map_err(|error| unreadable("network inspect", error))?;
+    // BORROW: `.as_str()` borrows the text of the name
     if raw.name != asked.as_str() {
         return Err(unreadable(
             "network inspect",
@@ -543,6 +547,7 @@ impl DockerDriver for DockerCli {
             }
             let text = self.runner.run(inspect_args(id), CALL_DEADLINE).await?;
             let inspected = parse_inspect(&text)?;
+            // BORROW: `.as_str()` borrows the text of the id
             if inspected.id.as_str() != id {
                 return Err(unreadable(
                     "container inspect",
@@ -560,6 +565,7 @@ impl DockerDriver for DockerCli {
         Box::pin(async move {
             if !sel.key.starts_with("candler.") || sel.value.is_empty() {
                 return Err(DockerError::Failed {
+                    // BORROW: the error owns its text
                     detail: "a label selector names a candler label and a value".to_owned(),
                 });
             }
@@ -674,11 +680,14 @@ impl DestroyDriver for DockerDestroyer {
 
     fn network_rm<'a>(&'a self, name: &'a NetworkName) -> BoxFuture<'a, Result<(), DockerError>> {
         Box::pin(async move {
+            // BORROW: `.as_str()` borrows the text of the name
             if !is_job_network(name.as_str()) {
                 return Err(DockerError::NotAJobNetwork {
+                    // BORROW: `.as_str()` borrows the text of the name
                     detail: name.as_str().chars().take(DETAIL_LIMIT).collect(),
                 });
             }
+            // BORROW: `.as_str()` borrows the text of the name
             let args = to_args(&["network", "rm", name.as_str()]);
             self.runner.run(args, CALL_DEADLINE).await.map(|_| ())
         })

@@ -177,7 +177,11 @@ fn read_arm(arm: &Value) -> Result<ArmView, VerdictError> {
     }
 }
 
-/// Guards: I7 — arms are compared only when they differ in declared factors alone: every other path is refused and named, by whole path segments, whatever the order or the number of arms; an unreadable arm gives no verdict. Oracle: the R01 sentence each row of `verdicts.json` cites (C01 to C23 the lead's, C24 on added); the expected verdict is a literal in the row.
+/// Guards: I7 — arms are compared only when they differ in declared factors alone: every other
+/// path is refused and named, by whole path segments, whatever the order or the number of arms; an
+/// unreadable arm gives no verdict.
+/// Oracle: the R01 sentence each row of `verdicts.json` cites (C01 to C23 the lead's, C24 on
+/// added); the expected verdict is a literal in the row.
 /// Bite: compare paths with `str::starts_with` instead of whole segments (`covers`).
 #[test]
 fn stratum_verdict_table() {
@@ -241,7 +245,11 @@ fn stratum_verdict_table() {
     );
 }
 
-/// Guards: I7 — the crate's nuisance set is the one M1 wrote by hand, so no value can hide as nuisance: it equals the `nuisance` entries of `hashed_paths.toml` as sets, no entry of either is a `comparable` path, and every `hashed` entry is one. Oracle: `crates/candler-schemas/tests/vectors/manifest/hashed_paths.toml`, written by hand from R01 §Run manifest.
+/// Guards: I7 — the crate's nuisance set is the one written by hand in the schemas crate, so no
+/// value can hide as nuisance: it equals the `nuisance` entries of `hashed_paths.toml` as sets, no
+/// entry of either is a `comparable` path, and every `hashed` entry is one.
+/// Oracle: `crates/candler-schemas/tests/vectors/manifest/hashed_paths.toml`, written by hand from
+/// R01 §Run manifest.
 /// Bite: add `comparable.inputs` to `NUISANCE_PATHS`.
 #[test]
 fn nuisance_set_is_the_hand_written_one() {

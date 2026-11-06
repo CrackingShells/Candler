@@ -78,7 +78,7 @@ fn put(repo: &Path, path: &str, contents: &str) -> Res<()> {
     Ok(())
 }
 
-/// Guards: contract v5 — the agent command is the reference command line.
+/// Guards: B21 — the agent command is the reference command line.
 /// Oracle: `feature_map/reference_flags.txt` (read here, not copied).
 /// Bite: drop `--setting-sources project,local` from the argv.
 #[test]
@@ -95,6 +95,7 @@ fn b21_reference_command_line() -> Res<()> {
                 continue;
             }
             for token in line.split_whitespace() {
+                // BORROW: `.to_owned()` makes the owned argument the command line holds
                 argv.push(match token {
                     "<prompt>" => prompt.to_owned(),
                     "<model>" => "claude-haiku-4-5".to_owned(),
@@ -109,6 +110,7 @@ fn b21_reference_command_line() -> Res<()> {
     let driver = ClaudeCodeDriver::new();
     let reference = values("bypassPermissions")?;
     let command = driver.command(&Cell::new(&reference), &Workspace::new(root))?;
+    // BORROW: `.as_slice()` views the expected arguments as a slice
     assert_eq!(command.argv(), expected("bypassPermissions")?.as_slice());
     // Provenance: reference_flags.txt, "NOT passed: --bare, --allowedTools, --max-budget-usd".
     for flag in [
@@ -129,6 +131,7 @@ fn b21_reference_command_line() -> Res<()> {
     // Positive control: the permission mode follows the cell.
     let plan = values("plan")?;
     let command = driver.command(&Cell::new(&plan), &Workspace::new(root))?;
+    // BORROW: `.as_slice()` views the expected arguments as a slice
     assert_eq!(command.argv(), expected("plan")?.as_slice());
     Ok(())
 }
@@ -161,6 +164,7 @@ fn b22_skill_tree_is_the_tag() -> Res<()> {
 
     let sha = String::from_utf8(git(&repo, &["rev-parse", "v1^{commit}"])?)?;
     let mut treatment = TreatmentRef::new(Name::from_str("treatment")?);
+    // BORROW: `.to_owned()` makes the owned tag the treatment holds
     treatment.tag = Some("v1".to_owned());
     treatment.commit = Some(GitCommit::from_str(sha.trim())?);
     let command = skill_archive_command(&treatment, &repo)?;
@@ -175,6 +179,7 @@ fn b22_skill_tree_is_the_tag() -> Res<()> {
         let (meta, path) = line.split_once('\t').ok_or("bad ls-tree line")?;
         let mode = meta.split(' ').next().ok_or("bad ls-tree meta")?;
         let blob = git(&repo, &["cat-file", "blob", &format!("v1:{path}")])?;
+        // BORROW: `.to_owned()` makes the owned path the map keys on
         tagged.insert(path.to_owned(), (blob, mode == "100755"));
     }
     let got: BTreeMap<String, (Vec<u8>, bool)> = files

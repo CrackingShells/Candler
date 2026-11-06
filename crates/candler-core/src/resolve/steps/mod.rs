@@ -1,5 +1,5 @@
-//! The preflight steps M2b adds to the resolver: the identity of the harness and the treatment,
-//! the image and the command catalog.
+//! The preflight steps that resolve the identity of the harness and the treatment, the image and
+//! the command catalog.
 
 pub mod catalog;
 pub mod identity;
@@ -15,7 +15,7 @@ use crate::isolation::image::ImageService;
 use crate::runner::evidence::catalog::CatalogProvider;
 use crate::supervise::Supervisor;
 
-/// What the M2b steps need from the outside.
+/// What the image, harness, treatment and catalog steps need from the outside.
 pub struct M2bServices {
     /// The supervisor that runs the version probes.
     pub supervisor: Arc<Supervisor>,
@@ -29,9 +29,9 @@ pub struct M2bServices {
     pub harness_supported: semver::VersionReq,
 }
 
-/// Registers the M2b steps on `resolver`, in the order their values depend on one another: the
-/// treatment first (its pinned commit is where requirement sources are read), then the image, then
-/// the harness (it reads the image), then the catalog.
+/// Registers the preflight steps on `resolver`, in the order their values depend on one another:
+/// the treatment first (its pinned commit is where requirement sources are read), then the image,
+/// then the harness (it reads the image), then the catalog.
 ///
 /// The services move into the steps.
 ///

@@ -1,8 +1,9 @@
-//! The real-Docker guards of M2b, ignored by default and run in the `container-e2e` nextest group
-//! (`--run-ignored only`). Each e2e leaf fills its own module.
+//! The real-Docker guards of the container runner, ignored by default and run in the
+//! `container-e2e` nextest group (`--run-ignored only`).
 //!
-//! Each module holds one ignored placeholder that panics, so the container gate cannot pass before
-//! the leaf has replaced it with its own guards.
+//! `container_run_e2e` and `container_stop_e2e` hold their guards. `gateway_e2e` and
+//! `supervision_gates_e2e` each hold one ignored placeholder that panics, so the container gate
+//! cannot pass before they hold their own guards.
 #![cfg(unix)]
 
 #[path = "container_run_e2e.rs"]

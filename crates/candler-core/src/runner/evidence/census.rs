@@ -77,6 +77,7 @@ pub fn census(
         .ok_or(CensusError::Malformed { key: "mcp_servers" })?;
     let mut names: Vec<String> = Vec::new();
     for tool in tools.as_array().into_iter().flatten() {
+        // BORROW: `.as_str()` borrows the text of the JSON string
         let name = tool
             .as_str()
             .ok_or(CensusError::Malformed { key: "tools" })?;
