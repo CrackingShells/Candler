@@ -153,8 +153,9 @@ pub struct Refusal {
 /// container in scope.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ContainerSweep {
-    /// The containers destroyed.
-    pub destroyed: Vec<ContainerId>,
+    /// The containers destroyed, each as inspected right before the destroy; its labels carry
+    /// the `candler.role` a `run.stray` entry reports.
+    pub destroyed: Vec<ContainerRef>,
     /// The containers refused.
     pub refused: Vec<Refusal>,
     /// Whether the sweep could not tell that it was complete.
