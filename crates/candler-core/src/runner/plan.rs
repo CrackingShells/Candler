@@ -126,12 +126,17 @@ pub enum PlanError {
     /// A re-checked fact differs from the stored cell and the plan was not forced.
     #[error("a re-checked fact differs from the stored cell: {}", paths_of(.0))]
     Changed(Vec<Deviation>),
-    /// A stored cell of a past experiment has no counterpart in this experiment file, while
-    /// other cells of that past experiment do.
-    #[error("the stored cell {cell} has no counterpart in the experiment")]
+    /// Some cells of a past experiment answer cells of this one and others answer none, so the
+    /// past experiment cannot be replayed.
+    #[error(
+        "the past experiment {experiment} has stored cells no cell of this experiment answers: {}",
+        cells.join(", ")
+    )]
     StoredCellUnknown {
-        /// The digest of the stored cell.
-        cell: String,
+        /// The digest of the past experiment.
+        experiment: String,
+        /// The digests of its stored cells that no cell of this experiment answers.
+        cells: Vec<String>,
     },
     /// Two stored cells both answer one cell of the experiment, or two past experiments both
     /// match it, so none can be replayed; one stored cell that answers two cells names itself
@@ -295,6 +300,7 @@ fn fresh_cells(
 struct Stored {
     comparable: Comparable,
     secrets: Vec<SecretPresence>,
+    experiment: Digest,
 }
 
 /// The stored cells of the store, grouped by the experiment that wrote them. Each cell's record
@@ -335,10 +341,14 @@ fn stored_groups(store: &Store) -> Result<Vec<Vec<Stored>>, PlanError> {
             }
         }
         if let Some((_, view)) = last {
-            groups.entry(view.experiment).or_default().push(Stored {
-                comparable: view.comparable,
-                secrets,
-            });
+            groups
+                .entry(view.experiment.clone()) // BORROW: the map and the cell both keep the digest
+                .or_default()
+                .push(Stored {
+                    comparable: view.comparable,
+                    secrets,
+                    experiment: view.experiment,
+                });
         }
     }
     Ok(groups.into_values().collect())
@@ -410,13 +420,22 @@ fn match_stored<'a>(
         if hits.iter().all(Vec::is_empty) {
             continue;
         }
+        let unmatched: Vec<String> = group
+            .iter()
+            .zip(&hits)
+            .filter(|(_, found)| found.is_empty())
+            .map(|(candidate, _)| candidate.comparable.digest().to_string())
+            .collect();
+        if let Some(first) = group.first().filter(|_| !unmatched.is_empty()) {
+            return Err(PlanError::StoredCellUnknown {
+                experiment: first.experiment.to_string(),
+                cells: unmatched,
+            });
+        }
         let mut slots: Vec<Option<&'a Stored>> = vec![None; cells.len()];
         for (candidate, found) in group.iter().zip(&hits) {
             let digest = candidate.comparable.digest().to_string();
             let [index] = found.as_slice() else {
-                if found.is_empty() {
-                    return Err(PlanError::StoredCellUnknown { cell: digest });
-                }
                 return Err(PlanError::StoredCellAmbiguous {
                     // BORROW: the error owns the digest text
                     first: digest.clone(),
@@ -471,11 +490,68 @@ fn differ(path: &str, stored: Option<Value>, observed: Option<Value>) -> Option<
     Some(Deviation::new(path, wrap(stored), wrap(observed)))
 }
 
-/// The facts of a stored cell that the fresh resolution no longer holds: the image ID, the
-/// harness version and the treatment's tag-to-commit pin, in path order. A deviation holds names
-/// and digests, never a secret.
+/// A field-path segment for `name`: lower case, with every other character `_`.
+fn segment(name: &str) -> String {
+    let mut text: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_lowercase() || c.is_ascii_digit() {
+                c
+            } else if c.is_ascii_uppercase() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if !text.starts_with(|c: char| c.is_ascii_lowercase()) {
+        text.insert(0, 'x');
+    }
+    text
+}
+
+/// The digests of the typed roots that `stored` and `fresh` hold under one name each, as a
+/// deviation per name whose digest differs: `inputs.<kind>` and `environments.<plugin>`.
+fn check_roots(stored: &Comparable, fresh: &Comparable) -> Vec<Deviation> {
+    let digests = |cell: &Comparable| -> BTreeMap<String, String> {
+        let inputs = cell
+            .inputs()
+            .iter()
+            // BORROW: explicit .as_str() instead of Deref coercion
+            .map(|r| {
+                (
+                    format!("inputs.{}", segment(r.kind.as_str())),
+                    r.digest.to_string(),
+                )
+            });
+        let environments = cell.environments().iter().map(|r| {
+            (
+                format!("environments.{}", segment(r.plugin.name())),
+                r.lock_digest.to_string(),
+            )
+        });
+        inputs.chain(environments).collect()
+    };
+    let (was, now) = (digests(stored), digests(fresh));
+    let paths: BTreeSet<&String> = was.keys().chain(now.keys()).collect();
+    paths
+        .into_iter()
+        .filter_map(|path| {
+            let text = |map: &BTreeMap<String, String>| map.get(path).cloned().map(Value::String);
+            differ(path.as_str(), text(&was), text(&now)) // BORROW: explicit .as_str()
+        })
+        .collect()
+}
+
+/// The facts of a stored cell that the fresh cell and resolution no longer hold: the image ID,
+/// the harness version, the treatment's tag-to-commit pin and the digest of each input and
+/// environment, in path order. A deviation holds names and digests, never a secret.
 #[must_use]
-pub fn check_facts(stored: &Comparable, resolution: &Resolution) -> Vec<Deviation> {
+pub fn check_facts(
+    stored: &Comparable,
+    fresh: &Comparable,
+    resolution: &Resolution,
+) -> Vec<Deviation> {
     let stored_image = stored
         .values()
         .iter()
@@ -487,7 +563,7 @@ pub fn check_facts(stored: &Comparable, resolution: &Resolution) -> Vec<Deviatio
         .and_then(|harness| harness.get("version"))
         .cloned(); // BORROW: the deviation owns the observed value
     let stored_treatment = serde_json::to_value(stored.treatment()).ok();
-    [
+    let mut all: Vec<Deviation> = [
         differ(
             HARNESS_VERSION,
             Some(Value::String(stored.harness().version.to_string())),
@@ -508,7 +584,10 @@ pub fn check_facts(stored: &Comparable, resolution: &Resolution) -> Vec<Deviatio
     ]
     .into_iter()
     .flatten()
-    .collect()
+    .chain(check_roots(stored, fresh))
+    .collect();
+    all.sort_by(|a, b| a.path.as_str().cmp(b.path.as_str()));
+    all
 }
 
 /// The deviation of the secrets: one entry at `secrets` that lists, by name, the secrets the
@@ -614,7 +693,7 @@ pub fn plan_runs(
     for (cell, found) in cells.iter().zip(matched) {
         let (digest, pinned, deviations) = match found {
             Some(held) => {
-                let mut deviations = check_facts(&held.comparable, resolution);
+                let mut deviations = check_facts(&held.comparable, &cell.comparable, resolution);
                 deviations.extend(check_secrets(held.secrets.as_slice(), &ctx.secrets_present));
                 (
                     held.comparable.digest(),
