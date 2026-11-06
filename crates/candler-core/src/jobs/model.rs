@@ -13,7 +13,6 @@ use crate::runner::{RunOutcome, Runtime};
 /// Everything the supervisor of a job needs, written to the job directory by `candler run` and
 /// read back by the detached supervisor.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[non_exhaustive]
 pub struct JobSpec {
     /// The experiment file.
     pub experiment: ExperimentFile,
@@ -27,7 +26,6 @@ pub struct JobSpec {
 
 /// How a job ended and what its runs did.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub struct JobOutcome {
     /// How the job ended.
     pub end: JobEnd,
@@ -47,7 +45,6 @@ pub enum JobCause {
 
 /// The handle the job's supervisor uses to stop the job.
 #[derive(Debug, Clone)]
-#[non_exhaustive]
 pub struct JobControl {
     /// Sending a cause stops every run; runs hold the receiving side.
     pub cancel: Arc<watch::Sender<Option<JobCause>>>,

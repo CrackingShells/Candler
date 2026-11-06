@@ -40,7 +40,6 @@ pub enum GuardError {
 
 /// What a destroy did.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct Destroyed {
     /// Whether a record named the container, as opposed to its labels.
     pub recorded: bool,

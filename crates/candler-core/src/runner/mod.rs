@@ -25,7 +25,6 @@ use crate::store::Store;
 use crate::supervise::{EventSink, Supervisor};
 
 /// What a run needs from the job around it.
-#[non_exhaustive]
 pub struct Runtime {
     /// The supervisor that spawns and stops the run's children.
     pub supervisor: Arc<Supervisor>,
@@ -46,7 +45,6 @@ pub struct Runtime {
 
 /// Tokens and cost a run spent.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
-#[non_exhaustive]
 pub struct Usage {
     /// The tokens spent.
     pub tokens: u64,
@@ -66,7 +64,6 @@ pub enum RunStatus {
 
 /// What a run did.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub struct RunOutcome {
     /// The run.
     pub key: RunKey,
@@ -83,7 +80,6 @@ pub struct RunOutcome {
 }
 
 /// What the job tells a run while it runs.
-#[non_exhaustive]
 pub struct RunControl {
     /// A cause arrives here when the job stops.
     pub cancel: watch::Receiver<Option<JobCause>>,

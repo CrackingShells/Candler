@@ -14,7 +14,6 @@ pub type TreeJson = RunTree;
 
 /// A file the run produced and its digest.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct OutputDigest {
     /// The path relative to the workspace.
     pub path: String,
@@ -24,7 +23,6 @@ pub struct OutputDigest {
 
 /// A file the run was given and its digest.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct InputDigest {
     /// The path relative to the workspace.
     pub path: String,
@@ -34,7 +32,6 @@ pub struct InputDigest {
 
 /// What the run was given.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct Inputs {
     /// The digest of every input file.
     pub digests: Vec<InputDigest>,
@@ -42,7 +39,6 @@ pub struct Inputs {
 
 /// What a run left behind.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub struct Evidence {
     /// The sessions the trace holds.
     pub sessions: Vec<Session>,
