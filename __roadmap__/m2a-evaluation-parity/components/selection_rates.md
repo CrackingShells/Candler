@@ -22,7 +22,7 @@
 ## Step 2: Compute the rates per cell
 **Goal**: Quality and gate rates per cell use the reference formula over current A–C records, with `not_applicable` outside the denominator.
 **Implementation Logic**:
-`rates(selection: &Selection, evaluator: &EvaluatorId) -> BTreeMap<CellKey, Rates>`: per cell, the integer sums of score and max score over that evaluator's current records whose own `role` (`record.role()`, I21) is `gate` or `quality`, as R03 transcribes `_outcome.py`. A `not_applicable` record and a 0/0 pass add nothing. No suite is read, and the core names no expectation. `Rates` serialises as R03's TOML format (`gate = [num, den]`, `quality = [num, den]`). `surfaces` prints it.
+`rates(selection: &Selection, evaluator: &NameVersion) -> BTreeMap<CellKey, Rates>`, where `CellKey` is the run's cell digest and prints as its 64 bare hex digits (the `<cell hex>` of a run key `<cell hex>-r<N>-a<M>`): per cell, the integer sums of score and max score over that evaluator's current records whose own `role` (`record.role()`, I21) is `gate` or `quality`, as R03 transcribes `_outcome.py`. A `not_applicable` record and a 0/0 pass add nothing. No suite is read, and the core names no expectation. `Rates` serialises as R03's TOML format (`[cell."<cell hex>"]`, `gate = [num, den]`, `quality = [num, den]`, one blank line between tables). `surfaces` prints it.
 **Deliverables**: `crates/candler-core/src/evaluation/selection/rates.rs` (`rates`, `Rates`, `CellKey`)
 **Consistency Checks**: `cargo clippy -p candler-core --all-targets -- -D warnings` (expected: PASS)
 **Commit**: `feat(evaluation): compute quality and gate rates per cell`

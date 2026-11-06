@@ -5,7 +5,7 @@
 - [ ] [cmd] ENV, DEP(skeleton) and DEP(protocol_wire)
 - [ ] [cmd] `cd python/candler-evaluator && uv sync --frozen && uv run --frozen python -c 'import candler_evaluator'`
 **Success Gates**:
-- ⬜ [cmd] PYSTD, SUBJ and SCAFFOLD pass, and OWNED passes with `^python/candler-evaluator/(src/candler_evaluator/(?!_models)|tests/|examples/)`
+- ⬜ [cmd] PYSTD, SUBJ and SCAFFOLD pass, and OWNED passes with `^python/candler-evaluator/(src/candler_evaluator/|tests/|examples/)` and `test -z "$(git diff --name-only <base>..HEAD | grep -F _models)"` (POSIX ERE has no look-ahead)
 - ⬜ [cmd] `cd python/candler-evaluator && uv run --frozen pytest -q tests/test_guard_isolation.py tests/test_guard_identity.py` passes (HR1, HR2)
 - ⬜ [cmd] Fork probe, logged in the report: `for i in $(seq 20); do uv run --frozen pytest -q tests/test_guard_isolation.py || exit 1; done` from `python/candler-evaluator`
 - ⬜ [cmd] `test "$(find python/candler-evaluator/examples -type f -exec cat {} + | wc -c)" -le 10240` (bytes, not disk blocks)

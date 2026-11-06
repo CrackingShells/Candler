@@ -4,7 +4,7 @@
 **Pre-conditions**:
 - [ ] [cmd] ENV, DEP(skeleton) and DEP(protocol_wire)
 **Success Gates**:
-- ⬜ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler-core/(src/evaluation/client/|tests/(guard_protocol_client\.rs|fixtures/client/|public_surface\.rs)$)` with only the `protocol_client_surface` block of `public_surface.rs` changed
+- ⬜ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler-core/(src/evaluation/client/|tests/(guard_protocol_client\.rs$|public_surface\.rs$|fixtures/client/))` with only the `protocol_client_surface` block of `public_surface.rs` changed
 - ⬜ [cmd] SPAWN, then `cargo nextest run -p candler-core -E 'binary(guard_protocol_client)'` passes (PC1, PC2)
 - ⬜ [cmd] `test "$(find crates/candler-core/tests/fixtures/client -type f -exec cat {} + | wc -c)" -le 12288` (bytes, not disk blocks) (six stubs, ≤ 2 KB each)
 - ⬜ [nl] The plain verifier holds no open BLOCKER or MAJOR: late-result and cancel races, pipe deadlock
@@ -14,7 +14,7 @@
 **Goal**: One call spawns the evaluator, sends one request, collects its notifications and result, and always reaps the process.
 **Implementation Logic**:
 1. `Client::new(supervisor: &Supervisor)`; `Client::describe(command) -> Result<DescribeResult, ClientError>` and `Client::evaluate(command, params: EvaluateParams, deadline: Duration, cancel: watch::Receiver<bool>) -> Result<ClientOutcome, ClientError>`, where `ClientOutcome` holds one outcome per requested item in item order.
-2. The request id is `RequestId::new_v7()`. Stdin carries one `RpcRequest` line then EOF. Stdout is read line by line as `rpc::Message`. Stderr is drained concurrently into a bounded buffer kept as evidence, so a flood never blocks the child.
+2. The request id is `RequestId::new_v7()`. Stdin carries one `RpcRequest` line and stays open (R01 §Lifetime); the client closes it after the response, or after sending `cancel`. Stdout is read line by line as `rpc::Message`. Stderr is drained concurrently into a bounded buffer kept as evidence, so a flood never blocks the child.
 3. Every outcome notification is matched to a requested item by id; a duplicate or unknown item id is an `instrument_error` for the request.
 **Deliverables**: `crates/candler-core/src/evaluation/client/{mod,session,framing}.rs` (`Client`, `ClientOutcome`, `ClientError`)
 **Consistency Checks**: `cargo clippy -p candler-core --all-targets -- -D warnings` (expected: PASS)
