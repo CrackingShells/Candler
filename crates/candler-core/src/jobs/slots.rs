@@ -1,8 +1,23 @@
 //! The slots that bound how many runs of all jobs execute at once.
+//!
+//! A slot is a pair of files under the slots directory: `<n>.lock`, the target of an exclusive
+//! `flock`, and `<n>.json`, who holds it. The kernel releases the lock when the holder dies, so a
+//! free lock with a leftover `.json` is a crashed holder: reported as stale, never as held.
 
-use std::path::Path;
+use std::fs::{self, File, OpenOptions};
+use std::io;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use futures::future::BoxFuture;
+use rustix::fs::{FlockOperation, flock};
+use rustix::io::Errno;
+use serde::{Deserialize, Serialize};
+
+use super::dir::write_atomic;
+
+/// How often [`Slots::acquire`] tries again.
+const POLL: Duration = Duration::from_millis(50);
 
 /// Why a slot could not be taken.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -14,6 +29,24 @@ pub enum SlotError {
         /// Which call.
         detail: String,
     },
+    /// A file system call failed.
+    #[error("{op} failed on {}: {detail}", path.display())]
+    Io {
+        /// What was being done.
+        op: &'static str,
+        /// The path.
+        path: PathBuf,
+        /// What the system reported.
+        detail: String,
+    },
+}
+
+fn io_error<'a>(op: &'static str, path: &'a Path) -> impl FnOnce(io::Error) -> SlotError + 'a {
+    move |source| SlotError::Io {
+        op,
+        path: path.to_path_buf(),
+        detail: source.to_string(),
+    }
 }
 
 /// Who holds a slot.
@@ -25,11 +58,31 @@ pub struct Holder {
     pub run: Option<String>,
 }
 
+/// The content of `<n>.json`.
+#[derive(Debug, Serialize, Deserialize)]
+struct HolderFile {
+    job: String,
+    run: Option<String>,
+    pid: u32,
+    since: String,
+}
+
 /// A held slot; dropping it releases the slot.
 #[derive(Debug)]
 pub struct Slot {
     /// The slot's number.
     pub index: u32,
+    json: PathBuf,
+    // The descriptor holds the lock; dropping it releases it.
+    _lock: File,
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        // The holder file goes first, while the lock is still held, so no other holder's file is
+        // ever removed. A failure leaves a stale file, which `held` reports.
+        let _ = fs::remove_file(&self.json);
+    }
 }
 
 /// What a slot looks like from outside.
@@ -46,18 +99,38 @@ pub struct SlotInfo {
 /// The slots of a store.
 #[derive(Debug, Clone)]
 pub struct Slots {
+    dir: PathBuf,
     count: u32,
 }
 
+/// Tries the exclusive lock on `file` without waiting; `false` when another descriptor holds it.
+fn try_lock(file: &File, path: &Path) -> Result<bool, SlotError> {
+    match flock(file, FlockOperation::NonBlockingLockExclusive) {
+        Ok(()) => Ok(true),
+        Err(Errno::WOULDBLOCK) => Ok(false),
+        Err(error) => Err(SlotError::Io {
+            op: "lock a slot",
+            path: path.to_path_buf(),
+            detail: error.to_string(),
+        }),
+    }
+}
+
 impl Slots {
-    /// Opens the slots under `dir`, `count` of them.
+    /// Opens the slots under `dir`, `count` of them: the caller passes the smaller of
+    /// `slots.count` and the job's `max_parallel`.
     ///
     /// # Errors
     /// [`SlotError`] when the slot files cannot be opened.
     pub fn open(dir: &Path, count: u32) -> Result<Self, SlotError> {
-        let _ = (dir, count);
-        Err(SlotError::Unavailable {
-            detail: "Slots::open".to_owned(),
+        fs::create_dir_all(dir).map_err(io_error("create the slots directory", dir))?;
+        for n in 0..count {
+            let path = lock_path(dir, n);
+            open_lock(&path)?;
+        }
+        Ok(Self {
+            dir: dir.to_path_buf(),
+            count,
         })
     }
 
@@ -67,27 +140,105 @@ impl Slots {
         self.count
     }
 
-    /// Waits for a free slot and takes it.
+    /// Waits for a free slot and takes it, trying every 50 ms.
     ///
     /// # Errors
     /// [`SlotError`] when the slots cannot be read.
     pub fn acquire<'a>(&'a self, holder: &'a Holder) -> BoxFuture<'a, Result<Slot, SlotError>> {
-        let _ = holder;
-        Box::pin(async {
-            Err(SlotError::Unavailable {
-                detail: "Slots::acquire".to_owned(),
-            })
+        Box::pin(async move {
+            loop {
+                if let Some(slot) = self.try_acquire(holder)? {
+                    return Ok(slot);
+                }
+                tokio::time::sleep(POLL).await;
+            }
         })
     }
 
-    /// Takes a free slot, or returns `None` when there is none.
+    /// Takes the first free slot, or returns `None` when there is none.
     ///
     /// # Errors
     /// [`SlotError`] when the slots cannot be read.
     pub fn try_acquire(&self, holder: &Holder) -> Result<Option<Slot>, SlotError> {
-        let _ = holder;
-        Err(SlotError::Unavailable {
-            detail: "Slots::try_acquire".to_owned(),
-        })
+        for n in 0..self.count {
+            let path = lock_path(&self.dir, n);
+            let file = open_lock(&path)?;
+            if !try_lock(&file, &path)? {
+                continue;
+            }
+            let json = json_path(&self.dir, n);
+            let body = HolderFile {
+                job: holder.job.clone(), // BORROW: the file owns its text
+                run: holder.run.clone(), // BORROW: the file owns its text
+                pid: std::process::id(),
+                since: jiff::Timestamp::now().to_string(),
+            };
+            let mut bytes = serde_json::to_vec(&body).map_err(|e| SlotError::Io {
+                op: "write a slot holder",
+                path: json.clone(), // BORROW: the error owns the path
+                detail: e.to_string(),
+            })?;
+            bytes.push(b'\n');
+            write_atomic(&json, &bytes).map_err(|e| SlotError::Io {
+                op: "write a slot holder",
+                path: json.clone(), // BORROW: the error owns the path
+                detail: e.to_string(),
+            })?;
+            return Ok(Some(Slot {
+                index: n,
+                json,
+                _lock: file,
+            }));
+        }
+        Ok(None)
     }
+
+    /// Every slot, with who holds it. A free lock with a leftover holder file is stale.
+    ///
+    /// # Errors
+    /// [`SlotError`] when a slot cannot be read.
+    pub fn held(&self) -> Result<Vec<SlotInfo>, SlotError> {
+        let mut infos = Vec::new();
+        for n in 0..self.count {
+            let path = lock_path(&self.dir, n);
+            let file = open_lock(&path)?;
+            let free = try_lock(&file, &path)?;
+            let holder = read_holder(&json_path(&self.dir, n));
+            infos.push(SlotInfo {
+                index: n,
+                stale: free && holder.is_some(),
+                holder,
+            });
+            // The probe lock, if taken, is released with `file`.
+        }
+        Ok(infos)
+    }
+}
+
+fn lock_path(dir: &Path, n: u32) -> PathBuf {
+    dir.join(format!("{n}.lock"))
+}
+
+fn json_path(dir: &Path, n: u32) -> PathBuf {
+    dir.join(format!("{n}.json"))
+}
+
+fn open_lock(path: &Path) -> Result<File, SlotError> {
+    OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+        .map_err(io_error("open a slot lock", path))
+}
+
+/// The holder a `<n>.json` names, if it is there and readable.
+fn read_holder(path: &Path) -> Option<Holder> {
+    let bytes = fs::read(path).ok()?;
+    let file: HolderFile = serde_json::from_slice(&bytes).ok()?;
+    Some(Holder {
+        job: file.job,
+        run: file.run,
+    })
 }
