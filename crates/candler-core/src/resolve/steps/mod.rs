@@ -7,6 +7,9 @@ pub mod image;
 
 use std::sync::Arc;
 
+use self::catalog::CatalogStep;
+use self::identity::{HarnessIdentityStep, TreatmentIdentityStep};
+use self::image::ImageIdStep;
 use super::preflight::{ResolveError, Resolver};
 use crate::isolation::image::ImageService;
 use crate::runner::evidence::catalog::CatalogProvider;
@@ -26,12 +29,14 @@ pub struct M2bServices {
     pub harness_supported: semver::VersionReq,
 }
 
-/// Registers the M2b steps on `resolver`.
+/// Registers the M2b steps on `resolver`, in the order their values depend on one another: the
+/// treatment first (its pinned commit is where requirement sources are read), then the image, then
+/// the harness (it reads the image), then the catalog.
 ///
 /// The services move into the steps.
 ///
 /// # Errors
-/// [`ResolveError`] when a step derives a path another step derives.
+/// [`ResolveError`] when a step name is already registered, or a step name is malformed.
 #[allow(
     clippy::needless_pass_by_value,
     reason = "the steps own the services once they are registered"
@@ -40,6 +45,19 @@ pub fn register_m2b_steps(
     resolver: Resolver,
     services: M2bServices,
 ) -> Result<Resolver, ResolveError> {
-    let _ = services;
-    Ok(resolver)
+    let image = ImageIdStep::new(
+        Arc::clone(&services.images),
+        Arc::clone(&services.supervisor),
+    )?;
+    let harness = HarnessIdentityStep::new(
+        Arc::clone(&services.images),
+        services.harness_supported.clone(), // BORROW: the step owns its requirement
+    )?;
+    let treatment = TreatmentIdentityStep::new(Arc::clone(&services.supervisor))?;
+    let catalog = CatalogStep::new(Arc::clone(&services.catalog))?;
+    resolver
+        .register(Box::new(treatment))? // TRAIT_OBJECT: steps of different types are registered side by side
+        .register(Box::new(image))? // TRAIT_OBJECT: steps of different types are registered side by side
+        .register(Box::new(harness))? // TRAIT_OBJECT: steps of different types are registered side by side
+        .register(Box::new(catalog)) // TRAIT_OBJECT: steps of different types are registered side by side
 }
