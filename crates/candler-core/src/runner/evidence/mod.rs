@@ -22,7 +22,7 @@ pub struct OutputDigest {
 }
 
 /// A file the run was given and its digest.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct InputDigest {
     /// The path relative to the workspace.
     pub path: String,
