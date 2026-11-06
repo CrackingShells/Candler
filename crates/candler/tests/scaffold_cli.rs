@@ -93,3 +93,53 @@ fn ps_shows_running_ended_and_lost() {
     assert!(lines[2].contains("ended (failed)"), "{text} / {err}");
     assert!(out.status.success(), "{err}");
 }
+
+fn with_stdin(args: &[&str], bin: &Path, input: &str) -> std::process::Output {
+    use std::io::Write as _;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_candler"))
+        .args(args)
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn kill_asks_and_a_lost_job_is_recovered() {
+    let root = scratch("kill");
+    let store = root.join("store");
+    Store::init(&store).unwrap();
+    let lost = job(&store, 3);
+    let bin = fake_docker(&root);
+    let path = store.to_str().unwrap();
+    let log = root.join("bin").join("docker.log");
+    for input in ["", "\n", "maybe\n"] {
+        let out = with_stdin(&["kill", "--all", "--store", path], &bin, input);
+        assert_eq!(out.status.code(), Some(2), "{input:?}");
+        assert!(String::from_utf8_lossy(&out.stderr).contains("refused: pass -y to confirm"));
+        assert!(!log.exists());
+    }
+    let out = with_stdin(&["kill", "--all", "--store", path], &bin, "yes\n");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(log.exists());
+    let ended = candler_core::jobs::lost::classify(&lost).unwrap();
+    assert!(matches!(
+        ended,
+        candler_core::jobs::lost::JobLiveness::Ended(_)
+    ));
+    let again = with_stdin(&["kill", "--all", "-y", "--store", path], &bin, "");
+    assert!(again.status.success());
+}
