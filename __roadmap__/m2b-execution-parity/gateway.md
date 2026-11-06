@@ -6,7 +6,7 @@
 - [ ] [nl] api_review closed with no open finding on `Gateway`, `GatewayHandle`, `GatewayError`, `GatewayStatus` (with `Unavailable { reason }`), `SecretSource`, `StdinSpec`, `NetworkName`, `DockerDriver::{network_inspect}`
 - [ ] [cmd] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints this leaf's worktree path
 - [ ] [cmd] `docker version --format '{{.Server.Version}}'` (B17 and B18 run real containers)
-- [ ] [cmd] The S3 testagent image and PATH-fake exist: `docker image inspect candler-testagent:test >/dev/null && test -x crates/candler-core/tests/support/fake-docker`
+- [ ] [cmd] The S3 testagent image and PATH-fake exist: `docker image inspect candler-testagent:test >/dev/null && test -x crates/candler-core/tests/fixtures/docker/fake-docker`
 - [ ] [cmd] DEP(container_stop): `git log --first-parent --format=%s feat/m2b-execution-parity | grep -qx 'merge(.*): land container_stop'`. The sidecar's teardown goes through `ContainerGuard::destroy` and `destroy_network` (`isolation/container/guard.rs`); this leaf holds no destroy verb
 - [ ] [nl] Spike reports read: `02-gateway_spike_v0.md` (design B tested on the containerd store, TLS untested) and `03-image_probe_v0.md`
 **Success Gates**:
