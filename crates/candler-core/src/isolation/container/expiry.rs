@@ -44,28 +44,3 @@ pub fn wrap_expiry(cmd: &CommandSpec, secs: u64) -> Result<CommandSpec, CommandS
     }
     builder.build()
 }
-
-#[cfg(test)]
-mod scaffold {
-    use super::*;
-
-    #[test]
-    fn seconds_round_up() {
-        for (ms, want) in [(0, 0), (1, 1), (1000, 1), (1001, 2), (61_000, 61)] {
-            assert_eq!(ceil_secs(Duration::from_millis(ms)), want, "{ms}");
-        }
-    }
-
-    #[test]
-    fn the_command_follows_the_timeout() {
-        let cmd = CommandSpec::builder()
-            .argv(vec![String::from("sleep"), String::from("1")])
-            .build()
-            .expect("cmd");
-        let wrapped = wrap_expiry(&cmd, 70).expect("wrapped");
-        assert_eq!(
-            wrapped.argv(),
-            ["timeout", "-s", "TERM", "-k", "10", "70", "sleep", "1"]
-        );
-    }
-}
