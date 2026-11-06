@@ -47,4 +47,4 @@
 6. Dispatch the plain verifier: role membership against `_outcome.py`, source independence, the 209 rows and their run keys. One adversarial target (coordinator, 2026-11-06): make the generator list a pair that the raw corpus does not show as an A–C `pass` with `max_score == 0` (a non-pass, a non-zero weight, a D-E id, a wrong run number or cell), and show `--check` or OR1 catches it.
 **Deliverables**: `gen_oracle.py` (`write_equivalence`, `cell_digest`); `crates/candler/tests/oracle/{equivalence.json,README.md}`; `crates/candler/tests/guard_oracle_ac.rs` (OR1)
 **Consistency Checks**: `uv run --no-project --with rfc8785 python crates/candler/tests/oracle/gen_oracle.py --check "$GOLDEN" "$R" && CANDLER_GOLDEN_CORPUS="$GOLDEN" cargo nextest run -p candler --run-ignored only --no-tests=fail -E 'binary(guard_oracle_ac)' && jq -e '(.rules|length)==1 and (.rules[0].rows|length)==209 and (.rules[0].rows|unique|length)==209' crates/candler/tests/oracle/equivalence.json` (expected: PASS)
-**Commit**: `test(evaluation): generate the equivalence and re-derive with a second engine`
+**Commit**: `test(evaluation): generate the equivalence and re-derive it twice`

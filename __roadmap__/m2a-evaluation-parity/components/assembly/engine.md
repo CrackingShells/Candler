@@ -5,7 +5,7 @@
 - [ ] [cmd] ENV, and the L1 merges of `registry`, `run_context`, `protocol_client` and `selection_rates` are on `feat/m2a-evaluation-parity`'s first-parent history
 - [ ] [cmd] `git log --first-parent --format=%s feat/m2a-evaluation-parity | grep -qx 'merge(evaluator-helper): land helper_runtime'` (the echo plug-in)
 **Success Gates**:
-- ⬜ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler-core/(src/evaluation/engine/|tests/(guard_engine\.rs|fixtures/engine/|public_surface\.rs)$)` with only the `engine_surface` block of `public_surface.rs` changed
+- ⬜ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler-core/(src/evaluation/engine/|tests/(guard_engine\.rs$|public_surface\.rs$|fixtures/engine/))` with only the `engine_surface` block of `public_surface.rs` changed
 - ⬜ [cmd] SPAWN, then `cargo nextest run -p candler-core -E 'binary(guard_engine)'` passes (ENG1–ENG3)
 - ⬜ [nl] The integration review confirms the seams: the engine writes the outcome-file layout that `selection` reads, and uses the `context` digest projection and the client's accounting unchanged
 **References**: [R01 §Evaluator protocol, §Run store](../../../../__design__/architecture.md) — requests, `applies_to`, `depends_on`, `prior`, outcome files; [R03 §Skeleton seams, §C6 dependencies, §I4](../../../../__reports__/m2a-evaluation-parity/00-architecture_v0.md); `crates/candler-core/src/store/` — `OutcomeWriter::create`, `append`, `commit`; `crates/candler-core/tests/oracle/vectors/context_digest_runs.toml`; [R04 ENG1–ENG3](../../../../__reports__/m2a-evaluation-parity/01-test_definition_v0.md)

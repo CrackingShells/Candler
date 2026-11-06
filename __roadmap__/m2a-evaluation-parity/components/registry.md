@@ -4,7 +4,7 @@
 **Pre-conditions**:
 - [ ] [cmd] ENV, DEP(skeleton) and DEP(protocol_wire)
 **Success Gates**:
-- ⬜ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler-core/(src/evaluation/registry/|tests/(guard_registry\.rs|fixtures/registry/|public_surface\.rs)$)` with only the `registry_surface` block of `public_surface.rs` changed
+- ⬜ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler-core/(src/evaluation/registry/|tests/(guard_registry\.rs$|public_surface\.rs$|fixtures/registry/))` with only the `registry_surface` block of `public_surface.rs` changed
 - ⬜ [cmd] SPAWN, then `cargo nextest run -p candler-core -E 'binary(guard_registry)'` passes (REG1, REG2)
 - ⬜ [cmd] I22: `cargo nextest run -p candler-core -E 'binary(guard_signal)'` still passes, and the registry spawns `uv` only through `supervise::Supervisor`
 **References**: [R01 §Plug-ins, §Operation API (preflight steps)](../../../__design__/architecture.md) — manifest, suite, environments, preflight; [R03 §Environments, §Needs, §Scope move](../../../__reports__/m2a-evaluation-parity/00-architecture_v0.md); `crates/candler-schemas/src/evaluation.rs` — `PluginManifest`, `SuiteEntry`, `Needs`, `KindSpec`; `crates/candler-core/src/resolve/` — `Resolver::register(Box<dyn PreflightStep>)`; [R04 REG1, REG2](../../../__reports__/m2a-evaluation-parity/01-test_definition_v0.md)
