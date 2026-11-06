@@ -144,6 +144,7 @@ graph TD
 |:---|:-----|:-------|:------------|:----------|
 | A1 | 2026-11-06 | __reports__/m2a-evaluation-parity/00-architecture_v0.md | [] | Eliott approved plan rev 4 (A–C only, live 0.5.0, 0/0 pass → not_applicable {empty_population}); coordinator OK'd the A–C gates with Tier D dropped, the 0.5.0 tag cut by the HTN release flow before the parity gates, and an exact-row equivalence file that is generated, digest-recorded, counted as `excused` and attacked by the verifier |
 | A2 | 2026-11-06 | __reports__/m2a-evaluation-parity/skeleton/00-report_v0.md | [] | The skeleton API review widened the frozen seams (env root, suite file, supervisor and cancel, deadline default, `show --evaluator`, `commands/common.rs`, multi-thread runtime, cfg(unix) registry and engine), moved the consuming leaves' findings into their steps, and replaced the `du -sk` fixture gates with byte counts; the M2 coordinator was told of the shared CLI changes |
+| A3 | 2026-11-06 | __reports__/m2a-evaluation-parity/registry/00-findings_v0.md | [] | The registry found `KindSpec` only in `describe` and no supervisor for the environment step: `check_suite` now takes the `DescribeResult`s the engine gets after the preflight (R01: `describe` is a preflight step), and `register_evaluation_steps` takes the shared `Arc<Supervisor>`; engine, surfaces and R03 follow; the M2 coordinator added the Ctrl-C handler condition to `surfaces` |
 
 ## Progress
 | Node | Branch | Commits | Notes |
