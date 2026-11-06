@@ -18,7 +18,7 @@ use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::str::FromStr as _;
 
-use candler_core::evaluation::context::{assemble, materialise};
+use candler_core::evaluation::context::{ContextError, assemble, materialise};
 use candler_core::store::Store;
 use candler_core::store::run::{Existing, RunWriter};
 use candler_schemas::evaluation::{ContextArtifact, Needs, RunContext};
@@ -86,6 +86,7 @@ fn sha256_of(bytes: &[u8]) -> Digest {
 struct File {
     path: &'static str,
     bytes: &'static [u8],
+    executable: bool,
 }
 
 /// Seals a new run beside `template`, which is the manifest it copies, with exactly the files
@@ -103,7 +104,7 @@ fn seal_synthetic(store: &Store, template: &RunKey, attempt: u32, files: &[File]
         tree = tree.entry(TreeEntry::file(
             RelPath::from_str(file.path).expect("a path"),
             digest,
-            false,
+            file.executable,
         ));
     }
     let key = manifest.run().clone();
@@ -254,6 +255,7 @@ const fn file(path: &'static str) -> File {
     File {
         path,
         bytes: path.as_bytes(),
+        executable: false,
     }
 }
 
@@ -422,4 +424,88 @@ fn a_plug_in_cannot_write_through_to_the_store() {
             "the mode of the store blob of {path}"
         );
     }
+}
+
+/// Guards: R9 — the digest of a materialised context is taken from the bytes written to the workspace, and a store blob that no longer holds the bytes of its recorded sha256 is refused with `CorruptBlob` and no context. Oracle: a blob of the store overwritten here with other bytes, so the recorded sha256 and the written bytes differ.
+#[test]
+fn a_corrupt_blob_is_refused_and_not_digested() {
+    let (_keep, store) = mini_store(&mini());
+    let run = key_of(&store, 6);
+    let tree = store.read_tree(&run).expect("the tree reads");
+    let victim = tree
+        .entries()
+        .iter()
+        .find_map(|entry| {
+            if let TreeEntry::File { path, sha256, .. } = entry {
+                Some((path.clone(), sha256.clone()))
+            } else {
+                None
+            }
+        })
+        .expect("the run stores a file");
+    let blob = store.blob_path(&victim.1);
+    fs::set_permissions(&blob, fs::Permissions::from_mode(0o644)).expect("chmod u+w");
+    fs::write(&blob, b"not the recorded bytes").expect("the blob is overwritten");
+
+    let workspace = tempfile::tempdir().expect("a workspace");
+    let assembled = assemble(&store, &run, &parity_needs()).expect("the run assembles");
+    let outcome = materialise(&assembled, workspace.path());
+    assert!(
+        matches!(outcome, Err(ContextError::CorruptBlob { .. })),
+        "a corrupt blob must be refused, got {outcome:?}"
+    );
+}
+
+/// Guards: R9 and I11 — every materialised file is a private copy, not a link: a fresh inode with one link, mode `0444`, or `0555` when the tree marks it executable, while the store blob keeps its own inode and mode. Oracle: `stat` of the copy and of the blob, and the executable bit written into the synthetic tree here.
+#[test]
+fn a_materialised_file_is_a_private_read_only_copy() {
+    let (_keep, store) = mini_store(&mini());
+    let template = key_of(&store, 12);
+    let stored = [
+        file("plain.py"),
+        File {
+            path: "run.sh",
+            bytes: b"#!/bin/sh\n",
+            executable: true,
+        },
+    ];
+    let run = seal_synthetic(&store, &template, 2, &stored);
+    let workspace = tempfile::tempdir().expect("a workspace");
+    context_of(&store, &run, &needs_of(&["outputs/**"]), workspace.path());
+
+    for (name, mode) in [("plain.py", 0o444_u32), ("run.sh", 0o555_u32)] {
+        let copy = fs::metadata(workspace.path().join("outputs").join(name)).expect("a copy");
+        let digest =
+            sha256_of(&fs::read(workspace.path().join("outputs").join(name)).expect("reads"));
+        let blob = fs::metadata(store.blob_path(&digest)).expect("a blob");
+        assert_eq!(copy.mode() & 0o777, mode, "the mode of {name}");
+        assert_eq!(copy.nlink(), 1, "the copy of {name} has one link");
+        assert_ne!(copy.ino(), blob.ino(), "the copy of {name} is not the blob");
+        assert_eq!(blob.nlink(), 1, "the blob of {name} gained no link");
+        assert_eq!(blob.mode() & 0o777, 0o444, "the mode of the blob of {name}");
+    }
+}
+
+/// Guards: I11 — a workspace that is, or lies above, the store root is refused before any directory is made, so a plug-in cannot reach the store through its own workspace. Oracle: the parent of the store root, and the store root itself, handed in as workspaces.
+#[test]
+fn a_workspace_that_contains_the_store_is_refused() {
+    let holder = tempfile::tempdir().expect("a holder directory");
+    let root = holder.path().join("store");
+    fs::create_dir(&root).expect("a store directory");
+    let store = Store::init(&root).expect("the store initialises");
+    import_with_reader(&mini(), &store).expect("the corpus imports");
+    let run = key_of(&store, 6);
+    let assembled = assemble(&store, &run, &parity_needs()).expect("the run assembles");
+    for workspace in [holder.path(), root.as_path()] {
+        let outcome = materialise(&assembled, workspace);
+        assert!(
+            matches!(outcome, Err(ContextError::Workspace { .. })),
+            "{} must be refused, got {outcome:?}",
+            workspace.display()
+        );
+    }
+    assert!(
+        !holder.path().join("outputs").exists(),
+        "no outputs/ was made above the store"
+    );
 }
