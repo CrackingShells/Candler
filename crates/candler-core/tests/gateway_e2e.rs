@@ -1,5 +1,5 @@
-//! The real-Docker guards of the `gateway` leaf: the nginx sidecar, its TLS upstream, its log and
-//! its cap, and B17 and B18 (the token stays out of the agent container, which has no route out).
+//! The real-Docker guards of the gateway: B17 and B18 (the token stays out of the agent
+//! container, which has no route out) and B37 (the credential goes only to a trusted upstream).
 //!
 //! Every test builds its own world under a `candler.job=<id>` label, wraps its drivers in the
 //! test-side allowlist, and tears down only what carries its own job label. The upstream is a
@@ -22,8 +22,8 @@ use candler_core::isolation::container::guard::ContainerGuard;
 use candler_core::isolation::docker::{ClientEnv, DockerCli as DockerClient, DockerDestroyer};
 use candler_core::isolation::driver::{DestroyDriver, DockerDriver};
 use candler_core::isolation::gateway::{
-    ChildRecorder, DockerCli, DockerGateway, Gateway, GatewayStart, SecretError, SecretSource,
-    SecretValue, UpstreamConfig, assert_clean,
+    ChildRecorder, DockerCli, DockerGateway, Gateway, GatewaySignal, GatewayStart, SecretError,
+    SecretSource, SecretValue, UpstreamConfig, assert_clean,
 };
 use candler_core::isolation::model::{
     GatewayHandle, ImageId, ImageRef, LabelSel, NetworkName, SweepScope,
@@ -354,6 +354,7 @@ impl Rig {
         for net in [self.job_network(), self.egress_network()] {
             self.destroyer.allow_network(net.as_str()); // BORROW: .as_str() names the network
             if let Err(error) = guard.destroy_network(&net, &SweepScope::CurrentJob).await {
+                // BORROW: explicit .as_str() names the network
                 eprintln!("teardown: {} was not destroyed: {error}", net.as_str());
             }
         }
@@ -385,9 +386,17 @@ impl SecretSource for Fixed {
     }
 }
 
+/// The standard base64 of `text`, with padding, from the `base64` program.
+fn base64_of(text: &str) -> String {
+    run("base64", &[], text.as_bytes())
+        .must("base64 of the token")
+        .replace('\n', "")
+}
+
 /// A random canary token: it stands in for the real one.
 fn canary() -> String {
-    format!("cnd-canary-{}", random_hex())
+    // The slash makes the JSON-escaped form differ from the plain one.
+    format!("cnd-canary-{}/{}", random_hex(), random_hex())
 }
 
 /// A run key of the shape the agent's base url carries.
@@ -582,6 +591,7 @@ fn records(fake: &Fake) -> Vec<serde_json::Value> {
 fn field(record: &serde_json::Value, key: &str) -> String {
     record
         .get(key)
+        // BORROW: Value::as_str reads the text of a json string
         .and_then(serde_json::Value::as_str)
         .map(String::from)
         .unwrap_or_default()
@@ -644,6 +654,7 @@ async fn up(rig: &Rig, token: &str) -> World {
     let started = gw
         .start(
             &rig.sup,
+            // BORROW: explicit .as_ref() instead of Deref coercion
             rig.cli.as_ref(),
             GatewayStart {
                 job: &rig.job,
@@ -672,22 +683,25 @@ struct Agent {
     workspace: PathBuf,
 }
 
-/// Starts an agent that runs `script` under `sh`, holding `api_key` as `ANTHROPIC_API_KEY` and
-/// the run's base url as `ANTHROPIC_BASE_URL`, with a bind-mounted workspace and a tmpfs HOME.
-fn start_agent(
-    rig: &Rig,
-    handle: &GatewayHandle,
-    run: &RunKey,
-    api_key: &str,
-    script: &str,
-) -> Agent {
+/// What distinguishes one agent from another: the key it holds, its other variables, the
+/// networks it joins besides the job's own, and what it runs under `sh`.
+struct AgentSpec<'a> {
+    api_key: &'a str,
+    extra_env: &'a [(&'a str, &'a str)],
+    extra_networks: &'a [&'a str],
+    script: &'a str,
+}
+
+/// Starts an agent that runs `spec.script` under `sh`, holding `spec.api_key` as
+/// `ANTHROPIC_API_KEY`, the run's base url as `ANTHROPIC_BASE_URL` and the variables of
+/// `spec.extra_env`, with a bind-mounted workspace and a tmpfs HOME.
+fn start_agent(rig: &Rig, handle: &GatewayHandle, run: &RunKey, spec: &AgentSpec<'_>) -> Agent {
     let workspace = rig.work_dir("workspace");
     std::fs::set_permissions(&workspace, std::fs::Permissions::from_mode(0o777))
         .expect("a world-writable workspace");
     let base_url = handle.run_base_url(run);
-    let cid = docker(&[
-        "run",
-        "-d",
+    let mut args: Vec<String> = [
+        "create",
         "--init",
         "--label",
         &format!("candler.job={}", rig.job),
@@ -705,33 +719,59 @@ fn start_agent(
         "--user",
         "1000:1000",
         "-e",
-        &format!("ANTHROPIC_API_KEY={api_key}"),
+        &format!("ANTHROPIC_API_KEY={}", spec.api_key),
         "-e",
         &format!("ANTHROPIC_BASE_URL={base_url}"),
         "-e",
         "HOME=/home/agent",
-        "--tmpfs",
-        "/home/agent:rw,mode=1777",
-        "-v",
-        &format!("{}:/workspace", workspace.display()),
-        "-w",
-        "/workspace",
-        "--entrypoint",
-        "sh",
-        AGENT_IMAGE,
-        "-c",
-        script,
-    ])
-    .must("starting the agent");
-    Agent {
-        cid: String::from(cid.trim()),
-        workspace,
+    ]
+    .into_iter()
+    // BORROW: .to_owned() builds the owned argv
+    .map(str::to_owned)
+    .collect();
+    for (name, value) in spec.extra_env {
+        args.push(String::from("-e"));
+        args.push(format!("{name}={value}"));
     }
+    args.extend(
+        [
+            "--tmpfs",
+            "/home/agent:rw,mode=1777",
+            "-v",
+            &format!("{}:/workspace", workspace.display()),
+            "-w",
+            "/workspace",
+            "--entrypoint",
+            "sh",
+            AGENT_IMAGE,
+            "-c",
+            spec.script,
+        ]
+        .into_iter()
+        // BORROW: .to_owned() builds the owned argv
+        .map(str::to_owned),
+    );
+    // BORROW: explicit .as_str() instead of Deref coercion
+    let created =
+        // BORROW: explicit .as_str() instead of Deref coercion
+        docker(&args.iter().map(String::as_str).collect::<Vec<_>>()).must("creating the agent");
+    let cid = String::from(created.trim());
+    // The container is created, so a failed connect below leaves it for the teardown to find.
+    for &net in spec.extra_networks {
+        docker(&["network", "connect", net, &cid]).must("joining the agent to a network");
+    }
+    docker(&["start", &cid]).must("starting the agent");
+    Agent { cid, workspace }
 }
 
 /// Waits until the agent's script has written `/workspace/done`.
 fn wait_done(agent: &Agent) {
-    let marker = agent.workspace.join("done");
+    wait_file(agent, "done");
+}
+
+/// Waits until the agent's script has written `/workspace/<name>`.
+fn wait_file(agent: &Agent, name: &str) {
+    let marker = agent.workspace.join(name);
     let deadline = Instant::now() + Duration::from_secs(60);
     while !marker.exists() {
         assert!(Instant::now() < deadline, "the agent did not finish");
@@ -778,10 +818,12 @@ print(h.getresponse().status)\n";
 #[ignore = "needs Docker; run with --run-ignored only"]
 /// Guards: B17 — the real token never enters the agent container.
 /// Oracle: a random canary with `assert_clean` over the agent's env, `/proc/1/environ`, every
-/// process's environ and command line, the workspace, HOME, every labelled container's
-/// `docker inspect` and the gateway logs, while the upstream echoes `Authorization` in a 200 and in
-/// an error page and the canary demonstrably reached the upstream.
-/// Bite: put the real token in the agent's `-e ANTHROPIC_API_KEY`.
+/// process's environ and command line, the workspace, HOME, the response headers the agent
+/// received, every labelled container's `docker inspect` and the gateway logs, while the upstream
+/// echoes the credential in a body, an error page, `X-Echo-Auth`, `Set-Cookie` and `Location`, and
+/// the canary demonstrably reached the upstream. A call with another key is refused with 401.
+/// The same scan looks for the hex of the job's tag secret.
+/// Bite: put the real token in a second agent variable, `-e AGENT_NOTE`.
 async fn b17_canary_absent() {
     let rig = Rig::new();
     let token = canary();
@@ -829,15 +871,27 @@ async fn b17_canary_absent() {
         "{AGENT_REQUEST}
 req GET /echo /workspace/echo.txt
 req GET /error-page /workspace/error.txt
+req GET /echo-headers /workspace/headers.txt
+req GET /echo-forms /workspace/forms.txt
 req GET /v1/models /workspace/models.txt
+( ANTHROPIC_API_KEY=not-the-dummy; req GET /echo /workspace/wrong.txt )
 echo profile > \"$HOME/.agent-profile\"
 echo agent-ready
 echo done > /workspace/done
 exec sleep 600
 "
     );
-    let agent_key = &handle.dummy_token;
-    let agent = start_agent(&rig, handle, &run, agent_key, &script);
+    let agent = start_agent(
+        &rig,
+        handle,
+        &run,
+        &AgentSpec {
+            api_key: &handle.dummy_token,
+            extra_env: &[("AGENT_NOTE", "plain")],
+            extra_networks: &[],
+            script: &script,
+        },
+    );
     wait_done(&agent);
 
     // The agent holds the dummy and what the gateway let back through.
@@ -867,6 +921,48 @@ exec sleep 600
     assert!(
         error.contains("500") && error.contains("<redacted>"),
         "{error}"
+    );
+
+    // The upstream did echo the credential in headers, and none of those reached the agent.
+    assert!(
+        seen.iter()
+            .any(|r| field(r, "path").ends_with("/echo-headers") && field(r, "x_api_key") == token),
+        "the header echo never reached the upstream: {seen:?}"
+    );
+    let headers = std::fs::read(agent.workspace.join("headers.txt")).expect("headers");
+    let headers_text = String::from_utf8_lossy(&headers).to_lowercase();
+    assert!(
+        headers_text.contains("302"),
+        "the redirect came back: {headers_text}"
+    );
+    for echoed in ["x-echo-auth", "set-cookie", "location"] {
+        assert!(
+            !headers_text.contains(echoed),
+            "the header {echoed} came back: {headers_text}"
+        );
+    }
+    // The JSON-escaped and the base64 form of the token are scrubbed from a body as well.
+    let forms = std::fs::read_to_string(agent.workspace.join("forms.txt")).expect("forms");
+    assert!(
+        forms.contains("200") && forms.contains("<redacted>"),
+        "the forms were not scrubbed: {forms}"
+    );
+    let escaped = token.replace('/', "\\/");
+    assert!(
+        !forms.contains(&escaped) && !forms.contains(&base64_of(&token)),
+        "a form of the token came back: {forms}"
+    );
+    // A call with a key that is not the job's dummy is refused before the upstream sees it.
+    let wrong = std::fs::read_to_string(agent.workspace.join("wrong.txt")).expect("wrong");
+    assert!(
+        wrong.contains(" 401"),
+        "another key was not refused: {wrong}"
+    );
+    assert!(
+        !seen
+            .iter()
+            .any(|r| field(r, "authorization").contains("not-the-dummy")),
+        "a foreign key reached the upstream: {seen:?}"
     );
 
     // The dummy opens nothing at the upstream; a direct call with it is refused.
@@ -917,6 +1013,21 @@ exec sleep 600
         })
         .collect();
 
+    // A refused key is the gateway's own answer, not a signal of the upstream.
+    let signals = world
+        .gw
+        .run_signals(handle, &run)
+        .await
+        .expect("the signals");
+    assert!(
+        !signals.contains(&GatewaySignal::UpstreamStatus(401)),
+        "a refused key became an upstream signal: {signals:?}"
+    );
+    assert!(
+        signals.contains(&GatewaySignal::UpstreamStatus(500)),
+        "the upstream's own 500 is a signal: {signals:?}"
+    );
+
     let mut haystacks: Vec<(&str, &[u8])> = vec![
         ("agent env", env.as_bytes()),
         ("agent /proc/1/environ", pid1.as_bytes()),
@@ -924,6 +1035,7 @@ exec sleep 600
             "agent every process environ and cmdline",
             proc_files.as_bytes(),
         ),
+        ("agent response headers", &headers),
         ("agent workspace", &workspace),
         ("agent HOME", home.as_bytes()),
         ("agent docker logs", agent_log.as_bytes()),
@@ -939,6 +1051,10 @@ exec sleep 600
     );
     if let Err(leak) = assert_clean(&token, &haystacks) {
         panic!("the real token leaked: {leak:?}");
+    }
+    // The job's tag secret is nowhere an agent or a log can read it either.
+    if let Err(leak) = assert_clean(&handle.secret_hex(), &haystacks) {
+        panic!("the tag secret leaked: {leak:?}");
     }
 }
 
@@ -999,8 +1115,9 @@ const PROBE_FN: &str = "probe() { if nc -w 3 \"$1\" \"$2\" </dev/null >/dev/null
 /// Guards: B18 — the agent has no route to the host or the internet.
 /// Oracle: the agent on the job's network reaches the sidecar and fails to reach a host listener,
 /// the internet and a public resolver, while a control container on the default bridge reaches the
-/// same host listener and the listener counts exactly that one connection.
-/// Bite: drop `--internal` from the network the driver creates.
+/// same host listener and the same internet target, and the listener counts exactly that one
+/// connection. A control that cannot reach the internet fails the test: the oracle is vacuous.
+/// Bite: also attach the agent to the job's egress network.
 async fn b18_internal_network_no_route() {
     let rig = Rig::new();
     let token = canary();
@@ -1018,7 +1135,19 @@ async fn b18_internal_network_no_route() {
     let script = format!(
         "{PROBE_FN}{{ probe gateway 8080 sidecar; probe host.docker.internal {port} host; probe 1.1.1.1 443 internet; probe 8.8.8.8 53 resolver; }} > /workspace/net.txt\necho done > /workspace/done\n"
     );
-    let agent = start_agent(&rig, handle, &run_key(1), &handle.dummy_token, &script);
+    // The networks the agent joins besides the job's own: none.
+    let extra: Vec<&str> = Vec::new();
+    let agent = start_agent(
+        &rig,
+        handle,
+        &run_key(1),
+        &AgentSpec {
+            api_key: &handle.dummy_token,
+            extra_env: &[],
+            extra_networks: &extra,
+            script: &script,
+        },
+    );
     wait_done(&agent);
     let seen = std::fs::read_to_string(agent.workspace.join("net.txt")).expect("the probe output");
     assert!(
@@ -1040,7 +1169,8 @@ async fn b18_internal_network_no_route() {
     assert_eq!(host.accepted(), 0, "the host listener saw the agent");
 
     // Control: a container on the default bridge reaches the same listener.
-    let control_script = format!("{PROBE_FN}probe host.docker.internal {port} host\n");
+    let control_script =
+        format!("{PROBE_FN}probe host.docker.internal {port} host\nprobe 1.1.1.1 443 internet\n");
     // It carries no `candler.job` label, so no sweep of the job meets it, and `--rm` has docker
     // remove it when its script ends.
     let said = docker(&[
@@ -1060,8 +1190,139 @@ async fn b18_internal_network_no_route() {
     ])
     .must("running the control");
     assert!(
+        said.contains("internet=open"),
+        "no internet: the oracle is vacuous ({said})"
+    );
+    assert!(
         said.contains("host=open"),
         "the control must reach the host listener: {said}"
     );
     assert_eq!(host.accepted(), 1, "only the control reached the listener");
+}
+
+/// Replaces the certificate the fake serves with the chain in `dir` (`cert.pem`, `key.pem`), and
+/// waits until the fake serves it.
+fn swap_fake_certificate(fake: &Fake, dir: &Path) {
+    let script = "mkdir -p /tmp/swap && cat > /tmp/swap/NAME";
+    for name in ["cert.pem", "key.pem"] {
+        let bytes = std::fs::read(dir.join(name)).expect("a pem file");
+        run(
+            "docker",
+            &[
+                "exec",
+                "-i",
+                &fake.cid,
+                "sh",
+                "-c",
+                &script.replace("NAME", name),
+            ],
+            &bytes,
+        )
+        .must("copying a pem file into the fake");
+    }
+    exec(&fake.cid, &["touch", "/tmp/swap/ready"]).must("marking the swap ready");
+    let wanted = std::fs::read_to_string(dir.join("cert.pem")).expect("the certificate");
+    let fetch = "import ssl; print(ssl.get_server_certificate(('127.0.0.1', 8443)))";
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while exec(&fake.cid, &["python3", "-c", fetch]).out.trim() != wanted.trim() {
+        assert!(
+            Instant::now() < deadline,
+            "the fake never served the new certificate"
+        );
+        std::thread::sleep(Duration::from_millis(300));
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs Docker; run with --run-ignored only"]
+/// Guards: B37 — the gateway sends the credential only to an upstream its authority vouches for.
+/// Oracle: after a first call proves the credential reaches the trusted upstream, the upstream's
+/// certificate is replaced by one that another authority signed; the agent's calls then fail with
+/// 502 and the fake's own record holds no new request, so no `Authorization` header.
+/// Bite: set `proxy_ssl_verify off` in the sidecar's config.
+async fn b37_untrusted_upstream_gets_no_credential() {
+    let rig = Rig::new();
+    let token = canary();
+    let world = up(&rig, &token).await;
+    let (fake, handle) = (&world.fake, &world.handle);
+    let script = format!(
+        "{AGENT_REQUEST}
+req GET /v1/models /workspace/good.txt
+echo ok > /workspace/first
+while [ ! -e /workspace/go ]; do sleep 0.2; done
+req GET /v1/models /workspace/bad.txt
+req POST /v1/messages /workspace/bad2.txt
+echo done > /workspace/done
+exec sleep 600
+"
+    );
+    let agent = start_agent(
+        &rig,
+        handle,
+        &run_key(1),
+        &AgentSpec {
+            api_key: &handle.dummy_token,
+            extra_env: &[],
+            extra_networks: &[],
+            script: &script,
+        },
+    );
+    wait_file(&agent, "first");
+    let good = std::fs::read_to_string(agent.workspace.join("good.txt")).expect("good");
+    assert!(
+        good.contains(" 200"),
+        "the trusted upstream answers: {good}"
+    );
+    let trusted = records(fake);
+    assert!(
+        trusted
+            .iter()
+            .any(|r| field(r, "authorization") == format!("Bearer {token}")),
+        "the credential never reached the trusted upstream: {trusted:?}"
+    );
+
+    // From now on the upstream's certificate is signed by an authority the sidecar does not trust.
+    let evil = rig.work_dir("evil");
+    make_ca(&evil, "evil");
+    make_server_cert(&evil, "evil");
+    swap_fake_certificate(fake, &evil);
+    let before = records(fake).len();
+    std::fs::write(agent.workspace.join("go"), "go\n").expect("the go marker");
+    wait_done(&agent);
+
+    for name in ["bad.txt", "bad2.txt"] {
+        let text = std::fs::read_to_string(agent.workspace.join(name)).expect("an answer");
+        assert!(
+            text.contains(" 502"),
+            "{name}: the untrusted upstream answered: {text}"
+        );
+    }
+    // The failed calls are signals of their own run, and of no other.
+    let own = world
+        .gw
+        .run_signals(handle, &run_key(1))
+        .await
+        .expect("the signals");
+    assert_eq!(own.len(), 2, "the run's own signals: {own:?}");
+    let other = world
+        .gw
+        .run_signals(handle, &run_key(2))
+        .await
+        .expect("the signals");
+    assert_eq!(other.len(), 0, "another run's signals: {other:?}");
+    let after = records(fake);
+    let received: Vec<&serde_json::Value> = after.iter().skip(before).collect();
+    assert_eq!(
+        received.len(),
+        0,
+        "the untrusted upstream got a request: {received:?}"
+    );
+    assert_eq!(
+        received
+            .iter()
+            .filter(|r| !field(r, "authorization").is_empty())
+            .count(),
+        0,
+        "the untrusted upstream got an Authorization header"
+    );
 }
