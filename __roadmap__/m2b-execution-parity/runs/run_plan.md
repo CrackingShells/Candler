@@ -22,7 +22,7 @@
 2. The experiment lock is `StoreLayout::experiment_lock(&digest)` (`<store>/experiments/<digest>/lock`), taken non-blocking; a second planner on the same experiment gets `PlanError::ExperimentLocked`, never a wait and never a shared plan. With `PlanMode::Check` the lock is taken and released inside the call and `PlanOutcome.lock` is `None` (cli_run's pre-detach check); with `PlanMode::Hold` it is returned in `PlanOutcome.lock` as the opaque `ExperimentLock`, released on drop, which job_orchestrate keeps until `exec_run` finishes the last run (S3's `PlanCtx.experiment_lock`).
 3. Cells come from `res`; for each cell and replicate `0..replicates` the attempt number is `Store::next_attempt(cell, replicate)` (M1), so it is derived from what is on disk, never from a counter.
 4. `runner/plan` makes no call to a function that removes or renames a run directory: the only store calls are `next_attempt`, `runs()`, `read_manifest` and `seal_interrupted`.
-**Deliverables**: `crates/candler-core/src/runner/plan.rs` (`plan`, `PlanCtx`, `PlanGuard`, `PlanError`); `crates/candler-core/tests/scaffold_run_plan.rs` (class-A: three cells give keys with attempt 1; a second planner is refused; the plan is stable when nothing changed)
+**Deliverables**: `crates/candler-core/src/runner/plan.rs` (`plan_runs`, `PlanMode`, `PlanCtx`, `ExperimentLock`, `PlanError`); `crates/candler-core/tests/scaffold_run_plan.rs` (class-A: three cells give keys with attempt 1; a second planner is refused; the plan is stable when nothing changed)
 **Consistency Checks**: `cargo nextest run -p candler-core -E 'binary(scaffold_run_plan)' && cargo clippy -p candler-core --tests -- -D warnings` (expected: PASS)
 **Commit**: `feat(runner): number runs and take the experiment lock`
 
