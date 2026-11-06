@@ -6,11 +6,9 @@ name: container-e2e
 on:
   pull_request:
     paths:
-      - crates/candler-core/src/isolation/**
-      - crates/candler-core/src/supervise/**
-      - crates/candler-core/src/jobs/**
-      - crates/candler-core/tests/guard_container_e2e.rs
-      - crates/candler-core/tests/e2e/**
+      - crates/**
+      - Cargo.toml
+      - Cargo.lock
       - assets/docker/**
       - .config/nextest.toml
       - .github/workflows/container-e2e.yml
@@ -51,7 +49,8 @@ jobs:
           set -eu
           work="$RUNNER_TEMP/from-probe"
           mkdir -p "$work/base" "$work/env"
-          printf 'FROM busybox:1.37\nLABEL candler.test=1\nRUN echo base > /base.txt\n' > "$work/base/Dockerfile"
+          # The same pinned digest as assets/docker/testagent: CI never pulls an unpinned tag.
+          printf 'FROM busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec\nLABEL candler.test=1\nRUN echo base > /base.txt\n' > "$work/base/Dockerfile"
           docker build -q -t candler-probe-base:latest "$work/base" > "$work/id"
           id="$(cut -d: -f2 "$work/id")"
           id12="$(printf '%s' "$id" | cut -c1-12)"
