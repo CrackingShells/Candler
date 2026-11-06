@@ -24,6 +24,7 @@ or file, or a message of the evaluator protocol.
 |---|---|---|---|
 | `catalog-snapshot.schema.json` | `CatalogSnapshot` | `tool-catalog-snapshot/1` | Wire schema: tool-catalog snapshot |
 | `child-record.schema.json` | `ChildRecord` | `child-record/1` | Process supervision |
+| `container-record.schema.json` | `ContainerRecord` | `container-record/1` | Process supervision (job dir) |
 | `evaluator-describe-result.schema.json` | `DescribeResult` | none; `protocol` is `{major, minor}` | Evaluator protocol (`describe` result) |
 | `evaluator-evaluate-params.schema.json` | `EvaluateParams` | none | Evaluator protocol (`evaluate` params) |
 | `evaluator-notification.schema.json` | `Notification` | none; `method` is `outcome`, `progress`, `log` or `cancel` | Evaluator protocol (notifications) |
