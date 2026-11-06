@@ -92,3 +92,43 @@ def test_no_fork_mode(tmp_path, monkeypatch):
     frames = [json.loads(x) for x in p.stdout.splitlines()]
     assert frames[0]["params"]["isolation"] == "inline"
     assert frames[-1]["result"] == {"reported": 1}
+
+
+def test_identity_in_describe(tmp_path):
+    info = tmp_path / "scaf_dep-1.0.0.dist-info"
+    info.mkdir()
+    (info / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: scaf-dep\nVersion: 1.0.0\n"
+    )
+    (info / "direct_url.json").write_text(
+        json.dumps(
+            {"url": "file:///r", "vcs_info": {"vcs": "git", "commit_id": "ab" * 20}}
+        )
+    )
+    plug = PLUGIN + 'INSTRUMENTS = ["scaf-dep"]\n'
+    (tmp_path / "scaf.py").write_text(plug)
+    d = {"jsonrpc": "2.0", "id": RID, "method": "describe", "params": {}}
+    env = {**os.environ, "PYTHONPATH": str(tmp_path), "PYTHONDONTWRITEBYTECODE": "1"}
+    p = subprocess.run(
+        [sys.executable, "-m", "candler_evaluator", "scaf"],
+        check=False,
+        input=json.dumps(d) + "\n",
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
+    )
+    frames = [json.loads(x) for x in p.stdout.splitlines()]
+    assert frames[1]["result"]["instruments"][0]["digest"] == "git:" + "ab" * 20
+    # a missing direct_url.json turns describe into an error response
+    (info / "direct_url.json").unlink()
+    p = subprocess.run(
+        [sys.executable, "-m", "candler_evaluator", "scaf"],
+        check=False,
+        input=json.dumps(d) + "\n",
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
+    )
+    assert json.loads(p.stdout.splitlines()[-1])["error"]["code"] == -32000

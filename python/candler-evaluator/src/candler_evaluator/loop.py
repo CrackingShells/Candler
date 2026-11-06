@@ -17,6 +17,7 @@ from .frames import (
     install_fd_guard,
     parse_message,
 )
+from .identity import Identity, IdentityError, identity
 from .isolate import Abandoned, Done, make_runner, run_item
 from .plugin import Plugin, Prior, RunContext
 
@@ -187,6 +188,13 @@ class _Loop:
         self.writer = writer
         self.inbox = inbox
         self.runner = make_runner([writer.fd])
+        self._instruments: list[Identity] | None = None
+
+    def _identities(self) -> list[Identity]:
+        """The instruments' identities, read once, so every item carries the same ones."""
+        if self._instruments is None:
+            self._instruments = [identity(dist) for dist in self.plugin.instruments]
+        return self._instruments
 
     def run(self) -> int:
         try:
@@ -223,14 +231,19 @@ class _Loop:
         rid = msg["id"]
         try:
             name, version = self._evaluator()
-        except (ValueError, importlib.metadata.PackageNotFoundError) as err:
+            instruments = [i.as_instrument() for i in self._identities()]
+        except (
+            ValueError,
+            importlib.metadata.PackageNotFoundError,
+            IdentityError,
+        ) as err:
             self.writer.write(_error(rid, SERVER_ERROR, str(err)))
             return
         result = {
             "protocol": dict(PROTOCOL),
             "name": name,
             "version": version,
-            "instruments": [],
+            "instruments": instruments,
             "environment": {"packages": _packages()},
             "kind": "deterministic" if self.plugin.deterministic else "probabilistic",
             "kinds": _kind_specs(self.plugin),
@@ -252,10 +265,15 @@ class _Loop:
         try:
             context, items, prior = _parse_evaluate(msg.get("params", {}))
             name, version = self._evaluator()
+            instruments = [i.as_instrument() for i in self._identities()]
         except _ParamsError as err:
             self.writer.write(_error(rid, INVALID_PARAMS, str(err)))
             return
-        except (ValueError, importlib.metadata.PackageNotFoundError) as err:
+        except (
+            ValueError,
+            importlib.metadata.PackageNotFoundError,
+            IdentityError,
+        ) as err:
             self.writer.write(_error(rid, SERVER_ERROR, str(err)))
             return
         self.inbox.begin(rid)
@@ -268,7 +286,9 @@ class _Loop:
             fields = self._run_item(item, context, records)
             if fields is None:
                 break
-            record = self._record(rid, f"{name}@{version}", context, item, fields)
+            record = self._record(
+                rid, f"{name}@{version}", instruments, context, item, fields
+            )
             self.writer.write(_notify("outcome", {"record": record}))
             records.append(record)
             reported += 1
@@ -307,6 +327,7 @@ class _Loop:
         self,
         rid: str,
         evaluator: str,
+        instruments: list[dict[str, Any]],
         context: RunContext,
         item: dict[str, Any],
         fields: dict[str, Any] | str,
@@ -322,7 +343,7 @@ class _Loop:
             "expectation_id": item["expectation_id"],
             "role": _ROLE,
             "evaluator": evaluator,
-            "instruments": [],
+            "instruments": instruments,
             "suite_entry_digest": _UNSET_DIGEST,
             "context_digest": _UNSET_DIGEST,
             "request_id": rid,
