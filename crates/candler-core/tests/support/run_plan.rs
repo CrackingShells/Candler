@@ -36,6 +36,8 @@ pub struct Facts {
     pub experiment: char,
     /// The digest character of the one build input, when the cell has an input.
     pub input: Option<char>,
+    /// Whether the cell also holds inputs named `build-a` and `build_a`, which map to one segment.
+    pub clash: bool,
 }
 
 impl Facts {
@@ -49,8 +51,24 @@ impl Facts {
             turns: None,
             experiment: 'e',
             input: Some('c'),
+            clash: false,
         }
     }
+}
+
+/// The input records of `facts`, in the order a cell keeps them.
+fn inputs_json(facts: &Facts) -> Vec<Value> {
+    let Some(c) = facts.input else {
+        return Vec::new();
+    };
+    let mut kinds = vec!["build"];
+    if facts.clash {
+        kinds.extend(["build-a", "build_a"]);
+    }
+    kinds
+        .into_iter()
+        .map(|kind| json!({"kind": kind, "digest": digest_text(c)}))
+        .collect()
 }
 
 /// An experiment of one factor `model.id` over `models`, with `replicates` runs of each cell.
@@ -81,10 +99,8 @@ pub fn resolution(facts: &Facts) -> Resolution {
     if let Some(turns) = facts.turns {
         values.push(json!({"path": "budget.per_run.turns", "value": turns}));
     }
-    if let Some(input) = facts.input {
-        values.push(
-            json!({"path": "inputs", "value": [{"kind": "build", "digest": digest_text(input)}]}),
-        );
+    if facts.input.is_some() {
+        values.push(json!({"path": "inputs", "value": inputs_json(facts)}));
     }
     serde_json::from_value(json!({
         "values": values,
@@ -133,10 +149,7 @@ fn manifest_json(run: &Run<'_>, cell: &str) -> Value {
             "harness": {"name": "claude-code", "version": run.facts.version},
             "treatment": treatment(run.facts),
             "snapshots": [],
-            "inputs": run.facts.input.map_or_else(
-                Vec::new,
-                |c| vec![json!({"kind": "build", "digest": digest_text(c)})],
-            ),
+            "inputs": inputs_json(run.facts),
             "environments": [],
         },
         "sources": [
