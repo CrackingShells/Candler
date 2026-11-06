@@ -15,8 +15,8 @@ use candler_core::runner::plan::{Force, PlanError, PlanMode, plan_runs};
 use candler_schemas::primitives::JobId;
 use serde_json::{Value, json};
 use support::run_plan::{
-    Facts, Run, attempts_on_disk, experiment, fresh_store, manifest, plan_ctx, resolution,
-    snapshot, stored_cell, write_run,
+    Facts, Run, attempts_on_disk, digest_text, experiment, fresh_store, manifest, plan_ctx,
+    resolution, snapshot, stored_cell, write_run,
 };
 
 type Files = BTreeMap<PathBuf, Vec<u8>>;
@@ -310,7 +310,7 @@ struct Change {
     observed: Value,
 }
 
-/// The four facts a resume re-checks.
+/// The five facts a resume re-checks.
 ///
 /// Provenance: the stored values are the ones `Facts::base()` writes into each manifest (image
 /// of 64 `a`, Claude Code 2.1.0, a commit of 40 `1`, secret `API_KEY` present); the observed
@@ -346,6 +346,13 @@ fn changes() -> Vec<Change> {
             stored: json!({"name": "htn", "tag": "v1", "commit": "1".repeat(40)}),
             observed: json!({"name": "htn", "tag": "v1", "commit": "2".repeat(40)}),
         },
+        Change {
+            name: "input digest",
+            apply: |facts| facts.input = Some('d'),
+            path: "inputs.build",
+            stored: json!(format!("sha256:{}", "c".repeat(64))),
+            observed: json!(format!("sha256:{}", "d".repeat(64))),
+        },
     ]
 }
 
@@ -365,11 +372,12 @@ fn two_cells() -> (tempfile::TempDir, candler_core::store::Store, PathBuf) {
 /// still carries the stored cell.
 /// Oracle: literal paths and values, with the stored ones read back from hand-built manifests;
 /// the bytes under `runs/` before and after.
-/// Rows for a value a configuration default changed after the cell was stored (the stored one is
-/// carried), for the runs of another experiment (never adopted, never counted) and for a secret
-/// that only an earlier attempt of the cell saw.
-/// Bite: skip the image-ID comparison in `check_facts`; match stored cells by subset only; read the
-/// secrets of the last attempt only.
+/// Rows for a changed input digest (the fifth fact, named `inputs.build`), for a value a
+/// configuration default changed after the cell was stored (the stored one is carried), for the
+/// runs of another experiment (never adopted, never counted), for a secret that only an earlier
+/// attempt of the cell saw, and for a past experiment with a cell this one does not answer.
+/// Bite: skip the image-ID or the inputs comparison in `check_facts`; match stored cells by subset
+/// only; read the secrets of the last attempt only.
 #[test]
 fn b27_changed_fact_is_refused_and_the_cell_is_pinned() {
     let models = ["m1", "m2"];
@@ -454,6 +462,7 @@ fn b27_changed_fact_is_refused_and_the_cell_is_pinned() {
     b27_pin_row();
     b27_other_experiment_row();
     b27_secrets_row();
+    b27_superset_row();
 }
 
 /// Pin row: a project-config default (a turn cap) changed after the cell was stored, so the plan
@@ -569,6 +578,38 @@ fn b27_secrets_row() {
     };
     let paths: Vec<&str> = deviations.iter().map(|d| d.path.as_str()).collect();
     assert_eq!(paths, ["secrets"]);
+}
+
+/// Superset row: a past experiment with cells m1 and m2 holds the cell this experiment (m1 only)
+/// would answer, so the plan is refused naming the past experiment and the cell nothing answers.
+fn b27_superset_row() {
+    let theirs = Facts {
+        experiment: 'a',
+        ..Facts::base()
+    };
+    let (_dir, store, lock) = fresh_store();
+    for model in ["m1", "m2"] {
+        write_run(&store, &run(model, &theirs, 1, 1, true));
+    }
+    let m2_cell = manifest(&run("m2", &theirs, 1, 1, true))
+        .run()
+        .cell()
+        .to_string();
+    let ours = Facts::base();
+    let ctx = plan_ctx(&store, &lock, &ours);
+    let refusal = plan_runs(
+        &ctx,
+        &experiment(&["m1"], 1),
+        &resolution(&ours),
+        Force::No,
+        PlanMode::Hold,
+    );
+    let Err(PlanError::StoredCellUnknown { experiment, cells }) = refusal else {
+        panic!("a past experiment with an unmatched cell is refused");
+    };
+    // Provenance: `digest_text('a')` is the experiment digest `theirs` writes into its manifests.
+    assert_eq!(experiment, digest_text('a'));
+    assert_eq!(cells, [m2_cell]);
 }
 
 /// Guards: B28 (I11, I3) — with `--force` over each of the four changed facts, every new attempt

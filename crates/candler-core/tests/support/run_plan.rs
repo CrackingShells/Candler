@@ -34,6 +34,8 @@ pub struct Facts {
     pub turns: Option<u64>,
     /// The experiment file's digest character; the stored runs of one experiment share it.
     pub experiment: char,
+    /// The digest character of the one build input, when the cell has an input.
+    pub input: Option<char>,
 }
 
 impl Facts {
@@ -46,6 +48,7 @@ impl Facts {
             secrets: vec!["API_KEY".to_owned()],
             turns: None,
             experiment: 'e',
+            input: Some('c'),
         }
     }
 }
@@ -77,6 +80,11 @@ pub fn resolution(facts: &Facts) -> Resolution {
     ];
     if let Some(turns) = facts.turns {
         values.push(json!({"path": "budget.per_run.turns", "value": turns}));
+    }
+    if let Some(input) = facts.input {
+        values.push(
+            json!({"path": "inputs", "value": [{"kind": "build", "digest": digest_text(input)}]}),
+        );
     }
     serde_json::from_value(json!({
         "values": values,
@@ -125,7 +133,10 @@ fn manifest_json(run: &Run<'_>, cell: &str) -> Value {
             "harness": {"name": "claude-code", "version": run.facts.version},
             "treatment": treatment(run.facts),
             "snapshots": [],
-            "inputs": [],
+            "inputs": run.facts.input.map_or_else(
+                Vec::new,
+                |c| vec![json!({"kind": "build", "digest": digest_text(c)})],
+            ),
             "environments": [],
         },
         "sources": [
@@ -148,6 +159,11 @@ fn manifest_json(run: &Run<'_>, cell: &str) -> Value {
             .as_array_mut()
             .expect("sources")
             .insert(0, source);
+    }
+    if run.facts.input.is_some() {
+        let sources = manifest["sources"].as_array_mut().expect("sources");
+        sources.push(json!({"path": "inputs", "source": {"kind": "experiment_file"}}));
+        sources.sort_by_key(|entry| entry["path"].as_str().unwrap_or_default().to_owned());
     }
     if let Some(job) = run.job {
         manifest["job"] = json!(job);
