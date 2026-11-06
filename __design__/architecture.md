@@ -1023,11 +1023,11 @@ Decided during development: pairing keys, execution order and a declared blockin
 times are recorded from M2b); a `without_skill` fixture for the parity suite; reporting
 `instrument_error` and `deadline` counts per arm; event kinds beyond the first set; where `ls` looks;
 how plug-ins are registered; the slot count default; a macOS orphan watchdog; long-lived workers; the
-MCP tool shapes; the store root default; `snapshots[]` and `inputs[]` needs and `SuiteFile`
-(unimplemented, refused by the registry). The container backend is decided (M2b): Docker through
-its CLI, one `docker run` per run; `Isolation` turns a plan into a spawn request, then collects
-and destroys. The long-lived handle's `exec`, `inject` and whole-container `census` are M5's, as
-are a host backend and an egress allowlist.
+MCP tool shapes; the store root default; `snapshots[]` and `inputs[]` needs (unimplemented,
+refused by the registry). The container backend is decided (M2b): Docker through its CLI, one
+`docker run` per run; `Isolation` turns a plan into a spawn request, then collects and destroys.
+The long-lived handle's `exec`, `inject` and whole-container `census` are M5's, as are a host
+backend and an egress allowlist.
 
 ## Implementation
 
