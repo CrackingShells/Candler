@@ -1,47 +1,47 @@
-[cell."20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3"]
-gate = [611, 696]
-quality = [442, 460]
-
-[cell."20260806-035940_v0.2.3_claude-sonnet-4-6_model-claude-sonnet-4-6_skill_version-htn-creator-v0.2.3"]
-gate = [907, 1003]
-quality = [380, 383]
-
-[cell."20260806-035940_v0.2.3_claude-sonnet-5_model-claude-sonnet-5_skill_version-htn-creator-v0.2.3"]
-gate = [928, 1022]
-quality = [448, 455]
-
-[cell."20260806-035940_v0.2.4_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.4"]
-gate = [688, 771]
-quality = [423, 437]
-
-[cell."20260806-035940_v0.2.4_claude-sonnet-4-6_model-claude-sonnet-4-6_skill_version-htn-creator-0.2.4"]
-gate = [867, 931]
-quality = [400, 401]
-
-[cell."20260806-035940_v0.2.4_claude-sonnet-5_model-claude-sonnet-5_skill_version-htn-creator-0.2.4"]
-gate = [971, 1070]
-quality = [432, 440]
-
-[cell."20260806-035940_v0.2.5_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.5"]
-gate = [680, 764]
-quality = [435, 456]
-
-[cell."20260806-035940_v0.2.5_claude-sonnet-4-6_model-claude-sonnet-4-6_skill_version-htn-creator-0.2.5"]
-gate = [905, 991]
-quality = [411, 414]
-
-[cell."20260806-035940_v0.2.5_claude-sonnet-5_model-claude-sonnet-5_skill_version-htn-creator-0.2.5"]
+[cell."5023b88c83e8a7c2217a4c6742138f56dc29346c51283116c6d6d4a92703682e"]
 gate = [939, 1023]
 quality = [482, 487]
 
-[cell."20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6"]
+[cell."574932f08042fe77785e8d24839eaac9dca5504cd874eb833743ccaa57b441bb"]
+gate = [680, 764]
+quality = [435, 456]
+
+[cell."6600d54191fe1e2f1d31289e81585634f9e0165bc7e960cc71662d1a1fafd70b"]
+gate = [962, 1011]
+quality = [428, 435]
+
+[cell."8bafa1e2d1b74734a9c5c54e3514a8e8d067ebd74aa828d0a2748ac224d268ca"]
+gate = [971, 1070]
+quality = [432, 440]
+
+[cell."9b080341ebb849c1290dc865e694100e5fc5ff8593dde114efe31172cff0d8dc"]
 gate = [766, 849]
 quality = [427, 448]
 
-[cell."20260806-035940_v0.2.6_claude-sonnet-4-6_model-claude-sonnet-4-6_skill_version-htn-creator-0.2.6"]
+[cell."aaa18a958134242227a2c0990915027204c3c3f161316cafccdef6339ca33622"]
 gate = [904, 928]
 quality = [372, 373]
 
-[cell."20260806-035940_v0.2.6_claude-sonnet-5_model-claude-sonnet-5_skill_version-htn-creator-0.2.6"]
-gate = [962, 1011]
-quality = [428, 435]
+[cell."b2cc61e198c58fa1c28d7331e487ab45a731c482325992178906478426a68775"]
+gate = [907, 1003]
+quality = [380, 383]
+
+[cell."b6220c4b2feb0e3814cfb598f92c9922ed3351db585f6edea866abc3f357459e"]
+gate = [688, 771]
+quality = [423, 437]
+
+[cell."bb140e82b44189facbeeebc4e9a8326d58570ba3dd54c0def45e4033e2ec2d96"]
+gate = [611, 696]
+quality = [442, 460]
+
+[cell."d1899b5bbfadf739e985631f6afd4fb066e098d4a25b37482da132df69e010af"]
+gate = [905, 991]
+quality = [411, 414]
+
+[cell."e3081cce06f13ad02865a3060029378ee60b2bbdaae9ab4b61de8cb0cdad8522"]
+gate = [867, 931]
+quality = [400, 401]
+
+[cell."e7b37dd66e725b89b804c50d75dfbb1f236537aa839580f7047fc96edf18305b"]
+gate = [928, 1022]
+quality = [448, 455]

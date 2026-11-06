@@ -12,6 +12,7 @@ M1 vector file `cell_digest.toml`, only to cross-check the two cells it names.
 
 import argparse
 import glob
+import gzip
 import hashlib
 import importlib.util
 import json
@@ -20,14 +21,23 @@ import re
 import subprocess
 import sys
 import tempfile
+import tomllib
 import types
 
+import rfc8785
+
 HERE = os.path.dirname(os.path.abspath(__file__))
+M1_VECTORS = os.path.join(HERE, "..", "..", "..", "candler-core", "tests", "oracle", "vectors", "cell_digest.toml")
 PIN = "28be2c15"
 INFRA = ".claude/skills/htn-creator-workspace/infrastructure"
 EVAL_JSON_SHA = "ca7f12afee55152ed0e543a1d9b457c29fc5c02fd49e1ec6a417a9dcc1c97f9e"
+GENERATOR = "crates/candler/tests/oracle/gen_oracle.py"
 UNCOMPARED = ("D-E1", "D-E2", "D-E3", "D-E4", "D-E5", "D-E6")
 STATUSES = ("pass", "fail", "blocked", "not_measured", "not_applicable")
+# The one excused change, transcribed from Eliott's ruling of 2026-11-06 (R03 §Generic diff).
+RULE_NAME = "legacy-zero-weight-pass"
+RULE_FROM = {"status": "pass", "weight": {"num": 0, "den": 0}, "cause": {"legacy": "zero_weight"}}
+RULE_TO = {"status": "not_applicable", "cause": {"reason": "empty_population"}}
 
 
 def jtext(value):
@@ -137,12 +147,17 @@ def write_counts(rows, suite):
     return "\n".join(out) + "\n"
 
 
-def na_pairs(rows, suite):
-    return sorted(f"{r['cell']}\t{r['run']}\t{r['id']}" for r in ac_rows(rows, suite) if zero_weight(r))
+def na_pairs(rows, suite, hexes):
+    return sorted(f"{hexes[r['cell']]}\t{r['run']}\t{r['id']}" for r in ac_rows(rows, suite) if zero_weight(r))
 
 
-def write_na_pairs(rows, suite):
-    return "".join(line + "\n" for line in na_pairs(rows, suite))
+def write_na_pairs(rows, suite, hexes):
+    return "".join(line + "\n" for line in na_pairs(rows, suite, hexes))
+
+
+def write_cells(hexes):
+    """`cells.tsv`: `<cell hex>\\t<cell dir>`, sorted bytewise."""
+    return "".join(f"{h}\t{c}\n" for h, c in sorted((h, c) for c, h in hexes.items()))
 
 
 # ---------------------------------------------------------------- rates
@@ -165,8 +180,8 @@ def cell_rates(rows, suite, model, outcome):
     return out
 
 
-def write_rates(rows, suite, model, outcome):
-    rates = cell_rates(rows, suite, model, outcome)
+def write_rates(rows, suite, model, outcome, hexes):
+    rates = {hexes[c]: v for c, v in cell_rates(rows, suite, model, outcome).items()}
     tables = []
     for cell in sorted(rates):
         g, q = rates[cell]["gate"], rates[cell]["quality"]
@@ -186,6 +201,117 @@ def published(corpus, rates_text):
         lines.append(f"  {cell[16:60]}... mean " + " ".join(f"{k[5]}={v:.4f}" for k, v in sorted(mean.items())))
     return "\n".join(lines)
 
+
+# ---------------------------------------------------------------- cell digest and equivalence
+
+
+def leaves(value, prefix, out):
+    if isinstance(value, dict):
+        for key, inner in value.items():
+            leaves(inner, f"{prefix}.{key}" if prefix else key, out)
+    else:
+        out.append((prefix, value))
+
+
+def cell_comparable(corpus, cell):
+    """M1's ASSUMED 1 rule (`gen_vectors.py` mini_cell), re-written for the golden layout."""
+    root = os.path.join(corpus, cell)
+    experiment = load_json(os.path.join(root, "experiment.json"))
+    catalog_sha = load_json(os.path.join(corpus, "PROVENANCE.json"))["catalog"]["sha256"]
+    found = []
+    leaves(experiment["plan"], "plan", found)
+    leaves(experiment["provenance"], "provenance", found)
+    found.append(("resolved_skill_version", experiment["resolved_skill_version"]))
+    values = [{"path": p} if v is None else {"path": p, "value": v} for p, v in found if p != "plan.out_dir"]
+    versions = set()
+    for path in sorted(glob.glob(os.path.join(root, "_run_cache", "with_skill", "run-*", "agent_stream.jsonl.gz"))):
+        with gzip.open(path, "rt", encoding="utf-8") as f:
+            init = json.loads(f.readline())
+        assert init["subtype"] == "init", path
+        versions.add(init["claude_code_version"])
+    assert len(versions) == 1, (cell, versions)
+    inputs = set()
+    for dirpath, _dirs, names in os.walk(root):
+        if "timing.json" in names:
+            copied = load_json(os.path.join(dirpath, "timing.json"))["copied_inputs"]
+            inputs.add(jtext([{"kind": c["role"], "digest": "sha256:" + c["sha256"]} for c in copied]))
+    assert len(inputs) == 1, (cell, len(inputs))
+    name, tag = experiment["plan"]["skill_version"].rsplit("@", 1)
+    c = {
+        "values": sorted(values, key=lambda v: v["path"]),
+        "harness": {"name": "claude-code", "version": versions.pop()},
+        "treatment": {"name": name, "tag": tag},
+        "snapshots": [{"kind": "catalog", "digest": "sha256:" + catalog_sha}],
+        "inputs": sorted(json.loads(inputs.pop()), key=lambda r: (r["kind"], r["digest"])),
+        "environments": [],
+    }
+    return json.loads(jtext(c))
+
+
+def cell_digest(corpus, cell):
+    """The 64 bare hex digits of sha256 over the RFC 8785 form of the cell's `comparable`."""
+    return hashlib.sha256(rfc8785.dumps(cell_comparable(corpus, cell))).hexdigest()
+
+
+def equivalence_rows(rows, suite, hexes):
+    out = []
+    for line in na_pairs(rows, suite, hexes):
+        cell, run, exp = line.split("\t")
+        out.append((f"{cell}-r{run}-a1", exp))
+    return sorted(out)
+
+
+def write_equivalence(rows, suite, hexes):
+    rule = [f'      "name": {json.dumps(RULE_NAME)},', f'      "from": {jtext(RULE_FROM)},', f'      "to": {jtext(RULE_TO)},']
+    body = ",\n".join(f'        {{"run": {json.dumps(r)}, "expectation": {json.dumps(e)}}}' for r, e in equivalence_rows(rows, suite, hexes))
+    lines = ["{", f'  "generator": {json.dumps(GENERATOR)},', '  "rules": [', "    {", *rule, '      "rows": [', body, "      ]", "    }", "  ]", "}"]
+    return "\n".join(lines) + "\n"
+
+
+def check_m1_vectors(corpus):
+    """Cross-check: the real cells of M1's `cell_digest.toml` get the digest recorded there."""
+    with open(M1_VECTORS, "rb") as f:
+        vectors = tomllib.load(f)["vector"]
+    names = set(cells_of(corpus))
+    hit = [v for v in vectors if v["cell"] in names]
+    assert len(hit) == 2, [v["cell"] for v in hit]
+    for v in hit:
+        want = v["digest"]
+        got = "sha256:" + cell_digest(corpus, v["cell"])
+        if got != want or jtext(cell_comparable(corpus, v["cell"])) != v["comparable"]:
+            sys.exit(f"cell digest of {v['cell']} is {got}, M1 recorded {want}: stop and report")
+    return len(hit)
+
+
+README = """# Reference oracle: expected A-C rows and rates
+
+Everything here is generated by `gen_oracle.py` from the raw golden corpus and three files of the
+HTN repo at commit 28be2c15 (`eval.json`, `_model.py`, `_outcome.py`). It imports nothing from
+Candler and reads no importer output. Regenerate, or verify byte for byte:
+
+    uv run --no-project --with rfc8785 python crates/candler/tests/oracle/gen_oracle.py "$GOLDEN" "$R"
+    uv run --no-project --with rfc8785 python crates/candler/tests/oracle/gen_oracle.py --check "$GOLDEN" "$R"
+
+- `counts.toml`: status counts of the 8,880 A-C rows as imported (`[imported]`, with `zero_weight`
+  the passes whose raw `max_score` is 0), as expected live (`[live_expected]`: those passes become
+  `not_applicable`), the uncompared D-E1..D-E6 counts, and `total` (all rows).
+- `na_pairs.txt`: `<cell hex>\\t<run N>\\t<expectation id>` for each of those 209 passes, sorted
+  bytewise. The cell hex is the 64 bare hex digits of the cell digest (see `equivalence.json`).
+- `cells.tsv`: `<cell hex>\\t<cell dir>` for each of the 12 cells, sorted bytewise: the only place
+  that names a cell by directory.
+- `rates_by_cell.toml`: per cell hex (`[cell."<cell hex>"]`, sorted by hex), `gate` and `quality` as `[numerator, denominator]` sums of
+  `_outcome.score` over the cell's runs (roles from `eval.json`; `not_measured` and
+  `not_applicable` excluded, a 0/0 pass adds nothing). Tables are separated by one blank line,
+  keys are sorted, and the file ends with one newline: `candler show --rates` must print it exactly.
+- `equivalence.json`: one rule, `legacy-zero-weight-pass`, whose `rows` are the pairs of
+  `na_pairs.txt` keyed `<cell hex>-r<N>-a1`. The cell hex is the sha256 of the RFC 8785 form of
+  the cell's `comparable`, built from R01's text as M1's `gen_vectors.py` does (`--check` also
+  verifies the two real cells of M1's `cell_digest.toml`). A wrong digest makes GP2 fail loudly as
+  `equivalence_missing`.
+- `README.md` is generated too.
+"""
+
+
 # ---------------------------------------------------------------- main
 
 
@@ -193,10 +319,15 @@ def generate(corpus, repo):
     with tempfile.TemporaryDirectory() as tmp:
         suite, model, outcome = load_suite(repo, tmp)
         rows = derive_rows(corpus, suite)
+        hexes = {c: cell_digest(corpus, c) for c in cells_of(corpus)}
+        assert len(set(hexes.values())) == len(hexes)
         files = {
             "counts.toml": write_counts(rows, suite),
-            "na_pairs.txt": write_na_pairs(rows, suite),
-            "rates_by_cell.toml": write_rates(rows, suite, model, outcome),
+            "na_pairs.txt": write_na_pairs(rows, suite, hexes),
+            "cells.tsv": write_cells(hexes),
+            "rates_by_cell.toml": write_rates(rows, suite, model, outcome, hexes),
+            "equivalence.json": write_equivalence(rows, suite, hexes),
+            "README.md": README,
         }
     return {k: v.encode("utf-8") for k, v in files.items()}, published(corpus, files["rates_by_cell.toml"])
 
@@ -211,6 +342,7 @@ def main():
     print(files["counts.toml"].decode())
     print(pub)
     if args.check:
+        print(f"cell digests of {check_m1_vectors(args.corpus)} M1 vector cells match")
         bad = [n for n, b in files.items() if not os.path.isfile(os.path.join(HERE, n)) or open(os.path.join(HERE, n), "rb").read() != b]
         if bad:
             sys.exit(f"not regenerated byte for byte: {bad}")
