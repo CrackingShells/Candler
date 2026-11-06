@@ -1,5 +1,6 @@
 //! The context of one run for one request: its assembly from a suite's needs in [`assemble()`]
-//! and the one file rule in `rule`.
+//! the one file rule in `rule`, and the private workspace that copies the artifacts and the
+//! digest of what was copied in [`materialise()`].
 
 use std::io;
 use std::path::PathBuf;
@@ -9,9 +10,11 @@ use candler_schemas::evaluation::EvaluationError;
 use crate::store::StoreError;
 
 mod assemble;
+mod materialise;
 mod rule;
 
 pub use assemble::{Assembled, AssembledArtifact, assemble};
+pub use materialise::{Workspace, materialise};
 pub use rule::{FileRule, file_rule_keeps};
 
 /// Why a run's context could not be assembled or materialised.
