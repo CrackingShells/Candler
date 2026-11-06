@@ -1,7 +1,7 @@
 //! The gateway container the agent reaches its provider through. The agent holds a dummy token;
 //! the gateway holds the real one and forwards the calls.
 
-use candler_schemas::primitives::JobId;
+use candler_schemas::primitives::{JobId, RunKey};
 use futures::future::BoxFuture;
 
 use super::driver::DockerDriver;
@@ -47,11 +47,11 @@ impl std::fmt::Debug for SecretValue {
 
 /// Where the real token comes from.
 pub trait SecretSource: Send + Sync {
-    /// The token's value.
+    /// The value of the secret `name`.
     ///
     /// # Errors
     /// [`SecretError::Missing`] when it is not set.
-    fn token(&self) -> Result<SecretValue, SecretError>;
+    fn resolve(&self, name: &str) -> Result<SecretValue, SecretError>;
 }
 
 /// Why the gateway could not start or be used.
@@ -85,9 +85,21 @@ pub enum GatewayStatus {
     },
 }
 
+/// What the gateway saw of one run's provider calls.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum GatewaySignal {
+    /// The upstream answered with this status.
+    UpstreamStatus(u16),
+    /// The upstream could not be reached.
+    Unreachable,
+    /// The gateway's own probe failed.
+    ProbeFailed,
+}
+
 /// Starts the gateway of a job.
 pub trait Gateway: Send + Sync {
-    /// Starts the gateway on `net` for `job`, holding the token from `token`.
+    /// Starts the gateway on `net` for `job`, holding the secret `token` resolves.
     ///
     /// # Errors
     /// [`GatewayError::Start`] when the container does not start.
@@ -102,4 +114,14 @@ pub trait Gateway: Send + Sync {
 
     /// Asks the gateway whether it can serve.
     fn probe<'a>(&'a self, handle: &'a GatewayHandle) -> BoxFuture<'a, GatewayStatus>;
+
+    /// What the gateway saw of the run `run`'s calls.
+    ///
+    /// # Errors
+    /// [`GatewayError`] when the gateway cannot be asked.
+    fn run_signals<'a>(
+        &'a self,
+        handle: &'a GatewayHandle,
+        run: &'a RunKey,
+    ) -> BoxFuture<'a, Result<Vec<GatewaySignal>, GatewayError>>;
 }

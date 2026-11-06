@@ -21,6 +21,8 @@ pub enum SlotError {
 pub struct Holder {
     /// The job that holds it.
     pub job: String,
+    /// The run that holds it, when a run does.
+    pub run: Option<String>,
 }
 
 /// A held slot; dropping it releases the slot.
@@ -37,6 +39,8 @@ pub struct SlotInfo {
     pub index: u32,
     /// Who holds it, if anyone.
     pub holder: Option<Holder>,
+    /// Whether the holder is gone and the slot can be taken over.
+    pub stale: bool,
 }
 
 /// The slots of a store.

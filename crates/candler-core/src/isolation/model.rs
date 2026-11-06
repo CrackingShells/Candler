@@ -325,8 +325,12 @@ pub struct ContainerPlan {
     pub workdir: String,
     /// The home directory inside the container.
     pub home: String,
-    /// How long the container may live, before the margin.
+    /// The run's wall-clock cap, which the container's expiry is cut from.
     pub expiry: Duration,
+    /// The project root; a mount source may sit under it.
+    pub project_root: PathBuf,
+    /// The store root; a mount source may sit under it.
+    pub store_root: PathBuf,
 }
 
 /// What a run's container left behind: its final inspect, and what destroying it did.
@@ -349,4 +353,14 @@ pub struct GatewayHandle {
     pub network: NetworkName,
     /// The token the agent holds in place of the real one.
     pub dummy_token: String,
+}
+
+impl GatewayHandle {
+    /// The base url of one run: `<base_url>/run/<run key>`. The gateway strips the prefix before
+    /// the upstream and logs it, so a log line names its run.
+    #[must_use]
+    pub fn run_base_url(&self, run: &RunKey) -> Url {
+        let text = format!("{}/run/{run}", self.base_url.as_str().trim_end_matches('/'));
+        Url::parse(&text).unwrap_or_else(|_| self.base_url.clone())
+    }
 }

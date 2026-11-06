@@ -352,7 +352,7 @@ mod m2b_surface {
     use candler_core::isolation::docker::DockerError;
     use candler_core::isolation::driver::{DestroyDriver, DockerDriver};
     use candler_core::isolation::gateway::{
-        Gateway, GatewayError, GatewayStatus, SecretError, SecretSource, SecretValue,
+        Gateway, GatewayError, GatewaySignal, GatewayStatus, SecretError, SecretSource, SecretValue,
     };
     use candler_core::isolation::image::{BuildSetting, ImageError, ImageService, LockDigest};
     use candler_core::isolation::layout;
@@ -364,7 +364,7 @@ mod m2b_surface {
     use candler_core::isolation::testing::{
         AllowlistDriver, FakeJobView, RecordingDestroyer, RecordingDocker,
     };
-    use candler_core::isolation::{Isolation, IsolationError};
+    use candler_core::isolation::{EndFacts, IsolatedRequest, Isolation, IsolationError};
     use candler_core::jobs::dir::{JobDir, JobError};
     use candler_core::jobs::lost::{RecoverError, RecoverReport, recover};
     use candler_core::jobs::model::{JobBody, JobCause, JobControl, JobOutcome, JobSpec};
@@ -376,8 +376,10 @@ mod m2b_surface {
     use candler_core::runner::evidence::catalog::{Catalog, CatalogError, CatalogProvider};
     use candler_core::runner::evidence::{Evidence, Inputs};
     use candler_core::runner::exec::exec_run;
-    use candler_core::runner::plan::{Force, PlanCtx, PlanError, PlanOutcome, RunPlan, plan};
-    use candler_core::runner::{JobMeter, RunControl, RunOutcome, Runtime, Usage};
+    use candler_core::runner::plan::{
+        ExperimentLock, Force, PlanCtx, PlanError, PlanMode, PlanOutcome, RunPlan, plan_runs,
+    };
+    use candler_core::runner::{JobGateway, JobMeter, RunControl, RunOutcome, Runtime, Usage};
     use candler_core::supervise::hook::{HookError, StopHook, StopHookCtx};
 
     fn send_sync<T: Send + Sync + ?Sized>() {}
@@ -394,6 +396,7 @@ mod m2b_surface {
         send_sync::<dyn Gateway>(); // TRAIT_OBJECT: the gateway container, or a fake
         send_sync::<dyn SecretSource>(); // TRAIT_OBJECT: the environment, or a fake
         send_sync::<dyn CatalogProvider>(); // TRAIT_OBJECT: lists commands in the image, or a fake
+        send_sync::<dyn EndFacts>(); // TRAIT_OBJECT: the run's stop hook, read after the wait
         send_sync::<dyn Isolation>(); // TRAIT_OBJECT: docker isolation, or a fake
         send_sync::<ContainerGuard>();
         send_sync::<Runtime>();
@@ -422,9 +425,11 @@ mod m2b_surface {
             register_m2b_steps,
             recover,
             supervise_entry,
-            plan,
+            plan_runs,
             exec_run,
             SweepScope::wire,
+            GatewayHandle::run_base_url,
+            layout::image_lock_path,
         );
         let _ = (
             layout::EXPIRY_MARGIN,
@@ -451,6 +456,11 @@ mod m2b_surface {
             None::<PlanOutcome>,
             None::<PlanError>,
             None::<Usage>,
+            None::<IsolatedRequest>,
+            None::<JobGateway>,
+            None::<ExperimentLock>,
+            None::<PlanMode>,
+            None::<GatewaySignal>,
             None::<Evidence>,
             None::<Inputs>,
             None::<Catalog>,

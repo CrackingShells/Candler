@@ -1,7 +1,7 @@
 //! The `candler` binary.
 //!
 //! One file per verb under [`commands`]; each verb is an `async fn` that takes its parsed
-//! arguments and returns the process exit code.
+//! arguments and returns `Ok` or a [`CliError`].
 
 mod commands;
 
@@ -37,7 +37,7 @@ enum Command {
 }
 
 /// Runs the verb on a multi-thread runtime.
-fn dispatch(cli: Cli) -> Result<ExitCode, CliError> {
+fn dispatch(cli: Cli) -> Result<(), CliError> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -57,7 +57,7 @@ fn dispatch(cli: Cli) -> Result<ExitCode, CliError> {
 
 fn main() -> ExitCode {
     match dispatch(Cli::parse()) {
-        Ok(code) => code,
+        Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             #[allow(
                 clippy::print_stderr,
