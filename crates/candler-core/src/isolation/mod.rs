@@ -120,6 +120,8 @@ pub trait Isolation: Send + Sync {
     ) -> Result<IsolatedRequest, IsolationError>;
 
     /// Inspects the run's container after the child's exit, then destroys it through the guard.
+    /// The destroy is scoped to the run `key`, never to the run the container's own label names,
+    /// and a container whose job label differs from the plan's is refused and reported.
     ///
     /// # Errors
     /// [`IsolationError::Docker`] when docker fails.
@@ -128,5 +130,6 @@ pub trait Isolation: Send + Sync {
         plan: &'a ContainerPlan,
         workspace: &'a Workspace<'a>,
         exit: &'a Exit,
+        key: &'a RunKey,
     ) -> BoxFuture<'a, Result<ContainerOutcome, IsolationError>>;
 }

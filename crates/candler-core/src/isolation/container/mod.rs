@@ -26,9 +26,7 @@ use self::run::build_run_request;
 use self::stop::ContainerStopHook;
 use self::sweeper::ContainerSweeper;
 use super::driver::DockerDriver;
-use super::layout::{
-    CONTAINER_HOME, CONTAINER_WORKDIR, LABEL_EXPERIMENT, LABEL_JOB, LABEL_ROLE, LABEL_RUN,
-};
+use super::layout::{CONTAINER_HOME, CONTAINER_WORKDIR, LABEL_EXPERIMENT, LABEL_JOB, LABEL_ROLE};
 use super::model::{
     ContainerOutcome, ContainerPlan, ContainerRef, ContainerSweep, GatewayHandle, ImageId,
     ImageRef, LabelSel, Limits, Refusal, SweepScope, UserSpec,
@@ -371,6 +369,7 @@ impl Isolation for DockerIsolation {
         plan: &'a ContainerPlan,
         workspace: &'a Workspace<'a>,
         exit: &'a Exit,
+        key: &'a RunKey,
     ) -> BoxFuture<'a, Result<ContainerOutcome, IsolationError>> {
         let _ = (workspace, exit);
         Box::pin(async move {
@@ -403,11 +402,15 @@ impl Isolation for DockerIsolation {
                 sweep.unknown = true;
                 return Ok(ContainerOutcome { inspect, sweep });
             };
-            let scope = target
-                .labels
-                .get(LABEL_RUN)
-                .and_then(|run| RunKey::from_str(run).ok())
-                .map_or(SweepScope::CurrentJob, SweepScope::Run);
+            // The plan's job label is what the container must carry; the run is the caller's.
+            if target.labels.get(LABEL_JOB) != plan.labels.get(LABEL_JOB) {
+                sweep.refused.push(Refusal {
+                    container: target.cid,
+                    reason: String::from("job_mismatch"),
+                });
+                return Ok(ContainerOutcome { inspect, sweep });
+            }
+            let scope = SweepScope::Run(key.clone()); // BORROW: the scope owns its key
             match self.guard.destroy(&target, &scope).await {
                 Ok(destroyed) if !destroyed.absent => sweep.destroyed.push(target),
                 Ok(_) => {}

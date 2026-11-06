@@ -126,17 +126,38 @@ fn manifest_of(
     Ok(builder.build()?)
 }
 
-/// Mounts each input of the cell read-only at its workspace path, from its blob in the store,
-/// and checks the whole mount list again.
+/// Makes the mount point of each input in the workspace, mounts each input of the cell read-only
+/// there from its blob in the store, and checks the whole mount list again.
 fn mount_inputs(
     rt: &Runtime,
     container: &mut ContainerPlan,
+    workspace_dir: &Path,
     inputs: &Inputs,
 ) -> Result<(), IsolationError> {
     if inputs.digests.is_empty() {
         return Ok(());
     }
     for input in &inputs.digests {
+        // The mount point is made here, by the host user, so the engine does not make it as root.
+        let relative = Path::new(&input.path);
+        if !relative
+            .components()
+            .all(|part| matches!(part, std::path::Component::Normal(_)))
+        {
+            return Err(IsolationError::Plan {
+                detail: format!("the input path `{}` leaves the workspace", input.path),
+            });
+        }
+        let point = workspace_dir.join(relative);
+        if let Some(parent) = point.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| local("cannot make an input's directory", &e))?;
+        }
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&point)
+            .map_err(|e| local("cannot make an input's mount point", &e))?;
         container.mounts.push(MountSpec {
             source: rt.store.layout().blob(&input.digest),
             target: format!("{}/{}", container.workdir.trim_end_matches('/'), input.path),
@@ -342,7 +363,7 @@ async fn drive(
             .map_err(candler_harness::driver::DriverError::from)?;
     }
     let mut container = isolation.plan(&view, &workspace)?;
-    mount_inputs(rt, &mut container, &cell.inputs)?;
+    mount_inputs(rt, &mut container, &workspace_dir, &cell.inputs)?;
 
     let out_stream = stream("stdout")?;
     let err_stream = stream("stderr")?;
@@ -373,6 +394,7 @@ async fn drive(
         &container,
         &workspace,
         &exit,
+        &plan.key,
         end_facts.as_ref(),
     )
     .await;
