@@ -143,3 +143,52 @@ fn kill_asks_and_a_lost_job_is_recovered() {
     let again = with_stdin(&["kill", "--all", "-y", "--store", path], &bin, "");
     assert!(again.status.success());
 }
+
+#[test]
+fn watch_prints_the_events_in_order_and_exits_at_the_end() {
+    let root = scratch("watch");
+    let store = root.join("store");
+    Store::init(&store).unwrap();
+    let running = job(&store, 1);
+    let held = JobLock::acquire(&running).unwrap();
+    let bin = fake_docker(&root);
+    let path = store.to_str().unwrap();
+    let id = "01890000-0000-7000-8000-000000000001";
+    let child = Command::new(env!("CARGO_BIN_EXE_candler"))
+        .args(["watch", id, "--json", "--store", path])
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let events = JobEvents::open(&running).unwrap();
+    let writer = std::thread::spawn(move || {
+        for _ in 0..5 {
+            std::thread::sleep(std::time::Duration::from_millis(120));
+            events.append(None, EventPayload::job_started()).unwrap();
+        }
+        events
+            .append(None, EventPayload::job_ended(JobEnd::Completed))
+            .unwrap();
+    });
+    let out = child.wait_with_output().unwrap();
+    writer.join().unwrap();
+    drop(held);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let seqs: Vec<u64> = text
+        .lines()
+        .map(|line| {
+            // INDEX: every event line is an object with a seq
+            serde_json::from_str::<serde_json::Value>(line).unwrap()["seq"]
+                .as_u64()
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(seqs, vec![0, 1, 2, 3, 4, 5], "{text}");
+}
