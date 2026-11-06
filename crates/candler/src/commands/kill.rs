@@ -6,11 +6,11 @@
 
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
-use std::time::Duration;
 
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::events::JobEvents;
 use candler_core::jobs::lost::{self, JobLiveness, RecoverOutcome};
+use candler_core::jobs::runtime::TEARDOWN_BOUND;
 use candler_core::store::layout::StoreLayout;
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_harness::spec::{StopSignal, StopSpec};
@@ -20,9 +20,6 @@ use std::sync::Arc;
 
 use super::ps::{describe_recovery, end_text, recover_job, store_root};
 use super::{CliError, Exit};
-
-/// How long a supervisor is given to end its job in order after the stop signal.
-const GRACE: Duration = Duration::from_secs(30);
 
 /// The arguments of `candler kill`.
 #[derive(Debug, clap::Args)]
@@ -90,7 +87,7 @@ pub async fn stop_job(store: &StoreLayout, id: &JobId) -> Result<String, String>
         let sink: Arc<dyn EventSink> = events;
         let sup = Supervisor::new(sink);
         let record = supervisor_record(&dir, id)?;
-        let stop = StopSpec::new(None, StopSignal::Term, GRACE);
+        let stop = StopSpec::new(None, StopSignal::Term, TEARDOWN_BOUND);
         sup.reap(None, &record, &stop)
             .await
             .map_err(|e| e.to_string())?;
