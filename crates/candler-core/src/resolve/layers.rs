@@ -24,18 +24,42 @@ const PLUGINS_DIRS: &str = "plugins.dirs";
 /// The path of the slot count.
 const SLOTS_COUNT: &str = "slots.count";
 
+/// The setting that names the harness a request asks for.
+const REQUEST_HARNESS: &str = "request.harness";
+/// The setting that names the treatment a request asks for.
+const REQUEST_TREATMENT: &str = "request.treatment";
+/// The setting that names where the treatment's repository is.
+const REQUEST_TREATMENT_SOURCE: &str = "request.treatment_source";
+/// The setting that names the secret the gateway presents to the model endpoint.
+const MODEL_TOKEN_SECRET: &str = "model.token_secret";
+
 /// Reports whether `path` is an operational setting, by its path alone: a configuration key
 /// (`store.root`, `plugins.dirs`, `slots.count`), a job cap (every `budget.*` path except
-/// `budget.per_run.*`) or `replicates`. A setting never reaches a cell digest. The paths an
+/// `budget.per_run.*`), `replicates`, a request key (`request.harness`, `request.treatment`,
+/// `request.treatment_source`), the gateway's secret (`model.token_secret`) or an image build
+/// request (every `isolation.build.*` path). A setting never reaches a cell digest. The paths an
 /// explicit argument marks are settings too; [`Layered::is_setting`] adds them.
+///
+/// The match follows path segments, so `isolation.image` and `isolation.builder` are not
+/// settings and `model.id` is not one either.
 #[must_use]
 pub fn is_setting(path: &FieldPath) -> bool {
     let mut segments = path.segments();
     match (segments.next(), segments.next()) {
         (Some("budget"), Some("per_run")) => false,
         (Some("budget" | "replicates"), _) => true,
+        (Some("isolation"), Some("build")) => segments.next().is_some(),
         // BORROW: the path's text, compared with the setting keys
-        _ => matches!(path.as_str(), STORE_ROOT | PLUGINS_DIRS | SLOTS_COUNT),
+        _ => matches!(
+            path.as_str(),
+            STORE_ROOT
+                | PLUGINS_DIRS
+                | SLOTS_COUNT
+                | REQUEST_HARNESS
+                | REQUEST_TREATMENT
+                | REQUEST_TREATMENT_SOURCE
+                | MODEL_TOKEN_SECRET
+        ),
     }
 }
 
@@ -107,7 +131,7 @@ impl ResolveInput {
 }
 
 /// The result of a resolution.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
 pub struct Resolution {
     /// The resolved values, sorted by path. They can reach a cell digest.

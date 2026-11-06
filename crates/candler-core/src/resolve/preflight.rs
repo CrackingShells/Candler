@@ -17,7 +17,7 @@ use super::config::Config;
 use super::layers::{Layered, Resolution, ResolveInput};
 
 /// One check a step ran.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
 pub struct CheckResult {
     /// The check's name.
@@ -41,7 +41,7 @@ impl CheckResult {
 }
 
 /// What one preflight step reports.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
 pub struct StepReport {
     /// The step that produced the report.
