@@ -671,6 +671,7 @@ fn compile_argv(program: &Path, image: &ImageId, sources: &Path, names: &[String
         "--mount",
     ]
     .iter()
+    // BORROW: `.to_owned()` makes each word an owned argument
     .map(|word| (*word).to_owned())
     .collect();
     // BORROW: .to_string_lossy().into_owned() gives the argv the binary path as text
@@ -682,6 +683,7 @@ fn compile_argv(program: &Path, image: &ImageId, sources: &Path, names: &[String
     argv.extend(
         ["--entrypoint", "timeout"]
             .iter()
+            // BORROW: `.to_owned()` makes each word an owned argument
             .map(|word| (*word).to_owned()),
     );
     // BORROW: .clone() keeps the id in the argv
@@ -689,6 +691,7 @@ fn compile_argv(program: &Path, image: &ImageId, sources: &Path, names: &[String
     argv.extend(
         [COMPILE_SECONDS, "sh", "-c", COMPILE_SCRIPT, "sh"]
             .iter()
+            // BORROW: `.to_owned()` makes each word an owned argument
             .map(|word| (*word).to_owned()),
     );
     argv.extend(names.iter().map(|name| format!("{SOURCE_MOUNT}/{name}")));
@@ -744,6 +747,7 @@ fn control_argv(program: &Path, image: &ImageRef) -> Vec<String> {
         "timeout",
     ]
     .iter()
+    // BORROW: `.to_owned()` makes each word an owned argument
     .map(|word| (*word).to_owned())
     .collect();
     // BORROW: .clone() keeps the id in the argv
@@ -751,6 +755,7 @@ fn control_argv(program: &Path, image: &ImageRef) -> Vec<String> {
     argv.extend(
         [PROBE_SECONDS, "claude", "--version"]
             .iter()
+            // BORROW: `.to_owned()` makes each word an owned argument
             .map(|word| (*word).to_owned()),
     );
     // BORROW: .to_string_lossy().into_owned() gives the argv the binary path as text

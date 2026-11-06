@@ -1,4 +1,4 @@
-//! The real-Docker guards of the `container_stop` leaf.
+//! The real-Docker guards of the container stop and sweep.
 //!
 //! Each test makes its own jobs, each with its own `candler.job` label, and its own containers
 //! from the testagent image. The guard is given a destroy driver wrapped in an allowlist that
@@ -110,7 +110,7 @@ fn unique_job(salt: u32) -> JobId {
     job(nanos ^ std::process::id().rotate_left(16) ^ salt.wrapping_mul(0x9e37_79b1))
 }
 
-/// The labels the container of `job` in `role` carries, and a label that names this leaf.
+/// The labels the container of `job` in `role` carries, and a label that names the test.
 fn label_args(job: &JobId, role: &str, run: Option<&RunKey>) -> Vec<String> {
     let mut args = Vec::new();
     for label in [
@@ -250,8 +250,10 @@ async fn network_exists(rig: &Rig, name: &NetworkName) -> bool {
 }
 
 /// Guards: B12 — the sweep is scoped by the job label.
-/// Oracle: docker ps -a --filter label=candler.job=<id> before and after, inside the allowlist wrapper.
-/// Bite: list by `candler.test` instead of `candler.job` in the sweeper (every container is then a candidate; the allowlist wrapper only permits this test's).
+/// Oracle: docker ps -a --filter label=candler.job=<id> before and after, inside the allowlist
+/// wrapper.
+/// Bite: list by `candler.test` instead of `candler.job` in the sweeper (every container is then a
+/// candidate; the allowlist wrapper only permits this test's).
 #[tokio::test]
 #[ignore = "needs a docker daemon and the testagent image; run by the container-e2e group"]
 async fn b12_sweep_scope() {

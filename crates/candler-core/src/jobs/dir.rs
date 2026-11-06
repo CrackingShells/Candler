@@ -183,6 +183,7 @@ impl JobDir {
         if !meta.is_dir() {
             return Err(JobError::Parse {
                 path,
+                // BORROW: the error owns its text
                 detail: "not a directory".to_owned(),
             });
         }
@@ -322,6 +323,7 @@ fn read_entry(path: PathBuf) -> ChildEntry {
             Err(error) => unreadable(path, error.to_string()),
         },
         Some(other) => unreadable(path, format!("unknown schema `{other}`")),
+        // BORROW: the error owns its text
         None => unreadable(path, "no `schema` member".to_owned()),
     }
 }

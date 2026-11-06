@@ -108,5 +108,6 @@ pub fn manifest(job: &JobId, replicate: u32, measured: &[Value]) -> RunManifest 
 
 /// The key of a manifest.
 pub fn key_of(manifest: &RunManifest) -> RunKey {
+    // BORROW: the key is returned owned
     manifest.run().clone()
 }

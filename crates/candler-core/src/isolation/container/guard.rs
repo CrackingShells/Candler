@@ -370,6 +370,7 @@ impl ContainerGuard {
         scope: &SweepScope,
         proof: Option<&LostProof>,
     ) -> Result<Option<Verified>, GuardError> {
+        // BORROW: `.as_str()` borrows the text of the container id
         if container.cid.as_str().len() != 64 {
             return Err(GuardError::Refused(GuardRefusal::NotFullId));
         }
@@ -465,6 +466,7 @@ impl ContainerGuard {
             && inspect
                 .labels
                 .get(LABEL_RUN)
+                // BORROW: `.as_str()` borrows the text of the run marker
                 .is_none_or(|run| run == labels.run.as_str());
         if agrees {
             Ok(true)
@@ -539,6 +541,7 @@ fn role_of(labels: &Labels) -> Result<ContainerRole, GuardRefusal> {
 fn check_run(labels: &Labels, scope: &SweepScope) -> Result<(), GuardError> {
     match scope {
         SweepScope::Run(key) => {
+            // BORROW: `.as_str()` borrows the text of the rendered run key
             if labels.get(LABEL_RUN) == Some(key.to_string().as_str()) {
                 Ok(())
             } else {

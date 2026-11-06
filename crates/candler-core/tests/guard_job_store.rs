@@ -23,6 +23,7 @@ fn fresh_job(n: u64) -> (TempDir, JobDir, String) {
     let root = TempDir::new().expect("a store root");
     let layout = candler_core::store::layout::StoreLayout::new(root.path());
     let id = job_id(n);
+    // BORROW: the directory owns a copy of the id
     let dir = JobDir::create(&layout, id.clone(), &job_record(&id, JobState::Running))
         .expect("create the job directory");
     (root, dir, id.to_string())
@@ -148,7 +149,9 @@ async fn contend(slots: &Slots, log: &std::path::Path, worker: &str, task: u32) 
     for hold in 0..HOLDS {
         let id = format!("{worker}-{task}-{hold}");
         let holder = Holder {
+            // BORROW: the holder owns its text
             job: worker.to_owned(),
+            // BORROW: the holder owns its text
             run: Some(id.clone()),
         };
         let slot = slots.acquire(&holder).await.expect("acquire a slot");

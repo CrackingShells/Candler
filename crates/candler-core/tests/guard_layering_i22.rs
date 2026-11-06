@@ -243,6 +243,7 @@ fn b16_destroy_verbs_only_in_guard() {
     }
     // A verb in the docker module but outside its destroy impl is refused too.
     let mut files = CLEAN.to_vec();
+    // INDEX: the clean tree has more than one file
     files[0] = (
         DOCKER,
         "impl DestroyDriver for Destroyer {\n    fn rm(&self) { run([\"rm\"]); }\n}\nfn other() { run([\"stop\"]); }\n",
