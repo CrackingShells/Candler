@@ -10,6 +10,8 @@
 //! explicit `null`. Unknown fields are ignored on input, and every struct and every tagged enum is
 //! read from an object only, never from a list.
 
+pub mod rpc;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
@@ -64,6 +66,7 @@ pub(crate) fn roots() -> Vec<GeneratedSchema> {
         GeneratedSchema::of::<EvaluateParams>("evaluator-evaluate-params"),
         GeneratedSchema::of::<Notification>("evaluator-notification"),
         GeneratedSchema::of::<RequestSide>("evaluator-request-side"),
+        GeneratedSchema::of::<rpc::Message>("evaluator-message"),
     ]
 }
 
