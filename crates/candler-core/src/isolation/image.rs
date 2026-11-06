@@ -8,7 +8,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use candler_schemas::primitives::Marker;
 use futures::future::BoxFuture;
 use rustix::fs::{FlockOperation, flock};
 use sha2::Digest as _;
@@ -18,12 +17,10 @@ use super::driver::DockerDriver;
 use super::layout;
 use super::model::{BuildRequest, ImageId, ImageInfo, ImageRef, Labels, LayerDigest};
 use crate::supervise::Supervisor;
+use crate::supervise::signal::control_marker;
 use crate::supervise::spawn::SpawnRequest;
 use crate::supervise::stop::Ended;
 use candler_schemas::process::ExitStatus;
-
-/// The marker the control containers of the image service run under.
-const CONTROL_MARKER: &str = "control";
 
 /// The seconds the entrypoint `timeout` gives `claude --version` inside the control container.
 const PROBE_SECONDS: &str = "10";
@@ -429,8 +426,7 @@ impl DockerImageService {
         sources: &Path,
         names: &[String],
     ) -> Result<Vec<u8>, ImageError> {
-        let marker = Marker::from_str(CONTROL_MARKER)
-            .map_err(|error| build_failed(&format!("the control marker is refused: {error}")))?;
+        let marker = control_marker();
         let spawn = SpawnRequest::builder()
             .argv(compile_argv(&self.binary, image, sources, names))
             // BORROW: .to_vec() gives the request its own pairs
@@ -467,8 +463,7 @@ impl DockerImageService {
         image: &ImageRef,
         records: &std::path::Path,
     ) -> Result<semver::Version, ImageError> {
-        let marker = Marker::from_str(CONTROL_MARKER)
-            .map_err(|error| unreadable(&format!("the control marker is refused: {error}")))?;
+        let marker = control_marker();
         let request = SpawnRequest::builder()
             .argv(control_argv(&self.binary, image))
             // BORROW: .to_vec() gives the request its own pairs
