@@ -36,6 +36,8 @@ use super::evidence::{Evidence, Inputs};
 use super::plan::RunPlan;
 use super::{RunControl, RunOutcome, RunStatus, Runtime};
 use crate::frames::FrameMode;
+use crate::isolation::container::mounts::{MountMode, MountRoots, MountSpec, mounts};
+use crate::isolation::model::ContainerPlan;
 use crate::isolation::{IsolationError, RunOutputs};
 use crate::jobs::model::JobCause;
 use crate::jobs::slots::Slot;
@@ -58,7 +60,8 @@ const ARCHIVE_LIMIT: usize = 64 * 1024 * 1024;
 ///
 /// # Errors
 /// [`ExecError::Isolation`] when the runtime has no isolation or the run cannot be placed,
-/// [`ExecError::Store`] when the run cannot be written, [`ExecError::Driver`] when the harness
+/// [`ExecError::Store`] when the run cannot be written, [`ExecError::Manifest`] when its manifest
+/// cannot be built, [`ExecError::Driver`] when the harness
 /// cannot describe the run and [`ExecError::Supervise`] when the child cannot be run.
 pub fn exec_run<'a>(
     rt: &'a Runtime,
@@ -92,7 +95,7 @@ fn manifest_of(
     measured: Vec<candler_schemas::values::MeasuredValue>,
     started_at: candler_schemas::primitives::Timestamp,
     ended_at: Option<candler_schemas::primitives::Timestamp>,
-) -> Result<RunManifest, IsolationError> {
+) -> Result<RunManifest, ExecError> {
     // BORROW: a stored comparable wins over the fresh one, so a forced run keeps its record
     let comparable = plan.stored.as_ref().unwrap_or(&cell.comparable).clone();
     let mut builder = RunManifest::builder()
@@ -120,9 +123,32 @@ fn manifest_of(
     if let Some(ended) = ended_at {
         builder = builder.ended_at(ended);
     }
-    builder.build().map_err(|error| IsolationError::Plan {
-        detail: format!("the manifest cannot be built: {error}"),
-    })
+    Ok(builder.build()?)
+}
+
+/// Mounts each input of the cell read-only at its workspace path, from its blob in the store,
+/// and checks the whole mount list again.
+fn mount_inputs(
+    rt: &Runtime,
+    container: &mut ContainerPlan,
+    inputs: &Inputs,
+) -> Result<(), IsolationError> {
+    if inputs.digests.is_empty() {
+        return Ok(());
+    }
+    for input in &inputs.digests {
+        container.mounts.push(MountSpec {
+            source: rt.store.layout().blob(&input.digest),
+            target: format!("{}/{}", container.workdir.trim_end_matches('/'), input.path),
+            mode: MountMode::ReadOnly,
+        });
+    }
+    container.mounts = mounts(container, &MountRoots::from_plan(container)).map_err(|error| {
+        IsolationError::Plan {
+            detail: error.to_string(), // BORROW: .to_string() gives owned text
+        }
+    })?;
+    Ok(())
 }
 
 /// Writes `file` under `root`, refusing to replace a file.
@@ -315,7 +341,8 @@ async fn drive(
             .build()
             .map_err(candler_harness::driver::DriverError::from)?;
     }
-    let container = isolation.plan(&view, &workspace)?;
+    let mut container = isolation.plan(&view, &workspace)?;
+    mount_inputs(rt, &mut container, &cell.inputs)?;
 
     let out_stream = stream("stdout")?;
     let err_stream = stream("stderr")?;
@@ -420,9 +447,9 @@ async fn drive(
                 detail: error.to_string(), // BORROW: .to_string() gives owned text
             })?,
     };
-    let inputs = Inputs::default();
-    let leaked = input_leak(&evidence, &inputs).is_some();
-    match tree_json(&evidence, &inputs) {
+    let inputs = &cell.inputs;
+    let leaked = input_leak(&evidence, inputs).is_some();
+    match tree_json(&evidence, inputs) {
         Ok(tree) => evidence.tree = tree,
         Err(_) => collect_ok = false,
     }
