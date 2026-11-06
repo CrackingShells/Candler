@@ -186,6 +186,7 @@ fn b26_resume_deletes_nothing_and_numbers_attempts() {
     }
 
     b26_lock_rows();
+    b26_group_row();
     b26_liveness_rows();
     b26_overflow_row();
 }
@@ -220,6 +221,33 @@ fn b26_lock_rows() {
         again.is_ok(),
         "a leftover lock file with a free flock plans"
     );
+}
+
+/// Group row. Guards: B26 (I11) — two planners over one stored group, each with an experiment lock
+/// path of its own, never both hold the group: the second is refused under `Hold` and `Check`,
+/// and plans once the first lets go.
+/// Oracle: the stored group's digest `e` differs from the fresh digest, so the planners share
+/// no fresh lock file; the refusal is `PlanError::ExperimentLocked`.
+/// Bite: delete the group-lock block of `plan_runs` (`if experiment != fresh_experiment`).
+fn b26_group_row() {
+    let (_dir, store, lock) = two_cells();
+    let facts = Facts::base();
+    let file = experiment(&["m1", "m2"], 2);
+    let res = resolution(&facts);
+    let first = plan_ctx(&store, &lock, &facts);
+    let mut second = plan_ctx(&store, &lock, &facts);
+    second.experiment_lock = lock.with_file_name("other-experiment.lock");
+    let held = plan_runs(&first, &file, &res, Force::No, PlanMode::Hold).expect("the first");
+    for mode in [PlanMode::Hold, PlanMode::Check] {
+        let refusal = plan_runs(&second, &file, &res, Force::No, mode);
+        assert!(
+            matches!(refusal, Err(PlanError::ExperimentLocked)),
+            "a held stored group refuses {mode:?} under another fresh lock path"
+        );
+    }
+    drop(held.lock);
+    let again = plan_runs(&second, &file, &res, Force::No, PlanMode::Hold);
+    assert!(again.is_ok(), "the group plans once the first lock drops");
 }
 
 /// Liveness row: an unfinished attempt whose job holds its lock on another descriptor refuses the
