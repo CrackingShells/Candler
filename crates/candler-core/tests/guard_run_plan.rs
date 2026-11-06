@@ -337,3 +337,83 @@ fn b27_changed_fact_is_refused_and_the_cell_is_pinned() {
         drop(out);
     }
 }
+
+/// Guards: B28 (I11, I3) — with `--force` over each of the four changed facts, every new attempt
+/// (two cells by two replicates) carries a `deviations[] {path, stored, observed}` entry, and the
+/// bytes of the sealed runs never change.
+/// Oracle: the literal path, stored and observed values of each change, and the bytes of every
+/// sealed run's files before and after.
+/// Bite: record the deviations on the first new attempt only.
+#[test]
+fn b28_forced_deviations_are_recorded_on_every_new_attempt() {
+    let models = ["m1", "m2"];
+    let file = experiment(&models, 2);
+    let base = Facts::base();
+    for change in changes() {
+        // Each cell holds one sealed run that is invalid, so both replicates need a new attempt.
+        let (_dir, store, lock) = fresh_store();
+        let root = store.layout().root().to_path_buf();
+        for model in models {
+            let mut sealed = run(model, &base, 1, 1, true);
+            sealed.integrity = json!({"kind": "invalid", "reason": "infrastructure"});
+            write_run(&store, &sealed);
+        }
+        let ctx = PlanCtx {
+            store,
+            experiment_lock: lock,
+        };
+        let mut observed = base.clone();
+        (change.apply)(&mut observed);
+
+        let before = snapshot(&root);
+        let out = plan_runs(
+            &ctx,
+            &file,
+            &resolution(&observed),
+            Force::Yes,
+            PlanMode::Hold,
+        )
+        .map_err(|e| e.to_string())
+        .expect("a forced plan");
+        assert_eq!(
+            out.plans.len(),
+            4,
+            "{}: two cells by two replicates",
+            change.name
+        );
+        let attempts: BTreeSet<(u32, u32)> = out
+            .plans
+            .iter()
+            .map(|p| (p.key.replicate(), p.attempt))
+            .collect();
+        assert_eq!(
+            attempts,
+            BTreeSet::from([(1, 2), (2, 1)]),
+            "{}",
+            change.name
+        );
+        for plan in &out.plans {
+            assert_eq!(
+                plan.deviations.len(),
+                1,
+                "{}: one deviation per attempt",
+                change.name
+            );
+            let deviation = plan.deviations.first().expect("a deviation");
+            assert_eq!(deviation.path.as_str(), change.path, "{}", change.name);
+            let stored = deviation.stored.as_ref().map(|v| v.as_value().clone());
+            let seen = deviation.observed.as_ref().map(|v| v.as_value().clone());
+            assert_eq!(stored, Some(change.stored.clone()), "{}", change.name);
+            assert_eq!(seen, Some(change.observed.clone()), "{}", change.name);
+        }
+        drop(out);
+
+        // No sealed run's file changed, and none was added or removed.
+        assert_eq!(
+            snapshot(&root),
+            before,
+            "{}: planning writes no run file",
+            change.name
+        );
+    }
+}
