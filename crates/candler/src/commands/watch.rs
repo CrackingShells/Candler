@@ -43,7 +43,7 @@ fn failed(error: impl std::error::Error + Send + Sync + 'static) -> CliError {
 fn print_from(
     events: &JobEvents,
     pos: &mut TailPos,
-    out: &mut dyn Write,
+    out: &mut dyn Write, // TRAIT_OBJECT: the output is stdout, or a buffer in tests
 ) -> Result<(bool, bool), CliError> {
     let tail = events.tail(*pos).map_err(|error| {
         if let JobError::Corrupt { offset, .. } = &error {
@@ -76,10 +76,11 @@ fn print_from(
 /// # Errors
 /// [`CliError::Refused`] without `--json`, [`CliError::Failed`] when the log cannot be read or
 /// holds a line that is not an event.
+// TRAIT_OBJECT: the output is stdout, or a buffer in tests
 pub async fn follow(args: &Args, out: &mut dyn Write, stop: &AtomicBool) -> Result<(), CliError> {
     if !args.json {
         return Err(CliError::Refused {
-            reason: "watch needs --json".to_owned(),
+            reason: "watch needs --json".to_owned(), // BORROW: the error owns its reason
         });
     }
     let root = store_root(args.store.as_deref())?;

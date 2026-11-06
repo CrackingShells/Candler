@@ -42,7 +42,7 @@ fn world() -> PathBuf {
     let id: JobId = JOB.parse().unwrap();
     // A supervisor that never held the lock: the job is lost and has no live record.
     let record = JobRecord::builder()
-        .id(id.clone())
+        .id(id.clone()) // BORROW: the record owns its id
         .supervisor(SupervisorIdentity::new(1, ProcessStart::darwin(1, 0)).unwrap())
         .spec_digest(
             format!("sha256:{}", "0".repeat(64))
@@ -101,7 +101,7 @@ fn kill_all_without_confirmation_makes_no_docker_call() {
     let wanted = format!("--filter label=candler.job={JOB}");
     assert!(
         log.lines()
-            .any(|line| line.starts_with("container ls") && line.contains(wanted.as_str())),
+            .any(|line| line.starts_with("container ls") && line.contains(wanted.as_str())), // BORROW: contains takes the id as text
         "the confirmed kill did not list the job's containers: {log:?}"
     );
 }
