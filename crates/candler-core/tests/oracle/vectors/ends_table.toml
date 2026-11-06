@@ -42,7 +42,7 @@
 #   supervisor_lost, run_done   for E13
 # Expected. status = valid | invalid; reason = the invalid reason (empty when valid);
 #   ended_by is the measured end: completed, agent_error, cap:turns, cap:wall, gateway_error,
-#   budget_stop, killed, interrupted, unknown, or as_classified (section 13: "as classified");
+#   budget_stop, killed, interrupted, unknown, or (E15 alone) the literal end of the intact run, completed;
 #   retry = once | never | none (none: the source states no retry).
 
 [[row]]
@@ -197,7 +197,7 @@ client_exit = 0
 collect_ok = false
 status = "invalid"
 reason = "collection_error"
-ended_by = "as_classified"
+ended_by = "completed"
 retry = "none"
 note = "raw kept"
 source = "R01 §Ends row 5; section 13 collection row"

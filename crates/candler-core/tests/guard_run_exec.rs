@@ -209,7 +209,9 @@ fn input_of(row: &toml::Table, collect_ok: bool) -> EndInput {
 /// Guards: B29, the ends table: every row E01 to E18 that `classify_end` owns gives the status,
 /// reason, end and retry of the table, in the R2 order. Oracle: `ends_table.toml`, hand-written
 /// from R01 section Ends and 00-architecture section 13, with the recorded `docker inspect` of a
-/// clean exit, a self-expiry and an OOM kill, and the recorded claude-code streams. Bite: swap
+/// clean exit, a self-expiry and an OOM kill. Rows E01 and E02 read recorded claude-code streams
+/// (`mini_clean`, `api_error`); every other row reads a hand-built `TraceFacts` with `guard_reader`
+/// provenance (`trace_of`). E15 expects the literal `completed`. Bite: swap
 /// the `OOMKilled` and `ExitCode == 137` checks, and E10 stops being a never-retried failure.
 #[test]
 fn b29_ends_table() {
@@ -260,13 +262,7 @@ fn b29_ends_table() {
             });
             assert_eq!(got, reason, "{label}: reason");
             let want = text(&all, "ended_by").expect("an end");
-            if want == "as_classified" {
-                // The end is the one the run would have had with its collection intact.
-                let intact = classify_end(&input_of(&all, true));
-                assert_eq!(end.ended_by, intact.ended_by, "{label}: as classified");
-            } else {
-                assert_eq!(ended_text(&end.ended_by), want, "{label}: ended_by");
-            }
+            assert_eq!(ended_text(&end.ended_by), want, "{label}: ended_by");
             let retry = text(&all, "retry").expect("a retry");
             let (want_retry, want_decision) = match retry {
                 "once" => (Retry::Once, RetryDecision::Retry),
@@ -395,7 +391,8 @@ fn run_files(root: &Path) -> BTreeSet<String> {
 /// the raw stream and the trace before `run.done`, and the run directory holds only names of the
 /// layout. Oracle: the step order and the layout, hand-written from R01 section Run store and
 /// 00-architecture section 7 (manifest.json, run.done, raw/, trace.jsonl, tree.json, workspace/,
-/// home/); a run that holds a canary is the positive control of the scan. Bite: write `run.done`
+/// home/); a run that holds a canary is the positive control of the scan, and the sealed run is scanned
+/// for the temporary root, the needle the leaf names. Bite: write `run.done`
 /// before `tree.json`.
 #[test]
 fn b30_sealed_layout_and_done_last() {
@@ -416,15 +413,6 @@ fn b30_sealed_layout_and_done_last() {
                 "tree.json",
             ],
         ),
-    ];
-    let layout = [
-        "manifest.json",
-        "run.done",
-        "raw",
-        "trace.jsonl",
-        "tree.json",
-        "workspace",
-        "home",
     ];
     let stdout: StreamName = "stdout".parse().expect("a stream name");
     for (halt, files) in &after {
@@ -477,15 +465,18 @@ fn b30_sealed_layout_and_done_last() {
     );
     assert!(!done_early, "run.done was written before the last step");
     let sealed = run_files(root.path());
-    assert!(sealed.contains("run.done"), "the sealed run has run.done");
-    let tops: BTreeSet<&str> = sealed
-        .iter()
-        .filter_map(|name| name.split('/').next())
-        .collect();
-    assert!(
-        tops.iter().all(|top| layout.contains(top)),
-        "names outside the layout: {tops:?}"
-    );
+    // R01's literal list: a full seal holds exactly these files (workspace and home hold none here).
+    let literal: BTreeSet<String> = [
+        "manifest.json",
+        "raw/stdout.jsonl.gz",
+        "run.done",
+        "trace.jsonl",
+        "tree.json",
+    ]
+    .iter()
+    .map(|name| (*name).to_owned()) // BORROW: owned names
+    .collect();
+    assert_eq!(sealed, literal, "the full seal equals R01's list");
     // The scan: a canary written into a scratch directory is found (positive control), and the
     // sealed run holds none.
     let needle = "CANDLER-B30-CANARY";
@@ -493,5 +484,6 @@ fn b30_sealed_layout_and_done_last() {
     fs::write(control.path().join("probe.txt"), needle).expect("write the control");
     let found = support::scan(control.path(), needle).expect("scan the control");
     assert_eq!(found.hits.len(), 1, "the positive control is found");
-    support::assert_clean(root.path(), needle);
+    let root_text = root.path().to_str().expect("a UTF-8 temporary root");
+    support::assert_clean(root.path(), root_text);
 }
