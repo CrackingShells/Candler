@@ -17,3 +17,10 @@ Thumbs.db
 
 # Build output
 target/
+
+# Python (the evaluator helper and example plug-ins)
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/

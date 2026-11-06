@@ -49,7 +49,7 @@ A scope names the topic of the commit, never the action or a layer (`core`, `mis
 | Execution | `experiment`, `orchestrator`, `runner`, `isolation`, `injection`, `census`, `catalog` |
 | Ingestion | `trace-model`, `adapter-claude-code` (one `adapter-<harness>` per harness), `importer` |
 | Storage | `run-store`, `manifest`, `outcome-store` |
-| Evaluation | `evaluation`, `outcome-algebra`, `evaluator-protocol`, `registry` |
+| Evaluation | `evaluation`, `outcome-algebra`, `evaluator-protocol`, `registry`, `evaluator-helper` (the Python package in `python/candler-evaluator`) |
 | Analysis | `analysis`, `stats` |
 | Surfaces | `library`, `cli`, `mcp` |
 | Wire schemas | `schemas` |
@@ -58,12 +58,13 @@ A scope names the topic of the commit, never the action or a layer (`core`, `mis
 
 ## Versioning
 
-Two release lines, each with its own tags:
+Three release lines, each with its own tags:
 
 | Line | Tags | Covers |
 |---|---|---|
 | Core | `v<major>.<minor>.<patch>` | Everything except the wire schemas |
 | Wire schemas | `schemas@<major>.<minor>.<patch>` | The versioned schema files (outcome record, tool-catalog snapshot) |
+| Evaluator helper | `candler-evaluator@<major>.<minor>.<patch>` | The Python package `python/candler-evaluator`; its version lives only in its `pyproject.toml`, and it is never published to PyPI without Eliott's go |
 
 Plug-ins pin a schema version, so a core release never forces a schema bump. A commit that changes a schema file uses scope `schemas` and touches nothing else.
 
@@ -85,6 +86,10 @@ The highest bump across the batch wins. The core stays at `0.y.z` until the eval
 | A record valid before becomes invalid (field removed or renamed, optional field made required, enum value removed, type narrowed) | major |
 | A new optional field or enum value; every record valid before stays valid | minor |
 | Descriptions, examples or `$comment` only | patch |
+
+### Evaluator helper line
+
+`release-plz` does not cover the Python helper. Its version is bumped by hand in `python/candler-evaluator/pyproject.toml` with the same rules as the core line, read from the `evaluator-helper` commits since its last tag, and the tag `candler-evaluator@<version>` is cut only on Eliott's go.
 
 ## Branches and integration
 
