@@ -5,6 +5,7 @@
 - [ ] [cmd] `git -C "$RW" log --first-parent --format=%s feat/candler-htn-plugin | grep -qx 'merge(htn-eval): land htn_kinds'`
 - [ ] [cmd] `git -C /Users/hacker/Documents/src/CrackingShells/Candler rev-parse --verify -q "$(git rev-parse feat/m2a-evaluation-parity)^{commit}"`, i.e. the commit to pin is reachable from the Candler main checkout
 - [ ] [nl] The `htn_kinds` adversarial verifier is closed before Step 3 (proxy: its report)
+- [ ] [cmd] `git log --first-parent --format=%s feat/m2a-evaluation-parity | grep -qx 'merge(evaluator-helper): land helper_runtime'` (Step 1 pins `candler-evaluator` and calls its `serve`)
 **Success Gates**:
 - ⬜ [cmd] HTNSTD, SUBJ (in `$RW`) and SCAFFOLD pass, and OWNED passes in `$RW` with `^\.claude/skills/htn-creator-workspace/(candler-plugin\.toml$|candler-plugin/(src/htn_creator_candler/[^/]+\.py$|tests/(test_guard_suite\.py$|fixtures/suite/)|suite/|(pyproject\.toml|uv\.lock|README\.md)$))` (top-level modules only, so `kinds/` stays `htn_kinds`'s)
 - ⬜ [cmd] `cd "$RW/$PLUGIN" && uv run --frozen pytest -q tests/test_guard_suite.py` passes (HP1, HP2)
