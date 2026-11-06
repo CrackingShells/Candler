@@ -2,7 +2,7 @@
 
 **Goal**: `candler ps`, `candler kill <id> | --all [-y]` and `candler watch <id> --json` list, stop and follow jobs from their job directories, recovering a lost job through `jobs::lost::recover`, and `kill` without `-y` refuses before any docker call.
 **Pre-conditions**:
-- [ ] [cmd] Phase 0 is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas): ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
+- [ ] [cmd] Phase 0 is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas)!*: ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
 - [ ] [nl] api_review closed with no open finding on the `Ps`, `Kill` and `Watch` variants and stub files S3 appended to the `Command` enum, and on `jobs::lost::recover`
 - [ ] [cmd] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints this leaf's worktree path
 - [ ] [cmd] DEP(job_store): `git log --first-parent --format=%s feat/m2b-execution-parity | grep -qx 'merge(jobs): land job_store'`

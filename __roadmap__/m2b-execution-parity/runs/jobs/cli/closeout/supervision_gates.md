@@ -2,7 +2,7 @@
 
 **Goal**: With a real Docker daemon, a SIGKILLed supervisor leaves, after `ps` or `run` recovers the job, no container or network labelled for the job, no marked host process and no canary anywhere in the store, and the eight e2e guards of M2b are shown to bite when the sweeper and the label query are mutated.
 **Pre-conditions**:
-- [ ] [cmd] The Phase 0 scaffold is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas): ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
+- [ ] [cmd] The Phase 0 scaffold is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas)!*: ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
 - [ ] [nl] api_review closed with no open finding on the e2e layout (`tests/guard_container_e2e.rs` with one `#[path]` module per leaf, the `AllowlistDriver` helper)
 - [ ] [cmd] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints this leaf's worktree path
 - [ ] [cmd] DEP(job_runtime), DEP(job_orchestrate), DEP(cli_run), DEP(cli_ps_kill_watch), DEP(run_exec), DEP(container_run), DEP(container_stop) and DEP(gateway) hold: `for l in job_runtime job_orchestrate cli_run cli_ps_kill_watch run_exec container_run container_stop gateway; do git log --first-parent --format=%s feat/m2b-execution-parity | grep -qx "merge(.*): land $l" || exit 1; done`

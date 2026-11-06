@@ -2,7 +2,7 @@
 
 **Goal**: An experiment file resolves into cells whose configuration surface (model, tools, MCP, permission mode, prompt, isolation limits, per-run caps) is classified exactly as `field_paths.toml` says, with the derived typed roots (`harness`, `treatment`, `snapshots`, `inputs`) and `isolation.image` filled by four registered preflight steps, and the per-run budget split from the job caps.
 **Pre-conditions**:
-- [ ] [cmd] The Phase 0 scaffold is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas): ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
+- [ ] [cmd] The Phase 0 scaffold is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas)!*: ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
 - [ ] [nl] api_review closed with no open finding on the scaffold's `ImageService`, `CatalogProvider`, `DockerDriver` and `experiment/paths.rs` against M2a, M3, M4 and M5
 - [ ] [cmd] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints this leaf's worktree path
 - [ ] [cmd] `test -s crates/candler-core/tests/oracle/vectors/field_paths.toml` (the hand-written oracle of B19; the lead writes it in S3, D5)

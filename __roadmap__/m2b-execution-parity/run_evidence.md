@@ -2,7 +2,7 @@
 
 **Goal**: `candler_core::runner::evidence` captures the catalog snapshot through a command run in a control container, writes the census of the tools and MCP servers the agent saw as `measured[] census.*`, refuses an output that equals an input by digest as `invalid(input_leak)`, and builds the run's `tree.json`.
 **Pre-conditions**:
-- [ ] [cmd] The Phase 0 scaffold is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas): ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
+- [ ] [cmd] The Phase 0 scaffold is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas)!*: ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
 - [ ] [nl] api_review closed with no open finding on `CatalogProvider`, `Evidence`, `Inputs`, `Session` and `RunTree` against M2a, M3, M4 and M5
 - [ ] [cmd] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints this leaf's worktree path
 - [ ] [cmd] `ls crates/candler-harness-claude-code/tests/fixtures/streams/multi_init crates/candler-harness-claude-code/tests/fixtures/streams/synthetic_mcp`

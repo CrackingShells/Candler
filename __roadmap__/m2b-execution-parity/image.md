@@ -2,7 +2,7 @@
 
 **Goal**: `isolation::image::DockerImageService` implements `ImageService`: it builds the digest-pinned `candler-base` once and `candler-env:<lock digest>` once per lock digest under a per-tag `flock`, returns an `ImageRef {id, cc_version}` pinned by local image ID, and reads the Claude Code version from the image through a labelled, self-removing control container.
 **Pre-conditions**:
-- [ ] [cmd] The Phase 0 scaffold is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas): ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
+- [ ] [cmd] The Phase 0 scaffold is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas)!*: ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
 - [ ] [nl] api_review closed with no open finding on the scaffold's `ImageService`, `ImageRef`, `BuildRequest`, `DockerDriver::{build, image_inspect}` and `isolation/layout.rs` (the per-tag lock path)
 - [ ] [cmd] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints this leaf's worktree path
 - [ ] [cmd] `docker version --format '{{.Server.Version}}'` (Steps 1 and 3 build and run real images)
