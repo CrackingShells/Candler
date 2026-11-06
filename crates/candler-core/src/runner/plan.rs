@@ -10,7 +10,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use candler_schemas::execution::{
-    Comparable, Deviation, ExperimentFile, Integrity, SecretPresence,
+    Comparable, Deviation, ExperimentFile, Integrity, SecretPresence, experiment_digest,
 };
 use candler_schemas::primitives::{Digest, FieldPath, JobId, RunKey, SecretName};
 use candler_schemas::values::{JsonValue, ResolvedValue, SourceEntry, ValueSource};
@@ -80,15 +80,26 @@ pub enum PlanMode {
     Hold,
 }
 
-/// The lock on an experiment, released when it drops.
+/// The lock on an experiment, released when it drops. When the plan resumes a stored group under
+/// another digest than the fresh one, the group's lock is held with it and released with it.
 #[derive(Debug)]
 pub struct ExperimentLock {
     path: PathBuf,
     // The descriptor holds the lock; dropping it releases it.
     _file: File,
+    // The descriptor of the stored group's lock file, when the plan resumes such a group.
+    _group: Option<File>,
 }
 
 impl ExperimentLock {
+    /// Holds the stored group's lock file with this lock.
+    fn with_group(self, group: File) -> Self {
+        Self {
+            _group: Some(group),
+            ..self
+        }
+    }
+
     /// The lock file's path.
     #[must_use]
     pub fn path<'a>(&'a self) -> &'a Path {
@@ -105,6 +116,22 @@ pub struct PlanOutcome {
     pub sealed: Vec<RunKey>,
     /// The experiment lock, held under [`PlanMode::Hold`] and `None` under [`PlanMode::Check`].
     pub lock: Option<ExperimentLock>,
+    /// The experiment's digest: the stored group's when a past experiment answers, else the one
+    /// [`experiment_of`] gives.
+    pub experiment: Digest,
+    /// The cell each plan runs as the current files and resolution build it, by the plan's cell.
+    pub fresh: BTreeMap<CellId, Comparable>,
+}
+
+/// The digest of the experiment `file` makes under `resolution`, from its fresh cells.
+///
+/// # Errors
+/// [`PlanError::Cell`] when a cell cannot be built.
+pub fn experiment_of(file: &ExperimentFile, resolution: &Resolution) -> Result<Digest, PlanError> {
+    let cells = fresh_cells(file, resolution)?;
+    let digests: Vec<Digest> = cells.iter().map(|cell| cell.comparable.digest()).collect();
+    // BORROW: explicit .as_slice() instead of Deref coercion
+    Ok(experiment_digest(digests.as_slice()))
 }
 
 /// The paths of a list of deviations, for a message.
@@ -200,6 +227,16 @@ fn lock_error(path: &Path, error: impl std::fmt::Display) -> PlanError {
 
 /// Takes the experiment lock without waiting.
 fn take_lock(path: &Path) -> Result<ExperimentLock, PlanError> {
+    let file = lock_file(path)?;
+    Ok(ExperimentLock {
+        path: path.to_path_buf(),
+        _file: file,
+        _group: None,
+    })
+}
+
+/// Opens the lock file at `path` and takes its lock without waiting.
+fn lock_file(path: &Path) -> Result<File, PlanError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| lock_error(parent, e))?;
     }
@@ -211,10 +248,7 @@ fn take_lock(path: &Path) -> Result<ExperimentLock, PlanError> {
         .open(path)
         .map_err(|e| lock_error(path, e))?;
     match flock(&file, FlockOperation::NonBlockingLockExclusive) {
-        Ok(()) => Ok(ExperimentLock {
-            path: path.to_path_buf(),
-            _file: file,
-        }),
+        Ok(()) => Ok(file),
         Err(Errno::WOULDBLOCK) => Err(PlanError::ExperimentLocked),
         Err(error) => Err(lock_error(path, error)),
     }
@@ -730,6 +764,33 @@ pub fn plan_runs(
     let groups = stored_groups(&ctx.store)?;
     let matched = match_stored(cells.as_slice(), groups.as_slice())?;
 
+    let experiment = matched.iter().flatten().next().map_or_else(
+        || {
+            let all: Vec<Digest> = cells.iter().map(|cell| cell.comparable.digest()).collect();
+            // BORROW: explicit .as_slice() instead of Deref coercion
+            experiment_digest(all.as_slice())
+        },
+        // BORROW: the outcome owns the stored group's digest
+        |held| held.experiment.clone(),
+    );
+    // a stored group under another digest than the fresh one has its own lock file
+    let fresh_experiment = {
+        let all: Vec<Digest> = cells.iter().map(|cell| cell.comparable.digest()).collect();
+        // BORROW: explicit .as_slice() instead of Deref coercion
+        experiment_digest(all.as_slice())
+    };
+    let mut lock = lock;
+    if experiment != fresh_experiment {
+        let path = ctx.store.layout().experiment_lock(&experiment);
+        match mode {
+            PlanMode::Hold => {
+                let group = lock_file(path.as_path())?;
+                lock = lock.map(|held| held.with_group(group));
+            }
+            PlanMode::Check => probe_lock(path.as_path())?,
+        }
+    }
+    let mut fresh: BTreeMap<CellId, Comparable> = BTreeMap::new();
     let mut digests: BTreeSet<Digest> = BTreeSet::new();
     let mut per_cell: Vec<(Digest, Option<Comparable>, Vec<Deviation>)> = Vec::new();
     let mut changed: Vec<Deviation> = Vec::new();
@@ -755,6 +816,8 @@ pub fn plan_runs(
             }
         }
         digests.insert(digest.clone()); // BORROW: the set keeps the digest beside the plan
+        // BORROW: the map keeps the digest and the fresh cell beside the plan
+        fresh.insert(digest.clone(), cell.comparable.clone());
         per_cell.push((digest, pinned, deviations));
     }
     if force == Force::No && !changed.is_empty() {
@@ -812,5 +875,7 @@ pub fn plan_runs(
         plans,
         sealed,
         lock,
+        experiment,
+        fresh,
     })
 }
