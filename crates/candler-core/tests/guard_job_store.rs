@@ -106,8 +106,8 @@ fn lost_is_lock_free_and_no_job_ended() {
     let (_root4, dir4, job4) = fresh_job(4);
     write_log(&dir4, &started_line(&job4));
     let torn = ended_line(&job4, 1);
-    let (head, _) = torn.split_at(torn.len() / 2);
-    write_log(&dir4, head);
+    let (first_half, _) = torn.split_at(torn.len() / 2);
+    write_log(&dir4, first_half);
     assert_eq!(classify(&dir4).expect("classify"), JobLiveness::Lost);
 
     // The hint is not consulted: a record that says `ended` over a lost job is still lost.
