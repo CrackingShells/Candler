@@ -40,10 +40,13 @@ pub struct Args {
 
 /// Whether the answer on `input` is `y` or `yes`; an empty answer, any other word and a closed
 /// input are no.
+#[must_use]
+// TRAIT_OBJECT: the input is stdin, or a buffer in tests
 pub fn confirm(input: &mut dyn BufRead) -> bool {
     let mut line = String::new();
     match input.read_line(&mut line) {
         Ok(0) | Err(_) => false,
+        // BORROW: explicit .as_str() instead of Deref coercion
         Ok(_) => matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes"),
     }
 }
@@ -99,7 +102,7 @@ pub async fn stop_job(store: &StoreLayout, id: &JobId) -> Result<String, String>
         .await
         .map_err(|e| format!("recover failed: {e}"))?;
     match report.outcome {
-        RecoverOutcome::NotLost => Err("its supervisor still holds the job".to_owned()),
+        RecoverOutcome::NotLost => Err("its supervisor still holds the job".to_owned()), // BORROW: the error owns its text
         RecoverOutcome::Recovered | RecoverOutcome::AlreadyEnded => Ok(format!(
             "{id}: recovered ({} containers destroyed)",
             report.containers
@@ -141,7 +144,9 @@ fn targets(args: &Args, jobs: &std::path::Path) -> Result<Vec<String>, CliError>
 /// could not be stopped.
 pub async fn kill(
     args: &Args,
+    // TRAIT_OBJECT: the input is stdin, or a buffer in tests
     input: &mut dyn BufRead,
+    // TRAIT_OBJECT: the output is stdout, or a buffer in tests
     out: &mut dyn Write,
 ) -> Result<(), CliError> {
     let fail = |error: io::Error| CliError::Failed {
@@ -156,7 +161,7 @@ pub async fn kill(
         out.flush().map_err(fail)?;
         if !confirm(input) {
             return Err(CliError::Refused {
-                reason: "pass -y to confirm".to_owned(),
+                reason: "pass -y to confirm".to_owned(), // BORROW: the error owns its text
             });
         }
     }
