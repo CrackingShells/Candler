@@ -125,9 +125,10 @@
   "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:196",
   "feature": "The sandbox venv resolves inside the work dir",
   "reference_mechanism": "sandbox_venv_dir = <sandbox>/.venv (EB:308-312)",
-  "observable": "VIRTUAL_ENV is a path under the agent's start directory and python's sys.prefix equals it",
+  "observable": "VIRTUAL_ENV is the agent's own environment, writable by the agent, and python's sys.prefix equals it",
   "check": "venv_scoping",
-  "disposition": "check"
+  "disposition": "check",
+  "amendment": "Ruling A13 (M2b lead): in the container the env is a per-run volume copy of the image layer at /opt/env, not a path under the work dir. What v5's in-sandbox placement bought was a venv the agent's first-use `pip install -e scripts` writes into without touching anything shared (SANDBOX_REFERENCE.md lines 106-111); the check tests that writability instead of the path."
  },
  {
   "id": "S3.R8",
