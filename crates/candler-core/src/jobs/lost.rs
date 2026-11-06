@@ -17,9 +17,10 @@ use super::dir::{JobDir, JobError};
 use super::events::{JobEvents, TailPos};
 use super::lock::{JobLock, LockState};
 use super::view::{ChildEntry, JobView};
+use crate::isolation::container::guard::LostProof;
 use crate::isolation::container::sweeper::{ContainerSweeper, SweepError};
 use crate::isolation::layout::{LABEL_ROLE, LABEL_RUN};
-use crate::isolation::model::SweepScope;
+use crate::isolation::model::{Refusal, SweepScope};
 use crate::store::{Store, StoreError};
 use crate::supervise::Supervisor;
 
@@ -76,6 +77,9 @@ pub enum RecoverOutcome {
     AlreadyEnded,
     /// A supervisor holds the lock; nothing was done.
     NotLost,
+    /// The job was swept and its runs sealed, but a container was refused or the sweep could not
+    /// look everywhere, so the job is still lost and a later recovery tries again.
+    Incomplete,
 }
 
 /// What a recovery did.
@@ -96,6 +100,10 @@ pub struct RecoverReport {
     pub role_unknown: Vec<ContainerId>,
     /// The record files it could not read and left alone.
     pub unreadable: Vec<PathBuf>,
+    /// The containers the guard refused to destroy; the job is not ended while there are any.
+    pub refused: Vec<Refusal>,
+    /// Whether the sweep could not look everywhere; the job is not ended while it is set.
+    pub unknown: bool,
 }
 
 impl RecoverReport {
@@ -174,7 +182,7 @@ async fn recover_lost(
     sweep: &dyn ContainerSweeper,
     dir: &JobDir,
 ) -> Result<RecoverReport, RecoverError> {
-    let _lock = match JobLock::acquire(dir) {
+    let lock = match JobLock::acquire(dir) {
         Ok(lock) => lock,
         Err(JobError::Held) => return Ok(RecoverReport::not_lost()),
         Err(error) => return Err(error.into()),
@@ -221,7 +229,10 @@ async fn recover_lost(
 
     // Sweep: every labelled container of the lost job is in scope.
     let scope = SweepScope::Lost(dir.job().clone()); // BORROW: the scope owns its job id
-    let swept = sweep.sweep(&scope).await?;
+    let proof = LostProof::held(&lock);
+    let swept = sweep.sweep_lost(&proof).await?;
+    report.refused.clone_from(&swept.refused);
+    report.unknown = swept.unknown;
     report.containers = u32::try_from(swept.destroyed.len()).unwrap_or(u32::MAX);
     report.unrecorded = swept
         .destroyed
@@ -274,6 +285,12 @@ async fn recover_lost(
 
     // Seal: every run of this job that has no end.
     seal_runs(dir, &events, &mut report)?;
+
+    // A container that was refused or not looked at may still run: the job stays lost.
+    if !report.refused.is_empty() || report.unknown {
+        report.outcome = RecoverOutcome::Incomplete;
+        return Ok(report);
+    }
 
     // Last: the job ends, and its record says so as a hint.
     events.append(None, EventPayload::job_ended(JobEnd::Failed))?;
