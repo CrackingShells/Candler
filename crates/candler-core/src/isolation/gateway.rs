@@ -99,7 +99,8 @@ pub enum GatewaySignal {
 
 /// Starts the gateway of a job.
 pub trait Gateway: Send + Sync {
-    /// Starts the gateway on `net` for `job`, holding the secret `token` resolves.
+    /// Starts the gateway on `net` for `job`, holding the secret that `token` resolves under
+    /// `secret`, the name `model.token_secret` gives (D9).
     ///
     /// # Errors
     /// [`GatewayError::Start`] when the container does not start.
@@ -110,6 +111,7 @@ pub trait Gateway: Send + Sync {
         job: &'a JobId,
         net: &'a NetworkName,
         token: &'a dyn SecretSource,
+        secret: &'a str,
     ) -> BoxFuture<'a, Result<GatewayHandle, GatewayError>>;
 
     /// Asks the gateway whether it can serve.
