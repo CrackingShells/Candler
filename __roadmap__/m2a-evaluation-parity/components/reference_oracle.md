@@ -6,12 +6,12 @@
 - [ ] [cmd] `test -d "$GOLDEN" && git -C "$R" cat-file -e 28be2c15:.claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_outcome.py`
 - [ ] [nl] The implementer of this leaf implements no other M2a leaf and reads no `candler-core/src/evaluation/` code
 **Success Gates**:
-- ⬜ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler/tests/(oracle/|guard_oracle_ac\.rs$)`
-- ⬜ [cmd] `uv run --no-project --with rfc8785 python crates/candler/tests/oracle/gen_oracle.py --check "$GOLDEN" "$R"` regenerates every committed oracle file byte for byte
-- ⬜ [cmd] `CANDLER_GOLDEN_CORPUS="$GOLDEN" cargo nextest run -p candler --run-ignored only --no-tests=fail -E 'binary(guard_oracle_ac)'` passes (OR1), and fails when the variable is unset
-- ⬜ [cmd] Independence: `test -z "$(grep -nE '^\s*(import|from) +candler|candler_(core|schemas)' crates/candler/tests/oracle/gen_oracle.py crates/candler/tests/guard_oracle_ac.rs)"`
-- ⬜ [cmd] `jq` cross-check from the raw corpus, logged in the report: the A–C pass/fail/blocked/not_measured counts are 7,999/415/466/0, of which 209 passes have `max_score == 0`
-- ⬜ [cmd] `test "$(find crates/candler/tests/oracle -type f -exec cat {} + | wc -c)" -le 73728` (bytes, not disk blocks; 72 KB, since the two 209-row files alone exceed 30 KB), and the report records `shasum -a 256 crates/candler/tests/oracle/rates_by_cell.toml`
+- ✅ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler/tests/(oracle/|guard_oracle_ac\.rs$)`
+- ✅ [cmd] `uv run --no-project --with rfc8785 python crates/candler/tests/oracle/gen_oracle.py --check "$GOLDEN" "$R"` regenerates every committed oracle file byte for byte
+- ✅ [cmd] `CANDLER_GOLDEN_CORPUS="$GOLDEN" cargo nextest run -p candler --run-ignored only --no-tests=fail -E 'binary(guard_oracle_ac)'` passes (OR1), and fails when the variable is unset
+- ✅ [cmd] Independence: `test -z "$(grep -nE '^\s*(import|from) +candler|candler_(core|schemas)' crates/candler/tests/oracle/gen_oracle.py crates/candler/tests/guard_oracle_ac.rs)"`
+- ✅ [cmd] `jq` cross-check from the raw corpus, logged in the report: the A–C pass/fail/blocked/not_measured counts are 7,999/415/466/0, of which 209 passes have `max_score == 0`
+- ✅ [cmd] `test "$(find crates/candler/tests/oracle -type f -exec cat {} + | wc -c)" -le 73728` (bytes, not disk blocks; 72 KB, since the two 209-row files alone exceed 30 KB), and the report records `shasum -a 256 crates/candler/tests/oracle/rates_by_cell.toml`
 **References**: [R03 §Scope move, §Generic diff](../../../__reports__/m2a-evaluation-parity/00-architecture_v0.md) — the A–C counts, the equivalence file format; [R04 OR1, §Tautology traps](../../../__reports__/m2a-evaluation-parity/01-test_definition_v0.md); `htn_creator_eval/_outcome.py` at `28be2c15` — gate and quality roles, the rate formula; `evals/eval.json` at `28be2c15` (sha `ca7f12af…`) — expectation ids and tiers; M1 `golden_oracle.md` — the corpus layout and the raw fields
 
 ## Step 1: Derive the A-C counts and the zero-weight pairs

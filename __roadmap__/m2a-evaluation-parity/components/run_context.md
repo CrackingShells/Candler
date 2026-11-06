@@ -14,7 +14,7 @@
 ## Step 1: Assemble the context from needs
 **Goal**: The artifacts and metadata of a context are exactly what the suite entry's needs name, chosen by one written file rule.
 **Implementation Logic**:
-1. `assemble(store: &Store, run: &RunKey, needs: &CheckedNeeds) -> Result<Assembled, ContextError>`: list the run's stored `outputs/` files, keep those matched by any artifact glob, and drop every path with a component starting with `.` unless a glob names that component literally. That drops `.claude/`, AppleDouble `._*` and `.DS_Store`. Paths are relative to `outputs/` with `/` separators. An empty `outputs/` gives no artifacts and is not an error.
+1. `assemble(store: &Store, run: &RunKey, needs: &Needs) -> Result<Assembled, ContextError>`: list the run's stored `outputs/` files, keep those matched by any artifact glob, and drop every path with a component starting with `.` unless a glob names that component literally. `assemble` takes the schemas' `Needs` and compiles the globs itself; `snapshots` and `inputs` that are not empty are `ContextError::Unsupported`. That drops `.claude/`, AppleDouble `._*` and `.DS_Store`. Paths are relative to `outputs/` with `/` separators. An empty `outputs/` gives no artifacts and is not an error.
 2. Metadata: one key per metadata need, the dotted path itself, the value the run manifest's `comparable.values` JSON leaf; a missing path is a `ContextError` naming it.
 3. Snapshots and inputs are empty (A–C scope).
 4. If the stored run cannot give a rule's inputs, stop and report a spec defect rather than inventing a source.

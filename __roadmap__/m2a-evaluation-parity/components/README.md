@@ -19,13 +19,13 @@ Every L1 component is built and guarded by its R04 cornerstone tests on its own 
 ## Status
 ```mermaid
 graph TD
-    reference_oracle[Reference oracle: A-C expected rows and rates]:::planned
+    reference_oracle[Reference oracle: A-C expected rows and rates]:::done
     htn_kinds[HTN kinds: adapted grader functions]:::planned
     helper_runtime[Helper runtime: Python evaluator loop]:::planned
-    registry[Registry: manifests, suites, environments]:::planned
+    registry[Registry: manifests, suites, environments]:::done
     run_context[Run context: assembly, digest, materialiser]:::planned
     protocol_client[Protocol client over supervise]:::planned
-    selection_rates[Selection, I4, rates and generic diff]:::planned
+    selection_rates[Selection, I4, rates and generic diff]:::done
     assembly[Assembly]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -37,13 +37,13 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `reference_oracle.md` | 📄 Leaf Task | ⬜ Planned |
+| `reference_oracle.md` | 📄 Leaf Task | ✅ Done |
 | `htn_kinds.md` | 📄 Leaf Task | ⬜ Planned |
 | `helper_runtime.md` | 📄 Leaf Task | ⬜ Planned |
-| `registry.md` | 📄 Leaf Task | ⬜ Planned |
+| `registry.md` | 📄 Leaf Task | ✅ Done |
 | `run_context.md` | 📄 Leaf Task | ⬜ Planned |
 | `protocol_client.md` | 📄 Leaf Task | ⬜ Planned |
-| `selection_rates.md` | 📄 Leaf Task | ⬜ Planned |
+| `selection_rates.md` | 📄 Leaf Task | ✅ Done |
 | `assembly/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log

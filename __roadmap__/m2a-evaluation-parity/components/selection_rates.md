@@ -4,9 +4,9 @@
 **Pre-conditions**:
 - [ ] [cmd] ENV and DEP(skeleton)
 **Success Gates**:
-- ⬜ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler-core/(src/evaluation/selection/|tests/(guard_diff|guard_selection)\.rs$|tests/fixtures/selection/|tests/public_surface\.rs$)` with only the `selection_rates_surface` block of `public_surface.rs` changed
-- ⬜ [cmd] `cargo nextest run -p candler-core -E 'binary(guard_diff) | binary(guard_selection)'` passes (DF1, DF2, SEL1, RT1)
-- ⬜ [nl] The report names, for each of DF1's planted classes, the diff output line that names it
+- ✅ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler-core/(src/evaluation/selection/|tests/(guard_diff|guard_selection)\.rs$|tests/fixtures/selection/|tests/public_surface\.rs$)` with only the `selection_rates_surface` block of `public_surface.rs` changed
+- ✅ [cmd] `cargo nextest run -p candler-core -E 'binary(guard_diff) | binary(guard_selection)'` passes (DF1, DF2, SEL1, RT1)
+- ✅ [nl] The report names, for each of DF1's planted classes, the diff output line that names it
 **References**: [R01 §Data Model (outcome records), §Evaluator protocol (I4)](../../../__design__/architecture.md) — record keys, I4 text; [R03 §I4, §Generic diff](../../../__reports__/m2a-evaluation-parity/00-architecture_v0.md) — the four fields, default-weight normalisation, the equivalence format, the uncompared listing, the rates format; `crates/candler-core/src/store/` — `outcome_files`, `read_outcomes`; `_outcome.py` at `28be2c15` — the rate formula (prose in R03); [R04 DF1, DF2, SEL1, RT1](../../../__reports__/m2a-evaluation-parity/01-test_definition_v0.md)
 
 ## Step 1: Select records and flag I4
