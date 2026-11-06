@@ -36,6 +36,7 @@ Before L0 the coordinator lands Phase 0 on `feat/m2b-execution-parity`: the spik
 - ⬜ [cmd] STD, DRIFT and LINUX pass on `feat/m2b-execution-parity`
 - ⬜ [cmd] SUBJ passes over `origin/main..feat/m2b-execution-parity`
 - ⬜ [cmd] `cargo nextest run -p candler-core --run-ignored only --no-tests=fail -E 'binary(guard_container_e2e)'` passes on macOS against Docker Desktop
+- ⬜ [cmd] No e2e placeholder is left, and the binary runs more than zero tests: `! git grep -n 'fn placeholder_' -- crates/candler-core/tests` and the summary line of the previous command reports at least one test run
 - ⬜ [cmd] The Linux half: `gh run list --workflow container-e2e --commit "$(git rev-parse HEAD)" --json conclusion -q '.[0].conclusion'` prints `success`, and its log names every e2e test R04 marks Linux; until then this gate is recorded as not yet run, never as passed
 - ⬜ [cmd] `diff <(cd crates/candler-schemas/schema && printf '%s\n' *.schema.json | sort) __roadmap__/m2b-execution-parity/expected_roots.txt` prints nothing
 - ⬜ [cmd] At most 40 new guards and no scaffolding left: `test "$(git diff origin/main...feat/m2b-execution-parity -U0 -- crates | grep -c '^+ *///* Guards:')" -le 40 && ! git grep -n -e 'mod scaffold' -e 'scaffold_' -- crates`
