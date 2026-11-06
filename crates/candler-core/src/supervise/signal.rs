@@ -155,6 +155,7 @@ pub fn control_marker() -> Marker {
 
 /// Where the guard reads the facts of a process from, when a test replaces the operating system.
 #[cfg(feature = "test-support")]
+// TRAIT_OBJECT: the inspector is the operating system's reader, or a closure in tests
 pub type Inspector = Arc<dyn Fn(u32) -> Option<ProcFacts> + Send + Sync>;
 
 /// The name of the variable that carries a run's marker.
@@ -226,8 +227,8 @@ fn started_after(later: &ProcessStart, earlier: &ProcessStart) -> bool {
     let number =
         |value: &serde_json::Value, key: &str| value.get(key).and_then(serde_json::Value::as_u64);
     match (
-        later.get("kind").and_then(|kind| kind.as_str()),
-        earlier.get("kind").and_then(|kind| kind.as_str()),
+        later.get("kind").and_then(|kind| kind.as_str()), // BORROW: the kind is matched as text
+        earlier.get("kind").and_then(|kind| kind.as_str()), // BORROW: the kind is matched as text
     ) {
         (Some("linux"), Some("linux")) => {
             later.get("boot_id") == earlier.get("boot_id")
@@ -238,6 +239,8 @@ fn started_after(later: &ProcessStart, earlier: &ProcessStart) -> bool {
             let key = |value: &serde_json::Value| (number(value, "sec"), number(value, "usec"));
             key(&later).0.is_some() && key(&later) > key(&earlier)
         }
+        // Two starts of different kinds, or of a kind this comparison does not know, do not order:
+        // a start is never later than one it cannot be compared with.
         _ => false,
     }
 }

@@ -477,6 +477,7 @@ fn match_stored<'a>(
         let mut slots: Vec<Option<&'a Stored>> = vec![None; cells.len()];
         for (candidate, found) in group.iter().zip(&hits) {
             let digest = candidate.comparable.digest().to_string();
+            // BORROW: explicit .as_slice() instead of Deref coercion
             let [index] = found.as_slice() else {
                 return Err(PlanError::StoredCellAmbiguous {
                     // BORROW: the error owns the digest text
@@ -663,6 +664,7 @@ pub fn check_facts(
     .flatten()
     .chain(check_roots(stored, fresh))
     .collect();
+    // BORROW: explicit .as_str() instead of Deref coercion
     all.sort_by(|a, b| a.path.as_str().cmp(b.path.as_str()));
     all
 }
@@ -762,6 +764,7 @@ pub fn plan_runs(
     };
     let cells = fresh_cells(file, resolution)?;
     let groups = stored_groups(&ctx.store)?;
+    // BORROW: explicit .as_slice() instead of Deref coercion
     let matched = match_stored(cells.as_slice(), groups.as_slice())?;
 
     let experiment = matched.iter().flatten().next().map_or_else(
@@ -799,6 +802,7 @@ pub fn plan_runs(
             Some(held) => {
                 check_names(&held.comparable, &cell.comparable)?;
                 let mut deviations = check_facts(&held.comparable, &cell.comparable, resolution);
+                // BORROW: explicit .as_slice() instead of Deref coercion
                 deviations.extend(check_secrets(held.secrets.as_slice(), &ctx.secrets_present));
                 (
                     held.comparable.digest(),
