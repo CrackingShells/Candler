@@ -42,8 +42,9 @@ candler-core = { path = ".", features = ["test-support"] }
 candler-harness-claude-code.workspace = true
 jsonschema.workspace = true
 proptest.workspace = true
+rcgen.workspace = true
 tempfile.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio-rustls.workspace = true
 
 [lints]
 workspace = true
