@@ -88,12 +88,13 @@ sequenceDiagram
     participant H as helper (one process per request)
     participant F as forked child (one per item)
     C->>E: evaluate(EvaluateRequest)
-    E->>R: load manifests, check_suite
-    R-->>E: CheckedSuite (no process spawned)
-    E->>R: EnvironmentStep: uv sync --frozen once per lock digest
+    Note over C,R: preflight (resolve): EnvironmentStep runs uv sync --frozen once per lock digest, through the shared Supervisor
+    E->>R: load manifests, check ready markers (no process spawned)
     E->>K: describe (own process)
     K->>S: spawn helper
-    H-->>K: DescribeResult (name@version, instrument git:28be2c15…)
+    H-->>K: DescribeResult (name@version, kinds, instrument git:28be2c15…)
+    E->>R: check_suite(suite, described)
+    R-->>E: CheckedSuite (no process spawned)
     loop each run, up to `concurrency` requests at once
       E->>E: plan: applies_to miss -> not_applicable; dependent of fail -> blocked
       E->>X: assemble(needs) then materialise(workspace)
@@ -199,7 +200,8 @@ Kept quirks change A–C rows, so they are explicit params with the grader's def
 - The env root is `<state home>/candler/environments` (`registry::default_env_root(&Config)`, from `Config::state_home`), whatever the project: one environment per lock digest serves every store. `EvaluateRequest.env_root` carries it to the engine, which refuses a plug-in whose environment has no `ready` marker.
 - `registry` keeps each manifest with its directory, because `command`, `uv.lock` and `pyproject.toml` are relative to it.
 - It writes the `ready` marker only after success, and a second run under the same digest spawns nothing (REG2).
-- The registry validates params and needs without spawning anything (I14).
+- The registry validates params and needs without spawning anything (I14). The `KindSpec`s it validates against come from the evaluator's `DescribeResult`, which the engine gets with `Client::describe` after the preflight; `check_suite(suite, described)` is pure.
+- `register_evaluation_steps(resolver, &Registry, env_root, Arc<Supervisor>)`: the step holds the binary's shared supervisor. The lock digest hashes the two files `PluginEnvironment::Uv { project, lock }` names. The step forwards `PATH` and `HOME` (the supervisor clears the environment) and sets `UV_PROJECT_ENVIRONMENT`.
 - The workspace is a private copy, read-only after writing, outside the store root. A plug-in can never write through to a blob (I11, RC3).
 
 ### C6 dependencies
