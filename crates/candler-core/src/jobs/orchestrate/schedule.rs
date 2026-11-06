@@ -3,13 +3,14 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::{Duration, Instant};
 
 use candler_schemas::execution::{Budget, EventPayload, JobEnd};
 use candler_schemas::primitives::{ReasonCode, RunKey};
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 
-use super::caps::{LiveRuns, stop_live};
+use super::caps::{LiveRuns, Totals, caps_crossed, stop_live};
 use crate::jobs::model::JobCause;
 use crate::jobs::slots::{Holder, Slot};
 use crate::runner::exec::ExecError;
@@ -17,6 +18,9 @@ use crate::runner::exec::ends::Retry;
 use crate::runner::exec::exec_run;
 use crate::runner::plan::RunPlan;
 use crate::runner::{JobMeter, RunControl, RunOutcome, Runtime};
+
+/// How often the job's totals are compared with its caps.
+const CAP_POLL: Duration = Duration::from_millis(25);
 
 /// What running the plans produced.
 #[derive(Debug)]
@@ -61,6 +65,7 @@ pub struct Scheduler {
     live: Arc<LiveRuns>,
     halt: watch::Sender<Option<JobCause>>,
     started: AtomicU32,
+    begun: Instant,
 }
 
 /// The code a run's failure is evented under.
@@ -86,6 +91,7 @@ impl Scheduler {
             live: Arc::new(LiveRuns::new()),
             halt,
             started: AtomicU32::new(0),
+            begun: Instant::now(),
         })
     }
 
@@ -93,6 +99,16 @@ impl Scheduler {
     #[must_use]
     pub fn live_runs(&self) -> Arc<LiveRuns> {
         Arc::clone(&self.live)
+    }
+
+    /// What the job has used so far.
+    fn totals(&self) -> Totals {
+        Totals::of(
+            self.started.load(Ordering::Relaxed),
+            self.meter.tokens(),
+            self.meter.micro_usd(),
+            self.begun.elapsed(),
+        )
     }
 
     /// The cause that halted the job, when one did.
@@ -112,6 +128,30 @@ impl Scheduler {
         });
         if stop {
             stop_live(&self.live, cause);
+        }
+    }
+
+    /// Whether a cap bars a new run; a crossed cap halts the job.
+    fn barred(&self) -> bool {
+        match caps_crossed(&self.budget, &self.totals()) {
+            Some(kind) => {
+                self.stop(JobCause::BudgetStop, kind.stops_live());
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Compares the totals with the caps until a cap that stops runs in flight is crossed.
+    async fn watch_caps(self: Arc<Self>) {
+        loop {
+            tokio::time::sleep(CAP_POLL).await;
+            if let Some(kind) = caps_crossed(&self.budget, &self.totals())
+                && kind.stops_live()
+            {
+                self.stop(JobCause::BudgetStop, true);
+                return;
+            }
         }
     }
 
@@ -181,7 +221,7 @@ impl Scheduler {
                     failed: true,
                 };
             };
-            if self.halted().is_some() {
+            if self.halted().is_some() || self.barred() {
                 return TaskEnd {
                     outcomes,
                     failed: false,
@@ -229,6 +269,7 @@ impl Scheduler {
         cancel: watch::Receiver<Option<JobCause>>,
     ) -> Schedule {
         let forward = tokio::spawn(Arc::clone(&self).forward(cancel));
+        let watcher = tokio::spawn(Arc::clone(&self).watch_caps());
         let parallel = usize::try_from(self.budget.max_parallel)
             .unwrap_or(usize::MAX)
             .max(1);
@@ -243,7 +284,7 @@ impl Scheduler {
                     tally.note(ended);
                 }
             }
-            if self.halted().is_some() {
+            if self.halted().is_some() || self.barred() {
                 break;
             }
             let slot = tokio::select! {
@@ -268,6 +309,7 @@ impl Scheduler {
         while let Some(ended) = set.join_next().await {
             tally.note(ended);
         }
+        watcher.abort();
         forward.abort();
         let end = match self.halted() {
             Some(JobCause::Killed) => JobEnd::Killed,
