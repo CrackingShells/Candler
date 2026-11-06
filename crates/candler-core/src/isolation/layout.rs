@@ -29,6 +29,18 @@ pub const LABEL_ROLE: &str = "candler.role";
 /// How long past the run's deadline a container may live before it expires on its own.
 pub const EXPIRY_MARGIN: Duration = Duration::from_secs(60);
 
+/// Where the agent's Python environment lives in the container. The env image builds it there,
+/// and each agent container mounts a fresh volume at this path, which docker fills from the image,
+/// so the agent can install into its own environment while the root filesystem stays read-only.
+pub const CONTAINER_ENV: &str = "/opt/env";
+
+/// The directory under which a control call (a short-lived `docker run` outside any job) keeps its
+/// record dir while it runs: `<store>/control`. Never a job's `children/`.
+#[must_use]
+pub fn control_dir(store_root: &Path) -> PathBuf {
+    store_root.join("control")
+}
+
 /// The lock file that serialises the build of the image `tag`: `<store>/images/<tag>.lock`.
 #[must_use]
 pub fn image_lock_path(store_root: &Path, tag: &str) -> PathBuf {

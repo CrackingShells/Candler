@@ -52,7 +52,7 @@ impl RecordingDocker {
         self
     }
 
-    /// Answers `image_inspect(reference)` with `info`.
+    /// Answers `image_inspect(reference)` with `info`, and a `build` whose tag is `reference`.
     #[must_use]
     pub fn with_image(self, reference: &str, info: ImageInfo) -> Self {
         held(&self.images).insert(reference.to_owned(), info);
@@ -129,10 +129,15 @@ impl DockerDriver for RecordingDocker {
         &'a self,
         request: &'a BuildRequest,
     ) -> BoxFuture<'a, Result<ImageInfo, DockerError>> {
-        self.record(format!("build {}", request.context.display()));
-        Box::pin(async {
-            Err(DockerError::Unavailable {
-                detail: "RecordingDocker::build".to_owned(),
+        self.record(format!(
+            "build {} {}",
+            request.tag,
+            request.context.display()
+        ));
+        let built = held(&self.images).get(&request.tag).cloned();
+        Box::pin(async move {
+            built.ok_or_else(|| DockerError::Unavailable {
+                detail: "RecordingDocker::build has no image scripted for this tag".to_owned(),
             })
         })
     }
