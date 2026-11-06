@@ -8,6 +8,7 @@ pub mod signals;
 pub mod sweep;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use candler_harness::driver::HarnessDriver;
 use candler_schemas::primitives::JobId;
@@ -16,6 +17,24 @@ use futures::future::BoxFuture;
 use super::model::{JobBody, JobOutcome, JobSpec};
 use crate::runner::exec::SkillTree;
 use crate::store::Store;
+use crate::supervise::spawn::DEFAULT_GRACE;
+
+/// How long a run's ladder waits between the terminate and the kill of its group's survivors.
+const LADDER_KILL_WAIT: Duration = Duration::from_secs(2);
+/// How long docker is given to stop a container before it kills it.
+const CONTAINER_STOP_GRACE: Duration = Duration::from_secs(5);
+/// What the job end allows for the last events, the seal of its record and the lock's release.
+const SEAL_ALLOWANCE: Duration = Duration::from_secs(10);
+
+/// How long a stopped job takes to end in order, from the signal to the released lock: the
+/// grace of a run's stop ladder (`DEFAULT_GRACE`), the wait after its kill (`LADDER_KILL_WAIT`),
+/// the stop grace of a container (`CONTAINER_STOP_GRACE`), the bound of the orphan reap
+/// (`reap::REAP_BOUND`) and the allowance for sealing (`SEAL_ALLOWANCE`).
+pub const TEARDOWN_BOUND: Duration = DEFAULT_GRACE
+    .saturating_add(LADDER_KILL_WAIT)
+    .saturating_add(CONTAINER_STOP_GRACE)
+    .saturating_add(reap::REAP_BOUND)
+    .saturating_add(SEAL_ALLOWANCE);
 
 /// What the harness gives every run of a job. Core cannot name the harness's crate, so the
 /// binary that composes the job builds these and hands them to the supervisor.
@@ -46,10 +65,52 @@ pub struct JobEntry {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum RuntimeError {
-    /// The supervisor is not implemented.
-    #[error("job runtime is not available: {detail}")]
-    Unavailable {
-        /// Which call.
+    /// The spec's bytes do not match the digest `job.json` records, or are not a spec.
+    #[error("the job's spec was refused: {detail}")]
+    SpecDigest {
+        /// What did not match.
+        detail: String,
+    },
+    /// Another supervisor holds the job's lock.
+    #[error("the job is already supervised")]
+    AlreadySupervised,
+    /// The supervisor's process could not take its place: its session, its subreaper role or its
+    /// signal handlers.
+    #[error("the supervisor could not set itself up: {detail}")]
+    Session {
+        /// What failed.
+        detail: String,
+    },
+    /// The job's directory, lock or log failed.
+    #[error("the job's directory failed: {detail}")]
+    Job {
+        /// What failed.
+        detail: String,
+    },
+    /// What the job runs on could not be set up: the configuration, the slots or docker.
+    #[error("the job could not be set up: {detail}")]
+    Setup {
+        /// What failed.
+        detail: String,
+    },
+    /// The body did not return an outcome.
+    #[error("the job's body failed: {detail}")]
+    Body {
+        /// What failed.
+        detail: String,
+    },
+    /// The detached supervisor did not take the job's lock.
+    #[error("the supervisor did not start: see {log}")]
+    DidNotStart {
+        /// The job's directory.
+        job_dir: String,
+        /// The log the supervisor writes to.
+        log: String,
+    },
+    /// The supervisor could not be started.
+    #[error("the supervisor could not be started: {detail}")]
+    Detach {
+        /// What failed.
         detail: String,
     },
 }
@@ -59,10 +120,5 @@ pub fn supervise_entry<'a>(
     entry: JobEntry,
     body: JobBody,
 ) -> BoxFuture<'a, Result<JobOutcome, RuntimeError>> {
-    let _ = (entry, body);
-    Box::pin(async {
-        Err(RuntimeError::Unavailable {
-            detail: "supervise_entry".to_owned(),
-        })
-    })
+    Box::pin(session::run(entry, body))
 }

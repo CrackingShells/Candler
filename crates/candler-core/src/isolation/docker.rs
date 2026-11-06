@@ -14,7 +14,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use candler_schemas::primitives::{ContainerId, Marker, Timestamp};
+use candler_schemas::primitives::{ContainerId, Timestamp};
 use candler_schemas::process::ExitStatus;
 use futures::future::BoxFuture;
 use serde::Deserialize;
@@ -25,15 +25,13 @@ use super::model::{
     LayerDigest, NetworkInfo, NetworkName,
 };
 use crate::supervise::Supervisor;
+use crate::supervise::signal::control_marker;
 use crate::supervise::spawn::SpawnRequest;
 use crate::supervise::stop::Ended;
 
 /// The variables a docker client child may see: where the daemon is, which context names it, and
 /// the home directory that holds the client's own configuration.
 const CLIENT_VARIABLES: [&str; 3] = ["DOCKER_HOST", "DOCKER_CONTEXT", "HOME"];
-
-/// The marker the supervisor gives a docker client child.
-const CONTROL_MARKER: &str = "control";
 
 /// How long a read, a stop or a remove may take before the supervisor ends the client.
 const CALL_DEADLINE: Duration = Duration::from_mins(1);
@@ -154,9 +152,7 @@ struct Runner {
 impl Runner {
     /// Runs `docker <args>` and returns what it printed on standard output.
     async fn run(&self, rest: Vec<String>, deadline: Duration) -> Result<String, DockerError> {
-        let marker = Marker::from_str(CONTROL_MARKER).map_err(|error| DockerError::Failed {
-            detail: error.to_string(),
-        })?;
+        let marker = control_marker();
         let mut argv = Vec::with_capacity(rest.len() + 1);
         // BORROW: .to_string_lossy().into_owned() gives the request the binary path as text
         argv.push(self.binary.to_string_lossy().into_owned());
