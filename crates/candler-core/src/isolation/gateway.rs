@@ -1,11 +1,12 @@
 //! The gateway container the agent reaches its provider through. The agent holds a dummy token;
 //! the gateway holds the real one and forwards the calls.
 
-use candler_schemas::primitives::{JobId, RunKey};
+use candler_schemas::container::ContainerRecord;
+use candler_schemas::primitives::{Digest, JobId, RunKey};
 use futures::future::BoxFuture;
 
 use super::driver::DockerDriver;
-use super::model::{GatewayHandle, NetworkName};
+use super::model::GatewayHandle;
 use crate::supervise::Supervisor;
 
 /// Why a secret could not be read.
@@ -97,10 +98,40 @@ pub enum GatewaySignal {
     ProbeFailed,
 }
 
+/// Writes a job's container record, `children/container-<cid12>.json`. The job directory
+/// implements it; the gateway calls it after `docker create` and before the sidecar holds the
+/// token, so a teardown of the current job finds the sidecar recorded.
+pub trait ChildRecorder: Send + Sync {
+    /// Writes `record`.
+    ///
+    /// # Errors
+    /// The I/O error that kept the record from being written.
+    fn record_child(&self, record: &ContainerRecord) -> std::io::Result<()>;
+}
+
+/// What starting a job's gateway needs.
+#[derive(Clone, Copy)]
+pub struct GatewayStart<'a> {
+    /// The job. Its internal network is `NetworkName::for_job`, its egress network
+    /// `NetworkName::egress_for_job`; `start` creates both.
+    pub job: &'a JobId,
+    /// The experiment digest, the value of the sidecar's `candler.experiment` label. Its
+    /// `candler.run` label is the literal `gateway`, which no run's path form equals.
+    pub experiment: &'a Digest,
+    /// Where the sidecar's container record is written.
+    // TRAIT_OBJECT: the job directory, or a recording fake in tests
+    pub recorder: &'a dyn ChildRecorder,
+    /// Resolves the secret.
+    // TRAIT_OBJECT: the secret store, or a fixed fake in tests
+    pub token: &'a dyn SecretSource,
+    /// The name of the secret, the one `model.token_secret` gives (D9).
+    pub secret: &'a str,
+}
+
 /// Starts the gateway of a job.
 pub trait Gateway: Send + Sync {
-    /// Starts the gateway on `net` for `job`, holding the secret that `token` resolves under
-    /// `secret`, the name `model.token_secret` gives (D9).
+    /// Starts the gateway of `request.job`: creates the job's internal and egress networks,
+    /// creates the sidecar, records it, then hands it the secret.
     ///
     /// # Errors
     /// [`GatewayError::Start`] when the container does not start.
@@ -108,10 +139,7 @@ pub trait Gateway: Send + Sync {
         &'a self,
         sup: &'a Supervisor,
         docker: &'a dyn DockerDriver,
-        job: &'a JobId,
-        net: &'a NetworkName,
-        token: &'a dyn SecretSource,
-        secret: &'a str,
+        request: GatewayStart<'a>,
     ) -> BoxFuture<'a, Result<GatewayHandle, GatewayError>>;
 
     /// Asks the gateway whether it can serve.

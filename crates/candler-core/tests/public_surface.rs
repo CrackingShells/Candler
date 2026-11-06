@@ -352,7 +352,8 @@ mod m2b_surface {
     use candler_core::isolation::docker::DockerError;
     use candler_core::isolation::driver::{DestroyDriver, DockerDriver};
     use candler_core::isolation::gateway::{
-        Gateway, GatewayError, GatewaySignal, GatewayStatus, SecretError, SecretSource, SecretValue,
+        ChildRecorder, Gateway, GatewayError, GatewaySignal, GatewayStart, GatewayStatus,
+        SecretError, SecretSource, SecretValue,
     };
     use candler_core::isolation::image::{
         BuildSetting, Extension, ImageError, ImageService, LockDigest, LockRequest, LockSource,
@@ -478,6 +479,8 @@ mod m2b_surface {
             None::<SweepError>,
             None::<DockerError>,
             None::<GatewayError>,
+            None::<GatewayStart<'static>>,
+            None::<&dyn ChildRecorder>,
             None::<GatewayStatus>,
             None::<GatewayHandle>,
             None::<SecretError>,
