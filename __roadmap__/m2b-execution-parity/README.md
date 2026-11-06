@@ -46,6 +46,7 @@ Before L0 the coordinator lands Phase 0 on `feat/m2b-execution-parity`: the spik
 - ⬜ [nl] The KT records the intended deviations from `run-config` (each provenance field whose meaning changes, such as the workspace path and env), the accepted macOS gap and what bounds it, and a "For M4" section
 
 ## Gotchas
+- **One CLI error type (D27).** The `candler` binary has one CLI error type and one exit-code mapping. Whoever of M2a and M2b lands second adopts the first's type and mapping (M2a's `diff` exits 2 when compared == 0) at rebase, and `register_m2b_steps` is composed one call per line in the shared place, as M2a's steps are.
 - **Condition tags.** Every Pre-condition and Success Gate line starts with `[cmd]` (a command whose exit status decides) or `[nl]` (a judgement, naming a proxy check where one exists).
 - **Standard gates**, named in every leaf. They are M1's with the base moved:
   - **STD**: `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo nextest run --workspace && RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps`;
