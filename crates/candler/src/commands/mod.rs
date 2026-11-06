@@ -6,6 +6,22 @@ pub mod run;
 pub mod supervise;
 pub mod watch;
 
+/// How a verb that did not fail ended; `main` maps it to the exit code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(
+    dead_code,
+    reason = "Changed is returned by verbs that report differences, such as diff"
+)]
+pub enum Exit {
+    /// The verb did its work: exit 0.
+    Success,
+    /// The verb found differences: exit 1.
+    Changed {
+        /// How many differences it found.
+        count: usize,
+    },
+}
+
 /// Why a verb failed.
 #[derive(Debug, thiserror::Error)]
 #[allow(
