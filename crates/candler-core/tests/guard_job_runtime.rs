@@ -187,3 +187,99 @@ fn b32_sigterm_seals_killed() {
         assert_ne!(*target, test_group);
     }
 }
+
+/// Guards: I15 — a setsid'd, TERM-ignoring descendant dies through the subreaper.
+/// Oracle: the OS (kill(pid,0), /proc start time), M1's tree.sh fixture.
+/// Bite: remove the `set_child_subreaper` call.
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn b33_setsid_descendant_dies() {
+    use std::sync::Arc;
+
+    use candler_core::jobs::runtime::session::{ZombieTick, become_subreaper};
+    use candler_core::jobs::runtime::sweep::sweep_orphans;
+    use candler_core::supervise::spawn::SpawnRequest;
+    use candler_core::supervise::stop::Ended;
+    use candler_core::supervise::{EventSink, Supervisor};
+    use candler_harness::spec::{StopSignal, StopSpec};
+    use support::job_runtime::{Recorder, marked_tree};
+
+    const MARKER: &str = "b33-orphan";
+    become_subreaper().expect("the subreaper role");
+    let work = tempfile::tempdir().expect("a temp dir");
+    let records = work.path().join("records");
+    fs::create_dir_all(&records).expect("a record directory");
+    let script = marked_tree(work.path(), MARKER);
+    let pidfile = work.path().join("tree.pids");
+    let recorder = Arc::new(Recorder::default());
+    // TRAIT_OBJECT: the supervisor takes its sink as a trait object
+    let sink: Arc<dyn EventSink> = recorder.clone(); // BORROW: the test reads the recorder too
+    let supervisor = Supervisor::new(Arc::clone(&sink));
+    let request = SpawnRequest::builder()
+        .argv(vec![
+            "sh".to_owned(),
+            script.to_str().expect("a UTF-8 path").to_owned(), // BORROW: .to_owned() makes the owned argument
+            pidfile.to_str().expect("a UTF-8 path").to_owned(), // BORROW: .to_owned() makes the owned argument
+        ])
+        .env(vec![("PATH".to_owned(), "/usr/bin:/bin".to_owned())])
+        .marker(MARKER.parse().expect("a marker"))
+        .record_dir(records)
+        .stop(StopSpec::new(
+            None,
+            StopSignal::Term,
+            Duration::from_millis(300),
+        ))
+        .build()
+        .expect("a request");
+    let child = supervisor.spawn(request).expect("a child");
+
+    let until = Instant::now() + Duration::from_secs(10);
+    let text = loop {
+        let text = fs::read_to_string(&pidfile).unwrap_or_default();
+        if text.lines().any(|line| line == "ready") {
+            break text;
+        }
+        assert!(Instant::now() < until, "the tree never became ready");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    let pid_of = |label: &str| -> u32 {
+        text.lines()
+            .find_map(|line| line.strip_prefix(label)?.trim().parse().ok())
+            .unwrap_or_else(|| panic!("no {label} line in {text:?}"))
+    };
+    let (leader, group, detached) = (pid_of("leader "), pid_of("group "), pid_of("detached "));
+    let tree: Vec<(u32, ProcessStart)> = [leader, group, detached]
+        .into_iter()
+        .map(|pid| (pid, process_start(pid)))
+        .collect();
+
+    // The tick the supervisor runs for the life of its job: it waits for the exited processes it
+    // adopted, so that a group whose members were reparented to it can read as empty.
+    let _tick = ZombieTick::start(&supervisor);
+    let exit = child.stop().await.expect("an exit");
+    assert_eq!(exit.ended, Ended::Stopped);
+    assert!(
+        all_gone(&tree[..2], Duration::from_secs(5)),
+        "a process of the group survived the stop"
+    );
+    // The control: the process that left the group is still there, and only the sweep can find it.
+    assert!(
+        !all_gone(&tree[2..], Duration::from_millis(200)),
+        "the detached process ended with its group"
+    );
+
+    let swept = tokio::task::spawn_blocking(move || {
+        let swept = sweep_orphans(&supervisor, recorder.as_ref());
+        (swept, recorder)
+    })
+    .await
+    .expect("the sweep");
+    assert!(
+        swept.0.iter().any(|stray| stray.pid() == detached),
+        "the sweep did not find the detached process"
+    );
+    assert!(
+        all_gone(&tree, Duration::from_secs(5)),
+        "a process of the tree survived the sweep"
+    );
+}
