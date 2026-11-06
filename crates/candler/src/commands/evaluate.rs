@@ -12,9 +12,9 @@ pub struct EvaluateArgs {
     /// A plug-in manifest; repeat for several plug-ins.
     #[arg(long = "plugin", required = true)]
     pub plugins: Vec<PathBuf>,
-    /// The suite, by id.
+    /// The suite file.
     #[arg(long)]
-    pub suite: String,
+    pub suite: PathBuf,
     /// A glob over run keys; every run when absent.
     #[arg(long)]
     pub runs: Option<String>,

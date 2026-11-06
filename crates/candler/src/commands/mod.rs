@@ -1,5 +1,6 @@
 //! The verbs of the `candler` binary, one file each.
 
+pub mod common;
 pub mod diff;
 pub mod evaluate;
 pub mod import;
