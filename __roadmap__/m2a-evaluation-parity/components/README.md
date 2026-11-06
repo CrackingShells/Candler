@@ -24,7 +24,7 @@ graph TD
     helper_runtime[Helper runtime: Python evaluator loop]:::planned
     registry[Registry: manifests, suites, environments]:::done
     run_context[Run context: assembly, digest, materialiser]:::done
-    protocol_client[Protocol client over supervise]:::planned
+    protocol_client[Protocol client over supervise]:::done
     selection_rates[Selection, I4, rates and generic diff]:::done
     assembly[Assembly]:::planned
     classDef done       fill:#166534,color:#bbf7d0
@@ -42,7 +42,7 @@ graph TD
 | `helper_runtime.md` | 📄 Leaf Task | ⬜ Planned |
 | `registry.md` | 📄 Leaf Task | ✅ Done |
 | `run_context.md` | 📄 Leaf Task | ✅ Done |
-| `protocol_client.md` | 📄 Leaf Task | ⬜ Planned |
+| `protocol_client.md` | 📄 Leaf Task | ✅ Done |
 | `selection_rates.md` | 📄 Leaf Task | ✅ Done |
 | `assembly/` | 📁 Directory | ⬜ Planned |
 

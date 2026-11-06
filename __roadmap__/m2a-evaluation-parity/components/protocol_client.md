@@ -4,10 +4,10 @@
 **Pre-conditions**:
 - [ ] [cmd] ENV, DEP(skeleton) and DEP(protocol_wire)
 **Success Gates**:
-- ⬜ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler-core/(src/evaluation/client/|tests/(guard_protocol_client\.rs$|public_surface\.rs$|fixtures/client/))` with only the `protocol_client_surface` block of `public_surface.rs` changed
-- ⬜ [cmd] SPAWN, then `cargo nextest run -p candler-core -E 'binary(guard_protocol_client)'` passes (PC1, PC2)
-- ⬜ [cmd] `test "$(find crates/candler-core/tests/fixtures/client -type f -exec cat {} + | wc -c)" -le 12288` (bytes, not disk blocks) (six stubs, ≤ 2 KB each)
-- ⬜ [nl] The plain verifier holds no open BLOCKER or MAJOR: late-result and cancel races, pipe deadlock
+- ✅ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler-core/(src/evaluation/client/|tests/(guard_protocol_client\.rs$|public_surface\.rs$|fixtures/client/))` with only the `protocol_client_surface` block of `public_surface.rs` changed
+- ✅ [cmd] SPAWN, then `cargo nextest run -p candler-core -E 'binary(guard_protocol_client)'` passes (PC1, PC2)
+- ✅ [cmd] `test "$(find crates/candler-core/tests/fixtures/client -type f -exec cat {} + | wc -c)" -le 12288` (bytes, not disk blocks) (six stubs, ≤ 2 KB each)
+- ✅ [nl] The plain verifier holds no open BLOCKER or MAJOR: late-result and cancel races, pipe deadlock
 **References**: [R01 §Evaluator protocol, §Jobs, runs and supervision](../../../__design__/architecture.md) — deadlines, cancel, I14, I22; [R03 §Protocol](../../../__reports__/m2a-evaluation-parity/00-architecture_v0.md); `crates/candler-core/src/supervise/` — `Supervisor::new`, `with_signaller`, `StopHandle`, `Child::wait`, `Child::stop`; `candler_schemas::evaluation::rpc`; [JSON-RPC 2.0 §5.1](https://www.jsonrpc.org/specification); [R04 PC1, PC2](../../../__reports__/m2a-evaluation-parity/01-test_definition_v0.md); [R09 M1 KT](../../../__reports__/m1-contracts/01-knowledge_transfer_v0.md) — I22 and the recording fake `Signaller`
 
 ## Step 1: Run a request through the supervisor
