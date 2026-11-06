@@ -9,7 +9,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
+use candler_core::jobs::dir::JobDir;
+use candler_core::jobs::lock::JobLock;
 use candler_core::runner::plan::{Force, PlanError, PlanMode, plan_runs};
+use candler_schemas::primitives::JobId;
 use serde_json::{Value, json};
 use support::run_plan::{
     Facts, Run, attempts_on_disk, experiment, fresh_store, manifest, plan_ctx, resolution,
@@ -70,7 +73,11 @@ fn manifest_on_disk(store_root: &std::path::Path, relative: &std::path::Path) ->
 /// attempt `invalid(interrupted)` and numbers the attempts of a cell and replicate 1, 2, 3.
 /// Oracle: the file system, read by the test: the bytes of every file under `runs/` before and
 /// after each plan, and a literal attempt list.
-/// Bite: `remove_dir_all` on an attempt without `run.done` in `seal_open`.
+/// Rows for the experiment lock and for a live job: a second planner is refused with the bytes
+/// unchanged, a leftover lock file whose flock is free plans, a job that holds its lock keeps its
+/// unfinished attempt unsealed, and a full attempt counter is refused.
+/// Bite: `remove_dir_all` on an attempt without `run.done` in `seal_open`; `take_lock` without the
+/// flock; `job_is_live` that is always false.
 #[test]
 fn b26_resume_deletes_nothing_and_numbers_attempts() {
     let (_dir, store, lock) = fresh_store();
@@ -176,6 +183,117 @@ fn b26_resume_deletes_nothing_and_numbers_attempts() {
             "replicate 1 of {model}"
         );
     }
+
+    b26_lock_rows();
+    b26_liveness_rows();
+    b26_overflow_row();
+}
+
+/// Lock row: a second `Hold` and a `Check` are refused while one planner holds the experiment, and
+/// a lock file left behind with a free flock plans.
+fn b26_lock_rows() {
+    let (_dir, store, lock) = two_cells();
+    let root = store.layout().root().to_path_buf();
+    let facts = Facts::base();
+    let file = experiment(&["m1", "m2"], 2);
+    let res = resolution(&facts);
+    let ctx = plan_ctx(&store, &lock, &facts);
+    let held = plan_runs(&ctx, &file, &res, Force::No, PlanMode::Hold).expect("the first planner");
+    let before = snapshot(&root);
+    for mode in [PlanMode::Hold, PlanMode::Check] {
+        let refusal = plan_runs(&ctx, &file, &res, Force::No, mode);
+        assert!(
+            matches!(refusal, Err(PlanError::ExperimentLocked)),
+            "a held experiment refuses {mode:?}"
+        );
+        assert_eq!(
+            snapshot(&root),
+            before,
+            "a refusal writes nothing under runs/"
+        );
+    }
+    drop(held);
+    assert!(lock.exists(), "the lock file stays behind");
+    let again = plan_runs(&ctx, &file, &res, Force::No, PlanMode::Hold);
+    assert!(
+        again.is_ok(),
+        "a leftover lock file with a free flock plans"
+    );
+}
+
+/// Liveness row: an unfinished attempt whose job holds its lock on another descriptor refuses the
+/// plan and is not sealed; once the lock is free it is sealed, and so is one whose job directory
+/// is gone.
+fn b26_liveness_rows() {
+    let (_dir, store, lock) = fresh_store();
+    let root = store.layout().root().to_path_buf();
+    let facts = Facts::base();
+    // Provenance: lowercase hyphenated UUIDv7 literals.
+    let live_text = "0190a5e0-7c3a-7000-8000-000000000001";
+    let live: JobId = live_text.parse().expect("a job id");
+    for model in ["m1", "m2"] {
+        write_run(&store, &run(model, &facts, 1, 1, true));
+    }
+    let mut owned = run("m1", &facts, 2, 1, false);
+    owned.job = Some(live_text);
+    write_run(&store, &owned);
+    let mut orphan = run("m2", &facts, 2, 1, false);
+    orphan.job = Some("0190a5e0-7c3a-7000-8000-000000000002");
+    write_run(&store, &orphan);
+    let path = store.layout().job_dir(&live);
+    fs::create_dir_all(&path).expect("a job directory");
+    let holder = JobLock::acquire(&JobDir::new(live, path)).expect("the job lock");
+
+    let file = experiment(&["m1", "m2"], 2);
+    let res = resolution(&facts);
+    let ctx = plan_ctx(&store, &lock, &facts);
+    let before = snapshot(&root);
+    let refusal = plan_runs(&ctx, &file, &res, Force::No, PlanMode::Hold);
+    assert!(
+        matches!(refusal, Err(PlanError::ExperimentLocked)),
+        "a live job refuses the plan"
+    );
+    assert_eq!(
+        snapshot(&root),
+        before,
+        "no attempt is sealed while a job is live"
+    );
+
+    drop(holder);
+    let out = plan_runs(&ctx, &file, &res, Force::No, PlanMode::Hold).expect("the job let go");
+    drop(out);
+    let done = snapshot(&root)
+        .keys()
+        .filter(|path| path.ends_with("run.done"))
+        .count();
+    assert_eq!(
+        done, 4,
+        "both unfinished attempts are sealed, the one with no job directory too"
+    );
+}
+
+/// Overflow row: a cell and replicate whose highest attempt is `u32::MAX` is refused.
+fn b26_overflow_row() {
+    let (_dir, store, lock) = fresh_store();
+    let facts = Facts::base();
+    let mut last = run("m1", &facts, 1, u32::MAX, true);
+    last.integrity = json!({"kind": "invalid", "reason": "infrastructure"});
+    write_run(&store, &last);
+    let ctx = plan_ctx(&store, &lock, &facts);
+    let refusal = plan_runs(
+        &ctx,
+        &experiment(&["m1"], 1),
+        &resolution(&facts),
+        Force::No,
+        PlanMode::Hold,
+    );
+    assert!(
+        matches!(
+            refusal,
+            Err(PlanError::AttemptOverflow { replicate: 1, .. })
+        ),
+        "no attempt number is left"
+    );
 }
 
 /// One fact that changes between the stored cells and the fresh resolution.
@@ -247,7 +365,11 @@ fn two_cells() -> (tempfile::TempDir, candler_core::store::Store, PathBuf) {
 /// still carries the stored cell.
 /// Oracle: literal paths and values, with the stored ones read back from hand-built manifests;
 /// the bytes under `runs/` before and after.
-/// Bite: skip the image-ID comparison in `check_facts`.
+/// Rows for a value a configuration default changed after the cell was stored (the stored one is
+/// carried), for the runs of another experiment (never adopted, never counted) and for a secret
+/// that only an earlier attempt of the cell saw.
+/// Bite: skip the image-ID comparison in `check_facts`; match stored cells by subset only; read the
+/// secrets of the last attempt only.
 #[test]
 fn b27_changed_fact_is_refused_and_the_cell_is_pinned() {
     let models = ["m1", "m2"];
@@ -328,6 +450,125 @@ fn b27_changed_fact_is_refused_and_the_cell_is_pinned() {
         }
         drop(out);
     }
+
+    b27_pin_row();
+    b27_other_experiment_row();
+    b27_secrets_row();
+}
+
+/// Pin row: a project-config default (a turn cap) changed after the cell was stored, so the plan
+/// carries the stored value and records nothing.
+fn b27_pin_row() {
+    let stored_facts = Facts {
+        turns: Some(10),
+        ..Facts::base()
+    };
+    let now = Facts {
+        turns: Some(20),
+        ..Facts::base()
+    };
+    let (_dir, store, lock) = fresh_store();
+    for model in ["m1", "m2"] {
+        write_run(&store, &run(model, &stored_facts, 1, 1, true));
+    }
+    let ctx = plan_ctx(&store, &lock, &now);
+    let out = plan_runs(
+        &ctx,
+        &experiment(&["m1", "m2"], 2),
+        &resolution(&now),
+        Force::No,
+        PlanMode::Hold,
+    )
+    .map_err(|e| e.to_string())
+    .expect("a changed default is not a refusal");
+    assert_eq!(out.plans.len(), 2, "replicate 2 of each cell");
+    for (plan, model) in out.plans.iter().zip(["m1", "m2"]) {
+        assert_eq!(
+            plan.stored,
+            Some(stored_cell(model, &stored_facts)),
+            "10 is carried"
+        );
+        assert_ne!(
+            plan.stored,
+            Some(stored_cell(model, &now)),
+            "20 is not adopted"
+        );
+        assert!(
+            plan.deviations.is_empty(),
+            "a default is not a re-checked fact"
+        );
+    }
+}
+
+/// Cross-experiment row: experiment A stored a cell with one more declared cap and has a sealed
+/// replicate 1 and an unfinished replicate 2; experiment B (the same model, without the cap) plans
+/// fresh, counts none of A's runs and touches none of A's files.
+fn b27_other_experiment_row() {
+    let theirs = Facts {
+        turns: Some(10),
+        experiment: 'a',
+        ..Facts::base()
+    };
+    let (_dir, store, lock) = fresh_store();
+    let root = store.layout().root().to_path_buf();
+    write_run(&store, &run("m1", &theirs, 1, 1, true));
+    write_run(&store, &run("m1", &theirs, 2, 1, false));
+    let a_cell = manifest(&run("m1", &theirs, 1, 1, true))
+        .run()
+        .cell()
+        .clone();
+    let ours = Facts::base();
+    let ctx = plan_ctx(&store, &lock, &ours);
+    let before = snapshot(&root);
+    let out = plan_runs(
+        &ctx,
+        &experiment(&["m1"], 2),
+        &resolution(&ours),
+        Force::No,
+        PlanMode::Hold,
+    )
+    .map_err(|e| e.to_string())
+    .expect("another experiment's cell is ignored");
+    assert!(out.sealed.is_empty(), "none of A's runs counts for B");
+    assert_eq!(out.plans.len(), 2, "both replicates of B are to run");
+    for plan in &out.plans {
+        assert_eq!(plan.attempt, 1, "B's attempts start at 1");
+        assert!(plan.stored.is_none(), "nothing is replayed from A");
+        assert_ne!(plan.key.cell(), &a_cell, "B's cell is not A's");
+    }
+    assert_eq!(
+        snapshot(&root),
+        before,
+        "A's unfinished attempt is not sealed"
+    );
+}
+
+/// Secrets row: attempt 1 saw `API_KEY` and attempt 2, the last, saw none; with no secret present
+/// now the resume is refused naming `secrets`, as the union of the attempts says it was present.
+fn b27_secrets_row() {
+    let saw = Facts::base();
+    let none = Facts {
+        secrets: Vec::new(),
+        ..Facts::base()
+    };
+    let (_dir, store, lock) = fresh_store();
+    let mut first = run("m1", &saw, 1, 1, true);
+    first.integrity = json!({"kind": "invalid", "reason": "infrastructure"});
+    write_run(&store, &first);
+    write_run(&store, &run("m1", &none, 1, 2, true));
+    let ctx = plan_ctx(&store, &lock, &none);
+    let refusal = plan_runs(
+        &ctx,
+        &experiment(&["m1"], 2),
+        &resolution(&none),
+        Force::No,
+        PlanMode::Hold,
+    );
+    let Err(PlanError::Changed(deviations)) = refusal else {
+        panic!("an earlier attempt's secret counts");
+    };
+    let paths: Vec<&str> = deviations.iter().map(|d| d.path.as_str()).collect();
+    assert_eq!(paths, ["secrets"]);
 }
 
 /// Guards: B28 (I11, I3) — with `--force` over each of the four changed facts, every new attempt
