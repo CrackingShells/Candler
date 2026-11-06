@@ -1,10 +1,15 @@
 # Fixtures of candler-core
 
-Data the guards under `tests/` read. Nothing here is generated at test time.
+Data the guards under `tests/` read. Nothing here is generated at test time; the one exception
+is the gateway e2e, which makes its CA and server certificates with the `openssl` CLI in a
+per-test temporary directory and commits none.
 
 | Path | Read by | Holds |
 |---|---|---|
 | `mini-corpus/` | `guard_import_mini`, `guard_legacy_mapping`, `guard_oracle_mini`, `guard_seams` | a legacy results folder in the shape of the golden corpus, small enough for CI |
+| `comparability/verdicts.json` | `guard_comparability` | the pre-drafted stratum-verdict rows (B03), written from I7's text; rows may be added, never edited |
+| `docker/fake-docker` | process-level tests only | a PATH-fake `docker` that logs its argv; never an argv oracle |
+| `docker/inspect/{clean,exit124,oom}.json` | `guard_run_exec` | real `docker inspect` output of a clean exit, a self-expiry and an OOM kill, recorded by `docker/record_inspect.sh` |
 | `seams/fake_harness.sh` | `guard_seams` | a harness that plays back a recorded stream |
 | `supervise/tree.sh` | `guard_supervise` | a process tree that ignores `TERM` |
 
