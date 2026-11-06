@@ -10,13 +10,17 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use candler_core::isolation::Isolation as _;
+use candler_core::isolation::container::DockerIsolation;
 use candler_core::isolation::container::guard::{
     ContainerGuard, Destroyed, GuardError, GuardRefusal, LostProof,
 };
 use candler_core::isolation::container::sweeper::{LabelSweeper, UnreadableRecord};
 use candler_core::isolation::docker::DockerError;
 use candler_core::isolation::driver::{DestroyDriver, DockerDriver};
-use candler_core::isolation::model::{ContainerRef, SweepScope};
+use candler_core::isolation::model::{
+    ContainerPlan, ContainerRef, GatewayHandle, ImageId, ImageRef, Limits, SweepScope, UserSpec,
+};
 use candler_core::isolation::model::{Labels, NetworkInfo, NetworkName};
 use candler_core::isolation::testing::{FakeJobView, RecordingDestroyer, RecordingDocker};
 use candler_core::jobs::dir::JobDir;
@@ -26,11 +30,14 @@ use candler_core::jobs::view::ChildEntry;
 use candler_core::supervise::hook::{HookError, StopHook, StopHookCtx};
 use candler_core::supervise::signal::Signaller;
 use candler_core::supervise::spawn::SpawnRequest;
+use candler_core::supervise::stop::{Ended, Exit};
 use candler_core::supervise::{EventSink, Supervisor};
+use candler_harness::spec::Workspace;
 use candler_harness::spec::{StopSignal, StopSpec};
 use candler_schemas::container::ContainerRole;
 use candler_schemas::execution::{EventPayload, JobEnd, StopStep};
 use candler_schemas::primitives::{ContainerId, JobId, RunKey};
+use candler_schemas::process::ExitStatus;
 use futures::future::BoxFuture;
 use rustix::io::Errno;
 use rustix::process::{Pid, Signal};
@@ -132,12 +139,15 @@ async fn assert_refused(
 /// Guards: B10 — the guard refuses by name, pattern, "all", empty, unlabelled, other job, other
 /// run, label mismatch, control role, unrecorded, a lost job without the proof of its held lock,
 /// a job that has ended and the networks of another job, with no stop, rm or network rm recorded.
+/// `collect_and_destroy` scopes its destroy to the run its caller names: a cidfile that names a
+/// container of another run of the job gives no stop and no rm, and the run's own container does.
 /// Oracle: the recording destroy driver's call list is empty for each refused case, and the
 /// positive control's list is exactly `stop` then `rm` of the recorded id after two inspects
 /// (the verb order of the design's I22 text).
 /// Bite: skip the `job == current job` comparison in `ContainerGuard::check_job`; or drop the
 /// `check_job` call before `rm` in `ContainerGuard::destroy_with`; or replace the
-/// `check_job` call in `ContainerGuard::destroy_network_with` by `false && ..`.
+/// `check_job` call in `ContainerGuard::destroy_network_with` by `false && ..`; or derive the
+/// scope of `DockerIsolation::collect_and_destroy` from the target's own `candler.run` label.
 #[tokio::test]
 async fn b10_guard_refusals() {
     // A name, a pattern, "all" and the empty string are not container ids at all.
@@ -479,6 +489,102 @@ async fn b10_guard_refusals() {
         docker.calls(),
         vec![format!("inspect {full}"), format!("inspect {full}")]
     );
+
+    // collect_and_destroy: the scope is the caller's run, never the target's own label. A cidfile
+    // that names a container of another run of the same job destroys nothing; the run's own
+    // container is destroyed.
+    let work = tempfile::tempdir().expect("a temp dir");
+    let plan = ContainerPlan {
+        image: ImageRef {
+            id: ImageId(String::from("sha256:aa")),
+            cc_version: None,
+        },
+        labels: Labels::new().with("candler.job", current.as_str()), // BORROW: explicit .as_str()
+        mounts: Vec::new(),
+        env: Vec::new(),
+        network: NetworkName::for_job(&current),
+        egress: None,
+        limits: Limits {
+            pids_limit: 64,
+            memory: String::from("1g"),
+            cpus: 1.0,
+        },
+        cidfile: work.path().join("agent.cid"),
+        user: UserSpec::Engine,
+        workdir: String::from("/work"),
+        home: String::from("/home/agent"),
+        expiry: Duration::from_secs(10),
+        project_root: work.path().to_path_buf(),
+        store_root: work.path().to_path_buf(),
+    };
+    std::fs::write(&plan.cidfile, id.as_str()).expect("a cidfile"); // BORROW: explicit .as_str()
+    let exit = Exit::new(
+        ExitStatus::Code { code: 0 },
+        Ended::Exited,
+        Vec::new(),
+        true,
+        Vec::new(),
+        Vec::new(),
+    );
+    let workspace = Workspace::new(work.path());
+    let gateway = GatewayHandle::new(
+        container_ref(&inspect(&cid(0xfff), labels(&current, "gateway", None))),
+        "http://127.0.0.1:1".parse().expect("a url"),
+        NetworkName::for_job(&current),
+        NetworkName::egress_for_job(&current),
+        String::from("dummy"),
+    )
+    .expect("a handle");
+    for (case, label_run, own) in [
+        ("another run's container", &other_run, false),
+        ("the run's own", &run, true),
+    ] {
+        let target = inspect(&id, labels(&current, "agent", Some(label_run)));
+        let (guard, docker, destroyer) = rig(
+            view().with_children(vec![ChildEntry::Container(record(
+                &id,
+                &current,
+                label_run,
+                ContainerRole::Agent,
+            ))]),
+            vec![target],
+        );
+        let read: Arc<dyn DockerDriver> = docker;
+        let isolation = DockerIsolation::new(gateway.clone(), read, Arc::new(guard)); // BORROW: .clone() gives each isolation its own handle
+        let outcome = isolation
+            .collect_and_destroy(&plan, &workspace, &exit, &run)
+            .await
+            .expect("an outcome");
+        if own {
+            assert_eq!(
+                destroyer.calls(),
+                vec![format!("stop {full}"), format!("rm {full}")],
+                "{case}"
+            );
+            assert_eq!(outcome.sweep.destroyed.len(), 1, "{case}");
+        } else {
+            assert!(
+                destroyer.calls().is_empty(),
+                "{case}: {:?}",
+                destroyer.calls()
+            );
+            assert!(outcome.sweep.destroyed.is_empty(), "{case}");
+            assert_eq!(outcome.sweep.refused.len(), 1, "{case}");
+        }
+    }
+
+    // A container of another job, named by the cidfile, is refused as a mismatch of the job.
+    let foreign_target = inspect(&id, labels(&other, "agent", Some(&run)));
+    let (guard, docker, destroyer) = rig(view(), vec![foreign_target]);
+    let read: Arc<dyn DockerDriver> = docker;
+    let isolation = DockerIsolation::new(gateway, read, Arc::new(guard));
+    let outcome = isolation
+        .collect_and_destroy(&plan, &workspace, &exit, &run)
+        .await
+        .expect("an outcome");
+    assert!(destroyer.calls().is_empty(), "{:?}", destroyer.calls());
+    assert_eq!(outcome.sweep.refused.len(), 1);
+    assert_eq!(outcome.sweep.refused[0].reason, "job_mismatch");
 }
 
 /// Guards: B11 — every destroy verb is preceded by an inspect of the same id, and a second
