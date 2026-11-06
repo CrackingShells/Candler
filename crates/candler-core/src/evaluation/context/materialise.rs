@@ -64,11 +64,11 @@ fn resolved(path: &Path) -> Result<PathBuf, ContextError> {
 
 impl Workspace {
     /// Prepares `root` as a workspace: it must be absolute, valid UTF-8 and outside the store at
-    /// `store_root`, and the `outputs/` below it must not exist yet, so nothing but the
+    /// `store_root` and not above it, and the `outputs/` below it must not exist yet, so nothing but the
     /// materialised files can be there.
     ///
     /// # Errors
-    /// Returns [`ContextError::Workspace`] for a relative, non-UTF-8 or in-store path and
+    /// Returns [`ContextError::Workspace`] for a relative, non-UTF-8, in-store or store-containing path and
     /// [`ContextError::Io`] when a directory cannot be made, which includes an existing `outputs/`.
     pub fn prepare(root: &Path, store_root: &Path) -> Result<Self, ContextError> {
         let refuse = |detail| ContextError::Workspace {
@@ -82,8 +82,12 @@ impl Workspace {
             return Err(refuse("is not valid UTF-8"));
         }
         let store = resolved(store_root)?;
-        if resolved(root)?.starts_with(&store) {
+        let real = resolved(root)?;
+        if real.starts_with(&store) {
             return Err(refuse("lies inside the store"));
+        }
+        if store.starts_with(&real) {
+            return Err(refuse("contains the store"));
         }
         fs::create_dir_all(root).map_err(io_error("create the workspace", root))?;
         let workspace = Self {
