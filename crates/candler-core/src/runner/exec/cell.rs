@@ -5,11 +5,12 @@ use std::path::{Path, PathBuf};
 
 use candler_harness::driver::DriverError;
 use candler_harness::spec::{CommandSpec, PreparedFile};
-use candler_schemas::execution::{Comparable, SecretPresence, TreatmentRef};
+use candler_schemas::execution::{Comparable, ExecutionError, SecretPresence, TreatmentRef};
 use candler_schemas::primitives::{Digest, FieldPath};
 use candler_schemas::values::SourceEntry;
 
 use crate::isolation::IsolationError;
+use crate::runner::evidence::Inputs;
 use crate::store::StoreError;
 use crate::supervise::SuperviseError;
 
@@ -29,6 +30,8 @@ pub struct CellRun {
     pub secrets: Vec<SecretPresence>,
     /// The checkout the treatment's skill tree is archived from.
     pub treatment_source: PathBuf,
+    /// The input files the cell declares, by workspace path, with their digests.
+    pub inputs: Inputs,
 }
 
 impl CellRun {
@@ -41,6 +44,7 @@ impl CellRun {
         sources: Vec<SourceEntry>,
         secrets: Vec<SecretPresence>,
         treatment_source: PathBuf,
+        inputs: Inputs,
     ) -> Self {
         Self {
             comparable,
@@ -49,6 +53,7 @@ impl CellRun {
             sources,
             secrets,
             treatment_source,
+            inputs,
         }
     }
 }
@@ -87,6 +92,9 @@ pub enum ExecError {
     /// The harness driver could not answer.
     #[error(transparent)]
     Driver(#[from] DriverError),
+    /// The manifest of the run cannot be built.
+    #[error("the manifest cannot be built: {0}")]
+    Manifest(#[from] ExecutionError),
     /// The supervisor could not start or wait for a child.
     #[error(transparent)]
     Supervise(#[from] SuperviseError),
