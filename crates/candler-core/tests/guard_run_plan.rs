@@ -9,11 +9,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
-use candler_core::runner::plan::{Force, PlanCtx, PlanMode, plan_runs};
+use candler_core::runner::plan::{Force, PlanCtx, PlanError, PlanMode, plan_runs};
 use serde_json::{Value, json};
 use support::run_plan::{
     Facts, Run, attempts_on_disk, experiment, fresh_store, manifest, resolution, snapshot,
-    write_run,
+    stored_cell, write_run,
 };
 
 type Files = BTreeMap<PathBuf, Vec<u8>>;
@@ -177,5 +177,163 @@ fn b26_resume_deletes_nothing_and_numbers_attempts() {
             [1],
             "replicate 1 of {model}"
         );
+    }
+}
+
+/// One fact that changes between the stored cells and the fresh resolution.
+struct Change {
+    /// The row's name.
+    name: &'static str,
+    /// Applies the change to the facts the resolution observes.
+    apply: fn(&mut Facts),
+    /// The path the deviation names.
+    path: &'static str,
+    /// The stored value, as JSON.
+    stored: Value,
+    /// The observed value, as JSON.
+    observed: Value,
+}
+
+/// The four facts a resume re-checks.
+///
+/// Provenance: the stored values are the ones `Facts::base()` writes into each manifest (image
+/// of 64 `a`, Claude Code 2.1.0, a commit of 40 `1`, secret `API_KEY` present); the observed
+/// values are the ones each `apply` writes.
+fn changes() -> Vec<Change> {
+    let base = Facts::base();
+    vec![
+        Change {
+            name: "image ID",
+            apply: |facts| facts.image = format!("sha256:{}", "b".repeat(64)),
+            path: "isolation.image",
+            stored: json!(format!("sha256:{}", "a".repeat(64))),
+            observed: json!(format!("sha256:{}", "b".repeat(64))),
+        },
+        Change {
+            name: "Claude Code version",
+            apply: |facts| facts.version = "2.2.0".to_owned(),
+            path: "harness.version",
+            stored: json!("2.1.0"),
+            observed: json!("2.2.0"),
+        },
+        Change {
+            name: "secret absent",
+            apply: |facts| facts.secrets.clear(),
+            path: "secrets",
+            stored: json!(base.secrets),
+            observed: json!([]),
+        },
+        Change {
+            name: "tag moved",
+            apply: |facts| facts.commit = "2".repeat(40),
+            path: "treatment",
+            stored: json!({"name": "htn", "tag": "v1", "commit": "1".repeat(40)}),
+            observed: json!({"name": "htn", "tag": "v1", "commit": "2".repeat(40)}),
+        },
+    ]
+}
+
+/// A store of two cells whose replicate 1 is sealed valid and whose replicate 2 is to start.
+fn two_cells() -> (tempfile::TempDir, candler_core::store::Store, PathBuf) {
+    let (dir, store, lock) = fresh_store();
+    let facts = Facts::base();
+    for model in ["m1", "m2"] {
+        write_run(&store, &run(model, &facts, 1, 1, true));
+    }
+    (dir, store, lock)
+}
+
+/// Guards: B27 (I11, I3) — a resume replays the stored cell: a changed image ID, Claude Code
+/// version, secret or treatment tag is refused without `--force`, naming the changed path, and a
+/// refusal writes nothing; with nothing changed the resume plans, and with `--force` the plan
+/// still carries the stored cell.
+/// Oracle: literal paths and values, with the stored ones read back from hand-built manifests;
+/// the bytes under `runs/` before and after.
+/// Bite: skip the image-ID comparison in `check_facts`.
+#[test]
+fn b27_changed_fact_is_refused_and_the_cell_is_pinned() {
+    let models = ["m1", "m2"];
+    let file = experiment(&models, 2);
+    let base = Facts::base();
+
+    // Control: nothing changed, so the resume plans replicate 2 of each cell.
+    let (_dir, store, lock) = two_cells();
+    let ctx = PlanCtx {
+        store,
+        experiment_lock: lock,
+    };
+    let out = plan_runs(&ctx, &file, &resolution(&base), Force::No, PlanMode::Hold)
+        .map_err(|e| e.to_string())
+        .expect("the control plans");
+    assert_eq!(out.plans.len(), 2, "one replicate left per cell");
+    for (plan, model) in out.plans.iter().zip(models) {
+        assert_eq!(
+            plan.stored,
+            Some(stored_cell(model, &base)),
+            "the stored cell is replayed"
+        );
+        assert!(
+            plan.deviations.is_empty(),
+            "nothing changed, nothing deviates"
+        );
+    }
+    drop(out);
+
+    for change in changes() {
+        let (_dir, store, lock) = two_cells();
+        let root = store.layout().root().to_path_buf();
+        let ctx = PlanCtx {
+            store,
+            experiment_lock: lock,
+        };
+        let mut observed = base.clone();
+        (change.apply)(&mut observed);
+        let res = resolution(&observed);
+
+        // Refused without force, naming the path, and nothing is written.
+        let before = snapshot(&root);
+        let refusal = plan_runs(&ctx, &file, &res, Force::No, PlanMode::Hold);
+        let Err(PlanError::Changed(deviations)) = refusal else {
+            panic!("{}: expected a refusal", change.name);
+        };
+        let paths: BTreeSet<&str> = deviations.iter().map(|d| d.path.as_str()).collect();
+        assert_eq!(paths, BTreeSet::from([change.path]), "{}", change.name);
+        for deviation in &deviations {
+            let stored = deviation.stored.as_ref().map(|v| v.as_value().clone());
+            let seen = deviation.observed.as_ref().map(|v| v.as_value().clone());
+            assert_eq!(stored, Some(change.stored.clone()), "{}", change.name);
+            assert_eq!(seen, Some(change.observed.clone()), "{}", change.name);
+        }
+        assert_eq!(
+            snapshot(&root),
+            before,
+            "{}: a refusal writes nothing",
+            change.name
+        );
+
+        // Pinned: forced, the plan still replays the stored cell, not the observed one.
+        let out = plan_runs(&ctx, &file, &res, Force::Yes, PlanMode::Hold)
+            .map_err(|e| e.to_string())
+            .expect("a forced plan");
+        assert_eq!(out.plans.len(), 2, "{}", change.name);
+        for (plan, model) in out.plans.iter().zip(models) {
+            assert_eq!(
+                plan.stored,
+                Some(stored_cell(model, &base)),
+                "{}",
+                change.name
+            );
+            let key = manifest(&run(model, &base, 1, 1, true))
+                .run()
+                .cell()
+                .clone();
+            assert_eq!(
+                plan.key.cell(),
+                &key,
+                "{}: the stored digest keys the run",
+                change.name
+            );
+        }
+        drop(out);
     }
 }
