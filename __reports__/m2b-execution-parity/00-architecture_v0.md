@@ -694,3 +694,19 @@ From `htn_creator_eval/_provenance.py` and `_manifest.py` at `htn-creator-eval@0
 21. **Closed:** M1's reader reads `api_error_status` (`candler-harness-claude-code/src/sessions.rs`), and a non-null value is a gateway error. The `ClaudeCodeDriver` `classify_exit` must see provider status in an error result to split gateway from agent error. Whether the stream-json reader exposes that status in `Session` was not checked.
 
 **Review round 3 (2026-11-06).** N1 lifetimes `BoxFuture<'_>` and S3 compiles the stubs before the api_review; N2 `Arc<Supervisor>`; N3 `destroy(c, &SweepScope)`; N4 E19 dropped, the `role=control` refusal is a B10 row and self-removal an `equivalence_smoke` check; N5 one name, `ContainerStopHook`; N6 and finding 23 in the §8 `image` row.
+
+**Leaf drafting (2026-11-06).** The four drafters raised 37 spec defects. They are ruled as D1–D23 in the lead's rulings note, which S3 implements and which supersede this report where the two differ. The ones that change shared surface:
+- D3 and D6: `register_m2b_steps(r, M2bServices { supervisor, images, catalog, harness_supported })`.
+- D7: `exec_run(.., ctl: &RunControl)` with `JobCause` and `JobMeter`; `RunOutcome.usage`.
+- D8: `JobSpec` handed to `candler supervise` on stdin, `supervisor.log` in the job dir.
+- D11: `Guard::signal_marked` and `Supervisor::guard`, for job_runtime's `ProcMarkerSweeper`.
+- D23: `Guard::signal_adopted(pid, start, Signal)` for orphans under the subreaper (parent and start time re-verified, one pid, never a group); its refusals and those of `signal_marked` are rows of M1's I22 test in `guard_signal`.
+- D12: `supervise_entry(spec, body: JobBody)`, and cli_run one level deeper.
+- D13: `JobOutcome { end: JobEnd, runs }`.
+- D14: `SweepScope { Run, CurrentJob, Lost }`.
+- D15: `plan(&PlanCtx, .., Force) -> PlanOutcome`.
+- D18: B16's two-file rule.
+- D19: S3 owns the stop.rs changes.
+- D20: `image_inspect -> ImageInfo`.
+- The new settings are `request.treatment_source` (D2) and `model.token_secret` (D9). The new cell value is `model.effort` (D17).
+- `job.started` precedes the gateway (D10). The gateway probe is not a resume fact (D21).
