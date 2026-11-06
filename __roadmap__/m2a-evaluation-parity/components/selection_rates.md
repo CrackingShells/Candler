@@ -1,0 +1,54 @@
+# Selection, I4, rates and generic diff
+
+**Goal**: `evaluation::selection` reads committed outcome files. It selects the current record per key and flags any I4 violation. It computes the quality and gate rates per cell. It diffs two evaluator versions on `(status, value, weight, cause)` exactly, counting missing and extra rows as changes, listing uncompared rows with counts, and excusing only what a hand-written equivalence file says (DF1, DF2, SEL1, RT1).
+**Pre-conditions**:
+- [ ] [cmd] ENV and DEP(skeleton)
+**Success Gates**:
+- ⬜ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler-core/(src/evaluation/selection/|tests/(guard_diff|guard_selection)\.rs$|tests/fixtures/selection/|tests/public_surface\.rs$)` with only the `selection_rates_surface` block of `public_surface.rs` changed
+- ⬜ [cmd] `cargo nextest run -p candler-core -E 'binary(guard_diff) | binary(guard_selection)'` passes (DF1, DF2, SEL1, RT1)
+- ⬜ [nl] The report names, for each of DF1's planted classes, the diff output line that names it
+**References**: [R01 §Data Model (outcome records), §Evaluator protocol (I4)](../../../__design__/architecture.md) — record keys, I4 text; [R03 §I4, §Generic diff](../../../__reports__/m2a-evaluation-parity/00-architecture_v0.md) — the four fields, default-weight normalisation, the equivalence format, the uncompared listing, the rates format; `crates/candler-core/src/store/` — `outcome_files`, `read_outcomes`; `_outcome.py` at `28be2c15` — the rate formula (prose in R03); [R04 DF1, DF2, SEL1, RT1](../../../__reports__/m2a-evaluation-parity/01-test_definition_v0.md)
+
+## Step 1: Select records and flag I4
+**Goal**: For each key, one current record is chosen, and a changed record under the same key is reported, never hidden.
+**Implementation Logic**:
+1. `select(records) -> Selection`: the I4 key is `(evaluator name@version, run, expectation, context_digest, suite_entry_digest)`. Records under one key are ordered by request id (v7, so time-ordered).
+2. Two records under one key that differ in any of the four fields are an `I4Violation { key, first, second }`. The one exception is an error outcome (`not_measured` with an `instrument_error` or `deadline` cause) followed by a measured one, which is a recovery: the later record is current.
+3. Otherwise the latest record is current.
+**Deliverables**: `crates/candler-core/src/evaluation/selection/select.rs` (`select`, `Selection`, `I4Key`, `I4Violation`)
+**Consistency Checks**: `cargo clippy -p candler-core --all-targets -- -D warnings` (expected: PASS)
+**Commit**: `feat(evaluation): select current outcomes and flag i4 changes`
+
+## Step 2: Compute the rates per cell
+**Goal**: Quality and gate rates per cell use the reference formula over current A–C records, with `not_applicable` outside the denominator.
+**Implementation Logic**:
+`rates(selection, roles: &RoleMap) -> BTreeMap<CellKey, Rates>`: per cell, the integer sums of score and max score over current records whose expectation's role is `gate` or `quality`, as R03 transcribes `_outcome.py`. A `not_applicable` record and a 0/0 pass add nothing. `RoleMap` comes from the suite (the core names no expectation). `Rates` serialises as R03's TOML format (`gate = [num, den]`, `quality = [num, den]`). `surfaces` prints it.
+**Deliverables**: `crates/candler-core/src/evaluation/selection/rates.rs` (`rates`, `Rates`, `RoleMap`, `CellKey`)
+**Consistency Checks**: `cargo clippy -p candler-core --all-targets -- -D warnings` (expected: PASS)
+**Commit**: `feat(evaluation): compute quality and gate rates per cell`
+
+## Step 3: Diff two evaluator versions exactly
+**Goal**: The diff compares four fields, sees missing and extra rows, lists what it did not compare, and excuses only data-file rules in one direction.
+**Implementation Logic**:
+1. `diff(from: &Selection, to: &Selection, equivalence: &Equivalence) -> DiffReport`. Rows are joined on `(run, expectation)`. Weights equal to the status default are normalised to absent on both sides first. Evidence is never compared.
+2. A row in `from` with no match in `to` is `missing`, and the reverse is `extra`; both are changes. A row whose expectation is not in the `to` suite is `uncompared`, counted per expectation, and listed in the report with its count.
+3. `Equivalence::load(path)` reads R03's JSON format. A rule applies only from `from` to `to`, and only when every field of its `from` pattern and its `to` pattern matches exactly. Each application is counted.
+4. `DiffReport { compared, changed, changes: Vec<Change { class, run, expectation, from, to }>, uncompared: Vec<{expectation, count}>, equivalences_applied }`. Change classes: `status`, `value`, `weight`, `cause`, `missing`, `extra`. The value class compares JSON numbers with their kind (`3` is not `3.0`). This is the type whose JSON key set `surfaces` exposes.
+**Deliverables**: `crates/candler-core/src/evaluation/selection/diff.rs` (`diff`, `DiffReport`, `Change`, `ChangeClass`, `Equivalence`, `Uncompared`)
+**Consistency Checks**: `cargo clippy -p candler-core --all-targets -- -D warnings` (expected: PASS)
+**Commit**: `feat(evaluation): diff evaluator versions on the four outcome fields`
+
+## Step 4: Guard the diff, the selection and the rates
+**Goal**: Four guards decide the module by hand literals and the I4 text.
+**Implementation Logic**:
+1. `tests/fixtures/selection/`: a hand-written base of a few records (built with the schema builders in the test, not captured), plus `equivalence.json` copied from R03's example. That example is the same one-rule content as `reference_oracle`'s, written independently.
+2. `tests/guard_diff.rs`:
+   - DF1 (R2): one parameterised table, one planted change per row on a base that diffs clean (positive control): status, value 3→4, value 3→3.0, weight, cause kind, cause present→absent, missing row, extra row. Each row gives `changed == 1` with the named class. An evidence-only change gives `changed == 0`. Oracle: hand literal. Bite: drop weight from the comparison.
+   - DF2 (R2): only `pass 0/0 {legacy: zero_weight}` → `not_applicable {empty_population}` is excused. A 1/1 pass shown as NA, a 0/0 pass with another cause, and the reverse direction are each a change. The uncompared list holds the expected expectations and counts. Oracle: the hand-written equivalence file. Bite: apply the rule both ways.
+3. `tests/guard_selection.rs`:
+   - SEL1 (R5): a changed field under the same key is an `I4Violation`; error→measured is a recovery and is not flagged. Oracle: the I4 text. Bite: remove the exception.
+   - RT1 (R1): a hand-computed three-cell table; gate and quality sums equal literals, and NA is out of the denominator. Oracle: the `_outcome.py` formula in R03's prose. Bite: include NA.
+4. Fill `selection_rates_surface`, delete scaffold tests, record bites.
+**Deliverables**: `crates/candler-core/tests/guard_diff.rs` (DF1, DF2); `crates/candler-core/tests/guard_selection.rs` (SEL1, RT1); `crates/candler-core/tests/fixtures/selection/`; the `selection_rates_surface` block
+**Consistency Checks**: `cargo nextest run -p candler-core -E 'binary(guard_diff) | binary(guard_selection)'` (expected: PASS)
+**Commit**: `test(evaluation): guard the diff, the selection and the rates`
