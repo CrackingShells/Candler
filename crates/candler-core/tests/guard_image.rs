@@ -66,6 +66,8 @@ impl Rig {
         std::fs::write(canned.join("image-inspect.out"), INSPECT_ANSWER).expect("an answer");
         std::fs::write(canned.join("run.out"), "2.1.311 (Claude Code)\n").expect("an answer");
         // The id the fake prints for a build exists, as it does in docker.
+        // BORROW: `.to_owned()` makes the owned file name the marker needs
+        // INDEX: the fake id starts with the `sha256:` prefix, which is seven bytes
         std::fs::write(canned.join("built-sha256_".to_owned() + &FAKE_ID[7..]), "")
             .expect("a marker");
         // The client's environment is an allowlist, so the fake's own settings live in a wrapper.
@@ -115,6 +117,7 @@ impl Rig {
             .filter(|argv| argv.first().is_some_and(|verb| verb == "build"))
             .filter(|argv| {
                 argv.windows(2)
+                    // INDEX: `windows(2)` yields pairs of two
                     .any(|pair| pair[0] == "-t" && pair[1] == tag)
             })
             .count()
@@ -156,7 +159,7 @@ async fn b05_one_build_per_digest() {
         rig.service.ensure(&digest, &setting)
     );
     let (first, second) = (first.expect("an image"), second.expect("an image"));
-    // Provenance: plan D2 and the leaf's Step 4 — one build of the env tag per lock digest.
+    // Provenance: plan D2 — one build of the env tag per lock digest.
     assert_eq!(
         rig.builds_of(&tag),
         1,

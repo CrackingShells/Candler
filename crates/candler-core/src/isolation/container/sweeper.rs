@@ -220,7 +220,13 @@ impl LabelSweeper {
                     inspected.created,
                 )),
                 Err(DockerError::NotFound { .. }) => {}
-                Err(_) => report.sweep.unknown = true,
+                Err(
+                    DockerError::Unavailable { .. }
+                    | DockerError::Failed { .. }
+                    | DockerError::Unreadable { .. }
+                    | DockerError::NotAFullId { .. }
+                    | DockerError::NotAJobNetwork { .. },
+                ) => report.sweep.unknown = true,
             }
         }
         // agents go before the gateway they talk to

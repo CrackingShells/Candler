@@ -1,8 +1,9 @@
 //! The expiry that ends a container whose supervisor is lost.
 //!
 //! The command inside the container runs under `timeout` with short options, which coreutils and
-//! busybox both read. Coreutils exits 124 when it expires a command. The inner limit is the run's wall time plus a margin, so the supervisor's
-//! own deadline fires first and the inner limit only matters when the supervisor is gone.
+//! busybox both read. Coreutils exits 124 when it expires a command. The inner limit is the run's
+//! wall time plus a margin, so the supervisor's own deadline fires first and the inner limit only
+//! matters when the supervisor is gone.
 
 use std::time::Duration;
 
