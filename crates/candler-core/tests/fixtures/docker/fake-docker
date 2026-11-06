@@ -1,0 +1,55 @@
+#!/bin/sh
+# PATH-fake `docker` for process-level host tests (B05, B31, B32, B35).
+# It is an environment, never an argv oracle: tests assert on what the code under test did to
+# the world (build count, refusals, exit status), never on this log's argv against a builder's.
+# It never calls the real docker.
+#
+#   FAKE_DOCKER_LOG   file; one JSON array of argv per call is appended (a single write).
+#   FAKE_DOCKER_DIR   canned answers: <verb>.out (stdout), <verb>.code (exit code, default 0),
+#                     <verb>.delay (seconds to sleep first). <verb> is argv[1], or "<argv1>-<argv2>"
+#                     for the grouped commands image, network and container (image-inspect).
+# State (D20): `build -t <tag>` creates $FAKE_DOCKER_DIR/built-<tag> (tag with / and : as _).
+#   `image inspect <tag>` succeeds only once that marker exists (stdout from image-inspect.out,
+#   else "[]"), and exits 1 with "No such image" before it. A test may touch a marker to preset it.
+: "${FAKE_DOCKER_LOG:?}" "${FAKE_DOCKER_DIR:?}"
+
+line=""
+for a in "$@"; do
+  e=$(printf '%s' "$a" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  line="${line:+$line,}\"$e\""
+done
+printf '[%s]\n' "$line" >> "$FAKE_DOCKER_LOG"
+
+verb="${1:-}"
+case "$verb" in
+  image|network|container) [ -n "${2:-}" ] && verb="$1-$2" ;;
+esac
+
+[ -f "$FAKE_DOCKER_DIR/$verb.delay" ] && sleep "$(cat "$FAKE_DOCKER_DIR/$verb.delay")"
+
+code=0
+[ -f "$FAKE_DOCKER_DIR/$verb.code" ] && code=$(cat "$FAKE_DOCKER_DIR/$verb.code")
+
+marker() { printf '%s/built-%s' "$FAKE_DOCKER_DIR" "$(printf '%s' "$1" | tr '/:' '__')"; }
+
+case "$verb" in
+  build)
+    tag=""; prev=""
+    for a in "$@"; do
+      case "$prev" in -t|--tag) tag="$a" ;; esac
+      prev="$a"
+    done
+    [ "$code" -eq 0 ] && [ -n "$tag" ] && : > "$(marker "$tag")"
+    ;;
+  image-inspect)
+    for a in "$@"; do tag="$a"; done
+    if [ ! -f "$(marker "$tag")" ]; then
+      echo "Error response from daemon: No such image: $tag" >&2
+      exit 1
+    fi
+    if [ ! -f "$FAKE_DOCKER_DIR/image-inspect.out" ]; then echo "[]"; exit "$code"; fi
+    ;;
+esac
+
+[ -f "$FAKE_DOCKER_DIR/$verb.out" ] && cat "$FAKE_DOCKER_DIR/$verb.out"
+exit "$code"
