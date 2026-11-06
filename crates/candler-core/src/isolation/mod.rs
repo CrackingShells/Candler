@@ -20,7 +20,7 @@ use candler_harness::spec::{Cell, CommandSpec, Workspace};
 use candler_schemas::primitives::{Marker, RunKey};
 use futures::future::BoxFuture;
 
-use crate::supervise::spawn::SpawnRequest;
+use crate::supervise::spawn::{OutputSpec, SpawnRequest};
 use crate::supervise::stop::Exit;
 
 pub use self::model::{ContainerOutcome, ContainerPlan};
@@ -47,6 +47,24 @@ pub enum IsolationError {
         /// What docker reported; it never holds a secret.
         detail: String,
     },
+}
+
+/// Where the run's standard output and standard error go.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct RunOutputs {
+    /// The standard output of the run's client.
+    pub stdout: OutputSpec,
+    /// The standard error of the run's client.
+    pub stderr: OutputSpec,
+}
+
+impl RunOutputs {
+    /// The two outputs of a run.
+    #[must_use]
+    pub const fn new(stdout: OutputSpec, stderr: OutputSpec) -> Self {
+        Self { stdout, stderr }
+    }
 }
 
 /// What the isolation knows about a run's end once the child has been waited for.
@@ -87,7 +105,8 @@ pub trait Isolation: Send + Sync {
     ) -> Result<ContainerPlan, IsolationError>;
 
     /// Wraps the harness's command into the request that starts the container and runs it. The
-    /// request carries a fresh stop hook that is the run's own.
+    /// request carries a fresh stop hook that is the run's own, and writes its output where
+    /// `outputs` says.
     ///
     /// # Errors
     /// [`IsolationError::Plan`] when the command cannot be wrapped.
@@ -97,9 +116,12 @@ pub trait Isolation: Send + Sync {
         command: CommandSpec,
         marker: Marker,
         key: RunKey,
+        outputs: RunOutputs,
     ) -> Result<IsolatedRequest, IsolationError>;
 
     /// Inspects the run's container after the child's exit, then destroys it through the guard.
+    /// The destroy is scoped to the run `key`, never to the run the container's own label names,
+    /// and a container whose job label differs from the plan's is refused and reported.
     ///
     /// # Errors
     /// [`IsolationError::Docker`] when docker fails.
@@ -108,5 +130,6 @@ pub trait Isolation: Send + Sync {
         plan: &'a ContainerPlan,
         workspace: &'a Workspace<'a>,
         exit: &'a Exit,
+        key: &'a RunKey,
     ) -> BoxFuture<'a, Result<ContainerOutcome, IsolationError>>;
 }

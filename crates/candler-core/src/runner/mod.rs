@@ -8,11 +8,13 @@ pub mod evidence;
 pub mod exec;
 pub mod plan;
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use candler_harness::driver::HarnessDriver;
 use candler_schemas::execution::InvalidReason;
-use candler_schemas::primitives::RunKey;
+use candler_schemas::primitives::{JobId, RunKey};
 use candler_schemas::trace::EndedBy;
 use tokio::sync::watch;
 
@@ -24,6 +26,10 @@ use crate::jobs::model::JobCause;
 use crate::jobs::slots::Slots;
 use crate::store::Store;
 use crate::supervise::{EventSink, Supervisor};
+
+use self::exec::ends::Retry;
+use self::exec::{CellRun, SkillTree};
+use self::plan::CellId;
 
 /// What a run needs from the job around it.
 pub struct Runtime {
@@ -45,6 +51,16 @@ pub struct Runtime {
     pub isolation: Option<Arc<dyn Isolation>>,
     /// The job's gateway. `None` until it has started.
     pub gateway: Option<JobGateway>,
+    /// The job the runs belong to.
+    pub job: JobId,
+    // TRAIT_OBJECT: the driver is the harness's, or a recording fake in tests
+    /// What the runner needs from the harness, as data.
+    pub driver: Arc<dyn HarnessDriver>,
+    // TRAIT_OBJECT: the tree is read through the harness's archive reader, or a fake in tests
+    /// Where a treatment's skill tree comes from.
+    pub skills: Arc<dyn SkillTree>,
+    /// What each cell of the job is, by its digest.
+    pub cells: BTreeMap<CellId, Arc<CellRun>>,
 }
 
 /// The job's gateway: the service that talks to it and the handle of the running container.
@@ -90,6 +106,8 @@ pub struct RunOutcome {
     pub inspect: Option<Inspect>,
     /// What the run spent.
     pub usage: Usage,
+    /// Whether the caller opens another attempt.
+    pub retry: Retry,
 }
 
 /// What the job tells a run while it runs.
