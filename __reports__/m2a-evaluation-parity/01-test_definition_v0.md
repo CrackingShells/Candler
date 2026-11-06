@@ -7,7 +7,7 @@ The roadmap cites this report as R04. A leaf commits only the guards this report
 ## Executive Summary
 - **What must be proven.** A live `htn-creator-eval@0.5.0` regrade of the 240-run golden corpus reproduces the imported `0.4.2` rows on the 8,880 A–C rows, field by field, and reproduces itself on a second regrade. It does so through a core that names no domain, under the pinned instrument `git:28be2c15`, with no `deadline` row.
 - **Top risks.** R1–R10 below. Each has one to four cornerstone guards. The apex guards are GP1–GP3, which read every expected number from an oracle that imports nothing from Candler.
-- **Volume.** 31 cornerstone guards: 23 Rust (4 of them `#[ignore]` corpus tests), 3 in the Python helper and 5 in the HTN repo. There are 2 development tests and 15 one-shot `[cmd]` gates.
+- **Volume.** 32 cornerstone guards: 24 Rust (4 of them `#[ignore]` corpus tests; CLI3 was added by the M2 coordinator's exit-code ruling), 3 in the Python helper and 5 in the HTN repo. There are 2 development tests and 15 one-shot `[cmd]` gates.
   - M1 committed about 90 tests. The heuristic for five features is 20–30.
   - The extra guard is justified because the milestone's one claim is parity, and it spans three languages and two repos.
 
@@ -71,6 +71,7 @@ Every guard carries `Guards: <R#|I#> — <property>. Oracle: <source>.`, as a Ru
 | ENG3 engine | A nondeterministic kind is caught | R5 | integration component | Counter kind, two regrades | Selection reports an I4 violation on the second. Bite: reuse the cached outcome |
 | CLI1 surfaces | The JSON contract | R2 | regression | Tiny seeded store | `diff --format json` key sets equal the hand literal at each level, `equivalence` included; exit 1 on a planted change, 0 on none. Bite: rename `compared` |
 | CLI2 surfaces | The whole path | R1, R2 | integration end_to_end | M1 mini-corpus with the synthetic plug-in | import→evaluate→show→diff; `compared > 0`; one edited stored value makes `diff` exit 1. Bite: `diff` always exits 0 |
+| CLI3 surfaces | One exit mapping for the binary (M2 ruling, 2026-11-06) | R2 | unit regression | A three-row table in `main.rs` | `Exit::Success` → 0, `Exit::Changed` → 1, any `CliError` → 2, as diff(1) has it. Bite: map `CliError` to 1 |
 | REG1 registry | Refusals | R8 | regression | Valid manifest and suite, single-fault edits | Positive control passes; unknown kind, bad params, unmeetable need, and `snapshots`/`inputs` with the exact text are refused. Bite: skip the `inputs` check |
 | REG2 registry | Environment reuse | R6 | regression | Stub `uv` counter | A second preflight under the same digest runs the stub zero more times, and the env dir inode and mtime are unchanged. Oracle: OS `stat`. Bite: rebuild on rerun |
 | RC1 run_context | The live digest | R9 | regression | Mini-corpus store | Digest equals `live_context_runs.toml`; a one-byte twin differs. Oracle: Python `rfc8785` vectors. Bite: omit artifacts |

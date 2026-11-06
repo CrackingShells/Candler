@@ -1,31 +1,41 @@
 # Surfaces: import, evaluate, show, diff
 
-**Goal**: `candler import | evaluate | show | diff` drive the importer, the engine, the rates and the diff. They emit stable JSON whose key set is a hand-written contract, and they exit 1 exactly when `diff` finds a change (CLI1, CLI2).
+**Goal**: `candler import | evaluate | show | diff` drive the importer, the engine, the rates and the diff. They emit stable JSON whose key set is a hand-written contract, and they exit 1 exactly when `diff` finds a change, through the one exit mapping the binary shares with M2b (CLI1, CLI2, CLI3).
 **Pre-conditions**:
 - [ ] [cmd] ENV, DEP(skeleton) and the L1 merge of `selection_rates`
 - [ ] [cmd] `git log --first-parent --format=%s feat/m2a-evaluation-parity | grep -qx 'merge(evaluator-helper): land helper_runtime'` (the synthetic plug-in for CLI2)
 **Success Gates**:
-- ⬜ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler/(src/commands/(common|import|evaluate|show|diff)\.rs|tests/(guard_cli\.rs|fixtures/cli/))$`
-- ⬜ [cmd] SPAWN, then `cargo nextest run -p candler -E 'binary(guard_cli)'` passes (CLI1, CLI2)
+- ⬜ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler/(src/(main\.rs$|commands/(mod|common|import|evaluate|show|diff)\.rs$)|tests/(guard_cli\.rs$|fixtures/cli/))`
+- ⬜ [cmd] SPAWN, then `cargo nextest run -p candler -E 'binary(guard_cli)'` passes (CLI1, CLI2), and `cargo nextest run -p candler -E 'binary(candler)'` passes (CLI3)
 - ⬜ [nl] `engine`'s integration (L2 tip) is in place before CLI2 runs a real `evaluate`. Until then CLI2 runs `import`, `show` and `diff` only, and the report says so.
 **References**: [R01 §CLI surface](../../../../__design__/architecture.md); [R03 §Skeleton seams (flags, exit codes), §Generic diff (JSON keys, rates TOML)](../../../../__reports__/m2a-evaluation-parity/00-architecture_v0.md); `crates/candler-core/src/import/` — the M1 importer API; `crates/candler-core/src/evaluation/selection/` — `DiffReport`, `Rates`; [R04 CLI1, CLI2](../../../../__reports__/m2a-evaluation-parity/01-test_definition_v0.md)
 
 ## Step 1: Wire import and evaluate
 **Goal**: `import` and `evaluate` call the core with the frozen flags.
 **Implementation Logic**:
+0. The exit shape, binding for the whole binary (M2 coordinator ruling, 2026-11-06):
+   - `commands/mod.rs` holds only `CliError`, `Exit` and the module list.
+     - `CliError` takes M2b's variants at `6a30ed1`: `Unavailable { verb }`, `Refused { reason }`, `Failed { verb, source }` and `Runtime { detail }`, all `#[non_exhaustive]`. This keeps the later rebase a no-op.
+     - `pub enum Exit { Success, Changed { count: usize } }`.
+     - `not_built` is removed.
+   - Every verb is `async fn run(..) -> Result<Exit, CliError>`. Only `diff` builds `Exit::Changed`, and every other verb returns `Ok(Exit::Success)`.
+   - A found change is never a `CliError`, because it would travel through `?` and stderr. A later non-error status becomes another `Exit` variant, never a raw `ExitCode`.
+   - `main.rs` has the one mapping: `Ok(Exit::Success)` → 0, `Ok(Exit::Changed { .. })` → 1, and any `CliError` → 2, the runtime failing to start included.
+   - CLI3 is one table test of that mapping in `main.rs`, with three rows. Its oracle is the diff(1) convention: 0 for the same, 1 for a difference, 2 for trouble. Bite: map `CliError` to 1.
+   - `common.rs` stays the one home of the store-root lookup, the `Resolver` composition and the `EventSink`. M2b's verbs use it after their rebase.
 1. `import <corpus> --instrument <id@version>` runs the M1 importer into `--store` (or `CANDLER_STORE`) and prints a one-line JSON summary (`runs`, `records`).
 2. `commands/common.rs` (shared with M2b's commands): the store root (`--store`, else the configuration), the `Resolver` composition, and the binary's `EventSink`. `evaluate` uses them.
-3. `evaluate --plugin <manifest> --suite <file> [--runs <glob>] [--concurrency N]` builds the `Resolver` in `common.rs`, adds the evaluation steps with `register_evaluation_steps` (passing the same `Arc<Supervisor>` the engine gets) (the composition point M2b shares: its own `register_*_steps` calls sit beside it, one per line), runs the preflight, then calls `engine::evaluate` with `registry::default_env_root`, one `Arc<Supervisor>` and a cancel receiver that `tokio::signal::ctrl_c` turns `true` (the binary receives SIGINT and never sends a signal: I22). The handler only flips the cancel watch: every stop goes out through `Supervisor`/`StopHandle`, and the handler never signals anything itself and never re-raises SIGINT to the process group (M2 coordinator condition, 2026-11-06). A test that covers Ctrl-C uses the recording fake `Signaller` of `test-support` and asserts that only groups that were spawned and re-verified were stopped, and prints `EvaluateReport` as JSON. A failed or cancelled request exits 2. On a non-Unix target `evaluate` prints `candler evaluate: unsupported on this platform` and exits 2.
+3. `evaluate --plugin <manifest> --suite <file> [--runs <glob>] [--concurrency N]` builds the `Resolver` in `common.rs`, adds the evaluation steps with `register_evaluation_steps` (passing the same `Arc<Supervisor>` the engine gets) (the composition point M2b shares: its own `register_*_steps` calls sit beside it, one per line), runs the preflight, then calls `engine::evaluate` with `registry::default_env_root`, one `Arc<Supervisor>` and a cancel receiver that `tokio::signal::ctrl_c` turns `true` (the binary receives SIGINT and never sends a signal: I22). The handler only flips the cancel watch: every stop goes out through `Supervisor`/`StopHandle`, and the handler never signals anything itself and never re-raises SIGINT to the process group (M2 coordinator condition, 2026-11-06). A test that covers Ctrl-C uses the recording fake `Signaller` of `test-support` and asserts that only groups that were spawned and re-verified were stopped, and prints `EvaluateReport` as JSON. A failed or cancelled request is a `CliError` (exit 2). On a non-Unix target `evaluate` returns `CliError::Refused` with reason `unsupported on this platform` (exit 2).
 4. No new flag beyond R03's list. An extra flag is a request to the coordinator, since M2b extends the same enum.
-**Deliverables**: `crates/candler/src/commands/import.rs` (`run`); `crates/candler/src/commands/evaluate.rs` (`run`)
+**Deliverables**: `crates/candler/src/commands/mod.rs` (`CliError`, `Exit`); `crates/candler/src/main.rs` (the mapping and CLI3); `crates/candler/src/commands/import.rs` (`run`); `crates/candler/src/commands/evaluate.rs` (`run`)
 **Consistency Checks**: `cargo clippy -p candler --all-targets -- -D warnings` (expected: PASS)
-**Commit**: `feat(cli): wire candler import and evaluate to the core`
+**Commit**: `feat(cli): share one exit mapping and wire import and evaluate`
 
 ## Step 2: Wire show and diff
 **Goal**: `show --rates` prints the rates in the reference oracle's TOML byte format, and `diff` prints the report and sets the exit code.
 **Implementation Logic**:
 1. `show [--rates] [--evaluator <name@version>] --format json|toml`: without `--rates`, the current records' per-status counts, per evaluator or for the one named; with `--rates` (which requires `--evaluator`), that evaluator's `Rates` per cell in R03's TOML format, keys sorted, ending in one newline, so that `diff <(candler show --rates --evaluator <name@version> --format toml) $ORACLE/rates_by_cell.toml` is a byte comparison.
-2. `diff --from --to [--equivalence <file>] --format json|text`: `DiffReport` as JSON with exactly the keys of R03 §Generic diff: `compared`, `unchanged`, `excused`, `changed`, `changes`, `uncompared` (a list of `{expectation, count}`) and `equivalence` (`{sha256, rows}`, or `null` without `--equivalence`). Exit 1 when `changed > 0`, 0 otherwise, 2 on an error, a refused equivalence file or `compared == 0` (a regrade whose requests all failed must not read as "no change").
+2. `diff --from --to [--equivalence <file>] --format json|text`: `DiffReport` as JSON with exactly the keys of R03 §Generic diff: `compared`, `unchanged`, `excused`, `changed`, `changes`, `uncompared` (a list of `{expectation, count}`) and `equivalence` (`{sha256, rows}`, or `null` without `--equivalence`). `Ok(Exit::Changed { count: changed })` when `changed > 0`, and `Ok(Exit::Success)` otherwise. A `CliError` (exit 2) on an error, a refused equivalence file, or `compared == 0`, so that a regrade whose requests all failed never reads as "no change".
 **Deliverables**: `crates/candler/src/commands/show.rs` (`run`); `crates/candler/src/commands/diff.rs` (`run`)
 **Consistency Checks**: `cargo clippy -p candler --all-targets -- -D warnings` (expected: PASS)
 **Commit**: `feat(cli): wire candler show and diff to the core`
