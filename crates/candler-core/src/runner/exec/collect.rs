@@ -2,6 +2,7 @@
 //! tried again.
 
 use candler_harness::spec::Workspace;
+use candler_schemas::primitives::RunKey;
 
 use super::ends::{End, Retry};
 use crate::isolation::model::{ContainerOutcome, ContainerPlan};
@@ -48,10 +49,14 @@ pub async fn finish_attempt(
     plan: &ContainerPlan,
     workspace: &Workspace<'_>,
     exit: &Exit,
+    key: &RunKey,
     facts: &dyn EndFacts,
 ) -> Finished {
     match exit.ended {
-        Ended::Exited => match isolation.collect_and_destroy(plan, workspace, exit).await {
+        Ended::Exited => match isolation
+            .collect_and_destroy(plan, workspace, exit, key)
+            .await
+        {
             Ok(outcome) => Finished {
                 outcome: Some(outcome),
                 collect_ok: true,
