@@ -13,8 +13,9 @@ use candler_harness::spec::{CommandSpec, EnvEntry, EnvValue};
 use candler_schemas::primitives::{Marker, RunKey};
 use url::Url;
 
+use super::expiry::{ceil_secs, wrap_expiry};
 use super::mounts::{MountError, MountRoots, mounts};
-use crate::isolation::layout::{CONTAINER_ENV, LABEL_JOB, LABEL_ROLE, LABEL_RUN};
+use crate::isolation::layout::{CONTAINER_ENV, EXPIRY_MARGIN, LABEL_JOB, LABEL_ROLE, LABEL_RUN};
 use crate::isolation::model::{ContainerPlan, ImageId, Limits, UserSpec};
 use crate::supervise::hook::StopHook;
 use crate::supervise::spawn::SpawnRequest;
@@ -256,9 +257,9 @@ pub fn control_argv(
     wall: Duration,
     cmd: &CommandSpec,
 ) -> Result<Vec<String>, RunArgvError> {
-    let _ = wall;
-    // BORROW: the command is used as given until the expiry wrapper exists
-    let wrapped = cmd.clone();
+    let wrapped = wrap_expiry(cmd, ceil_secs(wall)).map_err(|source| RunArgvError::Command {
+        detail: source.to_string(),
+    })?;
     let mut argv = vec![
         String::from("docker"),
         String::from("run"),
@@ -331,8 +332,10 @@ pub fn build_run_request(
         .env
         // BORROW: the owned copy is made where it is needed
         .push((String::from(AUTH_TOKEN_NAME), dummy_token.to_owned()));
-    // BORROW: the command is used as given until the expiry wrapper exists
-    let wrapped = cmd.clone();
+    let secs = ceil_secs(plan.expiry + EXPIRY_MARGIN);
+    let wrapped = wrap_expiry(cmd, secs).map_err(|source| RunArgvError::Command {
+        detail: source.to_string(),
+    })?;
     let mut argv = run_argv(&planned, &wrapped)?;
     if let Some(first) = argv.first_mut() {
         *first = docker_binary();
