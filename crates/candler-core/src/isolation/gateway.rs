@@ -186,7 +186,7 @@ pub trait Gateway: Send + Sync {
     fn start<'a>(
         &'a self,
         sup: &'a Supervisor,
-        docker: &'a dyn DockerDriver,
+        docker: &'a dyn DockerDriver, // TRAIT_OBJECT: the Docker driver is the real one or a fake in tests
         request: GatewayStart<'a>,
     ) -> BoxFuture<'a, Result<GatewayHandle, GatewayError>>;
 
@@ -478,7 +478,7 @@ impl DockerGateway {
     pub async fn reinject<'a>(
         &'a self,
         handle: &'a GatewayHandle,
-        token: &'a dyn SecretSource,
+        token: &'a dyn SecretSource, // TRAIT_OBJECT: the secret store, or a fixed fake in tests
         secret: &'a str,
     ) -> Result<(), GatewayError> {
         let auth = auth_conf(token, secret, &handle.dummy_token)?;
@@ -647,7 +647,7 @@ impl DockerGateway {
         request: &GatewayStart<'_>,
         cid: &ContainerId,
         cid_text: &str,
-        docker: &dyn DockerDriver,
+        docker: &dyn DockerDriver, // TRAIT_OBJECT: the Docker driver is the real one or a fake in tests
     ) -> Result<ContainerRecord, GatewayError> {
         let failed = |detail: String| GatewayError::Start { detail };
         let inspect = docker
@@ -683,7 +683,7 @@ impl DockerGateway {
     async fn start_sidecar<'a>(
         &'a self,
         sup: &'a Supervisor,
-        docker: &'a dyn DockerDriver,
+        docker: &'a dyn DockerDriver, // TRAIT_OBJECT: the Docker driver is the real one or a fake in tests
         request: GatewayStart<'a>,
     ) -> Result<GatewayHandle, GatewayError> {
         let job = request.job;
@@ -790,7 +790,7 @@ impl Gateway for DockerGateway {
     fn start<'a>(
         &'a self,
         sup: &'a Supervisor,
-        docker: &'a dyn DockerDriver,
+        docker: &'a dyn DockerDriver, // TRAIT_OBJECT: the Docker driver is the real one or a fake in tests
         request: GatewayStart<'a>,
     ) -> BoxFuture<'a, Result<GatewayHandle, GatewayError>> {
         Box::pin(self.start_sidecar(sup, docker, request))
@@ -874,6 +874,7 @@ fn sidecar_labels(request: &GatewayStart<'_>) -> Labels {
 /// The credential lines nginx includes, from the secret `secret`, and the job's dummy token.
 /// This is the one function that holds the value; the lines go to the sidecar on stdin and
 /// nowhere else.
+// TRAIT_OBJECT: the secret store, or a fixed fake in tests
 fn auth_conf(token: &dyn SecretSource, secret: &str, dummy: &str) -> Result<Vec<u8>, GatewayError> {
     use std::fmt::Write as _;
 

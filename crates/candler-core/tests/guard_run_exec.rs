@@ -207,11 +207,13 @@ fn input_of(row: &toml::Table, collect_ok: bool) -> EndInput {
 }
 
 /// Guards: B29, the ends table: every row E01 to E18 that `classify_end` owns gives the status,
-/// reason, end and retry of the table, in the R2 order. Oracle: `ends_table.toml`, hand-written
+/// reason, end and retry of the table, in the R2 order.
+/// Oracle: `ends_table.toml`, hand-written
 /// from R01 section Ends and 00-architecture section 13, with the recorded `docker inspect` of a
 /// clean exit, a self-expiry and an OOM kill. Rows E01 and E02 read recorded claude-code streams
 /// (`mini_clean`, `api_error`); every other row reads a hand-built `TraceFacts` with `guard_reader`
-/// provenance (`trace_of`). E15 expects the literal `completed`. Bite: swap
+/// provenance (`trace_of`). E15 expects the literal `completed`.
+/// Bite: swap
 /// the `OOMKilled` and `ExitCode == 137` checks, and E10 stops being a never-retried failure.
 #[test]
 fn b29_ends_table() {
@@ -256,8 +258,8 @@ fn b29_ends_table() {
             let got = end.invalid.map_or(String::new(), |reason| {
                 serde_json::to_value(reason)
                     .expect("serialise a reason")
-                    .as_str()
-                    .expect("text") // BORROW: the reason as text
+                    .as_str() // BORROW: the reason as text
+                    .expect("text")
                     .to_owned() // BORROW: owned reason text
             });
             assert_eq!(got, reason, "{label}: reason");
@@ -389,10 +391,12 @@ fn run_files(root: &Path) -> BTreeSet<String> {
 /// Guards: B30, the sealed layout and `run.done` last: a seal stopped after any step leaves exactly
 /// the files of the steps that ran and no `run.done`; a full seal writes the manifest, the tree,
 /// the raw stream and the trace before `run.done`, and the run directory holds only names of the
-/// layout. Oracle: the step order and the layout, hand-written from R01 section Run store and
+/// layout.
+/// Oracle: the step order and the layout, hand-written from R01 section Run store and
 /// 00-architecture section 7 (manifest.json, run.done, raw/, trace.jsonl, tree.json, workspace/,
 /// home/); a run that holds a canary is the positive control of the scan, and the sealed run is scanned
-/// for the temporary root, the needle the leaf names. Bite: write `run.done`
+/// for the temporary root, the needle the leaf names.
+/// Bite: write `run.done`
 /// before `tree.json`.
 #[test]
 fn b30_sealed_layout_and_done_last() {

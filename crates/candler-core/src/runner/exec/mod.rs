@@ -333,7 +333,7 @@ async fn drive(
     let mut written: BTreeMap<String, Digest> = BTreeMap::new();
     for file in &skills {
         if rendered.contains(file.path.as_str()) {
-            // BORROW: explicit .as_str()
+            // BORROW: the rendered set holds `&str`, so the path is lent as one
             return Err(IsolationError::Plan {
                 detail: format!(
                     "the skill tree holds `{}`, which prepare renders",
@@ -427,6 +427,7 @@ async fn drive(
         )?,
     };
     let header = TraceHeader::new(reader_name, raw_refs);
+    // BORROW: the header and the parts are cloned because the failure arm below still reads them
     let trace = if let Ok(trace) = TraceFile::new(header.clone(), sessions.clone(), events.clone())
     {
         trace

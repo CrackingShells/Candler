@@ -29,7 +29,7 @@ fn diff(
     let changed = before
         .iter()
         .filter(|(path, bytes)| after.get(*path).is_some_and(|now| now != *bytes))
-        .map(|(path, _)| path.clone())
+        .map(|(path, _)| path.clone()) // BORROW: the result owns its paths
         .collect();
     let removed = before
         .keys()
@@ -117,7 +117,8 @@ fn b26_resume_deletes_nothing_and_numbers_attempts() {
     );
     assert_eq!(added, want_added, "only their run.done files appear");
     for path in &want_changed {
-        let integrity = manifest_on_disk(&root, path)["integrity"].clone();
+        // INDEX: every sealed manifest has an `integrity` member
+        let integrity = manifest_on_disk(&root, path)["integrity"].clone(); // BORROW: the integrity member is copied out of the parsed manifest
         assert_eq!(
             integrity,
             json!({"kind": "invalid", "reason": "interrupted"})
@@ -171,7 +172,7 @@ fn b26_resume_deletes_nothing_and_numbers_attempts() {
             .run()
             .cell()
             .hex()
-            .to_owned();
+            .to_owned(); // BORROW: the cell hex is owned
         assert_eq!(
             attempts_on_disk(&root, &cell, 2),
             [1, 2, 3],
@@ -327,7 +328,7 @@ fn changes() -> Vec<Change> {
         },
         Change {
             name: "Claude Code version",
-            apply: |facts| facts.version = "2.2.0".to_owned(),
+            apply: |facts| facts.version = "2.2.0".to_owned(), // BORROW: the facts own their version text
             path: "harness.version",
             stored: json!("2.1.0"),
             observed: json!("2.2.0"),
@@ -408,7 +409,7 @@ fn b27_changed_fact_is_refused_and_the_cell_is_pinned() {
     for change in changes() {
         let (_dir, store, lock) = two_cells();
         let root = store.layout().root().to_path_buf();
-        let mut observed = base.clone();
+        let mut observed = base.clone(); // BORROW: the changed facts are an owned copy of the base
         (change.apply)(&mut observed);
         let ctx = plan_ctx(&store, &lock, &observed);
         let res = resolution(&observed);
@@ -419,13 +420,13 @@ fn b27_changed_fact_is_refused_and_the_cell_is_pinned() {
         let Err(PlanError::Changed(deviations)) = refusal else {
             panic!("{}: expected a refusal", change.name);
         };
-        let paths: BTreeSet<&str> = deviations.iter().map(|d| d.path.as_str()).collect();
+        let paths: BTreeSet<&str> = deviations.iter().map(|d| d.path.as_str()).collect(); // BORROW: the set holds the deviation paths as text
         assert_eq!(paths, BTreeSet::from([change.path]), "{}", change.name);
         for deviation in &deviations {
-            let stored = deviation.stored.as_ref().map(|v| v.as_value().clone());
-            let seen = deviation.observed.as_ref().map(|v| v.as_value().clone());
-            assert_eq!(stored, Some(change.stored.clone()), "{}", change.name);
-            assert_eq!(seen, Some(change.observed.clone()), "{}", change.name);
+            let stored = deviation.stored.as_ref().map(|v| v.as_value().clone()); // BORROW: the compared values are owned copies
+            let seen = deviation.observed.as_ref().map(|v| v.as_value().clone()); // BORROW: the compared values are owned copies
+            assert_eq!(stored, Some(change.stored.clone()), "{}", change.name); // BORROW: the expected values are owned copies
+            assert_eq!(seen, Some(change.observed.clone()), "{}", change.name); // BORROW: the expected values are owned copies
         }
         assert_eq!(
             snapshot(&root),
@@ -449,7 +450,7 @@ fn b27_changed_fact_is_refused_and_the_cell_is_pinned() {
             let key = manifest(&run(model, &base, 1, 1, true))
                 .run()
                 .cell()
-                .clone();
+                .clone(); // BORROW: the key is an owned copy of the cell
             assert_eq!(
                 plan.key.cell(),
                 &key,
@@ -527,7 +528,7 @@ fn b27_other_experiment_row() {
     let a_cell = manifest(&run("m1", &theirs, 1, 1, true))
         .run()
         .cell()
-        .clone();
+        .clone(); // BORROW: the key is an owned copy of the cell
     let ours = Facts::base();
     let ctx = plan_ctx(&store, &lock, &ours);
     let before = snapshot(&root);
@@ -578,7 +579,7 @@ fn b27_secrets_row() {
     let Err(PlanError::Changed(deviations)) = refusal else {
         panic!("an earlier attempt's secret counts");
     };
-    let paths: Vec<&str> = deviations.iter().map(|d| d.path.as_str()).collect();
+    let paths: Vec<&str> = deviations.iter().map(|d| d.path.as_str()).collect(); // BORROW: the list holds the deviation paths as text
     assert_eq!(paths, ["secrets"]);
 }
 
@@ -664,7 +665,7 @@ fn b28_forced_deviations_are_recorded_on_every_new_attempt() {
             sealed.integrity = json!({"kind": "invalid", "reason": "infrastructure"});
             write_run(&store, &sealed);
         }
-        let mut observed = base.clone();
+        let mut observed = base.clone(); // BORROW: the changed facts are an owned copy of the base
         (change.apply)(&mut observed);
         let ctx = plan_ctx(&store, &lock, &observed);
 
@@ -703,11 +704,11 @@ fn b28_forced_deviations_are_recorded_on_every_new_attempt() {
                 change.name
             );
             let deviation = plan.deviations.first().expect("a deviation");
-            assert_eq!(deviation.path.as_str(), change.path, "{}", change.name);
-            let stored = deviation.stored.as_ref().map(|v| v.as_value().clone());
-            let seen = deviation.observed.as_ref().map(|v| v.as_value().clone());
-            assert_eq!(stored, Some(change.stored.clone()), "{}", change.name);
-            assert_eq!(seen, Some(change.observed.clone()), "{}", change.name);
+            assert_eq!(deviation.path.as_str(), change.path, "{}", change.name); // BORROW: the path is compared as text
+            let stored = deviation.stored.as_ref().map(|v| v.as_value().clone()); // BORROW: the compared values are owned copies
+            let seen = deviation.observed.as_ref().map(|v| v.as_value().clone()); // BORROW: the compared values are owned copies
+            assert_eq!(stored, Some(change.stored.clone()), "{}", change.name); // BORROW: the expected values are owned copies
+            assert_eq!(seen, Some(change.observed.clone()), "{}", change.name); // BORROW: the expected values are owned copies
         }
         drop(out);
 
