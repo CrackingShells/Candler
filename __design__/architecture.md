@@ -327,9 +327,20 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
   container census by marker) passes the same re-verification; a mismatch is refused and
   reported, never signalled. Delivery sits behind a `Signaller` seam: the guard and the
   escalation logic are tested against a recording fake, and real-signal tests only check end to
-  end that spawned children die. The guard also signals a host stray found by marker (environ and
-  start time re-read right before the signal) and an orphan adopted by the subreaper (its parent
-  is this process); the same refusals hold.
+  end that spawned children die. The guard also signals two kinds of process this supervisor did
+  not spawn, the class of call behind the `kill(-1)` incident, so their rules are stricter:
+  - a host stray found by the marker scan (`signal_marked`), and an orphan the subreaper adopted
+    (`signal_adopted`, its parent is this process);
+  - right before the signal, the guard re-verifies the target's pid, its `start` and the run
+    marker read again from that process (on Linux, `/proc/<pid>/environ`); a marker match from
+    an earlier scan never suffices;
+  - it refuses a pid of 1 or less, its own pid, its own process group, a process of another uid,
+    and a target that no longer carries the marker. A refusal is a recorded outcome, never a
+    fallback to a wider signal;
+  - each call names one pid. No path takes a pattern, a name or "all": `kill --all` walks the
+    job records one verified target at a time;
+  - a group is adopted for stopping only when the job's `children/` records list it and its
+    verification passes, never on a marker scan alone.
 - **Destroying containers (I22 for containers).** Destroying a container or a network is as
   dangerous as a signal, so one guard holds the only destroy capability. It never destroys by name,
   pattern or "all". A container is destroyable if the job's `children/` records it, or if it is
