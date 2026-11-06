@@ -1,0 +1,47 @@
+[cell."20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3"]
+gate = [611, 696]
+quality = [442, 460]
+
+[cell."20260806-035940_v0.2.3_claude-sonnet-4-6_model-claude-sonnet-4-6_skill_version-htn-creator-v0.2.3"]
+gate = [907, 1003]
+quality = [380, 383]
+
+[cell."20260806-035940_v0.2.3_claude-sonnet-5_model-claude-sonnet-5_skill_version-htn-creator-v0.2.3"]
+gate = [928, 1022]
+quality = [448, 455]
+
+[cell."20260806-035940_v0.2.4_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.4"]
+gate = [688, 771]
+quality = [423, 437]
+
+[cell."20260806-035940_v0.2.4_claude-sonnet-4-6_model-claude-sonnet-4-6_skill_version-htn-creator-0.2.4"]
+gate = [867, 931]
+quality = [400, 401]
+
+[cell."20260806-035940_v0.2.4_claude-sonnet-5_model-claude-sonnet-5_skill_version-htn-creator-0.2.4"]
+gate = [971, 1070]
+quality = [432, 440]
+
+[cell."20260806-035940_v0.2.5_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.5"]
+gate = [680, 764]
+quality = [435, 456]
+
+[cell."20260806-035940_v0.2.5_claude-sonnet-4-6_model-claude-sonnet-4-6_skill_version-htn-creator-0.2.5"]
+gate = [905, 991]
+quality = [411, 414]
+
+[cell."20260806-035940_v0.2.5_claude-sonnet-5_model-claude-sonnet-5_skill_version-htn-creator-0.2.5"]
+gate = [939, 1023]
+quality = [482, 487]
+
+[cell."20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6"]
+gate = [766, 849]
+quality = [427, 448]
+
+[cell."20260806-035940_v0.2.6_claude-sonnet-4-6_model-claude-sonnet-4-6_skill_version-htn-creator-0.2.6"]
+gate = [904, 928]
+quality = [372, 373]
+
+[cell."20260806-035940_v0.2.6_claude-sonnet-5_model-claude-sonnet-5_skill_version-htn-creator-0.2.6"]
+gate = [962, 1011]
+quality = [428, 435]

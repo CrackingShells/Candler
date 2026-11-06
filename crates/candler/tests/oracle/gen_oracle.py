@@ -1,7 +1,7 @@
 """Derive the A-C reference (counts, zero-weight pairs, rates, equivalence) from the raw corpus.
 
-    uv run --no-project python gen_oracle.py <corpus> <R>            # write
-    uv run --no-project python gen_oracle.py --check <corpus> <R>    # compare
+    uv run --no-project --with rfc8785 python gen_oracle.py <corpus> <R>            # write
+    uv run --no-project --with rfc8785 python gen_oracle.py --check <corpus> <R>    # compare
 
 Inputs, and nothing else: the golden corpus's raw files (`eval-K-grading.json`, `experiment.json`,
 `timing.json`, stream init lines, the root `PROVENANCE.json`) and three files of the HTN repo `<R>`
@@ -145,15 +145,61 @@ def write_na_pairs(rows, suite):
     return "".join(line + "\n" for line in na_pairs(rows, suite))
 
 
+# ---------------------------------------------------------------- rates
+
+
+def cell_rates(rows, suite, model, outcome):
+    """cell -> {role: [num, den]}: `_outcome.score` per run, summed over the cell's runs."""
+    runs = {}
+    for r in ac_rows(rows, suite):
+        d = {"id": r["id"], "status": r["status"], "score": r["score"], "max_score": r["max_score"], "role": suite["role"][r["id"]]}
+        runs.setdefault((r["cell"], r["run"]), []).append(model.ExpectationResult.from_grading(d))
+    out = {}
+    for (cell, run), exps in sorted(runs.items()):
+        view = model.RunView(config="with_skill", run_number=run, short_id=f"ws-{run:02d}", expectations=exps)
+        s = outcome.score(view)
+        acc = out.setdefault(cell, {"gate": [0, 0], "quality": [0, 0]})
+        for role, rate in (("gate", s.gate), ("quality", s.quality)):
+            acc[role][0] += rate.numerator
+            acc[role][1] += rate.denominator
+    return out
+
+
+def write_rates(rows, suite, model, outcome):
+    rates = cell_rates(rows, suite, model, outcome)
+    tables = []
+    for cell in sorted(rates):
+        g, q = rates[cell]["gate"], rates[cell]["quality"]
+        tables.append(f'[cell."{cell}"]\ngate = [{g[0]}, {g[1]}]\nquality = [{q[0]}, {q[1]}]')
+    return "\n\n".join(tables) + "\n"
+
+
+def published(corpus, rates_text):
+    """The `[published]` comparison (stdout only): the corpus publishes no gate or quality rate."""
+    prov = load_json(os.path.join(corpus, "PROVENANCE.json"))
+    lines = ["[published] no gate or quality rate file in the corpus; PROVENANCE.json runs[].tier_rates holds tier A/B/C pass rates only:"]
+    by_cell = {}
+    for r in prov["runs"]:
+        by_cell.setdefault(r["cell"], []).append(r["tier_rates"])
+    for cell in sorted(by_cell):
+        mean = {k: sum(t[k] for t in by_cell[cell]) / len(by_cell[cell]) for k in by_cell[cell][0]}
+        lines.append(f"  {cell[16:60]}... mean " + " ".join(f"{k[5]}={v:.4f}" for k, v in sorted(mean.items())))
+    return "\n".join(lines)
+
 # ---------------------------------------------------------------- main
 
 
 def generate(corpus, repo):
     with tempfile.TemporaryDirectory() as tmp:
-        suite, _model, _outcome = load_suite(repo, tmp)
+        suite, model, outcome = load_suite(repo, tmp)
         rows = derive_rows(corpus, suite)
-        files = {"counts.toml": write_counts(rows, suite), "na_pairs.txt": write_na_pairs(rows, suite)}
-    return {k: v.encode("utf-8") for k, v in files.items()}
+        files = {
+            "counts.toml": write_counts(rows, suite),
+            "na_pairs.txt": write_na_pairs(rows, suite),
+            "rates_by_cell.toml": write_rates(rows, suite, model, outcome),
+        }
+    return {k: v.encode("utf-8") for k, v in files.items()}, published(corpus, files["rates_by_cell.toml"])
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -161,8 +207,9 @@ def main():
     ap.add_argument("corpus")
     ap.add_argument("repo")
     args = ap.parse_args()
-    files = generate(args.corpus, args.repo)
+    files, pub = generate(args.corpus, args.repo)
     print(files["counts.toml"].decode())
+    print(pub)
     if args.check:
         bad = [n for n, b in files.items() if not os.path.isfile(os.path.join(HERE, n)) or open(os.path.join(HERE, n), "rb").read() != b]
         if bad:
