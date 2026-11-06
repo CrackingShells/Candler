@@ -16,6 +16,7 @@
 - ⬜ [cmd] Mount escape (R23) is refused, class A, in `mounts.rs` tests: a source outside the project root and the store, a symlink escape, `docker.sock`, a path under `/var/run` and under `/run`
 - ⬜ [cmd] `cargo clippy --target x86_64-unknown-linux-gnu --workspace --tests -- -D warnings` passes (LINUX); STD and SUBJ pass
 - ⬜ [cmd] No scaffolding: `! git grep -n -e 'mod scaffold' -e 'scaffold_' -- crates/candler-core/src/isolation/container crates/candler-core/tests/guard_container_run.rs crates/candler-core/tests/container_run_e2e.rs`
+- ⬜ [cmd] Its e2e module is filled: `! git grep -n 'fn placeholder_container_run' -- crates/candler-core/tests`. S3 declares the module with one ignored `placeholder_container_run` test that panics under `--run-ignored only`; this leaf replaces it with its own guards, so the container gate never counts an empty module as passed
 - ⬜ [cmd] No destroy verb here: `! git grep -n -E '"(stop|rm|kill|rmi|prune)"|network rm' -- crates/candler-core/src/isolation/container/run.rs crates/candler-core/src/isolation/container/mounts.rs crates/candler-core/src/isolation/container/expiry.rs`
 - ⬜ [nl] The leaf report records one bite mutation per B-test (B06 to B09) and an `--rm` audit: only control containers carry `--rm`, the agent container never does
 - ⬜ [nl] No verifier is allocated to this leaf; every gate above is a `[cmd]` except the bite record

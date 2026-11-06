@@ -16,6 +16,7 @@
 - ⬜ [cmd] SUBJ passes, with `<base>` the leaf's branch point on `feat/m2b-execution-parity`
 - ⬜ [cmd] No schema is touched, so DRIFT has nothing to bless: `git diff --quiet <base>..HEAD -- crates/candler-schemas`
 - ⬜ [cmd] No scaffolding: `! git grep -n -e 'mod scaffold' -e 'scaffold_' -- crates/candler-core/tests`
+- ⬜ [cmd] Its e2e module is filled: `! git grep -n 'fn placeholder_supervision_gates' -- crates/candler-core/tests`. S3 declares the module with one ignored `placeholder_supervision_gates` test that panics under `--run-ignored only`; this leaf replaces it with its own guards, so the container gate never counts an empty module as passed
 - ⬜ [nl] The leaf report records the B36 bite (the lost-job path skips the container sweep) and the two gate-bite proofs of step 3, each restored with `git checkout --`
 - ⬜ [nl] The narrowed verifier reports no open finding: it proves the e2e gates bite by mutating the sweeper (a no-op `LabelSweeper::sweep`) and the label query (the `candler.job=<id>` filter dropped from `ps_by_label`), re-running B36, B12 and B13 under rule 7, with at most two of them e2e, and it states each test's oracle
 - ⬜ [nl] The accepted macOS gap is recorded: setsid'd host descendants have no subreaper on macOS, so B36 asserts on the marked processes it can see there and Linux CI decides the rest

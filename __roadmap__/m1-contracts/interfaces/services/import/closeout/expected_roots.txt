@@ -1,5 +1,6 @@
 catalog-snapshot.schema.json
 child-record.schema.json
+container-record.schema.json
 evaluator-describe-result.schema.json
 evaluator-evaluate-params.schema.json
 evaluator-notification.schema.json
