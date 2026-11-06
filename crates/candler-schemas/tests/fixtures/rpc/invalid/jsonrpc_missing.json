@@ -1,0 +1,31 @@
+{
+  "id": "0192f4e0-7b3a-7c1d-8a2e-4f5b6c7d8e9f",
+  "method": "evaluate",
+  "params": {
+    "context": {
+      "run": {
+        "cell": "sha256:abababababababababababababababababababababababababababababababab",
+        "replicate": 1,
+        "attempt": 1
+      },
+      "root": "/runs/r1",
+      "raw": [],
+      "artifacts": [],
+      "snapshots": [],
+      "inputs": [],
+      "metadata": {}
+    },
+    "items": [
+      {
+        "expectation_id": "A1",
+        "kind": "file_exists",
+        "params": {
+          "path": "plan.md"
+        },
+        "deadline_ms": 5000
+      }
+    ],
+    "prior": [],
+    "scratch": "/scratch/r1"
+  }
+}

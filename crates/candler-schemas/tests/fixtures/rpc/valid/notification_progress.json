@@ -1,0 +1,8 @@
+{
+  "jsonrpc": "2.0",
+  "method": "progress",
+  "params": {
+    "done": 1,
+    "of": 3
+  }
+}
