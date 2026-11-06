@@ -418,6 +418,7 @@ mod m2b_surface {
             RecordingDestroyer::new,
             Labels::new,
             NetworkName::for_job,
+            NetworkName::egress_for_job,
             ImageInfo::new,
             ContainerRef::new,
             Inspect::new,
