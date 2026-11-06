@@ -272,6 +272,10 @@ pub struct LabelSel {
 pub struct BuildRequest {
     /// The build context directory.
     pub context: PathBuf,
+    /// The tag the built image gets (`docker build -t`).
+    pub tag: String,
+    /// The build arguments, as `(name, value)` pairs (`--build-arg name=value`), in order.
+    pub build_args: Vec<(String, String)>,
     /// The labels the image gets.
     pub labels: Labels,
 }
