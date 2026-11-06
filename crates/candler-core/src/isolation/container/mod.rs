@@ -15,22 +15,25 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use candler_harness::spec::{Cell, CommandSpec, Workspace};
-use candler_schemas::primitives::{FieldPath, JobId, Marker, RunKey};
+use candler_schemas::primitives::{ContainerId, FieldPath, JobId, Marker, RunKey};
 use candler_schemas::values::JsonValue;
 use futures::future::BoxFuture;
 use sha2::{Digest as _, Sha256};
 
-use self::guard::ContainerGuard;
+use self::guard::{ContainerGuard, GuardError};
 use self::mounts::{MountMode, MountRoots, MountSpec, mounts};
 use self::run::build_run_request;
 use self::stop::ContainerStopHook;
 use self::sweeper::ContainerSweeper;
 use super::driver::DockerDriver;
-use super::layout::{CONTAINER_HOME, CONTAINER_WORKDIR, LABEL_EXPERIMENT, LABEL_JOB, LABEL_ROLE};
-use super::model::{
-    ContainerOutcome, ContainerPlan, GatewayHandle, ImageId, ImageRef, Limits, UserSpec,
+use super::layout::{
+    CONTAINER_HOME, CONTAINER_WORKDIR, LABEL_EXPERIMENT, LABEL_JOB, LABEL_ROLE, LABEL_RUN,
 };
-use super::{EndFacts, IsolatedRequest, Isolation, IsolationError};
+use super::model::{
+    ContainerOutcome, ContainerPlan, ContainerRef, ContainerSweep, GatewayHandle, ImageId,
+    ImageRef, LabelSel, Limits, Refusal, SweepScope, UserSpec,
+};
+use super::{EndFacts, IsolatedRequest, Isolation, IsolationError, RunOutputs};
 use crate::experiment::paths;
 use crate::supervise::hook::StopHook;
 use crate::supervise::stop::Exit;
@@ -325,6 +328,7 @@ impl Isolation for DockerIsolation {
         command: CommandSpec,
         marker: Marker,
         key: RunKey,
+        outputs: RunOutputs,
     ) -> Result<IsolatedRequest, IsolationError> {
         let base_url = self.gateway.run_base_url(&key);
         let sweeper =
@@ -352,6 +356,7 @@ impl Isolation for DockerIsolation {
             &base_url,
             &self.gateway.dummy_token,
             Some(attached),
+            outputs,
         )
         .map_err(|source| IsolationError::Plan {
             detail: source.to_string(),
@@ -367,11 +372,65 @@ impl Isolation for DockerIsolation {
         workspace: &'a Workspace<'a>,
         exit: &'a Exit,
     ) -> BoxFuture<'a, Result<ContainerOutcome, IsolationError>> {
-        let _ = (plan, workspace, exit);
-        Box::pin(async {
-            Err(IsolationError::Unavailable {
-                detail: String::from("DockerIsolation::collect_and_destroy"),
-            })
+        let _ = (workspace, exit);
+        Box::pin(async move {
+            let cid = std::fs::read_to_string(&plan.cidfile)
+                .ok()
+                .and_then(|text| ContainerId::from_str(text.trim()).ok());
+            let Some(cid) = cid else {
+                // The client wrote no cidfile: no container of this run is known to destroy.
+                return Ok(ContainerOutcome {
+                    inspect: None,
+                    sweep: ContainerSweep {
+                        unknown: true,
+                        ..ContainerSweep::default()
+                    },
+                });
+            };
+            let reader = self.guard.reader();
+            // BORROW: .as_str() hands the id to docker
+            let inspect = reader.inspect(cid.as_str()).await.ok();
+            let target = match &inspect {
+                Some(taken) => Some(ContainerRef::new(
+                    taken.id.clone(),      // BORROW: the reference owns the id
+                    taken.labels.clone(),  // BORROW: the reference owns the labels
+                    taken.created.clone(), // BORROW: the reference owns the time
+                )),
+                None => self.listed_agent(plan, &cid).await,
+            };
+            let mut sweep = ContainerSweep::default();
+            let Some(target) = target else {
+                sweep.unknown = true;
+                return Ok(ContainerOutcome { inspect, sweep });
+            };
+            let scope = target
+                .labels
+                .get(LABEL_RUN)
+                .and_then(|run| RunKey::from_str(run).ok())
+                .map_or(SweepScope::CurrentJob, SweepScope::Run);
+            match self.guard.destroy(&target, &scope).await {
+                Ok(destroyed) if !destroyed.absent => sweep.destroyed.push(target),
+                Ok(_) => {}
+                Err(GuardError::Refused(why)) => sweep.refused.push(Refusal {
+                    container: target.cid,
+                    reason: why.code().to_owned(), // BORROW: owned reason code
+                }),
+                Err(GuardError::Docker { .. } | GuardError::View { .. }) => sweep.unknown = true,
+            }
+            Ok(ContainerOutcome { inspect, sweep })
         })
+    }
+}
+
+impl DockerIsolation {
+    /// The agent container `cid` of the plan's job as docker lists it by label, when an inspect
+    /// of it failed: the guard needs its labels and creation time to act.
+    async fn listed_agent(&self, plan: &ContainerPlan, cid: &ContainerId) -> Option<ContainerRef> {
+        let selector = LabelSel {
+            key: LABEL_JOB.to_owned(),                     // BORROW: owned label key
+            value: plan.labels.get(LABEL_JOB)?.to_owned(), // BORROW: owned label value
+        };
+        let listed = self.guard.reader().ps_by_label(&selector).await.ok()?;
+        listed.into_iter().find(|found| found.cid == *cid)
     }
 }

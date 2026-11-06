@@ -15,6 +15,7 @@ use url::Url;
 
 use super::expiry::{ceil_secs, wrap_expiry};
 use super::mounts::{MountError, MountRoots, mounts};
+use crate::isolation::RunOutputs;
 use crate::isolation::layout::{CONTAINER_ENV, EXPIRY_MARGIN, LABEL_JOB, LABEL_ROLE, LABEL_RUN};
 use crate::isolation::model::{ContainerPlan, ImageId, Limits, UserSpec};
 use crate::supervise::hook::StopHook;
@@ -308,6 +309,10 @@ fn client_env() -> Vec<(String, String)> {
 ///
 /// # Errors
 /// [`RunArgvError`] when a mount, the overlay or the request is refused.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each argument is one fact of the request and none belongs with another"
+)]
 pub fn build_run_request(
     plan: &ContainerPlan,
     cmd: &CommandSpec,
@@ -316,6 +321,7 @@ pub fn build_run_request(
     base_url: &Url,
     dummy_token: &str,
     hook: Option<Arc<dyn StopHook>>,
+    outputs: RunOutputs,
 ) -> Result<SpawnRequest, RunArgvError> {
     // BORROW: the plan is copied so the checked mounts and the run's labels can be set
     let mut planned = plan.clone();
@@ -351,6 +357,8 @@ pub fn build_run_request(
         .marker(marker)
         // BORROW: .clone() gives the request its own run key
         .run(key.clone())
+        .stdout(outputs.stdout)
+        .stderr(outputs.stderr)
         .deadline(plan.expiry)
         .record_dir(record_dir);
     if let Some(attached) = hook {
