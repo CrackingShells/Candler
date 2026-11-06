@@ -2,7 +2,8 @@
 //!
 //! A job is `running`, `ended` or `lost` from its lock and its event log alone; the `state`
 //! field of `job.json` is a hint nothing reads. A lost job is recovered once, then shown as
-//! `ended`.
+//! `ended`. A job whose supervisor has not logged `job.started` is `starting`, never `lost`:
+//! the launcher is still waiting for it, or it never began and nothing of it needs recovering.
 
 use std::collections::BTreeSet;
 use std::io::{self, Write};
@@ -17,6 +18,7 @@ use candler_core::isolation::driver::DockerDriver;
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::events::{JobEvents, TailPos};
 use candler_core::jobs::lost::{self, JobLiveness, RecoverOutcome, RecoverReport};
+use candler_core::jobs::runtime::detach::START_DEADLINE;
 use candler_core::jobs::view::JobView;
 use candler_core::resolve::config::{Config, ConfigEnv};
 use candler_core::store::layout::StoreLayout;
@@ -119,6 +121,7 @@ pub fn describe_recovery(report: &RecoverReport) -> (String, bool) {
             ),
             true,
         ),
+        RecoverOutcome::Starting => ("starting".to_owned(), false), // BORROW: the row owns its text
         RecoverOutcome::Recovered | RecoverOutcome::AlreadyEnded | RecoverOutcome::NotLost => {
             ("ended (failed)".to_owned(), false) // BORROW: the row owns its text
         }
@@ -165,6 +168,17 @@ pub fn end_text(end: JobEnd) -> String {
     format!("ended ({word})")
 }
 
+/// Whether the job of `dir` is younger than the launcher's wait for its supervisor and has not
+/// logged `job.started`: the launcher may still be waiting, so nothing touches the job.
+fn is_starting(dir: &JobDir) -> bool {
+    let young = std::fs::metadata(dir.path().join("job.json"))
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|made| made.elapsed().ok())
+        .is_some_and(|age| age < START_DEADLINE);
+    young && matches!(lost::has_started(dir), Ok(false))
+}
+
 /// The row of the job in `path`, recovering it once when it is lost.
 async fn row_of(store: &StoreLayout, name: &str, path: &Path) -> Row {
     let unreadable = |detail: String| Row {
@@ -193,6 +207,7 @@ async fn row_of(store: &StoreLayout, name: &str, path: &Path) -> Row {
     let state = match liveness {
         JobLiveness::Running => "running".to_owned(), // BORROW: the row owns its text
         JobLiveness::Ended(end) => end_text(end),
+        JobLiveness::Lost if is_starting(&dir) => "starting".to_owned(), // BORROW: the row owns its text
         JobLiveness::Lost => match recover_job(&dir).await {
             Ok(report) => {
                 let (text, bad) = describe_recovery(&report);

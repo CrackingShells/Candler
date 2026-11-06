@@ -17,6 +17,7 @@ use futures::future::BoxFuture;
 use super::model::{JobBody, JobOutcome, JobSpec};
 use crate::runner::exec::SkillTree;
 use crate::store::Store;
+use crate::jobs::orchestrate::teardown::TEARDOWN_ALLOWANCE;
 use crate::supervise::spawn::DEFAULT_GRACE;
 
 /// How long a run's ladder waits between the terminate and the kill of its group's survivors.
@@ -29,11 +30,13 @@ const SEAL_ALLOWANCE: Duration = Duration::from_secs(10);
 /// How long a stopped job takes to end in order, from the signal to the released lock: the
 /// grace of a run's stop ladder (`DEFAULT_GRACE`), the wait after its kill (`LADDER_KILL_WAIT`),
 /// the stop grace of a container (`CONTAINER_STOP_GRACE`), the bound of the orphan reap
-/// (`reap::REAP_BOUND`) and the allowance for sealing (`SEAL_ALLOWANCE`).
+/// (`reap::REAP_BOUND`), the session's teardown (`TEARDOWN_ALLOWANCE`: the label sweep, then the
+/// gateway and the networks) and the allowance for sealing (`SEAL_ALLOWANCE`).
 pub const TEARDOWN_BOUND: Duration = DEFAULT_GRACE
     .saturating_add(LADDER_KILL_WAIT)
     .saturating_add(CONTAINER_STOP_GRACE)
     .saturating_add(reap::REAP_BOUND)
+    .saturating_add(TEARDOWN_ALLOWANCE)
     .saturating_add(SEAL_ALLOWANCE);
 
 /// What the harness gives every run of a job. Core cannot name the harness's crate, so the

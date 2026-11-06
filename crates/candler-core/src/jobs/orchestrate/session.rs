@@ -56,7 +56,7 @@ const SIDECAR_TAG: &str = "candler-gateway:latest";
 /// The marker the gateway's docker commands carry.
 const GATEWAY_MARKER: &str = "gateway";
 /// How long a sweep of the job's containers may take.
-const SWEEP_LIMIT: Duration = Duration::from_secs(60);
+pub(crate) const SWEEP_LIMIT: Duration = Duration::from_secs(60);
 
 /// Why a job could not be set up or run.
 #[derive(Debug, thiserror::Error)]
