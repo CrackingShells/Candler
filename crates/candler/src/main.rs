@@ -1,7 +1,8 @@
 //! The `candler` binary.
 //!
 //! One file per verb under [`commands`]; each verb is an `async fn` that takes its parsed
-//! arguments and returns `Ok` or a [`CliError`].
+//! arguments and returns an [`Exit`] or a [`CliError`]. `main` maps `Exit::Success` to 0,
+//! `Exit::Changed` to 1 and any [`CliError`] to 2.
 
 mod commands;
 
@@ -9,7 +10,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
-use crate::commands::{CliError, kill, ps, run, supervise, watch};
+use crate::commands::{CliError, Exit, kill, ps, run, supervise, watch};
 
 /// The command line.
 #[derive(Debug, Parser)]
@@ -37,7 +38,7 @@ enum Command {
 }
 
 /// Runs the verb on a multi-thread runtime.
-fn dispatch(cli: Cli) -> Result<(), CliError> {
+fn dispatch(cli: Cli) -> Result<Exit, CliError> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -57,7 +58,8 @@ fn dispatch(cli: Cli) -> Result<(), CliError> {
 
 fn main() -> ExitCode {
     match dispatch(Cli::parse()) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(Exit::Success) => ExitCode::SUCCESS,
+        Ok(Exit::Changed { .. }) => ExitCode::from(1),
         Err(error) => {
             #[allow(
                 clippy::print_stderr,
@@ -66,7 +68,7 @@ fn main() -> ExitCode {
             {
                 eprintln!("candler: {error}");
             }
-            ExitCode::FAILURE
+            ExitCode::from(2)
         }
     }
 }
