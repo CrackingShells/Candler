@@ -2,7 +2,7 @@
 
 **Goal**: `candler_core::runner::plan` turns an experiment, its resolution and an optional stored cell into run plans with exact keys and attempt numbers under one experiment lock, and resumes only from a pinned stored cell whose four facts still hold, deleting nothing and sealing every unfinished attempt as `invalid(interrupted)`.
 **Pre-conditions**:
-- [ ] [cmd] Phase 0 is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas): ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
+- [ ] [cmd] Phase 0 is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas)!*: ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
 - [ ] [nl] api_review closed with no open finding on `RunPlan`, `Force`, `PlanCtx` and `PlanOutcome`
 - [ ] [cmd] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints this leaf's worktree path
 - [ ] [cmd] DEP(job_store): `git log --first-parent --format=%s feat/m2b-execution-parity | grep -qx 'merge(jobs): land job_store'`

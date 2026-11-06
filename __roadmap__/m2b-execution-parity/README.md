@@ -27,7 +27,7 @@ Before L0 the coordinator lands Phase 0 on `feat/m2b-execution-parity`: the spik
 - [ ] [cmd] `git merge-base --is-ancestor origin/main feat/m2b-execution-parity`
 - [ ] [cmd] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints the checkout's path
 - [ ] [cmd] `rustup target list --installed | grep -qx x86_64-unknown-linux-gnu && docker version --format '{{.Server.Version}}'`
-- [ ] [cmd] Phase 0 is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas): ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
+- [ ] [cmd] Phase 0 is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas)!*: ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
 - [ ] [cmd] The feature map covers contract v5: `cd __roadmap__/m2b-execution-parity/feature_map && test -z "$(comm -23 <(sh ids_from_contract.sh) <(jq -r '.[].id' feature_map.json | sort))"`
 - [ ] [nl] The api_review verifier reports no open finding on the scaffold against M2a, M3, M4 and M5
 - [x] [nl] Eliott chose the smoke model on RiVault: `RiVault/Reasoning-Small` (Qwen3.8-27B) with `--effort medium`, and approved pushing the branch for a draft PR after the scaffold (2026-11-06)

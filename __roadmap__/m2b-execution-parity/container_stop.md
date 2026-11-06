@@ -2,7 +2,7 @@
 
 **Goal**: `isolation::container::{stop,guard,sweeper}` and `isolation/docker.rs` give the one place that destroys a container or a network: `ContainerGuard` destroys only an id that is recorded or job-labelled, re-verified by `docker inspect` immediately before each verb, never by name, prefix or pattern; `ContainerStopHook` runs it from the ladder; `LabelSweeper` finds a lost job's labelled containers; and no other module holds a destroy verb.
 **Pre-conditions**:
-- [ ] [cmd] The Phase 0 scaffold is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas): ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
+- [ ] [cmd] The Phase 0 scaffold is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas)!*: ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
 - [ ] [nl] api_review closed with no open finding on `StopHook`, `StopStep`, `ContainerSweep`, `ContainerSweeper`, `ContainerRef`, `SweepScope`, `GuardRefusal`, `DockerDriver`, `DestroyDriver`, `JobView`, `ChildEntry`, `HookError`
 - [ ] [cmd] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints this leaf's worktree path
 - [ ] [cmd] `docker version --format '{{.Server.Version}}'` (B12 and B13 run real containers)

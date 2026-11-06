@@ -2,7 +2,7 @@
 
 **Goal**: `isolation::container::{run,mounts,expiry}` and `DockerIsolation` turn a `ContainerPlan` and a `CommandSpec` into one `SpawnRequest` whose `docker run` argv is hardened, labelled, mounted only from the project root and the store, wrapped in a self-expiring `timeout`, and built from an empty environment, refusing any secret or auth override (R15).
 **Pre-conditions**:
-- [ ] [cmd] The Phase 0 scaffold is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas): ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
+- [ ] [cmd] The Phase 0 scaffold is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas)!*: ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
 - [ ] [nl] api_review closed with no open finding on `ContainerPlan`, `Isolation`, `SpawnRequestBuilder`, `Marker`, `RunKey`, `ImageRef`, `GatewayHandle` and the layout constants (`EXPIRY_MARGIN`)
 - [ ] [cmd] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints this leaf's worktree path
 - [ ] [cmd] `docker version --format '{{.Server.Version}}'` (the e2e gates run real containers)

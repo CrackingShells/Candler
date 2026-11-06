@@ -2,7 +2,7 @@
 
 **Goal**: `exec_run(&Runtime, &RunPlan, &Slot, ctl: &RunControl) -> RunOutcome` runs one attempt in its container: it takes the slot, spawns with a live observer and the stop hook, classifies the end by the R2 precedence, retries a gateway failure once as a new attempt, collects, and seals the run directory with `run.done` last.
 **Pre-conditions**:
-- [ ] [cmd] The Phase 0 scaffold is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas): ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
+- [ ] [cmd] The Phase 0 scaffold is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas)!*: ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
 - [ ] [nl] api_review closed with no open finding on `Runtime`, `RunPlan`, `RunOutcome`, `Evidence`, `StopHook` and `Isolation`
 - [ ] [cmd] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints this leaf's worktree path
 - [ ] [cmd] DEP(container_run), DEP(container_stop), DEP(gateway), DEP(run_evidence), DEP(claude_code_driver) and DEP(job_store) hold: `for l in container_run container_stop gateway run_evidence claude_code_driver job_store; do git log --first-parent --format=%s feat/m2b-execution-parity | grep -qx "merge(.*): land $l" || exit 1; done`

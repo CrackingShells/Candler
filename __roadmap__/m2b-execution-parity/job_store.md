@@ -2,7 +2,7 @@
 
 **Goal**: `candler_core::jobs` keeps a job's files (`job.json`, `events.jsonl`, `lock`, `children/`, `control/`), the machine-wide run slots and the lost-job rule, implements `JobView` (R8) and fills `jobs::lost::recover` (R17), so that a job's state is always read from the OS lock and the event log, never from a field.
 **Pre-conditions**:
-- [ ] [cmd] Phase 0 is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas): ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
+- [ ] [cmd] Phase 0 is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas)!*: ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
 - [ ] [nl] api_review closed with no open finding on the S3 stubs this leaf fills or consumes (`JobView`, `ChildEntry`, `ContainerSweeper`, `jobs::lost::recover`, `EventSink`, `Runtime.supervisor`)
 - [ ] [cmd] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints this leaf's worktree path
 **Success Gates**:

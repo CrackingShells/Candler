@@ -2,7 +2,7 @@
 
 **Goal**: `ClaudeCodeDriver` in `candler-harness-claude-code` implements `HarnessDriver` as pure data: the reference command line of contract v5, a prepared workspace (settings, MCP configuration, the skill tree of the tagged commit), exit classification, stop, and output collection globs, with no endpoint, no token and no process action.
 **Pre-conditions**:
-- [ ] [cmd] The Phase 0 scaffold is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas): ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
+- [ ] [cmd] The Phase 0 scaffold is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas)!*: ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
 - [ ] [nl] api_review closed with no open finding on `HarnessDriver`, `Prepared`, `CommandSpec` and `CollectSpec` against M2a, M3, M4 and M5
 - [ ] [cmd] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints this leaf's worktree path
 - [ ] [cmd] `test -s __roadmap__/m2b-execution-parity/feature_map/reference_flags.txt && ls crates/candler-harness-claude-code/tests/fixtures/streams | head -1`
