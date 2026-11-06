@@ -1,0 +1,4 @@
+*
+!entrypoint.sh
+!nginx.conf.template
+!gw.js
