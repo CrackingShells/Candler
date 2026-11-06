@@ -50,7 +50,7 @@ pub async fn finish_attempt(
     workspace: &Workspace<'_>,
     exit: &Exit,
     key: &RunKey,
-    facts: &dyn EndFacts,
+    facts: &dyn EndFacts, // TRAIT_OBJECT: the facts are a recording fake in tests
 ) -> Finished {
     match exit.ended {
         Ended::Exited => match isolation

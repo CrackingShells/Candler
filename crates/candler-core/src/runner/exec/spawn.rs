@@ -120,6 +120,7 @@ pub struct Started {
 /// # Errors
 /// Returns [`IsolationError::Unavailable`] when the runtime has none: a run never falls back to
 /// the host.
+// TRAIT_OBJECT: the runtime holds its isolation as a trait object
 pub fn require_isolation(rt: &Runtime) -> Result<&Arc<dyn Isolation>, IsolationError> {
     rt.isolation
         .as_ref() // BORROW: lend the isolation without taking it out of the runtime
