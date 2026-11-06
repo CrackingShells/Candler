@@ -29,7 +29,7 @@
 4. Every spawn goes through `supervisor` via the client. When `cancel` turns `true`, no new request starts, the requests in flight are cancelled through the client, they commit no outcome file, and `evaluate` returns with them in `failed_requests`.
 5. With `request.request_deadline` `None`, a request's deadline is the sum of its items' deadlines plus `REQUEST_DEADLINE_MARGIN` (a named constant, R01 §Deadlines); `Some(d)` is a flat override.
 6. The store writes (`OutcomeWriter`), hashing and materialising are blocking, so they run in `tokio::task::spawn_blocking`. `EvaluateError` wraps store and io errors as sources; `NotBuilt` is removed.
-7. `pub async fn regrade(store, plugin, suite, runs, env_root, supervisor) -> Result<EvaluateReport, EvaluateError>`, a thin support function over `evaluate` with the defaults `golden_parity` uses and a cancel that never fires.
+7. `pub async fn regrade(store, plugin, suite, runs, env_root, supervisor) -> Result<EvaluateReport, EvaluateError>`, a thin support function over `evaluate` with the defaults `golden_parity` uses and a cancel that never fires: `regrade` keeps the `watch::Sender` alive until `evaluate` returns. Throughout the engine, `changed()` returning `Err` (the sender dropped) reads as "not cancelled", never as a cancel.
 **Deliverables**: `crates/candler-core/src/evaluation/engine/{mod,run,write}.rs` (`evaluate`, `regrade`, `EvaluateReport` filled)
 **Consistency Checks**: `cargo clippy -p candler-core --all-targets -- -D warnings` (expected: PASS)
 **Commit**: `feat(evaluation): run requests concurrently and commit outcome files`
@@ -42,7 +42,7 @@
    - ENG1 (R6): the `applies_to` miss gives `not_applicable`; the dependent of the fail is `blocked`; the dependent of the pass got `prior[]` in the same request (read from the echo evidence). Oracle: hand literal. Bite: skip the dependency check.
    - ENG2 (R9): the echo plug-in returns what it received. The persisted `context_digest` equals the RFC 8785 sha256 of the echoed context, computed in the test with `candler_schemas::canonical`, and equals `live_context_runs.toml` for the three real runs. Oracle: the Python vectors. Bite: digest a different projection.
    - ENG3 (R5): two regrades with the counter kind; selection flags I4 on the second. Oracle: hand literal. Bite: reuse the cached outcome.
-3. Fill `engine_surface`, delete scaffold tests, record bites.
+3. Fill `engine_surface` (the skeleton gated it `#[cfg(unix)]`, as the module is), delete scaffold tests, record bites.
 **Deliverables**: `crates/candler-core/tests/guard_engine.rs` (ENG1–ENG3); `crates/candler-core/tests/fixtures/engine/`; the `engine_surface` block
 **Consistency Checks**: `git diff --quiet HEAD -- crates/candler-core/src && cargo clean -p candler-core && cargo nextest run -p candler-core -E 'binary(guard_signal)' && cargo nextest run -p candler-core -E 'binary(guard_engine)'` (expected: PASS)
 **Commit**: `test(evaluation): guard planning, the digest seam and i4`

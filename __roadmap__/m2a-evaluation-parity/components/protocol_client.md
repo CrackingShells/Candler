@@ -39,7 +39,7 @@
 2. `tests/guard_protocol_client.rs` (`#![cfg(test)]`), with a `Supervisor` built with the recording fake `Signaller` (feature `test-support`) wherever a stop is exercised:
    - PC1 (R6): a table, one row per stub. Expected per-item statuses and causes are hand literals: an unreported item gives `not_measured {instrument_error}`, a request deadline gives `deadline`, cancel is answered, the late result loses, a partial frame gives `instrument_error`, and the stderr flood completes. Oracle: JSON-RPC 2.0 §5.1 text for `-32800` and R01's deadline text. Bite: accept the late result.
    - PC2 (R6, I22): `support::assert_clean` over `crates/candler-core/src/evaluation/` finds no `kill(`, `killpg` or `Signal::`. Oracle: the planted-violation self-test of `assert_clean`. Bite: plant `libc::kill` in a comment of `client/mod.rs`, then restore it with `git checkout -- <file>`.
-3. Fill `protocol_client_surface` under `#[cfg(unix)]`, as the module is; delete scaffold tests, record bites, dispatch the plain verifier.
+3. Fill `protocol_client_surface` (the skeleton gated it `#[cfg(unix)]`, as the module is); delete scaffold tests, record bites, dispatch the plain verifier.
 **Deliverables**: `crates/candler-core/tests/fixtures/client/*.sh`; `crates/candler-core/tests/guard_protocol_client.rs` (PC1, PC2); the `protocol_client_surface` block
 **Consistency Checks**: `git diff --quiet HEAD -- crates/candler-core/src && cargo clean -p candler-core && cargo nextest run -p candler-core -E 'binary(guard_signal)' && cargo nextest run -p candler-core -E 'binary(guard_protocol_client)'` (expected: PASS)
 **Commit**: `test(evaluator-protocol): guard the client against scripted stubs`

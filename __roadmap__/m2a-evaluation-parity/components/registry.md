@@ -39,7 +39,7 @@
 2. `tests/guard_registry.rs` (`#![cfg(test)]`):
    - REG1 (R8): the valid base passes (positive control); then unknown kind, params failing the schema, an unmeetable need, a `snapshots` need and an `inputs` need are each refused, the last two with the exact text of R03. Oracle: spec text. Bite: skip the `inputs` check.
    - REG2 (R6): with a stub `uv` on `PATH` that appends one line to a counter file, two preflights under the same lock digest run the stub once; the env dir's inode and mtime are unchanged by the second (`std::fs::metadata` against values taken before). Oracle: OS `stat`. Bite: rebuild on rerun.
-3. Fill `registry_surface`, delete scaffold tests, record the bites.
+3. Fill `registry_surface` (the skeleton gated it `#[cfg(unix)]`, as the module is), delete scaffold tests, record the bites.
 **Deliverables**: `crates/candler-core/tests/guard_registry.rs` (REG1, REG2); `crates/candler-core/tests/fixtures/registry/`; the `registry_surface` block
 **Consistency Checks**: `git diff --quiet HEAD -- crates/candler-core/src && cargo clean -p candler-core && cargo nextest run -p candler-core -E 'binary(guard_signal)' && cargo nextest run -p candler-core -E 'binary(guard_registry)'` (expected: PASS)
 **Commit**: `test(registry): guard the refusals and the environment reuse`
