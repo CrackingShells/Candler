@@ -11,31 +11,56 @@ pub mod sweeper;
 use std::sync::Arc;
 
 use candler_harness::spec::{Cell, CommandSpec, Workspace};
+use candler_schemas::primitives::{Marker, RunKey};
 use futures::future::BoxFuture;
 
-use super::gateway::Gateway;
-use super::model::{ContainerOutcome, ContainerPlan};
-use super::{Isolation, IsolationError};
-use crate::supervise::spawn::SpawnRequest;
+use self::guard::ContainerGuard;
+use super::driver::DockerDriver;
+use super::model::{ContainerOutcome, ContainerPlan, GatewayHandle};
+use super::{IsolatedRequest, Isolation, IsolationError};
+use crate::supervise::stop::Exit;
 
-/// Isolation through docker containers.
+/// Isolation through docker containers. It is built once per job, after the gateway starts, and
+/// holds no plan and no hook: both belong to one run.
 pub struct DockerIsolation {
-    // TRAIT_OBJECT: the gateway is chosen by the job runtime and by tests
-    gateway: Arc<dyn Gateway>,
+    gateway: GatewayHandle,
+    // TRAIT_OBJECT: the driver is docker, or a recording fake in tests
+    docker: Arc<dyn DockerDriver>,
+    guard: Arc<ContainerGuard>,
 }
 
 impl DockerIsolation {
     /// An isolation that reaches the provider through `gateway`.
     #[must_use]
-    pub fn new(gateway: Arc<dyn Gateway>) -> Self {
-        // TRAIT_OBJECT: the gateway is chosen by the job runtime and by tests
-        Self { gateway }
+    pub fn new(
+        gateway: GatewayHandle,
+        docker: Arc<dyn DockerDriver>,
+        guard: Arc<ContainerGuard>,
+    ) -> Self {
+        // TRAIT_OBJECT: the driver is docker, or a recording fake in tests
+        Self {
+            gateway,
+            docker,
+            guard,
+        }
     }
 
-    /// The gateway this isolation reaches the provider through.
+    /// The gateway the agent's containers reach the provider through.
     #[must_use]
-    pub fn gateway(&self) -> Arc<dyn Gateway> {
-        Arc::clone(&self.gateway)
+    pub const fn gateway<'a>(&'a self) -> &'a GatewayHandle {
+        &self.gateway
+    }
+
+    /// The read driver the isolation inspects through.
+    #[must_use]
+    pub fn docker(&self) -> Arc<dyn DockerDriver> {
+        Arc::clone(&self.docker)
+    }
+
+    /// The guard that destroys the run's containers.
+    #[must_use]
+    pub fn guard(&self) -> Arc<ContainerGuard> {
+        Arc::clone(&self.guard)
     }
 }
 
@@ -55,8 +80,10 @@ impl Isolation for DockerIsolation {
         &self,
         plan: &ContainerPlan,
         command: CommandSpec,
-    ) -> Result<SpawnRequest, IsolationError> {
-        let _ = (plan, command);
+        marker: Marker,
+        key: RunKey,
+    ) -> Result<IsolatedRequest, IsolationError> {
+        let _ = (plan, command, marker, key);
         Err(IsolationError::Unavailable {
             detail: "DockerIsolation::run_request".to_owned(),
         })
@@ -65,8 +92,10 @@ impl Isolation for DockerIsolation {
     fn collect_and_destroy<'a>(
         &'a self,
         plan: &'a ContainerPlan,
+        workspace: &'a Workspace<'a>,
+        exit: &'a Exit,
     ) -> BoxFuture<'a, Result<ContainerOutcome, IsolationError>> {
-        let _ = plan;
+        let _ = (plan, workspace, exit);
         Box::pin(async {
             Err(IsolationError::Unavailable {
                 detail: "DockerIsolation::collect_and_destroy".to_owned(),

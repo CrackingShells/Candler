@@ -1,6 +1,6 @@
 //! Planning the runs of a job: which cells run, with which attempt, and which are already sealed.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use candler_schemas::execution::{Comparable, Deviation, ExperimentFile};
 use candler_schemas::primitives::{Digest, RunKey};
@@ -45,13 +45,40 @@ pub struct RunPlan {
     pub deviations: Vec<Deviation>,
 }
 
+/// Whether planning takes the experiment lock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PlanMode {
+    /// Takes no lock and writes nothing: `candler run` plans this way before it detaches, so a
+    /// refusal reaches the terminal.
+    Check,
+    /// Takes the experiment lock and returns it in the outcome; the supervisor plans this way.
+    Hold,
+}
+
+/// The lock on an experiment, released when it drops.
+#[derive(Debug)]
+pub struct ExperimentLock {
+    path: PathBuf,
+}
+
+impl ExperimentLock {
+    /// The lock file's path.
+    #[must_use]
+    pub fn path<'a>(&'a self) -> &'a Path {
+        self.path.as_path()
+    }
+}
+
 /// What planning decided.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub struct PlanOutcome {
     /// The runs to start.
     pub plans: Vec<RunPlan>,
     /// The runs that were already sealed and are skipped.
     pub sealed: Vec<RunKey>,
+    /// The experiment lock, held under [`PlanMode::Hold`] and `None` under [`PlanMode::Check`].
+    pub lock: Option<ExperimentLock>,
 }
 
 /// Why planning failed.
@@ -72,17 +99,19 @@ pub enum PlanError {
     },
 }
 
-/// Decides the runs of `file` under `resolution`.
+/// Decides the runs of `file` under `resolution`, taking the experiment lock when `mode` is
+/// [`PlanMode::Hold`].
 ///
 /// # Errors
 /// [`PlanError::Differs`] when a stored run differs and `force` is [`Force::No`].
-pub fn plan(
+pub fn plan_runs(
     ctx: &PlanCtx,
     file: &ExperimentFile,
     resolution: &Resolution,
     force: Force,
+    mode: PlanMode,
 ) -> Result<PlanOutcome, PlanError> {
-    let _ = (ctx, file, resolution, force);
+    let _ = (ctx, file, resolution, force, mode);
     Err(PlanError::Unavailable {
         detail: "plan".to_owned(),
     })

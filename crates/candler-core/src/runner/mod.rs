@@ -18,7 +18,8 @@ use tokio::sync::watch;
 
 use crate::isolation::Isolation;
 use crate::isolation::driver::DockerDriver;
-use crate::isolation::model::Inspect;
+use crate::isolation::gateway::Gateway;
+use crate::isolation::model::{GatewayHandle, Inspect};
 use crate::jobs::model::JobCause;
 use crate::jobs::slots::Slots;
 use crate::store::Store;
@@ -39,8 +40,20 @@ pub struct Runtime {
     /// The read half of docker.
     pub docker: Arc<dyn DockerDriver>,
     // TRAIT_OBJECT: the isolation is docker, or a fake in tests
-    /// How the run's agent is placed in a container.
-    pub isolation: Arc<dyn Isolation>,
+    /// How the run's agent is placed in a container. `None` until the job's gateway has started;
+    /// a run that finds `None` fails and never runs on the host.
+    pub isolation: Option<Arc<dyn Isolation>>,
+    /// The job's gateway. `None` until it has started.
+    pub gateway: Option<JobGateway>,
+}
+
+/// The job's gateway: the service that talks to it and the handle of the running container.
+pub struct JobGateway {
+    // TRAIT_OBJECT: the service is the gateway container, or a fake in tests
+    /// The service.
+    pub service: Arc<dyn Gateway>,
+    /// The running gateway.
+    pub handle: GatewayHandle,
 }
 
 /// Tokens and cost a run spent.

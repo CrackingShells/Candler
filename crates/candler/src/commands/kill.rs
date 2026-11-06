@@ -1,7 +1,5 @@
 //! `candler kill`: stops a job.
 
-use std::process::ExitCode;
-
 use super::CliError;
 
 /// The arguments of `candler kill`.
@@ -19,7 +17,7 @@ pub struct Args {
     clippy::unused_async,
     reason = "the verb awaits once its leaf fills it in"
 )]
-pub async fn run(args: Args) -> Result<ExitCode, CliError> {
+pub async fn run(args: Args) -> Result<(), CliError> {
     let _ = args;
     Err(CliError::Unavailable { verb: "kill" })
 }
