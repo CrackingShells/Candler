@@ -5,11 +5,11 @@
 - [ ] [cmd] ENV, and `cargo tree -p candler-schemas -e features -i uuid | grep -q 'uuid feature "v7"'`
 - [ ] [nl] The M2 coordinator OK'd the additive schema root and `RequestId::new_v7` (proxy: the reply quoted in Amendment Log A1)
 **Success Gates**:
-- ⬜ [cmd] STD, DRIFT, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler-schemas/(src/(evaluation\.rs|evaluation/rpc\.rs|primitives\.rs)|schema/evaluator-message\.schema\.json|tests/(guard_rpc_wire\.rs|fixtures/rpc/))`
-- ⬜ [cmd] Additive ratchet: `test -z "$(git diff --name-only --diff-filter=MDR origin/main -- crates/candler-schemas/schema)"`
-- ⬜ [cmd] `cargo nextest run -p candler-schemas -E 'binary(guard_rpc_wire)'` passes (WIRE1, WIRE2)
-- ⬜ [cmd] `test "$(find crates/candler-schemas/tests/fixtures/rpc -type f -exec cat {} + | wc -c)" -le 10240` (bytes, not disk blocks)
-- ⬜ [nl] The report records the bites of WIRE1 (accept `"jsonrpc": "1.0"`) and WIRE2 (loosen the payload to any object), each tried and seen to fail
+- ✅ [cmd] STD, DRIFT, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler-schemas/(src/(evaluation\.rs|evaluation/rpc\.rs|primitives\.rs)|schema/evaluator-message\.schema\.json|tests/(guard_rpc_wire\.rs|fixtures/rpc/))`
+- ✅ [cmd] Additive ratchet: `test -z "$(git diff --name-only --diff-filter=MDR origin/main -- crates/candler-schemas/schema)"`
+- ✅ [cmd] `cargo nextest run -p candler-schemas -E 'binary(guard_rpc_wire)'` passes (WIRE1, WIRE2)
+- ✅ [cmd] `test "$(find crates/candler-schemas/tests/fixtures/rpc -type f -exec cat {} + | wc -c)" -le 10240` (bytes, not disk blocks)
+- ✅ [nl] The report records the bites of WIRE1 (accept `"jsonrpc": "1.0"`) and WIRE2 (loosen the payload to any object), each tried and seen to fail
 **References**: [R01 §Evaluator protocol](../../__design__/architecture.md) — methods, notifications, cancel `-32800`; [JSON-RPC 2.0](https://www.jsonrpc.org/specification) — §4 Request, §4.1 Notification, §5 Response, §5.1 Error; [R03 §Protocol](../../__reports__/m2a-evaluation-parity/00-architecture_v0.md) — one process per request, the envelope over the roots; `crates/candler-schemas/src/evaluation.rs` — `Request`, `Notification`, `RequestSide`, `DescribeResult`, `EvaluateResult`, `RequestCancelled`
 
 ## Step 1: Mint request ids as uuid v7

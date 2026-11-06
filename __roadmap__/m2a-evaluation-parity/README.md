@@ -122,8 +122,8 @@ A live `htn-creator-eval@0.5.0` regrade of the golden corpus reproduces the impo
 ## Status
 ```mermaid
 graph TD
-    skeleton[Skeleton: frozen seams and stubs]:::planned
-    protocol_wire[Protocol wire: JSON-RPC envelope]:::planned
+    skeleton[Skeleton: frozen seams and stubs]:::done
+    protocol_wire[Protocol wire: JSON-RPC envelope]:::done
     components[Components]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -135,8 +135,8 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `skeleton.md` | 📄 Leaf Task | ⬜ Planned |
-| `protocol_wire.md` | 📄 Leaf Task | ⬜ Planned |
+| `skeleton.md` | 📄 Leaf Task | ✅ Done |
+| `protocol_wire.md` | 📄 Leaf Task | ✅ Done |
 | `components/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
