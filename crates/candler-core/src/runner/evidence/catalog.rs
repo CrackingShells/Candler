@@ -1,14 +1,13 @@
 //! The command catalog of an image: which commands the agent can run.
 
 use std::path::PathBuf;
-use std::str::FromStr as _;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use candler_harness::spec::{Cell, CommandSpec};
 use candler_schemas::catalog::CatalogSnapshot;
-use candler_schemas::primitives::{Digest, Marker};
+use candler_schemas::primitives::Digest;
 use candler_schemas::process::ExitStatus;
 use futures::future::BoxFuture;
 
@@ -17,14 +16,12 @@ use crate::isolation::docker::{ClientEnv, DockerCli};
 use crate::isolation::layout;
 use crate::isolation::model::{ImageRef, Limits};
 use crate::supervise::Supervisor;
+use crate::supervise::signal::control_marker;
 use crate::supervise::spawn::SpawnRequest;
 use crate::supervise::stop::{Captured, Ended};
 
 /// The exit code of coreutils `timeout` when the command it runs overran.
 const TIMEOUT_EXIT: i32 = 124;
-
-/// The marker the control containers of a catalog capture run under.
-const CONTROL_MARKER: &str = "control";
 
 /// How long past the command's own time the docker client may run before the supervisor ends it.
 const CLIENT_GRACE: Duration = Duration::from_secs(30);
@@ -261,8 +258,7 @@ impl CommandCatalogProvider {
     /// Runs the control container with its record dir `records`.
     async fn run(&self, image: &ImageRef, records: PathBuf) -> Result<Catalog, CatalogError> {
         let unavailable = |detail: String| CatalogError::Unavailable { detail };
-        let marker = Marker::from_str(CONTROL_MARKER)
-            .map_err(|error| unavailable(format!("the control marker is refused: {error}")))?;
+        let marker = control_marker();
         let request = SpawnRequest::builder()
             .argv(self.argv(image)?)
             // BORROW: .to_vec() gives the request its own pairs
