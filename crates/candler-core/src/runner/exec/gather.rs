@@ -180,7 +180,7 @@ pub fn collect_files(root: &Path, specs: &[CollectSpec]) -> io::Result<Vec<Outpu
 fn walk(
     dir: &Path,
     prefix: &str,
-    each: &mut dyn FnMut(&str, &Path) -> io::Result<()>,
+    each: &mut dyn FnMut(&str, &Path) -> io::Result<()>, // TRAIT_OBJECT: the visitor is a closure, held by reference to keep the recursion non-generic
 ) -> io::Result<()> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;

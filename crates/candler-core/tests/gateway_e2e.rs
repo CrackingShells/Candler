@@ -641,12 +641,11 @@ async fn up(rig: &Rig, token: &str) -> World {
     let gw = gateway(rig, &certs.ca_pem, 4);
     let experiment: Digest = EXPERIMENT.parse().expect("a digest");
     let fake_task = {
-        // BORROW: .clone() moves owned copies to the blocking thread
         let (job, run, egress, dir, secret) = (
-            rig.job.clone(),
-            rig.run.clone(),
+            rig.job.clone(), // BORROW: an owned copy moves to the blocking thread
+            rig.run.clone(), // BORROW: an owned copy moves to the blocking thread
             rig.egress_network(),
-            certs.dir.clone(),
+            certs.dir.clone(), // BORROW: an owned copy moves to the blocking thread
             String::from(token),
         );
         tokio::task::spawn_blocking(move || run_fake(&job, &run, &egress, &dir, &secret))

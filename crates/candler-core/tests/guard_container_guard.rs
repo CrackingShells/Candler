@@ -549,7 +549,7 @@ async fn b10_guard_refusals() {
             ))]),
             vec![target],
         );
-        let read: Arc<dyn DockerDriver> = docker;
+        let read: Arc<dyn DockerDriver> = docker; // TRAIT_OBJECT: the isolation reads through the driver trait, a scripted fake here
         let isolation = DockerIsolation::new(gateway.clone(), read, Arc::new(guard)); // BORROW: .clone() gives each isolation its own handle
         let outcome = isolation
             .collect_and_destroy(&plan, &workspace, &exit, &run)
@@ -576,7 +576,7 @@ async fn b10_guard_refusals() {
     // A container of another job, named by the cidfile, is refused as a mismatch of the job.
     let foreign_target = inspect(&id, labels(&other, "agent", Some(&run)));
     let (guard, docker, destroyer) = rig(view(), vec![foreign_target]);
-    let read: Arc<dyn DockerDriver> = docker;
+    let read: Arc<dyn DockerDriver> = docker; // TRAIT_OBJECT: the isolation reads through the driver trait, a scripted fake here
     let isolation = DockerIsolation::new(gateway, read, Arc::new(guard));
     let outcome = isolation
         .collect_and_destroy(&plan, &workspace, &exit, &run)
@@ -584,6 +584,7 @@ async fn b10_guard_refusals() {
         .expect("an outcome");
     assert!(destroyer.calls().is_empty(), "{:?}", destroyer.calls());
     assert_eq!(outcome.sweep.refused.len(), 1);
+    // INDEX: the length is asserted to be 1 on the line above
     assert_eq!(outcome.sweep.refused[0].reason, "job_mismatch");
 }
 

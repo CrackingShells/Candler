@@ -45,9 +45,9 @@ impl Facts {
     pub fn base() -> Self {
         Self {
             image: digest_text('a'),
-            version: "2.1.0".to_owned(),
+            version: "2.1.0".to_owned(), // BORROW: the facts own their version text
             commit: "1".repeat(40),
-            secrets: vec!["API_KEY".to_owned()],
+            secrets: vec!["API_KEY".to_owned()], // BORROW: the facts own their secret names
             turns: None,
             experiment: 'e',
             input: Some('c'),
@@ -168,18 +168,18 @@ fn manifest_json(run: &Run<'_>, cell: &str) -> Value {
     });
     if run.facts.turns.is_some() {
         let source = json!({"path": "budget.per_run.turns", "source": {"kind": "project_config"}});
-        manifest["sources"]
+        manifest["sources"] // INDEX: a JSON object member, built with a `sources` array above
             .as_array_mut()
             .expect("sources")
             .insert(0, source);
     }
     if run.facts.input.is_some() {
-        let sources = manifest["sources"].as_array_mut().expect("sources");
+        let sources = manifest["sources"].as_array_mut().expect("sources"); // INDEX: a JSON object member, built with a `sources` array above
         sources.push(json!({"path": "inputs", "source": {"kind": "experiment_file"}}));
-        sources.sort_by_key(|entry| entry["path"].as_str().unwrap_or_default().to_owned());
+        sources.sort_by_key(|entry| entry["path"].as_str().unwrap_or_default().to_owned()); // INDEX: every source entry has a `path` member; BORROW: the sort key is owned
     }
     if let Some(job) = run.job {
-        manifest["job"] = json!(job);
+        manifest["job"] = json!(job); // INDEX: a JSON object member, replaced in place
     }
     manifest
 }
@@ -203,7 +203,7 @@ pub fn stored_cell(model: &str, facts: &Facts) -> Comparable {
         sealed: true,
         job: None,
     };
-    manifest(&run).comparable().clone()
+    manifest(&run).comparable().clone() // BORROW: the plan context owns the comparable facts
 }
 
 /// Writes `run` into `store`: an unsealed run is left as a killed supervisor leaves it, with a
@@ -223,7 +223,7 @@ pub fn write_run(store: &Store, run: &Run<'_>) -> RunManifest {
 /// The planning context of `store` and `lock` when the secrets of `facts` are present.
 pub fn plan_ctx(store: &Store, lock: &Path, facts: &Facts) -> PlanCtx {
     PlanCtx {
-        store: store.clone(),
+        store: store.clone(), // BORROW: the context owns a handle to the store
         experiment_lock: lock.to_path_buf(),
         secrets_present: facts
             .secrets
