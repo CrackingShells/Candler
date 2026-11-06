@@ -35,3 +35,15 @@ fn segments_never_match_by_characters() {
     assert!(covers(&["model", "id"], &["model", "id", "x"]));
     assert!(!covers(&["model", "id"], &["model", "idx"]));
 }
+
+#[test]
+fn an_empty_stratum_has_no_verdict() {
+    use candler_core::manifest::compare::{NUISANCE_PATHS, Verdict, stratum_verdict};
+    assert!(matches!(stratum_verdict(&[], &[]), Verdict::Malformed(_)));
+}
+
+#[test]
+fn no_comparable_path_is_nuisance() {
+    use candler_core::manifest::compare::NUISANCE_PATHS;
+    assert!(NUISANCE_PATHS.iter().all(|p| !p.starts_with("comparable")));
+}
