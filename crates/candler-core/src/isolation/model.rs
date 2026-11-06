@@ -43,7 +43,9 @@ impl Labels {
     }
 }
 
-/// The name of a docker network, `candler-<first 12 hex digits of the job id>-net`.
+/// The name of a docker network of a job: its internal network
+/// `candler-<first 12 hex digits of the job id>-net`, or its egress network
+/// `candler-<first 12 hex digits of the job id>-egress`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NetworkName(String);
 
@@ -51,13 +53,24 @@ impl NetworkName {
     /// The network of `job`.
     #[must_use]
     pub fn for_job(job: &JobId) -> Self {
-        let short: String = job
-            .as_str()
+        Self(format!("candler-{}-net", Self::short(job)))
+    }
+
+    /// The egress network of `job`: user-defined and not internal. The gateway reaches its
+    /// upstream on it, and the agent's container joins it only when its cell asks for
+    /// `isolation.network = bridge`.
+    #[must_use]
+    pub fn egress_for_job(job: &JobId) -> Self {
+        Self(format!("candler-{}-egress", Self::short(job)))
+    }
+
+    /// The first 12 hex digits of the job id.
+    fn short(job: &JobId) -> String {
+        job.as_str()
             .chars()
             .filter(char::is_ascii_hexdigit)
             .take(12)
-            .collect();
-        Self(format!("candler-{short}-net"))
+            .collect()
     }
 
     /// The name as docker takes it.
@@ -317,8 +330,12 @@ pub struct ContainerPlan {
     pub mounts: Vec<MountSpec>,
     /// The environment, by name.
     pub env: Vec<(String, String)>,
-    /// The network.
+    /// The network: the job's internal network, where the gateway answers.
     pub network: NetworkName,
+    /// A second network the container joins, the job's egress network, when the cell asks for
+    /// `isolation.network = bridge`. Docker Engine 25 or newer takes both `--network` flags on
+    /// one `docker run`, as long as both networks are user-defined.
+    pub egress: Option<NetworkName>,
     /// The resource limits.
     pub limits: Limits,
     /// The file docker writes the container id to.
@@ -355,6 +372,9 @@ pub struct GatewayHandle {
     pub base_url: Url,
     /// The network both containers share.
     pub network: NetworkName,
+    /// The job's egress network, which the gateway reaches its upstream on. The agent's
+    /// container joins it only when its cell asks for `isolation.network = bridge`.
+    pub egress: NetworkName,
     /// The token the agent holds in place of the real one.
     pub dummy_token: String,
 }
