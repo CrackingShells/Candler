@@ -6,12 +6,12 @@
 - [ ] [cmd] The `$RW` environment check of the README Gotchas passes, and the HTNSTD baseline is recorded in R03 §Environment
 - [ ] [cmd] `git -C "$R" show 28be2c15:.claude/skills/htn-creator-workspace/infrastructure/evals/eval.json | shasum -a 256 | grep -q '^ca7f12afee55152e'`
 **Success Gates**:
-- ⬜ [cmd] HTNSTD and SCAFFOLD pass, SUBJ passes in `$RW` (base `feat/candler-htn-plugin`), and OWNED passes in `$RW` with `^\.claude/skills/htn-creator-workspace/candler-plugin/(src/htn_creator_candler/kinds/|src/htn_creator_candler/__init__\.py$|tests/(test_guard_kind_parity|test_guard_deltas|conftest)\.py$|tests/fixtures/kinds/|deltas\.toml$|pyproject\.toml$|uv\.lock$)`
-- ⬜ [cmd] `cd "$RW/$PLUGIN" && CANDLER_GOLDEN_CORPUS="$GOLDEN" uv run --frozen pytest -q -m golden tests/test_guard_kind_parity.py` passes (KP1), and fails when the variable is unset. The report records its wall-clock.
-- ⬜ [cmd] `cd "$RW/$PLUGIN" && uv run --frozen pytest -q tests/test_guard_deltas.py` passes (KP2, KP3)
-- ⬜ [cmd] Byte-identity: `cd "$RW/$PLUGIN" && uv run --frozen python -c 'import htn_creator_eval.grader as g;print(g.__file__)' | xargs shasum -a 256` equals `git -C "$R" show 28be2c15:.claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/grader.py | shasum -a 256`, and likewise for every checker script the kinds run
-- ⬜ [cmd] `test -z "$(grep -rnE 'candler_evaluator' "$RW/$PLUGIN/src/htn_creator_candler/kinds")"` (kinds do not import the helper)
-- ⬜ [nl] The adversarial verifier closes with no open BLOCKER or MAJOR before `htn_plugin` step 3
+- ✅ [cmd] HTNSTD and SCAFFOLD pass, SUBJ passes in `$RW` (base `feat/candler-htn-plugin`), and OWNED passes in `$RW` with `^\.claude/skills/htn-creator-workspace/candler-plugin/(src/htn_creator_candler/kinds/|src/htn_creator_candler/__init__\.py$|tests/(test_guard_kind_parity|test_guard_deltas|conftest)\.py$|tests/fixtures/kinds/|deltas\.toml$|pyproject\.toml$|uv\.lock$)`
+- ✅ [cmd] `cd "$RW/$PLUGIN" && CANDLER_GOLDEN_CORPUS="$GOLDEN" uv run --frozen pytest -q -m golden tests/test_guard_kind_parity.py` passes (KP1), and fails when the variable is unset. The report records its wall-clock.
+- ✅ [cmd] `cd "$RW/$PLUGIN" && uv run --frozen pytest -q tests/test_guard_deltas.py` passes (KP2, KP3)
+- ✅ [cmd] Byte-identity: `cd "$RW/$PLUGIN" && uv run --frozen python -c 'import htn_creator_eval.grader as g;print(g.__file__)' | xargs shasum -a 256` equals `git -C "$R" show 28be2c15:.claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/grader.py | shasum -a 256`, and likewise for every checker script the kinds run
+- ✅ [cmd] `test -z "$(grep -rnE 'candler_evaluator' "$RW/$PLUGIN/src/htn_creator_candler/kinds")"` (kinds do not import the helper)
+- ✅ [nl] The adversarial verifier closes with no open BLOCKER or MAJOR before `htn_plugin` step 3
 **References**: [R03 §Adapt don't wrap, §Quirk table, §Kind signature, §Needs](../../../__reports__/m2a-evaluation-parity/00-architecture_v0.md); [R04 KP1–KP3](../../../__reports__/m2a-evaluation-parity/01-test_definition_v0.md); `htn_creator_eval/grader.py` at `28be2c15` — `grade_expectation`, the `grade_*` functions, `classify_outcome`, `_finalize_metric`, `parse_ratio_markers`, `find_output`; `evals/eval.json` at `28be2c15`; M1 `legacy_mapping.md` — how 0.4.2 rows map to outcome records
 
 ## Step 1: Set up the plug-in project with a pinned instrument

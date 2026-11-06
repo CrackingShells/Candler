@@ -95,4 +95,20 @@ A cancel that lands while the client settles returns `Ok`, and dropping a `Child
 - **4: accepted.** `addopts = "-m 'not golden'"` keeps KP1 out of the default run. The KP1 gate selects it with `-m golden`.
 - **5: accepted.** The pinned wheel omits the schema JSON that the grader reads, so the kinds ship a byte-identical copy under `kinds/_data`. `htn_plugin` must keep it in the package data.
 - **6: for `htn_plugin`.** The kinds use `tomllib`, which needs Python 3.11, while `requires-python` says `>=3.10`. `htn_plugin` raises it to `>=3.11` when it re-locks.
-- **7–11: accepted as chosen,** pending the adversarial verifier, which was asked to examine the 0/0 path in particular.
+- **7–11: accepted as chosen.**
+
+## htn_kinds verifier (three MAJORs, one fix round)
+- **MAJOR-1, fixed.** A 0/0 fail became `not_applicable`, and KP2's oracle reused KP1's mapping, so nothing guarded it. Eliott's ruling covers a 0/0 pass only. A 0/0 fail stays `fail` with weight 0/0, as M1's legacy mapping says. KP2 gains a fixture that reaches it, with a hand-literal expected outcome.
+- **MAJOR-2, fixed.** On non-UTF-8 stdout the grader's strict decode fails and the item is `not_measured`, while the kinds decoded leniently and passed. The kinds now decode strictly too.
+- **MAJOR-3, fixed.** A checker that closes `sys.stdout` made the first restore step raise, and the rest never ran. Every restore step now runs on its own.
+- **MINOR, fixed:**
+  - `on_missing` takes only `fail` or `blocked`.
+  - `find_artifact` breaks ties by path.
+  - The `.claude` clause has a test.
+  - An out-of-range `SystemExit` gives what a real child gives.
+- **MINOR, written into `deltas.toml`.** These are rows that KP2 cannot reach, and each is marked with the component that covers it:
+  - The checker timeout. The kinds do not spawn, and the helper's item deadline ends a hang.
+  - C6 after an assert fail of C1 or C5. Candler blocks it, while the grader computes it. No 0.4.2 spec has such an assert.
+- **MINOR, accepted.** The in-process state leaks follow from the design, since the helper forks per item. KP2's docstring says so.
+- **NITs: accepted, no change.**
+- **SCAFFOLD count, clarified.** The rule "tests equal `Guards:` lines" counts collected tests. In the HTN repo, `addopts` deselects the golden test, so the count is taken with `-m "golden or not golden"`.

@@ -20,7 +20,7 @@ Every L1 component is built and guarded by its R04 cornerstone tests on its own 
 ```mermaid
 graph TD
     reference_oracle[Reference oracle: A-C expected rows and rates]:::done
-    htn_kinds[HTN kinds: adapted grader functions]:::planned
+    htn_kinds[HTN kinds: adapted grader functions]:::done
     helper_runtime[Helper runtime: Python evaluator loop]:::planned
     registry[Registry: manifests, suites, environments]:::done
     run_context[Run context: assembly, digest, materialiser]:::done
@@ -38,7 +38,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `reference_oracle.md` | 📄 Leaf Task | ✅ Done |
-| `htn_kinds.md` | 📄 Leaf Task | ⬜ Planned |
+| `htn_kinds.md` | 📄 Leaf Task | ✅ Done |
 | `helper_runtime.md` | 📄 Leaf Task | ⬜ Planned |
 | `registry.md` | 📄 Leaf Task | ✅ Done |
 | `run_context.md` | 📄 Leaf Task | ✅ Done |
