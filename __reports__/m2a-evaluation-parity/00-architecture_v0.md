@@ -217,21 +217,29 @@ Kept quirks change A–C rows, so they are explicit params with the grader's def
 - **Change classes.** Missing and extra rows are changes; the classes are `status`, `value`, `weight`, `cause`, `missing` and `extra`.
 - **Uncompared.** A row whose expectation is absent from the `to` suite is uncompared, and is listed with its count.
 
-**Equivalence file** (`--equivalence <file>`, hand-written data, applied `from` → `to` only):
+**Equivalence file** (`--equivalence <file>`; the coordinator's conditions of 2026-11-06 apply). It names exact rows, never a pattern over all rows:
 ```json
-{ "rules": [ {
+{ "generator": "crates/candler/tests/oracle/gen_oracle.py",
+  "rules": [ {
     "name": "legacy-zero-weight-pass",
     "from": { "status": "pass", "weight": { "num": 0, "den": 0 }, "cause": { "legacy": "zero_weight" } },
-    "to":   { "status": "not_applicable", "cause": { "reason": "empty_population" } } } ] }
+    "to":   { "status": "not_applicable", "cause": { "reason": "empty_population" } },
+    "rows": [ { "run": "<cell hex>-r<replicate>-a1", "expectation": "<id>" } ] } ] }
 ```
-- A key present in a pattern must equal the record's field exactly, after normalisation. A key absent from a pattern is not constrained. `status` is required on both sides.
-- Each application is counted.
+- **One allowed change per rule.** `from` and `to` are whole records on the four fields after weight normalisation: an absent key means the field is absent, so the match is exact. The rule applies `from` → `to` only.
+- **Exact rows.** A listed row is excused only when its `from` side and its `to` side both exist and equal the rule's `from` and `to` exactly. An unlisted row showing the same change is an ordinary change.
+- **Failures.** A listed row missing on either side is a change of class `equivalence_missing`. A listed row showing any other pair, unchanged included, is a change of class `equivalence_mismatch`. A row listed twice, or an unknown key anywhere in the file, makes `diff` refuse the file with exit 2.
+- **Generated, not hand-written.** The rule's `from` and `to` are literals in `gen_oracle.py`, transcribed from Eliott's ruling. Its 209 rows come from the raw corpus (`max_score == 0` on an A–C `pass`, the same rows as `na_pairs.txt`). Each run key's cell hex is the digest of the cell's `comparable` object, which the script builds from R01's text with `rfc8785`, as M1's `gen_vectors.py` does. Nothing is read from the importer or the store.
+- **Recorded.** `diff` records the file's sha256 and reports the excused rows as their own count, never as unchanged.
 
 **`diff --format json`** has exactly these keys:
 ```json
-{ "compared": 8880, "changed": 0, "changes": [ { "class": "value", "run": "…", "expectation": "…", "from": {…}, "to": {…} } ],
-  "uncompared": [ { "expectation": "D-E1", "count": 240 } ], "equivalences_applied": 209 }
+{ "compared": 8880, "unchanged": 8671, "excused": 209, "changed": 0,
+  "changes": [ { "class": "value", "run": "…", "expectation": "…", "from": {…}, "to": {…} } ],
+  "uncompared": [ { "expectation": "D-E1", "count": 240 } ],
+  "equivalence": { "sha256": "…", "rows": 209 } }
 ```
+- `compared` counts the `(run, expectation)` rows present on either side for an expectation in both suites, and `unchanged + excused + changed == compared`. Missing, extra and equivalence failures are counted in `changed`. `equivalence` is `null` without `--equivalence`.
 - Exit 1 when `changed > 0`, 0 otherwise, 2 on an error.
 
 **Rates** (`show --rates --format toml`, and `$ORACLE/rates_by_cell.toml` byte for byte):
@@ -245,7 +253,7 @@ quality = [<num>, <den>]
   - Per run and per role (`gate`, `quality`; the role is read from `eval.json`), sum the numerators and the denominators over expectations whose status is `pass`, `fail` or `blocked`.
   - `blocked` counts with numerator 0. `not_measured` and `not_applicable` are excluded.
   - A cell's pair is the sum of its runs' pairs.
-- A 0/0 `pass` adds nothing, which is why the equivalence leaves rates unchanged.
+- A 0/0 `pass` adds nothing, which is why the excused rows leave the rates unchanged.
 - For live records the pair is the weight's `num`/`den`; for raw rows it is `score`/`max_score`.
 
 ### Protocol
@@ -336,10 +344,10 @@ Recorded in Phase 0. The `HTNSTD` gate compares against this.
 |---|---|---|---|
 | Grader reuse | Wrap `grader.py`; port it; adapt it | Adapt: pure kinds that import its helpers | Divergences must be listed and guarded (KP2) |
 | Live identity | Reuse `0.4.2`; mint `0.5.0` | `0.5.0` | The parity check is a cross-version diff, which needs the equivalence file |
-| 0/0 pass | Keep `pass 0/0`; `not_applicable` | `not_applicable {empty_population}` | One hand-written equivalence rule |
+| 0/0 pass | Keep `pass 0/0`; `not_applicable` | `not_applicable {empty_population}` | One equivalence rule over 209 exact rows |
 | Isolation | Subprocess per item; fork per item | Fork, with a no-fork fallback | macOS fork safety, covered by a repeated probe |
 | Item deadline | Parent signals child; child self-arms | Child self-arms `SIGALRM` | A wedged child is ended by the core's request deadline |
-| Diff | HTN-specific; generic plus data | Generic, plus an equivalence data file | The equivalence file is hand-authored |
+| Diff | HTN-specific; generic plus data; a pattern rule over all rows | Generic, plus an equivalence file of exact rows | A pattern could hide a real mismatch; exact rows, a recorded digest and a separate `excused` count cannot |
 | Helper pin | PyPI; GitHub; `git+file` | `git+file` to the Candler main checkout | Re-pin after the final rebase |
 
 ## Risks & Mitigations
@@ -347,7 +355,7 @@ Recorded in Phase 0. The `HTNSTD` gate compares against this.
 | Risk | Mitigation |
 |---|---|
 | R1 parity drifts | GP1 and GP2 read every number from the oracle files; KP1 runs at kind level first |
-| R2 diff blindness | DF1 is planted per class; DF2 is one-direction equivalence; CLI1 pins the key set |
+| R2 diff blindness | DF1 is planted per class; DF2 decides the exact-row equivalence and its failures; CLI1 pins the key set; the golden-parity verifier tries to hide a mismatch behind the file |
 | R3 oracle shares a source | Python reads the raw corpus and `_outcome.py` at `28be2c15`; OR1 is a second engine |
 | R4 kind divergence | KP1 to KP3, `deltas.toml`, the mutation sweep into HP1, an adversarial verifier |
 | R5 vacuous I4 | ENG3 counter kind; GP3 needs disjoint request ids and 8,880 rows |
