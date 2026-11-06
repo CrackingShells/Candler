@@ -354,7 +354,9 @@ mod m2b_surface {
     use candler_core::isolation::gateway::{
         Gateway, GatewayError, GatewaySignal, GatewayStatus, SecretError, SecretSource, SecretValue,
     };
-    use candler_core::isolation::image::{BuildSetting, ImageError, ImageService, LockDigest};
+    use candler_core::isolation::image::{
+        BuildSetting, Extension, ImageError, ImageService, LockDigest, LockRequest, LockSource,
+    };
     use candler_core::isolation::layout;
     use candler_core::isolation::model::{
         BuildRequest, ContainerOutcome, ContainerPlan, ContainerRef, ContainerSweep, GatewayHandle,
@@ -480,6 +482,9 @@ mod m2b_surface {
             None::<SecretError>,
             None::<ImageError>,
             None::<BuildSetting>,
+            None::<Extension>,
+            None::<LockRequest>,
+            None::<LockSource>,
             None::<LockDigest>,
             None::<BuildRequest>,
             None::<ContainerOutcome>,

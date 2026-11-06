@@ -68,6 +68,13 @@ pub const ISOLATION_BUILD_DOCKERFILE: &str = "isolation.build.dockerfile";
 /// A setting: the build context directory.
 pub const ISOLATION_BUILD_CONTEXT: &str = "isolation.build.context";
 
+/// A setting: the requirement sources the env lock is compiled from, each a path relative to the
+/// experiment file or `treatment:<path inside the skill>`.
+pub const ISOLATION_BUILD_REQUIREMENTS: &str = "isolation.build.requirements";
+
+/// A setting: a ready lock file used verbatim instead of compiling one.
+pub const ISOLATION_BUILD_LOCK: &str = "isolation.build.lock";
+
 /// A cell value: the wall-clock cap of one run, in seconds.
 pub const BUDGET_PER_RUN_WALL_S: &str = "budget.per_run.wall_s";
 

@@ -388,7 +388,7 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
   | `prompt.template`, `prompt.values` | cell value |
   | `isolation.image` (the derived local image ID), `isolation.network`, `isolation.env_lock`, `isolation.limits.*` | cell value |
   | `budget.per_run.{wall_s, turns, max_cost_usd}` | cell value |
-  | `isolation.build.{dockerfile, context}` (its content enters `inputs[]`) | setting |
+  | `isolation.build.{dockerfile, context}` (its content enters `inputs[]`); `isolation.build.{requirements, lock}` (the lock they give enters the cell as `isolation.env_lock`) | setting |
   | `request.harness`, `request.treatment`, `request.treatment_source`, `model.token_secret` | setting |
   | `harness`, `treatment`, `inputs[]`, `snapshots`, `environments` (reserved) | typed root |
 

@@ -130,6 +130,16 @@ class = "setting"
 source = "experiment file; its content enters as an inputs[] digest"
 
 [[path]]
+path = "isolation.build.requirements"
+class = "setting"
+source = "experiment file (ruling A15); the compiled lock enters the cell as isolation.env_lock"
+
+[[path]]
+path = "isolation.build.lock"
+class = "setting"
+source = "experiment file (ruling A15); its bytes enter the cell as isolation.env_lock"
+
+[[path]]
 path = "harness"
 class = "typed_root"
 source = "derived HarnessIdentity {name, version, driver?}"
