@@ -1,0 +1,115 @@
+{
+  "$defs": {
+    "ContainerId": {
+      "description": "The identifier of a container: 12 to 64 lowercase hex digits, as the docker CLI prints it.",
+      "pattern": "^[0-9a-f]{12,64}(?![\\s\\S])",
+      "type": "string"
+    },
+    "ContainerLabels": {
+      "additionalProperties": false,
+      "description": "The labels a container carries: the job, the run and the experiment it belongs to.",
+      "properties": {
+        "experiment": {
+          "$ref": "#/$defs/Digest",
+          "description": "The digest of the experiment: the value of the `candler.experiment` label."
+        },
+        "job": {
+          "$ref": "#/$defs/JobId",
+          "description": "The job the container belongs to: the value of the `candler.job` label."
+        },
+        "run": {
+          "$ref": "#/$defs/Marker",
+          "description": "The run the container belongs to, in its path form: the value of the `candler.run` label."
+        }
+      },
+      "required": [
+        "job",
+        "run",
+        "experiment"
+      ],
+      "type": "object"
+    },
+    "ContainerRole": {
+      "description": "The part a container plays in a run: `agent` or `gateway`.",
+      "oneOf": [
+        {
+          "const": "agent",
+          "description": "The container runs the agent.",
+          "type": "string"
+        },
+        {
+          "const": "gateway",
+          "description": "The container is the gateway the agent reaches its provider through.",
+          "type": "string"
+        }
+      ]
+    },
+    "Digest": {
+      "description": "A content digest: `sha256:` followed by 64 lowercase hex digits.",
+      "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])",
+      "type": "string"
+    },
+    "JobId": {
+      "description": "A job id: a `UUIDv7` in lowercase hyphenated form.",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![\\s\\S])",
+      "type": "string"
+    },
+    "Marker": {
+      "description": "The value of `CANDLER_RUN` in a child's environment: an ASCII letter or digit, then letters, digits, `.`, `_` or `-`.",
+      "pattern": "^[0-9A-Za-z][0-9A-Za-z._-]*(?![\\s\\S])",
+      "type": "string"
+    },
+    "Timestamp": {
+      "$comment": "The pattern states the lexical form; a date or time that names no instant, such as month 13, and a fraction of more than nine digits are refused by the parser.",
+      "description": "An RFC 3339 timestamp with an uppercase `T` and an explicit offset, `Z` or `±HH:MM`.",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])(?![\\s\\S])",
+      "type": "string"
+    }
+  },
+  "$id": "urn:candler:schemas:container-record",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The record the supervisor writes for a container: its id, labels, creation time, image, role and spawn time, with the version marker `container-record/1` in `schema`.",
+  "properties": {
+    "cid": {
+      "$ref": "#/$defs/ContainerId",
+      "description": "The id of the container."
+    },
+    "created_at": {
+      "$ref": "#/$defs/Timestamp",
+      "description": "When the container was created, as the container engine reports it."
+    },
+    "image_id": {
+      "$ref": "#/$defs/Digest",
+      "description": "The id of the image the container was created from."
+    },
+    "labels": {
+      "$ref": "#/$defs/ContainerLabels",
+      "description": "The labels the container was created with."
+    },
+    "role": {
+      "$ref": "#/$defs/ContainerRole",
+      "description": "The part the container plays."
+    },
+    "schema": {
+      "const": "container-record/1",
+      "description": "The version marker of the document: always `container-record/1`.",
+      "type": "string"
+    },
+    "spawned_at": {
+      "$ref": "#/$defs/Timestamp",
+      "description": "When the supervisor spawned the container."
+    }
+  },
+  "required": [
+    "schema",
+    "cid",
+    "labels",
+    "created_at",
+    "image_id",
+    "role",
+    "spawned_at"
+  ],
+  "title": "ContainerRecord",
+  "type": "object"
+}

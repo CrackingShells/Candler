@@ -68,6 +68,7 @@ pub fn generated_schemas() -> Vec<GeneratedSchema> {
         ],
         crate::values::roots(),
         crate::canonical::roots(),
+        crate::container::roots(),
         crate::process::roots(),
         crate::raw::roots(),
         crate::trace::roots(),

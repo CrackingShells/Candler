@@ -129,6 +129,41 @@
       ],
       "type": "object"
     },
+    "ContainerFound": {
+      "description": "How a container was found when it was destroyed: `recorded` or `labelled`.",
+      "oneOf": [
+        {
+          "const": "recorded",
+          "description": "The job directory holds a record of the container.",
+          "type": "string"
+        },
+        {
+          "const": "labelled",
+          "description": "Only the labels of the container named it.",
+          "type": "string"
+        }
+      ]
+    },
+    "ContainerId": {
+      "description": "The identifier of a container: 12 to 64 lowercase hex digits, as the docker CLI prints it.",
+      "pattern": "^[0-9a-f]{12,64}(?![\\s\\S])",
+      "type": "string"
+    },
+    "ContainerRole": {
+      "description": "The part a container plays in a run: `agent` or `gateway`.",
+      "oneOf": [
+        {
+          "const": "agent",
+          "description": "The container runs the agent.",
+          "type": "string"
+        },
+        {
+          "const": "gateway",
+          "description": "The container is the gateway the agent reaches its provider through.",
+          "type": "string"
+        }
+      ]
+    },
     "Digest": {
       "description": "A content digest: `sha256:` followed by 64 lowercase hex digits.",
       "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])",
@@ -915,7 +950,7 @@
       ]
     },
     "StopStep": {
-      "description": "A step of the ladder that stops a process: `pre_stop`, `signal`, `terminate_group`, `kill_group` or `sweep`.",
+      "description": "A step of the ladder that stops a process: `pre_stop`, `signal`, `terminate_group`, `kill_group`, `sweep` or `destroy_container`.",
       "oneOf": [
         {
           "const": "pre_stop",
@@ -941,8 +976,32 @@
           "const": "sweep",
           "description": "The sweep killed what was left of the group.",
           "type": "string"
+        },
+        {
+          "const": "destroy_container",
+          "description": "The container was destroyed.",
+          "type": "string"
         }
       ]
+    },
+    "StrayContainer": {
+      "additionalProperties": false,
+      "description": "A container a run left behind: its id and role.",
+      "properties": {
+        "cid": {
+          "$ref": "#/$defs/ContainerId",
+          "description": "The id of the container."
+        },
+        "role": {
+          "$ref": "#/$defs/ContainerRole",
+          "description": "The part the container plays."
+        }
+      },
+      "required": [
+        "cid",
+        "role"
+      ],
+      "type": "object"
     },
     "StrayProcess": {
       "additionalProperties": false,
@@ -964,6 +1023,26 @@
         "start"
       ],
       "type": "object"
+    },
+    "SweepScope": {
+      "description": "How far a container sweep reached: `run`, `current_job` or `lost`.",
+      "oneOf": [
+        {
+          "const": "run",
+          "description": "The containers of one run.",
+          "type": "string"
+        },
+        {
+          "const": "current_job",
+          "description": "The containers of the job that is running.",
+          "type": "string"
+        },
+        {
+          "const": "lost",
+          "description": "The containers of a job whose supervisor was lost.",
+          "type": "string"
+        }
+      ]
     },
     "Timestamp": {
       "$comment": "The pattern states the lexical form; a date or time that names no instant, such as month 13, and a fraction of more than nine digits are refused by the parser.",
@@ -1244,7 +1323,7 @@
       "type": "object"
     },
     {
-      "description": "Processes of a run outlived it.",
+      "description": "Processes and containers of a run outlived it.",
       "properties": {
         "kind": {
           "const": "run.stray",
@@ -1253,6 +1332,13 @@
         "payload": {
           "additionalProperties": false,
           "properties": {
+            "containers": {
+              "description": "The containers found, each by id and role; empty when none was found.",
+              "items": {
+                "$ref": "#/$defs/StrayContainer"
+              },
+              "type": "array"
+            },
             "processes": {
               "description": "The processes found, each by process id and start time.",
               "items": {
@@ -1409,6 +1495,111 @@
             "start",
             "status",
             "group_empty"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "payload"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A container was created.",
+      "properties": {
+        "kind": {
+          "const": "container.created",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": false,
+          "properties": {
+            "cid": {
+              "$ref": "#/$defs/ContainerId",
+              "description": "The id of the container."
+            },
+            "role": {
+              "$ref": "#/$defs/ContainerRole",
+              "description": "The part the container plays."
+            }
+          },
+          "required": [
+            "cid",
+            "role"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "payload"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A container was destroyed.",
+      "properties": {
+        "kind": {
+          "const": "container.destroyed",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": false,
+          "properties": {
+            "cid": {
+              "$ref": "#/$defs/ContainerId",
+              "description": "The id of the container."
+            },
+            "found": {
+              "$ref": "#/$defs/ContainerFound",
+              "description": "How the container was found."
+            },
+            "role": {
+              "$ref": "#/$defs/ContainerRole",
+              "description": "The part the container played."
+            }
+          },
+          "required": [
+            "cid",
+            "role",
+            "found"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "payload"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A container sweep could not say that it found everything.",
+      "properties": {
+        "kind": {
+          "const": "container.sweep_incomplete",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "$ref": "#/$defs/ReasonCode",
+              "description": "Why the sweep is incomplete; a code such as `timeout` or `daemon_error`."
+            },
+            "run": {
+              "$ref": "#/$defs/RunKey",
+              "description": "The run the sweep was for, if it was for one."
+            },
+            "scope": {
+              "$ref": "#/$defs/SweepScope",
+              "description": "How far the sweep reached."
+            }
+          },
+          "required": [
+            "scope",
+            "reason"
           ],
           "type": "object"
         }

@@ -142,6 +142,14 @@ pub enum FormatError {
         /// The text that was parsed.
         value: String,
     },
+    /// A [`ContainerId`] that is not 12 to 64 lowercase hex digits.
+    #[error("container id {problem} (got {value:?})")]
+    ContainerId {
+        /// What is wrong with the text.
+        problem: &'static str,
+        /// The text that was parsed.
+        value: String,
+    },
     /// An [`EvidenceRef`] that is neither an event nor a path reference.
     #[error("evidence reference {problem} (got {value:?})")]
     EvidenceRef {
@@ -253,6 +261,7 @@ const BOOT_ID_PATTERN: &str = concat!(
 );
 const FIELD_PATH_PATTERN: &str = concat!("^[a-z][a-z0-9_]*(?:[.][a-z][a-z0-9_]*)*", end_re!());
 const MARKER_PATTERN: &str = concat!("^[0-9A-Za-z][0-9A-Za-z._-]*", end_re!());
+const CONTAINER_ID_PATTERN: &str = concat!("^[0-9a-f]{12,64}", end_re!());
 const EVIDENCE_REF_PATTERN: &str = concat!(
     "^(?:event:",
     session_char_re!(),
@@ -1161,6 +1170,26 @@ impl FromStr for Marker {
         } else {
             Err(FormatError::Marker {
                 problem: "does not match `[0-9A-Za-z][0-9A-Za-z._-]*`",
+                value: text.into(),
+            })
+        }
+    }
+}
+
+text_type!(ContainerId {
+    description: "The identifier of a container: 12 to 64 lowercase hex digits, as the docker CLI prints it.",
+    pattern: CONTAINER_ID_PATTERN,
+});
+
+impl FromStr for ContainerId {
+    type Err = FormatError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        if (12..=64).contains(&text.len()) && is_lower_hex(text) {
+            Ok(Self { text: text.into() })
+        } else {
+            Err(FormatError::ContainerId {
+                problem: "is not 12 to 64 lowercase hex digits",
                 value: text.into(),
             })
         }
