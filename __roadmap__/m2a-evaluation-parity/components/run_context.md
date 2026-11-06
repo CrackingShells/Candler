@@ -5,10 +5,10 @@
 - [ ] [cmd] ENV, DEP(skeleton) and DEP(protocol_wire)
 - [ ] [cmd] `uv run --with rfc8785 python -c 'import rfc8785'`
 **Success Gates**:
-- ⬜ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler-core/(src/evaluation/context/|tests/(guard_run_context\.rs|oracle/vectors/(gen_live_context\.py|live_context_runs\.toml)|public_surface\.rs)$)` with only the `run_context_surface` block of `public_surface.rs` changed
-- ⬜ [cmd] `cargo nextest run -p candler-core -E 'binary(guard_run_context)'` passes (RC1–RC3)
-- ⬜ [cmd] `uv run --with rfc8785 python crates/candler-core/tests/oracle/vectors/gen_live_context.py --check crates/candler-core/tests/fixtures/mini-corpus` regenerates `live_context_runs.toml` byte for byte
-- ⬜ [nl] The adversarial verifier holds no open BLOCKER or MAJOR: the projection, links against digest inputs, AppleDouble, an empty `outputs/`, I11 write-through
+- ✅ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler-core/(src/evaluation/context/|tests/(guard_run_context\.rs|oracle/vectors/(gen_live_context\.py|live_context_runs\.toml)|public_surface\.rs)$)` with only the `run_context_surface` block of `public_surface.rs` changed
+- ✅ [cmd] `cargo nextest run -p candler-core -E 'binary(guard_run_context)'` passes (RC1–RC3)
+- ✅ [cmd] `uv run --with rfc8785 python crates/candler-core/tests/oracle/vectors/gen_live_context.py --check crates/candler-core/tests/fixtures/mini-corpus` regenerates `live_context_runs.toml` byte for byte
+- ✅ [nl] The adversarial verifier holds no open BLOCKER or MAJOR: the projection, links against digest inputs, AppleDouble, an empty `outputs/`, I11 write-through
 **References**: [R01 §Evaluator protocol (Digests of a request), §Run store](../../../__design__/architecture.md) — `context_digest`, I11; [R03 §Needs, §File rule, §Environments](../../../__reports__/m2a-evaluation-parity/00-architecture_v0.md); `crates/candler-schemas/src/evaluation.rs` — `RunContext::builder`, `ContextArtifact`, `context_digest`; `crates/candler-core/src/store/` — `blob`, `run`, `layout`; `crates/candler-core/tests/oracle/vectors/{gen_vectors.py,context_digest_runs.toml}` — the M1 generator's conventions; [R04 RC1–RC3](../../../__reports__/m2a-evaluation-parity/01-test_definition_v0.md)
 
 ## Step 1: Assemble the context from needs

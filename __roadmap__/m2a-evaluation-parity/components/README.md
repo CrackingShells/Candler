@@ -23,7 +23,7 @@ graph TD
     htn_kinds[HTN kinds: adapted grader functions]:::planned
     helper_runtime[Helper runtime: Python evaluator loop]:::planned
     registry[Registry: manifests, suites, environments]:::done
-    run_context[Run context: assembly, digest, materialiser]:::planned
+    run_context[Run context: assembly, digest, materialiser]:::done
     protocol_client[Protocol client over supervise]:::planned
     selection_rates[Selection, I4, rates and generic diff]:::done
     assembly[Assembly]:::planned
@@ -41,7 +41,7 @@ graph TD
 | `htn_kinds.md` | 📄 Leaf Task | ⬜ Planned |
 | `helper_runtime.md` | 📄 Leaf Task | ⬜ Planned |
 | `registry.md` | 📄 Leaf Task | ✅ Done |
-| `run_context.md` | 📄 Leaf Task | ⬜ Planned |
+| `run_context.md` | 📄 Leaf Task | ✅ Done |
 | `protocol_client.md` | 📄 Leaf Task | ⬜ Planned |
 | `selection_rates.md` | 📄 Leaf Task | ✅ Done |
 | `assembly/` | 📁 Directory | ⬜ Planned |
