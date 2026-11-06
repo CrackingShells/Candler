@@ -11,7 +11,6 @@ pub struct LockDigest(pub String);
 
 /// The `isolation.build.*` settings and the lock they build from.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct BuildSetting {
     /// The bytes of the lock file.
     pub lock: Vec<u8>,

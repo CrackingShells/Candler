@@ -78,7 +78,6 @@ pub struct LayerDigest(pub String);
 
 /// What docker says about an image.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct ImageInfo {
     /// The image id.
     pub id: ImageId,
@@ -98,7 +97,6 @@ impl ImageInfo {
 
 /// An image a run may start containers from, and the Claude Code version inside it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct ImageRef {
     /// The image id.
     pub id: ImageId,
@@ -108,7 +106,6 @@ pub struct ImageRef {
 
 /// A container as the guard and the sweeper see it: its id, labels and creation time.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct ContainerRef {
     /// The container id.
     pub cid: ContainerId,
@@ -132,7 +129,6 @@ impl ContainerRef {
 
 /// A container the guard declined to destroy, and why.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct Refusal {
     /// The container.
     pub container: ContainerId,
@@ -143,7 +139,6 @@ pub struct Refusal {
 /// What a destroy or a sweep did. `unknown` is set when it could not tell that it found every
 /// container in scope.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct ContainerSweep {
     /// The containers destroyed.
     pub destroyed: Vec<ContainerId>,
@@ -180,7 +175,6 @@ impl SweepScope {
 
 /// The state block of an inspected container.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct InspectState {
     /// The docker status word.
     pub status: String,
@@ -220,7 +214,6 @@ impl InspectState {
 
 /// What `docker inspect` says about a container.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct Inspect {
     /// The container id.
     pub id: ContainerId,
@@ -256,7 +249,6 @@ impl Inspect {
 
 /// What `docker network inspect` says about a network.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct NetworkInfo {
     /// The network name.
     pub name: NetworkName,
@@ -268,7 +260,6 @@ pub struct NetworkInfo {
 
 /// A label selector for `docker ps` and `docker network ls`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct LabelSel {
     /// The label key.
     pub key: String,
@@ -278,7 +269,6 @@ pub struct LabelSel {
 
 /// A request to build an image.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct BuildRequest {
     /// The build context directory.
     pub context: PathBuf,
@@ -288,7 +278,6 @@ pub struct BuildRequest {
 
 /// The resource limits of a container.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub struct Limits {
     /// The process limit.
     pub pids_limit: u32,
@@ -315,7 +304,6 @@ pub enum UserSpec {
 
 /// What a run's container is made of, decided before it starts.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub struct ContainerPlan {
     /// The image to start from.
     pub image: ImageRef,
@@ -343,7 +331,6 @@ pub struct ContainerPlan {
 
 /// What a run's container left behind: its final inspect, and what destroying it did.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct ContainerOutcome {
     /// The inspect taken before the container was destroyed, when it could be taken.
     pub inspect: Option<Inspect>,
@@ -353,7 +340,6 @@ pub struct ContainerOutcome {
 
 /// A running gateway: its container, where the agent reaches it and the token the agent sends.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct GatewayHandle {
     /// The gateway's container.
     pub container: ContainerRef,

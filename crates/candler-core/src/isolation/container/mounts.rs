@@ -14,7 +14,6 @@ pub enum MountMode {
 
 /// One bind mount.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct MountSpec {
     /// The host path.
     pub source: PathBuf,

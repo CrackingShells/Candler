@@ -9,7 +9,6 @@ use crate::supervise::Supervisor;
 
 /// What a recovery did.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct RecoverReport {
     /// How many processes it ended.
     pub processes: u32,

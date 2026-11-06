@@ -13,7 +13,6 @@ use crate::runner::evidence::catalog::CatalogProvider;
 use crate::supervise::Supervisor;
 
 /// What the M2b steps need from the outside.
-#[non_exhaustive]
 pub struct M2bServices {
     /// The supervisor that runs the version probes.
     pub supervisor: Arc<Supervisor>,

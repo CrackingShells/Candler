@@ -13,7 +13,6 @@ pub type CellId = Digest;
 
 /// What planning reads.
 #[derive(Debug, Clone)]
-#[non_exhaustive]
 pub struct PlanCtx {
     /// The store.
     pub store: Store,
@@ -33,7 +32,6 @@ pub enum Force {
 
 /// One run to start.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[non_exhaustive]
 pub struct RunPlan {
     /// The run's key: the cell, the replicate and the attempt.
     pub key: RunKey,
@@ -49,7 +47,6 @@ pub struct RunPlan {
 
 /// What planning decided.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub struct PlanOutcome {
     /// The runs to start.
     pub plans: Vec<RunPlan>,

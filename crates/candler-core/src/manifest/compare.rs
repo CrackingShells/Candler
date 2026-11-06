@@ -26,7 +26,6 @@ pub enum Verdict {
 
 /// What the comparison reads of one arm.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub struct ArmView {
     /// The comparable records of the arm's runs.
     pub runs: Vec<Comparable>,

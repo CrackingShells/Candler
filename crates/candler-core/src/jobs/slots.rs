@@ -18,7 +18,6 @@ pub enum SlotError {
 
 /// Who holds a slot.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct Holder {
     /// The job that holds it.
     pub job: String,
@@ -26,7 +25,6 @@ pub struct Holder {
 
 /// A held slot; dropping it releases the slot.
 #[derive(Debug)]
-#[non_exhaustive]
 pub struct Slot {
     /// The slot's number.
     pub index: u32,
@@ -34,7 +32,6 @@ pub struct Slot {
 
 /// What a slot looks like from outside.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct SlotInfo {
     /// The slot's number.
     pub index: u32,
@@ -44,7 +41,6 @@ pub struct SlotInfo {
 
 /// The slots of a store.
 #[derive(Debug, Clone)]
-#[non_exhaustive]
 pub struct Slots {
     count: u32,
 }
