@@ -1,0 +1,280 @@
+# ends_table.toml: the ends table, rows E01-E18 (B29 oracle, plan D5).
+# Hand-transcribed from __reports__/m2b-execution-parity/01-test_definition_v0.md (B29 rows; the
+# lead's pre-drafted rows), with `ended_by` and `retry` for invalid rows read from
+# 00-architecture_v0.md section 13. Implementers may add rows, never edit.
+#
+# Row order is the R2 precedence order of `classify_end` (first match wins). The precedence list,
+# from section 13 and R2 of m2b-arch-review-rulings.md:
+#   1. Our stop with cause budget_stop or killed -> invalid with that reason (E11, E12, E14).
+#   2. Daemon facts: client exit 125, container never started, or inspect missing -> infrastructure.
+#      Only with no stop of ours and no deadline. With a deadline and no inspect the end is the
+#      wall cap, and the missing inspect is recorded (E09, E18 variant).
+#   3. OOMKilled -> infrastructure, never retried. Checked before 137 (E10).
+#   4. 137 with no stop of ours and no deadline -> infrastructure. Ended::Deadline counts as ours (E17).
+#   5. Gateway signals from the gateway log or the probe -> gateway, retried once (E05).
+#   6. Reader: format_unknown, then reader_error (E16).
+#   7. Trace-based gateway: 0 tokens, or an error result with a provider status -> gateway,
+#      retried once. Checked before the wall cap (E03, E04, E06).
+#   8. Collection failed -> collection_error (E15).
+#   9. Input leak -> input_leak (no E row; M1's I10 guards own it).
+#  10. The ended_by qualifier, for a run still valid: wall cap (Ended::Deadline or exit 124) gives
+#      cap{wall} (E08, E18); then the trace's turn or cost cap (E07), agent error (E02), completed
+#      (E01). A silent trace with no stop of ours and no deadline gives infrastructure.
+#  E13 is not a classify_end row: seal_interrupted after `lost`, never from a live run.
+#
+# Fields. An input field that a row omits is not an input of that row (the leaf's harness picks
+# a neutral value; the expected end must not depend on it).
+#   client_exit       exit status of the docker client
+#   inspect           recorded fixture in tests/fixtures/docker/inspect: clean | exit124 | oom,
+#                     "missing" (no inspect), or "unrecorded" (no recorded vector; see the row)
+#   inspect_exit      State.ExitCode of the inspect
+#   oom_killed        State.OOMKilled of the inspect
+#   container_started false when the container never started
+#   our_stop          the supervisor's own act: none | budget_stop | killed
+#   deadline          true when the supervisor's per-run wall deadline fired (Ended::Deadline)
+#   stream            a short tag: result_ok | result_error_no_status | result_error_provider_status
+#                     | result_max_turns | zero_tokens | none | unparsable | unknown_format_version
+#                     | provider_error_during_teardown
+#   tokens            positive | zero
+#   gateway_signal    none | connection_refused (gateway log or probe)
+#   collect_ok        false when collection failed
+#   attempt           1 or 2 (the retry attempt)
+#   supervisor_lost, run_done   for E13
+# Expected. status = valid | invalid; reason = the invalid reason (empty when valid);
+#   ended_by is the measured end: completed, agent_error, cap:turns, cap:wall, gateway_error,
+#   budget_stop, killed, interrupted, unknown, or as_classified (section 13: "as classified");
+#   retry = once | never | none (none: the source states no retry).
+
+[[row]]
+id = "E11"
+client_exit = 137
+our_stop = "budget_stop"
+deadline = false
+status = "invalid"
+reason = "budget_stop"
+ended_by = "budget_stop"
+retry = "none"
+note = "never a failure"
+source = "R01 §Ends row 3; I20"
+
+[[row]]
+id = "E12"
+client_exit = 137
+our_stop = "killed"
+deadline = false
+status = "invalid"
+reason = "killed"
+ended_by = "killed"
+retry = "none"
+source = "R01 §Ends row 3; I20"
+
+[[row]]
+id = "E14"
+our_stop = "killed"
+deadline = false
+stream = "provider_error_during_teardown"
+status = "invalid"
+reason = "killed"
+ended_by = "killed"
+retry = "none"
+note = "not gateway: our act takes precedence; never charged to an arm"
+source = "I20: never charged to an arm; our act takes precedence (R2 step 1)"
+
+[[row]]
+id = "E09"
+our_stop = "none"
+deadline = false
+status = "invalid"
+reason = "infrastructure"
+ended_by = "unknown"
+retry = "none"
+note = "needs S2's InvalidReason::Infrastructure; the three variants are one row"
+source = "Plan D14; R2 step 2"
+[[row.variant]]
+name = "client_exit_125"
+client_exit = 125
+[[row.variant]]
+name = "never_started"
+container_started = false
+[[row.variant]]
+name = "inspect_missing"
+inspect = "missing"
+
+[[row]]
+id = "E10"
+inspect = "oom"
+inspect_exit = 137
+oom_killed = true
+our_stop = "none"
+deadline = false
+status = "invalid"
+reason = "infrastructure"
+ended_by = "unknown"
+retry = "never"
+note = "the inspect fact is recorded; EndedBy has no memory cap"
+source = "Ruled (F4); R2 step 3"
+
+[[row]]
+id = "E17"
+inspect = "unrecorded"
+inspect_exit = 137
+oom_killed = false
+our_stop = "none"
+deadline = false
+status = "invalid"
+reason = "infrastructure"
+ended_by = "unknown"
+retry = "none"
+note = "no recorded vector has 137 with OOMKilled false; 137 alone never reads as killed"
+source = "Ruled (F4); R2 step 4"
+
+[[row]]
+id = "E05"
+gateway_signal = "connection_refused"
+stream = "none"
+status = "invalid"
+reason = "gateway"
+ended_by = "gateway_error"
+retry = "once"
+source = "R01 §Ends: connection refused; R2 step 5"
+
+[[row]]
+id = "E16"
+status = "invalid"
+note = "two variants, each with its own expected end"
+source = "R01 §Ends row 5; R2 step 6"
+[[row.variant]]
+name = "unparsable_stream"
+stream = "unparsable"
+reason = "reader_error"
+ended_by = "unknown"
+retry = "none"
+[[row.variant]]
+name = "unknown_format_version"
+stream = "unknown_format_version"
+reason = "format_unknown"
+ended_by = "unknown"
+retry = "none"
+
+[[row]]
+id = "E03"
+client_exit = 0
+stream = "result_error_provider_status"
+attempt = 1
+status = "invalid"
+reason = "gateway"
+ended_by = "gateway_error"
+retry = "once"
+source = "R01 §Ends row 2; R2 step 7"
+
+[[row]]
+id = "E04"
+client_exit = 0
+stream = "zero_tokens"
+tokens = "zero"
+status = "invalid"
+reason = "gateway"
+ended_by = "gateway_error"
+retry = "once"
+note = "a run with zero tokens is classified from the trace"
+source = "R01 §Ends: 0 tokens; section 13 gateway row (retry once)"
+
+[[row]]
+id = "E06"
+client_exit = 0
+stream = "result_error_provider_status"
+attempt = 2
+status = "invalid"
+reason = "gateway"
+ended_by = "gateway_error"
+retry = "never"
+note = "E03 again on the retry attempt: no third attempt"
+source = "R01 §Ends: retried once as a new attempt"
+
+[[row]]
+id = "E15"
+client_exit = 0
+collect_ok = false
+status = "invalid"
+reason = "collection_error"
+ended_by = "as_classified"
+retry = "none"
+note = "raw kept"
+source = "R01 §Ends row 5; section 13 collection row"
+
+[[row]]
+id = "E08"
+client_exit = 124
+inspect = "exit124"
+inspect_exit = 124
+oom_killed = false
+our_stop = "none"
+deadline = false
+status = "valid"
+reason = ""
+ended_by = "cap:wall"
+retry = "none"
+note = "container self-expiry on the debian-slim base; no act by us"
+source = "Plan D4 (124 is self-expiry) with R01 §Ends row 1. Ruled (F4)"
+
+[[row]]
+id = "E18"
+our_stop = "none"
+deadline = true
+status = "valid"
+reason = ""
+ended_by = "cap:wall"
+retry = "none"
+note = "the per-run wall deadline fires and our ladder stops the container; the same cap as E08, fired from outside. A missing inspect is recorded and does not change the end (R2 step 2)"
+source = "R01 §Ends row 1; R2 step 2"
+[[row.variant]]
+name = "inspect_present"
+[[row.variant]]
+name = "inspect_missing"
+inspect = "missing"
+
+[[row]]
+id = "E07"
+client_exit = 0
+stream = "result_max_turns"
+status = "valid"
+reason = ""
+ended_by = "cap:turns"
+retry = "none"
+note = "the stream's max-turns result"
+source = "R01 §Budget and Error model: per-run cap reached is a valid run"
+
+[[row]]
+id = "E02"
+client_exit = 0
+stream = "result_error_no_status"
+status = "valid"
+reason = ""
+ended_by = "agent_error"
+retry = "never"
+graded = true
+note = "an error result with no provider status, such as a usage-policy refusal after work"
+source = "R01 §Ends: an agent error is valid and graded, never retried as a gateway failure"
+
+[[row]]
+id = "E01"
+client_exit = 0
+stream = "result_ok"
+tokens = "positive"
+status = "valid"
+reason = ""
+ended_by = "completed"
+retry = "none"
+note = "a result without error"
+source = "R01 §Ends: completed, agent error, or a per-run cap: valid"
+
+[[row]]
+id = "E13"
+supervisor_lost = true
+run_done = false
+status = "invalid"
+reason = "interrupted"
+ended_by = "interrupted"
+retry = "none"
+note = "seal_interrupted after lost; never from a live run"
+source = "R01 §Ends row 3; §Run identity"
