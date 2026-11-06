@@ -151,6 +151,7 @@ impl Rig {
             TEST_LABEL,
             "--label",
             &format!("candler.job={}", rig.job),
+            // BORROW: `.as_str()` borrows the text of the network name
             rig.network.as_str(),
         ]);
         assert!(
@@ -158,6 +159,7 @@ impl Rig {
             "docker network create: {}",
             String::from_utf8_lossy(&created.stderr)
         );
+        // BORROW: `.as_str()` borrows the text of the network name
         rig.driver.allow_network(rig.network.as_str());
         rig
     }
@@ -178,6 +180,7 @@ impl Rig {
     ) -> ContainerPlan {
         ContainerPlan {
             image: ImageRef {
+                // BORROW: `.to_owned()` makes the owned id the image reference holds
                 id: ImageId(image.to_owned()),
                 cc_version: None,
             },
@@ -188,6 +191,7 @@ impl Rig {
                 .with("candler.test", "container_run"),
             mounts,
             env,
+            // BORROW: the spec owns its network name
             network: self.network.clone(),
             egress: None,
             limits: Limits {
@@ -200,7 +204,9 @@ impl Rig {
             workdir: String::from("/work"),
             home: String::from("/home/agent"),
             expiry: Duration::from_secs(10),
+            // BORROW: the spec owns its path
             project_root: self.base.clone(),
+            // BORROW: the spec owns its path
             store_root: self.base.clone(),
         }
     }
@@ -219,6 +225,7 @@ impl Rig {
         }
         let env: Vec<(String, String)> = CLIENT_ENV
             .iter()
+            // BORROW: `.to_owned()` makes the owned variable name the environment holds
             .filter_map(|name| Some(((*name).to_owned(), std::env::var(name).ok()?)))
             .chain([(
                 String::from("PATH"),
@@ -229,6 +236,7 @@ impl Rig {
             .argv(argv)
             .env(env)
             .marker(MARKER.parse().expect("a marker"))
+            // BORROW: the run key moves into the request
             .run(self.key.clone())
             .deadline(deadline)
             .record_dir(self.dir("records"))
@@ -249,6 +257,7 @@ impl Rig {
         let id = std::fs::read_to_string(cidfile)
             .expect("docker wrote the cidfile")
             .trim()
+            // BORROW: `.to_owned()` makes the owned id the test keeps
             .to_owned();
         assert!(!id.is_empty(), "the cidfile is empty");
         let labels = docker(&["inspect", "--format", "{{json .Config.Labels}}", &id]);
@@ -256,7 +265,9 @@ impl Rig {
         let labels: BTreeMap<String, String> =
             serde_json::from_slice(&labels.stdout).expect("a label map");
         assert_eq!(
+            // BORROW: `.as_str()` borrows the text for the comparison
             labels.get("candler.job").map(String::as_str),
+            // BORROW: `.as_str()` borrows the text of the job id
             Some(self.job.to_string().as_str()),
             "the container is not this test's"
         );
@@ -265,6 +276,7 @@ impl Rig {
             Some("container_run")
         );
         self.driver.allow_container(&id);
+        // BORROW: the list owns its id
         self.created.lock().expect("a lock").push(id.clone());
         id
     }
@@ -302,6 +314,7 @@ impl Rig {
         let ids: Vec<String> = self
             .created
             .lock()
+            // BORROW: the copy of the list outlives the lock
             .map(|ids| ids.clone())
             .unwrap_or_default();
         for id in ids {
@@ -327,6 +340,7 @@ impl Drop for Rig {
 
 fn command(argv: &[&str]) -> CommandSpec {
     CommandSpec::builder()
+        // BORROW: `.to_owned()` makes each part an owned argument
         .argv(argv.iter().map(|part| (*part).to_owned()).collect())
         .build()
         .expect("a command")
@@ -418,6 +432,7 @@ async fn b06_kernel_facts() {
     let line = text.lines().last().expect("a probe line");
     let probe: Value = serde_json::from_str(line).expect("the probe JSON");
 
+    // INDEX: the probe prints the keys read here
     assert_ne!(probe["euid"], 0, "the agent is not root: {probe}");
     assert_eq!(probe["cap_eff"], "0000000000000000", "{probe}");
     assert_eq!(probe["no_new_privs"], "1", "{probe}");
@@ -439,11 +454,14 @@ async fn b06_kernel_facts() {
         .expect("a container");
     let inspected = Rig::inspect(&id).expect("the container is inspectable");
     assert_eq!(
+        // INDEX: `docker inspect` prints the keys read here
         inspected["HostConfig"]["CapDrop"],
         serde_json::json!(["ALL"])
     );
     assert_eq!(
-        inspected["HostConfig"]["ReadonlyRootfs"], true,
+        // INDEX: `docker inspect` prints the keys read here
+        inspected["HostConfig"]["ReadonlyRootfs"],
+        true,
         "{inspected}"
     );
 }
@@ -483,6 +501,7 @@ async fn b08_self_expiry() {
         .cloned()
         .expect("a container");
     let before = Rig::inspect(&id).expect("the container outlives its process");
+    // INDEX: `docker inspect` prints the keys read here
     assert_eq!(before["State"]["Status"], "exited", "{before}");
     assert_eq!(before["State"]["ExitCode"], 124, "{before}");
 
@@ -506,6 +525,7 @@ async fn b09_host_uid_sealable() {
     let rig = Rig::new();
     let workspace = rig.dir("workspace");
     let mounts = vec![MountSpec {
+        // BORROW: the spec owns its path
         source: workspace.clone(),
         target: String::from("/work"),
         mode: MountMode::ReadWrite,
