@@ -185,7 +185,8 @@ fn members(row: &Row) -> Vec<String> {
 /// is a cell value; a setting path leaves the digest alone and is a setting; a typed root is
 /// filled by a derived value, moves the digest through its typed field, and takes no value below
 /// it; no value that holds an absolute path enters a cell.
-/// Oracle: `field_paths.toml`, hand-written from R03 section 11 and the rulings, never from `experiment::paths`.
+/// Oracle: `field_paths.toml`, hand-written from R03 section 11 and the rulings, never from
+/// `experiment::paths`.
 /// Bite: classify `isolation.limits.memory` as a setting in `resolve/layers.rs`.
 #[tokio::test]
 async fn b19_every_path_class() {

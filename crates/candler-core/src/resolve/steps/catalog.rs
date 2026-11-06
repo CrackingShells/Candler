@@ -63,6 +63,7 @@ impl PreflightStep for CatalogStep {
             let image_path = path_of(paths::ISOLATION_IMAGE)?;
             let id = ctx
                 .get(&image_path)
+                // BORROW: `.as_str()` borrows the text of the JSON string
                 .and_then(|value| value.as_value().as_str())
                 .ok_or_else(|| failed(format!("`{}` has no image id", paths::ISOLATION_IMAGE)))?;
             let image = ImageRef {
