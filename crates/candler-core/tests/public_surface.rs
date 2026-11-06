@@ -371,7 +371,7 @@ mod m2b_surface {
     use candler_core::jobs::dir::{JobDir, JobError};
     use candler_core::jobs::lost::{RecoverError, RecoverReport, recover};
     use candler_core::jobs::model::{JobBody, JobCause, JobControl, JobOutcome, JobSpec};
-    use candler_core::jobs::runtime::{RuntimeError, supervise_entry};
+    use candler_core::jobs::runtime::{JobEntry, JobServices, RuntimeError, supervise_entry};
     use candler_core::jobs::slots::{Holder, Slot, SlotError, SlotInfo, Slots};
     use candler_core::jobs::view::{ChildEntry, JobView, JobViewError};
     use candler_core::manifest::compare::{ArmView, NUISANCE_PATHS, Verdict, VerdictError};
@@ -453,6 +453,8 @@ mod m2b_surface {
             None::<JobCause>,
             None::<JobOutcome>,
             None::<JobSpec>,
+            None::<JobEntry>,
+            None::<JobServices>,
             None::<RunOutcome>,
             None::<RunControl>,
             None::<RunPlan>,

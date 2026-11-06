@@ -7,6 +7,7 @@ use futures::future::BoxFuture;
 use tokio::sync::watch;
 
 use crate::resolve::layers::Resolution;
+use crate::runner::evidence::InputDigest;
 use crate::runner::plan::RunPlan;
 use crate::runner::{RunOutcome, Runtime};
 
@@ -22,6 +23,12 @@ pub struct JobSpec {
     pub plans: Vec<RunPlan>,
     /// The job's budget.
     pub budget: Budget,
+    /// Whether `--force` was given: the supervisor plans again under the experiment lock and
+    /// must accept the same deviations the foreground check accepted.
+    pub force: bool,
+    /// The files every run of the job is given, by workspace path, with the digest of the blob
+    /// in the store each is mounted from read-only.
+    pub inputs: Vec<InputDigest>,
 }
 
 /// How a job ended and what its runs did.
