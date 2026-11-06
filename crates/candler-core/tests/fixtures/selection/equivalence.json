@@ -1,0 +1,20 @@
+{
+  "generator": "hand-written for guard_diff",
+  "rules": [
+    {
+      "name": "legacy-zero-weight-pass",
+      "from": { "status": "pass", "weight": { "num": 0, "den": 0 }, "cause": { "legacy": "zero_weight" } },
+      "to": { "status": "not_applicable", "cause": { "reason": "empty_population" } },
+      "rows": [
+        { "run": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-r1-a1", "expectation": "Z1" },
+        { "run": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-r1-a1", "expectation": "Z3" },
+        { "run": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-r1-a1", "expectation": "Z4" },
+        { "run": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-r1-a1", "expectation": "Z5" },
+        { "run": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-r1-a1", "expectation": "Z6" },
+        { "run": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-r1-a1", "expectation": "Z7" },
+        { "run": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-r1-a1", "expectation": "Z8" },
+        { "run": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-r1-a1", "expectation": "Z9" }
+      ]
+    }
+  ]
+}

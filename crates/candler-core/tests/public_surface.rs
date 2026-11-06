@@ -582,7 +582,57 @@ mod run_context_surface {}
 mod protocol_client_surface {}
 
 /// The `evaluation::selection` items, filled by the `selection_rates` leaf.
-mod selection_rates_surface {}
+mod selection_rates_surface {
+    use std::collections::BTreeMap;
+
+    use candler_core::evaluation::selection::diff::{
+        Change, ChangeClass, DiffReport, Equivalence, EquivalenceError, EquivalenceRecord,
+        Uncompared, diff,
+    };
+    use candler_core::evaluation::selection::fields::FourFields;
+    use candler_core::evaluation::selection::rates::{CellKey, Rates, rates, rates_toml};
+    use candler_core::evaluation::selection::select::{I4Key, I4Violation, Selection, select};
+
+    /// Names every selection, rates and diff item.
+    #[test]
+    fn selection_items_are_nameable() {
+        let _ = (
+            select::<Vec<_>>,
+            diff,
+            rates,
+            rates_toml,
+            Selection::current,
+            Selection::get,
+            Selection::violations,
+            Selection::is_empty,
+            Selection::for_evaluator,
+            I4Key::of,
+            CellKey::new,
+            CellKey::digest,
+            Rates::gate,
+            Rates::quality,
+            Equivalence::load,
+            Equivalence::from_bytes,
+            Equivalence::sha256,
+            Equivalence::row_count,
+            Equivalence::rule_names,
+            FourFields::of,
+            FourFields::normalised,
+            FourFields::value_equals,
+            FourFields::is_error,
+        );
+        let _ = (
+            None::<I4Violation>,
+            None::<DiffReport>,
+            None::<Change>,
+            None::<ChangeClass>,
+            None::<Uncompared>,
+            None::<EquivalenceRecord>,
+            None::<EquivalenceError>,
+            None::<BTreeMap<CellKey, Rates>>,
+        );
+    }
+}
 
 /// The `evaluation::engine` items, filled by the `engine` leaf.
 #[cfg(unix)]
