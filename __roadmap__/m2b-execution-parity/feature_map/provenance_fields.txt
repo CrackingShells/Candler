@@ -1,0 +1,12 @@
+# Provenance fields written per run (eval_metadata.provenance, mirrored to benchmark.json and experiment.json).
+# Tag htn-creator-eval@0.4.2. Dotted paths are the comparison keys, listed at .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_provenance.py:258-267.
+skill_version                  .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_provenance.py:212
+eval_infra.tag                 .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_provenance.py:259
+eval_infra.commits_ahead       .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_provenance.py:260
+eval_infra.commit              .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_provenance.py:261
+eval_infra.dirty               .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_provenance.py:262 (dirty true makes runs non-comparable, .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_provenance.py:301-306)
+sandbox_contract               .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_provenance.py:214
+planner.runtime.distribution   .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_provenance.py:264
+planner.runtime.version        .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_provenance.py:265
+planner.sandbox.distribution   .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_provenance.py:266 (null until measured from the sandbox venv, .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_provenance.py:242)
+planner.sandbox.version        .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_provenance.py:267

@@ -1,0 +1,657 @@
+[
+ {
+  "id": "S1",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:21",
+  "feature": "The sandbox contract version is declared and recorded per run",
+  "reference_mechanism": "_provenance.SANDBOX_CONTRACT_VERSION='v5' (PV:65) written into every provenance block",
+  "observable": "Each run's provenance carries sandbox_contract naming the contract version it ran under",
+  "check": "provenance_fields",
+  "disposition": "check"
+ },
+ {
+  "id": "S2",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:58",
+  "feature": "Declared composition: one curated sandbox per run holding servers, scripts, optional skill, project marker, own venv",
+  "reference_mechanism": "suite.setup_sandbox (SU:476-599), write_confinement_files (SU:616-672)",
+  "observable": "The agent's start directory holds the MCP server .py files, scripts/, a bare pyproject.toml, and nothing else the harness did not place",
+  "check": "layout",
+  "disposition": "check"
+ },
+ {
+  "id": "S3",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:182",
+  "feature": "Invariants I1-I19 all hold",
+  "reference_mechanism": "tests named in the PINNED BY column; sync test enforces the table",
+  "observable": "Aggregate of S3.R1-S3.R19; no separate observable",
+  "check": null,
+  "why_unchecked": "aggregate row: each invariant is its own S3.R<n> row",
+  "disposition": "not_applicable",
+  "why_na": "aggregate of S3.R1-R19; each has its own row"
+ },
+ {
+  "id": "S4",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:218",
+  "feature": "Accepted residuals: agent shares the harness uid; contract names a container or separate uid as the honest end state",
+  "reference_mechanism": "no mechanism (declared gap)",
+  "observable": "The agent process does not run as root and the container is unprivileged with no host-level mounts",
+  "check": "host_isolation",
+  "disposition": "check"
+ },
+ {
+  "id": "S5",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:234",
+  "feature": "Version ledger: per-version audit trail (v2-v5) of composition change, failure, evidence",
+  "reference_mechanism": "documentation only; provenance records the version",
+  "observable": "The recorded sandbox_contract value is the only runtime trace of the ledger",
+  "check": "provenance_fields",
+  "disposition": "check"
+ },
+ {
+  "id": "S6",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:419",
+  "feature": "Follow-up: hook-event capture into stream archives is open",
+  "reference_mechanism": "none",
+  "observable": "None: a to-do, not a guarantee",
+  "check": null,
+  "why_unchecked": "declares open work, not a property",
+  "disposition": "not_applicable",
+  "why_na": "open follow-up, not a guarantee"
+ },
+ {
+  "id": "S3.R1",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:190",
+  "feature": "No file under an installed-package tree can be collected, inventoried or manifested",
+  "reference_mechanism": "_installed_env_roots/_is_inside_installed_env (SU:365-416) applied in collect_outputs (SU:1031-1034), scan_sandbox_inventory (SU:1258-1265), _manifest_entries_for_tree (SU:425-430)",
+  "observable": "A domain.py/problems.py planted under any dir carrying pyvenv.cfg is never reported as an output, inventory entry or manifest entry",
+  "check": "tree_inventory",
+  "disposition": "guard:B23",
+  "guards": [
+   "B23"
+  ]
+ },
+ {
+  "id": "S3.R2",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:191",
+  "feature": "Exclusion is marker-based (pyvenv.cfg ancestor), so an arbitrarily named env is excluded",
+  "reference_mechanism": "SU:365-388 (rglob pyvenv.cfg, parent dirs)",
+  "observable": "A planted domain.py under env/ or .direnv/ (with pyvenv.cfg) is ignored just like under .venv/",
+  "check": "tree_inventory",
+  "disposition": "guard:B23",
+  "guards": [
+   "B23"
+  ]
+ },
+ {
+  "id": "S3.R3",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:192",
+  "feature": "An env created between setup and collection is still excluded (no cross-call caching)",
+  "reference_mechanism": "env roots recomputed per call (SU:388, docstring SU:372-386)",
+  "observable": "A venv the agent makes mid-run is excluded at collection time",
+  "check": "tree_inventory",
+  "disposition": "guard:B23",
+  "guards": [
+   "B23"
+  ]
+ },
+ {
+  "id": "S3.R4",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:193",
+  "feature": "Agent env carries no path to the harness venv or repo-root venv",
+  "reference_mechanism": "_build_agent_env drops harness VIRTUAL_ENV bin from PATH (SU:791-825)",
+  "observable": "No PATH entry or variable inside the agent container names a foreign venv; only the agent's own",
+  "check": "env_scrubbed",
+  "disposition": "check"
+ },
+ {
+  "id": "S3.R5",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:194",
+  "feature": "CONDA_*/MAMBA_* variables are absent; conda bin/condabin/shim dirs are off PATH",
+  "reference_mechanism": "env.pop of 6 vars (SU:830-835); PATH filter (SU:814-824)",
+  "observable": "Inside the agent container none of CONDA_PREFIX, CONDA_DEFAULT_ENV, MAMBA_EXE, MAMBA_ROOT_PREFIX, CONDA_EXE, CONDA_SHLVL is set and no PATH entry is a condabin or conda root",
+  "check": "env_scrubbed",
+  "disposition": "check"
+ },
+ {
+  "id": "S3.R6",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:195",
+  "feature": "Bare pip resolves inside the sandbox venv",
+  "reference_mechanism": "uv venv --seed (EB:466); sandbox bin first on PATH (SU:825)",
+  "observable": "`command -v pip` and `pip --version` point into the agent's venv",
+  "check": "venv_scoping",
+  "disposition": "check"
+ },
+ {
+  "id": "S3.R7",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:196",
+  "feature": "The sandbox venv resolves inside the work dir",
+  "reference_mechanism": "sandbox_venv_dir = <sandbox>/.venv (EB:308-312)",
+  "observable": "VIRTUAL_ENV is a path under the agent's start directory and python's sys.prefix equals it",
+  "check": "venv_scoping",
+  "disposition": "check"
+ },
+ {
+  "id": "S3.R8",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:197",
+  "feature": "Zero domain.py/problems.py remain under the provisioned venv; the planner still plans",
+  "reference_mechanism": "build_sandbox_env + prune_bundled_examples (EB:333-361, 472)",
+  "observable": "Pre-run: no file named domain.py or problems.py anywhere under the venv; `import gtpyhop` works",
+  "check": "venv_contents",
+  "disposition": "check"
+ },
+ {
+  "id": "S3.R9",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:198",
+  "feature": "htn_creator_scripts is absent from the sandbox venv",
+  "reference_mechanism": "not in SANDBOX_STABLE_DEPS (EB:261-267)",
+  "observable": "Pre-run pip list has no htn-creator-scripts",
+  "check": "venv_contents",
+  "disposition": "check"
+ },
+ {
+  "id": "S3.R10",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:199",
+  "feature": "The venv is reclaimed after inventory and collection, before the keep-or-delete decision",
+  "reference_mechanism": "_reclaim_sandbox_env in finalize_run finally (SU:1944-1945, 1778-1809)",
+  "observable": "Ordering of two internal steps; its end state (no venv in a kept work dir) is S3.R12",
+  "check": null,
+  "why_unchecked": "internal ordering; end state is checked by S3.R12",
+  "disposition": "not_applicable",
+  "why_na": "the env is an image layer, never inside the workspace; nothing to reclaim. End state is S3.R12"
+ },
+ {
+  "id": "S3.R11",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:200",
+  "feature": "The venv is reclaimed even when collection raises",
+  "reference_mechanism": "try/finally (SU:1911-1945)",
+  "observable": "Needs an injected collection failure",
+  "check": null,
+  "why_unchecked": "fault injection in the runner; not observable from a normal run",
+  "disposition": "not_applicable",
+  "why_na": "no in-workspace env to reclaim on a failure path; the image layer is immutable"
+ },
+ {
+  "id": "S3.R12",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:201",
+  "feature": "A kept sandbox contains no pyvenv.cfg",
+  "reference_mechanism": "_reclaim_sandbox_env runs regardless of keep_sandbox (SU:1778-1809, 2042-2044)",
+  "observable": "After the run, no pyvenv.cfg anywhere in the preserved work dir",
+  "check": "workspace_no_pyvenv",
+  "disposition": "check"
+ },
+ {
+  "id": "S3.R13",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:202",
+  "feature": "The harness's own htn_creator_scripts stays importable after building an agent env",
+  "reference_mechanism": "agent env built as a copy; harness venv untouched (SU:787)",
+  "observable": "No observable once the harness is not a Python process sharing an interpreter with the agent",
+  "check": null,
+  "why_unchecked": "specific to the Python harness; by construction n/a for a container runner (no shared interpreter)",
+  "disposition": "not_applicable",
+  "why_na": "no interpreter shared between harness and agent"
+ },
+ {
+  "id": "S3.R14",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:203",
+  "feature": ".claude/settings.json exists at exactly the spawn cwd (confinement is wired, not silently absent)",
+  "reference_mechanism": "_assert_confined_cwd_contract (SU:675-697); hook wired by write_confinement_files (SU:616-672)",
+  "observable": "Confinement is active from the first tool call: any outside-path attempt in the stream is refused",
+  "check": "outside_path_denied",
+  "disposition": "check"
+ },
+ {
+  "id": "S3.R15",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:204",
+  "feature": "The hook denies every unparseable or unexpected input rather than allowing it",
+  "reference_mechanism": "decide() catches everything and returns deny (CH:226-289); main always exits 0 (CH:292-300)",
+  "observable": "Needs malformed hook input fed to the gate",
+  "check": null,
+  "why_unchecked": "the fail-closed property belongs to the gate itself; a container boundary has no parse step to fail. Unit-test any in-container gate directly",
+  "disposition": "not_applicable",
+  "why_na": "no hook in the container runner; the container boundary has no parse step"
+ },
+ {
+  "id": "S3.R16",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:205",
+  "feature": "The provenance manifest sidecar is outside the sandbox tree",
+  "reference_mechanism": "_input_manifest_sidecar_path = sandbox_dir.parent/<name>.input_manifest.json (SU:439-451)",
+  "observable": "No input-hash manifest is readable from inside the agent's container or its work dir",
+  "check": "manifest_outside",
+  "disposition": "check"
+ },
+ {
+  "id": "S3.R17",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:206",
+  "feature": "The repo's reference answers are never copied into the sandbox",
+  "reference_mechanism": "sandbox is curated; only the composition table's paths are placed (SU:504-599; SR:84-90)",
+  "observable": "Neither the work dir nor the agent container holds examples/orchestration_demo, mappings/, ingest_bio_opentrons.py, test_bio_planning.py, .git, __reports__, __roadmap__",
+  "check": "no_reference_answers",
+  "disposition": "check"
+ },
+ {
+  "id": "S3.R18",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:207",
+  "feature": "This document's declared composition matches the code",
+  "reference_mechanism": "tests/test_sandbox_reference_sync.py",
+  "observable": "Repository process (doc/code sync), no run-time observable",
+  "check": null,
+  "why_unchecked": "documentation-sync invariant; applies to the new runner's own contract document, not to a run",
+  "disposition": "not_applicable",
+  "why_na": "documentation-sync test of the old contract; the new runner has its own contract doc"
+ },
+ {
+  "id": "S3.R19",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:208",
+  "feature": "The sandbox planner is derived from the skill's own scripts/pyproject.toml pin, never coexisting with a second planner distribution",
+  "reference_mechanism": "read_planner_dep/extract_planner_dep (EB:372-411); setup_sandbox (SU:576-585); DEFAULT_PLANNER_DEP fallback (EB:280)",
+  "observable": "The one distribution providing the gtpyhop import equals the single planner pinned in scripts/pyproject.toml, and provenance planner.sandbox says the same",
+  "check": "planner_pin",
+  "disposition": "check"
+ },
+ {
+  "id": "X1",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:898-921",
+  "feature": "run_agent flags: --print, --output-format stream-json, --verbose, --permission-mode bypassPermissions, spawned with cwd = sandbox root",
+  "reference_mechanism": "see source",
+  "observable": "The stream's init event reports permissionMode bypassPermissions and a cwd equal to the work dir the agent container starts in",
+  "check": "stream_invocation",
+  "disposition": "check"
+ },
+ {
+  "id": "X2",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:903; SR:145-148",
+  "feature": "--setting-sources project,local keeps ~/.claude (skills, plugins, MCP, memory) out of the run",
+  "reference_mechanism": "see source",
+  "observable": "No user-global skill, plugin, MCP server or credential directory reaches the agent",
+  "check": "settings_sources_isolated",
+  "disposition": "check"
+ },
+ {
+  "id": "X3",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:874-877, 866-871",
+  "feature": "No --bare: skill discovery works; htn-creator is found iff the sandbox holds it (with_skill), never via a global copy (without_skill)",
+  "reference_mechanism": "see source",
+  "observable": "The init event lists htn-creator exactly when the work dir carries .claude/skills/htn-creator",
+  "check": "skill_discovery",
+  "disposition": "check"
+ },
+ {
+  "id": "X4",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:777-785, 840-850; .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_run_config.py:103-105,232-278",
+  "feature": "Auth token is read from a named env var, set only on the child's environment, never logged or stored; missing var fails loudly naming the variable only",
+  "reference_mechanism": "see source",
+  "observable": "A random token value appears in no work-dir file, HOME file, stream, provenance or container metadata",
+  "check": "canary_absent",
+  "disposition": "check"
+ },
+ {
+  "id": "X5",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:609, 920-929",
+  "feature": "Hard run timeout of 3600 s; on expiry run_agent returns exit_code -1, error 'timeout', zero token counts",
+  "reference_mechanism": "see source",
+  "observable": "A run still going at 3600 s is terminated and recorded as a timeout",
+  "check": "job_events",
+  "disposition": "guard:B08",
+  "guards": [
+   "B08",
+   "B29"
+  ],
+  "note": "B08 container self-expiry; B29 ends rows E08/E18. job_events is supplementary (no run left unaccounted)"
+ },
+ {
+  "id": "X6",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:932-983, 952-955, 2283-2287",
+  "feature": "Result capture: usage tokens, duration_ms, tool_use counts per tool name, and a gzip archive of the full stdout stream",
+  "reference_mechanism": "see source",
+  "observable": "The stream has init, assistant and final result events; result carries usage and a permission_denials list",
+  "check": "stream_wellformed",
+  "disposition": "check"
+ },
+ {
+  "id": "X7",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:1958-1961",
+  "feature": "agent stderr is captured to agent_stderr.txt in the run cache",
+  "reference_mechanism": "see source",
+  "observable": "stderr text of the agent process is preserved with the run",
+  "check": "stderr_kept",
+  "disposition": "check"
+ },
+ {
+  "id": "X8",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:159-201",
+  "feature": "Prompt: fixed template with 'Hard Context' non-interactive line; with_skill prepends '/htn-creator ', without_skill omits it",
+  "reference_mechanism": "see source",
+  "observable": "The agent's first prompt equals the template with servers path, topic and domain name substituted",
+  "check": null,
+  "why_unchecked": "stream-json does not reliably echo the user prompt; only the recorded eval_metadata prompt does, which is not an oracle input",
+  "disposition": "smoke_step",
+  "smoke_step": "Read the agent's first prompt from the run record; compare with the template: hard-context line, '/htn-creator ' prefix only with the skill"
+ },
+ {
+  "id": "X9",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:2426-2436; .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_git_skill.py:184-201",
+  "feature": "Skill is materialised from a git tag by 'git archive', fail-closed; latest tag if none given; version normalised to vX.Y.Z",
+  "reference_mechanism": "see source",
+  "observable": "The sandbox's skill content equals the tagged tree and provenance skill_version is that vX.Y.Z",
+  "check": null,
+  "why_unchecked": "needs the source repo and tag; provenance_fields only checks the recorded shape",
+  "disposition": "guard:B22",
+  "guards": [
+   "B22"
+  ]
+ },
+ {
+  "id": "X10",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:838-839, 1394-1398",
+  "feature": "ANTHROPIC_BASE_URL set only when an endpoint redirect is requested; recorded as base_url (never the token) in eval_metadata",
+  "reference_mechanism": "see source",
+  "observable": "The agent's API traffic goes to the requested endpoint and nowhere else",
+  "check": null,
+  "why_unchecked": "needs a fake upstream and traffic observation; not an oracle input",
+  "disposition": "guard:B17",
+  "guards": [
+   "B17"
+  ],
+  "smoke_step": "Point the endpoint at a local fake upstream; confirm the agent's traffic reaches only it and the manifest records no token"
+ },
+ {
+  "id": "X11",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:836",
+  "feature": "PYTHONDONTWRITEBYTECODE=1 so no __pycache__ litters the inventoried sandbox",
+  "reference_mechanism": "see source",
+  "observable": "No __pycache__ or .pyc outside an installed env in the post-run work dir or HOME",
+  "check": "no_bytecode",
+  "disposition": "check"
+ },
+ {
+  "id": "X12",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_confine_hook.py:97-100",
+  "feature": "Hook allow-lists /dev/null, /dev/zero, /dev/random, /dev/urandom, /dev/stdout, /dev/stderr, /dev/tty",
+  "reference_mechanism": "see source",
+  "observable": "Redirections to those devices work for the agent",
+  "check": "benign_devices",
+  "disposition": "check"
+ },
+ {
+  "id": "X13",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:613; .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_confine_hook.py:69",
+  "feature": "Hook scope is Bash|Write|Edit|Read only: Glob, Grep, NotebookEdit and network tools are not confined",
+  "reference_mechanism": "see source",
+  "observable": "Not a guarantee (absence): outside-path use through other tools is possible",
+  "check": null,
+  "why_unchecked": "records a non-guarantee; the container boundary should make it moot, so a stricter result is not a regression",
+  "disposition": "not_applicable",
+  "why_na": "the container boundary covers every tool, not four"
+ },
+ {
+  "id": "X14",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_confine_hook.py:71-176, 164-176",
+  "feature": "Hook path rule: tokens starting '/', '~' or containing '..' are resolved against the work dir; outside = deny; URLs masked; bare '/' tokens ignored; no symlink dereference",
+  "reference_mechanism": "see source",
+  "observable": "Any Read/Write/Edit/Bash call naming such a path outside the work dir is refused",
+  "check": "outside_path_denied",
+  "disposition": "check"
+ },
+ {
+  "id": "X15",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_confine_hook.py:195-204",
+  "feature": "Work-dir resolution: CONFINE_WORK_DIR, else the event's cwd, else process cwd",
+  "reference_mechanism": "see source",
+  "observable": "The confinement boundary equals the agent's start directory",
+  "check": "stream_invocation",
+  "disposition": "check"
+ },
+ {
+  "id": "X16",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:2273-2275; .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_dispatch.py:206-268",
+  "feature": "Sandbox dir is unique per (config, run): /tmp/htn_eval_{config}_run{n}_{ts}_{uuid8}, which is what makes --jobs>1 safe",
+  "reference_mechanism": "see source",
+  "observable": "Two concurrent runs share no work dir, venv or sidecar",
+  "check": "run_dir_per_key",
+  "disposition": "check"
+ },
+ {
+  "id": "X17",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_env_build.py:261-267, 419; SR:95-98",
+  "feature": "Python 3.12 venv; five stable deps within pinned ranges (libcst 1.x, jsonschema>=4, python-arango 8.x, python-dotenv 1.x, mcp>=1.18); no scipy",
+  "reference_mechanism": "see source",
+  "observable": "Pre-run interpreter is 3.12 and pip list matches the ranges",
+  "check": "venv_contents",
+  "disposition": "check"
+ },
+ {
+  "id": "X18",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_env_build.py:294, 467-471; SR:112-114",
+  "feature": "Venv files are copies, not hardlinks (UV_LINK_MODE=copy)",
+  "reference_mechanism": "see source",
+  "observable": "No venv file has more than one hard link",
+  "check": "venv_not_hardlinked",
+  "disposition": "check"
+ },
+ {
+  "id": "X19",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_env_build.py:315-330",
+  "feature": "pyproject.toml marks the sandbox a project: [project] name/version/requires-python>=3.10, no [build-system], no deps",
+  "reference_mechanism": "see source",
+  "observable": "Pre-run work dir holds that pyproject.toml",
+  "check": "layout",
+  "disposition": "check"
+ },
+ {
+  "id": "X20",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:2042-2044",
+  "feature": "Sandbox destroyed after finalize unless keep_sandbox; sidecar manifest unlinked with it",
+  "reference_mechanism": "see source",
+  "observable": "Post-run the work dir is gone, or kept only when asked",
+  "check": null,
+  "why_unchecked": "policy differs by design in a container runner (work dir is a host mount kept for inspection); decide, do not test",
+  "disposition": "intended_deviation",
+  "deviation": "sandbox deleted after finalize unless keep_sandbox -> workspace kept in the sealed run dir (I11)"
+ },
+ {
+  "id": "X21",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:2046-2057; .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_paths.py:126-156",
+  "feature": "Completion sentinel run_complete.json written atomically as the very last step; completed runs found by sentinel only",
+  "reference_mechanism": "see source",
+  "observable": "A run counts as done iff its sentinel exists; a crash earlier leaves it absent",
+  "check": "run_sealed",
+  "disposition": "guard:B30",
+  "guards": [
+   "B30"
+  ]
+ },
+ {
+  "id": "X22",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_run_dirs.py:111-129; .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:2270",
+  "feature": "Partial-state wipe: before re-attempting a non-complete run, its _run_cache/<cfg>/run-N and eval-*/<cfg>/run-N dirs are removed",
+  "reference_mechanism": "see source",
+  "observable": "Re-attempt starts from clean per-run result dirs",
+  "check": "resume_runs",
+  "disposition": "intended_deviation",
+  "deviation": "partial attempt dirs wiped before re-attempt -> never deleted; sealed invalid(interrupted), next attempt numbered. resume_runs detects gaps (supplementary)"
+ },
+ {
+  "id": "X23",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:2532-2668; .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_manifest.py:207-242",
+  "feature": "Resume replays experiment.json: skips complete runs, --add N bumps runs per config, base_url/auth_token_env may be overridden, aborts before any work if the named token variable is unset",
+  "reference_mechanism": "see source",
+  "observable": "Resume executes only missing or added (config, run) pairs",
+  "check": "resume_runs",
+  "disposition": "guard:B26",
+  "guards": [
+   "B26"
+  ],
+  "smoke_step": "Kill a job mid-run, resume; completed runs are unchanged and the new attempt takes the next number"
+ },
+ {
+  "id": "X24",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:2650-2668 vs 2504-2523",
+  "feature": "Resume path does not pass provenance to _execute_plan, so resumed runs record provenance: null (planner.sandbox never measured)",
+  "reference_mechanism": "see source",
+  "observable": "UNSTATED GAP: a resumed run's eval_metadata has provenance null",
+  "check": null,
+  "why_unchecked": "records a reference defect to decide on (carry forward or fix); needs a results folder",
+  "disposition": "intended_deviation",
+  "deviation": "resume drops provenance (provenance: null) -> resume carries the stored provenance; the reference defect is not copied"
+ },
+ {
+  "id": "X25",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_provenance.py:184-243; .claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:1874-1899, 2061-2109",
+  "feature": "Provenance block resolved once per run() and shared across cells; planner.runtime = eval-runtime interpreter; planner.sandbox measured per run from the real sandbox venv before reclaim, degrading to null/null with a warning; experiment.json carries plan-time null for it",
+  "reference_mechanism": "see source",
+  "observable": "Provenance has all 10 dotted fields; planner.sandbox names the planner of the agent's own env",
+  "check": "provenance_fields",
+  "disposition": "check"
+ },
+ {
+  "id": "X26",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_provenance.py:301-306",
+  "feature": "eval_infra.dirty=true makes a run non-comparable to any other (unconditional mismatch)",
+  "reference_mechanism": "see source",
+  "observable": "Provenance flags a dirty infra tree and consumers treat it as non-comparable",
+  "check": "provenance_fields",
+  "disposition": "check"
+ },
+ {
+  "id": "X27",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:1431-1474, 1592-1603",
+  "feature": "Provenance is mirrored into benchmark.json; disagreeing runs yield 'mixed' plus per-run warnings",
+  "reference_mechanism": "see source",
+  "observable": "benchmark metadata mirrors or marks mixed provenance",
+  "check": "manifest_comparable",
+  "disposition": "check"
+ },
+ {
+  "id": "X28",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:1372-1424",
+  "feature": "eval_metadata.json per run: eval_id, title, configuration, skill_version, run_number, model, prompt, timestamp, domain_name, base_url, provenance",
+  "reference_mechanism": "see source",
+  "observable": "Each run's metadata names these fields",
+  "check": "manifest_fields",
+  "disposition": "check"
+ },
+ {
+  "id": "X29",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:1347-1369",
+  "feature": "timing.json per run: durations, token counts, tool_call_types, agent_exit_code, sandbox_path, inventory, collected paths, mapping_scan, copied_inputs, stream/stderr/outputs paths, env_reclaimed_bytes",
+  "reference_mechanism": "see source",
+  "observable": "Each run's timing record names these fields",
+  "check": "run_measured",
+  "disposition": "check"
+ },
+ {
+  "id": "X30",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_manifest.py:1-14, 96-175, 223-242",
+  "feature": "experiment.json is leak-free: all paths relative to project root, only the token env-var NAME, status never stored (derived from disk)",
+  "reference_mechanism": "see source",
+  "observable": "The manifest holds no absolute path and no secret",
+  "check": "no_abs_paths",
+  "disposition": "check"
+ },
+ {
+  "id": "X31",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_run_config.py:103-105, 156-345",
+  "feature": "Run-config validation: closed schema, secret-key ban, auth_token_env must be an env-var NAME, absolute-path ban, prompt-reference vs expanded-field conflict, did-you-mean on unknown keys",
+  "reference_mechanism": "see source",
+  "observable": "A plan file with any of those faults is rejected with an actionable message",
+  "check": null,
+  "why_unchecked": "static validation of a config file; test the new runner's parser with bad fixtures",
+  "disposition": "guard:B19",
+  "guards": [
+   "B19"
+  ]
+ },
+ {
+  "id": "X32",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:269-282, 990-1059; SR:164-178",
+  "feature": "Output discovery: expected outputs are domain.py, problems.py, <domain_name>.json found by rglob; candidate rejected as input by relpath or sha256; picks shallowest genuine candidate; unreadable candidates rejected",
+  "reference_mechanism": "see source",
+  "observable": "Collected outputs never equal a harness-placed input and the shallowest genuine candidate wins",
+  "check": null,
+  "why_unchecked": "needs the runner's collector and results folder",
+  "disposition": "smoke_step",
+  "smoke_step": "Place an input copy where an output is expected; run is sealed invalid(input_leak). Also plant a genuine deeper and a shallower candidate; the shallowest genuine one is collected"
+ },
+ {
+  "id": "X33",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:1625-1681, 1746-1771; SR:173-178",
+  "feature": "Integrity verdict: contaminated (output_equals_input) > incomplete (missing_genuine_output) > clean; metadata only, never a gate; non-clean verdicts appended to contamination_catalog.jsonl",
+  "reference_mechanism": "see source",
+  "observable": "Every run record carries integrity.verdict and reason codes",
+  "check": "integrity_verdict",
+  "disposition": "check"
+ },
+ {
+  "id": "X34",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:1062-1241, 1933-1943",
+  "feature": "mapping_scan: every .json in the sandbox is adjudicated by the skill's own schema (valid/invalid), copied-in inputs never validated; schema path+sha256 recorded",
+  "reference_mechanism": "see source",
+  "observable": "Run record lists candidate mappings with schema validity",
+  "check": null,
+  "why_unchecked": "needs the results folder and the schema",
+  "disposition": "intended_deviation",
+  "deviation": "runner scans every .json against the skill's mapping schema -> the core never names a domain (I1); domain validation moves to evaluators. MAPPING NOT IN LEAD LIST: please confirm"
+ },
+ {
+  "id": "X35",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:1244-1281",
+  "feature": "Inventory: files outside .claude/ and installed envs, capped at 500 entries plus a __truncated__ marker",
+  "reference_mechanism": "see source",
+  "observable": "Run record lists up to 500 files with size and mtime",
+  "check": "tree_inventory",
+  "disposition": "intended_deviation",
+  "deviation": "inventory capped at 500 entries + __truncated__ marker -> tree.json lists every workspace path, no cap; env trees excluded. tree_inventory checks the surviving property"
+ },
+ {
+  "id": "X36",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/SANDBOX_REFERENCE.md:33-54, 229",
+  "feature": "Stream-json carries denial evidence (tool_result text, result.permission_denials) but never hook_started/hook_response events",
+  "reference_mechanism": "see source",
+  "observable": "The result event has a permission_denials list; hook events are absent",
+  "check": "stream_wellformed",
+  "disposition": "check"
+ },
+ {
+  "id": "X37",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:1288-1346, 2013-2018",
+  "feature": "Grading runs from the collected outputs dir after the sandbox is closed, in the harness interpreter, never inside the agent's env",
+  "reference_mechanism": "see source",
+  "observable": "Grading reads copied outputs only; the agent cannot influence the grader's interpreter",
+  "check": null,
+  "why_unchecked": "harness-internal; the agent container never hosts the grader by construction",
+  "disposition": "not_applicable",
+  "why_na": "grading runs outside the agent container by construction"
+ },
+ {
+  "id": "X38",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:650-655; SR:155-156",
+  "feature": "permissions.deny in settings.json is inert and never relied on for containment",
+  "reference_mechanism": "see source",
+  "observable": "None: not a guarantee",
+  "check": null,
+  "why_unchecked": "declared non-property",
+  "disposition": "not_applicable",
+  "why_na": "permissions.deny was inert in the reference and is not relied on"
+ },
+ {
+  "id": "X39",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/_env_build.py:195-199, 457-461",
+  "feature": "uv is required at provisioning; missing uv fails loudly",
+  "reference_mechanism": "see source",
+  "observable": "Provisioning refuses to run without uv",
+  "check": null,
+  "why_unchecked": "provisioning-time failure; not observable from a finished run",
+  "disposition": "smoke_step",
+  "smoke_step": "Run with the image absent; preflight fails loudly and names the image, before any run starts"
+ },
+ {
+  "id": "X40",
+  "source": ".claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/suite.py:787",
+  "feature": "Whole host environment (minus the scrubbed variables) is inherited by the agent: HOME, other API keys, locale",
+  "reference_mechanism": "see source",
+  "observable": "UNSTATED: agent sees every other host env var",
+  "check": null,
+  "why_unchecked": "a leak a container runner should deliberately not copy; decide the allow-list, there is nothing to match",
+  "disposition": "intended_deviation",
+  "deviation": "agent inherits the whole host env minus scrubbed vars -> env built from an allowlist (PATH, LANG, isolated HOME/XDG, TMPDIR, driver overlay); nothing inherited"
+ }
+]
