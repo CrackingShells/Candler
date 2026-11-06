@@ -1,10 +1,23 @@
 //! The verbs of the `candler` binary, one file each.
 
+pub mod diff;
+pub mod evaluate;
+pub mod import;
 pub mod kill;
 pub mod ps;
 pub mod run;
+pub mod show;
 pub mod supervise;
 pub mod watch;
+
+/// What a command that is not built yet prints and returns.
+pub fn not_built(command: &str) -> std::process::ExitCode {
+    #[allow(clippy::print_stderr, reason = "the stub reports on stderr")]
+    {
+        eprintln!("candler {command}: not built");
+    }
+    std::process::ExitCode::from(2)
+}
 
 /// How a verb that did not fail ended; `main` maps it to the exit code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

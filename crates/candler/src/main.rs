@@ -1,4 +1,5 @@
-//! The `candler` binary.
+//! The `candler` binary: `run`, `ps`, `kill` and `watch` for jobs; `import`, `evaluate`, `show`
+//! and `diff` over a store.
 //!
 //! One file per verb under [`commands`]; each verb is an `async fn` that takes its parsed
 //! arguments and returns an [`Exit`] or a [`CliError`]. `main` maps `Exit::Success` to 0,
@@ -6,6 +7,7 @@
 
 mod commands;
 
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
@@ -16,6 +18,9 @@ use crate::commands::{CliError, Exit, kill, ps, run, supervise, watch};
 #[derive(Debug, Parser)]
 #[command(name = "candler", version, about = "Run and measure agent experiments")]
 struct Cli {
+    /// The store root.
+    #[arg(long, env = "CANDLER_STORE", global = true)]
+    store: Option<PathBuf>,
     /// The verb to run.
     #[command(subcommand)]
     command: Command,
@@ -35,6 +40,14 @@ enum Command {
     /// Runs a job's supervisor; started by `run`, never by a person.
     #[command(hide = true)]
     Supervise(supervise::Args),
+    /// Import a legacy results folder into the store.
+    Import(commands::import::ImportArgs),
+    /// Grade stored runs with a plug-in's suite.
+    Evaluate(commands::evaluate::EvaluateArgs),
+    /// Print stored outcomes, or their rates.
+    Show(commands::show::ShowArgs),
+    /// Compare the outcomes of two evaluator versions.
+    Diff(commands::diff::DiffArgs),
 }
 
 /// Runs the verb on a multi-thread runtime.
@@ -52,6 +65,22 @@ fn dispatch(cli: Cli) -> Result<Exit, CliError> {
             Command::Kill(args) => kill::run(args).await,
             Command::Watch(args) => watch::run(args).await,
             Command::Supervise(args) => supervise::run(args).await,
+            Command::Import(ref args) => {
+                let _stub = commands::import::run(&cli, args).await;
+                Err(CliError::Unavailable { verb: "import" })
+            }
+            Command::Evaluate(ref args) => {
+                let _stub = commands::evaluate::run(&cli, args).await;
+                Err(CliError::Unavailable { verb: "evaluate" })
+            }
+            Command::Show(ref args) => {
+                let _stub = commands::show::run(&cli, args).await;
+                Err(CliError::Unavailable { verb: "show" })
+            }
+            Command::Diff(ref args) => {
+                let _stub = commands::diff::run(&cli, args).await;
+                Err(CliError::Unavailable { verb: "diff" })
+            }
         }
     })
 }
