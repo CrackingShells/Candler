@@ -18,7 +18,7 @@ The roadmap cites this report as R04. A leaf commits only the guards this report
 - Their parity on Tiers A–C.
 
 ### Out of scope
-- Tier D, snapshots, suite inputs and `SuiteFile`. See R03 §Scope move.
+- Tier D, snapshots and suite inputs. See R03 §Scope move.
 - The M2b execution path.
 - `uuid`, `serde`, `clap`, `jsonschema`, `uv` and the OS behaviour of `fork` and hard links: we test what we own.
 

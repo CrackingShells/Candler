@@ -15,7 +15,7 @@ The roadmap [`__roadmap__/m2a-evaluation-parity/`](../../__roadmap__/m2a-evaluat
 
   The proof is a live regrade of the 240 runs, which must equal the imported rows on Tiers A–C and then reproduce itself.
 - **Non-goals.**
-  - Tier D (D-E1…6, 1,440 rows), snapshot attach, suite `inputs[]`, `SuiteFile`, the `rikyu_mcp` rule and the mcp-python-ingestion install. See §Scope move.
+  - Tier D (D-E1…6, 1,440 rows), snapshot attach, suite `inputs[]`, the `rikyu_mcp` rule and the mcp-python-ingestion install. See §Scope move.
   - The M2b execution path.
   - Publishing to crates.io or PyPI.
 - **Biggest risks.**
@@ -196,6 +196,8 @@ Kept quirks change A–C rows, so they are explicit params with the grader's def
 
 ### Environments
 - `EnvironmentStep` is a `PreflightStep`. Per plug-in it runs `uv sync --frozen` through `Supervisor::run_captured`, into `<env root>/<sha256(uv.lock ‖ pyproject.toml)>/.venv`.
+- The env root is `<state home>/candler/environments` (`registry::default_env_root(&Config)`, from `Config::state_home`), whatever the project: one environment per lock digest serves every store. `EvaluateRequest.env_root` carries it to the engine, which refuses a plug-in whose environment has no `ready` marker.
+- `registry` keeps each manifest with its directory, because `command`, `uv.lock` and `pyproject.toml` are relative to it.
 - It writes the `ready` marker only after success, and a second run under the same digest spawns nothing (REG2).
 - The registry validates params and needs without spawning anything (I14).
 - The workspace is a private copy, read-only after writing, outside the store root. A plug-in can never write through to a blob (I11, RC3).
@@ -215,7 +217,8 @@ Kept quirks change A–C rows, so they are explicit params with the grader's def
 - **Normalisation.** A weight equal to its status default (`pass` 1/1, `fail` and `blocked` 0/1) is normalised to absent on both sides.
 - **Numbers.** JSON numbers keep their kind: `3` ≠ `3.0`.
 - **Change classes.** Missing and extra rows are changes; the classes are `status`, `value`, `weight`, `cause`, `missing` and `extra`.
-- **Uncompared.** A row whose expectation is absent from the `to` suite is uncompared, and is listed with its count.
+- **Uncompared.** A row whose expectation is absent from the `to` suite is uncompared, and is listed with its count. A version's suite is read from its records (I21): an expectation is in it when the version has at least one record for it.
+- **Nothing compared.** `compared == 0` is an error (exit 2), never "no change": a regrade whose requests all failed leaves no `to` records, and must not pass.
 
 **Equivalence file** (`--equivalence <file>`; the coordinator's conditions of 2026-11-06 apply). It names exact rows, never a pattern over all rows:
 ```json
@@ -240,9 +243,10 @@ Kept quirks change A–C rows, so they are explicit params with the grader's def
   "equivalence": { "sha256": "…", "rows": 209 } }
 ```
 - `compared` counts the `(run, expectation)` rows present on either side for an expectation in both suites, and `unchanged + excused + changed == compared`. Missing, extra and equivalence failures are counted in `changed`. `equivalence` is `null` without `--equivalence`.
-- Exit 1 when `changed > 0`, 0 otherwise, 2 on an error.
+- Exit 1 when `changed > 0`, 0 otherwise, 2 on an error or when `compared == 0`.
+- In the core, `diff(from, to, equivalence: Option<&Equivalence>)`; `None` gives `equivalence: null`.
 
-**Rates** (`show --rates --format toml`, and `$ORACLE/rates_by_cell.toml` byte for byte):
+**Rates** (`show --rates --evaluator <name@version> --format toml`, and `$ORACLE/rates_by_cell.toml` byte for byte):
 ```toml
 [cell."20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3"]
 gate = [<num>, <den>]
@@ -254,7 +258,8 @@ quality = [<num>, <den>]
   - `blocked` counts with numerator 0. `not_measured` and `not_applicable` are excluded.
   - A cell's pair is the sum of its runs' pairs.
 - A 0/0 `pass` adds nothing, which is why the excused rows leave the rates unchanged.
-- For live records the pair is the weight's `num`/`den`; for raw rows it is `score`/`max_score`.
+- For live records the pair is the weight's `num`/`den` and the role is the record's own `role` (I21), so `rates` takes no suite; for raw rows the pair is `score`/`max_score`.
+- `--rates` requires `--evaluator`: the store holds `0.4.2` and `0.5.0` records, and rates belong to one version.
 
 ### Protocol
 - `evaluation::rpc` adds one schema root, `evaluator-message`. It wraps the existing `evaluator-request-side` and `evaluator-notification` roots by reference, and no existing schema changes (DRIFT, WIRE2).
@@ -263,6 +268,7 @@ quality = [<num>, <den>]
   - The item deadline lives in the helper's fork.
   - The request deadline lives in the client: at the deadline it sends `cancel`, waits a grace period, then calls `Child::stop`.
   - Cancel is answered with error `-32800`.
+  - A caller cancel (Ctrl-C on `candler evaluate`, through the `cancel` receiver of `evaluate`) takes the same path as the request deadline: `cancel`, grace, `Child::stop`. A cancelled request commits no outcome file. The binary only receives SIGINT; it never sends a signal.
 - **Missing items.**
   - An item never reported before an early exit is `not_measured {reason: instrument_error}`.
   - An item never reported by the request deadline is `not_measured {reason: deadline}`; this is the only writer of `deadline`.
@@ -290,28 +296,31 @@ These seams are frozen by `skeleton` before L1, and change only through the coor
 ```rust
 // candler_core::evaluation::engine
 pub struct EvaluateRequest {
-    pub store: PathBuf, pub plugins: Vec<PathBuf>, pub suite: String,
+    pub store: PathBuf, pub plugins: Vec<PathBuf>, pub suite: PathBuf,   // the suite file
     pub runs: Option<String>,          // a glob over run keys; None = every run
-    pub concurrency: NonZeroUsize, pub request_deadline: Duration,
+    pub concurrency: NonZeroUsize, pub env_root: PathBuf,
+    pub request_deadline: Option<Duration>, // None = sum of item deadlines + margin (R01)
 }
 pub struct EvaluateReport {
     pub request_ids: Vec<RequestId>, pub counts: BTreeMap<String, u64>,
     pub outcome_files: Vec<PathBuf>, pub failed_requests: Vec<(RequestId, String)>,
 }
-#[non_exhaustive] pub enum EvaluateError { NotBuilt /* , … filled by engine */ }
-pub async fn evaluate(request: EvaluateRequest) -> Result<EvaluateReport, EvaluateError>;
+#[non_exhaustive] pub enum EvaluateError { NotBuilt /* , … filled by engine; Debug + Error only */ }
+pub async fn evaluate(request: EvaluateRequest, supervisor: Arc<Supervisor>,
+    cancel: watch::Receiver<bool>) -> Result<EvaluateReport, EvaluateError>;
 ```
-- **Modules.** `evaluation::{registry, context, client (#[cfg(unix)]), selection::{select, rates, diff}, engine}`.
+- **Modules.** `evaluation::{registry, context, client, selection::{select, rates, diff}, engine}`; `registry`, `client` and `engine` are `#[cfg(unix)]`, as `supervise` is.
+- **Shared CLI helpers.** `crates/candler/src/commands/common.rs` holds the store root (`--store`, else the configuration), the `Resolver` composition (each milestone's `register_*_steps` call one per line) and the binary's `EventSink`. M2b's commands call it too. `main` runs a multi-thread runtime, and the engine moves blocking store writes to `spawn_blocking`.
 - **CLI.** `Cli { --store (env CANDLER_STORE, global), Command }` with these subcommands:
 
   | Command | Flags |
   |---|---|
   | `import` | `<corpus> --instrument <id@version>` |
-  | `evaluate` | `--plugin <manifest> --suite <id> [--runs <glob>] [--concurrency N]` |
-  | `show` | `[--rates] --format json\|toml` |
+  | `evaluate` | `--plugin <manifest> --suite <file> [--runs <glob>] [--concurrency N]` |
+  | `show` | `[--rates] [--evaluator <name@version>] --format json\|toml` (`--rates` requires `--evaluator`) |
   | `diff` | `--from <id@version> --to <id@version> [--equivalence <file>] --format json\|text` |
 
-  - Exit codes: 0 for success or no change, 1 for a change found by `diff`, 2 for an error.
+  - Exit codes: 0 for success or no change, 1 for a change found by `diff`, 2 for an error (including `diff` with `compared == 0`).
   - M2b appends variants, one per line.
 
 ## Environment
