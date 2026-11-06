@@ -9,9 +9,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use candler_schemas::execution::SecretPresence;
-use candler_schemas::primitives::{Digest, Marker, SecretName};
-use candler_schemas::values::ResolvedValue;
+use candler_schemas::execution::{Comparable, SecretPresence};
+use candler_schemas::primitives::{Digest, FieldPath, Marker, SecretName};
+use candler_schemas::values::{ResolvedValue, SourceEntry, ValueSource};
 use futures::future::BoxFuture;
 
 use crate::isolation::Isolation;
@@ -40,6 +40,14 @@ use crate::supervise::{EventSink, Supervisor};
 const TOKEN_SECRET: &str = "model.token_secret";
 /// The setting that names where the treatment's repository is.
 const TREATMENT_SOURCE: &str = "request.treatment_source";
+/// The roots of a cell that hold typed records; their sources are not value paths.
+const TYPED_ROOTS: [&str; 5] = [
+    "harness",
+    "treatment",
+    "snapshots",
+    "inputs",
+    "environments",
+];
 /// The value that names the model endpoint.
 const MODEL_ENDPOINT: &str = "model.endpoint";
 /// The tag the gateway's sidecar image is looked up by.
@@ -267,6 +275,41 @@ pub struct JobSession {
     pub(super) gateway: Option<ContainerRef>,
 }
 
+/// The sources a cell's manifest carries: one for each value of the cell, and the ones of the
+/// typed records. A value the resolution gives no source is one the experiment file sets for the
+/// cell: a factor level or a cap. The sources of settings are not the cell's.
+fn sources_of(comparable: &Comparable, resolution: &Resolution) -> Vec<SourceEntry> {
+    let held: BTreeSet<&FieldPath> = comparable
+        .values()
+        .iter()
+        .map(ResolvedValue::path)
+        .collect();
+    let mut sources: Vec<SourceEntry> = resolution
+        .sources
+        .iter()
+        .filter(|entry| {
+            held.contains(entry.path())
+                || entry
+                    .path()
+                    .segments()
+                    .next()
+                    .is_some_and(|root| TYPED_ROOTS.contains(&root))
+        })
+        .cloned() // BORROW: the cell owns its sources
+        .collect();
+    for path in &held {
+        if !sources.iter().any(|entry| entry.path() == *path) {
+            // BORROW: the entry owns its path
+            sources.push(SourceEntry::new(
+                (*path).clone(),
+                ValueSource::ExperimentFile,
+            ));
+        }
+    }
+    sources.sort_by(|a, b| a.path().cmp(b.path()));
+    sources
+}
+
 /// The cells of a job: what each one is, with the secrets it needs and where its treatment is.
 ///
 /// # Errors
@@ -301,14 +344,21 @@ pub fn cells_of(
     };
     let mut cells = BTreeMap::new();
     for (digest, comparable) in &outcome.fresh {
+        // a pinned cell is written as it was stored, so its sources are the stored cell's
+        let written = outcome
+            .plans
+            .iter()
+            .find(|plan| plan.cell == *digest)
+            .and_then(|plan| plan.stored.as_ref())
+            .unwrap_or(comparable);
         let cell = CellRun::new(
-            comparable.clone(),              // BORROW: the cell owns its comparable
-            outcome.experiment.clone(),      // BORROW: the cell owns its experiment digest
-            factors.clone(),                 // BORROW: the cell owns its factors
-            spec.resolution.sources.clone(), // BORROW: the cell owns its sources
-            secrets.clone(),                 // BORROW: the cell owns its secrets
-            source.clone(),                  // BORROW: the cell owns its treatment source
-            inputs.clone(),                  // BORROW: the cell owns its inputs
+            comparable.clone(),         // BORROW: the cell owns its comparable
+            outcome.experiment.clone(), // BORROW: the cell owns its experiment digest
+            factors.clone(),            // BORROW: the cell owns its factors
+            sources_of(written, &spec.resolution),
+            secrets.clone(), // BORROW: the cell owns its secrets
+            source.clone(),  // BORROW: the cell owns its treatment source
+            inputs.clone(),  // BORROW: the cell owns its inputs
         );
         cells.insert(digest.clone(), Arc::new(cell)); // BORROW: the map owns the cell digest
     }
