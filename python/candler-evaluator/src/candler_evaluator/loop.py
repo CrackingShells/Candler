@@ -5,7 +5,6 @@ from __future__ import annotations
 import importlib
 import importlib.metadata
 import sys
-import traceback
 from collections import deque
 from collections.abc import Mapping, Sequence
 from types import ModuleType
@@ -18,7 +17,8 @@ from .frames import (
     install_fd_guard,
     parse_message,
 )
-from .plugin import Plugin, Prior, RunContext, normalise_outcome
+from .isolate import Abandoned, Done, make_runner, run_item
+from .plugin import Plugin, Prior, RunContext
 
 __all__ = ["main", "serve"]
 
@@ -186,8 +186,15 @@ class _Loop:
         self.plugin = plugin
         self.writer = writer
         self.inbox = inbox
+        self.runner = make_runner([writer.fd])
 
     def run(self) -> int:
+        try:
+            return self._serve()
+        finally:
+            self.runner.reap()
+
+    def _serve(self) -> int:
         while (msg := self.inbox.next_message()) is not None:
             if "id" not in msg:
                 continue
@@ -228,6 +235,16 @@ class _Loop:
             "kind": "deterministic" if self.plugin.deterministic else "probabilistic",
             "kinds": _kind_specs(self.plugin),
         }
+        self.writer.write(
+            _notify(
+                "log",
+                {
+                    "level": "info",
+                    "message": f"isolation: {self.runner.mode}",
+                    "isolation": self.runner.mode,
+                },
+            )
+        )
         self.writer.write(_result(rid, result))
 
     def evaluate(self, msg: dict[str, Any]) -> None:
@@ -249,6 +266,8 @@ class _Loop:
             if self.inbox.cancelled:
                 break
             fields = self._run_item(item, context, records)
+            if fields is None:
+                break
             record = self._record(rid, f"{name}@{version}", context, item, fields)
             self.writer.write(_notify("outcome", {"record": record}))
             records.append(record)
@@ -265,16 +284,24 @@ class _Loop:
         item: dict[str, Any],
         context: RunContext,
         records: Sequence[Mapping[str, Any]],
-    ) -> dict[str, Any] | str:
+    ) -> dict[str, Any] | str | None:
+        """The item's outcome fields, a fault reason, or None when the request was cancelled."""
         kind = self.plugin.kinds.get(item["kind"])
         if kind is None:
             return f"unknown kind {item['kind']!r}"
         priors = [Prior(r["expectation_id"], r) for r in records]
-        try:
-            return normalise_outcome(kind(item["params"], context, priors))
-        except Exception as err:  # noqa: BLE001 - one item's fault is that item's
-            traceback.print_exc()
-            return f"kind raised {type(err).__name__}: {err}"
+        result = run_item(
+            self.runner,
+            kind,
+            item["params"],
+            context,
+            priors,
+            item["deadline_ms"],
+            self.inbox,
+        )
+        if isinstance(result, Abandoned):
+            return None
+        return result.outcome if isinstance(result, Done) else result.reason
 
     def _record(
         self,

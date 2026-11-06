@@ -69,11 +69,12 @@ def test_describe_and_evaluate(tmp_path):
     ev = evaluate([item("A1", "ok"), item("A2", "echo"), item("A3", "nope")])
     p = run(tmp_path, [d, "garbage", ev])
     frames = [json.loads(x) for x in p.stdout.splitlines()]
-    assert frames[0]["result"]["name"] == "scaf"
-    assert [f.get("method") for f in frames[1:4]] == ["outcome"] * 3
-    assert frames[2]["params"]["record"]["evidence"][0]["note"] == "1:('a', 'b')"
-    assert frames[3]["params"]["record"]["status"] == "not_measured"
-    assert frames[4]["result"] == {"reported": 3}
+    assert frames[0]["params"]["isolation"] == "fork"
+    assert frames[1]["result"]["name"] == "scaf"
+    assert [f.get("method") for f in frames[2:5]] == ["outcome"] * 3
+    assert frames[3]["params"]["record"]["evidence"][0]["note"] == "1:('a', 'b')"
+    assert frames[4]["params"]["record"]["status"] == "not_measured"
+    assert frames[5]["result"] == {"reported": 3}
     assert "stray2" in p.stderr
 
 
@@ -82,3 +83,12 @@ def test_cancel_answered(tmp_path):
     p = run(tmp_path, [evaluate([item("A1", "ok")]), cancel])
     frames = [json.loads(x) for x in p.stdout.splitlines()]
     assert frames[-1]["error"]["code"] == -32800
+
+
+def test_no_fork_mode(tmp_path, monkeypatch):
+    monkeypatch.setenv("CANDLER_EVALUATOR_NO_FORK", "1")
+    d = {"jsonrpc": "2.0", "id": RID, "method": "describe", "params": {}}
+    p = run(tmp_path, [d, evaluate([item("A1", "ok")])])
+    frames = [json.loads(x) for x in p.stdout.splitlines()]
+    assert frames[0]["params"]["isolation"] == "inline"
+    assert frames[-1]["result"] == {"reported": 1}
