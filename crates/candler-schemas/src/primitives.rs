@@ -997,6 +997,16 @@ impl FromStr for RequestId {
     }
 }
 
+impl RequestId {
+    /// A new request id: a time-ordered `UUIDv7` in lowercase hyphenated form.
+    #[must_use]
+    pub fn new_v7() -> Self {
+        Self {
+            text: Uuid::now_v7().hyphenated().to_string(),
+        }
+    }
+}
+
 text_type!(JobId {
     description: "A job id: a `UUIDv7` in lowercase hyphenated form.",
     pattern: JOB_ID_PATTERN,
