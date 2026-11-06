@@ -4,6 +4,7 @@
 //! `flock`, and `<n>.json`, who holds it. The kernel releases the lock when the holder dies, so a
 //! free lock with a leftover `.json` is a crashed holder: reported as stale, never as held.
 
+use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -12,7 +13,9 @@ use std::time::Duration;
 use futures::future::BoxFuture;
 use rustix::fs::{FlockOperation, flock};
 use rustix::io::Errno;
-use serde::{Deserialize, Serialize};
+use serde::de::value::MapAccessDeserializer;
+use serde::de::{MapAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::dir::write_atomic;
 
@@ -58,13 +61,44 @@ pub struct Holder {
     pub run: Option<String>,
 }
 
-/// The content of `<n>.json`.
+/// The content of `<n>.json`: an object, with `run` omitted when no run holds the slot.
+///
+/// The derive is `remote = "Self"`, which makes its functions inherent; the impls below wrap them
+/// so the reader takes an object and nothing else, as the wire shapes of `candler-schemas` do.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(remote = "Self")]
 struct HolderFile {
     job: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     run: Option<String>,
     pid: u32,
     since: String,
+}
+
+impl Serialize for HolderFile {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        Self::serialize(self, serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for HolderFile {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct ObjectOnly;
+
+        impl<'de> Visitor<'de> for ObjectOnly {
+            type Value = HolderFile;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("an object")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<HolderFile, A::Error> {
+                HolderFile::deserialize(MapAccessDeserializer::new(map))
+            }
+        }
+
+        deserializer.deserialize_map(ObjectOnly)
+    }
 }
 
 /// A held slot; dropping it releases the slot.
