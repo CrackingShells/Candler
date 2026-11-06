@@ -14,11 +14,12 @@ use std::sync::Arc;
 use candler_schemas::execution::JobEnd;
 use futures::future::BoxFuture;
 
+use self::schedule::Scheduler;
 use self::session::{DockerHost, EnvSecrets, JobHost, JobSession, cells_of};
 use crate::isolation::model::SweepScope;
 use crate::jobs::model::{JobControl, JobOutcome, JobSpec};
 use crate::runner::plan::{Force, PlanCtx, PlanMode, experiment_of, plan_runs};
-use crate::runner::Runtime;
+use crate::runner::{JobMeter, Runtime};
 
 /// Runs the runs of `spec` under `rt` on the machine's docker and says how the job ended.
 pub fn orchestrate(rt: Runtime, spec: JobSpec, ctl: JobControl) -> BoxFuture<'static, JobOutcome> {
@@ -44,16 +45,27 @@ const fn failed() -> JobOutcome {
     }
 }
 
+/// Writes one line to the supervisor's stderr that names why a job could not start. Errors name
+/// a secret, never its value.
+fn refused(what: &str, error: &impl std::fmt::Display) -> JobOutcome {
+    #[expect(clippy::print_stderr, reason = "the supervisor's stderr is its log")]
+    {
+        eprintln!("orchestrate: {what}: {error}");
+    }
+    failed()
+}
+
 /// Plans, opens the session, runs the plans and closes the session.
 async fn run_job(
     mut rt: Runtime,
     spec: JobSpec,
-    _ctl: JobControl,
+    ctl: JobControl,
     host: Arc<dyn JobHost>,
 ) -> JobOutcome {
     let secrets = EnvSecrets::new(spec.experiment.secrets());
-    let Ok(fresh) = experiment_of(&spec.experiment, &spec.resolution) else {
-        return failed();
+    let fresh = match experiment_of(&spec.experiment, &spec.resolution) {
+        Ok(fresh) => fresh,
+        Err(error) => return refused("the experiment cannot be identified", &error),
     };
     let ctx = PlanCtx {
         store: rt.store.clone(), // BORROW: the context owns its handle on the store
@@ -61,24 +73,37 @@ async fn run_job(
         secrets_present: secrets.present(),
     };
     let force = if spec.force { Force::Yes } else { Force::No };
-    let Ok(outcome) = plan_runs(
+    let outcome = match plan_runs(
         &ctx,
         &spec.experiment,
         &spec.resolution,
         force,
         PlanMode::Hold,
-    ) else {
-        return failed();
+    ) {
+        Ok(outcome) => outcome,
+        Err(error) => return refused("the plan was refused", &error),
     };
-    let Ok(cells) = cells_of(&spec, &outcome, &secrets.present()) else {
-        return failed();
+    let cells = match cells_of(&spec, &outcome, &secrets.present()) {
+        Ok(cells) => cells,
+        Err(error) => return refused("the cells cannot be built", &error),
     };
     rt.cells = cells;
-    let Ok(session) = JobSession::open(&mut rt, &spec, &outcome.experiment, &*host, &secrets).await
-    else {
-        return failed();
-    };
+    let session =
+        match JobSession::open(&mut rt, &spec, &outcome.experiment, &*host, &secrets).await {
+            Ok(session) => session,
+            Err(error) => return refused("the job's session cannot be opened", &error),
+        };
     let _lock = outcome.lock;
+    let scheduler = Scheduler::new(
+        Arc::new(rt),
+        spec.budget.clone(), // BORROW: the scheduler owns the job's caps
+        Arc::new(JobMeter::new()),
+    );
+    let schedule = scheduler.run(outcome.plans, ctl.cancel.subscribe()).await;
+    // the report names what stayed behind; the job's end stays what its runs said
     let _report = session.close(&SweepScope::CurrentJob).await;
-    failed()
+    JobOutcome {
+        end: schedule.end,
+        runs: schedule.runs,
+    }
 }
