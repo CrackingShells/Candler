@@ -7,10 +7,12 @@ use std::fs::{File, OpenOptions};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use candler_schemas::primitives::JobId;
 use rustix::fs::{FlockOperation, flock};
 use rustix::io::Errno;
 
 use super::dir::{JobDir, JobError, io_error};
+use super::view::JobView;
 
 /// The file the lock is taken on.
 const LOCK_FILE: &str = "lock";
@@ -34,6 +36,8 @@ pub enum LockState {
 pub struct JobLock {
     // The descriptor holds the lock; dropping it releases it.
     _file: File,
+    // The directory the lock was taken on, and so the job it names.
+    dir: JobDir,
 }
 
 fn open_lock(dir: &JobDir) -> Result<(File, PathBuf), JobError> {
@@ -71,13 +75,28 @@ impl JobLock {
         let started = Instant::now();
         loop {
             if try_lock(&file, &path)? {
-                return Ok(Self { _file: file });
+                return Ok(Self {
+                    _file: file,
+                    dir: dir.clone(), // BORROW: the lock owns its directory
+                });
             }
             if started.elapsed() >= RETRY_FOR {
                 return Err(JobError::Held);
             }
             std::thread::sleep(RETRY_EVERY);
         }
+    }
+
+    /// The job whose lock this is.
+    #[must_use]
+    pub fn job<'a>(&'a self) -> &'a JobId {
+        self.dir.job()
+    }
+
+    /// The directory of the job whose lock this is.
+    #[must_use]
+    pub(crate) fn dir<'a>(&'a self) -> &'a JobDir {
+        &self.dir
     }
 
     /// Whether the lock is held, without keeping it. Only `EWOULDBLOCK` reads as held; any
