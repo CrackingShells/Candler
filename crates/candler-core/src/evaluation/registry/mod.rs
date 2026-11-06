@@ -11,10 +11,14 @@ use std::path::PathBuf;
 use candler_schemas::evaluation::EvaluationError;
 use candler_schemas::primitives::{ExpectationId, Name};
 
+mod environment;
 mod manifest;
 mod needs;
 mod suite;
 
+pub use environment::{
+    EnvironmentKey, EnvironmentStep, default_env_root, register_evaluation_steps,
+};
 pub use manifest::{Plugin, Registry};
 pub use needs::NeedError;
 pub use suite::{CheckedEntry, CheckedSuite};
@@ -122,6 +126,18 @@ pub enum RegistryError {
         pointer: String,
         /// What the validator reported.
         detail: String,
+    },
+    /// No directory holds the user state, so there is no environment root.
+    #[error("no state home for the environments: neither XDG_STATE_HOME nor HOME is set")]
+    NoStateHome,
+    /// A file of a plug-in environment that cannot be read.
+    #[error("cannot read {} for the environment digest: {source}", path.display())]
+    EnvironmentFile {
+        /// The file.
+        path: PathBuf,
+        /// The operating-system error.
+        #[source]
+        source: io::Error,
     },
     /// A need the core cannot meet.
     #[error("entry {entry}: kind `{kind}`: {source}")]
