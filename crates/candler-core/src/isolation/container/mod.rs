@@ -8,17 +8,63 @@ pub mod run;
 pub mod stop;
 pub mod sweeper;
 
+use std::fmt::Write as _;
+use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use candler_harness::spec::{Cell, CommandSpec, Workspace};
-use candler_schemas::primitives::{Marker, RunKey};
+use candler_schemas::primitives::{FieldPath, JobId, Marker, RunKey};
+use candler_schemas::values::JsonValue;
 use futures::future::BoxFuture;
+use sha2::{Digest as _, Sha256};
 
 use self::guard::ContainerGuard;
+use self::mounts::{MountMode, MountRoots, MountSpec, mounts};
+use self::run::build_run_request;
+use self::stop::ContainerStopHook;
+use self::sweeper::ContainerSweeper;
 use super::driver::DockerDriver;
-use super::model::{ContainerOutcome, ContainerPlan, GatewayHandle};
-use super::{IsolatedRequest, Isolation, IsolationError};
+use super::layout::{CONTAINER_HOME, CONTAINER_WORKDIR, LABEL_EXPERIMENT, LABEL_JOB, LABEL_ROLE};
+use super::model::{
+    ContainerOutcome, ContainerPlan, GatewayHandle, ImageId, ImageRef, Limits, UserSpec,
+};
+use super::{EndFacts, IsolatedRequest, Isolation, IsolationError};
+use crate::experiment::paths;
+use crate::supervise::hook::StopHook;
 use crate::supervise::stop::Exit;
+
+/// The process limit of a container whose cell sets none.
+const DEFAULT_PIDS: u32 = 512;
+
+/// The memory limit of a container whose cell sets none.
+const DEFAULT_MEMORY: &str = "4g";
+
+/// The cpu limit of a container whose cell sets none.
+const DEFAULT_CPUS: f64 = 2.0;
+
+/// The `PATH` of the agent: the environment layer first.
+const AGENT_PATH: &str = "/opt/env/bin:/usr/local/bin:/usr/bin:/bin";
+
+/// The virtual environment the image carries.
+const AGENT_VENV: &str = "/opt/env";
+
+/// The locale of the agent.
+const AGENT_LANG: &str = "C.UTF-8";
+
+/// The host directories a plan is made against, which no cell holds because a cell holds no
+/// absolute path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DockerDirs {
+    /// The job's `children/` directory, where the container's cidfile and the docker client's
+    /// record are written.
+    pub children: PathBuf,
+    /// The project root a mount source may sit under.
+    pub project_root: PathBuf,
+    /// The store root a mount source may sit under.
+    pub store_root: PathBuf,
+}
 
 /// Isolation through docker containers. It is built once per job, after the gateway starts, and
 /// holds no plan and no hook: both belong to one run.
@@ -27,6 +73,21 @@ pub struct DockerIsolation {
     // TRAIT_OBJECT: the driver is docker, or a recording fake in tests
     docker: Arc<dyn DockerDriver>,
     guard: Arc<ContainerGuard>,
+    // TRAIT_OBJECT: the sweeper is the label sweeper, or a fake in tests
+    sweeper: Option<Arc<dyn ContainerSweeper>>,
+    dirs: Option<DockerDirs>,
+}
+
+/// The end facts of a request, read from its own hook.
+struct HookFacts {
+    // The hook is the request's own; the facts are what it kept.
+    hook: Arc<ContainerStopHook>,
+}
+
+impl EndFacts for HookFacts {
+    fn final_inspect(&self) -> Option<ContainerOutcome> {
+        self.hook.final_inspect()
+    }
 }
 
 impl DockerIsolation {
@@ -42,7 +103,24 @@ impl DockerIsolation {
             gateway,
             docker,
             guard,
+            sweeper: None,
+            dirs: None,
         }
+    }
+
+    /// The same isolation whose stop hooks sweep through `sweeper`.
+    #[must_use]
+    pub fn with_sweeper(mut self, sweeper: Arc<dyn ContainerSweeper>) -> Self {
+        // TRAIT_OBJECT: the sweeper is chosen by the job runtime and by tests
+        self.sweeper = Some(sweeper);
+        self
+    }
+
+    /// The same isolation planning against `dirs`.
+    #[must_use]
+    pub fn with_dirs(mut self, dirs: DockerDirs) -> Self {
+        self.dirs = Some(dirs);
+        self
     }
 
     /// The gateway the agent's containers reach the provider through.
@@ -64,16 +142,181 @@ impl DockerIsolation {
     }
 }
 
+/// The value of the cell at `path`.
+fn cell_value<'a>(
+    cell: &Cell<'a>,
+    path: &str,
+) -> Result<Option<&'a serde_json::Value>, IsolationError> {
+    let field = FieldPath::from_str(path).map_err(|source| IsolationError::Plan {
+        detail: source.to_string(),
+    })?;
+    Ok(cell.get(&field).map(JsonValue::as_value))
+}
+
+fn plan_error(detail: &str) -> IsolationError {
+    IsolationError::Plan {
+        // BORROW: .to_owned() keeps the description in the error
+        detail: detail.to_owned(),
+    }
+}
+
+/// The hex of the first eight bytes of the digest of `text`.
+fn short_digest(text: &[u8]) -> String {
+    Sha256::digest(text)
+        .iter()
+        .take(8)
+        .fold(String::new(), |mut hex, byte| {
+            // INFALLIBLE: writing to a String cannot fail
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        })
+}
+
+/// The user the container runs as: the host user on a Linux engine, the image's own elsewhere.
+#[cfg(target_os = "linux")]
+fn container_user() -> UserSpec {
+    UserSpec::Host {
+        uid: rustix::process::getuid().as_raw(),
+        gid: rustix::process::getgid().as_raw(),
+    }
+}
+
+/// The user the container runs as: the host user on a Linux engine, the image's own elsewhere.
+#[cfg(not(target_os = "linux"))]
+const fn container_user() -> UserSpec {
+    UserSpec::Engine
+}
+
+/// The limits the cell sets, over the defaults.
+fn cell_limits(cell: &Cell<'_>) -> Result<Limits, IsolationError> {
+    let pids = match cell_value(cell, paths::ISOLATION_LIMITS_PIDS)? {
+        None => DEFAULT_PIDS,
+        Some(value) => value
+            .as_u64()
+            .and_then(|n| u32::try_from(n).ok())
+            .ok_or_else(|| plan_error("isolation.limits.pids is not a process count"))?,
+    };
+    let memory = match cell_value(cell, paths::ISOLATION_LIMITS_MEMORY)? {
+        None => String::from(DEFAULT_MEMORY),
+        // BORROW: .to_owned() copies the limit out of the cell
+        Some(value) => value
+            .as_str()
+            .map(str::to_owned)
+            .ok_or_else(|| plan_error("isolation.limits.memory is not a string"))?,
+    };
+    let cpus = match cell_value(cell, paths::ISOLATION_LIMITS_CPUS)? {
+        None => DEFAULT_CPUS,
+        Some(value) => value
+            .as_f64()
+            .filter(|n| n.is_finite() && *n > 0.0)
+            .ok_or_else(|| plan_error("isolation.limits.cpus is not a positive number"))?,
+    };
+    Ok(Limits {
+        pids_limit: pids,
+        memory,
+        cpus,
+    })
+}
+
 impl Isolation for DockerIsolation {
     fn plan(
         &self,
         cell: &Cell<'_>,
         workspace: &Workspace<'_>,
     ) -> Result<ContainerPlan, IsolationError> {
-        let _ = (cell, workspace);
-        Err(IsolationError::Unavailable {
-            detail: "DockerIsolation::plan".to_owned(),
-        })
+        let dirs = self
+            .dirs
+            .as_ref()
+            .ok_or_else(|| plan_error("the isolation has no directories to plan against"))?;
+        let image = cell_value(cell, paths::ISOLATION_IMAGE)?
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| plan_error("isolation.image is missing"))?;
+        let (network, egress) =
+            match cell_value(cell, paths::ISOLATION_NETWORK)?.and_then(serde_json::Value::as_str) {
+                // BORROW: the owned copy is made where it is needed
+                None | Some("internal") => (self.gateway.network.clone(), None),
+                // BORROW: the owned copy is made where it is needed
+                Some("bridge") => (
+                    self.gateway.network.clone(),
+                    Some(self.gateway.egress.clone()),
+                ),
+                Some(_) => {
+                    return Err(plan_error(
+                        "isolation.network is neither internal nor bridge",
+                    ));
+                }
+            };
+        let wall = cell_value(cell, paths::BUDGET_PER_RUN_WALL_S)?
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| plan_error("budget.per_run.wall_s is missing"))?;
+        let job = self
+            .gateway
+            .container
+            .labels
+            .get(LABEL_JOB)
+            .ok_or_else(|| plan_error("the gateway container carries no job label"))?;
+        let mut labels = super::model::Labels::new()
+            .with(LABEL_JOB, job)
+            .with(LABEL_ROLE, "agent");
+        if let Some(experiment) = self.gateway.container.labels.get(LABEL_EXPERIMENT) {
+            labels = labels.with(LABEL_EXPERIMENT, experiment);
+        }
+        let root = workspace.root();
+        let run_dir = root
+            .parent()
+            .ok_or_else(|| plan_error("the workspace has no run directory"))?;
+        let home = run_dir.join("home");
+        std::fs::create_dir_all(&home).map_err(|source| IsolationError::Plan {
+            detail: format!("the home directory cannot be made: {source}"),
+        })?;
+        let mut plan = ContainerPlan {
+            image: ImageRef {
+                // BORROW: the owned copy is made where it is needed
+                id: ImageId(image.to_owned()),
+                cc_version: None,
+            },
+            labels,
+            mounts: vec![
+                MountSpec {
+                    // BORROW: .to_path_buf() copies the root into the mount
+                    source: root.to_path_buf(),
+                    target: String::from(CONTAINER_WORKDIR),
+                    mode: MountMode::ReadWrite,
+                },
+                MountSpec {
+                    source: home,
+                    target: String::from(CONTAINER_HOME),
+                    mode: MountMode::ReadWrite,
+                },
+            ],
+            env: vec![
+                (String::from("PATH"), String::from(AGENT_PATH)),
+                (String::from("HOME"), String::from(CONTAINER_HOME)),
+                (String::from("VIRTUAL_ENV"), String::from(AGENT_VENV)),
+                (String::from("LANG"), String::from(AGENT_LANG)),
+            ],
+            network,
+            egress,
+            limits: cell_limits(cell)?,
+            cidfile: dirs.children.join(format!(
+                "agent-{}.cid",
+                short_digest(root.as_os_str().as_encoded_bytes())
+            )),
+            user: container_user(),
+            workdir: String::from(CONTAINER_WORKDIR),
+            home: String::from(CONTAINER_HOME),
+            expiry: Duration::from_secs(wall),
+            // BORROW: the roots are copied out of the directories
+            project_root: dirs.project_root.clone(),
+            // BORROW: the roots are copied out of the directories
+            store_root: dirs.store_root.clone(),
+        };
+        plan.mounts = mounts(&plan, &MountRoots::from_plan(&plan)).map_err(|source| {
+            IsolationError::Plan {
+                detail: source.to_string(),
+            }
+        })?;
+        Ok(plan)
     }
 
     fn run_request(
@@ -83,10 +326,39 @@ impl Isolation for DockerIsolation {
         marker: Marker,
         key: RunKey,
     ) -> Result<IsolatedRequest, IsolationError> {
-        let _ = (plan, command, marker, key);
-        Err(IsolationError::Unavailable {
-            detail: "DockerIsolation::run_request".to_owned(),
-        })
+        let base_url = self.gateway.run_base_url(&key);
+        let sweeper =
+            self.sweeper
+                .as_ref()
+                .map(Arc::clone)
+                .ok_or_else(|| IsolationError::Unavailable {
+                    detail: String::from("DockerIsolation::with_sweeper"),
+                })?;
+        let job: JobId = plan
+            .labels
+            .get(LABEL_JOB)
+            .and_then(|text| text.parse().ok())
+            .ok_or_else(|| IsolationError::Plan {
+                detail: format!("the plan carries no valid `{LABEL_JOB}` label"),
+            })?;
+        let hook = Arc::new(ContainerStopHook::new(self.guard(), sweeper, job));
+        // TRAIT_OBJECT: the request carries its hook as the supervisor's trait
+        let attached: Arc<dyn StopHook> = Arc::<ContainerStopHook>::clone(&hook);
+        let request = build_run_request(
+            plan,
+            &command,
+            marker,
+            &key,
+            &base_url,
+            &self.gateway.dummy_token,
+            Some(attached),
+        )
+        .map_err(|source| IsolationError::Plan {
+            detail: source.to_string(),
+        })?;
+        // TRAIT_OBJECT: the caller reads the facts without the docker type
+        let end_facts: Arc<dyn EndFacts> = Arc::new(HookFacts { hook });
+        Ok(IsolatedRequest::new(request, end_facts))
     }
 
     fn collect_and_destroy<'a>(
@@ -98,7 +370,7 @@ impl Isolation for DockerIsolation {
         let _ = (plan, workspace, exit);
         Box::pin(async {
             Err(IsolationError::Unavailable {
-                detail: "DockerIsolation::collect_and_destroy".to_owned(),
+                detail: String::from("DockerIsolation::collect_and_destroy"),
             })
         })
     }
