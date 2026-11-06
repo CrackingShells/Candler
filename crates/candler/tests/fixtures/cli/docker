@@ -1,0 +1,12 @@
+#!/bin/sh
+# A stand-in for the docker client: appends its arguments, one call per line, to docker.log
+# beside this file, and prints nothing. The client gives its child no environment variable of
+# the test, so the log is found from the script's own path. A network or image that is looked
+# up is reported absent, as a daemon with none of them does.
+printf '%s\n' "$*" >> "${0%/*}/docker.log"
+case "$1" in
+network | image)
+    echo 'Error: No such object' >&2
+    exit 1
+    ;;
+esac
