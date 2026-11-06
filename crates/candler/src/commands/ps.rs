@@ -75,7 +75,7 @@ pub fn store_root(explicit: Option<&Path>) -> Result<PathBuf, CliError> {
         .state_home
         .as_deref()
         .map(|state| state.join("candler").join("store"))
-        .ok_or_else(|| fail("no store: pass --store".to_owned()))
+        .ok_or_else(|| fail("no store: pass --store".to_owned())) // BORROW: the row owns its text
 }
 
 /// Recovers the lost job of `dir` through the real container sweeper and a supervisor that
@@ -120,19 +120,19 @@ pub fn describe_recovery(report: &RecoverReport) -> (String, bool) {
             true,
         ),
         RecoverOutcome::Recovered | RecoverOutcome::AlreadyEnded | RecoverOutcome::NotLost => {
-            ("ended (failed)".to_owned(), false)
+            ("ended (failed)".to_owned(), false) // BORROW: the row owns its text
         }
-        _ => ("lost: recovery outcome unknown".to_owned(), true),
+        _ => ("lost: recovery outcome unknown".to_owned(), true), // BORROW: the row owns its text
     }
 }
 
 /// How many runs the log shows ended and started.
 fn progress_of(dir: &JobDir) -> String {
     let Ok(events) = JobEvents::open(dir) else {
-        return "?".to_owned();
+        return "?".to_owned(); // BORROW: the row owns its text
     };
     let Ok(tail) = events.tail(TailPos(0)) else {
-        return "?".to_owned();
+        return "?".to_owned(); // BORROW: the row owns its text
     };
     let mut started: BTreeSet<RunKey> = BTreeSet::new();
     let mut ended: BTreeSet<RunKey> = BTreeSet::new();
@@ -168,14 +168,14 @@ pub fn end_text(end: JobEnd) -> String {
 /// The row of the job in `path`, recovering it once when it is lost.
 async fn row_of(store: &StoreLayout, name: &str, path: &Path) -> Row {
     let unreadable = |detail: String| Row {
-        id: name.to_owned(), // BORROW: the row owns its id
-        spec: "-".to_owned(),
+        id: name.to_owned(),  // BORROW: the row owns its id
+        spec: "-".to_owned(), // BORROW: the row owns its text
         state: format!("unreadable {}: {detail}", path.display()),
-        progress: "-".to_owned(),
+        progress: "-".to_owned(), // BORROW: the row owns its text
         failed: true,
     };
     let Ok(id) = name.parse::<JobId>() else {
-        return unreadable("not a job id".to_owned());
+        return unreadable("not a job id".to_owned()); // BORROW: the row owns its text
     };
     let dir = match JobDir::open(store, &id) {
         Ok(dir) => dir,
@@ -191,7 +191,7 @@ async fn row_of(store: &StoreLayout, name: &str, path: &Path) -> Row {
         Err(error) => return unreadable(error.to_string()),
     };
     let state = match liveness {
-        JobLiveness::Running => "running".to_owned(),
+        JobLiveness::Running => "running".to_owned(), // BORROW: the row owns its text
         JobLiveness::Ended(end) => end_text(end),
         JobLiveness::Lost => match recover_job(&dir).await {
             Ok(report) => {
@@ -204,7 +204,7 @@ async fn row_of(store: &StoreLayout, name: &str, path: &Path) -> Row {
                 format!("lost: recover failed: {reason}")
             }
         },
-        _ => "unknown".to_owned(),
+        _ => "unknown".to_owned(), // BORROW: the row owns its text
     };
     Row {
         id: id.to_string(),
@@ -219,6 +219,7 @@ async fn row_of(store: &StoreLayout, name: &str, path: &Path) -> Row {
 ///
 /// # Errors
 /// [`CliError::Failed`] when the jobs directory cannot be read or `out` cannot be written.
+// TRAIT_OBJECT: the output is stdout, or a buffer in tests
 pub async fn render(args: &Args, out: &mut dyn Write) -> Result<bool, CliError> {
     let root = store_root(args.store.as_deref())?;
     let store = StoreLayout::new(&root);
@@ -255,6 +256,7 @@ pub async fn render(args: &Args, out: &mut dyn Write) -> Result<bool, CliError> 
 ///
 /// # Errors
 /// The write error of `out`.
+// TRAIT_OBJECT: the output is stdout, or a buffer in tests
 pub fn render_rows(rows: &[Row], out: &mut dyn Write) -> io::Result<()> {
     for row in rows {
         writeln!(
