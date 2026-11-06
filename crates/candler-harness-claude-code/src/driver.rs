@@ -18,7 +18,7 @@ use candler_schemas::trace::{EndedBy, Session};
 use semver::{Comparator, Op, Prerelease, Version, VersionReq};
 use serde_json::{Map, Value};
 
-use crate::{ClaudeCodeReader, SUPPORTED};
+use crate::{ClaudeCodeReader, SUPPORTED, prepare};
 
 /// The cell path of the model id.
 const MODEL_ID: &str = "model.id";
@@ -67,7 +67,9 @@ pub(crate) fn missing(path: &str) -> DriverError {
 /// The value of the cell at `path`, if it has one.
 pub(crate) fn value_at<'c>(cell: &Cell<'c>, path: &str) -> Result<Option<&'c Value>, DriverError> {
     let field = FieldPath::from_str(path).map_err(|error| invalid(path, error.to_string()))?; // BORROW: .to_string() gives owned text
-    Ok(cell.get(&field).map(candler_schemas::values::JsonValue::as_value))
+    Ok(cell
+        .get(&field)
+        .map(candler_schemas::values::JsonValue::as_value))
 }
 
 /// The text of the cell at `path`; the cell must have it.
@@ -75,7 +77,9 @@ fn required_text<'c>(cell: &Cell<'c>, path: &str) -> Result<&'c str, DriverError
     match value_at(cell, path)? {
         None => Err(missing(path)),
         Some(Value::String(text)) => Ok(text.as_str()), // BORROW: explicit .as_str()
-        Some(Value::Null | Value::Bool(_) | Value::Number(_) | Value::Array(_) | Value::Object(_)) => {
+        Some(
+            Value::Null | Value::Bool(_) | Value::Number(_) | Value::Array(_) | Value::Object(_),
+        ) => {
             Err(invalid(path, "is not text".to_owned())) // BORROW: .to_owned() makes the owned text
         }
     }
@@ -119,10 +123,16 @@ pub fn render_prompt(
         match after_open.split_once('}') {
             Some((key, tail)) if is_key(key) => {
                 let value = values.and_then(|map| map.get(key)).ok_or_else(|| {
-                    invalid(PROMPT_VALUES, format!("the template names `{key}` and no value is given"))
+                    invalid(
+                        PROMPT_VALUES,
+                        format!("the template names `{key}` and no value is given"),
+                    )
                 })?;
                 let text = scalar_text(value).ok_or_else(|| {
-                    invalid(PROMPT_VALUES, format!("the value of `{key}` is not a scalar"))
+                    invalid(
+                        PROMPT_VALUES,
+                        format!("the value of `{key}` is not a scalar"),
+                    )
                 })?;
                 out.push_str(text.as_str()); // BORROW: explicit .as_str()
                 rest = tail;
@@ -160,7 +170,9 @@ fn cap_text(cell: &Cell<'_>, path: &str, whole: bool) -> Result<Option<String>, 
             }
             Ok(Some(number.to_string())) // BORROW: .to_string() gives owned text
         }
-        Some(Value::Null | Value::Bool(_) | Value::String(_) | Value::Array(_) | Value::Object(_)) => {
+        Some(
+            Value::Null | Value::Bool(_) | Value::String(_) | Value::Array(_) | Value::Object(_),
+        ) => {
             Err(invalid(path, "is not a number".to_owned())) // BORROW: .to_owned() makes the owned text
         }
     }
@@ -222,8 +234,10 @@ impl HarnessDriver for ClaudeCodeDriver {
     }
 
     fn prepare(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Prepared, DriverError> {
-        let _ = (cell, workspace);
-        Ok(Prepared::default())
+        let _ = workspace;
+        let mut files = vec![prepare::render_settings(cell)?];
+        files.extend(prepare::render_mcp(cell)?);
+        Ok(Prepared::new(files, Vec::new()))
     }
 
     fn command(
@@ -237,7 +251,13 @@ impl HarnessDriver for ClaudeCodeDriver {
         let values = match value_at(cell, PROMPT_VALUES)? {
             None => None,
             Some(Value::Object(map)) => Some(map),
-            Some(Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_)) => {
+            Some(
+                Value::Null
+                | Value::Bool(_)
+                | Value::Number(_)
+                | Value::String(_)
+                | Value::Array(_),
+            ) => {
                 return Err(invalid(PROMPT_VALUES, "is not an object".to_owned())); // BORROW: .to_owned() makes the owned text
             }
         };
@@ -281,10 +301,8 @@ impl HarnessDriver for ClaudeCodeDriver {
     }
 
     fn live_reader(&self) -> Option<Box<dyn TraceReader>> {
-        // TRAIT_OBJECT: the core selects readers at runtime
-        ClaudeCodeReader::new()
-            .ok()
-            .map(|reader| Box::new(reader) as Box<dyn TraceReader>) // TRAIT_OBJECT: the core selects readers at runtime
+        let reader = ClaudeCodeReader::new().ok()?;
+        Some(Box::new(reader)) // TRAIT_OBJECT: the core selects readers at runtime
     }
 
     fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {
