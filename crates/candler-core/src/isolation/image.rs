@@ -13,7 +13,7 @@ use futures::future::BoxFuture;
 use rustix::fs::{FlockOperation, flock};
 use sha2::Digest as _;
 
-use super::docker::DockerError;
+use super::docker::{ClientEnv, DockerCli, DockerError};
 use super::driver::DockerDriver;
 use super::layout;
 use super::model::{BuildRequest, ImageId, ImageInfo, ImageRef, Labels, LayerDigest};
@@ -36,10 +36,6 @@ const PROBE_OUTPUT_LIMIT: usize = 4 * 1024;
 
 /// The suffix `claude --version` puts after the version.
 const VERSION_SUFFIX: &str = " (Claude Code)";
-
-/// The environment names the docker client keeps from its parent: where the daemon is, and how
-/// to find the binary. The agent's environment is built separately and shares none of it.
-const CLIENT_ENV: [&str; 4] = ["PATH", "DOCKER_HOST", "DOCKER_CONTEXT", "HOME"];
 
 /// The repository of the base image.
 const BASE_REPO: &str = "candler-base";
@@ -103,28 +99,24 @@ pub struct DockerImageService {
     // TRAIT_OBJECT: the driver is the real CLI in production and a fake in tests
     docker: Arc<dyn DockerDriver>,
     assets: ImageAssets,
-    program: String,
+    binary: PathBuf,
+    env: ClientEnv,
 }
 
 impl DockerImageService {
-    /// A service over `docker` and `assets`; control containers are run through `sup`.
+    /// A service over the docker client `cli`; control containers are run through `sup` with the
+    /// client's binary and `env`.
     #[must_use]
-    pub fn new(sup: Arc<Supervisor>, docker: Arc<dyn DockerDriver>, assets: ImageAssets) -> Self {
-        // TRAIT_OBJECT: the driver is the real CLI in production and a fake in tests
+    pub fn new(sup: Arc<Supervisor>, cli: DockerCli, env: ClientEnv, assets: ImageAssets) -> Self {
+        // BORROW: .to_path_buf() keeps the client's binary for the control calls
+        let binary = cli.binary().to_path_buf();
         Self {
             sup,
-            docker,
+            docker: Arc::new(cli),
             assets,
-            program: "docker".to_owned(),
+            binary,
+            env,
         }
-    }
-
-    /// The same service with the docker client binary at `program`.
-    #[must_use]
-    pub fn with_program(mut self, program: &str) -> Self {
-        // BORROW: .clone_into() keeps the program name in the service
-        program.clone_into(&mut self.program);
-        self
     }
 
     /// Runs `claude --version` in a control container of `image` and parses its output.
@@ -440,8 +432,9 @@ impl DockerImageService {
         let marker = Marker::from_str(CONTROL_MARKER)
             .map_err(|error| build_failed(&format!("the control marker is refused: {error}")))?;
         let spawn = SpawnRequest::builder()
-            .argv(compile_argv(&self.program, image, sources, names))
-            .env(client_env())
+            .argv(compile_argv(&self.binary, image, sources, names))
+            // BORROW: .to_vec() gives the request its own pairs
+            .env(self.env.pairs().to_vec())
             .marker(marker)
             // BORROW: .to_path_buf() keeps the record dir in the request
             .record_dir(records.to_path_buf())
@@ -477,8 +470,9 @@ impl DockerImageService {
         let marker = Marker::from_str(CONTROL_MARKER)
             .map_err(|error| unreadable(&format!("the control marker is refused: {error}")))?;
         let request = SpawnRequest::builder()
-            .argv(control_argv(&self.program, image))
-            .env(client_env())
+            .argv(control_argv(&self.binary, image))
+            // BORROW: .to_vec() gives the request its own pairs
+            .env(self.env.pairs().to_vec())
             .marker(marker)
             // BORROW: .to_path_buf() keeps the record dir in the request
             .record_dir(records.to_path_buf())
@@ -652,9 +646,8 @@ fn tail_of(bytes: &[u8]) -> String {
 
 /// The argv of the compile container: it removes itself, has a writable `/tmp` only, reaches the
 /// package index over the default bridge network, and mounts the sources read-only.
-fn compile_argv(program: &str, image: &ImageId, sources: &Path, names: &[String]) -> Vec<String> {
+fn compile_argv(program: &Path, image: &ImageId, sources: &Path, names: &[String]) -> Vec<String> {
     let mut argv: Vec<String> = [
-        program,
         "run",
         "--rm",
         "--init",
@@ -675,13 +668,13 @@ fn compile_argv(program: &str, image: &ImageId, sources: &Path, names: &[String]
         "UV_NO_CACHE=1",
         "--label",
         "candler.role=control",
-        "--label",
-        "candler.job=preflight",
         "--mount",
     ]
     .iter()
     .map(|word| (*word).to_owned())
     .collect();
+    // BORROW: .to_string_lossy().into_owned() gives the argv the binary path as text
+    argv.insert(0, program.to_string_lossy().into_owned());
     argv.push(format!(
         "type=bind,src={},dst={SOURCE_MOUNT},readonly",
         sources.display()
@@ -727,22 +720,9 @@ fn unreadable(detail: &str) -> ImageError {
     }
 }
 
-/// The environment of a docker client call: the allowlisted names the parent has.
-fn client_env() -> Vec<(String, String)> {
-    CLIENT_ENV
-        .iter()
-        .filter_map(|name| {
-            std::env::var(name)
-                .ok()
-                // BORROW: .to_owned() keeps the name next to its value
-                .map(|value| ((*name).to_owned(), value))
-        })
-        .collect()
-}
-
 /// The argv of the control container that prints the version: it removes itself, has no
 /// network, no capabilities and a read-only root, and its entrypoint is a coreutils `timeout`.
-fn control_argv(program: &str, image: &ImageRef) -> Vec<String> {
+fn control_argv(program: &Path, image: &ImageRef) -> Vec<String> {
     let mut argv: Vec<String> = [
         "run",
         "--rm",
@@ -760,8 +740,6 @@ fn control_argv(program: &str, image: &ImageRef) -> Vec<String> {
         "256m",
         "--label",
         "candler.role=control",
-        "--label",
-        "candler.job=preflight",
         "--entrypoint",
         "timeout",
     ]
@@ -775,7 +753,8 @@ fn control_argv(program: &str, image: &ImageRef) -> Vec<String> {
             .iter()
             .map(|word| (*word).to_owned()),
     );
-    argv.insert(0, program.to_owned());
+    // BORROW: .to_string_lossy().into_owned() gives the argv the binary path as text
+    argv.insert(0, program.to_string_lossy().into_owned());
     argv
 }
 
