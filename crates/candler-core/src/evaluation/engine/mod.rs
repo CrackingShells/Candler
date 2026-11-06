@@ -3,9 +3,13 @@
 use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use candler_schemas::primitives::RequestId;
+use tokio::sync::watch;
+
+use crate::supervise::Supervisor;
 
 /// What one `evaluate` call grades: which runs of which store, by which plug-ins and suite.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,14 +18,17 @@ pub struct EvaluateRequest {
     pub store: PathBuf,
     /// The plug-in manifest paths.
     pub plugins: Vec<PathBuf>,
-    /// The suite, by id.
-    pub suite: String,
+    /// The suite file.
+    pub suite: PathBuf,
     /// A glob over run keys; `None` selects every run.
     pub runs: Option<String>,
     /// How many requests run at once.
     pub concurrency: NonZeroUsize,
-    /// The deadline of one request.
-    pub request_deadline: Duration,
+    /// The root under which the plug-in environments are built, outside the store.
+    pub env_root: PathBuf,
+    /// A flat deadline for every request; `None` sets each request's deadline to the sum of its
+    /// items' deadlines plus a margin.
+    pub request_deadline: Option<Duration>,
 }
 
 /// What one `evaluate` call did.
@@ -38,7 +45,7 @@ pub struct EvaluateReport {
 }
 
 /// Why an `evaluate` call could not run.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum EvaluateError {
     /// The engine is not built yet.
@@ -46,7 +53,9 @@ pub enum EvaluateError {
     NotBuilt,
 }
 
-/// Grades the runs `request` selects and records their outcomes.
+/// Grades the runs `request` selects and records their outcomes. Every evaluator process is
+/// spawned and stopped through `supervisor`; when `cancel` turns `true`, the requests in flight are
+/// cancelled through the client and commit no outcome file.
 ///
 /// # Errors
 ///
@@ -55,7 +64,11 @@ pub enum EvaluateError {
     clippy::unused_async,
     reason = "the seam is async; the engine leaf fills it"
 )]
-pub async fn evaluate(request: EvaluateRequest) -> Result<EvaluateReport, EvaluateError> {
-    drop(request);
+pub async fn evaluate(
+    request: EvaluateRequest,
+    supervisor: Arc<Supervisor>,
+    cancel: watch::Receiver<bool>,
+) -> Result<EvaluateReport, EvaluateError> {
+    drop((request, supervisor, cancel));
     Err(EvaluateError::NotBuilt)
 }
