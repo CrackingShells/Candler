@@ -117,7 +117,7 @@ impl Totals {
         Self {
             runs_started,
             tokens,
-            cost_usd: micro_usd as f64 / 1_000_000.0, // CAST: u64 micro-dollars to f64 dollars
+            cost_usd: micro_usd as f64 / 1_000_000.0, // CAST: u64 → f64, micro-dollars to dollars for the report
             elapsed,
         }
     }

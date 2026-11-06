@@ -26,6 +26,7 @@ fn listed_pids() -> Vec<u32> {
 }
 
 /// Records the sweep step of `pid`, with what came of it as its outcome.
+// TRAIT_OBJECT: the sink is the job's event log, or a fake in tests
 fn record_step(sink: &dyn EventSink, pid: u32, start: &ProcessStart, outcome: String) {
     let Ok(at) = now() else {
         return;
@@ -41,6 +42,7 @@ fn record_step(sink: &dyn EventSink, pid: u32, start: &ProcessStart, outcome: St
 /// Whether the signal killed the process. A process already gone was not killed by it, and a
 /// refusal is recorded to `sink` and kills nothing.
 fn killed(
+    // TRAIT_OBJECT: the sink is the job's event log, or a fake in tests
     sink: Option<&dyn EventSink>,
     pid: u32,
     start: &ProcessStart,
@@ -196,6 +198,7 @@ pub fn reap_confirmed(guard: &Guard, previous: &mut Vec<(u32, ProcessStart)>) ->
 /// by process id. A process the guard refuses, such as one without the marker, is recorded and
 /// left alive. Returns the processes killed.
 #[must_use]
+// TRAIT_OBJECT: the sink is the job's event log, or a fake in tests
 pub fn sweep_orphans(supervisor: &Supervisor, sink: &dyn EventSink) -> Vec<StrayProcess> {
     let guard = supervisor.guard();
     let (_, own_pid) = guard.own();
@@ -212,6 +215,7 @@ pub fn sweep_orphans(supervisor: &Supervisor, sink: &dyn EventSink) -> Vec<Stray
         }
         let sent = guard.signal_adopted(pid, &facts.start, Signal::KILL);
         if killed(Some(sink), pid, &facts.start, sent) {
+            // BORROW: the step owns its outcome
             record_step(sink, pid, &facts.start, "killed as an orphan".to_owned());
             if let Ok(stray) = StrayProcess::new(pid, facts.start) {
                 dead.push(stray);

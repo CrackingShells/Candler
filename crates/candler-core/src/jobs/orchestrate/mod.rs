@@ -60,6 +60,7 @@ async fn run_job(
     mut rt: Runtime,
     spec: JobSpec,
     ctl: JobControl,
+    // TRAIT_OBJECT: the host is the process's own host, or a fake in tests
     host: Arc<dyn JobHost>,
 ) -> JobOutcome {
     let secrets = EnvSecrets::new(spec.experiment.secrets());

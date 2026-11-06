@@ -77,6 +77,7 @@ impl SkillTree for NoSkills {
         _source: &Path,
     ) -> Result<CommandSpec, DriverError> {
         Err(DriverError::VersionOutput {
+            // BORROW: the error owns its detail
             detail: "the guards read no skill tree".to_owned(),
         })
     }
@@ -132,6 +133,7 @@ impl LoggingSignaller {
         Self { path }
     }
 
+    /// Appends one `kind target signal` line to the signal log.
     fn log(&self, kind: &str, target: i32, signal: i32) {
         let mut file = OpenOptions::new()
             .create(true)
@@ -161,6 +163,7 @@ pub fn read_log(path: &Path) -> Vec<(String, i32, i32)> {
         .lines()
         .filter_map(|line| {
             let mut parts = line.split(' ');
+            // BORROW: the entry owns its kind
             let kind = parts.next()?.to_owned();
             let target = parts.next()?.parse().ok()?;
             let signal = parts.next()?.parse().ok()?;
@@ -241,7 +244,9 @@ pub fn killed_body(
         let mut lines = String::new();
         for _ in 0..2 {
             let request = SpawnRequest::builder()
+                // BORROW: .to_owned() makes the owned arguments
                 .argv(vec!["sleep".to_owned(), "20".to_owned()])
+                // BORROW: .to_owned() makes the owned name and value
                 .env(vec![("PATH".to_owned(), "/usr/bin:/bin".to_owned())])
                 .marker(marker.clone()) // BORROW: each request owns its marker
                 .record_dir(records.clone()) // BORROW: each request owns its directory

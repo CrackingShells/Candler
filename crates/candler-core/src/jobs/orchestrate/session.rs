@@ -163,6 +163,7 @@ pub trait JobHost: Send + Sync {
         &'a self,
         rt: &'a Runtime,
         spec: &'a JobSpec,
+        // TRAIT_OBJECT: the gateway is the docker sidecar, or a fake in tests
     ) -> BoxFuture<'a, Result<Arc<dyn Gateway>, OrchestrateError>>;
 
     /// The isolation the job's runs are placed through, from the docker one the session built.
@@ -220,6 +221,7 @@ impl JobHost for DockerHost {
         &'a self,
         rt: &'a Runtime,
         spec: &'a JobSpec,
+        // TRAIT_OBJECT: the gateway is the docker sidecar, or a fake in tests
     ) -> BoxFuture<'a, Result<Arc<dyn Gateway>, OrchestrateError>> {
         Box::pin(async move {
             let failed = |reason: String| OrchestrateError::Gateway { reason };
@@ -380,7 +382,9 @@ impl JobSession {
         rt: &mut Runtime,
         spec: &JobSpec,
         experiment: &Digest,
+        // TRAIT_OBJECT: the host is the process's own host, or a fake in tests
         host: &dyn JobHost,
+        // TRAIT_OBJECT: the secrets are the environment's, or a fake in tests
         secrets: &dyn SecretSource,
     ) -> Result<Self, OrchestrateError> {
         let name = text_at(&spec.resolution, TOKEN_SECRET).ok_or(OrchestrateError::TokenSetting)?;
@@ -418,7 +422,7 @@ impl JobSession {
             ],
             gateway: None,
         };
-        let docker: &dyn DockerDriver = &*rt.docker;
+        let docker: &dyn DockerDriver = &*rt.docker; // TRAIT_OBJECT: the driver is docker, or a recording fake in tests
         let started = service
             .start(
                 &rt.supervisor,
@@ -453,6 +457,7 @@ impl JobSession {
         };
         session.gateway = Some(handle.container.clone()); // BORROW: the session owns the sidecar's reference
         match service.probe(&handle).await {
+            // EXPLICIT: a serving gateway is the wanted state; the session goes on
             GatewayStatus::Ready => {}
             GatewayStatus::Unavailable { reason } => {
                 session.close(&SweepScope::CurrentJob).await;
