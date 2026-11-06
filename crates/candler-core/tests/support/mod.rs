@@ -3,6 +3,20 @@
 //! Every scan guard calls [`assert_clean`], so a scan that silently reads nothing cannot pass.
 #![allow(dead_code, reason = "each guard binary uses a subset of the helpers")]
 
+pub mod comparability;
+pub mod container_run;
+pub mod container_stop;
+pub mod experiment_resolution;
+pub mod gateway;
+pub mod image;
+pub mod job_orchestrate;
+pub mod job_runtime;
+pub mod job_store;
+pub mod run_evidence;
+pub mod run_exec;
+pub mod run_plan;
+pub mod supervision_gates;
+
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -86,4 +100,10 @@ fn holds(haystack: &[u8], needle: &[u8]) -> bool {
         && haystack
             .windows(needle.len())
             .any(|window| window == needle)
+}
+
+/// The fake `docker` script of the fixtures: it logs its arguments to `$FAKE_DOCKER_LOG` and
+/// answers from `$FAKE_DOCKER_DIR/<verb>.out` and `<verb>.code`.
+pub fn fake_docker() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/docker/fake-docker")
 }

@@ -335,3 +335,170 @@ mod writer_steps {
         let _ = (OutcomeWriter::append, OutcomeWriter::commit);
     }
 }
+
+// ---- m2b scaffold ----
+#[cfg(unix)]
+mod m2b_surface {
+    use std::sync::Arc;
+
+    use candler_core::experiment::paths;
+    use candler_core::isolation::container::DockerIsolation;
+    use candler_core::isolation::container::guard::{
+        ContainerGuard, Destroyed, GuardError, GuardRefusal,
+    };
+    use candler_core::isolation::container::mounts::{MountMode, MountSpec};
+    use candler_core::isolation::container::stop::ContainerStopHook;
+    use candler_core::isolation::container::sweeper::{ContainerSweeper, LabelSweeper, SweepError};
+    use candler_core::isolation::docker::DockerError;
+    use candler_core::isolation::driver::{DestroyDriver, DockerDriver};
+    use candler_core::isolation::gateway::{
+        Gateway, GatewayError, GatewayStatus, SecretError, SecretSource, SecretValue,
+    };
+    use candler_core::isolation::image::{BuildSetting, ImageError, ImageService, LockDigest};
+    use candler_core::isolation::layout;
+    use candler_core::isolation::model::{
+        BuildRequest, ContainerOutcome, ContainerPlan, ContainerRef, ContainerSweep, GatewayHandle,
+        ImageId, ImageInfo, ImageRef, Inspect, InspectState, LabelSel, Labels, LayerDigest, Limits,
+        NetworkInfo, NetworkName, Refusal, SweepScope, UserSpec,
+    };
+    use candler_core::isolation::testing::{
+        AllowlistDriver, FakeJobView, RecordingDestroyer, RecordingDocker,
+    };
+    use candler_core::isolation::{Isolation, IsolationError};
+    use candler_core::jobs::dir::{JobDir, JobError};
+    use candler_core::jobs::lost::{RecoverError, RecoverReport, recover};
+    use candler_core::jobs::model::{JobBody, JobCause, JobControl, JobOutcome, JobSpec};
+    use candler_core::jobs::runtime::{RuntimeError, supervise_entry};
+    use candler_core::jobs::slots::{Holder, Slot, SlotError, SlotInfo, Slots};
+    use candler_core::jobs::view::{ChildEntry, JobView, JobViewError};
+    use candler_core::manifest::compare::{ArmView, NUISANCE_PATHS, Verdict, VerdictError};
+    use candler_core::resolve::steps::{M2bServices, register_m2b_steps};
+    use candler_core::runner::evidence::catalog::{Catalog, CatalogError, CatalogProvider};
+    use candler_core::runner::evidence::{Evidence, Inputs};
+    use candler_core::runner::exec::exec_run;
+    use candler_core::runner::plan::{Force, PlanCtx, PlanError, PlanOutcome, RunPlan, plan};
+    use candler_core::runner::{JobMeter, RunControl, RunOutcome, Runtime, Usage};
+    use candler_core::supervise::hook::{HookError, StopHook, StopHookCtx};
+
+    fn send_sync<T: Send + Sync + ?Sized>() {}
+
+    /// Names every M2b trait object the leaves hold and every stub entry point.
+    #[test]
+    fn m2b_items_are_nameable() {
+        send_sync::<dyn StopHook>(); // TRAIT_OBJECT: a run attaches the hook that destroys its container
+        send_sync::<dyn DockerDriver>(); // TRAIT_OBJECT: docker, or a recording fake
+        send_sync::<dyn DestroyDriver>(); // TRAIT_OBJECT: only the guard holds one
+        send_sync::<dyn JobView>(); // TRAIT_OBJECT: the job directory, or a fake
+        send_sync::<dyn ContainerSweeper>(); // TRAIT_OBJECT: the label sweeper, or a fake
+        send_sync::<dyn ImageService>(); // TRAIT_OBJECT: docker, or a fake
+        send_sync::<dyn Gateway>(); // TRAIT_OBJECT: the gateway container, or a fake
+        send_sync::<dyn SecretSource>(); // TRAIT_OBJECT: the environment, or a fake
+        send_sync::<dyn CatalogProvider>(); // TRAIT_OBJECT: lists commands in the image, or a fake
+        send_sync::<dyn Isolation>(); // TRAIT_OBJECT: docker isolation, or a fake
+        send_sync::<ContainerGuard>();
+        send_sync::<Runtime>();
+        send_sync::<M2bServices>();
+        let _ = (
+            ContainerGuard::new,
+            ContainerStopHook::new,
+            DockerIsolation::new,
+            StopHookCtx::new,
+            SecretValue::new,
+            Slots::open,
+            JobDir::new,
+            JobMeter::new,
+            FakeJobView::new,
+            AllowlistDriver::<RecordingDestroyer>::new,
+            RecordingDocker::new,
+            RecordingDestroyer::new,
+            Labels::new,
+            NetworkName::for_job,
+            ImageInfo::new,
+            ContainerRef::new,
+            Inspect::new,
+            InspectState::new,
+        );
+        let _ = (
+            register_m2b_steps,
+            recover,
+            supervise_entry,
+            plan,
+            exec_run,
+            SweepScope::wire,
+        );
+        let _ = (
+            layout::EXPIRY_MARGIN,
+            layout::CONTAINER_WORKDIR,
+            paths::MODEL_ID,
+        );
+        let _ = (
+            NUISANCE_PATHS,
+            Force::No,
+            MountMode::ReadOnly,
+            UserSpec::Engine,
+        );
+        let _ = (
+            None::<Arc<dyn StopHook>>, // TRAIT_OBJECT: the spawn request holds the hook
+            None::<JobBody>,
+            None::<JobControl>,
+            None::<JobCause>,
+            None::<JobOutcome>,
+            None::<JobSpec>,
+            None::<RunOutcome>,
+            None::<RunControl>,
+            None::<RunPlan>,
+            None::<PlanCtx>,
+            None::<PlanOutcome>,
+            None::<PlanError>,
+            None::<Usage>,
+            None::<Evidence>,
+            None::<Inputs>,
+            None::<Catalog>,
+            None::<CatalogError>,
+        );
+        let _ = (
+            None::<Destroyed>,
+            None::<GuardError>,
+            None::<GuardRefusal>,
+            None::<MountSpec>,
+            None::<LabelSweeper>,
+            None::<SweepError>,
+            None::<DockerError>,
+            None::<GatewayError>,
+            None::<GatewayStatus>,
+            None::<GatewayHandle>,
+            None::<SecretError>,
+            None::<ImageError>,
+            None::<BuildSetting>,
+            None::<LockDigest>,
+            None::<BuildRequest>,
+            None::<ContainerOutcome>,
+            None::<ContainerPlan>,
+            None::<ContainerSweep>,
+            None::<ImageId>,
+            None::<ImageRef>,
+            None::<LabelSel>,
+            None::<LayerDigest>,
+            None::<Limits>,
+            None::<NetworkInfo>,
+            None::<Refusal>,
+            None::<IsolationError>,
+            None::<HookError>,
+        );
+        let _ = (
+            None::<JobError>,
+            None::<RecoverReport>,
+            None::<RecoverError>,
+            None::<RuntimeError>,
+            None::<Holder>,
+            None::<Slot>,
+            None::<SlotError>,
+            None::<SlotInfo>,
+            None::<ChildEntry>,
+            None::<JobViewError>,
+            None::<ArmView>,
+            None::<Verdict>,
+            None::<VerdictError>,
+        );
+    }
+}
