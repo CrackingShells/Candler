@@ -18,7 +18,7 @@ use candler_schemas::trace::{EndedBy, Session};
 use semver::{Comparator, Op, Prerelease, Version, VersionReq};
 use serde_json::{Map, Value};
 
-use crate::{ClaudeCodeReader, SUPPORTED, prepare};
+use crate::{ClaudeCodeReader, SUPPORTED, discovery, prepare};
 
 /// The cell path of the model id.
 const MODEL_ID: &str = "model.id";
@@ -311,12 +311,43 @@ impl HarnessDriver for ClaudeCodeDriver {
     }
 
     fn classify_exit(&self, exit: &ProcessExit, sessions: &[Session]) -> EndedBy {
-        let _ = (exit, sessions);
-        EndedBy::Unknown
+        let _ = exit;
+        let ended_by = sessions
+            .iter()
+            .rfind(|session| session.parent_session().is_none())
+            .map(Session::ended_by);
+        match ended_by {
+            Some(EndedBy::Completed) => EndedBy::Completed,
+            Some(EndedBy::AgentError { reason, .. }) => EndedBy::agent_error(reason.clone()), // BORROW: .clone() copies the reason out of the session
+            Some(EndedBy::Cap { cap, .. }) => EndedBy::cap(*cap),
+            // The core decides these from facts of its own (R2), and gateway failures from the
+            // gateway signals and the trace, so the driver reports none of them.
+            Some(
+                EndedBy::GatewayError
+                | EndedBy::BudgetStop
+                | EndedBy::Killed
+                | EndedBy::Interrupted
+                | EndedBy::Unknown,
+            )
+            | None => EndedBy::Unknown,
+            #[allow(
+                clippy::wildcard_enum_match_arm,
+                clippy::match_same_arms,
+                reason = "EndedBy is non-exhaustive; a kind this driver does not know is unknown, as the kinds listed above are"
+            )]
+            Some(_) => EndedBy::Unknown,
+        }
     }
 
     fn collect(&self, workspace: &Workspace<'_>, observed: &Observed) -> Vec<CollectSpec> {
         let _ = (workspace, observed);
-        Vec::new()
+        // A glob that starts with `!` leaves out the paths it matches.
+        let mut specs = vec![CollectSpec::file("**/*".to_owned())]; // BORROW: .to_owned() makes the owned glob
+        specs.extend(
+            discovery::exclusion_patterns()
+                .into_iter()
+                .map(|pattern| CollectSpec::file(format!("!{pattern}"))),
+        );
+        specs
     }
 }
