@@ -59,25 +59,3 @@ pub async fn evaluate(request: EvaluateRequest) -> Result<EvaluateReport, Evalua
     drop(request);
     Err(EvaluateError::NotBuilt)
 }
-
-#[cfg(test)]
-mod scaffold {
-    use std::num::NonZeroUsize;
-    use std::path::PathBuf;
-    use std::time::Duration;
-
-    use super::{EvaluateError, EvaluateRequest, evaluate};
-
-    #[tokio::test]
-    async fn the_stub_is_not_built() {
-        let request = EvaluateRequest {
-            store: PathBuf::new(),
-            plugins: Vec::new(),
-            suite: String::new(),
-            runs: None,
-            concurrency: NonZeroUsize::MIN,
-            request_deadline: Duration::ZERO,
-        };
-        assert_eq!(evaluate(request).await, Err(EvaluateError::NotBuilt));
-    }
-}

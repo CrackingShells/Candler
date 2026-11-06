@@ -72,15 +72,28 @@ fn crate_dir(krate: &str, inside: &str) -> PathBuf {
         .join(inside)
 }
 
+/// The folder `python/<package>/src` of the workspace.
+fn python_src(package: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("python")
+        .join(package)
+        .join("src")
+}
+
 /// Guards: I1 — none of the deny-listed domain names appears in the core's sources, the harness
-/// crate's sources or the published schemas (the schemas crate's Rust sources are not scanned).
+/// crate's sources, the published schemas, the `candler` binary's sources or the Python evaluator
+/// helper's sources (the schemas crate's Rust sources are not scanned).
 /// Oracle: the deny-list literal of this file.
 #[test]
-fn the_core_the_harness_and_the_schemas_hold_no_domain_name() {
+fn the_core_the_harness_the_schemas_the_binary_and_the_helper_hold_no_domain_name() {
     let folders = [
         crate_dir("candler-core", "src"),
         crate_dir("candler-harness", "src"),
         crate_dir("candler-schemas", "schema"),
+        crate_dir("candler", "src"),
+        python_src("candler-evaluator"),
     ];
     for folder in &folders {
         for needle in DENY_LIST {
