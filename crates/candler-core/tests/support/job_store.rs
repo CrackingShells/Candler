@@ -21,9 +21,10 @@ pub fn job_id(n: u64) -> JobId {
 
 /// A job record of `job` in `state`, written by hand.
 pub fn job_record(job: &JobId, state: JobState) -> JobRecord {
-    let state = match state {
-        JobState::Running => "running",
-        _ => "ended",
+    let state = if state == JobState::Running {
+        "running"
+    } else {
+        "ended"
     };
     serde_json::from_value(json!({
         "schema": "job-record/1",
