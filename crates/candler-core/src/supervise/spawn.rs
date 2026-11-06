@@ -24,6 +24,7 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
+use super::hook::StopHook;
 use super::output::{FileTail, FramedStream, Pumped, pump};
 use super::platform::process_start;
 use super::record::write_record;
@@ -166,6 +167,8 @@ pub struct SpawnRequest {
     stderr: OutputSpec,
     deadline: Option<Duration>,
     stop: StopSpec,
+    // TRAIT_OBJECT: the hook is chosen by the run that attaches it
+    hook: Option<Arc<dyn StopHook>>,
     record_dir: PathBuf,
 }
 
@@ -210,6 +213,7 @@ impl fmt::Debug for SpawnRequest {
             .field("stderr", &self.stderr)
             .field("deadline", &self.deadline)
             .field("pre_stop", &self.stop.pre_stop.is_some())
+            .field("stop_hook", &self.hook.is_some())
             .field("record_dir", &self.record_dir)
             .finish_non_exhaustive()
     }
@@ -228,6 +232,8 @@ pub struct SpawnRequestBuilder {
     stderr: OutputSpec,
     deadline: Option<Duration>,
     stop: Option<StopSpec>,
+    // TRAIT_OBJECT: the hook is chosen by the run that attaches it
+    hook: Option<Arc<dyn StopHook>>,
     record_dir: Option<PathBuf>,
 }
 
@@ -244,6 +250,7 @@ impl Default for SpawnRequestBuilder {
             stderr: OutputSpec::Null,
             deadline: None,
             stop: None,
+            hook: None,
             record_dir: None,
         }
     }
@@ -328,6 +335,15 @@ impl SpawnRequestBuilder {
         self
     }
 
+    /// Attaches a hook that the ladder calls when it ends the child. A hook belongs to one
+    /// request: a supervisor holds none, so a control call carries none.
+    #[must_use]
+    // TRAIT_OBJECT: the hook is chosen by the run that attaches it
+    pub fn stop_hook(mut self, hook: Arc<dyn StopHook>) -> Self {
+        self.hook = Some(hook);
+        self
+    }
+
     /// Sets the directory that receives the child's record.
     #[must_use]
     pub fn record_dir(mut self, record_dir: PathBuf) -> Self {
@@ -374,6 +390,7 @@ impl SpawnRequestBuilder {
             stop: self
                 .stop
                 .unwrap_or_else(|| StopSpec::new(None, StopSignal::Term, DEFAULT_GRACE)),
+            hook: self.hook,
             record_dir,
         })
     }
@@ -435,6 +452,8 @@ pub(crate) struct Context {
     pub(crate) guard: Arc<Guard>,
     pub(crate) run: Option<RunKey>,
     pub(crate) stop: StopSpec,
+    // TRAIT_OBJECT: the hook is chosen by the run that attaches it
+    pub(crate) hook: Option<Arc<dyn StopHook>>,
     /// When the child must be ended if it is still running: its deadline counted from the spawn.
     pub(crate) deadline: Option<Instant>,
     pub(crate) env: Vec<(String, String)>,
@@ -580,6 +599,7 @@ impl Supervisor {
             stderr,
             deadline,
             stop,
+            hook,
             record_dir,
         } = request;
         let program = argv.first().ok_or_else(|| invalid("argv is empty"))?;
@@ -743,6 +763,7 @@ impl Supervisor {
                 guard: Arc::clone(&self.guard),
                 run,
                 stop,
+                hook,
                 deadline,
                 env,
                 cwd,

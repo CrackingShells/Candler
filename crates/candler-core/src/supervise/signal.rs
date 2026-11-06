@@ -15,6 +15,7 @@
 use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use candler_schemas::primitives::Marker;
 use candler_schemas::process::ProcessStart;
 use rustix::io::Errno;
 use rustix::process::{
@@ -253,6 +254,53 @@ impl Guard {
     pub fn forget(&self, pid: u32) {
         let mut table = self.table.lock().unwrap_or_else(PoisonError::into_inner);
         table.retain(|entry| entry.pid != pid);
+    }
+
+    /// Sends `signal` to the one process `pid` if its environment carries `marker` in
+    /// `CANDLER_RUN`, for a process that left its group. The body refuses everything until the
+    /// job runtime fills it, so a missing guard cannot pass for a working one.
+    ///
+    /// # Errors
+    /// [`SignalError::Refused`], always: nothing is sent.
+    #[allow(
+        clippy::unused_self,
+        reason = "the stub refuses without reading the table; the filled body reads it"
+    )]
+    pub fn signal_marked(
+        &self,
+        pid: u32,
+        start: &ProcessStart,
+        marker: &Marker,
+        signal: Signal,
+    ) -> Result<(), SignalError> {
+        // EXPLICIT: the stub reads none of its arguments, since it sends nothing
+        let _ = (pid, start, marker, signal);
+        Err(SignalError::Refused {
+            detail: "signalling a marked process is not available",
+        })
+    }
+
+    /// Sends `signal` to the one process `pid` that this process adopted as a subreaper, when
+    /// its parent is this process and its start time is `start`. The body refuses everything
+    /// until the job runtime fills it.
+    ///
+    /// # Errors
+    /// [`SignalError::Refused`], always: nothing is sent.
+    #[allow(
+        clippy::unused_self,
+        reason = "the stub refuses without reading the table; the filled body reads it"
+    )]
+    pub fn signal_adopted(
+        &self,
+        pid: u32,
+        start: &ProcessStart,
+        signal: Signal,
+    ) -> Result<(), SignalError> {
+        // EXPLICIT: the stub reads none of its arguments, since it sends nothing
+        let _ = (pid, start, signal);
+        Err(SignalError::Refused {
+            detail: "signalling an adopted process is not available",
+        })
     }
 
     /// Sends `signal` to the process group `pgid` if every rule allows it.
