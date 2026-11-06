@@ -527,16 +527,19 @@ mod m2b_surface {
 // ---- m2a-evaluation-parity: one block per leaf, each edited only by its leaf ----
 
 /// The `evaluation::registry` items, filled by the `registry` leaf.
+#[cfg(unix)]
 mod registry_surface {}
 
 /// The `evaluation::context` items, filled by the `run_context` leaf.
 mod run_context_surface {}
 
 /// The `evaluation::client` items, filled by the `protocol_client` leaf.
+#[cfg(unix)]
 mod protocol_client_surface {}
 
 /// The `evaluation::selection` items, filled by the `selection_rates` leaf.
 mod selection_rates_surface {}
 
 /// The `evaluation::engine` items, filled by the `engine` leaf.
+#[cfg(unix)]
 mod engine_surface {}

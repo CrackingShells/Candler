@@ -1,7 +1,8 @@
-//! Evaluation of stored runs by plug-in evaluators: the plug-in registry in [`registry`], the run
-//! context in [`context`], the protocol client in [`client`], selection, rates and the version diff
-//! in [`selection`], and the engine that composes them in [`engine`]. The registry, the client and
-//! the engine spawn through [`crate::supervise`], so they are built on Unix only, as it is.
+//! Evaluation of stored runs by plug-in evaluators: the plug-in registry in `registry`, the run
+//! context in [`context`], the protocol client in `client`, selection, rates and the version diff
+//! in [`selection`], and the engine that composes them in `engine`. The registry, the client and
+//! the engine spawn through `crate::supervise`, so they are built on Unix only, as it is; their
+//! names are plain text here so that the documentation builds on every platform.
 
 #[cfg(unix)]
 pub mod client;
