@@ -6,7 +6,7 @@
 - [ ] [cmd] The `$RW` environment check of the README Gotchas passes, and the HTNSTD baseline is recorded in R03 §Environment
 - [ ] [cmd] `git -C "$R" show 28be2c15:.claude/skills/htn-creator-workspace/infrastructure/evals/eval.json | shasum -a 256 | grep -q '^ca7f12afee55152e'`
 **Success Gates**:
-- ⬜ [cmd] HTNSTD and SCAFFOLD pass, SUBJ passes in `$RW` (base `feat/candler-htn-plugin`), and OWNED passes in `$RW` with `^\.claude/skills/htn-creator-workspace/candler-plugin/(src/htn_creator_candler/kinds/|tests/(test_guard_kind_parity|test_guard_deltas)\.py$|tests/fixtures/kinds/|deltas\.toml$|pyproject\.toml$|uv\.lock$)`
+- ⬜ [cmd] HTNSTD and SCAFFOLD pass, SUBJ passes in `$RW` (base `feat/candler-htn-plugin`), and OWNED passes in `$RW` with `^\.claude/skills/htn-creator-workspace/candler-plugin/(src/htn_creator_candler/kinds/|src/htn_creator_candler/__init__\.py$|tests/(test_guard_kind_parity|test_guard_deltas|conftest)\.py$|tests/fixtures/kinds/|deltas\.toml$|pyproject\.toml$|uv\.lock$)`
 - ⬜ [cmd] `cd "$RW/$PLUGIN" && CANDLER_GOLDEN_CORPUS="$GOLDEN" uv run --frozen pytest -q -m golden tests/test_guard_kind_parity.py` passes (KP1), and fails when the variable is unset. The report records its wall-clock.
 - ⬜ [cmd] `cd "$RW/$PLUGIN" && uv run --frozen pytest -q tests/test_guard_deltas.py` passes (KP2, KP3)
 - ⬜ [cmd] Byte-identity: `cd "$RW/$PLUGIN" && uv run --frozen python -c 'import htn_creator_eval.grader as g;print(g.__file__)' | xargs shasum -a 256` equals `git -C "$R" show 28be2c15:.claude/skills/htn-creator-workspace/infrastructure/htn_creator_eval/grader.py | shasum -a 256`, and likewise for every checker script the kinds run
@@ -18,7 +18,7 @@
 **Goal**: A uv project in `$PLUGIN` installs the grader and the instrument from `git+file` at `28be2c15`, never editable and never from `$RW`.
 **Implementation Logic**:
 1. `pyproject.toml` of distribution `htn-creator-candler` (package `htn_creator_candler`, src layout), version `0.5.0`, Python as the workspace infrastructure's. Dependencies: `htn-creator-eval` and `htn-creator-scripts` from `git+file://$R@28be2c15#subdirectory=…`, plus pytest and ruff as dev dependencies. `candler-evaluator` is not a dependency yet; `htn_plugin` adds it.
-2. `uv lock`. The report shows `uv lock --check` passes and `grep -nE 'editable|candler-htn-plugin|mcp-python-ingestion"' uv.lock` finds no editable or `$RW` source.
+2. `uv lock`. The report shows `uv lock --check` passes, `test "$(grep -c editable uv.lock)" -eq 1 && grep -qxF 'source = { editable = "." }' uv.lock && test -z "$(grep -nE 'candler-htn-plugin|mcp-python-ingestion"' uv.lock)"` (the root project `htn-creator-candler` is the only editable source, and nothing comes from `$RW` or an unpinned `$R`), and `test "$(grep -cE '^source = \{ git = "file:///Users/hacker/Documents/src/External/PCfVW/mcp-python-ingestion\?subdirectory=[^&]+&rev=28be2c158fbc6ee786a789242c2d8fd47bfde9a8#' uv.lock)" -eq 2` (both instruments come from `$R` at `28be2c15` as git sources).
 3. A `[tool.pytest.ini_options]` marker `golden` and `scaffold`.
 **Deliverables**: `$PLUGIN/pyproject.toml`; `$PLUGIN/uv.lock`; `$PLUGIN/src/htn_creator_candler/__init__.py`; `$PLUGIN/src/htn_creator_candler/kinds/__init__.py`
 **Consistency Checks**: `cd "$RW/$PLUGIN" && uv lock --check && uv run --frozen python -c 'import htn_creator_eval.grader, htn_creator_candler.kinds'` (expected: PASS)

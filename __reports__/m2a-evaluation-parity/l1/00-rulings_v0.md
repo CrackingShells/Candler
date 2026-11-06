@@ -87,3 +87,12 @@ A cancel that lands while the client settles returns `Ok`, and dropping a `Child
 ## htn_plugin, before dispatch
 - **The manifest path.** OWNED now names `.claude/skills/htn-creator-workspace/candler-plugin.toml` (F3 above), and the Step 1 deliverable is that path.
 - **The OWNED regex had a look-ahead `(?!kinds/)`.** This is the same defect as helper_runtime's item 5. It is replaced by `src/htn_creator_candler/[^/]+\.py$`, top-level modules only.
+
+## htn_kinds
+- **1: fixed.** The lock gate grepped for `editable`, but uv always writes the root project as `source = { editable = "." }`, so the gate could never pass. Both `htn_kinds` Step 1 and `htn_plugin`'s lock gate now require that line to be the only `editable` one, nothing from `$RW` or an unpinned `$R`, and exactly two instrument sources from `$R` at `28be2c15`. uv spells a `git+file` dependency `git = "file://…"`, so `htn_plugin`'s Candler-pin count now greps that spelling.
+- **2: fixed.** OWNED omitted two listed deliverables, `src/htn_creator_candler/__init__.py` and `tests/conftest.py`. The regex now names both.
+- **3: accepted.** The repo's `.gitignore` ignores `uv.lock`, so the lock was added with `git add -f`. `htn_plugin` re-locks the same way.
+- **4: accepted.** `addopts = "-m 'not golden'"` keeps KP1 out of the default run. The KP1 gate selects it with `-m golden`.
+- **5: accepted.** The pinned wheel omits the schema JSON that the grader reads, so the kinds ship a byte-identical copy under `kinds/_data`. `htn_plugin` must keep it in the package data.
+- **6: for `htn_plugin`.** The kinds use `tomllib`, which needs Python 3.11, while `requires-python` says `>=3.10`. `htn_plugin` raises it to `>=3.11` when it re-locks.
+- **7–11: accepted as chosen,** pending the adversarial verifier, which was asked to examine the 0/0 path in particular.
