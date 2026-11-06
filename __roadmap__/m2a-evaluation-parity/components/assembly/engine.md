@@ -23,7 +23,7 @@
 ## Step 2: Run requests and commit outcome files
 **Goal**: `evaluate` preflights environments, runs batches concurrently through the client, and commits one outcome file per request.
 **Implementation Logic**:
-1. `evaluate(request)`: load the registry and check the suite; run the `EnvironmentStep` preflight; for each run, `assemble` and `materialise` the context, then send its batches with `Client::evaluate` under a semaphore of `request.concurrency`.
+1. `evaluate(request)`: load the registry and check the suite; refuse with `EvaluateError::EnvironmentNotReady` when a plug-in's `EnvironmentKey` has no `ready` marker (the preflight is the caller's: `surfaces` composes `register_evaluation_steps` in the binary, and the core never registers steps itself); for each run, `assemble` and `materialise` the context, then send its batches with `Client::evaluate` under a semaphore of `request.concurrency`.
 2. Each request's outcomes, core-written rows included, go into one `OutcomeWriter` (`create`, `append`, `commit`). Every record carries the request id, the evaluator `name@version` and instrument from `describe`, the `context_digest` of the materialised context, and the `suite_entry_digest`. A request that fails leaves no committed file and is reported in `EvaluateReport`.
 3. The workspace is removed after the request ends, success or not.
 4. `pub fn regrade(store, plugin, suite, runs) -> Result<EvaluateReport, EvaluateError>`, a thin support function over `evaluate` with the defaults `golden_parity` uses.

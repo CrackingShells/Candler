@@ -1,6 +1,6 @@
 # Selection, I4, rates and generic diff
 
-**Goal**: `evaluation::selection` reads committed outcome files. It selects the current record per key and flags any I4 violation. It computes the quality and gate rates per cell. It diffs two evaluator versions on `(status, value, weight, cause)` exactly, counting missing and extra rows as changes, listing uncompared rows with counts, and excusing only what a hand-written equivalence file says (DF1, DF2, SEL1, RT1).
+**Goal**: `evaluation::selection` reads committed outcome files. It selects the current record per key and flags any I4 violation. It computes the quality and gate rates per cell. It diffs two evaluator versions on `(status, value, weight, cause)` exactly, counting missing and extra rows as changes, listing uncompared rows with counts, and excusing only the exact rows an equivalence file lists, counted apart and recorded by digest (DF1, DF2, SEL1, RT1).
 **Pre-conditions**:
 - [ ] [cmd] ENV and DEP(skeleton)
 **Success Gates**:
@@ -28,12 +28,12 @@
 **Commit**: `feat(evaluation): compute quality and gate rates per cell`
 
 ## Step 3: Diff two evaluator versions exactly
-**Goal**: The diff compares four fields, sees missing and extra rows, lists what it did not compare, and excuses only data-file rules in one direction.
+**Goal**: The diff compares four fields, sees missing and extra rows, lists what it did not compare, and excuses only the listed rows that show exactly the rule's one change, in one direction.
 **Implementation Logic**:
 1. `diff(from: &Selection, to: &Selection, equivalence: &Equivalence) -> DiffReport`. Rows are joined on `(run, expectation)`. Weights equal to the status default are normalised to absent on both sides first. Evidence is never compared.
-2. A row in `from` with no match in `to` is `missing`, and the reverse is `extra`; both are changes. A row whose expectation is not in the `to` suite is `uncompared`, counted per expectation, and listed in the report with its count.
-3. `Equivalence::load(path)` reads R03's JSON format. A rule applies only from `from` to `to`, and only when every field of its `from` pattern and its `to` pattern matches exactly. Each application is counted.
-4. `DiffReport { compared, changed, changes: Vec<Change { class, run, expectation, from, to }>, uncompared: Vec<{expectation, count}>, equivalences_applied }`. Change classes: `status`, `value`, `weight`, `cause`, `missing`, `extra`. The value class compares JSON numbers with their kind (`3` is not `3.0`). This is the type whose JSON key set `surfaces` exposes.
+2. A row in `from` with no match in `to` is `missing`, and the reverse is `extra`; both are changes. A row whose expectation is not in the `to` suite is `uncompared`, counted per expectation, and listed in the report with its count. `compared` counts the rows of the expectations in both suites, present on either side.
+3. `Equivalence::load(path)` reads R03's JSON format with unknown keys refused and the file's sha256 kept; a row listed twice is refused. A rule's `from` and `to` are whole four-field records (an absent key means an absent field). A listed row is excused only when both sides exist and equal `from` and `to` exactly, in that direction; otherwise it is a change of class `equivalence_missing` (a side is absent) or `equivalence_mismatch` (any other pair, unchanged included). An unlisted row is never excused.
+4. `DiffReport { compared, unchanged, excused, changed, changes: Vec<Change { class, run, expectation, from, to }>, uncompared: Vec<{expectation, count}>, equivalence: Option<{sha256, rows}> }`, with `unchanged + excused + changed == compared`. Change classes: `status`, `value`, `weight`, `cause`, `missing`, `extra`, `equivalence_missing`, `equivalence_mismatch`. The value class compares JSON numbers with their kind (`3` is not `3.0`). This is the type whose JSON key set `surfaces` exposes.
 **Deliverables**: `crates/candler-core/src/evaluation/selection/diff.rs` (`diff`, `DiffReport`, `Change`, `ChangeClass`, `Equivalence`, `Uncompared`)
 **Consistency Checks**: `cargo clippy -p candler-core --all-targets -- -D warnings` (expected: PASS)
 **Commit**: `feat(evaluation): diff evaluator versions on the four outcome fields`
@@ -41,10 +41,10 @@
 ## Step 4: Guard the diff, the selection and the rates
 **Goal**: Four guards decide the module by hand literals and the I4 text.
 **Implementation Logic**:
-1. `tests/fixtures/selection/`: a hand-written base of a few records (built with the schema builders in the test, not captured), plus `equivalence.json` copied from R03's example. That example is the same one-rule content as `reference_oracle`'s, written independently.
+1. `tests/fixtures/selection/`: a hand-written base of a few records (built with the schema builders in the test, not captured), plus a hand-written `equivalence.json` in R03's format whose `rows` name a few base rows (not the golden file, which `reference_oracle` generates).
 2. `tests/guard_diff.rs`:
    - DF1 (R2): one parameterised table, one planted change per row on a base that diffs clean (positive control): status, value 3→4, value 3→3.0, weight, cause kind, cause present→absent, missing row, extra row. Each row gives `changed == 1` with the named class. An evidence-only change gives `changed == 0`. Oracle: hand literal. Bite: drop weight from the comparison.
-   - DF2 (R2): only `pass 0/0 {legacy: zero_weight}` → `not_applicable {empty_population}` is excused. A 1/1 pass shown as NA, a 0/0 pass with another cause, and the reverse direction are each a change. The uncompared list holds the expected expectations and counts. Oracle: the hand-written equivalence file. Bite: apply the rule both ways.
+   - DF2 (R2): a listed row showing exactly `pass 0/0 {legacy: zero_weight}` → `not_applicable {empty_population}` is excused and counted in `excused`, never in `unchanged`, and `equivalence.sha256` is the file's. Each of these is a change with its class: the same change on an unlisted row; a listed row shown as a 1/1 pass → NA, as a 0/0 pass with another cause, in the reverse direction, or unchanged (`equivalence_mismatch`); a listed row absent on a side (`equivalence_missing`). A file with an unknown key or a duplicate row is refused. The uncompared list holds the expected expectations and counts. Oracle: the hand-written fixture file. Bite: excuse a listed row whatever pair it shows.
 3. `tests/guard_selection.rs`:
    - SEL1 (R5): a changed field under the same key is an `I4Violation`; error→measured is a recovery and is not flagged. Oracle: the I4 text. Bite: remove the exception.
    - RT1 (R1): a hand-computed three-cell table; gate and quality sums equal literals, and NA is out of the denominator. Oracle: the `_outcome.py` formula in R03's prose. Bite: include NA.
