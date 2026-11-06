@@ -1,6 +1,6 @@
 # Run exec: spawn, ends, seal
 
-**Goal**: `exec_run(&Runtime, &RunPlan, &Slot) -> RunOutcome` runs one attempt in its container: it takes the slot, spawns with a live observer and the stop hook, classifies the end by the R2 precedence, retries a gateway failure once as a new attempt, collects, and seals the run directory with `run.done` last.
+**Goal**: `exec_run(&Runtime, &RunPlan, &Slot, ctl: &RunControl) -> RunOutcome` runs one attempt in its container: it takes the slot, spawns with a live observer and the stop hook, classifies the end by the R2 precedence, retries a gateway failure once as a new attempt, collects, and seals the run directory with `run.done` last.
 **Pre-conditions**:
 - [ ] [cmd] The Phase 0 scaffold is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas): ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
 - [ ] [nl] api_review closed with no open finding on `Runtime`, `RunPlan`, `RunOutcome`, `Evidence`, `StopHook` and `Isolation`
@@ -23,8 +23,8 @@
 ## Step 1: Spawn with a live observer and the stop hook
 **Goal**: One attempt starts in its container under a slot, with its output framed and observed while it runs.
 **Implementation Logic**:
-1. `exec_run(rt: &Runtime, plan: &RunPlan, slot: &Slot) -> RunOutcome` (the S3 stub's async form returns a boxed future with `'a` on self and every borrowed argument) creates the run directory with `RunWriter::create(&Store, &RunManifest, Existing::Refuse)`, calls `Isolation::plan(&Cell, &Workspace)`, writes the driver's `Prepared` files (plus the skill tree: the core runs `skill_archive_command(&TreatmentRef, request.treatment_source)` through `Supervisor::run_captured` (D1) and passes the bytes to `skill_files`), and builds the request with `Isolation::run_request(&ContainerPlan, CommandSpec)`.
-2. The spawn uses `Supervisor::spawn(SpawnRequest)` with `OutputSpec::Framed {dir, stream, mode: Lines, observer}` for stdout and for stderr (the stderr file is kept), the observer being the driver's live reader through a `FrameObserver`, and `SpawnRequestBuilder::stop_hook(Arc<dyn StopHook>)` with a clone of an `Arc<ContainerStopHook>` kept in `exec_run` so `final_inspect()` is readable after `wait` (R7). The per-run supervisor deadline is `wall_s`.
+1. `exec_run(rt: &Runtime, plan: &RunPlan, slot: &Slot, ctl: &RunControl) -> RunOutcome` (the S3 stub's async form returns a boxed future with `'a` on self and every borrowed argument) creates the run directory with `RunWriter::create(&Store, &RunManifest, Existing::Refuse)`, calls `Isolation::plan(&Cell, &Workspace)` on `rt.isolation` (an `Option<Arc<dyn Isolation>>`; a `None` here is a bug that yields `IsolationError`, never a host run), writes the driver's `Prepared` files (plus the skill tree: the core runs `skill_archive_command(&TreatmentRef, request.treatment_source)` through `Supervisor::run_captured` (D1) and passes the bytes to `skill_files`), and builds the request with `Isolation::run_request(&ContainerPlan, CommandSpec, Marker, RunKey)`, which returns `IsolatedRequest { request, end_facts }` (A1).
+2. The spawn uses `Supervisor::spawn(SpawnRequest)` with `OutputSpec::Framed {dir, stream, mode: Lines, observer}` for stdout and for stderr (the stderr file is kept), the observer being the driver's live reader through a `FrameObserver`, and the stop hook, which the isolation's `run_request` already attached to the request; `exec_run` keeps only `end_facts` so `final_inspect()` is readable after `wait` (R7). `exec_run` never builds or attaches a hook itself. The per-run supervisor deadline is `wall_s`.
 3. The slot is held for the whole attempt and released on every path, including an error before the spawn.
 4. A fixed timeline of emitted events: `run.started` before the spawn, the live-reader events as frames arrive.
 5. Class A in `#[cfg(test)] mod scaffold`: spawn wiring over the PATH-fake `docker` and recording fakes (the order of the calls, the slot released after an error).
@@ -47,7 +47,7 @@
 ## Step 3: Gateway retry, collect and guarded destroy
 **Goal**: A gateway failure is retried once as a new attempt, and the container is inspected, collected from and destroyed in the order R1 fixes.
 **Implementation Logic**:
-1. After `wait`, on `Ended::Exited`: inspect the run's container, collect through `Isolation::collect_and_destroy(&ContainerPlan, &Workspace, &Exit)`, which destroys only through the guard; on the hook path (`Ended::Deadline` or `Ended::Stopped`) the hook already destroyed it and `final_inspect()` supplies the facts (R1).
+1. After `wait`, on `Ended::Exited`: inspect the run's container, collect through `Isolation::collect_and_destroy(&ContainerPlan, &Workspace, &Exit)`, which destroys only through the guard; on the hook path (`Ended::Deadline` or `Ended::Stopped`) the hook already destroyed it and `end_facts.final_inspect()` supplies the facts (R1).
 2. The reader normalises the raw streams (`normalise`), `census` and `input_leak` (`run_evidence`) run on the collected output, and `classify_end` takes all of it.
 3. An end of `invalid(gateway)` on a first attempt returns a retry request: the caller (`run_plan` and the job) opens attempt `n+1` with `Store::next_attempt`; a second gateway failure is final (E06). `agent_error`, `infrastructure`, `budget_stop`, `killed` and `interrupted` never retry.
 4. A failed collection is `collection_error`; the raw files are kept.
