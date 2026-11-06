@@ -6,14 +6,14 @@
 **Success Gates**:
 - ⬜ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler-core/(src/evaluation/client/|tests/(guard_protocol_client\.rs|fixtures/client/|public_surface\.rs)$)` with only the `protocol_client_surface` block of `public_surface.rs` changed
 - ⬜ [cmd] SPAWN, then `cargo nextest run -p candler-core -E 'binary(guard_protocol_client)'` passes (PC1, PC2)
-- ⬜ [cmd] `du -sk crates/candler-core/tests/fixtures/client | awk '$1>12{exit 1}'` (six stubs, ≤ 2 KB each)
+- ⬜ [cmd] `test "$(find crates/candler-core/tests/fixtures/client -type f -exec cat {} + | wc -c)" -le 12288` (bytes, not disk blocks) (six stubs, ≤ 2 KB each)
 - ⬜ [nl] The plain verifier holds no open BLOCKER or MAJOR: late-result and cancel races, pipe deadlock
 **References**: [R01 §Evaluator protocol, §Jobs, runs and supervision](../../../__design__/architecture.md) — deadlines, cancel, I14, I22; [R03 §Protocol](../../../__reports__/m2a-evaluation-parity/00-architecture_v0.md); `crates/candler-core/src/supervise/` — `Supervisor::new`, `with_signaller`, `StopHandle`, `Child::wait`, `Child::stop`; `candler_schemas::evaluation::rpc`; [JSON-RPC 2.0 §5.1](https://www.jsonrpc.org/specification); [R04 PC1, PC2](../../../__reports__/m2a-evaluation-parity/01-test_definition_v0.md); [R09 M1 KT](../../../__reports__/m1-contracts/01-knowledge_transfer_v0.md) — I22 and the recording fake `Signaller`
 
 ## Step 1: Run a request through the supervisor
 **Goal**: One call spawns the evaluator, sends one request, collects its notifications and result, and always reaps the process.
 **Implementation Logic**:
-1. `Client::new(supervisor: &Supervisor)`; `Client::describe(command) -> Result<DescribeResult, ClientError>` and `Client::evaluate(command, params: EvaluateParams, deadline: Duration) -> Result<ClientOutcome, ClientError>`, where `ClientOutcome` holds one outcome per requested item in item order.
+1. `Client::new(supervisor: &Supervisor)`; `Client::describe(command) -> Result<DescribeResult, ClientError>` and `Client::evaluate(command, params: EvaluateParams, deadline: Duration, cancel: watch::Receiver<bool>) -> Result<ClientOutcome, ClientError>`, where `ClientOutcome` holds one outcome per requested item in item order.
 2. The request id is `RequestId::new_v7()`. Stdin carries one `RpcRequest` line then EOF. Stdout is read line by line as `rpc::Message`. Stderr is drained concurrently into a bounded buffer kept as evidence, so a flood never blocks the child.
 3. Every outcome notification is matched to a requested item by id; a duplicate or unknown item id is an `instrument_error` for the request.
 **Deliverables**: `crates/candler-core/src/evaluation/client/{mod,session,framing}.rs` (`Client`, `ClientOutcome`, `ClientError`)
@@ -27,6 +27,7 @@
 2. When the process exits or closes stdout before reporting every item, each missing item gets `not_measured {reason: instrument_error}`. A partial frame at EOF and an unparsable line are `instrument_error` too.
 3. A result or outcome that arrives after the deadline fired is discarded: the deadline wins.
 4. A `-32800` error response is read as "cancelled", never as an evaluator fault.
+5. A caller cancel (`cancel` turns `true`) takes the deadline's path (`cancel`, grace, stop) and returns `ClientError::Cancelled`: the engine commits nothing for that request (R03 §Protocol).
 **Deliverables**: `crates/candler-core/src/evaluation/client/{deadline,accounting}.rs` (`Clock`, `SystemClock`, `account_items`)
 **Consistency Checks**: `cargo clippy -p candler-core --all-targets -- -D warnings` (expected: PASS)
 **Commit**: `feat(evaluator-protocol): account for every item under the deadline`
@@ -38,7 +39,7 @@
 2. `tests/guard_protocol_client.rs` (`#![cfg(test)]`), with a `Supervisor` built with the recording fake `Signaller` (feature `test-support`) wherever a stop is exercised:
    - PC1 (R6): a table, one row per stub. Expected per-item statuses and causes are hand literals: an unreported item gives `not_measured {instrument_error}`, a request deadline gives `deadline`, cancel is answered, the late result loses, a partial frame gives `instrument_error`, and the stderr flood completes. Oracle: JSON-RPC 2.0 §5.1 text for `-32800` and R01's deadline text. Bite: accept the late result.
    - PC2 (R6, I22): `support::assert_clean` over `crates/candler-core/src/evaluation/` finds no `kill(`, `killpg` or `Signal::`. Oracle: the planted-violation self-test of `assert_clean`. Bite: plant `libc::kill` in a comment of `client/mod.rs`, then restore it with `git checkout -- <file>`.
-3. Fill `protocol_client_surface`, delete scaffold tests, record bites, dispatch the plain verifier.
+3. Fill `protocol_client_surface` under `#[cfg(unix)]`, as the module is; delete scaffold tests, record bites, dispatch the plain verifier.
 **Deliverables**: `crates/candler-core/tests/fixtures/client/*.sh`; `crates/candler-core/tests/guard_protocol_client.rs` (PC1, PC2); the `protocol_client_surface` block
 **Consistency Checks**: `git diff --quiet HEAD -- crates/candler-core/src && cargo clean -p candler-core && cargo nextest run -p candler-core -E 'binary(guard_signal)' && cargo nextest run -p candler-core -E 'binary(guard_protocol_client)'` (expected: PASS)
 **Commit**: `test(evaluator-protocol): guard the client against scripted stubs`

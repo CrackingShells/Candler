@@ -11,7 +11,7 @@
 - ⬜ [cmd] `CANDLER_GOLDEN_CORPUS="$GOLDEN" cargo nextest run -p candler --run-ignored only --no-tests=fail -E 'binary(guard_oracle_ac)'` passes (OR1), and fails when the variable is unset
 - ⬜ [cmd] Independence: `test -z "$(grep -nE '^\s*(import|from) +candler|candler_(core|schemas)' crates/candler/tests/oracle/gen_oracle.py crates/candler/tests/guard_oracle_ac.rs)"`
 - ⬜ [cmd] `jq` cross-check from the raw corpus, logged in the report: the A–C pass/fail/blocked/not_measured counts are 7,999/415/466/0, of which 209 passes have `max_score == 0`
-- ⬜ [cmd] `du -sk crates/candler/tests/oracle | awk '$1>30{exit 1}'`, and the report records `shasum -a 256 crates/candler/tests/oracle/rates_by_cell.toml`
+- ⬜ [cmd] `test "$(find crates/candler/tests/oracle -type f -exec cat {} + | wc -c)" -le 30720` (bytes, not disk blocks), and the report records `shasum -a 256 crates/candler/tests/oracle/rates_by_cell.toml`
 **References**: [R03 §Scope move, §Generic diff](../../../__reports__/m2a-evaluation-parity/00-architecture_v0.md) — the A–C counts, the equivalence file format; [R04 OR1, §Tautology traps](../../../__reports__/m2a-evaluation-parity/01-test_definition_v0.md); `htn_creator_eval/_outcome.py` at `28be2c15` — gate and quality roles, the rate formula; `evals/eval.json` at `28be2c15` (sha `ca7f12af…`) — expectation ids and tiers; M1 `golden_oracle.md` — the corpus layout and the raw fields
 
 ## Step 1: Derive the A-C counts and the zero-weight pairs
@@ -26,7 +26,7 @@
 **Commit**: `test(evaluation): derive the a-c reference counts from the raw corpus`
 
 ## Step 2: Derive the per-cell rates with the reference formula
-**Goal**: `rates_by_cell.toml` holds, per cell, the quality and gate rates that `_outcome.py` computes over A–C rows, in the exact format `candler show --rates --format toml` must print.
+**Goal**: `rates_by_cell.toml` holds, per cell, the quality and gate rates that `_outcome.py` computes over A–C rows, in the exact format `candler show --rates --evaluator htn-creator-eval@0.5.0 --format toml` must print.
 **Implementation Logic**:
 1. Load `htn_creator_eval/_model.py` and `htn_creator_eval/_outcome.py` from the temp extraction of `28be2c15` with `importlib.util.spec_from_file_location`, under a bare `htn_creator_eval` package stub (its `__init__.py` imports the renderers and is never run), never from `$R`'s working tree or an installed package. If either needs a non-stdlib import, stop and report.
 2. Roles are data, not code: each expectation's `role` (`gate`, `quality`, `descriptive`) is read from `eval.json` at `28be2c15`. Per run, build a `_model.RunView` of its A–C rows (id, status, role, `score`, `max_score`) and call `_outcome.score`. A cell's rate is the sum of its runs' numerators and denominators, which is `_rate_for_role` summed: `pass`, `fail` and `blocked` count (`blocked` with score 0), and `not_measured` and `not_applicable` are excluded.

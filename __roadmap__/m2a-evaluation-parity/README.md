@@ -42,7 +42,7 @@ A live `htn-creator-eval@0.5.0` regrade of the golden corpus reproduces the impo
 - ⬜ [cmd] STD, DRIFT, SUBJ, PYSTD, HTNSTD, SCAFFOLD and NOPUSH pass on `feat/m2a-evaluation-parity` and `feat/candler-htn-plugin`
 - ⬜ [cmd] `CANDLER_GOLDEN_CORPUS="$GOLDEN" cargo nextest run -p candler --run-ignored only --no-tests=fail -E 'binary(guard_golden_parity)'` passes (GP1–GP3)
 - ⬜ [cmd] `cd "$RW/$PLUGIN" && CANDLER_GOLDEN_CORPUS="$GOLDEN" uv run --frozen pytest -q -m golden tests/test_guard_kind_parity.py` passes (KP1), and fails when `CANDLER_GOLDEN_CORPUS` is unset
-- ⬜ [cmd] `candler diff --from htn-creator-eval@0.4.2 --to htn-creator-eval@0.5.0 --equivalence "$EQ" --format json | jq -e --arg eqsha "$(shasum -a 256 "$EQ" | cut -d' ' -f1)" '.compared == 8880 and .changed == 0 and .excused == 209 and .unchanged + .excused + .changed == .compared and .equivalence.sha256 == $eqsha and .compared + (.uncompared | map(.count) | add) == 10320'`, and `diff <(candler show --rates --format toml) $ORACLE/rates_by_cell.toml` prints nothing
+- ⬜ [cmd] `candler diff --from htn-creator-eval@0.4.2 --to htn-creator-eval@0.5.0 --equivalence "$EQ" --format json | jq -e --arg eqsha "$(shasum -a 256 "$EQ" | cut -d' ' -f1)" '.compared == 8880 and .changed == 0 and .excused == 209 and .unchanged + .excused + .changed == .compared and .equivalence.sha256 == $eqsha and .compared + (.uncompared | map(.count) | add) == 10320'`, and `diff <(candler show --rates --evaluator htn-creator-eval@0.5.0 --format toml) $ORACLE/rates_by_cell.toml` prints nothing
 - ⬜ [cmd] `dirtree-rdm validate` passes on every node, and every leaf's `merge(<scope>): land <leaf>` is on `git log --first-parent feat/m2a-evaluation-parity`
 - ⬜ [nl] Every leaf is `done`. No verifier or Grit review holds an open BLOCKER or MAJOR. The KT carries the per-cell gate-rate table against the published rates.
 
@@ -143,6 +143,7 @@ graph TD
 | ID | Date | Source | Nodes Added | Rationale |
 |:---|:-----|:-------|:------------|:----------|
 | A1 | 2026-11-06 | __reports__/m2a-evaluation-parity/00-architecture_v0.md | [] | Eliott approved plan rev 4 (A–C only, live 0.5.0, 0/0 pass → not_applicable {empty_population}); coordinator OK'd the A–C gates with Tier D dropped, the 0.5.0 tag cut by the HTN release flow before the parity gates, and an exact-row equivalence file that is generated, digest-recorded, counted as `excused` and attacked by the verifier |
+| A2 | 2026-11-06 | __reports__/m2a-evaluation-parity/skeleton/00-report_v0.md | [] | The skeleton API review widened the frozen seams (env root, suite file, supervisor and cancel, deadline default, `show --evaluator`, `commands/common.rs`, multi-thread runtime, cfg(unix) registry and engine), moved the consuming leaves' findings into their steps, and replaced the `du -sk` fixture gates with byte counts; the M2 coordinator was told of the shared CLI changes |
 
 ## Progress
 | Node | Branch | Commits | Notes |

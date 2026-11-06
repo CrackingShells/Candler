@@ -8,7 +8,7 @@
 - ⬜ [cmd] PYSTD, SUBJ and SCAFFOLD pass, and OWNED passes with `^python/candler-evaluator/(src/candler_evaluator/(?!_models)|tests/|examples/)`
 - ⬜ [cmd] `cd python/candler-evaluator && uv run --frozen pytest -q tests/test_guard_isolation.py tests/test_guard_identity.py` passes (HR1, HR2)
 - ⬜ [cmd] Fork probe, logged in the report: `for i in $(seq 20); do uv run --frozen pytest -q tests/test_guard_isolation.py || exit 1; done` from `python/candler-evaluator`
-- ⬜ [cmd] `du -sk python/candler-evaluator/examples | awk '$1>10{exit 1}'`
+- ⬜ [cmd] `test "$(find python/candler-evaluator/examples -type f -exec cat {} + | wc -c)" -le 10240` (bytes, not disk blocks)
 - ⬜ [nl] The plain verifier holds no open BLOCKER or MAJOR: lock state inherited across the fork, pre-fork imports, the digest across items
 **References**: [R01 §Evaluator protocol, §Plug-ins](../../../__design__/architecture.md) — methods, notifications, deadlines, identity; [R03 §Python helper, §Protocol, §Truthful instrument](../../../__reports__/m2a-evaluation-parity/00-architecture_v0.md); [PEP 610](https://peps.python.org/pep-0610/) — `direct_url.json`; [R04 HR1, HR2](../../../__reports__/m2a-evaluation-parity/01-test_definition_v0.md); `crates/candler-schemas/tests/fixtures/rpc/` — the shared vectors
 

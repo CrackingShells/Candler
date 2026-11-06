@@ -5,7 +5,7 @@
 - [ ] [cmd] ENV, DEP(skeleton) and the L1 merge of `selection_rates`
 - [ ] [cmd] `git log --first-parent --format=%s feat/m2a-evaluation-parity | grep -qx 'merge(evaluator-helper): land helper_runtime'` (the synthetic plug-in for CLI2)
 **Success Gates**:
-- ⬜ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler/(src/commands/(import|evaluate|show|diff)\.rs|tests/(guard_cli\.rs|fixtures/cli/))$`
+- ⬜ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler/(src/commands/(common|import|evaluate|show|diff)\.rs|tests/(guard_cli\.rs|fixtures/cli/))$`
 - ⬜ [cmd] SPAWN, then `cargo nextest run -p candler -E 'binary(guard_cli)'` passes (CLI1, CLI2)
 - ⬜ [nl] `engine`'s integration (L2 tip) is in place before CLI2 runs a real `evaluate`. Until then CLI2 runs `import`, `show` and `diff` only, and the report says so.
 **References**: [R01 §CLI surface](../../../../__design__/architecture.md); [R03 §Skeleton seams (flags, exit codes), §Generic diff (JSON keys, rates TOML)](../../../../__reports__/m2a-evaluation-parity/00-architecture_v0.md); `crates/candler-core/src/import/` — the M1 importer API; `crates/candler-core/src/evaluation/selection/` — `DiffReport`, `Rates`; [R04 CLI1, CLI2](../../../../__reports__/m2a-evaluation-parity/01-test_definition_v0.md)
@@ -14,8 +14,9 @@
 **Goal**: `import` and `evaluate` call the core with the frozen flags.
 **Implementation Logic**:
 1. `import <corpus> --instrument <id@version>` runs the M1 importer into `--store` (or `CANDLER_STORE`) and prints a one-line JSON summary (`runs`, `records`).
-2. `evaluate --plugin <manifest> --suite <id> [--runs <filter>] [--concurrency N]` builds the `Resolver`, adds the evaluation steps with `register_evaluation_steps` (the composition point M2b shares: its own `register_*_steps` calls sit beside it, one per line), runs the preflight, then calls `engine::evaluate` and prints `EvaluateReport` as JSON. A failed request exits 2.
-3. No new flag beyond R03's list. An extra flag is a request to the coordinator, since M2b extends the same enum.
+2. `commands/common.rs` (shared with M2b's commands): the store root (`--store`, else the configuration), the `Resolver` composition, and the binary's `EventSink`. `evaluate` uses them.
+3. `evaluate --plugin <manifest> --suite <file> [--runs <glob>] [--concurrency N]` builds the `Resolver` in `common.rs`, adds the evaluation steps with `register_evaluation_steps` (the composition point M2b shares: its own `register_*_steps` calls sit beside it, one per line), runs the preflight, then calls `engine::evaluate` with `registry::default_env_root`, one `Arc<Supervisor>` and a cancel receiver that `tokio::signal::ctrl_c` turns `true` (the binary receives SIGINT and never sends a signal: I22), and prints `EvaluateReport` as JSON. A failed or cancelled request exits 2. On a non-Unix target `evaluate` prints `candler evaluate: unsupported on this platform` and exits 2.
+4. No new flag beyond R03's list. An extra flag is a request to the coordinator, since M2b extends the same enum.
 **Deliverables**: `crates/candler/src/commands/import.rs` (`run`); `crates/candler/src/commands/evaluate.rs` (`run`)
 **Consistency Checks**: `cargo clippy -p candler --all-targets -- -D warnings` (expected: PASS)
 **Commit**: `feat(cli): wire candler import and evaluate to the core`
@@ -23,8 +24,8 @@
 ## Step 2: Wire show and diff
 **Goal**: `show --rates` prints the rates in the reference oracle's TOML byte format, and `diff` prints the report and sets the exit code.
 **Implementation Logic**:
-1. `show [--rates] --format json|toml`: without `--rates`, the current records' per-status counts; with `--rates`, `Rates` per cell in R03's TOML format, keys sorted, ending in one newline, so that `diff <(candler show --rates --format toml) $ORACLE/rates_by_cell.toml` is a byte comparison.
-2. `diff --from --to [--equivalence <file>] --format json|text`: `DiffReport` as JSON with exactly the keys of R03 §Generic diff: `compared`, `unchanged`, `excused`, `changed`, `changes`, `uncompared` (a list of `{expectation, count}`) and `equivalence` (`{sha256, rows}`, or `null` without `--equivalence`). Exit 1 when `changed > 0`, 0 otherwise, 2 on an error or a refused equivalence file.
+1. `show [--rates] [--evaluator <name@version>] --format json|toml`: without `--rates`, the current records' per-status counts, per evaluator or for the one named; with `--rates` (which requires `--evaluator`), that evaluator's `Rates` per cell in R03's TOML format, keys sorted, ending in one newline, so that `diff <(candler show --rates --evaluator <name@version> --format toml) $ORACLE/rates_by_cell.toml` is a byte comparison.
+2. `diff --from --to [--equivalence <file>] --format json|text`: `DiffReport` as JSON with exactly the keys of R03 §Generic diff: `compared`, `unchanged`, `excused`, `changed`, `changes`, `uncompared` (a list of `{expectation, count}`) and `equivalence` (`{sha256, rows}`, or `null` without `--equivalence`). Exit 1 when `changed > 0`, 0 otherwise, 2 on an error, a refused equivalence file or `compared == 0` (a regrade whose requests all failed must not read as "no change").
 **Deliverables**: `crates/candler/src/commands/show.rs` (`run`); `crates/candler/src/commands/diff.rs` (`run`)
 **Consistency Checks**: `cargo clippy -p candler --all-targets -- -D warnings` (expected: PASS)
 **Commit**: `feat(cli): wire candler show and diff to the core`
@@ -34,7 +35,7 @@
 **Implementation Logic**:
 1. `tests/fixtures/cli/`: the expected key sets as a hand-written JSON literal.
 2. `tests/guard_cli.rs` (`#![cfg(test)]`, the binary through `env!("CARGO_BIN_EXE_candler")`):
-   - CLI1 (R2): on a tiny seeded store, `diff --format json` has exactly the hand-literal key set at the top level and in each `changes[]` and `uncompared[]` element and in `equivalence`. It exits 1 on one planted change and 0 on none. Oracle: hand-literal JSON. Bite: rename `compared`.
+   - CLI1 (R2): on a tiny seeded store, `diff --format json` has exactly the hand-literal key set at the top level and in each `changes[]` and `uncompared[]` element and in `equivalence`. It exits 1 on one planted change, 0 on none, and 2 when the `to` version has no record. Oracle: hand-literal JSON. Bite: rename `compared`.
    - CLI2 (R1, R2): `import` the M1 mini-corpus, `evaluate` with the synthetic plug-in, then `show` and `diff`. `compared > 0`, and editing one committed outcome value in the store copy makes `diff` exit 1. Oracle: the M1 mini-corpus. Bite: `diff` always exits 0.
 3. No `--help` test and no schema re-check of the JSON (dropped list). Delete scaffold tests and record bites.
 **Deliverables**: `crates/candler/tests/guard_cli.rs` (CLI1, CLI2); `crates/candler/tests/fixtures/cli/`

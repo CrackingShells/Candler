@@ -12,10 +12,11 @@
 ## Step 1: Load and check manifests and suites
 **Goal**: A suite entry is accepted only if its plug-in declares its kind, its params validate against the kind's params schema, and each need is one the core can meet.
 **Implementation Logic**:
-1. `Registry::load(manifests: &[PathBuf]) -> Result<Registry, RegistryError>` reads each `PluginManifest`, and `Registry::check_suite(&SuiteFile or the suite entries) -> Result<CheckedSuite, RegistryError>` checks every entry.
+1. `Registry::load(manifests: &[PathBuf]) -> Result<Registry, RegistryError>` reads each `PluginManifest` and keeps it with its directory (`Plugin { dir, manifest }`), because `command`, `uv.lock` and `pyproject.toml` are relative to it. `Registry::check_suite(&SuiteFile) -> Result<CheckedSuite, RegistryError>` checks every entry. The module is `#[cfg(unix)]` (skeleton Step 4).
 2. Params are validated with `jsonschema` (a runtime dependency from Phase 0, pinned `=0.60.2` with `resolve-http` and `resolve-file` off) against the kind's `KindSpec` params schema; the error names the entry, the kind and the JSON pointer of the first fault.
 3. Needs: `artifacts` (globs under `outputs/**`) and `metadata` (named run-manifest fields such as `plan.prompt_domain_name`) are met; `snapshots` and `inputs` are refused with exactly `unsupported in this version: snapshots` or `unsupported in this version: inputs` (R03 §Scope move). An unknown need is refused.
 4. No process is spawned in this step.
+5. A `#[cfg(test)] mod scaffold` holds this step's development tests, so the check below has tests to run; Step 3 deletes it.
 **Deliverables**: `crates/candler-core/src/evaluation/registry/{mod,manifest,suite,needs}.rs` (`Registry`, `CheckedSuite`, `RegistryError`)
 **Consistency Checks**: `cargo clippy -p candler-core --all-targets -- -D warnings && cargo nextest run -p candler-core -E 'test(scaffold)'` (expected: PASS)
 **Commit**: `feat(registry): check suites against plug-in manifests`
@@ -23,10 +24,11 @@
 ## Step 2: Build plug-in environments once per lock digest
 **Goal**: A preflight step materialises each plug-in's uv environment with `uv sync --frozen` keyed by the lock's digest, and a second preflight under the same digest does nothing.
 **Implementation Logic**:
-1. `EnvironmentStep` implements `PreflightStep`. `pub fn register_evaluation_steps(resolver: Resolver, plugins: &[PluginManifest], env_root: &Path) -> Result<Resolver, ResolveError>` adds one per plug-in through `Resolver::register`; the core never calls it itself, the `candler` crate composes it (coordinator ruling, 2026-11-06). For each plug-in it computes the sha256 of the plug-in's `uv.lock` and `pyproject.toml`, and uses `<env root>/<digest>/`; if a `ready` marker exists there, it spawns nothing.
+1. `EnvironmentStep` implements `PreflightStep`. `pub fn register_evaluation_steps(resolver: Resolver, registry: &Registry, env_root: &Path) -> Result<Resolver, ResolveError>` adds one per plug-in through `Resolver::register`; the core never calls it itself, the `candler` crate composes it (coordinator ruling, 2026-11-06). For each plug-in it computes the sha256 of the plug-in's `uv.lock` and `pyproject.toml`, and uses `<env root>/<digest>/`; if a `ready` marker exists there, it spawns nothing.
 2. Otherwise it runs `uv sync --frozen --project <plug-in dir>` with `UV_PROJECT_ENVIRONMENT=<env root>/<digest>/.venv` through `Supervisor::run_captured`, writes `ready` only after success, and leaves no half-built environment marked ready.
 3. The environment is outside the store: a plug-in never writes into a store blob through it (I11).
-**Deliverables**: `crates/candler-core/src/evaluation/registry/environment.rs` (`EnvironmentStep`, `EnvironmentKey`, `register_evaluation_steps`)
+4. `pub fn default_env_root(config: &Config) -> Result<PathBuf, RegistryError>` is `<state home>/candler/environments` (R03 §Environments); with no state home it is an error naming `XDG_STATE_HOME` and `HOME`. The binary and the guards both call it.
+**Deliverables**: `crates/candler-core/src/evaluation/registry/environment.rs` (`EnvironmentStep`, `EnvironmentKey`, `register_evaluation_steps`, `default_env_root`)
 **Consistency Checks**: `cargo clippy -p candler-core --all-targets -- -D warnings` (expected: PASS)
 **Commit**: `feat(registry): build plug-in environments once per lock digest`
 
