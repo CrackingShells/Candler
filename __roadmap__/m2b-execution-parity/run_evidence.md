@@ -45,7 +45,7 @@
 **Goal**: An output that equals an input by content invalidates the run, and the run's tree is built from the evidence.
 **Implementation Logic**:
 1. `input_leak(&Evidence, &Inputs) -> Option<InvalidReason>` compares each `OutputDigest` with each `InputDigest` by sha256 and returns `Some(InvalidReason::InputLeak)` on the first equal digest. Sizes, names and paths are never compared (a copied input is renamed, and a different file may share a size). It runs on collected output only (R2 step 9).
-2. `tree_json(&Evidence) -> Result<RunTree, EvidenceError>` builds the run tree through `RunTreeBuilder` from the sessions and outputs, with store-relative paths only (I14). The workspace path is a container path and is never stored.
+2. `tree_json(&Evidence) -> Result<RunTree, EvidenceError>` builds the run tree through `RunTreeBuilder` from the sessions and outputs, with store-relative paths only (I14). The workspace path is a container path and is never stored. It lists no path under a directory that holds a `pyvenv.cfg` (feature_map X35, S3.R1-R3) and none under a read-only input mount point (decision 13); both rules belong here, not to the driver (A26).
 3. Class A: equal digest under a different name, equal size with different bytes (stays valid), and no inputs (stays valid).
 **Deliverables**: `crates/candler-core/src/runner/evidence/leak.rs` (`input_leak`); `crates/candler-core/src/runner/evidence/tree.rs` (`tree_json`, `EvidenceError`)
 **Consistency Checks**: `cargo nextest run -p candler-core -E 'test(scaffold)'` (expected: PASS)
