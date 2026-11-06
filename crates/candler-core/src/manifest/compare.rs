@@ -262,6 +262,7 @@ fn declared_covers(declared: &[FieldPath], path: &FieldPath) -> bool {
     let own: Vec<&str> = path.segments().collect();
     declared.iter().any(|factor| {
         let prefix: Vec<&str> = factor.segments().collect();
+        // BORROW: `.as_slice()` views each vector as a slice
         covers(prefix.as_slice(), own.as_slice())
     })
 }
