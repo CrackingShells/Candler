@@ -68,3 +68,22 @@ The byte comparison therefore stays as written, and golden_parity needs no join.
 - **6 and 7: accepted.**
   - 6: the `Plugin` dataclass, the `python -m candler_evaluator <module>` entry, and the wider `RunContext`.
   - 7: on cancel, the item's child is abandoned to its own alarm. The verifier's M3, that the child is reaped only at helper exit, is accepted: the client closes stdin after `cancel`, so the helper exits.
+
+## run_context
+- **`CheckedNeeds`: fixed in the text.** The leaf named a type defined nowhere. `assemble` takes the schemas' `Needs` and compiles the globs itself, so no checked form crosses the seam. The registry has already refused unsupported needs by the time the engine calls it (`run_context.md` Step 1).
+- **Accepted as chosen:**
+  - `needs.trace` is ignored. `snapshots` or `inputs` that are not empty give `ContextError::Unsupported`.
+  - A missing metadata path, or one with no recorded value, gives `MissingMetadata`.
+  - `materialise(&Assembled, &Path)` refuses a relative workspace, one inside or above the store (symlinks resolved), and an existing `outputs/`.
+  - `AssembledArtifact`'s public fields, `FileRule` and `file_rule_keeps`.
+  - A case or Unicode-normalisation collision on APFS is a hard `Io` error.
+- **A failed `materialise` leaves a partial `outputs/`.** The engine removes the workspace before any retry (`engine.md` Step 2 item 3).
+- **The dot rule's edges (verifier MINOR 3 and 4): kept, and written down.** The literal-segment match is position-free (`outputs/.a/**` keeps `.a/.a/f`), and escaped, bracketed or brace-spanning spellings do not count as literal. Both fail safe. R03 §File rule now says so.
+- **The mini-corpus has no dot files under `outputs/`,** so RC1's Python vectors do not exercise the dot rule. RC2's hand table does, and that suffices.
+
+## protocol_client verifier notes for the engine
+A cancel that lands while the client settles returns `Ok`, and dropping a `Child` does not stop its process. `engine.md` Step 2 item 4 now has the engine re-check `cancel` before `commit` and never drop an in-flight `evaluate` future.
+
+## htn_plugin, before dispatch
+- **The manifest path.** OWNED now names `.claude/skills/htn-creator-workspace/candler-plugin.toml` (F3 above), and the Step 1 deliverable is that path.
+- **The OWNED regex had a look-ahead `(?!kinds/)`.** This is the same defect as helper_runtime's item 5. It is replaced by `src/htn_creator_candler/[^/]+\.py$`, top-level modules only.

@@ -188,7 +188,7 @@ Kept quirks change A–C rows, so they are explicit params with the grader's def
 - The artifact need for every entry is `outputs/**`.
 
 ### File rule
-- **Artifacts.** The artifacts of a context are the run's stored `outputs/` files matched by an artifact glob, minus any path with a component starting with `.` unless the glob names that component literally.
+- **Artifacts.** The artifacts of a context are the run's stored `outputs/` files matched by an artifact glob, minus any path with a component starting with `.` unless the glob names that component literally. "Literally" means a plain literal segment of the matching glob with the same text, wherever it sits in the glob: `outputs/.a/**` keeps `.a/.a/f`, and `outputs/\.env`, `outputs/[.]env` or a brace spanning `/` do not name `.env`. Both edges drop a file and never leak one.
 - **What it drops.** The rule drops `.claude/` (the grader's own `find_output` exclusion), AppleDouble `._*` and `.DS_Store`. The corpus also carries `__MACOSX/` beside the cells, which is outside every run.
 - **Paths.** Paths are relative to `outputs/` with `/`.
 - **Empty `outputs/`.** It gives no artifacts and no error.
