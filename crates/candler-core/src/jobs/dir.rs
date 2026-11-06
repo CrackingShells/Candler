@@ -14,6 +14,7 @@ use candler_schemas::primitives::JobId;
 use candler_schemas::process::{CHILD_RECORD_SCHEMA, ChildRecord};
 use serde_json::Value;
 
+use super::lost;
 use super::view::{ChildEntry, JobView, JobViewError};
 use crate::isolation::gateway::ChildRecorder;
 use crate::store::layout::StoreLayout;
@@ -267,6 +268,27 @@ impl JobDir {
         bytes.push(b'\n');
         write_atomic(&path, &bytes)
     }
+
+    /// The `*.json` files of `control/`, as records; one that cannot be read is listed apart.
+    pub(crate) fn control_records(&self) -> Result<(Vec<ChildRecord>, Vec<PathBuf>), JobError> {
+        let dir = self.control_dir();
+        let mut records = Vec::new();
+        let mut unreadable = Vec::new();
+        for path in sorted_files(&dir).map_err(io_error("list the control directory", &dir))? {
+            if path.extension().is_none_or(|ext| ext != "json") {
+                unreadable.push(path);
+                continue;
+            }
+            match fs::read(&path)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<ChildRecord>(&bytes).ok())
+            {
+                Some(record) => records.push(record),
+                None => unreadable.push(path),
+            }
+        }
+        Ok((records, unreadable))
+    }
 }
 
 /// The paths of the entries of `dir`, sorted by file name.
@@ -331,9 +353,25 @@ impl JobView for JobDir {
     }
 
     fn is_lost(&self, job: &JobId) -> Result<bool, JobViewError> {
-        let _ = job;
-        Err(JobViewError::Unavailable {
-            detail: "JobDir::is_lost".to_owned(),
-        })
+        let read = |e: JobError| JobViewError::Read {
+            detail: e.to_string(),
+        };
+        let other;
+        let dir = if job == &self.job {
+            self
+        } else {
+            // The directories of the jobs of a store sit side by side.
+            let Some(path) = self.path.parent().map(|jobs| jobs.join(job.as_str()))
+            // BORROW: explicit .as_str() instead of Deref coercion
+            else {
+                return Ok(false);
+            };
+            if !path.is_dir() {
+                return Ok(false);
+            }
+            other = Self::new(job.clone(), path); // BORROW: the directory owns its job id
+            &other
+        };
+        Ok(lost::classify(dir).map_err(read)? == lost::JobLiveness::Lost)
     }
 }

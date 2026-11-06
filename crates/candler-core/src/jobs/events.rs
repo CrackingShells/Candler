@@ -162,8 +162,7 @@ impl JobEvents {
         while let Some(at) = rest.iter().position(|b| *b == b'\n') {
             let (line, after) = rest.split_at(at);
             events.push(parse_line(line, &self.path, offset)?);
-            // CAST: a line length is far below u64::MAX
-            offset = offset.saturating_add(at as u64).saturating_add(1);
+            offset = offset.saturating_add(wide(at)).saturating_add(1);
             rest = after.get(1..).unwrap_or_default();
         }
         Ok(Tail {
@@ -193,11 +192,11 @@ fn parse_line(line: &[u8], path: &std::path::Path, offset: u64) -> Result<Envelo
     })
 }
 
+/// The offset just past the last newline of a log, and its last complete line with its offset.
+type LastLine = (u64, Option<(u64, Vec<u8>)>);
+
 /// The offset just past the last newline of `file`, and the last complete line with its offset.
-fn last_complete_line(
-    file: &mut File,
-    path: &std::path::Path,
-) -> Result<(u64, Option<(u64, Vec<u8>)>), JobError> {
+fn last_complete_line(file: &mut File, path: &std::path::Path) -> Result<LastLine, JobError> {
     let len = file
         .metadata()
         .map_err(io_error("stat the event log", path))?
@@ -218,17 +217,20 @@ fn last_complete_line(
             window = window.saturating_mul(2);
             continue;
         };
-        // CAST: an index into the buffer fits in u64
-        let end = start + last_nl as u64 + 1;
+        let end = start + wide(last_nl) + 1;
         let body = buf.get(..last_nl).unwrap_or_default();
         match body.iter().rposition(|b| *b == b'\n') {
             Some(prev) => {
                 let line = body.get(prev + 1..).unwrap_or_default().to_vec();
-                // CAST: an index into the buffer fits in u64
-                return Ok((end, Some((start + prev as u64 + 1, line))));
+                return Ok((end, Some((start + wide(prev) + 1, line))));
             }
             None if start == 0 => return Ok((end, Some((0, body.to_vec())))),
             None => window = window.saturating_mul(2),
         }
     }
+}
+
+/// A buffer length as a file offset.
+fn wide(n: usize) -> u64 {
+    u64::try_from(n).unwrap_or(u64::MAX)
 }
