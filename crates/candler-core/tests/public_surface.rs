@@ -605,7 +605,41 @@ mod run_context_surface {
 
 /// The `evaluation::client` items, filled by the `protocol_client` leaf.
 #[cfg(unix)]
-mod protocol_client_surface {}
+mod protocol_client_surface {
+    use std::sync::Arc;
+
+    use candler_core::evaluation::client::{
+        Client, ClientError, ClientOutcome, Clock, DEFAULT_CANCEL_GRACE, DEFAULT_DESCRIBE_DEADLINE,
+        EvaluatorCommand, ItemOutcome, SystemClock, Unreported, UnreportedReason,
+    };
+
+    fn send_sync<T: Send + Sync + ?Sized>() {}
+
+    /// Names every client item; `Arc<dyn Clock>` is `Send + Sync`.
+    #[test]
+    fn client_items_are_nameable() {
+        send_sync::<Arc<dyn Clock>>(); // TRAIT_OBJECT: tests drive the deadline on their own clock
+        send_sync::<EvaluatorCommand>();
+        send_sync::<ClientOutcome>();
+        let _ = (
+            Client::new,
+            Client::with_clock,
+            Client::with_graces,
+            Client::with_describe_deadline,
+            Client::describe,
+            Client::evaluate,
+            EvaluatorCommand::new,
+            EvaluatorCommand::env,
+            EvaluatorCommand::cwd,
+            EvaluatorCommand::run,
+            UnreportedReason::code,
+            ItemOutcome::expectation_id,
+            DEFAULT_CANCEL_GRACE,
+            DEFAULT_DESCRIBE_DEADLINE,
+        );
+        let _ = (SystemClock, None::<ClientError>, None::<Unreported>);
+    }
+}
 
 /// The `evaluation::selection` items, filled by the `selection_rates` leaf.
 mod selection_rates_surface {
