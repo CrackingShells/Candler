@@ -72,6 +72,12 @@ pub enum CatalogError {
         /// What is wrong with the output.
         detail: String,
     },
+    /// The catalog holds a path from the host or the image's file system.
+    #[error("the catalog holds an absolute path: {path}")]
+    AbsolutePath {
+        /// The text that holds it.
+        path: String,
+    },
     /// The catalog has no canonical form.
     #[error("the catalog has no digest: {detail}")]
     Digest {
@@ -138,11 +144,60 @@ pub fn interpret(captured: &Captured) -> Result<Catalog, CatalogError> {
     if !matches!(status, ExitStatus::Code { code: 0 }) {
         return Err(CatalogError::Command { status });
     }
-    serde_json::from_slice::<Catalog>(captured.stdout.as_slice()) // BORROW: explicit .as_slice()
+    let catalog = serde_json::from_slice::<Catalog>(captured.stdout.as_slice()) // BORROW: explicit .as_slice()
         .map_err(|error| CatalogError::Parse {
             // BORROW: .to_string() gives the error its own text
             detail: error.to_string(),
-        })
+        })?;
+    refuse_absolute_paths(&catalog)?;
+    Ok(catalog)
+}
+
+/// Whether `token` is an absolute path: a slash, then a segment, and either another slash or the
+/// whole text.
+fn is_absolute_path(token: &str, whole: bool) -> bool {
+    let Some(rest) = token.strip_prefix('/') else {
+        return false;
+    };
+    let Some(first) = rest.chars().next() else {
+        return false;
+    };
+    if first == '/' || first.is_whitespace() {
+        return false;
+    }
+    whole || rest.contains('/')
+}
+
+/// The first absolute path in the strings of `value`, if any.
+fn find_absolute(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(text) => {
+            let whole = !text.contains(char::is_whitespace);
+            // BORROW: .to_owned() keeps the offending text in the error
+            text.split_whitespace()
+                .find(|token| is_absolute_path(token, whole))
+                .map(str::to_owned)
+        }
+        serde_json::Value::Array(items) => items.iter().find_map(find_absolute),
+        serde_json::Value::Object(fields) => fields.values().find_map(find_absolute),
+        serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => None,
+    }
+}
+
+/// Refuses a catalog that holds an absolute path in any of its strings.
+///
+/// # Errors
+/// [`CatalogError::AbsolutePath`] with the first such text, and [`CatalogError::Digest`] when the
+/// catalog cannot be read back as JSON.
+pub fn refuse_absolute_paths(catalog: &Catalog) -> Result<(), CatalogError> {
+    let json = serde_json::to_value(catalog).map_err(|error| CatalogError::Digest {
+        // BORROW: .to_string() gives the error its own text
+        detail: error.to_string(),
+    })?;
+    match find_absolute(&json) {
+        Some(path) => Err(CatalogError::AbsolutePath { path }),
+        None => Ok(()),
+    }
 }
 
 /// The provider that lists the commands inside the image.
@@ -316,6 +371,7 @@ mod scaffold {
     }
 
     const OK: &str = r#"{"schema":"tool-catalog-snapshot/1","captured_at":"2026-01-01T00:00:00Z","provider":"cmd@1","servers":[]}"#;
+    const LEAK: &str = r#"{"schema":"tool-catalog-snapshot/1","captured_at":"2026-01-01T00:00:00Z","provider":"cmd@1","environment":{"cwd":"/home/user/work"},"servers":[]}"#;
 
     #[tokio::test]
     async fn capture_runs_a_labelled_control_container_and_cleans_up() {
@@ -330,5 +386,29 @@ mod scaffold {
         let control = dir.path().join("store/control");
         assert_eq!(std::fs::read_dir(control).expect("control").count(), 0);
         assert!(!dir.path().join("store/children").exists());
+    }
+
+    #[tokio::test]
+    async fn an_absolute_path_in_the_catalog_is_refused() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let provider = rig(dir.path(), LEAK);
+        let cell = Cell::new(&[]);
+        let error = provider
+            .capture(&image(), &cell)
+            .await
+            .expect_err("a refusal");
+        assert!(
+            matches!(error, CatalogError::AbsolutePath { .. }),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn paths_are_told_from_prose() {
+        assert!(is_absolute_path("/usr/bin/x", false));
+        assert!(is_absolute_path("/help", true));
+        assert!(!is_absolute_path("/help", false));
+        assert!(!is_absolute_path("and/or", true));
+        assert!(!is_absolute_path("//x", true));
     }
 }
