@@ -18,7 +18,7 @@
 ## Step 1: List jobs with `candler ps`
 **Goal**: `candler ps` shows each job's id, experiment, state and progress, and recovers lost ones.
 **Implementation Logic**:
-1. In `crates/candler/src/commands/ps.rs`, `pub fn run(args: PsArgs, out: &mut dyn Write) -> Result<ExitCode, CliError>`; S3 already placed the `Ps` variant and its dispatch arm, so this leaf edits the stub file only (not `main.rs`, `lib.rs`, `mod.rs` or any `Cargo.toml`; a missing dependency is reported as a spec defect).
+1. In `crates/candler/src/commands/ps.rs`, `pub fn run(args: Args, out: &mut dyn Write) -> Result<(), CliError>` (`commands::ps::Args`, S3's struct; this leaf adds fields to it); S3 already placed the `Ps` variant and its dispatch arm, so this leaf edits the stub file only (not `main.rs`, `lib.rs`, `mod.rs` or any `Cargo.toml`; a missing dependency is reported as a spec defect).
 2. For every directory under `<store>/jobs/`, `JobDir::open`, then `jobs::lost::classify`: `Running`, `Ended(end)` or `Lost`; the `state` field of `job.json` is never used. Progress is `runs done / runs planned` counted from `JobEvents::tail` (`run.started` and `run.ended` or `run.failed` events). Experiment comes from `JobRecord`. Output is one row per job: id, experiment, state, progress.
 3. A `Lost` job is recovered once through `jobs::lost::recover(&sup, &sweep, &dir)` with the real `LabelSweeper` and a `Supervisor`, then shown as `ended`; a `recover` error is shown on the row (`lost: recover failed: <reason>`), never hidden, and the command's exit status is non-zero.
 4. An unreadable job directory is a row marked `unreadable` with its path, not a skipped line.
@@ -29,7 +29,7 @@
 ## Step 2: Stop jobs with `candler kill`
 **Goal**: `kill` stops a named job or all jobs only after confirmation, through the guard-verified paths, and recovers what a dead supervisor left.
 **Implementation Logic**:
-1. In `commands/kill.rs`, `pub fn run(args: KillArgs, input: &mut dyn BufRead, out: &mut dyn Write) -> Result<ExitCode, CliError>` with `KillArgs {id: Option<JobId>, all: bool, yes: bool}`; exactly one of `id` and `all`. `-y` and `--yes` are the same flag and default to false.
+1. In `commands/kill.rs`, `pub fn run(args: Args, input: &mut dyn BufRead, out: &mut dyn Write) -> Result<(), CliError>` with `commands::kill::Args {id: Option<JobId>, all: bool, yes: bool}`; exactly one of `id` and `all`. `-y` and `--yes` are the same flag and default to false.
 2. Confirmation first: unless `yes`, print the job ids that would be stopped and read one line; anything but `y` or `yes`, or a closed stdin, is a refusal (non-zero exit, message `refused: pass -y to confirm`). A refusal happens before the job directories are classified for stopping, before the `Supervisor` is built and before any docker call.
 3. A `Running` job: call M1's `Supervisor::reap` on a `ChildRecord` built from `job.json`'s supervisor identity (pid, pgid = pid after setsid, start time), with a `StopSpec` grace as long as job_runtime's teardown bound (D16); it verifies the record against the OS and runs through the I22 guard; no function in this leaf calls a signal API. The supervisor's SIGTERM handler (`job_runtime`) ends the job `killed`. If `job.ended` is still absent after the grace, call `jobs::lost::recover`. An `Ended` job is reported and left alone; a `Lost` job goes to `recover`.
 4. With `--all`, every `Running` or `Lost` job is handled in listing order; one failure is reported and does not stop the others, and the exit status is non-zero if any failed.
@@ -41,7 +41,7 @@
 ## Step 3: Follow a job with `candler watch`
 **Goal**: `watch <id> --json` prints a job's events as they are appended, one JSON document per line.
 **Implementation Logic**:
-1. In `commands/watch.rs`, `pub fn run(args: WatchArgs, out: &mut dyn Write, stop: &AtomicBool) -> Result<ExitCode, CliError>` with `WatchArgs {id: JobId, json: bool}`; `--json` is required in M2b (a human form is out of scope and without it the command refuses).
+1. In `commands/watch.rs`, `pub fn run(args: Args, out: &mut dyn Write, stop: &AtomicBool) -> Result<(), CliError>` with `commands::watch::Args {id: JobId, json: bool}`; `--json` is required in M2b (a human form is out of scope and without it the command refuses).
 2. It prints every event already in the log, then polls `JobEvents::tail(TailPos)` every 200 ms from the saved byte offset, writing each `Envelope` as the line it was read (events are not re-serialised), and exits zero when it reads `job.ended`, or when `classify` reports `Lost` (after one `recover`, so that the closing event is there). A closed stdout (broken pipe) ends it without an error.
 3. An unknown event kind is printed as read (I18); a malformed line ends the command with the offset in the message.
 **Deliverables**: `crates/candler/src/commands/watch.rs` (`run`, `WatchArgs`)

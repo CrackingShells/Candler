@@ -14,8 +14,8 @@
 - ⬜ [cmd] The env image's `RootFS.Layers` starts with the base's whole layer list, and `claude --version` through `DockerImageService::cc_version` equals the `candler.cc_version` label: both read by a class-A `#[ignore]` test against the real daemon, run once, output in the leaf report
 - ⬜ [cmd] `cargo clippy --target x86_64-unknown-linux-gnu --workspace --tests -- -D warnings` passes (LINUX)
 - ⬜ [cmd] STD and SUBJ pass
-- ⬜ [cmd] No scaffolding: `! git grep -n -e 'mod scaffold' -e 'scaffold_' -- crates/candler-core/src/isolation/image crates/candler-core/tests/guard_image.rs`
-- ⬜ [cmd] No destroy verb and no prune in this leaf: `! git grep -n -E '"(rmi|prune|kill|stop)"|image rm' -- crates/candler-core/src/isolation/image assets/docker/base assets/docker/env`
+- ⬜ [cmd] No scaffolding: `! git grep -n -e 'mod scaffold' -e 'scaffold_' -- crates/candler-core/src/isolation/image.rs crates/candler-core/tests/guard_image.rs`
+- ⬜ [cmd] No destroy verb and no prune in this leaf: `! git grep -n -E '"(rmi|prune|kill|stop)"|image rm' -- crates/candler-core/src/isolation/image.rs assets/docker/base assets/docker/env`
 - ⬜ [nl] The leaf report records the bite mutation for B05 and the probe's amd64 build (emulated), and no image is removed by the leaf (M2b has no prune, R22)
 - ⬜ [nl] No verifier is allocated to this leaf; every gate above is a `[cmd]` except the bite record
 **References**: [R01 §Agent environment and secrets, §Run manifest](../../__design__/architecture.md) — `isolation.image` is a local image ID, never a tag; [R03 §2, §3 decision 2, §8, §10.2](../../__reports__/m2b-execution-parity/00-architecture_v0.md) — the env layer, the control container (R11), no prune (R22); [R04 B05](../../__reports__/m2b-execution-parity/01-test_definition_v0.md) — the guard and its bite; [R05b image probe](../../__reports__/m2b-execution-parity/03-image_probe_v0.md) — the base (R3), the digests, the pinned-`FROM` mechanism, the writable paths, the two layering traps; [R06 feature map](feature_map/README.md) — `venv_*` checks, rows S3.R6 to S3.R9, S3.R12, X17, X18
@@ -73,5 +73,5 @@
 2. Try B05's mutation (lock after the check), confirm `guard_image` fails, and restore with `git checkout -- crates/candler-core/src/isolation/image.rs`, never `mv`. This mutation does not signal or destroy, so the pre-spawn check is not needed.
 3. Run the three feature-map checks and the RootFS and version checks (gates above) once against the built images and paste the outputs. Write the leaf report with the bite record and any open points found.
 **Deliverables**: `crates/candler-core/tests/guard_image.rs`; the leaf report under `__reports__/m2b-execution-parity/`
-**Consistency Checks**: `cargo nextest run -p candler-core -E 'binary(guard_image)' && ! git grep --untracked -n -e 'mod scaffold' -e 'scaffold_' -- crates/candler-core/src/isolation/image crates/candler-core/tests` (expected: PASS)
+**Consistency Checks**: `cargo nextest run -p candler-core -E 'binary(guard_image)' && ! git grep --untracked -n -e 'mod scaffold' -e 'scaffold_' -- crates/candler-core/src/isolation/image.rs crates/candler-core/tests` (expected: PASS)
 **Commit**: `test(isolation): drop the image scaffolding and record the bite`
