@@ -16,7 +16,7 @@ candler-harness-claude-code = { path = "crates/candler-harness-claude-code" }
 candler-schemas = { path = "crates/candler-schemas" }
 
 base64 = "0.23"
-clap = { version = "4.6", features = ["derive"] }
+clap = { version = "4.6", features = ["derive", "env"] }
 flate2 = "1"
 futures = "0.3"
 jiff = "0.2"
@@ -34,9 +34,11 @@ thiserror = "2"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt", "rt-multi-thread", "signal", "sync", "time"] }
 toml = "1"
 url = "2"
-uuid = "1"
+uuid = { version = "1", features = ["v7"] }
 
-jsonschema = { version = "0.60", default-features = false }
+# Pinned exactly, with the default `resolve-http` and `resolve-file` features off, so validation
+# never fetches a `$ref` over the network or from the filesystem outside the bundled schemas.
+jsonschema = { version = "=0.60.2", default-features = false }
 proptest = "1"
 tempfile = "3"
 
