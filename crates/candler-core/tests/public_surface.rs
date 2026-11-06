@@ -528,7 +528,51 @@ mod m2b_surface {
 
 /// The `evaluation::registry` items, filled by the `registry` leaf.
 #[cfg(unix)]
-mod registry_surface {}
+mod registry_surface {
+    use std::collections::BTreeMap;
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+
+    use candler_core::evaluation::registry::{
+        CheckedEntry, CheckedSuite, EnvironmentKey, EnvironmentStep, NeedError, Plugin, Registry,
+        RegistryError, default_env_root, register_evaluation_steps,
+    };
+    use candler_core::resolve::config::Config;
+    use candler_core::resolve::preflight::{PreflightStep, Resolver};
+    use candler_core::supervise::Supervisor;
+
+    fn send_sync<T: Send + Sync + ?Sized>() {}
+
+    /// Names every registry item and the signatures the engine and the binary call.
+    #[test]
+    fn registry_items_are_nameable() {
+        send_sync::<EnvironmentStep>();
+        send_sync::<Registry>();
+        let _: fn(&[PathBuf]) -> Result<Registry, RegistryError> = Registry::load;
+        let _ = (
+            Registry::check_suite,
+            Registry::plugins,
+            Registry::plugin,
+            Plugin::new,
+        );
+        let _: fn(&Config) -> Result<PathBuf, RegistryError> = default_env_root;
+        let _: fn(Resolver, &Registry, &Path, Arc<Supervisor>) -> _ = register_evaluation_steps;
+        let _ = (
+            EnvironmentStep::for_plugin,
+            EnvironmentStep::with_path,
+            EnvironmentKey::of_files,
+            EnvironmentKey::digest,
+            EnvironmentKey::dir,
+            CheckedSuite::entries,
+        );
+        let _ = <EnvironmentStep as PreflightStep>::name;
+        let _ = (
+            None::<CheckedEntry>,
+            None::<NeedError>,
+            None::<BTreeMap<String, Plugin>>,
+        );
+    }
+}
 
 /// The `evaluation::context` items, filled by the `run_context` leaf.
 mod run_context_surface {}
