@@ -523,10 +523,13 @@ Normative. Landed in `docs(design)` (S0) before L0. Class: cell value (hashed, c
 | Path | Class | Source |
 |---|---|---|
 | `model.id`, `model.endpoint` | cell value | experiment file (`fixed`, `factors`) |
+| `model.effort` | cell value | experiment file. The driver emits `--effort` only when set (D17) |
+| `model.token_secret` | setting | experiment file: names one `secrets[]` entry, refused if absent (D9) |
 | `tools.allowed`, `tools.disallowed` | cell value | experiment file |
 | `mcp.*` | cell value | experiment file (server config) |
 | `permission_mode` | cell value | experiment file |
 | `request.harness`, `request.treatment` | setting | filled by `cli_run` from the typed tables (F2 (a), R21). Never reaches `Comparable` |
+| `request.treatment_source` | setting | a path to the skill repo, resolved per I14. A location, not identity: the commit pins the content (D2) |
 | `prompt.template`, `prompt.values` | cell value | experiment file |
 | `isolation.image` | cell value | derived by the `image_id` step: local image ID `sha256:...` |
 | `isolation.network` | cell value | experiment file (`bridge` or the internal default) |
