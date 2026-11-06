@@ -1,0 +1,23 @@
+total = 10320
+
+[imported]
+pass = 7999
+zero_weight = 209
+fail = 415
+blocked = 466
+not_measured = 0
+
+[live_expected]
+pass = 7790
+not_applicable = 209
+fail = 415
+blocked = 466
+not_measured = 0
+
+[uncompared]
+D-E1 = 240
+D-E2 = 240
+D-E3 = 240
+D-E4 = 240
+D-E5 = 240
+D-E6 = 240
