@@ -28,7 +28,7 @@
 **Goal**: The leaf report holds the evidence the README gates read, and an adversarial verifier attacks the guard.
 **Implementation Logic**:
 1. The report under `__reports__/m2a-evaluation-parity/golden_parity/` holds the guard log with wall-clock, the unset-variable failures, the four bites (each tried, each failing), the README's CLI `jq` and rates gates run against the kept store, and the per-cell gate-rate table against the published rates for the KT.
-2. Dispatch the adversarial verifier on the guard with the oracle files and R04. One named target: hide a mismatch behind `equivalence.json` (a row naming the wrong run, a nonexistent row, a reversed pair) and show `diff` still fails. Fixes go back to the implementer through `SendMessage`.
+2. Dispatch the adversarial verifier on the guard with the oracle files and R04. One named target: hide a mismatch behind `equivalence.json` (a row naming the wrong run, a nonexistent row, a reversed pair) and show `diff` still fails. The committed file's digest is checked by GP2, and the verifier also attacks the generator: a pair the raw corpus does not show as `pass` 0/0 must not survive into the file. Fixes go back to the implementer through `SendMessage`.
 **Deliverables**: `__reports__/m2a-evaluation-parity/golden_parity/00-report_v0.md`
 **Consistency Checks**: `test -s __reports__/m2a-evaluation-parity/golden_parity/00-report_v0.md && grep -c 'Guards:' crates/candler/tests/guard_golden_parity.rs | grep -qx 3` (expected: PASS)
 **Commit**: `reports(evaluation): record the golden parity run`
