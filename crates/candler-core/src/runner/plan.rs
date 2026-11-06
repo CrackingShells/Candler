@@ -4,7 +4,7 @@
 //! sealed as `invalid(interrupted)` and stays; the next attempt takes the next number. A cell that
 //! has stored runs is replayed from the stored `Comparable`, never rebuilt from the current files.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use candler_schemas::execution::{
     Comparable, Deviation, ExperimentFile, Integrity, SecretPresence,
 };
-use candler_schemas::primitives::{Digest, FieldPath, JobId, RunKey};
+use candler_schemas::primitives::{Digest, FieldPath, JobId, RunKey, SecretName};
 use candler_schemas::values::{JsonValue, ResolvedValue, SourceEntry, ValueSource};
 use rustix::fs::{FlockOperation, flock};
 use rustix::io::Errno;
@@ -31,8 +31,6 @@ pub type CellId = Digest;
 const HARNESS_VERSION: &str = "harness.version";
 /// The path of the secrets, a re-checked fact.
 const SECRETS: &str = "secrets";
-/// The name of a preflight check that reports whether one secret is present.
-const SECRET_CHECK: &str = "secret";
 
 /// What planning reads.
 #[derive(Debug, Clone)]
@@ -41,6 +39,9 @@ pub struct PlanCtx {
     pub store: Store,
     /// The path of the experiment's lock file; the caller derives it from the experiment.
     pub experiment_lock: PathBuf,
+    /// The secrets that are present now, by name; the caller fills it from the secret resolution
+    /// it already does for the gateway token.
+    pub secrets_present: BTreeSet<SecretName>,
 }
 
 /// Whether a forced plan may accept a differing re-check.
@@ -125,19 +126,30 @@ pub enum PlanError {
     /// A re-checked fact differs from the stored cell and the plan was not forced.
     #[error("a re-checked fact differs from the stored cell: {}", paths_of(.0))]
     Changed(Vec<Deviation>),
-    /// A stored cell of this experiment has no counterpart in the experiment file.
+    /// A stored cell of a past experiment has no counterpart in this experiment file, while
+    /// other cells of that past experiment do.
     #[error("the stored cell {cell} has no counterpart in the experiment")]
     StoredCellUnknown {
         /// The digest of the stored cell.
         cell: String,
     },
-    /// Two stored cells both answer one cell of the experiment, so none can be replayed.
+    /// Two stored cells both answer one cell of the experiment, or two past experiments both
+    /// match it, so none can be replayed; one stored cell that answers two cells names itself
+    /// twice.
     #[error("the stored cells {first} and {second} both answer one cell of the experiment")]
     StoredCellAmbiguous {
         /// The digest of the first stored cell.
         first: String,
         /// The digest of the second stored cell.
         second: String,
+    },
+    /// The highest attempt of a cell and replicate is `u32::MAX`, so no next attempt exists.
+    #[error("replicate {replicate} of the cell {cell} has no attempt number left")]
+    AttemptOverflow {
+        /// The digest of the cell.
+        cell: String,
+        /// The replicate.
+        replicate: u32,
     },
     /// A cell of the experiment cannot be built from the resolution.
     #[error("a cell cannot be built: {detail}")]
@@ -212,8 +224,8 @@ fn probe_lock(path: &Path) -> Result<(), PlanError> {
 
 /// A cell of the experiment under the fresh resolution.
 struct FreshCell {
-    /// The values the experiment file gives the cell, after explicit arguments replace theirs.
-    effective: Vec<ResolvedValue>,
+    /// The paths the experiment file or an explicit argument sets in the cell.
+    declared: Vec<FieldPath>,
     /// The cell built from the effective values and everything else the resolution holds.
     comparable: Comparable,
 }
@@ -260,95 +272,181 @@ fn fresh_cells(
             Comparable::from_resolved(values.as_slice()).map_err(|e| PlanError::Cell {
                 detail: e.to_string(),
             })?;
+        let mut declared: Vec<FieldPath> = effective
+            .iter()
+            .map(|value| value.path().clone()) // BORROW: the cell owns its declared paths
+            .collect();
+        declared.extend(
+            resolution
+                .values
+                .iter()
+                .filter(|value| is_explicit(value.path()))
+                .map(|value| value.path().clone()), // BORROW: the cell owns its declared paths
+        );
         cells.push(FreshCell {
-            effective,
+            declared,
             comparable,
         });
     }
     Ok(cells)
 }
 
-/// What the store keeps of one stored cell: its record, the secrets it saw and its experiment.
+/// What the store keeps of one stored cell: its record and the secrets any attempt saw.
 struct Stored {
     comparable: Comparable,
     secrets: Vec<SecretPresence>,
-    experiment: Digest,
 }
 
-/// The stored cells of the store, one per cell digest, read from the last attempt of each.
-fn stored_cells(store: &Store) -> Result<Vec<Stored>, PlanError> {
-    let mut last: Vec<RunKey> = Vec::new();
+/// The stored cells of the store, grouped by the experiment that wrote them. Each cell's record
+/// is read from its last attempt, and its secrets are the names marked present in any attempt.
+fn stored_groups(store: &Store) -> Result<Vec<Vec<Stored>>, PlanError> {
+    let mut by_cell: BTreeMap<Digest, Vec<RunKey>> = BTreeMap::new();
     for entry in store.runs().map_err(store_error)? {
-        match last.last_mut() {
-            Some(held) if held.cell() == entry.key.cell() => *held = entry.key,
-            _ => last.push(entry.key),
-        }
+        by_cell
+            .entry(entry.key.cell().clone()) // BORROW: the map owns the cell digest
+            .or_default()
+            .push(entry.key);
     }
-    let mut stored = Vec::new();
-    for key in &last {
-        let manifest = store.read_manifest(key).map_err(store_error)?;
-        stored.push(Stored {
-            // BORROW: .clone() gives the plan its own copy of the stored cell
-            comparable: manifest.comparable().clone(),
-            // BORROW: .to_vec() copies the stored secrets
-            secrets: manifest.secrets().to_vec(),
-            // BORROW: .clone() copies the experiment digest
-            experiment: manifest.experiment().clone(),
-        });
-    }
-    Ok(stored)
-}
-
-/// Reports whether a stored cell holds every value the experiment gives a cell.
-fn answers(stored: &Comparable, cell: &FreshCell) -> bool {
-    cell.effective
-        .iter()
-        .all(|value| stored.values().contains(value))
-}
-
-/// The stored cell of each cell of the experiment, and a refusal of any stored cell of the same
-/// experiment that no cell answers or of two that answer one cell.
-fn match_stored<'a>(
-    cells: &[FreshCell],
-    stored: &'a [Stored],
-) -> Result<Vec<Option<&'a Stored>>, PlanError> {
-    let mut chosen: Vec<Option<&'a Stored>> = Vec::with_capacity(cells.len());
-    let mut used: BTreeSet<usize> = BTreeSet::new();
-    for cell in cells {
-        let mut found: Option<(usize, &'a Stored)> = None;
-        for (index, candidate) in stored.iter().enumerate() {
-            if !answers(&candidate.comparable, cell) {
-                continue;
+    let mut groups: BTreeMap<Digest, Vec<Stored>> = BTreeMap::new();
+    for keys in by_cell.values() {
+        let mut secrets: Vec<SecretPresence> = Vec::new();
+        let mut last: Option<(&RunKey, RunManifestView)> = None;
+        for key in keys {
+            let manifest = store.read_manifest(key).map_err(store_error)?;
+            for secret in manifest.secrets().iter().filter(|secret| secret.present) {
+                if !secrets.iter().any(|seen| seen.name == secret.name) {
+                    secrets.push(secret.clone()); // BORROW: the cell owns the names it saw
+                }
             }
-            if let Some((_, first)) = found {
-                return Err(PlanError::StoredCellAmbiguous {
-                    first: first.comparable.digest().to_string(),
-                    second: candidate.comparable.digest().to_string(),
-                });
+            let order = (key.replicate(), key.attempt());
+            if last
+                .as_ref()
+                .is_none_or(|(held, _)| order >= (held.replicate(), held.attempt()))
+            {
+                last = Some((
+                    key,
+                    RunManifestView {
+                        // BORROW: .clone() gives the plan its own copy of the stored cell
+                        comparable: manifest.comparable().clone(),
+                        // BORROW: .clone() copies the experiment digest
+                        experiment: manifest.experiment().clone(),
+                    },
+                ));
             }
-            found = Some((index, candidate));
         }
-        if let Some((index, candidate)) = found {
-            used.insert(index);
-            chosen.push(Some(candidate));
-        } else {
-            chosen.push(None);
-        }
-    }
-    let experiments: BTreeSet<&Digest> = stored
-        .iter()
-        .enumerate()
-        .filter(|(index, _)| used.contains(index))
-        .map(|(_, candidate)| &candidate.experiment)
-        .collect();
-    for (index, candidate) in stored.iter().enumerate() {
-        if !used.contains(&index) && experiments.contains(&candidate.experiment) {
-            return Err(PlanError::StoredCellUnknown {
-                cell: candidate.comparable.digest().to_string(),
+        if let Some((_, view)) = last {
+            groups.entry(view.experiment).or_default().push(Stored {
+                comparable: view.comparable,
+                secrets,
             });
         }
     }
-    Ok(chosen)
+    Ok(groups.into_values().collect())
+}
+
+/// The parts of the last manifest of a cell that the plan keeps.
+struct RunManifestView {
+    comparable: Comparable,
+    experiment: Digest,
+}
+
+/// Reports whether a stored cell answers a fresh cell: they agree on every path but the facts.
+///
+/// A path the experiment file or an explicit argument sets must hold the same value in both. A
+/// stored value the fresh cell has no counterpart for is a mismatch. Any other fresh value (from
+/// a configuration file, a default or a derived step) may differ from the stored one, which is
+/// then replayed.
+fn answers(stored: &Comparable, cell: &FreshCell) -> bool {
+    let fresh = cell.comparable.values();
+    let counterpart = |path: &FieldPath| fresh.iter().find(|value| value.path() == path);
+    let is_fact = |path: &FieldPath| path.as_str() == ISOLATION_IMAGE; // BORROW: explicit .as_str()
+    if stored.harness().name != cell.comparable.harness().name {
+        return false;
+    }
+    for value in stored
+        .values()
+        .iter()
+        .filter(|value| !is_fact(value.path()))
+    {
+        match counterpart(value.path()) {
+            None => return false,
+            Some(own) if cell.declared.contains(value.path()) && own != value => return false,
+            Some(_) => {}
+        }
+    }
+    cell.declared
+        .iter()
+        .filter(|path| !is_fact(path))
+        .all(|path| {
+            stored
+                .values()
+                .iter()
+                .any(|value| value.path() == path && counterpart(path) == Some(value))
+        })
+}
+
+/// The stored cell that answers each cell of the experiment, taken from the one past experiment
+/// whose cells map one to one onto the cells of this one.
+///
+/// A past experiment none of whose cells answers is another experiment and is ignored.
+fn match_stored<'a>(
+    cells: &[FreshCell],
+    groups: &'a [Vec<Stored>],
+) -> Result<Vec<Option<&'a Stored>>, PlanError> {
+    let mut chosen: Option<(&'a Stored, Vec<Option<&'a Stored>>)> = None;
+    for group in groups {
+        let hits: Vec<Vec<usize>> = group
+            .iter()
+            .map(|candidate| {
+                (0..cells.len())
+                    .filter(|index| {
+                        cells
+                            .get(*index)
+                            .is_some_and(|cell| answers(&candidate.comparable, cell))
+                    })
+                    .collect()
+            })
+            .collect();
+        if hits.iter().all(Vec::is_empty) {
+            continue;
+        }
+        let mut slots: Vec<Option<&'a Stored>> = vec![None; cells.len()];
+        for (candidate, found) in group.iter().zip(&hits) {
+            let digest = candidate.comparable.digest().to_string();
+            let [index] = found.as_slice() else {
+                if found.is_empty() {
+                    return Err(PlanError::StoredCellUnknown { cell: digest });
+                }
+                return Err(PlanError::StoredCellAmbiguous {
+                    // BORROW: the error owns the digest text
+                    first: digest.clone(),
+                    second: digest,
+                });
+            };
+            let Some(slot) = slots.get_mut(*index) else {
+                continue;
+            };
+            if let Some(held) = slot {
+                return Err(PlanError::StoredCellAmbiguous {
+                    first: held.comparable.digest().to_string(),
+                    second: digest,
+                });
+            }
+            *slot = Some(candidate);
+        }
+        let first = group.first();
+        match (chosen.take(), first) {
+            (Some((held, _)), Some(next)) => {
+                return Err(PlanError::StoredCellAmbiguous {
+                    first: held.comparable.digest().to_string(),
+                    second: next.comparable.digest().to_string(),
+                });
+            }
+            (None, Some(next)) => chosen = Some((next, slots)),
+            (held, None) => chosen = held,
+        }
+    }
+    Ok(chosen.map_or_else(|| vec![None; cells.len()], |(_, slots)| slots))
 }
 
 /// The JSON a resolution holds at `path`.
@@ -414,39 +512,42 @@ pub fn check_facts(stored: &Comparable, resolution: &Resolution) -> Vec<Deviatio
 }
 
 /// The deviation of the secrets: one entry at `secrets` that lists, by name, the secrets the
-/// stored run saw present and the ones the resolution still finds present, when some are gone.
-///
-/// The resolution reports a present secret as a passed preflight check named `secret@<NAME>`
-/// with each `_` of the name written `-`; a secret with no such check is absent.
+/// stored attempts saw present and the ones that are still present, when some are gone.
 #[must_use]
-pub fn check_secrets(stored: &[SecretPresence], resolution: &Resolution) -> Option<Deviation> {
-    let present: BTreeSet<&str> = resolution
-        .preflight
+pub fn check_secrets(
+    stored: &[SecretPresence],
+    present: &BTreeSet<SecretName>,
+) -> Option<Deviation> {
+    let was: BTreeSet<&SecretName> = stored
         .iter()
-        .flat_map(|report| report.checks.iter())
-        .filter(|check| check.passed && check.name.name() == SECRET_CHECK)
-        .map(|check| check.name.version())
+        .filter(|secret| secret.present)
+        .map(|secret| &secret.name)
         .collect();
-    let mut was: Vec<String> = Vec::new();
-    let mut still: Vec<String> = Vec::new();
-    for secret in stored.iter().filter(|secret| secret.present) {
-        let name = secret.name.to_string();
-        if present.contains(name.replace('_', "-").as_str()) {
-            still.push(name.clone()); // BORROW: the list owns the name
-        }
-        was.push(name);
-    }
-    was.sort();
-    still.sort();
-    let names = |list: Vec<String>| Value::Array(list.into_iter().map(Value::String).collect());
+    let still: BTreeSet<&SecretName> = was
+        .iter()
+        .copied()
+        .filter(|name| present.contains(*name))
+        .collect();
+    let names = |set: BTreeSet<&SecretName>| {
+        Value::Array(
+            set.into_iter()
+                .map(|n| Value::String(n.to_string()))
+                .collect(),
+        )
+    };
     differ(SECRETS, Some(names(was)), Some(names(still)))
 }
 
 /// Reports whether `job` still holds its lock.
 fn job_is_live(store: &Store, job: &JobId) -> Result<bool, PlanError> {
-    let Ok(dir) = JobDir::open(store.layout(), job) else {
-        return Ok(false);
-    };
+    let path = store.layout().job_dir(job);
+    match fs::metadata(&path) {
+        Ok(_) => {}
+        // EXPLICIT: a job whose directory is gone holds no lock
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(store_error(format!("{}: {error}", path.display()))),
+    }
+    let dir = JobDir::open(store.layout(), job).map_err(store_error)?;
     match JobLock::probe(&dir).map_err(store_error)? {
         LockState::Held => Ok(true),
         LockState::Free => Ok(false),
@@ -504,8 +605,8 @@ pub fn plan_runs(
         }
     };
     let cells = fresh_cells(file, resolution)?;
-    let stored = stored_cells(&ctx.store)?;
-    let matched = match_stored(cells.as_slice(), stored.as_slice())?;
+    let groups = stored_groups(&ctx.store)?;
+    let matched = match_stored(cells.as_slice(), groups.as_slice())?;
 
     let mut digests: BTreeSet<Digest> = BTreeSet::new();
     let mut per_cell: Vec<(Digest, Option<Comparable>, Vec<Deviation>)> = Vec::new();
@@ -514,7 +615,7 @@ pub fn plan_runs(
         let (digest, pinned, deviations) = match found {
             Some(held) => {
                 let mut deviations = check_facts(&held.comparable, resolution);
-                deviations.extend(check_secrets(held.secrets.as_slice(), resolution));
+                deviations.extend(check_secrets(held.secrets.as_slice(), &ctx.secrets_present));
                 (
                     held.comparable.digest(),
                     // BORROW: the plan carries the stored cell as written
@@ -563,6 +664,16 @@ pub fn plan_runs(
                 .store
                 .next_attempt(&digest, replicate)
                 .map_err(store_error)?;
+            if entries.iter().any(|entry| {
+                entry.key.cell() == &digest
+                    && entry.key.replicate() == replicate
+                    && entry.key.attempt() == attempt
+            }) {
+                return Err(PlanError::AttemptOverflow {
+                    cell: digest.to_string(),
+                    replicate,
+                });
+            }
             let key = RunKey::new(digest.clone(), replicate, attempt) // BORROW: the key owns its cell
                 .map_err(store_error)?;
             plans.push(RunPlan {

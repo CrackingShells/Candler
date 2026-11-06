@@ -9,11 +9,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
-use candler_core::runner::plan::{Force, PlanCtx, PlanError, PlanMode, plan_runs};
+use candler_core::runner::plan::{Force, PlanError, PlanMode, plan_runs};
 use serde_json::{Value, json};
 use support::run_plan::{
-    Facts, Run, attempts_on_disk, experiment, fresh_store, manifest, resolution, snapshot,
-    stored_cell, write_run,
+    Facts, Run, attempts_on_disk, experiment, fresh_store, manifest, plan_ctx, resolution,
+    snapshot, stored_cell, write_run,
 };
 
 type Files = BTreeMap<PathBuf, Vec<u8>>;
@@ -56,6 +56,7 @@ fn run<'a>(
         facts,
         integrity: json!({"kind": "valid"}),
         sealed,
+        job: None,
     }
 }
 
@@ -82,10 +83,7 @@ fn b26_resume_deletes_nothing_and_numbers_attempts() {
     }
     let file = experiment(&models, 2);
     let res = resolution(&facts);
-    let ctx = PlanCtx {
-        store: store.clone(),
-        experiment_lock: lock,
-    };
+    let ctx = plan_ctx(&store, &lock, &facts);
 
     // First plan, over two sealed runs and two unfinished attempts.
     let before = snapshot(&root);
@@ -258,10 +256,7 @@ fn b27_changed_fact_is_refused_and_the_cell_is_pinned() {
 
     // Control: nothing changed, so the resume plans replicate 2 of each cell.
     let (_dir, store, lock) = two_cells();
-    let ctx = PlanCtx {
-        store,
-        experiment_lock: lock,
-    };
+    let ctx = plan_ctx(&store, &lock, &base);
     let out = plan_runs(&ctx, &file, &resolution(&base), Force::No, PlanMode::Hold)
         .map_err(|e| e.to_string())
         .expect("the control plans");
@@ -282,12 +277,9 @@ fn b27_changed_fact_is_refused_and_the_cell_is_pinned() {
     for change in changes() {
         let (_dir, store, lock) = two_cells();
         let root = store.layout().root().to_path_buf();
-        let ctx = PlanCtx {
-            store,
-            experiment_lock: lock,
-        };
         let mut observed = base.clone();
         (change.apply)(&mut observed);
+        let ctx = plan_ctx(&store, &lock, &observed);
         let res = resolution(&observed);
 
         // Refused without force, naming the path, and nothing is written.
@@ -358,12 +350,9 @@ fn b28_forced_deviations_are_recorded_on_every_new_attempt() {
             sealed.integrity = json!({"kind": "invalid", "reason": "infrastructure"});
             write_run(&store, &sealed);
         }
-        let ctx = PlanCtx {
-            store,
-            experiment_lock: lock,
-        };
         let mut observed = base.clone();
         (change.apply)(&mut observed);
+        let ctx = plan_ctx(&store, &lock, &observed);
 
         let before = snapshot(&root);
         let out = plan_runs(
