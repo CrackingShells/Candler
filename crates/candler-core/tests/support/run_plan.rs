@@ -1,14 +1,16 @@
 //! Helpers for the guards of run planning: builders and fixtures, never expected values.
 #![allow(dead_code, reason = "each guard binary uses a subset of the helpers")]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use candler_core::resolve::layers::Resolution;
+use candler_core::runner::plan::PlanCtx;
 use candler_core::store::Store;
 use candler_core::store::run::{Existing, RunWriter};
 use candler_schemas::execution::{Comparable, ExperimentFile, RunManifest};
+use candler_schemas::primitives::SecretName;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
@@ -28,6 +30,10 @@ pub struct Facts {
     pub commit: String,
     /// The secrets present, by name.
     pub secrets: Vec<String>,
+    /// A per-run turn cap a project configuration gives, when there is one.
+    pub turns: Option<u64>,
+    /// The experiment file's digest character; the stored runs of one experiment share it.
+    pub experiment: char,
 }
 
 impl Facts {
@@ -38,6 +44,8 @@ impl Facts {
             version: "2.1.0".to_owned(),
             commit: "1".repeat(40),
             secrets: vec!["API_KEY".to_owned()],
+            turns: None,
+            experiment: 'e',
         }
     }
 }
@@ -60,29 +68,21 @@ fn treatment(facts: &Facts) -> Value {
     json!({"name": "htn", "tag": "v1", "commit": facts.commit})
 }
 
-/// A fresh resolution that observes `facts`: the values a preflight derived and the secrets it
-/// found present.
+/// A fresh resolution that observes `facts`.
 pub fn resolution(facts: &Facts) -> Resolution {
-    let checks: Vec<Value> = facts
-        .secrets
-        .iter()
-        .map(|name| {
-            json!({
-                "name": format!("secret@{}", name.replace('_', "-")),
-                "passed": true,
-                "explanation": "present",
-            })
-        })
-        .collect();
+    let mut values = vec![
+        json!({"path": "harness", "value": {"name": "claude-code", "version": facts.version}}),
+        json!({"path": "isolation.image", "value": facts.image}),
+        json!({"path": "treatment", "value": treatment(facts)}),
+    ];
+    if let Some(turns) = facts.turns {
+        values.push(json!({"path": "budget.per_run.turns", "value": turns}));
+    }
     serde_json::from_value(json!({
-        "values": [
-            {"path": "harness", "value": {"name": "claude-code", "version": facts.version}},
-            {"path": "isolation.image", "value": facts.image},
-            {"path": "treatment", "value": treatment(facts)},
-        ],
+        "values": values,
         "settings": [],
         "sources": [],
-        "preflight": [{"step": "secrets@1", "derived": [], "checks": checks}],
+        "preflight": [],
     }))
     .expect("a resolution")
 }
@@ -102,20 +102,26 @@ pub struct Run<'a> {
     pub integrity: Value,
     /// Whether `run.done` seals the run.
     pub sealed: bool,
+    /// The job that ran it, when there is one.
+    pub job: Option<&'a str>,
 }
 
 fn manifest_json(run: &Run<'_>, cell: &str) -> Value {
-    json!({
+    let mut values = vec![
+        json!({"path": "budget.per_run.wall_s", "value": 3600}),
+        json!({"path": "isolation.image", "value": run.facts.image}),
+        json!({"path": "model.id", "value": run.model}),
+    ];
+    if let Some(turns) = run.facts.turns {
+        values.insert(0, json!({"path": "budget.per_run.turns", "value": turns}));
+    }
+    let mut manifest = json!({
         "schema": "run-manifest/1",
         "run": {"cell": cell, "replicate": run.replicate, "attempt": run.attempt},
-        "experiment": digest_text('e'),
+        "experiment": digest_text(run.facts.experiment),
         "factors": ["model.id"],
         "comparable": {
-            "values": [
-                {"path": "budget.per_run.wall_s", "value": 3600},
-                {"path": "isolation.image", "value": run.facts.image},
-                {"path": "model.id", "value": run.model},
-            ],
+            "values": values,
             "harness": {"name": "claude-code", "version": run.facts.version},
             "treatment": treatment(run.facts),
             "snapshots": [],
@@ -135,7 +141,18 @@ fn manifest_json(run: &Run<'_>, cell: &str) -> Value {
         "measured": [],
         "deviations": [],
         "integrity": run.integrity,
-    })
+    });
+    if run.facts.turns.is_some() {
+        let source = json!({"path": "budget.per_run.turns", "source": {"kind": "project_config"}});
+        manifest["sources"]
+            .as_array_mut()
+            .expect("sources")
+            .insert(0, source);
+    }
+    if let Some(job) = run.job {
+        manifest["job"] = json!(job);
+    }
+    manifest
 }
 
 /// The manifest of `run`, hand-built; its key carries the cell's real digest.
@@ -155,6 +172,7 @@ pub fn stored_cell(model: &str, facts: &Facts) -> Comparable {
         facts,
         integrity: json!({"kind": "valid"}),
         sealed: true,
+        job: None,
     };
     manifest(&run).comparable().clone()
 }
@@ -171,6 +189,19 @@ pub fn write_run(store: &Store, run: &Run<'_>) -> RunManifest {
         fs::write(dir.join("events"), b"{\"seq\":0,").expect("a partial events file");
     }
     manifest
+}
+
+/// The planning context of `store` and `lock` when the secrets of `facts` are present.
+pub fn plan_ctx(store: &Store, lock: &Path, facts: &Facts) -> PlanCtx {
+    PlanCtx {
+        store: store.clone(),
+        experiment_lock: lock.to_path_buf(),
+        secrets_present: facts
+            .secrets
+            .iter()
+            .map(|name| name.parse::<SecretName>().expect("a secret name"))
+            .collect::<BTreeSet<_>>(),
+    }
 }
 
 /// A fresh store and the path of an experiment lock in the same temporary directory.
