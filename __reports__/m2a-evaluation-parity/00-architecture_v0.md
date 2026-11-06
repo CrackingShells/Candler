@@ -100,7 +100,7 @@ sequenceDiagram
       E->>X: assemble(needs) then materialise(workspace)
       X-->>E: RunContext with context_digest
       E->>K: evaluate(params, request deadline)
-      K->>S: spawn helper, stdin: one RpcRequest then EOF
+      K->>S: spawn helper, stdin: one RpcRequest, kept open for cancel
       loop each item, dependencies first
         H->>F: fork; child arms SIGALRM item deadline
         F-->>H: outcome on a pipe, or exit/alarm -> not_measured {instrument_error}
@@ -196,7 +196,7 @@ Kept quirks change A–C rows, so they are explicit params with the grader's def
 - **Live projection.** `gen_live_context.py` writes the rule in this prose and its vectors are RC1's oracle.
 
 ### Environments
-- `EnvironmentStep` is a `PreflightStep`. Per plug-in it runs `uv sync --frozen` through `Supervisor::run_captured`, into `<env root>/<sha256(uv.lock ‖ pyproject.toml)>/.venv`.
+- `EnvironmentStep` is a `PreflightStep`. Per plug-in it runs `uv sync --frozen` through `Supervisor::run_captured`, into `<env root>/<sha256(lock ‖ <project>/pyproject.toml)>/.venv`, where `project` and `lock` are the manifest's `PluginEnvironment::Uv` paths (`project` is the uv project directory; `RelPath` refuses `.`, so it is a subdirectory of the plug-in).
 - The env root is `<state home>/candler/environments` (`registry::default_env_root(&Config)`, from `Config::state_home`), whatever the project: one environment per lock digest serves every store. `EvaluateRequest.env_root` carries it to the engine, which refuses a plug-in whose environment has no `ready` marker.
 - `registry` keeps each manifest with its directory, because `command`, `uv.lock` and `pyproject.toml` are relative to it.
 - It writes the `ready` marker only after success, and a second run under the same digest spawns nothing (REG2).
@@ -250,11 +250,12 @@ Kept quirks change A–C rows, so they are explicit params with the grader's def
 
 **Rates** (`show --rates --evaluator <name@version> --format toml`, and `$ORACLE/rates_by_cell.toml` byte for byte):
 ```toml
-[cell."20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3"]
+[cell."<cell hex>"]
 gate = [<num>, <den>]
 quality = [<num>, <den>]
 ```
-- There is one table per cell directory (12 cells, one arm `with_skill`, 20 runs each), with keys sorted and one trailing newline.
+- There is one table per cell (12 cells, one arm `with_skill`, 20 runs each), keyed by the 64 bare hex digits of the cell digest, as run keys print it. The manifest records no cell directory, so `$ORACLE/cells.tsv` names each hex's directory for readers.
+- Tables are sorted by key and separated by one blank line, and the file ends with one newline.
 - The formula follows `_outcome.py` at `28be2c15`: `_rate_for_role` and `counts_toward_denominator`.
   - Per run and per role (`gate`, `quality`; the role is read from `eval.json`), sum the numerators and the denominators over expectations whose status is `pass`, `fail` or `blocked`.
   - `blocked` counts with numerator 0. `not_measured` and `not_applicable` are excluded.
@@ -265,7 +266,7 @@ quality = [<num>, <den>]
 
 ### Protocol
 - `evaluation::rpc` adds one schema root, `evaluator-message`. It wraps the existing `evaluator-request-side` and `evaluator-notification` roots by reference, and no existing schema changes (DRIFT, WIRE2).
-- There is one process per request. Stdin carries one `RpcRequest`, then EOF. Stdout carries frames only: notifications as outcomes arrive, then one response.
+- There is one process per request. Stdin carries one `RpcRequest` and stays open, so a `cancel` can follow; the client closes it after the response or after `cancel` (R01 §Lifetime), and the helper exits on EOF. Stdout carries frames only: notifications as outcomes arrive, then one response.
 - **Deadlines.**
   - The item deadline lives in the helper's fork.
   - The request deadline lives in the client: at the deadline it sends `cancel`, waits a grace period, then calls `Child::stop`.

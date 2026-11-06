@@ -123,7 +123,7 @@ These are never committed as tests:
 | PC1 stubs | `crates/candler-core/tests/fixtures/client/` | 6 × ≤ 2 KB | Hand-written POSIX `sh` |
 | Synthetic run trees | `crates/candler-core/tests/fixtures/…` | ≤ 3 trees, ≤ 20 KB | Committed `gen_run_trees.py` |
 | Shared wire vectors | `crates/candler-schemas/tests/fixtures/rpc/` | ≤ 10 KB, one copy for Rust and Python | Hand-written from JSON-RPC 2.0 and R01 |
-| Oracle outputs | `crates/candler/tests/oracle/` | ≤ 30 KB | `gen_oracle.py` |
+| Oracle outputs | `crates/candler/tests/oracle/` | ≤ 72 KB (the 209-row files hold a 64-hex key per row) | `gen_oracle.py` |
 | Live context vectors | `crates/candler-core/tests/oracle/vectors/live_context_runs.toml` | small | `gen_live_context.py` |
 | `deltas.toml` and kind fixtures | `$PLUGIN/` | ≤ 5 KB and ≤ 20 KB | Hand-written from the grader's text |
 
