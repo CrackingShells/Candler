@@ -1,14 +1,15 @@
 # M2b Execution parity
 
-**Goal**: `candler run` executes an experiment under host isolation and produces runs equivalent to today's `run-config`, with supervision that leaks nothing.
+**Goal**: `candler run` executes an experiment under container isolation (Docker) and produces runs equivalent to today's `run-config`, with supervision that leaks nothing.
 **Pre-conditions**:
 - [ ] `../m1_contracts.md` is `done` and merged on `main`
 - [ ] Reminder `candler-M2b` read ("same sandbox composition, same provenance fields", "from any working directory")
 - [ ] Eliott's go and model choice for the smoke matrix, which spends tokens; RiVault only after asking him, since its model table changed recently
+- [ ] Docker available on the development machine
 - [ ] A Linux host for the Linux half of the supervision gates: a VM, or CI after the first push (Eliott's call); until then those gates are recorded as not yet run, never as passed
 **Success Gates**:
-- ⬜ A smoke experiment started from an unrelated directory produces runs whose sandbox composition and provenance fields match today's `htn-creator-eval run-config` for the same cell
-- ⬜ Killing the job supervisor mid-run, then running `candler ps` or `candler run`, leaves no process carrying the run marker, on macOS and on Linux
+- ⬜ A smoke experiment started from an unrelated directory produces runs that keep every sandbox feature of today's `htn-creator-eval run-config` (contract v5, checked through an independent feature map) and its provenance fields for the same cell; the provenance fields whose meaning changes under a container (the workspace path, the environment) are recorded as intended deviations in the KT
+- ⬜ Killing the job supervisor mid-run, then running `candler ps` or `candler run`, leaves no process carrying the run marker and no container labelled with the job, on macOS and on Linux
 - ⬜ Resume after a kill replays the stored resolved values; a changed harness version is refused unless forced, and a forced deviation is recorded per run
 - ⬜ `ps`, `kill` (with `--all` and `-y`), the first event set and `watch --json` work
 - ⬜ A canary secret appears nowhere in the store, the job directory, the events or the logs
@@ -25,13 +26,13 @@ In plan mode, author the campaign with `managing-roadmaps`, covering:
 - **Experiment resolution**: experiment file → cells with the source of every value; budget; preflight steps registered into M1's `resolve` (isolation build, harness version and capabilities, secrets, gateway auth probe), spending no tokens.
 - **Comparability diff and stratum verdict** over the run manifest's comparability fields (I7); M4 and M5 rely on it.
 - **Runs**: run key `(cell digest, replicate, attempt)`, the per-experiment lock, `run.done`, the resume contract, the ends table.
-- **Host isolation**: workspace build, environment allowlist plus the driver's overlay, secrets by name, the confinement hook carried over from `_confine_hook.py` together with the HTN repo's sandbox contract (`SANDBOX_REFERENCE.md`, v5).
-- **Stray sweep and slots**: Linux child subreaper and `/proc` marker scan; macOS same-user marker scan; machine-wide slot files.
-- **Claude Code driver**: `prepare` (skill checkout at the pinned tag, MCP configuration, hook), `command`, `stop`, `classify_exit` from the sessions, `collect`.
+- **Container isolation** (Docker backend behind `Isolation`): workspace and HOME mounts, read-only root and inputs, environment allowlist plus the driver's overlay, secrets by name and kept outside the agent container through a gateway; every feature of the HTN repo's sandbox contract (`SANDBOX_REFERENCE.md`, v5) is kept, carried by container mechanisms instead of the confinement hook.
+- **Stray sweep and slots**: a label sweep of containers through the I22 container guard; the Linux child subreaper; machine-wide slot files.
+- **Claude Code driver**: `prepare` (skill checkout at the pinned tag, MCP configuration, settings), `command`, `stop`, `classify_exit` from the sessions, `collect`.
 - **Catalog snapshot capture** and census per run; `candler run`.
 
 Adversarial verification is required for supervision (failures are silent: pid reuse, orphans after the supervisor dies, detached descendants) and for the I7 manifest diff (the nuisance set).
-Gotchas: Claude Code 2.1.304 starts its Bash shell and its hooks detached, in new sessions, so a group kill misses them; `CLAUDECODE` must never reach the child; today's resume deletes partial runs, Candler must not; the confinement hook is the only confinement today (permission deny-rules were inert); Docker is not needed before M5.
+Gotchas: Claude Code 2.1.304 starts its Bash shell and its hooks detached, in new sessions, so a group kill misses them; `CLAUDECODE` must never reach the child; today's resume deletes partial runs, Candler must not; the confinement hook is the only confinement today (permission deny-rules were inert).
 **Deliverables**: `__roadmap__/m2b-execution-parity/README.md` and its leaves
 **Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/m2b-execution-parity/` (expected: PASS)
 **Commit**: `rdm(orchestrator): plan the m2b-execution-parity milestone`
@@ -41,9 +42,9 @@ Gotchas: Claude Code 2.1.304 starts its Bash shell and its hooks detached, in ne
 **Goal**: The milestone campaign is executed and lands on `main`.
 **Implementation Logic**:
 Execute the campaign on `feat/m2b-execution-parity`, then land it on `main` with one `--no-ff` merge. The Success Gates above must pass on `main` after the merge. If a design decision changed, `__design__/architecture.md` changes in the same merge.
-**Deliverables**: job supervisor, experiment resolution, run identity and resume, host isolation, stray sweep, slots and the comparability diff in `candler-core`; the Claude Code `HarnessDriver`; `candler run`, `ps`, `kill`, `watch --json`; a supervision test suite
+**Deliverables**: job supervisor, experiment resolution, run identity and resume, container isolation (Docker), stray sweep, slots and the comparability diff in `candler-core`; the Claude Code `HarnessDriver`; `candler run`, `ps`, `kill`, `watch --json`; a supervision test suite
 **Consistency Checks**: `cargo test --workspace` (expected: PASS)
-**Commit**: `merge(orchestrator): land execution parity under host isolation`
+**Commit**: `merge(orchestrator): land execution parity under container isolation`
 
 ## Step 3: Close out
 
