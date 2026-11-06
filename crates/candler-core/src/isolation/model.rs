@@ -365,7 +365,7 @@ pub struct ContainerOutcome {
 }
 
 /// A running gateway: its container, where the agent reaches it and the token the agent sends.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct GatewayHandle {
     /// The gateway's container.
     pub container: ContainerRef,
@@ -378,14 +378,90 @@ pub struct GatewayHandle {
     pub egress: NetworkName,
     /// The token the agent holds in place of the real one.
     pub dummy_token: String,
+    /// The job's secret that run tags are made from. It never leaves this process.
+    secret: [u8; 32],
+}
+
+impl std::fmt::Debug for GatewayHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GatewayHandle")
+            .field("container", &self.container)
+            .field("base_url", &self.base_url)
+            .field("network", &self.network)
+            .field("egress", &self.egress)
+            .field("dummy_token", &self.dummy_token)
+            .field("secret", &"<redacted>")
+            .finish()
+    }
 }
 
 impl GatewayHandle {
-    /// The base url of one run: `<base_url>/run/<run key>`. The gateway strips the prefix before
-    /// the upstream and logs it, so a log line names its run.
+    /// A handle with a fresh 256-bit secret from the operating system.
+    ///
+    /// # Errors
+    /// The error of reading the operating system's random bytes.
+    pub fn new(
+        container: ContainerRef,
+        base_url: Url,
+        network: NetworkName,
+        egress: NetworkName,
+        dummy_token: String,
+    ) -> std::io::Result<Self> {
+        use std::io::Read as _;
+
+        let mut secret = [0_u8; 32];
+        std::fs::File::open("/dev/urandom").and_then(|mut file| file.read_exact(&mut secret))?;
+        Ok(Self {
+            container,
+            base_url,
+            network,
+            egress,
+            dummy_token,
+            secret,
+        })
+    }
+
+    /// The tag of one run: the first 32 hex characters of sha256 over the job's secret, a zero
+    /// byte and the run key. An agent that does not hold the secret cannot name another run's tag.
+    #[must_use]
+    pub fn run_tag(&self, run: &RunKey) -> String {
+        use sha2::{Digest as _, Sha256};
+        use std::fmt::Write as _;
+
+        let mut hasher = Sha256::new();
+        hasher.update(self.secret);
+        hasher.update([0_u8]);
+        hasher.update(run.to_string().as_bytes());
+        let mut text = String::with_capacity(32);
+        for byte in hasher.finalize().iter().take(16) {
+            let _ = write!(text, "{byte:02x}");
+        }
+        text
+    }
+
+    /// The secret as hex, for a scan that must prove it is nowhere an agent can read.
+    #[cfg(any(test, feature = "test-support"))]
+    #[must_use]
+    pub fn secret_hex(&self) -> String {
+        use std::fmt::Write as _;
+
+        let mut text = String::with_capacity(64);
+        for byte in self.secret {
+            let _ = write!(text, "{byte:02x}");
+        }
+        text
+    }
+
+    /// The base url of one run: `<base_url>/r/<tag>/run/<run key>`. The gateway strips the prefix
+    /// before the upstream and logs the tag and the run key, so a log line names its run.
     #[must_use]
     pub fn run_base_url(&self, run: &RunKey) -> Url {
-        let text = format!("{}/run/{run}", self.base_url.as_str().trim_end_matches('/'));
+        let text = format!(
+            "{}/r/{}/run/{run}",
+            // BORROW: explicit .as_str() instead of Deref coercion
+            self.base_url.as_str().trim_end_matches('/'),
+            self.run_tag(run)
+        );
         Url::parse(&text).unwrap_or_else(|_| self.base_url.clone())
     }
 }
