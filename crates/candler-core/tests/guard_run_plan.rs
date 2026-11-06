@@ -375,9 +375,10 @@ fn two_cells() -> (tempfile::TempDir, candler_core::store::Store, PathBuf) {
 /// Rows for a changed input digest (the fifth fact, named `inputs.build`), for a value a
 /// configuration default changed after the cell was stored (the stored one is carried), for the
 /// runs of another experiment (never adopted, never counted), for a secret that only an earlier
-/// attempt of the cell saw, and for a past experiment with a cell this one does not answer.
-/// Bite: skip the image-ID or the inputs comparison in `check_facts`; match stored cells by subset
-/// only; read the secrets of the last attempt only.
+/// attempt of the cell saw, for a past experiment with a cell this one does not answer, and for
+/// two input names that map to one deviation path.
+/// Bite: skip the image-ID or the inputs comparison in `check_facts`; drop `check_names`; match
+/// stored cells by subset only; read the secrets of the last attempt only.
 #[test]
 fn b27_changed_fact_is_refused_and_the_cell_is_pinned() {
     let models = ["m1", "m2"];
@@ -463,6 +464,7 @@ fn b27_changed_fact_is_refused_and_the_cell_is_pinned() {
     b27_other_experiment_row();
     b27_secrets_row();
     b27_superset_row();
+    b27_name_collision_row();
 }
 
 /// Pin row: a project-config default (a turn cap) changed after the cell was stored, so the plan
@@ -610,6 +612,36 @@ fn b27_superset_row() {
     // Provenance: `digest_text('a')` is the experiment digest `theirs` writes into its manifests.
     assert_eq!(experiment, digest_text('a'));
     assert_eq!(cells, [m2_cell]);
+}
+
+/// Collision row: a cell with inputs named `build-a` and `build_a`, which map to one deviation
+/// path, is refused naming both, forced or not.
+fn b27_name_collision_row() {
+    let facts = Facts {
+        clash: true,
+        ..Facts::base()
+    };
+    let (_dir, store, lock) = fresh_store();
+    write_run(&store, &run("m1", &facts, 1, 1, true));
+    let ctx = plan_ctx(&store, &lock, &facts);
+    for force in [Force::No, Force::Yes] {
+        let refusal = plan_runs(
+            &ctx,
+            &experiment(&["m1"], 2),
+            &resolution(&facts),
+            force,
+            PlanMode::Hold,
+        );
+        // Provenance: the inputs of a cell are sorted, and `-` sorts before `_`.
+        assert!(
+            matches!(
+                &refusal,
+                Err(PlanError::NameCollision { first, second })
+                    if first == "build-a" && second == "build_a"
+            ),
+            "two names of one segment are refused"
+        );
+    }
 }
 
 /// Guards: B28 (I11, I3) — with `--force` over each of the four changed facts, every new attempt

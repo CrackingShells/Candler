@@ -120,6 +120,14 @@ fn paths_of(deviations: &[Deviation]) -> String {
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 #[non_exhaustive]
 pub enum PlanError {
+    /// Two names of one root map to one deviation path, so a deviation there would be ambiguous.
+    #[error("the names {first} and {second} both map to one deviation path")]
+    NameCollision {
+        /// The first name.
+        first: String,
+        /// The second name.
+        second: String,
+    },
     /// Another supervisor holds the experiment, or a job that owns an unfinished attempt is alive.
     #[error("the experiment is held by another supervisor")]
     ExperimentLocked,
@@ -510,6 +518,41 @@ fn segment(name: &str) -> String {
     text
 }
 
+/// Refuses two different names of one root, across `stored` and `fresh`, that map to one
+/// deviation path.
+fn check_names(stored: &Comparable, fresh: &Comparable) -> Result<(), PlanError> {
+    let mut seen: BTreeMap<String, String> = BTreeMap::new();
+    for cell in [stored, fresh] {
+        let inputs = cell
+            .inputs()
+            .iter()
+            // BORROW: explicit .as_str() instead of Deref coercion
+            .map(|r| ("inputs", r.kind.as_str()));
+        let environments = cell
+            .environments()
+            .iter()
+            .map(|r| ("environments", r.plugin.name()));
+        for (root, name) in inputs.chain(environments) {
+            let path = format!("{root}.{}", segment(name));
+            match seen.get(&path) {
+                Some(first) if first != name => {
+                    return Err(PlanError::NameCollision {
+                        // BORROW: the error owns both names
+                        first: first.clone(),
+                        second: name.to_owned(),
+                    });
+                }
+                Some(_) => {}
+                None => {
+                    // BORROW: the map owns the name
+                    seen.insert(path, name.to_owned());
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The digests of the typed roots that `stored` and `fresh` hold under one name each, as a
 /// deviation per name whose digest differs: `inputs.<kind>` and `environments.<plugin>`.
 fn check_roots(stored: &Comparable, fresh: &Comparable) -> Vec<Deviation> {
@@ -693,6 +736,7 @@ pub fn plan_runs(
     for (cell, found) in cells.iter().zip(matched) {
         let (digest, pinned, deviations) = match found {
             Some(held) => {
+                check_names(&held.comparable, &cell.comparable)?;
                 let mut deviations = check_facts(&held.comparable, &cell.comparable, resolution);
                 deviations.extend(check_secrets(held.secrets.as_slice(), &ctx.secrets_present));
                 (
