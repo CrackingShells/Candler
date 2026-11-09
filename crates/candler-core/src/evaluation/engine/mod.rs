@@ -50,6 +50,10 @@ pub struct EvaluateRequest {
 pub struct EvaluateReport {
     /// The id of every request sent.
     pub request_ids: Vec<RequestId>,
+    /// The deadline each request was given, in the order of `request_ids`: the flat override when
+    /// one is set, otherwise the sum of the items' deadlines plus `REQUEST_DEADLINE_MARGIN`. A
+    /// request that never reached the evaluator has no entry.
+    pub request_deadlines: Vec<(RequestId, Duration)>,
     /// The number of outcome records per status.
     pub counts: BTreeMap<String, u64>,
     /// The outcome files written.
@@ -334,6 +338,7 @@ async fn evaluate_in(
     let mut report = EvaluateReport::default();
     for output in outputs {
         report.request_ids.extend(output.request_ids);
+        report.request_deadlines.extend(output.request_deadlines);
         report.outcome_files.extend(output.files);
         report.failed_requests.extend(output.failed);
         for (status, count) in output.counts {

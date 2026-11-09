@@ -2,11 +2,11 @@
 #![cfg(unix)]
 //! The corpus regrade guard: the 240-run golden corpus is imported as `htn-creator-eval@0.4.2`
 //! and regraded live twice, through `candler evaluate`, with the shipped HTN plug-in
-//! `htn-creator-eval@0.5.0` (its tagged manifest, its `suite/suite.json`, its import rules).
+//! `htn-creator-eval@0.5.1` (its tagged manifest, its `suite/suite.json`, its import rules).
 //! Every expected number is read from `tests/oracle/` (written by `gen_oracle.py` from the raw
 //! corpus, importing nothing from Candler) or is a hand literal below.
 //!
-//! The guards are ignored: they need the corpus, the plug-in and about half an hour. Run them with
+//! The guards are ignored: they need the corpus, the plug-in and about three minutes. Run them with
 //!
 //! ```text
 //! CANDLER_GOLDEN_CORPUS=<corpus> CANDLER_HTN_PLUGIN=<plug-in uv project> \
@@ -18,7 +18,8 @@
 //! (`<dir>/store`), the plug-in environment and the two regrade reports; it is kept. Without it the
 //! directory is `<temp>/candler-golden-parity`. Each test is its own process, so they share one
 //! built fixture under a file lock. A finished fixture is reused only when its marker names the
-//! same `candler` binary, rules file, manifest, suite and corpus; otherwise it is rebuilt. A build
+//! same `candler` binary, rules file, manifest, suite and corpus, and the same digest of every tracked
+//! file of the plug-in project and of the helper source; otherwise it is rebuilt. A build
 //! that fails writes `failed.json`, with that marker and the failure message, before it panics: a
 //! process that takes the lock and finds a `failed.json` with its own marker panics with the same
 //! message at once, so a failed build costs one build and not one per test process.
@@ -39,7 +40,7 @@ use serde_json::{Value, json};
 /// The evaluator the import writes, and the reference side of the diff.
 const FROM: &str = "htn-creator-eval@0.4.2";
 /// The live evaluator, and the compared side of the diff.
-const TO: &str = "htn-creator-eval@0.5.0";
+const TO: &str = "htn-creator-eval@0.5.1";
 /// The sha256 of the HTN rules file `import/htn-results-rules.toml`, from `shasum -a 256`.
 const RULES_SHA256: &str =
     "sha256:5d25aa60db68a8340bad2856a8c9fb1e1f99d13dce161d6f08539afb22e56952";
@@ -84,6 +85,46 @@ fn sha256_of(path: &Path) -> String {
         .output()
         .expect("shasum runs");
     assert!(out.status.success(), "shasum read {}", path.display());
+    String::from_utf8_lossy(&out.stdout)
+        .split_whitespace()
+        .next()
+        .expect("a digest")
+        .to_owned()
+}
+
+/// The sha256 of every file `git ls-files` tracks under `dir`, in path order: one line of
+/// `<digest>  <path>` each, hashed again as one text, so an edit to any of them changes it.
+fn tree_digest(dir: &Path) -> String {
+    let listed = Command::new("git")
+        .args(["ls-files", "-z", "."])
+        .current_dir(dir)
+        .output()
+        .expect("git runs");
+    assert!(listed.status.success(), "git listed {}", dir.display());
+    let mut names: Vec<String> = String::from_utf8_lossy(&listed.stdout)
+        .split('\0')
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
+        .collect();
+    assert!(!names.is_empty(), "{} tracks no file", dir.display());
+    names.sort();
+    let mut text = String::new();
+    for name in &names {
+        writeln!(text, "{}  {name}", sha256_of(&dir.join(name))).expect("a string writes");
+    }
+    let mut hasher = Command::new("shasum")
+        .args(["-a", "256"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("shasum runs");
+    hasher
+        .stdin
+        .take()
+        .expect("a stdin pipe")
+        .write_all(text.as_bytes())
+        .expect("the text writes");
+    let out = hasher.wait_with_output().expect("shasum finishes");
     String::from_utf8_lossy(&out.stdout)
         .split_whitespace()
         .next()
@@ -186,6 +227,10 @@ fn open_fixture() -> Fixture {
         "rules": sha256_of(&rules),
         "manifest": sha256_of(&manifest),
         "suite": sha256_of(&suite),
+        "plugin_tree": tree_digest(&plugin_project),
+        "helper_src": tree_digest(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../python/candler-evaluator/src"),
+        ),
         "corpus": corpus.display().to_string(),
     });
     let marker_path = dir.join("complete.json");
@@ -446,7 +491,7 @@ fn status_counts(rows: &BTreeMap<Key, Value>) -> BTreeMap<String, u64> {
 /// Oracle: `counts.toml`, `na_pairs.txt`, `rates_by_cell.toml`, all generated from the raw corpus
 /// by `gen_oracle.py`; the imported rows are the store's own `0.4.2` records.
 #[test]
-#[ignore = "needs CANDLER_GOLDEN_CORPUS and CANDLER_HTN_PLUGIN; about half an hour"]
+#[ignore = "needs CANDLER_GOLDEN_CORPUS and CANDLER_HTN_PLUGIN; about three minutes"]
 fn the_live_ac_rows_and_rates_equal_the_reference() {
     let fixture = fixture();
     let expected = live_expected();
@@ -524,7 +569,7 @@ fn the_live_ac_rows_and_rates_equal_the_reference() {
     );
 }
 
-/// Guards: R2, R1 — the version diff is exact and complete: `candler diff` from `0.4.2` to `0.5.0`
+/// Guards: R2, R1 — the version diff is exact and complete: `candler diff` from `0.4.2` to `0.5.1`
 /// with the committed `equivalence.json` exits 0 with 8,880 compared, none changed, `unchanged +
 /// excused + changed == compared`, `excused` equal to the line count of `na_pairs.txt`, the
 /// `equivalence.sha256` equal to the sha256 of the committed file's bytes, `compared` plus the
@@ -532,7 +577,7 @@ fn the_live_ac_rows_and_rates_equal_the_reference() {
 /// D-E1 to D-E6 with 240 rows each. Oracle: the hand-written D-E literal, `na_pairs.txt`, the
 /// bytes of `equivalence.json` (`shasum -a 256`) and `counts.toml`'s `total`.
 #[test]
-#[ignore = "needs CANDLER_GOLDEN_CORPUS and CANDLER_HTN_PLUGIN; about half an hour"]
+#[ignore = "needs CANDLER_GOLDEN_CORPUS and CANDLER_HTN_PLUGIN; about three minutes"]
 fn the_version_diff_compares_everything_it_can_and_excuses_only_the_named_rows() {
     let fixture = fixture();
     let equivalence = oracle().join("equivalence.json");
@@ -621,7 +666,7 @@ fn the_version_diff_compares_everything_it_can_and_excuses_only_the_named_rows()
 /// with `git:28be2c15`; no record carries the reason `deadline`. Oracle: the pinned sha literal,
 /// and the first regrade's rows (read raw, compared here, not by the engine).
 #[test]
-#[ignore = "needs CANDLER_GOLDEN_CORPUS and CANDLER_HTN_PLUGIN; about half an hour"]
+#[ignore = "needs CANDLER_GOLDEN_CORPUS and CANDLER_HTN_PLUGIN; about three minutes"]
 fn the_second_regrade_sends_new_requests_and_changes_nothing() {
     let fixture = fixture();
     let ids = |report: &Value| -> BTreeSet<String> {
