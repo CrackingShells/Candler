@@ -10,13 +10,18 @@
 - ⬜ Egress outside the allowlist fails while the model gateway works
 - ⬜ The agent-side environment a plug-in declares (what the agent's isolation must contain) is provisioned by the core, with no hand-edited sandbox contract; evaluator environments are M2a's
 - ⬜ A second isolation kind falls in its own stratum through M2b's stratum verdict
-**References**: [R01 §Contracts & Invariants (I8, I14), §Process supervision](../../../../../../../__design__/architecture.md) — isolation interface, ground-truth rule, census
+- ⬜ The agent environment has a declared kind, and the core holds no Python path, variable or marker outside that kind's implementation (amendment A3):
+  - `/opt/env`, `VIRTUAL_ENV`, `--python-version 3.12`, `pyvenv.cfg` and the `uv venv` step of the env Dockerfile live in the Python-venv kind only;
+  - the evidence tree's exclusion asks the kind what to exclude, and the code-fix PR's E1 test still passes;
+  - a `candler` binary run outside the source tree finds its assets (`commands/run.rs` no longer reads `CARGO_MANIFEST_DIR`), unless M3's packaging already does this;
+  - every cell digest of M1's golden import and M2a's parity fixtures is unchanged.
+**References**: [R01 §Contracts & Invariants (I8, I14), §Process supervision](../../../../../../../__design__/architecture.md) — isolation interface, ground-truth rule, census; [gap analysis A3](../../../../../../../__reports__/candler-v1-review/01-gap_analysis_harness_env_v0.md) — the Python-venv content of the core and the assets path (H2, H3)
 
 ## Step 1: Plan the milestone
 
 **Goal**: The campaign `__roadmap__/m5-container-isolation/` exists and Eliott has approved it.
 **Implementation Logic**:
-In plan mode, author the campaign with `managing-roadmaps`, covering: what it adds to M2b's Docker backend behind `Isolation`, which it extends; the image additions (procps for the census); outcome injection from outside; the census; the egress allowlist; agent-side environments declared by plug-ins, which replace per-domain sandbox contracts such as the HTN contract v6 that Phase 8 would otherwise need. The plug-in manifest has no field for them yet: the plan adds one as an optional field, a minor bump on the `schemas@` line, allowed before the 1.0 freeze.
+In plan mode, author the campaign with `managing-roadmaps`, covering: what it adds to M2b's Docker backend behind `Isolation`, which it extends; the image additions (procps for the census); outcome injection from outside; the census; the egress allowlist; agent-side environments declared by plug-ins, which replace per-domain sandbox contracts such as the HTN contract v6 that Phase 8 would otherwise need. The plug-in manifest has no field for them yet: the plan adds one as an optional field, a minor bump on the `schemas@` line, allowed before the 1.0 freeze. That declaration names the environment's kind (A3). Today's Python venv becomes the first kind: its paths, variables, markers and Python version move into that kind's implementation, and R01 §Isolation says what a kind supplies. Source: `__reports__/candler-v1-review/01-gap_analysis_harness_env_v0.md`, H2 and H3.
 Adversarial verification is required for I8: attack every path by which ground truth could enter the boundary (mounts, environment, logs, the driver's files).
 **Deliverables**: `__roadmap__/m5-container-isolation/README.md` and its leaves
 **Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/m5-container-isolation/` (expected: PASS)

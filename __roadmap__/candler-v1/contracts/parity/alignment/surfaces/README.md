@@ -1,7 +1,7 @@
 # Surfaces
 
 ## Context
-Depth 4. After both parity milestones and the wire alignment (M2c): the lean CLI (M3) and the session runner with the second harness (M4), in parallel. Both need only M2b; the tree also makes them wait for M2a.
+Depth 4. After both parity milestones and the wire alignment (M2c): the lean CLI (M3) and the session runner with the second harness (M4), in parallel. Both need only M2b; the tree also makes them wait for M2a. Amendment A3 adds a gate to M4: no harness named in the core.
 
 ## Goal
 The CLI is lean and the runner covers long-lived sessions and a second harness.
@@ -36,6 +36,7 @@ graph TD
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
 |:---|:-----|:-------|:------------|:----------|
+| A3 | 2026-11-10 | `__reports__/candler-v1-review/01-gap_analysis_harness_env_v0.md` | [ ] | The core runs Claude Code's version command and names its gateway, config and init event, so a second driver could pass without the first leaving the core; M4 gains a gate and a harness deny-list |
 
 ## Progress
 | Node | Branch | Commits | Notes |
