@@ -7,7 +7,7 @@ use std::path::Path;
 
 use candler_schemas::execution::{Integrity, RunManifest, RunTree};
 use candler_schemas::outcome::OutcomeRecord;
-use candler_schemas::primitives::{NameVersion, RequestId, RunKey};
+use candler_schemas::primitives::{Digest, NameVersion, RequestId, RunKey};
 
 use super::ImportError;
 use super::assets::{import_assets, plan_assets, put_sources};
@@ -93,6 +93,20 @@ fn first_difference(
             })
             .unwrap_or_default()
     };
+    let rules = |manifest: &RunManifest| manifest.import().and_then(|record| record.rules.clone());
+    let (was, is) = (rules(stored), rules(mapped));
+    if was != is {
+        // BORROW: .to_string() makes the digest text
+        let show = |digest: Option<Digest>| digest.map_or("absent".to_owned(), |d| d.to_string());
+        return Ok((
+            "import.rules".to_owned(),
+            format!(
+                "the store holds {}, the rules file holds {}",
+                show(was),
+                show(is)
+            ),
+        ));
+    }
     let (old, new) = (sources(stored), sources(mapped));
     let paths: BTreeSet<&String> = old.keys().chain(new.keys()).collect();
     for path in paths {

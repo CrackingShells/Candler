@@ -1,6 +1,6 @@
 //! The caller-supplied rules that name a legacy folder's domain.
 
-use candler_schemas::primitives::{FieldPath, Name, NameToken, ReasonCode};
+use candler_schemas::primitives::{Digest, FieldPath, Name, NameToken, ReasonCode};
 use regex::Regex;
 
 use super::ImportError;
@@ -110,6 +110,8 @@ pub struct ImportRules {
     pub suite_kind: Name,
     /// The manifest values copied into each run context's metadata.
     pub metadata: Vec<FieldPath>,
+    /// The sha256 of the rules file these rules were read from, written into every import record; absent when the rules were not read from a file.
+    pub source_digest: Option<Digest>,
 }
 
 impl ImportRules {
@@ -132,6 +134,7 @@ pub struct ImportRulesBuilder {
     markers: Vec<MarkerRule>,
     suite_kind: Option<Name>,
     metadata: Vec<FieldPath>,
+    source_digest: Option<Digest>,
 }
 
 impl ImportRulesBuilder {
@@ -191,6 +194,13 @@ impl ImportRulesBuilder {
         self
     }
 
+    /// Sets the sha256 of the rules file the rules were read from.
+    #[must_use]
+    pub fn source_digest(mut self, digest: Digest) -> Self {
+        self.source_digest = Some(digest);
+        self
+    }
+
     /// Builds the rules.
     ///
     /// # Errors
@@ -208,6 +218,7 @@ impl ImportRulesBuilder {
             markers: self.markers,
             suite_kind: self.suite_kind.ok_or_else(|| missing("suite_kind"))?,
             metadata: self.metadata,
+            source_digest: self.source_digest,
         };
         rules.check()?;
         Ok(rules)
