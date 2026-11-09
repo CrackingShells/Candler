@@ -5,11 +5,11 @@
 - [ ] [cmd] ENV, DEP(skeleton) and DEP(protocol_wire)
 - [ ] [cmd] `cd python/candler-evaluator && uv sync --frozen && uv run --frozen python -c 'import candler_evaluator'`
 **Success Gates**:
-- ⬜ [cmd] PYSTD, SUBJ and SCAFFOLD pass, and OWNED passes with `^python/candler-evaluator/(src/candler_evaluator/|tests/|examples/)` and `test -z "$(git diff --name-only <base>..HEAD | grep -F _models)"` (POSIX ERE has no look-ahead)
-- ⬜ [cmd] `cd python/candler-evaluator && uv run --frozen pytest -q tests/test_guard_isolation.py tests/test_guard_identity.py` passes (HR1, HR2)
-- ⬜ [cmd] Fork probe, logged in the report: `for i in $(seq 20); do uv run --frozen pytest -q tests/test_guard_isolation.py || exit 1; done` from `python/candler-evaluator`
-- ⬜ [cmd] `test "$(find python/candler-evaluator/examples -type f -exec cat {} + | wc -c)" -le 10240` (bytes, not disk blocks)
-- ⬜ [nl] The plain verifier holds no open BLOCKER or MAJOR: lock state inherited across the fork, pre-fork imports, the digest across items
+- ✅ [cmd] PYSTD, SUBJ and SCAFFOLD pass, and OWNED passes with `^python/candler-evaluator/(src/candler_evaluator/|tests/|examples/)` and `test -z "$(git diff --name-only <base>..HEAD | grep -F _models)"` (POSIX ERE has no look-ahead)
+- ✅ [cmd] `cd python/candler-evaluator && uv run --frozen pytest -q tests/test_guard_isolation.py tests/test_guard_identity.py` passes (HR1, HR2)
+- ✅ [cmd] Fork probe, logged in the report: `for i in $(seq 20); do uv run --frozen pytest -q tests/test_guard_isolation.py || exit 1; done` from `python/candler-evaluator`
+- ✅ [cmd] `test "$(find python/candler-evaluator/examples -type f -exec cat {} + | wc -c)" -le 10240` (bytes, not disk blocks)
+- ✅ [nl] The plain verifier holds no open BLOCKER or MAJOR: lock state inherited across the fork, pre-fork imports, the digest across items
 **References**: [R01 §Evaluator protocol, §Plug-ins](../../../__design__/architecture.md) — methods, notifications, deadlines, identity; [R03 §Python helper, §Protocol, §Truthful instrument](../../../__reports__/m2a-evaluation-parity/00-architecture_v0.md); [PEP 610](https://peps.python.org/pep-0610/) — `direct_url.json`; [R04 HR1, HR2](../../../__reports__/m2a-evaluation-parity/01-test_definition_v0.md); `crates/candler-schemas/tests/fixtures/rpc/` — the shared vectors
 
 ## Step 1: Serve the protocol loop with an fd guard
