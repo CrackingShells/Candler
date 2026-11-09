@@ -2,7 +2,7 @@
 
 **Goal**: Agents can run in long-lived sessions, and a second harness, OpenCode v2, runs through the same driver traits.
 **Pre-conditions**:
-- [ ] `../m2b_execution_parity.md` is `done` (the tree also waits for `../m2a_evaluation_parity.md`; the reminder needs only M2b)
+- [ ] `../../m2b_execution_parity.md` and `../m2c_wire_alignment.md` are `done` (the tree also waits for `../../m2a_evaluation_parity.md`; the reminder needs only M2b)
 - [ ] Reminder `candler-M4` read: end rule, controls C1 and C2, observation hooks, per-model environment profiles, the 2026-10-05 findings
 - [ ] Eliott asked before any RiVault probe: its model table and availability changed recently
 **Success Gates**:
@@ -11,7 +11,7 @@
 - ⬜ `init_tools` is captured per run, and a mismatch between arms in a stratum invalidates that stratum through M2b's stratum verdict
 - ⬜ The OpenCode v2 driver passes the driver fixture suite shared with the Claude Code driver
 - ⬜ OpenCode v2's facts left unconfirmed in R01 (event schema, exit codes, signal behaviour, budget options, binary name) are confirmed and recorded in `__design__/architecture.md`
-**References**: [R01 §Harness drivers, §OpenCode v2 (second driver, M4), §Session runner (M4)](../../../../../__design__/architecture.md) — traits, OpenCode differences, end rule and controls
+**References**: [R01 §Harness drivers, §OpenCode v2 (second driver, M4), §Session runner (M4)](../../../../../../__design__/architecture.md) — traits, OpenCode differences, end rule and controls
 
 ## Step 1: Plan the milestone
 
@@ -42,6 +42,6 @@ Execute the campaign on `feat/m4-session-runner`, then land it on `main` with on
 **Goal**: The milestone is recorded.
 **Implementation Logic**:
 Write a knowledge-transfer report under `__reports__/m4-session-runner/`. Mark this leaf `done` with `dirtree-rdm update`. Propose the reminder reconciliation to Eliott: `candler-M4` complete; `candler-M5` startable. Apply only on his yes, through `sw_write.py`.
-**Deliverables**: `__reports__/m4-session-runner/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/surfaces/README.md`
-**Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/surfaces/` (expected: PASS)
+**Deliverables**: `__reports__/m4-session-runner/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/alignment/surfaces/README.md`
+**Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/alignment/surfaces/` (expected: PASS)
 **Commit**: `reports(runner): close the m4-session-runner milestone`
