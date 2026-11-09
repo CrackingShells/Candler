@@ -46,7 +46,7 @@ Date: 2026-11-09
 | The first smoke found F1 to F13 | §14 of the plan left provenance ungrounded, so no leaf owned it (F9). The run end was unmeasured (F13), and the skill archive was unscoped (F1). | Every reference field named in the plan needs an owning leaf before dispatch. |
 | F5 and F7 were "deferred", but were really a planning gap (A56) | No leaf owned the declaration surface, and `ExperimentFile` is shared with M2a. | Shared wire types get an alignment node (M2c), not a leaf workaround. |
 | The smoke pinned the treatment at `htn-creator-eval@0.4.2` (N1) | My L3 addendum and leaf line 32 said "the HTN treatment at the cloned tag". The reference derives `skill_version` only from `htn-creator@…`. | A smoke treatment is always a skill tag (`htn-creator@X.Y.Z`). B38 pins the rule. |
-| Replicate 2 equalled replicate 1 (N2) | RiVault caches identical requests. | See "For M4". |
+| Replicate 2 equalled replicate 1 (N2) | RiVault caches identical requests. | None in Candler: a known provider limit (Eliott, 2026-11-09). See "For M4". |
 | Disk pressure from parallel leaves | One `target/` per worktree, plus `cargo clean -p` for the I22 check. | `RUSTC_WRAPPER=sccache CARGO_INCREMENTAL=0`, never `CARGO_TARGET_DIR`, at most 6 implementers, and remove merged worktrees right away. |
 | The guard-count gate read 43 | The grep counted `Guards: none` re-exec lines and M1's rewritten I14 line. | Ruling A62: the gate nets out removed lines and `none`. The real count is 40, B38 included. |
 
@@ -74,17 +74,11 @@ Date: 2026-11-09
 ## For M4
 
 1. **Live metering (A51).** The job meter is fed only after the seal (`runner/exec`, around line 535). So a tokens or cost cap only sees ended runs, and a live run can overshoot it. M4's budget work needs per-frame usage fed to the meter. A cap crossed at setup ends the job with zero runs, which is correct.
-2. **RiVault caches identical requests (N2).** The probe of 2026-11-09 sent 4 calls to `/v1/messages` at temperature 1:
+2. **A known provider limit: RiVault may serve identical requests from its cache (N2).** Cost is reported on cache hits too, so `run.cost_usd` counts a cached reply as a paid one. Eliott ruled on 2026-11-09 that this is RiVault's limit and that Candler does nothing about it: turning the cache off would be far too expensive, and Candler must not over-specify for one provider. Do not build a workaround. The evidence is the probe of 2026-11-09, which sent 4 calls to `/v1/messages` at temperature 1:
    - the identical request was a cache hit;
    - the `Cache-Control: no-cache` header was ignored;
    - only the body field `"cache": {"no-cache": true}` bypassed the cache;
-   - no hit header is exposed, and `x-litellm-response-cost` is reported on hits too, so `run.cost_usd` over-counts cached replies.
-
-   Replicate statistics need one of two things:
-   - the gateway injects the body field (njs `js_set` plus `proxy_set_body`), recorded as a setting;
-   - or a nonce, which is worse: it changes `prompt.values`, and so the cell.
-
-   Detect non-independence cheaply: flag runs whose upstream response ids repeat. Eliott is asking the RiVault admins whether a header can be honoured.
+   - no hit header is exposed, and `x-litellm-response-cost` is reported on hits too.
 3. **`planner.runtime.*`** stays absent until a grader runtime fills it (A59). The provenance verdict exempts it.
 4. **The agent container has no `children/container-*.json` record** (A59); only the gateway has one. Recovery of an agent container relies on its labels and on `docker inspect` re-verification.
 5. **Store identity.** Labels do not name the store. A copied `jobs/` dir of a live job, recovered with its own free lock, would read as Lost and sweep the live job's containers. Add a store id label before stores can be copied or shared.
@@ -113,5 +107,4 @@ Date: 2026-11-09
 ## Open Questions
 
 - Should `sandbox_contract` stay `"v6"`, or take another string? This is Eliott's call (A55).
-- RiVault cache control: can the admins honour a header, or should the gateway rewrite the body?
 - Which model runs the first scored experiment? Reasoning-Small has never run the golden set, so its statistics are not comparable with the 240 earlier runs.
