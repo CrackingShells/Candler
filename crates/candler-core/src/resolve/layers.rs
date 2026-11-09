@@ -30,6 +30,16 @@ const REQUEST_HARNESS: &str = "request.harness";
 const REQUEST_TREATMENT: &str = "request.treatment";
 /// The setting that names where the treatment's repository is.
 const REQUEST_TREATMENT_SOURCE: &str = "request.treatment_source";
+/// The setting that names the Dockerfile of the experiment's image layer.
+const ISOLATION_BUILD_DOCKERFILE: &str = "isolation.build.dockerfile";
+/// The setting that names the build context directory.
+const ISOLATION_BUILD_CONTEXT: &str = "isolation.build.context";
+/// The setting that names a ready env lock file.
+const ISOLATION_BUILD_LOCK: &str = "isolation.build.lock";
+/// The setting that lists the requirement sources of the env lock.
+const ISOLATION_BUILD_REQUIREMENTS: &str = "isolation.build.requirements";
+/// The prefix of a requirement source that is read from the treatment's repository, not a path.
+const TREATMENT_SOURCE_PREFIX: &str = "treatment:";
 /// The setting that names the secret the gateway presents to the model endpoint.
 const MODEL_TOKEN_SECRET: &str = "model.token_secret";
 
@@ -76,6 +86,48 @@ impl FileValues {
     #[must_use]
     pub const fn new(values: Vec<(FieldPath, JsonValue)>) -> Self {
         Self { values }
+    }
+
+    /// Makes every path the file writes absolute against `dir`, the file's own directory: a
+    /// location setting that holds a string, or a list of strings (a requirement source that
+    /// starts with `treatment:` is not a path and stays as written). A path that is already
+    /// absolute stays as it is, and a value of another shape is left for the step that reads it
+    /// to refuse.
+    ///
+    /// # Errors
+    /// Returns [`ResolveError::NonUtf8Path`] if a resulting path is not UTF-8.
+    pub fn relative_to(mut self, dir: &Path) -> Result<Self, ResolveError> {
+        for (path, value) in &mut self.values {
+            if !is_location(path) {
+                continue;
+            }
+            let joined = match value.as_value() {
+                Value::String(text) => Value::String(join_text(dir, text)?),
+                Value::Array(items) => Value::Array(
+                    items
+                        .iter()
+                        .map(|item| match item {
+                            Value::String(text) if !text.starts_with(TREATMENT_SOURCE_PREFIX) => {
+                                join_text(dir, text).map(Value::String)
+                            }
+                            // BORROW: `.clone()` keeps an entry that is not a path as written
+                            other @ (Value::String(_)
+                            | Value::Null
+                            | Value::Bool(_)
+                            | Value::Number(_)
+                            | Value::Array(_)
+                            | Value::Object(_)) => Ok(other.clone()),
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+                // BORROW: `.clone()` keeps a value of another shape as written
+                other @ (Value::Null | Value::Bool(_) | Value::Number(_) | Value::Object(_)) => {
+                    other.clone()
+                }
+            };
+            *value = JsonValue::new(joined)?;
+        }
+        Ok(self)
     }
 }
 
@@ -287,6 +339,27 @@ fn path_text<'a>(path: &'a Path) -> Result<&'a str, ResolveError> {
         // BORROW: `.to_owned()` makes the owned path the error carries
         path: path.to_owned(),
     })
+}
+
+/// Reports whether `path` is a setting whose value names a location.
+fn is_location(path: &FieldPath) -> bool {
+    // BORROW: the path's text, compared with the location settings
+    matches!(
+        path.as_str(),
+        STORE_ROOT
+            | PLUGINS_DIRS
+            | REQUEST_TREATMENT_SOURCE
+            | ISOLATION_BUILD_DOCKERFILE
+            | ISOLATION_BUILD_CONTEXT
+            | ISOLATION_BUILD_LOCK
+            | ISOLATION_BUILD_REQUIREMENTS
+    )
+}
+
+/// `text` as a path under `dir`, as text.
+fn join_text(dir: &Path, text: &str) -> Result<String, ResolveError> {
+    // BORROW: `.to_owned()` makes the owned text the joined path is written as
+    Ok(path_text(dir.join(text).as_path())?.to_owned())
 }
 
 fn path_json(path: &Path) -> Result<JsonValue, ResolveError> {
