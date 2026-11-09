@@ -25,9 +25,8 @@ use candler_harness_claude_code::prepare::{skill_archive_command, skill_files};
 use candler_schemas::execution::TreatmentRef;
 use candler_schemas::primitives::JobId;
 
-use super::ps::store_root;
 use super::run::STORE_ENV;
-use super::{CliError, Exit};
+use super::{CliError, Exit, common};
 
 /// The arguments of `candler supervise`.
 #[derive(Debug, clap::Args)]
@@ -80,11 +79,11 @@ fn failed(error: impl std::error::Error + Send + Sync + 'static) -> CliError {
     }
 }
 
-/// The store root: the launcher's, or else the one the working directory names.
-fn root() -> Result<PathBuf, CliError> {
+/// The store root: the launcher's, or else the one `--store` or the working directory names.
+async fn root(store: Option<&Path>) -> Result<PathBuf, CliError> {
     match std::env::var_os(STORE_ENV) {
         Some(root) => Ok(PathBuf::from(root)),
-        None => store_root(None),
+        None => common::store_root("supervise", store).await,
     }
 }
 
@@ -93,9 +92,9 @@ fn root() -> Result<PathBuf, CliError> {
 /// # Errors
 /// [`CliError::Failed`] when the spec is refused, the store or the job's directory cannot be
 /// opened, or the supervisor fails; the exit is 2.
-pub async fn run(args: Args) -> Result<Exit, CliError> {
+pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let job: JobId = args.job.parse().map_err(failed)?;
-    let store = Store::open(root()?.as_path()).map_err(failed)?;
+    let store = Store::open(root(store).await?.as_path()).map_err(failed)?;
     let dir = JobDir::open(store.layout(), &job).map_err(failed)?;
     let spec = read_spec(dir.path(), std::io::stdin()).map_err(failed)?;
     dir.set_supervisor(own_identity().map_err(failed)?)

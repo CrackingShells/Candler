@@ -1,8 +1,8 @@
-//! What every command shares: the store root (`--store`, else the configuration), the `Resolver`
+//! What every command shares: the one store root (`--store`, else the configuration), the `Resolver`
 //! with each milestone's preflight steps registered one per line, and the event sink the
 //! supervisor reports to.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use candler_core::evaluation::selection::select::{Selection, select};
@@ -23,8 +23,6 @@ use candler_core::supervise::{EventSink, Supervisor};
 use candler_schemas::execution::EventPayload;
 #[cfg(unix)]
 use candler_schemas::primitives::RunKey;
-#[cfg(unix)]
-use std::path::Path;
 
 /// The path of the store root among the resolved settings.
 const STORE_ROOT: &str = "store.root";
@@ -67,18 +65,19 @@ pub fn evaluation_resolver(
     Ok(resolver)
 }
 
-/// Runs the preflight of `resolver`, with `--store` as the explicit store root when given.
+/// Runs the preflight of `resolver`, with `explicit` (`--store` or `CANDLER_STORE`) as the
+/// explicit store root when given.
 ///
 /// # Errors
 /// Returns [`CliError::Failed`] when the values cannot be layered or a step fails.
 pub async fn resolve(
     verb: &'static str,
-    cli: &Cli,
+    explicit: Option<&Path>,
     config: &Config,
     resolver: &Resolver,
 ) -> Result<Resolution, CliError> {
     let mut input = ResolveInput::default();
-    if let Some(store) = cli.store.as_deref() {
+    if let Some(store) = explicit {
         let path: FieldPath = STORE_ROOT.parse().map_err(|e| CliError::failed(verb, e))?;
         input = input
             .explicit_path(config, path, store)
@@ -95,7 +94,7 @@ pub async fn resolve(
 /// # Errors
 /// Returns [`CliError::Refused`] when neither `--store`, `CANDLER_STORE` nor the configuration
 /// names one.
-pub fn store_root(resolution: &Resolution) -> Result<PathBuf, CliError> {
+pub fn resolved_root(resolution: &Resolution) -> Result<PathBuf, CliError> {
     resolution
         .settings
         .iter()
@@ -109,15 +108,24 @@ pub fn store_root(resolution: &Resolution) -> Result<PathBuf, CliError> {
         })
 }
 
+/// The root of the store every verb uses: `explicit` (`--store` or `CANDLER_STORE`), else the
+/// configuration's `store.root`, else the core default, as the resolver layers them.
+///
+/// # Errors
+/// Returns the errors of [`load_config`], [`resolve`] and [`resolved_root`].
+pub async fn store_root(verb: &'static str, explicit: Option<&Path>) -> Result<PathBuf, CliError> {
+    let config = load_config(verb)?;
+    let resolver = plain_resolver(&config);
+    let resolution = resolve(verb, explicit, &config, &resolver).await?;
+    resolved_root(&resolution)
+}
+
 /// Opens the store the command line names, running no preflight step.
 ///
 /// # Errors
-/// Returns the errors of [`load_config`], [`resolve`], [`store_root`] and the store's own.
+/// Returns the errors of [`store_root`] and the store's own.
 pub async fn open_store(verb: &'static str, cli: &Cli) -> Result<Store, CliError> {
-    let config = load_config(verb)?;
-    let resolver = plain_resolver(&config);
-    let resolution = resolve(verb, cli, &config, &resolver).await?;
-    let root = store_root(&resolution)?;
+    let root = store_root(verb, cli.store.as_deref()).await?;
     // BORROW: explicit .as_path()
     Store::open(root.as_path()).map_err(|e| CliError::failed(verb, e))
 }

@@ -22,7 +22,7 @@ use crate::commands::{CliError, Exit, kill, ps, run, supervise, watch};
     about = "Run, evaluate and compare agent experiments"
 )]
 struct Cli {
-    /// The store root.
+    /// The store root, for every verb; by default the store the configuration names.
     #[arg(long, env = "CANDLER_STORE", global = true)]
     store: Option<PathBuf>,
     /// The verb to run.
@@ -64,11 +64,11 @@ fn dispatch(cli: Cli) -> Result<Exit, CliError> {
         })?;
     runtime.block_on(async move {
         match cli.command {
-            Command::Run(args) => run::run(args).await,
-            Command::Ps(args) => ps::run(args).await,
-            Command::Kill(args) => kill::run(args).await,
-            Command::Watch(args) => watch::run(args).await,
-            Command::Supervise(args) => supervise::run(args).await,
+            Command::Run(args) => run::run(args, cli.store.as_deref()).await,
+            Command::Ps(args) => ps::run(args, cli.store.as_deref()).await,
+            Command::Kill(args) => kill::run(args, cli.store.as_deref()).await,
+            Command::Watch(args) => watch::run(args, cli.store.as_deref()).await,
+            Command::Supervise(args) => supervise::run(args, cli.store.as_deref()).await,
             Command::Import(ref args) => commands::import::run(&cli, args).await,
             Command::Evaluate(ref args) => commands::evaluate::run(&cli, args).await,
             Command::Show(ref args) => commands::show::run(&cli, args).await,

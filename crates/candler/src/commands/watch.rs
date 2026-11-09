@@ -1,7 +1,7 @@
 //! `candler watch`: follows the events of a job, one JSON document per line.
 
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
@@ -12,8 +12,8 @@ use candler_core::store::layout::StoreLayout;
 use candler_schemas::execution::EventPayload;
 use candler_schemas::primitives::JobId;
 
-use super::ps::{recover_job, store_root};
-use super::{CliError, Exit};
+use super::ps::recover_job;
+use super::{CliError, Exit, common};
 
 /// How often the log is read for new events.
 const POLL: Duration = Duration::from_millis(200);
@@ -26,9 +26,6 @@ pub struct Args {
     /// Print each event as a JSON document on its own line; the only form there is.
     #[arg(long)]
     pub json: bool,
-    /// The store to read; by default the store the configuration names.
-    #[arg(long)]
-    pub store: Option<PathBuf>,
 }
 
 fn failed(error: impl std::error::Error + Send + Sync + 'static) -> CliError {
@@ -77,13 +74,18 @@ fn print_from(
 /// [`CliError::Refused`] without `--json`, [`CliError::Failed`] when the log cannot be read or
 /// holds a line that is not an event.
 // TRAIT_OBJECT: the output is stdout, or a buffer in tests
-pub async fn follow(args: &Args, out: &mut dyn Write, stop: &AtomicBool) -> Result<(), CliError> {
+pub async fn follow(
+    args: &Args,
+    store: Option<&Path>,
+    out: &mut dyn Write,
+    stop: &AtomicBool,
+) -> Result<(), CliError> {
     if !args.json {
         return Err(CliError::Refused {
             reason: "watch needs --json".to_owned(), // BORROW: the error owns its reason
         });
     }
-    let root = store_root(args.store.as_deref())?;
+    let root = common::store_root("watch", store).await?;
     let dir = JobDir::open(&StoreLayout::new(&root), &args.id).map_err(failed)?;
     let events = JobEvents::open(&dir).map_err(failed)?;
     let mut pos = TailPos(0);
@@ -117,8 +119,8 @@ pub async fn follow(args: &Args, out: &mut dyn Write, stop: &AtomicBool) -> Resu
 ///
 /// # Errors
 /// [`CliError`] when the events cannot be followed.
-pub async fn run(args: Args) -> Result<Exit, CliError> {
+pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let mut stdout = io::stdout().lock();
-    follow(&args, &mut stdout, &AtomicBool::new(false)).await?;
+    follow(&args, store, &mut stdout, &AtomicBool::new(false)).await?;
     Ok(Exit::Success)
 }

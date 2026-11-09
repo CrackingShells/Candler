@@ -5,7 +5,7 @@
 //! A job whose supervisor is gone, or still has not ended the job after the grace, is recovered.
 
 use std::io::{self, BufRead, Write};
-use std::path::PathBuf;
+use std::path::Path;
 
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::events::JobEvents;
@@ -18,8 +18,8 @@ use candler_schemas::primitives::{JobId, Marker, Timestamp};
 use candler_schemas::process::ChildRecord;
 use std::sync::Arc;
 
-use super::ps::{describe_recovery, end_text, recover_job, store_root};
-use super::{CliError, Exit};
+use super::ps::{describe_recovery, end_text, recover_job};
+use super::{CliError, Exit, common};
 
 /// The arguments of `candler kill`.
 #[derive(Debug, clap::Args)]
@@ -33,9 +33,6 @@ pub struct Args {
     /// Do not ask for confirmation.
     #[arg(short = 'y', long = "yes", default_value_t = false)]
     pub yes: bool,
-    /// The store to read; by default the store the configuration names.
-    #[arg(long)]
-    pub store: Option<PathBuf>,
 }
 
 /// Whether the answer on `input` is `y` or `yes`; an empty answer, any other word and a closed
@@ -144,6 +141,7 @@ fn targets(args: &Args, jobs: &std::path::Path) -> Result<Vec<String>, CliError>
 /// could not be stopped.
 pub async fn kill(
     args: &Args,
+    store: Option<&Path>,
     // TRAIT_OBJECT: the input is stdin, or a buffer in tests
     input: &mut dyn BufRead,
     // TRAIT_OBJECT: the output is stdout, or a buffer in tests
@@ -153,7 +151,7 @@ pub async fn kill(
         verb: "kill",
         source: Box::new(error),
     };
-    let root = store_root(args.store.as_deref())?;
+    let root = common::store_root("kill", store).await?;
     let names = targets(args, &root.join("jobs"))?;
     if !args.yes {
         writeln!(out, "would stop: {}", names.join(" ")).map_err(fail)?;
@@ -199,10 +197,10 @@ pub async fn kill(
 ///
 /// # Errors
 /// [`CliError`] when the confirmation is refused or a job could not be stopped.
-pub async fn run(args: Args) -> Result<Exit, CliError> {
+pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let stdin = io::stdin();
     let mut input = stdin.lock();
     let mut stdout = io::stdout().lock();
-    kill(&args, &mut input, &mut stdout).await?;
+    kill(&args, store, &mut input, &mut stdout).await?;
     Ok(Exit::Success)
 }

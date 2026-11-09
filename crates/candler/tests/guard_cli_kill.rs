@@ -1,4 +1,4 @@
-//! `candler kill --all` without confirmation makes no docker call.
+//! `candler kill`: no docker call without confirmation, and the store every verb shares.
 #![cfg(test)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -110,4 +110,61 @@ fn kill_all_without_confirmation_makes_no_docker_call() {
             .any(|line| line.starts_with("container ls") && line.contains(wanted.as_str())), // BORROW: contains takes the id as text
         "the confirmed kill did not list the job's containers: {log:?}"
     );
+}
+
+/// Runs the real binary on the world, naming its store as `how` says: `CANDLER_STORE` alone,
+/// or `--store` before the verb. The working directory and the state home name no store.
+fn candler_naming(root: &Path, how: &str, args: &[&str]) -> Output {
+    let store = root.join("store");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_candler"));
+    command
+        .current_dir(root)
+        .env("HOME", root)
+        .env("XDG_STATE_HOME", root.join("state"))
+        .env_remove("CANDLER_STORE");
+    match how {
+        "env" => {
+            command.env("CANDLER_STORE", &store);
+        }
+        "flag before the verb" => {
+            command.arg("--store").arg(&store);
+        }
+        other => panic!("no such way to name the store: {other}"),
+    }
+    command
+        .args(args)
+        .env(
+            "PATH",
+            format!("{}:/usr/bin:/bin", root.join("bin").display()),
+        )
+        .stdin(Stdio::null())
+        .output()
+        .unwrap()
+}
+
+/// Guards: A36 — every verb reads one store root: `--store` anywhere on the line, else
+/// `CANDLER_STORE`, else the configuration. Before A36, `run` and `supervise` asked the
+/// configuration only and never saw the global value.
+///
+/// Oracle: the A36 ruling text, and the fake client's call log: a `kill --all -y` that found the
+/// store lists the lost job's labelled containers; one that did not lists nothing, since the
+/// working directory and the state home name no store.
+///
+/// Bite: `kill` calls `common::store_root("kill", None)`, as `run` did before A36 (recorded in
+/// the M2a rulings).
+#[test]
+fn a_job_verb_finds_the_store_named_by_the_env_or_a_leading_flag() {
+    for how in ["env", "flag before the verb"] {
+        let root = world();
+        let out = candler_naming(&root, how, &["kill", "--all", "-y"]);
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert_eq!(out.status.code(), Some(0), "{how}: {stderr}");
+        let log = calls(&root);
+        let wanted = format!("--filter label=candler.job={JOB}");
+        assert!(
+            log.lines()
+                .any(|line| line.starts_with("container ls") && line.contains(wanted.as_str())), // BORROW: contains takes the id as text
+            "{how}: kill did not find the store: {log:?}"
+        );
+    }
 }

@@ -90,14 +90,14 @@ where
     T::Err: Display,
 {
     text.parse::<T>()
-        .map_err(|e| CliError::refused(format!("candler import: rules `{field}`: {e}")))
+        .map_err(|e| CliError::refused(format!("rules `{field}`: {e}")))
 }
 
 /// The import rules the file at `path` states.
 fn load_rules(path: &Path) -> Result<(ImportRules, String), CliError> {
     let bytes = fs::read(path).map_err(|e| {
         CliError::refused(format!(
-            "candler import: cannot read the rules file {}: {e}",
+            "cannot read the rules file {}: {e}",
             path.display()
         ))
     })?;
@@ -105,13 +105,13 @@ fn load_rules(path: &Path) -> Result<(ImportRules, String), CliError> {
     let digest = digest_of(bytes.as_slice()).map_err(|e| CliError::failed("import", e))?; // BORROW: explicit .as_slice()
     let text = String::from_utf8(bytes).map_err(|e| {
         CliError::refused(format!(
-            "candler import: the rules file {} is not UTF-8: {e}",
+            "the rules file {} is not UTF-8: {e}",
             path.display()
         ))
     })?;
     // BORROW: explicit .as_str()
-    let file: RulesFile = toml::from_str(text.as_str())
-        .map_err(|e| CliError::refused(format!("candler import: rules file: {e}")))?;
+    let file: RulesFile =
+        toml::from_str(text.as_str()).map_err(|e| CliError::refused(format!("rules file: {e}")))?;
     let mut builder = ImportRules::builder()
         .source_digest(digest)
         .format(primitive::<NameToken>("format", file.format.as_str())?) // BORROW: explicit .as_str()
@@ -137,14 +137,14 @@ fn load_rules(path: &Path) -> Result<(ImportRules, String), CliError> {
     for item in &file.marker {
         let pattern = Regex::new(item.pattern.as_str()) // BORROW: explicit .as_str()
             .map_err(|e| {
-                CliError::refused(format!("candler import: rules `marker.pattern`: {e}"))
+                CliError::refused(format!("rules `marker.pattern`: {e}"))
             })?;
         let code = match (item.code.as_deref(), item.capture.as_deref()) {
             (Some(code), None) => MarkerCode::Fixed(primitive::<ReasonCode>("marker.code", code)?),
             (None, Some(group)) => MarkerCode::Capture(group.to_owned()), // BORROW: the rule owns the group name
             (Some(_), Some(_)) | (None, None) => {
                 return Err(CliError::refused(
-                    "candler import: rules `marker`: exactly one of `code` and `capture` is required",
+                    "rules `marker`: exactly one of `code` and `capture` is required",
                 ));
             }
         };
@@ -152,7 +152,7 @@ fn load_rules(path: &Path) -> Result<(ImportRules, String), CliError> {
     }
     let rules = builder
         .build()
-        .map_err(|e| CliError::refused(format!("candler import: rules: {e}")))?;
+        .map_err(|e| CliError::refused(format!("rules: {e}")))?;
     Ok((rules, file.harness.name))
 }
 
@@ -164,7 +164,7 @@ fn check_reader(name: &str) -> Result<(), CliError> {
             .map(drop)
             .map_err(|e| CliError::failed("import", e)),
         other => Err(CliError::refused(format!(
-            "candler import: rules `harness.name`: no reader for `{other}`"
+            "rules `harness.name`: no reader for `{other}`"
         ))),
     }
 }
@@ -188,17 +188,10 @@ fn new_reader(name: &str) -> Box<dyn TraceReader> {
 /// Returns [`CliError::Refused`] for a rules file that cannot be read or does not hold, naming
 /// the field, and for a harness without a reader; and [`CliError::Failed`] when the store or the
 /// import fails.
-#[allow(
-    clippy::unused_async,
-    reason = "every verb has the async entry `main` calls"
-)]
 pub async fn run(cli: &Cli, args: &ImportArgs) -> Result<Exit, CliError> {
     let (rules, harness) = load_rules(args.rules.as_path())?; // BORROW: explicit .as_path()
     check_reader(harness.as_str())?; // BORROW: explicit .as_str()
-    let config = common::load_config("import")?;
-    let resolver = common::plain_resolver(&config);
-    let resolution = common::resolve("import", cli, &config, &resolver).await?;
-    let root = common::store_root(&resolution)?;
+    let root = common::store_root("import", cli.store.as_deref()).await?;
     let store = Store::init(root.as_path()).map_err(|e| CliError::failed("import", e))?; // BORROW: explicit .as_path()
     let factory: Box<ReaderFactory> = Box::new(move || new_reader(harness.as_str())); // BORROW: explicit .as_str()
     let report = import(

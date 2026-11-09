@@ -45,9 +45,7 @@ pub async fn run(cli: &Cli, args: &DiffArgs) -> Result<Exit, CliError> {
     let equivalence = args
         .equivalence
         .as_deref()
-        .map(|path| {
-            Equivalence::load(path).map_err(|e| CliError::refused(format!("candler diff: {e}")))
-        })
+        .map(|path| Equivalence::load(path).map_err(|e| CliError::refused(format!("{e}"))))
         .transpose()?;
     let store = common::open_store("diff", cli).await?;
     let selection = common::read_selection("diff", &store)?;
@@ -58,7 +56,7 @@ pub async fn run(cli: &Cli, args: &DiffArgs) -> Result<Exit, CliError> {
     );
     if report.compared == 0 {
         return Err(CliError::refused(format!(
-            "candler diff: nothing compared between {from} and {to}"
+            "nothing compared between {from} and {to}"
         )));
     }
     let text = match args.format {
@@ -80,7 +78,7 @@ pub async fn run(cli: &Cli, args: &DiffArgs) -> Result<Exit, CliError> {
 /// An evaluator given as `name@version`.
 fn evaluator(flag: &str, text: &str) -> Result<NameVersion, CliError> {
     text.parse::<NameVersion>()
-        .map_err(|e| CliError::refused(format!("candler diff: {flag} `{text}`: {e}")))
+        .map_err(|e| CliError::refused(format!("{flag} `{text}`: {e}")))
 }
 
 /// The report as plain lines: the counts, then each change and each uncompared expectation.

@@ -53,8 +53,8 @@ pub async fn run(cli: &Cli, args: &EvaluateArgs) -> Result<Exit, CliError> {
         env_root.as_path(), // BORROW: explicit .as_path()
         &supervisor,
     )?;
-    let resolution = common::resolve("evaluate", cli, &config, &resolver).await?;
-    let store = common::store_root(&resolution)?;
+    let resolution = common::resolve("evaluate", cli.store.as_deref(), &config, &resolver).await?;
+    let store = common::resolved_root(&resolution)?;
 
     // The handler only flips the cancel watch: every stop goes out through the supervisor.
     let (cancel_tx, cancel_rx) = watch::channel(false);
@@ -96,7 +96,7 @@ pub async fn run(cli: &Cli, args: &EvaluateArgs) -> Result<Exit, CliError> {
     println!("{document}");
     if *cancelled.borrow() {
         return Err(CliError::Runtime {
-            detail: "candler evaluate: cancelled".to_owned(),
+            detail: "`evaluate` was cancelled".to_owned(),
         });
     }
     if report.failed_requests.is_empty() {
@@ -104,7 +104,7 @@ pub async fn run(cli: &Cli, args: &EvaluateArgs) -> Result<Exit, CliError> {
     } else {
         Err(CliError::Runtime {
             detail: format!(
-                "candler evaluate: {} request(s) failed",
+                "`evaluate`: {} request(s) failed",
                 report.failed_requests.len()
             ),
         })

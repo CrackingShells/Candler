@@ -246,3 +246,15 @@ A guard that waits on a timeout to prove a duration is not accepted when the dur
 **The import gate (Eliott, 2026-11-09).** The guard's debug binary imports the corpus in 44.4 s. A release build takes 7.7–9.1 s. Eliott: "then it's completely fine."
 - **Ruling:** the 30 s import gate measures the release `candler`. The debug figure is recorded but not gated.
 - **Follow-up:** the import waste the probe measured (the gzip round trip, the sync after every blob, and one core) goes to the KT as a follow-up, not to an M2a amendment.
+
+## Rebase onto main after PR #4 (2026-11-09): A36 and the CLI error
+M2a lands second, so it owns A36 and the reconciliation with M2b's CLI. The coordinator assigned both.
+- **A36, the store root.** M2b ruled "the store root is `--store`, else `Config`, through `store_root` in `ps.rs`", and the helper was to move to `commands/common.rs` once M2a arrived. Before the reconciliation the binary had two paths:
+  - a global `--store` (with `CANDLER_STORE`), read by the M2a verbs through the resolver;
+  - a `--store` of its own on `ps`, `kill` and `watch`, beside the global one, while `run` and `supervise` called `store_root(None)` and read the configuration only.
+
+  clap copies a global value, `CANDLER_STORE` included, into a subcommand arg of the same id. So the job verbs' own flag did not shadow the global one: the first bite, which gave `kill` its flag back, survived. The real gap was `run` and `supervise`.
+
+  **Ruling:** there is one store root, `common::store_root`. It takes `--store` from anywhere on the line, else `CANDLER_STORE`, else the configuration's `store.root`, else the core default, and the resolver layers all of it. The job verbs lose their own flag and take the global one. `supervise` still prefers the launcher's `CANDLER_STORE_ROOT`. `evaluate` reads the same setting from the resolution of its own preflight (`common::resolved_root`). A new row in `guard_cli_kill` checks it: a job verb finds the store through the env or a leading flag. Its bite is `kill` calling `store_root("kill", None)`, the pre-A36 shape of `run`, and it kills the row.
+- **CliError.** M2b's `thiserror` enum is kept, and the M2a verbs return it. `main` prints `candler: {error}`, so the M2a reasons no longer carry their own `candler <verb>: ` prefix, which would have printed `candler: refused: candler import: …`.
+- **The sandbox contract.** Main records `candler-container@1`. No M2a fixture or test asserts the value for a Candler-produced run. The legacy `v5` in the imported mini-corpus is the corpus's own field, so it stays.

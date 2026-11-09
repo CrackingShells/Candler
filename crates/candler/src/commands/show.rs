@@ -44,14 +44,14 @@ pub async fn run(cli: &Cli, args: &ShowArgs) -> Result<Exit, CliError> {
         .as_deref()
         .map(|text| {
             text.parse::<NameVersion>()
-                .map_err(|e| CliError::refused(format!("candler show: --evaluator `{text}`: {e}")))
+                .map_err(|e| CliError::refused(format!("--evaluator `{text}`: {e}")))
         })
         .transpose()?;
     let store = common::open_store("show", cli).await?;
     let selection = common::read_selection("show", &store)?;
     let text = if args.rates {
-        let evaluator = evaluator
-            .ok_or_else(|| CliError::refused("candler show: --rates requires --evaluator"))?;
+        let evaluator =
+            evaluator.ok_or_else(|| CliError::refused("--rates requires --evaluator"))?;
         let cells = rates(&selection, &evaluator);
         match args.format {
             ShowFormat::Toml => rates_toml(&cells),

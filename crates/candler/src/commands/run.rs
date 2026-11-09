@@ -46,8 +46,7 @@ use candler_schemas::execution::{EventPayload, ExperimentFile, JobRecord, JobSta
 use candler_schemas::primitives::{FieldPath, RunKey};
 use candler_schemas::values::JsonValue;
 
-use super::ps::store_root;
-use super::{CliError, Exit};
+use super::{CliError, Exit, common};
 
 /// The environment variable that tells the supervisor which store the launcher used. The
 /// supervisor is started with a cleared environment, and the launcher found the store from its
@@ -311,7 +310,7 @@ fn read_experiment(path: &Path) -> Result<ExperimentFile, CliError> {
 /// # Errors
 /// [`CliError::Refused`] when the experiment cannot be resolved or planned, [`CliError::Failed`]
 /// when docker, the store or the supervisor fails.
-pub async fn run(args: Args) -> Result<Exit, CliError> {
+pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let Args {
         experiment,
         fields,
@@ -323,7 +322,7 @@ pub async fn run(args: Args) -> Result<Exit, CliError> {
         .join(&experiment)
         .parent()
         .map_or_else(|| cwd.clone(), Path::to_path_buf); // BORROW: the directory is owned
-    let root = store_root(None)?;
+    let root = common::store_root("run", store).await?;
     let store = Store::init(&root).map_err(failed)?;
     let config = Arc::new(Config::load(&cwd, &ConfigEnv::from_process()).map_err(failed)?);
     let input = request_settings(&file, experiment_dir.as_path(), &fields, &config)?;
