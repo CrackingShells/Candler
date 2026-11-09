@@ -1,4 +1,8 @@
-"""The protocol pipe: frames out, lines in, and the guard that keeps stdout clean."""
+"""The protocol pipe: frames out, lines in, and the guard that keeps stdout clean.
+
+Every message that crosses the pipe, in or out, passes the models generated from the
+published schemas (`_models`), so the helper accepts and emits exactly what they decide.
+"""
 
 from __future__ import annotations
 
@@ -9,20 +13,63 @@ import sys
 from collections.abc import Mapping
 from typing import Any
 
+from pydantic import RootModel, ValidationError
+
+from ._models.evaluator_message import Message, RequestId
+
 __all__ = [
+    "INVALID_PARAMS",
+    "METHOD_NOT_FOUND",
     "FrameWriter",
     "LineReader",
     "ProtocolError",
+    "Refused",
+    "check_frame",
     "install_fd_guard",
     "parse_message",
+    "summarise",
 ]
 
-_ENVELOPE_KEYS = frozenset({"jsonrpc", "id", "method", "params", "result", "error"})
+INVALID_PARAMS = -32602
+METHOD_NOT_FOUND = -32601
+_REQUEST_METHODS = frozenset({"describe", "evaluate"})
 _guard_installed = False
 
 
 class ProtocolError(ValueError):
-    """A line that is not a JSON-RPC 2.0 message of the evaluator protocol."""
+    """A line that is not a message of the evaluator protocol and cannot be answered."""
+
+
+class Refused(ProtocolError):
+    """A request with an id that the models refuse; the id's owner is owed an error."""
+
+    def __init__(self, request_id: str, code: int, message: str) -> None:
+        super().__init__(message)
+        self.request_id = request_id
+        self.code = code
+
+
+def summarise(err: ValidationError, limit: int = 3) -> str:
+    """The faults of a validation error in a few words each, branch mismatches left out.
+
+    A union reports every branch it tried; a `literal_error` is a branch whose
+    discriminating member (`method`, `jsonrpc`) did not match, which says nothing of the
+    fault itself.
+    """
+    found = err.errors(include_url=False, include_input=False)
+    real = [e for e in found if e["type"] != "literal_error"] or found
+    return "; ".join(
+        f"{'.'.join(str(part) for part in e['loc'][-4:])}: {e['msg']}"
+        for e in real[:limit]
+    )
+
+
+def check_frame(frame: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate a frame against the message model and return it as the wire dict.
+
+    Optional members that are unset are left out: the wire has no null.
+    """
+    return Message.model_validate(frame).model_dump(mode="json", exclude_none=True)
 
 
 class FrameWriter:
@@ -37,8 +84,8 @@ class FrameWriter:
         return self._fd
 
     def write(self, frame: Mapping[str, Any]) -> None:
-        """Send one frame; it reaches the pipe before this returns."""
-        text = json.dumps(frame, separators=(",", ":"), allow_nan=False)
+        """Send one frame, which the message model must accept; it reaches the pipe first."""
+        text = json.dumps(check_frame(frame), separators=(",", ":"), allow_nan=False)
         view = memoryview((text + "\n").encode("ascii"))
         while view:
             view = view[os.write(self._fd, view) :]
@@ -60,39 +107,49 @@ def install_fd_guard() -> FrameWriter:
     return FrameWriter(frame_fd)
 
 
-def parse_message(line: bytes | str) -> dict[str, Any]:
-    """Check one line against the envelope rules of JSON-RPC 2.0 as the protocol uses it.
+def _unwrap(model: Any) -> Any:
+    """The object inside the root models that the generator wraps each union in."""
+    while isinstance(model, RootModel):
+        model = model.root
+    return model
 
-    The members are those of the shared wire vectors: `jsonrpc` exactly "2.0", a string
-    `id` when present (never null, never a number), a request or notification carries
-    `method` and no `result` or `error`, and a response carries `id` and one of them.
+
+def _is_request_id(value: Any) -> bool:
+    try:
+        RequestId.model_validate(value, strict=True)
+    except ValidationError:
+        return False
+    return True
+
+
+def parse_message(line: bytes | str) -> Any:
+    """Validate one line as a message and return its model.
+
+    The generated `Message` decides, in strict mode. A line it refuses is a
+    `ProtocolError`, except a request whose id could still be answered (`jsonrpc` "2.0", an
+    `id` the `RequestId` model accepts, a string `method`, no `result` or `error`): that is a `Refused`, carrying the
+    error code the request is owed.
     """
     try:
-        msg = json.loads(line)
-    except (ValueError, RecursionError) as err:
-        raise ProtocolError(f"not JSON: {err}") from err
-    if not isinstance(msg, dict):
-        raise ProtocolError("a message is a JSON object")
-    unknown = sorted(set(msg) - _ENVELOPE_KEYS)
-    if unknown:
-        raise ProtocolError(f"unknown member {unknown[0]!r}")
-    if msg.get("jsonrpc") != "2.0":
-        raise ProtocolError('`jsonrpc` is exactly "2.0"')
-    if "id" in msg and not isinstance(msg["id"], str):
-        raise ProtocolError("`id` is a string")
-    if "params" in msg and not isinstance(msg["params"], dict):
-        raise ProtocolError("`params` is an object")
-    if "method" in msg:
-        if not isinstance(msg["method"], str):
-            raise ProtocolError("`method` is a string")
-        if "result" in msg or "error" in msg:
-            raise ProtocolError("`result` and `error` belong to a response")
-    else:
-        if "id" not in msg or ("result" in msg) == ("error" in msg):
-            raise ProtocolError(
-                "a response has an `id` and one of `result` and `error`"
-            )
-    return msg
+        return _unwrap(Message.model_validate_json(line, strict=True))
+    except ValidationError as err:
+        reason = summarise(err)
+    try:
+        raw = json.loads(line)
+    except (ValueError, RecursionError):
+        raise ProtocolError(f"not JSON: {reason}") from None
+    if (
+        isinstance(raw, dict)
+        and raw.get("jsonrpc") == "2.0"
+        and _is_request_id(raw.get("id"))
+        and isinstance(raw.get("method"), str)
+        and "result" not in raw
+        and "error" not in raw
+    ):
+        code = INVALID_PARAMS if raw["method"] in _REQUEST_METHODS else METHOD_NOT_FOUND
+        text = reason if code == INVALID_PARAMS else f"no method {raw['method']}"
+        raise Refused(raw["id"], code, text)
+    raise ProtocolError(reason)
 
 
 class LineReader:
