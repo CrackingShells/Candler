@@ -2,7 +2,7 @@
 #![cfg(unix)]
 //! The corpus regrade guard: the 240-run golden corpus is imported as `htn-creator-eval@0.4.2`
 //! and regraded live twice, through `candler evaluate`, with the shipped HTN plug-in
-//! `htn-creator-eval@0.5.0` (its tagged manifest, its `suite/suite.json`, its import rules).
+//! `htn-creator-eval@0.5.1` (its tagged manifest, its `suite/suite.json`, its import rules).
 //! Every expected number is read from `tests/oracle/` (written by `gen_oracle.py` from the raw
 //! corpus, importing nothing from Candler) or is a hand literal below.
 //!
@@ -39,7 +39,7 @@ use serde_json::{Value, json};
 /// The evaluator the import writes, and the reference side of the diff.
 const FROM: &str = "htn-creator-eval@0.4.2";
 /// The live evaluator, and the compared side of the diff.
-const TO: &str = "htn-creator-eval@0.5.0";
+const TO: &str = "htn-creator-eval@0.5.1";
 /// The sha256 of the HTN rules file `import/htn-results-rules.toml`, from `shasum -a 256`.
 const RULES_SHA256: &str =
     "sha256:5d25aa60db68a8340bad2856a8c9fb1e1f99d13dce161d6f08539afb22e56952";
@@ -524,7 +524,7 @@ fn the_live_ac_rows_and_rates_equal_the_reference() {
     );
 }
 
-/// Guards: R2, R1 — the version diff is exact and complete: `candler diff` from `0.4.2` to `0.5.0`
+/// Guards: R2, R1 — the version diff is exact and complete: `candler diff` from `0.4.2` to `0.5.1`
 /// with the committed `equivalence.json` exits 0 with 8,880 compared, none changed, `unchanged +
 /// excused + changed == compared`, `excused` equal to the line count of `na_pairs.txt`, the
 /// `equivalence.sha256` equal to the sha256 of the committed file's bytes, `compared` plus the
