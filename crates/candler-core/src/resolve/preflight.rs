@@ -178,9 +178,10 @@ pub enum ResolveError {
     },
     /// At least one step failed; every step ran.
     #[error(
-        "preflight failed: {} failed step report(s), {} step error(s)",
+        "preflight failed: {} failed step report(s), {} step error(s){}",
         reports.len(),
-        errors.len()
+        errors.len(),
+        failures(reports, errors)
     )]
     Preflight {
         /// The reports of the steps with a failed check, in registration order.
@@ -188,6 +189,42 @@ pub enum ResolveError {
         /// The steps that returned an error, in registration order.
         errors: Vec<StepError>,
     },
+}
+
+/// How many failed steps the refusal names before it counts the rest.
+const NAMED: usize = 5;
+
+/// The failed steps of a refusal, each with its failing checks or its error: `: a@1 (check: why),
+/// b@2 (error: why)`, the first five and then `and N more`. Empty when no step failed.
+fn failures(reports: &[StepReport], errors: &[StepError]) -> String {
+    let failed = reports.iter().map(|report| {
+        let checks: Vec<String> = report
+            .checks
+            .iter()
+            .filter(|check| !check.passed)
+            .map(|check| format!("{}: {}", check.name, check.explanation))
+            .collect();
+        format!("{} ({})", report.step, checks.join("; "))
+    });
+    let broken = errors
+        .iter()
+        .map(|failure| format!("{} (error: {})", failure.step, failure.error));
+    let all: Vec<String> = failed.chain(broken).collect();
+    if all.is_empty() {
+        return String::new();
+    }
+    let more = all.len().saturating_sub(NAMED);
+    let named = all
+        .iter()
+        .take(NAMED)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if more == 0 {
+        format!(": {named}")
+    } else {
+        format!(": {named}, and {more} more")
+    }
 }
 
 /// Runs preflight steps in registration order over layered values.
