@@ -118,3 +118,10 @@ A cancel that lands while the client settles returns `Ok`, and dropping a `Child
 - **M2, fixed.** A wrongly typed `deadline_ms` or `kind` crashed the whole helper. `_parse_evaluate` now checks the types and answers -32602, and the helper stays up. The case is a row of HR1's existing table, not a new test.
 - **M3, fixed.** A child abandoned after a cancel was never reaped. The helper now reaps abandoned pids with `waitpid(WNOHANG)` before each fork and at exit, and sends no signal (I22).
 - **N1 and N2, accepted as notes.** `_early_cancels` can grow for cancels of requests that never arrive. The no-fork fallback has no isolation, as documented.
+
+## helper_release (L2, merged on report)
+- **1: noted for the KT.** The schemas' `(?![\s\S])` look-aheads work only under Python `re`. The generated models set `regex_engine="python-re"`; a consumer on pydantic's default Rust regex engine would refuse them.
+- **2: accepted.** The leaf asked for the coordinator's OK before editing `ci.yml`, and OWNED named it. The `helper` job is added before `commits`. `release` still needs only `gates` and `commits`, which is right because the helper is not published.
+- **3: accepted.** `pydantic>=2.7` becomes the helper's one runtime dependency; it was already locked as a dev dependency. The `exceptiongroup` marker narrowing to `<3.11` is harmless, since 3.11 ships it.
+- **4: accepted, binding on L2.** The loop now validates through the models: a non-v7 request id is dropped and logged, a refused request gets -32602 (or -32601 for an unknown method), a non-SemVer version gets -32000 at `describe`, and an outcome that fits `normalise_outcome` but not `OutcomeRecord` becomes `not_measured {instrument_error}`. The Rust client sends `DescribeParams` and v7 ids, so it is unaffected. `engine` and `surfaces` rebase onto this merge before landing and re-run their plug-in tests against it. `htn_plugin` is re-pinned past it.
+- **5, 6: accepted.** Cross-field rules stay in `normalise_outcome`. `INVALID_PARAMS` and `METHOD_NOT_FOUND` move to `frames.py`, and the public API is unchanged.

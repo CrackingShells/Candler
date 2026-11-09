@@ -5,11 +5,11 @@
 - [ ] [cmd] ENV, and `git log --first-parent --format=%s feat/m2a-evaluation-parity | grep -qx 'merge(evaluator-helper): land helper_runtime'`
 - [ ] [cmd] `test -f crates/candler-schemas/schema/evaluator-message.schema.json` (from `protocol_wire`)
 **Success Gates**:
-- ⬜ [cmd] PYSTD, SUBJ and SCAFFOLD pass, and OWNED passes with `^(python/candler-evaluator/(src/candler_evaluator/(_models/|(loop|frames|__init__)\.py$)|scripts/|(tests/test_guard_wire_vectors\.py|pyproject\.toml|uv\.lock|README\.md|CHANGELOG\.md)$)|\.github/workflows/ci\.yml$)`
-- ⬜ [cmd] `cd python/candler-evaluator && uv run --frozen pytest -q tests/test_guard_wire_vectors.py` passes (PYM1)
-- ⬜ [cmd] `cd python/candler-evaluator && uv run --frozen python scripts/gen_models.py && git diff --exit-code src/candler_evaluator/_models`
-- ⬜ [cmd] `test "$(cd python/candler-evaluator && uv run --frozen python -c 'import candler_evaluator;print(candler_evaluator.__version__)')" = "$(sed -n 's/^version = "\(.*\)"/\1/p' python/candler-evaluator/pyproject.toml)"`, and `grep -q 'candler-evaluator@' CONTRIBUTING.md`
-- ⬜ [cmd] `grep -q 'python/candler-evaluator' .github/workflows/ci.yml` and the new job runs PYSTD and the regeneration check. It is decided by the PR's CI, recorded as not yet run until the push.
+- ✅ [cmd] PYSTD, SUBJ and SCAFFOLD pass, and OWNED passes with `^(python/candler-evaluator/(src/candler_evaluator/(_models/|(loop|frames|__init__)\.py$)|scripts/|(tests/test_guard_wire_vectors\.py|pyproject\.toml|uv\.lock|README\.md|CHANGELOG\.md)$)|\.github/workflows/ci\.yml$)`
+- ✅ [cmd] `cd python/candler-evaluator && uv run --frozen pytest -q tests/test_guard_wire_vectors.py` passes (PYM1)
+- ✅ [cmd] `cd python/candler-evaluator && uv run --frozen python scripts/gen_models.py && git diff --exit-code src/candler_evaluator/_models`
+- ✅ [cmd] `test "$(cd python/candler-evaluator && uv run --frozen python -c 'import candler_evaluator;print(candler_evaluator.__version__)')" = "$(sed -n 's/^version = "\(.*\)"/\1/p' python/candler-evaluator/pyproject.toml)"`, and `grep -q 'candler-evaluator@' CONTRIBUTING.md`
+- ✅ [cmd] `grep -q 'python/candler-evaluator' .github/workflows/ci.yml` and the new job runs PYSTD and the regeneration check. It is decided by the PR's CI, recorded as not yet run until the push.
 **References**: [R03 §Python helper](../../../../__reports__/m2a-evaluation-parity/00-architecture_v0.md); `crates/candler-schemas/schema/evaluator-*.schema.json`; `crates/candler-schemas/tests/fixtures/rpc/` — the shared vectors; [R04 PYM1](../../../../__reports__/m2a-evaluation-parity/01-test_definition_v0.md); [R06 CONTRIBUTING](../../../../CONTRIBUTING.md) — versioning lines
 
 ## Step 1: Generate the wire models from the schemas
