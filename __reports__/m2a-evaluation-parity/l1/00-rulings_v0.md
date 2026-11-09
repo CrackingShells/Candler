@@ -272,3 +272,7 @@ M2a lands second, so it owns A36 and the reconciliation with M2b's CLI. The coor
   | `// the rikyu MCP server` in `commands/run.rs` | The binary scan |
   | The filter excuses the whole allowed file | The planted self-test |
   | The allowed line changed to `"planlib"` (a stale allowance) | The binary scan's exactly-once check |
+- **The 0.5.2 recut (Eliott, 2026-11-09).** Tag `htn-creator-eval@0.5.1`'s lock pins `candler-evaluator` at Candler `97a4a0f9`. The rebase onto main rewrote that commit, so it is now reachable only from the local `backup/m2a-pre-rebase-88ac80f`. Eliott: "Yes, recut 0.5.2."
+  - In `$R`, `8f0eab2d` bumps the plug-in to 0.5.2 on `feat/candler-htn-plugin`. The bump covers the manifest, pyproject, lock, `specs.VERSION`, the regenerated suite README and the CHANGELOG, with the re-pin line. `suite.json` is byte-identical to 0.5.1's.
+  - `8573c4e8` merges the bump into `feat/skill-htn-creator`, and the annotated tag `htn-creator-eval@0.5.2` is cut there. Its lock pins Candler `7eace3a1`, which is on this branch. 0.5.1 was never pushed and stays as it was cut.
+  - On this branch, the corpus guard's live evaluator and the contract's gate text move to 0.5.2. The reports keep 0.5.1 wherever they record what was run.
