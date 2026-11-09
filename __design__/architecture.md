@@ -419,7 +419,9 @@ I3, so event times are reproducible even where the harness emits none.
 - **Header**, the first line: `{kind: header, schema, stream, clock, source?}`. `stream` is a stream
   name (`stdout`, `stderr`, or a collected file's name). `clock` is `{kind: monotonic, anchor{wall,
   mono_ns}}`, one wall-clock reading paired with the monotonic clock, or `{kind: unrecorded}`.
-  `source` is the digest of the file the frames were cut from, when they were cut after the fact.
+  `source` is the digest of the file the frames were cut from, as that file is stored, when they
+  were cut after the fact: for an imported agent stream, the gzipped legacy file, though the
+  frames hold its decompressed bytes.
 - **Frames**, the following lines: `{kind: frame, t_mono_ns?, data}`, with `data` either `{kind: text,
   text}` (valid UTF-8) or `{kind: bytes, base64}`. Frame indices count the lines after the header,
   from 0.
@@ -967,8 +969,12 @@ input the legacy importer reconstructed (importer defect) → anything left is a
 
 | Field | From | Rule |
 |---|---|---|
-| `comparable.values` | `experiment.json` `plan.*`, `provenance.*`, `resolved_skill_version` | Each JSON leaf becomes a dotted field path with source `imported{experiment.json}`; a `null` leaf has no value and is `unrecorded`. `plan.out_dir` goes to `import`. |
-| `comparable.harness` | the stream's init line, `claude_code_version` | Must agree across a cell, else the import is refused |
+| `comparable.values` | `experiment.json` `plan.*`, `provenance.*`, and the top-level key the import rules name for the version the treatment resolved to (`resolved_skill_version` here) | Each JSON leaf becomes a dotted field path with source `imported{experiment.json}`; a `null` leaf has no value and is `unrecorded`. `plan.out_dir` goes to `import`. |
+| `comparable.harness` | the harness name the import rules give, and the version at their JSON pointer into the stream's first line (`claude_code_version` here) | Must agree across a cell, else the import is refused |
+| `comparable.treatment` | `experiment.json`, at the JSON pointer the import rules name | A string written `<name>@<tag>`, else the import is refused; it gives the name and tag, and no commit, which the legacy folder does not record |
+| `comparable.snapshots[]` | `PROVENANCE.json`, at the JSON pointers the import rules name | One entry per snapshot rule: the rule's kind and the bare sha256 the legacy provenance recorded at its pointer, not the RFC 8785 form a live snapshot's digest is taken over |
+| `comparable.inputs[]` | each run's `timing.json` `copied_inputs[] {role, sha256}` | `role` is the kind; the lists must agree across a cell, else the import is refused |
+| `comparable.environments[]` | — | Empty: the legacy folder records no plug-in environment |
 | `measured` | each run's `eval_metadata.json` `provenance.*`, where the cell-level value is `null` | Source `imported{<run-relative path>}`; the copies within one run must agree, else the import is refused |
 | `factors` | — | The field paths whose values differ across the imported cells |
 | `experiment` | — | The digest of the sorted cell digests |
@@ -978,8 +984,9 @@ input the legacy importer reconstructed (importer defect) → anything left is a
 | `import` | — | The format label, base commit, legacy integrity block, and every source file read with its sha256, each kept as a blob |
 
 - **Evaluator identity** comes from `PROVENANCE.json` `pinned` (`describe`, `commit`, `dirty`). The
-  instrument name, the marker patterns and the format label come from import rules the caller
-  supplies, so the core names no domain (I1).
+  instrument name, the marker patterns, the format label, the harness name, the pointers to the
+  harness version, the treatment and the snapshots, and the key of the resolved treatment version
+  come from import rules the caller supplies, so the core names no domain (I1).
 - **Outcome identity.** One request per run per evaluator. `request_id` is a UUIDv7 whose 48-bit
   time is the regrade's finish time in milliseconds (`PROVENANCE.json` `regraded_at.finished`) and
   whose 74 random bits are the first 74 bits of `sha256(<run key path form> 0x00 <evaluator
