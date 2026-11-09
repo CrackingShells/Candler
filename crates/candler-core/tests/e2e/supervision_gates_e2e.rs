@@ -38,7 +38,7 @@ use candler_schemas::primitives::JobId;
     clippy::duplicate_mod,
     reason = "guard_container_e2e loads this module with its siblings"
 )]
-#[path = "support/mod.rs"]
+#[path = "../support/mod.rs"]
 mod support;
 
 use support::assert_clean;

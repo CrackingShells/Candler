@@ -32,7 +32,7 @@ use candler_schemas::execution::EventPayload;
 use candler_schemas::primitives::{Digest, JobId, RunKey};
 
 // The helpers the supervision gates share.
-#[path = "support/gateway.rs"]
+#[path = "../support/gateway.rs"]
 mod gateway_support;
 
 use gateway_support::{

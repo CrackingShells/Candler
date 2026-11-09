@@ -31,7 +31,7 @@ use candler_schemas::process::ExitStatus;
 use futures::FutureExt as _;
 use rustix::process::Signal;
 
-#[path = "support/container_stop.rs"]
+#[path = "../support/container_stop.rs"]
 mod stop_support;
 
 use stop_support::{job, run_key};
