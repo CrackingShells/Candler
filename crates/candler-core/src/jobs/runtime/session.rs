@@ -143,6 +143,7 @@ pub async fn recover_job_dir(dir: &JobDir) -> Result<RecoverReport, String> {
 /// The reason the recovery could not run, as text.
 pub async fn recover_job_dir_with<F>(dir: &JobDir, guard: F) -> Result<RecoverReport, String>
 where
+    // TRAIT_OBJECT: the guard reads the job through its view
     F: FnOnce(&DockerCli, Arc<dyn JobView>) -> ContainerGuard,
 {
     let events = Arc::new(JobEvents::open(dir).map_err(|e| e.to_string())?);

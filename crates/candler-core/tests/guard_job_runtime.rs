@@ -428,6 +428,7 @@ fn b42_reap_lost_jobs_spares_own_and_stops_on_cancel() {
         append_log(&dir, &started_line(&id.to_string()));
         dirs.push(dir);
     }
+    // INDEX: `dirs` was pushed above, the sibling then the ended job: two entries
     let (sibling_dir, ended_dir) = (&dirs[0], &dirs[1]);
     append_log(ended_dir, &ended_line(&ended.to_string()));
     // The controls: before the sweep, the running job and the sibling read as lost; the third is ended.

@@ -373,8 +373,14 @@ exit 1
         (kinds, ends)
     }
 
-    /// Guards: B41 — `candler kill --all -y` on two running jobs reaps each supervisor from the identity `job.json` records, with SIGTERM through the process guard, and each job ends `killed` by its own teardown and not by a recovery.
-    /// Oracle: the real binary's exit status and lines; the status of each supervisor, read from the `Child` the test holds (a normal exit, not SIGKILL); each job's event log (`job.started`, one `job.ended` of `killed`, then only the reap's `process.stop_step`); the jobs' locks; and the start time of each supervisor's pid. The supervisors start no process of their own, so no job marker exists to scan: the pid and start time stand in for it.
+    /// Guards: B41 — `candler kill --all -y` on two running jobs reaps each supervisor from the
+    /// identity `job.json` records, with SIGTERM through the process guard, and each job ends
+    /// `killed` by its own teardown and not by a recovery.
+    /// Oracle: the real binary's exit status and lines; the status of each supervisor, read from
+    /// the `Child` the test holds (a normal exit, not SIGKILL); each job's event log
+    /// (`job.started`, one `job.ended` of `killed`, then only the reap's `process.stop_step`); the
+    /// jobs' locks; and the start time of each supervisor's pid. The supervisors start no process
+    /// of their own, so no job marker exists to scan: the pid and start time stand in for it.
     /// Bite: the running branch of `kill` skips the reap and falls to the recovery.
     ///
     /// The test dies safely: each supervisor's body ends the job by itself after five minutes
@@ -544,6 +550,8 @@ exit 1
             // The end is the supervisor's own: its log holds the two events it writes and the
             // steps of the reap that `kill` records, and nothing a recovery writes.
             let (kinds, ends) = events_of(&rig.dir);
+            assert!(kinds.len() >= 2, "{}: {kinds:?}", rig.id);
+            // INDEX: the log holds at least `job.started` and `job.ended`, asserted just above
             assert_eq!(kinds[..2], ["job.started", "job.ended"], "{}", rig.id);
             assert!(
                 kinds[2..].iter().all(|kind| kind == "process.stop_step"),

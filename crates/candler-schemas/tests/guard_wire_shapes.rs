@@ -170,6 +170,8 @@ fn catalog_wire_structs_are_refused_as_lists_in_every_fixture() {
                     "servers",
                 ],
                 2 => &["name", "source_path", "source_digest", "transport", "tools"],
+                // EXPLICIT: any other depth is a tool, whose flattened extra keys give it no fixed
+                // field order
                 _ => &[],
             };
             let list: Vec<Value> = if fields.is_empty() {
