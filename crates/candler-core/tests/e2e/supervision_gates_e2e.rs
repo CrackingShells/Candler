@@ -59,6 +59,10 @@ const GONE_LIMIT: Duration = Duration::from_secs(15);
 
 /// The re-exec entry of the supervisor child that B36 starts; it guards nothing itself. It does
 /// nothing unless `CANDLER_TEST_GATES_JOB` names a job: run on its own it is an empty test.
+///
+/// Guards: none (re-exec entry of B36).
+/// Oracle: none.
+/// Bite: none.
 #[test]
 fn supervisor_child() {
     let Ok(job) = std::env::var(ENV_JOB) else {
@@ -78,10 +82,11 @@ fn supervisor_child() {
         .build()
         .expect("a runtime");
     // The test SIGKILLs this process while the body waits, so the call never returns.
-    let outcome = runtime
-        .block_on(supervise_entry(entry, gates_body))
-        .expect("the job ends in order");
-    assert_eq!(outcome.end, JobEnd::Killed);
+    drop(
+        runtime
+            .block_on(supervise_entry(entry, gates_body))
+            .expect("the job ends in order"),
+    );
 }
 
 /// The real docker client behind an allowlist, and the means to recover a lost job through the

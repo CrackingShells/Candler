@@ -283,9 +283,8 @@ fn unknown_keys_are_refused_naming_the_file_and_key() {
 }
 
 /// Guards: I14 — a path written in a config file or an experiment file resolves against that
-/// file's directory, and a path given as an argument against the working directory. Oracle: I14 of
-/// R01 §Invariants, with the expected paths written out by hand.
-///
+/// file's directory, and a path given as an argument against the working directory.
+/// Oracle: I14 of R01 §Invariants, with the expected paths written out by hand.
 /// Bite: in `FileValues::relative_to`, join the text to `std::env::current_dir()` instead of `dir`.
 #[tokio::test]
 async fn paths_resolve_against_the_file_or_the_working_directory() {

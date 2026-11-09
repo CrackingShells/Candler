@@ -28,6 +28,10 @@ use support::job_store::{job_id, job_record};
 /// The re-exec entry of the supervisor child that B32 and B33 start; it guards nothing itself. It
 /// does nothing unless `CANDLER_TEST_SUPERVISOR_JOB` names a job: run on its own it is an empty
 /// test.
+///
+/// Guards: none (re-exec entry of B32 and B33).
+/// Oracle: none.
+/// Bite: none.
 #[test]
 fn supervisor_child() {
     let Ok(job) = std::env::var(ENV_JOB) else {

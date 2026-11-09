@@ -142,7 +142,9 @@ const TABLE: [&str; 6] = ["m1", "m2", "m3", "m4", "m5", "m6"];
 /// their status; no new run starts. F4: the gateway's `container.created` comes before the first
 /// `run.started`.
 /// Oracle: R01 §Budget; a literal run table.
-/// Bite: apply the cap to all_runs instead of live_runs.
+/// Bite: apply the cap to all_runs instead of live_runs. F4: replace the gateway `container_created`
+/// payload in `jobs/orchestrate/session.rs` with `job_started`; it fails at the `container.created
+/// for the gateway precedes run.started` assertion.
 #[test]
 #[expect(
     clippy::doc_markdown,
