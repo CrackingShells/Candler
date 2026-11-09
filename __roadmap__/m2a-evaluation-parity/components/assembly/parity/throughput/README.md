@@ -19,7 +19,7 @@ Regrading the 240-run corpus runs at 100 items/s or more, with outcomes byte-ide
 ```mermaid
 graph TD
     regrade_throughput[Regrade throughput in the core and helper]:::amendment
-    htn_preload[HTN plug-in preloads its checker libraries]:::amendment
+    htn_preload[HTN plug-in preloads its checker libraries]:::done
     proof[Throughput proof]:::amendment
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -32,7 +32,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `regrade_throughput.md` | 📄 Leaf Task | 🔵 Amendment |
-| `htn_preload.md` | 📄 Leaf Task | 🔵 Amendment |
+| `htn_preload.md` | 📄 Leaf Task | ✅ Done |
 | `proof/` | 📁 Directory | 🔵 Amendment |
 
 ## Amendment Log

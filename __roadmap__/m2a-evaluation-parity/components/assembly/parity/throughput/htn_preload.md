@@ -5,10 +5,10 @@
 - [ ] [cmd] `git -C "$R" rev-parse -q --verify 'refs/tags/htn-creator-eval@0.5.0^{commit}'`
 - [ ] [nl] The implementer works in its own `$R` worktree on `m2a/htn_preload`, cut from `feat/candler-htn-plugin`
 **Success Gates**:
-- ⬜ [cmd] HTNSTD passes, and OWNED passes with `^\.claude/skills/htn-creator-workspace/(candler-plugin\.toml$|candler-plugin/(src/htn_creator_candler/|tests/test_guard_preload\.py$|suite/README\.md$|(pyproject\.toml|uv\.lock|README\.md)$)|infrastructure/CHANGELOG\.md$)`
-- ⬜ [cmd] KP1 (`test_guard_kind_parity`, local, against `$GOLDEN`) and KP2 pass unchanged, and the report records KP1's wall-clock (291.72 s before)
-- ⬜ [cmd] `grader.py` and the checkers stay byte-identical to 28be2c15
-- ⬜ [cmd] With the Candler integration tip's release `candler`, the report records PERF12 at `--concurrency 4` with and without the preload, and the 444 records are equal row by row on `(status, value, weight, cause)`. The speed gate is throughput_proof's, because the preload pays off only once requests are batched (profile §3, culprit 2)
+- ✅ [cmd] HTNSTD passes, and OWNED passes with `^\.claude/skills/htn-creator-workspace/(candler-plugin\.toml$|candler-plugin/(src/htn_creator_candler/|tests/test_guard_preload\.py$|suite/README\.md$|(pyproject\.toml|uv\.lock|README\.md)$)|infrastructure/CHANGELOG\.md$)`
+- ✅ [cmd] KP1 (`test_guard_kind_parity`, local, against `$GOLDEN`) and KP2 pass unchanged, and the report records KP1's wall-clock (291.72 s before)
+- ✅ [cmd] `grader.py` and the checkers stay byte-identical to 28be2c15
+- ✅ [cmd] With the Candler integration tip's release `candler`, the report records PERF12 at `--concurrency 4` with and without the preload, and the 444 records are equal row by row on `(status, value, weight, cause)`. The speed gate is throughput_proof's, because the preload pays off only once requests are batched (profile §3, culprit 2)
 **References**: [profile §3, culprit 2](../../../../../../__reports__/m2a-evaluation-parity/throughput/00-regrade_profile_v0.md); `kinds/_runner.py` (`_FRESH_PREFIXES`, `runpy.run_module`); [rulings §Regrade throughput](../../../../../../__reports__/m2a-evaluation-parity/l1/00-rulings_v0.md); [R03 §Adapt, don't wrap or port](../../../../../../__reports__/m2a-evaluation-parity/00-architecture_v0.md)
 
 PERF12 is defined in `regrade_throughput.md`.
