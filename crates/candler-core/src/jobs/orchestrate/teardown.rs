@@ -20,9 +20,8 @@ const NETWORK_CALLS: u32 = 4;
 
 /// The longest a session's teardown takes: the label sweep at its limit, then every docker call of
 /// the gateway's and the networks' destruction at its deadline. A stopped job's end waits for it.
-pub const TEARDOWN_ALLOWANCE: std::time::Duration = SWEEP_LIMIT.saturating_add(
-    CALL_DEADLINE.saturating_mul(GATEWAY_CALLS.saturating_add(NETWORK_CALLS)),
-);
+pub const TEARDOWN_ALLOWANCE: std::time::Duration = SWEEP_LIMIT
+    .saturating_add(CALL_DEADLINE.saturating_mul(GATEWAY_CALLS.saturating_add(NETWORK_CALLS)));
 
 /// What a teardown could not remove.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

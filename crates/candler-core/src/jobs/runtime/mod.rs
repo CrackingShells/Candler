@@ -2,6 +2,7 @@
 //! body under a supervisor of its own.
 
 pub mod detach;
+pub mod launch;
 pub mod reap;
 pub mod session;
 pub mod signals;
@@ -15,9 +16,9 @@ use candler_schemas::primitives::JobId;
 use futures::future::BoxFuture;
 
 use super::model::{JobBody, JobOutcome, JobSpec};
+use crate::jobs::orchestrate::teardown::TEARDOWN_ALLOWANCE;
 use crate::runner::exec::SkillTree;
 use crate::store::Store;
-use crate::jobs::orchestrate::teardown::TEARDOWN_ALLOWANCE;
 use crate::supervise::spawn::DEFAULT_GRACE;
 
 /// How long a run's ladder waits between the terminate and the kill of its group's survivors.
