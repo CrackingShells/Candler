@@ -13,6 +13,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use candler_core::jobs::model::{JobCause, JobControl, JobOutcome};
+use candler_core::jobs::orchestrate::caps::{LiveRuns, stop_live};
 use candler_core::jobs::orchestrate::orchestrate_with;
 use candler_core::runner::RunStatus;
 use candler_schemas::execution::{InvalidReason, JobEnd};
@@ -226,5 +227,40 @@ fn b34_cap_stops_live_runs_only() {
     assert_eq!(
         control_before, control_after,
         "the control's sealed runs are untouched"
+    );
+}
+
+/// Guards: I20 — a run that enters after a stop starts already told to stop; a table never
+/// stopped tells nothing.
+/// Oracle: R01 §Budget ("crossing a job cap ... live runs"); literal causes.
+/// Bite: drop the seeding of the channel in `LiveRuns::enter`.
+#[test]
+fn b34_run_entering_after_a_stop_hears_it() {
+    let facts = facts();
+    let key = key_of("m3", &facts);
+    let calm = LiveRuns::new();
+    assert_eq!(
+        *calm.enter(&key).borrow(),
+        None,
+        "a table that was never stopped tells a new run nothing"
+    );
+    let stopped = LiveRuns::new();
+    stop_live(&stopped, JobCause::BudgetStop);
+    let late = stopped.enter(&key);
+    assert_eq!(
+        *late.borrow(),
+        Some(JobCause::BudgetStop),
+        "a run that enters after a stop starts told to stop"
+    );
+    stop_live(&stopped, JobCause::Killed);
+    assert_eq!(
+        *late.borrow(),
+        Some(JobCause::Killed),
+        "a later kill replaces the budget stop"
+    );
+    assert_eq!(
+        *stopped.enter(&key_of("m4", &facts)).borrow(),
+        Some(JobCause::Killed),
+        "a run that enters after the kill starts killed"
     );
 }
