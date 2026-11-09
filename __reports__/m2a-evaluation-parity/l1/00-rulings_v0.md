@@ -258,3 +258,16 @@ M2a lands second, so it owns A36 and the reconciliation with M2b's CLI. The coor
   **Ruling:** there is one store root, `common::store_root`. It takes `--store` from anywhere on the line, else `CANDLER_STORE`, else the configuration's `store.root`, else the core default, and the resolver layers all of it. The job verbs lose their own flag and take the global one. `supervise` still prefers the launcher's `CANDLER_STORE_ROOT`. `evaluate` reads the same setting from the resolution of its own preflight (`common::resolved_root`). A new row in `guard_cli_kill` checks it: a job verb finds the store through the env or a leading flag. Its bite is `kill` calling `store_root("kill", None)`, the pre-A36 shape of `run`, and it kills the row.
 - **CliError.** M2b's `thiserror` enum is kept, and the M2a verbs return it. `main` prints `candler: {error}`, so the M2a reasons no longer carry their own `candler <verb>: ` prefix, which would have printed `candler: refused: candler import: …`.
 - **The sandbox contract.** Main records `candler-container@1`. No M2a fixture or test asserts the value for a Candler-produced run. The legacy `v5` in the imported mini-corpus is the corpus's own field, so it stays.
+- **NEUT: the planner package allowance (coordinator, 2026-11-09).** After the rebase, `guard_layering_i1` failed on one line of M2b's `commands/supervise.rs`, `const PLANNER_PACKAGE: &str = "gtpyhop";`. The M2a skeleton had extended the scan to `crates/candler/src`. This was the only failure in the workspace suite (338 of 339).
+
+  **Ruling:** option B, one named allowance, as a candidate. Where option A goes is Eliott's call, and the coordinator has proposed it as an M2c Success Gate. Option A moves the name out of the binary, into the experiment or the env declaration.
+  - The allowance is the exact file and the exact line (`ALLOWANCE` in the guard), never a pattern. The line is taken out once before the scan, so the rest of that file is still scanned.
+  - The guard fails when the line is gone, so a stale allowance cannot stay. The comment beside it names the follow-up and says to delete it, together with its self-test, when the follow-up lands.
+  - A planted self-test, `the_allowance_excuses_its_one_line_and_nothing_else`, checks four cases: the allowed line alone is clean; a second `gtpyhop` constant in the same file is found; `rikyu` in the same file is found; the allowed line in another file is found.
+
+  | Bite | Killed by |
+  |---|---|
+  | A second `const PLANNER_TOO: &str = "gtpyhop";` in `supervise.rs` | The binary scan |
+  | `// the rikyu MCP server` in `commands/run.rs` | The binary scan |
+  | The filter excuses the whole allowed file | The planted self-test |
+  | The allowed line changed to `"planlib"` (a stale allowance) | The binary scan's exactly-once check |
