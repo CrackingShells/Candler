@@ -20,6 +20,7 @@ GP1–GP3 pass locally against `$GOLDEN`, and an adversarial verifier confirms t
 ```mermaid
 graph TD
     golden_parity[Golden parity: the live regrade guard]:::inprogress
+    throughput[Throughput: grade at machine speed]:::amendment
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -31,10 +32,12 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `golden_parity.md` | 📄 Leaf Task | 🔄 In Progress |
+| `throughput/` | 📁 Directory | 🔵 Amendment |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
 |:---|:-----|:-------|:------------|:----------|
+| A1 | 2026-11-09 | `__reports__/m2a-evaluation-parity/throughput/00-regrade_profile_v0.md` | `throughput/`, `throughput/regrade_throughput.md`, `throughput/htn_preload.md`, `throughput/proof/`, `throughput/proof/throughput_proof.md` | The corpus regrade ran at 13 items/s (one request per item, per-fork imports, F_FULLFSYNC); Eliott judged it unsustainable and authorised the fix |
 
 ## Progress
 | Node | Branch | Commits | Notes |

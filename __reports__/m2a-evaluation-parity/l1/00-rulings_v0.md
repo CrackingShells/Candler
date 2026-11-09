@@ -186,3 +186,30 @@ The pilot imported the corpus (240 runs, 10,320 records, 2m15s, 207 MB store) an
 - **Defect 1: the engine reads suites as TOML only.** `candler-schemas` documents a suite as TOML or JSON, and the HTN plug-in ships `suite.json`, so the engine and htn_plugin never met on the format. Ruled: the engine reads `.json` as JSON (`SuiteFile::from_json_str`) and anything else as TOML. That is golden_parity's new Step 1, with an ENG1 row.
 - **Defect 2: the engine does not activate the plug-in's environment.** The engine only sets `UV_PROJECT_ENVIRONMENT`, so a bare `python -m …` command runs the first `python` on `PATH`. The engine's own fixture hid this behind `uv run --frozen`. Ruled: the engine activates the environment for every spawn (`VIRTUAL_ENV`, its `bin/` first on `PATH`). That is golden_parity's new Step 2, with an ENG1 row. Wrapping commands in `uv run` would re-sync a shared environment from concurrent requests and defeat REG2, so the HTN manifest stays as tagged, and `htn-creator-eval@0.5.0` stands. R03 §Environments and `__design__/architecture.md` (the `environment` row) are amended to match.
 - **OWNED widened** to the engine, the registry, `guard_engine.rs` and its fixtures, and `candler-schemas/src/evaluation.rs`. The old Steps 1 and 2 become Steps 3 and 4, and the coordinator dispatches the verifier.
+
+## Regrade throughput (2026-11-09): amendment A1
+**Finding.** golden_parity's corpus guard took about 24 min per pass: an import of 135.7 s, then regrades of 642.5 s and 680.8 s. That is 13 items/s. Eliott judged this unsustainable for foundational code and asked for a profile with numbers: [`throughput/00-regrade_profile_v0.md`](../throughput/00-regrade_profile_v0.md). The profile found that the Rust core uses under 0.2 s of CPU per regrade, and that the costs are:
+1. **One request, and one Python process, per independent item.** `engine/plan.rs` batches only entries linked by `depends_on`, so PERF12 makes 420 requests for 444 items, and each pays about 135 ms of boot and imports. This departs from R01, where the helper "imports the checker libraries once, then forks one child per item".
+2. **The checkers' heavy libraries are re-imported in every fork,** because the parent never imported them.
+3. **`F_FULLFSYNC` on every small file.** Rust's `sync_all` and `sync_data` issue it on macOS, at 4.15 ms against 0.06 ms for `fsync(2)`. It is 86% of the import's wall time, and about 36 ms of every request.
+4. **Per-request materialising and helper start-up.**
+
+The measured fixes on 12 runs: batching gives 3.6x at `--concurrency 4`, and preloading gives 2x on top of that.
+
+**Ruling.**
+- **Batching.** A request carries every applicable entry of one evaluator at one stage of one run, ordered by dependency.
+- **Sync.** "fsynced" in R01 means `fsync(2)`, the guarantee `sync_all` gives on Linux. One sync module in `store/` serves every site. The materialised workspace is scratch and is never synced.
+- **Helper.** It starts lazily and exits after its last frame.
+- **The HTN plug-in.** It preloads the third-party libraries outside `_FRESH_PREFIXES`, behind a new guard KP4. It ships as 0.5.1, because fixes after the tag ship as 0.5.x.
+- **The proof.** throughput_proof re-proves GP1–GP3 against 0.5.1. The gates are 100 items/s or more for a regrade and 30 s or less for the import.
+- **Not done here.** A warm worker pool, or requests that span runs, would lift the ceiling of about 400 to 600 items/s that the per-item fork sets. That is a KT item, not M2a.
+
+**The guard's cadence.** The corpus guards (GP1–GP3, KP1) leave the before-every-merge set. They are acceptance runs, required before landing a leaf that changes the engine, the store, the helper or the HTN plug-in, and before the PR.
+
+**golden_parity.** It lands on its implementer's gates. Its adversarial verifier moves to throughput_proof, where a corpus pass costs minutes. Its finding 3 goes to that verifier: GP3's disjointness check is never seen failing on its own, because the engine refuses reused ids first. Its finding 4 is fixed by regrade_throughput Step 4.
+
+| Changed | Where |
+|---|---|
+| A1: `throughput/` with `regrade_throughput`, `htn_preload`, then `proof/throughput_proof` | `__roadmap__/…/parity/throughput/` |
+| The corpus guards leave the must-run set | R04 §Minimal Must-Run Regression Set |
+| New guard KP4, and an ENG1 row for batching | `htn_preload.md`, `regrade_throughput.md` |

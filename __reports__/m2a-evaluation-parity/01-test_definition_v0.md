@@ -66,7 +66,7 @@ Every guard carries `Guards: <R#|I#> — <property>. Oracle: <source>.`, as a Ru
 | DF2 selection_rates | Only the listed rows are excused, only for the exact pair, in one direction | R2 | regression | Hand-written fixture `equivalence.json` naming a few base rows | A listed row showing exactly 0/0 `zero_weight` pass → NA `empty_population` is counted in `excused`, never `unchanged`, and `equivalence.sha256` is the file's. Each is a change with its class: that change on an unlisted row; a listed row shown as a 1/1 pass → NA, as a 0/0 pass with another cause, reversed, or unchanged (`equivalence_mismatch`); a listed row absent (`equivalence_missing`). An unknown key or a duplicate row is refused (exit 2). The uncompared list holds counts. Bite: excuse a listed row whatever pair it shows |
 | SEL1 selection_rates | I4 is flagged, recovery allowed | R5 | regression | Hand-built records under one key | A changed field gives `I4Violation`; error→measured is not flagged. Oracle: the I4 text. Bite: remove the exception |
 | RT1 selection_rates | The rate formula | R1 | regression | Three hand-computed cells | Gate and quality sums equal literals; NA is out, `blocked` is in with 0. Oracle: R03 §Generic diff prose of `_outcome.py`. Bite: include NA |
-| ENG1 engine | Planning | R6 | integration component | Synthetic plug-in, 4 entries | `applies_to` miss gives NA; a dependent of a fail is `blocked {expectation}`; a dependent of a pass got `prior[]` in the same request. Bite: skip the dependency check |
+| ENG1 engine | Planning | R6 | integration component | Synthetic plug-in, 4 entries | `applies_to` miss gives NA; a dependent of a fail is `blocked {expectation}`; a dependent of a pass got `prior[]` in the same request. Bite: skip the dependency check; (A1) two independent entries of one evaluator share one request, and a second evaluator gets its own. Bite: batch by dependency component |
 | ENG2 engine | The persisted digest is of what was sent | R9 | integration component | Echo plug-in on the mini-corpus | Persisted `context_digest` equals the RFC 8785 sha256 of the echoed context and equals `live_context_runs.toml`. Bite: digest another projection |
 | ENG3 engine | A nondeterministic kind is caught | R5 | integration component | Counter kind, two regrades | Selection reports an I4 violation on the second. Bite: reuse the cached outcome |
 | CLI1 surfaces | The JSON contract | R2 | regression | Tiny seeded store | `diff --format json` key sets equal the hand literal at each level, `equivalence` included; exit 1 on a planted change, 0 on none. Bite: rename `compared` |
@@ -88,6 +88,7 @@ Every guard carries `Guards: <R#|I#> — <property>. Oracle: <source>.`, as a Ru
 | KP1 htn_kinds | Kind parity on the corpus | R4 | integration component, ign | 240 runs × 37 from the corpus's own `outputs/` | Rows equal the raw `eval-K-grading.json` (int vs float included); B8, C1 and C6 quirk rows present; 240 and 8,880 asserted first. Bite: flip `on_missing` |
 | KP2 htn_kinds | Divergences are exactly the listed ones | R4 | regression | Pinned `grader.py` in a separate process on synthetic fixtures | Differing (fixture, field) pairs equal `deltas.toml`: none unlisted, none stale. Proves glue only. Bite: add an unlisted divergence |
 | KP3 htn_kinds | KP1 can fail | R4 | regression | Synthetic fixtures | A mutated reference row, and a flipped regex hit in an `outputs/` copy, each fail KP1's compare. Bite: compare a subset |
+| KP4 htn_preload (A1) | The checkers' libraries load once, before the first fork | R4 | regression | The plug-in's preload list | Every module in the list is in `sys.modules` before the first fork; no `_FRESH_PREFIXES` module is in it; a kind's outcome is unchanged with and without the preload. Bite: add `gtpyhop` to the list |
 | HP1 htn_plugin | The suite equals its source | R4 | regression | `eval.json` at `ca7f12af` | The inverse fold equals the A–C source except the declared moves; 37 entries, no `{…}`. Bite: swap a weight |
 | HP2 htn_plugin | The translator refuses other sources | R7 | regression | A pristine and a one-byte-changed copy | Exit 0 on pristine (positive control), non-zero on the changed copy. Oracle: the sha literal. Bite: skip the sha check |
 
@@ -143,14 +144,14 @@ These are never committed as tests:
 
 ## Minimal Must-Run Regression Set
 Before every merge:
-- GP2 (local, ignored);
 - DF1;
 - SEL1;
-- KP1 (local);
 - HR1;
 - ENG2;
 - REG1;
 - NEUT.
+
+Acceptance runs, local against `$GOLDEN`: GP1–GP3 and KP1. They are required before landing a leaf that changes the engine, the store, the helper or the HTN plug-in, and before the PR, but not before every merge (amendment A1, 2026-11-09: one corpus pass cost 24 min, see `throughput/00-regrade_profile_v0.md`). A1 adds KP4 (`htn_preload`) and an ENG1 row for batching.
 
 ## Verification
 Verifiers are dispatched by risk, as Sonnet subagents. Each gets the code and a named attack target, and assumes something is wrong.
