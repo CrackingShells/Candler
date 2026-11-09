@@ -197,6 +197,7 @@
   "reference_mechanism": "_assert_confined_cwd_contract (SU:675-697); hook wired by write_confinement_files (SU:616-672)",
   "observable": "Confinement is active from the first tool call: any outside-path attempt in the stream is refused",
   "check": "outside_path_denied",
+  "deviation": "hook refusal -> container mount table (A55, F11): an outside path resolves inside the agent's own image; outside_path_denied fails on any mount beyond the work dir, HOME, read-only inputs under the work dir and the /opt/env volume",
   "disposition": "check"
  },
  {
@@ -264,6 +265,7 @@
   "reference_mechanism": "see source",
   "observable": "No user-global skill, plugin, MCP server or credential directory reaches the agent",
   "check": "settings_sources_isolated",
+  "deviation": "plugins that ship inside the pinned harness (path builtin, source <name>@builtin) and their state under HOME/.claude/plugins/store are allowed (A55, F12); any other plugin fails",
   "disposition": "check"
  },
  {
@@ -390,6 +392,7 @@
   "reference_mechanism": "see source",
   "observable": "Any Read/Write/Edit/Bash call naming such a path outside the work dir is refused",
   "check": "outside_path_denied",
+  "deviation": "hook refusal -> container mount table (A55, F11): an outside path resolves inside the agent's own image; outside_path_denied fails on any mount beyond the work dir, HOME, read-only inputs under the work dir and the /opt/env volume",
   "disposition": "check"
  },
  {

@@ -7,7 +7,7 @@ jq -e '
  and ([.comparable.values[]? | .value? | select(type=="string") | select(startswith("/"))] | length==0)
 ' "$m" >/dev/null || { echo "FAIL no_abs_paths: absolute or escaping path in manifest"; exit 1; }
 if [ -f "$RUN_DIR/tree.json" ]; then
-  jq -e '(if (.files? | type)=="object" then .files else . end) | keys | all(.[]; (startswith("/")|not) and (split("/")|index("..")|not))' "$RUN_DIR/tree.json" >/dev/null \
+  jq -e '[.entries[]?.path] | all(.[]; (startswith("/")|not) and (split("/")|index("..")|not))' "$RUN_DIR/tree.json" >/dev/null \
    || { echo "FAIL no_abs_paths: tree.json holds an absolute or escaping path"; exit 1; }
 fi
 echo "OK no_abs_paths"
