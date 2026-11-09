@@ -11,7 +11,11 @@
 - ⬜ `init_tools` is captured per run, and a mismatch between arms in a stratum invalidates that stratum through M2b's stratum verdict
 - ⬜ The OpenCode v2 driver passes the driver fixture suite shared with the Claude Code driver
 - ⬜ OpenCode v2's facts left unconfirmed in R01 (event schema, exit codes, signal behaviour, budget options, binary name) are confirmed and recorded in `__design__/architecture.md`
-**References**: [R01 §Harness drivers, §OpenCode v2 (second driver, M4), §Session runner (M4)](../../../../../../__design__/architecture.md) — traits, OpenCode differences, end rule and controls
+- ⬜ `candler-core/src` names no harness (amendment A3):
+  - **From the driver:** the image's harness version comes from `HarnessDriver::version_probe`, the census reads the init event through the driver's `TraceReader`, and the gateway's and config's variable names come from the driver. The core no longer runs `claude --version`, and it names no `ANTHROPIC_*`, `CLAUDE_CONFIG_DIR` or `system/init`.
+  - **Guard:** the I1 guard, with A2's segment matching, denies the segments `claude`, `anthropic` and `opencode` in `candler-core/src` and `candler-schemas/src`. A planted `claude_version` in the core makes it fail. The binary and the driver crates are not scanned for these segments.
+  - **Digests:** every cell digest of M1's golden import, M2a's parity fixtures and M2c's re-validation smoke is unchanged, and so is the recorded Claude Code version string.
+**References**: [R01 §Harness drivers, §OpenCode v2 (second driver, M4), §Session runner (M4)](../../../../../../__design__/architecture.md) — traits, OpenCode differences, end rule and controls; [gap analysis A3](../../../../../../__reports__/candler-v1-review/01-gap_analysis_harness_env_v0.md) — the Claude Code content of the core (H1)
 
 ## Step 1: Plan the milestone
 
@@ -22,6 +26,7 @@ In plan mode, author the campaign with `managing-roadmaps`, covering:
 - **Session runner** as R01 §Session runner describes it: input kept open, the end rule, controls C1 and C2, `init_tools`, observation hooks that never deny or modify, per-model environment profiles. The value of the idle threshold Q is decided in the plan.
 - **OpenCode v2 driver** (`candler-harness-opencode`): confirm the unconfirmed facts first; force `--standalone`; `execution_outside_child` with an HTTP pre-stop action; collect through `opencode session export` with the observed session id; isolate `HOME`, XDG and `OPENCODE_DB`; MCP code mode as an explicit experiment factor.
 - **Shared driver fixture suite** that both drivers pass, so the trait is not shaped like one harness.
+- **Harness out of the core (A3)**: move the version probe, the census's init-event parser and the gateway's and config's variable names behind the driver traits. Record in R01 §Harness drivers which facts a driver supplies. Extend the I1 guard with the harness deny-list. Do this before the OpenCode driver lands, so OpenCode never needs a branch in the core. Source: `__reports__/candler-v1-review/01-gap_analysis_harness_env_v0.md`.
 
 R05 holds the earlier design for between-turn behaviour. Adversarial verification is required for driver-trait fit: attack anything OpenCode needed that the trait could not express.
 **Deliverables**: `__roadmap__/m4-session-runner/README.md` and its leaves
