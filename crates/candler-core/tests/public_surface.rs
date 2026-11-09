@@ -706,6 +706,7 @@ mod engine_surface {
     use candler_core::evaluation::registry::CheckedSuite;
     use candler_schemas::evaluation::SuiteEntry;
     use candler_schemas::execution::RunManifest;
+    use candler_schemas::primitives::RequestId;
 
     /// Names every engine item and the signatures the binary calls in order: plan, then evaluate.
     #[test]
@@ -720,5 +721,9 @@ mod engine_surface {
             None::<EvaluateRequest>,
         );
         assert_eq!(REQUEST_DEADLINE_MARGIN, Duration::from_secs(30));
+        // The report names one `(request id, deadline)` per request sent.
+        let report = EvaluateReport::default();
+        let deadlines: &Vec<(RequestId, Duration)> = &report.request_deadlines;
+        assert_eq!(deadlines.as_slice(), []);
     }
 }

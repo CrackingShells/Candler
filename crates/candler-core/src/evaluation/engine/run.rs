@@ -77,6 +77,8 @@ impl Shared {
 pub(crate) struct RunOutput {
     /// The id of every request that started.
     pub(crate) request_ids: Vec<RequestId>,
+    /// The deadline given to each request that was sent, in the order of `request_ids`.
+    pub(crate) request_deadlines: Vec<(RequestId, Duration)>,
     /// The outcome files published.
     pub(crate) files: Vec<PathBuf>,
     /// The records published, per status.
@@ -89,14 +91,29 @@ pub(crate) struct RunOutput {
 enum BatchResult {
     /// The call was cancelled before the batch started.
     NotStarted,
-    /// The batch failed and published nothing.
-    Failed { request: RequestId, message: String },
-    /// The batch published `file`.
+    /// The batch failed and published nothing; `deadline` is the one given to the client, if the
+    /// request was sent.
+    Failed {
+        request: RequestId,
+        message: String,
+        deadline: Option<Duration>,
+    },
+    /// The batch published `file`; `deadline` is the one given to the client, if the request was
+    /// sent.
     Committed {
         request: RequestId,
+        deadline: Option<Duration>,
         file: PathBuf,
         records: Vec<OutcomeRecord>,
     },
+}
+
+/// What one batch knows about its request while it runs.
+struct Ticket {
+    /// The id minted before the client gave one; it names the request directory.
+    minted: RequestId,
+    /// The deadline given to the client, once the request is sent.
+    deadline: Option<Duration>,
 }
 
 /// Why a batch failed, with the request id when the client had given one.
@@ -247,16 +264,27 @@ fn absorb(
 ) {
     match result {
         BatchResult::NotStarted => {}
-        BatchResult::Failed { request, message } => {
-            // BORROW: .clone() keeps the id in both lists
+        BatchResult::Failed {
+            request,
+            message,
+            deadline,
+        } => {
+            // BORROW: .clone() keeps the id in every list
             out.request_ids.push(request.clone());
+            if let Some(deadline) = deadline {
+                out.request_deadlines.push((request.clone(), deadline)); // BORROW: the list owns the id
+            }
             out.failed.push((request, message));
         }
         BatchResult::Committed {
             request,
+            deadline,
             file,
             records,
         } => {
+            if let Some(deadline) = deadline {
+                out.request_deadlines.push((request.clone(), deadline)); // BORROW: the list owns the id
+            }
             out.request_ids.push(request);
             out.files.push(file);
             for record in records {
@@ -300,16 +328,32 @@ async fn core_only(
         publish(shared, stamp, records).await
     }
     .await;
-    settle(request, outcome)
+    settle(request, outcome, None)
 }
 
 /// Turns a batch's outcome into its result.
-fn settle(request: RequestId, outcome: Result<BatchResult, Fault>) -> BatchResult {
+fn settle(
+    request: RequestId,
+    outcome: Result<BatchResult, Fault>,
+    sent: Option<Duration>,
+) -> BatchResult {
     match outcome {
+        Ok(BatchResult::Committed {
+            request,
+            file,
+            records,
+            ..
+        }) => BatchResult::Committed {
+            request,
+            deadline: sent,
+            file,
+            records,
+        },
         Ok(result) => result,
         Err(fault) => BatchResult::Failed {
             request: fault.request.unwrap_or(request),
             message: fault.message,
+            deadline: sent,
         },
     }
 }
@@ -332,6 +376,7 @@ async fn publish(
     match written {
         Ok(Some(file)) => Ok(BatchResult::Committed {
             request,
+            deadline: None,
             file,
             records,
         }),
@@ -360,12 +405,16 @@ async fn run_batch(
         return BatchResult::Failed {
             request: RequestId::new_v7(),
             message: "the engine stopped before the request could start".to_owned(),
+            deadline: None,
         };
     };
     if shared.cancelled() {
         return BatchResult::NotStarted;
     }
-    let minted = RequestId::new_v7();
+    let mut ticket = Ticket {
+        minted: RequestId::new_v7(),
+        deadline: None,
+    };
     let outcome = attempt(
         shared,
         run,
@@ -373,10 +422,10 @@ async fn run_batch(
         not_applicable,
         finished,
         na_ids,
-        &minted,
+        &mut ticket,
     )
     .await;
-    settle(minted, outcome)
+    settle(ticket.minted, outcome, ticket.deadline)
 }
 
 /// The work of one batch.
@@ -387,7 +436,7 @@ async fn attempt(
     not_applicable: &[CheckedEntry],
     finished: &BTreeMap<ExpectationId, OutcomeRecord>,
     na_ids: &BTreeSet<ExpectationId>,
-    minted: &RequestId,
+    ticket: &mut Ticket,
 ) -> Result<BatchResult, Fault> {
     let evaluator = shared
         .evaluators
@@ -427,14 +476,14 @@ async fn attempt(
     let (request, context_digest, items) = if sendable.is_empty() {
         (
             // BORROW: .clone() keeps the minted id for the file
-            minted.clone(),
+            ticket.minted.clone(),
             empty_digest(run, &shared.work).map_err(Fault::new)?,
             Vec::new(),
         )
     } else {
-        let dir = shared.work.join(minted.as_str());
+        let dir = shared.work.join(ticket.minted.as_str());
         let sent = send(
-            shared, run, evaluator, &sendable, finished, &batch_ids, &dir,
+            shared, run, evaluator, &sendable, finished, &batch_ids, ticket,
         )
         .await;
         remove_tree(dir).await;
@@ -508,7 +557,8 @@ async fn attempt(
 }
 
 /// Builds the context of `run` for `sendable`, sends the request and returns what came back with
-/// the digest of the context. The caller removes `dir`.
+/// the digest of the context, and notes the deadline in the ticket. The caller removes the
+/// request directory, `work/<minted id>`.
 async fn send(
     shared: &Shared,
     run: &RunKey,
@@ -516,7 +566,7 @@ async fn send(
     sendable: &[&CheckedEntry],
     finished: &BTreeMap<ExpectationId, OutcomeRecord>,
     batch_ids: &BTreeSet<ExpectationId>,
-    dir: &Path,
+    ticket: &mut Ticket,
 ) -> Result<(crate::evaluation::client::ClientOutcome, Digest), Fault> {
     let mut needs = Needs::default();
     for checked in sendable {
@@ -545,6 +595,7 @@ async fn send(
     }
     let store = shared.store.clone(); // BORROW: the blocking task owns a handle on the store
     let key = run.clone(); // BORROW: the blocking task owns the key
+    let dir = shared.work.join(ticket.minted.as_str());
     let workspace = dir.join("workspace");
     let scratch = dir.join("scratch");
     let records_dir = shared.work.join("records");
@@ -613,6 +664,7 @@ async fn send(
     .cwd(evaluator.cwd.clone()) // BORROW: the command owns its directory
     .run(run.clone()); // BORROW: the command owns the key
     let params = EvaluateParams::new(context, items, prior, scratch.display().to_string());
+    ticket.deadline = Some(deadline);
     let outcome = Client::new(&shared.supervisor)
         .evaluate(&command, params, deadline, shared.cancel.clone())
         .await
