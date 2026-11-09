@@ -1,0 +1,13 @@
+schema = "suite/1"
+
+[[expectations]]
+id = "E1"
+role = "gate"
+kind = "echo"
+depends_on = []
+
+[expectations.evaluator]
+name = "engine"
+range = "^0.1"
+
+[expectations.params]
