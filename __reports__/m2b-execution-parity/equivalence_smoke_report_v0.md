@@ -170,3 +170,16 @@ Result words: PASS and FAIL are check results; `not driven` means the smoke coul
 | X38 | not_applicable | n/a | no permissions.deny reliance |
 | X39 | smoke_step | partial | missing build input refused with exit 2 and no job; the message names the steps, not the path (F3); the uv-missing case is not reachable |
 | X40 | intended_deviation | deviation seen | the agent env holds 17 names; the host env is not inherited |
+
+### Kill, resume and forced deviation (X22, X23)
+
+| Step | Observed |
+|:---|:---|
+| Replicates 1 → 2 (run 2) | Only replicate 2 ran; r1-a1 was skipped and untouched. |
+| Replicates 3 → 4, run 4, kill | `candler kill 01a1be6a-… -y` printed `ended (killed)`, exit 0. Events: `run.ended {killed, exit 143}`, both containers `container.destroyed`, `job.ended {killed}`. r4-a1 is sealed `invalid(killed)` with an empty `deviations[]`. |
+| Tree hash of r1-a1 and r2-a1 (sha256 of the file list) | Before run 3 and after runs 4 and 5b: identical (`51c89d26…`, `b9fe19ad…`). r3-a1 was valid before and after; its hash was taken once (`3f38dd58…`). |
+| Move the tag in the scratch clone only (`git tag -f`, to its first parent 7fa72057…) | `candler run` exits 2 and prints `refused: a re-checked fact differs from the stored cell: treatment`. No job, no container, no tokens. |
+| `candler run --force` | Run 5b created r4-a2 (not r4-a1 again), sealed valid. Its manifest holds `deviations[] {path: "treatment", stored: {commit 28be2c15…, tag, name}, observed: {commit 7fa72057…, tag, name}}`. No sealed run was touched. |
+| `resume_runs.sh` | exit 0 |
+
+Deviations from the leaf here: the leaf sets `replicates = 3` for the tag move; run 3 had already used replicate 3, so the tag move ran with `replicates = 4`. The plain resume after the kill (attempt 2 with no deviation) was not run apart from the forced run, for lack of a sixth run; r4-a2 is both the first attempt after the kill and the forced attempt. The refusal names the fact (`treatment`) but not the tag-to-commit path or the two values (F8).
