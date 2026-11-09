@@ -5,7 +5,7 @@
 - [ ] [cmd] ENV, DEP(skeleton) and the L1 merge of `selection_rates`
 - [ ] [cmd] `git log --first-parent --format=%s feat/m2a-evaluation-parity | grep -qx 'merge(evaluator-helper): land helper_runtime'` (the synthetic plug-in for CLI2)
 **Success Gates**:
-- ⬜ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler/(src/(main\.rs$|commands/(mod|common|import|evaluate|show|diff)\.rs$)|tests/(guard_cli\.rs$|fixtures/cli/))`
+- ⬜ [cmd] STD, DRIFT, SUBJ and SCAFFOLD pass, and OWNED passes with `^(crates/candler/(src/(main\.rs$|commands/(mod|common|import|evaluate|show|diff)\.rs$)|tests/(guard_cli\.rs$|fixtures/cli/))|crates/candler-schemas/(schema/run-manifest\.schema\.json$|src/execution\.rs$|tests/)|crates/candler-core/(src/import/|tests/(guard_legacy_[a-z_]+\.rs$|support/legacy_[a-z_]+\.rs$)))` (widened 2026-11-09 for Steps 4 and 5)
 - ⬜ [cmd] SPAWN, then `cargo nextest run -p candler -E 'binary(guard_cli)'` passes (CLI1, CLI2), and `cargo nextest run -p candler -E 'binary(candler)'` passes (CLI3)
 - ⬜ [nl] `engine`'s integration (L2 tip) is in place before CLI2 runs a real `evaluate`. Until then CLI2 runs `import`, `show` and `diff` only, and the report says so.
 **References**: [R01 §CLI surface](../../../../__design__/architecture.md); [R03 §Skeleton seams (flags, exit codes), §Generic diff (JSON keys, rates TOML)](../../../../__reports__/m2a-evaluation-parity/00-architecture_v0.md); `crates/candler-core/src/import/` — the M1 importer API; `crates/candler-core/src/evaluation/selection/` — `DiffReport`, `Rates`; [R04 CLI1, CLI2](../../../../__reports__/m2a-evaluation-parity/01-test_definition_v0.md)
@@ -51,3 +51,25 @@
 **Deliverables**: `crates/candler/tests/guard_cli.rs` (CLI1, CLI2); `crates/candler/tests/fixtures/cli/`
 **Consistency Checks**: `git diff --quiet HEAD -- crates/candler-core/src && cargo clean -p candler-core && cargo nextest run -p candler-core -E 'binary(guard_signal)' && cargo nextest run -p candler -E 'binary(guard_cli)'` (expected: PASS)
 **Commit**: `test(cli): guard the json contract and the end-to-end path`
+
+## Step 4: Record the rules digest in the manifest
+**Goal**: an imported run's `ImportRecord` carries the sha256 of the rules file it was read with, next to its sources (amendment of 2026-11-09, the coordinator's condition on `--rules`).
+**Implementation Logic**:
+1. `run-manifest.schema.json`: `ImportRecord` gains an optional `rules` (`$ref Digest`, "The sha256 of the import rules file the run was read with."). The change is additive, so the ratchet holds and M1 manifests stay valid.
+2. `src/execution.rs`: the matching optional field and its builder setter. Fix the schema crate's tests that build an `ImportRecord`.
+3. The commit touches only `crates/candler-schemas/`. It sits first on the branch, so every commit checks.
+**Deliverables**: `crates/candler-schemas/schema/run-manifest.schema.json`; `crates/candler-schemas/src/execution.rs`
+**Consistency Checks**: `cargo nextest run -p candler-schemas` (expected: PASS)
+**Commit**: `feat(schemas): record the import rules digest in the run manifest`
+
+## Step 5: Write and check the rules digest on import
+**Goal**: the importer writes the rules digest it is given, and a re-import of a finished run with another digest is refused, never silent.
+**Implementation Logic**:
+1. `ImportRules` (it is `#[non_exhaustive]`) gains an optional source digest, set through the builder. The importer writes it into every `ImportRecord.rules`.
+2. A finished run whose stored `rules` differs from the given one (including present versus absent) is refused with `ImportError::Conflict`, which names `import.rules`. The existing manifest comparison already refuses it; the error must name the field. An unfinished run is replaced, as before.
+3. `candler import` hashes the rules file's bytes with `candler_core::import::digest_of` and always sets the digest.
+4. The commit sits second on the branch, after Step 4.
+**Deliverables**: `crates/candler-core/src/import/`; `crates/candler/src/commands/import.rs`
+**Consistency Checks**: `git diff --quiet HEAD -- crates/candler-core/src && cargo clean -p candler-core && cargo nextest run -p candler-core -E 'binary(guard_signal)' && cargo nextest run -p candler-core` (expected: PASS)
+**Commit**: `feat(importer): record the rules digest and refuse a changed one`
+
