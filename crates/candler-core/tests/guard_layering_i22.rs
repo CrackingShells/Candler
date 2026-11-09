@@ -138,6 +138,37 @@ fn scan(root: &Path) -> io::Result<Scan> {
     Ok(result)
 }
 
+/// The file that alone may mint a lost proof, relative to the directory of the crates.
+const MINTS_LOST_PROOF: &str = "candler-core/src/jobs/lost.rs";
+
+/// Every call that mints a lost proof under the `src` of each crate below `crates`, as
+/// `path:line` relative to `crates`, sorted.
+fn lost_proof_calls(crates: &Path) -> io::Result<Vec<String>> {
+    let mut found = Vec::new();
+    for entry in fs::read_dir(crates)? {
+        let src = entry?.path().join("src");
+        if !src.is_dir() {
+            continue;
+        }
+        let mut paths = Vec::new();
+        sources(&src, &mut paths)?;
+        for path in paths {
+            let relative = path
+                .strip_prefix(crates)
+                .map_err(io::Error::other)?
+                .to_string_lossy()
+                .replace('\\', "/");
+            for (index, line) in fs::read_to_string(&path)?.lines().enumerate() {
+                for _ in code_of(line).matches("LostProof::held(") {
+                    found.push(format!("{relative}:{}", index + 1));
+                }
+            }
+        }
+    }
+    found.sort();
+    Ok(found)
+}
+
 /// Writes `files` under a new temporary directory.
 fn tree(files: &[(&str, &str)]) -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("a temp dir");
@@ -164,11 +195,15 @@ const CLEAN: [(&str, &str); 2] = [
 /// Guards: B16 — one choke point: the destroy verbs are spelled only inside the destroy impl of
 /// `isolation/docker.rs`, destroy drivers are called only in `isolation/container/guard.rs` and
 /// named only by the files that define, implement or hold one, and nothing waits for any child.
+/// A lost proof is minted in one place: `LostProof::held(` appears in the `src` of the crates
+/// only in `jobs/lost.rs`, once.
 /// Oracle: a scan of `crates/candler-core/src` for the verbs `stop`, `rm`, `kill`, `rmi` and
 /// `prune` (so also `network rm` and `image rm`), for calls on a destroy driver and for
 /// `waitpid(-1)`; a temporary tree with each violation planted is refused, and a clean tree
-/// that obeys the rules is not.
-/// Bite: add the line `struct D; impl D { fn rm(&self) {} } let driver = D; driver.rm();` to the
+/// that obeys the rules is not; and a scan of every crate's `src` for `LostProof::held(`, where a
+/// tree with the call in another file, or twice in `jobs/lost.rs`, is refused.
+/// Bite: add the line `let _ = LostProof::held(&lock);` to any file under `crates/*/src` other
+/// than `jobs/lost.rs`; or add the line `struct D; impl D { fn rm(&self) {} } let driver = D; driver.rm();` to the
 /// start of `LabelSweeper::collect` in `isolation/container/sweeper.rs`; or the line
 /// `let _ = "docker rm -f x";` there.
 #[test]
@@ -240,6 +275,43 @@ fn b16_destroy_verbs_only_in_guard() {
         let dir = tree(&files);
         let seen = scan(dir.path()).expect("the tree can be read");
         assert_eq!(seen.violations.len(), 1, "{label}: {:#?}", seen.violations);
+    }
+    // A lost proof is minted only by recovery, once.
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let minted = lost_proof_calls(&crates).expect("the crates can be read");
+    assert_eq!(minted.len(), 1, "{minted:#?}");
+    assert!(
+        minted.iter().all(|site| site.starts_with(MINTS_LOST_PROOF)),
+        "{minted:#?}"
+    );
+    let call = "fn f(lock: &JobLock) { let p = LostProof::held(lock); }\n";
+    let once = tree(&[(MINTS_LOST_PROOF, call)]);
+    let sites = lost_proof_calls(once.path()).expect("the tree can be read");
+    assert_eq!(sites.len(), 1, "{sites:#?}");
+    for (label, files) in [
+        (
+            "a call in another file",
+            vec![
+                (MINTS_LOST_PROOF, call),
+                ("candler/src/commands/ps.rs", call),
+            ],
+        ),
+        (
+            "a second call in the recovery file",
+            vec![(
+                MINTS_LOST_PROOF,
+                "fn f(l: &JobLock) { LostProof::held(l); LostProof::held(l); }\n",
+            )],
+        ),
+        (
+            "no call at all",
+            vec![("candler-core/src/jobs/lost.rs", "fn f() {}\n")],
+        ),
+    ] {
+        let dir = tree(&files);
+        let sites = lost_proof_calls(dir.path()).expect("the tree can be read");
+        let allowed = sites.len() == 1 && sites.iter().all(|s| s.starts_with(MINTS_LOST_PROOF));
+        assert!(!allowed, "{label}: {sites:#?}");
     }
     // A verb in the docker module but outside its destroy impl is refused too.
     let mut files = CLEAN.to_vec();

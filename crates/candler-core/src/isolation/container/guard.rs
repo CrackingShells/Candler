@@ -401,7 +401,8 @@ impl ContainerGuard {
     }
 
     /// Checks that `job` is the job `scope` reaches. A lost job is reached only with the proof of
-    /// that job, and only while its log has no `job.ended`; the view is not asked.
+    /// that job, and only while its log has no `job.ended`. The proof is the authority, so the
+    /// view may be of the lost job itself, as recovery builds it; the view is not asked.
     fn check_job(
         &self,
         job: &JobId,
@@ -418,7 +419,7 @@ impl ContainerGuard {
                 }
             }
             SweepScope::Lost(lost) => match proof {
-                Some(held) if job == lost && held.job() == lost && lost != self.view.job() => {
+                Some(held) if job == lost && held.job() == lost => {
                     if held.ended()? {
                         Err(other)
                     } else {
