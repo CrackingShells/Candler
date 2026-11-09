@@ -205,11 +205,27 @@ class ForkRunner:
                 # A descendant of the child may hold the pipe open after the child is gone.
                 done, status = os.waitpid(pid, os.WNOHANG)
                 if done:
+                    # The child may have written its outcome after the select above and
+                    # before this reap: what it wrote is still in the pipe.
+                    chunks.extend(_drain(read_fd))
                     break
                 status = None
         if status is None:
             _, status = os.waitpid(pid, 0)
         return _decide(status, b"".join(chunks), deadline_s)
+
+
+def _drain(read_fd: int) -> list[bytes]:
+    """Read what the pipe holds now, without waiting for an end of file."""
+    chunks: list[bytes] = []
+    while True:
+        try:
+            data = os.read(read_fd, 65536)
+        except BlockingIOError:
+            return chunks
+        if not data:
+            return chunks
+        chunks.append(data)
 
 
 def _decide(status: int, data: bytes, deadline_s: float) -> Done | Faulted:

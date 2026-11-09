@@ -108,3 +108,25 @@ def test_one_fault_costs_one_item(vectors, run_helper):
             assert "cause" not in record
     assert frames[-1] == {"jsonrpc": "2.0", "id": RID, "result": {"reported": 7}}
     assert proc.returncode == 0
+
+
+def test_an_outcome_written_before_the_reap_is_not_lost(monkeypatch):
+    """Guards: R6 — an item whose child wrote its outcome and exited while the parent's select timed out is reported with that outcome, never as exited without one. Oracle: a hand literal."""
+    import time
+
+    from candler_evaluator import isolate
+
+    real = isolate.select.select
+    calls = []
+
+    def late_select(read, write, err, timeout):
+        # The first wait ends empty-handed after the child has written and left.
+        if not calls:
+            calls.append(1)
+            time.sleep(0.5)
+            return [], [], []
+        return real(read, write, err, timeout)
+
+    monkeypatch.setattr(isolate.select, "select", late_select)
+    result = isolate.ForkRunner().run(lambda: {"status": "pass"}, 10.0)
+    assert result == isolate.Done({"status": "pass", "evidence": []})
