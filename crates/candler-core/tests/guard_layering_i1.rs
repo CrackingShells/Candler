@@ -86,12 +86,12 @@ fn python_src(package: &str) -> PathBuf {
 /// `src/`, and the exact line that holds it. Nothing else in that file, and nothing in any other
 /// file, is excused.
 ///
-/// ALLOWANCE (coordinator, 2026-11-09; M2a rulings, "NEUT: the planner package allowance"). M2b's
-/// `supervise` compiles in the import package of the planner library the env image carries. The
-/// follow-up moves that name out of the binary, into the experiment or the env declaration; it is
-/// proposed as a Success Gate of M2c. Delete this constant, [`hits_beyond_allowance`] and its
-/// self-test when that follow-up lands. The guard fails once the line is gone, so a stale
-/// allowance cannot stay.
+/// ALLOWANCE (Eliott, 2026-11-09; M2a rulings, "NEUT: the planner package allowance"). M2b's
+/// `supervise` compiles in the import package of the planner library the env image carries.
+/// Removed by amendment A2's gate in
+/// `__roadmap__/candler-v1/contracts/parity/alignment/m2c_wire_alignment.md`: delete this
+/// constant, [`hits_beyond_allowance`] and its self-test when that gate lands. The guard fails
+/// once the line is gone, so a stale allowance cannot stay.
 const ALLOWANCE: (&str, &str) = (
     "commands/supervise.rs",
     "const PLANNER_PACKAGE: &str = \"gtpyhop\";",
