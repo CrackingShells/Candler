@@ -521,7 +521,8 @@ pub struct PlannerAxis {
     pub version: serde_json::Value,
 }
 
-/// Reads the planner library of an image in a control container, with the reference's script.
+/// Reads the planner library of an image in a control container, by running a script that lists
+/// the distributions providing the planner's import package.
 pub struct PlannerProbe {
     sup: Arc<Supervisor>,
     binary: PathBuf,
@@ -576,6 +577,7 @@ impl PlannerProbe {
         let argv = control_argv_with(
             &self.binary,
             image,
+            // BORROW: the script text is passed to the container as one argument
             &[PROBE_SECONDS, "python", "-c", script.as_str()],
         );
         let outcome = control_output(&self.sup, &self.env, &records, argv).await;

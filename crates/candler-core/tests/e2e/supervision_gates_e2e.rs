@@ -90,8 +90,10 @@ struct Rig {
     job: JobId,
     dir: JobDir,
     destroyer: Arc<AllowlistDriver<DockerDestroyer>>,
+    // TRAIT_OBJECT: the guard and the sweeper read through the docker client
     reads: Arc<dyn DockerDriver>,
     sup: Arc<Supervisor>,
+    // TRAIT_OBJECT: the supervisor and the guard take their sink as a trait object
     sink: Arc<dyn EventSink>,
 }
 
@@ -125,6 +127,7 @@ impl Rig {
         for cid in labelled(&self.job) {
             assert_eq!(
                 label_of(&cid, "candler.job").as_deref(),
+                // BORROW: explicit .as_str() instead of Deref coercion
                 Some(self.job.to_string().as_str()),
                 "{cid} does not carry the job's label"
             );

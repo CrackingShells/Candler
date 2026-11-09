@@ -26,11 +26,12 @@ pub struct EvalInfra {
     pub dirty: Option<bool>,
 }
 
-/// The version of a skill as the reference names it: the tag without its `<name>@` prefix and
-/// without a leading `v`, then one `v` in front.
+/// The version of a skill: the tag without its `<name>@` prefix and without a leading `v`, then
+/// one `v` in front.
 #[must_use]
 pub fn skill_version(name: &str, tag: &str) -> String {
     let prefix = format!("{name}@");
+    // BORROW: explicit .as_str() instead of Deref coercion
     let bare = tag.strip_prefix(prefix.as_str()).unwrap_or(tag);
     let bare = bare.strip_prefix('v').unwrap_or(bare);
     format!("v{bare}")

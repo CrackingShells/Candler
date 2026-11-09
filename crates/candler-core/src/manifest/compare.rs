@@ -115,6 +115,7 @@ impl ArmView {
             (None, _) => None,
         };
         let mut provenance = BTreeMap::new();
+        // EXPLICIT: the loop fills `provenance` and refuses a repeated path; .map() would hide the state update
         for entry in manifest.measured() {
             // BORROW: explicit .as_str() instead of Deref coercion
             let path = entry.path().as_str();

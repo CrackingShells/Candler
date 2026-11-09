@@ -12,6 +12,7 @@ fn git(args: &[&str]) -> Option<String> {
     }
     let text = String::from_utf8(out.stdout).ok()?;
     let text = text.trim();
+    // BORROW: .to_owned() gives the caller owned text
     (!text.is_empty()).then(|| text.to_owned())
 }
 
@@ -19,6 +20,7 @@ fn git(args: &[&str]) -> Option<String> {
 fn split_describe(text: &str) -> Option<(String, u64, String)> {
     let (rest, commit) = text.rsplit_once("-g")?;
     let (tag, ahead) = rest.rsplit_once('-')?;
+    // BORROW: .to_owned() gives the caller owned text
     Some((tag.to_owned(), ahead.parse().ok()?, commit.to_owned()))
 }
 
@@ -54,6 +56,7 @@ const TAG_MATCH: &str = "v[0-9]*";
 fn main() {
     // The build is stale when the commit moves (HEAD, the branch ref HEAD names, packed refs) or
     // the index changes, or when anything watched changes.
+    // BORROW: .to_owned() makes the owned paths the list keeps
     let mut git_paths = vec![
         "HEAD".to_owned(),
         "index".to_owned(),

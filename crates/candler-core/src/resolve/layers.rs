@@ -97,6 +97,7 @@ impl FileValues {
     /// # Errors
     /// Returns [`ResolveError::NonUtf8Path`] if a resulting path is not UTF-8.
     pub fn relative_to(mut self, dir: &Path) -> Result<Self, ResolveError> {
+        // EXPLICIT: the loop rewrites each location value of `self.values` in place; .map() would hide the update
         for (path, value) in &mut self.values {
             if !is_location(path) {
                 continue;

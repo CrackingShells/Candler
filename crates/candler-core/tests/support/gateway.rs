@@ -34,18 +34,26 @@ pub const SECRET_NAME: &str = "model.token_secret";
 /// The cell digest of the run keys these tests use.
 pub const CELL_HEX: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
+/// The experiment digest the sidecar is labelled with.
+pub const EXPERIMENT: &str =
+    "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd";
+
 // ---------------------------------------------------------------------------------------------
 // The docker command line, as a test uses it.
 // ---------------------------------------------------------------------------------------------
 
 /// What a command printed and how it ended.
 pub struct Ran {
+    /// The exit code, or none when a signal ended the command.
     pub code: Option<i32>,
+    /// Standard output, as text.
     pub out: String,
+    /// Standard error, as text.
     pub err: String,
 }
 
 impl Ran {
+    /// Whether the command exited with code 0.
     pub fn ok(&self) -> bool {
         self.code == Some(0)
     }
@@ -108,6 +116,7 @@ pub fn run(program: &str, args: &[&str], stdin: &[u8]) -> Ran {
     }
 }
 
+/// Runs `docker` with `args` and returns what it printed.
 pub fn docker(args: &[&str]) -> Ran {
     run("docker", args, &[])
 }
@@ -147,6 +156,7 @@ pub fn canary() -> String {
     format!("cnd-canary-{}/{}", random_hex(), random_hex())
 }
 
+/// `path` as text; the path must be UTF-8.
 pub fn path_text(path: &Path) -> String {
     String::from(path.to_str().expect("a utf-8 path"))
 }
@@ -229,7 +239,3 @@ pub fn make_server_cert(dir: &Path, ca: &str) {
     )
     .must("openssl x509 of the server certificate");
 }
-
-/// The experiment digest the sidecar is labelled with.
-pub const EXPERIMENT: &str =
-    "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd";
