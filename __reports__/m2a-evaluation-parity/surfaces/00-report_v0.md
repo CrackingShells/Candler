@@ -57,3 +57,17 @@ Steps 4 and 5 go first on the branch, so each commit passes `cargo check --all-t
 | Linux clippy | clean |
 | DRIFT | `schema_drift` 2 passed; no change to the schema files on blessing |
 | Schema diff | additive: optional `ImportRecord.rules` |
+
+## Stage two (CLI2 through evaluate), d20992d
+- **The test.** `evaluate_diff_and_show_over_two_plugin_versions_follow_the_fixture_verdicts` imports the mini-corpus. It builds the engine fixture twice at test time, as `engine@0.1.0` and `engine@0.1.1`, and evaluates each over run 6 with `suite_dependencies.toml`.
+  - The oracle is hand-written from the suite and the fixture kinds: N1 is `not_applicable`, F1 fails, F2 is `blocked`, and P1 and P2 pass.
+  - `show` lists both versions. `diff 0.1.0 0.1.1` exits 0 with `compared` 5 and `changed` 0.
+  - Rewriting P1's status to `fail` in the 0.1.1 outcome file makes `diff` exit 1 with `changed` 1, naming P1.
+- **Bites.** With "`diff` never reports a change", stage two fails. Disabling the `compared == 0` check is not caught by stage two, which always compares 5 rows. Stage one and CLI1's exit-2 test catch it.
+- **Findings.**
+  1. The test needs uv on PATH, which CI's gates job now has.
+  2. A change entry's `from` and `to` are objects; this pins them.
+  3. Outcome files are plain JSONL with no seal or digest check on read. A store-level tamper is visible to `diff` but not refused by the store. This is a KT observation, outside M2a's scope.
+
+## Landing of stage two (coordinator, on 36e30f9)
+SUBJ, SPAWN (`guard_signal` 4 passed), STD (298 passed, 4 skipped), Linux clippy and DRIFT all pass. OWNED holds, since only `crates/candler/tests/guard_cli.rs` changed. SCAFFOLD holds: 4 tests and 4 `Guards:` lines.

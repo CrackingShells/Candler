@@ -21,7 +21,7 @@ A Candler binary can import a corpus, regrade it with a real plug-in environment
 ```mermaid
 graph TD
     engine[Evaluation engine]:::done
-    surfaces[CLI surfaces: import, evaluate, show, diff]:::planned
+    surfaces[CLI surfaces: import, evaluate, show, diff]:::done
     helper_release[Helper release: models, version, CI]:::done
     htn_plugin[HTN plug-in: manifest, env, suite]:::planned
     parity[Parity]:::planned
@@ -36,7 +36,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `engine.md` | 📄 Leaf Task | ✅ Done |
-| `surfaces.md` | 📄 Leaf Task | ⬜ Planned |
+| `surfaces.md` | 📄 Leaf Task | ✅ Done |
 | `helper_release.md` | 📄 Leaf Task | ✅ Done |
 | `htn_plugin.md` | 📄 Leaf Task | ⬜ Planned |
 | `parity/` | 📁 Directory | ⬜ Planned |

@@ -5,9 +5,9 @@
 - [ ] [cmd] ENV, DEP(skeleton) and the L1 merge of `selection_rates`
 - [ ] [cmd] `git log --first-parent --format=%s feat/m2a-evaluation-parity | grep -qx 'merge(evaluator-helper): land helper_runtime'` (the synthetic plug-in for CLI2)
 **Success Gates**:
-- ⬜ [cmd] STD, DRIFT, SUBJ and SCAFFOLD pass, and OWNED passes with `^(crates/candler/(src/(main\.rs$|commands/(mod|common|import|evaluate|show|diff)\.rs$)|tests/(guard_cli\.rs$|fixtures/cli/))|crates/candler-schemas/(schema/run-manifest\.schema\.json$|src/execution\.rs$|tests/)|crates/candler-core/(src/import/|tests/(guard_legacy_[a-z_]+\.rs$|support/legacy_[a-z_]+\.rs$)))` (widened 2026-11-09 for Steps 4 and 5)
-- ⬜ [cmd] SPAWN, then `cargo nextest run -p candler -E 'binary(guard_cli)'` passes (CLI1, CLI2), and `cargo nextest run -p candler -E 'binary(candler)'` passes (CLI3)
-- ⬜ [nl] `engine`'s integration (L2 tip) is in place before CLI2 runs a real `evaluate`. Until then CLI2 runs `import`, `show` and `diff` only, and the report says so.
+- ✅ [cmd] STD, DRIFT, SUBJ and SCAFFOLD pass, and OWNED passes with `^(crates/candler/(src/(main\.rs$|commands/(mod|common|import|evaluate|show|diff)\.rs$)|tests/(guard_cli\.rs$|fixtures/cli/))|crates/candler-schemas/(schema/run-manifest\.schema\.json$|src/execution\.rs$|tests/)|crates/candler-core/(src/import/|tests/(guard_legacy_[a-z_]+\.rs$|support/legacy_[a-z_]+\.rs$)))` (widened 2026-11-09 for Steps 4 and 5)
+- ✅ [cmd] SPAWN, then `cargo nextest run -p candler -E 'binary(guard_cli)'` passes (CLI1, CLI2), and `cargo nextest run -p candler -E 'binary(candler)'` passes (CLI3)
+- ✅ [nl] `engine`'s integration (L2 tip) is in place before CLI2 runs a real `evaluate`. Until then CLI2 runs `import`, `show` and `diff` only, and the report says so.
 **References**: [R01 §CLI surface](../../../../__design__/architecture.md); [R03 §Skeleton seams (flags, exit codes), §Generic diff (JSON keys, rates TOML)](../../../../__reports__/m2a-evaluation-parity/00-architecture_v0.md); `crates/candler-core/src/import/` — the M1 importer API; `crates/candler-core/src/evaluation/selection/` — `DiffReport`, `Rates`; [R04 CLI1, CLI2](../../../../__reports__/m2a-evaluation-parity/01-test_definition_v0.md)
 
 ## Step 1: Wire import and evaluate
