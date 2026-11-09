@@ -220,7 +220,12 @@ dotted: `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`.
 | `candler ps` | Lists jobs with id, experiment, state, progress |
 | `candler kill <id> \| --all` | Stops jobs; asks for confirmation unless `--yes` / `-y` |
 | `candler watch <id> [--json \| --live]` | Follows a job's events: `--json` (default) prints event records, `--live` draws progress |
+| `candler import <corpus> --rules <file>` | Imports a legacy results folder under the import rules the TOML file states; prints `{"runs": n, "records": n}` |
 | `candler evaluate`, `show`, `inspect`, `diff`, `analyze`, `resolve` | The other operations |
+
+Every verb reads one store root: `--store <dir>`, given anywhere on the line, else `CANDLER_STORE`,
+else the configuration's `store.root`, else the default above, as `resolve` layers them. A verb
+that finds none refuses, naming the three ways to give one.
 
 "Experiment" names the file that declares factors, levels, replicates and budget (today's
 `run_config` YAML). "Plan" is not used: it collides with HTN planning.
