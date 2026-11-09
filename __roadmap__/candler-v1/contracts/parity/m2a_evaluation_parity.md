@@ -5,9 +5,9 @@
 - [ ] `../m1_contracts.md` is `done` and merged on `main`
 - [ ] `pro-htn-phase-6-golden` signed off by Eliott (done 2026-10-28, sign-off pending)
 - [ ] Reminder `candler-M2a` read: where its notes differ from this leaf, this leaf wins (the checker is not wrapped as scripts but run through the Python helper)
-- [ ] `htn-creator-eval@0.5.0` and its throughput release `htn-creator-eval@0.5.1` are tagged in mcp-python-ingestion through that repo's own release flow before the parity gates run; the gates name the tag, never a branch, and the golden reference stays `htn-creator-eval@0.4.2`
+- [ ] `htn-creator-eval@0.5.0`, its throughput release `htn-creator-eval@0.5.1` and its re-pin `htn-creator-eval@0.5.2` are tagged in mcp-python-ingestion through that repo's own release flow before the parity gates run; the gates name the tag, never a branch, and the golden reference stays `htn-creator-eval@0.4.2`
 **Success Gates**:
-- ⬜ On the imported golden corpus, `candler evaluate` with the HTN plug-in `htn-creator-eval@0.5.1` (0.5.0 passed the same gate first, M2a golden_parity) reproduces `(status, value, weight, cause)` for the 8,880 Tier A–C rows (37 expectations × 240 runs): `candler diff` from `htn-creator-eval@0.4.2` reports no change, and its uncompared set is exactly D-E1…D-E6 × 240 (1,440 rows)
+- ⬜ On the imported golden corpus, `candler evaluate` with the HTN plug-in `htn-creator-eval@0.5.2` (0.5.0 and 0.5.1 passed the same gate first, M2a golden_parity) reproduces `(status, value, weight, cause)` for the 8,880 Tier A–C rows (37 expectations × 240 runs): `candler diff` from `htn-creator-eval@0.4.2` reports no change, and its uncompared set is exactly D-E1…D-E6 × 240 (1,440 rows)
 - ⬜ The 209 reference rows that pass with weight 0/0 (`zero_weight`) are excused only through the equivalence file: it lists those exact (expectation, run) pairs and the one allowed change, reference `pass` → `not_applicable {empty_population}`; `diff` records the file's digest and reports the excused rows as their own count; a listed pair that is missing or shows any other change is a failure
 - ⬜ Per-cell quality rates equal `_outcome.py`'s for all 12 cells, and per-cell gate rates equal `_outcome.py`'s over the Tier A–C gates; the knowledge-transfer report tabulates the difference from the published rates
 - ⬜ A second regrade of the same runs is identical (I4)
