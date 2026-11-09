@@ -225,13 +225,174 @@ pub fn request_settings(
     Ok(input)
 }
 
+/// The services the foreground preflight runs on.
+struct Foreground {
+    cli: DockerCli,
+    resolver: Resolver,
+    gateway_context: PathBuf,
+}
 
-/// Runs the verb.
+/// Builds the docker client, the image service and the catalog provider over one supervisor, and
+/// composes the resolver on them.
+fn foreground(config: Arc<Config>, root: &Path) -> Result<Foreground, CliError> {
+    let assets = asset_paths(root);
+    let control = layout::control_dir(root);
+    std::fs::create_dir_all(&control).map_err(failed)?;
+    // TRAIT_OBJECT: the foreground checks belong to no job and report no event
+    let sink: Arc<dyn EventSink> = Arc::new(Silent);
+    let supervisor = Arc::new(Supervisor::new(sink));
+    let env = ClientEnv::from_process();
+    let cli = DockerCli::new(Arc::clone(&supervisor), env.clone(), control).map_err(failed)?; // BORROW: the client owns its env
+    let images = DockerImageService::new(
+        Arc::clone(&supervisor),
+        cli.clone(), // BORROW: the service owns its client
+        env.clone(), // BORROW: the service owns its env
+        assets.images,
+    );
+    // BORROW: .to_owned() gives the command its own words
+    let argv = vec!["sh".to_owned(), "-c".to_owned(), CATALOG_PROGRAM.to_owned()];
+    let catalog = CommandCatalogProvider::new(
+        Arc::clone(&supervisor),
+        cli.clone(), // BORROW: the provider owns its client
+        env,
+        root.to_path_buf(), // BORROW: the provider owns its root
+        CatalogCommand::new(argv, CATALOG_TIMEOUT),
+    );
+    let services = M2bServices {
+        supervisor,
+        images: Arc::new(images),
+        catalog: Arc::new(catalog),
+        harness_supported: ClaudeCodeDriver::new().supported(),
+    };
+    let resolver = compose_resolver(config, services).map_err(failed)?;
+    Ok(Foreground {
+        cli,
+        resolver,
+        gateway_context: assets.gateway,
+    })
+}
+
+/// Makes sure the gateway's sidecar image is there: looks it up by its tag, and builds it from
+/// the gateway's assets, through the supervised docker client, only when it is absent.
+async fn ensure_sidecar(cli: &DockerCli, context: PathBuf) -> Result<(), CliError> {
+    if cli
+        .image_inspect(SIDECAR_TAG)
+        .await
+        .map_err(failed)?
+        .is_some()
+    {
+        return Ok(());
+    }
+    let request = BuildRequest {
+        context,
+        tag: SIDECAR_TAG.to_owned(), // BORROW: the request owns its tag
+        build_args: Vec::new(),
+        labels: Labels::new(),
+    };
+    cli.build(&request).await.map(|_| ()).map_err(failed)
+}
+
+/// The variables the supervisor is started with: the allowlist as the launcher has it, the
+/// secrets the experiment declares, and the store root. A secret's value goes only here.
+fn supervisor_env(file: &ExperimentFile, root: &Path) -> Vec<(String, String)> {
+    let mut env: Vec<(String, String)> = ENV_ALLOWLIST
+        .iter()
+        .filter_map(|name| {
+            std::env::var(name)
+                .ok()
+                .map(|value| ((*name).to_owned(), value)) // BORROW: the pair owns its name
+        })
+        .collect();
+    for secret in file.secrets() {
+        if let Ok(value) = std::env::var(secret.as_str()) {
+            env.push((secret.to_string(), value));
+        }
+    }
+    env.push((STORE_ENV.to_owned(), root.display().to_string())); // BORROW: the pair owns its text
+    env
+}
+
+/// Reads the experiment file at `path`.
+fn read_experiment(path: &Path) -> Result<ExperimentFile, CliError> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| refused(format!("cannot read {}: {e}", path.display())))?;
+    ExperimentFile::from_toml_str(text.as_str()) // BORROW: .as_str() views the text as a `&str`
+        .map_err(|e| refused(format!("{} is not an experiment: {e}", path.display())))
+}
+
+/// Resolves, plans and starts the job.
 ///
 /// # Errors
-/// [`CliError`] when the experiment cannot be started.
-#[allow(clippy::unused_async, reason = "the verb awaits once it starts the job")]
+/// [`CliError::Refused`] when the experiment cannot be resolved or planned, [`CliError::Failed`]
+/// when docker, the store or the supervisor fails.
 pub async fn run(args: Args) -> Result<Exit, CliError> {
-    let _ = args;
+    let Args {
+        experiment,
+        fields,
+        force,
+    } = args;
+    let cwd = std::env::current_dir().map_err(|e| refused(format!("no working directory: {e}")))?;
+    let file = read_experiment(&experiment)?;
+    let experiment_dir = cwd
+        .join(&experiment)
+        .parent()
+        .map_or_else(|| cwd.clone(), Path::to_path_buf); // BORROW: the directory is owned
+    let root = store_root(None)?;
+    let store = Store::init(&root).map_err(failed)?;
+    let config = Arc::new(Config::load(&cwd, &ConfigEnv::from_process()).map_err(failed)?);
+    let input = request_settings(&file, experiment_dir.as_path(), &fields, &config)?;
+    let services = foreground(Arc::clone(&config), &root)?;
+    ensure_sidecar(&services.cli, services.gateway_context).await?;
+    let resolution = services
+        .resolver
+        .resolve(input)
+        .await
+        .map_err(|e| refused(e.to_string()))?;
+    require_source(&resolution)?;
+    let spec = plan_job(&store, &file, resolution, force)?;
+    let _ = (spec, root);
     Err(CliError::Unavailable { verb: "run" })
 }
+
+/// Refuses a resolution that names no place for the treatment's skills.
+fn require_source(resolution: &Resolution) -> Result<(), CliError> {
+    let found = resolution
+        .settings
+        .iter()
+        .any(|value| value.path().as_str() == paths::REQUEST_TREATMENT_SOURCE);
+    if found {
+        Ok(())
+    } else {
+        Err(refused(
+            "the treatment has no source: set `request.treatment_source` in `fixed` or pass \
+             --set request.treatment_source=PATH",
+        ))
+    }
+}
+
+/// Plans the runs without the experiment lock and builds the job's spec.
+fn plan_job(
+    store: &Store,
+    file: &ExperimentFile,
+    resolution: Resolution,
+    force: bool,
+) -> Result<JobSpec, CliError> {
+    let experiment = experiment_of(file, &resolution).map_err(failed)?;
+    let ctx = PlanCtx {
+        store: store.clone(), // BORROW: the context owns its handle on the store
+        experiment_lock: store.layout().experiment_lock(&experiment),
+        secrets_present: EnvSecrets::new(file.secrets()).present(),
+    };
+    let mode = if force { Force::Yes } else { Force::No };
+    let outcome = plan_runs(&ctx, file, &resolution, mode, PlanMode::Check)
+        .map_err(|e| refused(e.to_string()))?;
+    Ok(JobSpec {
+        experiment: file.clone(), // BORROW: the spec owns its file
+        resolution,
+        plans: outcome.plans,
+        budget: file.budget().clone(), // BORROW: the spec owns its budget
+        force,
+        inputs: Vec::new(),
+    })
+}
+
