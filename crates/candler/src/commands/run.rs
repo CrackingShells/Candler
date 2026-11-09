@@ -350,8 +350,7 @@ pub async fn run(args: Args) -> Result<Exit, CliError> {
         .map_err(|e| refused(e.to_string()))?;
     require_source(&resolution)?;
     let spec = plan_job(&store, &file, resolution, force)?;
-    let _ = (spec, root);
-    Err(CliError::Unavailable { verb: "run" })
+    start(&store, &file, &spec, &root).await
 }
 
 /// Refuses a resolution that names no place for the treatment's skills.
@@ -396,3 +395,36 @@ fn plan_job(
     })
 }
 
+/// Writes the job's directory and starts its supervisor, then prints the job's id.
+async fn start(
+    store: &Store,
+    file: &ExperimentFile,
+    spec: &JobSpec,
+    root: &Path,
+) -> Result<Exit, CliError> {
+    let bytes = serde_json::to_vec(spec).map_err(failed)?;
+    let digest = spec_digest(bytes.as_slice()).map_err(failed)?; // BORROW: explicit .as_slice()
+    let id = mint_job_id().map_err(failed)?;
+    let record = JobRecord::builder()
+        .id(id.clone()) // BORROW: the record owns its id
+        .supervisor(own_identity().map_err(failed)?)
+        .spec_digest(digest)
+        .state(JobState::Running)
+        .build()
+        .map_err(failed)?;
+    let dir = JobDir::create(store.layout(), id.clone(), &record).map_err(failed)?; // BORROW: the dir owns its id
+    let args = DetachArgs {
+        exe: std::env::current_exe().map_err(failed)?,
+        job_dir: dir.path().to_path_buf(), // BORROW: the args own their path
+        spec: bytes,
+        env: supervisor_env(file, root),
+    };
+    tokio::task::spawn_blocking(move || detach(args))
+        .await
+        .map_err(|e| CliError::Runtime {
+            detail: e.to_string(),
+        })?
+        .map_err(failed)?;
+    writeln!(std::io::stdout(), "{id}").map_err(failed)?;
+    Ok(Exit::Success)
+}
