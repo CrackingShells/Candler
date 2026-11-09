@@ -185,6 +185,42 @@ pub fn term_child(child: &Child) {
     kill_process(target, Signal::TERM).expect("the supervisor takes a signal");
 }
 
+/// A supervisor process the test spawned and holds. When the test ends with it still running,
+/// even by a failed assertion, the drop ends it with the one signal a `Child` sends itself
+/// (SIGKILL to its own pid) and reaps it, so that no supervisor outlives its test.
+pub struct HeldChild(Child);
+
+impl HeldChild {
+    /// Takes over `child`.
+    #[must_use]
+    pub fn new(child: Child) -> Self {
+        Self(child)
+    }
+}
+
+impl std::ops::Deref for HeldChild {
+    type Target = Child;
+
+    fn deref(&self) -> &Child {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for HeldChild {
+    fn deref_mut(&mut self) -> &mut Child {
+        &mut self.0
+    }
+}
+
+impl Drop for HeldChild {
+    fn drop(&mut self) {
+        // EXPLICIT: Child::kill signals only the process this handle spawned; one already
+        // reaped is a no-op
+        drop(self.0.kill());
+        drop(self.0.wait());
+    }
+}
+
 /// Waits up to `limit` for `path` to exist and returns its text.
 pub fn wait_for(path: &Path, limit: Duration) -> Option<String> {
     let until = Instant::now() + limit;

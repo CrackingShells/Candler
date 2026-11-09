@@ -20,8 +20,8 @@ use candler_schemas::process::ProcessStart;
 mod support;
 
 use support::job_runtime::{
-    ENV_JOB, ENV_STORE, ENV_WORK, all_gone, job_spec, killed_body, read_log, services, stub_docker,
-    term_child, wait_for,
+    ENV_JOB, ENV_STORE, ENV_WORK, HeldChild, all_gone, job_spec, killed_body, read_log, services,
+    stub_docker, term_child, wait_for,
 };
 use support::job_store::{job_id, job_record};
 
@@ -92,20 +92,22 @@ fn b32_sigterm_seals_killed() {
     let bin = stub_docker(&work.path().join("bin"));
     let path = format!("{}:/usr/bin:/bin", bin.display());
 
-    let mut child = Command::new(std::env::current_exe().expect("this binary"))
-        .args(["--exact", "supervisor_child", "--nocapture"])
-        .env_clear()
-        .env(ENV_JOB, job.to_string())
-        .env(ENV_STORE, &root)
-        .env(ENV_WORK, work.path())
-        .env("PATH", path)
-        .env("HOME", work.path().join("home"))
-        .env("XDG_STATE_HOME", work.path().join("state"))
-        .stdin(Stdio::null())
-        .stdout(fs::File::create(work.path().join("child.out")).expect("a log"))
-        .stderr(fs::File::create(work.path().join("child.err")).expect("a log"))
-        .spawn()
-        .expect("the supervisor");
+    let mut child = HeldChild::new(
+        Command::new(std::env::current_exe().expect("this binary"))
+            .args(["--exact", "supervisor_child", "--nocapture"])
+            .env_clear()
+            .env(ENV_JOB, job.to_string())
+            .env(ENV_STORE, &root)
+            .env(ENV_WORK, work.path())
+            .env("PATH", path)
+            .env("HOME", work.path().join("home"))
+            .env("XDG_STATE_HOME", work.path().join("state"))
+            .stdin(Stdio::null())
+            .stdout(fs::File::create(work.path().join("child.out")).expect("a log"))
+            .stderr(fs::File::create(work.path().join("child.err")).expect("a log"))
+            .spawn()
+            .expect("the supervisor"),
+    );
     let supervisor = child.id();
 
     let pids = wait_for(&work.path().join("children.pids"), Duration::from_secs(30));
