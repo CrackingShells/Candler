@@ -36,6 +36,10 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
+      - name: Install uv, which the evaluation guards run
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: false
       - name: Format
         run: cargo fmt --check
       - name: Lint
