@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1](https://github.com/CrackingShells/Candler/compare/schemas@0.4.0...schemas@0.4.1) - 2026-11-09
+
+### Fixes
+
+- *(schemas)* refuse a catalog server or snapshot written as a list
+
 ## [0.4.0](https://github.com/CrackingShells/Candler/compare/schemas@0.3.0...schemas@0.4.0) - 2026-11-09
 
 ### Features
