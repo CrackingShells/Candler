@@ -1,7 +1,7 @@
 # Isolation
 
 ## Context
-Depth 5. Container isolation (M5, needs M4) and the MCP server (M7, needs M3) in parallel; M5 adds injection, census, egress and plug-in environments over M2b's Docker backend.
+Depth 5. Container isolation (M5, needs M4) and the MCP server (M7, needs M3) in parallel; M5 adds injection, census, egress and plug-in environments over M2b's Docker backend. Amendment A3 adds a gate to M5: the agent environment has a declared kind, and no Python venv detail is left in the core.
 
 ## Goal
 Runs can be isolated in containers, and agents can drive Candler through MCP.
@@ -35,6 +35,7 @@ graph TD
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
 |:---|:-----|:-------|:------------|:----------|
+| A3 | 2026-11-10 | `__reports__/candler-v1-review/01-gap_analysis_harness_env_v0.md` | [ ] | The core assumes the agent environment is a Python 3.12 venv at `/opt/env`, and the binary finds its assets in the source tree; M5 gains a gate that puts both behind a declared environment kind |
 
 ## Progress
 | Node | Branch | Commits | Notes |
