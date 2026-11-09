@@ -143,3 +143,7 @@ A cancel that lands while the client settles returns `Ok`, and dropping a `Child
   - **The real HTN rules file** (`htn-results@1`) lives under version control with the HTN plug-in in `$R`, not in Candler. `htn_plugin` adds it in its fix or verifier round, and `golden_parity` pins its digest.
   - **The CLI2 fixture is a test double.** `crates/candler/tests/fixtures/cli/mini-corpus-rules.toml` is the vendored mini-corpus's rules for a test, not the provenance file of a real import.
   - **CliError.** The final rebase reconciles it under the coordinator's `Result<Exit, CliError>` shape and its 0/1/2 mapping.
+- **Fix-round report (2026-11-09): landed as stage one; the leaf stays in progress until CLI2 stage two runs after engine.**
+  - **1: accepted for now, KT follow-up.** The reader factory falls back to `process::exit(2)`. That path is unreachable after `check_reader`, because the core's `ReaderFactory` cannot fail and `ClaudeCodeReader` cannot be cloned. Follow-up: make `ReaderFactory` fallible, or make `ClaudeCodeReader::new` infallible.
+  - **2: noted.** `CliError::Unavailable` is unused; it is reconciled at the final rebase.
+  - **3, 4: accepted.** `import::digest_of` is re-exported, and the digest wiring sits in Step 1's commit.
