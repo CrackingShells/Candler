@@ -147,3 +147,18 @@ A cancel that lands while the client settles returns `Ok`, and dropping a `Child
   - **1: accepted for now, KT follow-up.** The reader factory falls back to `process::exit(2)`. That path is unreachable after `check_reader`, because the core's `ReaderFactory` cannot fail and `ClaudeCodeReader` cannot be cloned. Follow-up: make `ReaderFactory` fallible, or make `ClaudeCodeReader::new` infallible.
   - **2: noted.** `CliError::Unavailable` is unused; it is reconciled at the final rebase.
   - **3, 4: accepted.** `import::digest_of` is re-exported, and the digest wiring sits in Step 1's commit.
+
+## engine (L2, merged on report)
+- **1: accepted; this is how a dependency in the same request behaves.** When a dependency's verdict comes back in the same request, the dependent is sent anyway, and its record is then replaced with `blocked {expectation: <dep>}`. Only a dependent whose dependency verdict is already known (an earlier stage, or `not_applicable`) is held back. The plug-in therefore runs, and pays for, the dependent of a failure inside the request. ENG1 asserts the replaced record. This matches the `deltas.toml` row "C6 after an assert fail of C1 or C5", where Candler blocks and the grader computes. The KT records the cost.
+- **2: accepted.** `PlanError::Interleaved` refuses a chain that goes back to an evaluator after another one, and it names the entries.
+- **3: accepted; the seam is amended.**
+  - `EvaluateError` is `#[non_exhaustive]`. It drops `NotBuilt` and gains `EnvironmentNotReady`, `Suite`, `Io`, `Glob`, `Plan`, `Describe` and `Task`. `surfaces` maps it through `CliError::Failed`, and the workspace checks after the rebase.
+  - `engine::regrade(store, plugin, suite, runs, env_root, supervisor)` is the regrade support function golden_parity calls. Its defaults are concurrency 2 and no deadline override.
+- **4: accepted, and it closes helper_runtime finding 1.** The engine overwrites `role`, both digests, the request id, the evaluator and the instruments from its plan and `describe`, and keeps only the verdict. A kept record that does not build becomes `not_measured {instrument_error}`.
+- **5: accepted.** The request deadline is the sum of the items' deadlines plus 30 s, or the flat override.
+- **6: accepted.**
+  - One fixture plug-in, `engine`, reuses the helper's `ok` and `echo` kinds and adds `fail` and `counter`. ENG1 has five entries.
+  - The guards run `uv sync --frozen` themselves, about 7 s each, so CI's gates job now installs uv (8c01358, with the same pin as the helper job).
+- **7, 9: accepted.**
+- **8: accepted as scoped.** The cancel paths are covered through `guard_signal` and the protocol client only. golden_parity runs no cancel.
+- **Integration review of the seams (coordinator).** After rebasing onto 8c01358 (surfaces landed), the workspace checks and the gates pass. CLI2 stage two is the end-to-end check of the engine's outcome-file layout against the `selection_rates` reader that `show` and `diff` use. It runs next, through surfaces.
