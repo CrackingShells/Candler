@@ -10,6 +10,8 @@ pub mod report;
 pub mod rules;
 pub mod streams;
 
+pub use read::digest_of;
+
 use candler_schemas::primitives::FormatError;
 
 /// Why a legacy results folder, or one of its runs, cannot be imported: every variant names the file and, where one applies, the run.
