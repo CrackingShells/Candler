@@ -261,7 +261,10 @@ pub fn killed_body(
             writeln!(lines, "child {}", child.record().pid()).expect("a string");
             children.push(child);
         }
-        fs::write(work.join("children.pids"), lines).expect("the pid file");
+        // The test reads the pid file as soon as it exists: it appears whole, by a rename.
+        let part = work.join("children.pids.part");
+        fs::write(&part, lines).expect("the pid file");
+        fs::rename(&part, work.join("children.pids")).expect("the pid file in place");
         let mut cancel = control.cancel.subscribe();
         loop {
             if matches!(*cancel.borrow_and_update(), Some(JobCause::Killed)) {
