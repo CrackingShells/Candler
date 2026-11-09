@@ -15,8 +15,9 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr as _;
 
 use candler_harness::spec::{Cell, CommandSpec, Observed, PreparedFile, ProcessExit, Workspace};
+use candler_schemas::container::ContainerRole;
 use candler_schemas::execution::{EventPayload, Integrity, InvalidReason, RunManifest, RunTree};
-use candler_schemas::primitives::{Digest, Marker};
+use candler_schemas::primitives::{ContainerId, Digest, Marker};
 use candler_schemas::process::ExitStatus;
 use candler_schemas::raw::StreamName;
 use candler_schemas::trace::{RawFileRef, TraceFile, TraceHeader};
@@ -31,6 +32,8 @@ use self::seal::{RawStreamFile, seal_run};
 use self::spawn::{Started, live_observer, require_isolation, start_attempt};
 use super::evidence::census::census;
 use super::evidence::leak::input_leak;
+use super::evidence::provenance::provenance_values;
+use super::evidence::run::{RunFacts, run_values};
 use super::evidence::tree::tree_json;
 use super::evidence::{Evidence, Inputs};
 use super::plan::RunPlan;
@@ -386,9 +389,21 @@ async fn drive(
     )?;
 
     rt.sink.emit(Some(&plan.key), EventPayload::run_started());
+    let attempt_began = std::time::Instant::now();
     let Started { child, end_facts } = start_attempt(rt, isolated)?;
     let (waited, cause) = wait_or_cancel(child, ctl.cancel.clone()).await; // BORROW: the wait owns a receiver
     let exit = waited?;
+    let duration_ms = u64::try_from(attempt_began.elapsed().as_millis()).unwrap_or(u64::MAX);
+    // The agent's container record is its cidfile; the event names it before the guard destroys it.
+    let agent_cid = fs::read_to_string(&container.cidfile)
+        .ok()
+        .and_then(|text| ContainerId::from_str(text.trim()).ok());
+    if let Some(cid) = agent_cid {
+        rt.sink.emit(
+            Some(&plan.key),
+            EventPayload::container_created(cid, ContainerRole::Agent),
+        );
+    }
     let finished = finish_attempt(
         isolation.as_ref(),
         &container,
@@ -476,7 +491,7 @@ async fn drive(
         Ok(tree) => evidence.tree = tree,
         Err(_) => collect_ok = false,
     }
-    let measured = census(&evidence.sessions, &evidence.events).unwrap_or_default();
+    let mut measured = census(&evidence.sessions, &evidence.events).unwrap_or_default();
 
     let gateway_failed = match &rt.gateway {
         Some(gateway) => gateway
@@ -504,6 +519,20 @@ async fn drive(
         .with_input_leak(leaked)
         .with_attempt(plan.attempt);
     let end = classify_end(&input);
+    measured.extend(run_values(&RunFacts {
+        ended_by: &end.ended_by,
+        client_exit,
+        duration_ms,
+        events: &evidence.events,
+    }));
+    let comparable = plan.stored.as_ref().unwrap_or(&cell.comparable);
+    let treatment = comparable.treatment();
+    measured.extend(provenance_values(
+        // BORROW: .as_str() hands the treatment's name and tag to the provenance
+        (treatment.name.as_str(), treatment.tag.as_deref()),
+        &rt.eval_infra,
+        cell.planner.as_ref(),
+    ));
 
     let integrity = end.invalid.map_or(Integrity::Valid, Integrity::invalid);
     let last = manifest_of(

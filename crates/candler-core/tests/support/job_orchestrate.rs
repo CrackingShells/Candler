@@ -30,6 +30,7 @@ use candler_core::jobs::orchestrate::schedule::{Clock, wall_clock};
 use candler_core::jobs::orchestrate::session::{JobHost, OrchestrateError};
 use candler_core::jobs::slots::Slots;
 use candler_core::runner::Runtime;
+use candler_core::runner::evidence::provenance::EvalInfra;
 use candler_core::runner::exec::SkillTree;
 use candler_core::store::Store;
 use candler_core::supervise::spawn::SpawnRequest;
@@ -412,7 +413,12 @@ impl Rig {
     /// and no isolation, no gateway and no cell until the job sets them.
     pub fn runtime(&self) -> Runtime {
         // TRAIT_OBJECT: the supervisor and the runs take their sink as a trait object
-        let sink: Arc<dyn EventSink> = Arc::new(Silent);
+        self.runtime_with_sink(Arc::new(Silent))
+    }
+
+    /// The runtime of the job, whose supervisor and runs report to `sink`.
+    // TRAIT_OBJECT: the supervisor and the runs take their sink as a trait object
+    pub fn runtime_with_sink(&self, sink: Arc<dyn EventSink>) -> Runtime {
         let supervisor = Arc::new(Supervisor::new(Arc::clone(&sink)));
         let records = self.dir.path().join("records");
         fs::create_dir_all(&records).expect("a directory");
@@ -436,6 +442,8 @@ impl Rig {
             driver: Arc::new(QuietDriver),
             skills: Arc::new(EmptyTree),
             cells: BTreeMap::new(),
+            eval_infra: EvalInfra::default(),
+            planner_package: None,
         }
     }
 

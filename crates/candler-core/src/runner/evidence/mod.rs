@@ -3,6 +3,9 @@
 pub mod catalog;
 pub mod census;
 pub mod leak;
+mod measure;
+pub mod provenance;
+pub mod run;
 pub mod tree;
 
 use candler_schemas::execution::RunTree;

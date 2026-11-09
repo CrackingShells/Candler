@@ -301,6 +301,8 @@ async fn serve(
         driver: services.driver,
         skills: services.skills,
         cells: BTreeMap::new(),
+        eval_infra: services.eval_infra,
+        planner_package: services.planner_package,
     };
     for (lost, result) in reap_lost_jobs(&runtime, &job, &control).await {
         match result {

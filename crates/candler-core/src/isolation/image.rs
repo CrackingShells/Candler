@@ -463,41 +463,169 @@ impl DockerImageService {
         image: &ImageRef,
         records: &std::path::Path,
     ) -> Result<semver::Version, ImageError> {
-        let marker = control_marker();
-        let request = SpawnRequest::builder()
-            .argv(control_argv(&self.binary, image))
-            // BORROW: .to_vec() gives the request its own pairs
-            .env(self.env.pairs().to_vec())
-            .marker(marker)
-            // BORROW: .to_path_buf() keeps the record dir in the request
-            .record_dir(records.to_path_buf())
-            .deadline(CONTROL_DEADLINE)
-            .build()
-            .map_err(|error| unreadable(&format!("the probe cannot be built: {error}")))?;
-        let captured = self
-            .sup
-            .run_captured(request, PROBE_OUTPUT_LIMIT)
-            .await
-            .map_err(|error| unreadable(&format!("the probe cannot run: {error}")))?;
-        let exited = matches!(captured.exit.ended, Ended::Exited);
-        if !exited {
-            return Err(unreadable("the probe did not end on its own"));
-        }
-        match captured.exit.status {
-            ExitStatus::Code { code: 0 } => {}
-            ExitStatus::Code { code: 124 } => return Err(unreadable("the probe timed out")),
-            ExitStatus::Code { code } => {
-                return Err(unreadable(&format!("the probe exited with status {code}")));
-            }
-            ExitStatus::Signal { signal } => {
-                return Err(unreadable(&format!("a signal ({signal}) ended the probe")));
-            }
-        }
-        let text = String::from_utf8(captured.stdout)
-            .map_err(|_| unreadable("the version output is not text"))?;
+        let argv = control_argv(&self.binary, image);
+        let stdout = control_output(&self.sup, &self.env, records, argv).await?;
+        let text =
+            String::from_utf8(stdout).map_err(|_| unreadable("the version output is not text"))?;
         // BORROW: explicit .as_str() instead of Deref coercion
         parse_cc_version(text.as_str())
     }
+}
+
+/// Runs the control container `argv` under the record dir `records` and returns what it printed.
+async fn control_output(
+    sup: &Supervisor,
+    env: &ClientEnv,
+    records: &std::path::Path,
+    argv: Vec<String>,
+) -> Result<Vec<u8>, ImageError> {
+    let marker = control_marker();
+    let request = SpawnRequest::builder()
+        .argv(argv)
+        // BORROW: .to_vec() gives the request its own pairs
+        .env(env.pairs().to_vec())
+        .marker(marker)
+        // BORROW: .to_path_buf() keeps the record dir in the request
+        .record_dir(records.to_path_buf())
+        .deadline(CONTROL_DEADLINE)
+        .build()
+        .map_err(|error| unreadable(&format!("the probe cannot be built: {error}")))?;
+    let captured = sup
+        .run_captured(request, PROBE_OUTPUT_LIMIT)
+        .await
+        .map_err(|error| unreadable(&format!("the probe cannot run: {error}")))?;
+    let exited = matches!(captured.exit.ended, Ended::Exited);
+    if !exited {
+        return Err(unreadable("the probe did not end on its own"));
+    }
+    match captured.exit.status {
+        ExitStatus::Code { code: 0 } => Ok(captured.stdout),
+        ExitStatus::Code { code: 124 } => Err(unreadable("the probe timed out")),
+        ExitStatus::Code { code } => {
+            Err(unreadable(&format!("the probe exited with status {code}")))
+        }
+        ExitStatus::Signal { signal } => {
+            Err(unreadable(&format!("a signal ({signal}) ended the probe")))
+        }
+    }
+}
+
+/// What the env image's planner library is: the distribution that provides the planner package and its
+/// version. One distribution gives a string each; any other count gives a list each, in step.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PlannerAxis {
+    /// The distribution name or names.
+    pub distribution: serde_json::Value,
+    /// The version or versions, in the order of the distributions.
+    pub version: serde_json::Value,
+}
+
+/// Reads the planner library of an image in a control container, with the reference's script.
+pub struct PlannerProbe {
+    sup: Arc<Supervisor>,
+    binary: PathBuf,
+    env: ClientEnv,
+    store_root: PathBuf,
+    package: String,
+}
+
+impl PlannerProbe {
+    /// A probe of the import package `package` that runs control containers through `sup` with
+    /// the docker client at `binary`, under the control directory of the store at `store_root`.
+    #[must_use]
+    pub const fn new(
+        sup: Arc<Supervisor>,
+        binary: PathBuf,
+        env: ClientEnv,
+        store_root: PathBuf,
+        package: String,
+    ) -> Self {
+        Self {
+            sup,
+            binary,
+            env,
+            store_root,
+            package,
+        }
+    }
+
+    /// Runs the planner probe script in `image` and reads what it prints.
+    ///
+    /// # Errors
+    /// [`ImageError::VersionUnreadable`] when the container cannot run or prints anything but a
+    /// list of `[distribution, version]` pairs.
+    pub async fn read(&self, image: &ImageRef) -> Result<PlannerAxis, ImageError> {
+        let name_ok = !self.package.is_empty()
+            && self
+                .package
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-'));
+        if !name_ok {
+            return Err(unreadable("the planner package name is not a plain name"));
+        }
+        let script = planner_script(&self.package);
+        let records = layout::control_dir(&self.store_root).join(format!(
+            "{}-{}",
+            std::process::id(),
+            CONTROL_CALLS.fetch_add(1, Ordering::Relaxed)
+        ));
+        tokio::fs::create_dir_all(&records)
+            .await
+            .map_err(|source| unreadable(&format!("cannot create the record dir: {source}")))?;
+        let argv = control_argv_with(
+            &self.binary,
+            image,
+            &[PROBE_SECONDS, "python", "-c", script.as_str()],
+        );
+        let outcome = control_output(&self.sup, &self.env, &records, argv).await;
+        // The record dir is this call's own and holds only this call's record.
+        let _ = tokio::fs::remove_dir_all(&records).await;
+        let text = String::from_utf8(outcome?)
+            .map_err(|_| unreadable("the planner probe output is not text"))?;
+        // BORROW: explicit .as_str() instead of Deref coercion
+        parse_planner(text.as_str())
+    }
+}
+
+/// The script that lists the distributions providing the import package `package` with their
+/// versions as JSON pairs.
+fn planner_script(package: &str) -> String {
+    format!(
+        "import importlib.metadata as m, json\n\
+dists = m.packages_distributions().get('{package}') or []\n\
+print(json.dumps([[d, m.version(d)] for d in dists]))\n"
+    )
+}
+
+/// Reads the output of the planner probe script.
+///
+/// # Errors
+/// [`ImageError::VersionUnreadable`] for anything but a JSON list of string pairs.
+pub fn parse_planner(output: &str) -> Result<PlannerAxis, ImageError> {
+    let bad = || unreadable("the planner probe output is not a list of [distribution, version]");
+    let pairs: Vec<(String, String)> = serde_json::from_str(output.trim()).map_err(|_| bad())?;
+    if let [(name, version)] = pairs.as_slice() {
+        return Ok(PlannerAxis {
+            // BORROW: .clone() gives the axis its own strings
+            distribution: serde_json::Value::String(name.clone()),
+            // BORROW: .clone() gives the axis its own strings
+            version: serde_json::Value::String(version.clone()),
+        });
+    }
+    let (names, versions): (Vec<_>, Vec<_>) = pairs
+        .into_iter()
+        .map(|(name, version)| {
+            (
+                serde_json::Value::String(name),
+                serde_json::Value::String(version),
+            )
+        })
+        .unzip();
+    Ok(PlannerAxis {
+        distribution: serde_json::Value::Array(names),
+        version: serde_json::Value::Array(versions),
+    })
 }
 
 impl ImageService for DockerImageService {
@@ -721,6 +849,11 @@ fn unreadable(detail: &str) -> ImageError {
 /// The argv of the control container that prints the version: it removes itself, has no
 /// network, no capabilities and a read-only root, and its entrypoint is a coreutils `timeout`.
 fn control_argv(program: &Path, image: &ImageRef) -> Vec<String> {
+    control_argv_with(program, image, &[PROBE_SECONDS, "claude", "--version"])
+}
+
+/// The argv of a control container of `image` that runs `tail` under `timeout`.
+fn control_argv_with(program: &Path, image: &ImageRef, tail: &[&str]) -> Vec<String> {
     let mut argv: Vec<String> = [
         "run",
         "--rm",
@@ -748,8 +881,7 @@ fn control_argv(program: &Path, image: &ImageRef) -> Vec<String> {
     // BORROW: .clone() keeps the id in the argv
     argv.push(image.id.0.clone());
     argv.extend(
-        [PROBE_SECONDS, "claude", "--version"]
-            .iter()
+        tail.iter()
             // BORROW: `.to_owned()` makes each word an owned argument
             .map(|word| (*word).to_owned()),
     );

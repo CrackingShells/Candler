@@ -19,12 +19,14 @@ use candler_core::jobs::model::{JobCause, JobControl, JobOutcome};
 use candler_core::jobs::orchestrate::caps::{LiveRuns, stop_live};
 use candler_core::jobs::orchestrate::orchestrate_with;
 use candler_core::runner::RunStatus;
+use candler_core::supervise::EventSink;
 use candler_schemas::execution::{InvalidReason, JobEnd};
 use candler_schemas::primitives::RunKey;
 use candler_schemas::trace::EndedBy;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 use support::job_orchestrate::{FakeHost, Rig, spec};
+use support::job_runtime::Recorder;
 use support::run_plan::{Facts, Run, manifest, snapshot, write_run};
 use tokio::sync::watch;
 
@@ -83,11 +85,6 @@ fn integrity_on_disk(root: &Path, key: &RunKey) -> Value {
     manifest["integrity"].clone()
 }
 
-/// Runs the job of `rig` over `models` to its end.
-fn run_job(rig: &Rig, models: &[&str], wall_s: u32) -> JobOutcome {
-    run_job_on(rig, models, wall_s, rig.host())
-}
-
 /// Runs the job of `rig` over `models` on `host` to its end.
 fn run_job_on(rig: &Rig, models: &[&str], wall_s: u32, host: Arc<FakeHost>) -> JobOutcome {
     let job = spec(models, &facts(), wall_s, 2);
@@ -103,11 +100,47 @@ fn run_job_on(rig: &Rig, models: &[&str], wall_s: u32, host: Arc<FakeHost>) -> J
     runtime.block_on(orchestrate_with(rig.runtime(), job, ctl, host))
 }
 
+/// Runs the job of `rig` over `models` to its end and returns the kinds of the events the job's
+/// sink took, in order, with the run each one names.
+fn run_job_events(
+    rig: &Rig,
+    models: &[&str],
+    wall_s: u32,
+) -> (JobOutcome, Vec<(String, Option<RunKey>)>) {
+    let job = spec(models, &facts(), wall_s, 2);
+    let (cancel, _keep) = watch::channel::<Option<JobCause>>(None);
+    let ctl = JobControl {
+        cancel: Arc::new(cancel),
+    };
+    let recorder = Arc::new(Recorder::default());
+    // TRAIT_OBJECT: the job takes its sink as a trait object
+    let sink: Arc<dyn EventSink> = recorder.clone();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .expect("a runtime");
+    let outcome = runtime.block_on(orchestrate_with(
+        rig.runtime_with_sink(sink),
+        job,
+        ctl,
+        rig.host(),
+    ));
+    let kinds = recorder
+        .events()
+        .into_iter()
+        // BORROW: .to_owned() gives the list its own kind text
+        .map(|(run, payload)| (payload.kind().to_owned(), run))
+        .collect();
+    (outcome, kinds)
+}
+
 /// The table: six cells of one replicate each, in the order they are planned.
 const TABLE: [&str; 6] = ["m1", "m2", "m3", "m4", "m5", "m6"];
 
 /// Guards: I20 — crossing a job cap gives invalid(budget_stop) on live runs only; sealed runs keep
-/// their status; no new run starts.
+/// their status; no new run starts. F4: the gateway's `container.created` comes before the first
+/// `run.started`.
 /// Oracle: R01 §Budget; a literal run table.
 /// Bite: apply the cap to all_runs instead of live_runs.
 #[test]
@@ -224,7 +257,17 @@ fn b34_cap_stops_live_runs_only() {
         .iter()
         .map(|key| hashes(&control_root, key))
         .collect();
-    let calm = run_job(&control, &TABLE, 600);
+    let (calm, events) = run_job_events(&control, &TABLE, 600);
+    // F4: the gateway's record is written when the session opens, and its event comes before
+    // the first run starts (A55: `job.started, container.created, run.started, ...`).
+    let first_run = events.iter().position(|(kind, _)| kind == "run.started");
+    let first_container = events
+        .iter()
+        .position(|(kind, _)| kind == "container.created");
+    assert!(
+        first_container.is_some() && first_container < first_run,
+        "container.created for the gateway precedes run.started: {events:?}"
+    );
     assert_eq!(calm.end, JobEnd::Completed, "the control job completes");
     assert_eq!(
         calm.runs.len(),

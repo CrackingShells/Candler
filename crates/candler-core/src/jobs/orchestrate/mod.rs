@@ -9,14 +9,15 @@ pub mod schedule;
 pub mod session;
 pub mod teardown;
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use candler_schemas::execution::JobEnd;
 use futures::future::BoxFuture;
 
 use self::schedule::Scheduler;
-use self::session::{DockerHost, EnvSecrets, JobHost, JobSession, cells_of};
-use crate::isolation::model::SweepScope;
+use self::session::{DockerHost, EnvSecrets, JobHost, JobSession, cells_of, image_of};
+use crate::isolation::model::{ImageId, ImageRef, SweepScope};
 use crate::jobs::model::{JobControl, JobOutcome, JobSpec};
 use crate::runner::plan::{Force, PlanCtx, PlanMode, experiment_of, plan_runs};
 use crate::runner::{JobMeter, Runtime};
@@ -84,7 +85,24 @@ async fn run_job(
         Ok(outcome) => outcome,
         Err(error) => return refused("the plan was refused", &error),
     };
-    let cells = match cells_of(&spec, &outcome, &secrets.present()) {
+    let mut planners = BTreeMap::new();
+    for comparable in outcome.fresh.values() {
+        let Some(id) = image_of(comparable) else {
+            continue;
+        };
+        if planners.contains_key(&id) {
+            continue;
+        }
+        // BORROW: the image reference owns the id it names
+        let image = ImageRef {
+            id: ImageId(id.clone()),
+            cc_version: None,
+        };
+        if let Some(axis) = host.planner(&rt, &image).await {
+            planners.insert(id, axis);
+        }
+    }
+    let cells = match cells_of(&spec, &outcome, &secrets.present(), &planners) {
         Ok(cells) => cells,
         Err(error) => return refused("the cells cannot be built", &error),
     };

@@ -10,6 +10,7 @@ use candler_schemas::primitives::{Digest, FieldPath};
 use candler_schemas::values::SourceEntry;
 
 use crate::isolation::IsolationError;
+use crate::isolation::image::PlannerAxis;
 use crate::runner::evidence::Inputs;
 use crate::store::StoreError;
 use crate::supervise::SuperviseError;
@@ -32,6 +33,8 @@ pub struct CellRun {
     pub treatment_source: PathBuf,
     /// The input files the cell declares, by workspace path, with their digests.
     pub inputs: Inputs,
+    /// The planner library of the cell's env image, when the job probed it.
+    pub planner: Option<PlannerAxis>,
 }
 
 impl CellRun {
@@ -54,7 +57,15 @@ impl CellRun {
             secrets,
             treatment_source,
             inputs,
+            planner: None,
         }
+    }
+
+    /// The record with the planner library of its env image.
+    #[must_use]
+    pub fn with_planner(mut self, planner: Option<PlannerAxis>) -> Self {
+        self.planner = planner;
+        self
     }
 }
 

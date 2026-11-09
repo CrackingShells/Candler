@@ -17,6 +17,7 @@ use futures::future::BoxFuture;
 
 use super::model::{JobBody, JobOutcome, JobSpec};
 use crate::jobs::orchestrate::teardown::TEARDOWN_ALLOWANCE;
+use crate::runner::evidence::provenance::EvalInfra;
 use crate::runner::exec::SkillTree;
 use crate::store::Store;
 use crate::supervise::spawn::DEFAULT_GRACE;
@@ -50,6 +51,10 @@ pub struct JobServices {
     // TRAIT_OBJECT: the harness's archive reader, or a fake in tests
     /// Where a treatment's skill tree comes from.
     pub skills: Arc<dyn SkillTree>,
+    /// Which build of the evaluation infrastructure runs the job.
+    pub eval_infra: EvalInfra,
+    /// The import package whose distribution and version the job records for the env image.
+    pub planner_package: Option<String>,
 }
 
 /// Everything the supervisor of one job starts from. The spec's digest was checked against
