@@ -112,3 +112,9 @@ A cancel that lands while the client settles returns `Ok`, and dropping a `Child
 - **MINOR, accepted.** The in-process state leaks follow from the design, since the helper forks per item. KP2's docstring says so.
 - **NITs: accepted, no change.**
 - **SCAFFOLD count, clarified.** The rule "tests equal `Guards:` lines" counts collected tests. In the HTN repo, `addopts` deselects the golden test, so the count is taken with `-m "golden or not golden"`.
+
+## helper_runtime verifier (no BLOCKER or MAJOR, one fix round)
+- **M1, fixed.** HR2 had no `dir_info` case with `editable` false or absent, so the spec's bite ("ignore `editable`") left the test green. HR2 gains both cases, each expecting `IdentityError`, and the literal bite is recorded.
+- **M2, fixed.** A wrongly typed `deadline_ms` or `kind` crashed the whole helper. `_parse_evaluate` now checks the types and answers -32602, and the helper stays up. The case is a row of HR1's existing table, not a new test.
+- **M3, fixed.** A child abandoned after a cancel was never reaped. The helper now reaps abandoned pids with `waitpid(WNOHANG)` before each fork and at exit, and sends no signal (I22).
+- **N1 and N2, accepted as notes.** `_early_cancels` can grow for cancels of requests that never arrive. The no-fork fallback has no isolation, as documented.
