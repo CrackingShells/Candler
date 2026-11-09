@@ -35,8 +35,10 @@ pub const EXPIRY_MARGIN: Duration = Duration::from_secs(60);
 pub const CONTAINER_ENV: &str = "/opt/env";
 
 /// The version of the sandbox contract: how the agent's container is isolated and what it is
-/// given. A manifest records it as `provenance.sandbox_contract`.
-pub const SANDBOX_CONTRACT: &str = "v6";
+/// given. A manifest records it as `provenance.sandbox_contract`. It is a `name@version` of
+/// Candler's own mechanism, apart from any treatment's own `v<n>` contract line, and is bumped
+/// only when the container changes what the agent gets.
+pub const SANDBOX_CONTRACT: &str = "candler-container@1";
 
 /// The directory under which a control call (a short-lived `docker run` outside any job) keeps its
 /// record dir while it runs: `<store>/control`. Never a job's `children/`.

@@ -13,7 +13,7 @@ Date: 2026-11-09
 
 **Primary outcomes:**
 - Eliott's ruling of 2026-11-06 moved the Docker backend from M5 into M2b. The contract v5 features are kept as features (the feature map), not as mechanisms.
-- The re-validation smoke passes 29 of 31 feature-map checks on real RiVault runs. The two failures are the carve-out `layout` (M2c) and `provenance_fields`. After the spare run, `provenance_fields` fails only on `planner.runtime`, an intended deviation (A59).
+- The re-validation smoke passes 29 of 31 feature-map checks on real RiVault runs. The two failures are the carve-out `layout` (M2c) and `provenance_fields`. After the spare run, `provenance_fields` failed only on `planner.runtime`, an intended deviation (A59). Since `sandbox_contract` was renamed to `candler-container@1` (Eliott, 2026-11-09), it also fails on that check's `v<n>` shape, a second intended deviation.
 - Gates on fe77f9f:
   - STD, LINUX, DRIFT and SUBJ;
   - macOS e2e 8 of 8 (run at 3330360; later commits add a host test and change comments only);
@@ -52,9 +52,10 @@ Date: 2026-11-09
 
 ## Intended deviations from the reference (`run-config`, contract v5)
 
-| Field or behaviour | Reference (v5, host sandbox) | Candler (v6, container) |
+| Field or behaviour | Reference (v5, host sandbox) | Candler (`candler-container@1`) |
 |---|---|---|
-| `sandbox_contract` | `v5` (both `htn-creator-eval@0.4.2` and `htn-creator@0.2.7`) | `"v6"`: Candler's own constant (A55), "a successor of v5 with the same features and the container mechanism". Eliott may overrule the string. The verdict refuses mixed strata, so Candler runs never pool with the 240 golden v5 runs. That is by design. |
+| `sandbox_contract` | `v5` (both `htn-creator-eval@0.4.2` and `htn-creator@0.2.7`) | `"candler-container@1"`: Candler's own constant, named by Eliott on 2026-11-09 (overruling A55's `"v6"`). It delivers the v5 feature set, as the feature map checks, through the container rather than the confinement hook. It is a `name@version` of Candler's mechanism, apart from the HTN repo's `v<n>` line, so a future HTN contract v6 cannot be mistaken for it; it is bumped only when the container changes what the agent gets. Pooling with the 240 golden runs is refused on `provenance.eval_infra.*`, not on this string. That is by design. |
+| The `sandbox_contract` shape | the feature-map check `provenance_fields.sh:12` expects `^v[0-9]+$` | `candler-container@1` fails that clause. The check stays unedited, as the independent reference derivation. The row's observable, that each run's provenance names the contract version it ran under, is still met. |
 | Workspace path | a per-run temp sandbox dir | `/work` inside the container. The sealed run dir keeps `workspace/` and `home/` (A28). |
 | HOME and env | the user's HOME with `--setting-sources`, plus env scrubbing | `/home/agent`, a per-run host dir; the env is built from nothing (`-e` only); the flag is kept |
 | Planner env | the agent's venv, seeded by pip | one uv env baked into an image layer at `/opt/env`, keyed by lock digest |
@@ -106,5 +107,4 @@ Date: 2026-11-09
 
 ## Open Questions
 
-- Should `sandbox_contract` stay `"v6"`, or take another string? This is Eliott's call (A55).
 - Which model runs the first scored experiment? Reasoning-Small has never run the golden set, so its statistics are not comparable with the 240 earlier runs.

@@ -126,7 +126,7 @@ fn manifest_doc(arm: &Value) -> Value {
         ("eval_infra.commits_ahead", json!(0)),
         ("eval_infra.commit", json!("abc1234")),
         ("eval_infra.dirty", json!(false)),
-        ("sandbox_contract", json!("v6")),
+        ("sandbox_contract", json!("candler-container@1")),
     ]
     // BORROW: explicit conversion makes the owned or borrowed form the next line needs
     .map(|(key, value)| (key.to_owned(), value))
