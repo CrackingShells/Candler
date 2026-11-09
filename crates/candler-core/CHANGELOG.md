@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/CrackingShells/Candler/compare/v0.3.0...v0.4.0) - 2026-11-09
+
+### Features
+
+- *(evaluation)* report the deadline each request was given
+- *(evaluation)* run requests concurrently and commit outcome files
+- *(evaluation)* plan items, applies_to and dependencies per run
+- *(importer)* record the rules digest and refuse a changed one
+- *(evaluator-protocol)* run evaluator requests through the supervisor
+- *(evaluation)* materialise contexts into private workspaces
+- *(evaluation)* assemble run contexts from suite needs
+- *(evaluation)* diff evaluator versions on the four outcome fields
+- *(evaluation)* compute quality and gate rates per cell
+- *(evaluation)* select current outcomes and flag i4 changes
+- *(registry)* build plug-in environments once per lock digest
+- *(registry)* check suites against plug-in manifests
+- *(evaluation)* pass the supervisor, cancel and env root to evaluate
+- *(evaluation)* scaffold the evaluation modules and the evaluate seam
+
+### Fixes
+
+- *(evaluation)* run a uv plug-in inside its environment
+- *(evaluation)* read a suite file written as json
+- *(evaluation)* refuse a workspace that contains the store
+- *(evaluation)* gate the unix-only surface anchors and doc links
+
+### Performance
+
+- *(run-store)* sync with fsync and leave scratch copies unsynced
+- *(evaluation)* send one request per run, evaluator and stage
+
 ## [0.3.0](https://github.com/CrackingShells/Candler/compare/v0.2.0...v0.3.0) - 2026-11-09
 
 ### Documentation

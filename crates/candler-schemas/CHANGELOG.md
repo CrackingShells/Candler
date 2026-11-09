@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/CrackingShells/Candler/compare/schemas@0.3.0...schemas@0.4.0) - 2026-11-09
+
+### Features
+
+- *(schemas)* record the import rules digest in the run manifest
+- *(schemas)* frame evaluator messages as json-rpc 2.0
+- *(evaluator-protocol)* mint request ids as uuid v7
+
+### Fixes
+
+- *(evaluation)* read a suite file written as json
+
 ## [0.3.0](https://github.com/CrackingShells/Candler/compare/schemas@0.2.0...schemas@0.3.0) - 2026-11-09
 
 ### Features
