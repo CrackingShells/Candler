@@ -2,6 +2,8 @@
 
 Source of amendment A2 in `__roadmap__/candler-v1/contracts/parity/README.md`. A2 adds no node: it adds a Success Gate and a planning item to the leaf `alignment/m2c_wire_alignment.md`, which A1 created and which has not started.
 
+> **Widened the same day.** The conformance review in `__reports__/candler-v1-review/00-findings_v0.md` (D1-D5) found more of the same kind of content: the HTN packages and file prune in `assets/docker/env/`, `tier` in the core importer, and the reference's provenance vocabulary. It also found that whole-word matching misses every planner symbol listed below. The gate in the leaf now covers all of it. This report keeps the planner evidence that started A2.
+
 ## Problem Statement
 
 Candler is domain-agnostic: a platform for testing LLM-based agent systems, where everything a domain needs reaches it through a plug-in. Main at `v0.3.0` (b2bb782) breaks that rule. The core has a "planner" concept: it probes the env image for a planner library and writes `provenance.planner.sandbox.*` into every run manifest. The `candler` binary also hardcodes the HTN planner's import package, `gtpyhop`. The I1 guard did not catch either of them.
@@ -52,14 +54,14 @@ The M2b review and the coordinator's review of PR #4 did not catch it either.
   - M3 and M4 already wait on M2c.
 - **Risk.**
   - A run's cell digest must not move. The planner axis lives in `provenance`, outside `comparable`, so it should not move, but the change must prove it.
-  - A broadened deny-list can flag legitimate words (`plan` in `run_plan`, `ContainerPlan`). Match the role name as a whole word.
+  - A broadened deny-list can flag legitimate words (`plan` in `run_plan`, `ContainerPlan`). Match identifier segments (split on `_` and case changes), not whole words: whole words miss `PlannerAxis` and `planner_package`.
   - Deferring the fix leaves v0.3.0's run manifests with a domain-named field. That is acceptable, because no Candler-run corpus exists yet that a reader depends on.
 
 ## Proposed Solution
 
 Add to M2c, with no new node:
 
-1. **A Success Gate.** No planner concept in the core or the binary. The env packages a run records are declared by the plug-in and written under a neutral path. I1 scans the binary and denies `planner` as a whole word. M2a's interim allowance is removed. Cell digests are unchanged.
+1. **A Success Gate.** No HTN-domain concept in the core, the binary or `assets/`. The leaf has the full wording, widened after the review.
 2. **A planning item** in Step 1, for the declaration's shape and home, the provenance path, and whether a declared package's version gates a stratum verdict, all recorded in R01.
 
 ## Recommendations
