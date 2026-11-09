@@ -1,0 +1,37 @@
+schema = "suite/1"
+
+[[expectations]]
+id = "B1"
+role = "gate"
+kind = "ok"
+depends_on = []
+
+[expectations.evaluator]
+name = "engine"
+range = "^0.1"
+
+[expectations.params]
+
+[[expectations]]
+id = "B2"
+role = "gate"
+kind = "ok"
+depends_on = []
+
+[expectations.evaluator]
+name = "engine"
+range = "^0.1"
+
+[expectations.params]
+
+[[expectations]]
+id = "C1"
+role = "gate"
+kind = "ok"
+depends_on = []
+
+[expectations.evaluator]
+name = "second"
+range = "^0.1"
+
+[expectations.params]

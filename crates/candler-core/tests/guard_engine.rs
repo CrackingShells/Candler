@@ -159,6 +159,18 @@ async fn rig_of(manifest_name: &str) -> Rig {
 impl Rig {
     /// Grades the runs of `glob` with the fixture suite `suite`, whose `@COUNT@` is `count`.
     async fn grade(&self, suite: &str, glob: &str, count: &Path) -> EvaluateReport {
+        self.grade_with(std::slice::from_ref(&self.plugin), suite, glob, count)
+            .await
+    }
+
+    /// The same, with every plug-in manifest of `plugins`.
+    async fn grade_with(
+        &self,
+        plugins: &[PathBuf],
+        suite: &str,
+        glob: &str,
+        count: &Path,
+    ) -> EvaluateReport {
         let text = fs::read_to_string(fixtures().join(suite))
             .expect("the suite reads")
             .replace("@COUNT@", &count.display().to_string());
@@ -168,7 +180,7 @@ impl Rig {
         evaluate(
             EvaluateRequest {
                 store: self.store.clone(),
-                plugins: vec![self.plugin.clone()],
+                plugins: plugins.to_vec(),
                 suite: path,
                 runs: Some(glob.to_owned()),
                 concurrency: NonZeroUsize::new(2).expect("two"),
@@ -183,13 +195,19 @@ impl Rig {
         .expect("the engine grades the runs")
     }
 
-    /// The records of the engine's outcome files of `run`, each with its request id.
+    /// The records of the `engine` evaluator's outcome files of `run`, each with its request id.
     fn records(&self, run: &RunKey) -> Vec<(String, OutcomeRecord)> {
+        self.records_of(run, "engine")
+    }
+
+    /// The records of the outcome files of `run` that the evaluator `name` wrote, each with its
+    /// request id.
+    fn records_of(&self, run: &RunKey, name: &str) -> Vec<(String, OutcomeRecord)> {
         let store = Store::open(&self.store).expect("the store opens");
         let mut found = Vec::new();
         // The import left outcome files of its own beside the engine's.
         for file in store.outcome_files(run).expect("the outcome files list") {
-            if file.evaluator.name() != "engine" {
+            if file.evaluator.name() != name {
                 continue;
             }
             for record in store.read_outcomes(&file).expect("the file reads") {
@@ -313,22 +331,71 @@ async fn dependency_verdicts(manifest: &str, suite: &str) {
         .expect("the blocked record has a note");
     assert_eq!(blocked_note, "the dependency F1 did not pass");
 
-    // The dependent and its dependency share one request.
-    assert_eq!(record(&records, "P1").0, record(&records, "P2").0);
-    assert_eq!(record(&records, "F1").0, record(&records, "F2").0);
-    assert_ne!(record(&records, "P1").0, record(&records, "F1").0);
+    // One evaluator and one stage: the four sent entries share one request.
+    for id in ["F1", "F2", "P1", "P2"] {
+        assert_eq!(record(&records, id).0, record(&records, "P1").0, "{id}");
+    }
 
-    // The plug-in handed P2 the record of P1 and nothing else.
+    // The plug-in handed P2 the records of the items before it in the request, P1 among them:
+    // one request carries the independent items too, and a kind reads a dependency by its id.
     let seen = echoed(&record(&records, "P2").1);
     let prior = seen["prior"].as_array().expect("prior is a list");
-    assert_eq!(prior.len(), 1, "one prior record");
-    assert_eq!(prior[0]["expectation"], "P1");
-    assert_eq!(prior[0]["outcome"]["status"], "pass");
+    let ids: Vec<&str> = prior
+        .iter()
+        .map(|entry| entry["expectation"].as_str().expect("an id"))
+        .collect();
+    assert_eq!(ids, ["F1", "F2", "P1"], "the earlier items of the request");
+    let p1 = prior
+        .iter()
+        .find(|entry| entry["expectation"] == "P1")
+        .expect("P1 is in prior");
+    assert_eq!(p1["outcome"]["status"], "pass");
 
     assert!(
         rig.recording.calls.lock().expect("a lock").is_empty(),
         "nothing was stopped"
     );
+}
+
+/// Guards: R6 (A1) — one request carries every applicable entry of one evaluator at one stage:
+/// two independent entries of one evaluator share a request id, and the entry of a second
+/// evaluator has a request of its own. Oracle: the hand literals below, read from the outcome
+/// files.
+#[tokio::test]
+async fn independent_entries_of_one_evaluator_share_one_request() {
+    let rig = rig().await;
+    let second = rig.plugin.with_file_name("plugin_second.toml");
+    let manifest = fs::read_to_string(fixtures().join("plugin_second.toml"))
+        .expect("the second manifest template reads")
+        .replace(
+            "@EXAMPLES@",
+            &helper().join("examples").display().to_string(),
+        )
+        .replace("@KINDS@", &fixtures().join("kinds").display().to_string());
+    fs::write(&second, manifest).expect("the second manifest writes");
+    let plugins = [rig.plugin.clone(), second];
+    let report = rig
+        .grade_with(
+            &plugins,
+            "suite_batching.toml",
+            "*-r6-a1",
+            Path::new("unused"),
+        )
+        .await;
+    assert!(
+        report.failed_requests.is_empty(),
+        "{:?}",
+        report.failed_requests
+    );
+    assert_eq!(report.request_ids.len(), 2, "one request per evaluator");
+
+    let run = rig.run_of(6);
+    let engine = rig.records_of(&run, "engine");
+    let other = rig.records_of(&run, "second");
+    assert_eq!(engine.len(), 2, "B1 and B2");
+    assert_eq!(other.len(), 1, "C1");
+    assert_eq!(record(&engine, "B1").0, record(&engine, "B2").0);
+    assert_ne!(record(&engine, "B1").0, record(&other, "C1").0);
 }
 
 /// The sha256 of `bytes`, taken here and spelled as a digest.
