@@ -8,21 +8,21 @@ topic: m2b-execution-parity
 date: 2026-11-09
 version: v0
 prior-version: none
-key-metric: agent runs spent: 0 of 5 (prior: N/A, delta: N/A)
+key-metric: agent runs spent: 5 of 5 (prior: N/A, delta: N/A)
 decision-required: intervene
 ---
 
 ## Headline Result
 
-metric: smoke steps completed
-value: 1 of 5 (step 2 stopped at the first run, before any agent container)
-unit: steps
+metric: feature-map checks passing (31 scripts)
+value: 24 of 31 (7 fail; 12 of the 65 rows fail)
+unit: check scripts
 prior: N/A
 direction: new
 
-The first `candler run` of the valid one-cell experiment ends `job.ended(failed)` with `run.failed(driver_failed)`. The treatment archive of `htn-creator-eval@0.4.2` holds 9 symlinks, and the driver's `skill_files` refuses a link. No agent container started, so no token was spent. The leaf stops here as a Candler defect (addendum rule); nothing was retried and no code changed.
+The smoke reached every step of the leaf. The first blocking finding after the fix of F1 is F9: the run manifest carries none of the `eval_infra.*`, `sandbox_contract` and `planner.*` provenance fields, so `provenance_fields` and `planner_pin` fail. F4 (no `container.created` event for either container) is still open. Section "Findings for the lead" gives every row id and owner.
 
-This report has no B-test and so no bite record. Agent runs spent: 0 of 5 (X32 is a finding, not a run). Model for the runs that did not happen: `RiVault/Reasoning-Small`, `--effort medium`. Cost reported by the endpoint: none (the sidecar's readiness probe only lists models).
+Agent runs spent: 5 of 5. Model: `RiVault/Reasoning-Small`, `--effort medium`. Cost: the endpoint reported none; the client-side `total_cost_usd` sums to 0.9065 USD over four completed runs (the killed run reports no result). No B-test belongs to this report, so no bite record.
 
 ## Results Tables
 
@@ -30,87 +30,143 @@ This report has no B-test and so no bite record. Agent runs spent: 0 of 5 (X32 i
 
 | Item | Value |
 |:---|:---|
-| Branch / base | `m2b/equivalence_smoke` at 4ce3256 |
-| Binary | worktree `target/debug/candler`, built with sccache, `CARGO_INCREMENTAL=0`, own `target/` (1.4 GB) |
-| Pre-spawn check | `guard_signal` 9/9 PASS, before the X39 run and before the first run |
-| Treatment clone | scratch clone of `mcp-python-ingestion` at `htn-creator-eval@0.4.2`, commit 28be2c158fbc6ee786a789242c2d8fd47bfde9a8 |
-| Case | eval 1 `tier-a-domain-structure`; the 0.4.2 suite declares no prompt (`make_prompt` builds it), so the cell uses a short own template (a deviation from the suite's prompt) |
-| Settings | `--set model.token_secret=RIVAULT_LLM_INFERENCE`, `--set request.treatment_source=<clone>`; store through `XDG_STATE_HOME` inside scratch |
-| Endpoint | `https://api.class2.llm.ai.r-ccs.riken.jp` (host only; the gateway takes a host) |
-| VPN / key | `rv_health.py`: network ok, LLM key ok, 11 llm models |
+| Branch / base | `m2b/equivalence_smoke`, rebased onto `feat/m2b-execution-parity` at 87b3589 (A54 fix) |
+| Binary | worktree `target/debug/candler`, sccache, `CARGO_INCREMENTAL=0`, own `target/` (1.5 GB) |
+| Pre-spawn check | `guard_signal` 9/9 PASS before each of runs 2, 3, 4 and 5; before run 1 as in the first pass |
+| Treatment | scratch clone of `mcp-python-ingestion`, tag `htn-creator-eval@0.4.2`, commit 28be2c158fbc6ee786a789242c2d8fd47bfde9a8 |
+| Case | one cell, own prompt template ("create domain.py ... run `import domain` once"), `prompt.values` passed with `--set` (F7); the 0.4.2 suite declares no prompt |
+| Endpoint | `https://api.class2.llm.ai.r-ccs.riken.jp`; VPN and key checked by `rv_health.py`; key read from `RIVAULT_LLM_INFERENCE`, never printed |
 | T0 | 2026-11-09T03:23:51 |
 
-### X39 (missing build input)
+### Agent runs
 
-| Check | Result |
+| # | Job | Run | Outcome | Turns | Client cost (USD) | Wall (s) |
+|:---|:---|:---|:---|:---|:---|:---|
+| 1 | 01a1be64-6117-… | r1-a1 | valid, exit 0 | 16 | 0.2154 | 30 |
+| 2 | 01a1be68-28e3-… | r2-a1 | valid, exit 0 (r1 skipped: already sealed) | 14 | 0.1552 | 22 |
+| 3 | 01a1be69-575a-… | r3-a1 | valid, exit 0 | 22 | 0.2730 | 51 |
+| 4 | 01a1be6a-de6c-… | r4-a1 | sealed `invalid(killed)` by `candler kill -y`, exit 143 | none | not reported | killed 4 s after the probe |
+| 5 | 01a1be6c-5e28-… | r4-a2 | valid, exit 0, one `deviations[]` entry (forced) | 18 | 0.2629 | 47 |
+
+Runs that spent no tokens: the first run on the pre-fix binary (failed at the skill archive, F1), the `prompt.values` failure (F2 check), the refused X39 run, and the refused run 5a (tag moved, no `--force`).
+
+### Re-check of F1 to F4 on the first good run
+
+| Finding | Result |
 |:---|:---|
-| Exit status | 2 (non-zero) PASS |
-| Names the missing path | FAIL: the message is `preflight failed: 0 failed step report(s), 3 step error(s)` and names no path |
-| No job dir, no run | PASS (`store/` holds `control`, `images`, `store.json` only) |
-| No container since T0 labelled `preflight` | PASS (0) |
-| Side effect | preflight built `candler-gateway:latest` and `candler-base:src-319fda768a95` before it failed (product images, kept) |
+| F1 | Fixed. The skill lands at `.claude/skills/htn-creator/` only (SKILL.md, references/, scripts/); nothing else under `.claude/skills/`. |
+| F2 | Fixed. The `prompt.values` failure left `run <key> failed: <error>` in `supervisor.log`; the cause was readable. |
+| F3 | Partly fixed. X39 now prints `image_id@1 (error: the build inputs cannot be read: No such file or directory (os error 2))` and two more steps, but not the missing path. |
+| F4 | Open. Every job (five) shows `job.started, run.started, container.destroyed(agent), run.ended, container.destroyed(gateway), job.ended`; no `container.created` for either container. The check `job_events` does not assert it, so it passes. |
 
-### Run 1 (job 01a1be57-2702-76a2-8c9c-0c6cfad15426)
+### Check scripts (31, exit status)
 
-| Fact | Observed |
-|:---|:---|
-| Launch | exit 0, job id printed; the env image `candler-env:8ff09ffe…` was built in preflight |
-| Event kinds, `process.*` dropped | `job.started, run.failed, container.destroyed, job.ended` |
-| Literal expected | `job.started, container.created, run.started, container.created, container.destroyed, run.ended, container.destroyed, job.ended` |
-| `run.failed` | `reason: driver_failed`, 7 ms after the `skill-archive` child exited 0 |
-| Sidecar | started and passed its readiness probe (`/v1/models` through the upstream, so TLS to RiVault worked for that call); destroyed as `gateway`, found `recorded` |
-| `candler ps` | `ended (failed)`, 1/0, no `lost` job |
-| Left behind for this job | containers 0, networks 0, processes carrying its job id 0 |
+Post-run checks ran on the sealed run dirs (runs 1, 3, 5b); live-container checks ran inside the running agent container of run 5b (the container is gone after the run). `settings_sources_isolated` and `stream_invocation` read the stream of run 3 (same invocation) because the stream of a live run is not complete.
 
-### Images and disk
-
-| Image | Id | Size |
+| Check | Exit | Message |
 |:---|:---|:---|
-| candler-gateway:latest | 94ead961fe45 | 91.7 MB |
-| candler-base:src-319fda768a95 | 8e9b91c6b2e0 | 706 MB |
-| candler-env:8ff09ffe94aa… | f97e8abe2a18 | 788 MB |
+| benign_devices | 0 | OK |
+| canary_absent | 0 | OK |
+| env_scrubbed | 0 | OK |
+| host_isolation | 0 | OK |
+| integrity_verdict | 0 | OK |
+| job_events | 0 | OK |
+| layout | 1 | pyproject.toml missing, no [project], or has [build-system] |
+| manifest_comparable | 0 | OK |
+| manifest_fields | 0 | OK |
+| manifest_outside | 0 | OK |
+| no_abs_paths | 0 | OK |
+| no_bytecode | 0 | OK |
+| no_reference_answers | 0 | OK |
+| non_root | 0 | OK (uid 10001); no feature-map row names this script |
+| outside_path_denied | 1 | a Bash call on `/opt/env/lib/python3.12/site-packages/gtpyhop/` outside `/work` was not refused |
+| planner_pin | 1 | sandbox planner `not-a-single-string:null` != skill pin `gtpyhop-core` |
+| provenance_fields | 1 | missing or ill-shaped fields in the provenance JSON |
+| resume_runs | 0 | OK |
+| run_dir_per_key | 0 | OK |
+| run_measured | 1 | `measured[]` lacks `run.ended_by` or `run.exit` |
+| run_sealed | 0 | OK |
+| settings_sources_isolated | 1 | init lists MCP servers or plugins (0 servers, 3 builtin plugins) |
+| skill_discovery | 0 | OK (listed) |
+| stderr_kept | 0 | OK |
+| stream_invocation | 0 | OK |
+| stream_wellformed | 0 | OK |
+| tree_inventory | 1 | not a path -> sha256 map |
+| venv_contents | 0 | OK |
+| venv_not_hardlinked | 0 | OK |
+| venv_scoping | 0 | OK |
+| workspace_no_pyvenv | 0 | OK |
 
-`df` free on /System/Volumes/Data: 189 GiB (80 % used). Fixtures `candler-gateway:test` and `candler-testagent:test` untouched.
+24 pass, 7 fail. The feature map names 30 of the 31 scripts; `non_root` has no row.
 
-## Observations
+### Coverage of the 65 rows
 
-| Signal | Baseline / Expected | Observed | Interpretation |
+Result words: PASS and FAIL are check results; `not driven` means the smoke could not or did not exercise the row; `observed` and `deviation seen` mean evidence without a script; `n/a` is the map's own disposition. A `guard:Bnn` row would cite the guard's last green run: the smoke did not re-run the guards, so none is cited.
+
+| Row | Disposition | Result | Evidence |
 |:---|:---|:---|:---|
-| Skill archive | `skill_files` takes the treatment's skill tree | The archive is `git archive` of the whole commit: 1447 entries, 9 of them symlinks (`scripts/*.py -> ../.claude/skills/htn-creator/scripts/*.py`) [source: `git archive … \| tar -tv` in the scratch clone; `prepare.rs` `skill_files`] | `skill_files` returns `InvalidValue` on any link, which fits `driver_failed`. The cause is read from the code and the archive; the run records no detail, so it is not proven by an error text. |
-| Failure detail | A failed run names its cause | `run.failed` carries only `driver_failed`; `supervisor.log` holds no detail | Owner: cli_run or run_exec (event payload). Without it the cause cannot be read from the job. |
-| X39 message | Names the path (leaf gate) | Counts only | Owner: experiment_resolution (`preflight.rs:181`). |
-| Gateway events | First `container.created` is the gateway | No `container.created` for the sidecar before `container.destroyed(gateway)` | Not yet decided: the run failed before `run.started`; re-check on the first good run. |
-| A25 (CA bundle) | Open until the first run | The readiness probe against RiVault passed | Provisional only; the chat path is untested. |
-
-## Contradictions & Surprises
-
-- The treatment source is the whole repository, not the skill directory, so any tagged repository with a link in it is refused. The reference HTN tag is such a repository.
-- A failing `candler run` is not clean of side effects: preflight builds product images first, and the env image is built before the treatment archive is read.
-
-## Findings for the lead
-
-| Id | Row | Fact | Owning leaf |
-|:---|:---|:---|:---|
-| F1 | (X21/X20 path: treatment) | `skill_files` refuses the 9 symlinks of `htn-creator-eval@0.4.2`; the first run ends `driver_failed`. Blocks every run on the reference treatment. | claude_code_driver (prepare.rs), with run_plan/run_exec for the archive scope |
-| F2 | run evidence | `run.failed` has no cause text. | run_exec |
-| F3 | X39 | Refusal does not name the path. | experiment_resolution |
-| F4 | job_events | No `container.created` seen for the sidecar. Undecided. | job_orchestrate / gateway |
-| F5 | cli_run gap | Settings and the treatment source need `--set`; the catalog is the empty-servers stub; `JobSpec.inputs` is empty, so X32 `input_leak` cannot be driven by a declared input and is not run. The guard that covers the classifier is B24. | cli_run |
-| F6 | cli_run gap | `isolation.build.requirements` is joined to the caller's cwd (`ctx.config.cwd.join`); I used a copy in the work dir and saw it resolve. | experiment_resolution |
-
-## Not reached
-
-The 31 check scripts, the 65-row coverage table, provenance, event order, resume, the forced deviation, the canary scan and the intended-deviation table are not run. They need a run that seals. The six `intended_deviation` rows (X20, X22, X24, X34, X35, X40) and the X39 absent-image case are as in the feature map and unexercised here; the absent env image was built, not refused, as the leaf expects.
-
-## Steering Questions
-
-- `[now]` Fix F1 (or pick a skills-only treatment repo for the smoke)? A symlink-free scratch repo holding the same skill tree would let the smoke continue, but it is no longer the reference tag.
-- `[now]` Is a counted-only X39 refusal acceptable, or does it go back to experiment_resolution?
-- `[next run]` Should `run.failed` carry a cause?
-- `[next run]` Confirm the sidecar `container.created` event after the first good run.
-
-## Pointers
-
-- Scratch (not committed): `/private/tmp/claude-501/m2b-smoke/` (job dir `state/candler/store/jobs/01a1be57-…`)
-- Leaf: `__roadmap__/m2b-execution-parity/runs/jobs/cli/closeout/equivalence_smoke.md`
-- Feature map: `__roadmap__/m2b-execution-parity/feature_map/`
+| S1 | check | FAIL | provenance_fields: no sandbox_contract in the manifest (F9) |
+| S2 | check | FAIL | layout: no pyproject.toml, scripts/ or server file in the work dir; the cell has no declared inputs (F5) |
+| S3 | not_applicable | n/a | invariants row; carried by its own rows |
+| S4 | check | PASS | host_isolation: no mounts or caps beyond the contract (CapDrop ALL, no-new-privileges, read-only rootfs, pids 512, 4 GiB) |
+| S5 | check | FAIL | provenance_fields (F9) |
+| S6 | not_applicable | n/a | follow-up, open by design |
+| S3.R1 | guard:B23 | not driven | guard:B23 not re-run here; tree_inventory FAIL on the tree.json shape (F10); the inventory holds domain.py only |
+| S3.R2 | guard:B23 | not driven | guard:B23 not re-run here; tree_inventory FAIL on shape (F10) |
+| S3.R3 | guard:B23 | not driven | guard:B23 not re-run here; tree_inventory FAIL on shape (F10) |
+| S3.R4 | check | PASS | env_scrubbed in the live agent container |
+| S3.R5 | check | PASS | env_scrubbed in the live agent container |
+| S3.R6 | check | PASS | venv_scoping: bare pip and python resolve in /opt/env |
+| S3.R7 | check | PASS | venv_scoping: the venv is writable; it sits at /opt/env, not under /work (A13) |
+| S3.R8 | check | PASS | venv_contents |
+| S3.R9 | check | PASS | venv_contents |
+| S3.R10 | not_applicable | n/a | reclaim step does not exist under containers |
+| S3.R11 | not_applicable | n/a | as S3.R10 |
+| S3.R12 | check | PASS | workspace_no_pyvenv on runs 1, 3 and 5b |
+| S3.R13 | not_applicable | n/a | harness venv is not in the container |
+| S3.R14 | check | FAIL | outside_path_denied: the agent read /opt/env/... and the check wants a refusal (F11) |
+| S3.R15 | not_applicable | n/a | no hook under containers |
+| S3.R16 | check | PASS | manifest_outside: the manifest is in the run dir, not under /work |
+| S3.R17 | check | PASS | no_reference_answers |
+| S3.R18 | not_applicable | n/a | document row |
+| S3.R19 | check | FAIL | planner_pin: sandbox planner reads not-a-single-string:null, skill pin is gtpyhop-core (F9) |
+| X1 | check | PASS | stream_invocation in the live container (stream from run 3) |
+| X2 | check | FAIL | settings_sources_isolated: init lists 3 builtin plugins, 0 MCP servers (F12) |
+| X3 | check | PASS | skill_discovery: htn-creator listed in init; skill at .claude/skills/htn-creator/ only |
+| X4 | check | PASS | canary_absent on runs 1, 3, 5b; scan of the whole smoke: absent |
+| X5 | guard:B08 | PASS | job_events on every ended job; the container.created literal is not met (F4) |
+| X6 | check | PASS | stream_wellformed after unwrapping raw-frames/1 |
+| X7 | check | PASS | stderr_kept |
+| X8 | smoke_step | observed | a prompt from the cell template reached the agent and domain.py was written; the suite prompt is not used (no suite prompt exists in 0.4.2) |
+| X9 | guard:B22 | observed | skill archived from the tag by git archive, scoped to .claude/skills/htn-creator (A54); guard:B22 not re-run |
+| X10 | guard:B17 | observed | ANTHROPIC_BASE_URL set in the agent env because an endpoint was requested; guard:B17 not re-run |
+| X11 | check | PASS | no_bytecode; PYTHONDONTWRITEBYTECODE in the env names |
+| X12 | check | PASS | benign_devices in the live container |
+| X13 | not_applicable | n/a | no hook under containers |
+| X14 | check | FAIL | outside_path_denied (F11) |
+| X15 | check | PASS | stream_invocation |
+| X16 | check | PASS | run_dir_per_key: one dir per cell-replicate-attempt |
+| X17 | check | PASS | venv_contents |
+| X18 | check | PASS | venv_not_hardlinked |
+| X19 | check | FAIL | layout (F5) |
+| X20 | intended_deviation | deviation seen | workspace kept in the run dir, never destroyed; the manifest is a sibling file in the run dir |
+| X21 | guard:B30 | PASS | run_sealed on every ended run; the killed run is sealed invalid(killed); guard:B30 not re-run |
+| X22 | intended_deviation | deviation seen | forced run recorded deviations[] {path, stored, observed}; the wipe of partial state does not apply (a new attempt dir) |
+| X23 | guard:B26 | PASS | resume_runs: complete runs skipped, killed run gets attempt 2; guard:B26 not re-run |
+| X24 | intended_deviation | deviation seen | the resumed attempt r4-a2 records the full comparable block (no provenance loss on resume) |
+| X25 | check | FAIL | provenance_fields (F9) |
+| X26 | check | FAIL | provenance_fields (F9) |
+| X27 | check | PASS | manifest_comparable |
+| X28 | check | PASS | manifest_fields |
+| X29 | check | FAIL | run_measured: measured[] lacks run.ended_by and run.exit (F13) |
+| X30 | check | PASS | no_abs_paths |
+| X31 | guard:B19 | observed | secrets[] names the variable only; no negative test of guard:B19 |
+| X32 | smoke_step | not driven | no declared inputs exist to copy (F5); recorded as a finding, not a run |
+| X33 | check | PASS | integrity_verdict |
+| X34 | intended_deviation | not seen | no JSON mapping scan in this cell |
+| X35 | intended_deviation | FAIL | tree_inventory shape (F10); the inventory is {schema, entries[1]}, entry domain.py with sha256 and executable flag |
+| X36 | check | PASS | stream_wellformed; permission_denials is [] in the result |
+| X37 | not_applicable | n/a | grading is out of the smoke |
+| X38 | not_applicable | n/a | no permissions.deny reliance |
+| X39 | smoke_step | partial | missing build input refused with exit 2 and no job; the message names the steps, not the path (F3); the uv-missing case is not reachable |
+| X40 | intended_deviation | deviation seen | the agent env holds 17 names; the host env is not inherited |
