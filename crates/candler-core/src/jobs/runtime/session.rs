@@ -126,8 +126,25 @@ pub fn read_spec(job_dir: &Path, mut stdin: impl Read) -> Result<JobSpec, Runtim
 }
 
 /// Recovers the lost job of `dir`, reporting to that job's own log and through a supervisor of
-/// its own, exactly as `candler ps` does.
-async fn recover_one(dir: &JobDir) -> Result<RecoverReport, String> {
+/// its own, over the real container guard. This is the composition of `candler ps`, `kill`,
+/// `watch` and the supervisor's own sweep of lost jobs.
+///
+/// # Errors
+/// The reason the recovery could not run, as text.
+pub async fn recover_job_dir(dir: &JobDir) -> Result<RecoverReport, String> {
+    recover_job_dir_with(dir, ContainerGuard::over_docker).await
+}
+
+/// [`recover_job_dir`] with the guard built by `guard` from the docker client and the job's view,
+/// for a caller that fits the guard with a destroy half of its own. The guard it returns reports
+/// to the job's own log.
+///
+/// # Errors
+/// The reason the recovery could not run, as text.
+pub async fn recover_job_dir_with<F>(dir: &JobDir, guard: F) -> Result<RecoverReport, String>
+where
+    F: FnOnce(&DockerCli, Arc<dyn JobView>) -> ContainerGuard,
+{
     let events = Arc::new(JobEvents::open(dir).map_err(|e| e.to_string())?);
     // TRAIT_OBJECT: the supervisor and the guard take their sink as a trait object
     let sink: Arc<dyn EventSink> = events;
@@ -140,9 +157,7 @@ async fn recover_one(dir: &JobDir) -> Result<RecoverReport, String> {
     .map_err(|e| e.to_string())?;
     // TRAIT_OBJECT: the guard and the sweeper read the job through its directory
     let view: Arc<dyn JobView> = Arc::new(dir.clone()); // BORROW: the view owns its directory
-    let guard = Arc::new(
-        ContainerGuard::over_docker(&cli, Arc::clone(&view)).with_events(Arc::clone(&sink)),
-    );
+    let guard = Arc::new(guard(&cli, Arc::clone(&view)).with_events(Arc::clone(&sink)));
     // TRAIT_OBJECT: the sweeper lists through the docker client
     let docker: Arc<dyn DockerDriver> = Arc::new(cli);
     let sweeper = LabelSweeper::new(docker, guard, view, SWEEP_LIMIT).with_events(sink);
@@ -228,7 +243,7 @@ pub async fn reap_lost_jobs(
         };
         match lost::classify(&dir) {
             Ok(JobLiveness::Lost) => {
-                let report = recover_one(&dir).await;
+                let report = recover_job_dir(&dir).await;
                 reports.push((id, report));
             }
             // EXPLICIT: `Running` has a live supervisor and `Ended(_)` has already ended; neither

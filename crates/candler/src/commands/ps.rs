@@ -8,27 +8,17 @@
 use std::collections::BTreeSet;
 use std::io::{self, Write};
 use std::path::Path;
-use std::sync::Arc;
-use std::time::Duration;
 
-use candler_core::isolation::container::guard::ContainerGuard;
-use candler_core::isolation::container::sweeper::LabelSweeper;
-use candler_core::isolation::docker::{ClientEnv, DockerCli};
-use candler_core::isolation::driver::DockerDriver;
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::events::{JobEvents, TailPos};
 use candler_core::jobs::lost::{self, JobLiveness, RecoverOutcome, RecoverReport};
 use candler_core::jobs::runtime::detach::START_DEADLINE;
-use candler_core::jobs::view::JobView;
+use candler_core::jobs::runtime::session::recover_job_dir;
 use candler_core::store::layout::StoreLayout;
-use candler_core::supervise::{EventSink, Supervisor};
 use candler_schemas::execution::{EventPayload, JobEnd};
 use candler_schemas::primitives::{JobId, RunKey};
 
 use super::{CliError, Exit, common};
-
-/// How long one recovery may spend listing and destroying the containers of a lost job.
-const SWEEP_LIMIT: Duration = Duration::from_mins(2);
 
 /// The arguments of `candler ps`.
 #[derive(Debug, clap::Args)]
@@ -47,35 +37,6 @@ pub struct Row {
     pub progress: String,
     /// Whether the row reports a failure, which makes the command exit non-zero.
     pub failed: bool,
-}
-
-/// Recovers the lost job of `dir` through the real container sweeper and a supervisor that
-/// reports to the job's own log.
-///
-/// # Errors
-/// The reason the recovery could not run, as text.
-pub async fn recover_job(dir: &JobDir) -> Result<RecoverReport, String> {
-    let events = Arc::new(JobEvents::open(dir).map_err(|e| e.to_string())?);
-    // TRAIT_OBJECT: the supervisor and the guard take their sink as a trait object
-    let sink: Arc<dyn EventSink> = events;
-    let sup = Arc::new(Supervisor::new(Arc::clone(&sink)));
-    let cli = DockerCli::new(
-        Arc::clone(&sup),
-        ClientEnv::from_process(),
-        dir.control_dir(),
-    )
-    .map_err(|e| e.to_string())?;
-    // TRAIT_OBJECT: the guard and the sweeper read the job through its directory
-    let view: Arc<dyn JobView> = Arc::new(dir.clone()); // BORROW: the view owns its directory
-    let guard = Arc::new(
-        ContainerGuard::over_docker(&cli, Arc::clone(&view)).with_events(Arc::clone(&sink)),
-    );
-    // TRAIT_OBJECT: the sweeper lists through the docker client
-    let docker: Arc<dyn DockerDriver> = Arc::new(cli);
-    let sweeper = LabelSweeper::new(docker, guard, view, SWEEP_LIMIT).with_events(sink);
-    lost::recover(&sup, &sweeper, dir)
-        .await
-        .map_err(|e| e.to_string())
 }
 
 /// What a recovery left, as the text a row or a message shows, and whether it is a failure.
@@ -177,7 +138,7 @@ async fn row_of(store: &StoreLayout, name: &str, path: &Path) -> Row {
         JobLiveness::Running => "running".to_owned(), // BORROW: the row owns its text
         JobLiveness::Ended(end) => end_text(end),
         JobLiveness::Lost if is_starting(&dir) => "starting".to_owned(), // BORROW: the row owns its text
-        JobLiveness::Lost => match recover_job(&dir).await {
+        JobLiveness::Lost => match recover_job_dir(&dir).await {
             Ok(report) => {
                 let (text, bad) = describe_recovery(&report);
                 failed = bad;

@@ -8,11 +8,11 @@ use std::time::Duration;
 use candler_core::jobs::dir::{JobDir, JobError};
 use candler_core::jobs::events::{JobEvents, TailPos};
 use candler_core::jobs::lost::{self, JobLiveness};
+use candler_core::jobs::runtime::session::recover_job_dir;
 use candler_core::store::layout::StoreLayout;
 use candler_schemas::execution::EventPayload;
 use candler_schemas::primitives::JobId;
 
-use super::ps::recover_job;
 use super::{CliError, Exit, common};
 
 /// How often the log is read for new events.
@@ -97,7 +97,7 @@ pub async fn follow(
         match lost::classify(&dir).map_err(failed)? {
             JobLiveness::Running => {}
             JobLiveness::Lost => {
-                if let Err(reason) = recover_job(&dir).await {
+                if let Err(reason) = recover_job_dir(&dir).await {
                     return Err(CliError::Failed {
                         verb: "watch",
                         source: format!("the job is lost and recover failed: {reason}").into(),

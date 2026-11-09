@@ -11,6 +11,7 @@ use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::events::JobEvents;
 use candler_core::jobs::lost::{self, JobLiveness, RecoverOutcome};
 use candler_core::jobs::runtime::TEARDOWN_BOUND;
+use candler_core::jobs::runtime::session::recover_job_dir;
 use candler_core::store::layout::StoreLayout;
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_harness::spec::{StopSignal, StopSpec};
@@ -18,7 +19,7 @@ use candler_schemas::primitives::{JobId, Marker, Timestamp};
 use candler_schemas::process::ChildRecord;
 use std::sync::Arc;
 
-use super::ps::{describe_recovery, end_text, recover_job};
+use super::ps::{describe_recovery, end_text};
 use super::{CliError, Exit, common};
 
 /// The arguments of `candler kill`.
@@ -95,7 +96,7 @@ pub async fn stop_job(store: &StoreLayout, id: &JobId) -> Result<String, String>
             return Ok(format!("{id}: {}", end_text(end)));
         }
     }
-    let report = recover_job(&dir)
+    let report = recover_job_dir(&dir)
         .await
         .map_err(|e| format!("recover failed: {e}"))?;
     match report.outcome {
