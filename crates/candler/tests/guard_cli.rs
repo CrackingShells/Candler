@@ -5,9 +5,11 @@
 
 use std::collections::BTreeSet;
 use std::fs;
+use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use candler_core::evaluation::registry::EnvironmentKey;
 use candler_core::store::Store;
 use candler_core::store::outcome::OutcomeWriter;
 use candler_core::store::run::{Existing, RunWriter};
@@ -336,4 +338,195 @@ fn import_show_and_diff_over_the_mini_corpus_match_the_hand_counts() {
     assert_eq!(out.status.code(), Some(2), "{out:?}");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("import.rules"), "{stderr}");
+}
+
+/// The fixtures of the engine guards, read in place.
+fn engine_fixtures() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../candler-core/tests/fixtures/engine")
+}
+
+/// The helper's `uv` project, from which the fixture plug-in runs.
+fn helper() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../python/candler-evaluator")
+}
+
+/// A plug-in directory of `version` under `parent`: the engine fixture's manifest and kinds with
+/// the version changed, and a link to the helper's project. Returns the manifest.
+fn plugin_of(parent: &Path, version: &str) -> PathBuf {
+    let dir = parent.join(format!("plugin-{version}"));
+    let kinds = dir.join("kinds");
+    fs::create_dir_all(&kinds).expect("a plug-in directory");
+    symlink(helper(), dir.join("env")).expect("a link to the helper");
+    let module = fs::read_to_string(engine_fixtures().join("kinds/engine_fixture.py"))
+        .expect("the kinds read")
+        .replace(
+            "VERSION = \"0.1.0\"",
+            format!("VERSION = \"{version}\"").as_str(), // BORROW: explicit .as_str()
+        );
+    fs::write(kinds.join("engine_fixture.py"), module).expect("the kinds write");
+    let manifest = fs::read_to_string(engine_fixtures().join("plugin.toml"))
+        .expect("the manifest reads")
+        .replace(
+            "version = \"0.1.0\"",
+            format!("version = \"{version}\"").as_str(), // BORROW: explicit .as_str()
+        )
+        .replace(
+            "@EXAMPLES@",
+            &helper().join("examples").display().to_string(),
+        )
+        .replace("@KINDS@", &kinds.display().to_string());
+    let path = dir.join("plugin.toml");
+    fs::write(&path, manifest).expect("the manifest writes");
+    path
+}
+
+/// Builds the helper's environment under `env_root` and marks it `ready`, as the engine guard does.
+fn sync_environment(env_root: &Path) {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("a runtime");
+    let key = runtime
+        .block_on(EnvironmentKey::of_files(
+            &helper().join("uv.lock"),
+            &helper().join("pyproject.toml"),
+        ))
+        .expect("the environment key");
+    let dir = key.dir(env_root);
+    fs::create_dir_all(&dir).expect("an environment directory");
+    let synced = Command::new("uv")
+        .args(["sync", "--frozen"])
+        .env("UV_PROJECT_ENVIRONMENT", dir.join(".venv"))
+        .current_dir(helper())
+        .status()
+        .expect("uv runs");
+    assert!(synced.success(), "uv sync built the helper's environment");
+    fs::write(dir.join("ready"), key.digest()).expect("the ready marker writes");
+}
+
+/// Guards: CLI2 stage two (`evaluate`, then `diff` and `show` over what it wrote) — the engine
+/// fixture's plug-in graded over the imported runs under two manifest versions with identical
+/// kinds: each `evaluate` reports the verdicts of the fixture suite, `show` lists both versions,
+/// `diff 0.1.0 0.1.1` exits 0 with five rows compared and none changed, and a value edited in the
+/// store's 0.1.1 outcome file makes `diff` exit 1 naming that row. Oracle: the hand-written
+/// verdicts of the fixture kinds on run 6 (`N1` `applies_to` misses: `not_applicable`; `F1` fails;
+/// `F2` depends on it: `blocked`; `P1` and `P2` pass), counted from `suite_dependencies.toml`
+/// and `engine_fixture.py`, never from the engine's output. The store edit is a tamper at file
+/// level: outcome files carry no seal or digest, so the edit is read back as written.
+#[test]
+fn evaluate_diff_and_show_over_two_plugin_versions_follow_the_fixture_verdicts() {
+    let dir = TempDir::new().expect("a temporary directory");
+    let store = dir.path().join("store");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let corpus = root.join("../candler-core/tests/fixtures/mini-corpus");
+    let rules = root.join("tests/fixtures/cli/mini-corpus-rules.toml");
+    let corpus_arg = corpus.to_str().expect("a UTF-8 path");
+    let rules_arg = rules.to_str().expect("a UTF-8 path");
+    let out = candler(
+        dir.path(),
+        &store,
+        &["import", corpus_arg, "--rules", rules_arg],
+    );
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+
+    // `candler` points the state home at `<dir>/state`, where the environments live.
+    sync_environment(&dir.path().join("state/candler/environments"));
+    let suite = engine_fixtures().join("suite_dependencies.toml");
+    let suite_arg = suite.to_str().expect("a UTF-8 path");
+    let verdicts = json!({"blocked": 1, "fail": 1, "not_applicable": 1, "pass": 2});
+    for version in ["0.1.0", "0.1.1"] {
+        let manifest = plugin_of(dir.path(), version);
+        let manifest_arg = manifest.to_str().expect("a UTF-8 path");
+        let out = candler(
+            dir.path(),
+            &store,
+            &[
+                "evaluate",
+                "--plugin",
+                manifest_arg,
+                "--suite",
+                suite_arg,
+                "--runs",
+                "*-r6-a1",
+            ],
+        );
+        assert_eq!(out.status.code(), Some(0), "evaluate {version}: {out:?}");
+        let report: Value = serde_json::from_slice(&out.stdout).expect("a JSON report");
+        assert_eq!(report["counts"], verdicts, "{version}");
+        assert_eq!(report["failed_requests"], json!([]), "{version}");
+    }
+
+    let out = candler(dir.path(), &store, &["show", "--format", "json"]);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let shown: Value = serde_json::from_slice(&out.stdout).expect("JSON counts");
+    assert_eq!(shown["counts"]["engine@0.1.0"], verdicts);
+    assert_eq!(shown["counts"]["engine@0.1.1"], verdicts);
+
+    let compare = |dir: &Path| {
+        let out = candler(
+            dir,
+            &store,
+            &[
+                "diff",
+                "--from",
+                "engine@0.1.0",
+                "--to",
+                "engine@0.1.1",
+                "--format",
+                "json",
+            ],
+        );
+        let report: Value = serde_json::from_slice(&out.stdout).unwrap_or(Value::Null);
+        (out.status.code(), report)
+    };
+    let (code, report) = compare(dir.path());
+    assert_eq!(code, Some(0), "{report}");
+    assert_eq!(report["compared"], 5);
+    assert_eq!(report["changed"], 0);
+
+    // The tamper: `P1` of the 0.1.1 outcome file reads `fail` instead of `pass`.
+    let mut edited = 0_usize;
+    for entry in walk(&store.join("outcomes")) {
+        let in_new = entry.to_string_lossy().contains("engine@0.1.1");
+        if !in_new || entry.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let text = fs::read_to_string(&entry).expect("an outcome file reads");
+        let lines: Vec<String> = text
+            .lines()
+            .map(|line| {
+                let mut record: Value = serde_json::from_str(line).expect("a record");
+                if record["expectation_id"] == "P1" {
+                    record["status"] = json!("fail");
+                    edited += 1;
+                }
+                record.to_string()
+            })
+            .collect();
+        fs::write(&entry, format!("{}\n", lines.join("\n"))).expect("the edit writes");
+    }
+    assert_eq!(edited, 1, "one P1 record was edited");
+    let (code, report) = compare(dir.path());
+    assert_eq!(code, Some(1), "{report}");
+    assert_eq!(report["changed"], 1);
+    assert_eq!(report["changes"][0]["expectation"], "P1");
+    assert_eq!(report["changes"][0]["from"]["status"], "pass");
+    assert_eq!(report["changes"][0]["to"]["status"], "fail");
+}
+
+/// The files under `root`, at any depth.
+fn walk(root: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut pending = vec![root.to_owned()];
+    while let Some(dir) = pending.pop() {
+        for entry in fs::read_dir(&dir).expect("a directory reads") {
+            let path = entry.expect("an entry").path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                found.push(path);
+            }
+        }
+    }
+    found
 }
