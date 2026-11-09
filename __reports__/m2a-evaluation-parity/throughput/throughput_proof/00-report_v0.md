@@ -61,3 +61,42 @@ Import probe, one process, same binary: 45.5 s wall, 40.6 s user, 3.5 s system, 
 2. The 0.5.1 guard text carries one stale phrase the leaf did not change (the leaf allows only the identity): the module doc still says the guards need "about half an hour". It now takes under 3 minutes.
 3. Guard concurrency is 8 (the 0.5.0 report said 4). The `timings.txt` figures above are at 8.
 4. The deferred adversarial verifier has not run; this report does not repeat golden_parity's bites.
+
+## Verifier round
+
+The adversarial verifier made one corpus pass (3 of 3 PASS, 161.5 s) and found no behaviour defect. Each row below is one finding, with the ruling of `l1/00-rulings_v0.md` §"throughput_proof verifier" or the fix made in Step 3.
+
+| # | Finding | Severity | Fix or ruling |
+|---|---|---|---|
+| 1 | ENG1 did not guard dependency-first order, the request deadline as item deadlines plus margin, or the blocking of a `not_applicable` entry's dependents; a bite on each survived. | MAJOR | Fixed in Step 3: three ENG1 rows (below). |
+| 2 | The fixture marker `complete.json` did not hash the plug-in tree or the helper, so a kept store survived a plug-in edit. | MINOR | Fixed in Step 3: the marker adds `plugin_tree` and `helper_src`, each the sha256 of every `git ls-files` file's digest. The first run after the change rebuilt the fixture. |
+| 3 | The "about half an hour" strings in the guard were stale. | NIT | Fixed in Step 3: the module doc and the three `#[ignore]` reasons say "about three minutes". |
+| 4 | KP4's second test kills none of the five preload bites; the first test does all the work. | MINOR | Ruled: KT follow-up on the HTN side. The 0.5.1 tag stays; the test asserts nothing false. |
+| 5 | GP3's request-id disjointness check reads the report; real id reuse is refused earlier by `OutcomeExists`. | MINOR | Ruled: keep as written; the per-row `request_id` membership check is its file-level partner. |
+| 6 | The helper shows each item `prior[]` plus every earlier item of the request, siblings included. | NIT | Ruled: the helper's rule since helper_runtime finding 4; kinds pick by expectation id; the KT records it as a wire-contract note. |
+| 7 | The `.jsonl.tmp` stream file in `frames`, the environment `ready` marker and a new index file's directory entry are never synced (pre-A1). | NIT | Ruled: KT follow-up with the import's other durability and throughput items. |
+| 8 | Hand literals 8880, 209 and 240 duplicate the oracle; the generator's `status == "pass"` clause is unobservable; bare `htn_creator_scripts` is missing from `FRESH`. | NIT | Ruled: no change. |
+
+### Step 3 rows and bites
+
+Rows (all in `crates/candler-core/tests/guard_engine.rs`, fixtures under `tests/fixtures/engine/`):
+- Order and NA blocking extend `dependencies_and_applies_to_decide_what_is_sent` with a second helper, `order_and_blocking_verdicts`, over a new fixture suite `suite_order.toml` (`suite_dependencies.*` stay unchanged, because `guard_cli` reads them). The suite has four entries: N1 (an `applies_to` miss, so `not_applicable`), N2 depends on N1, D1 (an `echo`) is listed before its dependency P3. Expected by hand: N2 is `blocked` by N1 and not sent; D1 is sent after P3 in the same request, so the ids in D1's `prior` are exactly `["P3"]`.
+- Deadline is a new test, `the_request_deadline_is_the_sum_of_the_item_deadlines_plus_the_margin` with its own `Guards:` line (5 tests, 5 `Guards:`), and it sleeps nowhere. A first version had a kind sleep 33 s; it took 35.9 s of a 35.9 s workspace run and proved only a lower bound, so the ruling replaced it. Step 3 (`feat(evaluation): report the deadline each request was given`) adds `EvaluateReport::request_deadlines`, one `(request id, deadline)` per request sent, the value exactly as given to the client. `suite_deadlines.toml` has two `ok` entries in one request, with item deadlines of 40 s and 5 s. By hand: with no override the deadline is 40 + 5 + 30 = 75 s; with a flat override of 12 s it is 12 s. Both literals are written in the test; the margin constant is not read. The `nap` kind and `suite_nap.toml` are gone.
+
+Each bite was one change, made after SPAWN (`guard_signal` 4 of 4) and restored with `git checkout -- <file>`:
+
+| bite | change | failing test and line | observed |
+|---|---|---|---|
+| `plan.rs:243` order() follows suite order only | `.all(\|dep\| ...)` becomes `.all(\|_dep\| true)` | `dependencies_and_applies_to_decide_what_is_sent`, `guard_engine.rs:332` | left `[]`, right `["P3"]` (the dependency is sent before D1) |
+| `run.rs:138` NotApplicable no longer stops dependents | `NotApplicable` moves from the `true` arm to the `false` arm | the same test, `guard_engine.rs:317` | N2 status `Pass`, expected `Blocked` |
+| `run.rs:653` deadline is the margin only | `total.saturating_add(MARGIN)` becomes `MARGIN` | `the_request_deadline_is_the_sum_of_the_item_deadlines_plus_the_margin`, `guard_engine.rs:478` | 30 s, expected 75 s |
+| `run.rs:653` deadline is the sum only | `total.saturating_add(MARGIN)` becomes `total` | the same test, `guard_engine.rs:478` | 45 s, expected 75 s |
+| `run.rs:634` deadline is the largest item deadline plus the margin | `total.saturating_add(item)` becomes `total.max(item)` | the same test, `guard_engine.rs:478` | 70 s, expected 75 s |
+
+### Guard wall time after the deadline round
+
+The deadline test now takes 5.1 s (it starts two rigs and sleeps nowhere), down from 35.9 s. `cargo nextest run --workspace`: `Summary [  11.803s] 300 tests run: 300 passed, 7 skipped`. The slowest test is `guard_protocol_client every_failure_path_of_an_evaluator_is_accounted_for` at 8.8 s.
+
+### New guard run (fresh store, after Step 3)
+
+`timings.txt`: import 44.4 s, regrade 1 56.6 s (156.9 items/s), regrade 2 56.2 s (158.0 items/s). Nextest: `Summary [162.848s] 3 tests run: 3 passed (3 slow), 0 skipped`. The import gate (30 s) still fails on the debug binary; see the import probe. Free disk 186 GB after the store was deleted.
