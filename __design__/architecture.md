@@ -305,7 +305,11 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
   Agent and gateway containers never use `--rm`, so the exit facts survive for the inspect.
 - **Container records.** Each container gets `children/container-<cid12>.json`
   (`container-record/1`: `{cid, labels {job, run, experiment}, created_at, image_id, role:
-  agent|gateway, spawned_at}`) and the labels `candler.job`, `candler.run`, `candler.experiment`.
+  agent|gateway, spawned_at}`) and the labels `candler.job`, `candler.run`, `candler.experiment`
+  and `candler.role` (`agent` or `gateway`, which the destroy guard reads). A control container
+  (a version readout, a catalog capture, the image build) is the exception: `--rm`, only the label
+  `candler.role=control`, and no network except for the image build, which reaches the package
+  index over the default bridge; no sweep meets it and the guard never destroys it.
   The entrypoint runs under `timeout <wall_s + 60 s>`, so an orphaned container expires by itself
   on any engine.
 - **Stray sweep.** Harnesses start descendants in new sessions (Claude Code 2.1.304 spawns its Bash
@@ -382,9 +386,12 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
 - **In a container** the environment is built from nothing and passed with `-e` only; the docker
   client itself gets its own allowlist (`DOCKER_HOST`, `DOCKER_CONTEXT`, its config dir). The
   container runs non-root, with a read-only root, tmpfs `/tmp`, no capabilities,
-  `no-new-privileges`, and pids, memory and CPU limits. Only the workspace and a per-run HOME (a
-  host directory outside the workspace, so sub-agent transcripts survive) are writable; inputs are
-  mounted read-only at their workspace paths.
+  `no-new-privileges`, and pids, memory and CPU limits. Only the workspace, a per-run HOME (a
+  host directory outside the workspace, so sub-agent transcripts survive), the tmpfs `/tmp` and
+  the agent environment at `/opt/env` are writable; inputs are mounted read-only at their
+  workspace paths. `/opt/env` is an anonymous volume with no host source, which docker fills from
+  the locked image for each container, so the agent can install into its own environment while
+  every run starts from the same copy and the root stays read-only.
 - **The model token never enters the agent container.** The agent sits alone on a per-job
   internal network with a gateway sidecar, which holds the token (passed through stdin into a
   tmpfs file, never env or argv) and forwards to the provider. The agent gets a base URL and a
