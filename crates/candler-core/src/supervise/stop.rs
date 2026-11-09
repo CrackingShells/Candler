@@ -62,8 +62,8 @@ const KILL_WAIT: Duration = Duration::from_secs(2);
 const POLL: Duration = Duration::from_millis(10);
 
 /// Finds and kills the processes of a run that left their process group, which a group signal
-/// cannot reach (a harness starts descendants in new sessions). The execution milestone provides
-/// the `/proc` and same-user scans; the supervisor only calls it.
+/// cannot reach (a harness starts descendants in new sessions). The isolation backend provides
+/// it (the container backend sweeps by label); the supervisor only calls it.
 pub trait StraySweeper: Send + Sync {
     /// Finds every process whose environment carries `marker` in `CANDLER_RUN`, kills it, and
     /// returns each by process id and the start time read before the kill.
@@ -304,7 +304,7 @@ pub(crate) struct Ladder<'a> {
     // TRAIT_OBJECT: the sink is chosen by the job runner and by tests
     pub(crate) sink: &'a dyn EventSink,
     /// The sweep, if one is injected.
-    // TRAIT_OBJECT: the sweeper is injected by the execution milestone
+    // TRAIT_OBJECT: the sweeper is injected by the isolation backend
     pub(crate) sweeper: Option<&'a Arc<dyn StraySweeper>>,
     /// The only path to a signal.
     pub(crate) guard: &'a Guard,

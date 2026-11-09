@@ -447,7 +447,7 @@ pub(crate) struct Pumps {
 pub(crate) struct Context {
     // TRAIT_OBJECT: the sink is chosen by the job runner and by tests
     pub(crate) sink: Arc<dyn EventSink>,
-    // TRAIT_OBJECT: the sweeper is injected by the execution milestone
+    // TRAIT_OBJECT: the sweeper is injected by the isolation backend
     pub(crate) sweeper: Option<Arc<dyn StraySweeper>>,
     pub(crate) guard: Arc<Guard>,
     pub(crate) run: Option<RunKey>,
@@ -758,7 +758,7 @@ impl Supervisor {
             context: Context {
                 // TRAIT_OBJECT: the sink is chosen by the job runner and by tests
                 sink: Arc::clone(&self.sink),
-                // TRAIT_OBJECT: the sweeper is injected by the execution milestone
+                // TRAIT_OBJECT: the sweeper is injected by the isolation backend
                 sweeper: self.sweeper.as_ref().map(Arc::clone),
                 guard: Arc::clone(&self.guard),
                 run,

@@ -105,7 +105,7 @@ pub trait EventSink: Send + Sync {
 pub struct Supervisor {
     // TRAIT_OBJECT: the sink is chosen by the job runner and by tests
     pub(crate) sink: Arc<dyn EventSink>,
-    // TRAIT_OBJECT: the sweeper is injected by the execution milestone
+    // TRAIT_OBJECT: the sweeper is injected by the isolation backend
     pub(crate) sweeper: Option<Arc<dyn StraySweeper>>,
     /// The table of children and the only path to a signal.
     pub(crate) guard: Arc<Guard>,
@@ -158,7 +158,7 @@ impl Supervisor {
     /// The same supervisor with `sweeper` called after every group kill to find and kill the
     /// processes of the run that left the group.
     #[must_use]
-    // TRAIT_OBJECT: the sweeper is injected by the execution milestone
+    // TRAIT_OBJECT: the sweeper is injected by the isolation backend
     pub fn with_sweeper(mut self, sweeper: Arc<dyn StraySweeper>) -> Self {
         self.sweeper = Some(sweeper);
         self

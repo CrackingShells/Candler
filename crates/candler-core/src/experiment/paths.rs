@@ -96,7 +96,7 @@ pub const INPUTS: &str = "inputs";
 /// A typed root, derived: the catalog digest.
 pub const SNAPSHOTS: &str = "snapshots";
 
-/// A typed root, reserved: no run manifest of this milestone writes it.
+/// A typed root, reserved for plug-in environments: no preflight step of the runner derives it.
 pub const ENVIRONMENTS: &str = "environments";
 
 /// A setting: the store root.
