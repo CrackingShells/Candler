@@ -27,6 +27,7 @@ use crate::jobs::slots::Slots;
 use crate::store::Store;
 use crate::supervise::{EventSink, Supervisor};
 
+use self::evidence::provenance::EvalInfra;
 use self::exec::ends::Retry;
 use self::exec::{CellRun, SkillTree};
 use self::plan::CellId;
@@ -61,6 +62,11 @@ pub struct Runtime {
     pub skills: Arc<dyn SkillTree>,
     /// What each cell of the job is, by its digest.
     pub cells: BTreeMap<CellId, Arc<CellRun>>,
+    /// The build of the evaluation infrastructure that runs the job.
+    pub eval_infra: EvalInfra,
+    /// The import package whose distribution and version the job records for the env image;
+    /// none records nothing.
+    pub planner_package: Option<String>,
 }
 
 /// The job's gateway: the service that talks to it and the handle of the running container.

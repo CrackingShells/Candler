@@ -15,6 +15,7 @@ use candler_core::jobs::orchestrate::orchestrate;
 use candler_core::jobs::runtime::launch::own_identity;
 use candler_core::jobs::runtime::session::read_spec;
 use candler_core::jobs::runtime::{JobEntry, JobServices, supervise_entry};
+use candler_core::runner::evidence::provenance::EvalInfra;
 use candler_core::runner::exec::SkillTree;
 use candler_core::store::Store;
 use candler_harness::driver::{DriverError, HarnessDriver};
@@ -34,6 +35,20 @@ pub struct Args {
     /// The job to supervise.
     #[arg(long)]
     pub job: String,
+}
+
+/// The import package of the planner library the env image carries, whose distribution and
+/// version every run records.
+const PLANNER_PACKAGE: &str = "gtpyhop";
+
+/// The build of the evaluation infrastructure this binary is, as `build.rs` read it from git.
+fn eval_infra() -> EvalInfra {
+    EvalInfra {
+        tag: option_env!("CANDLER_EVAL_INFRA_TAG").map(str::to_owned), // BORROW: the record owns its text
+        commits_ahead: option_env!("CANDLER_EVAL_INFRA_COMMITS_AHEAD").and_then(|n| n.parse().ok()),
+        commit: option_env!("CANDLER_EVAL_INFRA_COMMIT").map(str::to_owned), // BORROW: the record owns its text
+        dirty: option_env!("CANDLER_EVAL_INFRA_DIRTY").map(|flag| flag == "true"),
+    }
 }
 
 /// The skill tree of Claude Code: the harness's crate reads the archive of a treatment.
@@ -93,7 +108,12 @@ pub async fn run(args: Args) -> Result<Exit, CliError> {
         store,
         job,
         spec,
-        services: JobServices { driver, skills },
+        services: JobServices {
+            driver,
+            skills,
+            eval_infra: eval_infra(),
+            planner_package: Some(String::from(PLANNER_PACKAGE)),
+        },
     };
     let body: JobBody = orchestrate;
     supervise_entry(entry, body).await.map_err(failed)?;

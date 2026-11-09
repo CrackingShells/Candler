@@ -120,6 +120,28 @@ fn manifest_doc(arm: &Value) -> Value {
         // BORROW: explicit conversion makes the owned or borrowed form the next line needs
         measured.extend(more.iter().cloned());
     }
+    // Every arm carries a clean provenance block unless its row overrides parts of it.
+    let mut block: Vec<(String, Value)> = [
+        ("eval_infra.tag", json!("v0.1.0")),
+        ("eval_infra.commits_ahead", json!(0)),
+        ("eval_infra.commit", json!("abc1234")),
+        ("eval_infra.dirty", json!(false)),
+        ("sandbox_contract", json!("v6")),
+    ]
+    // BORROW: explicit conversion makes the owned or borrowed form the next line needs
+    .map(|(key, value)| (key.to_owned(), value))
+    .into();
+    if let Some(Value::Object(overrides)) = get("provenance") {
+        for (key, value) in overrides {
+            block.retain(|(held, _)| *held != key);
+            if !value.is_null() {
+                block.push((key, value));
+            }
+        }
+    }
+    for (key, value) in block {
+        measured.push(json!({"path": format!("provenance.{key}"), "value": value, "source": {"kind": "experiment_file"}}));
+    }
     let int = |key: &str, default: u64| outside.get(key).and_then(Value::as_u64).unwrap_or(default);
     let mut doc = Map::new();
     doc.insert("schema".into(), json!("run-manifest/1"));

@@ -30,6 +30,7 @@ use candler_core::jobs::orchestrate::schedule::{Clock, wall_clock};
 use candler_core::jobs::orchestrate::session::{JobHost, OrchestrateError};
 use candler_core::jobs::slots::Slots;
 use candler_core::runner::Runtime;
+use candler_core::runner::evidence::provenance::EvalInfra;
 use candler_core::runner::exec::SkillTree;
 use candler_core::store::Store;
 use candler_core::supervise::spawn::SpawnRequest;
@@ -441,6 +442,8 @@ impl Rig {
             driver: Arc::new(QuietDriver),
             skills: Arc::new(EmptyTree),
             cells: BTreeMap::new(),
+            eval_infra: EvalInfra::default(),
+            planner_package: None,
         }
     }
 

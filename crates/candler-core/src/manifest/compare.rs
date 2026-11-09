@@ -17,6 +17,15 @@ use serde_json::Value;
 /// The manifest path of the tool list the harness reported at start.
 const INIT_TOOLS_PATH: &str = "census.init_tools";
 
+/// The measured path that says whether the evaluation infrastructure had uncommitted changes.
+const EVAL_INFRA_DIRTY_PATH: &str = "provenance.eval_infra.dirty";
+
+/// The measured path of the sandbox contract, which must agree across the runs of a stratum.
+const SANDBOX_CONTRACT_PATH: &str = "provenance.sandbox_contract";
+
+/// The measured paths under this prefix must agree across the runs of a stratum.
+const EVAL_INFRA_PREFIX: &str = "provenance.eval_infra.";
+
 /// The first segments of the declared factors that change the tool list the harness reports, and
 /// so exempt `census.init_tools`.
 const TOOL_FACTOR_ROOTS: &[&str] = &["tools", "mcp"];
@@ -62,6 +71,12 @@ pub struct ArmView {
     comparable: Comparable,
     claimed_factors: Vec<FieldPath>,
     init_tools: Option<JsonValue>,
+    provenance: BTreeMap<String, JsonValue>,
+}
+
+/// Whether a measured path is one a verdict reads from the provenance block.
+fn gates_verdict(path: &str) -> bool {
+    path == SANDBOX_CONTRACT_PATH || path.starts_with(EVAL_INFRA_PREFIX)
 }
 
 impl ArmView {
@@ -99,12 +114,31 @@ impl ArmView {
             (Some(only), None) => Some(only.value().clone()),
             (None, _) => None,
         };
+        let mut provenance = BTreeMap::new();
+        for entry in manifest.measured() {
+            // BORROW: explicit .as_str() instead of Deref coercion
+            let path = entry.path().as_str();
+            if !gates_verdict(path) {
+                continue;
+            }
+            // BORROW: .to_owned() and .clone() give the view its own path and value
+            if provenance
+                .insert(path.to_owned(), entry.value().clone())
+                .is_some()
+            {
+                return Err(VerdictError::Malformed {
+                    problem: "a measured path appears twice",
+                    path: path.to_owned(), // BORROW: .to_owned() makes the owned path text
+                });
+            }
+        }
         Ok(Self {
             // BORROW: .clone() gives the view its own cell
             comparable: comparable.clone(),
             // BORROW: .to_vec() gives the view its own list
             claimed_factors: manifest.factors().to_vec(),
             init_tools,
+            provenance,
         })
     }
 
@@ -293,13 +327,47 @@ fn tools_unexplained(one: &ArmView, other: &ArmView, declared: &[FieldPath]) -> 
     differ && !factor_varies
 }
 
+/// The provenance paths that keep a stratum from a verdict: `provenance.eval_infra.dirty` true or
+/// unrecorded in any arm, and any `provenance.eval_infra.*` or `provenance.sandbox_contract` that
+/// differs between arms (recorded in one and not in another differs). The skill version and the
+/// planner library are exempt: a stratum may compare across them.
+fn provenance_refused(views: &[&ArmView]) -> Vec<FieldPath> {
+    let mut paths: Vec<&str> = Vec::new();
+    let dirty = |arm: &ArmView| {
+        arm.provenance
+            .get(EVAL_INFRA_DIRTY_PATH)
+            .is_none_or(|value| value.as_value() != &Value::Bool(false))
+    };
+    if views.iter().any(|arm| dirty(arm)) {
+        paths.push(EVAL_INFRA_DIRTY_PATH);
+    }
+    let gated: std::collections::BTreeSet<&str> = views
+        .iter()
+        .flat_map(|arm| arm.provenance.keys().map(String::as_str))
+        .collect();
+    for path in gated {
+        let keys: Vec<Option<String>> = views
+            .iter()
+            .map(|arm| leaf_key(arm.provenance.get(path).map(JsonValue::as_value)))
+            .collect();
+        if keys.windows(2).any(|pair| pair.first() != pair.get(1)) {
+            paths.push(path);
+        }
+    }
+    paths
+        .into_iter()
+        .filter_map(|path| FieldPath::from_str(path).ok())
+        .collect()
+}
+
 /// Whether the arms of a stratum are comparable, given the factors the experiment declares.
 ///
 /// Every arm is diffed against the first. A deviation is dropped when a declared factor covers
 /// it; the arms' own `factors[]` is never read. `census.init_tools` differing between any two
 /// arms is a deviation unless a declared `tools.*` or `mcp.*` factor itself differs between those
 /// two arms, so two arms that agree on every such factor must agree on the tool list. The check
-/// always runs.
+/// always runs. A stratum is also refused when any run's `provenance.eval_infra.dirty` is true or
+/// unrecorded, or when runs differ in `provenance.eval_infra.*` or `provenance.sandbox_contract`.
 /// An arm that could not be read gives no verdict, whatever the other arms hold, and a stratum
 /// with no arm has none either.
 #[must_use]
@@ -329,6 +397,7 @@ pub fn stratum_verdict(arms: &[Result<ArmView, VerdictError>], declared: &[Field
             .skip(at + 1)
             .any(|other| tools_unexplained(one, other, declared))
     });
+    refused.extend(provenance_refused(&views));
     if unexplained {
         let Ok(field) = FieldPath::from_str(INIT_TOOLS_PATH) else {
             unreachable!("`census.init_tools` is a field path")

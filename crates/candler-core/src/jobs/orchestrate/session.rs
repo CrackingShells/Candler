@@ -16,6 +16,7 @@ use candler_schemas::values::{ResolvedValue, SourceEntry, ValueSource};
 use futures::future::BoxFuture;
 
 use super::schedule::{Clock, wall_clock};
+use crate::experiment::paths::ISOLATION_IMAGE;
 use crate::isolation::Isolation;
 use crate::isolation::container::guard::ContainerGuard;
 use crate::isolation::container::sweeper::LabelSweeper;
@@ -27,6 +28,7 @@ use crate::isolation::gateway::{
     DockerGateway, Gateway, GatewayError, GatewayStart, GatewayStatus, SecretError, SecretSource,
     SecretValue, UpstreamConfig,
 };
+use crate::isolation::image::{PlannerAxis, PlannerProbe};
 use crate::isolation::model::{ContainerRef, ImageRef, NetworkName, SweepScope};
 use crate::jobs::dir::JobDir;
 use crate::jobs::model::JobSpec;
@@ -179,6 +181,17 @@ pub trait JobHost: Send + Sync {
     fn clock(&self) -> Clock {
         wall_clock()
     }
+
+    /// The planner library inside the env image `image`, read once for the job. The default
+    /// reads nothing.
+    fn planner<'a>(
+        &'a self,
+        rt: &'a Runtime,
+        image: &'a ImageRef,
+    ) -> BoxFuture<'a, Option<PlannerAxis>> {
+        let _ = (rt, image);
+        Box::pin(async { None })
+    }
 }
 
 /// The host of a real job: the `docker` on `PATH` and a [`DockerGateway`] from the sidecar image
@@ -216,6 +229,32 @@ fn upstream_of(endpoint: &str) -> Result<UpstreamConfig, GatewayError> {
 }
 
 impl JobHost for DockerHost {
+    fn planner<'a>(
+        &'a self,
+        rt: &'a Runtime,
+        image: &'a ImageRef,
+    ) -> BoxFuture<'a, Option<PlannerAxis>> {
+        Box::pin(async move {
+            let package = rt.planner_package.clone()?; // BORROW: the probe owns the package name
+            let job_dir = JobDir::open(rt.store.layout(), &rt.job).ok()?;
+            let env = ClientEnv::from_process();
+            let cli = DockerCli::new(
+                Arc::clone(&rt.supervisor),
+                env.clone(), // BORROW: the client owns its environment
+                job_dir.control_dir(),
+            )
+            .ok()?;
+            let probe = PlannerProbe::new(
+                Arc::clone(&rt.supervisor),
+                cli.binary().to_path_buf(), // BORROW: the probe owns the client's binary path
+                env,
+                rt.store.layout().root().to_path_buf(), // BORROW: the probe owns the store root
+                package,
+            );
+            probe.read(image).await.ok()
+        })
+    }
+
     fn docker_cli(
         &self,
         supervisor: Arc<Supervisor>,
@@ -319,6 +358,19 @@ fn sources_of(comparable: &Comparable, resolution: &Resolution) -> Vec<SourceEnt
     sources
 }
 
+/// The id of the env image a cell runs.
+#[must_use]
+pub fn image_of(comparable: &Comparable) -> Option<String> {
+    comparable
+        .values()
+        .iter()
+        // BORROW: .as_str() compares the path with the one asked for
+        .find(|value| value.path().as_str() == ISOLATION_IMAGE)
+        .and_then(ResolvedValue::value)
+        .and_then(|value| value.as_value().as_str())
+        .map(str::to_owned) // BORROW: the caller owns the id
+}
+
 /// The cells of a job: what each one is, with the secrets it needs and where its treatment is.
 ///
 /// # Errors
@@ -328,6 +380,7 @@ pub fn cells_of(
     spec: &JobSpec,
     outcome: &PlanOutcome,
     present: &BTreeSet<SecretName>,
+    planners: &BTreeMap<String, PlannerAxis>,
 ) -> Result<BTreeMap<CellId, Arc<CellRun>>, OrchestrateError> {
     let source = text_at(&spec.resolution, TREATMENT_SOURCE)
         .map(PathBuf::from)
@@ -368,7 +421,9 @@ pub fn cells_of(
             secrets.clone(), // BORROW: the cell owns its secrets
             source.clone(),  // BORROW: the cell owns its treatment source
             inputs.clone(),  // BORROW: the cell owns its inputs
-        );
+        )
+        // BORROW: the cell owns the planner reading of its image
+        .with_planner(image_of(comparable).and_then(|id| planners.get(&id).cloned()));
         cells.insert(digest.clone(), Arc::new(cell)); // BORROW: the map owns the cell digest
     }
     Ok(cells)

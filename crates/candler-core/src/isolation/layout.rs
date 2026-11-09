@@ -34,6 +34,10 @@ pub const EXPIRY_MARGIN: Duration = Duration::from_secs(60);
 /// so the agent can install into its own environment while the root filesystem stays read-only.
 pub const CONTAINER_ENV: &str = "/opt/env";
 
+/// The version of the sandbox contract: how the agent's container is isolated and what it is
+/// given. A manifest records it as `provenance.sandbox_contract`.
+pub const SANDBOX_CONTRACT: &str = "v6";
+
 /// The directory under which a control call (a short-lived `docker run` outside any job) keeps its
 /// record dir while it runs: `<store>/control`. Never a job's `children/`.
 #[must_use]

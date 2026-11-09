@@ -15,8 +15,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr as _;
 
 use candler_harness::spec::{Cell, CommandSpec, Observed, PreparedFile, ProcessExit, Workspace};
-use candler_schemas::execution::{EventPayload, Integrity, InvalidReason, RunManifest, RunTree};
 use candler_schemas::container::ContainerRole;
+use candler_schemas::execution::{EventPayload, Integrity, InvalidReason, RunManifest, RunTree};
 use candler_schemas::primitives::{ContainerId, Digest, Marker};
 use candler_schemas::process::ExitStatus;
 use candler_schemas::raw::StreamName;
@@ -32,6 +32,7 @@ use self::seal::{RawStreamFile, seal_run};
 use self::spawn::{Started, live_observer, require_isolation, start_attempt};
 use super::evidence::census::census;
 use super::evidence::leak::input_leak;
+use super::evidence::provenance::provenance_values;
 use super::evidence::run::{RunFacts, run_values};
 use super::evidence::tree::tree_json;
 use super::evidence::{Evidence, Inputs};
@@ -524,6 +525,14 @@ async fn drive(
         duration_ms,
         events: &evidence.events,
     }));
+    let comparable = plan.stored.as_ref().unwrap_or(&cell.comparable);
+    let treatment = comparable.treatment();
+    measured.extend(provenance_values(
+        // BORROW: .as_str() hands the treatment's name and tag to the provenance
+        (treatment.name.as_str(), treatment.tag.as_deref()),
+        &rt.eval_infra,
+        cell.planner.as_ref(),
+    ));
 
     let integrity = end.invalid.map_or(Integrity::Valid, Integrity::invalid);
     let last = manifest_of(

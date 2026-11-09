@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use candler_core::jobs::model::{JobCause, JobControl, JobOutcome, JobSpec};
 use candler_core::jobs::runtime::JobServices;
 use candler_core::runner::Runtime;
+use candler_core::runner::evidence::provenance::EvalInfra;
 use candler_core::runner::exec::SkillTree;
 use candler_core::supervise::platform::process_start;
 use candler_core::supervise::signal::Signaller;
@@ -98,6 +99,8 @@ pub fn services() -> JobServices {
         driver: Arc::new(ClaudeCodeDriver::new()),
         // TRAIT_OBJECT: the tree is a stub that holds no file
         skills: Arc::new(NoSkills),
+        eval_infra: EvalInfra::default(),
+        planner_package: None,
     }
 }
 
