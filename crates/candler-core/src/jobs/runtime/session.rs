@@ -242,7 +242,7 @@ pub async fn reap_lost_jobs(
 
 /// Writes what the supervisor could not put in the job's log to its own output, which `detach`
 /// points at `supervisor.log`.
-fn note(line: &str) {
+pub(crate) fn note(line: &str) {
     use std::io::Write as _;
     let _ = writeln!(std::io::stderr(), "{line}");
 }
