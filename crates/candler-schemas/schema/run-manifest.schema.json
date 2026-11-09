@@ -170,7 +170,7 @@
     },
     "ImportRecord": {
       "additionalProperties": false,
-      "description": "How an imported run was read: the format label, the base commit, the legacy integrity block, the source files and the outcome files written.",
+      "description": "How an imported run was read: the format label, the base commit, the legacy integrity block, the source files, the outcome files written and, when known, the digest of the rules file.",
       "properties": {
         "base_commit": {
           "$ref": "#/$defs/GitCommit",
@@ -197,6 +197,10 @@
             "$ref": "#/$defs/ImportedRequest"
           },
           "type": "array"
+        },
+        "rules": {
+          "$ref": "#/$defs/Digest",
+          "description": "The sha256 of the import rules file the run was read with."
         },
         "sources": {
           "description": "The files the import read, each stored as a blob.",

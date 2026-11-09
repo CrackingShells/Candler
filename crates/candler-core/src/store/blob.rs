@@ -9,6 +9,7 @@ use candler_schemas::primitives::Digest;
 use sha2::Digest as _;
 use sha2::Sha256;
 
+use super::sync::sync_file;
 use super::{Store, StoreError, io_error, sync_dir, temp_sibling, write_new_synced};
 
 /// The read-only mode of a stored blob.
@@ -143,5 +144,5 @@ pub(crate) fn copy_synced(from: &Path, to: &Path) -> Result<(), StoreError> {
         .map_err(io_error("create a temporary blob", to))?;
     std::io::copy(&mut source, &mut target).map_err(io_error("copy a blob", to))?;
     target.flush().map_err(io_error("flush a blob", to))?;
-    target.sync_all().map_err(io_error("sync a blob", to))
+    sync_file(&target).map_err(io_error("sync a blob", to))
 }

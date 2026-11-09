@@ -20,6 +20,7 @@ candler-harness.workspace = true
 candler-schemas.workspace = true
 flate2.workspace = true
 futures.workspace = true
+globset.workspace = true
 jiff.workspace = true
 regex.workspace = true
 rustix.workspace = true
@@ -28,6 +29,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 shell-words.workspace = true
+jsonschema.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 toml.workspace = true
@@ -40,7 +42,6 @@ libproc.workspace = true
 [dev-dependencies]
 candler-core = { path = ".", features = ["test-support"] }
 candler-harness-claude-code.workspace = true
-jsonschema.workspace = true
 proptest.workspace = true
 tempfile.workspace = true
 

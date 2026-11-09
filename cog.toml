@@ -12,7 +12,7 @@ scopes = [
     # Storage
     "run-store", "manifest", "outcome-store",
     # Evaluation
-    "evaluation", "outcome-algebra", "evaluator-protocol", "registry",
+    "evaluation", "outcome-algebra", "evaluator-protocol", "registry", "evaluator-helper",
     # Analysis
     "analysis", "stats",
     # Surfaces

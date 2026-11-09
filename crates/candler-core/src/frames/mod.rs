@@ -23,6 +23,8 @@ use flate2::read::MultiGzDecoder;
 use flate2::{Compression, GzBuilder};
 use sha2::{Digest as _, Sha256};
 
+use crate::store::sync::{sync_dir, sync_file};
+
 /// The two bytes that open a gzip member.
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 
@@ -128,11 +130,6 @@ fn emit(
     let index = *count;
     *count = count.saturating_add(1);
     Ok((index, frame))
-}
-
-/// Syncs a directory so that a rename in it survives a crash.
-fn sync_dir(dir: &Path) -> io::Result<()> {
-    File::open(dir)?.sync_all()
 }
 
 /// Lowercase hex of `bytes`.
@@ -317,7 +314,7 @@ impl FrameWriter {
         let mut encoder = GzBuilder::new().mtime(0).write(out, Compression::default());
         io::copy(&mut File::open(&self.tmp_path)?, &mut encoder)?;
         let HashingWriter { file, hasher } = encoder.finish()?;
-        file.sync_all()?;
+        sync_file(&file)?;
         let digest = Digest::from_hex(hex(hasher.finalize()).as_str()) // BORROW: explicit .as_str()
             .map_err(io::Error::other)?;
         fs::rename(&gz_tmp, &gz_path)?;

@@ -690,6 +690,8 @@ pub fn map_runs(folder: &LegacyFolder, rules: &ImportRules) -> Result<Vec<Mapped
             // BORROW: .clone() copies the format label and the commit into the import record
             let mut record = ImportRecord::new(rules.format.clone(), base_commit.clone(), json);
             record.sources = import_sources(folder, cell, run)?;
+            // BORROW: .clone() copies the rules digest into the import record
+            record.rules.clone_from(&rules.source_digest);
             if integrity == Integrity::Valid {
                 record.requests.push(ImportedRequest::new(
                     // BORROW: .clone() copies the evaluator into the request

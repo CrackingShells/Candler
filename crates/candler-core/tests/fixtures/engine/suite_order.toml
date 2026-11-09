@@ -1,0 +1,53 @@
+schema = "suite/1"
+
+[[expectations]]
+id = "N1"
+role = "gate"
+kind = "ok"
+depends_on = []
+
+[[expectations.applies_to]]
+path = "plan.model"
+any_of = ["claude-synthetic-1"]
+
+[expectations.evaluator]
+name = "engine"
+range = "^0.1"
+
+[expectations.params]
+
+[[expectations]]
+id = "N2"
+role = "quality"
+kind = "ok"
+depends_on = ["N1"]
+
+[expectations.evaluator]
+name = "engine"
+range = "^0.1"
+
+[expectations.params]
+
+[[expectations]]
+id = "D1"
+role = "quality"
+kind = "echo"
+depends_on = ["P3"]
+
+[expectations.evaluator]
+name = "engine"
+range = "^0.1"
+
+[expectations.params]
+
+[[expectations]]
+id = "P3"
+role = "gate"
+kind = "ok"
+depends_on = []
+
+[expectations.evaluator]
+name = "engine"
+range = "^0.1"
+
+[expectations.params]

@@ -1,0 +1,70 @@
+# Leaf report: m2a htn_plugin (L2)
+
+Branch `m2a/htn_plugin` in `/Users/hacker/Documents/tmp/claude-worktrees/mcp-python-ingestion/m2a-htn_plugin`, cut from `feat/candler-htn-plugin` (11ca78d2). Nothing pushed, no tag.
+
+## Commits
+- 3a2391c4 feat(htn-eval): declare the candler plug-in manifest
+- cbe0aaed feat(htn-eval): translate the pinned eval.json into a candler suite
+- bc2e996b test(htn-eval): guard the suite translation against the pinned source
+
+## Gates
+- HTNSTD, plug-in half: PASS. `uv run --frozen pytest -q`: "12 passed, 1 deselected in 36.00s". Ruff: "All checks passed!".
+- HTNSTD, root half (mamba forMpyIn): PASS against the baseline. 10 FAILED and 73 ERROR, and every id is in `htnstd_baseline.txt` after normalisation, so there is no new failure. The only extra matches of my id filter were two logger lines (`handlers.py:71/78`), not tests. The final pytest summary line never reached the captured file, so the pass count is unconfirmed (the baseline has 386).
+- SUBJ: PASS (`cog check feat/candler-htn-plugin..HEAD`: "No errored commits"; subjects at most 72 characters).
+- OWNED: PASS. SCAFFOLD: PASS (2 `def test_` = 2 `Guards:` lines; no `mark.scaffold`).
+- Guard tests (HP1, HP2): PASS.
+- Lock gate: PASS (`uv lock --check`; one editable line `source = { editable = "." }`; two `$R@28be2c15` sources; no `candler-htn-plugin` or `mcp-python-ingestion"` hits). `grep -c 'fcdf0aa5' uv.lock` gives 2. The "Candler source count at least 1" gate printed 1 at the old pin and was not re-printed after the re-pin.
+- Identity gate: PASS (`git:28be2c158fbc6ee786a789242c2d8fd47bfde9a8`).
+- Step 1 check (`import candler_evaluator, htn_creator_candler.__main__`): PASS. Step 2 `diff -r`: SAME.
+- Manifest valid against `plugin-manifest.schema.json`. Suite valid against `suite.schema.json`. Params valid against `PARAMS_SCHEMAS` (ad hoc jsonschema).
+- `describe` smoke: htn-creator-eval 0.5.0, 9 kinds, needs as specified, instrument digest `git:28be2c15…`, dirty false.
+- Not verified: the Rust-side `check_suite` (no binary built). KP1 not re-run after the re-lock.
+
+## Guards
+Oracle: `eval.json` at 28be2c15, sha256 ca7f12af… (copied byte for byte to `tests/fixtures/suite/eval.json`). The artifact's `harness/evals/eval.json` is not used.
+- HP1 `test_the_suite_folds_back_into_the_pinned_eval_json`. `Guards:` line is in the test file. It folds the committed suite back with an inverse written in the test and a `DECLARED_MOVES` list, then requires equality with the A-C part of eval.json. It also checks 37 entries, no `{…}` template, with_skill-only = B1, B2, B3, B7, B8, B9, only C6 has `depends_on`, no `alias` param, and the ratios against the pinned grader's `_MARKER_RATIOS` and `_GREP_ABSENT_RATIO_SPECS`.
+- HP2 `test_the_translator_refuses_any_other_source`. The pristine copy exits 0 and writes the suite. A one-byte change exits non-zero, names the sha and creates no output directory.
+- Bites, each seen failing and then restored with `git checkout`: skip the sha check (HP2 fails); overwrite instead of `setdefault("required")` (HP1); swap A1 and A3 roles (HP1); swap C6 numerator and denominator (HP1); C-N2 marker replaced by C-N3 (HP1).
+
+## One-off records
+- Pinned `candler-evaluator` sha: fcdf0aa5e3cd5afb585e3c5190112a3e46884765 (`helper_release`), as the coordinator asked. The first pin, 85874a17, was superseded by a fixup of Step 1, with `uv lock` re-run.
+- Live identity `htn-creator-eval@0.5.0`.
+- Suite: 37 entries (run_script_module 16, metric_extract 7, run_script 6, grep_present 2, grep_absent 2, grep_all_present 1, ratio 1, metric_count 1, planner_solvability 1). The README lists D-E1…6 as left out.
+- Translator sha literal: ca7f12afee55152ed0e543a1d9b457c29fc5c02fd49e1ec6a417a9dcc1c97f9e.
+
+## Findings and deviations
+1. DEFECT in htn_kinds: the new helper passes `prior` as a sequence of `Prior`, but `kinds/ratio.py` and its tests read a mapping. C6 failed with `AttributeError`, which the helper turned into `not_measured {instrument_error}`. I fixed it only in the leaf glue (a `_by_id` adapter in `__main__.py`). The proper fix belongs in `kinds/ratio.py` or in the spec.
+2. Spec defect: the leaf and R04 mention "weight" and "optional flag", but eval.json and `suite/1` have none. The HP1 bite "swap two weights" was replaced by role and ratio swaps.
+3. Ruff `target-version` stays py310. Raising it to py311 flags an import order in htn_kinds' `tests/test_guard_deltas.py`, which is outside OWNED.
+4. The params schemas in `specs.py` (additionalProperties false, optional `alias`) and the `<<domain_name>>` / `<<alias>>` token convention are my choices. The Rust registry did not check them.
+5. `tier`, `scale`, `question` and `text` are dropped, declared in HP1. `scale: ratio` becomes the `ratio` param. C6's `metric_compute` becomes kind `ratio` with `depends_on = ["C1","C5"]`.
+6. The suite is `suite/suite.json` (no tomli-w dependency). `required: true` and `on_missing: "fail"` were added explicitly. The suite README is generated by the translator.
+7. The new pydantic-validated helper accepted describe and outcomes after finding 1 was fixed (C1, C5, C6, A3, A5 smoke-tested).
+
+## Fix round and verifier (coordinator, 2026-11-09)
+The first-round commits above were rebased. The final branch, landed in `$RW` as **8a1a5b88 `merge(htn-eval): land htn_plugin`** on `feat/candler-htn-plugin`, holds:
+
+| sha | subject |
+|---|---|
+| df4ec3ba | fix(htn-eval): read prior as a sequence in the ratio kind |
+| 0cbb1613 | feat(htn-eval): declare the candler plug-in manifest |
+| eeeb3e01 | feat(htn-eval): translate the pinned eval.json into a candler suite |
+| 6fb7216a | test(htn-eval): guard the suite translation against the pinned source |
+| d0f3eaff | feat(htn-eval): version the import rules of the legacy results |
+
+- **Finding 1 fixed at the source.** `kinds/ratio.py` reads `prior` as a sequence of `Prior`, and the `_by_id` adapter is gone. Putting the mapping read back fails KP2. KP1 passed in 291.72 s on this code.
+- **Import rules file.** `candler-plugin/import/htn-results-rules.toml`, sha256 `5d25aa60db68a8340bad2856a8c9fb1e1f99d13dce161d6f08539afb22e56952`. A mini-corpus import with it gives `{"records":136,"runs":6}`.
+- **Adversarial verifier: no BLOCKER or MAJOR.** M1, HP1 not pinning `required: true`, is fixed in 6fb7216a. The bite (drop it from C-N1) now fails HP1. M2, the suite file never run through the kinds by a committed test, is left to golden_parity's GP1. The NITs are KT notes. Rulings: `l1/00-rulings_v0.md` §htn_plugin.
+
+| Landing gate (coordinator, on d0f3eaff and on 8a1a5b88) | Result |
+|---|---|
+| Plug-in `pytest -q` | 12 passed, 1 deselected |
+| `ruff check` | All checks passed |
+| Lock gate | PASS (`uv lock --check`: Resolved 57 packages) |
+| Identity | `git:28be2c158fbc6ee786a789242c2d8fd47bfde9a8` |
+| SUBJ (`cog check`) | No errored commits |
+| OWNED (widened regex) | 0 violations |
+| SCAFFOLD | 0 scaffold markers; 2 tests, 2 `Guards:` lines |
+| HTNSTD root half | 386 passed, 10 F, 73 E, 1 skipped by progress characters; F and E a subset of the baseline |
+
+The worktree `m2a-htn_plugin` and the branch `m2a/htn_plugin` are removed. Nothing is pushed, and the `htn-creator-eval@0.5.0` tag is not cut.

@@ -24,7 +24,8 @@ are in the `candler_core` reports of mcp-python-ingestion (`__reports__/candler_
 - **Biggest risks.** A trace model that drops signal; a driver trait shaped like Claude Code;
   supervision leaks (orphans, detached descendants); parity failures that are really instrument
   drift; fork safety in the Python helper on macOS; the team's first Rust project.
-- **Validation.** Golden-regrade parity on the 240-run corpus (10,320 outcome rows); execution
+- **Validation.** Golden-regrade parity on the 240-run corpus (the 8,880 Tier A–C rows of its
+  10,320; Tier D uncompared); execution
   parity with today's `run` on a smoke matrix; a second harness (OpenCode v2) and a second plug-in
   (`waiting-on-processes`) before the contract freezes at 1.0.
 
@@ -219,7 +220,12 @@ dotted: `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`.
 | `candler ps` | Lists jobs with id, experiment, state, progress |
 | `candler kill <id> \| --all` | Stops jobs; asks for confirmation unless `--yes` / `-y` |
 | `candler watch <id> [--json \| --live]` | Follows a job's events: `--json` (default) prints event records, `--live` draws progress |
+| `candler import <corpus> --rules <file>` | Imports a legacy results folder under the import rules the TOML file states; prints `{"runs": n, "records": n}` |
 | `candler evaluate`, `show`, `inspect`, `diff`, `analyze`, `resolve` | The other operations |
+
+Every verb reads one store root: `--store <dir>`, given anywhere on the line, else `CANDLER_STORE`,
+else the configuration's `store.root`, else the default above, as `resolve` layers them. A verb
+that finds none refuses, naming the three ways to give one.
 
 "Experiment" names the file that declares factors, levels, replicates and budget (today's
 `run_config` YAML). "Plan" is not used: it collides with HTN planning.
@@ -517,7 +523,7 @@ runner keeps a stream-json session's input open so a notification starts a furth
 | `name`, `version` | Must equal what `describe` returns |
 | `protocol` | Protocol major.minor it speaks |
 | `command` | argv, relative to the plug-in directory |
-| `environment` | `{kind: uv \| none, project, lock}`; the core builds one environment per lock digest and reuses it |
+| `environment` | `{kind: uv \| none, project, lock}`; the core builds one environment per lock digest and reuses it, and runs `command` inside it (`VIRTUAL_ENV` set, its `bin/` first on `PATH`) |
 
 The core reads manifests without running anything. *Provisional:* the project config lists plug-in
 directories; a suite names an evaluator as `name@range`.
@@ -923,14 +929,22 @@ cases are synthetic. Integrity `incomplete`
 (`missing_genuine_output`, the agent never produced the file; 56 runs) is a **valid** run;
 `contaminated` is `invalid(input_leak)`. Invalid runs are never sent to `evaluate`.
 
-**Parity test.** Candler plus the HTN plug-in, with its checker pinned at `28be2c15` and run one
-forked child per expectation with a 60 s deadline, reproduces `(status, value, weight, cause)` for
-all 10,320 rows: exactly on clean rows, and through an explicit legacy ↔ clean equivalence table,
-written by the M2a plan, on legacy-marked rows. The plug-in emits clean records only. That includes the reference's known defects: C-M2's bijection check false-fires on
-88 of 89 failing runs, and D-E1–D-E4 are `not_measured` on 184 runs (no plan replay for a live
-cluster) and `blocked` on the 56 runs without a mapping. Statuses over all rows: pass 8,291, blocked
-802, not_measured 742, fail 485. Fixes
-come after parity, as evaluator version bumps, visible through `diff`.
+**Parity test (scope: Tiers A–C).** Candler plus the HTN plug-in `htn-creator-eval@0.5.0`, with
+its checker pinned at `28be2c15` and run one forked child per expectation with a 60 s deadline,
+regrades the corpus, and `diff htn-creator-eval@0.4.2 htn-creator-eval@0.5.0` reproduces `(status,
+value, weight, cause)` on the 8,880 rows of the 37 Tier A–C expectations: exactly on clean rows, and
+on the one legacy-marked kind through an equivalence file. The 1,440 Tier D rows (D-E1…D-E6 × 240)
+are **uncompared**: `diff` lists them with their counts, and their parity is work on the HTN side
+after M2a. The plug-in emits clean records only, so a `pass` weighing `0/0` (`{legacy:
+zero_weight}`, 209 gate rows) is live `not_applicable` with cause `{reason: empty_population}`, an
+evaluator reason code (outcome reasons are free strings; the core's own are `not_applicable_to_arm`,
+`instrument_error` and `deadline`). The equivalence file names each of those 209 rows by run key and
+expectation; a listed row is excused only when it shows exactly that change, excused rows are counted
+apart from unchanged ones, and the file's digest is recorded in the diff. The reference's known
+defects are reproduced too: C-M2's bijection check false-fires on 88 of 89 failing runs. Statuses
+over all rows: pass 8,291, blocked 802, not_measured 742, fail 485; over Tiers A–C: pass 7,999,
+blocked 466, fail 415. Rates are compared per cell for quality and for the A–C gates. Fixes come
+after parity, as evaluator version bumps, visible through `diff`.
 
 **Mismatch triage, in order:** the instrument digest differs from the pin (re-pin, rerun) → an
 input the legacy importer reconstructed (importer defect) → anything left is a core defect.
@@ -970,8 +984,8 @@ input the legacy importer reconstructed (importer defect) → anything left is a
   refused import writes nothing. A run that began importing but has no `run.done` is moved aside,
   its moved-aside copy is deleted, and it is imported again: it never sealed, so I11 does not hold it.
 
-**Known gaps:** the corpus is `with_skill` only, so parity does not exercise `not_applicable` or a
-contaminated run. The sandbox planner version is `null` in `experiment.json`, which is written when
+**Known gaps:** the corpus is `with_skill` only, so parity exercises `not_applicable` only through
+the 209 `empty_population` rows, and never a contaminated run. The sandbox planner version is `null` in `experiment.json`, which is written when
 the experiment is planned; the value each run actually used is in its `eval_metadata.json`, written
 by the original artifact commit `36290ab`, and is imported under `measured`. At cell level it stays
 `unrecorded`.
@@ -1014,10 +1028,11 @@ Decided during development: pairing keys, execution order and a declared blockin
 times are recorded from M2b); a `without_skill` fixture for the parity suite; reporting
 `instrument_error` and `deadline` counts per arm; event kinds beyond the first set; where `ls` looks;
 how plug-ins are registered; the slot count default; a macOS orphan watchdog; long-lived workers; the
-MCP tool shapes; the store root default. The container backend is decided (M2b): Docker through
-its CLI, one `docker run` per run; `Isolation` turns a plan into a spawn request, then collects
-and destroys. The long-lived handle's `exec`, `inject` and whole-container `census` are M5's, as
-are a host backend and an egress allowlist.
+MCP tool shapes; the store root default; `snapshots[]` and `inputs[]` needs (unimplemented,
+refused by the registry). The container backend is decided (M2b): Docker through its CLI, one
+`docker run` per run; `Isolation` turns a plan into a spawn request, then collects and destroys.
+The long-lived handle's `exec`, `inject` and whole-container `census` are M5's, as are a host
+backend and an egress allowlist.
 
 ## Implementation
 

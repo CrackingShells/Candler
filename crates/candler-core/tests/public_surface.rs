@@ -523,3 +523,207 @@ mod m2b_surface {
         );
     }
 }
+
+// ---- m2a-evaluation-parity: one block per leaf, each edited only by its leaf ----
+
+/// The `evaluation::registry` items, filled by the `registry` leaf.
+#[cfg(unix)]
+mod registry_surface {
+    use std::collections::BTreeMap;
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+
+    use candler_core::evaluation::registry::{
+        CheckedEntry, CheckedSuite, EnvironmentKey, EnvironmentStep, NeedError, Plugin, Registry,
+        RegistryError, default_env_root, register_evaluation_steps,
+    };
+    use candler_core::resolve::config::Config;
+    use candler_core::resolve::preflight::{PreflightStep, Resolver};
+    use candler_core::supervise::Supervisor;
+
+    fn send_sync<T: Send + Sync + ?Sized>() {}
+
+    /// Names every registry item and the signatures the engine and the binary call.
+    #[test]
+    fn registry_items_are_nameable() {
+        send_sync::<EnvironmentStep>();
+        send_sync::<Registry>();
+        let _: fn(&[PathBuf]) -> Result<Registry, RegistryError> = Registry::load;
+        let _ = (
+            Registry::check_suite,
+            Registry::plugins,
+            Registry::plugin,
+            Plugin::new,
+        );
+        let _: fn(&Config) -> Result<PathBuf, RegistryError> = default_env_root;
+        let _: fn(Resolver, &Registry, &Path, Arc<Supervisor>) -> _ = register_evaluation_steps;
+        let _ = (
+            EnvironmentStep::for_plugin,
+            EnvironmentStep::with_path,
+            EnvironmentKey::of_files,
+            EnvironmentKey::digest,
+            EnvironmentKey::dir,
+            CheckedSuite::entries,
+        );
+        let _ = <EnvironmentStep as PreflightStep>::name;
+        let _ = (
+            None::<CheckedEntry>,
+            None::<NeedError>,
+            None::<BTreeMap<String, Plugin>>,
+        );
+    }
+}
+
+/// The `evaluation::context` items, filled by the `run_context` leaf.
+mod run_context_surface {
+    use candler_core::evaluation::context::{
+        Assembled, AssembledArtifact, ContextError, FileRule, Workspace, assemble, file_rule_keeps,
+        materialise,
+    };
+
+    /// Names the context items: assembling a run's context from needs, materialising it into a
+    /// workspace, the file rule and its error, so that the engine can call them in order.
+    #[test]
+    fn context_items_are_nameable() {
+        let _ = (
+            assemble,
+            materialise,
+            file_rule_keeps,
+            FileRule::new,
+            FileRule::keeps,
+            Workspace::prepare,
+            Workspace::root,
+            Workspace::outputs_dir,
+            Assembled::run,
+            Assembled::store_root,
+            Assembled::artifacts,
+            Assembled::metadata,
+        );
+        let _ = (None::<AssembledArtifact>, None::<ContextError>);
+    }
+}
+
+/// The `evaluation::client` items, filled by the `protocol_client` leaf.
+#[cfg(unix)]
+mod protocol_client_surface {
+    use std::sync::Arc;
+
+    use candler_core::evaluation::client::{
+        Client, ClientError, ClientOutcome, Clock, DEFAULT_CANCEL_GRACE, DEFAULT_DESCRIBE_DEADLINE,
+        EvaluatorCommand, ItemOutcome, SystemClock, Unreported, UnreportedReason,
+    };
+
+    fn send_sync<T: Send + Sync + ?Sized>() {}
+
+    /// Names every client item; `Arc<dyn Clock>` is `Send + Sync`.
+    #[test]
+    fn client_items_are_nameable() {
+        send_sync::<Arc<dyn Clock>>(); // TRAIT_OBJECT: tests drive the deadline on their own clock
+        send_sync::<EvaluatorCommand>();
+        send_sync::<ClientOutcome>();
+        let _ = (
+            Client::new,
+            Client::with_clock,
+            Client::with_graces,
+            Client::with_describe_deadline,
+            Client::describe,
+            Client::evaluate,
+            EvaluatorCommand::new,
+            EvaluatorCommand::env,
+            EvaluatorCommand::cwd,
+            EvaluatorCommand::run,
+            UnreportedReason::code,
+            ItemOutcome::expectation_id,
+            DEFAULT_CANCEL_GRACE,
+            DEFAULT_DESCRIBE_DEADLINE,
+        );
+        let _ = (SystemClock, None::<ClientError>, None::<Unreported>);
+    }
+}
+
+/// The `evaluation::selection` items, filled by the `selection_rates` leaf.
+mod selection_rates_surface {
+    use std::collections::BTreeMap;
+
+    use candler_core::evaluation::selection::diff::{
+        Change, ChangeClass, DiffReport, Equivalence, EquivalenceError, EquivalenceRecord,
+        Uncompared, diff,
+    };
+    use candler_core::evaluation::selection::fields::FourFields;
+    use candler_core::evaluation::selection::rates::{CellKey, Rates, rates, rates_toml};
+    use candler_core::evaluation::selection::select::{I4Key, I4Violation, Selection, select};
+
+    /// Names every selection, rates and diff item.
+    #[test]
+    fn selection_items_are_nameable() {
+        let _ = (
+            select::<Vec<_>>,
+            diff,
+            rates,
+            rates_toml,
+            Selection::current,
+            Selection::get,
+            Selection::violations,
+            Selection::is_empty,
+            Selection::for_evaluator,
+            I4Key::of,
+            CellKey::new,
+            CellKey::digest,
+            Rates::gate,
+            Rates::quality,
+            Equivalence::load,
+            Equivalence::from_bytes,
+            Equivalence::sha256,
+            Equivalence::row_count,
+            Equivalence::rule_names,
+            FourFields::of,
+            FourFields::normalised,
+            FourFields::value_equals,
+            FourFields::is_error,
+        );
+        let _ = (
+            None::<I4Violation>,
+            None::<DiffReport>,
+            None::<Change>,
+            None::<ChangeClass>,
+            None::<Uncompared>,
+            None::<EquivalenceRecord>,
+            None::<EquivalenceError>,
+            None::<BTreeMap<CellKey, Rates>>,
+        );
+    }
+}
+
+/// The `evaluation::engine` items, filled by the `engine` leaf.
+#[cfg(unix)]
+mod engine_surface {
+    use std::time::Duration;
+
+    use candler_core::evaluation::engine::{
+        Batch, EvaluateError, EvaluateReport, EvaluateRequest, PlanError, REQUEST_DEADLINE_MARGIN,
+        RunPlan, applies, evaluate, plan, regrade,
+    };
+    use candler_core::evaluation::registry::CheckedSuite;
+    use candler_schemas::evaluation::SuiteEntry;
+    use candler_schemas::execution::RunManifest;
+    use candler_schemas::primitives::RequestId;
+
+    /// Names every engine item and the signatures the binary calls in order: plan, then evaluate.
+    #[test]
+    fn engine_items_are_nameable() {
+        let planned: fn(&RunManifest, &CheckedSuite) -> Result<RunPlan, PlanError> = plan;
+        let applied: fn(&RunManifest, &SuiteEntry) -> bool = applies;
+        let _ = (planned, applied, evaluate, regrade);
+        let _ = (
+            None::<Batch>,
+            None::<EvaluateError>,
+            None::<EvaluateReport>,
+            None::<EvaluateRequest>,
+        );
+        assert_eq!(REQUEST_DEADLINE_MARGIN, Duration::from_secs(30));
+        // The report names one `(request id, deadline)` per request sent.
+        let report = EvaluateReport::default();
+        let deadlines: &Vec<(RequestId, Duration)> = &report.request_deadlines;
+        assert_eq!(deadlines.as_slice(), []);
+    }
+}

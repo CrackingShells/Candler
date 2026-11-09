@@ -1,0 +1,6 @@
+{
+  "top": ["changed", "changes", "compared", "equivalence", "excused", "uncompared", "unchanged"],
+  "change": ["class", "expectation", "from", "run", "to"],
+  "uncompared": ["count", "expectation"],
+  "equivalence": ["rows", "sha256"]
+}

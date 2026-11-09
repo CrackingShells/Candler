@@ -1,0 +1,72 @@
+{
+  "schema": "suite/1",
+  "expectations": [
+    {
+      "id": "N1",
+      "role": "gate",
+      "kind": "ok",
+      "depends_on": [],
+      "applies_to": [
+        {
+          "path": "plan.model",
+          "any_of": [
+            "claude-synthetic-1"
+          ]
+        }
+      ],
+      "evaluator": {
+        "name": "engine",
+        "range": "^0.1"
+      },
+      "params": {}
+    },
+    {
+      "id": "F1",
+      "role": "gate",
+      "kind": "fail",
+      "depends_on": [],
+      "evaluator": {
+        "name": "engine",
+        "range": "^0.1"
+      },
+      "params": {}
+    },
+    {
+      "id": "F2",
+      "role": "quality",
+      "kind": "echo",
+      "depends_on": [
+        "F1"
+      ],
+      "evaluator": {
+        "name": "engine",
+        "range": "^0.1"
+      },
+      "params": {}
+    },
+    {
+      "id": "P1",
+      "role": "gate",
+      "kind": "ok",
+      "depends_on": [],
+      "evaluator": {
+        "name": "engine",
+        "range": "^0.1"
+      },
+      "params": {}
+    },
+    {
+      "id": "P2",
+      "role": "quality",
+      "kind": "echo",
+      "depends_on": [
+        "P1"
+      ],
+      "evaluator": {
+        "name": "engine",
+        "range": "^0.1"
+      },
+      "params": {}
+    }
+  ]
+}

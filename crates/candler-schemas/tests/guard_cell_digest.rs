@@ -825,6 +825,21 @@ fn import_record_round_trips_its_legacy_integrity_and_reasons_are_named() {
         let read: ImportRecord = serde_json::from_value(written).expect("read back");
         assert_eq!(read, record);
     }
+    let rules_digest = digest('a');
+    let plain = ImportRecord::new(
+        format.clone(), // BORROW: .clone() the record owns its format
+        commit.clone(), // BORROW: .clone() the record owns its commit
+        JsonValue::new(json!("ok")).expect("value"),
+    );
+    assert!(serde_json::to_value(&plain).expect("plain")["rules"].is_null());
+    let ruled = plain.rules(rules_digest);
+    let written = serde_json::to_value(&ruled).expect("ruled");
+    assert_eq!(
+        written["rules"],
+        json!(format!("sha256:{}", "a".repeat(64)))
+    );
+    let read: ImportRecord = serde_json::from_value(written).expect("read back");
+    assert_eq!(read, ruled);
     let null = json!({
         "format": "campaign-import@v1",
         "base_commit": "0123456789abcdef0123456789abcdef01234567",

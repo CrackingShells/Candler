@@ -1,0 +1,27 @@
+{
+  "protocol": {"major": 1, "minor": 0},
+  "name": "synthetic",
+  "version": "1.0.0",
+  "instruments": [],
+  "environment": {"packages": {}},
+  "kind": "deterministic",
+  "kinds": [
+    {
+      "kind": "grep_present",
+      "params_schema": {
+        "type": "object",
+        "required": ["pattern"],
+        "properties": {"pattern": {"type": "string"}},
+        "additionalProperties": false
+      },
+      "needs": {
+        "trace": false,
+        "artifacts": ["outputs/**"],
+        "snapshots": [],
+        "inputs": [],
+        "metadata": ["plan.prompt_domain_name"]
+      },
+      "default_deadline_ms": 1000
+    }
+  ]
+}

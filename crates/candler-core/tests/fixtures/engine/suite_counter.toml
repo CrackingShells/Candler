@@ -1,0 +1,14 @@
+schema = "suite/1"
+
+[[expectations]]
+id = "C1"
+role = "gate"
+kind = "counter"
+depends_on = []
+
+[expectations.evaluator]
+name = "engine"
+range = "^0.1"
+
+[expectations.params]
+file = "@COUNT@"

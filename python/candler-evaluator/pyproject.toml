@@ -1,0 +1,29 @@
+[project]
+name = "candler-evaluator"
+version = "0.1.0"
+description = "Helper for writing Candler evaluator plug-ins in Python"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "AGPL-3.0-or-later"
+dependencies = ["pydantic>=2.7"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "datamodel-code-generator>=0.26",
+]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/candler_evaluator"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["scaffold: development test, deleted at the leaf's last commit"]
+
+[tool.ruff]
+target-version = "py310"

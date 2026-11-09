@@ -1,6 +1,6 @@
 //! The files-first run store: blobs, runs, outcome files and the rebuildable index.
 
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -13,6 +13,7 @@ pub mod index;
 pub mod layout;
 pub mod outcome;
 pub mod run;
+pub(crate) mod sync;
 
 use layout::StoreLayout;
 
@@ -215,9 +216,7 @@ pub(crate) fn visible_names(dir: &Path) -> Result<Vec<String>, StoreError> {
 
 /// Flushes the entries of a directory to disk.
 pub(crate) fn sync_dir(dir: &Path) -> Result<(), StoreError> {
-    File::open(dir)
-        .and_then(|handle| handle.sync_all())
-        .map_err(io_error("sync a directory", dir))
+    sync::sync_dir(dir).map_err(io_error("sync a directory", dir))
 }
 
 /// Creates the new file `path`, writes `bytes` and syncs them; a failed write leaves no file.
@@ -228,7 +227,7 @@ pub(crate) fn write_new_synced(path: &Path, bytes: &[u8]) -> Result<(), StoreErr
         .open(path)
         .and_then(|mut file| {
             file.write_all(bytes)?;
-            file.sync_all()
+            sync::sync_file(&file)
         });
     if let Err(source) = written {
         // EXPLICIT: the file may not exist; the write error is the one to report

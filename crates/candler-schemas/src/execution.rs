@@ -1858,7 +1858,7 @@ impl ImportedRequest {
     }
 }
 
-/// How an imported run was read: the format label, the base commit, the legacy integrity block, the source files and the outcome files written.
+/// How an imported run was read: the format label, the base commit, the legacy integrity block, the source files, the outcome files written and, when known, the digest of the rules file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(remote = "Self")]
 #[schemars(deny_unknown_fields)]
@@ -1874,6 +1874,13 @@ pub struct ImportRecord {
     pub sources: Vec<ImportSource>,
     /// The outcome files the import wrote.
     pub requests: Vec<ImportedRequest>,
+    /// The sha256 of the import rules file the run was read with.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub rules: Option<Digest>,
 }
 
 object_only!(ImportRecord);
@@ -1892,7 +1899,15 @@ impl ImportRecord {
             legacy_integrity,
             sources: Vec::new(),
             requests: Vec::new(),
+            rules: None,
         }
+    }
+
+    /// Sets the sha256 of the import rules file the run was read with.
+    #[must_use]
+    pub fn rules(mut self, rules: Digest) -> Self {
+        self.rules = Some(rules);
+        self
     }
 }
 

@@ -1,0 +1,44 @@
+{
+  "jsonrpc": "2.0",
+  "id": "0192f4e0-7b3a-7c1d-8a2e-4f5b6c7d8e9f",
+  "result": {
+    "protocol": {
+      "major": 1,
+      "minor": 0
+    },
+    "name": "demo-evaluator",
+    "version": "0.1.0",
+    "instruments": [
+      {
+        "name": "demo-grader",
+        "version": "1.0.0",
+        "digest": "git:0123456789abcdef0123456789abcdef01234567",
+        "dirty": false
+      }
+    ],
+    "environment": {
+      "packages": {
+        "demo": "1.0.0"
+      }
+    },
+    "kind": "deterministic",
+    "kinds": [
+      {
+        "kind": "file_exists",
+        "params_schema": {
+          "type": "object"
+        },
+        "needs": {
+          "trace": false,
+          "artifacts": [
+            "plan.md"
+          ],
+          "snapshots": [],
+          "inputs": [],
+          "metadata": []
+        },
+        "default_deadline_ms": 5000
+      }
+    ]
+  }
+}

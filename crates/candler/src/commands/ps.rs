@@ -7,7 +7,7 @@
 
 use std::collections::BTreeSet;
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -20,24 +20,19 @@ use candler_core::jobs::events::{JobEvents, TailPos};
 use candler_core::jobs::lost::{self, JobLiveness, RecoverOutcome, RecoverReport};
 use candler_core::jobs::runtime::detach::START_DEADLINE;
 use candler_core::jobs::view::JobView;
-use candler_core::resolve::config::{Config, ConfigEnv};
 use candler_core::store::layout::StoreLayout;
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_schemas::execution::{EventPayload, JobEnd};
 use candler_schemas::primitives::{JobId, RunKey};
 
-use super::{CliError, Exit};
+use super::{CliError, Exit, common};
 
 /// How long one recovery may spend listing and destroying the containers of a lost job.
 const SWEEP_LIMIT: Duration = Duration::from_mins(2);
 
 /// The arguments of `candler ps`.
 #[derive(Debug, clap::Args)]
-pub struct Args {
-    /// The store to read; by default the store the configuration names.
-    #[arg(long)]
-    pub store: Option<PathBuf>,
-}
+pub struct Args {}
 
 /// One line of the listing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,32 +47,6 @@ pub struct Row {
     pub progress: String,
     /// Whether the row reports a failure, which makes the command exit non-zero.
     pub failed: bool,
-}
-
-/// The root of the store: `explicit`, else the store the project or user configuration names.
-///
-/// # Errors
-/// [`CliError::Refused`] when the working directory or the configuration cannot be read, or no
-/// store location is known.
-pub fn store_root(explicit: Option<&Path>) -> Result<PathBuf, CliError> {
-    if let Some(root) = explicit {
-        return Ok(root.to_path_buf());
-    }
-    let fail = |reason: String| CliError::Refused { reason };
-    let cwd = std::env::current_dir().map_err(|e| fail(format!("no working directory: {e}")))?;
-    let config = Config::load(&cwd, &ConfigEnv::from_process()).map_err(|e| fail(e.to_string()))?;
-    if let Some(project) = &config.project {
-        let root = project
-            .store_root
-            .clone() // BORROW: the caller owns the root
-            .unwrap_or_else(|| project.root.join(".candler").join("store"));
-        return Ok(root);
-    }
-    config
-        .state_home
-        .as_deref()
-        .map(|state| state.join("candler").join("store"))
-        .ok_or_else(|| fail("no store: pass --store".to_owned())) // BORROW: the row owns its text
 }
 
 /// Recovers the lost job of `dir` through the real container sweeper and a supervisor that
@@ -235,8 +204,8 @@ async fn row_of(store: &StoreLayout, name: &str, path: &Path) -> Row {
 /// # Errors
 /// [`CliError::Failed`] when the jobs directory cannot be read or `out` cannot be written.
 // TRAIT_OBJECT: the output is stdout, or a buffer in tests
-pub async fn render(args: &Args, out: &mut dyn Write) -> Result<bool, CliError> {
-    let root = store_root(args.store.as_deref())?;
+pub async fn render(store: Option<&Path>, out: &mut dyn Write) -> Result<bool, CliError> {
+    let root = common::store_root("ps", store).await?;
     let store = StoreLayout::new(&root);
     let jobs = root.join("jobs");
     let fail = |error: io::Error| CliError::Failed {
@@ -287,9 +256,9 @@ pub fn render_rows(rows: &[Row], out: &mut dyn Write) -> io::Result<()> {
 ///
 /// # Errors
 /// [`CliError`] when the jobs cannot be listed or a job's recovery failed.
-pub async fn run(args: Args) -> Result<Exit, CliError> {
+pub async fn run(_args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let mut stdout = io::stdout().lock();
-    if render(&args, &mut stdout).await? {
+    if render(store, &mut stdout).await? {
         return Err(CliError::Failed {
             verb: "ps",
             source: "a job could not be listed or recovered; see its row".into(),

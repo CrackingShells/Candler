@@ -1,0 +1,7 @@
+{
+  "jsonrpc": "2.0",
+  "method": "cancel",
+  "params": {
+    "request_id": "0192f4e0-7b3a-7c1d-8a2e-4f5b6c7d8e9f"
+  }
+}

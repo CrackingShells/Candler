@@ -1,36 +1,38 @@
-//! The verbs of the `candler` binary, one file each.
+//! The verbs of the `candler` binary, one file each, and what they share in [`common`].
 
+pub mod common;
+pub mod diff;
+pub mod evaluate;
+pub mod import;
 pub mod kill;
 pub mod ps;
 pub mod run;
+pub mod show;
 pub mod supervise;
 pub mod watch;
 
-/// How a verb that did not fail ended; `main` maps it to the exit code.
+use std::error::Error;
+
+/// How a verb that did not fail ended; `main` maps it to the exit code. A change found by `diff`
+/// is an `Exit`, never a [`CliError`], so that it never travels through `?` to stderr.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(
-    dead_code,
-    reason = "Changed is returned by verbs that report differences, such as diff"
-)]
+#[non_exhaustive]
 pub enum Exit {
-    /// The verb did its work: exit 0.
+    /// The verb did its work and found nothing to report: exit 0.
     Success,
-    /// The verb found differences: exit 1.
+    /// `diff` found `count` changed rows: exit 1.
     Changed {
         /// How many differences it found.
         count: usize,
     },
 }
 
-/// Why a verb failed.
+/// Why a verb did not run to an answer: exit 2.
 #[derive(Debug, thiserror::Error)]
-#[allow(
-    dead_code,
-    reason = "the verbs construct Refused and Failed once they are filled in"
-)]
 #[non_exhaustive]
 pub enum CliError {
-    /// The verb is not implemented.
+    /// The verb exists but cannot run in this build.
+    #[allow(dead_code, reason = "a status any verb may return")]
     #[error("`{verb}` is not available yet")]
     Unavailable {
         /// The verb.
@@ -48,12 +50,33 @@ pub enum CliError {
         /// The verb.
         verb: &'static str,
         /// The cause.
-        source: Box<dyn std::error::Error + Send + Sync>,
+        // TRAIT_OBJECT: the failures of different crates travel as one type
+        source: Box<dyn Error + Send + Sync>,
     },
-    /// The async runtime could not start.
-    #[error("the runtime could not start: {detail}")]
+    /// The process could not run the verb at all.
+    #[error("{detail}")]
     Runtime {
         /// What went wrong.
         detail: String,
     },
+}
+
+impl CliError {
+    /// A [`CliError::Failed`] for `verb` caused by `source`.
+    #[must_use]
+    pub fn failed<E: Error + Send + Sync + 'static>(verb: &'static str, source: E) -> Self {
+        // TRAIT_OBJECT: the failures of different crates travel as one type
+        Self::Failed {
+            verb,
+            source: Box::new(source),
+        }
+    }
+
+    /// A [`CliError::Refused`] for `reason`.
+    #[must_use]
+    pub fn refused(reason: impl Into<String>) -> Self {
+        Self::Refused {
+            reason: reason.into(),
+        }
+    }
 }

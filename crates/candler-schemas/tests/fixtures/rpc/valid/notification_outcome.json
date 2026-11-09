@@ -1,0 +1,26 @@
+{
+  "jsonrpc": "2.0",
+  "method": "outcome",
+  "params": {
+    "record": {
+      "run": {
+        "cell": "sha256:abababababababababababababababababababababababababababababababab",
+        "replicate": 1,
+        "attempt": 1
+      },
+      "expectation_id": "A1",
+      "role": "gate",
+      "evaluator": "demo-evaluator@0.1.0",
+      "instruments": [],
+      "suite_entry_digest": "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "context_digest": "sha256:abababababababababababababababababababababababababababababababab",
+      "request_id": "0192f4e0-7b3a-7c1d-8a2e-4f5b6c7d8e9f",
+      "status": "pass",
+      "weight": {
+        "num": 1,
+        "den": 1
+      },
+      "evidence": []
+    }
+  }
+}
