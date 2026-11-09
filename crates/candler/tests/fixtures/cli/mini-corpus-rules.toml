@@ -1,0 +1,24 @@
+format = "htn-results@1"
+instrument = "htn-creator-eval"
+suite_kind = "legacy-check"
+metadata = ["plan.model"]
+
+[harness]
+name = "claude-code"
+version_pointer = "/claude_code_version"
+
+[treatment]
+pointer = "/plan/skill_version"
+resolved = "resolved_skill_version"
+
+[[snapshot]]
+kind = "catalog"
+pointer = "/catalog/sha256"
+
+[[marker]]
+pattern = 'TIER_D_REPLAY:[^\n]*reason=(?P<code>[A-Za-z0-9_]+)'
+capture = "code"
+
+[[marker]]
+pattern = "declares zero 'mappings' entries"
+code = "zero_mappings"
