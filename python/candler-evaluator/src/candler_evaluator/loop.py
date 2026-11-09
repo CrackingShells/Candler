@@ -12,8 +12,6 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from ._models.evaluator_describe_result import DescribeResult
-from ._models.outcome_record import OutcomeRecord
 from .frames import (
     FrameWriter,
     LineReader,
@@ -137,6 +135,9 @@ def _fault_fields(note: str) -> dict[str, Any]:
 
 
 def _checked(record: Mapping[str, Any]) -> dict[str, Any]:
+    # Imported on first use: a process that only describes never builds the record model.
+    from ._models.outcome_record import OutcomeRecord
+
     return OutcomeRecord.model_validate(record).model_dump(
         mode="json", exclude_none=True
     )
@@ -252,6 +253,9 @@ class _Loop:
             "kind": "deterministic" if self.plugin.deterministic else "probabilistic",
             "kinds": _kind_specs(self.plugin),
         }
+        # Imported on first use: a process that only evaluates never builds this model.
+        from ._models.evaluator_describe_result import DescribeResult
+
         try:
             result = DescribeResult.model_validate(result).model_dump(
                 mode="json", exclude_none=True
