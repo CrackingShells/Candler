@@ -1,6 +1,6 @@
 # M1 Contracts
 
-**Goal**: Every remaining wire type, the harness traits, the Claude Code trace reader, the run store, the process supervisor core and the legacy importer exist, and the golden corpus imports losslessly.
+**Goal**: Every remaining wire type, the harness traits, the Claude Code trace reader, the run store, the process supervisor core and the legacy importer exist, and the golden corpus imports with every row's status, value, weight, cause and role equal to an independent oracle's.
 **Pre-conditions**:
 - [ ] `../wire_schemas.md` is `done` and merged on `main`
 - [ ] Reminder `candler-M1` read: its notes predate the architecture's final version; where they differ, this leaf wins (its "one trivial evaluator end to end" exit moves to M2a, which builds the evaluation engine)
