@@ -27,36 +27,65 @@ fn export(name: &str, value: &str) {
     println!("cargo:rustc-env={name}={value}");
 }
 
+/// What the binary is built from, relative to this crate: the sources and assets of every crate
+/// it links, the manifests and the build script. Cargo reruns the build when any of it changes,
+/// and the tree is dirty when any of it differs from the commit.
+const WATCHED: [&str; 14] = [
+    "src",
+    "build.rs",
+    "Cargo.toml",
+    "../candler-core/src",
+    "../candler-core/Cargo.toml",
+    "../candler-harness/src",
+    "../candler-harness/Cargo.toml",
+    "../candler-harness-claude-code/src",
+    "../candler-harness-claude-code/Cargo.toml",
+    "../candler-schemas/src",
+    "../candler-schemas/Cargo.toml",
+    "../../assets",
+    "../../Cargo.toml",
+    "../../Cargo.lock",
+];
+
+/// The tags of the binary's own releases: `v` and a digit. Other tags in the repository belong
+/// to other crates.
+const TAG_MATCH: &str = "v[0-9]*";
+
 fn main() {
-    // The build is stale when the commit, the index or any source changes.
-    for path in ["HEAD", "index"] {
+    // The build is stale when the commit moves (HEAD, the branch ref HEAD names, packed refs) or
+    // the index changes, or when anything watched changes.
+    let mut git_paths = vec![
+        "HEAD".to_owned(),
+        "index".to_owned(),
+        "packed-refs".to_owned(),
+    ];
+    if let Some(branch) = git(&["symbolic-ref", "-q", "HEAD"]) {
+        git_paths.push(branch);
+    }
+    for path in &git_paths {
         if let Some(found) = git(&["rev-parse", "--git-path", path]) {
             println!("cargo:rerun-if-changed={found}");
         }
     }
-    println!("cargo:rerun-if-changed=src");
-    println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=Cargo.toml");
-    println!("cargo:rerun-if-changed=../candler-core/src");
-    println!("cargo:rerun-if-changed=../candler-core/assets");
-    println!("cargo:rerun-if-changed=../candler-harness/src");
-    println!("cargo:rerun-if-changed=../candler-harness-claude-code/src");
-    println!("cargo:rerun-if-changed=../candler-schemas/src");
-    println!("cargo:rerun-if-changed=../../Cargo.toml");
-    println!("cargo:rerun-if-changed=../../Cargo.lock");
+    for path in WATCHED {
+        println!("cargo:rerun-if-changed={path}");
+    }
 
-    let Some(dirty) = git(&["status", "--porcelain"]).map(|_| true).or_else(|| {
+    let mut status = vec!["status", "--porcelain", "--"];
+    status.extend(WATCHED);
+    let Some(dirty) = git(&status)
+        .map(|_| true)
         // an empty status is a clean tree, but only inside a checkout
-        git(&["rev-parse", "--git-dir"]).map(|_| false)
-    }) else {
+        .or_else(|| git(&["rev-parse", "--git-dir"]).map(|_| false))
+    else {
         return;
     };
     export(
         "CANDLER_EVAL_INFRA_DIRTY",
         if dirty { "true" } else { "false" },
     );
-    if let Some((tag, ahead, commit)) =
-        git(&["describe", "--tags", "--long"]).and_then(|text| split_describe(&text))
+    if let Some((tag, ahead, commit)) = git(&["describe", "--tags", "--long", "--match", TAG_MATCH])
+        .and_then(|text| split_describe(&text))
     {
         export("CANDLER_EVAL_INFRA_TAG", &tag);
         export("CANDLER_EVAL_INFRA_COMMITS_AHEAD", &ahead.to_string());
