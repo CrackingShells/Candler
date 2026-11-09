@@ -9,7 +9,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use candler_schemas::container::{CONTAINER_RECORD_SCHEMA, ContainerRecord};
-use candler_schemas::execution::{JobRecord, JobState};
+use candler_schemas::execution::{JobRecord, JobState, SupervisorIdentity};
 use candler_schemas::primitives::JobId;
 use candler_schemas::process::{CHILD_RECORD_SCHEMA, ChildRecord};
 use serde_json::Value;
@@ -236,6 +236,25 @@ impl JobDir {
             .supervisor(old.supervisor().clone()) // BORROW: the new record owns its supervisor
             .spec_digest(old.spec_digest().clone()) // BORROW: the new record owns its digest
             .state(state)
+            .build()
+            .map_err(|e| JobError::Parse {
+                path: self.path.join(RECORD_FILE),
+                detail: e.to_string(),
+            })?;
+        self.write_record(&new)
+    }
+
+    /// Rewrites the record with `supervisor`, the process that now supervises the job.
+    ///
+    /// # Errors
+    /// [`JobError::Io`] or [`JobError::Parse`] when the record cannot be read or written.
+    pub fn set_supervisor(&self, supervisor: SupervisorIdentity) -> Result<(), JobError> {
+        let old = self.record()?;
+        let new = JobRecord::builder()
+            .id(old.id().clone()) // BORROW: the new record owns its id
+            .supervisor(supervisor)
+            .spec_digest(old.spec_digest().clone()) // BORROW: the new record owns its digest
+            .state(old.state())
             .build()
             .map_err(|e| JobError::Parse {
                 path: self.path.join(RECORD_FILE),

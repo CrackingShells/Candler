@@ -48,6 +48,19 @@ pub(crate) fn find_end(dir: &JobDir) -> Result<Option<JobEnd>, JobError> {
     Ok(None)
 }
 
+/// Whether the log of `dir` has a `job.started`: a supervisor took the job's lock and began.
+///
+/// # Errors
+/// [`JobError`] when the log cannot be read.
+pub fn has_started(dir: &JobDir) -> Result<bool, JobError> {
+    let events = JobEvents::open(dir)?;
+    let tail = events.tail(TailPos(0))?;
+    Ok(tail
+        .events
+        .iter()
+        .any(|envelope| matches!(envelope.event(), EventPayload::JobStarted { .. })))
+}
+
 /// Classifies the job of `dir`. The lock is probed first and the log read second: a supervisor
 /// appends `job.ended` before it lets go of the lock, so a free lock means the log is final.
 /// A held lock with a `job.ended` is a supervisor still exiting, and reads as ended.
@@ -77,6 +90,9 @@ pub enum RecoverOutcome {
     AlreadyEnded,
     /// A supervisor holds the lock; nothing was done.
     NotLost,
+    /// The log has no `job.started`: the job is still starting, so nothing was done and no end
+    /// was written.
+    Starting,
     /// The job was swept and its runs sealed, but a container was refused or the sweep could not
     /// look everywhere, so the job is still lost and a later recovery tries again.
     Incomplete,
@@ -112,6 +128,15 @@ impl RecoverReport {
     pub fn not_lost() -> Self {
         Self {
             outcome: RecoverOutcome::NotLost,
+            ..Self::default()
+        }
+    }
+
+    /// The report of a job whose supervisor has not yet begun: its log has no `job.started`.
+    #[must_use]
+    pub fn starting() -> Self {
+        Self {
+            outcome: RecoverOutcome::Starting,
             ..Self::default()
         }
     }
@@ -190,6 +215,11 @@ async fn recover_lost(
     // The lock is ours, so `classify` would read it as held; the log alone says whether it ended.
     if find_end(dir)?.is_some() {
         return Ok(RecoverReport::already_ended());
+    }
+    // A job that never logged `job.started` has no supervisor to have lost: it is still starting,
+    // so recovery reports it and writes no end. The lock drops on return.
+    if !has_started(dir)? {
+        return Ok(RecoverReport::starting());
     }
     let events = JobEvents::open(dir)?;
     let mut report = RecoverReport::default();

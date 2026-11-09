@@ -34,7 +34,7 @@ use crate::supervise::stop::Ended;
 const CLIENT_VARIABLES: [&str; 3] = ["DOCKER_HOST", "DOCKER_CONTEXT", "HOME"];
 
 /// How long a read, a stop or a remove may take before the supervisor ends the client.
-const CALL_DEADLINE: Duration = Duration::from_mins(1);
+pub(crate) const CALL_DEADLINE: Duration = Duration::from_mins(1);
 
 /// How long a container that is asked to stop may take to exit before docker kills it, unless
 /// the client is built with another grace.

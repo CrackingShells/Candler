@@ -6,8 +6,22 @@ use candler_schemas::primitives::ReasonCode;
 use futures::future::BoxFuture;
 
 use super::session::JobSession;
+use super::session::SWEEP_LIMIT;
 use crate::isolation::container::sweeper::ContainerSweeper;
+use crate::isolation::docker::CALL_DEADLINE;
 use crate::isolation::model::SweepScope;
+
+/// How many docker calls the gateway's destruction may make: the check that it is the job's, the
+/// stop, the look at what is left, and the removal.
+const GATEWAY_CALLS: u32 = 4;
+/// How many docker calls the destruction of the job's two networks may make: a look and a
+/// removal for each.
+const NETWORK_CALLS: u32 = 4;
+
+/// The longest a session's teardown takes: the label sweep at its limit, then every docker call of
+/// the gateway's and the networks' destruction at its deadline. A stopped job's end waits for it.
+pub const TEARDOWN_ALLOWANCE: std::time::Duration = SWEEP_LIMIT
+    .saturating_add(CALL_DEADLINE.saturating_mul(GATEWAY_CALLS.saturating_add(NETWORK_CALLS)));
 
 /// What a teardown could not remove.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

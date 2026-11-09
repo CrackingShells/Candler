@@ -87,7 +87,7 @@ pub fn become_subreaper() -> Result<(), RuntimeError> {
 }
 
 /// The digest of `bytes`: `sha256:` and the hex of their SHA-256.
-fn digest_of(bytes: &[u8]) -> Result<Digest, RuntimeError> {
+pub(crate) fn digest_of(bytes: &[u8]) -> Result<Digest, RuntimeError> {
     use sha2::Digest as _;
     let mut hex = String::with_capacity(64);
     for byte in sha2::Sha256::digest(bytes) {

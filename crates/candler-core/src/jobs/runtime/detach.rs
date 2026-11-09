@@ -15,7 +15,7 @@ use crate::jobs::lock::{JobLock, LockState};
 /// The file the supervisor's output goes to, in the job's directory.
 const LOG_FILE: &str = "supervisor.log";
 /// How long the launcher waits for the supervisor to take the job's lock.
-const START_DEADLINE: Duration = Duration::from_secs(10);
+pub const START_DEADLINE: Duration = Duration::from_secs(10);
 /// The pause between two looks at the lock.
 const POLL: Duration = Duration::from_millis(20);
 

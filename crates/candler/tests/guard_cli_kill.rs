@@ -8,9 +8,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 use candler_core::jobs::dir::JobDir;
+use candler_core::jobs::events::JobEvents;
 use candler_core::store::Store;
 use candler_core::store::layout::StoreLayout;
-use candler_schemas::execution::{JobRecord, JobState, SupervisorIdentity};
+use candler_schemas::execution::{EventPayload, JobRecord, JobState, SupervisorIdentity};
 use candler_schemas::primitives::{Digest, JobId};
 use candler_schemas::process::ProcessStart;
 
@@ -52,7 +53,12 @@ fn world() -> PathBuf {
         .state(JobState::Running)
         .build()
         .unwrap();
-    JobDir::create(&StoreLayout::new(&store), id, &record).unwrap();
+    let dir = JobDir::create(&StoreLayout::new(&store), id, &record).unwrap();
+    // It had begun: a job whose log has no `job.started` is still starting, not lost.
+    JobEvents::open(&dir)
+        .unwrap()
+        .append(None, EventPayload::job_started())
+        .unwrap();
     root
 }
 
