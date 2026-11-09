@@ -170,20 +170,11 @@ fn path_of(text: &str) -> Result<FieldPath, CliError> {
     FieldPath::from_str(text).map_err(|e| refused(e.to_string()))
 }
 
-/// A path as the text a setting holds.
-fn text_of_path(path: &Path) -> Result<JsonValue, CliError> {
-    let text = path
-        .to_str()
-        .ok_or_else(|| refused("a path is not UTF-8 text"))?;
-    JsonValue::new(serde_json::Value::String(text.to_owned())) // BORROW: the value owns its text
-        .map_err(|e| refused(e.to_string()))
-}
-
 /// What the experiment file and the command line ask for, as the input of a resolution: the
 /// file's fixed values, the settings `request.harness` and `request.treatment` it names, and the
-/// arguments of `--set` as explicit values. A treatment source is a location: a relative one
-/// from the file is taken relative to the file's directory, and one from `--set` relative to the
-/// working directory.
+/// arguments of `--set` as explicit values. A location setting (a treatment source, the build
+/// requirements, lock, Dockerfile and context) is relative to the file's directory when the file
+/// writes it, and to the working directory when `--set` gives it.
 ///
 /// # Errors
 /// [`CliError::Refused`] when a value cannot be written as a setting.
@@ -198,20 +189,15 @@ pub fn request_settings(
         .iter()
         .map(|(path, value)| (path.clone(), value.clone())) // BORROW: the input owns its paths and values
         .collect();
-    let source = path_of(paths::REQUEST_TREATMENT_SOURCE)?;
-    let named = values
-        .get(&source)
-        .and_then(|found| found.as_value().as_str())
-        .map(|text| experiment_dir.join(text));
-    if let Some(absolute) = named {
-        values.insert(source, text_of_path(absolute.as_path())?);
-    }
     values.insert(path_of(paths::REQUEST_HARNESS)?, json_of(file.harness())?);
     values.insert(
         path_of(paths::REQUEST_TREATMENT)?,
         json_of(file.treatment())?,
     );
-    let mut input = ResolveInput::default().file(FileValues::new(values.into_iter().collect()));
+    let file_values = FileValues::new(values.into_iter().collect())
+        .relative_to(experiment_dir)
+        .map_err(|e| refused(e.to_string()))?;
+    let mut input = ResolveInput::default().file(file_values);
     for (path, text) in fields {
         if path.as_str() == paths::REQUEST_TREATMENT_SOURCE {
             // BORROW: .clone() gives the input its own path

@@ -134,13 +134,29 @@ pub fn experiment_of(file: &ExperimentFile, resolution: &Resolution) -> Result<D
     Ok(experiment_digest(digests.as_slice()))
 }
 
-/// The paths of a list of deviations, for a message.
-fn paths_of(deviations: &[Deviation]) -> String {
+/// A deviation as `path {stored: <value>, observed: <value>}`, for a message; a value that was
+/// not recorded reads `absent`. A deviation holds names and digests, never a secret.
+fn describe(deviation: &Deviation) -> String {
+    let text = |value: &Option<JsonValue>| {
+        value
+            .as_ref()
+            .map_or_else(|| "absent".to_owned(), |json| json.as_value().to_string()) // BORROW: owned text for the message
+    };
+    format!(
+        "{} {{stored: {}, observed: {}}}",
+        deviation.path,
+        text(&deviation.stored),
+        text(&deviation.observed)
+    )
+}
+
+/// The deviations of a list, for a message.
+fn describe_all(deviations: &[Deviation]) -> String {
     deviations
         .iter()
-        .map(|deviation| deviation.path.to_string())
+        .map(describe)
         .collect::<Vec<_>>()
-        .join(", ")
+        .join("; ")
 }
 
 /// Why planning failed.
@@ -159,7 +175,7 @@ pub enum PlanError {
     #[error("the experiment is held by another supervisor")]
     ExperimentLocked,
     /// A re-checked fact differs from the stored cell and the plan was not forced.
-    #[error("a re-checked fact differs from the stored cell: {}", paths_of(.0))]
+    #[error("a re-checked fact differs from the stored cell: {}", describe_all(.0))]
     Changed(Vec<Deviation>),
     /// Some cells of a past experiment answer cells of this one and others answer none, so the
     /// past experiment cannot be replayed.

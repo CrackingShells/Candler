@@ -97,12 +97,17 @@ fn digest_of(bytes: &[u8]) -> Result<Digest, io::Error> {
     digest_of_hash(hasher)
 }
 
+/// `error` with the path it failed on in its text.
+fn at(path: &Path, error: &io::Error) -> io::Error {
+    io::Error::new(error.kind(), format!("{}: {error}", path.display()))
+}
+
 fn digest_file(path: &Path) -> Result<Digest, io::Error> {
-    let mut file = fs::File::open(path)?;
+    let mut file = fs::File::open(path).map_err(|e| at(path, &e))?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0_u8; 64 * 1024];
     loop {
-        let read = file.read(&mut buffer)?;
+        let read = file.read(&mut buffer).map_err(|e| at(path, &e))?;
         let Some(chunk) = buffer.get(..read) else {
             return Err(io::Error::other("a read returned more than the buffer"));
         };
@@ -116,8 +121,8 @@ fn digest_file(path: &Path) -> Result<Digest, io::Error> {
 
 /// Lists the files below `dir`, keyed by their path below the context root.
 fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Digest>) -> Result<(), io::Error> {
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
+    for entry in fs::read_dir(dir).map_err(|e| at(dir, &e))? {
+        let entry = entry.map_err(|e| at(dir, &e))?;
         let name = entry
             .file_name()
             .into_string()
@@ -127,9 +132,9 @@ fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Digest>) -> Result<
         } else {
             format!("{prefix}/{name}")
         };
-        let kind = entry.file_type()?;
+        let kind = entry.file_type().map_err(|e| at(&entry.path(), &e))?;
         if kind.is_symlink() {
-            let target = fs::read_link(entry.path())?;
+            let target = fs::read_link(entry.path()).map_err(|e| at(&entry.path(), &e))?;
             let text = format!("symlink:{}", target.to_string_lossy());
             out.insert(key, digest_of(text.as_bytes())?);
         } else if kind.is_dir() {
