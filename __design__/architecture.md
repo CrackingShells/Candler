@@ -1,6 +1,8 @@
 # Candler — Architecture
 
-The intended design of Candler. Nothing is implemented yet. Points marked *provisional* are expected
+The design of Candler. The wire schemas and milestones M1 (contracts), M2a (evaluation parity)
+and M2b (execution parity) are built; what a later milestone owns names it. Where built code
+still falls short of a rule stated here, the rule stands and the shortfall is a code defect. Points marked *provisional* are expected
 to move once code meets real harnesses; the rest stand unless implementation proves them wrong, and
 then this document changes together with the code. The reasoning behind the design, and its review,
 are in the `candler_core` reports of mcp-python-ingestion (`__reports__/candler_core/` on branch
@@ -228,7 +230,11 @@ else the configuration's `store.root`, else the default above, as `resolve` laye
 that finds none refuses, naming the three ways to give one.
 
 "Experiment" names the file that declares factors, levels, replicates and budget (today's
-`run_config` YAML). "Plan" is not used: it collides with HTN planning.
+`run_config` YAML). The experiment is never called a plan, which collides with HTN planning: the
+file, its schema and every user-facing name say "experiment". The ban covers that configuration
+only; what execution derives from an experiment (the runner's `RunPlan`, a cell's
+`ContainerPlan`) and the `plan.*` keys of an imported legacy `experiment.json` keep their own
+names.
 
 ## Jobs, runs and supervision
 
@@ -856,8 +862,12 @@ request files under the new evaluator version; `diff` compares versions.
 ### Other interfaces (signatures only)
 
 - `CatalogProvider.snapshot(cell) -> catalog_snapshot`
-- `Isolation.create(cell) -> handle`; `handle.exec`, `handle.inject`, `handle.census`,
-  `handle.collect`, `handle.destroy`
+- `Isolation`, one container per run: `plan(cell, workspace) -> ContainerPlan`;
+  `run_request(plan, command, marker, run key, outputs) -> IsolatedRequest` (the spawn request,
+  with the run's stop hook attached, and the handle that reports the end facts);
+  `collect_and_destroy(plan, workspace, exit, run key) -> ContainerOutcome` (the final inspect,
+  then the destroy through the guard). A long-lived handle (`create`, `exec`, `inject`, a
+  whole-container `census`, `destroy`) is M5's, beside this one.
 - `LegacyImporter.import(results_folder) -> runs[]`
 
 ### Invariants
@@ -929,9 +939,9 @@ cases are synthetic. Integrity `incomplete`
 (`missing_genuine_output`, the agent never produced the file; 56 runs) is a **valid** run;
 `contaminated` is `invalid(input_leak)`. Invalid runs are never sent to `evaluate`.
 
-**Parity test (scope: Tiers A–C).** Candler plus the HTN plug-in `htn-creator-eval@0.5.0`, with
+**Parity test (scope: Tiers A–C).** Candler plus the HTN plug-in `htn-creator-eval@0.5.2`, with
 its checker pinned at `28be2c15` and run one forked child per expectation with a 60 s deadline,
-regrades the corpus, and `diff htn-creator-eval@0.4.2 htn-creator-eval@0.5.0` reproduces `(status,
+regrades the corpus, and `diff htn-creator-eval@0.4.2 htn-creator-eval@0.5.2` reproduces `(status,
 value, weight, cause)` on the 8,880 rows of the 37 Tier A–C expectations: exactly on clean rows, and
 on the one legacy-marked kind through an equivalence file. The 1,440 Tier D rows (D-E1…D-E6 × 240)
 are **uncompared**: `diff` lists them with their counts, and their parity is work on the HTN side
