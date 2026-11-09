@@ -31,11 +31,11 @@ The reviewers ran no builds. The coordinator spot-checked every finding marked *
 
 The leaf's A2 gate now covers all of A, with segment matching in place of whole words. One caveat holds: moving `stable.in`'s packages into the HTN experiment can change the lock bytes, and so the live HTN cell digests. The gate keeps the golden-import and M2a-fixture digests strict, and requires any live digest that moves to be listed in the re-validation report.
 
-## B. Harness and environment content in the core: proposed amendment A3, gates in M4 and M5
+## B. Harness and environment content in the core: amendment A3, gates in M4 and M5
 
 These are not HTN-domain content, but R01 puts them in the harness driver or a plug-in environment rather than in the core. No existing gate would catch them.
 
-| id | What | Evidence | Proposed owner and gate |
+| id | What | Evidence | Owner and gate (A3, approved 2026-11-10; `01-gap_analysis_harness_env_v0.md`) |
 |:--|:--|:--|:--|
 | H1 | Claude Code names in core | `image.rs:25,35,854,895-902` runs its own `claude --version` rather than `HarnessDriver::version_probe`; `container/run.rs:29-38` `ANTHROPIC_*`; `mounts.rs:18` `CLAUDE_CONFIG_DIR`; `census.rs:33-36` parses Claude Code's `system/init` | M4: "`candler-core/src` names no harness; the image's harness version, the census and the gateway's env names come from the driver", plus a harness deny-list guard |
 | H2 | Python venv assumed as the agent environment | `layout.rs:32-35` `/opt/env`, `VIRTUAL_ENV`, `uv pip compile --python-version 3.12`, `tree.rs:31` `pyvenv.cfg`, `python:3.12` base | M5: "the agent environment has a declared kind; the core holds no Python path, variable or marker outside that kind's implementation" |
