@@ -34,7 +34,8 @@ In plan mode, author the campaign with `managing-roadmaps`, covering:
 - **Domain out of the core (A2)**: replace the core's planner axis with packages the plug-in or experiment declares, and the probe with a generic container read of named import packages. Move the HTN packages of `stable.in` and the `domain.py`/`problems.py` prune into the HTN experiment's or plug-in's declaration. Move `ENTRY_PARAMS` into `ImportRules`. Record these decisions in R01 §Plug-ins and §Run manifest:
   - where the declaration lives: the plug-in manifest, or the experiment's treatment or isolation build;
   - the neutral provenance path;
-  - for each provenance path Candler writes (`eval_infra.*`, `sandbox_contract`, `skill_version`, the declared packages): its meaning, and whether it gates a stratum verdict.
+  - for each provenance path Candler writes (`eval_infra.*`, `sandbox_contract`, `skill_version`, the declared packages): its meaning, and whether it gates a stratum verdict;
+  - what a build outside a git checkout records for `eval_infra`. Today it records nothing, so `provenance_refused` refuses every stratum (review E4). Add a test for it.
 
   Golden imported runs keep their legacy `planner.*` values through the import rules. Withdraw the M2b KT's hand-off of `planner.runtime.*` to M4 (`04-knowledge_transfer_v0.md`, "For M4" item 3). An evaluator's packages are reported through `describe`'s `environment.packages{}`, and no milestone adds a planner field to the core. Rework `guard_layering_i1.rs` as the gate says. Whole-word matching is not enough: on main it misses every planner symbol A2 removes. Source: `__reports__/candler-v1-review/00-findings_v0.md`, D1-D5.
 - **Re-validation**: M2b's equivalence smoke re-run with inputs declared and without `--set`, recorded beside M2b's reports.
