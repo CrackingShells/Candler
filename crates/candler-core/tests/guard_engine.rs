@@ -250,12 +250,15 @@ fn reason_of(record: &OutcomeRecord) -> String {
 /// `not_applicable_to_arm`; the dependent of a `fail` is `blocked` by it, and the record the
 /// engine keeps is its own, not the plug-in's echo; the dependent of a `pass` is sent in the same
 /// request as its dependency and receives that dependency's record in `prior`, which the echo
-/// kind returns. Oracle: the hand literals below.
+/// kind returns. The same verdicts hold when the suite is written as JSON, and when the
+/// manifest's command is a bare `python -m` that only the activated environment resolves.
+/// Oracle: the hand literals below.
 #[tokio::test]
 async fn dependencies_and_applies_to_decide_what_is_sent() {
     for (manifest, suite) in [
         ("plugin.toml", "suite_dependencies.toml"),
         ("plugin.toml", "suite_dependencies.json"),
+        ("plugin_bare.toml", "suite_dependencies.toml"),
     ] {
         dependency_verdicts(manifest, suite).await;
     }
