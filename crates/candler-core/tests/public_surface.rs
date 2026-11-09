@@ -696,4 +696,29 @@ mod selection_rates_surface {
 
 /// The `evaluation::engine` items, filled by the `engine` leaf.
 #[cfg(unix)]
-mod engine_surface {}
+mod engine_surface {
+    use std::time::Duration;
+
+    use candler_core::evaluation::engine::{
+        Batch, EvaluateError, EvaluateReport, EvaluateRequest, PlanError, REQUEST_DEADLINE_MARGIN,
+        RunPlan, applies, evaluate, plan, regrade,
+    };
+    use candler_core::evaluation::registry::CheckedSuite;
+    use candler_schemas::evaluation::SuiteEntry;
+    use candler_schemas::execution::RunManifest;
+
+    /// Names every engine item and the signatures the binary calls in order: plan, then evaluate.
+    #[test]
+    fn engine_items_are_nameable() {
+        let planned: fn(&RunManifest, &CheckedSuite) -> Result<RunPlan, PlanError> = plan;
+        let applied: fn(&RunManifest, &SuiteEntry) -> bool = applies;
+        let _ = (planned, applied, evaluate, regrade);
+        let _ = (
+            None::<Batch>,
+            None::<EvaluateError>,
+            None::<EvaluateReport>,
+            None::<EvaluateRequest>,
+        );
+        assert_eq!(REQUEST_DEADLINE_MARGIN, Duration::from_secs(30));
+    }
+}
