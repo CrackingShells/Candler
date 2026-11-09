@@ -17,8 +17,8 @@ Ship `candler run`: resolve and preflight at the terminal, hand the spec to a de
 ## Status
 ```mermaid
 graph TD
-    cli_run[CLI: run]:::planned
-    closeout[Closeout]:::planned
+    cli_run[CLI: run]:::done
+    closeout[Closeout]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -29,8 +29,8 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `cli_run.md` | 📄 Leaf Task | ⬜ Planned |
-| `closeout/` | 📁 Directory | ⬜ Planned |
+| `cli_run.md` | 📄 Leaf Task | ✅ Done |
+| `closeout/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

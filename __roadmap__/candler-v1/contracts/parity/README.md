@@ -17,7 +17,7 @@ Candler reproduces today's grading exactly and today's runs equivalently.
 ```mermaid
 graph TD
     m2a_evaluation_parity[M2a Evaluation parity]:::planned
-    m2b_execution_parity[M2b Execution parity]:::planned
+    m2b_execution_parity[M2b Execution parity]:::done
     alignment[Wire alignment]:::amendment
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -30,7 +30,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `m2a_evaluation_parity.md` | 📄 Leaf Task | ⬜ Planned |
-| `m2b_execution_parity.md` | 📄 Leaf Task | ⬜ Planned |
+| `m2b_execution_parity.md` | 📄 Leaf Task | ✅ Done |
 | `alignment/` | 📁 Directory | 🔵 Amendment |
 
 ## Amendment Log

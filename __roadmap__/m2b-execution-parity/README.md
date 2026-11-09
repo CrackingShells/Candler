@@ -24,27 +24,27 @@ Before L0 the coordinator lands Phase 0 on `feat/m2b-execution-parity`: the spik
 
 ## Pre-conditions
 - [x] [nl] Eliott approved the plan, and the coordinator approved the scope move with conditions (2026-11-06)
-- [ ] [cmd] `git merge-base --is-ancestor origin/main feat/m2b-execution-parity`
-- [ ] [cmd] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints the checkout's path
-- [ ] [cmd] `rustup target list --installed | grep -qx x86_64-unknown-linux-gnu && docker version --format '{{.Server.Version}}'`
-- [ ] [cmd] Phase 0 is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas)!*: ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
-- [ ] [cmd] The feature map covers contract v5: `cd __roadmap__/m2b-execution-parity/feature_map && test -z "$(comm -23 <(sh ids_from_contract.sh) <(jq -r '.[].id' feature_map.json | sort))"`
-- [ ] [nl] The api_review verifier reports no open finding on the scaffold against M2a, M3, M4 and M5
+- [x] [cmd] `git merge-base --is-ancestor origin/main feat/m2b-execution-parity`
+- [x] [cmd] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints the checkout's path
+- [x] [cmd] `rustup target list --installed | grep -qx x86_64-unknown-linux-gnu && docker version --format '{{.Server.Version}}'`
+- [x] [cmd] Phase 0 is landed: `for s in '^docs(design): ' '^build(repo): ' '^ci(repo): ' '^feat(schemas)!*: ' '^feat(orchestrator): scaffold'; do git log --format=%s origin/main..feat/m2b-execution-parity | grep -q "$s" || exit 1; done && test -s __roadmap__/m2b-execution-parity/feature_map/feature_map.json`
+- [x] [cmd] The feature map covers contract v5: `cd __roadmap__/m2b-execution-parity/feature_map && test -z "$(comm -23 <(sh ids_from_contract.sh) <(jq -r '.[].id' feature_map.json | sort))"`
+- [x] [nl] The api_review verifier reports no open finding on the scaffold against M2a, M3, M4 and M5
 - [x] [nl] Eliott chose the smoke model on RiVault: `RiVault/Reasoning-Small` (Qwen3.8-27B) with `--effort medium`, and approved pushing the branch for a draft PR after the scaffold (2026-11-06)
 
 ## Success Gates
-- ⬜ [cmd] STD, DRIFT and LINUX pass on `feat/m2b-execution-parity`
-- ⬜ [cmd] SUBJ passes over `origin/main..feat/m2b-execution-parity`
-- ⬜ [cmd] `cargo nextest run -p candler-core --run-ignored only --no-tests=fail -E 'binary(guard_container_e2e)'` passes on macOS against Docker Desktop
-- ⬜ [cmd] No e2e placeholder is left, and the binary runs more than zero tests: `! git grep -n 'fn placeholder_' -- crates/candler-core/tests` and the summary line of the previous command reports at least one test run
-- ⬜ [cmd] The Linux half: `gh run list --workflow container-e2e --commit "$(git rev-parse HEAD)" --json conclusion -q '.[0].conclusion'` prints `success`, and its log names every e2e test R04 marks Linux; until then this gate is recorded as not yet run, never as passed
-- ⬜ [cmd] `diff <(cd crates/candler-schemas/schema && printf '%s\n' *.schema.json | sort) __roadmap__/m1-contracts/interfaces/services/import/closeout/expected_roots.txt` prints nothing (M1's list, which ab06c45 extended with `container-record`; A57)
-- ⬜ [cmd] At most 40 new guards (the I22 rows in `guard_signal.rs` belong to M1's guard, A49 and A57) and no scaffolding left: `test "$(git diff origin/main...feat/m2b-execution-parity -U0 -- crates ':!crates/candler-core/tests/guard_signal.rs' | grep -c '^+ *///* Guards:')" -le 40 && ! git grep -n -e 'mod scaffold' -e 'scaffold_' -- crates`
-- ⬜ [cmd] The parent tree is amended and valid: `! git grep -n -e 'Docker is not needed' -e 'not needed before this milestone' -e 'Docker enters the project here' -- __roadmap__/candler-v1 __design__ && git grep -q 'under container isolation' -- __roadmap__/candler-v1/contracts/parity/m2b_execution_parity.md && bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/`
-- ⬜ [nl] `runs/jobs/cli/closeout/` is `done`: B36 decides the kill gate (no container labelled for the job and no marked host process after `ps`/`run`, macOS and Linux), and the equivalence smoke decides R02's other gates
-- ⬜ [nl] Carved out of R02's first gate (sandbox composition match): the feature_map rows S2, X19 and X32 and the `layout` check are owned by M2c (`parity/alignment/m2c_wire_alignment.md`, amendment A1 on `parity/README.md`; ruling A58). The smoke reports them as failing with that owner, and the KT records them under M2c, never as passed
-- ⬜ [nl] Every leaf is `done`, and every required verification and Grit review reports no open finding
-- ⬜ [nl] The KT records the intended deviations from `run-config` (each provenance field whose meaning changes, such as the workspace path and env), the accepted macOS gap and what bounds it, and a "For M4" section
+- ✅ [cmd] STD, DRIFT and LINUX pass on `feat/m2b-execution-parity`
+- ✅ [cmd] SUBJ passes over `origin/main..feat/m2b-execution-parity`
+- ✅ [cmd] `cargo nextest run -p candler-core --run-ignored only --no-tests=fail -E 'binary(guard_container_e2e)'` passes on macOS against Docker Desktop
+- ✅ [cmd] No e2e placeholder is left, and the binary runs more than zero tests: `! git grep -n 'fn placeholder_' -- crates/candler-core/tests` and the summary line of the previous command reports at least one test run
+- ✅ [cmd] The Linux half: `gh run list --workflow container-e2e --commit "$(git rev-parse HEAD)" --json conclusion -q '.[0].conclusion'` prints `success`, and its log names every e2e test R04 marks Linux; until then this gate is recorded as not yet run, never as passed
+- ✅ [cmd] `diff <(cd crates/candler-schemas/schema && printf '%s\n' *.schema.json | sort) __roadmap__/m1-contracts/interfaces/services/import/closeout/expected_roots.txt` prints nothing (M1's list, which ab06c45 extended with `container-record`; A57)
+- ✅ [cmd] At most 40 new guards (the I22 rows in `guard_signal.rs` belong to M1's guard, A49 and A57; a `Guards: none` line marks a re-exec entry, and a rewritten M1 doc line nets to zero, A62) and no scaffolding left: `d="$(git diff origin/main...feat/m2b-execution-parity -U0 -- crates ':!crates/candler-core/tests/guard_signal.rs')" && test $(( $(printf '%s\n' "$d" | grep -c '^+ *///* Guards: [^n]') - $(printf '%s\n' "$d" | grep -c '^- *///* Guards:') )) -le 40 && ! git grep -n -e 'mod scaffold' -e 'scaffold_' -- crates`
+- ✅ [cmd] The parent tree is amended and valid: `! git grep -n -e 'Docker is not needed' -e 'not needed before this milestone' -e 'Docker enters the project here' -- __roadmap__/candler-v1 __design__ && git grep -q 'under container isolation' -- __roadmap__/candler-v1/contracts/parity/m2b_execution_parity.md && bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/`
+- ✅ [nl] `runs/jobs/cli/closeout/` is `done`: B36 decides the kill gate (no container labelled for the job and no marked host process after `ps`/`run`, macOS and Linux), and the equivalence smoke decides R02's other gates
+- ✅ [nl] Carved out of R02's first gate (sandbox composition match): the feature_map rows S2, X19 and X32 and the `layout` check are owned by M2c (`parity/alignment/m2c_wire_alignment.md`, amendment A1 on `parity/README.md`; ruling A58). The smoke reports them as failing with that owner, and the KT records them under M2c, never as passed
+- ✅ [nl] Every leaf is `done`, and every required verification and Grit review reports no open finding
+- ✅ [nl] The KT records the intended deviations from `run-config` (each provenance field whose meaning changes, such as the workspace path and env), the accepted macOS gap and what bounds it, and a "For M4" section
 
 ## Gotchas
 - **One CLI error type and one exit mapping (D27).** Every verb is `async fn run(Args) -> Result<Exit, CliError>`; `main.rs` maps `Ok(Exit::Success)` to 0, `Ok(Exit::Changed { .. })` to 1 and any `CliError` to 2, so an M2b verb that fails exits 2. A non-error status is a new `Exit` variant, never a `CliError` variant or a raw `ExitCode`. After the rebase onto M2a, the store-root lookup, the resolver composition and the `EventSink` come from M2a's `commands/common.rs`, never a copy; `register_m2b_steps` is composed one call per line there, as M2a's steps are.
@@ -154,16 +154,16 @@ Before L0 the coordinator lands Phase 0 on `feat/m2b-execution-parity`: the spik
 ## Status
 ```mermaid
 graph TD
-    job_store[Job store: dir, lock, events, slots]:::planned
-    comparability[Comparability diff and stratum verdict]:::planned
-    image[Image: pinned base and env layers]:::planned
-    container_run[Container run: argv, mounts, expiry]:::planned
-    container_stop[Container stop: guard, hook, sweeper]:::planned
-    gateway[Gateway: token outside the agent]:::planned
-    experiment_resolution[Experiment resolution and preflight]:::planned
-    claude_code_driver[Claude Code driver]:::planned
-    run_evidence[Run evidence: catalog, census, leaks]:::planned
-    runs[Runs]:::planned
+    job_store[Job store: dir, lock, events, slots]:::done
+    comparability[Comparability diff and stratum verdict]:::done
+    image[Image: pinned base and env layers]:::done
+    container_run[Container run: argv, mounts, expiry]:::done
+    container_stop[Container stop: guard, hook, sweeper]:::done
+    gateway[Gateway: token outside the agent]:::done
+    experiment_resolution[Experiment resolution and preflight]:::done
+    claude_code_driver[Claude Code driver]:::done
+    run_evidence[Run evidence: catalog, census, leaks]:::done
+    runs[Runs]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -174,16 +174,16 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `job_store.md` | 📄 Leaf Task | ⬜ Planned |
-| `comparability.md` | 📄 Leaf Task | ⬜ Planned |
-| `image.md` | 📄 Leaf Task | ⬜ Planned |
-| `container_run.md` | 📄 Leaf Task | ⬜ Planned |
-| `container_stop.md` | 📄 Leaf Task | ⬜ Planned |
-| `gateway.md` | 📄 Leaf Task | ⬜ Planned |
-| `experiment_resolution.md` | 📄 Leaf Task | ⬜ Planned |
-| `claude_code_driver.md` | 📄 Leaf Task | ⬜ Planned |
-| `run_evidence.md` | 📄 Leaf Task | ⬜ Planned |
-| `runs/` | 📁 Directory | ⬜ Planned |
+| `job_store.md` | 📄 Leaf Task | ✅ Done |
+| `comparability.md` | 📄 Leaf Task | ✅ Done |
+| `image.md` | 📄 Leaf Task | ✅ Done |
+| `container_run.md` | 📄 Leaf Task | ✅ Done |
+| `container_stop.md` | 📄 Leaf Task | ✅ Done |
+| `gateway.md` | 📄 Leaf Task | ✅ Done |
+| `experiment_resolution.md` | 📄 Leaf Task | ✅ Done |
+| `claude_code_driver.md` | 📄 Leaf Task | ✅ Done |
+| `run_evidence.md` | 📄 Leaf Task | ✅ Done |
+| `runs/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

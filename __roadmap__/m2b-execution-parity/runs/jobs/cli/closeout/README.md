@@ -18,8 +18,8 @@ Prove that nothing outlives a killed supervisor, and that the container runner k
 ## Status
 ```mermaid
 graph TD
-    supervision_gates[Supervision gates]:::planned
-    equivalence_smoke[Equivalence smoke]:::planned
+    supervision_gates[Supervision gates]:::done
+    equivalence_smoke[Equivalence smoke]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -30,8 +30,8 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `supervision_gates.md` | 📄 Leaf Task | ⬜ Planned |
-| `equivalence_smoke.md` | 📄 Leaf Task | ⬜ Planned |
+| `supervision_gates.md` | 📄 Leaf Task | ✅ Done |
+| `equivalence_smoke.md` | 📄 Leaf Task | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

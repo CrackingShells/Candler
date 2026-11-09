@@ -17,10 +17,10 @@ Plan runs without losing data, run one cell under the container and classify its
 ## Status
 ```mermaid
 graph TD
-    run_plan[Run plan: keys, attempts, resume]:::planned
-    run_exec[Run exec: spawn, ends, seal]:::planned
-    cli_ps_kill_watch[CLI: ps, kill, watch]:::planned
-    jobs[Jobs]:::planned
+    run_plan[Run plan: keys, attempts, resume]:::done
+    run_exec[Run exec: spawn, ends, seal]:::done
+    cli_ps_kill_watch[CLI: ps, kill, watch]:::done
+    jobs[Jobs]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -31,10 +31,10 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `run_plan.md` | 📄 Leaf Task | ⬜ Planned |
-| `run_exec.md` | 📄 Leaf Task | ⬜ Planned |
-| `cli_ps_kill_watch.md` | 📄 Leaf Task | ⬜ Planned |
-| `jobs/` | 📁 Directory | ⬜ Planned |
+| `run_plan.md` | 📄 Leaf Task | ✅ Done |
+| `run_exec.md` | 📄 Leaf Task | ✅ Done |
+| `cli_ps_kill_watch.md` | 📄 Leaf Task | ✅ Done |
+| `jobs/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

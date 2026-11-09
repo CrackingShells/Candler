@@ -17,9 +17,9 @@ Supervise a whole job: detach, lock, reap, map SIGTERM to `killed`, and drive th
 ## Status
 ```mermaid
 graph TD
-    job_runtime[Job runtime: detach, lock, reap]:::planned
-    job_orchestrate[Job orchestrate: gateway, caps]:::planned
-    cli[Run command]:::planned
+    job_runtime[Job runtime: detach, lock, reap]:::done
+    job_orchestrate[Job orchestrate: gateway, caps]:::done
+    cli[Run command]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -30,9 +30,9 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `job_runtime.md` | 📄 Leaf Task | ⬜ Planned |
-| `job_orchestrate.md` | 📄 Leaf Task | ⬜ Planned |
-| `cli/` | 📁 Directory | ⬜ Planned |
+| `job_runtime.md` | 📄 Leaf Task | ✅ Done |
+| `job_orchestrate.md` | 📄 Leaf Task | ✅ Done |
+| `cli/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
