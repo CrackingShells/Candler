@@ -42,12 +42,13 @@ use candler_schemas::primitives::JobId;
 mod support;
 
 use support::assert_clean;
+use support::gateway::{canary, client_env, random_job};
 use support::job_runtime::{job_spec, services};
 use support::job_store::job_record;
 use support::supervision_gates::{
-    ENV_JOB, ENV_SIDECAR, ENV_STORE, ENV_TOKEN, ENV_WORK, TEST_LABEL, canary, client_env,
-    daemon_up, gates_body, label_of, labelled, make_certs, marked, network_exists, random_job,
-    require_images, run_fake, run_key, running, sidecar_image_id,
+    ENV_JOB, ENV_SIDECAR, ENV_STORE, ENV_TOKEN, ENV_WORK, TEST_LABEL, daemon_up, gates_body,
+    label_of, labelled, make_certs, marked, network_exists, require_images, run_fake, run_key,
+    running, sidecar_image_id,
 };
 
 /// How long the supervisor child may take to start the gateway and the agent.

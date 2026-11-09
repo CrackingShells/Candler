@@ -1,10 +1,7 @@
 //! Helpers for the guards of the supervision gates: builders and fixtures, never expected values.
 #![allow(dead_code, reason = "each guard binary uses a subset of the helpers")]
 
-use std::fmt::Write as _;
-use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -24,6 +21,11 @@ use candler_schemas::primitives::{Digest, JobId, Marker, RunKey};
 use candler_schemas::process::ProcessStart;
 use futures::future::BoxFuture;
 
+use super::gateway::{
+    AGENT_IMAGE, CELL_HEX, EXPERIMENT, FAKE_SCRIPT, GATEWAY_CONTEXT, PYTHON_IMAGE, SECRET_NAME,
+    UPSTREAM_HOST, UPSTREAM_PORT, docker, make_ca, make_server_cert,
+};
+
 /// The job the re-executed supervisor serves.
 pub const ENV_JOB: &str = "CANDLER_TEST_GATES_JOB";
 /// The store the supervisor child opens.
@@ -37,131 +39,6 @@ pub const ENV_TOKEN: &str = "CANDLER_TEST_GATES_TOKEN";
 
 /// The label every container the test makes carries, so a manual cleanup stays scoped.
 pub const TEST_LABEL: &str = "candler.test=supervision_gates";
-/// The test agent image, which the gateway guards use too.
-pub const AGENT_IMAGE: &str = "candler-testagent:test";
-/// The directory of the sidecar image's build context.
-const GATEWAY_CONTEXT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/docker/gateway");
-/// The upstream fake, written into the fake's own directory at test time.
-const FAKE_SCRIPT: &str = include_str!("../fixtures/gateway/tls_upstream.py");
-/// The pinned Python image the fake runs in, by digest.
-const PYTHON_IMAGE: &str =
-    "python@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df";
-/// The host name the fake's certificate is valid for.
-const UPSTREAM_HOST: &str = "upstream.test";
-/// The port the fake serves TLS on.
-const UPSTREAM_PORT: u16 = 8443;
-/// The name the gateway's token is resolved under.
-const SECRET_NAME: &str = "model.token_secret";
-/// The cell digest of the run key the agent carries.
-const CELL_HEX: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-/// The experiment digest the sidecar is labelled with.
-const EXPERIMENT: &str = "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd";
-
-/// What a command printed and how it ended.
-pub struct Ran {
-    pub code: Option<i32>,
-    pub out: String,
-    pub err: String,
-}
-
-impl Ran {
-    /// Whether the command exited 0.
-    pub fn ok(&self) -> bool {
-        self.code == Some(0)
-    }
-
-    /// Standard output of a command that must have succeeded.
-    pub fn must(self, what: &str) -> String {
-        assert!(
-            self.ok(),
-            "{what} failed (exit {:?}): {}",
-            self.code,
-            self.err.trim()
-        );
-        self.out
-    }
-}
-
-/// The environment of the docker client: what it needs to find its daemon, and nothing else.
-pub fn client_env() -> Vec<(String, String)> {
-    [
-        "PATH",
-        "HOME",
-        "DOCKER_HOST",
-        "DOCKER_CONFIG",
-        "DOCKER_CONTEXT",
-    ]
-    .into_iter()
-    .filter_map(|key| {
-        std::env::var(key)
-            .ok()
-            .map(|value| (String::from(key), value))
-    })
-    .collect()
-}
-
-/// Runs `program` with `args` and `stdin`, and waits for it.
-pub fn run(program: &str, args: &[&str], stdin: &[u8]) -> Ran {
-    let mut child = Command::new(program)
-        .args(args)
-        .env_clear()
-        .envs(client_env())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap_or_else(|error| panic!("`{program}` did not start (is it installed?): {error}"));
-    if let Some(mut pipe) = child.stdin.take() {
-        // A command that exits without reading its stdin closes the pipe; that is not an error.
-        let _ = pipe.write_all(stdin);
-    }
-    let done = child.wait_with_output().expect("a command to finish");
-    Ran {
-        code: done.status.code(),
-        out: String::from_utf8_lossy(&done.stdout).into_owned(),
-        err: String::from_utf8_lossy(&done.stderr).into_owned(),
-    }
-}
-
-/// `docker <args>`.
-pub fn docker(args: &[&str]) -> Ran {
-    run("docker", args, &[])
-}
-
-/// 128 random bits as lowercase hex, from the operating system.
-pub fn random_hex() -> String {
-    let mut bytes = [0_u8; 16];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut file| file.read_exact(&mut bytes))
-        .expect("random bytes");
-    let mut text = String::with_capacity(32);
-    for byte in bytes {
-        write!(text, "{byte:02x}").expect("a string write");
-    }
-    text
-}
-
-/// A job id with random leading digits: the network names are made from them.
-pub fn random_job() -> JobId {
-    let hex = random_hex();
-    let at = |from: usize, to: usize| hex.get(from..to).expect("32 hex digits");
-    format!(
-        "{}-{}-7{}-8{}-{}",
-        at(0, 8),
-        at(8, 12),
-        at(12, 15),
-        at(15, 18),
-        at(18, 30)
-    )
-    .parse()
-    .expect("a job id")
-}
-
-/// A random canary token: it stands in for the real credential.
-pub fn canary() -> String {
-    format!("cnd-canary-{}/{}", random_hex(), random_hex())
-}
-
 /// The run key the agent container carries.
 pub fn run_key() -> RunKey {
     format!("{CELL_HEX}-r1-a1").parse().expect("a run key")
@@ -240,85 +117,12 @@ pub fn network_exists(name: &NetworkName) -> bool {
     docker(&["network", "inspect", name.as_str()]).ok()
 }
 
-fn path_text(path: &Path) -> String {
-    String::from(path.to_str().expect("a utf-8 path"))
-}
-
 /// Makes the upstream's certificate authority `ca.pem` and a server certificate `cert.pem` for
 /// `UPSTREAM_HOST` in `dir`, with the `openssl` CLI.
 pub fn make_certs(dir: &Path) {
     std::fs::create_dir_all(dir).expect("a certificate directory");
-    let path = |name: &str| path_text(&dir.join(name));
-    run(
-        "openssl",
-        &[
-            "req",
-            "-x509",
-            "-newkey",
-            "rsa:2048",
-            "-nodes",
-            "-keyout",
-            &path("ca.key"),
-            "-out",
-            &path("ca.pem"),
-            "-days",
-            "2",
-            "-subj",
-            "/CN=candler-supervision-gates-ca",
-            "-addext",
-            "basicConstraints=critical,CA:TRUE",
-            "-addext",
-            "keyUsage=critical,keyCertSign,cRLSign",
-        ],
-        &[],
-    )
-    .must("openssl req of a certificate authority");
-    run(
-        "openssl",
-        &[
-            "req",
-            "-newkey",
-            "rsa:2048",
-            "-nodes",
-            "-keyout",
-            &path("key.pem"),
-            "-out",
-            &path("server.csr"),
-            "-subj",
-            &format!("/CN={UPSTREAM_HOST}"),
-        ],
-        &[],
-    )
-    .must("openssl req of the server key");
-    std::fs::write(
-        dir.join("server.ext"),
-        format!(
-            "subjectAltName=DNS:{UPSTREAM_HOST}\nbasicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n"
-        ),
-    )
-    .expect("an extension file");
-    run(
-        "openssl",
-        &[
-            "x509",
-            "-req",
-            "-in",
-            &path("server.csr"),
-            "-CA",
-            &path("ca.pem"),
-            "-CAkey",
-            &path("ca.key"),
-            "-CAcreateserial",
-            "-out",
-            &path("cert.pem"),
-            "-days",
-            "2",
-            "-extfile",
-            &path("server.ext"),
-        ],
-        &[],
-    )
-    .must("openssl x509 of the server certificate");
+    make_ca(dir, "ca");
+    make_server_cert(dir, "ca");
 }
 
 /// Starts the TLS upstream as `upstream.test` on the job's egress network, expecting `token`,
