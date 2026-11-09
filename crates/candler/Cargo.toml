@@ -14,6 +14,7 @@ candler-harness.workspace = true
 candler-harness-claude-code.workspace = true
 candler-schemas.workspace = true
 clap.workspace = true
+regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
