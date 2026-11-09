@@ -10,12 +10,18 @@ from collections.abc import Mapping, Sequence
 from types import ModuleType
 from typing import Any
 
+from pydantic import ValidationError
+
+from ._models.evaluator_describe_result import DescribeResult
+from ._models.outcome_record import OutcomeRecord
 from .frames import (
     FrameWriter,
     LineReader,
     ProtocolError,
+    Refused,
     install_fd_guard,
     parse_message,
+    summarise,
 )
 from .identity import Identity, IdentityError, identity
 from .isolate import Abandoned, Done, make_runner, run_item
@@ -26,7 +32,6 @@ __all__ = ["main", "serve"]
 PROTOCOL = {"major": 1, "minor": 0}
 CANCELLED = -32800
 INVALID_PARAMS = -32602
-METHOD_NOT_FOUND = -32601
 SERVER_ERROR = -32000
 DEFAULT_DEADLINE_MS = 60_000
 MAX_DEADLINE_MS = 2**53 - 1
@@ -48,7 +53,7 @@ class Inbox:
 
     def __init__(self, reader: LineReader) -> None:
         self._reader = reader
-        self._pending: deque[dict[str, Any]] = deque()
+        self._pending: deque[Any] = deque()
         self._current: str | None = None
         self._early_cancels: set[str] = set()
         self.cancelled = False
@@ -73,8 +78,8 @@ class Inbox:
         self._current = None
         self.cancelled = False
 
-    def next_message(self) -> dict[str, Any] | None:
-        """The next request or notification, waiting for it; None at end of input."""
+    def next_message(self) -> Any:
+        """The next request model, or a `Refused`, waiting for it; None at end of input."""
         while True:
             self._drain()
             if self._pending:
@@ -89,19 +94,22 @@ class Inbox:
                 continue
             try:
                 msg = parse_message(line)
+            except Refused as err:
+                self._pending.append(err)
+                continue
             except ProtocolError as err:
                 _log(f"dropped a malformed line: {err}")
                 continue
-            if "method" not in msg:
-                continue
-            if msg["method"] == "cancel" and "id" not in msg:
-                target = msg.get("params", {}).get("request_id")
+            method = getattr(msg, "method", None)
+            if method == "cancel":
+                target = msg.params.request_id.root
                 if target == self._current:
                     self.cancelled = True
-                elif isinstance(target, str):
+                else:
                     self._early_cancels.add(target)
-            else:
+            elif method in ("describe", "evaluate"):
                 self._pending.append(msg)
+            # Other notifications and responses carry nothing the helper acts on.
 
 
 def _log(text: str) -> None:
@@ -118,6 +126,20 @@ def _error(request_id: str, code: int, message: str) -> dict[str, Any]:
 
 def _result(request_id: str, result: Mapping[str, Any]) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
+
+
+def _fault_fields(note: str) -> dict[str, Any]:
+    return {
+        "status": "not_measured",
+        "cause": {"reason": "instrument_error"},
+        "evidence": [{"note": note}],
+    }
+
+
+def _checked(record: Mapping[str, Any]) -> dict[str, Any]:
+    return OutcomeRecord.model_validate(record).model_dump(
+        mode="json", exclude_none=True
+    )
 
 
 def _notify(method: str, params: Mapping[str, Any]) -> dict[str, Any]:
@@ -155,31 +177,19 @@ class _ParamsError(ValueError):
 
 
 def _parse_evaluate(
-    params: Mapping[str, Any],
+    params: Any,
 ) -> tuple[RunContext, list[dict[str, Any]], list[Any]]:
-    try:
-        context = RunContext.from_wire(params["context"], params["scratch"])
-        items = params["items"]
-        prior = params["prior"]
-        if not isinstance(items, list) or not isinstance(prior, list):
-            raise TypeError("`items` and `prior` are lists")
-        for item in items:
-            for key in ("expectation_id", "kind", "params", "deadline_ms"):
-                item[key]
-            if not isinstance(item["kind"], str):
-                raise TypeError("`kind` is a string")
-            if not isinstance(item["params"], dict):
-                raise TypeError("`params` is an object")
-            deadline = item["deadline_ms"]
-            if isinstance(deadline, bool) or not isinstance(deadline, int):
-                raise TypeError("`deadline_ms` is an integer")
-            if not 0 <= deadline <= MAX_DEADLINE_MS:
-                raise TypeError("`deadline_ms` is outside 0 to 2**53 - 1")
-            if not isinstance(item["expectation_id"], str):
-                raise TypeError("`expectation_id` is a string")
-    except (KeyError, TypeError, AttributeError) as err:
-        raise _ParamsError(f"invalid evaluate params: {err!r}") from err
-    return context, items, prior
+    """The context, items and prior records of validated `evaluate` params, as plain data.
+
+    The model has checked every member; the one limit it does not carry is the largest
+    deadline the helper can wait for.
+    """
+    wire = params.model_dump(mode="json", exclude_none=True)
+    for item in wire["items"]:
+        if item["deadline_ms"] > MAX_DEADLINE_MS:
+            raise _ParamsError("`deadline_ms` is outside 0 to 2**53 - 1")
+    context = RunContext.from_wire(wire["context"], wire["scratch"])
+    return context, wire["items"], wire["prior"]
 
 
 class _Loop:
@@ -204,17 +214,12 @@ class _Loop:
 
     def _serve(self) -> int:
         while (msg := self.inbox.next_message()) is not None:
-            if "id" not in msg:
-                continue
-            handler = {"describe": self.describe, "evaluate": self.evaluate}.get(
-                msg["method"]
-            )
-            if handler is None:
-                self.writer.write(
-                    _error(msg["id"], METHOD_NOT_FOUND, f"no method {msg['method']}")
-                )
+            if isinstance(msg, Refused):
+                self.writer.write(_error(msg.request_id, msg.code, str(msg)))
+            elif msg.method == "describe":
+                self.describe(msg.id.root)
             else:
-                handler(msg)
+                self.evaluate(msg.id.root, msg.params)
         return 0
 
     def _evaluator(self) -> tuple[str, str]:
@@ -227,8 +232,7 @@ class _Loop:
             raise ValueError("the plug-in has no name or version")
         return name, version
 
-    def describe(self, msg: dict[str, Any]) -> None:
-        rid = msg["id"]
+    def describe(self, rid: str) -> None:
         try:
             name, version = self._evaluator()
             instruments = [i.as_instrument() for i in self._identities()]
@@ -239,7 +243,7 @@ class _Loop:
         ) as err:
             self.writer.write(_error(rid, SERVER_ERROR, str(err)))
             return
-        result = {
+        result: Any = {
             "protocol": dict(PROTOCOL),
             "name": name,
             "version": version,
@@ -248,6 +252,13 @@ class _Loop:
             "kind": "deterministic" if self.plugin.deterministic else "probabilistic",
             "kinds": _kind_specs(self.plugin),
         }
+        try:
+            result = DescribeResult.model_validate(result).model_dump(
+                mode="json", exclude_none=True
+            )
+        except ValidationError as err:
+            self.writer.write(_error(rid, SERVER_ERROR, summarise(err)))
+            return
         self.writer.write(
             _notify(
                 "log",
@@ -260,10 +271,9 @@ class _Loop:
         )
         self.writer.write(_result(rid, result))
 
-    def evaluate(self, msg: dict[str, Any]) -> None:
-        rid = msg["id"]
+    def evaluate(self, rid: str, params: Any) -> None:
         try:
-            context, items, prior = _parse_evaluate(msg.get("params", {}))
+            context, items, prior = _parse_evaluate(params)
             name, version = self._evaluator()
             instruments = [i.as_instrument() for i in self._identities()]
         except _ParamsError as err:
@@ -332,12 +342,31 @@ class _Loop:
         item: dict[str, Any],
         fields: dict[str, Any] | str,
     ) -> dict[str, Any]:
-        if isinstance(fields, str):
-            fields = {
-                "status": "not_measured",
-                "cause": {"reason": "instrument_error"},
-                "evidence": [{"note": fields}],
+        record = self._build_record(rid, evaluator, instruments, context, item, fields)
+        try:
+            return _checked(record)
+        except ValidationError as err:
+            # The kind's outcome fits the protocol's rules but not the record's: the item
+            # is not measured, and the fault is what the models said of it.
+            fault = {
+                **record,
+                **_fault_fields(f"outcome record refused: {summarise(err)}"),
             }
+            for key in ("value", "weight", "probability"):
+                fault.pop(key, None)
+            return _checked(fault)
+
+    def _build_record(
+        self,
+        rid: str,
+        evaluator: str,
+        instruments: list[dict[str, Any]],
+        context: RunContext,
+        item: dict[str, Any],
+        fields: dict[str, Any] | str,
+    ) -> dict[str, Any]:
+        if isinstance(fields, str):
+            fields = _fault_fields(fields)
         return {
             "run": dict(context.run),
             "expectation_id": item["expectation_id"],
