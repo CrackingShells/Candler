@@ -9,7 +9,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use candler_schemas::execution::{Comparable, SecretPresence};
+use candler_schemas::container::ContainerRole;
+use candler_schemas::execution::{Comparable, EventPayload, SecretPresence};
 use candler_schemas::primitives::{Digest, FieldPath, Marker, SecretName};
 use candler_schemas::values::{ResolvedValue, SourceEntry, ValueSource};
 use futures::future::BoxFuture;
@@ -461,6 +462,11 @@ impl JobSession {
                 });
             }
         };
+        // the gateway's record is written; its event names it
+        rt.sink.emit(
+            None,
+            EventPayload::container_created(handle.container.cid.clone(), ContainerRole::Gateway), // BORROW: the event owns the id
+        );
         session.gateway = Some(handle.container.clone()); // BORROW: the session owns the sidecar's reference
         match service.probe(&handle).await {
             // EXPLICIT: a serving gateway is the wanted state; the session goes on

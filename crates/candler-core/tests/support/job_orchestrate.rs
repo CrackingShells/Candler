@@ -412,7 +412,12 @@ impl Rig {
     /// and no isolation, no gateway and no cell until the job sets them.
     pub fn runtime(&self) -> Runtime {
         // TRAIT_OBJECT: the supervisor and the runs take their sink as a trait object
-        let sink: Arc<dyn EventSink> = Arc::new(Silent);
+        self.runtime_with_sink(Arc::new(Silent))
+    }
+
+    /// The runtime of the job, whose supervisor and runs report to `sink`.
+    // TRAIT_OBJECT: the supervisor and the runs take their sink as a trait object
+    pub fn runtime_with_sink(&self, sink: Arc<dyn EventSink>) -> Runtime {
         let supervisor = Arc::new(Supervisor::new(Arc::clone(&sink)));
         let records = self.dir.path().join("records");
         fs::create_dir_all(&records).expect("a directory");
