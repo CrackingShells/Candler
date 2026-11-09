@@ -269,8 +269,8 @@ fn wait_ready(child: &mut Child, work: &Path, logs: &Path) -> u32 {
     }
 }
 
-/// Guards: I15, I19, I20, I22 — a supervisor killed with SIGKILL while its gateway and agent running leaves, once the lost job is recovered, no container labelled for the job, no host process marked for it, no network of it, and the canary token nowhere in the store, the job directory, its events or the supervisor's logs.
-/// Oracle: `docker ps -a --filter label=candler.job=<id>`, `docker network inspect`, the operating system's view of every process environment, and `assert_clean` over the files.
+/// Guards: I15, I19, I20, I22 — a supervisor killed with SIGKILL while its three containers (the gateway sidecar, the fake upstream and the agent) run leaves, once the lost job is recovered, no container labelled for the job, no host process marked for it, no network of it, and the canary token nowhere in the store, the job directory, its events or the supervisor's logs.
+/// Oracle: `docker ps -a --filter label=candler.job=<id>`, `docker network inspect`, the host process table, and `assert_clean` over the files. The host process check differs by OS: on Linux it scans `/proc/*/environ` for the job's `CANDLER_RUN` marker; on macOS, where no tool shows a process environment, it checks only that the agent client's pid, with its start time, is gone.
 /// Bite: the lost-job path skips the container sweep.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs Docker; run with --run-ignored only"]
