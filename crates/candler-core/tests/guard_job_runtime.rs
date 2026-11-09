@@ -3,22 +3,35 @@
 #![cfg(test)]
 
 use std::fs;
-use std::path::Path;
+use std::io::Write as _;
+use std::os::unix::fs::PermissionsExt as _;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use candler_core::isolation::docker::{ClientEnv, DockerCli};
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::events::{JobEvents, TailPos};
 use candler_core::jobs::lock::{JobLock, LockState};
 use candler_core::jobs::lost::{JobLiveness, classify};
+use candler_core::jobs::model::{JobCause, JobControl};
+use candler_core::jobs::runtime::session::reap_lost_jobs;
 use candler_core::jobs::runtime::{JobEntry, supervise_entry};
+use candler_core::jobs::slots::Slots;
+use candler_core::runner::Runtime;
+use candler_core::runner::evidence::provenance::EvalInfra;
 use candler_core::store::Store;
+use candler_core::supervise::Supervisor;
 use candler_core::supervise::platform::process_start;
 use candler_schemas::execution::{EventPayload, JobEnd, JobState};
 use candler_schemas::process::ProcessStart;
+use std::collections::BTreeMap;
+use std::sync::Arc;
+use tokio::sync::watch;
 
 mod support;
 
+use support::job_orchestrate::{EmptyTree, QuietDriver, Rig, Silent};
 use support::job_runtime::{
     ENV_JOB, ENV_STORE, ENV_WORK, HeldChild, all_gone, job_spec, killed_body, read_log, services,
     stub_docker, term_child, wait_for,
@@ -294,4 +307,203 @@ async fn b33_setsid_descendant_dies() {
         all_gone(&tree, Duration::from_secs(5)),
         "a process of the tree survived the sweep"
     );
+}
+
+/// The directory the re-exec entry of B42 works in; the entry does nothing unless it is set.
+const REAP_WORK: &str = "CANDLER_TEST_REAP_WORK";
+
+/// Appends `text` to the event log of `dir`, as written.
+fn append_log(dir: &JobDir, text: &str) {
+    fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(dir.path().join("events.jsonl"))
+        .expect("the log")
+        .write_all(text.as_bytes())
+        .expect("a log line");
+}
+
+/// The line of a `job.started` event of `job`, written by hand from the event envelope.
+fn started_line(job: &str) -> String {
+    format!(
+        "{{\"v\":1,\"seq\":0,\"at\":\"2026-11-06T09:00:00Z\",\"job_id\":\"{job}\",\"kind\":\"job.started\",\"payload\":{{}}}}\n"
+    )
+}
+
+/// The line of a `job.ended` event of `job`, written by hand from the event envelope.
+fn ended_line(job: &str) -> String {
+    format!(
+        "{{\"v\":1,\"seq\":1,\"at\":\"2026-11-06T10:00:00Z\",\"job_id\":\"{job}\",\"kind\":\"job.ended\",\"payload\":{{\"reason\":\"completed\"}}}}\n"
+    )
+}
+
+/// The re-exec entry of B42: it runs `reap_lost_jobs` as the job `own` over the store of
+/// `CANDLER_TEST_REAP_WORK`, once with a control cancelled before the call and once with a live
+/// one, and writes what it saw to `reaped.txt`. It runs in a child whose `PATH` holds only the
+/// fake client, because the sweep looks for `docker` on `PATH`.
+///
+/// Guards: none (re-exec entry of B42).
+/// Oracle: none.
+/// Bite: none.
+#[test]
+fn reap_child() {
+    let Ok(work) = std::env::var(REAP_WORK) else {
+        return;
+    };
+    let work = PathBuf::from(work);
+    let store = Store::open(&work.join("store")).expect("a store");
+    let own = job_id(34);
+    let sibling = JobDir::open(store.layout(), &job_id(35)).expect("the sibling");
+    let supervisor = Arc::new(Supervisor::new(Arc::new(Silent)));
+    let records = work.join("records");
+    fs::create_dir_all(&records).expect("a directory");
+    let slots_dir = work.join("slots");
+    fs::create_dir_all(&slots_dir).expect("a directory");
+    let docker = DockerCli::new(Arc::clone(&supervisor), ClientEnv::from_process(), records)
+        .expect("the fake client on PATH");
+    let runtime = Runtime {
+        supervisor,
+        store,
+        sink: Arc::new(Silent),
+        slots: Slots::open(&slots_dir, 4).expect("the slots"),
+        docker: Arc::new(docker),
+        isolation: None,
+        gateway: None,
+        job: own.clone(), // BORROW: the runtime owns its job id
+        driver: Arc::new(QuietDriver),
+        skills: Arc::new(EmptyTree),
+        cells: BTreeMap::new(),
+        eval_infra: EvalInfra::default(),
+        planner_package: None,
+    };
+    let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("a runtime");
+    let mut out: Vec<String> = Vec::new();
+
+    let cancelled = JobControl {
+        cancel: Arc::new(watch::channel(None).0),
+    };
+    cancelled.cancel.send_replace(Some(JobCause::Killed));
+    let none = tokio_runtime.block_on(reap_lost_jobs(&runtime, &own, &cancelled));
+    out.push(format!("cancelled-reports {}", none.len()));
+    out.push(format!(
+        "cancelled-sibling {:?}",
+        classify(&sibling).expect("a class")
+    ));
+
+    let live = JobControl {
+        cancel: Arc::new(watch::channel(None).0),
+    };
+    for (id, result) in tokio_runtime.block_on(reap_lost_jobs(&runtime, &own, &live)) {
+        match result {
+            Ok(report) => out.push(format!("report {id} {:?}", report.outcome)),
+            Err(reason) => out.push(format!("report {id} error {reason}")),
+        }
+    }
+    fs::write(work.join("reaped.txt"), out.join("\n")).expect("the result file");
+}
+
+/// Guards: B42 — the supervisor's sweep of lost jobs recovers a lost sibling and never the job
+/// that runs it, leaves an ended job alone, and recovers nothing once its job is told to stop.
+/// Oracle: one hand-built store of three jobs (the running job, a lost sibling and an ended job,
+/// all with a `running` record, a free lock and a `job.started`), classified by the log and the
+/// lock; the fake client's call log holds no destroying verb.
+/// Bite: remove the `own` filter in `reap_lost_jobs`, or the `cancelled` check in its loop.
+#[test]
+fn b42_reap_lost_jobs_spares_own_and_stops_on_cancel() {
+    let rig = Rig::new(0);
+    let work = rig.dir.path();
+    let own = rig.job.clone(); // BORROW: the test keeps the id to read the job back
+    let layout = rig.store.layout();
+    let own_dir = JobDir::open(layout, &own).expect("the own job");
+    append_log(&own_dir, &started_line(&own.to_string()));
+    let (sibling, ended) = (job_id(35), job_id(36));
+    let mut dirs = Vec::new();
+    for id in [&sibling, &ended] {
+        // BORROW: the directory owns a copy of the id
+        let dir = JobDir::create(layout, id.clone(), &job_record(id, JobState::Running))
+            .expect("a job directory");
+        append_log(&dir, &started_line(&id.to_string()));
+        dirs.push(dir);
+    }
+    let (sibling_dir, ended_dir) = (&dirs[0], &dirs[1]);
+    append_log(ended_dir, &ended_line(&ended.to_string()));
+    // The controls: before the sweep, the running job and the sibling read as lost; the third is ended.
+    assert_eq!(classify(&own_dir).expect("a class"), JobLiveness::Lost);
+    assert_eq!(classify(sibling_dir).expect("a class"), JobLiveness::Lost);
+    assert_eq!(
+        classify(ended_dir).expect("a class"),
+        JobLiveness::Ended(JobEnd::Completed)
+    );
+
+    // The client of the sweep: it logs each call and reports every network and image absent, as a
+    // daemon that holds none of them does; it prints no container.
+    let bin = work.join("sweep-bin");
+    fs::create_dir_all(&bin).expect("a directory");
+    let log = work.join("sweep-docker.log");
+    let client = bin.join("docker");
+    fs::write(
+        &client,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\ncase \"$1\" in\nnetwork | image)\n    echo 'Error: No such object' >&2\n    exit 1\n    ;;\nesac\n",
+            log.display()
+        ),
+    )
+    .expect("a client");
+    fs::set_permissions(&client, fs::Permissions::from_mode(0o755)).expect("a mode");
+    let status = Command::new(std::env::current_exe().expect("this binary"))
+        .args(["--exact", "reap_child", "--nocapture"])
+        .env_clear()
+        .env(REAP_WORK, work)
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .env("HOME", work.join("home"))
+        .env("XDG_STATE_HOME", work.join("state"))
+        .stdin(Stdio::null())
+        .output()
+        .expect("the sweeping child");
+    assert!(
+        status.status.success(),
+        "the sweeping child failed: {}{}",
+        String::from_utf8_lossy(&status.stdout),
+        String::from_utf8_lossy(&status.stderr)
+    );
+    let seen = fs::read_to_string(work.join("reaped.txt")).expect("the child's result");
+    let lines: Vec<&str> = seen.lines().collect();
+
+    // (4) A control cancelled before the call recovers nothing: the sibling is still lost.
+    assert!(lines.contains(&"cancelled-reports 0"), "{seen}");
+    assert!(lines.contains(&"cancelled-sibling Lost"), "{seen}");
+    // (2) With a live control the sibling is recovered, and only the sibling.
+    let reports: Vec<&&str> = lines.iter().filter(|l| l.starts_with("report ")).collect();
+    assert_eq!(
+        reports,
+        [&format!("report {sibling} Recovered").as_str()],
+        "{seen}"
+    );
+    assert!(matches!(
+        classify(sibling_dir).expect("a class"),
+        JobLiveness::Ended(JobEnd::Failed)
+    ));
+    // (1) The running job is never recovered, though it reads as lost.
+    assert_eq!(classify(&own_dir).expect("a class"), JobLiveness::Lost);
+    assert!(!seen.contains(&own.to_string()), "{seen}");
+    // (3) The ended job is left alone.
+    assert_eq!(
+        classify(ended_dir).expect("a class"),
+        JobLiveness::Ended(JobEnd::Completed)
+    );
+
+    // The fake client was asked, and nothing was destroyed through it.
+    let calls = fs::read_to_string(&log).unwrap_or_default();
+    assert!(!calls.is_empty(), "the recovery never asked the client");
+    for line in calls.lines() {
+        for destroying in ["rm", "stop", "kill", "prune"] {
+            assert!(
+                !line.split(' ').take(2).any(|word| word == destroying),
+                "the sweep destroyed: {line}"
+            );
+        }
+    }
 }
