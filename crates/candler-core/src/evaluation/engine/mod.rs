@@ -11,6 +11,10 @@ use tokio::sync::watch;
 
 use crate::supervise::Supervisor;
 
+mod plan;
+
+pub use plan::{Batch, PlanError, RunPlan, applies, plan};
+
 /// What one `evaluate` call grades: which runs of which store, by which plug-ins and suite.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EvaluateRequest {
