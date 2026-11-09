@@ -162,7 +162,7 @@ It names path, stored and observed. The tag was restored (28be2c15…). F8 fixed
 | F9 | provenance in `measured[]` | run_evidence | Fixed except N1; `planner.runtime.*` absent by A59 |
 | F10, F11, F12 | check adaptations | feature_map | Fixed: all three PASS |
 | F13 | run end measured | run_evidence | Fixed |
-| N1 | `provenance.skill_version` = `vhtn-creator-eval@0.4.2`: `skill_version(name, tag)` strips `<treatment.name>@`, and the tag prefix is `htn-creator-eval@`, not `htn-creator@`. `provenance_fields` wants `v0.4.2`. | run_evidence (`runner/evidence/provenance.rs`) | New, open. Not fixed here. |
+| N1 | `provenance.skill_version` = `vhtn-creator-eval@0.4.2`: `skill_version(name, tag)` strips `<treatment.name>@`, and the tag prefix is `htn-creator-eval@`, not `htn-creator@`. `provenance_fields` wants `v0.4.2`. | run_evidence (`runner/evidence/provenance.rs`) | Fixed in fix_grit_l3 (ce7e50f); a foreign tag leaves the value unrecorded. Verified by the spare run below. |
 | N2 | RiVault replays identical requests, so replicate 2 equals replicate 1 | outside Candler | New. For the KT: replicates need a request that differs, or a cache bypass. |
 | N3 | `candler ps` and the store need `XDG_STATE_HOME`/`CANDLER_STORE_ROOT` in every shell; without them `ps` lists nothing | cli_run | Observation |
 
@@ -170,12 +170,27 @@ It names path, stored and observed. The tag was restored (28be2c15…). F8 fixed
 
 | R02 gate | Smoke result |
 |:---|:---|
-| Sandbox features and provenance for the same cell | Met apart from `layout` (M2c, carved out) and `provenance_fields`: N1 needs a fix, `planner.runtime` is the A59 deviation |
+| Sandbox features and provenance for the same cell | Met apart from `layout` (M2c, carved out) and `provenance_fields`, which after the spare run fails only on `planner.runtime` (the A59 deviation) |
 | First event set | Met: the literal matches |
 | Resume refusal prints the stored and observed values | Met (F8) |
 | Canary nowhere | Met |
 | Comparability diff returns a stratum verdict | Not decided: the binary has no diff command; the two runs' digests are identical |
 | Kill the supervisor mid-run, no leftover | Not run (B36); no kill was used |
+
+## Spare run: N1 verified (lead, after fix_grit_l3)
+
+The third and last run of the spend, on the binary built clean at 3330360. It used the same cell as the replicates, with one replicate, the treatment tag `htn-creator@0.2.7` (the skill tag whose skill tree equals the one at `htn-creator-eval@0.4.2`), and the same `--set` workarounds. It ran from an empty `elsewhere3/` into a fresh store.
+
+| Check | Result |
+|:---|:---|
+| Job end | `completed`, run `61e79e06…-r1-a1` sealed, 12 turns, 23.6 s, `run.cost_usd` 0.1485 |
+| Event literal | `job.started, container.created, run.started, container.created, container.destroyed, run.ended, container.destroyed, job.ended` (matches) |
+| `provenance.skill_version` | `v0.2.7` |
+| `provenance.eval_infra` | `v0.2.0`, 208 ahead, `3330360`, dirty `false` |
+| `provenance.sandbox_contract` / `planner.sandbox` | `v6` / `gtpyhop-core` 2.0.2 |
+| `provenance_fields` | exit 1; the only missing fields are `planner.runtime.{distribution,version}` (A59). The `skill_version` shape passes. |
+| Canary scan of the store | absent (94 files) |
+| Leftovers | none: no container or network labelled for the job, `candler ps` shows `ended (completed)`, `elsewhere3/` empty |
 
 ## Flakes and deviations
 
