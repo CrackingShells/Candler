@@ -5,10 +5,10 @@
 - [x] `../workspace.md` and `../fixtures.md` are `done` and merged on `feat/wire-schemas`
 - [ ] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints this leaf's worktree path
 **Success Gates**:
-- ⬜ `cargo nextest run -p candler-schemas catalog` passes
-- ⬜ Adding a field to `CatalogSnapshot` makes `cargo nextest run -p candler-schemas drift` fail; `CANDLER_BLESS_SCHEMAS=1` then makes it pass (the scratch change is reverted)
-- ⬜ `cargo clippy --workspace --all-targets -- -D warnings` passes
-- ⬜ Adversarial verification and Grit review report no open finding
+- ✅ `cargo nextest run -p candler-schemas catalog` passes
+- ✅ Adding a field to `CatalogSnapshot` makes `cargo nextest run -p candler-schemas drift` fail; `CANDLER_BLESS_SCHEMAS=1` then makes it pass (the scratch change is reverted)
+- ✅ `cargo clippy --workspace --all-targets -- -D warnings` passes
+- ✅ Adversarial verification and Grit review report no open finding
 **References**: [R01 §Wire encodings, §Wire schema: tool-catalog snapshot](../../../__design__/architecture.md) — fields and rules; `capture_catalog_snapshot.py` and `_catalog_snapshot.py` at R04's tag — the shape HTN writes and reads today
 
 ## Step 1: Define the catalog snapshot

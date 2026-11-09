@@ -38,3 +38,4 @@ graph TD
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| `milestone_gates.md` | feat/wire-schemas | 7 | 4 commits on the integration branch (`97d2e6d`, `004a251`, `866696a`, `35ff9fe`) and `fix/ws-primitives` (3 commits, merged as `0e6b5e7`), from the gate sweep |

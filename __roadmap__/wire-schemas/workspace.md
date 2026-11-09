@@ -5,12 +5,12 @@
 - [x] The wire encodings are recorded in R01 §Wire encodings on `feat/wire-schemas`
 - [ ] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints this leaf's worktree path (after Step 1)
 **Success Gates**:
-- ⬜ `cargo build --workspace`, `cargo fmt --check` and `cargo clippy --workspace --all-targets -- -D warnings` pass
-- ⬜ `grep -L 'workspace = true' crates/*/Cargo.toml` prints nothing
-- ⬜ A scratch `.unwrap()` in `crates/candler-schemas/src/lib.rs` makes `cargo clippy -p candler-schemas -- -D warnings` fail; without it, clippy passes
-- ⬜ `cargo nextest run -p candler-schemas primitives` passes, with an accepting and a rejecting test for every primitive
-- ⬜ `cargo nextest run -p candler-schemas drift` passes, including the test that mutates a committed file of a test-only root and expects a failure, then blesses it and expects success
-- ⬜ The answer to "does `wildcard_enum_match_arm = deny` fire on a downstream `_` arm over a `#[non_exhaustive]` enum?" is written into the campaign README's Gotchas
+- ✅ `cargo build --workspace`, `cargo fmt --check` and `cargo clippy --workspace --all-targets -- -D warnings` pass
+- ✅ `grep -L 'workspace = true' crates/*/Cargo.toml` prints nothing
+- ✅ A scratch `.unwrap()` in `crates/candler-schemas/src/lib.rs` makes `cargo clippy -p candler-schemas -- -D warnings` fail; without it, clippy passes
+- ✅ `cargo nextest run -p candler-schemas primitives` passes, with an accepting and a rejecting test for every primitive
+- ✅ `cargo nextest run -p candler-schemas drift` passes, including the test that mutates a committed file of a test-only root and expects a failure, then blesses it and expects success
+- ✅ The answer to "does `wildcard_enum_match_arm = deny` fire on a downstream `_` arm over a `#[non_exhaustive]` enum?" is written into the campaign README's Gotchas
 **References**: [R01 §Workspace, §Wire encodings](../../__design__/architecture.md) — crates, tooling, string formats, schema layout, drift check; [R05 Grit](https://github.com/PCfVW/Amphigraphic-Strict/tree/master/Grit) — `Cargo.toml` lints, `lib.rs`, `prompt.md`
 
 ## Step 1: Lay out the workspace

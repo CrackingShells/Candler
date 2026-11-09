@@ -5,11 +5,11 @@
 - [x] `git -C /Users/hacker/Documents/src/External/PCfVW/agenticai4hpc26-artifact rev-parse candler-m2a-golden^{commit}` prints `7efa1b7…`
 - [x] `git -C /Users/hacker/Documents/src/External/PCfVW/mcp-python-ingestion rev-parse 'htn-creator-eval@0.4.2^{commit}'` prints `28be2c15…`
 **Success Gates**:
-- ⬜ Re-running `python3 -I crates/candler-schemas/tests/fixtures/legacy/select_golden.py` leaves `git status --porcelain crates/candler-schemas/tests/fixtures/` empty
-- ⬜ `jq -r .status crates/candler-schemas/tests/fixtures/legacy/golden_rows.jsonl | sort -u` prints `blocked`, `fail`, `not_measured`, `pass`
-- ⬜ `shasum -a 256 crates/candler-schemas/tests/fixtures/upstream/rikyu_mcp.json` prints `8e331d938505087e34839ba8d8d0b596032041af2dd1710315684c8d39f5b438`
-- ⬜ `jq '[.servers[] | select((.tools | length) > 0)] | length' crates/candler-schemas/tests/fixtures/upstream/bio_opentrons.json` prints `4`
-- ⬜ Every `crates/candler-schemas/tests/fixtures/spec/tools/*.json` parses with `jq -e .name`
+- ✅ Re-running `python3 -I crates/candler-schemas/tests/fixtures/legacy/select_golden.py` leaves `git status --porcelain crates/candler-schemas/tests/fixtures/` empty
+- ✅ `jq -r .status crates/candler-schemas/tests/fixtures/legacy/golden_rows.jsonl | sort -u` prints `blocked`, `fail`, `not_measured`, `pass`
+- ✅ `shasum -a 256 crates/candler-schemas/tests/fixtures/upstream/rikyu_mcp.json` prints `8e331d938505087e34839ba8d8d0b596032041af2dd1710315684c8d39f5b438`
+- ✅ `jq '[.servers[] | select((.tools | length) > 0)] | length' crates/candler-schemas/tests/fixtures/upstream/bio_opentrons.json` prints `4`
+- ✅ Every `crates/candler-schemas/tests/fixtures/spec/tools/*.json` parses with `jq -e .name`
 **References**: [R01 §Golden corpus, §Wire encodings](../../__design__/architecture.md) — legacy mapping, test layers; [R03 Golden corpus](/Users/hacker/Documents/src/External/PCfVW/agenticai4hpc26-artifact); [R04 HTN eval](/Users/hacker/Documents/src/External/PCfVW/mcp-python-ingestion)
 
 ## Step 1: Select golden rows by shape class

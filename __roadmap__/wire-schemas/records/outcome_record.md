@@ -5,12 +5,12 @@
 - [x] `../workspace.md` and `../fixtures.md` are `done` and merged on `feat/wire-schemas`
 - [ ] `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints this leaf's worktree path
 **Success Gates**:
-- ⬜ `cargo nextest run -p candler-schemas outcome` passes
-- ⬜ Adding a field to `OutcomeRecord` makes `cargo nextest run -p candler-schemas drift` fail; `CANDLER_BLESS_SCHEMAS=1` then makes it pass (the scratch change is reverted)
-- ⬜ A use of the legacy cause variant without `#[allow(deprecated)]` makes `cargo clippy -p candler-schemas --all-targets -- -D warnings` fail
-- ⬜ `jq '.. | objects | select(.deprecated == true)' crates/candler-schemas/schema/outcome-record.schema.json` prints the legacy variant
-- ⬜ `cargo clippy --workspace --all-targets -- -D warnings` passes
-- ⬜ Adversarial verification and Grit review report no open finding
+- ✅ `cargo nextest run -p candler-schemas outcome` passes
+- ✅ Adding a field to `OutcomeRecord` makes `cargo nextest run -p candler-schemas drift` fail; `CANDLER_BLESS_SCHEMAS=1` then makes it pass (the scratch change is reverted)
+- ✅ A use of the legacy cause variant without `#[allow(deprecated)]` makes `cargo clippy -p candler-schemas --all-targets -- -D warnings` fail
+- ✅ `jq '.. | objects | select(.deprecated == true)' crates/candler-schemas/schema/outcome-record.schema.json` prints the legacy variant
+- ✅ `cargo clippy --workspace --all-targets -- -D warnings` passes
+- ✅ Adversarial verification and Grit review report no open finding
 **References**: [R01 §Wire encodings, §Wire schema: outcome record, §Golden corpus](../../../__design__/architecture.md) — fields, rules, legacy mapping; `htn_creator_eval/_outcome.py` at R04's tag — today's status and role spellings
 
 ## Step 1: Define the outcome record
