@@ -1,9 +1,14 @@
 #![cfg(test)]
 //! The tagged enums of the wire are read from objects and from nothing else.
 
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use candler_schemas::catalog::{CatalogSnapshot, SCHEMA_TAG};
 use candler_schemas::process::{ExitStatus, ProcessStart};
 use candler_schemas::values::ValueSource;
 use serde::de::DeserializeOwned;
+use serde_json::{Map, Value, json};
 
 fn read<T: DeserializeOwned>(text: &str) -> Result<T, serde_json::Error> {
     serde_json::from_str(text)
@@ -57,4 +62,135 @@ fn tagged_enums_refuse_the_list_form_and_accept_the_object_form() {
         read::<ValueSource>(r#"["derived","probe@1"]"#).is_err(),
         "derived source as a list"
     );
+}
+
+fn fixture_path(parts: &[&str]) -> PathBuf {
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.extend(["tests", "fixtures"]);
+    path.extend(parts);
+    path
+}
+
+fn json_files(dir: &Path) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = fs::read_dir(dir)
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+        .map(|entry| entry.expect("a directory entry").path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+        .collect();
+    files.sort();
+    files
+}
+
+fn read_json(path: &Path) -> Value {
+    let text = fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
+/// Every valid catalog snapshot the fixtures hold: the two captured catalogs, rewritten to the
+/// current tag with their two extra top-level keys under `ext`, and one snapshot around each
+/// MCP specification tool.
+fn catalog_snapshot_fixtures() -> Vec<(String, Value)> {
+    let mut snapshots = Vec::new();
+    for path in json_files(&fixture_path(&["upstream"])) {
+        let mut snapshot = read_json(&path);
+        let object = snapshot.as_object_mut().expect("a catalog is an object");
+        object.insert(String::from("schema"), json!(SCHEMA_TAG));
+        let mut ext = Map::new();
+        for key in ["servers_dir", "stubbed_modules"] {
+            ext.insert(
+                String::from(key),
+                object.remove(key).expect("a captured key"),
+            );
+        }
+        object.insert(String::from("ext"), Value::Object(ext));
+        snapshots.push((path.display().to_string(), snapshot));
+    }
+    for path in json_files(&fixture_path(&["spec", "tools"])) {
+        let snapshot = json!({
+            "schema": SCHEMA_TAG,
+            "captured_at": "2026-10-28T01:09:04+00:00",
+            "provider": "capture@1",
+            "servers": [{
+                "name": "server",
+                "source_path": "servers/server.py",
+                "source_digest": format!("sha256:{}", "cd".repeat(32)),
+                "transport": "stdio",
+                "tools": [read_json(&path)],
+            }],
+        });
+        snapshots.push((path.display().to_string(), snapshot));
+    }
+    snapshots
+}
+
+/// JSON pointers to every struct of the catalog wire in `snapshot`: the snapshot, each server
+/// and each tool.
+fn catalog_struct_pointers(snapshot: &Value) -> Vec<String> {
+    let mut pointers = vec![String::new()];
+    let servers = snapshot["servers"].as_array().expect("servers is a list");
+    for (s, server) in servers.iter().enumerate() {
+        pointers.push(format!("/servers/{s}"));
+        let tools = server["tools"].as_array().expect("tools is a list");
+        for t in 0..tools.len() {
+            pointers.push(format!("/servers/{s}/tools/{t}"));
+        }
+    }
+    pointers
+}
+
+/// Guards: R01 §Wire encodings, for the catalog wire only (snapshot, server, tool) — a struct is
+/// never written as a list of its values. Oracle: every committed valid catalog snapshot reads;
+/// with any one of its snapshot, server or tool objects replaced by the list of that object's
+/// values, the reader refuses it; the counts of fixtures and of objects tried are above zero.
+/// Bite: removing `object_only!` from `CatalogServer` or `MapOnly` from the snapshot reader turns
+/// this test red, because the lists are written in the order of the struct's fields.
+#[test]
+fn catalog_wire_structs_are_refused_as_lists_in_every_fixture() {
+    let fixtures = catalog_snapshot_fixtures();
+    assert!(!fixtures.is_empty(), "no catalog fixture was found");
+    let mut tried = 0_usize;
+    for (name, snapshot) in &fixtures {
+        serde_json::from_value::<CatalogSnapshot>(snapshot.clone())
+            .unwrap_or_else(|e| panic!("{name} is a valid snapshot: {e}"));
+        for pointer in catalog_struct_pointers(snapshot) {
+            let mut mutated = snapshot.clone();
+            let node = mutated
+                .pointer_mut(&pointer)
+                .expect("the pointer leads to an object");
+            // A derived reader that took a list would take the values in the order of the
+            // struct's fields, an absent optional field being `{}`; a tool has a flattened
+            // remainder, so any order is a list of its values.
+            let fields: &[&str] = match pointer.matches('/').count() {
+                0 => &[
+                    "schema",
+                    "captured_at",
+                    "provider",
+                    "environment",
+                    "ext",
+                    "servers",
+                ],
+                2 => &["name", "source_path", "source_digest", "transport", "tools"],
+                _ => &[],
+            };
+            let list: Vec<Value> = if fields.is_empty() {
+                node.as_object()
+                    .expect("an object")
+                    .values()
+                    .cloned()
+                    .collect()
+            } else {
+                fields
+                    .iter()
+                    .map(|field| node.get(*field).cloned().unwrap_or_else(|| json!({})))
+                    .collect()
+            };
+            *node = Value::Array(list);
+            assert!(
+                serde_json::from_value::<CatalogSnapshot>(mutated).is_err(),
+                "{name}: the object at '{pointer}' written as a list was read"
+            );
+            tried += 1;
+        }
+    }
+    assert!(tried > 0, "no object was tried");
 }

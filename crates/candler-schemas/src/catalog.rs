@@ -28,7 +28,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 
 use crate::canonical::CanonicalError;
-use crate::primitives::{Digest, NameToken, RelPath, Timestamp};
+use crate::map_only::MapOnly;
+use crate::primitives::{Digest, NameToken, RelPath, Timestamp, object_only};
 
 /// The version marker every snapshot carries in its `schema` field.
 pub const SCHEMA_TAG: &str = "tool-catalog-snapshot/1";
@@ -349,6 +350,7 @@ impl Tool {
 
 /// One MCP server of a run and the tools it offered.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
 #[schemars(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct CatalogServer {
@@ -369,6 +371,8 @@ pub struct CatalogServer {
     ))]
     tools: Vec<Tool>,
 }
+
+object_only!(CatalogServer);
 
 impl CatalogServer {
     /// Builds a server entry.
@@ -541,7 +545,8 @@ impl TryFrom<CatalogSnapshotWire> for CatalogSnapshot {
 
 impl<'de> Deserialize<'de> for CatalogSnapshot {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::try_from(CatalogSnapshotWire::deserialize(deserializer)?).map_err(D::Error::custom)
+        let MapOnly(wire) = MapOnly::<CatalogSnapshotWire>::deserialize(deserializer)?;
+        Self::try_from(wire).map_err(D::Error::custom)
     }
 }
 
@@ -662,6 +667,83 @@ mod tests {
                 "tools": [tool_value()],
             }],
         })
+    }
+
+    /// Guards: R01 §Wire encodings — a tool, a server and a snapshot are objects and never a list
+    /// of their values, at each level. Oracle: the object form of each is read first, then the
+    /// list of its values is refused. Bite: dropping `object_only!` or `MapOnly` turns the
+    /// server and snapshot rows red.
+    #[test]
+    fn a_struct_written_as_a_list_is_refused_at_each_level() {
+        // The values of `value` in the order `fields` names them, an absent field being `{}`; a
+        // derived reader that took a list would take it in this order.
+        fn listed(value: &Value, fields: &[&str]) -> Value {
+            Value::Array(
+                fields
+                    .iter()
+                    .map(|field| value.get(*field).cloned().unwrap_or_else(|| json!({})))
+                    .collect(),
+            )
+        }
+        const SERVER: [&str; 5] = ["name", "source_path", "source_digest", "transport", "tools"];
+        const SNAPSHOT: [&str; 6] = [
+            "schema",
+            "captured_at",
+            "provider",
+            "environment",
+            "ext",
+            "servers",
+        ];
+
+        let tool = tool_value();
+        serde_json::from_value::<Tool>(tool.clone()).expect("a tool object reads");
+        assert!(
+            serde_json::from_value::<Tool>(Value::Array(
+                tool.as_object()
+                    .expect("an object")
+                    .values()
+                    .cloned()
+                    .collect()
+            ))
+            .is_err(),
+            "a tool as a list"
+        );
+
+        let snapshot = snapshot_value();
+        let server_object = snapshot["servers"][0].clone();
+        serde_json::from_value::<CatalogServer>(server_object.clone())
+            .expect("a server object reads");
+        assert!(
+            serde_json::from_value::<CatalogServer>(listed(&server_object, &SERVER)).is_err(),
+            "a server as a list"
+        );
+
+        serde_json::from_value::<CatalogSnapshot>(snapshot.clone())
+            .expect("a snapshot object reads");
+        assert!(
+            serde_json::from_value::<CatalogSnapshot>(listed(&snapshot, &SNAPSHOT)).is_err(),
+            "a snapshot as a list"
+        );
+
+        let mut nested = snapshot;
+        nested["servers"][0] = listed(&server_object, &SERVER);
+        assert!(
+            serde_json::from_value::<CatalogSnapshot>(nested).is_err(),
+            "a server written as a list inside a snapshot"
+        );
+
+        let probe = json!([
+            "tool-catalog-snapshot/1",
+            "2026-01-01T00:00:00Z",
+            "p@1",
+            {},
+            {},
+            []
+        ]);
+        assert!(
+            serde_json::from_value::<CatalogSnapshot>(probe).is_err(),
+            "the probe snapshot as a list"
+        );
     }
 
     #[test]
