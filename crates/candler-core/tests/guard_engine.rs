@@ -97,6 +97,11 @@ struct Rig {
 /// Builds the rig: the import of the mini-corpus, the manifest with its paths filled in, and the
 /// environment of the helper, synced by `uv` and marked `ready`.
 async fn rig() -> Rig {
+    rig_of("plugin.toml").await
+}
+
+/// The same rig, with the manifest template `manifest_name` of the fixtures.
+async fn rig_of(manifest_name: &str) -> Rig {
     let tmp = tempfile::tempdir().expect("a scratch directory");
     let store_dir = tmp.path().join("store");
     fs::create_dir(&store_dir).expect("a store directory");
@@ -108,7 +113,7 @@ async fn rig() -> Rig {
     let plugin_dir = tmp.path().join("plugin");
     fs::create_dir(&plugin_dir).expect("a plug-in directory");
     symlink(helper(), plugin_dir.join("env")).expect("a link to the helper");
-    let manifest = fs::read_to_string(fixtures().join("plugin.toml"))
+    let manifest = fs::read_to_string(fixtures().join(manifest_name))
         .expect("the manifest template reads")
         .replace(
             "@EXAMPLES@",
@@ -245,13 +250,24 @@ fn reason_of(record: &OutcomeRecord) -> String {
 /// `not_applicable_to_arm`; the dependent of a `fail` is `blocked` by it, and the record the
 /// engine keeps is its own, not the plug-in's echo; the dependent of a `pass` is sent in the same
 /// request as its dependency and receives that dependency's record in `prior`, which the echo
-/// kind returns. Oracle: the hand literals below.
+/// kind returns. The same verdicts hold when the suite is written as JSON, and when the
+/// manifest's command is a bare `python -m` that only the activated environment resolves.
+/// Oracle: the hand literals below.
 #[tokio::test]
 async fn dependencies_and_applies_to_decide_what_is_sent() {
-    let rig = rig().await;
-    let report = rig
-        .grade("suite_dependencies.toml", "*-r6-a1", Path::new("unused"))
-        .await;
+    for (manifest, suite) in [
+        ("plugin.toml", "suite_dependencies.toml"),
+        ("plugin.toml", "suite_dependencies.json"),
+        ("plugin_bare.toml", "suite_dependencies.toml"),
+    ] {
+        dependency_verdicts(manifest, suite).await;
+    }
+}
+
+/// Grades run 6 with `suite` under the manifest template `manifest` and checks the verdicts.
+async fn dependency_verdicts(manifest: &str, suite: &str) {
+    let rig = rig_of(manifest).await;
+    let report = rig.grade(suite, "*-r6-a1", Path::new("unused")).await;
     assert!(
         report.failed_requests.is_empty(),
         "{:?}",

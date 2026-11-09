@@ -177,12 +177,18 @@ async fn evaluate_in(
             path: suite_path.clone(), // BORROW: the error owns the path
             source,
         })?;
+        // The reader follows the extension: `.json` is JSON, anything else is TOML.
+        let is_json = suite_path.extension().is_some_and(|ext| ext == "json");
         // BORROW: explicit .as_str() instead of Deref coercion
-        let suite =
-            SuiteFile::from_toml_str(text.as_str()).map_err(|source| EvaluateError::Suite {
-                path: suite_path,
-                source,
-            })?;
+        let parsed = if is_json {
+            SuiteFile::from_json_str(text.as_str())
+        } else {
+            SuiteFile::from_toml_str(text.as_str())
+        };
+        let suite = parsed.map_err(|source| EvaluateError::Suite {
+            path: suite_path,
+            source,
+        })?;
         Ok::<_, EvaluateError>((registry, suite))
     })
     .await??;
@@ -337,12 +343,47 @@ async fn evaluate_in(
     Ok(report)
 }
 
+/// The environment of a plug-in process whose `uv` environment is `venv`: the forwarded variables,
+/// with `VIRTUAL_ENV` set to `venv`, `<venv>/bin` first on `PATH`, and `UV_PROJECT_ENVIRONMENT`
+/// set to `venv`. The command then finds the environment's own interpreter and packages, and
+/// never re-syncs it. Every spawn of the evaluator (`describe` and each request) takes its
+/// environment from here.
+fn activated_env(
+    forwarded: Vec<(String, String)>,
+    venv: &std::path::Path,
+) -> Vec<(String, String)> {
+    let bin = venv.join("bin");
+    let mut env: Vec<(String, String)> = Vec::new();
+    let mut path_seen = false;
+    for (name, value) in forwarded {
+        if name == "PATH" {
+            path_seen = true;
+            let joined = std::env::join_paths(
+                std::iter::once(bin.clone()).chain(std::env::split_paths(value.as_str())), // BORROW: explicit .as_str()
+            )
+            .map_or_else(|_| value.clone(), |p| p.to_string_lossy().into_owned()); // BORROW: .clone() keeps the original on failure
+            env.push((name, joined));
+        } else {
+            env.push((name, value));
+        }
+    }
+    if !path_seen {
+        env.push(("PATH".to_owned(), bin.display().to_string()));
+    }
+    env.push(("VIRTUAL_ENV".to_owned(), venv.display().to_string()));
+    env.push((
+        "UV_PROJECT_ENVIRONMENT".to_owned(),
+        venv.display().to_string(),
+    ));
+    env
+}
+
 /// The directory and environment a plug-in process starts with.
 fn process_of(
     plugin: &crate::evaluation::registry::Plugin,
     env_dir: Option<&PathBuf>,
 ) -> (PathBuf, Vec<(String, String)>) {
-    let mut env: Vec<(String, String)> = FORWARDED
+    let forwarded: Vec<(String, String)> = FORWARDED
         .iter()
         .filter_map(|name| {
             std::env::var(name)
@@ -350,18 +391,15 @@ fn process_of(
                 .map(|value| ((*name).to_owned(), value))
         })
         .collect();
-    let cwd = if let PluginEnvironment::Uv { project, .. } = plugin.manifest.environment() {
-        if let Some(dir) = env_dir {
-            env.push((
-                "UV_PROJECT_ENVIRONMENT".to_owned(),
-                dir.join(".venv").display().to_string(),
-            ));
-        }
-        plugin.dir.join(project.as_str())
+    if let PluginEnvironment::Uv { project, .. } = plugin.manifest.environment() {
+        let env = match env_dir {
+            Some(dir) => activated_env(forwarded, dir.join(".venv").as_path()), // BORROW: explicit .as_path()
+            None => forwarded,
+        };
+        (plugin.dir.join(project.as_str()), env)
     } else {
-        plugin.dir.clone() // BORROW: the process owns its directory
-    };
-    (cwd, env)
+        (plugin.dir.clone(), forwarded) // BORROW: the process owns its directory
+    }
 }
 
 /// Runs `work` on a blocking thread.
