@@ -1,5 +1,5 @@
 #![cfg(test)]
-//! Guards for the evidence of a run: the input-leak check and the census.
+//! Guards for the evidence of a run: the input-leak check, the census and the run tree.
 
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use candler_core::runner::evidence::census::census;
 use candler_core::runner::evidence::leak::input_leak;
+use candler_core::runner::evidence::tree::tree_json;
 use candler_core::runner::evidence::{Evidence, InputDigest, Inputs, OutputDigest};
 use candler_harness::reader::{FrameIn, TraceReader};
 use candler_harness_claude_code::ClaudeCodeReader;
@@ -174,5 +175,92 @@ fn b38_skill_version_from_a_skill_tag_only() {
     assert_eq!(
         skill_version("htn-creator", "htn-creator@v0.2.3").as_deref(),
         Some("v0.2.3")
+    );
+}
+
+/// The name of the file that marks a directory as an agent environment.
+const ENV_MARKER: &str = "pyvenv.cfg";
+
+/// The evidence of a run that produced `paths`, each with the same content.
+fn outputs_of(paths: &[&str]) -> Evidence {
+    Evidence {
+        outputs: paths
+            .iter()
+            .map(|path| OutputDigest {
+                path: (*path).to_owned(), // BORROW: the evidence owns its path
+                digest: digest(INPUT_SHA),
+            })
+            .collect(),
+        ..evidence("unused", INPUT_SHA)
+    }
+}
+
+/// The paths of the tree built from `evidence` and `inputs`, in tree order.
+fn tree_paths(evidence: &Evidence, inputs: &Inputs) -> Vec<String> {
+    tree_json(evidence, inputs)
+        .expect("a tree")
+        .entries()
+        .iter()
+        .map(|entry| entry.path().as_str().to_owned()) // BORROW: the list owns its paths
+        .collect()
+}
+
+/// Guards: the run tree lists what the agent produced. No path under a directory that holds the
+/// environment marker enters it (the marker included), at any depth, and no path under a
+/// read-only input mount point does; a sibling whose name only starts like one stays.
+/// Oracle: the fixture tree of the driver's discovery guard (`out/a.txt`, a `venv/` with its
+/// marker and `lib/`, a read-only input path), extended with a nested environment and
+/// near-miss names; the kept list is written by hand.
+/// Bite: make the marker match no output name, or drop the input mount points from the filter.
+#[test]
+fn b39_environment_and_input_mounts_never_enter_the_tree() {
+    let marker = format!("venv/{ENV_MARKER}");
+    let nested = format!("tools/env/{ENV_MARKER}");
+    let near_marker = format!("venvish/{ENV_MARKER}.bak");
+    let produced = outputs_of(&[
+        "out/a.txt",
+        marker.as_str(), // BORROW: explicit .as_str()
+        "venv/lib/python3.12/site-packages/x.py",
+        nested.as_str(), // BORROW: explicit .as_str()
+        "tools/env/bin/python",
+        "tools/run.sh",
+        near_marker.as_str(), // BORROW: explicit .as_str()
+        "inputs/corpus/a.txt",
+        "inputs/corpus/deep/b.txt",
+        "inputs/corpusx/b.txt",
+    ]);
+    let inputs = Inputs {
+        digests: vec![InputDigest {
+            path: "inputs/corpus".to_owned(), // BORROW: the inputs own their path
+            digest: digest(INPUT_SHA),
+        }],
+    };
+    assert_eq!(
+        tree_paths(&produced, &inputs),
+        [
+            "inputs/corpusx/b.txt",
+            "out/a.txt",
+            "tools/run.sh",
+            near_marker.as_str(), // BORROW: explicit .as_str()
+        ]
+    );
+    // Positive control: with no marker and no input, every output is listed.
+    let plain = outputs_of(&["out/a.txt", "venv/lib/python3.12/site-packages/x.py"]);
+    assert_eq!(
+        tree_paths(&plain, &Inputs::default()),
+        ["out/a.txt", "venv/lib/python3.12/site-packages/x.py"]
+    );
+}
+
+/// Guards: an environment made at the workspace root makes the whole workspace an environment,
+/// so the run tree is empty.
+/// Oracle: the empty list.
+/// Bite: make the marker match no output name.
+#[test]
+fn b39_an_environment_at_the_root_hides_the_workspace() {
+    let produced = outputs_of(&[ENV_MARKER, "out/a.txt", "lib/x.py"]);
+    assert_eq!(
+        tree_paths(&produced, &Inputs::default()),
+        Vec::<String>::new()
     );
 }

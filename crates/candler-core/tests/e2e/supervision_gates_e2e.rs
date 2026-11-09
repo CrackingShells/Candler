@@ -14,7 +14,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use candler_core::isolation::container::guard::{ContainerGuard, LostProof};
-use candler_core::isolation::container::sweeper::LabelSweeper;
 use candler_core::isolation::docker::{ClientEnv, DockerCli, DockerDestroyer};
 use candler_core::isolation::driver::{DestroyDriver, DockerDriver};
 use candler_core::isolation::model::{LabelSel, NetworkName};
@@ -22,11 +21,10 @@ use candler_core::isolation::testing::{AllowlistDriver, FakeJobView};
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::events::JobEvents;
 use candler_core::jobs::lock::JobLock;
-use candler_core::jobs::lost::{
-    JobLiveness, RecoverOutcome, RecoverReport, classify, has_started, recover,
-};
+use candler_core::jobs::lost::{JobLiveness, RecoverOutcome, classify, has_started};
+use candler_core::jobs::runtime::session::recover_job_dir_with;
 use candler_core::jobs::runtime::{JobEntry, supervise_entry};
-use candler_core::jobs::view::JobView;
+use candler_core::jobs::view::JobView as _;
 use candler_core::store::Store;
 use candler_core::supervise::platform::process_start;
 use candler_core::supervise::{EventSink, Supervisor};
@@ -89,84 +87,52 @@ fn supervisor_child() {
     );
 }
 
-/// The real docker client behind an allowlist, and the means to recover a lost job through the
-/// guard, as `candler ps` does. Nothing is destroyed but through the guard.
+/// The real docker client's destroy half behind an allowlist, for the cleanup of a failed test.
+/// Nothing is destroyed but through the guard.
 struct Rig {
     job: JobId,
-    dir: JobDir,
     destroyer: Arc<AllowlistDriver<DockerDestroyer>>,
-    // TRAIT_OBJECT: the guard and the sweeper read through the docker client
+    // TRAIT_OBJECT: the guard reads through the docker client
     reads: Arc<dyn DockerDriver>,
-    sup: Arc<Supervisor>,
-    // TRAIT_OBJECT: the supervisor and the guard take their sink as a trait object
-    sink: Arc<dyn EventSink>,
+}
+
+/// Allows `allow` to destroy every container that carries the label of `job` and the job's two
+/// networks, once `docker inspect` agrees the container carries the label.
+fn allow_job_in(job: &JobId, allow: &AllowlistDriver<DockerDestroyer>) {
+    for cid in labelled(job) {
+        assert_eq!(
+            label_of(&cid, "candler.job").as_deref(),
+            // BORROW: explicit .as_str() instead of Deref coercion
+            Some(job.to_string().as_str()),
+            "{cid} does not carry the job's label"
+        );
+        allow.allow_container(&cid);
+    }
+    for net in [NetworkName::for_job(job), NetworkName::egress_for_job(job)] {
+        allow.allow_network(net.as_str()); // BORROW: .as_str() names the network
+    }
 }
 
 impl Rig {
     fn new(dir: &JobDir) -> Self {
         let events = Arc::new(JobEvents::open(dir).expect("the job's log"));
-        // TRAIT_OBJECT: the supervisor and the guard take their sink as a trait object
+        // TRAIT_OBJECT: the supervisor takes its sink as a trait object
         let sink: Arc<dyn EventSink> = events;
-        let sup = Arc::new(Supervisor::new(Arc::clone(&sink)));
-        let cli = DockerCli::new(
-            Arc::clone(&sup),
-            ClientEnv::from_process(),
-            dir.control_dir(),
-        )
-        .expect("a docker client");
+        let sup = Arc::new(Supervisor::new(sink));
+        let cli = DockerCli::new(sup, ClientEnv::from_process(), dir.control_dir())
+            .expect("a docker client");
         let destroyer = Arc::new(AllowlistDriver::new(cli.destroyer_for_tests()));
         Self {
             job: dir.job().clone(), // BORROW: the rig owns its job id
-            dir: dir.clone(),       // BORROW: the rig owns its directory
             destroyer,
-            // TRAIT_OBJECT: the guard and the sweeper read through the docker client
+            // TRAIT_OBJECT: the guard reads through the docker client
             reads: Arc::new(cli),
-            sup,
-            sink,
         }
     }
 
-    /// Allows the destroy of every container that carries the job's label and of the job's two
-    /// networks, once `docker inspect` agrees the container carries the label.
+    /// Allows the destroy of what the job labelled.
     fn allow_job(&self) {
-        for cid in labelled(&self.job) {
-            assert_eq!(
-                label_of(&cid, "candler.job").as_deref(),
-                // BORROW: explicit .as_str() instead of Deref coercion
-                Some(self.job.to_string().as_str()),
-                "{cid} does not carry the job's label"
-            );
-            self.destroyer.allow_container(&cid);
-        }
-        for net in [
-            NetworkName::for_job(&self.job),
-            NetworkName::egress_for_job(&self.job),
-        ] {
-            self.destroyer.allow_network(net.as_str()); // BORROW: .as_str() names the network
-        }
-    }
-
-    /// Recovers the lost job of the directory: the production composition of `candler ps`, over
-    /// the allowlisted destroy half.
-    async fn recover(&self) -> RecoverReport {
-        // TRAIT_OBJECT: the guard and the sweeper read the job through its directory
-        let view: Arc<dyn JobView> = Arc::new(self.dir.clone()); // BORROW: the view owns its directory
-        // TRAIT_OBJECT: the guard holds its drivers as trait objects
-        let destroy: Arc<dyn DestroyDriver> = self.destroyer.clone(); // BORROW: .clone() shares the allowlist
-        let guard = Arc::new(
-            ContainerGuard::new(destroy, Arc::clone(&self.reads), Arc::clone(&view))
-                .with_events(Arc::clone(&self.sink)),
-        );
-        let sweeper = LabelSweeper::new(
-            Arc::clone(&self.reads),
-            guard,
-            view,
-            Duration::from_secs(60),
-        )
-        .with_events(Arc::clone(&self.sink));
-        recover(&self.sup, &sweeper, &self.dir)
-            .await
-            .expect("the recovery runs")
+        allow_job_in(&self.job, &self.destroyer);
     }
 }
 
@@ -277,7 +243,7 @@ fn wait_ready(child: &mut Child, work: &Path, logs: &Path) -> u32 {
     }
 }
 
-/// Guards: I15, I19, I20, I22 — a supervisor killed with SIGKILL while its three containers (the gateway sidecar, the fake upstream and the agent) run leaves, once the lost job is recovered, no container labelled for the job, no host process marked for it, no network of it, and the canary token nowhere in the store, the job directory, its events or the supervisor's logs.
+/// Guards: I15, I19, I20, I22 — a supervisor killed with SIGKILL while its three containers (the gateway sidecar, the fake upstream and the agent) run leaves, once the lost job is recovered through the composition `candler ps` uses (only its destroy half allowlisted), no container labelled for the job, no host process marked for it, no network of it, and the canary token nowhere in the store, the job directory, its events or the supervisor's logs.
 /// Oracle: `docker ps -a --filter label=candler.job=<id>`, `docker network inspect`, the host process table, and `assert_clean` over the files. The host process check differs by OS: on Linux it scans `/proc/*/environ` for the job's `CANDLER_RUN` marker; on macOS, where no tool shows a process environment, it checks only that the agent client's pid, with its start time, is gone.
 /// Bite: the lost-job path skips the container sweep.
 #[tokio::test(flavor = "multi_thread")]
@@ -399,7 +365,15 @@ async fn b36_supervisor_sigkill_nothing_left() {
         "the agent's client went with the supervisor"
     );
 
-    let report = cleanup.rig.recover().await;
+    let report = recover_job_dir_with(&dir, |cli, view| {
+        let allow = Arc::new(AllowlistDriver::new(cli.destroyer_for_tests()));
+        allow_job_in(&job, &allow);
+        // TRAIT_OBJECT: the guard holds its drivers as trait objects
+        let destroy: Arc<dyn DestroyDriver> = allow;
+        ContainerGuard::new(destroy, Arc::new(cli.clone()), view) // BORROW: .clone() gives the guard its own client
+    })
+    .await
+    .expect("the recovery runs");
     assert_eq!(
         report.outcome,
         RecoverOutcome::Recovered,

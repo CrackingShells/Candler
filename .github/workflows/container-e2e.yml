@@ -1,6 +1,7 @@
-# The real-Docker guards (guard_container_e2e) on a Linux engine: the
-# supervision gates that need the child subreaper, /proc and a host uid that
-# differs from the container's. They are ignored by default and run here only.
+# The real-Docker guards (guard_container_e2e, and guard_cli_e2e for
+# `candler kill`) on a Linux engine: the supervision gates that need the child
+# subreaper, /proc and a host uid that differs from the container's. They are
+# ignored by default and run here only.
 name: container-e2e
 
 on:
@@ -79,8 +80,8 @@ jobs:
       - name: Run the container guards
         run: |
           set -o pipefail
-          cargo nextest run -p candler-core --run-ignored only --no-tests=fail \
-            --no-fail-fast -E 'binary(guard_container_e2e)' 2>&1 | tee "$RUNNER_TEMP/e2e.log"
+          cargo nextest run -p candler-core -p candler --run-ignored only --no-tests=fail \
+            --no-fail-fast -E 'binary(guard_container_e2e) | binary(guard_cli_e2e)' 2>&1 | tee "$RUNNER_TEMP/e2e.log"
       # --no-tests=fail rejects only an empty selection: name every guard the Linux half decides,
       # so a guard that is renamed, cfg'd out or skipped fails the job instead of passing silently.
       - name: Check every expected guard ran and passed
@@ -91,7 +92,8 @@ jobs:
           missing=0
           for name in b06_kernel_facts b08_self_expiry b09_host_uid_sealable b12_sweep_scope \
             b13_client_killed_container_gone b17_canary_absent b18_internal_network_no_route \
-            b36_supervisor_sigkill_nothing_left b37_untrusted_upstream_gets_no_credential; do
+            b36_supervisor_sigkill_nothing_left b37_untrusted_upstream_gets_no_credential \
+            b40_kill_all_destroys_lost_jobs_containers; do
             if ! grep -Eq "PASS \[.*::${name}\$" "$RUNNER_TEMP/e2e.txt"; then
               echo "::error::guard ${name} did not run and pass"
               missing=1
