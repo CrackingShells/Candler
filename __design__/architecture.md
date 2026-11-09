@@ -518,7 +518,7 @@ runner keeps a stream-json session's input open so a notification starts a furth
 | `name`, `version` | Must equal what `describe` returns |
 | `protocol` | Protocol major.minor it speaks |
 | `command` | argv, relative to the plug-in directory |
-| `environment` | `{kind: uv \| none, project, lock}`; the core builds one environment per lock digest and reuses it |
+| `environment` | `{kind: uv \| none, project, lock}`; the core builds one environment per lock digest and reuses it, and runs `command` inside it (`VIRTUAL_ENV` set, its `bin/` first on `PATH`) |
 
 The core reads manifests without running anything. *Provisional:* the project config lists plug-in
 directories; a suite names an evaluator as `name@range`.

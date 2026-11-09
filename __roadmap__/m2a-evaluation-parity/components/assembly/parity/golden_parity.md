@@ -6,14 +6,35 @@
 - [ ] [cmd] `cd "$RW/$PLUGIN" && uv sync --frozen` succeeds
 - [ ] [cmd] `git -C "$R" rev-parse -q --verify 'refs/tags/htn-creator-eval@0.5.0^{commit}'`, cut through that repo's own release flow on Eliott's go; the gate never points at a branch
 **Success Gates**:
-- ⬜ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/candler/tests/guard_golden_parity\.rs$`
+- ⬜ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/(candler/tests/guard_golden_parity\.rs$|candler-core/(src/evaluation/(engine|registry)/|tests/(guard_engine\.rs$|fixtures/engine/))|candler-schemas/src/evaluation\.rs$)` (Steps 1 and 2 fix the two seams the pilot found)
 - ⬜ [cmd] SPAWN, then `CANDLER_GOLDEN_CORPUS="$GOLDEN" CANDLER_HTN_PLUGIN="$RW/$PLUGIN" cargo nextest run -p candler --run-ignored only --no-tests=fail -E 'binary(guard_golden_parity)'` passes; the report holds its log and wall-clock
 - ⬜ [cmd] The same command fails when either variable is unset
 - ⬜ [cmd] From the guard's kept store (`CANDLER_KEEP_STORE=<dir>`): the README's `candler diff … | jq -e …` gate and `diff <(candler show --rates --evaluator htn-creator-eval@0.5.0 --format toml) $ORACLE/rates_by_cell.toml` pass
 - ⬜ [nl] The adversarial verifier holds no open BLOCKER or MAJOR: every constant is read from an oracle file, every bite reproduces, the vacuity counts cannot be gamed, and no mismatch can hide behind the equivalence file
 **References**: [R03 §Scope move, §Generic diff, §I4, §Truthful instrument](../../../../../__reports__/m2a-evaluation-parity/00-architecture_v0.md); `crates/candler/tests/oracle/{counts.toml,rates_by_cell.toml,na_pairs.txt,equivalence.json}`; `crates/candler-core/src/evaluation/engine/` — `regrade`; [R04 GP1–GP3](../../../../../__reports__/m2a-evaluation-parity/01-test_definition_v0.md)
 
-## Step 1: Write the parity guard
+## Step 1: Read a suite written as JSON
+**Goal**: `candler evaluate` reads the plug-in's `suite/suite.json`, as `candler-schemas` documents (a suite is read from TOML or JSON).
+**Implementation Logic**:
+1. The pilot found that the engine reads every suite with `SuiteFile::from_toml_str`, so the HTN suite, which is JSON, is refused at line 1.
+2. Add `SuiteFile::from_json_str` beside `from_toml_str`, through the same `try_from` and with the same errors. The engine picks the reader by the file's extension: `.json` is JSON, and anything else is TOML, as before.
+3. Add a row to ENG1 in `guard_engine.rs`, with no new guard ID: the ENG1 fixture suite, written as JSON under `tests/fixtures/engine/`, gives the same records as the TOML one. Oracle: ENG1's hand literals. Bite: always read TOML.
+**Deliverables**: `SuiteFile::from_json_str`, the engine's reader choice, the ENG1 row and its JSON fixture
+**Consistency Checks**: `cargo nextest run -p candler-core -E 'binary(guard_engine)'` (expected: PASS)
+**Commit**: `fix(evaluation): read a suite file written as json`
+
+## Step 2: Run a uv plug-in inside its environment
+**Goal**: A manifest whose `environment` is `uv` runs its `command` inside the materialised environment, with no `uv run`.
+**Implementation Logic**:
+1. The pilot found that the engine spawns the command with `PATH`, `HOME` and `UV_PROJECT_ENVIRONMENT` only, so `python -m htn_creator_candler` resolves to the first `python` on `PATH` and fails. Wrapping every command in `uv run` would re-sync a shared environment from concurrent requests, which defeats REG2.
+2. One helper builds the evaluator's environment for every spawn site (engine and registry). It sets `VIRTUAL_ENV` to the environment's `.venv` and puts its `bin/` first on the forwarded `PATH`, keeping `HOME` and `UV_PROJECT_ENVIRONMENT`. A `none` environment is unchanged.
+3. Add a row to ENG1, with no new guard ID: a second fixture manifest whose command is bare `python -m <module>` describes itself and evaluates. Oracle: ENG1's hand literals. Bite: drop the `PATH` prepend.
+4. Signals stay with the supervisor (I22). This step only changes the environment the command gets.
+**Deliverables**: the environment helper, its use at every spawn site, the ENG1 row and its fixture manifest
+**Consistency Checks**: `cargo nextest run -p candler-core -E 'binary(guard_engine)'` (expected: PASS)
+**Commit**: `fix(evaluation): run a uv plug-in inside its environment`
+
+## Step 3: Write the parity guard
 **Goal**: GP1–GP3 run in one ignored binary that reads every expected number from the oracle files.
 **Implementation Logic**:
 1. `tests/guard_golden_parity.rs` (`#![cfg(test)]`, every test `#[ignore]`). It panics when `CANDLER_GOLDEN_CORPUS` or `CANDLER_HTN_PLUGIN` is unset. One shared fixture imports the corpus into a temp store (or `CANDLER_KEEP_STORE`), asserts 240 runs and 10,320 records first, then regrades twice through the binary (`candler evaluate`, so the CLI path is the one proven).
@@ -24,7 +45,7 @@
 **Consistency Checks**: `CANDLER_GOLDEN_CORPUS="$GOLDEN" CANDLER_HTN_PLUGIN="$RW/$PLUGIN" cargo nextest run -p candler --run-ignored only --no-tests=fail -E 'binary(guard_golden_parity)'` (expected: PASS)
 **Commit**: `test(evaluation): prove golden parity against the reference oracle`
 
-## Step 2: Record the run and hand it to the verifier
+## Step 4: Record the run and hand it to the verifier
 **Goal**: The leaf report holds the evidence the README gates read, and an adversarial verifier attacks the guard.
 **Implementation Logic**:
 1. The report under `__reports__/m2a-evaluation-parity/golden_parity/` holds the guard log with wall-clock, the unset-variable failures, the four bites (each tried, each failing), the README's CLI `jq` and rates gates run against the kept store, and the per-cell gate-rate table against the published rates for the KT.

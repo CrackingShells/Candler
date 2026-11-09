@@ -201,7 +201,7 @@ Kept quirks change A–C rows, so they are explicit params with the grader's def
 - `registry` keeps each manifest with its directory, because `command`, `uv.lock` and `pyproject.toml` are relative to it.
 - It writes the `ready` marker only after success, and a second run under the same digest spawns nothing (REG2).
 - The registry validates params and needs without spawning anything (I14). The `KindSpec`s it validates against come from the evaluator's `DescribeResult`, which the engine gets with `Client::describe` after the preflight; `check_suite(suite, described)` is pure.
-- `register_evaluation_steps(resolver, &Registry, env_root, Arc<Supervisor>)`: the step holds the binary's shared supervisor. The lock digest hashes the two files `PluginEnvironment::Uv { project, lock }` names. The step forwards `PATH` and `HOME` (the supervisor clears the environment) and sets `UV_PROJECT_ENVIRONMENT`.
+- `register_evaluation_steps(resolver, &Registry, env_root, Arc<Supervisor>)`: the step holds the binary's shared supervisor. The lock digest hashes the two files `PluginEnvironment::Uv { project, lock }` names. The step forwards `PATH` and `HOME` (the supervisor clears the environment) and sets `UV_PROJECT_ENVIRONMENT`. Every spawn of the evaluator activates its environment: `VIRTUAL_ENV` is the `.venv` and its `bin/` comes first on `PATH`, so a manifest's `command` (`python -m <module>`) runs inside the materialised environment, and nothing re-syncs it per request (amended by golden_parity's pilot, 2026-11-09).
 - The workspace is a private copy, read-only after writing, outside the store root. A plug-in can never write through to a blob (I11, RC3).
 
 ### C6 dependencies
