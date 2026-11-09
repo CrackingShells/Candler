@@ -200,7 +200,7 @@ pub struct HeldChild(Child);
 impl HeldChild {
     /// Takes over `child`.
     #[must_use]
-    pub fn new(child: Child) -> Self {
+    pub const fn new(child: Child) -> Self {
         Self(child)
     }
 }

@@ -139,14 +139,22 @@ fn b21_reference_command_line() -> Res<()> {
 /// One regular file of a ustar archive: the header, then the contents padded to a block.
 fn tar_entry(path: &str, contents: &[u8]) -> Vec<u8> {
     let mut header = vec![0_u8; 512];
+    // INDEX: the header is 512 bytes and the path is shorter than the name field
     header[..path.len()].copy_from_slice(path.as_bytes());
+    // INDEX: 100..108 lies inside the 512-byte header
     header[100..108].copy_from_slice(b"0000644\0");
+    // INDEX: 124..136 lies inside the 512-byte header
     header[124..136].copy_from_slice(format!("{:011o}\0", contents.len()).as_bytes());
+    // INDEX: 148..156 lies inside the 512-byte header
     header[148..156].copy_from_slice(b"        ");
+    // INDEX: 156 lies inside the 512-byte header
     header[156] = b'0';
+    // INDEX: 257..263 lies inside the 512-byte header
     header[257..263].copy_from_slice(b"ustar\0");
+    // INDEX: 263..265 lies inside the 512-byte header
     header[263..265].copy_from_slice(b"00");
     let sum: u32 = header.iter().map(|b| u32::from(*b)).sum();
+    // INDEX: 148..156 lies inside the 512-byte header
     header[148..156].copy_from_slice(format!("{sum:06o}\0 ").as_bytes());
     let mut entry = header;
     entry.extend_from_slice(contents);
@@ -271,6 +279,7 @@ fn b22_skill_tree_is_the_tag() -> Res<()> {
         (".claude/skills/s/SKILL.md", "skill\n"),
         (".claude/skills/s/notes.txt", "notes\n"),
     ];
+    let [first, second] = inside;
     let accepted = skill_files(&treatment, &tar_of(&inside))?;
     assert_eq!(accepted.len(), 2);
     for outside in [
@@ -278,11 +287,11 @@ fn b22_skill_tree_is_the_tag() -> Res<()> {
         ".claude/skills/s2/SKILL.md",
         ".claude/skills/s",
     ] {
-        let crafted = tar_of(&[inside[0], (outside, "outside\n"), inside[1]]);
+        let crafted = tar_of(&[first, (outside, "outside\n"), second]);
         assert!(skill_files(&treatment, &crafted).is_err(), "{outside}");
     }
     // The subtree without its `SKILL.md` is refused.
-    assert!(skill_files(&treatment, &tar_of(&[inside[1]])).is_err());
+    assert!(skill_files(&treatment, &tar_of(&[second])).is_err());
     // A treatment name that is not one plain path segment is refused.
     for name in ["..", "a/b", "s:t"] {
         let mut other = treatment.clone();

@@ -26,14 +26,16 @@ pub struct EvalInfra {
     pub dirty: Option<bool>,
 }
 
-/// The version of a skill as the reference names it: the tag without its `<name>@` prefix and
-/// without a leading `v`, then one `v` in front.
+/// The version of a skill recorded from the tag of its treatment: the part of the tag after its
+/// `<name>@` prefix, without one leading `v`, with one `v` in front. A tag that does not start
+/// with `<name>@` records no version, so the function returns none.
 #[must_use]
-pub fn skill_version(name: &str, tag: &str) -> String {
+pub fn skill_version(name: &str, tag: &str) -> Option<String> {
     let prefix = format!("{name}@");
-    let bare = tag.strip_prefix(prefix.as_str()).unwrap_or(tag);
-    let bare = bare.strip_prefix('v').unwrap_or(bare);
-    format!("v{bare}")
+    // BORROW: explicit .as_str() instead of Deref coercion
+    let rest = tag.strip_prefix(prefix.as_str())?;
+    let bare = rest.strip_prefix('v').unwrap_or(rest);
+    Some(format!("v{bare}"))
 }
 
 /// The `provenance.*` values of a run: the skill version from the treatment's tag, the
@@ -49,7 +51,8 @@ pub fn provenance_values(
     let entries = [
         (
             "provenance.skill_version",
-            tag.map(|tag| Value::String(skill_version(name, tag))),
+            tag.and_then(|tag| skill_version(name, tag))
+                .map(Value::String),
         ),
         (
             "provenance.eval_infra.tag",

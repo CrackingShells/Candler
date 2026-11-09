@@ -116,6 +116,7 @@ pub fn render_mcp(cell: &Cell<'_>) -> Result<Option<PreparedFile>, DriverError> 
 /// [`DriverError::InvalidValue`] when the treatment name is not one plain path segment: it is `.`
 /// or `..`, or holds a character outside `[A-Za-z0-9._-]`.
 fn skill_subtree(treatment: &TreatmentRef) -> Result<String, DriverError> {
+    // BORROW: explicit .as_str() instead of Deref coercion
     let name = treatment.name.as_str();
     let plain = !name.is_empty()
         && name != "."
@@ -160,7 +161,7 @@ pub fn skill_archive_command(
         "archive".to_owned(),
         "--format=tar".to_owned(),
         commit.to_string(), // BORROW: .to_string() gives owned text
-        "--".to_owned(),
+        "--".to_owned(),    // BORROW: .to_owned() makes the owned argument
         subtree,
     ];
     Ok(CommandSpec::builder().argv(argv).build()?)
@@ -273,8 +274,8 @@ pub fn skill_files(treatment: &TreatmentRef, tar: &[u8]) -> Result<Vec<PreparedF
                 };
                 let rel = RelPath::from_str(path.as_str()) // BORROW: explicit .as_str()
                     .map_err(|error| invalid(TREATMENT, error.to_string()))?; // BORROW: .to_string() gives owned text
+                // BORROW: explicit .as_str()
                 if !path.starts_with(scope.as_str()) {
-                    // BORROW: explicit .as_str()
                     return Err(invalid(
                         TREATMENT,
                         format!("the entry `{path}` lies outside `{subtree}`"),
@@ -294,9 +295,9 @@ pub fn skill_files(treatment: &TreatmentRef, tar: &[u8]) -> Result<Vec<PreparedF
     }
     if !files
         .iter()
+        // BORROW: explicit .as_str() on both sides
         .any(|file| file.path.as_str() == entry.as_str())
     {
-        // BORROW: explicit .as_str()
         return Err(invalid(
             TREATMENT,
             format!("the archive holds no `{entry}`"),

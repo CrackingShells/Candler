@@ -6,11 +6,11 @@
 //! cannot pass before they hold their own guards.
 #![cfg(unix)]
 
-#[path = "container_run_e2e.rs"]
+#[path = "e2e/container_run_e2e.rs"]
 mod container_run_e2e;
-#[path = "container_stop_e2e.rs"]
+#[path = "e2e/container_stop_e2e.rs"]
 mod container_stop_e2e;
-#[path = "gateway_e2e.rs"]
+#[path = "e2e/gateway_e2e.rs"]
 mod gateway_e2e;
-#[path = "supervision_gates_e2e.rs"]
+#[path = "e2e/supervision_gates_e2e.rs"]
 mod supervision_gates_e2e;

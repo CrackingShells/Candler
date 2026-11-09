@@ -86,6 +86,7 @@ async fn run_job(
         Err(error) => return refused("the plan was refused", &error),
     };
     let mut planners = BTreeMap::new();
+    // EXPLICIT: the loop fills `planners` and skips images it already holds; .map() would hide the state update
     for comparable in outcome.fresh.values() {
         let Some(id) = image_of(comparable) else {
             continue;
