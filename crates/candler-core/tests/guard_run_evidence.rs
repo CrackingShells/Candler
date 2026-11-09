@@ -154,3 +154,25 @@ fn b25_census_from_a_real_init() {
         json!(["Bash", "Agent"])
     );
 }
+
+/// Guards: `provenance.skill_version` is derived only from a skill tag, so a tag from another
+/// prefix records no version instead of a mangled one.
+/// Oracle: `normalize_tag` in `_git_skill.py` at `htn-creator-eval@0.4.2`, lines 76-85: it raises
+/// on a tag without the `htn-creator@` prefix, and maps `htn-creator@0.2.7` and the legacy
+/// `htn-creator@v0.2.3` to `v0.2.7` and `v0.2.3`.
+/// Bite: `tag.strip_prefix(prefix.as_str()).unwrap_or(tag)` in place of the `?` records
+/// `vhtn-creator-eval@0.4.2` for the eval tag, as the re-validation smoke saw (N1).
+#[test]
+fn b38_skill_version_from_a_skill_tag_only() {
+    use candler_core::runner::evidence::provenance::skill_version;
+
+    assert_eq!(skill_version("htn-creator", "htn-creator-eval@0.4.2"), None);
+    assert_eq!(
+        skill_version("htn-creator", "htn-creator@0.2.7").as_deref(),
+        Some("v0.2.7")
+    );
+    assert_eq!(
+        skill_version("htn-creator", "htn-creator@v0.2.3").as_deref(),
+        Some("v0.2.3")
+    );
+}
