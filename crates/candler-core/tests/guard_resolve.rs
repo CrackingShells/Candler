@@ -282,9 +282,10 @@ fn unknown_keys_are_refused_naming_the_file_and_key() {
     }
 }
 
-/// Guards: I14 — a path written in a config file resolves against that file's directory, and a
-/// path given as an argument against the working directory. Oracle: I14 of R01 §Invariants, with
-/// the expected paths written out by hand.
+/// Guards: I14 — a path written in a config file or an experiment file resolves against that
+/// file's directory, and a path given as an argument against the working directory.
+/// Oracle: I14 of R01 §Invariants, with the expected paths written out by hand.
+/// Bite: in `FileValues::relative_to`, join the text to `std::env::current_dir()` instead of `dir`.
 #[tokio::test]
 async fn paths_resolve_against_the_file_or_the_working_directory() {
     let dir = tempfile::tempdir().expect("a temp dir");
@@ -322,6 +323,56 @@ async fn paths_resolve_against_the_file_or_the_working_directory() {
     assert_eq!(
         store(&from_argument),
         Some(format!("{root_text}/a/b/data/store"))
+    );
+
+    // An experiment file in `exp/` writes build paths; its directory is not the working directory.
+    let file_dir = root.join("exp");
+    let file = FileValues::new(vec![
+        (fp("isolation.build.lock"), js("env.lock")),
+        (
+            fp("isolation.build.requirements"),
+            JsonValue::new(json!([
+                "reqs/base.txt",
+                "treatment:reqs/skill.txt",
+                "/abs/pin.txt"
+            ]))
+            .expect("a JSON value"),
+        ),
+    ])
+    .relative_to(&file_dir)
+    .expect("a UTF-8 path");
+    let input = ResolveInput::default()
+        .file(file)
+        .explicit_path(
+            &config,
+            fp("isolation.build.dockerfile"),
+            Path::new("Dockerfile"),
+        )
+        .expect("a UTF-8 path");
+    let built = resolver.resolve(input).await.expect("resolves");
+    let setting = |name: &str| {
+        built
+            .settings
+            .iter()
+            .find(|v| v.path() == &fp(name))
+            .and_then(|v| v.value())
+            .map(|v| v.as_value().clone()) // BORROW: owned JSON outlives the resolution
+    };
+    assert_eq!(
+        setting("isolation.build.lock"),
+        Some(json!(format!("{root_text}/exp/env.lock")))
+    );
+    assert_eq!(
+        setting("isolation.build.requirements"),
+        Some(json!([
+            format!("{root_text}/exp/reqs/base.txt"),
+            "treatment:reqs/skill.txt",
+            "/abs/pin.txt"
+        ]))
+    );
+    assert_eq!(
+        setting("isolation.build.dockerfile"),
+        Some(json!(format!("{root_text}/a/b/Dockerfile")))
     );
 }
 

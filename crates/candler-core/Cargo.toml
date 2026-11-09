@@ -43,7 +43,6 @@ candler-harness-claude-code.workspace = true
 jsonschema.workspace = true
 proptest.workspace = true
 tempfile.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 [lints]
 workspace = true

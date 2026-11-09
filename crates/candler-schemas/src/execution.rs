@@ -16,13 +16,14 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Number, Value};
 
 use crate::canonical::{self, CanonicalError};
+use crate::container::{ContainerFound, ContainerRole, StrayContainer, SweepScope};
 use crate::generate::GeneratedSchema;
 use crate::map_only::MapOnly;
 use crate::outcome::OutcomeRecord;
 use crate::primitives::{
-    Digest, FieldPath, FormatError, JobId, Name, NameToken, NameVersion, ReasonCode, RelPath,
-    RequestId, RunKey, SEMVER_PATTERN, SecretName, Timestamp, object_only, present, schema_tag,
-    text_type,
+    ContainerId, Digest, FieldPath, FormatError, JobId, Name, NameToken, NameVersion, ReasonCode,
+    RelPath, RequestId, RunKey, SEMVER_PATTERN, SecretName, Timestamp, object_only, present,
+    schema_tag, text_type,
 };
 use crate::process::{ChildRecord, ExitStatus, ProcessStart};
 use crate::trace::EndedBy;
@@ -1783,6 +1784,8 @@ pub enum InvalidReason {
     ReaderError,
     /// The format of the run's output is not one a reader knows.
     FormatUnknown,
+    /// The container engine or the machine failed the run: the engine reported an error or no start, the container ran out of memory, or something else killed it.
+    Infrastructure,
 }
 
 /// Whether a run counts: `valid`, or `invalid` with the reason it does not.
@@ -2559,7 +2562,7 @@ pub enum JobEnd {
     Failed,
 }
 
-/// A step of the ladder that stops a process: `pre_stop`, `signal`, `terminate_group`, `kill_group` or `sweep`.
+/// A step of the ladder that stops a process: `pre_stop`, `signal`, `terminate_group`, `kill_group`, `sweep` or `destroy_container`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
@@ -2574,6 +2577,8 @@ pub enum StopStep {
     KillGroup,
     /// The sweep killed what was left of the group.
     Sweep,
+    /// The container was destroyed.
+    DestroyContainer,
 }
 
 /// The supervisor of a job: its process id, which is at least 1, and when it started.
@@ -2866,11 +2871,13 @@ pub enum EventPayload {
         /// Why it failed.
         reason: ReasonCode,
     },
-    /// Processes of a run outlived it.
+    /// Processes and containers of a run outlived it.
     #[non_exhaustive]
     RunStray {
         /// The processes found, each by process id and start time.
         processes: Vec<StrayProcess>,
+        /// The containers found, each by id and role; empty when none was found.
+        containers: Vec<StrayContainer>,
     },
     /// An evaluator gave its result for a run.
     #[non_exhaustive]
@@ -2910,6 +2917,34 @@ pub enum EventPayload {
         /// Whether its process group was empty afterwards.
         group_empty: bool,
     },
+    /// A container was created.
+    #[non_exhaustive]
+    ContainerCreated {
+        /// The id of the container.
+        cid: ContainerId,
+        /// The part the container plays.
+        role: ContainerRole,
+    },
+    /// A container was destroyed.
+    #[non_exhaustive]
+    ContainerDestroyed {
+        /// The id of the container.
+        cid: ContainerId,
+        /// The part the container played.
+        role: ContainerRole,
+        /// How the container was found.
+        found: ContainerFound,
+    },
+    /// A container sweep could not say that it found everything.
+    #[non_exhaustive]
+    ContainerSweepIncomplete {
+        /// The run the sweep was for, if it was for one.
+        run: Option<RunKey>,
+        /// How far the sweep reached.
+        scope: SweepScope,
+        /// Why the sweep is incomplete.
+        reason: ReasonCode,
+    },
     /// A kind this version does not know, with its payload as written.
     #[non_exhaustive]
     Unknown {
@@ -2921,7 +2956,7 @@ pub enum EventPayload {
 }
 
 /// The kinds this version knows, as written.
-const KNOWN_EVENT_KINDS: [&str; 10] = [
+const KNOWN_EVENT_KINDS: [&str; 13] = [
     "job.started",
     "job.ended",
     "run.started",
@@ -2932,6 +2967,9 @@ const KNOWN_EVENT_KINDS: [&str; 10] = [
     "process.spawned",
     "process.stop_step",
     "process.exited",
+    "container.created",
+    "container.destroyed",
+    "container.sweep_incomplete",
 ];
 
 /// Refuses a process id of 0.
@@ -2977,7 +3015,22 @@ impl EventPayload {
     /// Processes of a run outlived it.
     #[must_use]
     pub const fn run_stray(processes: Vec<StrayProcess>) -> Self {
-        Self::RunStray { processes }
+        Self::RunStray {
+            processes,
+            containers: Vec::new(),
+        }
+    }
+
+    /// Processes and containers of a run outlived it.
+    #[must_use]
+    pub const fn run_stray_with_containers(
+        processes: Vec<StrayProcess>,
+        containers: Vec<StrayContainer>,
+    ) -> Self {
+        Self::RunStray {
+            processes,
+            containers,
+        }
     }
 
     /// An evaluator's result.
@@ -3034,6 +3087,33 @@ impl EventPayload {
         })
     }
 
+    /// A container was created.
+    #[must_use]
+    pub const fn container_created(cid: ContainerId, role: ContainerRole) -> Self {
+        Self::ContainerCreated { cid, role }
+    }
+
+    /// A container was destroyed, found as `found` says.
+    #[must_use]
+    pub const fn container_destroyed(
+        cid: ContainerId,
+        role: ContainerRole,
+        found: ContainerFound,
+    ) -> Self {
+        Self::ContainerDestroyed { cid, role, found }
+    }
+
+    /// A container sweep of `scope`, for `run` if it was for one, could not say that it found
+    /// everything.
+    #[must_use]
+    pub const fn container_sweep_incomplete(
+        run: Option<RunKey>,
+        scope: SweepScope,
+        reason: ReasonCode,
+    ) -> Self {
+        Self::ContainerSweepIncomplete { run, scope, reason }
+    }
+
     /// A kind this version does not know.
     ///
     /// # Errors
@@ -3061,6 +3141,9 @@ impl EventPayload {
             Self::ProcessSpawned { .. } => "process.spawned",
             Self::ProcessStopStep { .. } => "process.stop_step",
             Self::ProcessExited { .. } => "process.exited",
+            Self::ContainerCreated { .. } => "container.created",
+            Self::ContainerDestroyed { .. } => "container.destroyed",
+            Self::ContainerSweepIncomplete { .. } => "container.sweep_incomplete",
             Self::Unknown { kind, .. } => kind.as_str(), // BORROW: explicit .as_str()
         }
     }
@@ -3107,11 +3190,14 @@ enum KnownPayload {
         /// Why it failed.
         reason: ReasonCode,
     },
-    /// Processes of a run outlived it.
+    /// Processes and containers of a run outlived it.
     #[serde(rename = "run.stray")]
     RunStray {
         /// The processes found, each by process id and start time.
         processes: Vec<StrayProcess>,
+        /// The containers found, each by id and role; empty when none was found.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        containers: Vec<StrayContainer>,
     },
     /// An evaluator gave its result for a run.
     #[serde(rename = "evaluation.outcome")]
@@ -3158,6 +3244,39 @@ enum KnownPayload {
         /// Whether its process group was empty afterwards.
         group_empty: bool,
     },
+    /// A container was created.
+    #[serde(rename = "container.created")]
+    ContainerCreated {
+        /// The id of the container.
+        cid: ContainerId,
+        /// The part the container plays.
+        role: ContainerRole,
+    },
+    /// A container was destroyed.
+    #[serde(rename = "container.destroyed")]
+    ContainerDestroyed {
+        /// The id of the container.
+        cid: ContainerId,
+        /// The part the container played.
+        role: ContainerRole,
+        /// How the container was found.
+        found: ContainerFound,
+    },
+    /// A container sweep could not say that it found everything.
+    #[serde(rename = "container.sweep_incomplete")]
+    ContainerSweepIncomplete {
+        /// The run the sweep was for, if it was for one.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "present"
+        )]
+        run: Option<RunKey>,
+        /// How far the sweep reached.
+        scope: SweepScope,
+        /// Why the sweep is incomplete; a code such as `timeout` or `daemon_error`.
+        reason: ReasonCode,
+    },
     /// A kind this version does not know; it is not part of the schema.
     #[serde(skip)]
     Unknown { kind: String, payload: Value },
@@ -3181,7 +3300,10 @@ impl Serialize for EventPayload {
             | Self::EvaluationOutcome { .. }
             | Self::ProcessSpawned { .. }
             | Self::ProcessStopStep { .. }
-            | Self::ProcessExited { .. } => KnownPayload::serialize(self, serializer),
+            | Self::ProcessExited { .. }
+            | Self::ContainerCreated { .. }
+            | Self::ContainerDestroyed { .. }
+            | Self::ContainerSweepIncomplete { .. } => KnownPayload::serialize(self, serializer),
         }
     }
 }
@@ -3217,6 +3339,9 @@ impl<'de> Deserialize<'de> for EventPayload {
                 | Self::RunStray { .. }
                 | Self::EvaluationOutcome { .. }
                 | Self::ProcessSpawned { .. }
+                | Self::ContainerCreated { .. }
+                | Self::ContainerDestroyed { .. }
+                | Self::ContainerSweepIncomplete { .. }
                 | Self::Unknown { .. } => {} // EXPLICIT: no process id to check
             }
             Ok(event)

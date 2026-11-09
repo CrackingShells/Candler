@@ -101,6 +101,8 @@ The highest bump across the batch wins. The core stays at `0.y.z` until the eval
 | `cog` (cocogitto) | Checking commit messages, locally and in CI | 7.0.0 |
 | `release-plz` | Versions, changelogs and releases from the commits | 0.4.2 |
 | `cargo-nextest` | Running the tests | 0.9.150 |
+| Docker | The container guards (`guard_container_e2e`, ignored by default) | Docker Desktop or a Linux engine |
+| `python3` and `openssl` | The gateway's TLS fake in the container guards (`tests/fixtures/gateway/`) | Python 3.9 or later |
 
 ```
 brew install cocogitto cargo-nextest

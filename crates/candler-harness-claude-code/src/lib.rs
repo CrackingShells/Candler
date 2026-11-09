@@ -5,7 +5,10 @@
 //! first line.
 
 pub mod detect;
+pub mod discovery;
+pub mod driver;
 mod parse;
+pub mod prepare;
 mod sessions;
 mod usage;
 

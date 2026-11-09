@@ -16,7 +16,7 @@ use rustix::process::getpgid;
 
 use super::platform::{Liveness, liveness, pid_of};
 use super::signal::{group_exists, process_exists};
-use super::stop::{Ladder, Leader, Mode, StepRecord};
+use super::stop::{Ended, Ladder, Leader, Mode, StepRecord};
 use super::{SuperviseError, Supervisor};
 
 /// Why no signal was sent to the group a record names.
@@ -155,6 +155,8 @@ impl Supervisor {
             stop,
             env: &[],
             cwd: None,
+            hook: None,
+            ended: Ended::Stopped,
         };
         let mut leader = Leader::Record {
             pid,

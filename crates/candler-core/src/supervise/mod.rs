@@ -19,6 +19,7 @@ use self::signal::Signaller;
 use self::signal::{Guard, OsSignaller};
 use self::stop::StraySweeper;
 
+pub mod hook;
 pub mod http;
 pub mod output;
 pub mod platform;
@@ -104,7 +105,7 @@ pub trait EventSink: Send + Sync {
 pub struct Supervisor {
     // TRAIT_OBJECT: the sink is chosen by the job runner and by tests
     pub(crate) sink: Arc<dyn EventSink>,
-    // TRAIT_OBJECT: the sweeper is injected by the execution milestone
+    // TRAIT_OBJECT: the sweeper is injected by the isolation backend
     pub(crate) sweeper: Option<Arc<dyn StraySweeper>>,
     /// The table of children and the only path to a signal.
     pub(crate) guard: Arc<Guard>,
@@ -147,10 +148,17 @@ impl Supervisor {
         self
     }
 
+    /// The guard that holds this supervisor's children and is the only path to a signal, so that
+    /// a sweeper can be built over it and then installed with [`Supervisor::with_sweeper`].
+    #[must_use]
+    pub fn guard(&self) -> Arc<Guard> {
+        Arc::clone(&self.guard)
+    }
+
     /// The same supervisor with `sweeper` called after every group kill to find and kill the
     /// processes of the run that left the group.
     #[must_use]
-    // TRAIT_OBJECT: the sweeper is injected by the execution milestone
+    // TRAIT_OBJECT: the sweeper is injected by the isolation backend
     pub fn with_sweeper(mut self, sweeper: Arc<dyn StraySweeper>) -> Self {
         self.sweeper = Some(sweeper);
         self

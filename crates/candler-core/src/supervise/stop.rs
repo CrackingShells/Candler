@@ -1,9 +1,10 @@
 //! Ending a child: by exit, by deadline or by a stop request, through the escalation ladder.
 //!
-//! The ladder has five steps, each reported as a `process.stop_step` event with an outcome:
+//! The ladder has these steps, each reported as a `process.stop_step` event with an outcome:
 //!
 //! 1. `pre_stop`: the harness's own stop action, a command or a loopback HTTP call, bounded by
-//!    the grace. A failed or timed-out pre-stop continues the escalation.
+//!    the grace, then the spawn request's [`StopHook`] when one is attached. A failed or
+//!    timed-out pre-stop continues the escalation.
 //! 2. `signal`: the stop signal to the whole process group, then up to the grace for the leader
 //!    to exit.
 //! 3. `terminate_group`: `SIGTERM` to the group, then up to the grace (at most one second) for the
@@ -11,6 +12,8 @@
 //! 4. `kill_group`: `SIGKILL` to the group, then up to two seconds for the group to empty.
 //! 5. `sweep`: the injected [`StraySweeper`] finds and kills what left the group; the survivors
 //!    are reported as `run.stray`.
+//! 6. `destroy_container`: the hook's `destroy`, only when the ladder ended the child (not when
+//!    it exited by itself), reported with what was destroyed and refused.
 //!
 //! A child that exits by itself skips the first four steps. Its group is still ended, with
 //! `terminate_group` and `kill_group`, if members remain, and the sweep always runs. A step that
@@ -30,8 +33,9 @@ use std::time::Duration;
 use candler_harness::spec::{
     Action, CommandSpec, EnvValue, HttpMethod, ProcessEnd, ProcessExit, StopSignal, StopSpec,
 };
+use candler_schemas::container::SweepScope as WireScope;
 use candler_schemas::execution::{EventPayload, StopStep, StrayProcess};
-use candler_schemas::primitives::{Marker, RunKey, Timestamp};
+use candler_schemas::primitives::{Marker, ReasonCode, RunKey, Timestamp};
 use candler_schemas::process::{ChildRecord, ExitStatus, ProcessStart};
 use rustix::process::Signal;
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -40,6 +44,7 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep, sleep_until, timeout, timeout_at};
 
+use super::hook::{StopHook, StopHookCtx};
 use super::output::Pumped;
 use super::platform::{alive, process_start};
 use super::signal::{Guard, SignalError, group_exists};
@@ -57,8 +62,8 @@ const KILL_WAIT: Duration = Duration::from_secs(2);
 const POLL: Duration = Duration::from_millis(10);
 
 /// Finds and kills the processes of a run that left their process group, which a group signal
-/// cannot reach (a harness starts descendants in new sessions). The execution milestone provides
-/// the `/proc` and same-user scans; the supervisor only calls it.
+/// cannot reach (a harness starts descendants in new sessions). The isolation backend provides
+/// it (the container backend sweeps by label); the supervisor only calls it.
 pub trait StraySweeper: Send + Sync {
     /// Finds every process whose environment carries `marker` in `CANDLER_RUN`, kills it, and
     /// returns each by process id and the start time read before the kill.
@@ -299,7 +304,7 @@ pub(crate) struct Ladder<'a> {
     // TRAIT_OBJECT: the sink is chosen by the job runner and by tests
     pub(crate) sink: &'a dyn EventSink,
     /// The sweep, if one is injected.
-    // TRAIT_OBJECT: the sweeper is injected by the execution milestone
+    // TRAIT_OBJECT: the sweeper is injected by the isolation backend
     pub(crate) sweeper: Option<&'a Arc<dyn StraySweeper>>,
     /// The only path to a signal.
     pub(crate) guard: &'a Guard,
@@ -314,6 +319,12 @@ pub(crate) struct Ladder<'a> {
     pub(crate) env: &'a [(String, String)],
     /// The working directory a pre-stop command's relative directory is joined to.
     pub(crate) cwd: Option<&'a Path>,
+    /// What the caller adds to the stop, if it attached a hook to the request.
+    // TRAIT_OBJECT: the hook is chosen by the run that attaches it
+    pub(crate) hook: Option<&'a Arc<dyn StopHook>>,
+    /// How the child came to be ended. The hook's `destroy` runs only when it is not
+    /// [`Ended::Exited`]: after a normal exit the caller destroys, in order.
+    pub(crate) ended: Ended,
 }
 
 /// The signal a stop request names.
@@ -375,6 +386,9 @@ impl Ladder<'_> {
                 if let Some(action) = &self.stop.pre_stop {
                     self.pre_stop(action, &mut climb).await;
                 }
+                if let Some(hook) = self.hook {
+                    self.hook_pre_stop(hook, &mut climb).await;
+                }
                 self.signal(leader, &mut climb).await;
                 self.terminate(leader, &mut climb).await;
                 self.kill(leader, &mut climb).await;
@@ -388,7 +402,72 @@ impl Ladder<'_> {
             Mode::SweepOnly => {}
         }
         self.sweep(&mut climb).await;
+        if self.ended != Ended::Exited
+            && let Some(hook) = self.hook
+        {
+            self.hook_destroy(hook, &mut climb).await;
+        }
         climb
+    }
+
+    /// What a hook is told about the child being ended.
+    fn hook_ctx(&self) -> StopHookCtx {
+        StopHookCtx::new(
+            self.run.cloned(),            // BORROW: .cloned() gives the context its own run key
+            self.record.marker().clone(), // BORROW: .clone() gives the context its own marker
+            self.ended,
+        )
+    }
+
+    /// Runs the hook's `pre_stop`; a failure is the step's outcome and the ladder goes on.
+    async fn hook_pre_stop(&self, hook: &Arc<dyn StopHook>, climb: &mut Climb) {
+        let started = now();
+        let ctx = self.hook_ctx();
+        let outcome = match hook.pre_stop(&ctx).await {
+            Ok(()) => "hook pre_stop done".to_owned(), // BORROW: .to_owned() makes the owned outcome from a literal
+            Err(error) => format!("hook pre_stop failed: {error}"),
+        };
+        self.log(climb, StopStep::PreStop, started, outcome);
+    }
+
+    /// Runs the hook's `destroy` after the sweep. A failure is the step's outcome and the ladder
+    /// is done anyway. A sweep that cannot say it found everything is also an event of its own.
+    async fn hook_destroy(&self, hook: &Arc<dyn StopHook>, climb: &mut Climb) {
+        let started = now();
+        let ctx = self.hook_ctx();
+        let outcome = match hook.destroy(&ctx).await {
+            Ok(swept) => {
+                let mut text = format!(
+                    "destroyed {} container(s), refused {}",
+                    swept.destroyed.len(),
+                    swept.refused.len()
+                );
+                if swept.unknown {
+                    text.push_str("; the sweep is incomplete");
+                    self.sweep_incomplete(climb);
+                }
+                text
+            }
+            Err(error) => format!("hook destroy failed: {error}"),
+        };
+        self.log(climb, StopStep::DestroyContainer, started, outcome);
+    }
+
+    /// Reports that the container sweep of this child's run could not say it found everything.
+    fn sweep_incomplete(&self, climb: &mut Climb) {
+        match "sweep_unknown".parse::<ReasonCode>() {
+            Ok(reason) => self.sink.emit(
+                self.run,
+                EventPayload::container_sweep_incomplete(
+                    self.run.cloned(), // BORROW: .cloned() gives the event its own run key
+                    WireScope::Run,
+                    reason,
+                ),
+            ),
+            Err(error) => climb.fail(SuperviseError::Event {
+                detail: error.to_string(),
+            }),
+        }
     }
 
     /// Reports a step that began at `started` and ended with `outcome`.
@@ -706,6 +785,8 @@ impl Child {
             stop: &self.context.stop,
             env: self.context.env.as_slice(), // BORROW: explicit .as_slice() instead of Deref coercion
             cwd: self.context.cwd.as_deref(),
+            hook: self.context.hook.as_ref(),
+            ended,
         };
         let mut leader = Leader::Owned {
             process: &mut self.process,

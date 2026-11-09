@@ -1,0 +1,210 @@
+# field_paths.toml: the configuration-surface field paths and their class (B19 oracle, plan D5).
+# Hand-transcribed, never generated and never imported from `experiment::paths`:
+#   __reports__/m2b-execution-parity/00-architecture_v0.md section 11 (normative), with the
+#   rulings R21 (request.harness, request.treatment), D2 (request.treatment_source),
+#   D9 (model.token_secret) and D17 (model.effort) from m2b-arch-review-rulings.md.
+# Classes (section 11): cell_value (hashed and compared), setting (dropped from `Comparable`),
+# typed_root (reserved, filled by derived steps, never by the file).
+# Brace rows are expanded to one path each. A row whose report text names no members stays a
+# wildcard (`wildcard = true`): `mcp.*` and `isolation.limits.*` (the report names the flags
+# --pids-limit, --memory, --cpus, and one path, `isolation.limits.memory`, which has its own row).
+# `budget.*` except `budget.per_run.*` is expanded with the keys R01 section "Experiment file"
+# lists: max_runs, max_tokens, max_cost_usd, wall_s, max_parallel.
+# Rules to test (section 11): no value sits below a typed root; no value is an absolute path.
+
+[[path]]
+path = "model.id"
+class = "cell_value"
+source = "experiment file (fixed, factors)"
+
+[[path]]
+path = "model.endpoint"
+class = "cell_value"
+source = "experiment file (fixed, factors)"
+
+[[path]]
+path = "model.effort"
+class = "cell_value"
+source = "experiment file; the driver emits --effort only when set (D17)"
+
+[[path]]
+path = "model.token_secret"
+class = "setting"
+source = "experiment file: names one secrets[] entry, refused if absent (D9)"
+
+[[path]]
+path = "tools.allowed"
+class = "cell_value"
+source = "experiment file"
+
+[[path]]
+path = "tools.disallowed"
+class = "cell_value"
+source = "experiment file"
+
+[[path]]
+path = "mcp.*"
+class = "cell_value"
+wildcard = true
+source = "experiment file (server config)"
+
+[[path]]
+path = "permission_mode"
+class = "cell_value"
+source = "experiment file"
+
+[[path]]
+path = "request.harness"
+class = "setting"
+source = "filled by cli_run from the typed tables (F2 (a), R21); never reaches Comparable"
+
+[[path]]
+path = "request.treatment"
+class = "setting"
+source = "filled by cli_run from the typed tables (F2 (a), R21); never reaches Comparable"
+
+[[path]]
+path = "request.treatment_source"
+class = "setting"
+source = "a path to the skill repo, resolved per I14; a location, not identity: the commit pins the content (D2)"
+
+[[path]]
+path = "prompt.template"
+class = "cell_value"
+source = "experiment file"
+
+[[path]]
+path = "prompt.values"
+class = "cell_value"
+source = "experiment file"
+
+[[path]]
+path = "isolation.image"
+class = "cell_value"
+source = "derived by the image_id step: local image ID sha256:..."
+
+[[path]]
+path = "isolation.network"
+class = "cell_value"
+source = "experiment file (bridge or the internal default)"
+
+[[path]]
+path = "isolation.env_lock"
+class = "cell_value"
+source = "experiment file or derived lock digest; not environments[] (decision 15)"
+
+[[path]]
+path = "isolation.limits.memory"
+class = "cell_value"
+source = "experiment file (--memory); named by B19's bite and by C08"
+
+[[path]]
+path = "isolation.limits.*"
+class = "cell_value"
+wildcard = true
+source = "experiment file (--pids-limit, --memory, --cpus)"
+
+[[path]]
+path = "budget.per_run.wall_s"
+class = "cell_value"
+source = "experiment file (PerRunCaps), appended to every cell by ExperimentFile::cells()"
+
+[[path]]
+path = "budget.per_run.turns"
+class = "cell_value"
+source = "experiment file (PerRunCaps), appended to every cell by ExperimentFile::cells()"
+
+[[path]]
+path = "budget.per_run.max_cost_usd"
+class = "cell_value"
+source = "experiment file (PerRunCaps), appended to every cell by ExperimentFile::cells()"
+
+[[path]]
+path = "isolation.build.dockerfile"
+class = "setting"
+source = "experiment file; its content enters as an inputs[] digest"
+
+[[path]]
+path = "isolation.build.context"
+class = "setting"
+source = "experiment file; its content enters as an inputs[] digest"
+
+[[path]]
+path = "isolation.build.requirements"
+class = "setting"
+source = "experiment file (ruling A15); the compiled lock enters the cell as isolation.env_lock"
+
+[[path]]
+path = "isolation.build.lock"
+class = "setting"
+source = "experiment file (ruling A15); its bytes enter the cell as isolation.env_lock"
+
+[[path]]
+path = "harness"
+class = "typed_root"
+source = "derived HarnessIdentity {name, version, driver?}"
+
+[[path]]
+path = "treatment"
+class = "typed_root"
+source = "derived TreatmentRef {name, tag, commit}"
+
+[[path]]
+path = "inputs[]"
+class = "typed_root"
+source = "derived digests: server sources and the Dockerfile"
+
+[[path]]
+path = "snapshots"
+class = "typed_root"
+source = "derived: the catalog digest from the CatalogProvider"
+
+[[path]]
+path = "environments"
+class = "typed_root"
+source = "reserved for M5; M2a never writes an environment to the run manifest"
+
+[[path]]
+path = "store.root"
+class = "setting"
+source = "user config (M1 is_setting)"
+
+[[path]]
+path = "plugins.dirs"
+class = "setting"
+source = "user config (M1 is_setting)"
+
+[[path]]
+path = "slots.count"
+class = "setting"
+source = "user config (M1 is_setting)"
+
+[[path]]
+path = "budget.max_runs"
+class = "setting"
+source = "experiment file (M1 is_setting): budget.* except budget.per_run.*; member named by R01 section Experiment file and C17"
+
+[[path]]
+path = "budget.max_tokens"
+class = "setting"
+source = "experiment file (M1 is_setting): budget.* except budget.per_run.*; member named by R01 section Experiment file"
+
+[[path]]
+path = "budget.max_cost_usd"
+class = "setting"
+source = "experiment file (M1 is_setting): budget.* except budget.per_run.*; the job cap, not budget.per_run.max_cost_usd (B20)"
+
+[[path]]
+path = "budget.wall_s"
+class = "setting"
+source = "experiment file (M1 is_setting): budget.* except budget.per_run.*; member named by R01 section Experiment file"
+
+[[path]]
+path = "budget.max_parallel"
+class = "setting"
+source = "experiment file (M1 is_setting): budget.* except budget.per_run.*; member named by R01 section Experiment file"
+
+[[path]]
+path = "replicates"
+class = "setting"
+source = "experiment file (M1 is_setting)"
