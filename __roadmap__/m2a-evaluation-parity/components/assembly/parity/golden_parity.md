@@ -6,11 +6,11 @@
 - [ ] [cmd] `cd "$RW/$PLUGIN" && uv sync --frozen` succeeds
 - [ ] [cmd] `git -C "$R" rev-parse -q --verify 'refs/tags/htn-creator-eval@0.5.0^{commit}'`, cut through that repo's own release flow on Eliott's go; the gate never points at a branch
 **Success Gates**:
-- ⬜ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/(candler/tests/guard_golden_parity\.rs$|candler-core/(src/evaluation/(engine|registry)/|tests/(guard_engine\.rs$|fixtures/engine/))|candler-schemas/src/evaluation\.rs$)` (Steps 1 and 2 fix the two seams the pilot found)
-- ⬜ [cmd] SPAWN, then `CANDLER_GOLDEN_CORPUS="$GOLDEN" CANDLER_HTN_PLUGIN="$RW/$PLUGIN" cargo nextest run -p candler --run-ignored only --no-tests=fail -E 'binary(guard_golden_parity)'` passes; the report holds its log and wall-clock
-- ⬜ [cmd] The same command fails when either variable is unset
-- ⬜ [cmd] From the guard's kept store (`CANDLER_KEEP_STORE=<dir>`): the README's `candler diff … | jq -e …` gate and `diff <(candler show --rates --evaluator htn-creator-eval@0.5.0 --format toml) $ORACLE/rates_by_cell.toml` pass
-- ⬜ [nl] The adversarial verifier holds no open BLOCKER or MAJOR: every constant is read from an oracle file, every bite reproduces, the vacuity counts cannot be gamed, and no mismatch can hide behind the equivalence file
+- ✅ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^crates/(candler/tests/guard_golden_parity\.rs$|candler-core/(src/evaluation/(engine|registry)/|tests/(guard_engine\.rs$|fixtures/engine/))|candler-schemas/src/evaluation\.rs$)` (Steps 1 and 2 fix the two seams the pilot found)
+- ✅ [cmd] SPAWN, then `CANDLER_GOLDEN_CORPUS="$GOLDEN" CANDLER_HTN_PLUGIN="$RW/$PLUGIN" cargo nextest run -p candler --run-ignored only --no-tests=fail -E 'binary(guard_golden_parity)'` passes; the report holds its log and wall-clock
+- ✅ [cmd] The same command fails when either variable is unset
+- ✅ [cmd] From the guard's kept store (`CANDLER_KEEP_STORE=<dir>`): the README's `candler diff … | jq -e …` gate and `diff <(candler show --rates --evaluator htn-creator-eval@0.5.0 --format toml) $ORACLE/rates_by_cell.toml` pass
+- ✅ [nl] The adversarial verifier's targets (every constant is read from an oracle file, every bite reproduces, the vacuity counts cannot be gamed, no mismatch hides behind the equivalence file) are handed to `throughput/proof/throughput_proof.md`, where a corpus pass costs minutes (rulings §Regrade throughput, amendment A1)
 **References**: [R03 §Scope move, §Generic diff, §I4, §Truthful instrument](../../../../../__reports__/m2a-evaluation-parity/00-architecture_v0.md); `crates/candler/tests/oracle/{counts.toml,rates_by_cell.toml,na_pairs.txt,equivalence.json}`; `crates/candler-core/src/evaluation/engine/` — `regrade`; [R04 GP1–GP3](../../../../../__reports__/m2a-evaluation-parity/01-test_definition_v0.md)
 
 ## Step 1: Read a suite written as JSON
