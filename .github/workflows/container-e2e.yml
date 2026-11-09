@@ -77,6 +77,24 @@ jobs:
       - name: Build the testagent image
         run: docker build --label candler.test=1 -t candler-testagent:test assets/docker/testagent
       - name: Run the container guards
-        run: >-
-          cargo nextest run -p candler-core --run-ignored only --no-tests=fail
-          --no-fail-fast -E 'binary(guard_container_e2e)'
+        run: |
+          set -o pipefail
+          cargo nextest run -p candler-core --run-ignored only --no-tests=fail \
+            --no-fail-fast -E 'binary(guard_container_e2e)' 2>&1 | tee "$RUNNER_TEMP/e2e.log"
+      # --no-tests=fail rejects only an empty selection: name every guard the Linux half decides,
+      # so a guard that is renamed, cfg'd out or skipped fails the job instead of passing silently.
+      - name: Check every expected guard ran and passed
+        if: ${{ !cancelled() }}
+        run: |
+          set -eu
+          sed -E 's/\x1b\[[0-9;]*m//g' "$RUNNER_TEMP/e2e.log" > "$RUNNER_TEMP/e2e.txt"
+          missing=0
+          for name in b06_kernel_facts b08_self_expiry b09_host_uid_sealable b12_sweep_scope \
+            b13_client_killed_container_gone b17_canary_absent b18_internal_network_no_route \
+            b36_supervisor_sigkill_nothing_left b37_untrusted_upstream_gets_no_credential; do
+            if ! grep -Eq "PASS \[.*::${name}\$" "$RUNNER_TEMP/e2e.txt"; then
+              echo "::error::guard ${name} did not run and pass"
+              missing=1
+            fi
+          done
+          exit "$missing"
