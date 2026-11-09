@@ -1,8 +1,8 @@
 //! `candler diff`: the outcomes of two evaluator versions, compared.
 
 use std::path::PathBuf;
-use std::process::ExitCode;
 
+use super::{CliError, Exit};
 use crate::Cli;
 
 /// The arguments of `candler diff`.
@@ -31,11 +31,14 @@ pub enum DiffFormat {
     Text,
 }
 
-/// Compares the two versions; exits 1 when it finds a change.
+/// Not wired in this commit.
+///
+/// # Errors
+/// Returns [`CliError::Unavailable`].
 #[allow(
     clippy::unused_async,
-    reason = "a stub until the surfaces leaf fills it"
+    reason = "every verb has the async entry `main` calls"
 )]
-pub async fn run(_cli: &Cli, _args: &DiffArgs) -> ExitCode {
-    super::not_built("diff")
+pub async fn run(_cli: &Cli, _args: &DiffArgs) -> Result<Exit, CliError> {
+    Err(CliError::Unavailable { verb: "diff" })
 }

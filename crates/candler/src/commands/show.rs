@@ -1,7 +1,6 @@
 //! `candler show`: stored outcomes, or their rates.
 
-use std::process::ExitCode;
-
+use super::{CliError, Exit};
 use crate::Cli;
 
 /// The arguments of `candler show`.
@@ -27,11 +26,14 @@ pub enum ShowFormat {
     Toml,
 }
 
-/// Prints the outcomes or the rates.
+/// Not wired in this commit.
+///
+/// # Errors
+/// Returns [`CliError::Unavailable`].
 #[allow(
     clippy::unused_async,
-    reason = "a stub until the surfaces leaf fills it"
+    reason = "every verb has the async entry `main` calls"
 )]
-pub async fn run(_cli: &Cli, _args: &ShowArgs) -> ExitCode {
-    super::not_built("show")
+pub async fn run(_cli: &Cli, _args: &ShowArgs) -> Result<Exit, CliError> {
+    Err(CliError::Unavailable { verb: "show" })
 }
