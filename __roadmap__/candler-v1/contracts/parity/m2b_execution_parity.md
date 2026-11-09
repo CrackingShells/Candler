@@ -7,7 +7,7 @@
 - [ ] Eliott's go and model choice for the smoke matrix, which spends tokens; RiVault only after asking him, since its model table changed recently
 - [ ] A Linux host for the Linux half of the supervision gates: a VM, or CI after the first push (Eliott's call); until then those gates are recorded as not yet run, never as passed
 **Success Gates**:
-- ⬜ A smoke experiment started from an unrelated directory produces runs whose sandbox composition and provenance fields match today's `htn-creator-eval run-config` for the same cell, except feature_map rows S2, X19, X32 and the `layout` check, which need declared inputs and pass under `alignment/m2c_wire_alignment.md` (amendment A1)
+- ⬜ A smoke experiment started from an unrelated directory produces runs whose sandbox composition and provenance fields match today's `htn-creator-eval run-config` for the same cell
 - ⬜ Killing the job supervisor mid-run, then running `candler ps` or `candler run`, leaves no process carrying the run marker, on macOS and on Linux
 - ⬜ Resume after a kill replays the stored resolved values; a changed harness version is refused unless forced, and a forced deviation is recorded per run
 - ⬜ `ps`, `kill` (with `--all` and `-y`), the first event set and `watch --json` work
