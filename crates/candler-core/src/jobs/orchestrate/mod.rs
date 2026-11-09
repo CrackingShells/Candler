@@ -95,10 +95,11 @@ async fn run_job(
             Err(error) => return refused("the job's session cannot be opened", &error),
         };
     let _lock = outcome.lock;
-    let scheduler = Scheduler::new(
+    let scheduler = Scheduler::with_clock(
         Arc::new(rt),
         spec.budget.clone(), // BORROW: the scheduler owns the job's caps
         Arc::new(JobMeter::new()),
+        host.clock(),
     );
     let schedule = scheduler.run(outcome.plans, ctl.cancel.subscribe()).await;
     // the report names what stayed behind; the job's end stays what its runs said

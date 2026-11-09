@@ -22,6 +22,17 @@ use crate::runner::{JobMeter, RunControl, RunOutcome, Runtime};
 /// How often the job's totals are compared with its caps.
 const CAP_POLL: Duration = Duration::from_millis(25);
 
+/// The time since the job began running its plans.
+// TRAIT_OBJECT: the clock is the wall clock, or a test's own
+pub type Clock = Arc<dyn Fn() -> Duration + Send + Sync>;
+
+/// The clock that counts real time from now.
+#[must_use]
+pub fn wall_clock() -> Clock {
+    let begun = Instant::now();
+    Arc::new(move || begun.elapsed())
+}
+
 /// What running the plans produced.
 #[derive(Debug)]
 pub struct Schedule {
@@ -65,7 +76,7 @@ pub struct Scheduler {
     live: Arc<LiveRuns>,
     halt: watch::Sender<Option<JobCause>>,
     started: AtomicU32,
-    begun: Instant,
+    clock: Clock,
 }
 
 /// The code a run's failure is evented under.
@@ -80,9 +91,21 @@ const fn reason_of(error: &ExecError) -> &'static str {
 }
 
 impl Scheduler {
-    /// A scheduler over `rt` that counts the tokens and the cost of its runs in `meter`.
+    /// A scheduler over `rt` that counts the tokens and the cost of its runs in `meter`, and its
+    /// time on the wall clock.
     #[must_use]
     pub fn new(rt: Arc<Runtime>, budget: Budget, meter: Arc<JobMeter>) -> Arc<Self> {
+        Self::with_clock(rt, budget, meter, wall_clock())
+    }
+
+    /// A scheduler as [`Scheduler::new`] makes one, whose elapsed time is read from `clock`.
+    #[must_use]
+    pub fn with_clock(
+        rt: Arc<Runtime>,
+        budget: Budget,
+        meter: Arc<JobMeter>,
+        clock: Clock,
+    ) -> Arc<Self> {
         let (halt, _) = watch::channel(None);
         Arc::new(Self {
             rt,
@@ -91,7 +114,7 @@ impl Scheduler {
             live: Arc::new(LiveRuns::new()),
             halt,
             started: AtomicU32::new(0),
-            begun: Instant::now(),
+            clock,
         })
     }
 
@@ -107,7 +130,7 @@ impl Scheduler {
             self.started.load(Ordering::Relaxed),
             self.meter.tokens(),
             self.meter.micro_usd(),
-            self.begun.elapsed(),
+            (self.clock)(),
         )
     }
 
