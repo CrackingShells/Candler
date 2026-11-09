@@ -8,7 +8,7 @@
 - [ ] Docker available on the development machine
 - [ ] A Linux host for the Linux half of the supervision gates: a VM, or CI after the first push (Eliott's call); until then those gates are recorded as not yet run, never as passed
 **Success Gates**:
-- ⬜ A smoke experiment started from an unrelated directory produces runs that keep every sandbox feature of today's `htn-creator-eval run-config` (contract v5, checked through an independent feature map) and its provenance fields for the same cell; the provenance fields whose meaning changes under a container (the workspace path, the environment) are recorded as intended deviations in the KT
+- ⬜ A smoke experiment started from an unrelated directory produces runs that keep every sandbox feature of today's `htn-creator-eval run-config` (contract v5, checked through an independent feature map), except feature_map rows S2, X19, X32 and the `layout` check, which need declared inputs and pass under `alignment/m2c_wire_alignment.md` (amendment A1), and its provenance fields for the same cell; the provenance fields whose meaning changes under a container (the workspace path, the environment) are recorded as intended deviations in the KT
 - ⬜ Killing the job supervisor mid-run, then running `candler ps` or `candler run`, leaves no process carrying the run marker and no container labelled with the job, on macOS and on Linux
 - ⬜ Resume after a kill replays the stored resolved values; a changed harness version is refused unless forced, and a forced deviation is recorded per run
 - ⬜ `ps`, `kill` (with `--all` and `-y`), the first event set and `watch --json` work
