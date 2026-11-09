@@ -232,3 +232,13 @@ The adversarial verifier made one corpus pass (3/3 PASS, 161.5 s wall) and found
 | The helper shows each item `prior[]` plus every earlier item of the same request, siblings included. | NIT | This is the helper's rule since helper_runtime finding 4, and kinds pick by expectation id. The KT records it as a wire-contract note. |
 | The `.jsonl.tmp` stream file in `frames` and the environment `ready` marker are never synced, and a new index file's directory entry is not dir-synced. These predate A1. | NIT | KT follow-up, taken with the import's other durability and throughput items. |
 | Hand literals 8880, 209 and 240 duplicate the oracle. The generator's `status == "pass"` clause cannot be observed on the corpus. The bare `htn_creator_scripts` name is missing from `FRESH`. | NIT | No change. Each one is either correct or harmless. |
+
+**The deadline guard (fix round).** The first fix proved the request deadline by having a kind sleep 33 s, longer than the 30 s margin. That guard is too weak and too slow:
+- It only bounds the deadline from below, so a sum-only bite survives.
+- On the landing run it took 35.86 s of a 35.93 s workspace `nextest` run, which made it the critical path. The next slowest test took 8.8 s.
+
+**Ruling:** make the deadline observable rather than wait for it.
+- throughput_proof gains Step 3, `feat(evaluation): report the deadline each request was given`. It adds `EvaluateReport::request_deadlines` and widens OWNED to admit `engine/(mod|run).rs` and `public_surface.rs`.
+- The ENG1 row then pins the exact hand sum, with no kind that sleeps.
+
+A guard that waits on a timeout to prove a duration is not accepted when the duration can be read.
