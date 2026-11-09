@@ -48,8 +48,12 @@ impl SkillTree for ClaudeSkills {
         skill_archive_command(treatment, source)
     }
 
-    fn files(&self, archive: &[u8]) -> Result<Vec<PreparedFile>, DriverError> {
-        skill_files(archive)
+    fn files(
+        &self,
+        treatment: &TreatmentRef,
+        archive: &[u8],
+    ) -> Result<Vec<PreparedFile>, DriverError> {
+        skill_files(treatment, archive)
     }
 }
 

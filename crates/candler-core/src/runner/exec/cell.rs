@@ -71,11 +71,16 @@ pub trait SkillTree: Send + Sync {
         source: &Path,
     ) -> Result<CommandSpec, DriverError>;
 
-    /// The files of `archive`, the output of the archive command.
+    /// The files of `archive`, the output of the archive command for `treatment`.
     ///
     /// # Errors
-    /// [`DriverError`] when the archive cannot be read.
-    fn files(&self, archive: &[u8]) -> Result<Vec<PreparedFile>, DriverError>;
+    /// [`DriverError`] when the archive cannot be read or holds an entry outside the treatment's
+    /// skill tree.
+    fn files(
+        &self,
+        treatment: &TreatmentRef,
+        archive: &[u8],
+    ) -> Result<Vec<PreparedFile>, DriverError>;
 }
 
 /// Why a run could not be executed. It never means the run was deleted: either no run directory

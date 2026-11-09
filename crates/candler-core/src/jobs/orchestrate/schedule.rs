@@ -12,6 +12,7 @@ use tokio::task::JoinSet;
 
 use super::caps::{LiveRuns, Totals, caps_crossed, stop_live};
 use crate::jobs::model::JobCause;
+use crate::jobs::runtime::session::note;
 use crate::jobs::slots::{Holder, Slot};
 use crate::runner::exec::ExecError;
 use crate::runner::exec::ends::Retry;
@@ -216,6 +217,7 @@ impl Scheduler {
                 Ok(outcome) => outcome,
                 Err(error) => {
                     // the key stays in flight: the run is unsealed until the next plan seals it
+                    note(&format!("run {} failed: {error}", plan.key));
                     if let Ok(reason) = reason_of(&error).parse::<ReasonCode>() {
                         self.rt
                             .sink

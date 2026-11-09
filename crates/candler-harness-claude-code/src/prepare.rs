@@ -23,6 +23,8 @@ const TOOLS_DISALLOWED: &str = "tools.disallowed";
 const MCP: &str = "mcp";
 /// The cell path of the treatment the skill tree comes from.
 const TREATMENT: &str = "treatment";
+/// The directory the skills of a repository live in.
+const SKILLS_ROOT: &str = ".claude/skills";
 /// The size of a tar block.
 const BLOCK: usize = 512;
 
@@ -107,12 +109,36 @@ pub fn render_mcp(cell: &Cell<'_>) -> Result<Option<PreparedFile>, DriverError> 
     }
 }
 
+/// The subtree of a repository that holds the skill of `treatment`: `.claude/skills/<name>`. It is
+/// the pathspec of the archive and the placement of the files in the workspace.
+///
+/// # Errors
+/// [`DriverError::InvalidValue`] when the treatment name is not one plain path segment: it is `.`
+/// or `..`, or holds a character outside `[A-Za-z0-9._-]`.
+fn skill_subtree(treatment: &TreatmentRef) -> Result<String, DriverError> {
+    let name = treatment.name.as_str();
+    let plain = !name.is_empty()
+        && name != "."
+        && name != ".."
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
+    if !plain {
+        return Err(invalid(
+            TREATMENT,
+            format!("the treatment name `{name}` is not one plain path segment"),
+        ));
+    }
+    Ok(format!("{SKILLS_ROOT}/{name}"))
+}
+
 /// The command that archives the skill tree at the commit `treatment` pins:
-/// `git -C <source> archive --format=tar <commit>`.
+/// `git -C <source> archive --format=tar <commit> -- .claude/skills/<name>`.
 ///
 /// # Errors
 /// [`DriverError::MissingValue`] when the treatment pins no commit.
-/// [`DriverError::InvalidValue`] when `source` is not text.
+/// [`DriverError::InvalidValue`] when `source` is not text or the treatment name is not one plain
+/// path segment.
 /// [`DriverError::Command`] when the command cannot be built.
 pub fn skill_archive_command(
     treatment: &TreatmentRef,
@@ -122,6 +148,7 @@ pub fn skill_archive_command(
         .commit
         .as_ref()
         .ok_or_else(|| missing("treatment.commit"))?;
+    let subtree = skill_subtree(treatment)?;
     let source = source
         .to_str()
         .ok_or_else(|| invalid(TREATMENT, "the treatment source is not text".to_owned()))?; // BORROW: .to_owned() makes the owned text
@@ -133,6 +160,8 @@ pub fn skill_archive_command(
         "archive".to_owned(),
         "--format=tar".to_owned(),
         commit.to_string(), // BORROW: .to_string() gives owned text
+        "--".to_owned(),
+        subtree,
     ];
     Ok(CommandSpec::builder().argv(argv).build()?)
 }
@@ -181,15 +210,21 @@ fn pax_records(data: &[u8]) -> Result<Vec<(String, String)>, DriverError> {
     Ok(records)
 }
 
-/// The files of the skill archive `tar`: regular files with their executable bit.
+/// The files of the skill archive `tar` of `treatment`: regular files with their executable bit,
+/// at the paths the archive gives them, all under `.claude/skills/<name>/`.
 ///
 /// Directories and the pax global header are skipped. The reader takes ustar and pax headers and
 /// GNU long names.
 ///
 /// # Errors
-/// [`DriverError::InvalidValue`] when an entry is a link, a device or a FIFO, when a path is
-/// absolute, empty or leaves the root, or when the archive is cut short.
-pub fn skill_files(tar: &[u8]) -> Result<Vec<PreparedFile>, DriverError> {
+/// [`DriverError::InvalidValue`] when the treatment name is not one plain path segment, when an
+/// entry is a link, a device or a FIFO, when a path is absolute, empty, leaves the root or lies
+/// outside the skill subtree, when `SKILL.md` is absent from the subtree, or when the archive is
+/// cut short.
+pub fn skill_files(treatment: &TreatmentRef, tar: &[u8]) -> Result<Vec<PreparedFile>, DriverError> {
+    let subtree = skill_subtree(treatment)?;
+    let scope = format!("{subtree}/");
+    let entry = format!("{scope}SKILL.md");
     let cut = || invalid(TREATMENT, "the archive is cut short".to_owned()); // BORROW: .to_owned() makes the owned text
     let mut files = Vec::new();
     let mut at = 0_usize;
@@ -238,6 +273,13 @@ pub fn skill_files(tar: &[u8]) -> Result<Vec<PreparedFile>, DriverError> {
                 };
                 let rel = RelPath::from_str(path.as_str()) // BORROW: explicit .as_str()
                     .map_err(|error| invalid(TREATMENT, error.to_string()))?; // BORROW: .to_string() gives owned text
+                if !path.starts_with(scope.as_str()) {
+                    // BORROW: explicit .as_str()
+                    return Err(invalid(
+                        TREATMENT,
+                        format!("the entry `{path}` lies outside `{subtree}`"),
+                    ));
+                }
                 let mode = octal(span(header, 100..108))?;
                 // BORROW: .to_vec() copies the file out of the archive
                 files.push(PreparedFile::new(rel, data.to_vec(), mode & 0o111 != 0));
@@ -249,6 +291,16 @@ pub fn skill_files(tar: &[u8]) -> Result<Vec<PreparedFile>, DriverError> {
                 ));
             }
         }
+    }
+    if !files
+        .iter()
+        .any(|file| file.path.as_str() == entry.as_str())
+    {
+        // BORROW: explicit .as_str()
+        return Err(invalid(
+            TREATMENT,
+            format!("the archive holds no `{entry}`"),
+        ));
     }
     Ok(files)
 }

@@ -323,7 +323,11 @@ impl SkillTree for EmptyTree {
             .build()?)
     }
 
-    fn files(&self, _archive: &[u8]) -> Result<Vec<PreparedFile>, DriverError> {
+    fn files(
+        &self,
+        _treatment: &TreatmentRef,
+        _archive: &[u8],
+    ) -> Result<Vec<PreparedFile>, DriverError> {
         Ok(Vec::new())
     }
 }

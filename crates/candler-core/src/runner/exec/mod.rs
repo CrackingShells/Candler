@@ -232,7 +232,7 @@ async fn skill_files(
         }
         .into());
     }
-    Ok(rt.skills.files(&captured.stdout)?)
+    Ok(rt.skills.files(treatment, &captured.stdout)?)
 }
 
 /// Waits for `child`, and stops it when the job's cancel carries a cause.

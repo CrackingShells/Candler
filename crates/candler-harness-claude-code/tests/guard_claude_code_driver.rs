@@ -136,19 +136,80 @@ fn b21_reference_command_line() -> Res<()> {
     Ok(())
 }
 
-/// Guards: I7 — the treatment is `{name, tag, commit}`, and the skill tree is the tagged tree.
-/// Oracle: `git ls-tree -r <tag>` and `git cat-file blob` on a fixture repo with an untracked file.
-/// Bite: archive `HEAD` instead of the pinned commit.
+/// One regular file of a ustar archive: the header, then the contents padded to a block.
+fn tar_entry(path: &str, contents: &[u8]) -> Vec<u8> {
+    let mut header = vec![0_u8; 512];
+    header[..path.len()].copy_from_slice(path.as_bytes());
+    header[100..108].copy_from_slice(b"0000644\0");
+    header[124..136].copy_from_slice(format!("{:011o}\0", contents.len()).as_bytes());
+    header[148..156].copy_from_slice(b"        ");
+    header[156] = b'0';
+    header[257..263].copy_from_slice(b"ustar\0");
+    header[263..265].copy_from_slice(b"00");
+    let sum: u32 = header.iter().map(|b| u32::from(*b)).sum();
+    header[148..156].copy_from_slice(format!("{sum:06o}\0 ").as_bytes());
+    let mut entry = header;
+    entry.extend_from_slice(contents);
+    entry.resize(512 + contents.len().div_ceil(512) * 512, 0);
+    entry
+}
+
+/// The archive of `entries` with its end marker.
+fn tar_of(entries: &[(&str, &str)]) -> Vec<u8> {
+    let mut tar: Vec<u8> = entries
+        .iter()
+        .flat_map(|(path, contents)| tar_entry(path, contents.as_bytes()))
+        .collect();
+    tar.resize(tar.len() + 1024, 0);
+    tar
+}
+
+/// Guards: I7 — the treatment is `{name, tag, commit}`, and the skill tree is the tagged subtree
+/// `.claude/skills/<name>`, and nothing else of the repository.
+/// Oracle: `git ls-tree -r <tag> -- .claude/skills/<name>` and `git cat-file blob` on a fixture
+/// repo with a sibling skill, files outside the subtree, a repo-root symlink into the subtree and
+/// an untracked file; a crafted tar with an entry outside the subtree.
+/// Bite: drop the pathspec from the archive command; drop the scope check of the reader.
 #[test]
 fn b22_skill_tree_is_the_tag() -> Res<()> {
     let repo = scratch("b22-fixture-repo")?;
     git(&repo, &["init", "-q"])?;
     put(&repo, ".claude/skills/s/SKILL.md", "skill at the tag\n")?;
+    put(&repo, ".claude/skills/s/scripts/run.sh", "#!/bin/sh\n")?;
+    put(&repo, ".claude/skills/s2/SKILL.md", "a sibling skill\n")?;
     put(&repo, "scripts/run.sh", "#!/bin/sh\n")?;
     put(&repo, "README.md", "readme at the tag\n")?;
     put(&repo, "a/b/c.txt", "nested\n")?;
     git(&repo, &["add", "."])?;
-    git(&repo, &["update-index", "--chmod=+x", "scripts/run.sh"])?;
+    git(
+        &repo,
+        &[
+            "update-index",
+            "--chmod=+x",
+            ".claude/skills/s/scripts/run.sh",
+        ],
+    )?;
+    // A repo-root symlink into the subtree, as a tree entry so that the fixture needs no
+    // symlink support from the file system.
+    let target = Command::new("git")
+        .arg("-C")
+        .arg(&repo)
+        .args(["hash-object", "-w", "--stdin"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()?;
+    let mut stdin = target.stdin.as_ref().ok_or("no stdin")?;
+    std::io::Write::write_all(&mut stdin, b".claude/skills/s/SKILL.md")?;
+    let blob = String::from_utf8(target.wait_with_output()?.stdout)?;
+    git(
+        &repo,
+        &[
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            &format!("120000,{},link.md", blob.trim()),
+        ],
+    )?;
     git(&repo, &["commit", "-q", "-m", "tagged"])?;
     git(&repo, &["tag", "v1"])?;
     put(&repo, "README.md", "readme after the tag\n")?;
@@ -163,7 +224,7 @@ fn b22_skill_tree_is_the_tag() -> Res<()> {
     )?;
 
     let sha = String::from_utf8(git(&repo, &["rev-parse", "v1^{commit}"])?)?;
-    let mut treatment = TreatmentRef::new(Name::from_str("treatment")?);
+    let mut treatment = TreatmentRef::new(Name::from_str("s")?);
     // BORROW: `.to_owned()` makes the owned tag the treatment holds
     treatment.tag = Some("v1".to_owned());
     treatment.commit = Some(GitCommit::from_str(sha.trim())?);
@@ -171,9 +232,12 @@ fn b22_skill_tree_is_the_tag() -> Res<()> {
     let (program, args) = command.argv().split_first().ok_or("empty argv")?;
     let archive = Command::new(program).args(args).output()?;
     assert!(archive.status.success());
-    let files = skill_files(&archive.stdout)?;
+    let files = skill_files(&treatment, &archive.stdout)?;
 
-    let listing = String::from_utf8(git(&repo, &["ls-tree", "-r", "v1"])?)?;
+    let listing = String::from_utf8(git(
+        &repo,
+        &["ls-tree", "-r", "v1", "--", ".claude/skills/s"],
+    )?)?;
     let mut tagged = BTreeMap::new();
     for line in listing.lines() {
         let (meta, path) = line.split_once('\t').ok_or("bad ls-tree line")?;
@@ -187,13 +251,45 @@ fn b22_skill_tree_is_the_tag() -> Res<()> {
         .map(|file| (file.path.to_string(), (file.contents, file.executable)))
         .collect();
     assert_eq!(got, tagged);
-    // Positive control: a tracked file at the tag is there with its tagged content.
+    // Positive control: a tracked file at the tag is there with its tagged content and mode.
     let skill = got
         .get(".claude/skills/s/SKILL.md")
         .ok_or("skill file missing")?;
     assert_eq!(skill.0, b"skill at the tag\n");
-    assert!(got.get("scripts/run.sh").ok_or("script missing")?.1);
-    assert!(!got.contains_key("untracked.txt") && !got.contains_key("later.txt"));
+    assert!(
+        got.get(".claude/skills/s/scripts/run.sh")
+            .ok_or("script missing")?
+            .1
+    );
+    assert_eq!(got.len(), 2);
+    for outside in ["untracked.txt", "later.txt", "link.md", "scripts/run.sh"] {
+        assert!(!got.contains_key(outside), "{outside}");
+    }
+
+    // A crafted archive with an entry outside the subtree is refused, whole.
+    let inside = [
+        (".claude/skills/s/SKILL.md", "skill\n"),
+        (".claude/skills/s/notes.txt", "notes\n"),
+    ];
+    let accepted = skill_files(&treatment, &tar_of(&inside))?;
+    assert_eq!(accepted.len(), 2);
+    for outside in [
+        "README.md",
+        ".claude/skills/s2/SKILL.md",
+        ".claude/skills/s",
+    ] {
+        let crafted = tar_of(&[inside[0], (outside, "outside\n"), inside[1]]);
+        assert!(skill_files(&treatment, &crafted).is_err(), "{outside}");
+    }
+    // The subtree without its `SKILL.md` is refused.
+    assert!(skill_files(&treatment, &tar_of(&[inside[1]])).is_err());
+    // A treatment name that is not one plain path segment is refused.
+    for name in ["..", "a/b", "s:t"] {
+        let mut other = treatment.clone();
+        other.name = Name::from_str(name)?;
+        assert!(skill_archive_command(&other, &repo).is_err(), "{name}");
+        assert!(skill_files(&other, &tar_of(&inside)).is_err(), "{name}");
+    }
     Ok(())
 }
 
