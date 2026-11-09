@@ -96,6 +96,30 @@ hook's sweep destroyed.
 base commit `ci(repo): require every container guard to run and pass`) requires a PASS line for each
 of the nine Linux names, B36 among them. The Linux half is **not yet run**: nothing is pushed.
 
+## The verifier's bites
+
+The verifier reproduced the three steps of the leaf. Step 1, the sweeper: under the Lost-only mutation
+(`sweep_lost` returns an empty sweep) B36 fails; B13 is not on the Lost path, so it fails only under the
+all-scope variant that empties `sweep` too, as recorded above. Step 2, the label query: B12 fails with
+the `candler.job` label misnamed. Step 3 (A52): restoring the `lost != view.job()` clause fails B36.
+
+## Open gap and residual
+
+- Nothing owns "serve starts the ZombieTick" (`jobs/runtime/session.rs:283`): B33 starts the tick itself,
+  so a serve that forgot it would pass every guard. An open gap for the lead, not fixed here.
+- Labels carry no store identity. A copied `jobs/` directory of a live job, recovered with its own free
+  lock, would read as Lost and have the live job's containers swept.
+
+## A53: no supervisor outlives its test
+
+B32 spawned the supervisor and asserted before signalling it; a failed assertion left the child running
+(the morning flake left orphans). It now holds the child in `HeldChild`, whose drop sends the `Child`'s
+own SIGKILL (the one allowed signal) and reaps it. Proof: a `panic!("planted {}", child.id())` planted
+after the spawn, B32 alone, pre-spawn check first: `ps -p <pid>` showed nothing after the run; restored
+with `cp` of the saved file, never run without the guard. Audit: B33 spawns no supervisor process and its
+tree sleeps 20 s; B35's detached supervisor ends with its job (the fake agent sleeps 1 s), so neither can
+leak for long. `guard_cli_kill` uses `output()` on a short command.
+
 ## Accepted macOS gap
 
 setsid'd host descendants have no subreaper on macOS. `ps -E` shows no environment there, so B36 checks
