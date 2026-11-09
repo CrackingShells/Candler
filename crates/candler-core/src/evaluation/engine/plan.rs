@@ -13,7 +13,7 @@ use candler_schemas::primitives::{ExpectationId, Name, RunKey};
 
 use crate::evaluation::registry::{CheckedEntry, CheckedSuite};
 
-/// The entries of one request: one evaluator's entries that depend on one another, in an order
+/// The entries of one request: every applicable entry of one evaluator at one stage, in an order
 /// in which every dependency comes before its dependents.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -35,8 +35,7 @@ pub struct RunPlan {
     pub run: RunKey,
     /// The entries that do not apply to the run, in suite order. They are never sent.
     pub not_applicable: Vec<CheckedEntry>,
-    /// The batches, ordered by stage, then by evaluator name, then by the suite place of their
-    /// first entry.
+    /// The batches, one per evaluator and stage, ordered by stage, then by evaluator name.
     pub batches: Vec<Batch>,
 }
 
@@ -104,8 +103,9 @@ pub fn applies(run: &RunManifest, entry: &SuiteEntry) -> bool {
 /// Plans `suite` for the run whose manifest is `run`.
 ///
 /// An entry that does not apply becomes a `not_applicable` entry of the plan. The entries that
-/// apply are grouped so that entries of one evaluator joined by a `depends_on` chain share a
-/// batch; a dependency on another evaluator's entry puts the dependent's batch in a later stage.
+/// apply are grouped into one batch per evaluator and stage; a dependency on another evaluator's
+/// entry puts the dependent in a later stage, and a dependency on the same evaluator's entry keeps
+/// both in one batch, dependency first.
 ///
 /// # Errors
 /// Returns [`PlanError::UnknownDependency`] for a dependency that names no entry,
@@ -169,29 +169,38 @@ pub fn plan(run: &RunManifest, suite: &CheckedSuite) -> Result<RunPlan, PlanErro
         }
     }
     let stage_of = stages(entries, &deps, &parent, &components)?;
-    let mut batches: Vec<(usize, Batch)> = components
+    // One request carries every applicable entry of one evaluator at one stage. Components of the
+    // same evaluator never depend on each other (such an edge would have joined them), so merging
+    // those of one stage orders nothing the dependencies did not already order.
+    let mut groups: BTreeMap<(usize, &Name), Vec<usize>> = BTreeMap::new();
+    for (head, members) in &components {
+        let stage = stage_of.get(head).copied().unwrap_or_default();
+        if let Some(evaluator) = members.first().and_then(|at| evaluator_of(entries, *at)) {
+            groups
+                .entry((stage, evaluator))
+                .or_default()
+                .extend(members.iter().copied());
+        }
+    }
+    let mut batches: Vec<(usize, Batch)> = groups
         .iter()
-        .filter_map(|(head, members)| {
-            let stage = stage_of.get(head).copied().unwrap_or_default();
+        .map(|((stage, evaluator), members)| {
             let ordered = order(members, &deps);
-            let evaluator = ordered
-                .first()
-                .and_then(|at| evaluator_of(entries, *at))
-                .cloned()?; // BORROW: the batch owns the name
             let first = ordered.iter().copied().min().unwrap_or_default();
             let checked = ordered
                 .iter()
                 .filter_map(|at| entries.get(*at))
                 .cloned() // BORROW: the batch owns its entries
                 .collect();
-            Some((
+            (
                 first,
                 Batch {
-                    evaluator,
-                    stage,
+                    // BORROW: .clone() gives the batch its own name
+                    evaluator: (*evaluator).clone(),
+                    stage: *stage,
                     entries: checked,
                 },
-            ))
+            )
         })
         .collect();
     batches.sort_by(|(a_first, a), (b_first, b)| {

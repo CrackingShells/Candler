@@ -12,6 +12,7 @@ use serde_json::Value;
 
 use super::blob::{copy_synced, digest_of_file};
 use super::layout::StoreLayout;
+use super::sync::sync_file;
 use super::{Store, StoreError, io_error, sync_dir, temp_sibling, visible_names, write_atomic};
 
 /// What `RunWriter::create` does when the run directory exists.
@@ -193,7 +194,7 @@ impl RunWriter {
         let dir = layout.raw_dir(&self.key);
         fs::create_dir_all(&dir).map_err(io_error("create the raw directory", &dir))?;
         File::open(gz)
-            .and_then(|file| file.sync_all())
+            .and_then(|file| sync_file(&file))
             .map_err(io_error("sync a raw file", gz))?;
         match fs::rename(gz, &target) {
             Ok(()) => {}

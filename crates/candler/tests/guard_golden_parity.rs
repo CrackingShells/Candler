@@ -18,7 +18,10 @@
 //! (`<dir>/store`), the plug-in environment and the two regrade reports; it is kept. Without it the
 //! directory is `<temp>/candler-golden-parity`. Each test is its own process, so they share one
 //! built fixture under a file lock. A finished fixture is reused only when its marker names the
-//! same `candler` binary, rules file, manifest, suite and corpus; otherwise it is rebuilt.
+//! same `candler` binary, rules file, manifest, suite and corpus; otherwise it is rebuilt. A build
+//! that fails writes `failed.json`, with that marker and the failure message, before it panics: a
+//! process that takes the lock and finds a `failed.json` with its own marker panics with the same
+//! message at once, so a failed build costs one build and not one per test process.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -55,7 +58,7 @@ const UNCOMPARED: [(&str, u64); 6] = [
     ("D-E6", 240),
 ];
 /// The concurrency of each regrade.
-const CONCURRENCY: &str = "4";
+const CONCURRENCY: &str = "8";
 
 /// The row key: the cell digest hex, the replicate, the attempt and the expectation.
 type Key = (String, u64, u64, String);
@@ -191,7 +194,7 @@ fn open_fixture() -> Fixture {
         .and_then(|text| serde_json::from_str::<Value>(&text).ok())
         .is_some_and(|found| found == marker);
     if !finished {
-        build(&dir, &corpus, &manifest, &suite, &rules);
+        rebuild_unless_failed(&dir, &marker, &corpus, &manifest, &suite, &rules);
         fs::write(&marker_path, marker.to_string()).expect("the marker writes");
     }
     let read = |name: &str| -> Value {
@@ -206,6 +209,42 @@ fn open_fixture() -> Fixture {
     check_import_rules(&fixture.store());
     drop(lock);
     fixture
+}
+
+/// Builds the fixture, unless an earlier process already failed to build it from the same inputs.
+/// The failure of a build is written to `failed.json` with `marker` before it is raised again.
+fn rebuild_unless_failed(
+    dir: &Path,
+    marker: &Value,
+    corpus: &Path,
+    manifest: &Path,
+    suite: &Path,
+    rules: &Path,
+) {
+    let failed_path = dir.join("failed.json");
+    if let Some(failed) = fs::read_to_string(&failed_path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .filter(|found| found["marker"] == *marker)
+    {
+        panic!(
+            "the fixture build failed in an earlier test process: {}",
+            failed["message"].as_str().unwrap_or("no message")
+        );
+    }
+    let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        build(dir, corpus, manifest, suite, rules);
+    }));
+    if let Err(payload) = built {
+        let message = payload
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| payload.downcast_ref::<&str>().copied())
+            .unwrap_or("the build panicked without a message");
+        let failed = json!({"marker": marker, "message": message});
+        fs::write(&failed_path, failed.to_string()).expect("the failure marker writes");
+        std::panic::resume_unwind(payload);
+    }
 }
 
 /// Wipes `dir` (but its lock), imports the corpus and regrades it twice, and records each step's

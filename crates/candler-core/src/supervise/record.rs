@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 
 use candler_schemas::process::ChildRecord;
 
+use crate::store::sync::{sync_dir, sync_file};
+
 /// The path of the record of the child `pid` under `dir`.
 #[must_use]
 pub fn record_path(dir: &Path, pid: u32) -> PathBuf {
@@ -26,9 +28,9 @@ pub fn write_record(dir: &Path, record: &ChildRecord) -> io::Result<PathBuf> {
     bytes.push(b'\n');
     let mut file = File::create(&tmp)?;
     file.write_all(&bytes)?;
-    file.sync_all()?;
+    sync_file(&file)?;
     drop(file);
     fs::rename(&tmp, &path)?;
-    File::open(dir)?.sync_all()?;
+    sync_dir(dir)?;
     Ok(path)
 }

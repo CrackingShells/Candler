@@ -11,3 +11,6 @@ Read by `guard_engine`. The guard fills the `@...@` tokens at run time and runs 
 | `suite_dependencies.json` | `suite_dependencies.toml` written as JSON; the engine reads `.json` files as JSON |
 | `suite_echo.toml` | one `echo` entry |
 | `suite_counter.toml` | one `counter` entry; `@COUNT@` is the count file |
+| `kinds/engine_second.py` | the plug-in module of the second evaluator, `second`, with the `ok` kind only |
+| `plugin_second.toml` | the manifest of `second`; the same command as `plugin.toml`, with the module `engine_second` |
+| `suite_batching.toml` | three independent entries: B1 and B2 of `engine`, C1 of `second` |
