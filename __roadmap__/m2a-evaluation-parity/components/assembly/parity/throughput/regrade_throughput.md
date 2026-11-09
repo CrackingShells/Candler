@@ -5,11 +5,11 @@
 - [ ] [cmd] `git log --first-parent --format=%s feat/m2a-evaluation-parity | grep -qx 'merge(evaluation): land golden_parity'`
 - [ ] [nl] The implementer has read the profile `__reports__/m2a-evaluation-parity/throughput/00-regrade_profile_v0.md`. Its scratch instrumentation is `$TMPDIR/m2a-regrade-profile.instrumentation.diff`, used only in a scratch copy and never committed.
 **Success Gates**:
-- ⬜ [cmd] STD, SUBJ, SCAFFOLD and PYSTD pass, and OWNED passes with `^(crates/candler-core/(src/(evaluation/(engine|context|client)/|store/|supervise/record\.rs$|frames/mod\.rs$)|tests/(guard_engine\.rs$|fixtures/engine/))|crates/candler/tests/guard_golden_parity\.rs$|python/candler-evaluator/(src|tests|examples)/|__reports__/m2a-evaluation-parity/throughput/regrade_throughput/)`
-- ⬜ [cmd] PERF12, release build, `--concurrency 4`: the evaluate wall is 12 s or less (31 s before). Its 444 records equal the pre-leaf records row by row on `(status, value, weight, cause)`. The plug-in is spawned at most 13 times (12 requests plus 1 describe; 421 before).
-- ⬜ [cmd] PERF12 import in a release build takes 1.5 s or less (5.85 s before).
-- ⬜ [cmd] `git grep -nE '\.sync_(all|data)\(' -- crates/candler-core/src` prints nothing outside the one sync module
-- ⬜ [cmd] With `CANDLER_HTN_PLUGIN` pointing at a scratch plug-in copy whose suite is invalid, `binary(guard_golden_parity)` fails all three tests in under 60 s in total
+- ✅ [cmd] STD, SUBJ, SCAFFOLD and PYSTD pass, and OWNED passes with `^(crates/candler-core/(src/(evaluation/(engine|context|client)/|store/|supervise/record\.rs$|frames/mod\.rs$)|tests/(guard_engine\.rs$|fixtures/engine/))|crates/candler/tests/guard_golden_parity\.rs$|python/candler-evaluator/(src|tests|examples)/|__reports__/m2a-evaluation-parity/throughput/regrade_throughput/)`
+- ✅ [cmd] PERF12, release build, `--concurrency 4`: the evaluate wall is 12 s or less (31 s before). Its 444 records equal the pre-leaf records row by row on `(status, value, weight, cause)`. The plug-in is spawned at most 13 times (12 requests plus 1 describe; 421 before).
+- ✅ [cmd] PERF12 import in a release build takes 1.5 s or less (5.85 s before).
+- ✅ [cmd] `git grep -nE '\.sync_(all|data)\(' -- crates/candler-core/src` prints nothing outside the one sync module
+- ✅ [cmd] With `CANDLER_HTN_PLUGIN` pointing at a scratch plug-in copy whose suite is invalid, `binary(guard_golden_parity)` fails all three tests in under 60 s in total
 **References**: [R01 §Evaluator protocol](../../../../../../__design__/architecture.md) — "imports the checker libraries once, then forks one child per item"; [R01 §Store layout](../../../../../../__design__/architecture.md) — blobs, outcome files, index; [profile §3](../../../../../../__reports__/m2a-evaluation-parity/throughput/00-regrade_profile_v0.md) — the culprits with file and line; [rulings §Regrade throughput](../../../../../../__reports__/m2a-evaluation-parity/l1/00-rulings_v0.md)
 
 PERF12 is the profile's subset: run 1 of each of the 12 cells, copied under `$TMPDIR` with the corpus root files, with the store, `XDG_STATE_HOME` and `XDG_CONFIG_HOME` under `$TMPDIR` too. Its baseline is 444 items: 384 pass, 24 fail, 28 blocked, 8 `not_applicable`. Record its pre-leaf outcome files once, before Step 1, as the row-equality reference.
