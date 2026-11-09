@@ -231,6 +231,8 @@ pub async fn reap_lost_jobs(
                 let report = recover_one(&dir).await;
                 reports.push((id, report));
             }
+            // EXPLICIT: `Running` has a live supervisor and `Ended(_)` has already ended; neither
+            // needs recovery
             Ok(_) => {}
             Err(error) => reports.push((id, Err(error.to_string()))),
         }
@@ -250,6 +252,7 @@ fn note(line: &str) {
 async fn serve(
     entry: JobEntry,
     dir: &JobDir,
+    // TRAIT_OBJECT: the sink is the job's event log, or a fake in tests
     sink: &Arc<dyn EventSink>,
     control: JobControl,
     body: JobBody,
@@ -329,6 +332,12 @@ async fn serve(
 /// the lock, `job.started`, the work, the sweep, `job.ended`, the state, and the lock last. A
 /// job that was told to stop ends `killed`, whatever its body returns. A body that panicked ends
 /// without `job.ended` and the ended state, so that the job reads as lost.
+///
+/// # Errors
+/// [`RuntimeError::Session`] when the handlers, the session or the subreaper role cannot be
+/// had, [`RuntimeError::Job`] when the job's directory, log or state fails,
+/// [`RuntimeError::AlreadySupervised`] when another supervisor holds the lock, and whatever
+/// the setup and the body return.
 pub(crate) async fn run(entry: JobEntry, body: JobBody) -> Result<JobOutcome, RuntimeError> {
     let (cancel, _kept) = watch::channel(None);
     let control = JobControl {
@@ -355,6 +364,7 @@ pub(crate) async fn run(entry: JobEntry, body: JobBody) -> Result<JobOutcome, Ru
             .await
             .unwrap_or_else(|_| {
                 Err(RuntimeError::Body {
+                    // BORROW: the error owns its detail
                     detail: "the supervisor panicked".to_owned(),
                 })
             }),

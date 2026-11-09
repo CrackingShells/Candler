@@ -645,7 +645,9 @@ fn linux_at(boot: &str, ticks: u64) -> ProcessStart {
 /// Bite: compare the ticks the wrong way round in `started_after`.
 #[test]
 fn signal_adopted_orders_linux_starts_by_boot_and_ticks() {
+    /// The boot id of the caller and of the orphan that shares its boot.
     const BOOT: &str = "5b0fd5a2-1c1e-4d3c-9a38-6f1d0c9e2a11";
+    /// A boot id that is not the caller's.
     const OTHER: &str = "0a0fd5a2-1c1e-4d3c-9a38-6f1d0c9e2a22";
     let (guard, fake, table) = inspected();
     let own = |start: ProcessStart| ProcFacts {
@@ -709,8 +711,10 @@ fn a_sweep_never_signals_a_live_child_of_the_caller() {
     let guard = Arc::new(guard);
     let (first, second) = (control_marker(), control_marker());
     assert_ne!(first, second, "two control calls share a marker");
+    // BORROW: explicit .as_str() instead of Deref coercion
     assert!(first.as_str().starts_with("control-"));
     let child =
+        // BORROW: explicit .as_str() instead of Deref coercion
         |pid: u32, marker: &Marker| facts(150, OWN_PID, pid, OWN_UID, Some(marker.as_str()));
     guard.seed_unchecked(FIRST, at(150));
     guard.seed_unchecked(SECOND, at(150));
@@ -730,6 +734,7 @@ fn a_sweep_never_signals_a_live_child_of_the_caller() {
     set(
         &table,
         OUTLAW,
+        // BORROW: explicit .as_str() instead of Deref coercion
         Some(facts(160, 1, OUTLAW, OWN_UID, Some(first.as_str()))),
     );
     let swept = sweeper.sweep(&first);
@@ -758,12 +763,14 @@ fn control_literals(text: &str) -> Vec<String> {
     let direct =
         regex::Regex::new(r#"from_str\(\s*"control|"control[^"]*"\s*\.parse"#).expect("a pattern");
     let constant =
-        regex::Regex::new(r#"const\s+(\w+)\s*:\s*&str\s*=\s*"control"#).expect("a pattern");
+        regex::Regex::new(r#"(?:const|static|let)\s+(\w+)\s*(?::\s*&str\s*)?=\s*"control"#)
+            .expect("a pattern");
     let mut found: Vec<String> = direct
         .find_iter(text)
         .map(|m| m.as_str().to_owned())
         .collect(); // BORROW: .to_owned() keeps the text
     for caps in constant.captures_iter(text) {
+        // INDEX: group 1 is the name, which the pattern always captures
         let name = &caps[1];
         let taken = regex::Regex::new(&format!(
             r"from_str\(\s*{name}\b|\b{name}\s*\.parse|parse::<Marker>\(\s*{name}\b"
@@ -798,6 +805,17 @@ fn no_control_call_parses_a_shared_marker_literal() {
     assert_eq!(
         control_literals("const CONTROL_ROLE: &str = \"control\";").len(),
         0
+    );
+    assert_eq!(
+        control_literals("let shared = \"control\";\nlet m = Marker::from_str(shared);").len(),
+        1,
+        "the scan cannot see a planted `let` literal"
+    );
+    assert_eq!(
+        control_literals("static SHARED: &str = \"control\";\nlet m = Marker::from_str(SHARED);")
+            .len(),
+        1,
+        "the scan cannot see a planted `static` literal"
     );
 
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");

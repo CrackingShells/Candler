@@ -67,12 +67,14 @@ impl Gateway for FakeGateway {
     fn start<'a>(
         &'a self,
         _sup: &'a Supervisor,
+        // TRAIT_OBJECT: the driver is docker, or a fake in tests
         _docker: &'a dyn DockerDriver,
         request: GatewayStart<'a>,
     ) -> BoxFuture<'a, Result<GatewayHandle, GatewayError>> {
         Box::pin(async move {
             // Provenance: the label names of the container model, as a real sidecar carries them.
             let labels = Labels::new()
+                // BORROW: explicit .as_str() instead of Deref coercion
                 .with("candler.job", request.job.as_str())
                 .with("candler.role", "gateway");
             let container = ContainerRef::new(
@@ -200,13 +202,16 @@ impl JobHost for FakeHost {
         &'a self,
         _rt: &'a Runtime,
         _spec: &'a JobSpec,
+        // TRAIT_OBJECT: the gateway is a fake, as the session takes it from the host
     ) -> BoxFuture<'a, Result<Arc<dyn Gateway>, OrchestrateError>> {
         Box::pin(async {
+            // TRAIT_OBJECT: the session takes the gateway as a trait object
             let service: Arc<dyn Gateway> = Arc::new(FakeGateway);
             Ok(service)
         })
     }
 
+    // TRAIT_OBJECT: the host hands the runs an isolation as a trait object
     fn isolation(&self, isolation: DockerIsolation) -> Arc<dyn Isolation> {
         Arc::new(Placed {
             inner: isolation,
@@ -267,10 +272,12 @@ impl HarnessDriver for QuietDriver {
         StopSpec::new(None, StopSignal::Term, Duration::from_secs(5))
     }
 
+    // TRAIT_OBJECT: the host hands out its trace reader as a trait object
     fn live_reader(&self) -> Option<Box<dyn TraceReader>> {
         None
     }
 
+    // TRAIT_OBJECT: the host hands out its trace reader as a trait object
     fn offline_reader(&self, _stream: &StreamName) -> Option<Box<dyn TraceReader>> {
         None
     }
@@ -321,6 +328,7 @@ pub struct Rig {
     pub job: JobId,
 }
 
+/// Writes `text` to `path` as an executable script.
 fn write_script(path: &Path, text: &str) {
     fs::write(path, text).expect("a script");
     fs::set_permissions(path, fs::Permissions::from_mode(0o755)).expect("a mode");
@@ -375,6 +383,7 @@ impl Rig {
     /// The runtime of the job: the real supervisor, the fake client for the read half of docker,
     /// and no isolation, no gateway and no cell until the job sets them.
     pub fn runtime(&self) -> Runtime {
+        // TRAIT_OBJECT: the supervisor and the runs take their sink as a trait object
         let sink: Arc<dyn EventSink> = Arc::new(Silent);
         let supervisor = Arc::new(Supervisor::new(Arc::clone(&sink)));
         let records = self.dir.path().join("records");

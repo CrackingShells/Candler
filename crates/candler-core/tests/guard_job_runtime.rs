@@ -25,8 +25,9 @@ use support::job_runtime::{
 };
 use support::job_store::{job_id, job_record};
 
-/// The supervisor of B32, re-executed by the test. It does nothing unless
-/// `CANDLER_TEST_SUPERVISOR_JOB` names a job: run on its own it is an empty test.
+/// The re-exec entry of the supervisor child that B32 and B33 start; it guards nothing itself. It
+/// does nothing unless `CANDLER_TEST_SUPERVISOR_JOB` names a job: run on its own it is an empty
+/// test.
 #[test]
 fn supervisor_child() {
     let Ok(job) = std::env::var(ENV_JOB) else {
@@ -60,6 +61,7 @@ fn kinds_of(dir: &JobDir) -> (Vec<String>, Option<JobEnd>) {
     let kinds = tail
         .events
         .iter()
+        // BORROW: the list owns the kinds
         .map(|envelope| envelope.event().kind().to_owned())
         .collect();
     let end = tail.events.iter().rev().find_map(|envelope| {
@@ -204,6 +206,7 @@ async fn b33_setsid_descendant_dies() {
     use candler_harness::spec::{StopSignal, StopSpec};
     use support::job_runtime::{Recorder, marked_tree};
 
+    /// The marker the orphan of the tree carries.
     const MARKER: &str = "b33-orphan";
     become_subreaper().expect("the subreaper role");
     let work = tempfile::tempdir().expect("a temp dir");
@@ -221,6 +224,7 @@ async fn b33_setsid_descendant_dies() {
             script.to_str().expect("a UTF-8 path").to_owned(), // BORROW: .to_owned() makes the owned argument
             pidfile.to_str().expect("a UTF-8 path").to_owned(), // BORROW: .to_owned() makes the owned argument
         ])
+        // BORROW: .to_owned() makes the owned name and value
         .env(vec![("PATH".to_owned(), "/usr/bin:/bin".to_owned())])
         .marker(MARKER.parse().expect("a marker"))
         .record_dir(records)
@@ -258,11 +262,13 @@ async fn b33_setsid_descendant_dies() {
     let _tick = ZombieTick::start(&supervisor);
     let exit = child.stop().await.expect("an exit");
     assert_eq!(exit.ended, Ended::Stopped);
+    // INDEX: `tree` is built above as leader, group, detached; three entries
     assert!(
         all_gone(&tree[..2], Duration::from_secs(5)),
         "a process of the group survived the stop"
     );
     // The control: the process that left the group is still there, and only the sweep can find it.
+    // INDEX: `tree` is built above as leader, group, detached; three entries
     assert!(
         !all_gone(&tree[2..], Duration::from_millis(200)),
         "the detached process ended with its group"

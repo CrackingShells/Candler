@@ -223,7 +223,9 @@ fn b26_lock_rows() {
     );
 }
 
-/// Group row. Guards: B26 (I11) — two planners over one stored group, each with an experiment lock
+/// Group row.
+///
+/// Guards: B26 (I11) — two planners over one stored group, each with an experiment lock
 /// path of its own, never both hold the group: the second is refused under `Hold` and `Check`,
 /// and plans once the first lets go.
 /// Oracle: the stored group's digest `e` differs from the fresh digest, so the planners share

@@ -37,6 +37,7 @@ pub fn reap_by_pid(pids: &[StrayProcess]) -> usize {
                     reaped += 1;
                     break;
                 }
+                // EXPLICIT: the child has not exited yet; the loop polls again until the bound
                 Ok(None) => {}
                 Err(Errno::INTR) => continue,
                 Err(_) => break,
@@ -60,6 +61,7 @@ pub fn reap_one(pid: u32) -> bool {
     loop {
         match waitpid(Some(pid), WaitOptions::NOHANG) {
             Ok(Some(_)) => return true,
+            // EXPLICIT: an interrupted wait is retried by the loop
             Err(Errno::INTR) => {}
             Ok(None) | Err(_) => return false,
         }
