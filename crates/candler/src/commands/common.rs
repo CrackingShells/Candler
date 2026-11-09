@@ -5,9 +5,11 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use candler_core::evaluation::selection::select::{Selection, select};
 use candler_core::resolve::config::{Config, ConfigEnv};
 use candler_core::resolve::layers::{Resolution, ResolveInput};
 use candler_core::resolve::preflight::Resolver;
+use candler_core::store::Store;
 use candler_schemas::primitives::FieldPath;
 
 use super::CliError;
@@ -105,6 +107,40 @@ pub fn store_root(resolution: &Resolution) -> Result<PathBuf, CliError> {
         .ok_or_else(|| {
             CliError::refused("no store: pass --store, set CANDLER_STORE or configure store.root")
         })
+}
+
+/// Opens the store the command line names, running no preflight step.
+///
+/// # Errors
+/// Returns the errors of [`load_config`], [`resolve`], [`store_root`] and the store's own.
+pub async fn open_store(verb: &'static str, cli: &Cli) -> Result<Store, CliError> {
+    let config = load_config(verb)?;
+    let resolver = plain_resolver(&config);
+    let resolution = resolve(verb, cli, &config, &resolver).await?;
+    let root = store_root(&resolution)?;
+    // BORROW: explicit .as_path()
+    Store::open(root.as_path()).map_err(|e| CliError::failed(verb, e))
+}
+
+/// The selection over every outcome record the store holds.
+///
+/// # Errors
+/// Returns [`CliError::Failed`] when the store cannot be read.
+pub fn read_selection(verb: &'static str, store: &Store) -> Result<Selection, CliError> {
+    let mut records = Vec::new();
+    for entry in store.runs().map_err(|e| CliError::failed(verb, e))? {
+        for file in store
+            .outcome_files(&entry.key)
+            .map_err(|e| CliError::failed(verb, e))?
+        {
+            records.extend(
+                store
+                    .read_outcomes(&file)
+                    .map_err(|e| CliError::failed(verb, e))?,
+            );
+        }
+    }
+    Ok(select(records))
 }
 
 /// The sink the supervisor reports to: one JSON line per event on stderr.
