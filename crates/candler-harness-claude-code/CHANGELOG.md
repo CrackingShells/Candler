@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/CrackingShells/Candler/compare/v0.2.0...v0.3.0) - 2026-11-09
+
+### Features
+
+- *(adapter-claude-code)* classify exits and collect outputs
+- *(adapter-claude-code)* prepare settings, mcp config, skill tree
+- *(adapter-claude-code)* build the reference command line
+- *(orchestrator)* scaffold the M2b modules, traits and types
+
+### Fixes
+
+- *(adapter-claude-code)* archive only the treatment's skill subtree
+
+### Style
+
+- *(runner)* annotate the borrows, indexes and loops the review found
+- *(adapter-claude-code)* name B21 in the guard, note the borrows
+
 ## [0.2.0](https://github.com/CrackingShells/Candler/compare/v0.1.0...v0.2.0) - 2026-11-05
 
 ### Documentation

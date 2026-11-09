@@ -7,6 +7,123 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/CrackingShells/Candler/compare/v0.2.0...v0.3.0) - 2026-11-09
+
+### Documentation
+
+- *(isolation)* complete the guard lines of B32, B34 and B36
+
+### Features
+
+- *(runner)* record the reference provenance fields
+- *(cli)* start a job detached and print its id
+- *(cli)* resolve and plan a run from any directory
+- *(cli)* compose the M2b and M2a preflight steps
+- *(jobs)* leave a starting job alone and bound the whole teardown
+- *(jobs)* hold the job lock as a detached subreaper
+- *(cli)* follow a job's events with watch
+- *(cli)* stop jobs with a confirmation and a guarded reap
+- *(cli)* list jobs with their state and progress
+- *(cli)* scaffold the run, ps, kill and watch verbs
+- *(jobs)* give the launcher an id, a digest and an identity
+- *(jobs)* end a job killed on SIGTERM
+- *(jobs)* sweep strays by marker and by reparenting
+- *(jobs)* stop live runs when a job cap crosses
+- *(jobs)* run a job's plans under the parallel cap
+- *(jobs)* start the job gateway on its own network
+- *(jobs)* hand the supervisor its job, services, force and inputs
+- *(runner)* mount a cell's inputs and name the manifest error
+- *(runner)* wire exec_run through the harness driver and the store
+- *(isolation)* set a run's outputs and collect it through the guard
+- *(runner)* seal a run with run.done last
+- *(runner)* retry a gateway failure once and collect after exit
+- *(runner)* classify the end of a run in the R2 order
+- *(runner)* spawn a run in its container with a live observer
+- *(runner)* record forced deviations on every new attempt
+- *(runner)* replay the stored cell and refuse changed facts
+- *(runner)* seal unfinished attempts and number the next one
+- *(runner)* number runs and take the experiment lock
+- *(isolation)* start the gateway with the token on stdin
+- *(catalog)* refuse a catalog that holds an absolute path
+- *(catalog)* run the catalog command in a control container
+- *(isolation)* wrap agent commands in a self-expiring timeout
+- *(isolation)* build the hardened docker run argv
+- *(isolation)* build container mounts only from canonical roots
+- *(isolation)* run image control calls through the docker client
+- *(isolation)* build the pinned env image once per lock digest
+- *(isolation)* read the Claude Code version from the image
+- *(isolation)* sweep labelled containers from the stop hook
+- *(isolation)* destroy containers only through one verified guard
+- *(isolation)* run the docker cli through the supervisor
+- *(runner)* refuse input leaks and build the run tree
+- *(census)* measure the tools and servers the agent saw
+- *(catalog)* capture the catalog through a control container
+- *(manifest)* give the stratum verdict over declared factors
+- *(manifest)* diff comparable values by path segment
+- *(jobs)* share run slots across jobs by flock
+- *(jobs)* classify a job as running, ended or lost
+- *(jobs)* append and tail the job event log
+- *(jobs)* write the job directory and read its children
+- *(resolve)* register the m2b preflight steps
+- *(resolve)* derive the image id and the build input digest
+- *(resolve)* derive the harness and treatment identities
+- *(experiment)* read the configuration surface and split the budget
+- *(isolation)* keep the destroyed containers' labels in a sweep
+- *(isolation)* record the gateway sidecar before it holds the token
+- *(isolation)* give each job an egress network for bridge cells
+- *(isolation)* compile the env lock and build an experiment layer
+- *(isolation)* tag image builds and place the env and control dirs
+- *(orchestrator)* scaffold the M2b modules, traits and types
+- *(adapter-claude-code)* classify exits and collect outputs
+- *(adapter-claude-code)* prepare settings, mcp config, skill tree
+- *(adapter-claude-code)* build the reference command line
+
+### Fixes
+
+- *(cli)* match the binary's tag and watch what makes it dirty
+- *(resolve)* resolve experiment-file paths against the file
+- *(adapter-claude-code)* archive only the treatment's skill subtree
+- *(cli)* map every verb to one exit enum and exit 2 on error
+- *(orchestrator)* settle the isolation and runtime seams from review
+- *(isolation)* name the sandbox contract candler-container@1
+- *(runner)* leave skill_version unrecorded for a foreign tag
+- *(runner)* emit container.created and measure the run's end
+- *(cli)* name the stored and observed values in a resume refusal
+- *(resolve)* name the failed preflight steps
+- *(orchestrator)* log why a run failed
+- *(orchestrator)* stop a spawned supervisor when its guard fails
+- *(orchestrator)* let a lost job's own view recover it
+- *(jobs)* seed a run that enters after a stop with the stop's cause
+- *(jobs)* give each cell its own sources
+- *(isolation)* scope a run's destroy to the run and pre-make mounts
+- *(runner)* refuse root names that map to one deviation path
+- *(runner)* check input and environment digests as resume facts
+- *(runner)* match stored cells per experiment, fail closed on liveness
+- *(jobs)* write a slot holder as an object with no null
+- *(isolation)* pass the token secret's name to Gateway::start
+
+### Refactoring
+
+- *(orchestrator)* share the gateway e2e helpers
+- *(orchestrator)* let tests build the scaffold data structs
+
+### Style
+
+- *(runner)* annotate the borrows, indexes and loops the review found
+- *(cli)* tag the trait objects and borrows of the kill command
+- *(cli)* tag borrows and trait objects in ps, watch and kill guard
+- *(runner)* drop the milestone words left in supervise and paths
+- *(runner)* tag borrows in the plan and the signal guard
+- *(jobs)* tag trait objects, borrows and no-op arms in the job code
+- *(isolation)* tag the trait objects of the gateway
+- *(runner)* tag borrows, trait objects and indexes in L1 code
+- *(isolation)* note borrows and indexes, list every docker error
+- *(runner)* note the borrow of the tool name in the census
+- *(manifest)* put the oracle on its own doc line, note a borrow
+- *(jobs)* note the borrows of the job store and its tests
+- *(resolve)* note a borrow, wrap the oracle, drop a milestone name
+- *(adapter-claude-code)* name B21 in the guard, note the borrows
+
 ## [0.2.0](https://github.com/CrackingShells/Candler/compare/v0.1.0...v0.2.0) - 2026-11-05
 
 ### Documentation
