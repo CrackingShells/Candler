@@ -14,6 +14,7 @@ use candler_schemas::primitives::{Digest, FieldPath, Marker, SecretName};
 use candler_schemas::values::{ResolvedValue, SourceEntry, ValueSource};
 use futures::future::BoxFuture;
 
+use super::schedule::{Clock, wall_clock};
 use crate::isolation::Isolation;
 use crate::isolation::container::guard::ContainerGuard;
 use crate::isolation::container::sweeper::LabelSweeper;
@@ -171,6 +172,11 @@ pub trait JobHost: Send + Sync {
     // TRAIT_OBJECT: the runtime holds the isolation as a trait object
     fn isolation(&self, isolation: DockerIsolation) -> Arc<dyn Isolation> {
         Arc::new(isolation)
+    }
+
+    /// The clock the job's wall cap reads. The default counts real time from the call.
+    fn clock(&self) -> Clock {
+        wall_clock()
     }
 }
 

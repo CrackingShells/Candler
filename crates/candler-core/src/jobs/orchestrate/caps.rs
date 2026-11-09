@@ -14,10 +14,18 @@ use crate::jobs::model::JobCause;
 pub type RunStop = watch::Sender<Option<JobCause>>;
 
 /// The runs in flight, each with the sender that stops it. A run is in the table from the moment
-/// it starts until its `exec_run` returns; a run that ended is never in it.
+/// it starts until its `exec_run` returns; a run that ended is never in it. The table remembers
+/// the last cause it was told to stop with, so a run that enters after a stop starts already told.
 #[derive(Debug, Default)]
 pub struct LiveRuns {
-    runs: Mutex<BTreeMap<RunKey, RunStop>>,
+    table: Mutex<Table>,
+}
+
+/// The runs in flight and the cause they were last told to stop with.
+#[derive(Debug, Default)]
+struct Table {
+    runs: BTreeMap<RunKey, RunStop>,
+    stopped: Option<JobCause>,
 }
 
 impl LiveRuns {
@@ -27,41 +35,43 @@ impl LiveRuns {
         Self::default()
     }
 
-    /// Puts `key` in flight and returns the receiver its run listens on.
+    /// Puts `key` in flight and returns the receiver its run listens on. The receiver already
+    /// holds the cause the table was last told to stop with, when it was told one.
     pub fn enter(&self, key: &RunKey) -> watch::Receiver<Option<JobCause>> {
-        let (stop, listen) = watch::channel(None);
-        self.runs
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(key.clone(), stop); // BORROW: the table owns the key
+        let mut table = self.table.lock().unwrap_or_else(PoisonError::into_inner);
+        let (stop, listen) = watch::channel(table.stopped);
+        table.runs.insert(key.clone(), stop); // BORROW: the table owns the key
         listen
     }
 
     /// Takes `key` out of flight, because its run ended and was sealed.
     pub fn leave(&self, key: &RunKey) {
-        self.runs
+        self.table
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
+            .runs
             .remove(key);
     }
 
     /// The runs in flight.
     #[must_use]
     pub fn keys(&self) -> Vec<RunKey> {
-        self.runs
+        self.table
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
+            .runs
             .keys()
             .cloned() // BORROW: the caller owns the keys
             .collect()
     }
 }
 
-/// Tells every run in `live` to stop with `cause`. A run that has ended is not in `live`, and a
-/// run that has not started has no channel, so neither hears it.
+/// Tells every run in `live` to stop with `cause`, and every run that enters `live` later. A run
+/// that has ended is not in `live` and does not hear it.
 pub fn stop_live(live: &LiveRuns, cause: JobCause) {
-    let runs = live.runs.lock().unwrap_or_else(PoisonError::into_inner);
-    for stop in runs.values() {
+    let mut table = live.table.lock().unwrap_or_else(PoisonError::into_inner);
+    table.stopped = Some(cause);
+    for stop in table.runs.values() {
         stop.send_replace(Some(cause));
     }
 }

@@ -11,6 +11,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use candler_core::isolation::container::DockerIsolation;
@@ -25,6 +26,7 @@ use candler_core::isolation::model::{
 use candler_core::isolation::{EndFacts, IsolatedRequest, Isolation, IsolationError, RunOutputs};
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::model::JobSpec;
+use candler_core::jobs::orchestrate::schedule::{Clock, wall_clock};
 use candler_core::jobs::orchestrate::session::{JobHost, OrchestrateError};
 use candler_core::jobs::slots::Slots;
 use candler_core::runner::Runtime;
@@ -182,6 +184,8 @@ impl Isolation for Placed {
 /// The machine around a job: the fake client, the fake gateway, the fake placement.
 pub struct FakeHost {
     docker: PathBuf,
+    /// The milliseconds the job's clock reads, when a test drives it; the wall clock otherwise.
+    ticks: Option<Arc<AtomicU64>>,
 }
 
 impl JobHost for FakeHost {
@@ -209,6 +213,16 @@ impl JobHost for FakeHost {
             let service: Arc<dyn Gateway> = Arc::new(FakeGateway);
             Ok(service)
         })
+    }
+
+    fn clock(&self) -> Clock {
+        match &self.ticks {
+            Some(ticks) => {
+                let ticks = Arc::clone(ticks); // BORROW: the clock shares the counter the test advances
+                Arc::new(move || Duration::from_millis(ticks.load(Ordering::SeqCst)))
+            }
+            None => wall_clock(),
+        }
     }
 
     // TRAIT_OBJECT: the host hands the runs an isolation as a trait object
@@ -377,6 +391,16 @@ impl Rig {
     pub fn host(&self) -> Arc<FakeHost> {
         Arc::new(FakeHost {
             docker: self.docker.clone(),
+            ticks: None,
+        })
+    }
+
+    /// The host of the job over this world, whose clock reads `ticks` milliseconds from zero
+    /// and moves only when the test stores a new value.
+    pub fn host_on(&self, ticks: &Arc<AtomicU64>) -> Arc<FakeHost> {
+        Arc::new(FakeHost {
+            docker: self.docker.clone(),
+            ticks: Some(Arc::clone(ticks)), // BORROW: the host shares the counter the test advances
         })
     }
 

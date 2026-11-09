@@ -11,8 +11,12 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use candler_core::jobs::model::{JobCause, JobControl, JobOutcome};
+use candler_core::jobs::orchestrate::caps::{LiveRuns, stop_live};
 use candler_core::jobs::orchestrate::orchestrate_with;
 use candler_core::runner::RunStatus;
 use candler_schemas::execution::{InvalidReason, JobEnd};
@@ -20,7 +24,7 @@ use candler_schemas::primitives::RunKey;
 use candler_schemas::trace::EndedBy;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
-use support::job_orchestrate::{Rig, spec};
+use support::job_orchestrate::{FakeHost, Rig, spec};
 use support::run_plan::{Facts, Run, manifest, snapshot, write_run};
 use tokio::sync::watch;
 
@@ -81,17 +85,22 @@ fn integrity_on_disk(root: &Path, key: &RunKey) -> Value {
 
 /// Runs the job of `rig` over `models` to its end.
 fn run_job(rig: &Rig, models: &[&str], wall_s: u32) -> JobOutcome {
+    run_job_on(rig, models, wall_s, rig.host())
+}
+
+/// Runs the job of `rig` over `models` on `host` to its end.
+fn run_job_on(rig: &Rig, models: &[&str], wall_s: u32, host: Arc<FakeHost>) -> JobOutcome {
     let job = spec(models, &facts(), wall_s, 2);
     let (cancel, _keep) = watch::channel::<Option<JobCause>>(None);
     let ctl = JobControl {
-        cancel: std::sync::Arc::new(cancel),
+        cancel: Arc::new(cancel),
     };
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
         .build()
         .expect("a runtime");
-    runtime.block_on(orchestrate_with(rig.runtime(), job, ctl, rig.host()))
+    runtime.block_on(orchestrate_with(rig.runtime(), job, ctl, host))
 }
 
 /// The table: six cells of one replicate each, in the order they are planned.
@@ -124,8 +133,22 @@ fn b34_cap_stops_live_runs_only() {
         "the sealed runs hold files before the job"
     );
 
-    // wall_s crossed: the job's cap is one second, the fake `run` sleeps thirty.
-    let outcome = run_job(&rig, &TABLE, 1);
+    // wall_s crossed: the job's cap is one second on a clock that stays at zero until both runs
+    // are live. The fake client logs a `run` call only once its run is in flight, so the clock
+    // moves past the cap only after m3 and m4 are both live; the fake `run` sleeps thirty seconds.
+    let ticks = Arc::new(AtomicU64::new(0));
+    let outcome = std::thread::scope(|scope| {
+        let job = scope.spawn(|| run_job_on(&rig, &TABLE, 1, rig.host_on(&ticks)));
+        while rig.runs_logged() < live.len() {
+            assert!(
+                !job.is_finished(),
+                "the job ended before both runs were live"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        ticks.store(2_000, Ordering::SeqCst);
+        job.join().expect("the job's thread")
+    });
 
     assert_eq!(
         outcome.end,
@@ -226,5 +249,40 @@ fn b34_cap_stops_live_runs_only() {
     assert_eq!(
         control_before, control_after,
         "the control's sealed runs are untouched"
+    );
+}
+
+/// Guards: I20 — a run that enters after a stop starts already told to stop; a table never
+/// stopped tells nothing.
+/// Oracle: R01 §Budget ("crossing a job cap ... live runs"); literal causes.
+/// Bite: drop the seeding of the channel in `LiveRuns::enter`.
+#[test]
+fn b34_run_entering_after_a_stop_hears_it() {
+    let facts = facts();
+    let key = key_of("m3", &facts);
+    let calm = LiveRuns::new();
+    assert_eq!(
+        *calm.enter(&key).borrow(),
+        None,
+        "a table that was never stopped tells a new run nothing"
+    );
+    let stopped = LiveRuns::new();
+    stop_live(&stopped, JobCause::BudgetStop);
+    let late = stopped.enter(&key);
+    assert_eq!(
+        *late.borrow(),
+        Some(JobCause::BudgetStop),
+        "a run that enters after a stop starts told to stop"
+    );
+    stop_live(&stopped, JobCause::Killed);
+    assert_eq!(
+        *late.borrow(),
+        Some(JobCause::Killed),
+        "a later kill replaces the budget stop"
+    );
+    assert_eq!(
+        *stopped.enter(&key_of("m4", &facts)).borrow(),
+        Some(JobCause::Killed),
+        "a run that enters after the kill starts killed"
     );
 }
