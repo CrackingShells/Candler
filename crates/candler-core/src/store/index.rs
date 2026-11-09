@@ -10,6 +10,7 @@ use rustix::fs::{FlockOperation, flock};
 use serde_json::{Value, json};
 
 use super::outcome::OutcomeFileRef;
+use super::sync::sync_data;
 use super::{Store, StoreError, io_error, sync_dir, visible_names, write_atomic};
 
 /// An exclusive lock on `index/lock`, released when it is dropped.
@@ -164,7 +165,7 @@ fn append_line(path: &Path, line: &str) -> Result<(), StoreError> {
         }
     }
     file.write_all(line.as_bytes())
-        .and_then(|()| file.sync_data())
+        .and_then(|()| sync_data(&file))
         .map_err(fail)
 }
 

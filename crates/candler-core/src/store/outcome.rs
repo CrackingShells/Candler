@@ -8,6 +8,7 @@ use candler_schemas::outcome::OutcomeRecord;
 use candler_schemas::primitives::{NameVersion, RequestId, RunKey};
 
 use super::layout::OUTCOME_EXTENSION;
+use super::sync::sync_file;
 use super::{Store, StoreError, io_error, sync_dir, visible_names};
 
 /// The name of one outcome file: the run, the evaluator and the request it answers.
@@ -129,9 +130,7 @@ impl OutcomeWriter {
             &self.target.evaluator,
             &self.target.request,
         );
-        self.file
-            .sync_all()
-            .map_err(io_error("sync an outcome file", &self.partial))?;
+        sync_file(&self.file).map_err(io_error("sync an outcome file", &self.partial))?;
         if last.exists() {
             return Err(StoreError::OutcomeExists { path: last });
         }

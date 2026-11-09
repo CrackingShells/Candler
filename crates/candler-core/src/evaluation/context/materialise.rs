@@ -131,8 +131,7 @@ fn copy_artifact(
         .open(&target)
         .map_err(io_error("create an artifact copy", &target))?;
     io::copy(&mut source, &mut copy).map_err(io_error("copy an artifact", &target))?;
-    copy.sync_all()
-        .map_err(io_error("sync an artifact copy", &target))?;
+    // The copy is scratch for one request and is removed after it, so it is never synced.
     drop(copy);
     let mode = if artifact.executable {
         READ_ONLY_EXEC
