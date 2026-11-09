@@ -8,35 +8,39 @@ topic: m2b-execution-parity
 date: 2026-11-09
 version: v0
 prior-version: none
-key-metric: B36 red on a production defect; 3 of 3 bites fail the gates they target (prior: N/A, delta: N/A)
+key-metric: B36 green after the guard fix; 4 of 4 bites fail the gates they target (prior: N/A, delta: N/A)
 decision-required: confirm
 ---
 
 ## Headline Result
 
 B36 (`b36_supervisor_sigkill_nothing_left`) kills a real supervisor and recovers the lost job through
-the path `candler ps` and `reap_lost_jobs` take. That path leaves the job's containers alive. The
-guard refuses every one of them as `other_job`, so recovery returns `Incomplete`. B36 is written
-production-faithful and is therefore **red until `src` is fixed**. Everything else in the suite
-passes.
+the path `candler ps` and `reap_lost_jobs` take. It first found a production defect (ruling A52): the
+guard refused every container of a lost job when its view was of that same job, as both callers build
+it, so recovery ended `Incomplete` and the containers stayed alive. The guard clause is dropped (commit
+`fix(orchestrator): let a lost job's own view recover it`) and B36, still production-faithful, is green.
 
 ```mermaid
 flowchart LR
   P["recover_one / recover_job"] -->|"view = the lost job's own JobDir"| G["ContainerGuard::check_job (Lost)"]
-  G -->|"requires lost != view.job()"| R["every container refused: other_job"]
-  R --> I["RecoverOutcome::Incomplete, containers alive"]
+  G -->|"before: lost != view.job() required"| R["every container refused: other_job"]
+  G -->|"now: the held LostProof decides"| D["containers destroyed, Recovered"]
 ```
 
-## The defect (spec / production, not implemented around)
+## The defect and its fix
 
-`ContainerGuard::check_job` accepts a `SweepScope::Lost(j)` only when `j != view.job()`. Both
-production callers build the guard and the sweeper over a view of the lost job's own `JobDir`, so the
-two never agree. Observed in B36 with the production composition:
+`check_job` admitted `SweepScope::Lost(j)` only when `j != view.job()`. Observed in B36 before the fix:
 `RecoverReport { processes: 1, containers: 0, outcome: Incomplete, refused: [3 x other_job], unknown: true }`.
-With a view of another job (a diagnostic composition) the same test passes in 9.7 s and nothing is
-left, which shows the rest of the test and of the recovery are sound. Fix candidates for the owner of
-`src`: drop the `lost != view.job()` clause, or have `recover_one` / `recover_job` build the guard
-over a view that is not the lost job's.
+The clause meant to stop a live supervisor sweeping its own job; that is code misuse, since a proof
+needs a held lock and a second `JobLock::acquire` of a live job fails. The intent is now held at source
+level: B16 scans every crate's `src` and requires `LostProof::held(` to appear once, in
+`candler-core/src/jobs/lost.rs`; its planted cases are the call in another file, a second call in the
+recovery file and no call. B16's Guards, Oracle and Bite lines were updated to say so.
+
+**Fix bite.** With the clause restored, B36 fails: `assertion left == right failed: recovery:
+RecoverReport { processes: 1, containers: 0, outcome: Incomplete, runs_sealed: 0, ... refused:
+[other_job ...] }`, left `Incomplete`, right `Recovered` (supervision_gates_e2e.rs:394). Restored with
+`git checkout -- crates/candler-core/src/isolation/container/guard.rs`, then `cargo clean -p candler-core`.
 
 ## Names and timings (macOS, Docker Desktop, run whole)
 
@@ -49,9 +53,9 @@ over a view that is not the lost job's.
 | gateway_e2e::b17_canary_absent | pass | 21.4 |
 | gateway_e2e::b18_internal_network_no_route | pass | 8.2 |
 | gateway_e2e::b37_untrusted_upstream_gets_no_credential | pass | 14.7 |
-| supervision_gates_e2e::b36_supervisor_sigkill_nothing_left | **fail (the defect)** | 10.1 |
+| supervision_gates_e2e::b36_supervisor_sigkill_nothing_left | pass | 9.9 |
 
-Whole binary: 83.4 s, under the 90 s limit. The leaf lists seven names; `b37` also lives in the
+Whole binary after the fix and the helper move: 83.1 s, 8 passed, under the 90 s limit. The leaf lists seven names; `b37` also lives in the
 binary, and `b09_host_uid_sealable` is Linux-only.
 
 ## Bite record
@@ -59,18 +63,20 @@ binary, and `b09_host_uid_sealable` is Linux-only.
 Each mutation was a temporary edit of another leaf's file, made after a clean-`src` check
 (`git diff --quiet HEAD -- crates/candler-core/src`, `cargo clean -p candler-core`, the `guard_signal`
 run), restored with `git checkout -- <file>`, and followed by `git status --porcelain crates` showing
-only the two test files. B36 bites were run against the diagnostic composition, since the faithful
-one is red already.
+only the two test files. The first three bites ran against a diagnostic composition (a view of another job), taken before the
+guard fix; the fix bite below ran against the faithful one.
 
 | bite | mutation | tests | failing assertion |
 |---|---|---|---|
 | B36 | `jobs/lost.rs`: the lost-job sweep replaced by an empty `ContainerSweep` | B36 | `containers of the job remain: [3 ids]` (supervision_gates_e2e.rs:397) |
 | sweeper | `LabelSweeper::sweep_with` returns an empty report at once (covers `sweep` and `sweep_lost`) | B36, B13 | B13: `ContainerSweep { destroyed: [], refused: [], unknown: false }`, left 0, right 1 (container_stop_e2e.rs:402); B36: the same `containers of the job remain` |
 | label query | `ps_args` pushes `label=candler.job` without the value | B12 only | B12: `assertion left == right failed: SweepReport {... refused: [other_job x4: two of this run, 61ef24622a00, 3bd621eae7a6] ...}`, right `[]` (container_stop_e2e.rs:315) |
+| fix | `check_job` gets `&& lost != self.view.job()` back | B36 | `left: Incomplete, right: Recovered`, 3 x other_job (supervision_gates_e2e.rs:394) |
 
 Restore commands: `git checkout -- crates/candler-core/src/jobs/lost.rs`,
 `git checkout -- crates/candler-core/src/isolation/container/sweeper.rs`,
-`git checkout -- crates/candler-core/src/isolation/docker.rs`.
+`git checkout -- crates/candler-core/src/isolation/docker.rs`,
+`git checkout -- crates/candler-core/src/isolation/container/guard.rs`.
 
 Deviation: in the label-query bite the guard refused the foreign containers (`other_job`) before the
 `AllowlistDriver` could panic, so B12 failed on its own assertion rather than on an allowlist panic.
@@ -86,9 +92,9 @@ hook's sweep destroyed.
 ## What the CI workflow asserts
 
 `container-e2e.yml` runs `cargo nextest run -p candler-core --run-ignored only --no-tests=fail
---no-fail-fast -E 'binary(guard_container_e2e)'` on `ubuntu-latest`. It does **not** assert the eight
-names (`--no-tests=fail` only rejects an empty selection). This is a spec defect for the coordinator;
-the leaf did not edit CI. The Linux half is **not yet run**: nothing is pushed.
+--no-fail-fast -E 'binary(guard_container_e2e)'` on `ubuntu-latest`, tees the log, and (since the
+base commit `ci(repo): require every container guard to run and pass`) requires a PASS line for each
+of the nine Linux names, B36 among them. The Linux half is **not yet run**: nothing is pushed.
 
 ## Accepted macOS gap
 
@@ -98,7 +104,7 @@ the `CANDLER_RUN` marker on the pids it knows (those the supervisor recorded); o
 
 ## Deviations
 
-The test helpers are duplicated from the sibling e2e files rather than shared. B36 runs the supervisor
+The helpers it shares with the gateway guards now live once in `tests/support/gateway.rs`. The run key, the sidecar image lookup (an id, not a reference) and the fake's starter (it carries the job's label) stay apart, because they differ in what they return or label. B36 runs the supervisor
 body directly (`supervise_entry` with a test `JobBody`), not the full orchestrate. The failed-run cleanup
 destroys through a guard whose view is another job's, over a fresh `JobDir` of the same id.
 `supervision_gates_e2e.rs` allows `clippy::duplicate_mod` on its `support` module, because the
@@ -106,5 +112,5 @@ aggregate binary also loads the support files its siblings load.
 
 ## Gates
 
-STD (fmt, clippy `-D warnings`, doc `-D warnings`) and LINUX clippy pass; the scaffold and placeholder
+STD (fmt, clippy `-D warnings`, doc `-D warnings`), LINUX clippy and SUBJ pass; the scaffold and placeholder
 greps are empty; `crates/candler-schemas` is untouched, so DRIFT has nothing to bless.
