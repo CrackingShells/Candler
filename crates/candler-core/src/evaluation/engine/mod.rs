@@ -177,12 +177,18 @@ async fn evaluate_in(
             path: suite_path.clone(), // BORROW: the error owns the path
             source,
         })?;
+        // The reader follows the extension: `.json` is JSON, anything else is TOML.
+        let is_json = suite_path.extension().is_some_and(|ext| ext == "json");
         // BORROW: explicit .as_str() instead of Deref coercion
-        let suite =
-            SuiteFile::from_toml_str(text.as_str()).map_err(|source| EvaluateError::Suite {
-                path: suite_path,
-                source,
-            })?;
+        let parsed = if is_json {
+            SuiteFile::from_json_str(text.as_str())
+        } else {
+            SuiteFile::from_toml_str(text.as_str())
+        };
+        let suite = parsed.map_err(|source| EvaluateError::Suite {
+            path: suite_path,
+            source,
+        })?;
         Ok::<_, EvaluateError>((registry, suite))
     })
     .await??;

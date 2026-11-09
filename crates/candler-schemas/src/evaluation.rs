@@ -82,6 +82,12 @@ pub enum EvaluationError {
         /// The reader's explanation.
         detail: String,
     },
+    /// A document that is not valid JSON or does not have the shape of its type.
+    #[error("document is not readable as JSON ({detail})")]
+    Json {
+        /// The reader's explanation.
+        detail: String,
+    },
     /// A builder that was asked to build before a required field was set.
     #[error("evaluation record field is missing (`{field}` was not set)")]
     MissingField {
@@ -878,6 +884,20 @@ impl SuiteFile {
     /// graph that is not valid.
     pub fn from_toml_str(text: &str) -> Result<Self, EvaluationError> {
         let raw: RawSuiteFile = toml::from_str(text).map_err(|error| toml_error(&error))?;
+        Self::try_from(MapOnly(raw))
+    }
+
+    /// Reads a suite from JSON text and checks its dependency graph.
+    ///
+    /// # Errors
+    /// Returns [`EvaluationError::Json`] if the text is not JSON, does not have the shape of a
+    /// suite or carries another `schema` marker, and the errors of [`SuiteFile::new`] for a
+    /// graph that is not valid.
+    pub fn from_json_str(text: &str) -> Result<Self, EvaluationError> {
+        let raw: RawSuiteFile =
+            serde_json::from_str(text).map_err(|error| EvaluationError::Json {
+                detail: error.to_string(),
+            })?;
         Self::try_from(MapOnly(raw))
     }
 
