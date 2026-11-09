@@ -11,7 +11,7 @@
 - ⬜ Egress outside the allowlist fails while the model gateway works
 - ⬜ The agent-side environment a plug-in declares (what the agent's isolation must contain) is provisioned by the core, with no hand-edited sandbox contract; evaluator environments are M2a's
 - ⬜ Runs on the macOS host and in containers fall in separate strata through M2b's stratum verdict
-**References**: [R01 §Contracts & Invariants (I8, I14), §Process supervision](../../../../../../__design__/architecture.md) — isolation interface, ground-truth rule, census
+**References**: [R01 §Contracts & Invariants (I8, I14), §Process supervision](../../../../../../../__design__/architecture.md) — isolation interface, ground-truth rule, census
 
 ## Step 1: Plan the milestone
 
@@ -37,6 +37,6 @@ Execute the campaign on `feat/m5-container-isolation`, then land it on `main` wi
 **Goal**: The milestone is recorded and the HTN lane's Phase 8 can declare its environment.
 **Implementation Logic**:
 Write a knowledge-transfer report under `__reports__/m5-container-isolation/`. Mark this leaf `done` with `dirtree-rdm update`. Propose the reminder reconciliation to Eliott: `candler-M5` complete; a log line on `pro-htn-phase-8-skill`. Apply only on his yes, through `sw_write.py`.
-**Deliverables**: `__reports__/m5-container-isolation/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/surfaces/isolation/README.md`
-**Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/surfaces/isolation/` (expected: PASS)
+**Deliverables**: `__reports__/m5-container-isolation/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/alignment/surfaces/isolation/README.md`
+**Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/alignment/surfaces/isolation/` (expected: PASS)
 **Commit**: `reports(isolation): close the m5-container-isolation milestone`

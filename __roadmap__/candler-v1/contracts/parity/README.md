@@ -1,7 +1,7 @@
 # Parity
 
 ## Context
-Depth 2. M2a (evaluation) and M2b (execution) run in parallel after M1; each proves Candler matches today's `htn_creator_eval` on its half. They touch different crates and modules, except where both read M1's supervisor and store, which neither changes without the other's coordinator knowing.
+Depth 2. M2a (evaluation) and M2b (execution) run in parallel after M1; each proves Candler matches today's `htn_creator_eval` on its half. They touch different crates and modules, except where both read M1's supervisor and store, which neither changes without the other's coordinator knowing. Amendment A1 adds `alignment/` after both: the wire alignment (M2c), then the surfaces.
 
 ## Goal
 Candler reproduces today's grading exactly and today's runs equivalently.
@@ -11,13 +11,14 @@ Candler reproduces today's grading exactly and today's runs equivalently.
 
 ## Success Gates
 - ⬜ `m2a_evaluation_parity.md` and `m2b_execution_parity.md` are `done`
+- ⬜ `alignment/` is `done`
 
 ## Status
 ```mermaid
 graph TD
     m2a_evaluation_parity[M2a Evaluation parity]:::planned
     m2b_execution_parity[M2b Execution parity]:::planned
-    surfaces[Surfaces]:::planned
+    alignment[Wire alignment]:::amendment
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -30,11 +31,12 @@ graph TD
 |:-----|:-----|:-------|
 | `m2a_evaluation_parity.md` | 📄 Leaf Task | ⬜ Planned |
 | `m2b_execution_parity.md` | 📄 Leaf Task | ⬜ Planned |
-| `surfaces/` | 📁 Directory | ⬜ Planned |
+| `alignment/` | 📁 Directory | 🔵 Amendment |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
 |:---|:-----|:-------|:------------|:----------|
+| A1 | 2026-11-09 | `__reports__/m2c-wire-alignment/gap_analysis_v0.md` | [ "alignment", "m2c_wire_alignment" ] | M2b's smoke found three gaps in the shared `experiment/1` wire type (no inputs, nested `[fixed]` flattened, no treatment source) that need one owner before M3 and M4 |
 
 ## Progress
 | Node | Branch | Commits | Notes |

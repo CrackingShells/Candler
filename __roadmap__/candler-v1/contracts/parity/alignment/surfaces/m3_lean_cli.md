@@ -2,7 +2,7 @@
 
 **Goal**: Every operation of the API is reachable through a thin CLI that derives what it can and works from any directory, and runs flow into evaluation end to end.
 **Pre-conditions**:
-- [ ] `../m2b_execution_parity.md` is `done` (the tree also waits for `../m2a_evaluation_parity.md`; the reminder needs only M2b)
+- [ ] `../../m2b_execution_parity.md` and `../m2c_wire_alignment.md` are `done` (the tree also waits for `../../m2a_evaluation_parity.md`; the reminder needs only M2b)
 - [ ] Reminder `candler-M3` read (derive before defaulting, two entry calls, every option justified)
 **Success Gates**:
 - ⬜ Each of the top 10 quick wins of R03 is covered by a named test
@@ -12,7 +12,7 @@
 - ⬜ A fresh `candler run` followed by `candler evaluate` grades the new runs end to end, with `evaluation.outcome` events in the job's stream
 - ⬜ `evaluate` runs as a job, its evaluator processes take slots and are covered by the stray sweep (I15)
 - ⬜ `ingest` (raw trace directories and results folders), `inspect` and `analyze` work; `analyze` reports rates with Wilson intervals, Holm-adjusted comparisons, `not_measured` and `not_applicable` counts with causes, and invalid runs per arm (I10)
-**References**: [R01 §Operation API, §CLI surface over the jobs, §Wire schema: outcome record](../../../../../__design__/architecture.md) — operations, resolution order, CLI verbs, rates and the selection rule
+**References**: [R01 §Operation API, §CLI surface over the jobs, §Wire schema: outcome record](../../../../../../__design__/architecture.md) — operations, resolution order, CLI verbs, rates and the selection rule
 
 ## Step 1: Plan the milestone
 
@@ -38,6 +38,6 @@ Execute the campaign on `feat/m3-lean-cli`, then land it on `main` with one `--n
 **Goal**: The milestone is recorded.
 **Implementation Logic**:
 Write a knowledge-transfer report under `__reports__/m3-lean-cli/`. Mark this leaf `done` with `dirtree-rdm update`. Propose the reminder reconciliation to Eliott: `candler-M3` complete; `candler-M7` startable. Apply only on his yes, through `sw_write.py`.
-**Deliverables**: `__reports__/m3-lean-cli/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/surfaces/README.md`
-**Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/surfaces/` (expected: PASS)
+**Deliverables**: `__reports__/m3-lean-cli/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/alignment/surfaces/README.md`
+**Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/alignment/surfaces/` (expected: PASS)
 **Commit**: `reports(cli): close the m3-lean-cli milestone`

@@ -1,7 +1,7 @@
 # Freeze
 
 ## Context
-Depth 5, last. The second plug-in and paired statistics need M2a and M5; the tree also makes them wait for M7. The contract freezes here.
+Depth 6, last. The second plug-in and paired statistics need M2a and M5; the tree also makes them wait for M7. The contract freezes here.
 
 ## Goal
 A second, unrelated plug-in proves the contract, and Candler 1.0.0 is tagged.

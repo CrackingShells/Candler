@@ -1,7 +1,7 @@
 # Isolation
 
 ## Context
-Depth 4. Container isolation (M5, needs M4) and the MCP server (M7, needs M3) in parallel; Docker enters the project here.
+Depth 5. Container isolation (M5, needs M4) and the MCP server (M7, needs M3) in parallel; Docker enters the project here.
 
 ## Goal
 Runs can be isolated in containers, and agents can drive Candler through MCP.

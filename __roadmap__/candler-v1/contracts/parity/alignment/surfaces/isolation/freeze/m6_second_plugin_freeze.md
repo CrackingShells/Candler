@@ -10,7 +10,7 @@
 - ⬜ Paired statistics (McNemar, CMH, bootstrap, fixed-sequence; alongside M3's Wilson intervals and Holm adjustment) run on declared pairing keys, and the pairing keys, execution order and blocking factor are decided and recorded in `__design__/architecture.md`
 - ⬜ Every item of R01's "Deliberately open" list is either decided in the design doc or explicitly carried past 1.0
 - ⬜ Core `v1.0.0` and `schemas@1.0.0` are tagged on `main`; the harness traits and the evaluator protocol are frozen
-**References**: [R01 §Data Model, §Deliberately open, §Contracts & Invariants (I5)](../../../../../../../__design__/architecture.md) — what freezes, what is still open
+**References**: [R01 §Data Model, §Deliberately open, §Contracts & Invariants (I5)](../../../../../../../../__design__/architecture.md) — what freezes, what is still open
 
 ## Step 1: Plan the milestone
 
@@ -36,6 +36,6 @@ Execute the campaign on `feat/m6-second-plugin-freeze`, then land it on `main` w
 **Goal**: The campaign is complete.
 **Implementation Logic**:
 Write a knowledge-transfer report under `__reports__/m6-second-plugin-freeze/`. Mark this leaf `done` with `dirtree-rdm update`, and check the campaign README's Success Gates. Propose the reminder reconciliation to Eliott: `candler-M6` complete. Apply only on his yes, through `sw_write.py`.
-**Deliverables**: `__reports__/m6-second-plugin-freeze/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/surfaces/isolation/freeze/README.md`
-**Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/surfaces/isolation/freeze/` (expected: PASS)
+**Deliverables**: `__reports__/m6-second-plugin-freeze/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/alignment/surfaces/isolation/freeze/README.md`
+**Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/alignment/surfaces/isolation/freeze/` (expected: PASS)
 **Commit**: `reports(release): close the m6-second-plugin-freeze milestone`
