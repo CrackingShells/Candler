@@ -171,6 +171,19 @@ impl Rig {
         glob: &str,
         count: &Path,
     ) -> EvaluateReport {
+        self.grade_within(plugins, suite, glob, count, Some(Duration::from_secs(120)))
+            .await
+    }
+
+    /// The same, with the request deadline `deadline`; `None` leaves it to the engine.
+    async fn grade_within(
+        &self,
+        plugins: &[PathBuf],
+        suite: &str,
+        glob: &str,
+        count: &Path,
+        deadline: Option<Duration>,
+    ) -> EvaluateReport {
         let text = fs::read_to_string(fixtures().join(suite))
             .expect("the suite reads")
             .replace("@COUNT@", &count.display().to_string());
@@ -185,7 +198,7 @@ impl Rig {
                 runs: Some(glob.to_owned()),
                 concurrency: NonZeroUsize::new(2).expect("two"),
                 env_root: self.env_root.clone(),
-                request_deadline: Some(Duration::from_secs(120)),
+                request_deadline: deadline,
             },
             // BORROW: .clone() hands the engine its own handle on the supervisor
             self.supervisor.clone(),
@@ -268,7 +281,9 @@ fn reason_of(record: &OutcomeRecord) -> String {
 /// `not_applicable_to_arm`; the dependent of a `fail` is `blocked` by it, and the record the
 /// engine keeps is its own, not the plug-in's echo; the dependent of a `pass` is sent in the same
 /// request as its dependency and receives that dependency's record in `prior`, which the echo
-/// kind returns. The same verdicts hold when the suite is written as JSON, and when the
+/// kind returns. A second suite lists D1 before its dependency P3: D1 is sent after P3 and sees it
+/// in `prior`; the dependent N2 of the `not_applicable` N1 is `blocked` and not sent. The same
+/// verdicts hold when the suite is written as JSON, and when the
 /// manifest's command is a bare `python -m` that only the activated environment resolves.
 /// Oracle: the hand literals below.
 #[tokio::test]
@@ -280,6 +295,41 @@ async fn dependencies_and_applies_to_decide_what_is_sent() {
     ] {
         dependency_verdicts(manifest, suite).await;
     }
+    order_and_blocking_verdicts().await;
+}
+
+/// Grades run 6 with `suite_order.toml` and checks what the hand literals say: N2 depends on the
+/// `not_applicable` N1, so it is `blocked` by N1 and not sent; D1 is listed before its dependency
+/// P3 and is sent after it, so P3 is the only item D1 sees before it.
+async fn order_and_blocking_verdicts() {
+    let rig = rig().await;
+    let report = rig
+        .grade("suite_order.toml", "*-r6-a1", Path::new("unused"))
+        .await;
+    assert!(
+        report.failed_requests.is_empty(),
+        "{:?}",
+        report.failed_requests
+    );
+    let records = rig.records(&rig.run_of(6));
+    assert_eq!(records.len(), 4, "one record per entry");
+    assert_eq!(record(&records, "N1").1.status(), Status::NotApplicable);
+    assert_eq!(record(&records, "N2").1.status(), Status::Blocked);
+    assert_eq!(blocked_by(&record(&records, "N2").1), "N1");
+    assert_eq!(record(&records, "P3").1.status(), Status::Pass);
+    assert_eq!(record(&records, "D1").1.status(), Status::Pass);
+    assert_eq!(
+        record(&records, "D1").0,
+        record(&records, "P3").0,
+        "one request"
+    );
+    let ids: Vec<String> = echoed(&record(&records, "D1").1)["prior"]
+        .as_array()
+        .expect("prior is a list")
+        .iter()
+        .map(|entry| entry["expectation"].as_str().expect("an id").to_owned())
+        .collect();
+    assert_eq!(ids, ["P3"], "the dependency is sent before D1");
 }
 
 /// Grades run 6 with `suite` under the manifest template `manifest` and checks the verdicts.
@@ -396,6 +446,41 @@ async fn independent_entries_of_one_evaluator_share_one_request() {
     assert_eq!(other.len(), 1, "C1");
     assert_eq!(record(&engine, "B1").0, record(&engine, "B2").0);
     assert_ne!(record(&engine, "B1").0, record(&other, "C1").0);
+}
+
+/// Guards: R6 (A1) — the deadline an engine gives a request: with no override, the sum of the item
+/// deadlines plus the 30 s margin; with an override, the override itself. `suite_deadlines.toml`
+/// has two items in one request, with item deadlines of 40 s and 5 s, so by hand the request is
+/// given 40 + 5 + 30 = 75 s, and a flat override of 12 s is given as 12 s. Oracle: the fixture's
+/// literals and R01 §Deadlines; the margin constant is not read.
+#[tokio::test]
+async fn the_request_deadline_is_the_sum_of_the_item_deadlines_plus_the_margin() {
+    for (override_, expected) in [
+        (None, Duration::from_secs(75)),
+        (Some(Duration::from_secs(12)), Duration::from_secs(12)),
+    ] {
+        let rig = rig().await;
+        let report = rig
+            .grade_within(
+                std::slice::from_ref(&rig.plugin),
+                "suite_deadlines.toml",
+                "*-r6-a1",
+                Path::new("unused"),
+                override_,
+            )
+            .await;
+        assert!(
+            report.failed_requests.is_empty(),
+            "{:?}",
+            report.failed_requests
+        );
+        assert_eq!(report.request_ids.len(), 1, "one request for both items");
+        assert_eq!(
+            report.request_deadlines,
+            [(report.request_ids[0].clone(), expected)],
+            "override {override_:?}"
+        );
+    }
 }
 
 /// The sha256 of `bytes`, taken here and spelled as a digest.

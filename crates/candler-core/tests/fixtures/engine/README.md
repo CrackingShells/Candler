@@ -14,3 +14,5 @@ Read by `guard_engine`. The guard fills the `@...@` tokens at run time and runs 
 | `kinds/engine_second.py` | the plug-in module of the second evaluator, `second`, with the `ok` kind only |
 | `plugin_second.toml` | the manifest of `second`; the same command as `plugin.toml`, with the module `engine_second` |
 | `suite_batching.toml` | three independent entries: B1 and B2 of `engine`, C1 of `second` |
+| `suite_deadlines.toml` | two `ok` entries in one request, with item deadlines of 40 s and 5 s |
+| `suite_order.toml` | N1 with an `applies_to` miss and its dependent N2; D1, an `echo`, listed before its dependency P3 |
