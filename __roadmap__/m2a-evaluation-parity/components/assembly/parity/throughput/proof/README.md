@@ -16,7 +16,7 @@ GP1–GP3 pass against 0.5.1 within the throughput budget, and no verifier holds
 ## Status
 ```mermaid
 graph TD
-    throughput_proof[Prove parity and throughput on the corpus]:::amendment
+    throughput_proof[Prove parity and throughput on the corpus]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -27,7 +27,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `throughput_proof.md` | 📄 Leaf Task | 🔵 Amendment |
+| `throughput_proof.md` | 📄 Leaf Task | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

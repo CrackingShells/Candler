@@ -24,7 +24,7 @@ graph TD
     surfaces[CLI surfaces: import, evaluate, show, diff]:::done
     helper_release[Helper release: models, version, CI]:::done
     htn_plugin[HTN plug-in: manifest, env, suite]:::done
-    parity[Parity]:::planned
+    parity[Parity]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -39,7 +39,7 @@ graph TD
 | `surfaces.md` | 📄 Leaf Task | ✅ Done |
 | `helper_release.md` | 📄 Leaf Task | ✅ Done |
 | `htn_plugin.md` | 📄 Leaf Task | ✅ Done |
-| `parity/` | 📁 Directory | ⬜ Planned |
+| `parity/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

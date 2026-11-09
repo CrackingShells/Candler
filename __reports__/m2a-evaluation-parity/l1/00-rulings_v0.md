@@ -242,3 +242,7 @@ The adversarial verifier made one corpus pass (3/3 PASS, 161.5 s wall) and found
 - The ENG1 row then pins the exact hand sum, with no kind that sleeps.
 
 A guard that waits on a timeout to prove a duration is not accepted when the duration can be read.
+
+**The import gate (Eliott, 2026-11-09).** The guard's debug binary imports the corpus in 44.4 s. A release build takes 7.7–9.1 s. Eliott: "then it's completely fine."
+- **Ruling:** the 30 s import gate measures the release `candler`. The debug figure is recorded but not gated.
+- **Follow-up:** the import waste the probe measured (the gzip round trip, the sync after every blob, and one core) goes to the KT as a follow-up, not to an M2a amendment.

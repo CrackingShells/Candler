@@ -26,7 +26,7 @@ graph TD
     run_context[Run context: assembly, digest, materialiser]:::done
     protocol_client[Protocol client over supervise]:::done
     selection_rates[Selection, I4, rates and generic diff]:::done
-    assembly[Assembly]:::planned
+    assembly[Assembly]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -44,7 +44,7 @@ graph TD
 | `run_context.md` | 📄 Leaf Task | ✅ Done |
 | `protocol_client.md` | 📄 Leaf Task | ✅ Done |
 | `selection_rates.md` | 📄 Leaf Task | ✅ Done |
-| `assembly/` | 📁 Directory | ⬜ Planned |
+| `assembly/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

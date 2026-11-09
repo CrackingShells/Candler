@@ -5,10 +5,10 @@
 - [ ] [cmd] `git log --first-parent --format=%s feat/m2a-evaluation-parity | grep -qx 'merge(evaluation): land regrade_throughput'`
 - [ ] [cmd] `git -C "$R" rev-parse -q --verify 'refs/tags/htn-creator-eval@0.5.1^{commit}'`, with `$RW` at the tagged plug-in tree
 **Success Gates**:
-- ⬜ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^(crates/candler/tests/guard_golden_parity\.rs$|crates/candler-core/src/evaluation/engine/(mod|run)\.rs$|crates/candler-core/tests/public_surface\.rs$|crates/candler-core/tests/guard_engine\.rs$|crates/candler-core/tests/fixtures/engine/|__reports__/m2a-evaluation-parity/throughput/throughput_proof/)`
-- ⬜ [cmd] SPAWN, then the golden_parity guard command passes. Its `timings.txt` shows an import of 30 s or less and each regrade at 89 s or less, which is 8,880 items at 100/s or more (before: 135.7, 642.5 and 680.8 s). The whole run takes 5 min or less.
-- ⬜ [cmd] The README's `candler diff … | jq -e …` gate and the rates diff against `rates_by_cell.toml` pass on the kept store, with `--to htn-creator-eval@0.5.1`
-- ⬜ [nl] The adversarial verifier holds no open BLOCKER or MAJOR. It was deferred here from golden_parity, because here a corpus pass costs minutes.
+- ✅ [cmd] STD, SUBJ and SCAFFOLD pass, and OWNED passes with `^(crates/candler/tests/guard_golden_parity\.rs$|crates/candler-core/src/evaluation/engine/(mod|run)\.rs$|crates/candler-core/tests/public_surface\.rs$|crates/candler-core/tests/guard_engine\.rs$|crates/candler-core/tests/fixtures/engine/|__reports__/m2a-evaluation-parity/throughput/throughput_proof/)`
+- ✅ [cmd] SPAWN, then the golden_parity guard command passes. Its `timings.txt` shows each regrade at 89 s or less, which is 8,880 items at 100/s or more (before: 135.7, 642.5 and 680.8 s). The whole run takes 5 min or less. The import takes 30 s or less with the release `candler` on the same corpus. The guard's debug binary is recorded too, but it is not gated (Eliott, 2026-11-09).
+- ✅ [cmd] The README's `candler diff … | jq -e …` gate and the rates diff against `rates_by_cell.toml` pass on the kept store, with `--to htn-creator-eval@0.5.1`
+- ✅ [nl] The adversarial verifier holds no open BLOCKER or MAJOR. It was deferred here from golden_parity, because here a corpus pass costs minutes.
 **References**: [golden_parity](../../golden_parity.md) — GP1–GP3 and their bites; [golden_parity report](../../../../../../../__reports__/m2a-evaluation-parity/golden_parity/00-report_v0.md) — the 0.5.0 run and its finding 3; [profile §4](../../../../../../../__reports__/m2a-evaluation-parity/throughput/00-regrade_profile_v0.md) — the projection
 
 ## Step 1: Prove parity against 0.5.1

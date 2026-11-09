@@ -124,7 +124,7 @@ A live `htn-creator-eval@0.5.0` regrade of the golden corpus reproduces the impo
 graph TD
     skeleton[Skeleton: frozen seams and stubs]:::done
     protocol_wire[Protocol wire: JSON-RPC envelope]:::done
-    components[Components]:::planned
+    components[Components]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -137,7 +137,7 @@ graph TD
 |:-----|:-----|:-------|
 | `skeleton.md` | 📄 Leaf Task | ✅ Done |
 | `protocol_wire.md` | 📄 Leaf Task | ✅ Done |
-| `components/` | 📁 Directory | ⬜ Planned |
+| `components/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

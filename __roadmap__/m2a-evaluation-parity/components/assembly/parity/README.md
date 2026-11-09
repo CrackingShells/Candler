@@ -20,7 +20,7 @@ GP1–GP3 pass locally against `$GOLDEN`, and an adversarial verifier confirms t
 ```mermaid
 graph TD
     golden_parity[Golden parity: the live regrade guard]:::done
-    throughput[Throughput: grade at machine speed]:::amendment
+    throughput[Throughput: grade at machine speed]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -32,7 +32,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `golden_parity.md` | 📄 Leaf Task | ✅ Done |
-| `throughput/` | 📁 Directory | 🔵 Amendment |
+| `throughput/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
