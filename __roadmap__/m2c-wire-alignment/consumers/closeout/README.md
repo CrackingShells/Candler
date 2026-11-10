@@ -20,9 +20,9 @@ The input seam, the domain neutrality and the real env image each have a guard t
 ## Status
 ```mermaid
 graph TD
-    input_seam[Input seam]:::planned
-    layering_guard[Layering guard]:::planned
-    env_image_e2e[Env image e2e]:::planned
+    input_seam[Input seam]:::inprogress
+    layering_guard[Layering guard]:::inprogress
+    env_image_e2e[Env image e2e]:::inprogress
     revalidation[Revalidation]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -34,9 +34,9 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `input_seam.md` | 📄 Leaf Task | ⬜ Planned |
-| `layering_guard.md` | 📄 Leaf Task | ⬜ Planned |
-| `env_image_e2e.md` | 📄 Leaf Task | ⬜ Planned |
+| `input_seam.md` | 📄 Leaf Task | 🔄 In Progress |
+| `layering_guard.md` | 📄 Leaf Task | 🔄 In Progress |
+| `env_image_e2e.md` | 📄 Leaf Task | 🔄 In Progress |
 | `revalidation/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log

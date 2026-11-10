@@ -21,11 +21,11 @@ The experiment file's treatment source and inputs reach the cell, the isolation 
 ## Status
 ```mermaid
 graph TD
-    treatment_source[Treatment source]:::inprogress
-    declared_inputs[Declared inputs]:::inprogress
-    evaluator_inputs[Evaluator inputs]:::inprogress
-    design_record[Design record]:::inprogress
-    closeout[Closeout]:::planned
+    treatment_source[Treatment source]:::done
+    declared_inputs[Declared inputs]:::done
+    evaluator_inputs[Evaluator inputs]:::done
+    design_record[Design record]:::done
+    closeout[Closeout]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -36,11 +36,11 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `treatment_source.md` | 📄 Leaf Task | 🔄 In Progress |
-| `declared_inputs.md` | 📄 Leaf Task | 🔄 In Progress |
-| `evaluator_inputs.md` | 📄 Leaf Task | 🔄 In Progress |
-| `design_record.md` | 📄 Leaf Task | 🔄 In Progress |
-| `closeout/` | 📁 Directory | ⬜ Planned |
+| `treatment_source.md` | 📄 Leaf Task | ✅ Done |
+| `declared_inputs.md` | 📄 Leaf Task | ✅ Done |
+| `evaluator_inputs.md` | 📄 Leaf Task | ✅ Done |
+| `design_record.md` | 📄 Leaf Task | ✅ Done |
+| `closeout/` | 📁 Directory | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
@@ -49,3 +49,7 @@ graph TD
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| `evaluator_inputs.md` | `m2c/evaluator_inputs` → dab0335 | 2 | `guard_registry`'s old `unsupported` pin replaced by a `build_inputs` refusal row; materialised input dirs stay writable, files 0444 |
+| `declared_inputs.md` | `m2c/declared_inputs` → 48b3bef | 4 | P2: one read-only mount per file, stub made first; two fix rounds (empty-file leak, stub exclusion exact, unmountable names); verifier PASS on I8; `job.json` may hold evaluator digests (D3 wording amended) |
+| `treatment_source.md` | `m2c/treatment_source` → cc5e497 | 3 | two fix rounds; `from` is the absolute normalised path; `--set` sources resolve against the cwd; moved tag refused naming `treatment`; old setting refused by name |
+| `design_record.md` | `m2c/design_record` → 83f3439 | 3 | one fix round against the L1 code; G6d prints nothing; a bare name with a source records no commit (as before M2c) |

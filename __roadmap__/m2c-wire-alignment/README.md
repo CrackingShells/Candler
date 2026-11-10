@@ -151,6 +151,7 @@ graph TD
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| `eval_infra_origins.md` (round 2) | `m2c/eval_infra_hardening` → 975048e | 2 | from the verdict_gating verifier: outputs under `CANDLER_BUILT_*`, always emitted, read strictly; packager commit must be 40 hex |
 | `import_rules.md` | `m2c/import_rules` → aa1edf8 | 2 | `entry_params` from the rules; open outside the repo: the plug-in's `htn-results-rules.toml` needs the key and `guard_golden_parity`'s rules pin moves with it |
 | `wire.md` | `m2c/wire` → 2aa7afd | 4 | verifier PASS after one fix round (UTF-16 order vector); one `feat(schemas)`; the leaf's `guard_cell_digest` bite could not hold (fields outside `comparable`); JSON empty `prompt.values` table now refused |
 | `eval_infra_origins.md` | `m2c/eval_infra_origins` → 7ff91f1 | 3 | P1 used `candler-schemas`' real package (`candler` is `publish = false`); a vcs file wins over a surrounding checkout; recorder hardening (ambient variable, packager commit) queued |
