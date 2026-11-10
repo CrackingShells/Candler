@@ -16,8 +16,8 @@ Every lint suppression in the workspace is removed or justified in line and kept
 ## Status
 ```mermaid
 graph TD
-    local_suppressions[Local suppressions]:::planned
-    digest_invariance[Digest invariance]:::planned
+    local_suppressions[Local suppressions]:::inprogress
+    digest_invariance[Digest invariance]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -28,8 +28,8 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `local_suppressions.md` | 📄 Leaf Task | ⬜ Planned |
-| `digest_invariance.md` | 📄 Leaf Task | ⬜ Planned |
+| `local_suppressions.md` | 📄 Leaf Task | 🔄 In Progress |
+| `digest_invariance.md` | 📄 Leaf Task | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

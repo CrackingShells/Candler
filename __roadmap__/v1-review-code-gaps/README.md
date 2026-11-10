@@ -53,7 +53,7 @@ An agent container is recorded from the moment its cid is known, every legacy st
 graph TD
     agent_container_record[Agent container record]:::done
     import_stream_sources[Import stream sources]:::done
-    settle[Settle]:::planned
+    settle[Settle]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -66,7 +66,7 @@ graph TD
 |:-----|:-----|:-------|
 | `agent_container_record.md` | 📄 Leaf Task | ✅ Done |
 | `import_stream_sources.md` | 📄 Leaf Task | ✅ Done |
-| `settle/` | 📁 Directory | ⬜ Planned |
+| `settle/` | 📁 Directory | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
