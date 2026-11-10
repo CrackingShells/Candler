@@ -17,7 +17,7 @@ pub mod testing;
 use std::sync::Arc;
 
 use candler_harness::spec::{Cell, CommandSpec, Workspace};
-use candler_schemas::primitives::{Marker, RunKey};
+use candler_schemas::primitives::{ContainerId, Marker, RunKey};
 use futures::future::BoxFuture;
 
 use crate::supervise::spawn::{OutputSpec, SpawnRequest};
@@ -132,4 +132,25 @@ pub trait Isolation: Send + Sync {
         exit: &'a Exit,
         key: &'a RunKey,
     ) -> BoxFuture<'a, Result<ContainerOutcome, IsolationError>>;
+
+    /// Records the run's container once its id is known, to the job's `children/`, so that every
+    /// destroy path finds the container recorded. It may be called many times; the container is
+    /// recorded once, and each call returns the recorded id. An isolation without containers
+    /// records nothing.
+    ///
+    /// It returns `Ok(None)` while the container is not yet known or not yet inspectable.
+    ///
+    /// # Errors
+    /// [`IsolationError::Plan`] when the container's labels or image id are not those of the
+    /// plan's job and the run `key`, a missing or malformed label included,
+    /// [`IsolationError::Unavailable`] when no recorder is attached, or the isolation cannot
+    /// write the record or read the clock.
+    fn record_container<'a>(
+        &'a self,
+        plan: &'a ContainerPlan,
+        key: &'a RunKey,
+    ) -> BoxFuture<'a, Result<Option<ContainerId>, IsolationError>> {
+        let _ = (plan, key);
+        Box::pin(async { Ok(None) })
+    }
 }

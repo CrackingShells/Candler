@@ -32,7 +32,7 @@ use candler_schemas::execution::{JobEnd, JobState};
 use candler_schemas::primitives::JobId;
 
 // The aggregate binary also loads the support files its sibling modules load on their own.
-#[allow(
+#[expect(
     clippy::duplicate_mod,
     reason = "guard_container_e2e loads this module with its siblings"
 )]

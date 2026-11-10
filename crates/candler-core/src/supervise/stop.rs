@@ -328,8 +328,7 @@ pub(crate) struct Ladder<'a> {
 }
 
 /// The signal a stop request names.
-#[allow(
-    clippy::wildcard_enum_match_arm,
+#[expect(
     clippy::match_same_arms,
     reason = "StopSignal is non-exhaustive; a signal this core does not know falls back to TERM, which Term names too"
 )]

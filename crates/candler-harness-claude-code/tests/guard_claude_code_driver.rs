@@ -107,7 +107,7 @@ fn b21_reference_command_line() -> Res<()> {
         Ok(argv)
     };
     let root = Path::new("/work/run");
-    let driver = ClaudeCodeDriver::new();
+    let driver = ClaudeCodeDriver::new().expect("the driver builds from constants");
     let reference = values("bypassPermissions")?;
     let command = driver.command(&Cell::new(&reference), &Workspace::new(root))?;
     // BORROW: `.as_slice()` views the expected arguments as a slice
@@ -361,7 +361,9 @@ fn b23_output_discovery_exclusions() -> Res<()> {
     let mut paths = Vec::new();
     walk(&root, &root, &mut paths)?;
     paths.sort();
-    let specs = ClaudeCodeDriver::new().collect(&Workspace::new(&root), &Observed::default());
+    let specs = ClaudeCodeDriver::new()
+        .expect("the driver builds from constants")
+        .collect(&Workspace::new(&root), &Observed::default());
     let globs: Vec<&str> = specs
         .iter()
         .filter_map(|spec| {

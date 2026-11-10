@@ -382,7 +382,7 @@ fn elapsed(cell: &LegacyCell, run: &LegacyRun, kind: &str) -> Option<f64> {
 }
 
 /// Whole milliseconds in `seconds`, rounded.
-#[allow(
+#[expect(
     clippy::as_conversions,
     clippy::cast_possible_truncation,
     reason = "a run lasts hours, far inside the range of i64 milliseconds"

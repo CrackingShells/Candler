@@ -1,7 +1,6 @@
 //! The world `candler run` is tried in: a PATH-fake docker client that keeps a small daemon's
 //! state in files beside it, a git repository holding the skills, a store, and one experiment
 //! of one cell. No real container exists; the fake's call log is the record of what was asked.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;

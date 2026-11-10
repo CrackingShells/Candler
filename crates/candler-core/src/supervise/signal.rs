@@ -327,7 +327,7 @@ impl Guard {
     /// What the operating system says about `pid` now.
     #[cfg_attr(
         not(feature = "test-support"),
-        allow(
+        expect(
             clippy::unused_self,
             reason = "without the feature no field is read: the answer is the operating system's"
         )
@@ -343,7 +343,7 @@ impl Guard {
     /// Whether the process `pid` is the one that was spawned with `start`.
     #[cfg_attr(
         not(feature = "test-support"),
-        allow(
+        expect(
             clippy::unused_self,
             reason = "without the feature no field is read: the answer is the operating system's"
         )

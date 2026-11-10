@@ -9,6 +9,8 @@
 //! - [`driver`] holds [`driver::HarnessDriver`] and its error.
 //! - [`reader`] holds [`reader::TraceReader`], its frame input and its error.
 
+#![deny(clippy::allow_attributes)]
+
 pub mod driver;
 pub mod reader;
 pub mod spec;

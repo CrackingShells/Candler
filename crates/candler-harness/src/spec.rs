@@ -337,7 +337,10 @@ impl BudgetCaps {
 /// What a harness can do; the core refuses an experiment that needs a capability the harness lacks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
-#[allow(clippy::struct_excessive_bools)] // INDEPENDENT: the capabilities are independent flags, not the states of one value
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "INDEPENDENT: the capabilities are independent flags, not the states of one value"
+)]
 pub struct Capabilities {
     /// The harness stops on a signal and ends its sessions cleanly.
     pub graceful_stop: bool,
@@ -473,7 +476,10 @@ impl Observed {
 
 /// How a reader takes its frames: one frame per line, or the whole stream as one frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(clippy::exhaustive_enums)] // EXHAUSTIVE: a stream is read by lines or as one document, and in no third way
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "EXHAUSTIVE: a raw frame file holds a stream as one frame per line or as one frame, and a third framing is a new frame-file format that changes this enum and `FrameMode` together"
+)]
 pub enum Framing {
     /// One frame per line of the stream.
     Lines,

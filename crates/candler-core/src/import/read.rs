@@ -1,4 +1,4 @@
-//! The typed model of a legacy results folder: every file is a source, an artifact, a stream or a skipped entry with its reason.
+//! The typed model of a legacy results folder: every file is a source, an artifact, a stream or a skipped entry with its reason; a run's stream and stderr are streams that are also among its sources.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -87,7 +87,7 @@ pub struct Skipped {
     pub reason: SkipReason,
 }
 
-/// One run of a cell: the files under `outputs/`, the stream, the stderr and the files the model reads as the run's sources.
+/// One run of a cell: the files under `outputs/`, the stream, the stderr and the files the model reads as the run's sources, which include the stream and the stderr.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct LegacyRun {
@@ -115,7 +115,7 @@ pub struct LegacyRun {
     pub eval_metadata: Vec<JsonFile>,
     /// Every grading file found by name under the run's eval directories, sorted by path.
     pub gradings: Vec<JsonFile>,
-    /// The other files of the run that the model keeps: the interpreted ones among them are also in the typed fields above.
+    /// Every other file of the run that the model keeps, with the stream and the stderr: the interpreted ones among them are also in the typed fields above.
     pub sources: Vec<SourceFile>,
 }
 
@@ -688,12 +688,12 @@ impl Reader<'_> {
             let file = self.source(&path)?;
             match (cache, name) {
                 (true, "agent_stream.jsonl.gz") => {
-                    run.stream = Some(file);
-                    continue;
+                    // BORROW: .clone() keeps the file as the run's stream and as a source
+                    run.stream = Some(file.clone());
                 }
                 (true, STDERR_FILE) => {
-                    run.stderr = Some(file);
-                    continue;
+                    // BORROW: .clone() keeps the file as the run's stderr and as a source
+                    run.stderr = Some(file.clone());
                 }
                 (true, RUN_COMPLETE_FILE) => run.run_complete = Some(json_file(&file)?),
                 (false, EVAL_METADATA_FILE) => run.eval_metadata.push(json_file(&file)?),

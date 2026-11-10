@@ -6,7 +6,11 @@
 //! it leaves behind only through the container guard over an allowlist of the ids it captured.
 //! No call removes a container by name, label or prefix.
 #![cfg(unix)]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![expect(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "a guard that cannot proceed stops at the failure it names"
+)]
 
 use std::collections::BTreeMap;
 use std::fs;

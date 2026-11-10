@@ -302,7 +302,10 @@ pub fn gates_body(
 /// marker, are the answer when they are still the process that started at the recorded time.
 /// Returns an error when the listing cannot be read, so an empty answer never stands for a failed
 /// look.
-#[allow(clippy::unnecessary_wraps, reason = "the Linux listing can fail")]
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "the Linux listing can fail, so an `expect` would be unfulfilled on Linux"
+)]
 pub fn marked(marker: &str, known: &[(u32, ProcessStart)]) -> Result<Vec<u32>, String> {
     #[cfg(target_os = "linux")]
     {

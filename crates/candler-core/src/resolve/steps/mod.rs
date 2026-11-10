@@ -33,17 +33,13 @@ pub struct M2bServices {
 /// the treatment first (its pinned commit is where requirement sources are read), then the image,
 /// then the harness (it reads the image), then the catalog.
 ///
-/// The services move into the steps.
+/// Each step clones the services it holds, so `services` stays with the caller.
 ///
 /// # Errors
 /// [`ResolveError`] when a step name is already registered, or a step name is malformed.
-#[allow(
-    clippy::needless_pass_by_value,
-    reason = "the steps own the services once they are registered"
-)]
 pub fn register_m2b_steps(
     resolver: Resolver,
-    services: M2bServices,
+    services: &M2bServices,
 ) -> Result<Resolver, ResolveError> {
     let image = ImageIdStep::new(
         Arc::clone(&services.images),

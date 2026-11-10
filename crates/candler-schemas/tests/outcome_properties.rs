@@ -34,7 +34,7 @@ fn rust_accepts(document: &serde_json::Value) -> bool {
     serde_json::from_value::<OutcomeRecord>(document.clone()).is_ok()
 }
 
-#[allow(deprecated)]
+#[expect(deprecated, reason = "the properties build `Legacy` causes")]
 fn legacy(code: &str) -> Cause {
     Cause::Legacy(code.parse().expect("a reason code"))
 }

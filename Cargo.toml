@@ -63,6 +63,8 @@ manual_filter_map = "warn"
 manual_find_map = "warn"
 needless_range_loop = "warn"
 must_use_candidate = "warn"
+allow_attributes_without_reason = "deny"
+exhaustive_enums = "warn"
 pedantic = { level = "warn", priority = -1 }
 missing_errors_doc = "warn"
 missing_panics_doc = "warn"

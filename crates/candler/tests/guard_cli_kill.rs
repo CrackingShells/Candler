@@ -1,6 +1,5 @@
 //! `candler kill`: no docker call without confirmation, and the store every verb shares.
 #![cfg(test)]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;

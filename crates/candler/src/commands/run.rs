@@ -148,7 +148,7 @@ fn refused(reason: impl Into<String>) -> CliError {
 /// [`ResolveError`] when a step name is registered twice or malformed.
 pub fn compose_resolver(
     config: Arc<Config>,
-    services: M2bServices,
+    services: &M2bServices,
 ) -> Result<Resolver, ResolveError> {
     register_m2b_steps(Resolver::new(config), services)
 }
@@ -247,9 +247,9 @@ fn foreground(config: Arc<Config>, root: &Path) -> Result<Foreground, CliError> 
         supervisor,
         images: Arc::new(images),
         catalog: Arc::new(catalog),
-        harness_supported: ClaudeCodeDriver::new().supported(),
+        harness_supported: ClaudeCodeDriver::new().map_err(failed)?.supported(),
     };
-    let resolver = compose_resolver(config, services).map_err(failed)?;
+    let resolver = compose_resolver(config, &services).map_err(failed)?;
     Ok(Foreground {
         cli,
         resolver,

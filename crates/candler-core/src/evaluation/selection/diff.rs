@@ -18,7 +18,7 @@ type RowKey = (RunKey, ExpectationId);
 /// Why a change was reported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]
-#[allow(clippy::exhaustive_enums)] // EXHAUSTIVE: the eight change classes are the diff's closed vocabulary
+#[non_exhaustive]
 pub enum ChangeClass {
     /// The status differs.
     Status,
@@ -140,10 +140,9 @@ pub enum EquivalenceError {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawFile {
-    #[serde(default)]
-    // The generator is provenance only; a reader never uses it.
-    #[allow(dead_code)]
-    generator: Option<String>,
+    // The generator is provenance only; a reader never uses it, and the file may name it.
+    #[serde(default, rename = "generator")]
+    _generator: Option<String>,
     rules: Vec<RawRule>,
 }
 
