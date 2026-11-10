@@ -32,6 +32,10 @@ pub const REQUEST_HARNESS: &str = "request.harness";
 /// A setting: the treatment the request names.
 pub const REQUEST_TREATMENT: &str = "request.treatment";
 
+/// A setting: the agent's declared inputs as `{kind, digest}`, which the image step merges into
+/// `inputs`.
+pub const REQUEST_INPUTS: &str = "request.inputs";
+
 /// A setting: the path of the skill repository; a location, not an identity.
 pub const REQUEST_TREATMENT_SOURCE: &str = "request.treatment_source";
 

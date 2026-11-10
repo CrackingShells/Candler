@@ -628,5 +628,6 @@ pub fn spec(models: &[&str], facts: &Facts, wall_s: u32, parallel: u32) -> JobSp
         budget,
         force: false,
         inputs: Vec::new(),
+        evaluation_inputs: Vec::new(),
     }
 }

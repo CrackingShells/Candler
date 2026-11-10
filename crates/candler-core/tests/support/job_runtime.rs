@@ -113,6 +113,7 @@ pub fn job_spec() -> JobSpec {
         plans: Vec::new(),
         force: false,
         inputs: Vec::new(),
+        evaluation_inputs: Vec::new(),
     }
 }
 

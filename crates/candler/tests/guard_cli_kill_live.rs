@@ -119,6 +119,7 @@ exit 1
             plans: Vec::new(),
             force: false,
             inputs: Vec::new(),
+            evaluation_inputs: Vec::new(),
         }
     }
 
