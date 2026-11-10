@@ -60,7 +60,7 @@ pub fn evaluation_resolver(
     supervisor: &Arc<Supervisor>,
 ) -> Result<Resolver, CliError> {
     let mut resolver = plain_resolver(config);
-    resolver = register_evaluation_steps(resolver, registry, env_root, Arc::clone(supervisor))
+    resolver = register_evaluation_steps(resolver, registry, env_root, supervisor)
         .map_err(|e| CliError::failed(verb, e))?;
     Ok(resolver)
 }
