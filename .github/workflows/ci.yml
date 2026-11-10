@@ -144,6 +144,44 @@ jobs:
           else
             cog check "$PUSH_BEFORE..$PUSH_AFTER"
           fi
+      - name: Check that a commit releasing the schemas touches no other crate
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+        run: |
+          set -eu
+          # release-plz gives a commit's bump to every crate whose files it
+          # touches, so a release-triggering commit that touches the schemas
+          # crate must carry its bump to the schemas line alone.
+          release=$(sed -n "s/^release_commits = '\(.*\)'\$/\1/p" release-plz.toml)
+          [ -n "$release" ] || {
+            echo "::error::release-plz.toml has no release_commits line to read"
+            exit 1
+          }
+          if [ "$EVENT" = pull_request ]; then
+            set -- "$PR_BASE..$PR_HEAD"
+          elif [ "$PUSH_BEFORE" = 0000000000000000000000000000000000000000 ]; then
+            set -- --no-walk "$PUSH_AFTER"
+          else
+            set -- "$PUSH_BEFORE..$PUSH_AFTER"
+          fi
+          failed=0
+          for commit in $(git rev-list --no-merges "$@"); do
+            subject=$(git log -1 --format=%s "$commit")
+            grep -Eq "$release" <<<"$subject" || continue
+            files=$(git diff-tree --no-commit-id --name-only -r --root "$commit")
+            grep -q '^crates/candler-schemas/' <<<"$files" || continue
+            others=$(grep '^crates/' <<<"$files" | grep -v '^crates/candler-schemas/' | cut -d/ -f1,2 | sort -u || true)
+            if ! grep -Eq '^[a-z]+\(schemas\)!?: ' <<<"$subject" || [ -n "$others" ]; then
+              echo "::error::$(git log -1 --format=%h "$commit") \"$subject\" releases the schemas line: scope it schemas and move its changes to other crates into their own commit"
+              [ -z "$others" ] || printf '  also touches %s/\n' $others
+              failed=1
+            fi
+          done
+          exit "$failed"
 
   release:
     name: Release
