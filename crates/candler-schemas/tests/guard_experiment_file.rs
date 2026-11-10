@@ -5,6 +5,7 @@
 use std::path::Path;
 
 use candler_schemas::execution::{ExecutionError, ExperimentFile, varying_paths};
+use candler_schemas::primitives::Digest;
 use candler_schemas::values::{JsonValue, ResolvedValue};
 use serde_json::{Value, json};
 
@@ -126,4 +127,56 @@ fn overlapping_or_empty_experiments_are_refused() {
         read(fill_overlap),
         Err(ExecutionError::Document { .. })
     ));
+}
+
+/// Guards: Experiment file — a file with no new field and no table under `prompt.values` lists the cells it listed before, so no cell digest and no resume check moves. Oracle: the cell digests recorded from the b017d31 code before this change, in `vectors/experiment/legacy_cells.toml`.
+#[test]
+fn unchanged_cells_keep_their_digests() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/vectors/experiment");
+    let text = std::fs::read_to_string(dir.join("legacy_cells.toml")).expect("committed");
+    // BORROW: .as_str() lends the vector text to the parser
+    let doc: toml::Table = toml::from_str(text.as_str()).expect("a TOML vector file");
+    let cases = doc
+        .get("case")
+        .and_then(toml::Value::as_array)
+        .expect("cases");
+    assert!(cases.len() >= 4, "every recorded text is present");
+    for case in cases {
+        let case = case.as_table().expect("a case table");
+        let name = case
+            .get("name")
+            .and_then(toml::Value::as_str)
+            .expect("a name");
+        let experiment = if let Some(text) = case.get("text").and_then(toml::Value::as_str) {
+            text.to_owned()
+        } else {
+            let file = case
+                .get("file")
+                .and_then(toml::Value::as_str)
+                .expect("a text or a file");
+            std::fs::read_to_string(dir.join(file)).expect("the named file is committed")
+        };
+        // BORROW: .as_str() lends the experiment text to the parser
+        let file = ExperimentFile::from_toml_str(experiment.as_str()).expect(name);
+        let got: Vec<String> = file
+            .cells()
+            .iter()
+            .map(|cell| {
+                let json = serde_json::to_value(cell).expect("a cell is JSON");
+                Digest::of_canonical(&json)
+                    .expect("a cell has a canonical form")
+                    // BORROW: .as_str().to_owned() makes owned digest text
+                    .as_str()
+                    .to_owned()
+            })
+            .collect();
+        let want: Vec<String> = case
+            .get("cells")
+            .and_then(toml::Value::as_array)
+            .expect("recorded cells")
+            .iter()
+            .map(|digest| digest.as_str().expect("digest text").to_owned())
+            .collect();
+        assert_eq!(got, want, "{name}: the cells moved");
+    }
 }
