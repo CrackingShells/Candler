@@ -8,14 +8,16 @@ pub mod run;
 pub mod stop;
 pub mod sweeper;
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use candler_harness::spec::{Cell, CommandSpec, Workspace};
-use candler_schemas::primitives::{ContainerId, FieldPath, JobId, Marker, RunKey};
+use candler_schemas::container::{ContainerLabels, ContainerRecord, ContainerRole};
+use candler_schemas::primitives::{ContainerId, Digest, FieldPath, JobId, Marker, RunKey};
 use candler_schemas::values::JsonValue;
 use futures::future::BoxFuture;
 use sha2::{Digest as _, Sha256};
@@ -26,10 +28,13 @@ use self::run::build_run_request;
 use self::stop::ContainerStopHook;
 use self::sweeper::ContainerSweeper;
 use super::driver::DockerDriver;
-use super::layout::{CONTAINER_HOME, CONTAINER_WORKDIR, LABEL_EXPERIMENT, LABEL_JOB, LABEL_ROLE};
+use super::gateway::ChildRecorder;
+use super::layout::{
+    CONTAINER_HOME, CONTAINER_WORKDIR, LABEL_EXPERIMENT, LABEL_JOB, LABEL_ROLE, LABEL_RUN,
+};
 use super::model::{
     ContainerOutcome, ContainerPlan, ContainerRef, ContainerSweep, GatewayHandle, ImageId,
-    ImageRef, LabelSel, Limits, Refusal, SweepScope, UserSpec,
+    ImageRef, Inspect, LabelSel, Limits, Refusal, SweepScope, UserSpec,
 };
 use super::{EndFacts, IsolatedRequest, Isolation, IsolationError, RunOutputs};
 use crate::experiment::paths;
@@ -76,6 +81,9 @@ pub struct DockerIsolation {
     guard: Arc<ContainerGuard>,
     // TRAIT_OBJECT: the sweeper is the label sweeper, or a fake in tests
     sweeper: Option<Arc<dyn ContainerSweeper>>,
+    // TRAIT_OBJECT: the recorder is the job directory, or a fake in tests
+    recorder: Option<Arc<dyn ChildRecorder>>,
+    recorded: Mutex<BTreeSet<ContainerId>>,
     dirs: Option<DockerDirs>,
 }
 
@@ -105,6 +113,8 @@ impl DockerIsolation {
             docker,
             guard,
             sweeper: None,
+            recorder: None,
+            recorded: Mutex::new(BTreeSet::new()),
             dirs: None,
         }
     }
@@ -114,6 +124,14 @@ impl DockerIsolation {
     pub fn with_sweeper(mut self, sweeper: Arc<dyn ContainerSweeper>) -> Self {
         // TRAIT_OBJECT: the sweeper is chosen by the job runtime and by tests
         self.sweeper = Some(sweeper);
+        self
+    }
+
+    /// The same isolation whose agent containers are recorded through `recorder`.
+    #[must_use]
+    pub fn with_recorder(mut self, recorder: Arc<dyn ChildRecorder>) -> Self {
+        // TRAIT_OBJECT: the recorder is chosen by the job runtime and by tests
+        self.recorder = Some(recorder);
         self
     }
 
@@ -423,9 +441,106 @@ impl Isolation for DockerIsolation {
             Ok(ContainerOutcome { inspect, sweep })
         })
     }
+
+    fn record_container<'a>(
+        &'a self,
+        plan: &'a ContainerPlan,
+        key: &'a RunKey,
+    ) -> BoxFuture<'a, Result<Option<ContainerId>, IsolationError>> {
+        Box::pin(async move {
+            let recorder = self
+                .recorder
+                .as_ref()
+                .ok_or_else(|| IsolationError::Unavailable {
+                    detail: String::from("no recorder is attached to the isolation"),
+                })?;
+            let Some(cid) = std::fs::read_to_string(&plan.cidfile)
+                .ok()
+                .and_then(|text| ContainerId::from_str(text.trim()).ok())
+            else {
+                return Ok(None);
+            };
+            if self
+                .recorded
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .contains(&cid)
+            {
+                return Ok(Some(cid));
+            }
+            // BORROW: .as_str() hands the id to docker
+            let Ok(inspect) = self.guard.reader().inspect(cid.as_str()).await else {
+                return Ok(None);
+            };
+            let record = Self::agent_record(plan, key, &inspect)?;
+            recorder
+                .record_child(&record)
+                .map_err(|error| IsolationError::Unavailable {
+                    detail: format!("the container record cannot be written: {error}"),
+                })?;
+            self.recorded
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(cid.clone()); // BORROW: the set keeps its own id
+            Ok(Some(cid))
+        })
+    }
 }
 
 impl DockerIsolation {
+    /// The `container-record/1` of the agent container `inspect` describes, for the run `key` of
+    /// the plan's job.
+    fn agent_record(
+        plan: &ContainerPlan,
+        key: &RunKey,
+        inspect: &Inspect,
+    ) -> Result<ContainerRecord, IsolationError> {
+        let label = |name: &str| {
+            inspect
+                .labels
+                .get(name)
+                .ok_or_else(|| plan_error("the agent container lacks a candler label"))
+        };
+        let job: JobId = label(LABEL_JOB)?
+            .parse()
+            .map_err(|_| plan_error("the agent container's job label is not a job id"))?;
+        let planned: Option<JobId> = plan
+            .labels
+            .get(LABEL_JOB)
+            .and_then(|text| text.parse().ok());
+        if planned.as_ref() != Some(&job) {
+            return Err(plan_error("the agent container belongs to another job"));
+        }
+        let run = Marker::for_run(key);
+        // BORROW: .as_str() compares the label with the run's marker
+        if label(LABEL_RUN)? != run.as_str() {
+            return Err(plan_error("the agent container belongs to another run"));
+        }
+        let experiment: Digest = label(LABEL_EXPERIMENT)?
+            .parse()
+            .map_err(|_| plan_error("the agent container's experiment label is not a digest"))?;
+        let image_id: Digest = inspect
+            .image
+            .0
+            // BORROW: .as_str() reads the image id as a digest
+            .as_str()
+            .parse()
+            .map_err(|_| plan_error("the agent container's image id is not a digest"))?;
+        let spawned_at = crate::supervise::now().map_err(|error| IsolationError::Unavailable {
+            detail: format!("the clock cannot be read: {error}"),
+        })?;
+        ContainerRecord::builder()
+            // BORROW: .clone() gives the record its own id and time
+            .cid(inspect.id.clone())
+            .labels(ContainerLabels::new(job, run, experiment))
+            .created_at(inspect.created.clone())
+            .image_id(image_id)
+            .role(ContainerRole::Agent)
+            .spawned_at(spawned_at)
+            .build()
+            .map_err(|error| plan_error(&error.to_string()))
+    }
+
     /// The agent container `cid` of the plan's job as docker lists it by label, when an inspect
     /// of it failed: the guard needs its labels and creation time to act.
     async fn listed_agent(&self, plan: &ContainerPlan, cid: &ContainerId) -> Option<ContainerRef> {
