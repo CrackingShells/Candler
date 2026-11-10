@@ -40,6 +40,7 @@ struct RulesFile {
     format: String,
     instrument: String,
     suite_kind: String,
+    entry_params: Vec<String>,
     #[serde(default)]
     metadata: Vec<String>,
     harness: HarnessSection,
@@ -125,6 +126,12 @@ fn load_rules(path: &Path) -> Result<(ImportRules, String), CliError> {
             file.treatment.pointer.clone(), // BORROW: the rule owns the pointer
             primitive::<FieldPath>("treatment.resolved", file.treatment.resolved.as_str())?, // BORROW: explicit .as_str()
         ));
+    builder = builder.entry_params(
+        file.entry_params
+            .iter()
+            .map(|item| primitive::<Name>("entry_params", item.as_str())) // BORROW: explicit .as_str()
+            .collect::<Result<Vec<_>, _>>()?,
+    );
     for item in &file.metadata {
         builder = builder.metadata(primitive::<FieldPath>("metadata", item.as_str())?); // BORROW: explicit .as_str()
     }

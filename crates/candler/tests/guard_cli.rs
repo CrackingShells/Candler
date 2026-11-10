@@ -236,7 +236,7 @@ fn diff_exits_zero_without_a_change_and_two_without_a_to_record() {
 
 /// The sha256 of `fixtures/cli/mini-corpus-rules.toml`, from `shasum -a 256` on the file.
 const RULES_SHA256: &str =
-    "sha256:f26fef6c53ee026c52c08ac9de11cc47263bd289f61b0c2bf9b12000f45cd87e";
+    "sha256:b4387a085012bd32701ecd9f968b419d719e9f33ff97fcbd21fa44164cc00ccb";
 
 /// Guards: CLI2 stage one (import, show, diff; `evaluate` waits for the engine) — importing the M1
 /// mini-corpus with the fixture rules gives `show` the counts of the corpus's grading files, `diff`
@@ -338,6 +338,47 @@ fn import_show_and_diff_over_the_mini_corpus_match_the_hand_counts() {
     assert_eq!(out.status.code(), Some(2), "{out:?}");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("import.rules"), "{stderr}");
+}
+
+/// Guards: I12 — a rules file has no silent default for the entry params: the fixture rules
+/// without their `entry_params` line are refused by `candler import` (exit 2), the refusal names
+/// `entry_params`, and the store holds no run. Oracle: the fixture with that one line removed by
+/// hand, and the exit-status contract of the binary.
+#[test]
+fn rules_without_entry_params_are_refused_naming_the_key() {
+    let dir = TempDir::new().expect("a temporary directory");
+    let store = dir.path().join("store");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let corpus = root.join("../candler-core/tests/fixtures/mini-corpus");
+    let fixture = fs::read_to_string(root.join("tests/fixtures/cli/mini-corpus-rules.toml"))
+        .expect("the rules read");
+    let kept: Vec<&str> = fixture
+        .lines()
+        .filter(|line| !line.starts_with("entry_params"))
+        .collect();
+    let without = format!("{}\n", kept.join("\n"));
+    assert_ne!(without, fixture, "the fixture names no `entry_params`");
+    let rules = dir.path().join("rules-without-entry-params.toml");
+    fs::write(&rules, without).expect("the copy writes");
+
+    let out = candler(
+        dir.path(),
+        &store,
+        &[
+            "import",
+            corpus.to_str().expect("a UTF-8 path"),
+            "--rules",
+            rules.to_str().expect("a UTF-8 path"),
+        ],
+    );
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("entry_params"), "{stderr}");
+    assert!(
+        !store.join("runs").exists()
+            || fs::read_dir(store.join("runs")).expect("runs list").count() == 0,
+        "a refused import wrote runs"
+    );
 }
 
 /// The fixtures of the engine guards, read in place.
