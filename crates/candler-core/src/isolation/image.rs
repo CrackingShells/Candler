@@ -49,9 +49,6 @@ const CC_LABEL: &str = "candler.cc_version";
 /// The repository of the images that carry an experiment's own layer.
 const EXT_REPO: &str = "candler-ext";
 
-/// The stable dependencies every lock is compiled with, in the env assets.
-const STABLE_SOURCE: &str = "stable.in";
-
 /// Where the lock sources are mounted inside the compile container.
 const SOURCE_MOUNT: &str = "/lock-src";
 
@@ -69,6 +66,10 @@ const STDERR_TAIL: usize = 2048;
 
 /// The build argument of the env Dockerfile that names its base.
 const BASE_ARG: &str = "BASE";
+
+/// The build argument of the env Dockerfile that lists the file names deleted from the env,
+/// separated by spaces.
+const PRUNE_ARG: &str = "PRUNE";
 
 /// How many hex digits of the source digest tag the base image.
 const SOURCE_DIGITS: usize = 12;
@@ -217,9 +218,13 @@ impl DockerImageService {
             .store_root
             .join("images")
             .join(format!("ctx-{key}"));
+        let extra_args = layer.build_args();
         let staged = self.stage_context(&context, layer).await;
         let built = match staged {
-            Ok(()) => self.build_layer(&context, tag, labels, parent).await,
+            Ok(()) => {
+                self.build_layer(&context, tag, labels, parent, &extra_args)
+                    .await
+            }
             Err(error) => Err(error),
         };
         // The context is this build's own, under the lock of its tag.
@@ -271,14 +276,16 @@ impl DockerImageService {
         tag: &str,
         labels: &Labels,
         parent: &BaseImage,
+        extra_args: &[(String, String)],
     ) -> Result<ImageInfo, ImageError> {
         let request = |from: String| BuildRequest {
             // BORROW: .to_path_buf() keeps the context in the request
             context: context.to_path_buf(),
             // BORROW: .to_owned() keeps the tag in the request
             tag: tag.to_owned(),
-            // BORROW: .to_owned() keeps the argument name in the request
-            build_args: vec![(BASE_ARG.to_owned(), from)],
+            build_args: std::iter::once((BASE_ARG.to_owned(), from)) // BORROW: owned argument name
+                .chain(extra_args.iter().cloned()) // BORROW: the request owns its arguments
+                .collect(),
             // BORROW: .clone() keeps the labels in the request
             labels: labels.clone(),
         };
@@ -312,11 +319,17 @@ impl DockerImageService {
         if !given.eq_ignore_ascii_case(&hex) {
             return Err(ImageError::LockMismatch);
         }
+        if !setting.prune.iter().all(|name| prune_name_ok(name)) {
+            return Err(build_failed(
+                "a prune name has characters the build refuses",
+            ));
+        }
+        let key = env_key(&hex, &setting.prune);
         let base = self.ensure_base().await?;
         let labels = Labels::new().with(LOCK_LABEL, &hex);
-        let env_tag = format!("{ENV_REPO}:{hex}");
+        let env_tag = format!("{ENV_REPO}:{key}");
         let (mut info, mut built) = self
-            .ensure_layer(&env_tag, &hex, &base, Layer::Env(setting), &labels)
+            .ensure_layer(&env_tag, &key, &base, Layer::Env(setting), &labels)
             .await?;
         if let Some(extension) = &setting.extension {
             let env = BaseImage {
@@ -360,11 +373,13 @@ impl DockerImageService {
         Ok(image)
     }
 
-    /// Compiles the lock of `request` and the stable dependencies in a control container of the
-    /// base image, the one control call that has a network.
+    /// Compiles the lock of `request` in a control container of the base image, the one control
+    /// call that has a network. A request without sources has the empty lock, and nothing runs.
     async fn compile_lock(&self, request: &LockRequest) -> Result<Vec<u8>, ImageError> {
-        // BORROW: .to_owned() keeps the name in the argv
-        let mut names = vec![STABLE_SOURCE.to_owned()];
+        if request.sources.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut names = Vec::new();
         for source in &request.sources {
             if !source_name_ok(&source.name) {
                 return Err(build_failed(
@@ -405,12 +420,6 @@ impl DockerImageService {
         };
         tokio::fs::create_dir_all(records).await.map_err(failed)?;
         tokio::fs::create_dir_all(sources).await.map_err(failed)?;
-        tokio::fs::copy(
-            self.assets.env_context.join(STABLE_SOURCE),
-            sources.join(STABLE_SOURCE),
-        )
-        .await
-        .map_err(failed)?;
         for source in &request.sources {
             tokio::fs::write(sources.join(&source.name), &source.bytes)
                 .await
@@ -651,6 +660,47 @@ impl ImageService for DockerImageService {
     }
 }
 
+impl Layer<'_> {
+    /// The build arguments the layer adds to its base: the env layer's prune list, when it has one.
+    fn build_args(&self) -> Vec<(String, String)> {
+        match self {
+            Self::Env(setting) if !setting.prune.is_empty() => {
+                // BORROW: .to_owned() makes the argument name the request owns
+                vec![(PRUNE_ARG.to_owned(), setting.prune.join(" "))]
+            }
+            Self::Env(_) | Self::Extension(_) => Vec::new(),
+        }
+    }
+}
+
+/// The key of an env image: the lock's hex digest when nothing is pruned, else the sha256 of the
+/// lock's hex digest followed by a NUL and each distinct prune name in order.
+fn env_key(lock_hex: &str, prune: &[String]) -> String {
+    let mut names: Vec<&str> = prune.iter().map(String::as_str).collect();
+    names.sort_unstable();
+    names.dedup();
+    if names.is_empty() {
+        // BORROW: .to_owned() gives the key its own text
+        return lock_hex.to_owned();
+    }
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(lock_hex.as_bytes());
+    for name in names {
+        hasher.update([0_u8]);
+        hasher.update(name.as_bytes());
+    }
+    hex_of(&hasher.finalize())
+}
+
+/// Whether `name` is a file name the env build may delete: letters, digits, `.`, `_` and `-`.
+#[must_use]
+pub fn prune_name_ok(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
 /// What a layer image is built from.
 enum Layer<'a> {
     /// The env layer: the env Dockerfile and the lock.
@@ -754,10 +804,7 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), std::io::Error> {
 
 /// Whether the compiler can take `name` as a file of the source mount.
 fn source_name_ok(name: &str) -> bool {
-    !name.is_empty()
-        && name != STABLE_SOURCE
-        && !name.starts_with(['-', '.'])
-        && !name.contains(['/', '\\', '\0'])
+    !name.is_empty() && !name.starts_with(['-', '.']) && !name.contains(['/', '\\', '\0'])
 }
 
 /// The last bytes of `bytes` as text.
@@ -926,6 +973,9 @@ pub struct BuildSetting {
     pub lock: Vec<u8>,
     /// The experiment's own layer on top of the env image, when it names one.
     pub extension: Option<Extension>,
+    /// The names of the files deleted from the env after the install
+    /// (`isolation.build.prune`).
+    pub prune: Vec<String>,
 }
 
 /// An experiment's own Dockerfile (`isolation.build.{dockerfile, context}`), built `FROM` the env
@@ -938,8 +988,8 @@ pub struct Extension {
     pub context: PathBuf,
 }
 
-/// One requirement source the env lock is compiled from, such as the skill's
-/// `scripts/pyproject.toml`.
+/// One requirement source the env lock is compiled from: a requirements file or a project file
+/// the compiler reads under its own name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LockSource {
     /// The file name the compiler sees.
@@ -948,8 +998,7 @@ pub struct LockSource {
     pub bytes: Vec<u8>,
 }
 
-/// What [`ImageService::lock`] compiles: the experiment's sources, on top of the stable
-/// dependencies the env assets declare.
+/// What [`ImageService::lock`] compiles: the experiment's requirement sources and nothing else.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LockRequest {
     /// The sources, in the order the experiment lists them.
@@ -993,8 +1042,8 @@ pub enum ImageError {
 
 /// Provides the image of a job.
 pub trait ImageService: Send + Sync {
-    /// Compiles the requirement lock of the env layer from `request` and the stable dependencies,
-    /// for the base image's interpreter and platform.
+    /// Compiles the requirement lock of the env layer from `request`, for the base image's
+    /// interpreter and platform. A request without sources has the empty lock.
     ///
     /// # Errors
     /// [`ImageError::Build`] when the compile fails.

@@ -124,7 +124,7 @@ impl Rig {
     }
 }
 
-/// A lock and the setting and digest that name it.
+/// A lock and the setting and digest that name it, pruning nothing.
 fn lock(text: &str) -> (LockDigest, BuildSetting, String) {
     let bytes = text.as_bytes().to_vec();
     let hex = sha2::Sha256::digest(&bytes)
@@ -139,9 +139,20 @@ fn lock(text: &str) -> (LockDigest, BuildSetting, String) {
         BuildSetting {
             lock: bytes,
             extension: None,
+            prune: Vec::new(),
         },
         hex,
     )
+}
+
+/// `setting` with the files `names` pruned.
+fn pruning(setting: &BuildSetting, names: &[&str]) -> BuildSetting {
+    BuildSetting {
+        // BORROW: .clone() gives the setting its own lock bytes
+        lock: setting.lock.clone(),
+        extension: None,
+        prune: names.iter().map(|name| (*name).to_owned()).collect(), // BORROW: owned names
+    }
 }
 
 /// Guards: B05 — two concurrent `ensure_env` calls for one lock digest make exactly one build
@@ -184,4 +195,51 @@ async fn b05_one_build_per_digest() {
         .expect("an image");
     assert_eq!(rig.builds_of(&other_tag), 1);
     assert_eq!(rig.builds_of(&tag), 1);
+}
+
+/// Guards: A1 (R01 §Agent environment and secrets) — the env image is keyed on the lock and on the
+/// files the experiment prunes: one lock with two prune lists gives two images, and one lock with
+/// one list, in any order, gives one.
+/// Oracle: the tags below are the sha256 of the lock's hex digest followed by a NUL and each
+/// sorted prune name, computed with `shasum`, not with Candler; the PATH-fake docker's argv log
+/// counts the builds of each tag.
+/// Bite: key the env tag on the lock digest alone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a1_prune_is_part_of_the_env_key() {
+    const LOCK: &str = "face025c59f708edef23a8040f867bc583a365a5aa87fcae3047c8e1a4b0f8a5";
+    const KEY_A: &str = "c5cf7377617741ee1d18541006fc0e0a83f690249c32d75b56fae2c90296cb97";
+    const KEY_B: &str = "8f34d42a94dd37105522fb6e8f4229ae004669a0b04498d7ddb561a5c99e6830";
+    const KEY_AB: &str = "416062981ea22b25817cc0f8a8bf8ae3988e32090f7758b70e8815e03df0a1ad";
+    let rig = Rig::new();
+    let (digest, plain, hex) = lock("numpy==2.0.0\n");
+    assert_eq!(hex, LOCK, "the oracle's lock is the lock under test");
+    let tag = |key: &str| format!("candler-env:{key}");
+
+    for names in [
+        &["a.py"][..],
+        &["b.py"],
+        &["b.py", "a.py"],
+        &["a.py", "b.py"],
+    ] {
+        rig.service
+            .ensure(&digest, &pruning(&plain, names))
+            .await
+            .expect("an image");
+    }
+    assert_eq!(rig.builds_of(&tag(KEY_A)), 1, "one list, one image");
+    assert_eq!(rig.builds_of(&tag(KEY_B)), 1, "another list, another image");
+    assert_eq!(
+        rig.builds_of(&tag(KEY_AB)),
+        1,
+        "one list in two orders, one image"
+    );
+    assert_eq!(
+        rig.builds_of(&tag(LOCK)),
+        0,
+        "no pruned image is keyed on the lock alone"
+    );
+
+    // Positive control: nothing pruned keeps the lock's own tag.
+    rig.service.ensure(&digest, &plain).await.expect("an image");
+    assert_eq!(rig.builds_of(&tag(LOCK)), 1);
 }

@@ -1,10 +1,11 @@
 //! The image step: the env lock and the local image the agent runs in.
 //!
 //! `isolation.build.*` are settings: where the requirement sources, a ready lock and an optional
-//! Dockerfile with its context are. A cell holds the lock's digest (`isolation.env_lock`) and the
-//! image built from it (`isolation.image`, an image id, never a tag). The `inputs` entry for the
-//! build inputs exists only when the experiment adds its own layer. Changing the build request
-//! moves the cell only through those values.
+//! Dockerfile with its context are, and which files the env build prunes. A cell holds the lock's
+//! digest (`isolation.env_lock`) and the image built from it (`isolation.image`, an image id,
+//! never a tag). The `inputs` entry for the build inputs exists only when the experiment adds its
+//! own layer. Changing the build request moves the cell only through those values. The prune list
+//! keys the env image with the lock.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -25,7 +26,7 @@ use sha2::{Digest as _, Sha256};
 use super::identity::show_file;
 use crate::experiment::paths;
 use crate::isolation::image::{
-    BuildSetting, Extension, ImageService, LockDigest, LockRequest, LockSource,
+    BuildSetting, Extension, ImageService, LockDigest, LockRequest, LockSource, prune_name_ok,
 };
 use crate::resolve::preflight::{PreflightError, PreflightStep, ResolveContext, StepReport};
 use crate::supervise::Supervisor;
@@ -233,6 +234,7 @@ impl PreflightStep for ImageIdStep {
             let lock = lock_bytes(&ctx, &images, &supervisor).await?;
             let lock_digest = digest_of(&lock).map_err(|e| failed(e.to_string()))?;
             let extension = extension_of(&ctx)?;
+            let prune = prune_of(&ctx)?;
             let inputs = match &extension {
                 Some(layer) => {
                     // BORROW: `.clone()` moves owned paths into the blocking read
@@ -244,7 +246,11 @@ impl PreflightStep for ImageIdStep {
             let image = images
                 .ensure(
                     &LockDigest(lock_digest.hex().to_owned()), // BORROW: owned hex for the lock digest
-                    &BuildSetting { lock, extension },
+                    &BuildSetting {
+                        lock,
+                        extension,
+                        prune,
+                    },
                 )
                 .await
                 .map_err(|e| failed(e.to_string()))?;
@@ -268,6 +274,29 @@ impl PreflightStep for ImageIdStep {
             Ok(report)
         })
     }
+}
+
+/// The entries of `isolation.build.prune`: file names, none when the setting is absent.
+fn prune_of(ctx: &ResolveContext) -> Result<Vec<String>, PreflightError> {
+    let Some(found) = ctx.get(&path_of(paths::ISOLATION_BUILD_PRUNE)?) else {
+        return Ok(Vec::new());
+    };
+    let entries = found.as_value().as_array().ok_or_else(|| {
+        failed(format!(
+            "`{}` must be a list of file names",
+            paths::ISOLATION_BUILD_PRUNE
+        ))
+    })?;
+    entries
+        .iter()
+        .map(|entry| match entry.as_str() {
+            Some(name) if prune_name_ok(name) => Ok(name.to_owned()), // BORROW: owned name for the build
+            Some(_) | None => Err(failed(format!(
+                "`{}` takes names of letters, digits, `.`, `_` and `-`",
+                paths::ISOLATION_BUILD_PRUNE
+            ))),
+        })
+        .collect()
 }
 
 /// The experiment's own layer, when both `isolation.build.dockerfile` and

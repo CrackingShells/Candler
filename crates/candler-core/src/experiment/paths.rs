@@ -72,6 +72,10 @@ pub const ISOLATION_BUILD_CONTEXT: &str = "isolation.build.context";
 /// experiment file or `treatment:<path inside the skill>`.
 pub const ISOLATION_BUILD_REQUIREMENTS: &str = "isolation.build.requirements";
 
+/// A setting: the names of the files deleted from the env after the install, each matching
+/// `^[A-Za-z0-9._-]+$`.
+pub const ISOLATION_BUILD_PRUNE: &str = "isolation.build.prune";
+
 /// A setting: a ready lock file used verbatim instead of compiling one.
 pub const ISOLATION_BUILD_LOCK: &str = "isolation.build.lock";
 
