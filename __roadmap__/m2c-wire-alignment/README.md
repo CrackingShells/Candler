@@ -147,7 +147,6 @@ graph TD
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
 |:---|:-----|:-------|:------------|:----------|
-| AM1 | 2026-11-10 | smoke P4-F1 | `consumers/closeout/settings_out_of_cell.md` | settings written in `[fixed]` reach `comparable.values`; M2c makes the file their only route, so R01's "a setting never reaches a cell digest" must hold there before the paid smoke |
 
 ## Progress
 | Node | Branch | Commits | Notes |

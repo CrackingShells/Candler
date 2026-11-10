@@ -44,6 +44,7 @@ graph TD
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
 |:---|:-----|:-------|:------------|:----------|
+| A1 | 2026-11-10 | __reports__/m2b-execution-parity/equivalence_smoke_report_v2.md | ["settings_out_of_cell.md"] | P4-F1: settings written in fixed reach the cell digest; the file is now their only route |
 
 ## Progress
 | Node | Branch | Commits | Notes |
