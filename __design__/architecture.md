@@ -207,11 +207,58 @@ A TOML document: `schema`; `fixed` (field path → value, the same in every cell
 path → its levels, in order); `replicates`; `budget` (the fields above, with units in the keys:
 `per_run.wall_s`, `per_run.turns`, `per_run.max_cost_usd`, `max_runs`, `max_tokens`,
 `max_cost_usd`, `wall_s`, `max_parallel`); `harness`; `treatment`; `secrets[]` (variable names
-only). A level is a value, or a table that fills the values under its path (a model level sets the
-model id and its provider settings together). The cells are the cartesian product of the factor
-levels, in the order the factors and levels are written; listing them is a pure function of the
-file (`ExperimentFile::cells`), and running them belongs to the orchestrator. A field path is
-dotted: `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`.
+only); `inputs[]`. A level is a value, or a table that fills the values under its path (a model
+level sets the model id and its provider settings together). The cells are the cartesian product
+of the factor levels, in the order the factors and levels are written; listing them is a pure
+function of the file (`ExperimentFile::cells`), and running them belongs to the orchestrator. A
+field path is dotted: `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`.
+
+- **Table-valued paths.** Any other table in `fixed` or in a level flattens into one value per
+  leaf. A path whose value is a table kept whole does not: `candler_schemas::execution::
+  TABLE_VALUED_PATHS` lists them, and holds `prompt.values`. Every value written at or below such a
+  path, in `fixed` or in a factor's levels, nested (`[fixed.prompt.values]`) or quoted
+  (`"prompt.values.x"`), folds into one object value at that path, placed where the first of them
+  stood, so a cell holds one `prompt.values`. Two values that give one leaf, or one leaf below
+  another, are refused (`Duplicate`, `PathOverlap`), and so is a table there that holds no value
+  (`EmptyTable`), written in TOML or in a hand-built JSON document. The rule changes the cells of
+  no file that has no table under a table-valued path, and no TOML file that was valid becomes
+  invalid. `cells()` stays in `candler-schemas`, where the list lives.
+- **Treatment.** `[treatment] {name, tag?, commit?, source?}`. `source` is the path of a local
+  checkout of the treatment. Written in the experiment file it resolves against that file's
+  directory; given by `--set request.treatment` it resolves against the current directory (I14).
+  A treatment with no source is refused, naming `treatment.source`. A tag or a commit is resolved
+  in that checkout before the cell is hashed, so a treatment that names one carries the commit it
+  resolves to; a tag and a commit that disagree are refused, and a tag that no longer names the
+  recorded commit is refused at resume, naming `treatment` with both commits. The source is
+  recorded in `sources[]` as an absolute path, normalised lexically (no `.` segment, each `..`
+  applied to the text, no trailing slash, no symlink followed), and never enters the digest: two
+  checkouts of one commit give one cell. The retired `request` setting for the source is
+  refused by `--set`, by name. Candler fetches nothing from a remote.
+- **Inputs.** `[[inputs]] {kind, path, at?, audience}` declares a file or a directory a run reads.
+  `kind` is a name, unique in the file; `build_inputs` is reserved for the files an environment
+  build reads. `path` is relative to the experiment file (I14). `at` is the workspace directory
+  the input is mounted under: relative, with no `..` segment, `.` when absent. `audience` is
+  `agent` (the default) or `evaluators`. Each file of an agent input is mounted read-only at
+  `at/<path>`, from its blob, and the input's digest enters the cell. An input for `evaluators`
+  never enters the isolation (I8): it reaches an evaluator through its context only, and its
+  digest stays outside the cell (§Run manifest). The files are read before any job directory
+  exists, and the declaration is refused when a path is empty, absolute or holds `..`; a path or
+  anything under it is a symlink, a special file or a name that is not UTF-8; a directory holds no
+  file; a name or `at` holds a comma, a newline, a carriage return or a NUL; two mounts collide
+  (one workspace path, or one inside the other); a kind repeats; or the kind is `build_inputs`.
+  An empty file is a valid input.
+- **Agent environment.** The experiment declares the environment's contents in two settings under
+  `isolation`, next to `isolation.build.requirements`, the sources of the env lock. They are
+  settings, not cell values (§Agent environment and secrets), and `resolve` validates both before
+  any docker call.
+  - `isolation.build.prune` lists file names the env build deletes after the install, each
+    `^[A-Za-z0-9._-]+$` and neither `.` nor `..`. It is part of the env image's key: with nothing
+    pruned the key is the lock's digest, otherwise the sha256 of the lock's hex digest followed by
+    a NUL byte and each distinct name, sorted. The image's own id enters the cell as
+    `isolation.image`.
+  - `isolation.record_packages` lists import package names, each `^[a-z_][a-z0-9_]*$`. Each run
+    reads the distribution and version of each from its env image and records them under
+    `provenance.packages` (§Run manifest).
 
 ### CLI surface over the jobs
 
@@ -409,8 +456,9 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
   | `prompt.template`, `prompt.values` | cell value |
   | `isolation.image` (the derived local image ID), `isolation.network`, `isolation.env_lock`, `isolation.limits.*` | cell value |
   | `budget.per_run.{wall_s, turns, max_cost_usd}` | cell value |
-  | `isolation.build.{dockerfile, context}` (its content enters `inputs[]`); `isolation.build.{requirements, lock}` (the lock they give enters the cell as `isolation.env_lock`) | setting |
-  | `request.harness`, `request.treatment`, `request.treatment_source`, `model.token_secret` | setting |
+  | `isolation.build.{dockerfile, context}` (its content enters `inputs[]`); `isolation.build.{requirements, lock}` (the lock they give enters the cell as `isolation.env_lock`); `isolation.build.prune` (part of the env image's key, so it reaches the cell through `isolation.image`) | setting |
+  | `isolation.record_packages` (read from the env image, recorded in `measured[]`, never in the cell) | setting |
+  | `request.harness`, `request.treatment`, `request.inputs`, `model.token_secret` | setting |
   | `harness`, `treatment`, `inputs[]`, `snapshots`, `environments` (reserved) | typed root |
 
   A CLI path resolves against the caller's cwd, a path in the experiment file against that
@@ -543,6 +591,15 @@ runner keeps a stream-json session's input open so a notification starts a furth
 The core reads manifests without running anything. *Provisional:* the project config lists plug-in
 directories; a suite names an evaluator as `name@range`.
 
+**What the core knows of a domain.** Nothing (I1). An evaluator reports the packages of its own
+environment through `describe`, in `environment.packages{}`. The agent's environment is declared
+by the experiment: its requirements, the files it prunes and the import packages it records
+(§Experiment file). The core records a domain's facts only under names the experiment gives, as
+`provenance.packages.<import>.*` (§Run manifest), and no plug-in adds a domain field to the core.
+Every field of the experiment file and the run manifest that these rules add is optional and
+absent when unset, so `experiment/1` and `run-manifest/1` keep their tags and the cell-digest
+function is unchanged.
+
 ### Suite file (on the `schemas@` line)
 
 Each expectation: `id`, `group`, `role` (gate / quality / descriptive), `evaluator` (`name@range`),
@@ -573,14 +630,17 @@ as the evaluator's log.
 | `cancel` | core → evaluator | notification | request id; the evaluator answers `evaluate` with error `-32800` (request cancelled) |
 
 **`needs`** = `{trace: bool, artifacts[] (run-relative globs), snapshots[] (kinds), inputs[]
-(kinds), metadata[] (run-manifest field paths)}`. `resolve` checks every need can be met.
+(kinds), metadata[] (run-manifest field paths)}`. `resolve` checks every need the core can meet
+without a run; an `inputs` need for `build_inputs` is refused there, by name. A need a run cannot
+meet, such as a kind the run holds in neither list, is refused for that run, by name.
 
 **Run context:** `run` (key); `root` (a read-only, workspace-shaped view of the run: content-
 addressed blobs materialised under their workspace paths by hard links or clones, so `domain.py`
 sits beside `problems.py`); `trace` (normalised trace file); `raw[]`; `artifacts[] {path
 (run-relative), abs, sha256}`; `snapshots[] {kind, path, digest}`; `inputs[] {kind, path, digest}`
-(from the cell or suite: server source trees, fixtures; ground-truth inputs never enter the
-isolation, I8); `metadata` (the declared manifest fields). Absolute paths are valid where the
+(a need for kind K is served from `comparable.inputs` or from `evaluation_inputs`, with `path` a
+read-only tree: its files read-only, its directories writable, as under `outputs/`; an input only
+the evaluators see never enters the isolation, I8); `metadata` (the declared manifest fields). Absolute paths are valid where the
 evaluator runs (host or container) and exist only in requests. `scratch` is the evaluator's; the run
 store is read-only to it.
 
@@ -671,11 +731,11 @@ An index can always be rebuilt from these files. Stored paths are relative to th
 ### Run manifest (`run-manifest/1`, on the `schemas@` line)
 
 `{run, experiment, factors[], comparable, sources[], secrets[], measured[], started_at?, ended_at?,
-host?, job?, integrity, import?}`.
+host?, job?, integrity, import?, evaluation_inputs[]?}`.
 
 - **`comparable`** `{values[] {path, value?}, harness {name, version, driver?}, treatment,
   snapshots[], inputs[], environments[]}`: every resolved value by field path (isolation under
-  `isolation.*`), the harness, the treatment reference (skill tag and commit), the catalog snapshot
+  `isolation.*`), the harness, the treatment reference (name, tag and commit), the catalog snapshot
   and input digests, and the plug-in environment lock digests. A value without `value` was
   `unrecorded`. Every list is sorted and holds no duplicate; a reader refuses one that is not.
   `Comparable::from_resolved` builds it from the resolved values: the roots `harness`, `treatment`,
@@ -684,14 +744,31 @@ host?, job?, integrity, import?}`.
   it, and a string value that is an absolute path is refused: a file enters a cell as an `inputs[]`
   digest. The per-run caps are cell values under `budget.per_run.*`; the job caps (every other
   `budget.*` path) and `replicates` are operational settings, which `resolve` classifies by path. A
-  snapshot's digest is that of its RFC 8785 form without `captured_at`.
+  snapshot's digest is that of its RFC 8785 form without `captured_at`; an imported snapshot's
+  digest is the bare sha256 its legacy provenance recorded, which a live snapshot's never equals.
+- **The treatment reference** `{name, tag?, commit?}` holds no source. A live run's carries the
+  commit its source resolved to whenever the treatment names a tag or a commit; an imported run's
+  carries none, since the legacy folder records none.
+- **Inputs.** Every file of an input is a store blob under its sha256. The input's list
+  `[{path, sha256}]`, sorted by `path` and relative to the input's root (a file is a list of one
+  entry, named by its file name), is a blob whose bytes are its RFC 8785 form, and the input's
+  digest is that blob's key, so any language recomputes it. `comparable.inputs[]` holds one
+  `{kind, digest}` for each build input and each agent input, sorted by kind. An input for the
+  evaluators is in `evaluation_inputs[] {kind, digest}`, sorted by kind and digest, outside the
+  hash, and its blobs are in the store. What the agent's container can see (the argv, the mounts,
+  the workspace, `tree.json` and `comparable`) never names it. The job record may hold its
+  `{kind, digest}`, never its content, and the job directory is never mounted. The mount
+  points of agent inputs are not outputs, and an output that matches an input only by being empty
+  is no leak.
 - **Cell digest** = `sha256` of the RFC 8785 form of `comparable`, computed by one function
   (`RunManifest::cell_digest`). Changing the digest an existing manifest yields requires a new
   schema tag.
 - **Outside the hash:** `sources[] {path, source}` (where each value came from, I12: one entry for
   every path in `values` and for every typed root present, or a path under it such as
   `harness.version`; settings have no entry, since they never enter the manifest; moving a value
-  from the command line to the experiment file keeps its cell), `secrets[] {name, present}` (I19),
+  from the command line to the experiment file keeps its cell; a value a preflight step derived
+  carries the step and, in `from`, the location it read, such as a treatment's `source`, as an
+  absolute, lexically normalised path), `evaluation_inputs[] {kind, digest}`, `secrets[] {name, present}` (I19),
   `measured[] {path, value, source}` (values observed during the run, the run's end under
   `run.ended_by` and `run.exit`), `deviations[]`, timestamps, host, job id and the attempt. This nuisance set is part of the schema, not an implementer's choice. Stored paths are
   run-relative (I17).
@@ -701,6 +778,37 @@ host?, job?, integrity, import?}`.
   run was read: format label, base commit, the legacy integrity block, `sources[] {path,
   sha256}`, each stored as a blob, and `requests[] {evaluator, request}`, the outcome files it
   wrote, by which a diff finds the imported reference.
+
+**Provenance.** The run records where its measurement came from as `measured[]` entries under
+`provenance.`. A value the build or the run cannot know is left out, never recorded as `false` or
+as an empty string. A verdict reads three of them (the gated paths); the rest describe the run.
+
+| Path | Meaning | Gates a stratum |
+|---|---|---|
+| `provenance.eval_infra.commit` | The commit the binary was built from, 40 hexadecimal digits | Yes: every arm records it as a non-empty string, and the arms agree |
+| `provenance.eval_infra.dirty` | Whether the sources the binary is built from differed from that commit | Yes: every arm records it, and it is `false` |
+| `provenance.sandbox_contract` | The container contract (`name@version`) the agent ran under | Yes: every arm records it, and the arms agree |
+| `provenance.eval_infra.tag` | The release tag of the build: the nearest `v<digit>` tag in a git checkout, else `v<version>` | No |
+| `provenance.eval_infra.commits_ahead` | The commits between the tag and the commit; known from a git checkout only | No |
+| `provenance.packages.<import>.{distribution,version}` | The distribution and version of each import package named in `isolation.record_packages`, read from the env image | No |
+
+A gated path an arm did not record is refused by name; it is never equal to another arm's, and
+never equal to itself. A git build and a packaged build of one commit differ in `tag` and
+`commits_ahead` and still pool. The packages gate nothing: the env lock is already a cell value,
+and the analysis reads them. The build's identity comes from the first origin that has one:
+
+1. a git checkout: `git rev-parse HEAD`, in full; `dirty` is whether `git status` finds a
+   difference in the files the binary is built from, and stays unrecorded when `git status`
+   fails;
+2. a packaged crate's `.cargo_vcs_info.json`: its `git.sha1`, with `dirty` true only when the file
+   holds it and false otherwise, and the tag `v<version>`. The file wins over a git checkout
+   that surrounds the package;
+3. the packager's `CANDLER_EVAL_INFRA_TAG`, `CANDLER_EVAL_INFRA_COMMIT` and
+   `CANDLER_EVAL_INFRA_DIRTY`, inputs to the build: the build records only what it can prove,
+   parsed strictly. A commit is 40 lowercase hexadecimal digits and `dirty` is `true` or
+   `false`; anything else, or a name left unset, is unrecorded, and the verdict refuses it. The
+   tag defaults to `v<version>`;
+4. otherwise the tag `v<version>` alone, with `commit` and `dirty` unrecorded.
 
 ### Normalised trace model (`normalised-trace/1`, on the `schemas@` line)
 
