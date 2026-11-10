@@ -18,7 +18,7 @@ The measured digests and the re-run smoke show the milestone additive for the go
 ## Status
 ```mermaid
 graph TD
-    digest_invariance[Digest invariance]:::planned
+    digest_invariance[Digest invariance]:::inprogress
     equivalence_smoke[Equivalence smoke]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -30,7 +30,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `digest_invariance.md` | 📄 Leaf Task | ⬜ Planned |
+| `digest_invariance.md` | 📄 Leaf Task | 🔄 In Progress |
 | `equivalence_smoke.md` | 📄 Leaf Task | ⬜ Planned |
 
 ## Amendment Log

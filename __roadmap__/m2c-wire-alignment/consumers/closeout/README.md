@@ -20,10 +20,10 @@ The input seam, the domain neutrality and the real env image each have a guard t
 ## Status
 ```mermaid
 graph TD
-    input_seam[Input seam]:::inprogress
-    layering_guard[Layering guard]:::inprogress
-    env_image_e2e[Env image e2e]:::inprogress
-    revalidation[Revalidation]:::planned
+    input_seam[Input seam]:::done
+    layering_guard[Layering guard]:::done
+    env_image_e2e[Env image e2e]:::done
+    revalidation[Revalidation]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -34,10 +34,10 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `input_seam.md` | 📄 Leaf Task | 🔄 In Progress |
-| `layering_guard.md` | 📄 Leaf Task | 🔄 In Progress |
-| `env_image_e2e.md` | 📄 Leaf Task | 🔄 In Progress |
-| `revalidation/` | 📁 Directory | ⬜ Planned |
+| `input_seam.md` | 📄 Leaf Task | ✅ Done |
+| `layering_guard.md` | 📄 Leaf Task | ✅ Done |
+| `env_image_e2e.md` | 📄 Leaf Task | ✅ Done |
+| `revalidation/` | 📁 Directory | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
@@ -46,3 +46,6 @@ graph TD
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| `env_image_e2e.md` | `m2c/env_image_e2e` → 279913b | 2 | real env image with `colorama==0.4.6`; Docker lists equal before and after; CI names the two guards (2e941f9); watch the 180 s cap on a cold runner |
+| `input_seam.md` | `m2c/input_seam` → 02b5fd2 | 4 | no seam defect; the CLI test world now seals runs and its guards assert it; a tampered list blob is refused by a new guard |
+| `layering_guard.md` | `m2c/layering_guard` → bc1567c | 2 | segment and sequence matching over src, build files, schemas, assets and the helper, names included; three fix rounds; 0 hits; extra renames in L3 (`planner`, `problems`, `arango`) |
