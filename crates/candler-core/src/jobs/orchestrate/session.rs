@@ -451,6 +451,8 @@ pub fn cells_of(
             source.clone(),  // BORROW: the cell owns its treatment source
             inputs.clone(),  // BORROW: the cell owns its inputs
         )
+        // BORROW: the cell owns the evaluator-only inputs
+        .with_evaluation_inputs(spec.evaluation_inputs.clone())
         // BORROW: the cell owns the package readings of its image
         .with_packages(
             image_of(comparable)

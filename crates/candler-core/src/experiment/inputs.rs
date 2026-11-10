@@ -74,7 +74,7 @@ fn refused(input: &ExperimentInput, path: &str, problem: impl Into<String>) -> I
 /// # Errors
 /// [`InputError::Refused`] naming the input's kind and path when two inputs share a kind, a path
 /// is empty, absolute or holds `..`, a path is missing or is not a regular file or directory, a
-/// symlink is met, a directory holds no file, a file name is not a plain relative path, or two
+/// symlink is met, a directory holds no file a file name is not a plain relative path, or two
 /// agent files would be mounted at one workspace path or one inside the other;
 /// [`InputError::Store`] when a blob cannot be written.
 pub fn resolve_inputs(

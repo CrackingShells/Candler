@@ -29,7 +29,7 @@ use tokio::time::MissedTickBehavior;
 pub use self::cell::{CellRun, ExecError, SkillTree};
 use self::collect::finish_attempt;
 use self::ends::{EndInput, TraceFacts, classify_end};
-use self::gather::{collect_files, spent};
+use self::gather::{collect_outputs, spent};
 use self::seal::{RawStreamFile, seal_run};
 use self::spawn::{Started, live_observer, require_isolation, start_attempt};
 use super::evidence::census::census;
@@ -121,6 +121,9 @@ fn manifest_of(
     }
     for deviation in &plan.deviations {
         builder = builder.deviation(deviation.clone()); // BORROW: the manifest owns its deviations
+    }
+    for input in &cell.evaluation_inputs {
+        builder = builder.evaluation_input(input.clone()); // BORROW: the manifest owns its evaluation inputs
     }
     for value in measured {
         builder = builder.measured(value);
@@ -519,7 +522,7 @@ async fn drive(
     let mut collect_ok = finished.collect_ok;
     let observed = Observed::new(sessions.iter().map(|s| s.id().clone()).collect()); // BORROW: the view owns its ids
     let specs = rt.driver.collect(&workspace, &observed);
-    let outputs = if let Ok(mut found) = collect_files(&workspace_dir, &specs) {
+    let outputs = if let Ok(mut found) = collect_outputs(&workspace_dir, &specs, &cell.inputs) {
         found.retain(|out| written.get(&out.path) != Some(&out.digest));
         found
     } else {

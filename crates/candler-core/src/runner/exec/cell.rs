@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 
 use candler_harness::driver::DriverError;
 use candler_harness::spec::{CommandSpec, PreparedFile};
-use candler_schemas::execution::{Comparable, ExecutionError, SecretPresence, TreatmentRef};
+use candler_schemas::execution::{
+    Comparable, DigestRef, ExecutionError, SecretPresence, TreatmentRef,
+};
 use candler_schemas::primitives::{Digest, FieldPath};
 use candler_schemas::values::SourceEntry;
 
@@ -36,6 +38,9 @@ pub struct CellRun {
     /// The import packages the experiment names, as the cell's env image holds them; empty when
     /// the experiment names none.
     pub packages: PackageReadings,
+    /// The evaluator-only inputs the cell declares, as `{kind, digest}`: the manifest lists them,
+    /// and no run is given their content.
+    pub evaluation_inputs: Vec<DigestRef>,
 }
 
 impl CellRun {
@@ -59,7 +64,15 @@ impl CellRun {
             treatment_source,
             inputs,
             packages: PackageReadings::new(),
+            evaluation_inputs: Vec::new(),
         }
+    }
+
+    /// The record with the evaluator-only inputs of its experiment.
+    #[must_use]
+    pub fn with_evaluation_inputs(mut self, evaluation_inputs: Vec<DigestRef>) -> Self {
+        self.evaluation_inputs = evaluation_inputs;
+        self
     }
 
     /// The record with the readings of the named packages in its env image.
