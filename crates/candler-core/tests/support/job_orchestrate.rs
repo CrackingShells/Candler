@@ -599,7 +599,7 @@ pub fn spec(models: &[&str], facts: &Facts, wall_s: u32, parallel: u32) -> JobSp
     let mut resolved = serde_json::to_value(resolution(facts)).expect("resolution JSON");
     resolved["settings"] = json!([
         {"path": "model.token_secret", "value": "TEST_SECRET"},
-        {"path": "request.treatment_source", "value": "/nonexistent/treatment"},
+        {"path": "request.treatment", "value": {"name": "htn", "source": "/nonexistent/treatment"}},
     ]);
     // Provenance: a resolution holds a source for each value and each setting it resolved, here
     // the experiment file; a factor path, which the cells set, has none.
@@ -610,7 +610,7 @@ pub fn spec(models: &[&str], facts: &Facts, wall_s: u32, parallel: u32) -> JobSp
             "inputs",
             "isolation.image",
             "model.token_secret",
-            "request.treatment_source",
+            "request.treatment",
             "treatment",
         ]
         .map(|path| json!({"path": path, "source": {"kind": "experiment_file"}}))

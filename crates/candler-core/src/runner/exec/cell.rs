@@ -31,8 +31,9 @@ pub struct CellRun {
     pub sources: Vec<SourceEntry>,
     /// The secrets the cell needs, and whether each was present.
     pub secrets: Vec<SecretPresence>,
-    /// The checkout the treatment's skill tree is archived from.
-    pub treatment_source: PathBuf,
+    /// The checkout the treatment's skill tree is archived from; none when the treatment names
+    /// no source.
+    pub treatment_source: Option<PathBuf>,
     /// The input files the cell declares, by workspace path, with their digests.
     pub inputs: Inputs,
     /// The import packages the experiment names, as the cell's env image holds them; empty when
@@ -52,7 +53,7 @@ impl CellRun {
         factors: Vec<FieldPath>,
         sources: Vec<SourceEntry>,
         secrets: Vec<SecretPresence>,
-        treatment_source: PathBuf,
+        treatment_source: Option<PathBuf>,
         inputs: Inputs,
     ) -> Self {
         Self {

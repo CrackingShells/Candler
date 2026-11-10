@@ -202,6 +202,20 @@ fn git(dir: &Path, args: &[&str]) {
     assert!(status.success(), "git {args:?} failed");
 }
 
+/// The commit `git rev-parse` names for `revision` in `dir`.
+pub fn rev_parse(dir: &Path, revision: &str) -> String {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["rev-parse", revision])
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git rev-parse {revision} failed");
+    String::from_utf8(out.stdout).unwrap().trim().to_owned()
+}
+
 /// A fresh world: the fake client, a skills repository with one tagged commit, a one-cell
 /// experiment, and a working directory that is none of them.
 pub fn world() -> World {
@@ -297,14 +311,15 @@ impl World {
     /// Runs `candler run` on the experiment from the unrelated working directory, with stdin
     /// closed, and returns once the launcher has exited.
     pub fn launch(&self) -> Output {
+        self.launch_with(&[])
+    }
+
+    /// Runs `candler run` as [`World::launch`] does, with `extra` arguments after the experiment.
+    pub fn launch_with(&self, extra: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_candler"))
             .arg("run")
             .arg(&self.experiment)
-            .arg("--set")
-            .arg(format!(
-                "request.treatment_source={}",
-                self.skills.display()
-            ))
+            .args(extra)
             .arg("--set")
             .arg("isolation.build.lock=env.lock")
             .arg("--set")
@@ -318,6 +333,33 @@ impl World {
             .stdin(Stdio::null())
             .output()
             .unwrap()
+    }
+
+    /// Replaces the line of the experiment that names the treatment's source with `line`, which
+    /// is empty to leave the treatment without a source.
+    pub fn set_source_line(&self, line: &str) {
+        let text = fs::read_to_string(&self.experiment).unwrap();
+        let written = format!("source = \"{}\"\n", self.skills.display());
+        assert!(text.contains(&written), "the experiment names its source");
+        fs::write(&self.experiment, text.replace(&written, line)).unwrap();
+    }
+
+    /// Leaves the experiment's treatment with a name only: no tag, no commit and no source.
+    pub fn set_name_only(&self) {
+        self.set_source_line("");
+        let text = fs::read_to_string(&self.experiment).unwrap();
+        assert!(text.contains("tag = \"v1\"\n"), "the experiment pins a tag");
+        fs::write(&self.experiment, text.replace("tag = \"v1\"\n", "")).unwrap();
+    }
+
+    /// Makes a new commit in the skills repository and moves the tag `v1` to it; returns the
+    /// commit `git rev-parse` names for the tag before and after.
+    pub fn move_tag(&self) -> (String, String) {
+        let before = rev_parse(&self.skills, "v1^{commit}");
+        fs::write(self.skills.join("demo").join("SKILL.md"), "# moved\n").unwrap();
+        git(&self.skills, &["commit", "-q", "-a", "-m", "moved"]);
+        git(&self.skills, &["tag", "-f", "v1"]);
+        (before, rev_parse(&self.skills, "v1^{commit}"))
     }
 
     /// Removes the world's directory.

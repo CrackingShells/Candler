@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use candler_schemas::container::ContainerRole;
-use candler_schemas::execution::{Comparable, EventPayload, SecretPresence};
+use candler_schemas::execution::{Comparable, EventPayload, SecretPresence, TreatmentSpec};
 use candler_schemas::primitives::{Digest, FieldPath, Marker, SecretName};
 use candler_schemas::values::{ResolvedValue, SourceEntry, ValueSource};
 use futures::future::BoxFuture;
@@ -43,8 +43,8 @@ use crate::supervise::{EventSink, Supervisor};
 
 /// The setting that names the secret the gateway presents to the model endpoint.
 const TOKEN_SECRET: &str = "model.token_secret";
-/// The setting that names where the treatment's repository is.
-const TREATMENT_SOURCE: &str = "request.treatment_source";
+/// The setting that holds the treatment the experiment names.
+const REQUEST_TREATMENT: &str = "request.treatment";
 /// The roots of a cell that hold typed records; their sources are not value paths.
 const TYPED_ROOTS: [&str; 5] = [
     "harness",
@@ -78,9 +78,9 @@ pub enum OrchestrateError {
         /// Why, as a reason code or a message.
         reason: String,
     },
-    /// The setting that names the treatment's repository is not set.
-    #[error("the setting `request.treatment_source` is not set")]
-    TreatmentSource,
+    /// The setting that holds the treatment is not set, or does not hold a treatment.
+    #[error("the setting `request.treatment` is not set to a treatment")]
+    Treatment,
     /// The setting that names the gateway's secret is not set.
     #[error("the setting `model.token_secret` is not set")]
     TokenSetting,
@@ -212,6 +212,19 @@ fn text_at(resolution: &Resolution, path: &str) -> Option<String> {
         .and_then(ResolvedValue::value)
         .and_then(|value| value.as_value().as_str())
         .map(str::to_owned) // BORROW: the caller owns the text
+}
+
+/// The treatment a resolution's `request.treatment` setting holds.
+fn treatment_of(resolution: &Resolution) -> Result<TreatmentSpec, OrchestrateError> {
+    resolution
+        .settings
+        .iter()
+        // BORROW: .as_str() compares the path with the one asked for
+        .find(|value| value.path().as_str() == REQUEST_TREATMENT)
+        .and_then(ResolvedValue::value)
+        // BORROW: .clone() hands the JSON to the deserializer, which takes it by value
+        .and_then(|value| serde_json::from_value(value.as_value().clone()).ok())
+        .ok_or(OrchestrateError::Treatment)
 }
 
 /// The names a resolution lists at `path`, among its values and its settings; none when the path
@@ -403,17 +416,15 @@ pub fn image_of(comparable: &Comparable) -> Option<String> {
 /// The cells of a job: what each one is, with the secrets it needs and where its treatment is.
 ///
 /// # Errors
-/// [`OrchestrateError::TreatmentSource`] when the setting that names the treatment's repository
-/// is not set.
+/// [`OrchestrateError::Treatment`] when the setting that holds the treatment is not set to a
+/// treatment.
 pub fn cells_of(
     spec: &JobSpec,
     outcome: &PlanOutcome,
     present: &BTreeSet<SecretName>,
     packages: &BTreeMap<String, PackageReadings>,
 ) -> Result<BTreeMap<CellId, Arc<CellRun>>, OrchestrateError> {
-    let source = text_at(&spec.resolution, TREATMENT_SOURCE)
-        .map(PathBuf::from)
-        .ok_or(OrchestrateError::TreatmentSource)?;
+    let source = treatment_of(&spec.resolution)?.source.map(PathBuf::from);
     let factors: Vec<_> = spec
         .experiment
         .factors()

@@ -64,6 +64,9 @@ const ENV_ALLOWLIST: [&str; 5] = [
     "DOCKER_CONTEXT",
 ];
 
+/// The path of the setting `[treatment] source` replaces; `--set` refuses it by name.
+const RETIRED_TREATMENT_SOURCE: &str = concat!("request.", "treatment_source");
+
 /// The tag the gateway's sidecar image is looked up by. The tag is not a pin: an image another
 /// build left under it is the one the jobs use.
 const SIDECAR_TAG: &str = "candler-gateway:latest";
@@ -172,17 +175,19 @@ fn path_of(text: &str) -> Result<FieldPath, CliError> {
 
 /// What the experiment file and the command line ask for, as the input of a resolution: the
 /// file's fixed values, the settings `request.harness` and `request.treatment` it names, and the
-/// arguments of `--set` as explicit values. A location setting (a treatment source, the build
+/// arguments of `--set` as explicit values. A location setting (the treatment's source, the build
 /// requirements, lock, Dockerfile and context) is relative to the file's directory when the file
-/// writes it, and to the working directory when `--set` gives it.
+/// writes it, and to the working directory `cwd` when `--set` gives it; so is the `source` of a
+/// treatment that `--set request.treatment` gives.
 ///
 /// # Errors
-/// [`CliError::Refused`] when a value cannot be written as a setting.
+/// [`CliError::Refused`] when a value cannot be written as a setting, or when `--set` names
+/// the retired setting of the treatment's checkout, which `[treatment] source` replaces.
 pub fn request_settings(
     file: &ExperimentFile,
     experiment_dir: &Path,
     fields: &[(FieldPath, String)],
-    config: &Config,
+    cwd: &Path,
 ) -> Result<ResolveInput, CliError> {
     let mut values: BTreeMap<FieldPath, JsonValue> = file
         .fixed()
@@ -199,14 +204,23 @@ pub fn request_settings(
         .map_err(|e| refused(e.to_string()))?;
     let mut input = ResolveInput::default().file(file_values);
     for (path, text) in fields {
-        if path.as_str() == paths::REQUEST_TREATMENT_SOURCE {
-            // BORROW: .clone() gives the input its own path
-            input = input
-                .explicit_path(config, path.clone(), Path::new(text))
-                .map_err(|e| refused(e.to_string()))?;
-        } else {
-            input = input.explicit(path.clone(), value_of(text)?); // BORROW: the input owns its path
+        if path.as_str() == RETIRED_TREATMENT_SOURCE {
+            return Err(refused(format!(
+                "`{RETIRED_TREATMENT_SOURCE}` is no longer a setting: set `[treatment] source` in the \
+                 experiment file"
+            )));
         }
+        let mut value = value_of(text)?;
+        if path.as_str() == paths::REQUEST_TREATMENT {
+            // BORROW: .clone() gives the file values their own path
+            let given = FileValues::new(vec![(path.clone(), value.clone())])
+                .relative_to(cwd)
+                .map_err(|e| refused(e.to_string()))?;
+            if let Some((_, resolved)) = given.values.into_iter().next() {
+                value = resolved;
+            }
+        }
+        input = input.explicit(path.clone(), value); // BORROW: the input owns its path
     }
     Ok(input)
 }
@@ -329,7 +343,7 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let declared = resolve_inputs(&store, file.inputs(), experiment_dir.as_path())
         .map_err(|e| refused(e.to_string()))?;
     let input = with_declared_inputs(
-        request_settings(&file, experiment_dir.as_path(), &fields, &config)?,
+        request_settings(&file, experiment_dir.as_path(), &fields, &cwd)?,
         &declared,
     )?;
     let services = foreground(Arc::clone(&config), &root)?;
@@ -339,25 +353,8 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
         .resolve(input)
         .await
         .map_err(|e| refused(e.to_string()))?;
-    require_source(&resolution)?;
     let spec = plan_job(&store, &file, resolution, force, declared)?;
     start(&store, &file, &spec, &root).await
-}
-
-/// Refuses a resolution that names no place for the treatment's skills.
-fn require_source(resolution: &Resolution) -> Result<(), CliError> {
-    let found = resolution
-        .settings
-        .iter()
-        .any(|value| value.path().as_str() == paths::REQUEST_TREATMENT_SOURCE);
-    if found {
-        Ok(())
-    } else {
-        Err(refused(
-            "the treatment has no source: set `request.treatment_source` in `fixed` or pass \
-             --set request.treatment_source=PATH",
-        ))
-    }
 }
 
 /// The input with the agent's declared inputs as the setting `request.inputs`, which the image

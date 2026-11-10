@@ -30,8 +30,6 @@ const REQUEST_HARNESS: &str = "request.harness";
 const REQUEST_TREATMENT: &str = "request.treatment";
 /// The setting that carries the agent's declared inputs as `{kind, digest}`.
 const REQUEST_INPUTS: &str = "request.inputs";
-/// The setting that names where the treatment's repository is.
-const REQUEST_TREATMENT_SOURCE: &str = "request.treatment_source";
 /// The setting that names the Dockerfile of the experiment's image layer.
 const ISOLATION_BUILD_DOCKERFILE: &str = "isolation.build.dockerfile";
 /// The setting that names the build context directory.
@@ -50,9 +48,9 @@ const MODEL_TOKEN_SECRET: &str = "model.token_secret";
 /// Reports whether `path` is an operational setting, by its path alone: a configuration key
 /// (`store.root`, `plugins.dirs`, `slots.count`), a job cap (every `budget.*` path except
 /// `budget.per_run.*`), `replicates`, a request key (`request.harness`, `request.treatment`,
-/// `request.treatment_source`, `request.inputs`), the gateway's secret (`model.token_secret`),
-/// the packages a run records (`isolation.record_packages`) or an image build request (every
-/// `isolation.build.*` path). A setting never reaches a cell digest. The paths an
+/// `request.inputs`), the gateway's secret (`model.token_secret`), the packages a run records
+/// (`isolation.record_packages`) or an image build request (every `isolation.build.*` path). A
+/// setting never reaches a cell digest. The paths an
 /// explicit argument marks are settings too; [`Layered::is_setting`] adds them.
 ///
 /// The match follows path segments, so `isolation.image` and `isolation.builder` are not
@@ -72,7 +70,6 @@ pub fn is_setting(path: &FieldPath) -> bool {
                 | SLOTS_COUNT
                 | REQUEST_HARNESS
                 | REQUEST_TREATMENT
-                | REQUEST_TREATMENT_SOURCE
                 | ISOLATION_RECORD_PACKAGES
                 | REQUEST_INPUTS
                 | MODEL_TOKEN_SECRET
@@ -377,7 +374,6 @@ fn is_location(path: &FieldPath) -> bool {
         path.as_str(),
         STORE_ROOT
             | PLUGINS_DIRS
-            | REQUEST_TREATMENT_SOURCE
             | ISOLATION_BUILD_DOCKERFILE
             | ISOLATION_BUILD_CONTEXT
             | ISOLATION_BUILD_LOCK
