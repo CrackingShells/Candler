@@ -1,0 +1,13 @@
+schema = "suite/1"
+
+[[expectations]]
+id = "R1"
+role = "gate"
+kind = "read_inputs"
+depends_on = []
+
+[expectations.evaluator]
+name = "seam"
+range = "^0.1"
+
+[expectations.params]
