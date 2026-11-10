@@ -1,7 +1,7 @@
 # M1 Contracts: wire types, services and the golden import
 
 ## Context
-The campaign of milestone M1 (`../candler-v1/contracts/m1_contracts.md`). It adds every remaining wire type to `candler-schemas`, the `candler-harness` traits, the Claude Code trace reader, the run store, the process supervisor core, the `resolve` skeleton with its config loader, and the legacy importer, and it imports the 240-run golden corpus losslessly. M2a (evaluation) and M2b (execution) start in parallel on these contracts, so the interfaces are reviewed against both before services are built on them. Depth is ordering: L0 wire foundations, trace and oracle; L1 `interfaces/`; L2 `services/`; L3 `import/`; L4 `closeout/`.
+The campaign of milestone M1 (`../candler-v1/contracts/m1_contracts.md`). It adds every remaining wire type to `candler-schemas`, the `candler-harness` traits, the Claude Code trace reader, the run store, the process supervisor core, the `resolve` skeleton with its config loader, and the legacy importer, and it imports the 240-run golden corpus with every row's status, value, weight, cause and role equal to an independent oracle's. M2a (evaluation) and M2b (execution) start in parallel on these contracts, so the interfaces are reviewed against both before services are built on them. Depth is ordering: L0 wire foundations, trace and oracle; L1 `interfaces/`; L2 `services/`; L3 `import/`; L4 `closeout/`.
 
 ## Reference Documents
 - [R01 Architecture](../../__design__/architecture.md) — §Operation API (resolution order, value sources, preflight steps, configuration, formats), §Experiment file, §Jobs, runs and supervision, §Raw traces, §Harness drivers, §Plug-ins, §Evaluator protocol, §Data Model, §Wire encodings, §Golden corpus; decisions D1–D11 of the plan live there
@@ -14,7 +14,7 @@ The campaign of milestone M1 (`../candler-v1/contracts/m1_contracts.md`). It add
 - [R08 Wire-schemas lessons](../../__reports__/wire-schemas/00-knowledge_transfer_v0.md) — pain points this campaign's conventions answer
 
 ## Goal
-Every M1 contract and shared service exists on `feat/m1-contracts`, guarded by cornerstone tests with independent oracles, and the golden corpus imports into a Candler store losslessly.
+Every M1 contract and shared service exists on `feat/m1-contracts`, guarded by cornerstone tests with independent oracles, and the golden corpus imports into a Candler store with every row's status, value, weight, cause and role equal to an independent oracle's.
 
 ## Pre-conditions
 - [x] [nl] Eliott approved the plan (2026-11-05)

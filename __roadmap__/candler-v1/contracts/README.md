@@ -4,7 +4,7 @@
 Depth 1 of the meta-roadmap. Runs after `wire_schemas`, which creates the workspace and the first two wire types. M1 completes the contracts every later milestone builds on: the remaining wire types, the harness traits, the store, the process supervisor core and the legacy importer.
 
 ## Goal
-Every contract and shared mechanism the two parity milestones need exists, and the golden corpus imports losslessly.
+Every contract and shared mechanism the two parity milestones need exists, and the golden corpus imports with every row's status, value, weight, cause and role equal to an independent oracle's.
 
 ## Pre-conditions
 - [ ] `wire_schemas.md` is `done` and merged on `main`

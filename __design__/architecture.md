@@ -1,6 +1,8 @@
 # Candler — Architecture
 
-The intended design of Candler. Nothing is implemented yet. Points marked *provisional* are expected
+The design of Candler. The wire schemas and milestones M1 (contracts), M2a (evaluation parity)
+and M2b (execution parity) are built; what a later milestone owns names it. Where built code
+still falls short of a rule stated here, the rule stands and the shortfall is a code defect. Points marked *provisional* are expected
 to move once code meets real harnesses; the rest stand unless implementation proves them wrong, and
 then this document changes together with the code. The reasoning behind the design, and its review,
 are in the `candler_core` reports of mcp-python-ingestion (`__reports__/candler_core/` on branch
@@ -228,7 +230,11 @@ else the configuration's `store.root`, else the default above, as `resolve` laye
 that finds none refuses, naming the three ways to give one.
 
 "Experiment" names the file that declares factors, levels, replicates and budget (today's
-`run_config` YAML). "Plan" is not used: it collides with HTN planning.
+`run_config` YAML). The experiment is never called a plan, which collides with HTN planning: the
+file, its schema and every user-facing name say "experiment". The ban covers that configuration
+only; what execution derives from an experiment (the runner's `RunPlan`, a cell's
+`ContainerPlan`) and the `plan.*` keys of an imported legacy `experiment.json` keep their own
+names.
 
 ## Jobs, runs and supervision
 
@@ -299,7 +305,11 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
   Agent and gateway containers never use `--rm`, so the exit facts survive for the inspect.
 - **Container records.** Each container gets `children/container-<cid12>.json`
   (`container-record/1`: `{cid, labels {job, run, experiment}, created_at, image_id, role:
-  agent|gateway, spawned_at}`) and the labels `candler.job`, `candler.run`, `candler.experiment`.
+  agent|gateway, spawned_at}`) and the labels `candler.job`, `candler.run`, `candler.experiment`
+  and `candler.role` (`agent` or `gateway`, which the destroy guard reads). A control container
+  (a version readout, a catalog capture, the image build) is the exception: `--rm`, only the label
+  `candler.role=control`, and no network except for the image build, which reaches the package
+  index over the default bridge; no sweep meets it and the guard never destroys it.
   The entrypoint runs under `timeout <wall_s + 60 s>`, so an orphaned container expires by itself
   on any engine.
 - **Stray sweep.** Harnesses start descendants in new sessions (Claude Code 2.1.304 spawns its Bash
@@ -376,9 +386,12 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
 - **In a container** the environment is built from nothing and passed with `-e` only; the docker
   client itself gets its own allowlist (`DOCKER_HOST`, `DOCKER_CONTEXT`, its config dir). The
   container runs non-root, with a read-only root, tmpfs `/tmp`, no capabilities,
-  `no-new-privileges`, and pids, memory and CPU limits. Only the workspace and a per-run HOME (a
-  host directory outside the workspace, so sub-agent transcripts survive) are writable; inputs are
-  mounted read-only at their workspace paths.
+  `no-new-privileges`, and pids, memory and CPU limits. Only the workspace, a per-run HOME (a
+  host directory outside the workspace, so sub-agent transcripts survive), the tmpfs `/tmp` and
+  the agent environment at `/opt/env` are writable; inputs are mounted read-only at their
+  workspace paths. `/opt/env` is an anonymous volume with no host source, which docker fills from
+  the locked image for each container, so the agent can install into its own environment while
+  every run starts from the same copy and the root stays read-only.
 - **The model token never enters the agent container.** The agent sits alone on a per-job
   internal network with a gateway sidecar, which holds the token (passed through stdin into a
   tmpfs file, never env or argv) and forwards to the provider. The agent gets a base URL and a
@@ -413,7 +426,9 @@ I3, so event times are reproducible even where the harness emits none.
 - **Header**, the first line: `{kind: header, schema, stream, clock, source?}`. `stream` is a stream
   name (`stdout`, `stderr`, or a collected file's name). `clock` is `{kind: monotonic, anchor{wall,
   mono_ns}}`, one wall-clock reading paired with the monotonic clock, or `{kind: unrecorded}`.
-  `source` is the digest of the file the frames were cut from, when they were cut after the fact.
+  `source` is the digest of the file the frames were cut from, as that file is stored, when they
+  were cut after the fact: for an imported agent stream, the gzipped legacy file, though the
+  frames hold its decompressed bytes.
 - **Frames**, the following lines: `{kind: frame, t_mono_ns?, data}`, with `data` either `{kind: text,
   text}` (valid UTF-8) or `{kind: bytes, base64}`. Frame indices count the lines after the header,
   from 0.
@@ -782,7 +797,7 @@ The rules every wire type of the `schemas@` line follows.
 | Ids, paths, times | `request_id`: UUIDv7, lowercase hyphenated. `expectation_id`: `^[A-Za-z0-9][A-Za-z0-9._-]*$`. Run-relative paths: POSIX, non-empty, no leading `/`, no empty, `.` or `..` segment, no `\`. Timestamps: RFC 3339 with an uppercase `T`, and `Z` or a `±HH:MM` offset, naming a real instant, kept as written. |
 | Evidence refs | `event:<session-id>#<seq>`: the session id is non-empty, without `#` or white space; `seq` is a decimal without leading zeros (`0` allowed). `path:<relpath>` optionally followed by `#L<n>` or `#L<n>-<m>`: lines count from 1, `n ≤ m`, and the path holds no `#`. |
 | Version marker | A standalone document (the catalog snapshot) carries its `schema` tag. Records that travel inside versioned messages or files (the outcome record) carry none. |
-| Schema files | JSON Schema 2020-12, generated by `schemars` from the structs, one self-contained file per root in `crates/candler-schemas/schema/<name>.schema.json`, `$id` `urn:candler:schemas:<name>`, no crate version inside. Cross-field rules are `if`/`then` clauses; rules JSON Schema cannot state (`num ≤ den`, the pass and fail weight rules, unique names, 64- and 32-bit integer limits) are enforced in Rust and stated in a `$comment`. Patterns end with `(?![\s\S])` and spell white space as Unicode's `White_Space` set plus the byte-order mark, never `$` or `\s`: Python's `re`, which Python `jsonschema` uses, lets `$` match before a final newline and gives `\s` a different set, so only this form reads alike under ECMA 262, Rust and Python. A test refuses any published pattern that uses a bare `$`, `.` or an engine-dependent class. `///` docs become `description`s, so a doc edit on a wire type is a schema patch. |
+| Schema files | JSON Schema 2020-12, generated by `schemars` from the structs, one self-contained file per root in `crates/candler-schemas/schema/<name>.schema.json`, `$id` `urn:candler:schemas:<name>`, no crate version inside. Cross-field rules are `if`/`then` clauses; rules JSON Schema cannot state (`num ≤ den`, the pass and fail weight rules, unique names, 64- and 32-bit integer limits) are enforced in Rust and stated in a `$comment`. Patterns end with `(?![\s\S])` in place of `$`, and spell white space as Unicode's `White_Space` set plus the byte-order mark in place of `\s`: Python's `re`, which Python `jsonschema` uses, lets `$` match before a final newline and gives `\s` a different set, so only this form reads alike under ECMA 262, Rust and Python. The regexes this document writes with `$` (reason codes, ids, field paths) are published in this form. A test refuses any published pattern that uses `$` or `.` outside a character class, or a shorthand class or assertion (`\s`, `\d`, `\w`, `\b`, `\A`, `\Z`, `\p` and their negations) anywhere but in the end anchor, and requires every pattern to end with the anchor except one inside an `if`, such as the prefix `^git:`, which only tells variants apart; the other refusals still apply to it. `///` docs become `description`s, so a doc edit on a wire type is a schema patch. |
 | Drift check | `tests/schema_drift.rs` compares every root in `generated_schemas()` byte for byte with its committed file; `CANDLER_BLESS_SCHEMAS=1` rewrites them. |
 | Rust shape | Wire structs are `#[non_exhaustive]`, built through validating builders and deserialised through `try_from` from a JSON object only (never an array), so a record is valid however it was made and a new optional field is a minor in Rust as in the schema. Evolving enums are `#[non_exhaustive]`; `Status` and `Role` are closed. `serde_json` has `float_roundtrip`. JSON text holding an unpaired surrogate escape is refused by the Rust reader. |
 | Source files | Source says what is: comments, docs, `#[deprecated]` notes and `$comment`s carry no history, origin or meta-discourse. Reasons live in `__design__/` and `__reports__/`. |
@@ -856,8 +871,12 @@ request files under the new evaluator version; `diff` compares versions.
 ### Other interfaces (signatures only)
 
 - `CatalogProvider.snapshot(cell) -> catalog_snapshot`
-- `Isolation.create(cell) -> handle`; `handle.exec`, `handle.inject`, `handle.census`,
-  `handle.collect`, `handle.destroy`
+- `Isolation`, one container per run: `plan(cell, workspace) -> ContainerPlan`;
+  `run_request(plan, command, marker, run key, outputs) -> IsolatedRequest` (the spawn request,
+  with the run's stop hook attached, and the handle that reports the end facts);
+  `collect_and_destroy(plan, workspace, exit, run key) -> ContainerOutcome` (the final inspect,
+  then the destroy through the guard). A long-lived handle (`create`, `exec`, `inject`, a
+  whole-container `census`, `destroy`) is M5's, beside this one.
 - `LegacyImporter.import(results_folder) -> runs[]`
 
 ### Invariants
@@ -929,9 +948,9 @@ cases are synthetic. Integrity `incomplete`
 (`missing_genuine_output`, the agent never produced the file; 56 runs) is a **valid** run;
 `contaminated` is `invalid(input_leak)`. Invalid runs are never sent to `evaluate`.
 
-**Parity test (scope: Tiers A–C).** Candler plus the HTN plug-in `htn-creator-eval@0.5.0`, with
+**Parity test (scope: Tiers A–C).** Candler plus the HTN plug-in `htn-creator-eval@0.5.2`, with
 its checker pinned at `28be2c15` and run one forked child per expectation with a 60 s deadline,
-regrades the corpus, and `diff htn-creator-eval@0.4.2 htn-creator-eval@0.5.0` reproduces `(status,
+regrades the corpus, and `diff htn-creator-eval@0.4.2 htn-creator-eval@0.5.2` reproduces `(status,
 value, weight, cause)` on the 8,880 rows of the 37 Tier A–C expectations: exactly on clean rows, and
 on the one legacy-marked kind through an equivalence file. The 1,440 Tier D rows (D-E1…D-E6 × 240)
 are **uncompared**: `diff` lists them with their counts, and their parity is work on the HTN side
@@ -957,8 +976,12 @@ input the legacy importer reconstructed (importer defect) → anything left is a
 
 | Field | From | Rule |
 |---|---|---|
-| `comparable.values` | `experiment.json` `plan.*`, `provenance.*`, `resolved_skill_version` | Each JSON leaf becomes a dotted field path with source `imported{experiment.json}`; a `null` leaf has no value and is `unrecorded`. `plan.out_dir` goes to `import`. |
-| `comparable.harness` | the stream's init line, `claude_code_version` | Must agree across a cell, else the import is refused |
+| `comparable.values` | `experiment.json` `plan.*`, `provenance.*`, and the top-level key the import rules name for the version the treatment resolved to (`resolved_skill_version` here) | Each JSON leaf becomes a dotted field path with source `imported{experiment.json}`; a `null` leaf has no value and is `unrecorded`. `plan.out_dir` goes to `import`. |
+| `comparable.harness` | the harness name the import rules give, and the version at their JSON pointer into the stream's first line (`claude_code_version` here) | Must agree across a cell, else the import is refused |
+| `comparable.treatment` | `experiment.json`, at the JSON pointer the import rules name | A string written `<name>@<tag>`, else the import is refused; it gives the name and tag, and no commit, which the legacy folder does not record |
+| `comparable.snapshots[]` | `PROVENANCE.json`, at the JSON pointers the import rules name | One entry per snapshot rule: the rule's kind and the bare sha256 the legacy provenance recorded at its pointer, not the RFC 8785 form a live snapshot's digest is taken over |
+| `comparable.inputs[]` | each run's `timing.json` `copied_inputs[] {role, sha256}` | `role` is the kind; the lists must agree across a cell, else the import is refused |
+| `comparable.environments[]` | — | Empty: the legacy folder records no plug-in environment |
 | `measured` | each run's `eval_metadata.json` `provenance.*`, where the cell-level value is `null` | Source `imported{<run-relative path>}`; the copies within one run must agree, else the import is refused |
 | `factors` | — | The field paths whose values differ across the imported cells |
 | `experiment` | — | The digest of the sorted cell digests |
@@ -968,8 +991,9 @@ input the legacy importer reconstructed (importer defect) → anything left is a
 | `import` | — | The format label, base commit, legacy integrity block, and every source file read with its sha256, each kept as a blob |
 
 - **Evaluator identity** comes from `PROVENANCE.json` `pinned` (`describe`, `commit`, `dirty`). The
-  instrument name, the marker patterns and the format label come from import rules the caller
-  supplies, so the core names no domain (I1).
+  instrument name, the marker patterns, the format label, the harness name, the pointers to the
+  harness version, the treatment and the snapshots, and the key of the resolved treatment version
+  come from import rules the caller supplies, so the core names no domain (I1).
 - **Outcome identity.** One request per run per evaluator. `request_id` is a UUIDv7 whose 48-bit
   time is the regrade's finish time in milliseconds (`PROVENANCE.json` `regraded_at.finished`) and
   whose 74 random bits are the first 74 bits of `sha256(<run key path form> 0x00 <evaluator

@@ -68,3 +68,7 @@ graph TD
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| `workspace.md` | feat/ws-workspace | 4 | merged as `63c482c` |
+| `commit_tooling.md` | feat/ws-commit_tooling | 3 | merged as `4eae1de` |
+| `fixtures.md` | feat/ws-fixtures | 3 | merged as `1cd9997` |
+| `records/` | feat/wire-schemas | 15 | the level's leaves and close-out; the milestone merged to `main` as `5087a4b` |

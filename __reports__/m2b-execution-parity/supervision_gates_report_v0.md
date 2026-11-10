@@ -138,3 +138,11 @@ aggregate binary also loads the support files its siblings load.
 
 STD (fmt, clippy `-D warnings`, doc `-D warnings`), LINUX clippy and SUBJ pass; the scaffold and placeholder
 greps are empty; `crates/candler-schemas` is untouched, so DRIFT has nothing to bless.
+
+## Note, 2026-11-10
+
+The Linux half has run. The `Container e2e` workflow passed on the pull request of M2b, which
+requires a PASS line for each of the nine Linux names (B36 among them): run 42568786540 on
+`fe77f9f`, the commit the knowledge-transfer report gates on, and run 42576041947 on `1b607bc`,
+the pull request's head, whose tree is what merged as `049a9ab`. The sentence above saying the Linux
+half has not run predates the push; the record is left as it was.

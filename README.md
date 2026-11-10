@@ -11,12 +11,15 @@ A library, a lean CLI and an MCP server are thin surfaces over that API. Domain 
 
 The design is in [`__design__/architecture.md`](__design__/architecture.md) and the milestones in [`__roadmap__/candler-v1/`](__roadmap__/candler-v1/README.md).
 
-The cargo workspace holds five crates. `candler-schemas` defines the first two wire types, each with its JSON Schema committed under [`crates/candler-schemas/schema/`](crates/candler-schemas/schema/):
+The wire schemas, the shared contracts, evaluation with plug-ins and execution in containers are built. The cargo workspace holds five crates:
 
-- the **outcome record**, the result every evaluator emits per run and expectation;
-- the **tool-catalog snapshot**, the tools a run's MCP servers offered, in MCP `tools/list` shape.
+- `candler-schemas`: every wire type of the `schemas@` line (outcome record, tool-catalog snapshot, raw frames, normalised trace, run manifest, experiment, suite, plug-in manifest, evaluator messages, job and child records, events), each with its JSON Schema committed under [`crates/candler-schemas/schema/`](crates/candler-schemas/schema/);
+- `candler-core`: argument resolution, the job and process supervisors, the orchestrator, Docker isolation with its gateway sidecar, the run store, the legacy importer, and the evaluation engine with its registry, outcome selection and `diff`;
+- `candler-harness`: the `HarnessDriver` and `TraceReader` traits;
+- `candler-harness-claude-code`: the Claude Code driver and trace reader;
+- `candler`: the CLI, with `run`, `ps`, `kill`, `watch`, `import`, `evaluate`, `show` and `diff`.
 
-`candler`, `candler-core`, `candler-harness` and `candler-harness-claude-code` are still empty. Nothing is published.
+The Python helper for evaluator plug-ins is in [`python/candler-evaluator/`](python/candler-evaluator/). Nothing is published to crates.io or PyPI.
 
 ## Contributing
 

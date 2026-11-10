@@ -51,3 +51,7 @@ graph TD
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| `outcome_record.md` | feat/ws-outcome_record | 3 | merged as `6376ea1` |
+| `catalog_snapshot.md` | feat/ws-catalog_snapshot | 2 | merged as `48211df` |
+| `release_ci.md` | feat/ws-release_ci | 3 | merged as `a9f57b8` |
+| `closeout/` | feat/wire-schemas | 7 | see `closeout/README.md` |

@@ -4,10 +4,10 @@
 **Pre-conditions**:
 - [x] CONTRIBUTING declares the `rdm` and `reports` types (`feat/wire-schemas`, commit `docs(contributing): give roadmaps and reports their own commit types`)
 **Success Gates**:
-- ⬜ `cog --version`, `release-plz --version` and `cargo nextest --version` each exit 0
-- ⬜ `cog check main..HEAD` passes on this branch (confirm the range syntax with `cog check --help`)
-- ⬜ The installed `commit-msg` hook exits non-zero on a message file holding `feat: no scope` and on one holding `rdm: no scope`, and exits 0 on `rdm(schemas): plan x` and on `reports(schemas): close x`
-- ⬜ The types and scopes in `cog.toml` equal the ones in CONTRIBUTING's tables (a one-line comparison, recorded in the step's report)
+- ✅ `cog --version`, `release-plz --version` and `cargo nextest --version` each exit 0
+- ✅ `cog check main..HEAD` passes on this branch (confirm the range syntax with `cog check --help`)
+- ✅ The installed `commit-msg` hook exits non-zero on a message file holding `feat: no scope` and on one holding `rdm: no scope`, and exits 0 on `rdm(schemas): plan x` and on `reports(schemas): close x`
+- ✅ The types and scopes in `cog.toml` equal the ones in CONTRIBUTING's tables (a one-line comparison, recorded in the step's report)
 **References**: [R06 CONTRIBUTING](../../CONTRIBUTING.md) — types, scopes, Enforcement; [R01 §Workspace](../../__design__/architecture.md) — tooling
 
 ## Step 1: Install and document the tools

@@ -55,5 +55,10 @@ head -n 1 "$1" | grep -Eq '^[a-z]+\\([a-z0-9-]+\\)!?: ' || {
     echo "commit-msg: the subject needs a scope: <type>(<scope>): <subject>" >&2
     exit 1
 }
+length=$(head -n 1 "$1" | tr -d '\\n' | LC_ALL=C.UTF-8 wc -m | tr -d ' ')
+[ "$length" -le 72 ] || {
+    echo "commit-msg: the subject has $length characters; at most 72 are allowed" >&2
+    exit 1
+}
 cog verify --file "$1"
 """

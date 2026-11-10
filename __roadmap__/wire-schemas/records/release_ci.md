@@ -4,10 +4,10 @@
 **Pre-conditions**:
 - [x] `../workspace.md` and `../commit_tooling.md` are `done` and merged on `feat/wire-schemas`
 **Success Gates**:
-- ⬜ `actionlint .github/workflows/*.yml` passes
-- ⬜ In a throwaway clone of the branch that carries the configuration, `release-plz update` exits 0, computes `candler-schemas` 0.1.0 against tags `schemas@*` and the core group against tags `v*`, and a probe shows a `fix(schemas)` bumps only the schemas and a `feat(api)` only the core group
-- ⬜ `release-plz.toml` runs git-only (`git_only = true`) with `publish = false` and `git_release_enable = false`; `release-plz release --dry-run` needs a forge and a token, so it is not a gate before the first push
-- ⬜ No workflow and no config publishes to crates.io or creates a GitHub release: `grep -nE 'publish *= *true|git_release_enable *= *true|CARGO_REGISTRY_TOKEN' release-plz.toml .github/workflows/*.yml` prints nothing
+- ✅ `actionlint .github/workflows/*.yml` passes
+- ✅ In a throwaway clone of the branch that carries the configuration, `release-plz update` exits 0, computes `candler-schemas` 0.1.0 against tags `schemas@*` and the core group against tags `v*`, and a probe shows a `fix(schemas)` bumps only the schemas and a `feat(api)` only the core group
+- ✅ `release-plz.toml` runs git-only (`git_only = true`) with `publish = false` and `git_release_enable = false`; `release-plz release --dry-run` needs a forge and a token, so it is not a gate before the first push; met at `a9f57b8`, superseded by `9819455`, since when `candler` and `candler-schemas` create GitHub releases
+- ✅ No workflow and no config publishes to crates.io or creates a GitHub release: `grep -nE 'publish *= *true|git_release_enable *= *true|CARGO_REGISTRY_TOKEN' release-plz.toml .github/workflows/*.yml` prints nothing; met at `a9f57b8`, superseded by `9819455`, since when `candler` and `candler-schemas` create GitHub releases
 **References**: [R06 CONTRIBUTING §Versioning](../../../CONTRIBUTING.md) — the two lines and their bump rules; [R01 §Workspace](../../../__design__/architecture.md) — release lines per crate
 
 ## Step 1: Configure release-plz
