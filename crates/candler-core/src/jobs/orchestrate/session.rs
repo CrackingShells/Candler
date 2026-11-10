@@ -23,6 +23,7 @@ use crate::isolation::container::sweeper::LabelSweeper;
 use crate::isolation::container::{DockerDirs, DockerIsolation};
 use crate::isolation::docker::{ClientEnv, DockerCli, DockerError};
 use crate::isolation::driver::DockerDriver;
+use crate::isolation::gateway::ChildRecorder;
 use crate::isolation::gateway::DockerCli as GatewayCli;
 use crate::isolation::gateway::{
     DockerGateway, Gateway, GatewayError, GatewayStart, GatewayStatus, SecretError, SecretSource,
@@ -532,12 +533,15 @@ impl JobSession {
             }
         }
         let store_root = rt.store.layout().root().to_path_buf();
+        // TRAIT_OBJECT: the isolation records through the job directory as a trait object
+        let recorder: Arc<dyn ChildRecorder> = Arc::new(job_dir.clone()); // BORROW: the recorder owns its directory handle
         let isolation = DockerIsolation::new(
             handle.clone(), // BORROW: the isolation owns the handle it plans against
             Arc::clone(&rt.docker),
             guard,
         )
         .with_sweeper(sweeper)
+        .with_recorder(recorder)
         .with_dirs(DockerDirs {
             children: job_dir.children_dir(),
             project_root: store_root.clone(), // BORROW: the dirs own their roots

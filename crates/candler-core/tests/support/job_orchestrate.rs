@@ -15,6 +15,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use candler_core::isolation::container::DockerIsolation;
+use candler_core::isolation::container::stop::ContainerStopHook;
+use candler_core::isolation::container::sweeper::ContainerSweeper;
 use candler_core::isolation::docker::{ClientEnv, DockerCli, DockerError};
 use candler_core::isolation::driver::DockerDriver;
 use candler_core::isolation::gateway::{
@@ -33,6 +35,7 @@ use candler_core::runner::Runtime;
 use candler_core::runner::evidence::provenance::EvalInfra;
 use candler_core::runner::exec::SkillTree;
 use candler_core::store::Store;
+use candler_core::supervise::hook::StopHook;
 use candler_core::supervise::spawn::SpawnRequest;
 use candler_core::supervise::stop::Exit;
 use candler_core::supervise::{EventSink, Supervisor};
@@ -43,7 +46,7 @@ use candler_harness::spec::{
     PreparedFile, ProcessExit, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::execution::{Budget, EventPayload, ExperimentFile, JobState, TreatmentRef};
-use candler_schemas::primitives::{JobId, Marker, RunKey};
+use candler_schemas::primitives::{ContainerId, JobId, Marker, RunKey};
 use candler_schemas::raw::StreamName;
 use candler_schemas::trace::{EndedBy, Session};
 use futures::future::BoxFuture;
@@ -119,11 +122,26 @@ impl EndFacts for NoContainer {
     }
 }
 
+/// An agent that writes a cidfile: the run is a first-party shell that writes `cid` to the plan's
+/// cidfile, then sleeps `sleep_s` seconds. The container it names exists only in the scripted
+/// answers of the fake client.
+pub struct FakeAgent {
+    /// The id the run's cidfile holds.
+    pub cid: ContainerId,
+    /// How long the run lives, in seconds.
+    pub sleep_s: u32,
+    /// The sweeper the run's stop hook sweeps through; no hook is attached when `None`.
+    // TRAIT_OBJECT: the sweeper is a recording fake in tests
+    pub sweeper: Option<Arc<dyn ContainerSweeper>>,
+}
+
 /// The isolation of a job over the fake client: the real plan, a run that is the fake client's
-/// `run` verb, and a destroy with nothing to destroy.
+/// `run` verb, and a destroy with nothing to destroy. With a [`FakeAgent`] the run writes a
+/// cidfile and the real isolation records and destroys the container it names.
 pub struct Placed {
     inner: DockerIsolation,
     docker: PathBuf,
+    agent: Option<Arc<FakeAgent>>,
 }
 
 impl Isolation for Placed {
@@ -151,33 +169,75 @@ impl Isolation for Placed {
                 detail: String::from("the cidfile has no directory"),
             })?;
         let path = std::env::var("PATH").unwrap_or_default();
-        let request = SpawnRequest::builder()
-            .argv(vec![
+        let argv = match &self.agent {
+            Some(agent) => vec![
+                String::from("/bin/sh"),
+                String::from("-c"),
+                String::from("printf %s \"$1\" > \"$2\"; exec sleep \"$3\""),
+                String::from("agent"),
+                agent.cid.as_str().to_owned(),
+                plan.cidfile.to_string_lossy().into_owned(),
+                agent.sleep_s.to_string(),
+            ],
+            None => vec![
                 self.docker.to_string_lossy().into_owned(),
                 String::from("run"),
                 key.to_string(),
-            ])
+            ],
+        };
+        let mut builder = SpawnRequest::builder()
+            .argv(argv)
             .env(vec![(String::from("PATH"), path)])
             .marker(marker)
             .run(key)
             .stdout(outputs.stdout)
             .stderr(outputs.stderr)
             .deadline(plan.expiry)
-            .record_dir(record_dir)
-            .build()
-            .map_err(|error| IsolationError::Plan {
-                detail: error.to_string(),
-            })?;
-        Ok(IsolatedRequest::new(request, Arc::new(NoContainer)))
+            .record_dir(record_dir);
+        // TRAIT_OBJECT: the facts come from the hook the request carries, or from none
+        let mut facts: Arc<dyn EndFacts> = Arc::new(NoContainer);
+        if let Some(sweeper) = self.agent.as_ref().and_then(|agent| agent.sweeper.as_ref()) {
+            let job = plan
+                .labels
+                .get("candler.job")
+                .and_then(|text| text.parse().ok())
+                .ok_or_else(|| IsolationError::Plan {
+                    detail: String::from("the plan carries no job label"),
+                })?;
+            let hook = Arc::new(ContainerStopHook::new(
+                self.inner.guard(),
+                Arc::clone(sweeper),
+                job,
+            ));
+            // TRAIT_OBJECT: the request carries its hook as the supervisor's trait
+            let attached: Arc<dyn StopHook> = hook.clone(); // BORROW: the facts share the hook
+            builder = builder.stop_hook(attached);
+            facts = hook;
+        }
+        let request = builder.build().map_err(|error| IsolationError::Plan {
+            detail: error.to_string(),
+        })?;
+        Ok(IsolatedRequest::new(request, facts))
+    }
+
+    fn record_container<'a>(
+        &'a self,
+        plan: &'a ContainerPlan,
+        key: &'a RunKey,
+    ) -> BoxFuture<'a, Result<Option<ContainerId>, IsolationError>> {
+        self.inner.record_container(plan, key)
     }
 
     fn collect_and_destroy<'a>(
         &'a self,
-        _plan: &'a ContainerPlan,
-        _workspace: &'a Workspace<'a>,
-        _exit: &'a Exit,
-        _key: &'a RunKey,
+        plan: &'a ContainerPlan,
+        workspace: &'a Workspace<'a>,
+        exit: &'a Exit,
+        key: &'a RunKey,
     ) -> BoxFuture<'a, Result<ContainerOutcome, IsolationError>> {
+        if self.agent.is_some() {
+            return self.inner.collect_and_destroy(plan, workspace, exit, key);
+        }
         Box::pin(async { Ok(ContainerOutcome::default()) })
     }
 }
@@ -185,6 +245,8 @@ impl Isolation for Placed {
 /// The machine around a job: the fake client, the fake gateway, the fake placement.
 pub struct FakeHost {
     docker: PathBuf,
+    /// The agent the runs are, when a test gives them a container; the fake client's `run` otherwise.
+    agent: Option<Arc<FakeAgent>>,
     /// The milliseconds the job's clock reads, when a test drives it; the wall clock otherwise.
     ticks: Option<Arc<AtomicU64>>,
 }
@@ -231,6 +293,7 @@ impl JobHost for FakeHost {
         Arc::new(Placed {
             inner: isolation,
             docker: self.docker.clone(),
+            agent: self.agent.clone(), // BORROW: the isolation shares the agent
         })
     }
 }
@@ -370,7 +433,10 @@ impl Rig {
         write_script(
             &docker,
             &format!(
-                "#!/bin/sh\nexport FAKE_DOCKER_LOG='{}' FAKE_DOCKER_DIR='{}'\nexec '{}' \"$@\"\n",
+                "#!/bin/sh\nexport FAKE_DOCKER_LOG='{}' FAKE_DOCKER_DIR='{}'\n\
+                 if [ \"$1 $2\" = 'container rm' ] && [ -f \"$FAKE_DOCKER_DIR/container-rm.once\" ]; then\n\
+                 rm -f \"$FAKE_DOCKER_DIR/container-rm.once\"; echo 'rm refused' >&2; exit 1; fi\n\
+                 exec '{}' \"$@\"\n",
                 log.display(),
                 canned.display(),
                 super::fake_docker().display()
@@ -396,8 +462,25 @@ impl Rig {
     pub fn host(&self) -> Arc<FakeHost> {
         Arc::new(FakeHost {
             docker: self.docker.clone(),
+            agent: None,
             ticks: None,
         })
+    }
+
+    /// The host of the job over this world, whose runs are `agent`.
+    #[must_use]
+    pub fn host_with_agent(&self, agent: FakeAgent) -> Arc<FakeHost> {
+        Arc::new(FakeHost {
+            docker: self.docker.clone(),
+            agent: Some(Arc::new(agent)),
+            ticks: None,
+        })
+    }
+
+    /// The directory of the fake client's canned answers.
+    #[must_use]
+    pub fn canned(&self) -> PathBuf {
+        self.dir.path().join("canned")
     }
 
     /// The host of the job over this world, whose clock reads `ticks` milliseconds from zero
@@ -405,6 +488,7 @@ impl Rig {
     pub fn host_on(&self, ticks: &Arc<AtomicU64>) -> Arc<FakeHost> {
         Arc::new(FakeHost {
             docker: self.docker.clone(),
+            agent: None,
             ticks: Some(Arc::clone(ticks)), // BORROW: the host shares the counter the test advances
         })
     }
