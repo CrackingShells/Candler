@@ -140,6 +140,20 @@ pub enum ExecutionError {
         /// What the list is sorted by.
         key: &'static str,
     },
+    /// A list that holds no entry where it needs one.
+    #[error("{list} holds no entry")]
+    EmptyList {
+        /// The name of the list.
+        list: &'static str,
+    },
+    /// An input declaration that cannot hold: a kind the wire reserves, or a mount directory that leaves the workspace.
+    #[error("input `{kind}` {problem}")]
+    InputDeclaration {
+        /// The kind of the input.
+        kind: String,
+        /// What is wrong with it.
+        problem: &'static str,
+    },
     /// A list that holds the same entry twice.
     #[error("{list} repeats an entry (got {value:?})")]
     Duplicate {
@@ -541,6 +555,249 @@ impl TreatmentRef {
     }
 }
 
+/// The treatment an experiment file declares: a name, the tag and commit it is pinned to, and where its files are.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct TreatmentSpec {
+    /// The name of the treatment.
+    pub name: Name,
+    /// The tag the treatment is pinned to, as its source names it.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub tag: Option<String>,
+    /// The commit the treatment is pinned to.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub commit: Option<GitCommit>,
+    /// Where the treatment's files are, as a path relative to the experiment file.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub source: Option<String>,
+}
+
+object_only!(TreatmentSpec);
+
+impl TreatmentSpec {
+    /// Names a treatment, pinned to no tag and no commit and with no source.
+    #[must_use]
+    pub const fn new(name: Name) -> Self {
+        Self {
+            name,
+            tag: None,
+            commit: None,
+            source: None,
+        }
+    }
+
+    /// The treatment as a cell records it: the name, the tag and the commit, without the source.
+    #[must_use]
+    pub fn reference(&self) -> TreatmentRef {
+        TreatmentRef {
+            // BORROW: .clone() gives the reference its own name
+            name: self.name.clone(),
+            // BORROW: .clone() gives the reference its own tag
+            tag: self.tag.clone(),
+            // BORROW: .clone() gives the reference its own commit
+            commit: self.commit.clone(),
+        }
+    }
+}
+
+impl From<TreatmentRef> for TreatmentSpec {
+    fn from(reference: TreatmentRef) -> Self {
+        Self {
+            name: reference.name,
+            tag: reference.tag,
+            commit: reference.commit,
+            source: None,
+        }
+    }
+}
+
+/// The paths whose values are tables kept whole: everything written at or below one reaches a cell as one object at that path, where any other table flattens into one value per leaf.
+pub const TABLE_VALUED_PATHS: [&str; 1] = ["prompt.values"];
+
+/// The table-valued path that `path` is or lies below, if any.
+fn table_root(path: &FieldPath) -> Option<&'static str> {
+    TABLE_VALUED_PATHS.into_iter().find(|root| {
+        // BORROW: explicit .as_str() instead of Deref coercion
+        path.as_str()
+            .strip_prefix(root)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
+    })
+}
+
+/// Collects the leaves a value gives: its own path, or, for a table at or below a table-valued path, the path of each leaf of the table.
+fn leaves_of(
+    path: &FieldPath,
+    value: &Value,
+    out: &mut Vec<FieldPath>,
+) -> Result<(), ExecutionError> {
+    match value {
+        Value::Object(table) if table_root(path).is_some() => {
+            if table.is_empty() {
+                return Err(ExecutionError::EmptyTable {
+                    path: path.to_string(),
+                });
+            }
+            for (key, inner) in table {
+                // BORROW: explicit .as_str() instead of Deref coercion
+                leaves_of(&path.join(key.as_str())?, inner, out)?;
+            }
+            Ok(())
+        }
+        Value::Null
+        | Value::Bool(_)
+        | Value::Number(_)
+        | Value::String(_)
+        | Value::Array(_)
+        | Value::Object(_) => {
+            // BORROW: .clone() copies the path into the leaves
+            out.push(path.clone());
+            Ok(())
+        }
+    }
+}
+
+/// Merges `from` into `into`, key by key and table by table. The leaves of the two are disjoint, so no key of one replaces a key of the other.
+fn merge_tables(into: &mut Value, from: &Value) {
+    match (into, from) {
+        (Value::Object(held), Value::Object(added)) => {
+            for (key, value) in added {
+                match held.get_mut(key) {
+                    Some(slot) => merge_tables(slot, value),
+                    None => {
+                        // BORROW: .clone() gives the merged table its own value
+                        held.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+        }
+        (slot, other) => {
+            // BORROW: .clone() gives the slot its own value
+            *slot = other.clone();
+        }
+    }
+}
+
+/// Wraps `value` in one table per segment of `relative`, innermost first.
+fn nest(relative: &str, value: Value) -> Value {
+    relative.rsplit('.').fold(value, |inner, segment| {
+        let mut table = Map::new();
+        // BORROW: .to_owned() makes the owned key
+        table.insert(segment.to_owned(), inner);
+        Value::Object(table)
+    })
+}
+
+/// Folds the values at or below a table-valued path into one value at that path, placed where the first of them stood. Values elsewhere, and a lone value at the path itself, are left as they are.
+///
+/// # Errors
+/// Returns [`ExecutionError::EmptyTable`] if a table there holds no value,
+/// [`ExecutionError::Duplicate`] if two values give one leaf, and [`ExecutionError::PathOverlap`]
+/// if one leaf lies below another.
+fn fold_tables(
+    values: Vec<ResolvedValue>,
+    list: &'static str,
+) -> Result<Vec<ResolvedValue>, ExecutionError> {
+    let mut values = values;
+    for root in TABLE_VALUED_PATHS {
+        let under: Vec<(usize, &ResolvedValue)> = values
+            .iter()
+            .enumerate()
+            .filter(|(_, value)| table_root(value.path()) == Some(root))
+            .collect();
+        let Some((first, lone)) = under.first().copied() else {
+            continue;
+        };
+        let mut leaves = Vec::new();
+        let mut table = Value::Object(Map::new());
+        for (_, value) in &under {
+            let Some(json) = value.value() else {
+                return Err(ExecutionError::MissingField { field: "value" });
+            };
+            leaves_of(value.path(), json.as_value(), &mut leaves)?;
+            let relative = value
+                .path()
+                .as_str()
+                .strip_prefix(root)
+                .and_then(|rest| rest.strip_prefix('.'));
+            // BORROW: .clone() gives the table its own copy of the value
+            let part = relative.map_or_else(
+                || json.as_value().clone(),
+                |relative| nest(relative, json.as_value().clone()),
+            );
+            merge_tables(&mut table, &part);
+        }
+        let mut sorted: Vec<&FieldPath> = leaves.iter().collect();
+        sorted.sort();
+        if let Some(pair) = sorted.windows(2).find(|pair| pair.first() == pair.get(1)) {
+            return Err(ExecutionError::Duplicate {
+                list,
+                value: pair.first().map(ToString::to_string).unwrap_or_default(),
+            });
+        }
+        check_overlaps(&[sorted.into_iter().cloned().collect()])?;
+        if under.len() == 1 && lone.path().as_str() == root {
+            continue;
+        }
+        let places: BTreeSet<usize> = under.iter().map(|(at, _)| *at).collect();
+        let mut folded = Some(ResolvedValue::recorded(
+            FieldPath::from_str(root)?,
+            JsonValue::merged(table),
+        ));
+        let mut kept = Vec::with_capacity(values.len());
+        for (at, value) in values.into_iter().enumerate() {
+            if at == first {
+                kept.extend(folded.take());
+            } else if !places.contains(&at) {
+                kept.push(value);
+            }
+        }
+        values = kept;
+    }
+    Ok(values)
+}
+
+/// Adds the values of a level to a cell. A table at a table-valued path that the cell already holds is merged with the level's, since their leaves are disjoint.
+fn absorb(cell: &mut Vec<ResolvedValue>, level: &[ResolvedValue]) {
+    for value in level {
+        let added = value.value().filter(|_| table_root(value.path()).is_some());
+        let slot = added.and_then(|_| cell.iter_mut().find(|held| held.path() == value.path()));
+        let merged = slot
+            .as_ref()
+            .and_then(|slot| slot.value())
+            .zip(added)
+            .map(|(held, added)| {
+                // BORROW: .clone() starts the merge from the held table
+                let mut table = held.as_value().clone();
+                merge_tables(&mut table, added.as_value());
+                table
+            });
+        match (slot, merged) {
+            (Some(slot), Some(table)) => {
+                // BORROW: .clone() gives the cell its own path
+                *slot = ResolvedValue::recorded(slot.path().clone(), JsonValue::merged(table));
+            }
+            (None, _) | (Some(_), None) => {
+                // BORROW: .clone() gives the cell its own copy of the level's value
+                cell.push(value.clone());
+            }
+        }
+    }
+}
+
 /// One value of a factor: any JSON value except `null`, or a table whose leaves fill the paths under the factor's path.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -573,16 +830,19 @@ impl Level {
     /// The values this level gives the paths at and under `base`.
     fn fills(&self, base: &FieldPath) -> Result<Vec<ResolvedValue>, ExecutionError> {
         match self {
-            Self::Value(value) => Ok(vec![ResolvedValue::recorded(
-                // BORROW: .clone() gives the cell its own path
-                base.clone(),
-                // BORROW: .clone() gives the cell its own value
-                value.clone(),
-            )]),
+            Self::Value(value) => fold_tables(
+                vec![ResolvedValue::recorded(
+                    // BORROW: .clone() gives the cell its own path
+                    base.clone(),
+                    // BORROW: .clone() gives the cell its own value
+                    value.clone(),
+                )],
+                "levels",
+            ),
             Self::Fill(table) => {
                 let mut out = Vec::new();
                 fill_leaves(table, base, &mut out)?;
-                Ok(out)
+                fold_tables(out, "levels")
             }
         }
     }
@@ -685,6 +945,131 @@ impl Factor {
     }
 }
 
+/// Who sees an input: the agent, in its workspace, or only the evaluators.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum InputAudience {
+    /// The agent sees the input, mounted read-only in its workspace.
+    #[default]
+    Agent,
+    /// Only the evaluators see the input; it never enters the agent's workspace.
+    Evaluators,
+}
+
+/// The kind of input the wire reserves for the files an environment build reads.
+const RESERVED_INPUT_KIND: &str = "build_inputs";
+
+/// An input a run reads: a file or a directory, found relative to the experiment file, and who sees it.
+#[derive(Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields, rename = "ExperimentInput")]
+struct RawExperimentInput {
+    /// What the input is, as a plain name; unique among the inputs of a file.
+    kind: Name,
+    /// The file or directory, relative to the experiment file.
+    path: String,
+    /// The workspace directory the input is mounted under; `.` when absent.
+    #[serde(default, deserialize_with = "present")]
+    #[schemars(extend(
+        "$comment" = "A relative path with no `..` segment; the Rust reader refuses an absolute path and a `..` segment."
+    ))]
+    at: Option<String>,
+    /// Who sees the input; the agent when absent.
+    #[serde(default)]
+    audience: InputAudience,
+}
+
+impl TryFrom<MapOnly<RawExperimentInput>> for ExperimentInput {
+    type Error = ExecutionError;
+
+    fn try_from(raw: MapOnly<RawExperimentInput>) -> Result<Self, Self::Error> {
+        let RawExperimentInput {
+            kind,
+            path,
+            at,
+            audience,
+        } = raw.0;
+        Self::new(kind, path, at, audience)
+    }
+}
+
+/// An input a run reads: a file or a directory, found relative to the experiment file, and who sees it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(try_from = "MapOnly<RawExperimentInput>")]
+#[non_exhaustive]
+pub struct ExperimentInput {
+    kind: Name,
+    path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    at: Option<String>,
+    audience: InputAudience,
+}
+
+impl ExperimentInput {
+    /// Declares an input.
+    ///
+    /// # Errors
+    /// Returns [`ExecutionError::InputDeclaration`] if `at` is empty, is an absolute path or holds
+    /// a `..` segment, or if `kind` is `build_inputs`, which the wire reserves.
+    pub fn new(
+        kind: Name,
+        path: String,
+        at: Option<String>,
+        audience: InputAudience,
+    ) -> Result<Self, ExecutionError> {
+        let refuse = |problem| ExecutionError::InputDeclaration {
+            kind: kind.to_string(),
+            problem,
+        };
+        if kind.as_str() == RESERVED_INPUT_KIND {
+            return Err(refuse("has a kind the wire reserves for build inputs"));
+        }
+        if let Some(at) = &at {
+            if at.is_empty() {
+                return Err(refuse("mounts under an empty directory"));
+            }
+            if is_absolute_path(at.as_str()) {
+                return Err(refuse("mounts under an absolute path"));
+            }
+            if at.split(['/', '\\']).any(|segment| segment == "..") {
+                return Err(refuse("mounts under a path that leaves the workspace"));
+            }
+        }
+        Ok(Self {
+            kind,
+            path,
+            at,
+            audience,
+        })
+    }
+
+    /// What the input is.
+    #[must_use]
+    pub const fn kind<'a>(&'a self) -> &'a Name {
+        &self.kind
+    }
+
+    /// The file or directory, relative to the experiment file.
+    #[must_use]
+    pub fn path<'a>(&'a self) -> &'a str {
+        // BORROW: explicit .as_str() instead of Deref coercion
+        self.path.as_str()
+    }
+
+    /// The workspace directory the input is mounted under, if the file names one.
+    #[must_use]
+    pub fn at<'a>(&'a self) -> Option<&'a str> {
+        // BORROW: explicit .as_deref() instead of Deref coercion
+        self.at.as_deref()
+    }
+
+    /// Who sees the input.
+    #[must_use]
+    pub const fn audience(&self) -> InputAudience {
+        self.audience
+    }
+}
+
 /// The values an experiment file fixes in advance, precomputed so that its cells are infallible.
 #[derive(Debug, Clone, PartialEq)]
 struct Plan {
@@ -718,11 +1103,17 @@ struct RawExperimentFile {
     budget: Budget,
     /// The harness the runs use.
     harness: HarnessRequest,
-    /// The treatment the runs apply.
-    treatment: TreatmentRef,
+    /// The treatment the runs apply, and where its files are.
+    treatment: TreatmentSpec,
     /// The names of the environment variables the runs need; their values are never written.
     #[serde(default)]
     secrets: Vec<SecretName>,
+    /// The files and directories the runs read, with who sees each.
+    #[serde(default)]
+    #[schemars(extend(
+        "$comment" = "The kinds are unique and none is `build_inputs`; the Rust reader refuses a repeated or reserved kind."
+    ))]
+    inputs: Vec<ExperimentInput>,
 }
 
 impl TryFrom<MapOnly<RawExperimentFile>> for ExperimentFile {
@@ -738,10 +1129,12 @@ impl TryFrom<MapOnly<RawExperimentFile>> for ExperimentFile {
             harness,
             treatment,
             secrets,
+            inputs,
         } = raw.0;
         Self::new(
             fixed, factors, replicates, budget, harness, treatment, secrets,
-        )
+        )?
+        .with_inputs(inputs)
     }
 }
 
@@ -756,8 +1149,10 @@ pub struct ExperimentFile {
     replicates: u32,
     budget: Budget,
     harness: HarnessRequest,
-    treatment: TreatmentRef,
+    treatment: TreatmentSpec,
     secrets: Vec<SecretName>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    inputs: Vec<ExperimentInput>,
     #[serde(skip)]
     #[schemars(skip)]
     plan: Plan,
@@ -778,7 +1173,7 @@ impl ExperimentFile {
         replicates: u32,
         budget: Budget,
         harness: HarnessRequest,
-        treatment: TreatmentRef,
+        treatment: impl Into<TreatmentSpec>,
         secrets: Vec<SecretName>,
     ) -> Result<Self, ExecutionError> {
         if replicates == 0 {
@@ -787,10 +1182,12 @@ impl ExperimentFile {
             });
         }
         budget.check()?;
+        let fixed = fold_fixed(fixed)?;
         let mut levels = Vec::with_capacity(factors.len());
-        // Every path an owner touches: the keys of `fixed` first, then one set per factor.
-        // BORROW: .cloned() copies the keys into the footprint set
-        let mut footprints: Vec<BTreeSet<FieldPath>> = vec![fixed.keys().cloned().collect()];
+        // Every path an owner touches: the leaves of `fixed` first, then one set per factor.
+        let mut footprints: Vec<BTreeSet<FieldPath>> = vec![footprint(
+            fixed.iter().map(|(path, value)| (path, value.as_value())),
+        )?];
         for factor in &factors {
             if factor.levels.is_empty() {
                 return Err(ExecutionError::NoLevels {
@@ -803,14 +1200,9 @@ impl ExperimentFile {
                 .iter()
                 .map(|level| level.fills(&factor.path))
                 .collect::<Result<Vec<_>, _>>()?;
-            footprints.push(
-                filled
-                    .iter()
-                    .flatten()
-                    // BORROW: .clone() copies the path into the footprint set
-                    .map(|value| value.path().clone())
-                    .collect(),
-            );
+            footprints.push(footprint(filled.iter().flatten().filter_map(|value| {
+                value.value().map(|json| (value.path(), json.as_value()))
+            }))?);
             levels.push(filled);
         }
         check_overlaps(&footprints)?;
@@ -831,10 +1223,29 @@ impl ExperimentFile {
             replicates,
             budget,
             harness,
-            treatment,
+            treatment: treatment.into(),
             secrets,
+            inputs: Vec::new(),
             plan,
         })
+    }
+
+    /// Declares the inputs of the runs.
+    ///
+    /// # Errors
+    /// Returns [`ExecutionError::Duplicate`] if two inputs have one kind.
+    pub fn with_inputs(mut self, inputs: Vec<ExperimentInput>) -> Result<Self, ExecutionError> {
+        let mut kinds: BTreeSet<&Name> = BTreeSet::new();
+        for input in &inputs {
+            if !kinds.insert(&input.kind) {
+                return Err(ExecutionError::Duplicate {
+                    list: "inputs",
+                    value: input.kind.to_string(),
+                });
+            }
+        }
+        self.inputs = inputs;
+        Ok(self)
     }
 
     /// Reads an experiment file from TOML, converts it to JSON and validates it.
@@ -900,8 +1311,15 @@ impl ExperimentFile {
 
     /// The treatment the runs apply.
     #[must_use]
-    pub const fn treatment<'a>(&'a self) -> &'a TreatmentRef {
+    pub const fn treatment<'a>(&'a self) -> &'a TreatmentSpec {
         &self.treatment
+    }
+
+    /// The inputs the runs read, in written order.
+    #[must_use]
+    pub fn inputs<'a>(&'a self) -> &'a [ExperimentInput] {
+        // BORROW: explicit .as_slice() instead of Deref coercion
+        self.inputs.as_slice()
     }
 
     /// The names of the secrets the runs need.
@@ -928,8 +1346,7 @@ impl ExperimentFile {
                 for level in levels {
                     // BORROW: .clone() gives each product cell its own prefix
                     let mut extended = cell.clone();
-                    // BORROW: .cloned() gives each product cell its own level values
-                    extended.extend(level.iter().cloned());
+                    absorb(&mut extended, level.as_slice());
                     next.push(extended);
                 }
             }
@@ -941,6 +1358,38 @@ impl ExperimentFile {
         }
         cells
     }
+}
+
+/// Folds the keys of `fixed` at or below a table-valued path into one key holding one table.
+fn fold_fixed(
+    fixed: BTreeMap<FieldPath, JsonValue>,
+) -> Result<BTreeMap<FieldPath, JsonValue>, ExecutionError> {
+    if !fixed.keys().any(|path| table_root(path).is_some()) {
+        return Ok(fixed);
+    }
+    let values = fixed
+        .into_iter()
+        .map(|(path, value)| ResolvedValue::recorded(path, value))
+        .collect();
+    Ok(fold_tables(values, "fixed")?
+        .into_iter()
+        .filter_map(|value| {
+            // BORROW: .clone() gives the map its own value
+            let json = value.value().cloned()?;
+            Some((value.path().clone(), json)) // BORROW: .clone() gives the map its own path
+        })
+        .collect())
+}
+
+/// The set of leaf paths the `(path, value)` pairs give.
+fn footprint<'a>(
+    values: impl Iterator<Item = (&'a FieldPath, &'a Value)>,
+) -> Result<BTreeSet<FieldPath>, ExecutionError> {
+    let mut leaves = Vec::new();
+    for (path, value) in values {
+        leaves_of(path, value, &mut leaves)?;
+    }
+    Ok(leaves.into_iter().collect())
 }
 
 /// Refuses two footprints whose paths overlap, and two overlapping paths inside one footprint.
@@ -1094,6 +1543,66 @@ pub fn experiment_digest(cells: &[Digest]) -> Digest {
         Ok(digest) => digest,
         Err(error) => unreachable!("a list of strings has a canonical text: {error}"),
     }
+}
+
+/// One file of an input: its path relative to the input's root and the digest of its bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct InputEntry {
+    /// The path of the file relative to the input's root; a file input is named by its file name.
+    pub path: RelPath,
+    /// The digest of the file's bytes.
+    pub sha256: Digest,
+}
+
+object_only!(InputEntry);
+
+impl InputEntry {
+    /// A file of an input.
+    #[must_use]
+    pub const fn new(path: RelPath, sha256: Digest) -> Self {
+        Self { path, sha256 }
+    }
+}
+
+/// The digest of an input: the digest of the RFC 8785 form of its list of `{path, sha256}` entries, sorted by path in code point order.
+///
+/// A file input is a list of one entry, named by its file name. The list is the same whatever
+/// order `entries` is in, so any language recomputes the digest from the files alone.
+///
+/// # Errors
+/// Returns [`ExecutionError::EmptyList`] if `entries` is empty and [`ExecutionError::Duplicate`]
+/// if two entries have one path.
+#[must_use = "the digest is the only result"]
+pub fn input_list_digest(entries: &[InputEntry]) -> Result<Digest, ExecutionError> {
+    if entries.is_empty() {
+        return Err(ExecutionError::EmptyList {
+            list: "input entries",
+        });
+    }
+    let mut sorted: Vec<&InputEntry> = entries.iter().collect();
+    sorted.sort_by(|first, second| first.path.cmp(&second.path));
+    for pair in sorted.windows(2) {
+        if let [first, second] = pair
+            && first.path == second.path
+        {
+            return Err(ExecutionError::Duplicate {
+                list: "input entries",
+                value: second.path.to_string(),
+            });
+        }
+    }
+    let list = sorted
+        .into_iter()
+        .map(|entry| {
+            serde_json::to_value(entry).map_err(|e| CanonicalError::Syntax {
+                detail: e.to_string(),
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Digest::of_canonical(&Value::Array(list))?)
 }
 
 /// The state a cell gives a path: absent, recorded as unrecorded, or recorded with a canonical text.
@@ -1956,6 +2465,12 @@ struct RawRunManifest {
     /// How an imported run was read.
     #[serde(default, deserialize_with = "present")]
     import: Option<ImportRecord>,
+    /// The inputs only the evaluators see, sorted by kind and digest; they are not part of the cell.
+    #[serde(default)]
+    #[schemars(extend(
+        "$comment" = "Sorted by kind then digest in code point order, without a repeated entry; the Rust reader refuses a list that is not."
+    ))]
+    evaluation_inputs: Vec<DigestRef>,
 }
 
 impl TryFrom<MapOnly<RawRunManifest>> for RunManifest {
@@ -1978,9 +2493,11 @@ impl TryFrom<MapOnly<RawRunManifest>> for RunManifest {
             job,
             integrity,
             import,
+            evaluation_inputs,
         } = raw.0;
         // BORROW: explicit .as_slice() instead of Deref coercion
         check_sources(&comparable, sources.as_slice())?;
+        check_evaluation_inputs(evaluation_inputs.as_slice())?;
         Ok(Self {
             schema: RunManifestTag,
             run,
@@ -1997,8 +2514,20 @@ impl TryFrom<MapOnly<RawRunManifest>> for RunManifest {
             job,
             integrity,
             import,
+            evaluation_inputs,
         })
     }
+}
+
+/// Checks that the evaluator-only inputs rise strictly by kind and digest.
+fn check_evaluation_inputs(inputs: &[DigestRef]) -> Result<(), ExecutionError> {
+    check_ascending(
+        "evaluation_inputs",
+        "kind and digest",
+        inputs,
+        |entry| (entry.kind.as_str(), entry.digest.as_str()),
+        |entry| entry.digest.to_string(),
+    )
 }
 
 /// Reports whether `path` is a typed root or lies below one.
@@ -2091,6 +2620,8 @@ pub struct RunManifest {
     integrity: Integrity,
     #[serde(skip_serializing_if = "Option::is_none")]
     import: Option<ImportRecord>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    evaluation_inputs: Vec<DigestRef>,
 }
 
 impl RunManifest {
@@ -2195,6 +2726,13 @@ impl RunManifest {
     pub const fn import<'a>(&'a self) -> Option<&'a ImportRecord> {
         self.import.as_ref()
     }
+
+    /// The inputs only the evaluators see, sorted by kind and digest; they are not part of the cell.
+    #[must_use]
+    pub fn evaluation_inputs<'a>(&'a self) -> &'a [DigestRef] {
+        // BORROW: explicit .as_slice() instead of Deref coercion
+        self.evaluation_inputs.as_slice()
+    }
 }
 
 /// Builds a [`RunManifest`].
@@ -2215,6 +2753,7 @@ pub struct RunManifestBuilder {
     job: Option<JobId>,
     integrity: Option<Integrity>,
     import: Option<ImportRecord>,
+    evaluation_inputs: Vec<DigestRef>,
 }
 
 impl RunManifestBuilder {
@@ -2316,13 +2855,20 @@ impl RunManifestBuilder {
         self
     }
 
+    /// Adds an input only the evaluators see; the list is sorted when the manifest builds.
+    #[must_use]
+    pub fn evaluation_input(mut self, input: DigestRef) -> Self {
+        self.evaluation_inputs.push(input);
+        self
+    }
+
     /// Builds the manifest.
     ///
     /// # Errors
     /// Returns [`ExecutionError::MissingField`] if the run, the experiment digest, the cell or the
     /// integrity is not set, [`ExecutionError::SourcesMismatch`] if the sources do not cover the cell's values and
     /// typed roots or name another path, and [`ExecutionError::Duplicate`] if a path has two
-    /// sources.
+    /// sources or an evaluator-only input is listed twice.
     pub fn build(self) -> Result<RunManifest, ExecutionError> {
         let run = self
             .run
@@ -2338,6 +2884,9 @@ impl RunManifestBuilder {
             .ok_or(ExecutionError::MissingField { field: "integrity" })?;
         // BORROW: explicit .as_slice() instead of Deref coercion
         check_sources(&comparable, self.sources.as_slice())?;
+        let mut evaluation_inputs = self.evaluation_inputs;
+        evaluation_inputs.sort();
+        check_evaluation_inputs(evaluation_inputs.as_slice())?;
         Ok(RunManifest {
             schema: RunManifestTag,
             run,
@@ -2354,6 +2903,7 @@ impl RunManifestBuilder {
             job: self.job,
             integrity,
             import: self.import,
+            evaluation_inputs,
         })
     }
 }

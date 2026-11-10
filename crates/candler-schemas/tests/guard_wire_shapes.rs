@@ -3,8 +3,10 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use candler_schemas::catalog::{CatalogSnapshot, SCHEMA_TAG};
+use candler_schemas::primitives::NameToken;
 use candler_schemas::process::{ExitStatus, ProcessStart};
 use candler_schemas::values::ValueSource;
 use serde::de::DeserializeOwned;
@@ -195,4 +197,29 @@ fn catalog_wire_structs_are_refused_as_lists_in_every_fixture() {
         }
     }
     assert!(tried > 0, "no object was tried");
+}
+
+/// Guards: Run manifest — a derived source may record the location its step read; without one it writes no `from`, and an explicit `null` is refused. Oracle: the three wire texts written by hand.
+#[test]
+fn derived_source_carries_an_optional_location() {
+    let step = || NameToken::from_str("probe@1").expect("a step");
+    let with = read::<ValueSource>(r#"{"kind":"derived","step":"probe@1","from":"../skills"}"#)
+        .expect("a derived source with a location");
+    assert_eq!(
+        with,
+        ValueSource::derived_from(step(), "../skills".to_owned())
+    );
+    assert_eq!(
+        serde_json::to_string(&with).expect("JSON"),
+        r#"{"kind":"derived","step":"probe@1","from":"../skills"}"#
+    );
+    let without = ValueSource::derived(step());
+    assert_eq!(
+        serde_json::to_string(&without).expect("JSON"),
+        r#"{"kind":"derived","step":"probe@1"}"#
+    );
+    assert!(
+        read::<ValueSource>(r#"{"kind":"derived","step":"probe@1","from":null}"#).is_err(),
+        "a null location"
+    );
 }

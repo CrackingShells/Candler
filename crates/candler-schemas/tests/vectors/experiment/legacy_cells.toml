@@ -1,0 +1,99 @@
+# The experiment texts that tests of the repository build inline, with the digest of each cell they
+# list: the sha256 of the RFC 8785 form of the cell's JSON, in the order `cells()` returns them.
+# `cont_train.toml` sits beside this file and is entered as a file. None of the texts has a field
+# added after b017d31 or a table under `prompt.values`, so their digests never move. Recorded from
+# the b017d31 code before any edit of `src/`. Never edit a digest to make a test pass.
+
+[[case]]
+name = "run_plan_one_model"
+cells = [
+    "sha256:ab92e3f0d771e7d5608222b4e40160bc40c51f5859f83e2c7c3a88ad426e3185",
+]
+text = '''
+schema = "experiment/1"
+replicates = 1
+
+[[factors]]
+path = "model.id"
+levels = ["m"]
+
+[budget.per_run]
+wall_s = 3600
+
+[harness]
+name = "claude-code"
+
+[treatment]
+name = "htn"
+'''
+
+[[case]]
+name = "run_plan_two_models"
+cells = [
+    "sha256:6dd2008470aa6d7d010d8587fed7f0d49cea227693bf1d636f2f4e1b403f193f",
+    "sha256:0044879ddc6c714ad3eab166effcae55e6a0f1d4627701940d8582b1c13c00fe",
+]
+text = '''
+schema = "experiment/1"
+replicates = 2
+
+[[factors]]
+path = "model.id"
+levels = ["m-a", "m-b"]
+
+[budget.per_run]
+wall_s = 3600
+
+[harness]
+name = "claude-code"
+
+[treatment]
+name = "htn"
+'''
+
+[[case]]
+name = "cli_run_fixture"
+cells = [
+    "sha256:ba53156585bc29cfeb3dbfaf9cf8838eb585341b19445555519f90f47027702f",
+]
+text = '''
+schema = "experiment/1"
+replicates = 1
+secrets = ["FIXTURE_TOKEN"]
+
+[fixed]
+"model.endpoint" = "http://127.0.0.1:9"
+"prompt.template" = "say hello"
+
+[[factors]]
+path = "model.id"
+levels = ["fixture-model"]
+
+[budget.per_run]
+wall_s = 30
+
+[harness]
+name = "claude-code"
+
+[treatment]
+name = "demo"
+tag = "v1"
+'''
+
+[[case]]
+name = "cont_train"
+cells = [
+    "sha256:fb9936426fc2d22d1fc78b5c4a4ed550caa6f873b2c9f9eab7b0601a78cabdb4",
+    "sha256:4475b8803c5b13362f797e2b2ff3a51f8ab809678dd23d0e6fcff547f73546bc",
+    "sha256:e1490af98a58f5c55a0af25f384580f8f24e89b3de361363790f84c2eab63d21",
+    "sha256:02b157fe69b1a0f73cdd9683b44069b729de9dfeeb4b8e552af696072862d9cd",
+    "sha256:a04fe4774e039ed0eee90ce1e664bee16c9272b26103aeeffa53c860bf512fb1",
+    "sha256:2bed72023b6967f86fab764e70f148587b196c5c788b79874d05d11458d3332c",
+    "sha256:5a99e3205003f214a50ba0854297c23c0ec7542f0b744041e5f1ce3c093f6bc1",
+    "sha256:bed0286a9d6f71dc60a9fc88756fb7dc3282be9ca7b0319ef704a85505454cf1",
+    "sha256:5eb2aaff7c4b798c01c4b8a2ad6da2ef04405075f8d590e99c65eca1930bcda9",
+    "sha256:262961a5824d89c06d1ddbb646439528b8c72f6a8603defa738c2a859d3374c5",
+    "sha256:89185efdc5ad7271a90f14a87ee93eaa786b4bca52a96af28b53c6c75ebdc9e0",
+    "sha256:ac92f2736a3ea4179739e37fde0a4a0edde9ed2f1da2c3df47b2673730395e49",
+]
+file = "cont_train.toml"

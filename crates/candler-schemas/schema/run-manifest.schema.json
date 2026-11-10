@@ -534,7 +534,7 @@
       "type": "object"
     },
     "ValueSource": {
-      "description": "Where a resolved value came from: an object whose `kind` names the source, with `step` for `derived` and `file` for `imported`.",
+      "description": "Where a resolved value came from: an object whose `kind` names the source, with `step` and optionally `from` for `derived` and `file` for `imported`.",
       "oneOf": [
         {
           "additionalProperties": false,
@@ -594,8 +594,12 @@
         },
         {
           "additionalProperties": false,
-          "description": "A value a preflight step derived, under the key `step`.",
+          "description": "A value a preflight step derived, under the key `step`, and the location it read under `from`.",
           "properties": {
+            "from": {
+              "description": "The location the step read, as the experiment file wrote it; absent when the value has none.",
+              "type": "string"
+            },
             "kind": {
               "const": "derived",
               "type": "string"
@@ -680,6 +684,15 @@
     "ended_at": {
       "$ref": "#/$defs/Timestamp",
       "description": "When the run ended."
+    },
+    "evaluation_inputs": {
+      "$comment": "Sorted by kind then digest in code point order, without a repeated entry; the Rust reader refuses a list that is not.",
+      "default": [],
+      "description": "The inputs only the evaluators see, sorted by kind and digest; they are not part of the cell.",
+      "items": {
+        "$ref": "#/$defs/DigestRef"
+      },
+      "type": "array"
     },
     "experiment": {
       "$ref": "#/$defs/Digest",

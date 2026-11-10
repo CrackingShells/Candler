@@ -1505,8 +1505,8 @@ mod tests {
             "a\u{1c}b@1.0.0",
             "a\u{180e}b@1.0.0",
         ]);
-        let parsed: NameVersion = "tier-a@2.0.1-beta".parse().expect("valid");
-        assert_eq!(parsed.name(), "tier-a");
+        let parsed: NameVersion = "stage-a@2.0.1-beta".parse().expect("valid");
+        assert_eq!(parsed.name(), "stage-a");
         assert_eq!(parsed.version().to_string(), "2.0.1-beta");
     }
 
@@ -1540,7 +1540,7 @@ mod tests {
 
     #[test]
     fn name_token_accepts_free_version_tokens() {
-        assert_accepts::<NameToken>(&["rikyu@2026.10", "provider@v1+x-y.z", "a@1", "a@latest"]);
+        assert_accepts::<NameToken>(&["zenith@2026.10", "provider@v1+x-y.z", "a@1", "a@latest"]);
         let parsed: NameToken = "bio-opentrons@0.4.2+g1".parse().expect("valid");
         assert_eq!(parsed.name(), "bio-opentrons");
         assert_eq!(parsed.version(), "0.4.2+g1");
@@ -1876,7 +1876,7 @@ mod tests {
 
     #[test]
     fn expectation_id_accepts_alphanumeric_start_then_dot_underscore_dash() {
-        assert_accepts::<ExpectationId>(&["a", "E1", "tier-a.domain_structure", "0x", "a-"]);
+        assert_accepts::<ExpectationId>(&["a", "E1", "stage-a.domain_structure", "0x", "a-"]);
     }
 
     #[test]
