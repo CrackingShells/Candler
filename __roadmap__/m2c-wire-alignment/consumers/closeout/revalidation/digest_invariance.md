@@ -10,7 +10,7 @@
 - ⬜ [cmd] Each corpus is imported with `candler import` built from b017d31 and from the branch, into fresh stores under `$TMPDIR`, with each side's rules file. The branch's rules file adds only `entry_params`. Then, per corpus:
   - the sorted run keys are equal;
   - the sorted `(run key, context_digest)` pairs over every outcome record are equal;
-  - the manifests, as `jq -S -c`, one line per run, are equal.
+  - the manifests, as `jq -S -c`, one line per run, differ in `import.rules` alone: the whole `diff` shows only that field, and with it deleted (`del(.import.rules)`) the `diff` is empty. `import.rules` is the rules file's sha256, and the branch's file must add `entry_params`.
   Each is a `diff` of two sorted files that prints nothing
 - ⬜ [cmd] The parity fixtures are untouched: G5a and G5b hold
 - ⬜ [nl] The report gives, for each corpus: the counts (240 runs and 10,320 records; 6 runs and 136 records), each `diff` command and its empty output, the sha of both builds, and the rules files used (with their sha256). It is written with `writing-reports` (type findings), with no code dump
