@@ -24,6 +24,7 @@ graph TD
     layering_guard[Layering guard]:::done
     env_image_e2e[Env image e2e]:::done
     revalidation[Revalidation]:::inprogress
+    settings_out_of_cell[Settings out of cell]:::amendment
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -38,6 +39,7 @@ graph TD
 | `layering_guard.md` | 📄 Leaf Task | ✅ Done |
 | `env_image_e2e.md` | 📄 Leaf Task | ✅ Done |
 | `revalidation/` | 📁 Directory | 🔄 In Progress |
+| `settings_out_of_cell.md` | 📄 Leaf Task | 🔵 Amendment |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
