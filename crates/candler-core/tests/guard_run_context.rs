@@ -738,3 +738,44 @@ fn needs_inputs_refused_when_the_run_cannot_serve_them() {
         );
     }
 }
+
+/// Guards: R01 §Evaluator protocol — an input whose list blob does not hold the list its digest
+/// names is refused as a non-canonical list, naming the kind, and is never served: the blob under
+/// the digest key holds a valid list of an existing file with another sha256 than the one the
+/// digest was made of. Oracle: hand-written; the two canonical list texts are written out below,
+/// and the reason is the one text the refusal gives.
+#[test]
+fn needs_inputs_refused_when_the_list_blob_is_not_its_digests_list() {
+    let (_keep, store) = mini_store(&mini());
+    let template = key_of(&store, 6);
+    let list_of = |content: &str| -> String {
+        let file = store
+            .put_blob(content.as_bytes(), None)
+            .expect("a file blob stores");
+        format!(r#"[{{"path":"a.txt","sha256":"{file}"}}]"#)
+    };
+    let digest = store
+        .put_blob(list_of("one\n").as_bytes(), None)
+        .expect("the list blob stores");
+    let run = seal_with_inputs(
+        &store,
+        &template,
+        2,
+        &[("doc".into(), digest.to_string())],
+        &[],
+    );
+    // The served list is intact before the overwrite, so the refusal below is the overwrite's.
+    let workspace = tempfile::tempdir().expect("a workspace");
+    context_of(&store, &run, &input_needs(&["doc"]), workspace.path());
+
+    let blob = store.layout().blob(&digest);
+    fs::remove_file(&blob).expect("the list blob is removed");
+    fs::write(&blob, list_of("two\n")).expect("the list blob is overwritten");
+    let error = assemble(&store, &run, &input_needs(&["doc"]))
+        .expect_err("a list that is not its digest's is refused");
+    let text = error.to_string();
+    assert!(
+        text.contains("`doc`") && text.contains("is not the canonical list of its digest"),
+        "`{text}` names the kind and the non-canonical list"
+    );
+}
