@@ -247,7 +247,7 @@ fn foreground(config: Arc<Config>, root: &Path) -> Result<Foreground, CliError> 
         supervisor,
         images: Arc::new(images),
         catalog: Arc::new(catalog),
-        harness_supported: ClaudeCodeDriver::new().supported(),
+        harness_supported: ClaudeCodeDriver::new().map_err(failed)?.supported(),
     };
     let resolver = compose_resolver(config, &services).map_err(failed)?;
     Ok(Foreground {

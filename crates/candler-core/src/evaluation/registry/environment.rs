@@ -303,8 +303,7 @@ pub fn register_evaluation_steps(
     supervisor: &Arc<Supervisor>,
 ) -> Result<Resolver, ResolveError> {
     for plugin in registry.plugins().values() {
-        if let Some(step) = EnvironmentStep::for_plugin(plugin, env_root, Arc::clone(supervisor))?
-        {
+        if let Some(step) = EnvironmentStep::for_plugin(plugin, env_root, Arc::clone(supervisor))? {
             // TRAIT_OBJECT: steps of different types are registered side by side
             resolver = resolver.register(Box::new(step))?;
         }

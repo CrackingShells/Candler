@@ -179,40 +179,47 @@ fn cap_text(cell: &Cell<'_>, path: &str, whole: bool) -> Result<Option<String>, 
 }
 
 /// The driver of Claude Code.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct ClaudeCodeDriver;
+pub struct ClaudeCodeDriver {
+    /// The harness's name and version token.
+    id: HarnessId,
+    /// The command whose output names the installed version.
+    probe: CommandSpec,
+}
 
 impl ClaudeCodeDriver {
-    /// A driver.
-    #[must_use]
-    pub const fn new() -> Self {
-        Self
+    /// A driver, with its harness id and version probe built once.
+    ///
+    /// # Errors
+    /// Returns [`DriverError::HarnessName`] if the harness name is not a valid name, and
+    /// [`DriverError::Command`] if the version probe does not build. Neither can happen for
+    /// the constants this driver uses.
+    pub fn new() -> Result<Self, DriverError> {
+        let name = Name::from_str(HARNESS_NAME).map_err(|error| DriverError::HarnessName {
+            detail: error.to_string(), // BORROW: .to_string() gives owned text
+        })?;
+        let probe = CommandSpec::builder()
+            .argv(vec![PROGRAM.to_owned(), "--version".to_owned()]) // BORROW: .to_owned() makes owned arguments
+            .build()?;
+        Ok(Self {
+            id: HarnessId::new(name),
+            probe,
+        })
     }
 }
 
 impl HarnessDriver for ClaudeCodeDriver {
-    #[allow(
-        clippy::expect_used,
-        reason = "HARNESS_NAME is a constant that is a valid name; the trait gives no way to report an error"
-    )]
     fn id(&self) -> HarnessId {
-        HarnessId::new(Name::from_str(HARNESS_NAME).expect("`claude-code` is a valid name"))
+        self.id.clone() // BORROW: the trait returns an owned id
     }
 
     fn supported(&self) -> VersionReq {
         VersionReq::parse(SUPPORTED).unwrap_or_else(|_| nothing())
     }
 
-    #[allow(
-        clippy::expect_used,
-        reason = "the argument vector is a non-empty constant; the trait gives no way to report an error"
-    )]
     fn version_probe(&self) -> CommandSpec {
-        CommandSpec::builder()
-            .argv(vec![PROGRAM.to_owned(), "--version".to_owned()]) // BORROW: .to_owned() makes owned arguments
-            .build()
-            .expect("a non-empty argv builds")
+        self.probe.clone() // BORROW: the trait returns an owned command
     }
 
     fn parse_version(&self, output: &[u8]) -> Result<Version, DriverError> {
