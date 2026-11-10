@@ -16,7 +16,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use candler_schemas::canonical::CanonicalError;
-use candler_schemas::execution::{DigestRef, TreatmentRef};
+use candler_schemas::execution::{DigestRef, TreatmentRef, TreatmentSpec};
 use candler_schemas::primitives::{Digest, FieldPath, FormatError, Name, NameToken};
 use candler_schemas::values::JsonValue;
 use futures::future::BoxFuture;
@@ -166,10 +166,6 @@ fn text_at(ctx: &ResolveContext, text: &str) -> Result<Option<String>, Preflight
         // BORROW: `.to_owned()` makes the owned text the step works with
         .map(|s| Some(s.to_owned()))
         .ok_or_else(|| failed(format!("`{text}` must be a string")))
-}
-
-fn required_text(ctx: &ResolveContext, text: &str) -> Result<String, PreflightError> {
-    text_at(ctx, text)?.ok_or_else(|| failed(format!("`{text}` has no value")))
 }
 
 fn read_value<T: serde::de::DeserializeOwned>(
@@ -417,10 +413,14 @@ async fn source_of(
                 "`{entry}` needs a treatment pinned to a commit, and the treatment has none"
             ))
         })?;
-        let source = ctx
-            .config
-            .cwd
-            .join(required_text(ctx, paths::REQUEST_TREATMENT_SOURCE)?);
+        let spec: TreatmentSpec = read_value(ctx, paths::REQUEST_TREATMENT)?;
+        let source = spec.source.ok_or_else(|| {
+            failed(format!(
+                "`{entry}` is read from the treatment's checkout, and the treatment names no \
+                 `treatment.source`"
+            ))
+        })?;
+        let source = ctx.config.cwd.join(source);
         let bytes = show_file(supervisor, &source, &commit, inside).await?;
         (inside, bytes)
     } else {

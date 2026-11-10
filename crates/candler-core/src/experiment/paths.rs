@@ -36,9 +36,6 @@ pub const REQUEST_TREATMENT: &str = "request.treatment";
 /// `inputs`.
 pub const REQUEST_INPUTS: &str = "request.inputs";
 
-/// A setting: the path of the skill repository; a location, not an identity.
-pub const REQUEST_TREATMENT_SOURCE: &str = "request.treatment_source";
-
 /// A cell value: the prompt template.
 pub const PROMPT_TEMPLATE: &str = "prompt.template";
 

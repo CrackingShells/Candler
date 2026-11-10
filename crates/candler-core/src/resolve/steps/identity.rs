@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use candler_schemas::execution::{GitCommit, HarnessIdentity, HarnessRequest, TreatmentRef};
+use candler_schemas::execution::{GitCommit, HarnessIdentity, HarnessRequest, TreatmentSpec};
 use candler_schemas::primitives::{FieldPath, FormatError, Marker, NameToken};
 use candler_schemas::process::ExitStatus;
 use candler_schemas::values::JsonValue;
@@ -129,7 +129,9 @@ impl PreflightStep for HarnessIdentityStep {
     }
 }
 
-/// Derives `treatment`: the name, and the commit a tag resolves to.
+/// Derives `treatment`: the name, and the commit a tag resolves to in the checkout the treatment's
+/// `source` names, recording that source as where the value was read from. A treatment that names
+/// no source is refused.
 pub struct TreatmentIdentityStep {
     name: NameToken,
     supervisor: Arc<Supervisor>,
@@ -162,14 +164,21 @@ impl PreflightStep for TreatmentIdentityStep {
         // BORROW: `.clone()` moves the step name into the future
         let step = self.name.clone();
         Box::pin(async move {
-            let mut treatment: TreatmentRef = read(&ctx, paths::REQUEST_TREATMENT)?;
+            let spec: TreatmentSpec = read(&ctx, paths::REQUEST_TREATMENT)?;
+            let mut treatment = spec.reference();
+            let source = spec.source.as_deref().ok_or_else(|| {
+                failed(
+                    "the treatment names no source: set `treatment.source` in the experiment \
+                     file's `[treatment]`"
+                        .to_owned(), // BORROW: the error owns its text
+                )
+            })?;
             let revision = match (&treatment.tag, &treatment.commit) {
                 (Some(tag), _) => Some(format!("refs/tags/{tag}^{{commit}}")),
                 (None, Some(commit)) => Some(format!("{commit}^{{commit}}")),
                 (None, None) => None,
             };
             if let Some(revision) = revision {
-                let source: String = read(&ctx, paths::REQUEST_TREATMENT_SOURCE)?;
                 let source = ctx.config.cwd.join(source);
                 let found = resolve_commit(&supervisor, &source, &revision).await?;
                 if let Some(wanted) = &treatment.commit
@@ -181,7 +190,9 @@ impl PreflightStep for TreatmentIdentityStep {
                 }
                 treatment.commit = Some(found);
             }
-            Ok(StepReport::new(step).derive(path_of(paths::TREATMENT)?, json_of(&treatment)?))
+            let path = path_of(paths::TREATMENT)?;
+            let value = json_of(&treatment)?;
+            Ok(StepReport::new(step).derive_from(path, value, source.to_owned())) // BORROW: the report owns the source
         })
     }
 }

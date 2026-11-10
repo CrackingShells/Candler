@@ -210,9 +210,13 @@ async fn skill_files(
     if treatment.commit.is_none() {
         return Ok(Vec::new());
     }
-    let command = rt
-        .skills
-        .archive_command(treatment, &cell.treatment_source)?;
+    let source = cell
+        .treatment_source
+        .as_deref()
+        .ok_or_else(|| IsolationError::Plan {
+            detail: "the treatment is pinned to a commit and names no source".to_owned(), // BORROW: owned text
+        })?;
+    let command = rt.skills.archive_command(treatment, source)?;
     let record = scratch.join("archive");
     fs::create_dir_all(&record).map_err(|e| local("cannot make the archive directory", &e))?;
     let marker = Marker::from_str("skill-archive").map_err(|error| IsolationError::Plan {
