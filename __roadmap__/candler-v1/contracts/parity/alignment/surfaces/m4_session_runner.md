@@ -27,6 +27,7 @@ In plan mode, author the campaign with `managing-roadmaps`, covering:
 - **OpenCode v2 driver** (`candler-harness-opencode`): confirm the unconfirmed facts first; force `--standalone`; `execution_outside_child` with an HTTP pre-stop action; collect through `opencode session export` with the observed session id; isolate `HOME`, XDG and `OPENCODE_DB`; MCP code mode as an explicit experiment factor.
 - **Shared driver fixture suite** that both drivers pass, so the trait is not shaped like one harness.
 - **Harness out of the core (A3)**: move the version probe, the census's init-event parser and the gateway's and config's variable names behind the driver traits. Record in R01 §Harness drivers which facts a driver supplies. Extend the I1 guard with the harness deny-list. Do this before the OpenCode driver lands, so OpenCode never needs a branch in the core. Source: `__reports__/candler-v1-review/01-gap_analysis_harness_env_v0.md`.
+- **Harness and trace types**: merge `FrameMode` (`candler-core/src/frames`) into `candler-harness`'s `Framing` as part of the A3 move, and rename the Rust field `Session::parent_session` (`candler-schemas/src/trace.rs`), keeping its wire name with `serde(rename)` so the schema files do not change.
 
 R05 holds the earlier design for between-turn behaviour. Adversarial verification is required for driver-trait fit: attack anything OpenCode needed that the trait could not express.
 **Deliverables**: `__roadmap__/m4-session-runner/README.md` and its leaves
