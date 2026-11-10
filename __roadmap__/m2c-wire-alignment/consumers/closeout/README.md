@@ -24,7 +24,7 @@ graph TD
     layering_guard[Layering guard]:::done
     env_image_e2e[Env image e2e]:::done
     revalidation[Revalidation]:::inprogress
-    settings_out_of_cell[Settings out of cell]:::amendment
+    settings_out_of_cell[Settings out of cell]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -39,7 +39,7 @@ graph TD
 | `layering_guard.md` | 📄 Leaf Task | ✅ Done |
 | `env_image_e2e.md` | 📄 Leaf Task | ✅ Done |
 | `revalidation/` | 📁 Directory | 🔄 In Progress |
-| `settings_out_of_cell.md` | 📄 Leaf Task | 🔵 Amendment |
+| `settings_out_of_cell.md` | 📄 Leaf Task | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
@@ -52,3 +52,4 @@ graph TD
 | `env_image_e2e.md` | `m2c/env_image_e2e` → 279913b | 2 | real env image with `colorama==0.4.6`; Docker lists equal before and after; CI names the two guards (2e941f9); watch the 180 s cap on a cold runner |
 | `input_seam.md` | `m2c/input_seam` → 02b5fd2 | 4 | no seam defect; the CLI test world now seals runs and its guards assert it; a tampered list blob is refused by a new guard |
 | `layering_guard.md` | `m2c/layering_guard` → bc1567c | 2 | segment and sequence matching over src, build files, schemas, assets and the helper, names included; three fix rounds; 0 hits; extra renames in L3 (`planner`, `problems`, `arango`) |
+| `settings_out_of_cell.md` | `m2c/settings_out_of_cell` → 0510261 | 2 | A1 (P4-F1): file settings leave the cell; a factor that varies a setting, at its path or under a parent table, is refused naming the leaf; three fix rounds after the verifier; no digest moved |
