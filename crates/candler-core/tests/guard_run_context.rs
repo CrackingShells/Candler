@@ -31,10 +31,6 @@ use sha2::{Digest as _, Sha256};
 const DOMAIN: &str = "plan.prompt_domain_name";
 
 /// The needs of the parity suite: every output, and the domain name.
-#[allow(
-    clippy::field_reassign_with_default,
-    reason = "`Needs` is non-exhaustive, so a struct literal is not available here"
-)]
 fn parity_needs() -> Needs {
     let mut needs = Needs::default();
     needs.artifacts = vec!["outputs/**".into()];
@@ -43,10 +39,6 @@ fn parity_needs() -> Needs {
 }
 
 /// Needs with the given artifact globs and no metadata.
-#[allow(
-    clippy::field_reassign_with_default,
-    reason = "`Needs` is non-exhaustive, so a struct literal is not available here"
-)]
 fn needs_of(globs: &[&str]) -> Needs {
     let mut needs = Needs::default();
     needs.artifacts = globs.iter().map(|g| (*g).to_owned()).collect();

@@ -128,35 +128,22 @@ pub fn env_args(overlay: &[EnvEntry]) -> Result<Vec<String>, RunArgvError> {
     for entry in overlay {
         // BORROW: explicit .as_str() instead of Deref coercion
         let name = entry.name.as_str();
-        #[allow(
-            clippy::match_same_arms,
-            reason = "the secret arm names the case the wildcard also refuses"
-        )]
-        match &entry.value {
-            EnvValue::Secret(_) => {
-                return Err(RunArgvError::SecretRefused {
+        if let EnvValue::Literal(value) = &entry.value {
+            if RESERVED_NAMES.contains(&name) {
+                return Err(RunArgvError::ReservedName {
                     // BORROW: .to_owned() keeps the name in the error
                     name: name.to_owned(),
                 });
             }
-            EnvValue::Literal(value) => {
-                if RESERVED_NAMES.contains(&name) {
-                    return Err(RunArgvError::ReservedName {
-                        // BORROW: .to_owned() keeps the name in the error
-                        name: name.to_owned(),
-                    });
-                }
-                argv.push(String::from("-e"));
-                argv.push(format!("{name}={value}"));
-            }
-            // EXPLICIT: the value kinds are listed above; a new kind is refused until it is read
-            _ => {
-                return Err(RunArgvError::SecretRefused {
-                    // BORROW: .to_owned() keeps the name in the error
-                    name: name.to_owned(),
-                });
-            }
+            argv.push(String::from("-e"));
+            argv.push(format!("{name}={value}"));
+            continue;
         }
+        // EXPLICIT: a secret and any value kind not read above both refuse, until a new kind is read
+        return Err(RunArgvError::SecretRefused {
+            // BORROW: .to_owned() keeps the name in the error
+            name: name.to_owned(),
+        });
     }
     Ok(argv)
 }

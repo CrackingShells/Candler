@@ -4,7 +4,6 @@
 //! body that starts no container and waits for its cancel. The test holds a `Child` of each.
 #![cfg(test)]
 #![cfg(unix)]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 mod kill_live {
     use std::fs;

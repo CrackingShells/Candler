@@ -117,7 +117,7 @@ pub async fn run(cli: &Cli, args: &EvaluateArgs) -> Result<Exit, CliError> {
 /// Returns [`CliError::Refused`]: evaluation spawns processes through the supervisor, which this
 /// platform lacks.
 #[cfg(not(unix))]
-#[allow(
+#[expect(
     clippy::unused_async,
     reason = "every verb has the async entry `main` calls"
 )]

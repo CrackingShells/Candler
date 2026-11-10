@@ -4,6 +4,8 @@
 //! `isolation`, jobs in `jobs`, running one cell in `runner`, and what an experiment file says in
 //! [`experiment`] and [`manifest`].
 
+#![deny(clippy::allow_attributes)]
+
 pub mod evaluation;
 pub mod experiment;
 pub mod frames;

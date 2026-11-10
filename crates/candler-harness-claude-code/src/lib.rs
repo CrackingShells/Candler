@@ -4,6 +4,8 @@
 //! sessions and events of the normalised trace. [`detect`] recognises a supported stream from its
 //! first line.
 
+#![deny(clippy::allow_attributes)]
+
 pub mod detect;
 pub mod discovery;
 pub mod driver;

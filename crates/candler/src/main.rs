@@ -5,6 +5,8 @@
 //! arguments and returns an [`Exit`] or a [`CliError`]. Exit codes, as `diff(1)` has them:
 //! `Exit::Success` is 0, `Exit::Changed` is 1 and any [`CliError`] is 2.
 
+#![deny(clippy::allow_attributes)]
+
 mod commands;
 
 use std::path::PathBuf;
@@ -89,13 +91,7 @@ fn status(result: &Result<Exit, CliError>) -> u8 {
 fn main() -> ExitCode {
     let result = dispatch(Cli::parse());
     if let Err(error) = &result {
-        #[allow(
-            clippy::print_stderr,
-            reason = "the binary reports its failure on stderr"
-        )]
-        {
-            eprintln!("candler: {error}");
-        }
+        eprintln!("candler: {error}");
     }
     ExitCode::from(status(&result))
 }

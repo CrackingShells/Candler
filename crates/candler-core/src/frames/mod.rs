@@ -30,9 +30,9 @@ const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 
 /// How a stream is cut into frames.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(
+#[expect(
     clippy::exhaustive_enums,
-    reason = "EXHAUSTIVE: a stream is framed by lines or as one document, and in no third way"
+    reason = "EXHAUSTIVE: a raw frame file holds a stream as one frame per line or as one frame, and a third framing is a new frame-file format that changes this enum and `Framing` together"
 )]
 pub enum FrameMode {
     /// One frame per line, its `\n` kept.

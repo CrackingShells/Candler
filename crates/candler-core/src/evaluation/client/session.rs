@@ -194,9 +194,9 @@ fn take_frame(
 }
 
 /// Takes one protocol message into the collected state.
-#[allow(
+#[expect(
     clippy::wildcard_enum_match_arm,
-    reason = "Message and Notification are non_exhaustive in another crate"
+    reason = "the wildcard of the notification match also covers the known progress and log variants, which are ignored; listing them beside it would trip match_same_arms"
 )]
 fn take_message(
     message: Message,

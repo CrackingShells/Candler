@@ -337,8 +337,7 @@ impl HarnessDriver for ClaudeCodeDriver {
                 | EndedBy::Unknown,
             )
             | None => EndedBy::Unknown,
-            #[allow(
-                clippy::wildcard_enum_match_arm,
+            #[expect(
                 clippy::match_same_arms,
                 reason = "EndedBy is non-exhaustive; a kind this driver does not know is unknown, as the kinds listed above are"
             )]
