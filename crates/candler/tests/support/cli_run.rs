@@ -240,8 +240,9 @@ pub fn world() -> World {
     fs::write(bin.join("docker.log"), "").unwrap();
     fs::write(bin.join("handed.log"), "").unwrap();
 
-    fs::create_dir_all(skills.join("demo")).unwrap();
-    fs::write(skills.join("demo").join("SKILL.md"), "# demo\n").unwrap();
+    let skill = skills.join(".claude").join("skills").join("demo");
+    fs::create_dir_all(&skill).unwrap();
+    fs::write(skill.join("SKILL.md"), "# demo\n").unwrap();
     git(&skills, &["init", "-q"]);
     git(&skills, &["add", "."]);
     git(&skills, &["commit", "-q", "-m", "skills"]);
@@ -256,6 +257,7 @@ replicates = 1
 secrets = ["{SECRET_NAME}"]
 
 [fixed]
+permission_mode = "plan"
 "model.endpoint" = "http://127.0.0.1:9"
 "prompt.template" = "say hello"
 
@@ -291,6 +293,27 @@ impl World {
     /// The store the run uses: below the state home, as no project configuration names one.
     pub fn store(&self) -> PathBuf {
         self.state.join("candler").join("store")
+    }
+
+    /// How many runs of the store are sealed: those whose directory holds `run.done`.
+    pub fn sealed_runs(&self) -> usize {
+        fs::read_dir(self.store().join("runs")).map_or(0, |entries| {
+            entries
+                .flatten()
+                .filter(|entry| entry.path().join("run.done").is_file())
+                .count()
+        })
+    }
+
+    /// Panics unless at least `at_least` runs are sealed: a job that ended may have planned no
+    /// cell at all, and a guard of what a run records must not pass on that.
+    pub fn assert_sealed(&self, at_least: usize) {
+        let sealed = self.sealed_runs();
+        assert!(
+            sealed >= at_least,
+            "no run sealed: {sealed} sealed, {at_least} expected\ncalls:\n{}",
+            self.calls()
+        );
     }
 
     /// What the fake client was asked, one call per line.
@@ -356,7 +379,8 @@ impl World {
     /// commit `git rev-parse` names for the tag before and after.
     pub fn move_tag(&self) -> (String, String) {
         let before = rev_parse(&self.skills, "v1^{commit}");
-        fs::write(self.skills.join("demo").join("SKILL.md"), "# moved\n").unwrap();
+        let skill = self.skills.join(".claude").join("skills").join("demo");
+        fs::write(skill.join("SKILL.md"), "# moved\n").unwrap();
         git(&self.skills, &["commit", "-q", "-a", "-m", "moved"]);
         git(&self.skills, &["tag", "-f", "v1"]);
         (before, rev_parse(&self.skills, "v1^{commit}"))
@@ -365,6 +389,13 @@ impl World {
     /// Removes the world's directory.
     pub fn remove(&self) {
         drop(fs::remove_dir_all(&self.root));
+    }
+}
+
+impl Drop for World {
+    /// Removes the world's directory, so a guard that fails leaves no world behind.
+    fn drop(&mut self) {
+        self.remove();
     }
 }
 

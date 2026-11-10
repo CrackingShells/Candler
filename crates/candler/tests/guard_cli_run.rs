@@ -92,6 +92,9 @@ fn b35_run_returns_supervisor_outlives() {
         }
     }
 
+    // The job ran a cell to a sealed run.
+    world.assert_sealed(1);
+
     // Every container the fake handed out has a removal in its log.
     let handed = world.handed_out();
     assert!(!handed.is_empty(), "the job created containers\n{calls}");
@@ -124,6 +127,7 @@ fn finish(world: &World, out: &std::process::Output) -> JobId {
             && JobLock::probe(&dir).unwrap() == LockState::Free
     });
     assert!(ended, "the job ends\ncalls:\n{}", world.calls());
+    world.assert_sealed(1);
     id
 }
 
@@ -335,6 +339,8 @@ fn treatment_source_moved_tag_is_refused_on_resume() {
 
     let forced = world.launch_with(&["--force"]);
     finish(&world, &forced);
+    // The forced run is a second sealed run, so the manifest read below is a finished run's.
+    world.assert_sealed(2);
     let layout = StoreLayout::new(&world.store());
     let manifests = manifests_under(&layout.runs_dir());
     assert!(
