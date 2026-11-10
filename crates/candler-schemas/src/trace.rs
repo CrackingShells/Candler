@@ -461,7 +461,10 @@ impl TryFrom<MapOnly<RawSession>> for Session {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(try_from = "MapOnly<RawSession>")]
 #[non_exhaustive]
-#[allow(clippy::struct_field_names)] // WIRE: `parent_session` is the field name of the record
+#[expect(
+    clippy::struct_field_names,
+    reason = "WIRE: `parent_session` is the field name of the record"
+)]
 pub struct Session {
     id: SessionId,
     source: SessionSource,

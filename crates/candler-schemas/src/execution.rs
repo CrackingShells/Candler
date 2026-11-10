@@ -276,7 +276,10 @@ impl JsonSchema for VersionText {
 mod version_req_text {
     use serde::{Deserialize, Deserializer, Serializer};
 
-    #[allow(clippy::ref_option)] // serde's `with` passes the field by reference
+    #[expect(
+        clippy::ref_option,
+        reason = "serde's `with` passes the field by reference"
+    )]
     pub(super) fn serialize<S: Serializer>(
         requirement: &Option<semver::VersionReq>,
         serializer: S,

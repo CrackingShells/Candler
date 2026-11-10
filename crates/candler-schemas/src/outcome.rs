@@ -187,7 +187,10 @@ impl From<Finite> for f64 {
 /// The five-state result of an outcome.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-#[allow(clippy::exhaustive_enums)] // EXHAUSTIVE: the five-state outcome algebra is closed
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "EXHAUSTIVE: the five-state outcome algebra is closed"
+)]
 pub enum Status {
     /// The expectation holds.
     Pass,
@@ -225,7 +228,10 @@ impl fmt::Display for Status {
 /// The part an expectation plays in grading, copied from its suite entry when it was graded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-#[allow(clippy::exhaustive_enums)] // EXHAUSTIVE: the three roles are a closed grading vocabulary
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "EXHAUSTIVE: the three roles are a closed grading vocabulary"
+)]
 pub enum Role {
     /// A requirement the run must meet.
     Gate,
@@ -649,7 +655,7 @@ impl Cause {
             Self::Expectation(_) => "expectation",
             Self::Artifact(_) => "artifact",
             Self::Reason(_) => "reason",
-            #[allow(deprecated)]
+            #[expect(deprecated, reason = "`kind` names every variant, `Legacy` included")]
             Self::Legacy(_) => LEGACY_KEY,
         }
     }
@@ -659,7 +665,7 @@ impl Cause {
     pub const fn is_legacy(&self) -> bool {
         match self {
             Self::Expectation(_) | Self::Artifact(_) | Self::Reason(_) => false,
-            #[allow(deprecated)]
+            #[expect(deprecated, reason = "`is_legacy` is the test for `Legacy`")]
             Self::Legacy(_) => true,
         }
     }
@@ -1375,7 +1381,7 @@ mod tests {
         format!("sha256:{HEX}").parse().expect("a digest")
     }
 
-    #[allow(deprecated)]
+    #[expect(deprecated, reason = "the tests build `Legacy` causes")]
     fn legacy(code: &str) -> Cause {
         Cause::Legacy(code.parse().expect("a reason code"))
     }
