@@ -121,12 +121,12 @@ An experiment file declares its inputs, its whole table values and its treatment
 ## Status
 ```mermaid
 graph TD
-    wire[Wire]:::planned
-    agent_env[Agent env]:::planned
-    import_rules[Import rules]:::planned
-    eval_infra_origins[Eval infra origins]:::planned
-    verdict_gating[Verdict gating]:::planned
-    consumers[Consumers]:::planned
+    wire[Wire]:::done
+    agent_env[Agent env]:::done
+    import_rules[Import rules]:::done
+    eval_infra_origins[Eval infra origins]:::done
+    verdict_gating[Verdict gating]:::done
+    consumers[Consumers]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -137,12 +137,12 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `wire.md` | 📄 Leaf Task | ⬜ Planned |
-| `agent_env.md` | 📄 Leaf Task | ⬜ Planned |
-| `import_rules.md` | 📄 Leaf Task | ⬜ Planned |
-| `eval_infra_origins.md` | 📄 Leaf Task | ⬜ Planned |
-| `verdict_gating.md` | 📄 Leaf Task | ⬜ Planned |
-| `consumers/` | 📁 Directory | ⬜ Planned |
+| `wire.md` | 📄 Leaf Task | ✅ Done |
+| `agent_env.md` | 📄 Leaf Task | ✅ Done |
+| `import_rules.md` | 📄 Leaf Task | ✅ Done |
+| `eval_infra_origins.md` | 📄 Leaf Task | ✅ Done |
+| `verdict_gating.md` | 📄 Leaf Task | ✅ Done |
+| `consumers/` | 📁 Directory | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
@@ -151,3 +151,8 @@ graph TD
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| `import_rules.md` | `m2c/import_rules` → aa1edf8 | 2 | `entry_params` from the rules; open outside the repo: the plug-in's `htn-results-rules.toml` needs the key and `guard_golden_parity`'s rules pin moves with it |
+| `wire.md` | `m2c/wire` → 2aa7afd | 4 | verifier PASS after one fix round (UTF-16 order vector); one `feat(schemas)`; the leaf's `guard_cell_digest` bite could not hold (fields outside `comparable`); JSON empty `prompt.values` table now refused |
+| `eval_infra_origins.md` | `m2c/eval_infra_origins` → 7ff91f1 | 3 | P1 used `candler-schemas`' real package (`candler` is `publish = false`); a vcs file wins over a surrounding checkout; recorder hardening (ambient variable, packager commit) queued |
+| `agent_env.md` | `m2c/agent_env` → ea4905e | 4 | P3: the lock differs only in `# via` lines, live HTN digests move; found the shared target dir linking siblings' code (6ba21c7) |
+| `verdict_gating.md` | `m2c/verdict_gating` → 3307ca8 | 3 | first commit fixes the core nuisance set `wire` left red; verifier: sort guarded, every gated field refused when unrecorded, empty commit refused |

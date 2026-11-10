@@ -21,10 +21,10 @@ The experiment file's treatment source and inputs reach the cell, the isolation 
 ## Status
 ```mermaid
 graph TD
-    treatment_source[Treatment source]:::planned
-    declared_inputs[Declared inputs]:::planned
-    evaluator_inputs[Evaluator inputs]:::planned
-    design_record[Design record]:::planned
+    treatment_source[Treatment source]:::inprogress
+    declared_inputs[Declared inputs]:::inprogress
+    evaluator_inputs[Evaluator inputs]:::inprogress
+    design_record[Design record]:::inprogress
     closeout[Closeout]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -36,10 +36,10 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `treatment_source.md` | 📄 Leaf Task | ⬜ Planned |
-| `declared_inputs.md` | 📄 Leaf Task | ⬜ Planned |
-| `evaluator_inputs.md` | 📄 Leaf Task | ⬜ Planned |
-| `design_record.md` | 📄 Leaf Task | ⬜ Planned |
+| `treatment_source.md` | 📄 Leaf Task | 🔄 In Progress |
+| `declared_inputs.md` | 📄 Leaf Task | 🔄 In Progress |
+| `evaluator_inputs.md` | 📄 Leaf Task | 🔄 In Progress |
+| `design_record.md` | 📄 Leaf Task | 🔄 In Progress |
 | `closeout/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
