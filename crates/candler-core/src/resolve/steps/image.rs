@@ -189,7 +189,8 @@ fn to_json<T: serde::Serialize>(value: &T) -> Result<JsonValue, PreflightError> 
     JsonValue::new(json).map_err(|e| failed(e.to_string()))
 }
 
-/// Derives `isolation.env_lock`, `isolation.image` and, with an extension, the `inputs` entry.
+/// Derives `isolation.env_lock`, `isolation.image` and the `inputs` root: the build inputs, when
+/// there is an extension, and the agent inputs the request declares, sorted by kind.
 pub struct ImageIdStep {
     name: NameToken,
     // TRAIT_OBJECT: the service is docker, or a fake in tests
@@ -265,13 +266,15 @@ impl PreflightStep for ImageIdStep {
             let mut report = StepReport::new(step)
                 .derive(path_of(paths::ISOLATION_ENV_LOCK)?, to_json(&lock_digest)?)
                 .derive(path_of(paths::ISOLATION_IMAGE)?, to_json(&image.id.0)?);
+            let mut roots: Vec<DigestRef> = declared_inputs(&ctx)?;
             if let Some(inputs) = inputs {
                 let digest = build_input_digest(&inputs).map_err(|e| failed(e.to_string()))?;
                 let kind = Name::from_str("build_inputs").map_err(|e| failed(e.to_string()))?;
-                report = report.derive(
-                    path_of(paths::INPUTS)?,
-                    to_json(&[DigestRef::new(kind, digest)])?,
-                );
+                roots.push(DigestRef::new(kind, digest));
+            }
+            if !roots.is_empty() {
+                roots.sort();
+                report = report.derive(path_of(paths::INPUTS)?, to_json(&roots)?);
             }
             Ok(report)
         })
@@ -325,6 +328,14 @@ fn check_record_packages(ctx: &ResolveContext) -> Result<(), PreflightError> {
         .iter()
         .find(|entry| !entry.as_str().is_some_and(package_name_ok)); // BORROW: .as_str() reads the entry's text
     bad.map_or(Ok(()), |value| Err(refused(value)))
+}
+
+/// The agent inputs the request declares, as `{kind, digest}`; none when it declares none.
+fn declared_inputs(ctx: &ResolveContext) -> Result<Vec<DigestRef>, PreflightError> {
+    if ctx.get(&path_of(paths::REQUEST_INPUTS)?).is_none() {
+        return Ok(Vec::new());
+    }
+    read_value(ctx, paths::REQUEST_INPUTS)
 }
 
 /// The experiment's own layer, when both `isolation.build.dockerfile` and

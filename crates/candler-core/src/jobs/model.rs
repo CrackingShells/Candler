@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use candler_schemas::execution::{Budget, ExperimentFile, JobEnd};
+use candler_schemas::execution::{Budget, DigestRef, ExperimentFile, JobEnd};
 use futures::future::BoxFuture;
 use tokio::sync::watch;
 
@@ -29,6 +29,9 @@ pub struct JobSpec {
     /// The files every run of the job is given, by workspace path, with the digest of the blob
     /// in the store each is mounted from read-only.
     pub inputs: Vec<InputDigest>,
+    /// The evaluator-only inputs as `{kind, digest}`: they are recorded in each run's manifest and
+    /// never mounted, copied or shown to the agent.
+    pub evaluation_inputs: Vec<DigestRef>,
 }
 
 /// How a job ended and what its runs did.
