@@ -10,7 +10,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use candler_schemas::execution::{
-    Comparable, Deviation, ExperimentFile, Integrity, SecretPresence, experiment_digest,
+    Comparable, Deviation, ExperimentFile, Factor, Integrity, Level, SecretPresence,
+    experiment_digest,
 };
 use candler_schemas::primitives::{Digest, FieldPath, JobId, RunKey, SecretName};
 use candler_schemas::values::{JsonValue, ResolvedValue, SourceEntry, ValueSource};
@@ -21,7 +22,7 @@ use serde_json::Value;
 use crate::experiment::paths::{HARNESS, ISOLATION_IMAGE, TREATMENT};
 use crate::jobs::dir::JobDir;
 use crate::jobs::lock::{JobLock, LockState};
-use crate::resolve::layers::Resolution;
+use crate::resolve::layers::{Resolution, is_setting};
 use crate::store::Store;
 
 /// The digest of a cell.
@@ -207,6 +208,12 @@ pub enum PlanError {
         /// The replicate.
         replicate: u32,
     },
+    /// A factor of the experiment varies a setting, which no cell can vary.
+    #[error("the setting {path} cannot be a factor; write it in [fixed]")]
+    SettingAsFactor {
+        /// The path of the setting the factor varies.
+        path: String,
+    },
     /// A cell of the experiment cannot be built from the resolution.
     #[error("a cell cannot be built: {detail}")]
     Cell {
@@ -298,11 +305,47 @@ fn overlaps(first: &FieldPath, second: &FieldPath) -> bool {
     first.starts_with(second) || second.starts_with(first)
 }
 
-/// Builds every cell of `file` under `resolution`.
+/// The path of the first setting a factor varies: its own path when a value level sets it and that
+/// is a setting, or a leaf that a table level fills when that is a setting.
+fn setting_of_factor(factor: &Factor) -> Option<String> {
+    factor.levels.iter().find_map(|level| {
+        if let Level::Fill(table) = level {
+            setting_in(factor.path.as_str(), table)
+        } else {
+            is_setting(&factor.path).then(|| factor.path.to_string())
+        }
+    })
+}
+
+/// The path of the first leaf below `prefix` in `table` that is a setting. A leaf is any value
+/// that is not a table.
+fn setting_in(prefix: &str, table: &serde_json::Map<String, Value>) -> Option<String> {
+    table.iter().find_map(|(key, value)| {
+        let path = format!("{prefix}.{key}");
+        if let Value::Object(inner) = value {
+            setting_in(path.as_str(), inner)
+        } else {
+            path.parse::<FieldPath>()
+                .ok()
+                .filter(is_setting)
+                .map(|_| path)
+        }
+    })
+}
+
+/// Builds every cell of `file` under `resolution`. A path the file writes that [`is_setting`] names
+/// is a setting of the run, which the resolution holds, and no value of a cell.
+///
+/// # Errors
+/// [`PlanError::SettingAsFactor`] when a factor of `file` varies a setting, and [`PlanError::Cell`]
+/// when a cell cannot be built.
 fn fresh_cells(
     file: &ExperimentFile,
     resolution: &Resolution,
 ) -> Result<Vec<FreshCell>, PlanError> {
+    if let Some(path) = file.factors().iter().find_map(setting_of_factor) {
+        return Err(PlanError::SettingAsFactor { path });
+    }
     let explicit: Vec<&FieldPath> = resolution
         .sources
         .iter()
@@ -314,7 +357,7 @@ fn fresh_cells(
     for cell in file.cells() {
         let effective: Vec<ResolvedValue> = cell
             .into_iter()
-            .filter(|value| !is_explicit(value.path()))
+            .filter(|value| !is_explicit(value.path()) && !is_setting(value.path()))
             .collect();
         let mut values: Vec<ResolvedValue> = resolution
             .values
