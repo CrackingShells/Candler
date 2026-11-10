@@ -4,7 +4,11 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
+use std::sync::Arc;
 
+use candler_core::isolation::image::parse_packages;
+use candler_core::jobs::model::{JobCause, JobControl};
+use candler_core::jobs::orchestrate::orchestrate_with;
 use candler_core::runner::evidence::census::census;
 use candler_core::runner::evidence::leak::input_leak;
 use candler_core::runner::evidence::tree::tree_json;
@@ -17,6 +21,11 @@ use candler_schemas::raw::{FrameData, RawFrame, RawRef};
 use candler_schemas::values::MeasuredValue;
 use flate2::read::MultiGzDecoder;
 use serde_json::{Value, json};
+use support::job_orchestrate::{FakeReads, Rig, spec};
+use support::run_plan::Facts;
+use tokio::sync::watch;
+
+mod support;
 
 // Provenance, B24: the OS `shasum -a 256` of two hand-built 24-byte files.
 //   printf 'ground truth 0123456789\n' > in.txt       -> 42b22b52...9738
@@ -156,28 +165,6 @@ fn b25_census_from_a_real_init() {
     );
 }
 
-/// Guards: `provenance.skill_version` is derived only from a skill tag, so a tag from another
-/// prefix records no version instead of a mangled one.
-/// Oracle: `normalize_tag` in `_git_skill.py` at `htn-creator-eval@0.4.2`, lines 76-85: it raises
-/// on a tag without the `htn-creator@` prefix, and maps `htn-creator@0.2.7` and the legacy
-/// `htn-creator@v0.2.3` to `v0.2.7` and `v0.2.3`.
-/// Bite: `tag.strip_prefix(prefix.as_str()).unwrap_or(tag)` in place of the `?` records
-/// `vhtn-creator-eval@0.4.2` for the eval tag, as the re-validation smoke saw (N1).
-#[test]
-fn b38_skill_version_from_a_skill_tag_only() {
-    use candler_core::runner::evidence::provenance::skill_version;
-
-    assert_eq!(skill_version("htn-creator", "htn-creator-eval@0.4.2"), None);
-    assert_eq!(
-        skill_version("htn-creator", "htn-creator@0.2.7").as_deref(),
-        Some("v0.2.7")
-    );
-    assert_eq!(
-        skill_version("htn-creator", "htn-creator@v0.2.3").as_deref(),
-        Some("v0.2.3")
-    );
-}
-
 /// The name of the file that marks a directory as an agent environment.
 const ENV_MARKER: &str = "pyvenv.cfg";
 
@@ -262,5 +249,147 @@ fn b39_an_environment_at_the_root_hides_the_workspace() {
     assert_eq!(
         tree_paths(&produced, &Inputs::default()),
         Vec::<String>::new()
+    );
+}
+
+/// The manifest a one-run job seals, with the names the fake container read was asked for.
+///
+/// The job runs over a fake docker client whose env image holds `x` and `y`; `record` is the
+/// value of `isolation.record_packages`, when the experiment sets it.
+fn sealed_with(record: Option<&[&str]>) -> (Value, Vec<Vec<String>>) {
+    // The image's answer, as the probe script prints it.
+    let held = parse_packages(r#"{"x": [["x-dist", "1.2.3"]], "y": [["y-dist", "4.5.6"]]}"#)
+        .expect("a probe answer");
+    let reads = Arc::new(FakeReads {
+        held,
+        ..FakeReads::default()
+    });
+    let rig = Rig::new(0);
+    let facts = Facts {
+        secrets: Vec::new(),
+        ..Facts::base()
+    };
+    let mut job = spec(&["m1"], &facts, 3600, 1);
+    if let Some(names) = record {
+        let mut resolved = serde_json::to_value(&job.resolution).expect("resolution JSON");
+        resolved["settings"]
+            .as_array_mut()
+            .expect("settings")
+            .push(json!({"path": "isolation.record_packages", "value": names}));
+        resolved["sources"]
+            .as_array_mut()
+            .expect("sources")
+            .push(json!({
+                "path": "isolation.record_packages",
+                "source": {"kind": "experiment_file"}
+            }));
+        job.resolution = serde_json::from_value(resolved).expect("a resolution");
+    }
+    let (cancel, _keep) = watch::channel::<Option<JobCause>>(None);
+    let ctl = JobControl {
+        cancel: Arc::new(cancel),
+    };
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .expect("a runtime");
+    let outcome = runtime.block_on(orchestrate_with(
+        rig.runtime(),
+        job,
+        ctl,
+        rig.host_reading(&reads),
+    ));
+    let key = outcome.runs.first().expect("one run").key.clone(); // BORROW: .clone() owns the key
+    let path = rig
+        .store
+        .layout()
+        .root()
+        .join("runs")
+        .join(key.to_string())
+        .join("manifest.json");
+    let manifest = serde_json::from_slice(&std::fs::read(path).expect("a manifest file"))
+        .expect("manifest JSON");
+    let asked = reads.asked.lock().expect("the log of reads").clone(); // BORROW: .clone() owns the log
+    (manifest, asked)
+}
+
+/// The paths of the values a manifest lists under `field`.
+fn paths_under(manifest: &Value, field: &[&str]) -> Vec<String> {
+    let mut at = manifest;
+    for key in field {
+        at = &at[*key];
+    }
+    at.as_array()
+        .expect("a list of values")
+        .iter()
+        .map(|value| value["path"].as_str().expect("a path").to_owned()) // BORROW: the list owns its paths
+        .collect()
+}
+
+/// The value the manifest measured at `path`.
+fn measured_at(manifest: &Value, path: &str) -> Option<Value> {
+    manifest["measured"]
+        .as_array()?
+        .iter()
+        .find(|value| value["path"] == path)
+        .map(|value| value["value"].clone()) // BORROW: .clone() owns the value
+}
+
+/// Guards: R01 §Run manifest — the packages an experiment names in `isolation.record_packages`
+/// are measured, each as `provenance.packages.<import>.distribution` and `.version`, and never
+/// enter the cell's `comparable`; a package it does not name is not read, and with no setting no
+/// `provenance.packages.*` entry is written.
+/// Oracle: the manifest rows are written by hand below from the fake image's `x` (x-dist 1.2.3)
+/// and `y` (y-dist 4.5.6), never from the provenance code.
+/// Bite: ignore the setting in `jobs/orchestrate/mod.rs` (no entries), or write the readings
+/// under another path in `provenance.rs`. A setting classed as a cell value, which would put it
+/// into `comparable`, is `b19_every_path_class`'s bite.
+#[test]
+fn a2_record_packages_are_measured_never_comparable() {
+    let (named, asked) = sealed_with(Some(&["x"]));
+    assert_eq!(
+        asked,
+        [["x"]],
+        "the container read asked for the named package only"
+    );
+    assert_eq!(
+        measured_at(&named, "provenance.packages.x.distribution"),
+        Some(json!("x-dist"))
+    );
+    assert_eq!(
+        measured_at(&named, "provenance.packages.x.version"),
+        Some(json!("1.2.3"))
+    );
+    let packages: Vec<String> = paths_under(&named, &["measured"])
+        .into_iter()
+        .filter(|path| path.starts_with("provenance.packages."))
+        .collect();
+    assert_eq!(
+        packages,
+        [
+            "provenance.packages.x.distribution",
+            "provenance.packages.x.version"
+        ],
+        "the unnamed package `y` is not recorded"
+    );
+    let cell = paths_under(&named, &["comparable", "values"]);
+    assert!(
+        cell.iter().all(|path| !path.starts_with("provenance.")),
+        "the cell holds no provenance value: {cell:?}"
+    );
+
+    // Positive control: no setting, no read and no entry.
+    let (none, asked) = sealed_with(None);
+    assert!(asked.is_empty(), "no setting, no container read");
+    assert!(
+        paths_under(&none, &["measured"])
+            .iter()
+            .all(|path| !path.starts_with("provenance.packages.")),
+        "no setting, no provenance.packages entry"
+    );
+    assert!(
+        measured_at(&none, "provenance.sandbox_contract").is_some(),
+        "the manifest still measures provenance"
     );
 }

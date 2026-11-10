@@ -374,7 +374,6 @@ fn reap_child() {
         skills: Arc::new(EmptyTree),
         cells: BTreeMap::new(),
         eval_infra: EvalInfra::default(),
-        planner_package: None,
     };
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()

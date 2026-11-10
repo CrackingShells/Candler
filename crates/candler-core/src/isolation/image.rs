@@ -1,6 +1,7 @@
 //! The image the agent runs in: built from the lock, found by id, and read for its Claude Code
-//! version.
+//! version and the packages an experiment names.
 
+use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::str::FromStr as _;
@@ -519,29 +520,43 @@ async fn control_output(
     }
 }
 
-/// What the env image's planner library is: the distribution that provides the planner package and its
+/// What an env image holds of one import package: the distribution that provides it and its
 /// version. One distribution gives a string each; any other count gives a list each, in step.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct PlannerAxis {
+pub struct PackageReading {
     /// The distribution name or names.
     pub distribution: serde_json::Value,
     /// The version or versions, in the order of the distributions.
     pub version: serde_json::Value,
 }
 
-/// Reads the planner library of an image in a control container, by running a script that lists
-/// the distributions providing the planner's import package.
-pub struct PlannerProbe {
+/// The readings of an image, by import package name.
+pub type PackageReadings = BTreeMap<String, PackageReading>;
+
+/// Whether `name` is an import package name the experiment may record: lower-case letters, digits
+/// and `_`, not starting with a digit. The name becomes a field-path segment.
+#[must_use]
+pub fn package_name_ok(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    bytes
+        .next()
+        .is_some_and(|first| first.is_ascii_lowercase() || first == b'_')
+        && bytes.all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+}
+
+/// Reads the distribution and version of named import packages in an image, in one control
+/// container, by running a script over the image's installed distributions.
+pub struct PackageProbe {
     sup: Arc<Supervisor>,
     binary: PathBuf,
     env: ClientEnv,
     store_root: PathBuf,
-    package: String,
+    names: Vec<String>,
 }
 
-impl PlannerProbe {
-    /// A probe of the import package `package` that runs control containers through `sup` with
+impl PackageProbe {
+    /// A probe of the import packages `names` that runs control containers through `sup` with
     /// the docker client at `binary`, under the control directory of the store at `store_root`.
     #[must_use]
     pub const fn new(
@@ -549,32 +564,28 @@ impl PlannerProbe {
         binary: PathBuf,
         env: ClientEnv,
         store_root: PathBuf,
-        package: String,
+        names: Vec<String>,
     ) -> Self {
         Self {
             sup,
             binary,
             env,
             store_root,
-            package,
+            names,
         }
     }
 
-    /// Runs the planner probe script in `image` and reads what it prints.
+    /// Runs the probe script in `image` and reads what it prints.
     ///
     /// # Errors
-    /// [`ImageError::VersionUnreadable`] when the container cannot run or prints anything but a
-    /// list of `[distribution, version]` pairs.
-    pub async fn read(&self, image: &ImageRef) -> Result<PlannerAxis, ImageError> {
-        let name_ok = !self.package.is_empty()
-            && self
-                .package
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-'));
-        if !name_ok {
-            return Err(unreadable("the planner package name is not a plain name"));
+    /// [`ImageError::VersionUnreadable`] when a name is not a package name, when the container
+    /// cannot run, or when it prints anything but an object of lists of
+    /// `[distribution, version]` pairs, one list per name.
+    pub async fn read(&self, image: &ImageRef) -> Result<PackageReadings, ImageError> {
+        if !self.names.iter().all(|name| package_name_ok(name)) {
+            return Err(unreadable("a package name is not a plain import name"));
         }
-        let script = planner_script(&self.package);
+        let script = package_script(&self.names)?;
         let records = layout::control_dir(&self.store_root).join(format!(
             "{}-{}",
             std::process::id(),
@@ -593,36 +604,49 @@ impl PlannerProbe {
         // The record dir is this call's own and holds only this call's record.
         let _ = tokio::fs::remove_dir_all(&records).await;
         let text = String::from_utf8(outcome?)
-            .map_err(|_| unreadable("the planner probe output is not text"))?;
+            .map_err(|_| unreadable("the package probe output is not text"))?;
         // BORROW: explicit .as_str() instead of Deref coercion
-        parse_planner(text.as_str())
+        parse_packages(text.as_str())
     }
 }
 
-/// The script that lists the distributions providing the import package `package` with their
-/// versions as JSON pairs.
-fn planner_script(package: &str) -> String {
-    format!(
+/// The script that prints, for each import package of `names`, the distributions providing it
+/// with their versions as JSON pairs.
+fn package_script(names: &[String]) -> Result<String, ImageError> {
+    let list = serde_json::to_string(names)
+        .map_err(|_| unreadable("the package names cannot be written"))?;
+    Ok(format!(
         "import importlib.metadata as m, json\n\
-dists = m.packages_distributions().get('{package}') or []\n\
-print(json.dumps([[d, m.version(d)] for d in dists]))\n"
-    )
+owners = m.packages_distributions()\n\
+print(json.dumps({{n: [[d, m.version(d)] for d in owners.get(n) or []] for n in {list}}}))\n"
+    ))
 }
 
-/// Reads the output of the planner probe script.
+/// Reads the output of the package probe script.
 ///
 /// # Errors
-/// [`ImageError::VersionUnreadable`] for anything but a JSON list of string pairs.
-pub fn parse_planner(output: &str) -> Result<PlannerAxis, ImageError> {
-    let bad = || unreadable("the planner probe output is not a list of [distribution, version]");
-    let pairs: Vec<(String, String)> = serde_json::from_str(output.trim()).map_err(|_| bad())?;
+/// [`ImageError::VersionUnreadable`] for anything but a JSON object of lists of string pairs.
+pub fn parse_packages(output: &str) -> Result<PackageReadings, ImageError> {
+    let bad = || {
+        unreadable("the package probe output is not an object of lists of [distribution, version]")
+    };
+    let found: BTreeMap<String, Vec<(String, String)>> =
+        serde_json::from_str(output.trim()).map_err(|_| bad())?;
+    Ok(found
+        .into_iter()
+        .map(|(name, pairs)| (name, reading_of(pairs)))
+        .collect())
+}
+
+/// The reading of one package from its `(distribution, version)` pairs.
+fn reading_of(pairs: Vec<(String, String)>) -> PackageReading {
     if let [(name, version)] = pairs.as_slice() {
-        return Ok(PlannerAxis {
-            // BORROW: .clone() gives the axis its own strings
+        return PackageReading {
+            // BORROW: .clone() gives the reading its own strings
             distribution: serde_json::Value::String(name.clone()),
-            // BORROW: .clone() gives the axis its own strings
+            // BORROW: .clone() gives the reading its own strings
             version: serde_json::Value::String(version.clone()),
-        });
+        };
     }
     let (names, versions): (Vec<_>, Vec<_>) = pairs
         .into_iter()
@@ -633,10 +657,10 @@ pub fn parse_planner(output: &str) -> Result<PlannerAxis, ImageError> {
             )
         })
         .unzip();
-    Ok(PlannerAxis {
+    PackageReading {
         distribution: serde_json::Value::Array(names),
         version: serde_json::Value::Array(versions),
-    })
+    }
 }
 
 impl ImageService for DockerImageService {
@@ -692,10 +716,11 @@ fn env_key(lock_hex: &str, prune: &[String]) -> String {
     hex_of(&hasher.finalize())
 }
 
-/// Whether `name` is a file name the env build may delete: letters, digits, `.`, `_` and `-`.
+/// Whether `name` is a file name the env build may delete: letters, digits, `.`, `_` and `-`,
+/// and neither `.` nor `..`.
 #[must_use]
 pub fn prune_name_ok(name: &str) -> bool {
-    !name.is_empty()
+    !matches!(name, "" | "." | "..")
         && name
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))

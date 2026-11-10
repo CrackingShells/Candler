@@ -195,7 +195,7 @@ async fn b19_every_path_class() {
     // The rows of the file as written: a file that reads as empty must not pass.
     assert_eq!(
         (count("cell_value"), count("setting"), count("typed_root")),
-        (17, 18, 5)
+        (17, 19, 5)
     );
     let roots = [
         "harness",

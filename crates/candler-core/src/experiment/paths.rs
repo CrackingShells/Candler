@@ -76,6 +76,10 @@ pub const ISOLATION_BUILD_REQUIREMENTS: &str = "isolation.build.requirements";
 /// `^[A-Za-z0-9._-]+$`.
 pub const ISOLATION_BUILD_PRUNE: &str = "isolation.build.prune";
 
+/// A setting: the import packages whose distribution and version each run records from its env
+/// image, each matching `^[a-z_][a-z0-9_]*$`.
+pub const ISOLATION_RECORD_PACKAGES: &str = "isolation.record_packages";
+
 /// A setting: a ready lock file used verbatim instead of compiling one.
 pub const ISOLATION_BUILD_LOCK: &str = "isolation.build.lock";
 

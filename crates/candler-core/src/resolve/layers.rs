@@ -38,6 +38,8 @@ const ISOLATION_BUILD_CONTEXT: &str = "isolation.build.context";
 const ISOLATION_BUILD_LOCK: &str = "isolation.build.lock";
 /// The setting that lists the requirement sources of the env lock.
 const ISOLATION_BUILD_REQUIREMENTS: &str = "isolation.build.requirements";
+/// The setting that lists the import packages each run records from its env image.
+const ISOLATION_RECORD_PACKAGES: &str = "isolation.record_packages";
 /// The prefix of a requirement source that is read from the treatment's repository, not a path.
 const TREATMENT_SOURCE_PREFIX: &str = "treatment:";
 /// The setting that names the secret the gateway presents to the model endpoint.
@@ -46,8 +48,9 @@ const MODEL_TOKEN_SECRET: &str = "model.token_secret";
 /// Reports whether `path` is an operational setting, by its path alone: a configuration key
 /// (`store.root`, `plugins.dirs`, `slots.count`), a job cap (every `budget.*` path except
 /// `budget.per_run.*`), `replicates`, a request key (`request.harness`, `request.treatment`,
-/// `request.treatment_source`), the gateway's secret (`model.token_secret`) or an image build
-/// request (every `isolation.build.*` path). A setting never reaches a cell digest. The paths an
+/// `request.treatment_source`), the gateway's secret (`model.token_secret`), the packages a run
+/// records (`isolation.record_packages`) or an image build request (every `isolation.build.*`
+/// path). A setting never reaches a cell digest. The paths an
 /// explicit argument marks are settings too; [`Layered::is_setting`] adds them.
 ///
 /// The match follows path segments, so `isolation.image` and `isolation.builder` are not
@@ -68,6 +71,7 @@ pub fn is_setting(path: &FieldPath) -> bool {
                 | REQUEST_HARNESS
                 | REQUEST_TREATMENT
                 | REQUEST_TREATMENT_SOURCE
+                | ISOLATION_RECORD_PACKAGES
                 | MODEL_TOKEN_SECRET
         ),
     }

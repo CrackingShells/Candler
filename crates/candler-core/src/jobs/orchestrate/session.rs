@@ -16,7 +16,7 @@ use candler_schemas::values::{ResolvedValue, SourceEntry, ValueSource};
 use futures::future::BoxFuture;
 
 use super::schedule::{Clock, wall_clock};
-use crate::experiment::paths::ISOLATION_IMAGE;
+use crate::experiment::paths::{ISOLATION_IMAGE, ISOLATION_RECORD_PACKAGES};
 use crate::isolation::Isolation;
 use crate::isolation::container::guard::ContainerGuard;
 use crate::isolation::container::sweeper::LabelSweeper;
@@ -29,7 +29,7 @@ use crate::isolation::gateway::{
     DockerGateway, Gateway, GatewayError, GatewayStart, GatewayStatus, SecretError, SecretSource,
     SecretValue, UpstreamConfig,
 };
-use crate::isolation::image::{PlannerAxis, PlannerProbe};
+use crate::isolation::image::{PackageProbe, PackageReadings};
 use crate::isolation::model::{ContainerRef, ImageRef, NetworkName, SweepScope};
 use crate::jobs::dir::JobDir;
 use crate::jobs::model::JobSpec;
@@ -183,14 +183,15 @@ pub trait JobHost: Send + Sync {
         wall_clock()
     }
 
-    /// The planner library inside the env image `image`, read once for the job. The default
-    /// reads nothing.
-    fn planner<'a>(
+    /// The distribution and version of the import packages `names` inside the env image `image`,
+    /// read once for the job. The default reads nothing.
+    fn packages<'a>(
         &'a self,
         rt: &'a Runtime,
         image: &'a ImageRef,
-    ) -> BoxFuture<'a, Option<PlannerAxis>> {
-        let _ = (rt, image);
+        names: &'a [String],
+    ) -> BoxFuture<'a, Option<PackageReadings>> {
+        let _ = (rt, image, names);
         Box::pin(async { None })
     }
 }
@@ -213,6 +214,33 @@ fn text_at(resolution: &Resolution, path: &str) -> Option<String> {
         .map(str::to_owned) // BORROW: the caller owns the text
 }
 
+/// The names a resolution lists at `path`, among its values and its settings; none when the path
+/// is unset or does not hold a list of strings.
+fn strings_at(resolution: &Resolution, path: &str) -> Vec<String> {
+    resolution
+        .values
+        .iter()
+        .chain(resolution.settings.iter())
+        // BORROW: .as_str() compares the path with the one asked for
+        .find(|value| value.path().as_str() == path)
+        .and_then(ResolvedValue::value)
+        .and_then(|value| value.as_value().as_array())
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|entry| entry.as_str().map(str::to_owned)) // BORROW: the caller owns the names
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The import packages the experiment records for each env image: the names of
+/// `isolation.record_packages`.
+#[must_use]
+pub fn record_packages(resolution: &Resolution) -> Vec<String> {
+    strings_at(resolution, ISOLATION_RECORD_PACKAGES)
+}
+
 /// The upstream a `model.endpoint` URL names.
 fn upstream_of(endpoint: &str) -> Result<UpstreamConfig, GatewayError> {
     let url = url::Url::parse(endpoint).map_err(|error| GatewayError::Config {
@@ -230,13 +258,13 @@ fn upstream_of(endpoint: &str) -> Result<UpstreamConfig, GatewayError> {
 }
 
 impl JobHost for DockerHost {
-    fn planner<'a>(
+    fn packages<'a>(
         &'a self,
         rt: &'a Runtime,
         image: &'a ImageRef,
-    ) -> BoxFuture<'a, Option<PlannerAxis>> {
+        names: &'a [String],
+    ) -> BoxFuture<'a, Option<PackageReadings>> {
         Box::pin(async move {
-            let package = rt.planner_package.clone()?; // BORROW: the probe owns the package name
             let job_dir = JobDir::open(rt.store.layout(), &rt.job).ok()?;
             let env = ClientEnv::from_process();
             let cli = DockerCli::new(
@@ -245,12 +273,12 @@ impl JobHost for DockerHost {
                 job_dir.control_dir(),
             )
             .ok()?;
-            let probe = PlannerProbe::new(
+            let probe = PackageProbe::new(
                 Arc::clone(&rt.supervisor),
                 cli.binary().to_path_buf(), // BORROW: the probe owns the client's binary path
                 env,
                 rt.store.layout().root().to_path_buf(), // BORROW: the probe owns the store root
-                package,
+                names.to_vec(),                         // BORROW: the probe owns the names
             );
             probe.read(image).await.ok()
         })
@@ -381,7 +409,7 @@ pub fn cells_of(
     spec: &JobSpec,
     outcome: &PlanOutcome,
     present: &BTreeSet<SecretName>,
-    planners: &BTreeMap<String, PlannerAxis>,
+    packages: &BTreeMap<String, PackageReadings>,
 ) -> Result<BTreeMap<CellId, Arc<CellRun>>, OrchestrateError> {
     let source = text_at(&spec.resolution, TREATMENT_SOURCE)
         .map(PathBuf::from)
@@ -423,8 +451,12 @@ pub fn cells_of(
             source.clone(),  // BORROW: the cell owns its treatment source
             inputs.clone(),  // BORROW: the cell owns its inputs
         )
-        // BORROW: the cell owns the planner reading of its image
-        .with_planner(image_of(comparable).and_then(|id| planners.get(&id).cloned()));
+        // BORROW: the cell owns the package readings of its image
+        .with_packages(
+            image_of(comparable)
+                .and_then(|id| packages.get(&id).cloned())
+                .unwrap_or_default(),
+        );
         cells.insert(digest.clone(), Arc::new(cell)); // BORROW: the map owns the cell digest
     }
     Ok(cells)
