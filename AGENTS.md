@@ -24,8 +24,8 @@ When writing Rust, follow Grit (strict Rust) rules:
 Before writing or editing any `.rs` file, load the `rust-conventions` skill
 (`rust-conventions:rust-conventions`) and follow its trigger checklist: doc comments, `# Errors`
 sections, `#[must_use]`, `#[non_exhaustive]`, and the `// CAST:`, `// INDEX:` and `// BORROW:`
-annotations. After writing Rust, have the `rust-conventions:rust-conventions-reviewer` agent
-review it.
+annotations. The `rust-conventions:rust-conventions-reviewer` agent reviews the Rust written,
+at the points [Plans, gates and reviews](#plans-gates-and-reviews) sets.
 
 The workspace lints in the root `Cargo.toml` (`[workspace.lints]`, inherited by every crate with
 `[lints] workspace = true`) are the enforced subset of these rules. Passing them is necessary, not
@@ -57,6 +57,27 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 The JSON Schema files under `crates/candler-schemas/schema/` are generated from the wire structs
 and committed. A struct or doc-comment edit that changes them fails the drift test until the
 files are regenerated with `CANDLER_BLESS_SCHEMAS=1 cargo nextest run -p candler-schemas drift`.
+
+## Plans, gates and reviews
+
+- **A gate shows its failure first.** Each command a plan or a leaf gives as a gate is run once on
+  the tree before the change, and the plan records the failure it shows there. A gate that already
+  passes before the change tests nothing. A `git grep` pathspec over the crates' sources is
+  `':(glob)crates/*/src/**'`; `'crates/*/src'` matches no file.
+- **A mechanism finds the sites.** A change to every site of a pattern names what finds the sites:
+  a lint, a `git grep` gate or a type. Its output is the list; sites are not counted by hand. A
+  pattern that is open-ended or has come back gets such a mechanism. A single instance is fixed
+  where it is, with no guard of its own.
+- **Verification is per milestone.** Each leaf passes its own gates. The `rust-conventions-reviewer`
+  reviews a leaf only when the leaf adds or changes a `pub` item. Before a milestone's pull request,
+  one `spec-verifier` pass checks every leaf of the milestone, and the `rust-conventions-reviewer`
+  reviews the milestone's whole diff. Adversarial verification runs where a milestone's leaf asks
+  for it.
+- **A review stays on the diff.** A reviewer reports what is wrong in the change and where it falls
+  short of its spec. Outside the diff it reports a defect only: wrong behaviour, a broken invariant
+  or a test that cannot fail. Any other finding outside the diff is one line, either in the
+  planning item of the next planned milestone that edits that code or, when none does, in the
+  campaign's knowledge-transfer report. It gets no pull request of its own.
 
 ## Where things are written down
 
