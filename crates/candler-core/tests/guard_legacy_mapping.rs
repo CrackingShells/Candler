@@ -929,7 +929,8 @@ fn digest(bytes: &[u8]) -> String {
 
 /// Guards: I12 — every file of the folder is exactly one of a source of the folder, a cell or a
 /// run, an artifact under `outputs/`, a stream or stderr file, or a skipped entry whose directory
-/// covers the files below it; every file of the model exists on disk, with the digest of its
+/// covers the files below it; a stream or stderr file is a stream that is also among its run's
+/// sources, with the same digest; every file of the model exists on disk, with the digest of its
 /// bytes; a file the model neither holds nor lists as skipped with its reason would be left out
 /// silently. Oracle: a `std::fs` walk of the mini-corpus and a SHA-256 of each file's bytes made in
 /// the test.
@@ -982,8 +983,11 @@ fn every_file_is_accounted_for_exactly_once() {
         let covered = skipped
             .iter()
             .any(|entry| relative == *entry || relative.starts_with(&format!("{entry}/")));
+        // A stream or stderr file is also a run source and counts as a stream only.
         let held = [
-            sources.get(&relative),
+            sources
+                .get(&relative)
+                .filter(|_| !streams.contains_key(&relative)),
             artifacts.get(&relative),
             streams.get(&relative),
         ];
@@ -1006,6 +1010,12 @@ fn every_file_is_accounted_for_exactly_once() {
         }
     }
     assert!(counts.iter().all(|&count| count > 0), "{counts:?}");
+    for (path, stream) in &streams {
+        let source = sources
+            .get(path)
+            .unwrap_or_else(|| panic!("the stream file `{path}` is not among the run's sources"));
+        assert_eq!(source.sha256, stream.sha256, "{path}");
+    }
     let on_disk: BTreeSet<String> = walk(&root)
         .iter()
         .map(|path| {

@@ -13,7 +13,9 @@ mod oracle;
 mod support;
 
 use std::collections::BTreeSet;
+use std::fmt::Write as _;
 use std::fs;
+use std::io::{Read as _, Write as _};
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
@@ -25,12 +27,16 @@ use candler_core::import::assemble::import;
 use candler_core::store::Store;
 use candler_harness::reader::TraceReader;
 use candler_schemas::primitives::{Digest, RunKey};
+use flate2::Compression;
+use flate2::read::MultiGzDecoder;
+use flate2::write::GzEncoder;
 use legacy_import::{
     SYNTHETIC, assert_same_store, cell_of, copy_tree, field, import_with_reader, mini, project,
     reader, snapshot, text_of,
 };
 use oracle::{ExpectedRow, expected_rows};
 use serde_json::Value;
+use sha2::{Digest as _, Sha256};
 use std::str::FromStr as _;
 
 /// The outcome records of every run of the store, projected as the oracle's rows.
@@ -204,6 +210,84 @@ fn the_store_holds_the_oracle_rows_and_every_difference_is_explained() {
         .collect();
     assert_eq!(explanations.len(), 1 + 15 + 7 + 5);
     assert!(explanations.iter().all(|text| !text.trim().is_empty()));
+}
+
+/// Guards: R01 §Golden corpus (every source file read with its sha256, each kept as a blob) — every
+/// run lists its `agent_stream.jsonl.gz` and `agent_stderr.txt` in `import.sources` with the
+/// file's digest and a blob of its bytes, and the raw header's `source` digest of its `stdout`
+/// frames is among them. Oracle: `sha256` of the fixture files, computed here from their bytes.
+#[test]
+fn every_run_lists_its_stream_and_stderr_as_kept_sources() {
+    let store_dir = tempfile::tempdir().expect("a temporary directory");
+    let store = Store::init(store_dir.path()).expect("the store initialises");
+    import_with_reader(&mini(), &store).expect("the mini-corpus imports");
+    let runs = store.runs().expect("the runs list");
+    assert_eq!(runs.len(), 6);
+    for entry in runs {
+        let replicate = entry.key.replicate();
+        let cell = cell_of(replicate);
+        let run_dir = format!("_run_cache/with_skill/run-{replicate}");
+        let manifest =
+            serde_json::to_value(store.read_manifest(&entry.key).expect("the manifest reads"))
+                .expect("a manifest serializes");
+        let sources = field(field(&manifest, "import"), "sources")
+            .as_array()
+            .expect("the sources are a list");
+        let mut stdout_digest = None;
+        for name in ["agent_stream.jsonl.gz", "agent_stderr.txt"] {
+            let path = format!("{run_dir}/{name}");
+            let source = sources
+                .iter()
+                .find(|source| text_of(source, "path") == path)
+                .unwrap_or_else(|| panic!("run {replicate}: `{path}` is not in import.sources"));
+            let bytes = fs::read(mini().join(cell).join(&path)).expect("the fixture file reads");
+            let expected = format!(
+                "sha256:{}",
+                Sha256::digest(&bytes)
+                    .iter()
+                    .fold(String::new(), |mut hex, byte| {
+                        write!(hex, "{byte:02x}").expect("a string takes text");
+                        hex
+                    })
+            );
+            assert_eq!(
+                text_of(source, "sha256"),
+                expected,
+                "run {replicate}: {path}"
+            );
+            let digest = Digest::from_str(&expected).expect("a digest");
+            let blob = store.blob_path(&digest);
+            assert_eq!(
+                fs::read(&blob).unwrap_or_else(|_| panic!("run {replicate}: no blob for `{path}`")),
+                bytes,
+                "run {replicate}: the blob of `{path}`"
+            );
+            if name == "agent_stream.jsonl.gz" {
+                stdout_digest = Some(expected);
+            }
+        }
+        // The `stdout` frames name the stream file they were cut from.
+        let raw = fs::read(
+            store
+                .layout()
+                .raw(&entry.key, &"stdout".parse().expect("a stream name")),
+        )
+        .expect("the stdout frames read");
+        let mut text = String::new();
+        MultiGzDecoder::new(raw.as_slice())
+            .read_to_string(&mut text)
+            .expect("the stdout frames decompress");
+        let header: Value = serde_json::from_str(text.lines().next().expect("a header line"))
+            .expect("the header parses");
+        let source = text_of(&header, "source");
+        assert_eq!(Some(source.clone()), stdout_digest, "run {replicate}");
+        assert!(
+            sources
+                .iter()
+                .any(|entry| text_of(entry, "sha256") == source),
+            "run {replicate}: the raw header's source is not in import.sources"
+        );
+    }
 }
 
 /// Guards: Cond 1 and I11 — importing two copies of the mini-corpus, at different paths, into two
@@ -408,7 +492,7 @@ fn an_import_that_stopped_is_completed_by_the_next() {
     // the store, blobs included, is byte for byte as it was.
     let manifest = store.read_manifest(&third).expect("the manifest reads");
     let settled = snapshot(dir.path());
-    let cases: [(&str, Option<&[u8]>, &str); 2] = [
+    let cases: [(&str, Option<&[u8]>, &str); 4] = [
         (
             "synthetic_cell/eval-1-tier-a-domain-structure/with_skill/run-2/eval_metadata.json",
             Some(b"synthetic prompt"),
@@ -419,6 +503,16 @@ fn an_import_that_stopped_is_completed_by_the_next() {
             None,
             "domain.py",
         ),
+        (
+            "synthetic_cell/_run_cache/with_skill/run-2/agent_stream.jsonl.gz",
+            None,
+            "_run_cache/with_skill/run-2/agent_stream.jsonl.gz",
+        ),
+        (
+            "synthetic_cell/_run_cache/with_skill/run-2/agent_stderr.txt",
+            None,
+            "_run_cache/with_skill/run-2/agent_stderr.txt",
+        ),
     ];
     for (relative, needle, named) in cases {
         let changed_dir = tempfile::tempdir().expect("a temporary directory");
@@ -426,14 +520,41 @@ fn an_import_that_stopped_is_completed_by_the_next() {
         copy_tree(&corpus, &changed);
         let target = changed.join(relative);
         let mut text = fs::read(&target).expect("the source reads");
-        let at = needle.map_or(0, |needle| {
-            text.windows(needle.len())
-                .position(|window| window == needle)
-                .expect("the needle is in the source")
-                + needle.len()
-                - 1
-        });
+        let zipped = Path::new(relative)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("gz"));
+        if zipped {
+            let mut plain = Vec::new();
+            MultiGzDecoder::new(text.as_slice())
+                .read_to_end(&mut plain)
+                .expect("the stream decompresses");
+            text = plain;
+        }
+        // The fixtures' stderr files are empty, so a byte cannot be flipped in them: one is added.
+        if text.is_empty() {
+            text.push(b'x');
+        }
+        let at = if zipped {
+            // The third byte of the second line: inside the first key of its JSON object.
+            text.iter()
+                .position(|byte| *byte == b'\n')
+                .expect("the stream has a second line")
+                + 3
+        } else {
+            needle.map_or(0, |needle| {
+                text.windows(needle.len())
+                    .position(|window| window == needle)
+                    .expect("the needle is in the source")
+                    + needle.len()
+                    - 1
+            })
+        };
         *text.get_mut(at).expect("the byte is in the source") ^= 1;
+        if zipped {
+            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+            encoder.write_all(&text).expect("the stream compresses");
+            text = encoder.finish().expect("the stream compresses");
+        }
         fs::write(&target, &text).expect("the source is written");
         match import_with_reader(&changed, &store) {
             Err(ImportError::Conflict { run, file, .. }) => {
