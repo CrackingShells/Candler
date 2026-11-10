@@ -51,8 +51,8 @@ An agent container is recorded from the moment its cid is known, every legacy st
 ## Status
 ```mermaid
 graph TD
-    agent_container_record[Agent container record]:::planned
-    import_stream_sources[Import stream sources]:::planned
+    agent_container_record[Agent container record]:::done
+    import_stream_sources[Import stream sources]:::done
     settle[Settle]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -64,8 +64,8 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `agent_container_record.md` | 📄 Leaf Task | ⬜ Planned |
-| `import_stream_sources.md` | 📄 Leaf Task | ⬜ Planned |
+| `agent_container_record.md` | 📄 Leaf Task | ✅ Done |
+| `import_stream_sources.md` | 📄 Leaf Task | ✅ Done |
 | `settle/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
@@ -75,3 +75,5 @@ graph TD
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| `import_stream_sources.md` | `gaps/import_stream_sources` | 1 (69ae567), merge bbaa6e5 | One fix round: the accounting test of `guard_legacy_mapping` counts a stream as a stream that is also a source (OWNED extended). Deviation: the fixture stderr files are empty, so the stderr re-import case adds one byte. Breaking: a store imported by ≤0.4.1 fails re-import |
+| `agent_container_record.md` | `gaps/agent_container_record` | 2 (e0bb4be, a044262), merge e434f87 | Two fix rounds: the ladder guard waits on the record with a 10 s bound; a poll error falls back to the post-wait try. Deviations: the job-close guard drives the whole job through a PATH-fake docker whose first `rm` fails; idempotence by an in-memory set; record errors are dropped and never fail the run. An agent whose cidfile exists but which never inspects gets no `container.created` |
