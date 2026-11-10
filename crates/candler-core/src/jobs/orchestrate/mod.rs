@@ -16,7 +16,9 @@ use candler_schemas::execution::JobEnd;
 use futures::future::BoxFuture;
 
 use self::schedule::Scheduler;
-use self::session::{DockerHost, EnvSecrets, JobHost, JobSession, cells_of, image_of};
+use self::session::{
+    DockerHost, EnvSecrets, JobHost, JobSession, cells_of, image_of, record_packages,
+};
 use crate::isolation::model::{ImageId, ImageRef, SweepScope};
 use crate::jobs::model::{JobControl, JobOutcome, JobSpec};
 use crate::runner::plan::{Force, PlanCtx, PlanMode, experiment_of, plan_runs};
@@ -85,25 +87,28 @@ async fn run_job(
         Ok(outcome) => outcome,
         Err(error) => return refused("the plan was refused", &error),
     };
-    let mut planners = BTreeMap::new();
-    // EXPLICIT: the loop fills `planners` and skips images it already holds; .map() would hide the state update
-    for comparable in outcome.fresh.values() {
-        let Some(id) = image_of(comparable) else {
-            continue;
-        };
-        if planners.contains_key(&id) {
-            continue;
-        }
-        // BORROW: the image reference owns the id it names
-        let image = ImageRef {
-            id: ImageId(id.clone()),
-            cc_version: None,
-        };
-        if let Some(axis) = host.planner(&rt, &image).await {
-            planners.insert(id, axis);
+    let names = record_packages(&spec.resolution);
+    let mut packages = BTreeMap::new();
+    if !names.is_empty() {
+        // EXPLICIT: the loop fills `packages` and skips images it already holds; .map() would hide the state update
+        for comparable in outcome.fresh.values() {
+            let Some(id) = image_of(comparable) else {
+                continue;
+            };
+            if packages.contains_key(&id) {
+                continue;
+            }
+            // BORROW: the image reference owns the id it names
+            let image = ImageRef {
+                id: ImageId(id.clone()),
+                cc_version: None,
+            };
+            if let Some(readings) = host.packages(&rt, &image, &names).await {
+                packages.insert(id, readings);
+            }
         }
     }
-    let cells = match cells_of(&spec, &outcome, &secrets.present(), &planners) {
+    let cells = match cells_of(&spec, &outcome, &secrets.present(), &packages) {
         Ok(cells) => cells,
         Err(error) => return refused("the cells cannot be built", &error),
     };

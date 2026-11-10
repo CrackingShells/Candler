@@ -10,8 +10,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use candler_core::isolation::container::DockerIsolation;
@@ -22,8 +22,9 @@ use candler_core::isolation::driver::DockerDriver;
 use candler_core::isolation::gateway::{
     Gateway, GatewayError, GatewaySignal, GatewayStart, GatewayStatus,
 };
+use candler_core::isolation::image::PackageReadings;
 use candler_core::isolation::model::{
-    ContainerOutcome, ContainerPlan, ContainerRef, GatewayHandle, Labels, NetworkName,
+    ContainerOutcome, ContainerPlan, ContainerRef, GatewayHandle, ImageRef, Labels, NetworkName,
 };
 use candler_core::isolation::{EndFacts, IsolatedRequest, Isolation, IsolationError, RunOutputs};
 use candler_core::jobs::dir::JobDir;
@@ -242,8 +243,20 @@ impl Isolation for Placed {
     }
 }
 
+/// What a container read of the env image answers: the packages the image holds, and the names
+/// each read asked for.
+#[derive(Default)]
+pub struct FakeReads {
+    /// The packages the fake image holds, by import name.
+    pub held: PackageReadings,
+    /// The names of each read, in order.
+    pub asked: Mutex<Vec<Vec<String>>>,
+}
+
 /// The machine around a job: the fake client, the fake gateway, the fake placement.
 pub struct FakeHost {
+    /// The container read of the env image, when a test gives the image packages.
+    reads: Option<Arc<FakeReads>>,
     docker: PathBuf,
     /// The agent the runs are, when a test gives them a container; the fake client's `run` otherwise.
     agent: Option<Arc<FakeAgent>>,
@@ -275,6 +288,30 @@ impl JobHost for FakeHost {
             // TRAIT_OBJECT: the session takes the gateway as a trait object
             let service: Arc<dyn Gateway> = Arc::new(FakeGateway);
             Ok(service)
+        })
+    }
+
+    fn packages<'a>(
+        &'a self,
+        _rt: &'a Runtime,
+        _image: &'a ImageRef,
+        names: &'a [String],
+    ) -> BoxFuture<'a, Option<PackageReadings>> {
+        Box::pin(async move {
+            let reads = self.reads.as_ref()?;
+            reads
+                .asked
+                .lock()
+                .expect("the log of reads")
+                .push(names.to_vec()); // BORROW: the log owns the names
+            Some(
+                reads
+                    .held
+                    .iter()
+                    .filter(|(name, _)| names.contains(name))
+                    .map(|(name, reading)| (name.clone(), reading.clone())) // BORROW: the answer owns its readings
+                    .collect(),
+            )
         })
     }
 
@@ -461,6 +498,18 @@ impl Rig {
     /// The host of the job over this world.
     pub fn host(&self) -> Arc<FakeHost> {
         Arc::new(FakeHost {
+            reads: None,
+            docker: self.docker.clone(),
+            agent: None,
+            ticks: None,
+        })
+    }
+
+    /// The host of the job over this world, whose env image answers `reads`.
+    #[must_use]
+    pub fn host_reading(&self, reads: &Arc<FakeReads>) -> Arc<FakeHost> {
+        Arc::new(FakeHost {
+            reads: Some(Arc::clone(reads)), // BORROW: the host shares the log the test reads
             docker: self.docker.clone(),
             agent: None,
             ticks: None,
@@ -471,6 +520,7 @@ impl Rig {
     #[must_use]
     pub fn host_with_agent(&self, agent: FakeAgent) -> Arc<FakeHost> {
         Arc::new(FakeHost {
+            reads: None,
             docker: self.docker.clone(),
             agent: Some(Arc::new(agent)),
             ticks: None,
@@ -487,6 +537,7 @@ impl Rig {
     /// and moves only when the test stores a new value.
     pub fn host_on(&self, ticks: &Arc<AtomicU64>) -> Arc<FakeHost> {
         Arc::new(FakeHost {
+            reads: None,
             docker: self.docker.clone(),
             agent: None,
             ticks: Some(Arc::clone(ticks)), // BORROW: the host shares the counter the test advances
@@ -527,7 +578,6 @@ impl Rig {
             skills: Arc::new(EmptyTree),
             cells: BTreeMap::new(),
             eval_infra: EvalInfra::default(),
-            planner_package: None,
         }
     }
 

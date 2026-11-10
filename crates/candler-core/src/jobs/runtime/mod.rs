@@ -53,8 +53,6 @@ pub struct JobServices {
     pub skills: Arc<dyn SkillTree>,
     /// Which build of the evaluation infrastructure runs the job.
     pub eval_infra: EvalInfra,
-    /// The import package whose distribution and version the job records for the env image.
-    pub planner_package: Option<String>,
 }
 
 /// Everything the supervisor of one job starts from. The spec's digest was checked against

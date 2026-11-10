@@ -576,14 +576,7 @@ async fn drive(
         duration_ms,
         events: &evidence.events,
     }));
-    let comparable = plan.stored.as_ref().unwrap_or(&cell.comparable);
-    let treatment = comparable.treatment();
-    measured.extend(provenance_values(
-        // BORROW: .as_str() hands the treatment's name and tag to the provenance
-        (treatment.name.as_str(), treatment.tag.as_deref()),
-        &rt.eval_infra,
-        cell.planner.as_ref(),
-    ));
+    measured.extend(provenance_values(&rt.eval_infra, &cell.packages));
 
     let integrity = end.invalid.map_or(Integrity::Valid, Integrity::invalid);
     let last = manifest_of(

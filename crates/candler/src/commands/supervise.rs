@@ -36,10 +36,6 @@ pub struct Args {
     pub job: String,
 }
 
-/// The import package of the planner library the env image carries, whose distribution and
-/// version every run records.
-const PLANNER_PACKAGE: &str = "gtpyhop";
-
 /// The build of the evaluation infrastructure this binary is, as `build.rs` read it from git.
 fn eval_infra() -> EvalInfra {
     EvalInfra {
@@ -111,7 +107,6 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
             driver,
             skills,
             eval_infra: eval_infra(),
-            planner_package: Some(String::from(PLANNER_PACKAGE)),
         },
     };
     let body: JobBody = orchestrate;

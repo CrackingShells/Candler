@@ -32,7 +32,7 @@ use flate2::write::GzEncoder;
 use legacy_import::{mini, project, reader};
 use oracle::{expected_rows, expected_runs};
 use regex::Regex;
-use support::{assert_clean, scan};
+use support::assert_clean;
 
 /// The names of the legacy domain that no layer below the rules may hold.
 const DENY_LIST: [&str; 11] = [
@@ -82,55 +82,16 @@ fn python_src(package: &str) -> PathBuf {
         .join("src")
 }
 
-/// The one domain name the `candler` binary may hold: the file, relative to the binary's
-/// `src/`, and the exact line that holds it. Nothing else in that file, and nothing in any other
-/// file, is excused.
-///
-/// ALLOWANCE (Eliott, 2026-11-09; M2a rulings, "NEUT: the planner package allowance"). M2b's
-/// `supervise` compiles in the import package of the planner library the env image carries.
-/// Removed by amendment A2's gate in
-/// `__roadmap__/candler-v1/contracts/parity/alignment/m2c_wire_alignment.md`: delete this
-/// constant, [`hits_beyond_allowance`] and its self-test when that gate lands. The guard fails
-/// once the line is gone, so a stale allowance cannot stay.
-const ALLOWANCE: (&str, &str) = (
-    "commands/supervise.rs",
-    "const PLANNER_PACKAGE: &str = \"gtpyhop\";",
-);
-
-/// The files under `src` that hold `needle`, once the allowed `line` is taken out, exactly once,
-/// of the file `allowed` (relative to `src`). Panics when `allowed` does not hold `line` exactly
-/// once, or when the scan reads no file.
-fn hits_beyond_allowance(src: &Path, needle: &str, (allowed, line): (&str, &str)) -> Vec<PathBuf> {
-    let found = scan(src, needle).unwrap_or_else(|e| panic!("scan of {}: {e}", src.display()));
-    assert!(found.files > 0, "scan of {} read no file", src.display());
-    let allowed = src.join(allowed);
-    let text = fs::read_to_string(&allowed)
-        .unwrap_or_else(|e| panic!("the allowed file {}: {e}", allowed.display()));
-    let count = text.matches(line).count();
-    assert_eq!(
-        count,
-        1,
-        "{} must hold the allowed line exactly once; delete the allowance once it is gone",
-        allowed.display()
-    );
-    let rest = text.replacen(line, "", 1);
-    found
-        .hits
-        .into_iter()
-        .filter(|hit| *hit != allowed || rest.contains(needle))
-        .collect()
-}
-
 /// Guards: I1 — none of the deny-listed domain names appears in the core's sources, the harness
-/// crate's sources, the published schemas, the `candler` binary's sources (but for the one line
-/// [`ALLOWANCE`] names) or the Python evaluator helper's sources (the schemas crate's Rust
-/// sources are not scanned).
+/// crate's sources, the published schemas, the `candler` binary's sources or the Python evaluator
+/// helper's sources (the schemas crate's Rust sources are not scanned).
 /// Oracle: the deny-list literal of this file.
 #[test]
 fn the_core_the_harness_the_schemas_the_binary_and_the_helper_hold_no_domain_name() {
     let folders = [
         crate_dir("candler-core", "src"),
         crate_dir("candler-harness", "src"),
+        crate_dir("candler", "src"),
         crate_dir("candler-schemas", "schema"),
         python_src("candler-evaluator"),
     ];
@@ -139,61 +100,6 @@ fn the_core_the_harness_the_schemas_the_binary_and_the_helper_hold_no_domain_nam
             assert_clean(folder, needle);
         }
     }
-    let binary = crate_dir("candler", "src");
-    for needle in DENY_LIST {
-        let hits = hits_beyond_allowance(&binary, needle, ALLOWANCE);
-        assert!(
-            hits.is_empty(),
-            "{needle:?} found under {}: {hits:?}",
-            binary.display()
-        );
-    }
-}
-
-/// Guards: I1 — the allowance excuses one line of one file and nothing more: a planted tree in
-/// which the allowed file holds only the allowed line is clean, while a second constant with the
-/// same name in that file, any other deny-listed name in that file, and the allowed line itself
-/// in another file are each found.
-/// Oracle: hand-written planted files and the deny-list literal of this file.
-#[test]
-fn the_allowance_excuses_its_one_line_and_nothing_else() {
-    let (path, line) = ALLOWANCE;
-    let plant = |files: &[(&str, String)]| {
-        let dir = tempfile::tempdir().expect("a temporary directory");
-        for (name, text) in files {
-            let file = dir.path().join(name);
-            fs::create_dir_all(file.parent().expect("a parent")).expect("the folder is made");
-            fs::write(&file, text).expect("the file is written");
-        }
-        dir
-    };
-    let found = |dir: &tempfile::TempDir| -> Vec<&str> {
-        DENY_LIST
-            .into_iter()
-            .filter(|needle| !hits_beyond_allowance(dir.path(), needle, ALLOWANCE).is_empty())
-            .collect()
-    };
-
-    let clean = plant(&[
-        (path, format!("//! A command.\n{line}\n")),
-        ("main.rs", "fn main() {}\n".into()),
-    ]);
-    assert_eq!(found(&clean), Vec::<&str>::new());
-
-    let second = plant(&[(
-        path,
-        format!("{line}\nconst PLANNER_TOO: &str = \"gtpyhop\";\n"),
-    )]);
-    assert_eq!(found(&second), vec!["gtpyhop"]);
-
-    let other = plant(&[(path, format!("{line}\n// the rikyu MCP server\n"))]);
-    assert_eq!(found(&other), vec!["rikyu"]);
-
-    let elsewhere = plant(&[
-        (path, format!("{line}\n")),
-        ("commands/run.rs", format!("{line}\n")),
-    ]);
-    assert_eq!(found(&elsewhere), vec!["gtpyhop"]);
 }
 
 /// The bytes with every domain name renamed.

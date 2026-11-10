@@ -140,6 +140,16 @@ class = "setting"
 source = "experiment file (ruling A15); its bytes enter the cell as isolation.env_lock"
 
 [[path]]
+path = "isolation.build.prune"
+class = "setting"
+source = "experiment file; names the files deleted from the env, and keys the env image with the lock"
+
+[[path]]
+path = "isolation.record_packages"
+class = "setting"
+source = "experiment file; names the import packages whose distribution and version a run measures"
+
+[[path]]
 path = "harness"
 class = "typed_root"
 source = "derived HarnessIdentity {name, version, driver?}"
