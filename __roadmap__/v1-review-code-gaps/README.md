@@ -25,7 +25,7 @@ An agent container is recorded from the moment its cid is known, every legacy st
 ## Success Gates
 - ⬜ [cmd] STD and LINUX pass on `fix/v1-review-code-gaps`
 - ⬜ [cmd] SUBJ passes over `origin/main..fix/v1-review-code-gaps`
-- ⬜ [cmd] No `#[allow]` is left in library or binary code, and every suppression in the workspace carries a reason: `! git grep -n -E '#!?\[allow\(' -- 'crates/*/src'`, each crate root denies `clippy::allow_attributes`, and `cargo clippy --workspace --all-targets -- -D warnings` passes with `allow_attributes_without_reason` denied in `[workspace.lints.clippy]`. In `tests/` an `#[allow]` stays only where an `#[expect]` cannot hold (a support module shared by several test binaries), with its reason
+- ⬜ [cmd] No `#[allow]` is left in library or binary code, and every suppression in the workspace carries a reason: `! git grep -n -E '#!?\[allow\(|cfg_attr\([^)]*allow\(' -- ':(glob)crates/*/src/**'`, each crate root denies `clippy::allow_attributes`, and `cargo clippy --workspace --all-targets -- -D warnings` passes with `allow_attributes_without_reason` denied in `[workspace.lints.clippy]`. In `tests/` an `#[allow]` stays only where an `#[expect]` cannot hold (a support module shared by several test binaries), with its reason
 - ⬜ [cmd] `cargo nextest run -p candler-core -E 'binary(guard_container_record) | binary(guard_job_orchestrate) | binary(guard_import_mini)'` passes, with the new guards of both L0 leaves among the tests run
 - ⬜ [cmd] `CANDLER_GOLDEN_CORPUS="$GOLDEN" cargo nextest run -p candler-core --run-ignored only --no-tests=fail -E 'binary(guard_golden)'` passes on the milestone branch
 - ⬜ [nl] The digest report (`__reports__/v1-review-code-gaps/digest_invariance_v0.md`) shows the run keys (and so the cell digests) and the outcome context digests of the golden and mini-corpus imports identical between `main` and the milestone branch
@@ -53,7 +53,7 @@ An agent container is recorded from the moment its cid is known, every legacy st
 graph TD
     agent_container_record[Agent container record]:::done
     import_stream_sources[Import stream sources]:::done
-    settle[Settle]:::inprogress
+    settle[Settle]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -66,7 +66,7 @@ graph TD
 |:-----|:-----|:-------|
 | `agent_container_record.md` | 📄 Leaf Task | ✅ Done |
 | `import_stream_sources.md` | 📄 Leaf Task | ✅ Done |
-| `settle/` | 📁 Directory | 🔄 In Progress |
+| `settle/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

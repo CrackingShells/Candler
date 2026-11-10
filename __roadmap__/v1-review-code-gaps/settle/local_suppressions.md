@@ -11,7 +11,7 @@
   
   Not `crates/candler-schemas/schema/`.
 **Success Gates**:
-- ⬜ [cmd] No `#[allow]` in library or binary code: `! git grep -n -E '#!?\[allow\(' -- 'crates/*/src'`
+- ⬜ [cmd] No `#[allow]` in library or binary code: `! git grep -n -E '#!?\[allow\(|cfg_attr\([^)]*allow\(' -- ':(glob)crates/*/src/**'`
 - ⬜ [cmd] Every suppression left in `tests/` carries a reason: `cargo clippy --workspace --all-targets -- -D warnings` passes with `allow_attributes_without_reason = "deny"` in `[workspace.lints.clippy]`
 - ⬜ [cmd] `#[allow]` is denied where it can be: each crate root (`crates/*/src/lib.rs`, `crates/candler/src/main.rs`) carries `#![deny(clippy::allow_attributes)]`, and `git grep -c 'deny(clippy::allow_attributes)' -- 'crates/*/src/lib.rs' crates/candler/src/main.rs` counts 5
 - ⬜ [cmd] Grit rule 11 is enforced: `exhaustive_enums = "warn"` is in `[workspace.lints.clippy]`, and clippy passes
@@ -60,8 +60,8 @@ Convert each `#[allow]` to `#[expect(<lint>, reason = "…")]`. Where today's re
 
 Doc comments are untouched, so no schema file moves. Run DRIFT.
 **Deliverables**: the 8 suppressions of `crates/candler-schemas/src/{outcome,process,trace,execution,evaluation}.rs` as `#[expect(…, reason = …)]`
-**Consistency Checks**: `cargo clippy -p candler-schemas --all-targets -- -D warnings && CANDLER_BLESS_SCHEMAS=1 cargo nextest run -p candler-schemas -E 'binary(schema_drift)' && test -z "$(git status --porcelain crates/candler-schemas/schema)" && ! git grep -n -E '#!?\[allow\(' -- crates/candler-schemas/src` (expected: PASS)
-**Commit**: `style(schemas): justify each lint the wire types expect`
+**Consistency Checks**: `cargo clippy -p candler-schemas --all-targets -- -D warnings && CANDLER_BLESS_SCHEMAS=1 cargo nextest run -p candler-schemas -E 'binary(schema_drift)' && test -z "$(git status --porcelain crates/candler-schemas/schema)" && ! git grep -n -E '#!?\[allow\(' -- ':(glob)crates/candler-schemas/src/**'` (expected: PASS)
+**Commit**: `refactor(schemas): avoid or justify each lint the wire types hit`
 
 ## Step 4: Deny the bare allow and settle every other suppression
 **Goal**: The lints that keep the decision are on. Every other suppression in `src/` is removed or a reasoned `#[expect]`, and every one in `tests/` is removed, a reasoned `#[expect]`, or, where `expect` cannot hold, a reasoned `#[allow]`.
@@ -94,5 +94,5 @@ Doc comments are untouched, so no schema file moves. Run DRIFT.
    > A local lint suppression is `#[expect(<lint>, reason = "…")]`, so it fails once the lint stops firing. `#[allow]` is denied in `src/`. In `tests/` it is allowed, with a reason, only where an `expect` cannot hold, such as a support module shared by several test binaries. Grit's markers (`EXHAUSTIVE:`, `WIRE:`, `CAST:`) open the reason or stay beside it.
 5. Write the leaf report's per-suppression table and send the diff to the Grit reviewer.
 **Deliverables**: root `Cargo.toml` (`allow_attributes_without_reason`, `exhaustive_enums`); `#![deny(clippy::allow_attributes)]` in the 5 crate roots; every suppression of `crates/*/src` and `crates/*/tests` decided; `AGENTS.md` (the suppression paragraph)
-**Consistency Checks**: `cargo clippy --workspace --all-targets -- -D warnings && cargo clippy --target x86_64-unknown-linux-gnu --workspace --tests -- -D warnings && ! git grep -n -E '#!?\[allow\(' -- 'crates/*/src'` (expected: PASS)
-**Commit**: `style(repo): deny bare allow attributes and settle every suppression`
+**Consistency Checks**: `cargo clippy --workspace --all-targets -- -D warnings && cargo clippy --target x86_64-unknown-linux-gnu --workspace --tests -- -D warnings && ! git grep -n -E '#!?\[allow\(|cfg_attr\([^)]*allow\(' -- ':(glob)crates/*/src/**'` (expected: PASS)
+**Commit**: `refactor(repo)!: deny bare allow attributes and settle every suppression`
