@@ -180,6 +180,7 @@ pub const NUISANCE_PATHS: &[&str] = &[
     "ended_at",
     "host",
     "job",
+    "evaluation_inputs",
     "integrity",
     "import",
 ];
