@@ -11,12 +11,18 @@
 //!    recorded, except that the tag falls back to `v<package version>`.
 //! 4. **Otherwise** only the tag `v<package version>` is recorded.
 //!
-//! A commit or flag that no origin gives is left unrecorded, never recorded as `false`. The
-//! resolution is `build_infra.rs`, shared with the guard that tests it.
+//! A commit or flag that no origin gives is left unrecorded, never recorded as `false`. Every
+//! field is exported under a `CANDLER_BUILT_*` name, empty when unrecorded, so that nothing in the
+//! builder's shell can stand in for it; the packager's `CANDLER_EVAL_INFRA_*` names are inputs
+//! only. The resolution is `build_infra.rs`, shared with the guard that tests it.
 
 use std::path::Path;
 
 #[path = "build_infra.rs"]
+#[expect(
+    dead_code,
+    reason = "the read side of the identity belongs to the binary, not the build"
+)]
 mod build_infra;
 
 use build_infra::{Origin, PACKAGER_VARS, WATCHED, git, resolve};
@@ -61,19 +67,7 @@ fn main() {
              compares builds will refuse it"
         );
     }
-    if let Some(tag) = &identity.tag {
-        export("CANDLER_EVAL_INFRA_TAG", tag);
-    }
-    if let Some(ahead) = identity.commits_ahead {
-        export("CANDLER_EVAL_INFRA_COMMITS_AHEAD", &ahead.to_string());
-    }
-    if let Some(commit) = &identity.commit {
-        export("CANDLER_EVAL_INFRA_COMMIT", commit);
-    }
-    if let Some(dirty) = identity.dirty {
-        export(
-            "CANDLER_EVAL_INFRA_DIRTY",
-            if dirty { "true" } else { "false" },
-        );
+    for (name, value) in identity.exported() {
+        export(name, &value);
     }
 }

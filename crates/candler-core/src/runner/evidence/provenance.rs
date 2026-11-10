@@ -20,7 +20,7 @@ pub struct EvalInfra {
     pub tag: Option<String>,
     /// The commits between the tag and the build's commit.
     pub commits_ahead: Option<u64>,
-    /// The abbreviated commit the build was made from.
+    /// The full 40-hex commit the build was made from.
     pub commit: Option<String>,
     /// Whether the tree had uncommitted changes at build time.
     pub dirty: Option<bool>,

@@ -42,6 +42,58 @@ pub const PACKAGER_VARS: [&str; 3] = [
     "CANDLER_EVAL_INFRA_DIRTY",
 ];
 
+/// The names the build exports to the compiler, one per recorded field. They differ from
+/// [`PACKAGER_VARS`] so that a name the packager sets as input is never read back as output.
+pub const EXPORTED_VARS: [&str; 4] = [
+    "CANDLER_BUILT_TAG",
+    "CANDLER_BUILT_COMMITS_AHEAD",
+    "CANDLER_BUILT_COMMIT",
+    "CANDLER_BUILT_DIRTY",
+];
+
+/// What the binary records about its build, as read back from the exported values.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Recorded {
+    /// The release tag.
+    pub tag: Option<String>,
+    /// The commits since the tag.
+    pub commits_ahead: Option<u64>,
+    /// The full commit.
+    pub commit: Option<String>,
+    /// Whether the sources differed from the commit.
+    pub dirty: Option<bool>,
+}
+
+/// Reads the four exported values, in the order of [`EXPORTED_VARS`]. An empty or malformed value
+/// is unrecorded: a tag is any non-empty text, the distance only digits, the commit 40 lowercase
+/// hexadecimal digits, the flag exactly `true` or `false`.
+pub fn read_recorded(
+    tag: Option<&str>,
+    commits_ahead: Option<&str>,
+    commit: Option<&str>,
+    dirty: Option<&str>,
+) -> Recorded {
+    Recorded {
+        // BORROW: .to_owned() gives the record its own text
+        tag: tag.filter(|t| !t.is_empty()).map(str::to_owned),
+        commits_ahead: commits_ahead
+            .filter(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+            .and_then(|n| n.parse().ok()),
+        // BORROW: .to_owned() gives the record its own text
+        commit: commit.filter(|c| is_full_commit(c)).map(str::to_owned),
+        dirty: dirty.and_then(parse_flag),
+    }
+}
+
+/// `true` or `false`, and nothing else.
+fn parse_flag(text: &str) -> Option<bool> {
+    match text {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
 /// Where an identity came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Origin {
@@ -69,6 +121,25 @@ pub struct Identity {
     pub commit: Option<String>,
     /// Whether the sources differed from the commit.
     pub dirty: Option<bool>,
+}
+
+impl Identity {
+    /// The values to hand the compiler, with the names of [`EXPORTED_VARS`]. A field the build
+    /// cannot prove is exported empty, so no value from the builder's shell can stand in for it.
+    pub fn exported(&self) -> Vec<(&'static str, String)> {
+        let [tag, ahead, commit, dirty] = EXPORTED_VARS;
+        vec![
+            (tag, self.tag.clone().unwrap_or_default()),
+            (
+                ahead,
+                self.commits_ahead
+                    .map(|n| n.to_string())
+                    .unwrap_or_default(),
+            ),
+            (commit, self.commit.clone().unwrap_or_default()),
+            (dirty, self.dirty.map(|d| d.to_string()).unwrap_or_default()),
+        ]
+    }
 }
 
 /// The text `git` prints for `args` in `dir`, or none when it fails or prints nothing.
@@ -176,12 +247,8 @@ fn from_packager(version: &str, env: &impl Fn(&str) -> Option<String>) -> Option
         origin: Origin::Packager,
         tag: tag.or_else(|| Some(format!("v{version}"))),
         commits_ahead: None,
-        commit: commit.filter(|c| !c.is_empty()),
-        dirty: dirty.and_then(|flag| match flag.as_str() {
-            "true" => Some(true),
-            "false" => Some(false),
-            _ => None,
-        }),
+        commit: commit.filter(|c| is_full_commit(c)),
+        dirty: dirty.as_deref().and_then(parse_flag),
     })
 }
 

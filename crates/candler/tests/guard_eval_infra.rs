@@ -12,7 +12,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use build_infra::{Identity, Origin, resolve};
+use build_infra::{EXPORTED_VARS, Identity, Origin, Recorded, read_recorded, resolve};
 use tempfile::TempDir;
 
 const VERSION: &str = "7.8.9";
@@ -282,10 +282,147 @@ fn this_checkout_records_the_full_commit() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let head = git(dir, &["rev-parse", "HEAD"]);
     assert_eq!(head.len(), 40);
-    assert_eq!(
-        option_env!("CANDLER_EVAL_INFRA_COMMIT"),
-        Some(head.as_str())
-    );
-    assert!(option_env!("CANDLER_EVAL_INFRA_DIRTY").is_some());
+    assert_eq!(option_env!("CANDLER_BUILT_COMMIT"), Some(head.as_str()));
+    assert!(matches!(
+        option_env!("CANDLER_BUILT_DIRTY"),
+        Some("true" | "false")
+    ));
     assert_eq!(resolve(dir, VERSION, env(&[])).commit, Some(head));
+}
+
+/// What the binary records for a build whose compiler environment is `ambient` overlaid with the
+/// values `build.rs` exports for `identity`. The read side takes the names of `EXPORTED_VARS`.
+fn recorded_by(identity: &Identity, ambient: &[(&str, &str)]) -> Recorded {
+    let mut compile_env: HashMap<String, String> = ambient
+        .iter()
+        .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+        .collect();
+    for (name, value) in identity.exported() {
+        compile_env.insert(name.to_owned(), value);
+    }
+    let [tag, ahead, commit, dirty] = EXPORTED_VARS.map(|name| compile_env.get(name).cloned());
+    read_recorded(
+        tag.as_deref(),
+        ahead.as_deref(),
+        commit.as_deref(),
+        dirty.as_deref(),
+    )
+}
+
+/// Guards: R01 §Run manifest, `eval_infra` — a field the build cannot prove is recorded
+/// unrecorded even when the builder's shell holds a value under the input or the output name.
+/// Oracle: hand-written; the shell holds `false` for `dirty`, a commit and a tag, and the build
+/// proves none of them.
+#[test]
+fn ambient_variables_never_stand_in_for_an_unknown_field() {
+    let unknown = Identity {
+        origin: Origin::None,
+        tag: None,
+        commits_ahead: None,
+        commit: None,
+        dirty: None,
+    };
+    let ambient = [
+        ("CANDLER_EVAL_INFRA_DIRTY", "false"),
+        ("CANDLER_BUILT_DIRTY", "false"),
+        ("CANDLER_BUILT_COMMIT", SHA),
+        ("CANDLER_BUILT_TAG", "v9.9.9"),
+        ("CANDLER_BUILT_COMMITS_AHEAD", "3"),
+    ];
+    assert_eq!(
+        recorded_by(&unknown, &ambient),
+        Recorded {
+            tag: None,
+            commits_ahead: None,
+            commit: None,
+            dirty: None
+        }
+    );
+}
+
+/// Guards: R01 §Run manifest, `eval_infra` — what a build proves is read back unchanged.
+/// Oracle: hand-written values.
+#[test]
+fn a_proven_identity_is_read_back_as_exported() {
+    let known = Identity {
+        origin: Origin::Git,
+        tag: Some("v1.2.3".to_owned()),
+        commits_ahead: Some(4),
+        commit: Some(SHA.to_owned()),
+        dirty: Some(true),
+    };
+    assert_eq!(
+        recorded_by(&known, &[]),
+        Recorded {
+            tag: Some("v1.2.3".to_owned()),
+            commits_ahead: Some(4),
+            commit: Some(SHA.to_owned()),
+            dirty: Some(true),
+        }
+    );
+}
+
+/// Guards: R01 §Run manifest, `eval_infra` — a packager commit that is not 40 lowercase hex
+/// (short, blank, upper case) is unrecorded, so it cannot pool with a git build.
+/// Oracle: hand-written spellings.
+#[test]
+fn packager_commit_that_is_not_a_full_commit_is_unrecorded() {
+    let dir = TempDir::new().unwrap();
+    let upper = SHA.to_uppercase();
+    for bad in ["abc123", "  ", "", upper.as_str(), &SHA[..39]] {
+        let got = resolve(
+            dir.path(),
+            VERSION,
+            env(&[("CANDLER_EVAL_INFRA_COMMIT", bad)]),
+        );
+        assert_eq!(got.commit, None, "{bad:?}");
+    }
+}
+
+/// Guards: R01 §Run manifest, `eval_infra` — a flag that is not exactly `true` or `false`
+/// (`yes`, empty, `TRUE`) is unrecorded, from the packager and from the exported value alike, and
+/// a distance that is not digits is unrecorded.
+/// Oracle: hand-written spellings.
+#[test]
+fn flag_text_other_than_true_or_false_is_unrecorded() {
+    let dir = TempDir::new().unwrap();
+    for bad in ["yes", "", "TRUE", "1", " true"] {
+        let got = resolve(
+            dir.path(),
+            VERSION,
+            env(&[("CANDLER_EVAL_INFRA_DIRTY", bad)]),
+        );
+        assert_eq!(got.dirty, None, "{bad:?}");
+        assert_eq!(
+            read_recorded(None, None, None, Some(bad)).dirty,
+            None,
+            "{bad:?}"
+        );
+    }
+    for bad in ["", "-1", "+3", "3.5", "x"] {
+        assert_eq!(
+            read_recorded(None, Some(bad), None, None).commits_ahead,
+            None,
+            "{bad:?}"
+        );
+    }
+    assert_eq!(
+        read_recorded(None, Some("0"), None, None).commits_ahead,
+        Some(0)
+    );
+}
+
+/// Guards: R01 §Run manifest, `eval_infra` — the names `build.rs` exports are the ones the
+/// binary's `eval_infra()` reads, and none of them is a name the packager sets.
+/// Oracle: the literal names in `supervise.rs`, read as text.
+#[test]
+fn the_binary_reads_the_names_the_build_exports() {
+    let supervise = include_str!("../src/commands/supervise.rs");
+    for name in EXPORTED_VARS {
+        assert!(
+            supervise.contains(&format!("option_env!(\"{name}\")")),
+            "{name}"
+        );
+    }
+    assert!(!supervise.contains("CANDLER_EVAL_INFRA"));
 }

@@ -28,6 +28,13 @@ use candler_schemas::primitives::JobId;
 use super::run::STORE_ENV;
 use super::{CliError, Exit, common};
 
+/// The build identity's reader, shared with `build.rs` and its guard. The build side of the file
+/// is not used here.
+#[path = "../../build_infra.rs"]
+#[expect(dead_code, reason = "the build script's half of the shared file")]
+mod build_infra;
+use build_infra::read_recorded;
+
 /// The arguments of `candler supervise`.
 #[derive(Debug, clap::Args)]
 pub struct Args {
@@ -36,13 +43,20 @@ pub struct Args {
     pub job: String,
 }
 
-/// The build of the evaluation infrastructure this binary is, as `build.rs` read it from git.
+/// The build of the evaluation infrastructure this binary is, as `build.rs` proved it. A field
+/// the build could not prove is unrecorded.
 fn eval_infra() -> EvalInfra {
+    let recorded = read_recorded(
+        option_env!("CANDLER_BUILT_TAG"),
+        option_env!("CANDLER_BUILT_COMMITS_AHEAD"),
+        option_env!("CANDLER_BUILT_COMMIT"),
+        option_env!("CANDLER_BUILT_DIRTY"),
+    );
     EvalInfra {
-        tag: option_env!("CANDLER_EVAL_INFRA_TAG").map(str::to_owned), // BORROW: the record owns its text
-        commits_ahead: option_env!("CANDLER_EVAL_INFRA_COMMITS_AHEAD").and_then(|n| n.parse().ok()),
-        commit: option_env!("CANDLER_EVAL_INFRA_COMMIT").map(str::to_owned), // BORROW: the record owns its text
-        dirty: option_env!("CANDLER_EVAL_INFRA_DIRTY").map(|flag| flag == "true"),
+        tag: recorded.tag,
+        commits_ahead: recorded.commits_ahead,
+        commit: recorded.commit,
+        dirty: recorded.dirty,
     }
 }
 
