@@ -66,8 +66,9 @@ An experiment file declares its inputs, its whole table values and its treatment
   - **SPAWN**, before any test run that may spawn a process: `git diff --quiet HEAD -- crates/candler-core/src && cargo clean -p candler-core && cargo nextest run -p candler-core -E 'binary(guard_signal)'`;
   - **GOLDEN**: `export CANDLER_GOLDEN_CORPUS="$GOLDEN" && cargo nextest run -p candler-core --run-ignored only --no-tests=fail -E 'binary(guard_golden)' && cargo nextest run -p candler --run-ignored only --no-tests=fail -E 'binary(guard_oracle_ac)'` (about 60 s), with `$GOLDEN=/Users/hacker/Documents/tmp/candler-m1-golden/campaign/20260806-cont-train`. Read it; never write in it.
 - **Build footprint (shared machine).**
-  - Export `RUSTC_WRAPPER=sccache CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/private/tmp/claude-501/m2c-target` for every cargo command. The target dir is the milestone's single shared one, and its lock serializes compiles. This replaces the per-worktree `target/` rule of earlier campaigns.
-  - At most three leaves are open and two building at once.
+  - Export `RUSTC_WRAPPER=sccache CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/private/tmp/claude-501/m2c-target-<leaf>` for every cargo command, one target dir per worktree, outside it. Never share one between worktrees: cargo names a workspace member's artifacts by its path relative to the workspace root, so two worktrees write the same names and a build can link the other worktree's code (seen in `agent_env`: "BuildSetting has no field named prune"). sccache shares the compile work. The coordinator's tip runs use `/private/tmp/claude-501/m2c-target`, which only it uses;
+  - Each leaf deletes its target dir before its last report; a fix round recreates it.
+  - At most three leaves are open and building at once.
   - The coordinator removes a leaf's worktree as soon as it is merged, and the target dir at close-out.
 - **Safety.** The rules of M2b's Gotchas hold:
   - signals go through the I22 guard only, and containers are destroyed only through `ContainerGuard`;
