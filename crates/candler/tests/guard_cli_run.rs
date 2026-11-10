@@ -1,6 +1,5 @@
 //! `candler run` starts a detached supervisor and returns; nothing marked outlives the job.
 #![cfg(test)]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 #[path = "support/cli_run.rs"]
 mod cli_run;

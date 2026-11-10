@@ -277,7 +277,10 @@ impl ChildRecordBuilder {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(remote = "Self", tag = "kind", rename_all = "snake_case")]
 #[schemars(deny_unknown_fields)]
-#[allow(clippy::exhaustive_enums)] // EXHAUSTIVE: a process ends by exiting or by a signal, and in no third way
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "EXHAUSTIVE: a process ends by exiting or by a signal, and in no third way"
+)]
 pub enum ExitStatus {
     /// The process exited with a status code.
     Code {

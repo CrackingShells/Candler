@@ -63,7 +63,7 @@ fn reason(code: &str) -> Cause {
     Cause::Reason(code.parse().expect("a reason code"))
 }
 
-#[allow(deprecated)]
+#[expect(deprecated, reason = "the guard builds `Legacy` causes")]
 fn legacy(code: &str) -> Cause {
     Cause::Legacy(code.parse().expect("a reason code"))
 }

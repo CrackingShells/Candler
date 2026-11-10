@@ -556,7 +556,7 @@ mod registry_surface {
             Plugin::new,
         );
         let _: fn(&Config) -> Result<PathBuf, RegistryError> = default_env_root;
-        let _: fn(Resolver, &Registry, &Path, Arc<Supervisor>) -> _ = register_evaluation_steps;
+        let _: fn(Resolver, &Registry, &Path, &Arc<Supervisor>) -> _ = register_evaluation_steps;
         let _ = (
             EnvironmentStep::for_plugin,
             EnvironmentStep::with_path,

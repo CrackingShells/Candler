@@ -35,6 +35,11 @@ Rule 1 holds without exception: public functions that return a borrow name their
 (`fn name<'a>(&'a self) -> &'a str`). `clippy::needless_lifetimes` is allowed workspace-wide for
 that reason, so do not elide them.
 
+A local lint suppression is `#[expect(<lint>, reason = "…")]`, so it fails once the lint stops
+firing. `#[allow]` is denied in `src/`. In `tests/` it is allowed, with a reason, only where an
+`expect` cannot hold, such as a support module shared by several test binaries. Grit's markers
+(`EXHAUSTIVE:`, `WIRE:`, `CAST:`) open the reason or stay beside it.
+
 A crate's modules are its namespace: a crate root declares its modules and does not re-export their
 items, and callers write `candler_schemas::primitives::Digest`.
 

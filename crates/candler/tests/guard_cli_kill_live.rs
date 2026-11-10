@@ -4,7 +4,6 @@
 //! body that starts no container and waits for its cancel. The test holds a `Child` of each.
 #![cfg(test)]
 #![cfg(unix)]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 mod kill_live {
     use std::fs;
@@ -182,7 +181,9 @@ exit 1
             spec: spec(),
             services: JobServices {
                 // TRAIT_OBJECT: the driver is the harness's real one, which the body never calls
-                driver: Arc::new(ClaudeCodeDriver::new()),
+                driver: Arc::new(
+                    ClaudeCodeDriver::new().expect("the driver builds from constants"),
+                ),
                 // TRAIT_OBJECT: the tree is a stub that holds no file
                 skills: Arc::new(NoSkills),
                 eval_infra: EvalInfra::default(),

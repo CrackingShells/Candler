@@ -100,7 +100,7 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     dir.set_supervisor(own_identity().map_err(failed)?)
         .map_err(failed)?;
     // TRAIT_OBJECT: the driver is the harness's, handed to the job as the trait it implements
-    let driver: Arc<dyn HarnessDriver> = Arc::new(ClaudeCodeDriver::new());
+    let driver: Arc<dyn HarnessDriver> = Arc::new(ClaudeCodeDriver::new().map_err(failed)?);
     // TRAIT_OBJECT: the skill tree is the harness's, handed to the job as the trait it implements
     let skills: Arc<dyn SkillTree> = Arc::new(ClaudeSkills);
     let entry = JobEntry {

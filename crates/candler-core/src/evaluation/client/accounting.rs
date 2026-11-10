@@ -51,7 +51,10 @@ pub struct Unreported {
 
 /// The one outcome of one requested item.
 #[derive(Debug, Clone, PartialEq)]
-// EXHAUSTIVE: an item is either reported or not; a third state would be a change of the model
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "EXHAUSTIVE: an item is either reported or not; a third state would be a change of the model"
+)]
 pub enum ItemOutcome {
     /// The evaluator reported this record.
     Reported(Box<OutcomeRecord>),

@@ -9,10 +9,6 @@ use candler_schemas::process::ChildRecord;
 /// One record in the job directory.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
-#[allow(
-    clippy::large_enum_variant,
-    reason = "a few records per job; boxing would only add a pointer to read"
-)]
 pub enum ChildEntry {
     /// A process child.
     Process(ChildRecord),

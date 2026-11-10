@@ -9,6 +9,8 @@
 //! JSON text that holds an unpaired surrogate escape, such as `\ud800`, is refused by the Rust
 //! reader.
 
+#![deny(clippy::allow_attributes)]
+
 pub mod canonical;
 pub mod catalog;
 pub mod container;

@@ -541,28 +541,7 @@ impl TryFrom<MapOnly<RawSuiteEntry>> for SuiteEntry {
     type Error = EvaluationError;
 
     fn try_from(raw: MapOnly<RawSuiteEntry>) -> Result<Self, Self::Error> {
-        let RawSuiteEntry {
-            id,
-            group,
-            role,
-            evaluator,
-            kind,
-            params,
-            depends_on,
-            applies_to,
-            deadline_ms,
-        } = raw.0;
-        Self::checked(
-            id,
-            group,
-            role,
-            evaluator,
-            kind,
-            params,
-            depends_on,
-            applies_to,
-            deadline_ms,
-        )
+        Self::checked(raw.0)
     }
 }
 
@@ -594,18 +573,18 @@ impl SuiteEntry {
         SuiteEntryBuilder::default()
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn checked(
-        id: ExpectationId,
-        group: Option<Name>,
-        role: Role,
-        evaluator: EvaluatorRef,
-        kind: Name,
-        params: Map<String, Value>,
-        depends_on: Vec<ExpectationId>,
-        applies_to: Option<Vec<Condition>>,
-        deadline_ms: Option<u64>,
-    ) -> Result<Self, EvaluationError> {
+    fn checked(raw: RawSuiteEntry) -> Result<Self, EvaluationError> {
+        let RawSuiteEntry {
+            id,
+            group,
+            role,
+            evaluator,
+            kind,
+            params,
+            depends_on,
+            applies_to,
+            deadline_ms,
+        } = raw;
         if applies_to.as_ref().is_some_and(Vec::is_empty) {
             return Err(EvaluationError::EmptyList {
                 field: "applies_to",
@@ -809,17 +788,17 @@ impl SuiteEntryBuilder {
     /// ±(2^53 − 1).
     pub fn build(self) -> Result<SuiteEntry, EvaluationError> {
         let missing = |field| EvaluationError::MissingField { field };
-        SuiteEntry::checked(
-            self.id.ok_or_else(|| missing("id"))?,
-            self.group,
-            self.role.ok_or_else(|| missing("role"))?,
-            self.evaluator.ok_or_else(|| missing("evaluator"))?,
-            self.kind.ok_or_else(|| missing("kind"))?,
-            self.params,
-            self.depends_on,
-            (!self.applies_to.is_empty()).then_some(self.applies_to),
-            self.deadline_ms,
-        )
+        SuiteEntry::checked(RawSuiteEntry {
+            id: self.id.ok_or_else(|| missing("id"))?,
+            group: self.group,
+            role: self.role.ok_or_else(|| missing("role"))?,
+            evaluator: self.evaluator.ok_or_else(|| missing("evaluator"))?,
+            kind: self.kind.ok_or_else(|| missing("kind"))?,
+            params: self.params,
+            depends_on: self.depends_on,
+            applies_to: (!self.applies_to.is_empty()).then_some(self.applies_to),
+            deadline_ms: self.deadline_ms,
+        })
     }
 }
 
@@ -1298,19 +1277,7 @@ impl TryFrom<MapOnly<RawRunContext>> for RunContext {
     type Error = EvaluationError;
 
     fn try_from(raw: MapOnly<RawRunContext>) -> Result<Self, Self::Error> {
-        let RawRunContext {
-            run,
-            root,
-            trace,
-            raw,
-            artifacts,
-            snapshots,
-            inputs,
-            metadata,
-        } = raw.0;
-        Self::checked(
-            run, root, trace, raw, artifacts, snapshots, inputs, metadata,
-        )
+        Self::checked(raw.0)
     }
 }
 
@@ -1339,17 +1306,17 @@ impl RunContext {
         RunContextBuilder::default()
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn checked(
-        run: RunKey,
-        root: String,
-        trace: Option<String>,
-        raw: Vec<ContextRaw>,
-        artifacts: Vec<ContextArtifact>,
-        snapshots: Vec<ContextRef>,
-        inputs: Vec<ContextRef>,
-        metadata: BTreeMap<FieldPath, JsonValue>,
-    ) -> Result<Self, EvaluationError> {
+    fn checked(raw: RawRunContext) -> Result<Self, EvaluationError> {
+        let RawRunContext {
+            run,
+            root,
+            trace,
+            raw,
+            artifacts,
+            snapshots,
+            inputs,
+            metadata,
+        } = raw;
         let context_digest = context_digest(&artifacts, &snapshots, &inputs, &metadata)?;
         Ok(Self {
             run,
@@ -1543,16 +1510,16 @@ impl RunContextBuilder {
     /// [`EvaluationError::Canonical`] if a metadata value has no canonical form.
     pub fn build(self) -> Result<RunContext, EvaluationError> {
         let missing = |field| EvaluationError::MissingField { field };
-        RunContext::checked(
-            self.run.ok_or_else(|| missing("run"))?,
-            self.root.ok_or_else(|| missing("root"))?,
-            self.trace,
-            self.raw,
-            self.artifacts,
-            self.snapshots,
-            self.inputs,
-            self.metadata,
-        )
+        RunContext::checked(RawRunContext {
+            run: self.run.ok_or_else(|| missing("run"))?,
+            root: self.root.ok_or_else(|| missing("root"))?,
+            trace: self.trace,
+            raw: self.raw,
+            artifacts: self.artifacts,
+            snapshots: self.snapshots,
+            inputs: self.inputs,
+            metadata: self.metadata,
+        })
     }
 }
 

@@ -96,7 +96,7 @@ impl SkillTree for NoSkills {
 pub fn services() -> JobServices {
     JobServices {
         // TRAIT_OBJECT: the driver is the harness's real one, which a guard never calls
-        driver: Arc::new(ClaudeCodeDriver::new()),
+        driver: Arc::new(ClaudeCodeDriver::new().expect("the driver builds from constants")),
         // TRAIT_OBJECT: the tree is a stub that holds no file
         skills: Arc::new(NoSkills),
         eval_infra: EvalInfra::default(),

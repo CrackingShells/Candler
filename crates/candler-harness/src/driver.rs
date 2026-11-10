@@ -38,6 +38,12 @@ pub enum DriverError {
         /// What is wrong with the output.
         detail: String,
     },
+    /// A harness name that is not a valid name.
+    #[error("harness name cannot be used: {detail}")]
+    HarnessName {
+        /// What is wrong with the name.
+        detail: String,
+    },
     /// A command the driver could not build.
     #[error(transparent)]
     Command(#[from] CommandSpecError),

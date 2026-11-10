@@ -220,7 +220,7 @@ fn rt1_three_hand_computed_cells() {
         .status(Pass)
         .weight(Weight::new(0, 0).expect("a weight"))
         .cause({
-            #[allow(deprecated)]
+            #[expect(deprecated, reason = "the guard builds a `Legacy` cause")]
             Cause::Legacy("zero_weight".parse().expect("a reason code"))
         });
     records.push(built(zero));

@@ -31,13 +31,6 @@ pub enum Exit {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum CliError {
-    /// The verb exists but cannot run in this build.
-    #[allow(dead_code, reason = "a status any verb may return")]
-    #[error("`{verb}` is not available yet")]
-    Unavailable {
-        /// The verb.
-        verb: &'static str,
-    },
     /// The request was refused before any work began.
     #[error("refused: {reason}")]
     Refused {

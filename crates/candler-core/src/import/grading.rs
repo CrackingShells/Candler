@@ -195,13 +195,18 @@ fn value_of(row: &Row<'_>, run: &LegacyRun) -> Result<Option<Measure>, ImportErr
     }
 }
 
-/// A `legacy` cause with `code`.
-#[allow(
+/// The `legacy` cause with `code`: the one place the importer builds the deprecated variant.
+#[expect(
     deprecated,
     reason = "the imported record marks what the clean model cannot state"
 )]
+fn legacy_cause(code: ReasonCode) -> Cause {
+    Cause::Legacy(code)
+}
+
+/// A `legacy` cause with `code`.
 fn legacy(code: &str) -> Result<Cause, ImportError> {
-    Ok(Cause::Legacy(ReasonCode::from_str(code)?))
+    Ok(legacy_cause(ReasonCode::from_str(code)?))
 }
 
 /// The legacy code of a `not_measured` row: the first marker rule that matches the evidence, else `unrecorded`.
@@ -212,12 +217,7 @@ fn marker_code(rules: &ImportRules, evidence: &str) -> Result<Cause, ImportError
         };
         match &marker.code {
             // BORROW: .clone() copies the fixed code into the cause
-            #[allow(
-                deprecated,
-                reason = "the imported record marks what the clean model cannot state"
-            )]
-            // BORROW: .clone() copies the value into the owned result
-            MarkerCode::Fixed(code) => return Ok(Cause::Legacy(code.clone())),
+            MarkerCode::Fixed(code) => return Ok(legacy_cause(code.clone())),
             MarkerCode::Capture(group) => {
                 // BORROW: explicit .as_str() instead of Deref coercion
                 let code = found.name(group).map_or("", |m| m.as_str());

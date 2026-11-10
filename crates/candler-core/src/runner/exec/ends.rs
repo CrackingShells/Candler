@@ -214,7 +214,7 @@ const fn gateway_retry(attempt: u32) -> Retry {
 /// The end of a run that is still valid, from its wall expiry and its trace.
 #[expect(
     clippy::match_same_arms,
-    reason = "every variant is listed before the wildcard"
+    reason = "EndedBy is non_exhaustive in another crate, so the wildcard must stay beside the listed variants, and both give Unknown"
 )]
 fn qualify(input: &EndInput) -> EndedBy {
     let expired = input.deadline
