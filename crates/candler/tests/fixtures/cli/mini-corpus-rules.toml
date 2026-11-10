@@ -1,6 +1,7 @@
 format = "htn-results@1"
 instrument = "htn-creator-eval"
 suite_kind = "legacy-check"
+entry_params = ["scale", "text", "tier"]
 metadata = ["plan.model"]
 
 [harness]

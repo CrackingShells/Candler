@@ -73,5 +73,3 @@ pub(super) const EXPERIMENT_FILE: &str = "experiment.json";
 pub(super) const EVAL_PREFIX: &str = "eval-";
 /// The suffix of a grading file name.
 pub(super) const GRADING_SUFFIX: &str = "-grading.json";
-/// The keys of a grading entry that a suite entry takes as parameters, in the order they are read.
-pub(super) const ENTRY_PARAMS: [&str; 3] = ["scale", "text", "tier"];

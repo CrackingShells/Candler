@@ -5,7 +5,8 @@ use std::str::FromStr as _;
 
 use candler_core::import::ImportError;
 use candler_core::import::rules::{
-    HarnessRule, ImportRules, MarkerCode, MarkerRule, SnapshotRule, TreatmentRule,
+    HarnessRule, ImportRules, ImportRulesBuilder, MarkerCode, MarkerRule, SnapshotRule,
+    TreatmentRule,
 };
 use candler_schemas::primitives::{FieldPath, Name, NameToken, ReasonCode};
 use regex::Regex;
@@ -31,6 +32,30 @@ pub fn rules() -> ImportRules {
 ///
 /// Panics if a literal below is not the primitive it names.
 pub fn try_rules(resolved: &str) -> Result<ImportRules, ImportError> {
+    builder(resolved)
+        .entry_params(entry_params(&["scale", "text", "tier"]))
+        .build()
+}
+
+/// The names `keys`, as the rules' entry params.
+///
+/// # Panics
+///
+/// Panics if a key is not a name.
+#[must_use]
+pub fn entry_params(keys: &[&str]) -> Vec<Name> {
+    keys.iter()
+        .map(|key| Name::from_str(key).unwrap_or_else(|e| panic!("{key}: {e}")))
+        .collect()
+}
+
+/// The rules of the mini-corpus but for the entry params, which the caller sets.
+///
+/// # Panics
+///
+/// Panics if a literal below is not the primitive it names.
+#[must_use]
+pub fn builder(resolved: &str) -> ImportRulesBuilder {
     let name = |text: &str| Name::from_str(text).unwrap_or_else(|e| panic!("{text}: {e}"));
     let pattern = |text: &str| Regex::new(text).unwrap_or_else(|e| panic!("{text}: {e}"));
     ImportRules::builder()
@@ -57,5 +82,4 @@ pub fn try_rules(resolved: &str) -> Result<ImportRules, ImportError> {
         ))
         .suite_kind(name("legacy-check"))
         .metadata(FieldPath::from_str("plan.model").unwrap_or_else(|e| panic!("{e}")))
-        .build()
 }

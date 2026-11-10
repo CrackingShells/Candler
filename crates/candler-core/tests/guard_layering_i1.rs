@@ -254,6 +254,7 @@ fn rules_without_markers(instrument: &str, format: &str) -> ImportRulesBuilder {
         .instrument(name(instrument))
         .snapshot(SnapshotRule::new(name("catalog"), "/catalog/sha256".into()))
         .suite_kind(name("legacy-check"))
+        .entry_params(vec![name("scale"), name("text"), name("tier")])
         .metadata(path("plan.model"))
 }
 
