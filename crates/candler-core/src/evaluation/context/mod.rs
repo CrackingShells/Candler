@@ -1,6 +1,7 @@
 //! The context of one run for one request: its assembly from a suite's needs in [`assemble()`]
 //! the one file rule in `rule`, and the private workspace that copies the artifacts and the
-//! digest of what was copied in [`materialise()`].
+//! digest of what was copied in [`materialise()`]. The inputs a need names are copied below
+//! `inputs/<kind>/` of the same workspace.
 
 use std::io;
 use std::path::PathBuf;
@@ -13,7 +14,7 @@ mod assemble;
 mod materialise;
 mod rule;
 
-pub use assemble::{Assembled, AssembledArtifact, assemble};
+pub use assemble::{Assembled, AssembledArtifact, AssembledInput, assemble};
 pub use materialise::{Workspace, materialise};
 pub use rule::{FileRule, file_rule_keeps};
 
@@ -43,6 +44,14 @@ pub enum ContextError {
     Unsupported {
         /// The need, such as `snapshots`.
         need: String,
+    },
+    /// An input need that the run cannot serve.
+    #[error("input `{kind}` {reason}")]
+    InputRefused {
+        /// The kind the need named.
+        kind: String,
+        /// Why the run cannot serve it.
+        reason: String,
     },
     /// A metadata need names a path the run manifest does not hold with a value.
     #[error("metadata path `{path}` {detail}")]
