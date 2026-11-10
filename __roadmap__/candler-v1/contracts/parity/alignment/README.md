@@ -16,7 +16,7 @@ The experiment file carries everything a cell needs, so no experiment depends on
 ```mermaid
 graph TD
     surfaces[Surfaces]:::planned
-    m2c_wire_alignment[M2c Wire alignment]:::amendment
+    m2c_wire_alignment[M2c Wire alignment]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -28,7 +28,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `surfaces/` | 📁 Directory | ⬜ Planned |
-| `m2c_wire_alignment.md` | 📄 Leaf Task | 🔵 Amendment |
+| `m2c_wire_alignment.md` | 📄 Leaf Task | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
