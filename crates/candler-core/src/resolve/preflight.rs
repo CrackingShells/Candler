@@ -48,6 +48,9 @@ pub struct StepReport {
     pub step: NameToken,
     /// The values the step derived, by path.
     pub derived: Vec<(FieldPath, JsonValue)>,
+    /// The location each derived value was read from, by path, for the values that have one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub origins: Vec<(FieldPath, String)>,
     /// The checks the step ran.
     pub checks: Vec<CheckResult>,
 }
@@ -59,6 +62,7 @@ impl StepReport {
         Self {
             step,
             derived: Vec::new(),
+            origins: Vec::new(),
             checks: Vec::new(),
         }
     }
@@ -66,6 +70,16 @@ impl StepReport {
     /// Adds a derived value.
     #[must_use]
     pub fn derive(mut self, path: FieldPath, value: JsonValue) -> Self {
+        self.derived.push((path, value));
+        self
+    }
+
+    /// Adds a derived value together with the location `from` it was read from, as the
+    /// experiment file wrote it.
+    #[must_use]
+    pub fn derive_from(mut self, path: FieldPath, value: JsonValue, from: String) -> Self {
+        // BORROW: `.clone()` gives the origin its own path
+        self.origins.push((path.clone(), from));
         self.derived.push((path, value));
         self
     }
@@ -303,6 +317,7 @@ impl Resolver {
                         }
                     }
                     layered.derive(step.name(), &report.derived);
+                    layered.origin(&report.origins);
                     passed.push(report);
                 }
                 Ok(report) => reports.push(report),

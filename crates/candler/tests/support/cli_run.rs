@@ -258,7 +258,9 @@ name = "claude-code"
 [treatment]
 name = "demo"
 tag = "v1"
+source = "{}"
 "#,
+        skills.display(),
     );
     fs::write(&experiment, text).unwrap();
     World {

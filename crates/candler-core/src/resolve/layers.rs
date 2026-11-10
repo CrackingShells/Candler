@@ -8,7 +8,7 @@
 //! decides, by path alone, which paths are settings.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 use candler_schemas::primitives::{FieldPath, NameToken};
 use candler_schemas::values::{JsonValue, ResolvedValue, SourceEntry, ValueSource};
@@ -97,7 +97,8 @@ impl FileValues {
 
     /// Makes every path the file writes absolute against `dir`, the file's own directory: a
     /// location setting that holds a string, or a list of strings (a requirement source that
-    /// starts with `treatment:` is not a path and stays as written). A path that is already
+    /// starts with `treatment:` is not a path and stays as written), and the `source` of the
+    /// treatment `request.treatment` holds. A path that is already
     /// absolute stays as it is, and a value of another shape is left for the step that reads it
     /// to refuse.
     ///
@@ -106,6 +107,10 @@ impl FileValues {
     pub fn relative_to(mut self, dir: &Path) -> Result<Self, ResolveError> {
         // EXPLICIT: the loop rewrites each location value of `self.values` in place; .map() would hide the update
         for (path, value) in &mut self.values {
+            if path.as_str() == REQUEST_TREATMENT {
+                *value = JsonValue::new(treatment_source_under(dir, value.as_value())?)?;
+                continue;
+            }
             if !is_location(path) {
                 continue;
             }
@@ -223,6 +228,8 @@ pub struct Layered {
     pub core_defaults: Vec<(FieldPath, JsonValue)>,
     /// The paths marked as settings besides those [`is_setting`] names.
     pub settings: BTreeSet<FieldPath>,
+    /// The location a derived value was read from, by path.
+    pub origins: BTreeMap<FieldPath, String>,
 }
 
 impl Layered {
@@ -280,6 +287,7 @@ impl Layered {
             derived: Vec::new(),
             core_defaults,
             settings: input.explicit_settings.into_iter().collect(),
+            origins: BTreeMap::new(),
         })
     }
 
@@ -299,6 +307,14 @@ impl Layered {
         }
     }
 
+    /// Records the location each derived value at a path was read from.
+    pub fn origin(&mut self, origins: &[(FieldPath, String)]) {
+        for (path, from) in origins {
+            // BORROW: `.clone()` makes the owned path and text the map holds
+            self.origins.insert(path.clone(), from.clone());
+        }
+    }
+
     /// Picks, for every path, the value of the highest layer that sets it. The `preflight` of the
     /// result is empty.
     #[must_use]
@@ -315,8 +331,13 @@ impl Layered {
             .chain(layer(&self.project, ValueSource::ProjectConfig))
             .chain(layer(&self.user, ValueSource::UserConfig))
             .chain(self.derived.iter().rev().map(|(step, path, value)| {
-                // BORROW: `.clone()` makes the owned step the source holds
-                (path, value, ValueSource::derived(step.clone()))
+                let source = self.origins.get(path).map_or_else(
+                    // BORROW: `.clone()` makes the owned step the source holds
+                    || ValueSource::derived(step.clone()),
+                    // BORROW: `.clone()` makes the text the source holds
+                    |from| ValueSource::derived_from(step.clone(), from.clone()),
+                );
+                (path, value, source)
             }))
             .chain(layer(&self.core_defaults, ValueSource::CoreDefault));
         let mut winners: BTreeMap<&FieldPath, (&JsonValue, ValueSource)> = BTreeMap::new();
@@ -362,6 +383,35 @@ fn is_location(path: &FieldPath) -> bool {
             | ISOLATION_BUILD_LOCK
             | ISOLATION_BUILD_REQUIREMENTS
     )
+}
+
+/// The treatment `request` with its `source`, when it holds a string, made a path under `dir`;
+/// anything else stays as written.
+fn treatment_source_under(dir: &Path, request: &Value) -> Result<Value, ResolveError> {
+    let mut request = request.clone(); // BORROW: the rewritten request is a copy
+    if let Some(Value::String(text)) = request.get_mut("source") {
+        let joined = dir.join(text.as_str()); // BORROW: .as_str() views the text as a `&str`
+        path_text(lexical(joined.as_path()).as_path())?.clone_into(text); // BORROW: the request owns its text
+    }
+    Ok(request)
+}
+
+/// `path` without its `.` segments and with each `..` applied to the segment before it, as text
+/// would read; no symbolic link is followed and no file is read.
+fn lexical(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() && !out.has_root() {
+                    out.push(part);
+                }
+            }
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => out.push(part),
+        }
+    }
+    out
 }
 
 /// `text` as a path under `dir`, as text.
