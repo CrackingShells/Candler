@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/CrackingShells/Candler/compare/v0.4.1...v0.5.0) - 2026-11-10
+
+### Refactoring
+
+- *(repo)* [**breaking**] deny bare allow attributes and settle every suppression
+- *(adapter-claude-code)* [**breaking**] build the driver's id and probe once
+
 ## [0.3.0](https://github.com/CrackingShells/Candler/compare/v0.2.0...v0.3.0) - 2026-11-09
 
 ### Features

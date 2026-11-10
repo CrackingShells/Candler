@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/CrackingShells/Candler/compare/schemas@0.4.1...schemas@0.5.0) - 2026-11-10
+
+### Refactoring
+
+- *(repo)* [**breaking**] deny bare allow attributes and settle every suppression
+- *(schemas)* avoid or justify each lint the wire types hit
+
 ## [0.4.1](https://github.com/CrackingShells/Candler/compare/schemas@0.4.0...schemas@0.4.1) - 2026-11-09
 
 ### Fixes

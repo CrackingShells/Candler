@@ -231,7 +231,7 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "candler"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "candler-core",
  "candler-harness",
@@ -249,7 +249,7 @@ dependencies = [
 
 [[package]]
 name = "candler-core"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "candler-core",
  "candler-harness",
@@ -279,7 +279,7 @@ dependencies = [
 
 [[package]]
 name = "candler-harness"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "candler-schemas",
  "semver",
@@ -290,7 +290,7 @@ dependencies = [
 
 [[package]]
 name = "candler-harness-claude-code"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "candler-harness",
  "candler-schemas",
@@ -305,7 +305,7 @@ dependencies = [
 
 [[package]]
 name = "candler-schemas"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "base64",
  "jiff",

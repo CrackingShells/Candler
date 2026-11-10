@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/CrackingShells/Candler/compare/v0.4.1...v0.5.0) - 2026-11-10
+
+### Features
+
+- *(isolation)* write an agent container's record from its cidfile
+
+### Fixes
+
+- *(runner)* record the agent container while its run is live
+- *(importer)* [**breaking**] list each run's stream and stderr as import sources
+
+### Refactoring
+
+- *(repo)* [**breaking**] deny bare allow attributes and settle every suppression
+- *(adapter-claude-code)* [**breaking**] build the driver's id and probe once
+- *(resolve)* [**breaking**] borrow the services the registration steps clone
+
 ## [0.4.1](https://github.com/CrackingShells/Candler/compare/v0.4.0...v0.4.1) - 2026-11-09
 
 ### Refactoring
