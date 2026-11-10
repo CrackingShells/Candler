@@ -17,14 +17,16 @@ use serde_json::Value;
 /// The manifest path of the tool list the harness reported at start.
 const INIT_TOOLS_PATH: &str = "census.init_tools";
 
-/// The measured path that says whether the evaluation infrastructure had uncommitted changes.
+/// The measured path of the commit the evaluation infrastructure was built from. A verdict needs
+/// it recorded, and equal across the runs of a stratum.
+const EVAL_INFRA_COMMIT_PATH: &str = "provenance.eval_infra.commit";
+
+/// The measured path that says whether the evaluation infrastructure had uncommitted changes. A
+/// verdict needs it recorded, and false in every run.
 const EVAL_INFRA_DIRTY_PATH: &str = "provenance.eval_infra.dirty";
 
 /// The measured path of the sandbox contract, which must agree across the runs of a stratum.
 const SANDBOX_CONTRACT_PATH: &str = "provenance.sandbox_contract";
-
-/// The measured paths under this prefix must agree across the runs of a stratum.
-const EVAL_INFRA_PREFIX: &str = "provenance.eval_infra.";
 
 /// The first segments of the declared factors that change the tool list the harness reports, and
 /// so exempt `census.init_tools`.
@@ -75,8 +77,13 @@ pub struct ArmView {
 }
 
 /// Whether a measured path is one a verdict reads from the provenance block.
+///
+/// These three say whether two runs came from the same build of the same contract, so they gate.
+/// Every other `provenance.*` path describes a run and gates nothing: `provenance.eval_infra.tag`
+/// and `provenance.eval_infra.commits_ahead` (a git build and a packaged build of one commit
+/// differ in them and still pool) and `provenance.packages.*` (the analysis reads it).
 fn gates_verdict(path: &str) -> bool {
-    path == SANDBOX_CONTRACT_PATH || path.starts_with(EVAL_INFRA_PREFIX)
+    path == EVAL_INFRA_COMMIT_PATH || path == EVAL_INFRA_DIRTY_PATH || path == SANDBOX_CONTRACT_PATH
 }
 
 impl ArmView {
@@ -329,30 +336,43 @@ fn tools_unexplained(one: &ArmView, other: &ArmView, declared: &[FieldPath]) -> 
     differ && !factor_varies
 }
 
-/// The provenance paths that keep a stratum from a verdict: `provenance.eval_infra.dirty` true or
-/// unrecorded in any arm, and any `provenance.eval_infra.*` or `provenance.sandbox_contract` that
-/// differs between arms (recorded in one and not in another differs). The skill version and the
-/// planner library are exempt: a stratum may compare across them.
+/// The provenance paths that keep a stratum from a verdict, each named by the path that refused.
+/// A gated path never counts as equal when it is unrecorded: an arm that did not record it
+/// identifies nothing, so it matches no other arm, itself included.
+/// - `provenance.eval_infra.commit` when any arm did not record it (an empty string or a value that
+///   is not a string is not a commit), or the arms record different ones;
+/// - `provenance.eval_infra.dirty` when any arm did not record it, or any arm records anything
+///   but false;
+/// - `provenance.sandbox_contract` when any arm did not record it, or the arms record different
+///   ones.
+///
+/// Nothing else of the provenance block is read: see [`gates_verdict`].
 fn provenance_refused(views: &[&ArmView]) -> Vec<FieldPath> {
+    fn held<'a>(arm: &'a ArmView, path: &str) -> Option<&'a Value> {
+        arm.provenance.get(path).map(JsonValue::as_value)
+    }
+    // The verdict reads whether a value is there, never its format: the recorder owns that. A
+    // commit must still be a non-empty string to identify a build.
+    fn is_recorded(path: &str, value: Option<&Value>) -> bool {
+        match value {
+            None => false,
+            Some(held) if path == EVAL_INFRA_COMMIT_PATH => {
+                held.as_str().is_some_and(|text| !text.is_empty())
+            }
+            Some(_) => true,
+        }
+    }
     let mut paths: Vec<&str> = Vec::new();
-    let dirty = |arm: &ArmView| {
-        arm.provenance
-            .get(EVAL_INFRA_DIRTY_PATH)
-            .is_none_or(|value| value.as_value() != &Value::Bool(false))
-    };
-    if views.iter().any(|arm| dirty(arm)) {
+    if views
+        .iter()
+        .any(|arm| held(arm, EVAL_INFRA_DIRTY_PATH) != Some(&Value::Bool(false)))
+    {
         paths.push(EVAL_INFRA_DIRTY_PATH);
     }
-    let gated: std::collections::BTreeSet<&str> = views
-        .iter()
-        .flat_map(|arm| arm.provenance.keys().map(String::as_str))
-        .collect();
-    for path in gated {
-        let keys: Vec<Option<String>> = views
-            .iter()
-            .map(|arm| leaf_key(arm.provenance.get(path).map(JsonValue::as_value)))
-            .collect();
-        if keys.windows(2).any(|pair| pair.first() != pair.get(1)) {
+    for path in [EVAL_INFRA_COMMIT_PATH, SANDBOX_CONTRACT_PATH] {
+        let recorded = views.iter().all(|arm| is_recorded(path, held(arm, path)));
+        let keys: Vec<Option<String>> = views.iter().map(|arm| leaf_key(held(arm, path))).collect();
+        if !recorded || keys.windows(2).any(|pair| pair.first() != pair.get(1)) {
             paths.push(path);
         }
     }
@@ -368,8 +388,8 @@ fn provenance_refused(views: &[&ArmView]) -> Vec<FieldPath> {
 /// it; the arms' own `factors[]` is never read. `census.init_tools` differing between any two
 /// arms is a deviation unless a declared `tools.*` or `mcp.*` factor itself differs between those
 /// two arms, so two arms that agree on every such factor must agree on the tool list. The check
-/// always runs. A stratum is also refused when any run's `provenance.eval_infra.dirty` is true or
-/// unrecorded, or when runs differ in `provenance.eval_infra.*` or `provenance.sandbox_contract`.
+/// always runs. A stratum is also refused on the provenance that says whether the runs came from the
+/// same Candler: see `provenance_refused`.
 /// An arm that could not be read gives no verdict, whatever the other arms hold, and a stratum
 /// with no arm has none either.
 #[must_use]
