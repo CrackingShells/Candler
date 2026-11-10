@@ -63,10 +63,10 @@ Three release lines, each with its own tags:
 | Line | Tags | Covers |
 |---|---|---|
 | Core | `v<major>.<minor>.<patch>` | Everything except the wire schemas and the evaluator helper |
-| Wire schemas | `schemas@<major>.<minor>.<patch>` | Every schema file under `crates/candler-schemas/schema/`, the roots that [R01 §The `schemas@` line holds](__design__/architecture.md) lists |
+| Wire schemas | `schemas@<major>.<minor>.<patch>` | The crate `crates/candler-schemas`: every schema file under its `schema/`, the roots that [R01 §The `schemas@` line holds](__design__/architecture.md) lists, and the Rust types that read and write them |
 | Evaluator helper | `candler-evaluator@<major>.<minor>.<patch>` | The Python package `python/candler-evaluator`; its version lives only in its `pyproject.toml`, and it is never published to PyPI without Eliott's go |
 
-Plug-ins pin a schema version, so a core release never forces a schema bump. A commit that changes a schema file uses scope `schemas` and touches nothing else.
+Plug-ins pin a schema version, so a core release never forces a schema bump. `release-plz` gives a commit's bump to every crate whose files the commit touches, so a release-triggering commit that touches `crates/candler-schemas/` uses scope `schemas` and touches no other crate; its changes elsewhere go in a commit of their own.
 
 ### Core line
 
@@ -136,6 +136,7 @@ Git does not copy hooks on clone, so `cog install-hook --all` is the per-clone s
 |---|---|---|
 | `commit-msg` hook | On every local commit, once `cog install-hook --all` has been run | A subject without a `type(scope):` prefix, a subject over 72 characters, then, through `cog verify`, a type or scope outside the tables above |
 | `cog check <base>..<head>` | In CI (`.github/workflows/ci.yml`), on the range each pull request or push to `main` adds (run it by hand as `cog check main..HEAD`) | The same, for every commit in the range |
+| Schemas release check | In CI, on the same range as `cog check`, merge commits aside | A release-triggering commit that touches `crates/candler-schemas/` without scope `schemas`, or that also touches another crate under `crates/` |
 | Pull request title | In CI, on every pull request, as the subject of the merge commit it becomes | A title that is not `merge(<scope>): …` with a scope from the tables above, or that does not fit in 72 characters with GitHub's ` (#<number>)` |
 | `release-plz` | In CI (`.github/workflows/ci.yml`), on a push to `main` once the gates and the commit check pass: `release-plz update` commits the new versions and changelogs as `chore(release): … [skip ci]`, then `release-plz release` tags each new version and creates its GitHub release | Nothing; a push with no release-triggering commit releases nothing, and nothing goes to crates.io |
 
