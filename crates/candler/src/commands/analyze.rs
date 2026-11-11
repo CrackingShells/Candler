@@ -25,18 +25,18 @@ const VERB: &str = "analyze";
 pub struct AnalyzeArgs {
     /// The evaluator whose outcomes are analysed, as `name@version`, or a bare version when one
     /// evaluator holds it; by default the one evaluator the store holds, and a store with several
-    /// is refused. Not an experiment setting: names which stored outcomes to analyse.
+    /// is refused. not an experiment setting: names which stored outcomes to analyse.
     #[arg(long)]
     pub evaluator: Option<String>,
     /// The experiment file whose factors declare which differences between arms are the
-    /// experiment's own; without it, arms are tabled and no pair is compared. Cannot be derived:
+    /// experiment's own; without it, arms are tabled and no pair is compared. cannot be derived:
     /// the declared factors are in the experiment file, and a manifest cannot vouch for its own.
     #[arg(long)]
     pub experiment: Option<PathBuf>,
-    /// How the tables are written. Not an experiment setting: chooses how the tables are written.
+    /// How the tables are written. not an experiment setting: chooses how the tables are written.
     #[arg(long, value_enum, default_value_t)]
     pub format: Format,
-    /// The table `--format csv` writes; read only with `--format csv`. Not an experiment setting:
+    /// The table `--format csv` writes; read only with `--format csv`. not an experiment setting:
     /// chooses which table is written.
     #[arg(long, value_enum, default_value_t)]
     pub table: Table,
