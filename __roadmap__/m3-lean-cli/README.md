@@ -140,7 +140,7 @@ graph TD
     contract_wire[Contract wire]:::done
     stats[Stats]:::done
     platform_seam[Platform seam]:::done
-    verbs[Verbs]:::planned
+    verbs[Verbs]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -155,7 +155,7 @@ graph TD
 | `contract_wire.md` | 📄 Leaf Task | ✅ Done |
 | `stats.md` | 📄 Leaf Task | ✅ Done |
 | `platform_seam.md` | 📄 Leaf Task | ✅ Done |
-| `verbs/` | 📁 Directory | ⬜ Planned |
+| `verbs/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

@@ -34,7 +34,7 @@ graph TD
     ingest_inspect[Ingest and inspect]:::done
     docs_frame[Docs frame]:::done
     design_record[Design record]:::done
-    surfaces[Surfaces]:::planned
+    surfaces[Surfaces]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -52,7 +52,7 @@ graph TD
 | `ingest_inspect.md` | 📄 Leaf Task | ✅ Done |
 | `docs_frame.md` | 📄 Leaf Task | ✅ Done |
 | `design_record.md` | 📄 Leaf Task | ✅ Done |
-| `surfaces/` | 📁 Directory | ⬜ Planned |
+| `surfaces/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
