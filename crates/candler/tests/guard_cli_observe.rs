@@ -397,3 +397,199 @@ fn o1_resolve_checks_the_gateway_token_by_a_model_list_read() {
     );
     world.remove();
 }
+
+/// Copies the tree `from` to `to`.
+fn copy_tree(from: &Path, to: &Path) {
+    fs::create_dir_all(to).unwrap();
+    for entry in fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), target).unwrap();
+        }
+    }
+}
+
+fn fixtures() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("observe")
+}
+
+/// `candler ls` with `args` from `cwd`, the home and the state inside `home`.
+fn ls(cwd: &Path, home: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_candler"))
+        .arg("--store")
+        .arg(home.join("store"))
+        .arg("ls")
+        .args(args)
+        .current_dir(cwd)
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("HOME", home)
+        .env("XDG_STATE_HOME", home.join("state"))
+        .env("XDG_CONFIG_HOME", home.join("cfg"))
+        .output()
+        .unwrap()
+}
+
+/// The names of the files `ls` listed as experiments, with their cells and runs.
+fn listed(out: &Output) -> BTreeMap<String, (String, String)> {
+    text(&out.stdout)
+        .lines()
+        .filter_map(|line| {
+            let cols: Vec<&str> = line.split('\t').collect();
+            let name = Path::new(cols[0])
+                .file_name()?
+                .to_string_lossy()
+                .into_owned();
+            (cols.get(1) != Some(&"skipped"))
+                .then(|| (name, (cols[1].to_owned(), cols[2].to_owned())))
+        })
+        .collect()
+}
+
+/// One sealed run in the store at `root` whose recorded values are those of the first cell of
+/// `experiments/a.toml` of the fixture: `model.id` m1, `permission_mode` plan, the prompt
+/// "say hello" and the cap of 30 seconds.
+fn seed_run_of_a(root: &Path) {
+    let store = Store::init(root).unwrap();
+    let digest = |c: char| format!("sha256:{}", String::from(c).repeat(64));
+    let body = |cell: &str| {
+        json!({
+            "schema": "run-manifest/1",
+            "run": {"cell": cell, "replicate": 1, "attempt": 1},
+            "experiment": digest('0'),
+            "factors": [],
+            "comparable": {
+                "values": [
+                    {"path": "budget.per_run.wall_s", "value": 30},
+                    {"path": "model.id", "value": "m1"},
+                    {"path": "permission_mode", "value": "plan"},
+                    {"path": "prompt.template", "value": "say hello"}
+                ],
+                "harness": {"name": "h", "version": "1.0.0"},
+                "treatment": {"name": "t"},
+                "snapshots": [],
+                "inputs": [],
+                "environments": []
+            },
+            "sources": [
+                {"path": "budget.per_run.wall_s", "source": {"kind": "experiment_file"}},
+                {"path": "model.id", "source": {"kind": "experiment_file"}},
+                {"path": "permission_mode", "source": {"kind": "experiment_file"}},
+                {"path": "prompt.template", "source": {"kind": "experiment_file"}},
+                {"path": "harness", "source": {"kind": "experiment_file"}},
+                {"path": "treatment", "source": {"kind": "experiment_file"}}
+            ],
+            "secrets": [],
+            "measured": [],
+            "deviations": [],
+            "integrity": {"kind": "valid"}
+        })
+    };
+    let probe: RunManifest = serde_json::from_value(body(&digest('f'))).unwrap();
+    let cell = probe.cell_digest().to_string();
+    let manifest: RunManifest = serde_json::from_value(body(cell.as_str())).unwrap();
+    RunWriter::create(&store, &manifest, Existing::Refuse)
+        .unwrap()
+        .done()
+        .unwrap();
+}
+
+/// Guards: O2 — `candler ls` lists the experiments under `<project root>/experiments/` and the
+/// paths it is given, from a directory inside the project but not at its root, each with its
+/// declared cells and the stored runs that match it. The project's `experiments/` has `a` (two
+/// cells) and `sub/b`; `elsewhere/c` and `other/d` and the working directory's own `e` are not
+/// listed unless a path names them; a path that is a file lists that file. A stored run that
+/// records the values of one cell of `a` counts for `a` and not for `b`.
+///
+/// Oracle: a fixture tree (`fixtures/observe/ls`), with the cells and runs counted by hand.
+///
+/// Bite: a scan of the whole project (it finds `d`); a scan of the working directory (it finds `e`).
+#[test]
+fn o2_ls_lists_experiments_under_experiments_and_the_paths_given() {
+    let scratch = TempDir::new().unwrap();
+    let project = scratch.path().join("project");
+    copy_tree(&fixtures().join("ls"), &project);
+    let work = project.join("work");
+
+    let out = ls(&work, scratch.path(), &[]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+    let found = listed(&out);
+    assert_eq!(
+        found.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["a.toml", "b.toml"],
+        "{}",
+        text(&out.stdout)
+    );
+    assert_eq!(found["a.toml"], ("2".to_owned(), "0".to_owned()));
+    assert_eq!(found["b.toml"], ("1".to_owned(), "0".to_owned()));
+
+    let out = ls(&work, scratch.path(), &["../elsewhere"]);
+    let found = listed(&out);
+    assert_eq!(
+        found.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["a.toml", "b.toml", "c.toml"]
+    );
+    let out = ls(&work, scratch.path(), &["../other/d.toml"]);
+    assert!(listed(&out).contains_key("d.toml"), "{}", text(&out.stdout));
+    assert!(!listed(&out).contains_key("c.toml"));
+
+    seed_run_of_a(&scratch.path().join("store"));
+    let found = listed(&ls(&work, scratch.path(), &[]));
+    assert_eq!(found["a.toml"].1, "1", "the run matches a cell of a");
+    assert_eq!(found["b.toml"].1, "0", "and does not match b");
+}
+
+/// Guards: O2 — `candler ls` lists a TOML file that is no experiment as `skipped` with the reason
+/// the parser gives, never silently; with no project it looks at `./experiments/` of the working
+/// directory and nothing else, and a missing `experiments/` is an empty listing with exit 0.
+///
+/// Oracle: a fixture tree whose `notes.toml` is not an experiment; hand-written expectations.
+///
+/// Bite: the skipped file dropped from the listing; the reason lost.
+#[test]
+fn o2_ls_skips_other_toml_with_its_reason_and_never_scans_the_cwd() {
+    let scratch = TempDir::new().unwrap();
+    let project = scratch.path().join("project");
+    copy_tree(&fixtures().join("ls"), &project);
+    let out = ls(&project.join("work"), scratch.path(), &[]);
+    let stdout = text(&out.stdout);
+    let skipped: Vec<Vec<&str>> = stdout
+        .lines()
+        .map(|line| line.split('\t').collect::<Vec<_>>())
+        .filter(|cols| cols.get(1) == Some(&"skipped"))
+        .collect();
+    assert_eq!(skipped.len(), 1, "{stdout}");
+    assert!(skipped[0][0].ends_with("notes.toml"));
+    assert!(
+        skipped[0].get(2).is_some_and(|reason| reason.len() > 10),
+        "the reason is the parser's words: {:?}",
+        skipped[0]
+    );
+
+    // No project above the working directory: only `./experiments/`.
+    let lone = scratch.path().join("lone");
+    copy_tree(
+        &fixtures().join("ls").join("elsewhere"),
+        &lone.join("experiments"),
+    );
+    copy_tree(&fixtures().join("ls").join("other"), &lone);
+    let out = ls(&lone, scratch.path(), &[]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+    assert_eq!(
+        listed(&out).keys().map(String::as_str).collect::<Vec<_>>(),
+        ["c.toml"],
+        "the working directory's own d.toml is not listed"
+    );
+    let empty = scratch.path().join("empty");
+    fs::create_dir_all(&empty).unwrap();
+    let out = ls(&empty, scratch.path(), &[]);
+    assert_eq!(out.status.code(), Some(0));
+    assert!(out.stdout.is_empty(), "{}", text(&out.stdout));
+}
+
