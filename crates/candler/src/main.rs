@@ -66,8 +66,9 @@ enum Command {
     /// Runs a job's supervisor; started by `run`, never by a person.
     #[command(hide = true)]
     Supervise(supervise::Args),
-    /// Import a legacy results folder into the store.
-    Import(commands::import::ImportArgs),
+    /// Ingest raw trace directories, or legacy results folders, into the store.
+    #[command(alias = "import")]
+    Ingest(commands::ingest::IngestArgs),
     /// Grade stored runs with a plug-in's suite.
     Evaluate(commands::evaluate::EvaluateArgs),
     /// Print stored outcomes, or their rates.
@@ -80,8 +81,8 @@ enum Command {
     Ls(ls::Args),
     /// Reports the statistics of stored outcomes.
     Analyze(analyze::Args),
-    /// Prints what the store holds of one run.
-    Inspect(inspect::Args),
+    /// Shows one run, or one job, with its outcomes, evidence, provenance and integrity.
+    Inspect(inspect::InspectArgs),
 }
 
 /// Runs the verb on a multi-thread runtime, one arm per line.
@@ -99,14 +100,14 @@ fn dispatch(cli: Cli) -> Result<Exit, CliError> {
             Command::Kill(args) => kill::run(args, cli.store.as_deref()).await,
             Command::Watch(args) => watch::run(args, cli.store.as_deref()).await,
             Command::Supervise(args) => supervise::run(args, cli.store.as_deref()).await,
-            Command::Import(ref args) => commands::import::run(&cli, args).await,
+            Command::Ingest(ref args) => commands::ingest::run(&cli, args).await,
             Command::Evaluate(ref args) => commands::evaluate::run(&cli, args).await,
             Command::Show(ref args) => commands::show::run(&cli, args).await,
             Command::Diff(ref args) => commands::diff::run(&cli, args).await,
             Command::Resolve(args) => resolve::run(args, cli.store.as_deref()).await,
             Command::Ls(args) => ls::run(args, cli.store.as_deref()).await,
             Command::Analyze(ref args) => analyze::run(&cli, args).await,
-            Command::Inspect(ref args) => inspect::run(args),
+            Command::Inspect(ref args) => inspect::run(&cli, args).await,
         }
     })
 }

@@ -13,7 +13,7 @@ use tempfile::TempDir;
 /// What `candler --help` lists as verbs and has no row for yet: each verb here works from a fixture
 /// world only. A leaf that makes a verb work from any directory moves it to [`MATRIX`].
 pub const PENDING_CWD: &[&str] = &[
-    "run", "watch", "import", "evaluate", "show", "diff", "resolve", "ls", "analyze", "inspect",
+    "run", "watch", "ingest", "evaluate", "show", "diff", "resolve", "ls", "analyze", "inspect",
 ];
 
 /// The options whose help does not end with a stamp yet, as `"<verb> --<option>"`, or
@@ -24,7 +24,6 @@ pub const PENDING_STAMPS: &[&str] = &[
     "run --force",
     "kill --all",
     "kill --yes",
-    "import --rules",
     "evaluate --plugin",
     "evaluate --suite",
     "evaluate --runs",

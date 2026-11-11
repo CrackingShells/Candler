@@ -4,7 +4,7 @@ pub mod analyze;
 pub mod common;
 pub mod diff;
 pub mod evaluate;
-pub mod import;
+pub mod ingest;
 pub mod inspect;
 pub mod kill;
 pub mod ls;

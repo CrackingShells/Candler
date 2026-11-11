@@ -5,6 +5,7 @@ pub mod assets;
 pub mod grading;
 mod legacy;
 pub mod manifest;
+pub mod raw;
 pub mod read;
 pub mod report;
 pub mod rules;
