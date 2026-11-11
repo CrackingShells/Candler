@@ -398,14 +398,14 @@ fn i1_the_verb_ingests_a_directory() {
     assert_eq!(second["existing"], 3);
 }
 
-/// Guards: I1 — a path that holds no stream is refused with exit 2 and the code `import.no_stream`,
-/// and the message says a results folder needs `--rules`.
-/// Oracle: a folder the test wrote that holds the grading files of a results folder and no stream,
-/// and the code the ruling of 2026-11-11 gives `RawIngestError`.
+/// Guards: I1 — a path that holds no stream is refused with exit 2 and the code
+/// `import.no_stream`, and the message says a results folder needs `--rules`.
+/// Oracle: a folder the test wrote that holds grading files and no `outputs/` directory and no
+/// stream, and the code the ruling of 2026-11-11 gives `RawIngestError`.
 /// Bite: a verb that treats any folder as a trace directory, seals no run and exits 0 fails the
 /// status.
 #[test]
-fn i1_a_results_folder_without_rules_is_refused() {
+fn i1_a_path_with_no_stream_is_refused() {
     let dir = TempDir::new().expect("a directory");
     let folder = dir.path().join("results");
     put(&folder, "cell/run-1/eval-1-grading.json", b"{}\n");
@@ -421,6 +421,38 @@ fn i1_a_results_folder_without_rules_is_refused() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("import.no_stream"), "{stderr}");
     assert!(stderr.contains("--rules"), "{stderr}");
+}
+
+/// Guards: I1 — a legacy results folder given without `--rules` is refused with exit 2, the code
+/// `import.rules_required` and a message naming `--rules`, and the store holds no run, though the
+/// folder holds Claude Code streams.
+/// Oracle: the real M1 mini-corpus, whose runs each hold an `outputs/` directory and a stream, and
+/// the code the coordinator's ruling gives the refusal.
+/// Bite: the layout check removed ingests the corpus's six streams as raw runs and exits 0.
+#[test]
+fn i1_a_results_folder_without_rules_is_refused() {
+    let dir = TempDir::new().expect("a directory");
+    let store = dir.path().join("store");
+    let corpus = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../candler-core/tests/fixtures/mini-corpus");
+    let corpus_arg = corpus.to_str().expect("a UTF-8 path");
+    let out = candler(
+        dir.path(),
+        &store,
+        &["--error-format", "json", "ingest", corpus_arg],
+    );
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("import.rules_required"), "{stderr}");
+    assert!(stderr.contains("\"side\":\"config\""), "{stderr}");
+    assert!(stderr.contains("--rules"), "{stderr}");
+    assert!(
+        !store.join("runs").exists()
+            || fs::read_dir(store.join("runs"))
+                .expect("lists")
+                .next()
+                .is_none()
+    );
 }
 
 /// The sha256 of `fixtures/cli/mini-corpus-rules.toml`'s corpus counts are the hand literals of

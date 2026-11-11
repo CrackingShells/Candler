@@ -254,7 +254,9 @@ async fn run_traces(cli: &Cli, args: &IngestArgs) -> Result<Exit, CliError> {
         .map_err(|error| {
             if matches!(
                 error,
-                RawIngestError::NoStream { .. } | RawIngestError::Unreadable { .. }
+                RawIngestError::NoStream { .. }
+                    | RawIngestError::Unreadable { .. }
+                    | RawIngestError::RulesRequired { .. }
             ) {
                 CliError::refused_by(error).with_file(path.as_path()) // BORROW: explicit .as_path()
             } else {

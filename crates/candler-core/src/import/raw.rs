@@ -53,6 +53,14 @@ pub enum RawIngestError {
         /// The path that was ingested.
         path: String,
     },
+    /// The path is a legacy results folder, which needs import rules.
+    #[error(
+        "`{path}` is a legacy results folder (it holds `outputs/` directories); give `--rules` to import it"
+    )]
+    RulesRequired {
+        /// The path that was ingested.
+        path: String,
+    },
     /// The path cannot be read.
     #[error("cannot read `{path}`: {detail}")]
     Unreadable {
@@ -106,6 +114,12 @@ refusal_table! {
         "import.no_stream",
         Side::Environment,
         "The path given to `ingest` holds no raw trace stream.",
+        "-",
+    ),
+    RulesRequired { .. } => row(
+        "import.rules_required",
+        Side::Config,
+        "The path given to `ingest` is a legacy results folder and no `--rules` file was given.",
         "-",
     ),
     Unreadable { .. } => row(
@@ -358,6 +372,17 @@ fn walk(
         }
     }
     Ok(())
+}
+
+/// Whether a directory named `outputs`, which the legacy importer requires of every run, is under `dir`; links are not followed.
+fn holds_outputs_dir(dir: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return false;
+    };
+    entries.filter_map(Result::ok).any(|entry| {
+        entry.file_type().is_ok_and(|kind| kind.is_dir())
+            && (entry.file_name() == "outputs" || holds_outputs_dir(entry.path().as_path())) // BORROW: explicit .as_path()
+    })
 }
 
 /// Finds the streams under `path`: a directory is walked recursively in name order and never through a link, a file is a directory of one.
@@ -768,7 +793,7 @@ fn index_is_current(store: &Store) -> Result<bool, RawIngestError> {
 /// manifest holds no wall-clock time, so two ingests of one input are byte-equal.
 ///
 /// # Errors
-/// Returns the errors of [`find_streams`], [`RawIngestError::Store`] when the store refuses a
+/// Returns [`RawIngestError::RulesRequired`] for a legacy results folder, the errors of [`find_streams`], [`RawIngestError::Store`] when the store refuses a
 /// step, [`RawIngestError::Frames`] when a stream cannot be framed or changed while it was read,
 /// and [`RawIngestError::Conflict`] when a sealed run disagrees with the cell its stream gives.
 pub fn ingest_raw(
@@ -777,6 +802,11 @@ pub fn ingest_raw(
     recognise: &Recogniser,
     readers: &ReaderFactory,
 ) -> Result<RawReport, RawIngestError> {
+    if holds_outputs_dir(path) {
+        return Err(RawIngestError::RulesRequired {
+            path: path.display().to_string(),
+        });
+    }
     let streams = find_streams(path, recognise)?;
     let format = readers()
         .id()
