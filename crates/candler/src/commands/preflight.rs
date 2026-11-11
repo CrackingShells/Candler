@@ -13,18 +13,21 @@ use candler_core::isolation::docker::{ClientEnv, DockerCli};
 use candler_core::isolation::image::{DockerImageService, ImageAssets};
 use candler_core::isolation::layout;
 use candler_core::resolve::config::Config;
-use candler_core::resolve::layers::{FileValues, ResolveInput};
+use candler_core::resolve::layers::{FileValues, Resolution, ResolveInput};
 use candler_core::resolve::preflight::{ResolveError, Resolver};
 use candler_core::resolve::steps::{M2bServices, register_m2b_steps};
 use candler_core::runner::evidence::catalog::{CatalogCommand, CommandCatalogProvider};
+use candler_core::runner::plan::{PlanError, experiment_of};
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_harness::driver::HarnessDriver as _;
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
-use candler_schemas::execution::{EventPayload, ExperimentFile};
+use candler_schemas::execution::{EventPayload, ExperimentFile, Level};
 use candler_schemas::primitives::{FieldPath, RunKey};
+use candler_schemas::refusal::pointer_of;
 use candler_schemas::values::JsonValue;
 
 use super::CliError;
+use super::refusal::{CliRefusal, FieldLocation, REQUEST_KEYS};
 
 /// The path of the setting `[treatment] source` replaces; `--set` refuses it by name.
 const RETIRED_TREATMENT_SOURCE: &str = concat!("request.", "treatment_source");
@@ -96,16 +99,146 @@ pub fn compose_resolver(
 fn value_of(text: &str) -> Result<JsonValue, CliError> {
     let json = serde_json::from_str::<serde_json::Value>(text)
         .unwrap_or_else(|_| serde_json::Value::String(text.to_owned())); // BORROW: the value owns its text
-    JsonValue::new(json).map_err(|e| refused(e.to_string()))
+    JsonValue::new(json).map_err(CliError::refused_by)
 }
 
 pub(crate) fn json_of<T: serde::Serialize>(value: &T) -> Result<JsonValue, CliError> {
     let json = serde_json::to_value(value).map_err(failed)?;
-    JsonValue::new(json).map_err(|e| refused(e.to_string()))
+    JsonValue::new(json).map_err(CliError::refused_by)
 }
 
 pub(crate) fn path_of(text: &str) -> Result<FieldPath, CliError> {
-    FieldPath::from_str(text).map_err(|e| refused(e.to_string()))
+    FieldPath::from_str(text).map_err(CliError::refused_by)
+}
+
+/// The refusal of a plan, placed where the experiment file writes the fault when it can be told:
+/// a setting a factor varies is placed at the `path` of that factor.
+pub(crate) fn refuse_plan(error: PlanError, file: &ExperimentFile) -> CliError {
+    let pointer = if let PlanError::SettingAsFactor { path } = &error {
+        factor_pointer(file, path.as_str())
+    } else {
+        None
+    };
+    let refused = CliError::refused_by(error);
+    match pointer {
+        Some(pointer) => refused.with_pointer(pointer),
+        None => refused,
+    }
+}
+
+/// The pointer to the `path` of the factor that holds the setting `setting`: the factor whose path
+/// is the setting's or one of its ancestors.
+fn factor_pointer(file: &ExperimentFile, setting: &str) -> Option<String> {
+    let setting = setting.parse::<FieldPath>().ok()?;
+    let index = file
+        .factors()
+        .iter()
+        .position(|factor| setting.starts_with(&factor.path))?;
+    Some(pointer_of(["factors", index.to_string().as_str(), "path"]))
+}
+
+/// Refuses an experiment that has a factor over a setting, before anything is resolved: the same
+/// refusal the plan makes, reached without the resolution it would need, so that nothing has been
+/// built for an experiment that cannot run.
+///
+/// # Errors
+/// [`CliError::Coded`] with [`PlanError::SettingAsFactor`] when a factor varies a setting.
+pub(crate) fn check_factors(file: &ExperimentFile) -> Result<(), CliError> {
+    if let Err(error @ PlanError::SettingAsFactor { .. }) =
+        experiment_of(file, &Resolution::default())
+    {
+        return Err(refuse_plan(error, file));
+    }
+    Ok(())
+}
+
+/// Refuses a `--set` path under `request` that is not one of the request settings, or below one.
+fn check_request_key(path: &FieldPath) -> Result<(), CliError> {
+    let mut segments = path.segments();
+    let under_request = segments.next() == Some("request") && segments.next().is_some();
+    let known = REQUEST_KEYS.iter().any(|key| {
+        key.parse::<FieldPath>()
+            .is_ok_and(|known| path.starts_with(&known))
+    });
+    if under_request && !known {
+        return Err(CliError::refused_by(CliRefusal::UnknownRequestKey {
+            path: path.to_string(),
+        }));
+    }
+    Ok(())
+}
+
+/// Refuses a path that no path class of the surface knows, naming it and where it was written.
+fn check_known(path: &FieldPath, location: FieldLocation) -> Result<(), CliError> {
+    if paths::is_known_path(path) {
+        return Ok(());
+    }
+    Err(CliError::refused_by(CliRefusal::UnknownFieldPath {
+        path: path.to_string(),
+        location,
+    }))
+}
+
+/// The leaves of a table level, each as the keys that lead to it from the table: a leaf is any
+/// value that is not a table.
+fn leaves(
+    table: &serde_json::Map<String, serde_json::Value>,
+    keys: &mut Vec<String>,
+    out: &mut Vec<Vec<String>>,
+) {
+    for (key, value) in table {
+        keys.push(key.clone()); // BORROW: the walk owns the keys it has passed
+        if let serde_json::Value::Object(inner) = value {
+            leaves(inner, keys, out);
+        } else {
+            out.push(keys.clone()); // BORROW: the list owns its keys
+        }
+        keys.pop();
+    }
+}
+
+/// Refuses an experiment file that writes a path no path class knows: a key of `[fixed]`, the
+/// `path` of a factor, or a leaf of a table level.
+fn check_file_paths(file: &ExperimentFile) -> Result<(), CliError> {
+    for path in file.fixed().keys() {
+        check_known(path, FieldLocation::Fixed)?;
+    }
+    for (index, factor) in file.factors().iter().enumerate() {
+        for (level_index, level) in factor.levels.iter().enumerate() {
+            if let Level::Fill(table) = level {
+                let mut found = Vec::new();
+                leaves(table, &mut Vec::new(), &mut found);
+                for keys in found {
+                    let text = format!("{}.{}", factor.path, keys.join("."));
+                    if let Ok(path) = text.parse::<FieldPath>() {
+                        let location = FieldLocation::Factor {
+                            index,
+                            leaf: Some((level_index, keys)),
+                        };
+                        check_known(&path, location)?;
+                    }
+                }
+            } else {
+                check_known(&factor.path, FieldLocation::Factor { index, leaf: None })?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Refuses the `--set` paths that name the retired setting, a key under `request` that no
+/// request setting has, or a path no path class knows.
+fn check_set_paths(fields: &[(FieldPath, String)]) -> Result<(), CliError> {
+    for (path, _) in fields {
+        if path.as_str() == RETIRED_TREATMENT_SOURCE {
+            return Err(CliError::refused_by(CliRefusal::RetiredSetting {
+                path: RETIRED_TREATMENT_SOURCE.to_owned(), // BORROW: the refusal owns its path
+            }));
+        }
+        check_request_key(path)?;
+        check_known(path, FieldLocation::Set)?;
+    }
+    Ok(())
 }
 
 /// What the experiment file and the command line ask for, as the input of a resolution: the
@@ -116,8 +249,9 @@ pub(crate) fn path_of(text: &str) -> Result<FieldPath, CliError> {
 /// treatment that `--set request.treatment` gives.
 ///
 /// # Errors
-/// [`CliError::Refused`] when a value cannot be written as a setting, or when `--set` names
-/// the retired setting of the treatment's checkout, which `[treatment] source` replaces.
+/// [`CliError::Coded`] when a value cannot be written as a setting, when `--set` names the
+/// retired setting of the treatment's checkout, which `[treatment] source` replaces, or when it
+/// names a key under `request` that no request setting has.
 pub fn request_settings(
     file: &ExperimentFile,
     experiment_dir: &Path,
@@ -136,21 +270,17 @@ pub fn request_settings(
     );
     let file_values = FileValues::new(values.into_iter().collect())
         .relative_to(experiment_dir)
-        .map_err(|e| refused(e.to_string()))?;
+        .map_err(CliError::refused_by)?;
     let mut input = ResolveInput::default().file(file_values);
+    check_file_paths(file)?;
+    check_set_paths(fields)?;
     for (path, text) in fields {
-        if path.as_str() == RETIRED_TREATMENT_SOURCE {
-            return Err(refused(format!(
-                "`{RETIRED_TREATMENT_SOURCE}` is no longer a setting: set `[treatment] source` in the \
-                 experiment file"
-            )));
-        }
         let mut value = value_of(text)?;
         if path.as_str() == paths::REQUEST_TREATMENT {
             // BORROW: .clone() gives the file values their own path
             let given = FileValues::new(vec![(path.clone(), value.clone())])
                 .relative_to(cwd)
-                .map_err(|e| refused(e.to_string()))?;
+                .map_err(CliError::refused_by)?;
             if let Some((_, resolved)) = given.values.into_iter().next() {
                 value = resolved;
             }
