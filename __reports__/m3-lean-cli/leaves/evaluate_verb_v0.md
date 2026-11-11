@@ -3,6 +3,7 @@
 `candler evaluate <suite>` becomes a verb over an evaluate job: it starts the job, prints the job's id on stderr, follows the job to its end and prints the report on stdout. `--plugin` and `--concurrency` are gone, and `--suite` became the positional argument. A Sonnet implementer did the work on branch `m3/evaluate_verb`, cut from 2e0c015. The `evaluate_verb` verifier, which also covers `evaluate_body`, comes after.
 
 ```
+75d34fd fix(cli): reap the supervisor and follow a job that ends at once
 befe4b6 feat(cli): end evaluate at once on a second Ctrl-C
 cdd2c54 test(cli): guard that Ctrl-C and a failed job end evaluate as stated
 4f7aab7 feat(cli)!: start evaluate as a job and follow it to its report
@@ -30,6 +31,12 @@ Step 2 and step 3's verb code landed together in `4f7aab7`: the Ctrl-C arm was w
 | `killed` after Ctrl-C | nothing | 2, "was cancelled" |
 | `killed` without Ctrl-C | nothing | 2, "was killed" |
 | `failed`, `budget_stop` | nothing | 2, `job <id> ended without a report:` and the last 5 lines of `supervisor.log` |
+
+## Found through LINUXRUN
+I ran `guard_cli_evaluate` once in the `m3-linuxrun` image, in a volume of its own, one container at a time. Two defects showed that macOS hid; the last commit fixes both in `evaluate.rs`.
+- **A zombie supervisor stalled Ctrl-C for the whole teardown bound.** The supervisor is the waiting command's child, and `detach` drops its handle, so nobody waits for it. On Linux `liveness` reads a zombie as alive, so `kill::stop_job`'s reap waited out its grace for a supervisor that was gone. The command now calls `reap_one` on it at each look at the job and while a stop is under way.
+- **`detach` reports a job that ends within one 20 ms look as "the supervisor did not start".** With `slots.evaluators = 0` the job fails in a few milliseconds, between two looks at the lock. The command now follows such a job anyway and gives the end of its `supervisor.log`. The cause is in `jobs/runtime/detach.rs`, which is `evaluate_body`'s: a job that takes and releases the lock between two looks is a false "did not start". Any other caller of `detach` has the same exposure.
+- **The guards need `-j 1` in the container.** With six tests in parallel, `candler run` in the world did not seal (`no run sealed: 0 sealed`) in four of six, from load in the Docker VM, not from the verb. With `-j 1` all six pass.
 
 ## Decision asked for: a job with no `report.json`
 The verb prints nothing on stdout, exits 2 and puts the end of the job's `supervisor.log` in the error. That is where `evaluate_body` writes the engine's reason: an engine error ends the job `failed` with no report, and the reason goes to `note`. `slots.evaluators = 0` shows it, as `no evaluator slot to run in: slots.evaluators is 0`. A `completed` job whose `report.json` is unreadable is the same kind of error.
@@ -80,17 +87,18 @@ Mutations were made in `commands/evaluate.rs` and the guard run against them.
 - **Not bitten:** the second Ctrl-C. A stop finishes in under a second on the fixtures, so no test can land a second signal inside it; the arm is read, not run.
 
 ## Gates
-Run on befe4b6, with `-p candler` while working, then the workspace forms once.
+Run on 75d34fd, with `-p candler` while working, then the workspace forms once.
 - **OWNED, G-text (with its exception), old options gone and `<SUITE>` in the help, G-platform (1 `cfg(not(unix))`), SUBJ and `cog check`:** PASS.
 - **E1 (6) and E4 (1):** PASS. `binary(guard_cli) | binary(guard_input_seam) | binary(guard_cli_e2e)` and `guard_cli_surface` (U1, U2): PASS.
 - **STD, workspace:** fmt, clippy `-D warnings`, `cargo check --workspace --all-targets` and `cargo doc` with `-D warnings`: PASS. nextest: 564 passed, 3 failed, 21 skipped; the 3 are `guard_cli_refusal` above.
 - **LINUX:** clippy on `x86_64-unknown-linux-gnu`: PASS.
 - **GOLDEN:** `guard_golden` (2) and `guard_oracle_ac` (1): PASS. `guard_golden_parity` did not run.
-- **LINUXRUN:** see the end of this report.
+- **LINUXRUN:** `guard_cli_evaluate` (6) on the fixed head, `-j 1`: PASS. Before the fix: the Ctrl-C test ran past three minutes and the failed-job test failed (see above).
 
 ## For the verifier
 - **Two concurrent `evaluate` calls over the same runs.** Each reads `Pending` when its job starts, so both select the same runs and both grade them. Nothing here serialises them, and I did not probe the outcome.
 - **A lost job.** `follow` recovers it with `recover_job_dir`; no guard kills a supervisor mid-evaluation to see the verb's end.
 - **Ctrl-C racing `job.ended`.** The classify call comes first in each turn, so a job that ended just before the signal is read as ended. `kill::stop_job` leaves an ended job alone (`left alone`).
 - **`slots.evaluators = 0`** ends the job `failed`; `e1_evaluate_of_a_failed_job…` covers it through the verb.
+- **E3** (`evaluate_body`'s) was not run by me; only my own six guards went through LINUXRUN.
 - **The first stderr line is the job id only when the preflight is silent.** When it builds an environment, `StderrSink` event lines precede the id.
