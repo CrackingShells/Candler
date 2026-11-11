@@ -76,12 +76,24 @@ fn supervisor_record(dir: &JobDir, id: &JobId) -> Result<ChildRecord, String> {
 }
 
 /// Why a job was not stopped: the reason as text, and the error behind it when there is one.
-#[derive(Debug, thiserror::Error)]
-#[error("{reason}")]
+#[derive(Debug)]
 pub struct NotStopped {
     reason: String,
-    #[source]
     cause: Option<Box<dyn Error + Send + Sync>>,
+}
+
+impl std::fmt::Display for NotStopped {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.reason)
+    }
+}
+
+impl Error for NotStopped {
+    fn source<'a>(&'a self) -> Option<&'a (dyn Error + 'static)> {
+        self.cause
+            .as_ref()
+            .map(|cause| -> &(dyn Error + 'static) { cause.as_ref() })
+    }
 }
 
 impl NotStopped {
@@ -105,12 +117,22 @@ impl NotStopped {
 
 /// The failure of a `kill` that left jobs running: how many and which, with the first job's
 /// reason as its cause, so that the refusal behind that reason names the failure.
-#[derive(Debug, thiserror::Error)]
-#[error("{text}")]
+#[derive(Debug)]
 struct KillFailed {
     text: String,
-    #[source]
     first: NotStopped,
+}
+
+impl std::fmt::Display for KillFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.text)
+    }
+}
+
+impl Error for KillFailed {
+    fn source<'a>(&'a self) -> Option<&'a (dyn Error + 'static)> {
+        Some(&self.first)
+    }
 }
 
 /// Stops the job `id` and says what became of it.

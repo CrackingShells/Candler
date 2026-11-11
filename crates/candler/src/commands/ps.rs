@@ -51,11 +51,23 @@ type Cause = Box<dyn Error + Send + Sync>;
 
 /// A listing in which a row failed: the error behind the first such row is its cause, so that the
 /// refusal it holds names the failure.
-#[derive(Debug, thiserror::Error)]
-#[error("a job could not be listed or recovered; see its row")]
+#[derive(Debug)]
 pub struct RowFailed {
-    #[source]
     cause: Option<Cause>,
+}
+
+impl std::fmt::Display for RowFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a job could not be listed or recovered; see its row")
+    }
+}
+
+impl Error for RowFailed {
+    fn source<'a>(&'a self) -> Option<&'a (dyn Error + 'static)> {
+        self.cause
+            .as_ref()
+            .map(|cause| -> &(dyn Error + 'static) { cause.as_ref() })
+    }
 }
 
 /// How many hex digits of the experiment digest a row shows.
