@@ -18,6 +18,7 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use super::RuntimeError;
+use super::session::SPEC_FILE;
 use super::session::{ZombieTick, become_subreaper, detach_session, digest_of, note};
 use super::signals::SignalWatch;
 use super::sweep::{ProcMarkerSweeper, sweep_orphans};
@@ -138,6 +139,8 @@ async fn run(entry: EvaluateEntry) -> Result<EvaluateJobOutcome, RuntimeError> {
     detach_session()?;
     become_subreaper()?;
     let dir = JobDir::open(entry.store.layout(), &entry.job).map_err(|e| job_error(&e))?;
+    let kept = serde_json::to_vec(&entry.spec).map_err(|e| setup_error(&e))?;
+    write_atomic(&dir.path().join(SPEC_FILE), &kept).map_err(|e| job_error(&e))?;
     let lock = match JobLock::acquire(&dir) {
         Ok(lock) => lock,
         Err(JobError::Held) => return Err(RuntimeError::AlreadySupervised),

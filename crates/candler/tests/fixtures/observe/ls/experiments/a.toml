@@ -1,0 +1,20 @@
+schema = "experiment/1"
+replicates = 1
+
+[fixed]
+permission_mode = "plan"
+"prompt.template" = "say hello"
+
+[[factors]]
+path = "model.id"
+levels = ["m1", "m2"]
+
+[budget.per_run]
+wall_s = 30
+
+[harness]
+name = "claude-code"
+
+[treatment]
+name = "demo"
+tag = "v1"

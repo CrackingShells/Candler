@@ -1,0 +1,7 @@
+{"v":1,"seq":0,"at":"2026-11-06T09:00:00Z","job_id":"01890000-0000-7000-8000-0000000000a1","kind":"job.started","payload":{}}
+{"v":1,"seq":1,"at":"2026-11-06T09:00:01Z","job_id":"01890000-0000-7000-8000-0000000000a1","kind":"evaluation.planned","payload":{"outcomes":4}}
+{"v":1,"seq":2,"at":"2026-11-06T09:00:02Z","job_id":"01890000-0000-7000-8000-0000000000a1","run":{"cell":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","replicate":1,"attempt":1},"kind":"run.started","payload":{}}
+{"v":1,"seq":3,"at":"2026-11-06T09:00:03Z","job_id":"01890000-0000-7000-8000-0000000000a1","run":{"cell":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","replicate":1,"attempt":1},"kind":"run.started","payload":{}}
+{"v":1,"seq":4,"at":"2026-11-06T09:00:04Z","job_id":"01890000-0000-7000-8000-0000000000a1","run":{"cell":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","replicate":1,"attempt":1},"kind":"run.ended","payload":{"ended_by":{"kind":"completed"}}}
+{"v":1,"seq":5,"at":"2026-11-06T09:00:05Z","job_id":"01890000-0000-7000-8000-0000000000a1","run":{"cell":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","replicate":1,"attempt":1},"kind":"run.failed","payload":{"reason":"setup_failed"}}
+{"v":1,"seq":6,"at":"2026-11-06T09:00:06Z","job_id":"01890000-0000-7000-8000-0000000000a1","kind":"job.ended","payload":{"reason":"completed"}}

@@ -2,8 +2,10 @@
 //! the command catalog.
 
 pub mod catalog;
+pub mod gateway;
 pub mod identity;
 pub mod image;
+pub mod secrets;
 
 use std::sync::Arc;
 
