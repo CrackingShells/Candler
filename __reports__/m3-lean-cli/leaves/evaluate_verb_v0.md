@@ -107,10 +107,10 @@ Run on 75d34fd, with `-p candler` while working, then the workspace forms once.
 The branch was rebased onto eed99b7 (refusal_late landed) with no conflict. The round's commits, after the rebase:
 
 ```
-d93d49f fix(jobs): see a job that ends at once as started
-1c2384d feat(jobs): code the refusal of a suite changed after the job started
-4250fcc feat(evaluation): give an evaluate job the caller's environment
-bc6018d test(cli): follow evaluate to its new form in the refusal guards
+9557387 fix(jobs): see a job that ends at once as started
+e92eb5c feat(jobs): code the refusal of a suite changed after the job started
+78fbc8a feat(evaluation): give an evaluate job the caller's environment
+9a1d0c4 test(cli): follow evaluate to its new form in the refusal guards
 ```
 The `feat(cli)!` commit was reworded with `git commit --fixup=reword:` and an autosquash. Its `BREAKING CHANGE:` footer now names the three removed options, the default selection (the pending runs, `--runs '*'` for all) and the refusal of an empty `plugins.dirs`. The reword was not refused.
 
@@ -158,16 +158,16 @@ Guards (all seen red, then reverted):
 The branch was rebased onto dfb9399 with no conflict. The round's commits:
 
 ```
-86ce3a8 feat(jobs): record the refusal a failed evaluate job ended with
-8f29df5 feat(cli): print the refusal a failed evaluate job recorded
-c00559f test(cli): restore the suite-params row and skip the mode row as root
-f67638f fix(cli): list the refusal carrier of evaluate as Candler's own
+2563af8 feat(jobs): record the refusal a failed evaluate job ended with
+98a8e48 feat(cli): print the refusal a failed evaluate job recorded
+188cbf3 test(cli): restore the suite-params row and skip the mode row as root
+b7516c6 fix(cli): list the refusal carrier of evaluate as Candler's own
 ```
 
 ### Engine refusals keep their codes through the verb
 - The evaluate supervisor writes `refusal.json` in the job directory before `job.ended`: the `refusal/1` record that `candler_core::refusal::find` gives for the error, written atomically; `candler.internal`, side `candler`, when the chain holds no catalogue type. A failed write is noted in `supervisor.log` and changes nothing else. No schema changes.
 - The verb reads it when a job ends without a report. Under `--error-format json` it prints that record; the text form is byte-identical (`job <id> ended without a report: <log tail>`). A missing or unreadable file keeps the fallback of fix round 1.
-- `JobRefusal` (in `commands/evaluate.rs`) carries the record and the text. `CliError::Failed` needs an `Error`, and `find` walks catalogue types only, so `commands/refusal.rs::refusal_of` also reads a `JobRefusal`. That file is outside the authorized list; the edit is one `or_else`. Because the R1 scan lists every error type, `JobRefusal` has a whole-type `[internal]` row in `codes.toml` (f67638f; one appended row, none deleted).
+- `JobRefusal` (in `commands/evaluate.rs`) carries the record and the text. `CliError::Failed` needs an `Error`, and `find` walks catalogue types only, so `commands/refusal.rs::refusal_of` also reads a `JobRefusal`. That file is outside the authorized list; the edit is one `or_else`. Because the R1 scan lists every error type, `JobRefusal` has a whole-type `[internal]` row in `codes.toml` (b7516c6; one appended row, none deleted).
 - `r2_refused_suite_params_print_as_a_suite_record` is back to its eed99b7 assertions (`suite.params_invalid`, side `suite`, pointer `/n`). New rows through the verb: `r2_a_refusal_raised_in_the_job_keeps_its_code_through_the_verb` and `r2_a_changed_suite_keeps_its_code_through_the_verb` (`evaluation.suite_changed`, side `suite`). Bite: the verb not reading the file turned three rows red (the two new rows and the params row, all `candler.internal`).
 - `e5_the_callers_environment_is_written_nowhere` still passes with `refusal.json` in the store.
 - R01 §Job says that a finished evaluate job leaves `report.json` or, when an error ended it, `refusal.json`.
@@ -180,3 +180,46 @@ f67638f fix(cli): list the refusal carrier of evaluate as Candler's own
 - GOLDEN (`--run-ignored all`): `guard_golden` (2) and `guard_oracle_ac` PASS. `guard_golden_parity` NOT RUN, `CANDLER_HTN_PLUGIN` is not at hand (as in round 1).
 - G-codes: 9 lines added to `codes.toml` against dfb9399, none deleted. G-text: 22 lost lines the pattern does not name (23 before; the params assertion is back). Old-options gate PASS. `cog check dfb9399..HEAD`: PASS. One subject, `e4ac6f7` (fix round 1, already handed back), is 74 characters; it was not reworded, which would change every hash after it.
 - LINUXRUN, `-j 1`, one container at a time: `guard_detach` and `guard_refusal_codes` (5) PASS; `guard_cli_evaluate` and `guard_cli_refusal` (27) PASS, including the mode row, which returns early as root.
+
+## Fix round 3
+The verifier attacked ca1a4f4. The hashes of the earlier sections above are the ones `git log` shows now (the coordinator's reword of the fix-round-1 commit changed them). The round's commits, on top of ca1a4f4:
+
+```
+d14e77d fix(jobs): recover a lost evaluate job without a docker client
+1417ffa test(cli): pin that a run graded twice counts once for every reader
+acfd265 fix(cli): code the early refusals of evaluate and print a job as written
+55cc844 docs(design): state what recovery of a lost evaluate job does not reach
+```
+
+### 1. Recovery of a lost evaluate job needs no docker (d14e77d)
+`session::recover_job_dir_with` reads the job's spec file; for a `JobSpecFile::Evaluate` it recovers over a `NoContainers` sweeper and builds no `DockerCli`. A job whose spec is missing or does not read recovers over docker as a `run` job does, so the `run` path is unchanged. The hunk is the one `if` at the top of the function, the `is_evaluate` reader and the small sweeper.
+- Guard `e1_a_lost_evaluate_job_is_recovered_with_no_docker_on_the_path`: the supervisor and the command of a job with an evaluator in flight get SIGKILL, then `candler kill <job> -y` and `candler ps` run with a `PATH` that is an empty directory. Oracle: the evaluator's pid and start time (alive before, gone after), one `job.ended` (`failed`), the lock free, `kill` saying `recovered`, `ps` saying `ended (failed)`.
+- Bite: the branch off (`kill` says `not stopped: recover failed: docker call is not available: no absolute docker on PATH`), seen on macOS, where the test machine has a docker. In the Linux image there is no docker at all, so the row there holds the property and cannot bite.
+
+### 2. Ruling: recovery does not reach setsid strays
+The text that said recovery ends every descendant is not in this report. R01 §Supervisor death now says: for a lost evaluate job, recovery ends the evaluators' groups and seals the job, not descendants that left their group, because I22 signals only a process whose parent is the caller and, with the supervisor dead, such a process has none. Containment by cgroup or pidfd is noted as a follow-up and is not in place. I22 is not loosened.
+
+### 3. macOS
+R01's sentence on the stray sweep (macOS: "only host children are the docker client and first-party commands") was false for evaluators, which are third-party processes. It now says macOS has no subreaper and no host scan, an evaluator's `setsid` stray survives `kill` and the end of the job, and the end of an evaluate job is complete on Linux only. **E3 of `evaluate_body` and of this leaf holds on Linux only.** The `evaluate_body` report (`evaluate_body_v0.md`) should carry the same correction; I did not edit it.
+
+### 4. Two evaluations over the same runs
+`select` keeps the current record under each I4 key (evaluator, run, expectation, context digest, suite entry digest); `show`, `analyze` and `diff` read through `common::read_selection`, and the pending selection collects expectation ids per evaluator identity. All of them count a run graded twice once, deterministically (the latest request id is current), so no reader needed a fix. `e1_a_run_graded_twice_counts_once_for_every_reader` pins it: two `evaluate` calls leave two files per run, `show --format json` and `analyze --format json` are byte-equal with and without the second set, `i4_violations` is 0, and a third call with the default selection writes nothing. Bite: the request id added to the I4 key (`show` differs). R01 §Job says that concurrent evaluations may grade a run twice and that readers count it once; a claim per run is a follow-up, not in place. `inspect` lists the files as they are, by design.
+
+### 5. The low items (acfd265)
+- `slots.evaluators = 0` is refused before any job starts: `config.no_evaluator_slots`, side `config`. An empty or missing `plugins.dirs` is `config.no_plugin_dirs`, side `config`. Both are variants of the existing `CliRefusal` (no new enum), with two appended rows in `[cli]` of `codes.toml`; their text is the text of before. Guard `r2_a_configuration_evaluate_cannot_use_is_a_config_record` (three records, and no job directory is added). Bite: the two raised as `CliError::Refused` (`candler.internal`, side `candler`). `e1_evaluate_of_a_failed_job_prints_no_report_and_says_why` made its failed job with `slots.evaluators = 0`; it now uses a suite that names an evaluator no plug-in provides.
+- The printed JSON record of a job's refusal is the record the job wrote, with its message and causes as written; the text form is unchanged. `r2_a_refusal_raised_in_the_job_keeps_its_code_through_the_verb` compares message and causes with `refusal.json` and refuses the verb's wording. Bite: the record not taken from the job (the code is `candler.internal`). `JobRefusal` no longer implements `Refusal`, and the `or_else` in `refusal_of` that fix round 2 added is gone; its `[internal]` row stays, because it is still an error type.
+- A job the command finds lost says so: `job <id> ended without a report: it was lost, its supervisor died; recovery stopped N process(es) and ended it failed`, and the log's tail only if the log has one. Guard `e1_evaluate_says_when_its_job_was_lost`. Bite: the old words (`its supervisor.log is empty`).
+- The doc comment of `r2_a_missing_plugin_manifest_prints_as_a_record` no longer says the manifest does not exist. Two guard docs that say a pair is a row of `codes.toml` now add that the `candler.internal` fallback of `[internal]` counts as one; the invariant sentence of refusal_late's report (line 20 of `refusal_late_v0.md`) says the same thing without the clause, and I did not edit that file.
+
+### Follow-ups, noted only
+- Ctrl-C is swallowed while `follow` awaits recovery or `detach`.
+- SIGTERM or SIGHUP of the command leaves the job running, which is consistent with a job; R01 §Job now says so.
+- A failed `detach` leaves a stale job directory.
+- A claim per run, so that two concurrent evaluations do not grade a run twice.
+- Cgroup or pidfd containment of an evaluator's descendants.
+
+### Gates, from dfb9399
+- Workspace STD after `cargo clean -p candler-core -p candler`, built without sccache: fmt, clippy `-D warnings`, check, doc and LINUX clippy PASS; nextest 591 passed, 21 skipped. The leaf rows (E1, E4, E5, `r2_`), `guard_cli`, `guard_input_seam`, `guard_cli_e2e`, `guard_cli_surface`, the core guards (`guard_detach`, `guard_refusal_codes`, `guard_evaluate_job`, `guard_platform_seam`, `guard_spec_file`) and R1 and R2 are in that run.
+- GOLDEN (`--run-ignored all`): `guard_golden` (2) and `guard_oracle_ac` PASS. `guard_golden_parity` NOT RUN, `CANDLER_HTN_PLUGIN` is not at hand.
+- G-codes: 19 lines added to `codes.toml` against dfb9399, none deleted. G-text: 24 lost lines the pattern does not name (22 before; the two doc lines of `r2_a_missing_plugin_manifest_prints_as_a_record` that the item above rewords). `cog check dfb9399..HEAD` PASS, every subject at most 72 characters.
+- LINUXRUN, `-j 1`, one container at a time: `guard_detach` and `guard_refusal_codes` (5) PASS; `guard_cli_evaluate` and `guard_cli_refusal` (31, with the new recovery guard, which sets its own `PATH`) PASS.
