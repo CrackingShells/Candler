@@ -20,8 +20,11 @@ use candler_schemas::outcome::{
     Cause, OutcomeRecord, OutcomeRecordBuilder, Role, Status, Value, Weight,
 };
 use candler_schemas::primitives::{Digest, ExpectationId, NameVersion, RequestId, RunKey};
+use rand_chacha::ChaCha8Rng;
+use rand_chacha::rand_core::{Rng as _, SeedableRng as _};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use statrs::distribution::{Binomial, Discrete as _};
 use std::collections::BTreeMap;
 
 #[derive(Deserialize)]
@@ -727,5 +730,231 @@ fn t3_every_rate_carries_its_counts() {
     assert_eq!(
         unlisted,
         Err(candler_core::analysis::error::StatsError::RunNotListed { run: run('a', 3) })
+    );
+}
+
+// ---- T2: known truth ---------------------------------------------------------------------------
+
+/// Replications per scenario of the simulated guards.
+const REPLICATIONS: u64 = 2000;
+
+/// The Monte Carlo allowance on a rate near `p`: two standard errors over `REPLICATIONS`.
+fn allowance(p: f64) -> f64 {
+    #[expect(
+        clippy::as_conversions,
+        clippy::cast_precision_loss,
+        reason = "REPLICATIONS is 2000"
+    )]
+    let replications = REPLICATIONS as f64;
+    2.0 * (p * (1.0 - p) / replications).sqrt()
+}
+
+/// A pass probability as `num / den`, drawn with no float: `next_u64() % den < num`.
+fn draw(rng: &mut ChaCha8Rng, num: u64, den: u64) -> bool {
+    rng.next_u64() % den < num
+}
+
+/// The p-value of every pair `(k1, k2)` of pass counts for two arms of `n` runs, indexed
+/// `k1 * (n + 1) + k2`, computed once by calling `fisher_two_sided`.
+fn p_table(n: u64) -> Vec<f64> {
+    (0..=n)
+        .flat_map(|k1| (0..=n).map(move |k2| (k1, k2)))
+        .map(|(k1, k2)| fisher_two_sided(counts(k1, n), counts(k2, n)).expect("a p-value"))
+        .collect()
+}
+
+/// How the runs of one arm pass their expectations.
+#[derive(Clone, Copy)]
+enum Passing {
+    /// Every expectation of every run passes with probability `num / den`, independently.
+    Independent { num: u64, den: u64 },
+    /// Each run draws a shared flag, good with probability 1/2; its expectations then pass with
+    /// probability 4/5 when good and 1/5 when bad.
+    Shared,
+}
+
+/// The pass counts of one arm over `m` expectations.
+fn arm_counts(rng: &mut ChaCha8Rng, n: u64, m: usize, passing: Passing) -> Vec<u64> {
+    let mut passes = vec![0_u64; m];
+    for _ in 0..n {
+        let (num, den) = match passing {
+            Passing::Independent { num, den } => (num, den),
+            Passing::Shared => {
+                if draw(rng, 1, 2) {
+                    (4, 5)
+                } else {
+                    (1, 5)
+                }
+            }
+        };
+        for slot in &mut passes {
+            if draw(rng, num, den) {
+                *slot += 1;
+            }
+        }
+    }
+    passes
+}
+
+/// The share of `REPLICATIONS` replications of two arms of `n` runs and `m` expectations, the
+/// same in both arms, in which Fisher plus Holm rejects at least one null.
+fn rejection_share(seed: u64, n: u64, m: usize, passing: Passing) -> f64 {
+    let table = p_table(n);
+    let width = usize::try_from(n + 1).expect("a small n");
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut rejecting = 0_u64;
+    for _ in 0..REPLICATIONS {
+        let first = arm_counts(&mut rng, n, m, passing);
+        let second = arm_counts(&mut rng, n, m, passing);
+        let p: Vec<f64> = first
+            .iter()
+            .zip(&second)
+            .map(|(k1, k2)| {
+                let (k1, k2) = (
+                    usize::try_from(*k1).expect("a small count"),
+                    usize::try_from(*k2).expect("a small count"),
+                );
+                table[k1 * width + k2]
+            })
+            .collect();
+        let adjusted = holm(&p).expect("adjusted p-values");
+        if rejected(&adjusted).into_iter().any(|r| r) {
+            rejecting += 1;
+        }
+    }
+    #[expect(
+        clippy::as_conversions,
+        clippy::cast_precision_loss,
+        reason = "both counts are far below 2^53"
+    )]
+    let share = rejecting as f64 / REPLICATIONS as f64;
+    share
+}
+
+#[derive(Deserialize)]
+struct CoverageRow {
+    n: u64,
+    p: f64,
+    coverage: f64,
+}
+
+#[derive(Deserialize)]
+struct PowerRow {
+    n: u64,
+    p_a: f64,
+    p_b: f64,
+    alpha: f64,
+    power: f64,
+}
+
+/// Guards: the exact coverage of the Wilson interval, summed over every k with the binomial
+/// probability, equals scipy's table to 1e-9 for n in {5, 10, 30} and p in {0.1, 0.5, 0.9}, and is
+/// at least 0.91 in each. The floor is 0.91 and not 0.93 because Wilson itself cannot reach 0.93
+/// at small n: at n = 5, p = 0.1 the exact coverage is 0.9185. Oracle: scipy's `binom.pmf` over
+/// statsmodels' Wilson limits, in `coverage.toml`. Bite: Wilson with a continuity correction
+/// (the equality goes red); the Wald interval (the floor goes red).
+#[test]
+fn t2_wilson_coverage_is_exact() {
+    let rows = vector::<CoverageRow>("coverage.toml");
+    assert_eq!(rows.len(), 9);
+    for row in rows {
+        let binomial = Binomial::new(row.p, row.n).expect("a binomial");
+        let coverage: f64 = (0..=row.n)
+            .map(|k| {
+                let interval = wilson(counts(k, row.n)).expect("an interval");
+                if interval.lo() <= row.p && row.p <= interval.hi() {
+                    binomial.pmf(k)
+                } else {
+                    0.0
+                }
+            })
+            .sum();
+        let label = format!("coverage at n = {}, p = {}", row.n, row.p);
+        close(&label, coverage, row.coverage, 1e-9);
+        assert!(
+            coverage >= 0.91,
+            "{label}: {coverage:?} is below the floor 0.91"
+        );
+    }
+}
+
+/// Guards: with the same pass probability in both arms, so that every null is true, Fisher plus
+/// Holm rejects something in at most 0.05 + 2 standard errors of 2,000 seeded replications, for
+/// n in {5, 10, 30}, m in {1, 5, 20} and p in {1/5, 1/2}, and for a scenario of strongly
+/// correlated expectations (n = 10, m = 20, a shared run-level flag). The observed rates are
+/// printed. Oracle: the truth of the simulation (no difference was planted), with the Monte Carlo
+/// allowance as the bound. Bite: Holm replaced by the identity.
+#[test]
+fn t2_family_wise_error_holds_under_h0() {
+    let bound = 0.05 + allowance(0.05);
+    let mut scenario = 0_u64;
+    for n in [5_u64, 10, 30] {
+        for m in [1_usize, 5, 20] {
+            for (num, den) in [(1_u64, 5_u64), (1, 2)] {
+                let share = rejection_share(scenario, n, m, Passing::Independent { num, den });
+                eprintln!("fwer n={n} m={m} p={num}/{den} seed={scenario}: {share:.4}");
+                assert!(
+                    share <= bound,
+                    "n={n} m={m} p={num}/{den}: family-wise error {share:.4} exceeds {bound:.4}"
+                );
+                scenario += 1;
+            }
+        }
+    }
+    let share = rejection_share(scenario, 10, 20, Passing::Shared);
+    eprintln!("fwer n=10 m=20 correlated seed={scenario}: {share:.4}");
+    assert!(
+        share <= bound,
+        "correlated scenario: family-wise error {share:.4} exceeds {bound:.4}"
+    );
+}
+
+/// Guards: the positive control. With p = 1/5 against 4/5 over n = 10 runs, the exact power of
+/// Fisher's test (the Rust sum over every pair of counts) equals scipy's value to 1e-9, and the
+/// simulated rejection rate through Fisher and Holm at m = 1 is at least that power minus 2
+/// standard errors. Oracle: scipy's `fisher_exact` and `binom.pmf` in `power.toml`. Bite: a test
+/// that never rejects (the power control goes red).
+#[test]
+fn t2_power_is_found() {
+    let rows = vector::<PowerRow>("power.toml");
+    let row = rows.first().expect("one row");
+    assert_eq!((row.n, row.p_a, row.p_b, row.alpha), (10, 0.2, 0.8, ALPHA));
+    let low = Binomial::new(row.p_a, row.n).expect("a binomial");
+    let high = Binomial::new(row.p_b, row.n).expect("a binomial");
+    let power: f64 = (0..=row.n)
+        .flat_map(|k1| (0..=row.n).map(move |k2| (k1, k2)))
+        .filter(|(k1, k2)| {
+            fisher_two_sided(counts(*k1, row.n), counts(*k2, row.n)).expect("a p-value") < ALPHA
+        })
+        .map(|(k1, k2)| low.pmf(k1) * high.pmf(k2))
+        .sum();
+    close("exact power", power, row.power, 1e-9);
+
+    let table = p_table(10);
+    let mut rng = ChaCha8Rng::seed_from_u64(1_000);
+    let mut rejecting = 0_u64;
+    for _ in 0..REPLICATIONS {
+        let k1 = arm_counts(&mut rng, 10, 1, Passing::Independent { num: 1, den: 5 });
+        let k2 = arm_counts(&mut rng, 10, 1, Passing::Independent { num: 4, den: 5 });
+        let (k1, k2) = (
+            usize::try_from(k1.first().copied().expect("one count")).expect("small"),
+            usize::try_from(k2.first().copied().expect("one count")).expect("small"),
+        );
+        let adjusted = holm(&[table[k1 * 11 + k2]]).expect("adjusted");
+        if rejected(&adjusted).into_iter().any(|r| r) {
+            rejecting += 1;
+        }
+    }
+    #[expect(
+        clippy::as_conversions,
+        clippy::cast_precision_loss,
+        reason = "both counts are far below 2^53"
+    )]
+    let rate = rejecting as f64 / REPLICATIONS as f64;
+    eprintln!("power: exact {power:.4}, simulated {rate:.4}");
+    assert!(
+        rate >= power - allowance(power),
+        "simulated power {rate:.4} is below {:.4}",
+        power - allowance(power)
     );
 }
