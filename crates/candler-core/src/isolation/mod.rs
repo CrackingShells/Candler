@@ -11,6 +11,7 @@ pub mod gateway;
 pub mod image;
 pub mod layout;
 pub mod model;
+pub(crate) mod refusal;
 #[cfg(feature = "test-support")]
 pub mod testing;
 

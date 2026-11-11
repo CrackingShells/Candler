@@ -12,6 +12,7 @@ pub mod blob;
 pub mod index;
 pub mod layout;
 pub mod outcome;
+pub(crate) mod refusal;
 pub mod run;
 pub(crate) mod sync;
 

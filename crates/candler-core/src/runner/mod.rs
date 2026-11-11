@@ -7,6 +7,7 @@
 pub mod evidence;
 pub mod exec;
 pub mod plan;
+pub(crate) mod refusal;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

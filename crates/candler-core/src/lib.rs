@@ -16,6 +16,7 @@ pub mod isolation;
 #[cfg(unix)]
 pub mod jobs;
 pub mod manifest;
+pub mod refusal;
 pub mod resolve;
 #[cfg(unix)]
 pub mod runner;

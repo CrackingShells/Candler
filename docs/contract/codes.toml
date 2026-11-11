@@ -465,7 +465,7 @@ side = "environment"
 enum = "PreflightError"
 variant = "Failed"
 
-[resolve."resolve.path_not_utf8"]
+[resolve."resolve.path_not_unicode"]
 side = "config"
 enum = "ResolveError"
 variant = "NonUtf8Path"
