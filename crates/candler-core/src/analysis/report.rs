@@ -2,7 +2,7 @@
 //! arms that differ in exactly one declared factor, the tests of the pair.
 //!
 //! Nothing here reads the store or the clock: the caller hands over the selection, the facts of
-//! every run and the manifests. Counts come from [`tally`](super::tally::tally), methods from the
+//! every run and the manifests. Counts come from [`tally`], methods from the
 //! sibling modules, and whether two arms may be compared is answered by
 //! [`stratum_verdict`] alone.
 
