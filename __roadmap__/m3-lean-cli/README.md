@@ -12,7 +12,7 @@ Depth is ordering:
   - the wire types;
   - the statistics;
   - the platform seam.
-- **L1, `verbs/`,** holds the core refusal codes, the evaluate job body, `analyze`, `resolve`/`ls`/`watch`/`ps`, `ingest`/`inspect`, the contract-page frame and R01. It starts once `feat/m3-lean-cli` has rebased onto `main` with both early PRs merged.
+- **L1, `verbs/`,** holds the core refusal codes, the evaluate job body, `analyze`, `resolve`/`ls`/`watch`/`ps`, `ingest`/`inspect`, the contract-page frame and R01. It starts once both early PRs' branches are merged into `feat/m3-lean-cli` locally (D1). When their merge commits reach `main`, `main` is merged into the milestone branch.
 - **L2, `surfaces/`,** holds the `evaluate` verb and the remaining refusal codes.
 - **L3, `closeout/`,** holds the contract pages' refusals and the CLI surface audit.
 
@@ -86,7 +86,7 @@ Every operation of the API is a verb that derives what it can, works from any di
   - Before merging a leaf that touches a wire type, the coordinator runs the workspace suite and the digest guards on the rebased leaf (R05).
 - **Behaviour changes.** A newly refused input, a removed option or a moved stored digest is a behaviour change. The implementer reports it and never marks it alone. The coordinator sends it to the coordination session for a ruling before the leaf merges (R10 §3).
 - **Schema commits.**
-  - Only `contract_wire` touches `crates/candler-schemas/`. It does so in exactly one release-triggering commit, `feat(schemas): …`, which carries the DRIFT bless and touches no other crate. The helper's regenerated models go in the next commit.
+  - Only `contract_wire` touches `crates/candler-schemas/`. It does so in exactly one release-triggering commit, `feat(schemas): …` (or `feat(schemas)!: …` with the unknown-field refusal), which carries the DRIFT bless and touches no other crate. The helper's regenerated models go in the next commit.
   - `trace.rs` is left alone: it is M4's. A wire defect found after `contract_wire` lands goes to Eliott before any second schemas commit.
 - **Shared constraints** (one owner each; a leaf that needs to change one reports it instead):
   - **Refusal identity** (R10 D2):
@@ -137,7 +137,7 @@ Every operation of the API is a verb that derives what it can, works from any di
 ```mermaid
 graph TD
     stray_sweep_tick[Stray sweep tick]:::done
-    contract_wire[Contract wire]:::planned
+    contract_wire[Contract wire]:::done
     stats[Stats]:::done
     platform_seam[Platform seam]:::done
     verbs[Verbs]:::planned
@@ -152,7 +152,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `stray_sweep_tick.md` | 📄 Leaf Task | ✅ Done |
-| `contract_wire.md` | 📄 Leaf Task | ⬜ Planned |
+| `contract_wire.md` | 📄 Leaf Task | ✅ Done |
 | `stats.md` | 📄 Leaf Task | ✅ Done |
 | `platform_seam.md` | 📄 Leaf Task | ✅ Done |
 | `verbs/` | 📁 Directory | ⬜ Planned |
