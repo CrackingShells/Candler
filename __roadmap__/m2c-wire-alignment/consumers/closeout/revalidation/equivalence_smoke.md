@@ -12,13 +12,13 @@
 
   No code. The feature-map checks are run as they are, never edited
 **Success Gates**:
-- ⬜ [cmd] P4: before any token is spent, `projection.jq` applied to a manifest from a fake-docker run of the same experiment yields every field of `provenance_fields.txt` except the recorded deviations (`planner.runtime.*`, A59), and `planner_pin.sh`/`provenance_fields.sh` read it without a jq error
-- ⬜ [cmd] No `--set`: `! grep -n -- '--set' __reports__/m2b-execution-parity/smoke_v2/commands.sh`
-- ⬜ [cmd] The 31 checks run as committed, against the run's real artifacts, with S2, X19 and X32 now included: `for c in $(jq -r '.[]|select(.check!=null)|.check' __roadmap__/m2b-execution-parity/feature_map/feature_map.json | sort -u); do sh __roadmap__/m2b-execution-parity/feature_map/checks/$c.sh || echo "FAIL $c"; done`. The report lists every exit status. The only FAIL lines allowed are recorded deviations of M2b's KT, each named
+- ✅ [cmd] P4: before any token is spent, `projection.jq` applied to a manifest from a fake-docker run of the same experiment yields every field of `provenance_fields.txt` except the recorded deviations (`planner.runtime.*`, A59), and `planner_pin.sh`/`provenance_fields.sh` read it without a jq error
+- ✅ [cmd] No `--set`: `! grep -n -- '--set' __reports__/m2b-execution-parity/smoke_v2/commands.sh`
+- ✅ [cmd] The 31 checks run as committed, against the run's real artifacts, with S2, X19 and X32 now included: `for c in $(jq -r '.[]|select(.check!=null)|.check' __roadmap__/m2b-execution-parity/feature_map/feature_map.json | sort -u); do sh __roadmap__/m2b-execution-parity/feature_map/checks/$c.sh || echo "FAIL $c"; done`. The report lists every exit status. The only FAIL lines allowed are recorded deviations of M2b's KT, each named
 - ⬜ [cmd] `layout`, `planner_pin` and `provenance_fields` exit 0, the last through `projection.jq` (its `sandbox_contract` clause is M2b's recorded deviation, reported as such)
-- ⬜ [cmd] X32: a run whose prompt makes the agent copy a declared input to an output path is sealed `invalid(input_leak)`
-- ⬜ [cmd] The canary scan of M2b's smoke (`canary_absent.sh`) exits 0 over every location it lists
-- ⬜ [cmd] Nothing is left: `docker ps -a` and `docker network ls`, filtered by each job's label, print nothing, and the images this smoke built are removed by id
+- ✅ [cmd] X32: a run whose prompt makes the agent copy a declared input to an output path is sealed `invalid(input_leak)`
+- ✅ [cmd] The canary scan of M2b's smoke (`canary_absent.sh`) exits 0 over every location it lists
+- ✅ [cmd] Nothing is left: `docker ps -a` and `docker network ls`, filtered by each job's label, print nothing, and the images this smoke built are removed by id
 - ⬜ [nl] The report:
   - lists every moved live HTN cell digest, M2b's against this run's, with its cause (the lock, from P3's answer; `prompt.values` now whole; inputs declared);
   - states the agent runs spent (at most 4), the model and the cost the endpoint reported;

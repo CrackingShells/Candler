@@ -126,7 +126,7 @@ graph TD
     import_rules[Import rules]:::done
     eval_infra_origins[Eval infra origins]:::done
     verdict_gating[Verdict gating]:::done
-    consumers[Consumers]:::inprogress
+    consumers[Consumers]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -142,7 +142,7 @@ graph TD
 | `import_rules.md` | 📄 Leaf Task | ✅ Done |
 | `eval_infra_origins.md` | 📄 Leaf Task | ✅ Done |
 | `verdict_gating.md` | 📄 Leaf Task | ✅ Done |
-| `consumers/` | 📁 Directory | 🔄 In Progress |
+| `consumers/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

@@ -23,7 +23,7 @@ graph TD
     input_seam[Input seam]:::done
     layering_guard[Layering guard]:::done
     env_image_e2e[Env image e2e]:::done
-    revalidation[Revalidation]:::inprogress
+    revalidation[Revalidation]:::done
     settings_out_of_cell[Settings out of cell]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -38,7 +38,7 @@ graph TD
 | `input_seam.md` | 📄 Leaf Task | ✅ Done |
 | `layering_guard.md` | 📄 Leaf Task | ✅ Done |
 | `env_image_e2e.md` | 📄 Leaf Task | ✅ Done |
-| `revalidation/` | 📁 Directory | 🔄 In Progress |
+| `revalidation/` | 📁 Directory | ✅ Done |
 | `settings_out_of_cell.md` | 📄 Leaf Task | ✅ Done |
 
 ## Amendment Log

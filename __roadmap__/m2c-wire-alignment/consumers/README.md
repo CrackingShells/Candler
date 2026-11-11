@@ -25,7 +25,7 @@ graph TD
     declared_inputs[Declared inputs]:::done
     evaluator_inputs[Evaluator inputs]:::done
     design_record[Design record]:::done
-    closeout[Closeout]:::inprogress
+    closeout[Closeout]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -40,7 +40,7 @@ graph TD
 | `declared_inputs.md` | 📄 Leaf Task | ✅ Done |
 | `evaluator_inputs.md` | 📄 Leaf Task | ✅ Done |
 | `design_record.md` | 📄 Leaf Task | ✅ Done |
-| `closeout/` | 📁 Directory | 🔄 In Progress |
+| `closeout/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

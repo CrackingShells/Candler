@@ -19,7 +19,7 @@ The measured digests and the re-run smoke show the milestone additive for the go
 ```mermaid
 graph TD
     digest_invariance[Digest invariance]:::done
-    equivalence_smoke[Equivalence smoke]:::planned
+    equivalence_smoke[Equivalence smoke]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -31,7 +31,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `digest_invariance.md` | 📄 Leaf Task | ✅ Done |
-| `equivalence_smoke.md` | 📄 Leaf Task | ⬜ Planned |
+| `equivalence_smoke.md` | 📄 Leaf Task | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
@@ -41,3 +41,4 @@ graph TD
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
 | `digest_invariance.md` | `m2c/digest_invariance` → caec4a6 | 1 | 0 moves in run keys, context and suite-entry digests (golden 240/10,320, mini 6/136); manifests differ only in `import.rules` (gate amended 7a3eca0); verifier PASS, stores byte-identical outside the manifests |
+| `equivalence_smoke.md` | `m2c/equivalence_smoke` → 658694a | 2 | RiVault/Reasoning-Small, 2 of 4 runs, 0.31 USD client-side; X32 sealed invalid(input_leak); 30 of 31 checks after the manifest_comparable fix (8e4d883, d4bc588, approved by Eliott). Open: `provenance_fields` exits 1 on the two M2b deviations, `planner_pin` passes only on the declared blob (host stubs, N4); moved digests listed by cause, completeness not provable (M2b recorded too little) |
