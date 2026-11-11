@@ -25,7 +25,7 @@ The contract pages list every refusal, and every verb and option passes the CLI-
 ```mermaid
 graph TD
     docs_refusals[Docs refusals]:::planned
-    cli_surface[CLI surface]:::planned
+    cli_surface[CLI surface]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -37,7 +37,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `docs_refusals.md` | 📄 Leaf Task | ⬜ Planned |
-| `cli_surface.md` | 📄 Leaf Task | ⬜ Planned |
+| `cli_surface.md` | 📄 Leaf Task | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
