@@ -44,7 +44,7 @@ An experiment file declares its inputs, its whole table values and its treatment
 - ✅ [cmd] G6c importer: `! git grep -n -w -i tier -- ':(glob)crates/*/src/**'` and `! git grep -n ENTRY_PARAMS -- ':(glob)crates/*/src/**'`
 - ✅ [cmd] G6d provenance: every `provenance.*` path Candler writes is described in R01 §Run manifest: `for p in $(git grep -ohE '"provenance\.[a-z_.]+' -- ':(glob)crates/*/src/**' | tr -d '"' | sort -u); do sed -n '/^### Run manifest/,/^### Normalised/p' __design__/architecture.md | grep -qF "$p" || echo "$p"; done` prints nothing. And `! git grep -n skill_version -- ':(glob)crates/*/src/**'`
 - ✅ [cmd] G6e guard: guards L1–L3 pass, and the layering verifier's mutation runs each turn `guard_layering_i1` red
-- ⬜ [cmd] G6g environment: guards A1, A2 and X1 pass (X1 in CI's `container-e2e` job, and locally when Docker is up)
+- ✅ [cmd] G6g environment: guards A1, A2 and X1 pass (X1 in CI's `container-e2e` job, and locally when Docker is up)
 - ⬜ [nl] G6f smoke: `planner_pin` and `provenance_fields` pass through the committed projection, and every moved live HTN cell digest is listed in the smoke report
 - ✅ [cmd] G7a exactly one release-triggering commit touches the schemas crate, and it is `feat(schemas)`: `test "$(git log --no-merges --format=%s b017d31..HEAD -- crates/candler-schemas | grep -cE '^(feat|fix|perf|refactor|style|revert)')" -eq 1 && git log --no-merges --format=%s b017d31..HEAD -- crates/candler-schemas | grep -qE '^feat\(schemas\): '`
 - ✅ [cmd] G7b DRIFT holds and `Cargo.lock` is unchanged: `git diff --quiet b017d31 -- Cargo.lock`
@@ -53,7 +53,7 @@ An experiment file declares its inputs, its whole table values and its treatment
 - ✅ [cmd] STD and LINUX pass on `feat/m2c-wire-alignment`; SUBJ passes over `b017d31..feat/m2c-wire-alignment`
 - ✅ [cmd] No confirm is left: `! git grep -n 'fn confirm_' -- ':(glob)crates/**'`
 - ✅ [nl] Each leaf report records the bite of every guard it introduced, and every verifier named in the leaf closed with no open finding
-- ⬜ [cmd] The PR to `main` is titled `merge(experiment): declare inputs and sources, keep the domain out` (72 characters with ` (#14)`), and its CI is green: `gh pr checks <N>`
+- ✅ [cmd] The PR to `main` is titled `merge(experiment): declare inputs and sources, keep the domain out` (72 characters with ` (#14)`), and its CI is green: `gh pr checks <N>`
 
 ## Gotchas
 - **Guard ids and filters.** Guard ids (W1 … X1) are those of R10 §Test design, each named in the leaf that writes it. Every nextest call carries `--no-tests=fail`.
