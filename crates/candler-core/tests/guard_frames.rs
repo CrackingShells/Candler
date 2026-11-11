@@ -4,7 +4,8 @@
 use std::fs;
 use std::path::Path;
 
-use candler_core::frames::{FrameMode, FrameReader, FrameWriter, frame_bytes};
+use candler_core::frames::{FrameReader, FrameWriter, frame_bytes};
+use candler_harness::spec::Framing;
 use candler_schemas::primitives::Digest;
 use candler_schemas::raw::{Clock, RawFrame, RawRecord, StreamName};
 use proptest::prelude::*;
@@ -28,7 +29,7 @@ fn read_frames(path: &Path) -> Vec<RawFrame> {
 }
 
 /// Writes `chunks` through a writer and returns the frames read back from the finished file.
-fn write_and_read(mode: FrameMode, chunks: &[&[u8]]) -> (Vec<RawFrame>, Vec<(u64, RawFrame)>) {
+fn write_and_read(mode: Framing, chunks: &[&[u8]]) -> (Vec<RawFrame>, Vec<(u64, RawFrame)>) {
     let dir = tempfile::tempdir().expect("a temp dir");
     let mut writer = FrameWriter::create(dir.path(), stdout_name(), mode, Clock::Unrecorded, None)
         .expect("a writer");
@@ -80,7 +81,7 @@ proptest! {
             // INDEX: windows(2) yields slices of exactly two bounds, each at most input.len()
             .map(|w| &input[w[0]..w[1]])
             .collect();
-        let (frames, live) = write_and_read(FrameMode::Lines, &chunks);
+        let (frames, live) = write_and_read(Framing::Lines, &chunks);
         let expected: Vec<&[u8]> = input.split_inclusive(|b| *b == b'\n').collect();
         let got: Vec<Vec<u8>> = frames.iter().map(data_of).collect();
         prop_assert_eq!(got.concat(), input.clone()); // BORROW: .clone() keeps the input for the next assertion
@@ -108,23 +109,23 @@ fn text(piece: &str) -> Value {
 #[test]
 fn the_nine_cases_frame_as_the_design_states() {
     // `printf '\xff\n' | base64` gives `/wo=`, and `printf '\xfe' | base64` gives `/g==`.
-    let cases: Vec<(FrameMode, &[u8], Vec<Value>)> = vec![
-        (FrameMode::Lines, b"", vec![]),
-        (FrameMode::Lines, b"\n", vec![text("\n")]),
-        (FrameMode::Lines, b"a", vec![text("a")]),
-        (FrameMode::Lines, b"a\n", vec![text("a\n")]),
-        (FrameMode::Lines, b"a\nb", vec![text("a\n"), text("b")]),
-        (FrameMode::Lines, b"\r\n", vec![text("\r\n")]),
-        (FrameMode::Lines, b"\n\n", vec![text("\n"), text("\n")]),
+    let cases: Vec<(Framing, &[u8], Vec<Value>)> = vec![
+        (Framing::Lines, b"", vec![]),
+        (Framing::Lines, b"\n", vec![text("\n")]),
+        (Framing::Lines, b"a", vec![text("a")]),
+        (Framing::Lines, b"a\n", vec![text("a\n")]),
+        (Framing::Lines, b"a\nb", vec![text("a\n"), text("b")]),
+        (Framing::Lines, b"\r\n", vec![text("\r\n")]),
+        (Framing::Lines, b"\n\n", vec![text("\n"), text("\n")]),
         (
-            FrameMode::Lines,
+            Framing::Lines,
             b"\xff\n\xfe",
             vec![
                 json!({"data": {"kind": "bytes", "base64": "/wo="}}),
                 json!({"data": {"kind": "bytes", "base64": "/g=="}}),
             ],
         ),
-        (FrameMode::Whole, b"a\nb", vec![text("a\nb")]),
+        (Framing::Document, b"a\nb", vec![text("a\nb")]),
     ];
     let header = json!({
         "kind": "header",
