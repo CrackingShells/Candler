@@ -1,6 +1,6 @@
 //! The `docker run` command line of a run's container, and the spawn request that carries it.
 //!
-//! The environment is built from nothing: the planner's entries, the gateway's base url and
+//! The environment is built from nothing: the plan's entries, the gateway's base url and
 //! dummy token, and the harness's plain overlay. A secret in the overlay, and the three names
 //! that carry the model endpoint and credentials, are refused rather than overridden.
 

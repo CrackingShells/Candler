@@ -2,8 +2,8 @@
 //!
 //! [`Registry::load`] reads plug-in manifests and keeps each with its directory.
 //! [`Registry::check_suite`] checks a suite against what the evaluators described: it is pure, and
-//! the engine obtains the descriptions from the protocol client first. A `snapshots` or `inputs`
-//! need is refused as unsupported in this version.
+//! the engine obtains the descriptions from the protocol client first. A `snapshots` need is
+//! refused as unsupported in this version, and an `inputs` need may not name `build_inputs`.
 
 use std::io;
 use std::path::PathBuf;

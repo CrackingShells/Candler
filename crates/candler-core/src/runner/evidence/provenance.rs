@@ -1,12 +1,12 @@
-//! Where a run's measurement came from: the version of the skill, the evaluation
-//! infrastructure that ran it, the sandbox contract and the planner library of the env image.
-//! Each value is a `provenance.<dotted>` entry of the manifest's measured values.
+//! Where a run's measurement came from: the evaluation infrastructure that ran it, the sandbox
+//! contract and the packages of the env image that the experiment names. Each value is a
+//! `provenance.<dotted>` entry of the manifest's measured values.
 
 use candler_schemas::values::MeasuredValue;
 use serde_json::{Number, Value};
 
 use super::measure::measured;
-use crate::isolation::image::PlannerAxis;
+use crate::isolation::image::PackageReadings;
 use crate::isolation::layout::SANDBOX_CONTRACT;
 
 /// The preflight step the provenance values name as their source.
@@ -20,73 +20,57 @@ pub struct EvalInfra {
     pub tag: Option<String>,
     /// The commits between the tag and the build's commit.
     pub commits_ahead: Option<u64>,
-    /// The abbreviated commit the build was made from.
+    /// The full 40-hex commit the build was made from.
     pub commit: Option<String>,
     /// Whether the tree had uncommitted changes at build time.
     pub dirty: Option<bool>,
 }
 
-/// The version of a skill recorded from the tag of its treatment: the part of the tag after its
-/// `<name>@` prefix, without one leading `v`, with one `v` in front. A tag that does not start
-/// with `<name>@` records no version, so the function returns none.
+/// The `provenance.*` values of a run: the evaluation infrastructure, the sandbox contract and,
+/// for each import package the experiment names, the distribution and version its env image
+/// holds, as `provenance.packages.<import name>.distribution` and `.version`. A value that is
+/// unknown is left out.
 #[must_use]
-pub fn skill_version(name: &str, tag: &str) -> Option<String> {
-    let prefix = format!("{name}@");
-    // BORROW: explicit .as_str() instead of Deref coercion
-    let rest = tag.strip_prefix(prefix.as_str())?;
-    let bare = rest.strip_prefix('v').unwrap_or(rest);
-    Some(format!("v{bare}"))
-}
-
-/// The `provenance.*` values of a run: the skill version from the treatment's tag, the
-/// evaluation infrastructure, the sandbox contract and, when the probe read it, the planner
-/// library of the env image. A value that is unknown is left out.
-#[must_use]
-pub fn provenance_values(
-    skill: (&str, Option<&str>),
-    infra: &EvalInfra,
-    planner: Option<&PlannerAxis>,
-) -> Vec<MeasuredValue> {
-    let (name, tag) = skill;
-    let entries = [
+pub fn provenance_values(infra: &EvalInfra, packages: &PackageReadings) -> Vec<MeasuredValue> {
+    let mut entries = vec![
         (
-            "provenance.skill_version",
-            tag.and_then(|tag| skill_version(name, tag))
-                .map(Value::String),
-        ),
-        (
-            "provenance.eval_infra.tag",
+            String::from("provenance.eval_infra.tag"),
             // BORROW: .clone() gives the entry its own text
             infra.tag.clone().map(Value::String),
         ),
         (
-            "provenance.eval_infra.commits_ahead",
+            String::from("provenance.eval_infra.commits_ahead"),
             infra.commits_ahead.map(|n| Value::Number(Number::from(n))),
         ),
         (
-            "provenance.eval_infra.commit",
+            String::from("provenance.eval_infra.commit"),
             // BORROW: .clone() gives the entry its own text
             infra.commit.clone().map(Value::String),
         ),
-        ("provenance.eval_infra.dirty", infra.dirty.map(Value::Bool)),
         (
-            "provenance.sandbox_contract",
+            String::from("provenance.eval_infra.dirty"),
+            infra.dirty.map(Value::Bool),
+        ),
+        (
+            String::from("provenance.sandbox_contract"),
             // BORROW: .to_owned() gives the entry its own text
             Some(Value::String(SANDBOX_CONTRACT.to_owned())),
         ),
-        (
-            "provenance.planner.sandbox.distribution",
-            // BORROW: .clone() gives the entry its own value
-            planner.map(|axis| axis.distribution.clone()),
-        ),
-        (
-            "provenance.planner.sandbox.version",
-            // BORROW: .clone() gives the entry its own value
-            planner.map(|axis| axis.version.clone()),
-        ),
     ];
+    for (name, reading) in packages {
+        entries.push((
+            format!("provenance.packages.{name}.distribution"),
+            // BORROW: .clone() gives the entry its own value
+            Some(reading.distribution.clone()),
+        ));
+        entries.push((
+            format!("provenance.packages.{name}.version"),
+            // BORROW: .clone() gives the entry its own value
+            Some(reading.version.clone()),
+        ));
+    }
     entries
         .into_iter()
-        .filter_map(|(path, value)| measured(STEP, path, value?))
+        .filter_map(|(path, value)| measured(STEP, &path, value?))
         .collect()
 }

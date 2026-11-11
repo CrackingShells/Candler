@@ -1,10 +1,11 @@
 //! The image step: the env lock and the local image the agent runs in.
 //!
 //! `isolation.build.*` are settings: where the requirement sources, a ready lock and an optional
-//! Dockerfile with its context are. A cell holds the lock's digest (`isolation.env_lock`) and the
-//! image built from it (`isolation.image`, an image id, never a tag). The `inputs` entry for the
-//! build inputs exists only when the experiment adds its own layer. Changing the build request
-//! moves the cell only through those values.
+//! Dockerfile with its context are, and which files the env build prunes. A cell holds the lock's
+//! digest (`isolation.env_lock`) and the image built from it (`isolation.image`, an image id,
+//! never a tag). The `inputs` entry for the build inputs exists only when the experiment adds its
+//! own layer. Changing the build request moves the cell only through those values. The prune list
+//! keys the env image with the lock.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -15,7 +16,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use candler_schemas::canonical::CanonicalError;
-use candler_schemas::execution::{DigestRef, TreatmentRef};
+use candler_schemas::execution::{DigestRef, TreatmentRef, TreatmentSpec};
 use candler_schemas::primitives::{Digest, FieldPath, FormatError, Name, NameToken};
 use candler_schemas::values::JsonValue;
 use futures::future::BoxFuture;
@@ -25,7 +26,8 @@ use sha2::{Digest as _, Sha256};
 use super::identity::show_file;
 use crate::experiment::paths;
 use crate::isolation::image::{
-    BuildSetting, Extension, ImageService, LockDigest, LockRequest, LockSource,
+    BuildSetting, Extension, ImageService, LockDigest, LockRequest, LockSource, package_name_ok,
+    prune_name_ok,
 };
 use crate::resolve::preflight::{PreflightError, PreflightStep, ResolveContext, StepReport};
 use crate::supervise::Supervisor;
@@ -166,10 +168,6 @@ fn text_at(ctx: &ResolveContext, text: &str) -> Result<Option<String>, Preflight
         .ok_or_else(|| failed(format!("`{text}` must be a string")))
 }
 
-fn required_text(ctx: &ResolveContext, text: &str) -> Result<String, PreflightError> {
-    text_at(ctx, text)?.ok_or_else(|| failed(format!("`{text}` has no value")))
-}
-
 fn read_value<T: serde::de::DeserializeOwned>(
     ctx: &ResolveContext,
     text: &str,
@@ -187,7 +185,8 @@ fn to_json<T: serde::Serialize>(value: &T) -> Result<JsonValue, PreflightError> 
     JsonValue::new(json).map_err(|e| failed(e.to_string()))
 }
 
-/// Derives `isolation.env_lock`, `isolation.image` and, with an extension, the `inputs` entry.
+/// Derives `isolation.env_lock`, `isolation.image` and the `inputs` root: the build inputs, when
+/// there is an extension, and the agent inputs the request declares, sorted by kind.
 pub struct ImageIdStep {
     name: NameToken,
     // TRAIT_OBJECT: the service is docker, or a fake in tests
@@ -230,6 +229,8 @@ impl PreflightStep for ImageIdStep {
         // BORROW: `.clone()` moves the step name into the future
         let step = self.name.clone();
         Box::pin(async move {
+            let prune = prune_of(&ctx)?;
+            check_record_packages(&ctx)?;
             let lock = lock_bytes(&ctx, &images, &supervisor).await?;
             let lock_digest = digest_of(&lock).map_err(|e| failed(e.to_string()))?;
             let extension = extension_of(&ctx)?;
@@ -244,7 +245,11 @@ impl PreflightStep for ImageIdStep {
             let image = images
                 .ensure(
                     &LockDigest(lock_digest.hex().to_owned()), // BORROW: owned hex for the lock digest
-                    &BuildSetting { lock, extension },
+                    &BuildSetting {
+                        lock,
+                        extension,
+                        prune,
+                    },
                 )
                 .await
                 .map_err(|e| failed(e.to_string()))?;
@@ -257,17 +262,76 @@ impl PreflightStep for ImageIdStep {
             let mut report = StepReport::new(step)
                 .derive(path_of(paths::ISOLATION_ENV_LOCK)?, to_json(&lock_digest)?)
                 .derive(path_of(paths::ISOLATION_IMAGE)?, to_json(&image.id.0)?);
+            let mut roots: Vec<DigestRef> = declared_inputs(&ctx)?;
             if let Some(inputs) = inputs {
                 let digest = build_input_digest(&inputs).map_err(|e| failed(e.to_string()))?;
                 let kind = Name::from_str("build_inputs").map_err(|e| failed(e.to_string()))?;
-                report = report.derive(
-                    path_of(paths::INPUTS)?,
-                    to_json(&[DigestRef::new(kind, digest)])?,
-                );
+                roots.push(DigestRef::new(kind, digest));
+            }
+            if !roots.is_empty() {
+                roots.sort();
+                report = report.derive(path_of(paths::INPUTS)?, to_json(&roots)?);
             }
             Ok(report)
         })
     }
+}
+
+/// The entries of `isolation.build.prune`: file names, none when the setting is absent.
+fn prune_of(ctx: &ResolveContext) -> Result<Vec<String>, PreflightError> {
+    let Some(found) = ctx.get(&path_of(paths::ISOLATION_BUILD_PRUNE)?) else {
+        return Ok(Vec::new());
+    };
+    let entries = found.as_value().as_array().ok_or_else(|| {
+        failed(format!(
+            "`{}` must be a list of file names, not {}",
+            paths::ISOLATION_BUILD_PRUNE,
+            found.as_value()
+        ))
+    })?;
+    entries
+        .iter()
+        .map(|entry| {
+            let name = entry.as_str().filter(|name| prune_name_ok(name)); // BORROW: .as_str() reads the entry's text
+            name.map(str::to_owned) // BORROW: owned name for the build
+                .ok_or_else(|| {
+                    failed(format!(
+                        "`{}` takes names of letters, digits, `.`, `_` and `-`, not {entry}",
+                        paths::ISOLATION_BUILD_PRUNE
+                    ))
+                })
+        })
+        .collect()
+}
+
+/// Refuses `isolation.record_packages` unless it is a list of import package names: each name
+/// becomes a field-path segment of the manifest.
+fn check_record_packages(ctx: &ResolveContext) -> Result<(), PreflightError> {
+    let Some(found) = ctx.get(&path_of(paths::ISOLATION_RECORD_PACKAGES)?) else {
+        return Ok(());
+    };
+    let refused = |value: &Value| {
+        failed(format!(
+            "`{}` must be a list of import names of lower-case letters, digits and `_`, not {value}",
+            paths::ISOLATION_RECORD_PACKAGES
+        ))
+    };
+    let entries = found
+        .as_value()
+        .as_array()
+        .ok_or_else(|| refused(found.as_value()))?;
+    let bad = entries
+        .iter()
+        .find(|entry| !entry.as_str().is_some_and(package_name_ok)); // BORROW: .as_str() reads the entry's text
+    bad.map_or(Ok(()), |value| Err(refused(value)))
+}
+
+/// The agent inputs the request declares, as `{kind, digest}`; none when it declares none.
+fn declared_inputs(ctx: &ResolveContext) -> Result<Vec<DigestRef>, PreflightError> {
+    if ctx.get(&path_of(paths::REQUEST_INPUTS)?).is_none() {
+        return Ok(Vec::new());
+    }
+    read_value(ctx, paths::REQUEST_INPUTS)
 }
 
 /// The experiment's own layer, when both `isolation.build.dockerfile` and
@@ -349,10 +413,14 @@ async fn source_of(
                 "`{entry}` needs a treatment pinned to a commit, and the treatment has none"
             ))
         })?;
-        let source = ctx
-            .config
-            .cwd
-            .join(required_text(ctx, paths::REQUEST_TREATMENT_SOURCE)?);
+        let spec: TreatmentSpec = read_value(ctx, paths::REQUEST_TREATMENT)?;
+        let source = spec.source.ok_or_else(|| {
+            failed(format!(
+                "`{entry}` is read from the treatment's checkout, and the treatment names no \
+                 `treatment.source`"
+            ))
+        })?;
+        let source = ctx.config.cwd.join(source);
         let bytes = show_file(supervisor, &source, &commit, inside).await?;
         (inside, bytes)
     } else {

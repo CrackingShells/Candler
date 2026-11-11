@@ -108,6 +108,8 @@ pub struct ImportRules {
     pub markers: Vec<MarkerRule>,
     /// The kind of every suite entry the importer synthesises.
     pub suite_kind: Name,
+    /// The keys of a legacy grading entry that a suite entry takes as parameters, in the order they are read; an entry that lacks one is refused.
+    pub entry_params: Vec<Name>,
     /// The manifest values copied into each run context's metadata.
     pub metadata: Vec<FieldPath>,
     /// The sha256 of the rules file these rules were read from, written into every import record; absent when the rules were not read from a file.
@@ -115,7 +117,7 @@ pub struct ImportRules {
 }
 
 impl ImportRules {
-    /// Starts a builder; the format, the harness, the treatment, the instrument and the suite kind must be set before it builds.
+    /// Starts a builder; the format, the harness, the treatment, the instrument, the suite kind and the entry params must be set before it builds.
     #[must_use]
     pub fn builder() -> ImportRulesBuilder {
         ImportRulesBuilder::default()
@@ -133,6 +135,7 @@ pub struct ImportRulesBuilder {
     snapshots: Vec<SnapshotRule>,
     markers: Vec<MarkerRule>,
     suite_kind: Option<Name>,
+    entry_params: Option<Vec<Name>>,
     metadata: Vec<FieldPath>,
     source_digest: Option<Digest>,
 }
@@ -187,6 +190,14 @@ impl ImportRulesBuilder {
         self
     }
 
+    /// Sets the keys of a grading entry that a suite entry takes as parameters; an empty list is
+    /// a rule that names none.
+    #[must_use]
+    pub fn entry_params(mut self, entry_params: Vec<Name>) -> Self {
+        self.entry_params = Some(entry_params);
+        self
+    }
+
     /// Adds a manifest value path to the run context metadata.
     #[must_use]
     pub fn metadata(mut self, path: FieldPath) -> Self {
@@ -205,7 +216,7 @@ impl ImportRulesBuilder {
     ///
     /// # Errors
     /// Returns [`ImportError::MissingField`] if the format, the harness, the treatment, the
-    /// instrument or the suite kind was not set, and [`ImportError::Rules`] if a pointer is not a
+    /// instrument, the suite kind or the entry params was not set, and [`ImportError::Rules`] if a pointer is not a
     /// JSON pointer or a marker captures a group its pattern lacks.
     pub fn build(self) -> Result<ImportRules, ImportError> {
         let missing = |field| ImportError::MissingField { field };
@@ -217,6 +228,7 @@ impl ImportRulesBuilder {
             snapshots: self.snapshots,
             markers: self.markers,
             suite_kind: self.suite_kind.ok_or_else(|| missing("suite_kind"))?,
+            entry_params: self.entry_params.ok_or_else(|| missing("entry_params"))?,
             metadata: self.metadata,
             source_digest: self.source_digest,
         };

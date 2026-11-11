@@ -43,8 +43,9 @@ fn registry() -> Registry {
 
 /// Guards: R8 — a valid manifest, description and suite are accepted, and single-fault copies are
 /// refused: an unknown kind, params that fail the kind's schema (at the pointer of the fault), an
-/// artifact glob outside `outputs/`, a `snapshots` need and an `inputs` need, the last two with
-/// the text of R03 §Scope move. Oracle: the spec text of R03 §Needs and §Scope move.
+/// artifact glob outside `outputs/`, a `snapshots` need with the text of R03 §Scope move, and an
+/// `inputs` need for the reserved kind `build_inputs`. Oracle: the spec text of R03 §Needs and
+/// §Scope move, and the hand-written reserved-kind message.
 #[test]
 fn the_registry_refuses_what_the_spec_refuses() {
     let registry = registry();
@@ -98,14 +99,22 @@ fn the_registry_refuses_what_the_spec_refuses() {
         "{outside}"
     );
 
-    for (field, text) in [
-        ("snapshots", "unsupported in this version: snapshots"),
-        ("inputs", "unsupported in this version: inputs"),
+    for (field, kind, text) in [
+        (
+            "snapshots",
+            "tree",
+            "unsupported in this version: snapshots",
+        ),
+        (
+            "inputs",
+            "build_inputs",
+            "input kind `build_inputs` is reserved for the image and cannot be needed",
+        ),
     ] {
         let faulty = edit(
             &describe,
             &format!("\"{field}\": []"),
-            &format!("\"{field}\": [\"tree\"]"),
+            &format!("\"{field}\": [\"{kind}\"]"),
         );
         let error = check(&faulty, &suite).expect_err(field);
         let RegistryError::Need { source, .. } = &error else {

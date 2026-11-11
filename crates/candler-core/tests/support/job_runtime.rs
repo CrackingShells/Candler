@@ -100,7 +100,6 @@ pub fn services() -> JobServices {
         // TRAIT_OBJECT: the tree is a stub that holds no file
         skills: Arc::new(NoSkills),
         eval_infra: EvalInfra::default(),
-        planner_package: None,
     }
 }
 
@@ -114,6 +113,7 @@ pub fn job_spec() -> JobSpec {
         plans: Vec::new(),
         force: false,
         inputs: Vec::new(),
+        evaluation_inputs: Vec::new(),
     }
 }
 

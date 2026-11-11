@@ -5,12 +5,14 @@ use std::path::{Path, PathBuf};
 
 use candler_harness::driver::DriverError;
 use candler_harness::spec::{CommandSpec, PreparedFile};
-use candler_schemas::execution::{Comparable, ExecutionError, SecretPresence, TreatmentRef};
+use candler_schemas::execution::{
+    Comparable, DigestRef, ExecutionError, SecretPresence, TreatmentRef,
+};
 use candler_schemas::primitives::{Digest, FieldPath};
 use candler_schemas::values::SourceEntry;
 
 use crate::isolation::IsolationError;
-use crate::isolation::image::PlannerAxis;
+use crate::isolation::image::PackageReadings;
 use crate::runner::evidence::Inputs;
 use crate::store::StoreError;
 use crate::supervise::SuperviseError;
@@ -29,12 +31,17 @@ pub struct CellRun {
     pub sources: Vec<SourceEntry>,
     /// The secrets the cell needs, and whether each was present.
     pub secrets: Vec<SecretPresence>,
-    /// The checkout the treatment's skill tree is archived from.
-    pub treatment_source: PathBuf,
+    /// The checkout the treatment's skill tree is archived from; none when the treatment names
+    /// no source.
+    pub treatment_source: Option<PathBuf>,
     /// The input files the cell declares, by workspace path, with their digests.
     pub inputs: Inputs,
-    /// The planner library of the cell's env image, when the job probed it.
-    pub planner: Option<PlannerAxis>,
+    /// The import packages the experiment names, as the cell's env image holds them; empty when
+    /// the experiment names none.
+    pub packages: PackageReadings,
+    /// The evaluator-only inputs the cell declares, as `{kind, digest}`: the manifest lists them,
+    /// and no run is given their content.
+    pub evaluation_inputs: Vec<DigestRef>,
 }
 
 impl CellRun {
@@ -46,7 +53,7 @@ impl CellRun {
         factors: Vec<FieldPath>,
         sources: Vec<SourceEntry>,
         secrets: Vec<SecretPresence>,
-        treatment_source: PathBuf,
+        treatment_source: Option<PathBuf>,
         inputs: Inputs,
     ) -> Self {
         Self {
@@ -57,14 +64,22 @@ impl CellRun {
             secrets,
             treatment_source,
             inputs,
-            planner: None,
+            packages: PackageReadings::new(),
+            evaluation_inputs: Vec::new(),
         }
     }
 
-    /// The record with the planner library of its env image.
+    /// The record with the evaluator-only inputs of its experiment.
     #[must_use]
-    pub fn with_planner(mut self, planner: Option<PlannerAxis>) -> Self {
-        self.planner = planner;
+    pub fn with_evaluation_inputs(mut self, evaluation_inputs: Vec<DigestRef>) -> Self {
+        self.evaluation_inputs = evaluation_inputs;
+        self
+    }
+
+    /// The record with the readings of the named packages in its env image.
+    #[must_use]
+    pub fn with_packages(mut self, packages: PackageReadings) -> Self {
+        self.packages = packages;
         self
     }
 }

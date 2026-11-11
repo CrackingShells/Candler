@@ -29,7 +29,7 @@ use tokio::time::MissedTickBehavior;
 pub use self::cell::{CellRun, ExecError, SkillTree};
 use self::collect::finish_attempt;
 use self::ends::{EndInput, TraceFacts, classify_end};
-use self::gather::{collect_files, spent};
+use self::gather::{collect_outputs, spent};
 use self::seal::{RawStreamFile, seal_run};
 use self::spawn::{Started, live_observer, require_isolation, start_attempt};
 use super::evidence::census::census;
@@ -122,6 +122,9 @@ fn manifest_of(
     for deviation in &plan.deviations {
         builder = builder.deviation(deviation.clone()); // BORROW: the manifest owns its deviations
     }
+    for input in &cell.evaluation_inputs {
+        builder = builder.evaluation_input(input.clone()); // BORROW: the manifest owns its evaluation inputs
+    }
     for value in measured {
         builder = builder.measured(value);
     }
@@ -207,9 +210,13 @@ async fn skill_files(
     if treatment.commit.is_none() {
         return Ok(Vec::new());
     }
-    let command = rt
-        .skills
-        .archive_command(treatment, &cell.treatment_source)?;
+    let source = cell
+        .treatment_source
+        .as_deref()
+        .ok_or_else(|| IsolationError::Plan {
+            detail: "the treatment is pinned to a commit and names no source".to_owned(), // BORROW: owned text
+        })?;
+    let command = rt.skills.archive_command(treatment, source)?;
     let record = scratch.join("archive");
     fs::create_dir_all(&record).map_err(|e| local("cannot make the archive directory", &e))?;
     let marker = Marker::from_str("skill-archive").map_err(|error| IsolationError::Plan {
@@ -519,7 +526,7 @@ async fn drive(
     let mut collect_ok = finished.collect_ok;
     let observed = Observed::new(sessions.iter().map(|s| s.id().clone()).collect()); // BORROW: the view owns its ids
     let specs = rt.driver.collect(&workspace, &observed);
-    let outputs = if let Ok(mut found) = collect_files(&workspace_dir, &specs) {
+    let outputs = if let Ok(mut found) = collect_outputs(&workspace_dir, &specs, &cell.inputs) {
         found.retain(|out| written.get(&out.path) != Some(&out.digest));
         found
     } else {
@@ -576,14 +583,7 @@ async fn drive(
         duration_ms,
         events: &evidence.events,
     }));
-    let comparable = plan.stored.as_ref().unwrap_or(&cell.comparable);
-    let treatment = comparable.treatment();
-    measured.extend(provenance_values(
-        // BORROW: .as_str() hands the treatment's name and tag to the provenance
-        (treatment.name.as_str(), treatment.tag.as_deref()),
-        &rt.eval_infra,
-        cell.planner.as_ref(),
-    ));
+    measured.extend(provenance_values(&rt.eval_infra, &cell.packages));
 
     let integrity = end.invalid.map_or(Integrity::Valid, Integrity::invalid);
     let last = manifest_of(

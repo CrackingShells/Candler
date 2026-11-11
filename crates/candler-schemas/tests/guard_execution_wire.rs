@@ -3,10 +3,11 @@
 //! each record refuse what R01 forbids.
 
 use candler_schemas::execution::{
-    Budget, Comparable, Deviation, DigestRef, Envelope, EnvironmentRef, ExperimentFile, Factor,
-    HarnessIdentity, HarnessRequest, ImportRecord, ImportSource, ImportedRequest, Integrity,
-    JobRecord, Level, PerRunCaps, RunManifest, RunTree, SecretPresence, StrayProcess,
-    SupervisorIdentity, TreatmentRef, TreeEntry,
+    Budget, Comparable, Deviation, DigestRef, Envelope, EnvironmentRef, ExperimentFile,
+    ExperimentInput, Factor, HarnessIdentity, HarnessRequest, ImportRecord, ImportSource,
+    ImportedRequest, InputAudience, InputEntry, Integrity, JobRecord, Level, PerRunCaps,
+    RunManifest, RunTree, SecretPresence, StrayProcess, SupervisorIdentity, TreatmentRef,
+    TreatmentSpec, TreeEntry, input_list_digest,
 };
 use candler_schemas::primitives::{Digest, RelPath};
 use serde::de::DeserializeOwned;
@@ -231,6 +232,21 @@ fn execution_records_refuse_the_list_form() {
     object_not_list::<Budget>("Budget", budget.clone(), json!([caps])); // BORROW: .clone() reuses the budget
     object_not_list::<HarnessRequest>("HarnessRequest", json!({"name": "h"}), json!(["h"]));
     object_not_list::<TreatmentRef>("TreatmentRef", json!({"name": "t"}), json!(["t"]));
+    object_not_list::<TreatmentSpec>(
+        "TreatmentSpec",
+        json!({"name": "t", "source": "skills"}),
+        json!(["t", null, null, "skills"]),
+    );
+    object_not_list::<ExperimentInput>(
+        "ExperimentInput",
+        json!({"kind": "reference", "path": "data", "audience": "evaluators"}),
+        json!(["reference", "data", null, "evaluators"]),
+    );
+    object_not_list::<InputEntry>(
+        "InputEntry",
+        json!({"path": "a.txt", "sha256": digest_text('a')}),
+        json!(["a.txt", digest_text('a')]),
+    );
     object_not_list::<Factor>(
         "Factor",
         json!({"path": "plan.a", "levels": [1, 2]}),
@@ -530,4 +546,173 @@ fn every_first_set_event_kind_round_trips_its_wire_form() {
             );
         }
     }
+}
+
+/// The cases of the input-list vector file: the entries as written, and the digest or the refusal expected.
+fn input_list_cases() -> Vec<toml::Table> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/vectors/input_list_digest.toml");
+    let text = std::fs::read_to_string(path).expect("input_list_digest.toml is committed");
+    // BORROW: .as_str() lends the vector text to the parser
+    let doc: toml::Table = toml::from_str(text.as_str()).expect("a TOML vector file");
+    doc.get("case")
+        .and_then(toml::Value::as_array)
+        .expect("cases")
+        .iter()
+        .map(|case| case.as_table().expect("a case table").clone()) // BORROW: the case outlives the document
+        .collect()
+}
+
+/// The entries of a case, in the order the vector file writes them.
+fn entries_of(case: &toml::Table) -> Vec<InputEntry> {
+    case.get("entry")
+        .and_then(toml::Value::as_array)
+        .map(|entries| {
+            entries
+                .iter()
+                .map(|entry| {
+                    let text = |key: &str| {
+                        entry
+                            .get(key)
+                            .and_then(toml::Value::as_str)
+                            .expect("an entry text")
+                    };
+                    InputEntry::new(
+                        RelPath::from_str(text("path")).expect("a relative path"),
+                        Digest::from_str(text("sha256")).expect("a digest"),
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Guards: Evaluator protocol, `inputs[] {kind, path, digest}` — the digest of an input is the sha256 of the RFC 8785 form of its list sorted by path, so any language recomputes it from the files alone, whatever order the files were listed in. Oracle: `gen_input_list.py`, a second engine (the Python `rfc8785` package) that runs no Candler code.
+#[test]
+fn input_list_digest_matches_the_second_engine() {
+    let mut checked = 0;
+    for case in input_list_cases() {
+        let Some(want) = case.get("digest").and_then(toml::Value::as_str) else {
+            continue;
+        };
+        let name = case
+            .get("name")
+            .and_then(toml::Value::as_str)
+            .expect("a name");
+        let entries = entries_of(&case);
+        let got = input_list_digest(&entries).expect(name);
+        assert_eq!(got.as_str(), want, "{name}");
+        let mut reversed = entries;
+        reversed.reverse();
+        assert_eq!(
+            input_list_digest(&reversed).expect(name).as_str(),
+            want,
+            "{name}: the digest follows the listing order"
+        );
+        checked += 1;
+    }
+    assert!(checked >= 3, "one file, several files and non-ASCII paths");
+}
+
+/// Guards: Evaluator protocol, `inputs[] {kind, path, digest}` — an input with no file and an input that lists one path twice have no digest. Oracle: the `refused` cases of `gen_input_list.py`, an empty list and a repeated path, written by the generator.
+#[test]
+fn input_list_digest_refuses_empty_and_repeated_lists() {
+    let mut refused = 0;
+    for case in input_list_cases() {
+        if case.get("refused").and_then(toml::Value::as_bool) != Some(true) {
+            continue;
+        }
+        let name = case
+            .get("name")
+            .and_then(toml::Value::as_str)
+            .expect("a name");
+        assert!(input_list_digest(&entries_of(&case)).is_err(), "{name}");
+        refused += 1;
+    }
+    assert_eq!(refused, 2);
+}
+
+/// An experiment document with `head` between the replicates and the required tables.
+fn experiment_text(head: &str) -> String {
+    format!(
+        "schema = \"experiment/1\"\nreplicates = 1\n{head}\n[budget.per_run]\nwall_s = 5\n[harness]\nname = \"h\"\n[treatment]\nname = \"t\"\n"
+    )
+}
+
+/// Guards: Experiment file — an input is mounted by default for the agent, a file may name the evaluators, and a mount directory that is absolute or leaves the workspace, a repeated kind and the kind `build_inputs` are refused. Oracle: the D2 rules of the approved plan, applied by hand to each document.
+#[test]
+fn declared_inputs_are_read_and_the_forbidden_ones_refused() {
+    // BORROW: .as_str() lends the built document to the parser
+    let read = |head: &str| ExperimentFile::from_toml_str(experiment_text(head).as_str());
+    let agent = "[[inputs]]\nkind = \"data\"\npath = \"in/data\"\n";
+    let file = read(agent).expect("an agent input");
+    let [input] = file.inputs() else {
+        panic!("one input expected");
+    };
+    assert_eq!(input.kind().as_str(), "data");
+    assert_eq!(input.path(), "in/data");
+    assert_eq!(input.at(), None);
+    assert_eq!(input.audience(), InputAudience::Agent);
+
+    let both = format!(
+        "{agent}[[inputs]]\nkind = \"gold\"\npath = \"gold.json\"\nat = \"ref/x\"\naudience = \"evaluators\"\n"
+    );
+    let file = read(both.as_str()).expect("two inputs");
+    assert_eq!(file.inputs().len(), 2);
+    assert_eq!(
+        file.inputs().get(1).map(ExperimentInput::at),
+        Some(Some("ref/x"))
+    );
+    assert_eq!(
+        file.inputs().get(1).map(ExperimentInput::audience),
+        Some(InputAudience::Evaluators)
+    );
+
+    for refused in [
+        "[[inputs]]\nkind = \"d\"\npath = \"p\"\nat = \"/abs\"\n",
+        "[[inputs]]\nkind = \"d\"\npath = \"p\"\nat = \"a/../../b\"\n",
+        "[[inputs]]\nkind = \"d\"\npath = \"p\"\nat = \"..\"\n",
+        "[[inputs]]\nkind = \"d\"\npath = \"p\"\n[[inputs]]\nkind = \"d\"\npath = \"q\"\n",
+        "[[inputs]]\nkind = \"build_inputs\"\npath = \"p\"\n",
+        "[[inputs]]\nkind = \"d\"\npath = \"p\"\naudience = \"everyone\"\n",
+    ] {
+        assert!(read(refused).is_err(), "{refused}");
+    }
+}
+
+/// Guards: Experiment file — the treatment's source is read, and the reference a cell records drops it. Oracle: the TOML written by hand: the reference holds the name, tag and commit only.
+#[test]
+fn treatment_source_is_read_and_left_out_of_the_reference() {
+    let text = "schema = \"experiment/1\"\nreplicates = 1\n[budget.per_run]\nwall_s = 5\n[harness]\nname = \"h\"\n[treatment]\nname = \"t\"\ntag = \"v1\"\nsource = \"../skills\"\n";
+    let file = ExperimentFile::from_toml_str(text).expect("a treatment with a source");
+    assert_eq!(file.treatment().source.as_deref(), Some("../skills"));
+    let reference = serde_json::to_value(file.treatment().reference()).expect("JSON");
+    assert_eq!(reference, json!({"name": "t", "tag": "v1"}));
+    let plain = text.replace("source = \"../skills\"\n", "");
+    let file = ExperimentFile::from_toml_str(plain.as_str()).expect("no source");
+    assert_eq!(
+        serde_json::to_value(file.treatment()).expect("JSON"),
+        json!({"name": "t", "tag": "v1"})
+    );
+}
+
+/// Guards: Run manifest — the evaluator-only inputs are absent when there are none, and a list that is unsorted or repeats an entry is refused. Oracle: the manifest written by hand; the lists follow the order rule of `comparable.inputs`.
+#[test]
+fn evaluation_inputs_are_optional_and_sorted() {
+    let plain = manifest();
+    let read: RunManifest = serde_json::from_value(plain.clone()).expect("no evaluation inputs");
+    assert_eq!(read.evaluation_inputs(), []);
+    assert_eq!(serde_json::to_value(&read).expect("JSON"), plain);
+
+    let gold = json!({"kind": "gold", "digest": digest_text('a')});
+    let other = json!({"kind": "other", "digest": digest_text('b')});
+    let with = |list: Value| {
+        let mut document = manifest();
+        document["evaluation_inputs"] = list;
+        serde_json::from_value::<RunManifest>(document)
+    };
+    let sorted = with(json!([gold, other])).expect("sorted");
+    assert_eq!(sorted.evaluation_inputs().len(), 2);
+    assert!(with(json!([other, gold])).is_err());
+    assert!(with(json!([gold, gold])).is_err());
 }

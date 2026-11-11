@@ -24,6 +24,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use candler_core::import::ImportError;
 use candler_core::import::assemble::import;
+use candler_core::import::rules::ImportRules;
 use candler_core::store::Store;
 use candler_harness::reader::TraceReader;
 use candler_schemas::primitives::{Digest, RunKey};
@@ -758,4 +759,97 @@ fn an_imported_request_has_the_oracle_context_digest() {
             }
         }
     }
+}
+
+/// The `suite_entry_digest` of the record of `id` in run `replicate` of the store.
+fn entry_digest(store: &Store, replicate: u32, id: &str) -> String {
+    let key = key_of(store, replicate);
+    for file in store.outcome_files(&key).expect("the outcome files list") {
+        for record in store.read_outcomes(&file).expect("the outcome file reads") {
+            let value = serde_json::to_value(&record).expect("a record serializes");
+            if text_of(&value, "expectation_id") == id {
+                return text_of(&value, "suite_entry_digest").clone(); // BORROW: .clone() owns the digest
+            }
+        }
+    }
+    panic!("no record of {id} in run {replicate}");
+}
+
+/// Guards: R01 §Golden corpus (the rules supply every domain name) — rules that name
+/// `["scale", "text"]` import the mini-corpus with the oracle's rows and synthesise each suite
+/// entry from those two keys alone, so the digest of the entry A1 of run 6 is that of an entry
+/// without `tier`, while the HTN rules, which also name `tier`, give the digest of the entry with it.
+/// Oracle: the `sha256` of the entry's canonical JSON, taken with `shasum` over
+/// `{"depends_on":[],"kind":"legacy-check","params":{"scale":"binary","text":"Running
+/// scripts/validate_domain.py on the generated domain.py exits with code 0 (no structural errors
+/// or warnings)"},"role":"gate"}` written by hand, and `oracle::expected_rows`.
+#[test]
+fn entry_params_come_from_the_rules() {
+    const WITHOUT_TIER: &str =
+        "sha256:39822149ac1007442d6ec29e26d29e5c2354fc0a240f1870552ffe454163bc24";
+    const WITH_TIER: &str =
+        "sha256:b0db76be61754c4fdffa4c605e1c2d9dd9f526c6f659550b16b920c374d44701";
+    let import_with = |rules: &ImportRules| {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let store = Store::init(dir.path()).expect("the store initialises");
+        import(&mini(), rules, &reader, &store).expect("the mini-corpus imports");
+        (dir, store)
+    };
+
+    let scale_text = legacy_rules::builder("resolved_skill_version")
+        .entry_params(legacy_rules::entry_params(&["scale", "text"]))
+        .build()
+        .expect("the rules build");
+    let (_scale_text_dir, scale_text) = import_with(&scale_text);
+    let mut expected = expected_rows(&mini());
+    expected.sort();
+    assert_eq!(stored_rows(&scale_text), expected);
+    assert_eq!(entry_digest(&scale_text, 6, "A1"), WITHOUT_TIER);
+
+    let (_htn_dir, htn) = import_with(&legacy_rules::rules());
+    assert_eq!(entry_digest(&htn, 6, "A1"), WITH_TIER);
+}
+
+/// Guards: I12 — rules that name a key that an entry lacks are refused, and the refusal names the
+/// key and the entry. Oracle: the entry ids of
+/// `oracle::expected_rows`, and the grading files, none of which holds a `bogus` key.
+#[test]
+fn entry_params_naming_a_key_an_entry_lacks_are_refused() {
+    let rules = legacy_rules::builder("resolved_skill_version")
+        .entry_params(legacy_rules::entry_params(&["scale", "text", "bogus"]))
+        .build()
+        .expect("the rules build");
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let store = Store::init(dir.path()).expect("the store initialises");
+    let error = import(&mini(), &rules, &reader, &store).expect_err("the import is refused");
+    let message = error.to_string();
+    assert!(
+        expected_rows(&mini())
+            .iter()
+            .any(|row| message.contains(&format!("`{}` has no `bogus`", row.expectation_id))),
+        "the refusal names neither the key nor an entry: {message}"
+    );
+}
+
+/// Guards: I12 — the rules have no silent default for the entry params: a builder that was not
+/// given them refuses to build, naming the field; an explicit empty list builds. Oracle: the
+/// hand-written expectation.
+#[test]
+fn entry_params_are_required_by_the_builder() {
+    let error = legacy_rules::builder("resolved_skill_version")
+        .build()
+        .expect_err("the rules lack the entry params");
+    assert!(
+        matches!(
+            error,
+            ImportError::MissingField {
+                field: "entry_params"
+            }
+        ),
+        "{error}"
+    );
+    legacy_rules::builder("resolved_skill_version")
+        .entry_params(Vec::new())
+        .build()
+        .expect("an explicit empty list builds");
 }

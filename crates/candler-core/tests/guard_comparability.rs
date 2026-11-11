@@ -201,10 +201,15 @@ fn read_arm(arm: &Value) -> Result<ArmView, VerdictError> {
 
 /// Guards: I7 — arms are compared only when they differ in declared factors alone: every other
 /// path is refused and named, by whole path segments, whatever the order or the number of arms; an
-/// unreadable arm gives no verdict.
+/// unreadable arm gives no verdict. The provenance rows (C45 to C59) gate on the build's identity
+/// alone: `eval_infra.commit` recorded and equal, `eval_infra.dirty` false everywhere,
+/// `sandbox_contract` equal; `eval_infra.tag`, `commits_ahead` and `packages.*` gate nothing, and
+/// an unrecorded commit or dirty flag is refused and named, never counted as equal.
 /// Oracle: the R01 sentence each row of `verdicts.json` cites (C01 to C23 the lead's, C24 on
-/// added); the expected verdict is a literal in the row.
-/// Bite: compare paths with `str::starts_with` instead of whole segments (`covers`).
+/// added); the expected verdict is a literal in the row, written from decision D8.
+/// Bite: compare paths with `str::starts_with` instead of whole segments (`covers`); gate every
+/// `provenance.eval_infra.*` path (the tag rows); count an unrecorded commit as equal (the commit
+/// rows).
 #[test]
 fn stratum_verdict_table() {
     let rows = rows();

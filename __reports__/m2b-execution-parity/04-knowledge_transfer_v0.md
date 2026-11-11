@@ -80,7 +80,7 @@ Date: 2026-11-09
    - the `Cache-Control: no-cache` header was ignored;
    - only the body field `"cache": {"no-cache": true}` bypassed the cache;
    - no hit header is exposed, and `x-litellm-response-cost` is reported on hits too.
-3. **`planner.runtime.*`** stays absent until a grader runtime fills it (A59). The provenance verdict exempts it.
+3. **Withdrawn by M2c (amendment A2).** ~~`planner.runtime.*` stays absent until a grader runtime fills it (A59). The provenance verdict exempts it.~~ A grader's packages are reported through `describe`'s `environment.packages{}`, and no milestone adds a planner field to the core.
 4. **The agent container has no `children/container-*.json` record** (A59); only the gateway has one. Recovery of an agent container relies on its labels and on `docker inspect` re-verification.
 5. **Store identity.** Labels do not name the store. A copied `jobs/` dir of a live job, recovered with its own free lock, would read as Lost and sweep the live job's containers. Add a store id label before stores can be copied or shared.
 6. **ZombieTick start is unguarded.** B33 starts the real tick itself, so deleting `ZombieTick::start` from `serve` (`jobs/runtime/session.rs:283`) leaves every test green.

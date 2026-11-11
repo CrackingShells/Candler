@@ -5,7 +5,7 @@ use std::io;
 use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 
-use candler_schemas::evaluation::{ContextArtifact, RunContext};
+use candler_schemas::evaluation::{ContextArtifact, ContextRef, RunContext};
 
 use super::ContextError;
 use super::assemble::{Assembled, AssembledArtifact};
@@ -158,8 +158,10 @@ fn copy_artifact(
     Ok(ContextArtifact::new(artifact.path.clone(), abs, written)) // BORROW: the context owns the path
 }
 
-/// Copies the assembled artifacts into `<workspace>/outputs/` and builds the run's context from
-/// the files as written.
+/// Copies the assembled artifacts into `<workspace>/outputs/` and the files of each assembled
+/// input into `<workspace>/inputs/<kind>/`, and builds the run's context from the files as
+/// written. An input's entry in the context holds the directory of its tree and the digest of its
+/// list; each file is checked against the digest of its blob.
 ///
 /// Each file is a fresh copy, never a hard link or a symbolic link to a store blob, and is made
 /// read-only once written. The digest of the context is computed from the hash of each written
@@ -187,6 +189,25 @@ pub fn materialise(assembled: &Assembled, workspace: &Path) -> Result<RunContext
         .root(root);
     for artifact in assembled.artifacts() {
         builder = builder.artifact(copy_artifact(&outputs, artifact)?);
+    }
+    let inputs = space.root().join("inputs");
+    for input in assembled.inputs() {
+        let tree = inputs.join(input.kind.as_str()); // BORROW: explicit .as_str()
+        for file in &input.files {
+            copy_artifact(&tree, file)?;
+        }
+        let abs = tree
+            .to_str()
+            .ok_or_else(|| ContextError::Workspace {
+                path: tree.clone(), // BORROW: the error owns the path
+                detail: "is not valid UTF-8",
+            })?
+            .to_owned(); // BORROW: the context owns its path text
+        builder = builder.input(ContextRef::new(
+            input.kind.clone(), // BORROW: the context owns its kinds
+            abs,
+            input.digest.clone(), // BORROW: the context owns its digests
+        ));
     }
     for (path, value) in assembled.metadata() {
         builder = builder.metadata(path.clone(), value.clone()); // BORROW: the context owns its entries

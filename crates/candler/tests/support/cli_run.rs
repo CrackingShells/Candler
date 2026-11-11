@@ -202,6 +202,20 @@ fn git(dir: &Path, args: &[&str]) {
     assert!(status.success(), "git {args:?} failed");
 }
 
+/// The commit `git rev-parse` names for `revision` in `dir`.
+pub fn rev_parse(dir: &Path, revision: &str) -> String {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["rev-parse", revision])
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git rev-parse {revision} failed");
+    String::from_utf8(out.stdout).unwrap().trim().to_owned()
+}
+
 /// A fresh world: the fake client, a skills repository with one tagged commit, a one-cell
 /// experiment, and a working directory that is none of them.
 pub fn world() -> World {
@@ -226,8 +240,9 @@ pub fn world() -> World {
     fs::write(bin.join("docker.log"), "").unwrap();
     fs::write(bin.join("handed.log"), "").unwrap();
 
-    fs::create_dir_all(skills.join("demo")).unwrap();
-    fs::write(skills.join("demo").join("SKILL.md"), "# demo\n").unwrap();
+    let skill = skills.join(".claude").join("skills").join("demo");
+    fs::create_dir_all(&skill).unwrap();
+    fs::write(skill.join("SKILL.md"), "# demo\n").unwrap();
     git(&skills, &["init", "-q"]);
     git(&skills, &["add", "."]);
     git(&skills, &["commit", "-q", "-m", "skills"]);
@@ -242,6 +257,7 @@ replicates = 1
 secrets = ["{SECRET_NAME}"]
 
 [fixed]
+permission_mode = "plan"
 "model.endpoint" = "http://127.0.0.1:9"
 "prompt.template" = "say hello"
 
@@ -258,7 +274,9 @@ name = "claude-code"
 [treatment]
 name = "demo"
 tag = "v1"
+source = "{}"
 "#,
+        skills.display(),
     );
     fs::write(&experiment, text).unwrap();
     World {
@@ -275,6 +293,27 @@ impl World {
     /// The store the run uses: below the state home, as no project configuration names one.
     pub fn store(&self) -> PathBuf {
         self.state.join("candler").join("store")
+    }
+
+    /// How many runs of the store are sealed: those whose directory holds `run.done`.
+    pub fn sealed_runs(&self) -> usize {
+        fs::read_dir(self.store().join("runs")).map_or(0, |entries| {
+            entries
+                .flatten()
+                .filter(|entry| entry.path().join("run.done").is_file())
+                .count()
+        })
+    }
+
+    /// Panics unless at least `at_least` runs are sealed: a job that ended may have planned no
+    /// cell at all, and a guard of what a run records must not pass on that.
+    pub fn assert_sealed(&self, at_least: usize) {
+        let sealed = self.sealed_runs();
+        assert!(
+            sealed >= at_least,
+            "no run sealed: {sealed} sealed, {at_least} expected\ncalls:\n{}",
+            self.calls()
+        );
     }
 
     /// What the fake client was asked, one call per line.
@@ -295,14 +334,15 @@ impl World {
     /// Runs `candler run` on the experiment from the unrelated working directory, with stdin
     /// closed, and returns once the launcher has exited.
     pub fn launch(&self) -> Output {
+        self.launch_with(&[])
+    }
+
+    /// Runs `candler run` as [`World::launch`] does, with `extra` arguments after the experiment.
+    pub fn launch_with(&self, extra: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_candler"))
             .arg("run")
             .arg(&self.experiment)
-            .arg("--set")
-            .arg(format!(
-                "request.treatment_source={}",
-                self.skills.display()
-            ))
+            .args(extra)
             .arg("--set")
             .arg("isolation.build.lock=env.lock")
             .arg("--set")
@@ -318,9 +358,44 @@ impl World {
             .unwrap()
     }
 
+    /// Replaces the line of the experiment that names the treatment's source with `line`, which
+    /// is empty to leave the treatment without a source.
+    pub fn set_source_line(&self, line: &str) {
+        let text = fs::read_to_string(&self.experiment).unwrap();
+        let written = format!("source = \"{}\"\n", self.skills.display());
+        assert!(text.contains(&written), "the experiment names its source");
+        fs::write(&self.experiment, text.replace(&written, line)).unwrap();
+    }
+
+    /// Leaves the experiment's treatment with a name only: no tag, no commit and no source.
+    pub fn set_name_only(&self) {
+        self.set_source_line("");
+        let text = fs::read_to_string(&self.experiment).unwrap();
+        assert!(text.contains("tag = \"v1\"\n"), "the experiment pins a tag");
+        fs::write(&self.experiment, text.replace("tag = \"v1\"\n", "")).unwrap();
+    }
+
+    /// Makes a new commit in the skills repository and moves the tag `v1` to it; returns the
+    /// commit `git rev-parse` names for the tag before and after.
+    pub fn move_tag(&self) -> (String, String) {
+        let before = rev_parse(&self.skills, "v1^{commit}");
+        let skill = self.skills.join(".claude").join("skills").join("demo");
+        fs::write(skill.join("SKILL.md"), "# moved\n").unwrap();
+        git(&self.skills, &["commit", "-q", "-a", "-m", "moved"]);
+        git(&self.skills, &["tag", "-f", "v1"]);
+        (before, rev_parse(&self.skills, "v1^{commit}"))
+    }
+
     /// Removes the world's directory.
     pub fn remove(&self) {
         drop(fs::remove_dir_all(&self.root));
+    }
+}
+
+impl Drop for World {
+    /// Removes the world's directory, so a guard that fails leaves no world behind.
+    fn drop(&mut self) {
+        self.remove();
     }
 }
 

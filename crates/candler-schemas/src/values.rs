@@ -34,7 +34,7 @@ pub enum ValuesError {
     Canonical(#[from] CanonicalError),
 }
 
-/// Where a resolved value came from: an object whose `kind` names the source, with `step` for `derived` and `file` for `imported`.
+/// Where a resolved value came from: an object whose `kind` names the source, with `step` and optionally `from` for `derived` and `file` for `imported`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(remote = "Self", tag = "kind", rename_all = "snake_case")]
 #[schemars(deny_unknown_fields)]
@@ -48,11 +48,18 @@ pub enum ValueSource {
     ProjectConfig,
     /// The user configuration file.
     UserConfig,
-    /// A value a preflight step derived, under the key `step`.
+    /// A value a preflight step derived, under the key `step`, and the location it read under `from`.
     #[non_exhaustive]
     Derived {
         /// The preflight step that derived the value, as `name@token`.
         step: NameToken,
+        /// The location the step read, as the experiment file wrote it; absent when the value has none.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "present"
+        )]
+        from: Option<String>,
     },
     /// The default the core ships.
     CoreDefault,
@@ -72,7 +79,16 @@ impl ValueSource {
     /// A value derived by the preflight step `step`.
     #[must_use]
     pub const fn derived(step: NameToken) -> Self {
-        Self::Derived { step }
+        Self::Derived { step, from: None }
+    }
+
+    /// A value derived by the preflight step `step` from the location `from`, as the experiment file wrote it.
+    #[must_use]
+    pub const fn derived_from(step: NameToken, from: String) -> Self {
+        Self::Derived {
+            step,
+            from: Some(from),
+        }
     }
 
     /// A value imported from the run-relative file `file`.
@@ -100,6 +116,11 @@ impl JsonValue {
         }
         canonical::check(&value)?;
         Ok(Self(value))
+    }
+
+    /// Wraps a value made of checked values, such as two objects merged: it holds no `null` at the top and no number that is out of range.
+    pub(crate) const fn merged(value: Value) -> Self {
+        Self(value)
     }
 
     /// The JSON value.

@@ -14,9 +14,7 @@ use candler_schemas::primitives::{ExpectationId, Name, NameVersion, ReasonCode, 
 use serde_json::{Map, Value};
 
 use super::ImportError;
-use super::legacy::{
-    BLOCKED_BY, CONFIG, ENTRY_PARAMS, EXPECTATIONS, EXPECTATIONS_FILE, OUTPUTS, ROLE,
-};
+use super::legacy::{BLOCKED_BY, CONFIG, EXPECTATIONS, EXPECTATIONS_FILE, OUTPUTS, ROLE};
 use super::manifest::{MappedRun, layout, pinned};
 use super::read::{JsonFile, LegacyFolder, LegacyRun, rel_path};
 use super::rules::{ImportRules, MarkerCode};
@@ -360,7 +358,7 @@ fn facts_of(row: &Row<'_>, run: &LegacyRun, rules: &ImportRules) -> Result<Facts
     })
 }
 
-/// The suite entry synthesised for a row: the legacy check's text, scale and tier as parameters.
+/// The suite entry synthesised for a row: the keys of the legacy check that the rules name as parameters.
 fn suite_entry(
     row: &Row<'_>,
     run: &LegacyRun,
@@ -371,14 +369,15 @@ fn suite_entry(
     // BORROW: explicit .as_str() instead of Deref coercion
     let file = row.file.path.as_str();
     let mut params = Map::new();
-    for key in ENTRY_PARAMS {
+    for key in &rules.entry_params {
         let value = row
             .entry
-            .get(key)
+            // BORROW: explicit .as_str() instead of Deref coercion
+            .get(key.as_str())
             .filter(|value| !value.is_null())
             .ok_or_else(|| layout(file, &run.label, format!("`{}` has no `{key}`", row.id)))?;
         // BORROW: .to_owned() and .clone() make the owned parameter
-        params.insert(key.to_owned(), value.clone());
+        params.insert(key.as_str().to_owned(), value.clone());
     }
     SuiteEntry::builder()
         .id(ExpectationId::from_str(row.id)?)

@@ -12,11 +12,19 @@ use std::sync::Arc;
 
 use candler_core::isolation::docker::{ClientEnv, DockerCli};
 use candler_core::isolation::image::{
-    BuildSetting, DockerImageService, ImageAssets, ImageService, LockDigest,
+    BuildSetting, DockerImageService, ImageAssets, ImageService, LockDigest, PackageProbe,
 };
+use candler_core::isolation::model::{ImageId, ImageRef};
+use candler_core::resolve::config::{Config, UserConfig};
+use candler_core::resolve::layers::{FileValues, ResolveInput};
+use candler_core::resolve::preflight::Resolver;
+use candler_core::resolve::steps::image::ImageIdStep;
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_schemas::execution::EventPayload;
+use candler_schemas::primitives::FieldPath;
 use candler_schemas::primitives::RunKey;
+use candler_schemas::values::JsonValue;
+use serde_json::json;
 use sha2::Digest as _;
 
 #[path = "support/mod.rs"]
@@ -41,7 +49,11 @@ const INSPECT_ANSWER: &str = concat!(
 
 /// A service over the real client, a fake docker and a store, and the fake's log.
 struct Rig {
-    service: DockerImageService,
+    service: Arc<DockerImageService>,
+    sup: Arc<Supervisor>,
+    wrapper: PathBuf,
+    canned: PathBuf,
+    store_root: PathBuf,
     log: PathBuf,
     _dir: tempfile::TempDir,
 }
@@ -87,26 +99,42 @@ impl Rig {
         let env = ClientEnv::from_process();
         let cli = DockerCli::with_binary(
             Arc::clone(&supervisor),
-            wrapper,
-            env.clone(), // BORROW: .clone() gives the service its own environment
+            wrapper.clone(), // BORROW: .clone() keeps the wrapper for the probe
+            env.clone(),     // BORROW: .clone() gives the service its own environment
             records,
         );
         let sources = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/docker");
-        let service = DockerImageService::new(
-            supervisor,
+        let store_root = dir.path().join("store");
+        let service = Arc::new(DockerImageService::new(
+            Arc::clone(&supervisor),
             cli,
             env,
             ImageAssets {
                 base_context: sources.join("base"),
                 env_context: sources.join("env"),
-                store_root: dir.path().join("store"),
+                store_root: store_root.clone(), // BORROW: .clone() keeps the root for the probe
             },
-        );
+        ));
         Self {
             service,
+            sup: supervisor,
+            wrapper,
+            canned,
+            store_root,
             log,
             _dir: dir,
         }
+    }
+
+    /// A probe of the packages `names` over this world's client.
+    fn probe(&self, names: &[&str]) -> PackageProbe {
+        PackageProbe::new(
+            Arc::clone(&self.sup),
+            self.wrapper.clone(), // BORROW: .clone() gives the probe its own path
+            ClientEnv::from_process(),
+            self.store_root.clone(), // BORROW: .clone() gives the probe its own path
+            names.iter().map(|name| (*name).to_owned()).collect(), // BORROW: owned names
+        )
     }
 
     /// How many `docker build` calls the fake logged for `tag`.
@@ -124,7 +152,7 @@ impl Rig {
     }
 }
 
-/// A lock and the setting and digest that name it.
+/// A lock and the setting and digest that name it, pruning nothing.
 fn lock(text: &str) -> (LockDigest, BuildSetting, String) {
     let bytes = text.as_bytes().to_vec();
     let hex = sha2::Sha256::digest(&bytes)
@@ -139,9 +167,20 @@ fn lock(text: &str) -> (LockDigest, BuildSetting, String) {
         BuildSetting {
             lock: bytes,
             extension: None,
+            prune: Vec::new(),
         },
         hex,
     )
+}
+
+/// `setting` with the files `names` pruned.
+fn pruning(setting: &BuildSetting, names: &[&str]) -> BuildSetting {
+    BuildSetting {
+        // BORROW: .clone() gives the setting its own lock bytes
+        lock: setting.lock.clone(),
+        extension: None,
+        prune: names.iter().map(|name| (*name).to_owned()).collect(), // BORROW: owned names
+    }
 }
 
 /// Guards: B05 — two concurrent `ensure_env` calls for one lock digest make exactly one build
@@ -184,4 +223,204 @@ async fn b05_one_build_per_digest() {
         .expect("an image");
     assert_eq!(rig.builds_of(&other_tag), 1);
     assert_eq!(rig.builds_of(&tag), 1);
+}
+
+/// Guards: A1 (R01 §Agent environment and secrets) — the env image is keyed on the lock and on the
+/// files the experiment prunes: one lock with two prune lists gives two images, and one lock with
+/// one list, in any order, gives one.
+/// Oracle: the tags below are the sha256 of the lock's hex digest followed by a NUL and each
+/// sorted prune name, computed with `shasum`, not with Candler; the PATH-fake docker's argv log
+/// counts the builds of each tag.
+/// Bite: key the env tag on the lock digest alone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a1_prune_is_part_of_the_env_key() {
+    const LOCK: &str = "face025c59f708edef23a8040f867bc583a365a5aa87fcae3047c8e1a4b0f8a5";
+    const KEY_A: &str = "c5cf7377617741ee1d18541006fc0e0a83f690249c32d75b56fae2c90296cb97";
+    const KEY_B: &str = "8f34d42a94dd37105522fb6e8f4229ae004669a0b04498d7ddb561a5c99e6830";
+    const KEY_AB: &str = "416062981ea22b25817cc0f8a8bf8ae3988e32090f7758b70e8815e03df0a1ad";
+    let rig = Rig::new();
+    let (digest, plain, hex) = lock("numpy==2.0.0\n");
+    assert_eq!(hex, LOCK, "the oracle's lock is the lock under test");
+    let tag = |key: &str| format!("candler-env:{key}");
+
+    for names in [
+        &["a.py"][..],
+        &["b.py"],
+        &["b.py", "a.py"],
+        &["a.py", "b.py"],
+    ] {
+        rig.service
+            .ensure(&digest, &pruning(&plain, names))
+            .await
+            .expect("an image");
+    }
+    assert_eq!(rig.builds_of(&tag(KEY_A)), 1, "one list, one image");
+    assert_eq!(rig.builds_of(&tag(KEY_B)), 1, "another list, another image");
+    assert_eq!(
+        rig.builds_of(&tag(KEY_AB)),
+        1,
+        "one list in two orders, one image"
+    );
+    assert_eq!(
+        rig.builds_of(&tag(LOCK)),
+        0,
+        "no pruned image is keyed on the lock alone"
+    );
+
+    // Positive control: nothing pruned keeps the lock's own tag.
+    rig.service.ensure(&digest, &plain).await.expect("an image");
+    assert_eq!(rig.builds_of(&tag(LOCK)), 1);
+}
+
+/// Guards: A2 (R01 §Run manifest) — a read of named packages returns, for each name, the
+/// distribution and version the container printed: strings for one distribution, lists, in step,
+/// for none or several; a name the experiment may not record is refused before any container runs.
+/// Oracle: the container's printed answer is written by hand below, and the expected readings are
+/// written by hand from it; the PATH-fake docker's log shows whether a container ran.
+/// Bite: return the list form for a single distribution, or let a name with a quote reach the
+/// script.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a2_package_read_pairs_each_name_with_its_distributions() {
+    let rig = Rig::new();
+    std::fs::write(
+        rig.canned.join("run.out"),
+        r#"{"x": [["x-dist", "1.2.3"]], "y": [], "z": [["z-a", "1"], ["z-b", "2"]]}"#,
+    )
+    .expect("an answer");
+    let image = ImageRef {
+        id: ImageId(FAKE_ID.to_owned()), // BORROW: the reference owns the id
+        cc_version: None,
+    };
+
+    let read = rig
+        .probe(&["x", "y", "z"])
+        .read(&image)
+        .await
+        .expect("a read");
+    let seen = |name: &str| {
+        let reading = read.get(name).expect("a reading per name");
+        (reading.distribution.clone(), reading.version.clone()) // BORROW: .clone() owns the values
+    };
+    assert_eq!(seen("x"), (json!("x-dist"), json!("1.2.3")));
+    assert_eq!(seen("y"), (json!([]), json!([])));
+    assert_eq!(seen("z"), (json!(["z-a", "z-b"]), json!(["1", "2"])));
+
+    let runs = || {
+        std::fs::read_to_string(&rig.log)
+            .unwrap_or_default()
+            .lines()
+            .filter(|line| line.starts_with("[\"run\""))
+            .count()
+    };
+    let before = runs();
+    for bad in ["x'); import os #", "X", "1x", "x-y", ""] {
+        assert!(
+            rig.probe(&[bad]).read(&image).await.is_err(),
+            "{bad:?} is not an import name"
+        );
+    }
+    assert_eq!(runs(), before, "a refused name starts no container");
+}
+
+/// Resolves `values` through the image preflight step over the rig's service, and returns the
+/// refusal's text, or `None` when the resolution succeeded.
+async fn image_step_refusal(rig: &Rig, values: &[(&str, serde_json::Value)]) -> Option<String> {
+    let cwd = tempfile::tempdir().expect("a directory");
+    // A requirement source, so that a step that got as far as the lock would run a compile.
+    std::fs::write(cwd.path().join("req.txt"), "numpy\n").expect("a requirement source");
+    let config = Arc::new(Config::new(
+        cwd.path().to_owned(), // BORROW: .to_owned() makes the owned working directory
+        None,
+        UserConfig::default(),
+        Some(cwd.path().join("state")),
+    ));
+    // TRAIT_OBJECT: the step takes its image service as a trait object
+    let images: Arc<dyn ImageService> = rig.service.clone(); // BORROW: .clone() shares the service
+    let step = ImageIdStep::new(images, Arc::clone(&rig.sup)).expect("a step");
+    let sources = ("isolation.build.requirements", json!(["req.txt"]));
+    let file = FileValues::new(
+        values
+            .iter()
+            .chain(std::iter::once(&sources))
+            .map(|(path, value)| {
+                (
+                    path.parse::<FieldPath>().expect("a field path"),
+                    JsonValue::new(value.clone()).expect("a JSON value"), // BORROW: .clone() owns the value
+                )
+            })
+            .collect(),
+    );
+    Resolver::new(config)
+        .register(Box::new(step))
+        .expect("registers")
+        .resolve(ResolveInput::default().file(file))
+        .await
+        .err()
+        .map(|error| error.to_string())
+}
+
+/// Guards: R01 §Agent environment and secrets — the image preflight step refuses a malformed
+/// `isolation.build.prune` or `isolation.record_packages` before any docker call, and its message
+/// names the setting and the bad value: a name with a `/`, `.` or `..`, an empty name, a name with
+/// a space, a name that is not an import name, a non-string entry and a value that is not a list.
+/// Oracle: the rows are written by hand from the two name rules (`^[A-Za-z0-9._-]+$` for prune,
+/// `^[a-z_][a-z0-9_]*$` for `record_packages`); the PATH-fake docker's log shows no docker argv.
+/// Bite: accept every name in `prune_of` and `check_record_packages`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn image_step_refuses_malformed_names_before_docker() {
+    const PRUNE: &str = "isolation.build.prune";
+    const RECORD: &str = "isolation.record_packages";
+    let rows = [
+        (PRUNE, json!(["ok.py", "a/b.py"]), r#""a/b.py""#),
+        (PRUNE, json!([".."]), r#""..""#),
+        (PRUNE, json!(["."]), r#""."#),
+        (PRUNE, json!([""]), r#""""#),
+        (PRUNE, json!(["a b"]), r#""a b""#),
+        (PRUNE, json!([3]), "3"),
+        (PRUNE, json!("a.py"), r#""a.py""#),
+        (RECORD, json!(["x", "Foo"]), r#""Foo""#),
+        (RECORD, json!(["1x"]), r#""1x""#),
+        (RECORD, json!(["a-b"]), r#""a-b""#),
+        (RECORD, json!(["a.b"]), r#""a.b""#),
+        (RECORD, json!([""]), r#""""#),
+        (RECORD, json!(["x y"]), r#""x y""#),
+        (RECORD, json!([7]), "7"),
+        (RECORD, json!("x"), r#""x""#),
+    ];
+    let docker_calls = |rig: &Rig| std::fs::read_to_string(&rig.log).unwrap_or_default();
+    for (path, value, shown) in rows {
+        let rig = Rig::new();
+        let refusal = image_step_refusal(&rig, &[(path, value.clone())]) // BORROW: .clone() owns the value
+            .await
+            .unwrap_or_else(|| panic!("{path} = {value} was accepted"));
+        assert!(
+            refusal.contains(path),
+            "the refusal names {path}: {refusal}"
+        );
+        assert!(
+            refusal.contains(shown),
+            "the refusal names the bad value {shown}: {refusal}"
+        );
+        assert_eq!(
+            docker_calls(&rig),
+            "",
+            "{path} = {value} reached docker before it was refused"
+        );
+    }
+
+    // Positive control: well-formed lists pass, and the step then does reach docker.
+    let rig = Rig::new();
+    let accepted = image_step_refusal(
+        &rig,
+        &[
+            (PRUNE, json!(["a.py", "b-1_2.so"])),
+            (RECORD, json!(["x", "_y2"])),
+        ],
+    )
+    .await;
+    assert_eq!(accepted, None, "well-formed lists are accepted");
+    assert!(
+        !docker_calls(&rig).is_empty(),
+        "an accepted resolution reaches docker, so an empty log means a refusal"
+    );
 }

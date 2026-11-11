@@ -1,7 +1,7 @@
 # field_paths.toml: the configuration-surface field paths and their class (B19 oracle, plan D5).
 # Hand-transcribed, never generated and never imported from `experiment::paths`:
 #   __reports__/m2b-execution-parity/00-architecture_v0.md section 11 (normative), with the
-#   rulings R21 (request.harness, request.treatment), D2 (request.treatment_source),
+#   rulings R21 (request.harness, request.treatment),
 #   D9 (model.token_secret) and D17 (model.effort) from m2b-arch-review-rulings.md.
 # Classes (section 11): cell_value (hashed and compared), setting (dropped from `Comparable`),
 # typed_root (reserved, filled by derived steps, never by the file).
@@ -62,11 +62,6 @@ source = "filled by cli_run from the typed tables (F2 (a), R21); never reaches C
 path = "request.treatment"
 class = "setting"
 source = "filled by cli_run from the typed tables (F2 (a), R21); never reaches Comparable"
-
-[[path]]
-path = "request.treatment_source"
-class = "setting"
-source = "a path to the skill repo, resolved per I14; a location, not identity: the commit pins the content (D2)"
 
 [[path]]
 path = "prompt.template"
@@ -138,6 +133,16 @@ source = "experiment file (ruling A15); the compiled lock enters the cell as iso
 path = "isolation.build.lock"
 class = "setting"
 source = "experiment file (ruling A15); its bytes enter the cell as isolation.env_lock"
+
+[[path]]
+path = "isolation.build.prune"
+class = "setting"
+source = "experiment file; names the files deleted from the env, and keys the env image with the lock"
+
+[[path]]
+path = "isolation.record_packages"
+class = "setting"
+source = "experiment file; names the import packages whose distribution and version a run measures"
 
 [[path]]
 path = "harness"

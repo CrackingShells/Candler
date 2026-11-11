@@ -501,3 +501,281 @@ fn a_workspace_that_contains_the_store_is_refused() {
         "no outputs/ was made above the store"
     );
 }
+
+/// The vectors of the context that serves inputs, as `toml::Table`.
+fn input_vectors() -> toml::Table {
+    let text = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/oracle/vectors/context_inputs.toml"),
+    )
+    .expect("the vectors read");
+    text.parse().expect("the vectors parse")
+}
+
+/// The array of tables `key` of `value`.
+fn tables_at<'t>(value: &'t toml::Value, key: &str) -> &'t [toml::Value] {
+    value
+        .get(key)
+        .and_then(toml::Value::as_array)
+        .unwrap_or_else(|| panic!("the vector lacks `{key}`"))
+}
+
+/// One input of a vector, as the fabricated store holds it: its kind, the manifest list that
+/// names it, its digest, and its files by path and content.
+struct HeldInput {
+    kind: String,
+    in_evaluation_inputs: bool,
+    digest: Digest,
+    files: Vec<(String, String)>,
+}
+
+/// Stores the files and the list blob of every input of `vector` as the campaign's input-blob
+/// layout says, and returns what was stored. The list blob's bytes are the vector's `list_json`.
+fn store_inputs(store: &Store, vector: &toml::Value) -> Vec<HeldInput> {
+    let mut held = Vec::new();
+    for input in tables_at(vector, "input") {
+        let files: Vec<(String, String)> = tables_at(input, "file")
+            .iter()
+            .map(|f| {
+                (
+                    text_at(f, "path").to_owned(),
+                    text_at(f, "content").to_owned(),
+                )
+            })
+            .collect();
+        for (_, content) in &files {
+            store
+                .put_blob(content.as_bytes(), None)
+                .expect("a file blob stores");
+        }
+        let digest = store
+            .put_blob(text_at(input, "list_json").as_bytes(), None)
+            .expect("the list blob stores");
+        assert_eq!(digest.to_string(), text_at(input, "digest"), "the list key");
+        held.push(HeldInput {
+            kind: text_at(input, "kind").to_owned(),
+            in_evaluation_inputs: text_at(input, "list") == "evaluation",
+            digest,
+            files,
+        });
+    }
+    held
+}
+
+/// Seals a run beside `template` whose manifest names `comparable` in `comparable.inputs` and
+/// `evaluation` in `evaluation_inputs`, as `(kind, digest)` pairs, and has no outputs.
+fn seal_with_inputs(
+    store: &Store,
+    template: &RunKey,
+    attempt: u32,
+    comparable: &[(String, String)],
+    evaluation: &[(String, String)],
+) -> RunKey {
+    let refs = |list: &[(String, String)]| -> serde_json::Value {
+        let mut sorted = list.to_vec();
+        sorted.sort();
+        sorted
+            .iter()
+            .map(|(kind, digest)| serde_json::json!({"kind": kind, "digest": digest}))
+            .collect()
+    };
+    let mut manifest = serde_json::to_value(store.read_manifest(template).expect("the manifest"))
+        .expect("a manifest serialises");
+    *manifest
+        .pointer_mut("/run/attempt")
+        .expect("the manifest names an attempt") = attempt.into();
+    *manifest
+        .pointer_mut("/comparable/inputs")
+        .expect("the manifest has inputs") = refs(comparable);
+    if !evaluation.is_empty() {
+        manifest
+            .as_object_mut()
+            .expect("a manifest is an object")
+            .insert("evaluation_inputs".into(), refs(evaluation));
+    }
+    // The key names the digest of the cell, which the new inputs change: read it from a probe.
+    let probe: RunManifest = serde_json::from_value(manifest.clone()).expect("a manifest reads");
+    *manifest
+        .pointer_mut("/run/cell")
+        .expect("the manifest names a cell") = probe.cell_digest().to_string().into();
+    let manifest: RunManifest = serde_json::from_value(manifest).expect("a manifest reads");
+    let key = manifest.run().clone();
+    let mut writer = RunWriter::create(store, &manifest, Existing::Refuse).expect("a run starts");
+    writer
+        .tree(&RunTree::builder().build().expect("a tree"))
+        .expect("the tree writes");
+    writer.done().expect("the run seals");
+    key
+}
+
+/// Needs that name only the input `kinds`.
+fn input_needs(kinds: &[&str]) -> Needs {
+    let mut needs = Needs::default();
+    needs.inputs = kinds
+        .iter()
+        .map(|k| k.parse().expect("a plain name"))
+        .collect();
+    needs
+}
+
+/// The `(kind, digest)` pairs of the held inputs that live in the chosen manifest list.
+fn pairs(held: &[HeldInput], evaluation: bool) -> Vec<(String, String)> {
+    held.iter()
+        .filter(|h| h.in_evaluation_inputs == evaluation)
+        .map(|h| (h.kind.clone(), h.digest.to_string()))
+        .collect()
+}
+
+/// Guards: R01 §Evaluator protocol and I8 — a need for the kinds `servers` (in `comparable.inputs`) and `truth` (in `evaluation_inputs`) gives one `{kind, path, digest}` per kind; each `path` is a tree whose files carry the bytes of their blobs and cannot be written; the input digests are the keys of the list blobs; and the request's `context_digest` is the independent value that covers `{kind, digest}` of exactly the inputs served, with `build_inputs` and the unserved kinds left out. Oracle: `context_inputs.toml`, written by `gen_context_inputs.py` with python `rfc8785`; file contents are the vector's literals (`uv run --with rfc8785 python crates/candler-core/tests/oracle/vectors/gen_context_inputs.py --check`).
+#[test]
+fn needs_inputs_are_served_from_both_manifest_lists() {
+    let (_keep, store) = mini_store(&mini());
+    let template = key_of(&store, 6);
+    let vectors = input_vectors();
+    let mut served_cases = 0_u32;
+    for (n, vector) in (2_u32..).zip(tables_at(&toml::Value::Table(vectors), "vector")) {
+        let held = store_inputs(&store, vector);
+        let run = seal_with_inputs(
+            &store,
+            &template,
+            n,
+            &pairs(&held, false),
+            &pairs(&held, true),
+        );
+        let wanted: Vec<&str> = tables_at(vector, "needs")
+            .iter()
+            .map(|k| k.as_str().expect("a kind"))
+            .collect();
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let context = context_of(&store, &run, &input_needs(&wanted), workspace.path());
+        let title = text_at(vector, "title");
+
+        let mut served: Vec<&str> = context.inputs().iter().map(|i| i.kind.as_str()).collect();
+        served.sort_unstable();
+        let mut expected_kinds = wanted.clone();
+        expected_kinds.sort_unstable();
+        assert_eq!(served, expected_kinds, "the kinds served: {title}");
+
+        for entry in context.inputs() {
+            let input = held
+                .iter()
+                .find(|h| h.kind == entry.kind.as_str())
+                .expect("a held input");
+            assert_eq!(
+                entry.digest, input.digest,
+                "digest of {}: {title}",
+                input.kind
+            );
+            let tree = Path::new(&entry.path);
+            assert!(
+                tree.is_absolute() && tree.is_dir(),
+                "a tree: {}",
+                entry.path
+            );
+            let expected: BTreeSet<String> = input.files.iter().map(|(p, _)| p.clone()).collect();
+            assert_eq!(
+                files_below(tree),
+                expected,
+                "files of {}: {title}",
+                input.kind
+            );
+            for (path, content) in &input.files {
+                let file = tree.join(path);
+                assert_eq!(
+                    fs::read(&file).expect("a file reads"),
+                    content.as_bytes(),
+                    "bytes of {path}: {title}"
+                );
+                let mode = fs::metadata(&file).expect("a file").mode();
+                assert_eq!(mode & 0o222, 0, "{path} is read-only: {title}");
+            }
+        }
+        assert_eq!(
+            context.context_digest().to_string(),
+            text_at(vector, "context_digest"),
+            "the context digest: {title}"
+        );
+        served_cases += 1;
+    }
+    assert_eq!(served_cases, 3, "the vectors the guard ran");
+}
+
+/// Guards: R01 §Evaluator protocol — a need that the run cannot meet is refused, naming the kind and the reason: a kind the manifest holds in neither list, the kind `build_inputs` even where the manifest holds it, and a kind whose digest has no list blob in the store, as on an imported run; no need is served as an empty list. Oracle: hand-written; the kinds and the reasons are the ones written below.
+#[test]
+fn needs_inputs_refused_when_the_run_cannot_serve_them() {
+    let (_keep, store) = mini_store(&mini());
+    let template = key_of(&store, 6);
+    let list_blob = store
+        .put_blob(b"[]", None)
+        .expect("a blob stores")
+        .to_string();
+    let imported = sha256_of(b"an imported input").to_string();
+    let run = seal_with_inputs(
+        &store,
+        &template,
+        2,
+        &[
+            ("build_inputs".into(), list_blob),
+            ("imported".into(), imported),
+        ],
+        &[],
+    );
+    let cases = [
+        ("ghost", "is not an input of the run"),
+        ("build_inputs", "is reserved for the image"),
+        ("imported", "has no list blob in the store"),
+    ];
+    for (kind, reason) in cases {
+        let error = assemble(&store, &run, &input_needs(&[kind]))
+            .expect_err("a need the run cannot meet is refused");
+        let text = error.to_string();
+        assert!(
+            text.contains(&format!("`{kind}`")) && text.contains(reason),
+            "{kind}: `{text}` names the kind and `{reason}`"
+        );
+        assert!(
+            !text.contains("unsupported"),
+            "{kind}: `{text}` is a refusal, not an unsupported need"
+        );
+    }
+}
+
+/// Guards: R01 §Evaluator protocol — an input whose list blob does not hold the list its digest
+/// names is refused as a non-canonical list, naming the kind, and is never served: the blob under
+/// the digest key holds a valid list of an existing file with another sha256 than the one the
+/// digest was made of. Oracle: hand-written; the two canonical list texts are written out below,
+/// and the reason is the one text the refusal gives.
+#[test]
+fn needs_inputs_refused_when_the_list_blob_is_not_its_digests_list() {
+    let (_keep, store) = mini_store(&mini());
+    let template = key_of(&store, 6);
+    let list_of = |content: &str| -> String {
+        let file = store
+            .put_blob(content.as_bytes(), None)
+            .expect("a file blob stores");
+        format!(r#"[{{"path":"a.txt","sha256":"{file}"}}]"#)
+    };
+    let digest = store
+        .put_blob(list_of("one\n").as_bytes(), None)
+        .expect("the list blob stores");
+    let run = seal_with_inputs(
+        &store,
+        &template,
+        2,
+        &[("doc".into(), digest.to_string())],
+        &[],
+    );
+    // The served list is intact before the overwrite, so the refusal below is the overwrite's.
+    let workspace = tempfile::tempdir().expect("a workspace");
+    context_of(&store, &run, &input_needs(&["doc"]), workspace.path());
+
+    let blob = store.layout().blob(&digest);
+    fs::remove_file(&blob).expect("the list blob is removed");
+    fs::write(&blob, list_of("two\n")).expect("the list blob is overwritten");
+    let error = assemble(&store, &run, &input_needs(&["doc"]))
+        .expect_err("a list that is not its digest's is refused");
+    let text = error.to_string();
+    assert!(
+        text.contains("`doc`") && text.contains("is not the canonical list of its digest"),
+        "`{text}` names the kind and the non-canonical list"
+    );
+}

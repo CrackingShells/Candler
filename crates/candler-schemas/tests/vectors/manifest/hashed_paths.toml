@@ -87,3 +87,7 @@ class = "nuisance"
 [[path]]
 name = "import"
 class = "nuisance"
+
+[[path]]
+name = "evaluation_inputs"
+class = "nuisance"

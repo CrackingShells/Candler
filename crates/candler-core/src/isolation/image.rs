@@ -1,6 +1,7 @@
 //! The image the agent runs in: built from the lock, found by id, and read for its Claude Code
-//! version.
+//! version and the packages an experiment names.
 
+use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::str::FromStr as _;
@@ -49,9 +50,6 @@ const CC_LABEL: &str = "candler.cc_version";
 /// The repository of the images that carry an experiment's own layer.
 const EXT_REPO: &str = "candler-ext";
 
-/// The stable dependencies every lock is compiled with, in the env assets.
-const STABLE_SOURCE: &str = "stable.in";
-
 /// Where the lock sources are mounted inside the compile container.
 const SOURCE_MOUNT: &str = "/lock-src";
 
@@ -69,6 +67,10 @@ const STDERR_TAIL: usize = 2048;
 
 /// The build argument of the env Dockerfile that names its base.
 const BASE_ARG: &str = "BASE";
+
+/// The build argument of the env Dockerfile that lists the file names deleted from the env,
+/// separated by spaces.
+const PRUNE_ARG: &str = "PRUNE";
 
 /// How many hex digits of the source digest tag the base image.
 const SOURCE_DIGITS: usize = 12;
@@ -217,9 +219,13 @@ impl DockerImageService {
             .store_root
             .join("images")
             .join(format!("ctx-{key}"));
+        let extra_args = layer.build_args();
         let staged = self.stage_context(&context, layer).await;
         let built = match staged {
-            Ok(()) => self.build_layer(&context, tag, labels, parent).await,
+            Ok(()) => {
+                self.build_layer(&context, tag, labels, parent, &extra_args)
+                    .await
+            }
             Err(error) => Err(error),
         };
         // The context is this build's own, under the lock of its tag.
@@ -271,14 +277,16 @@ impl DockerImageService {
         tag: &str,
         labels: &Labels,
         parent: &BaseImage,
+        extra_args: &[(String, String)],
     ) -> Result<ImageInfo, ImageError> {
         let request = |from: String| BuildRequest {
             // BORROW: .to_path_buf() keeps the context in the request
             context: context.to_path_buf(),
             // BORROW: .to_owned() keeps the tag in the request
             tag: tag.to_owned(),
-            // BORROW: .to_owned() keeps the argument name in the request
-            build_args: vec![(BASE_ARG.to_owned(), from)],
+            build_args: std::iter::once((BASE_ARG.to_owned(), from)) // BORROW: owned argument name
+                .chain(extra_args.iter().cloned()) // BORROW: the request owns its arguments
+                .collect(),
             // BORROW: .clone() keeps the labels in the request
             labels: labels.clone(),
         };
@@ -312,11 +320,17 @@ impl DockerImageService {
         if !given.eq_ignore_ascii_case(&hex) {
             return Err(ImageError::LockMismatch);
         }
+        if !setting.prune.iter().all(|name| prune_name_ok(name)) {
+            return Err(build_failed(
+                "a prune name has characters the build refuses",
+            ));
+        }
+        let key = env_key(&hex, &setting.prune);
         let base = self.ensure_base().await?;
         let labels = Labels::new().with(LOCK_LABEL, &hex);
-        let env_tag = format!("{ENV_REPO}:{hex}");
+        let env_tag = format!("{ENV_REPO}:{key}");
         let (mut info, mut built) = self
-            .ensure_layer(&env_tag, &hex, &base, Layer::Env(setting), &labels)
+            .ensure_layer(&env_tag, &key, &base, Layer::Env(setting), &labels)
             .await?;
         if let Some(extension) = &setting.extension {
             let env = BaseImage {
@@ -360,11 +374,13 @@ impl DockerImageService {
         Ok(image)
     }
 
-    /// Compiles the lock of `request` and the stable dependencies in a control container of the
-    /// base image, the one control call that has a network.
+    /// Compiles the lock of `request` in a control container of the base image, the one control
+    /// call that has a network. A request without sources has the empty lock, and nothing runs.
     async fn compile_lock(&self, request: &LockRequest) -> Result<Vec<u8>, ImageError> {
-        // BORROW: .to_owned() keeps the name in the argv
-        let mut names = vec![STABLE_SOURCE.to_owned()];
+        if request.sources.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut names = Vec::new();
         for source in &request.sources {
             if !source_name_ok(&source.name) {
                 return Err(build_failed(
@@ -405,12 +421,6 @@ impl DockerImageService {
         };
         tokio::fs::create_dir_all(records).await.map_err(failed)?;
         tokio::fs::create_dir_all(sources).await.map_err(failed)?;
-        tokio::fs::copy(
-            self.assets.env_context.join(STABLE_SOURCE),
-            sources.join(STABLE_SOURCE),
-        )
-        .await
-        .map_err(failed)?;
         for source in &request.sources {
             tokio::fs::write(sources.join(&source.name), &source.bytes)
                 .await
@@ -510,29 +520,43 @@ async fn control_output(
     }
 }
 
-/// What the env image's planner library is: the distribution that provides the planner package and its
+/// What an env image holds of one import package: the distribution that provides it and its
 /// version. One distribution gives a string each; any other count gives a list each, in step.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct PlannerAxis {
+pub struct PackageReading {
     /// The distribution name or names.
     pub distribution: serde_json::Value,
     /// The version or versions, in the order of the distributions.
     pub version: serde_json::Value,
 }
 
-/// Reads the planner library of an image in a control container, by running a script that lists
-/// the distributions providing the planner's import package.
-pub struct PlannerProbe {
+/// The readings of an image, by import package name.
+pub type PackageReadings = BTreeMap<String, PackageReading>;
+
+/// Whether `name` is an import package name the experiment may record: lower-case letters, digits
+/// and `_`, not starting with a digit. The name becomes a field-path segment.
+#[must_use]
+pub fn package_name_ok(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    bytes
+        .next()
+        .is_some_and(|first| first.is_ascii_lowercase() || first == b'_')
+        && bytes.all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+}
+
+/// Reads the distribution and version of named import packages in an image, in one control
+/// container, by running a script over the image's installed distributions.
+pub struct PackageProbe {
     sup: Arc<Supervisor>,
     binary: PathBuf,
     env: ClientEnv,
     store_root: PathBuf,
-    package: String,
+    names: Vec<String>,
 }
 
-impl PlannerProbe {
-    /// A probe of the import package `package` that runs control containers through `sup` with
+impl PackageProbe {
+    /// A probe of the import packages `names` that runs control containers through `sup` with
     /// the docker client at `binary`, under the control directory of the store at `store_root`.
     #[must_use]
     pub const fn new(
@@ -540,32 +564,28 @@ impl PlannerProbe {
         binary: PathBuf,
         env: ClientEnv,
         store_root: PathBuf,
-        package: String,
+        names: Vec<String>,
     ) -> Self {
         Self {
             sup,
             binary,
             env,
             store_root,
-            package,
+            names,
         }
     }
 
-    /// Runs the planner probe script in `image` and reads what it prints.
+    /// Runs the probe script in `image` and reads what it prints.
     ///
     /// # Errors
-    /// [`ImageError::VersionUnreadable`] when the container cannot run or prints anything but a
-    /// list of `[distribution, version]` pairs.
-    pub async fn read(&self, image: &ImageRef) -> Result<PlannerAxis, ImageError> {
-        let name_ok = !self.package.is_empty()
-            && self
-                .package
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-'));
-        if !name_ok {
-            return Err(unreadable("the planner package name is not a plain name"));
+    /// [`ImageError::VersionUnreadable`] when a name is not a package name, when the container
+    /// cannot run, or when it prints anything but an object of lists of
+    /// `[distribution, version]` pairs, one list per name.
+    pub async fn read(&self, image: &ImageRef) -> Result<PackageReadings, ImageError> {
+        if !self.names.iter().all(|name| package_name_ok(name)) {
+            return Err(unreadable("a package name is not a plain import name"));
         }
-        let script = planner_script(&self.package);
+        let script = package_script(&self.names)?;
         let records = layout::control_dir(&self.store_root).join(format!(
             "{}-{}",
             std::process::id(),
@@ -584,36 +604,49 @@ impl PlannerProbe {
         // The record dir is this call's own and holds only this call's record.
         let _ = tokio::fs::remove_dir_all(&records).await;
         let text = String::from_utf8(outcome?)
-            .map_err(|_| unreadable("the planner probe output is not text"))?;
+            .map_err(|_| unreadable("the package probe output is not text"))?;
         // BORROW: explicit .as_str() instead of Deref coercion
-        parse_planner(text.as_str())
+        parse_packages(text.as_str())
     }
 }
 
-/// The script that lists the distributions providing the import package `package` with their
-/// versions as JSON pairs.
-fn planner_script(package: &str) -> String {
-    format!(
+/// The script that prints, for each import package of `names`, the distributions providing it
+/// with their versions as JSON pairs.
+fn package_script(names: &[String]) -> Result<String, ImageError> {
+    let list = serde_json::to_string(names)
+        .map_err(|_| unreadable("the package names cannot be written"))?;
+    Ok(format!(
         "import importlib.metadata as m, json\n\
-dists = m.packages_distributions().get('{package}') or []\n\
-print(json.dumps([[d, m.version(d)] for d in dists]))\n"
-    )
+owners = m.packages_distributions()\n\
+print(json.dumps({{n: [[d, m.version(d)] for d in owners.get(n) or []] for n in {list}}}))\n"
+    ))
 }
 
-/// Reads the output of the planner probe script.
+/// Reads the output of the package probe script.
 ///
 /// # Errors
-/// [`ImageError::VersionUnreadable`] for anything but a JSON list of string pairs.
-pub fn parse_planner(output: &str) -> Result<PlannerAxis, ImageError> {
-    let bad = || unreadable("the planner probe output is not a list of [distribution, version]");
-    let pairs: Vec<(String, String)> = serde_json::from_str(output.trim()).map_err(|_| bad())?;
+/// [`ImageError::VersionUnreadable`] for anything but a JSON object of lists of string pairs.
+pub fn parse_packages(output: &str) -> Result<PackageReadings, ImageError> {
+    let bad = || {
+        unreadable("the package probe output is not an object of lists of [distribution, version]")
+    };
+    let found: BTreeMap<String, Vec<(String, String)>> =
+        serde_json::from_str(output.trim()).map_err(|_| bad())?;
+    Ok(found
+        .into_iter()
+        .map(|(name, pairs)| (name, reading_of(pairs)))
+        .collect())
+}
+
+/// The reading of one package from its `(distribution, version)` pairs.
+fn reading_of(pairs: Vec<(String, String)>) -> PackageReading {
     if let [(name, version)] = pairs.as_slice() {
-        return Ok(PlannerAxis {
-            // BORROW: .clone() gives the axis its own strings
+        return PackageReading {
+            // BORROW: .clone() gives the reading its own strings
             distribution: serde_json::Value::String(name.clone()),
-            // BORROW: .clone() gives the axis its own strings
+            // BORROW: .clone() gives the reading its own strings
             version: serde_json::Value::String(version.clone()),
-        });
+        };
     }
     let (names, versions): (Vec<_>, Vec<_>) = pairs
         .into_iter()
@@ -624,10 +657,10 @@ pub fn parse_planner(output: &str) -> Result<PlannerAxis, ImageError> {
             )
         })
         .unzip();
-    Ok(PlannerAxis {
+    PackageReading {
         distribution: serde_json::Value::Array(names),
         version: serde_json::Value::Array(versions),
-    })
+    }
 }
 
 impl ImageService for DockerImageService {
@@ -649,6 +682,48 @@ impl ImageService for DockerImageService {
     ) -> BoxFuture<'a, Result<semver::Version, ImageError>> {
         Box::pin(self.read_version(image))
     }
+}
+
+impl Layer<'_> {
+    /// The build arguments the layer adds to its base: the env layer's prune list, when it has one.
+    fn build_args(&self) -> Vec<(String, String)> {
+        match self {
+            Self::Env(setting) if !setting.prune.is_empty() => {
+                // BORROW: .to_owned() makes the argument name the request owns
+                vec![(PRUNE_ARG.to_owned(), setting.prune.join(" "))]
+            }
+            Self::Env(_) | Self::Extension(_) => Vec::new(),
+        }
+    }
+}
+
+/// The key of an env image: the lock's hex digest when nothing is pruned, else the sha256 of the
+/// lock's hex digest followed by a NUL and each distinct prune name in order.
+fn env_key(lock_hex: &str, prune: &[String]) -> String {
+    let mut names: Vec<&str> = prune.iter().map(String::as_str).collect();
+    names.sort_unstable();
+    names.dedup();
+    if names.is_empty() {
+        // BORROW: .to_owned() gives the key its own text
+        return lock_hex.to_owned();
+    }
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(lock_hex.as_bytes());
+    for name in names {
+        hasher.update([0_u8]);
+        hasher.update(name.as_bytes());
+    }
+    hex_of(&hasher.finalize())
+}
+
+/// Whether `name` is a file name the env build may delete: letters, digits, `.`, `_` and `-`,
+/// and neither `.` nor `..`.
+#[must_use]
+pub fn prune_name_ok(name: &str) -> bool {
+    !matches!(name, "" | "." | "..")
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
 /// What a layer image is built from.
@@ -754,10 +829,7 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), std::io::Error> {
 
 /// Whether the compiler can take `name` as a file of the source mount.
 fn source_name_ok(name: &str) -> bool {
-    !name.is_empty()
-        && name != STABLE_SOURCE
-        && !name.starts_with(['-', '.'])
-        && !name.contains(['/', '\\', '\0'])
+    !name.is_empty() && !name.starts_with(['-', '.']) && !name.contains(['/', '\\', '\0'])
 }
 
 /// The last bytes of `bytes` as text.
@@ -926,6 +998,9 @@ pub struct BuildSetting {
     pub lock: Vec<u8>,
     /// The experiment's own layer on top of the env image, when it names one.
     pub extension: Option<Extension>,
+    /// The names of the files deleted from the env after the install
+    /// (`isolation.build.prune`).
+    pub prune: Vec<String>,
 }
 
 /// An experiment's own Dockerfile (`isolation.build.{dockerfile, context}`), built `FROM` the env
@@ -938,8 +1013,8 @@ pub struct Extension {
     pub context: PathBuf,
 }
 
-/// One requirement source the env lock is compiled from, such as the skill's
-/// `scripts/pyproject.toml`.
+/// One requirement source the env lock is compiled from: a requirements file or a project file
+/// the compiler reads under its own name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LockSource {
     /// The file name the compiler sees.
@@ -948,8 +1023,7 @@ pub struct LockSource {
     pub bytes: Vec<u8>,
 }
 
-/// What [`ImageService::lock`] compiles: the experiment's sources, on top of the stable
-/// dependencies the env assets declare.
+/// What [`ImageService::lock`] compiles: the experiment's requirement sources and nothing else.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LockRequest {
     /// The sources, in the order the experiment lists them.
@@ -993,8 +1067,8 @@ pub enum ImageError {
 
 /// Provides the image of a job.
 pub trait ImageService: Send + Sync {
-    /// Compiles the requirement lock of the env layer from `request` and the stable dependencies,
-    /// for the base image's interpreter and platform.
+    /// Compiles the requirement lock of the env layer from `request`, for the base image's
+    /// interpreter and platform. A request without sources has the empty lock.
     ///
     /// # Errors
     /// [`ImageError::Build`] when the compile fails.

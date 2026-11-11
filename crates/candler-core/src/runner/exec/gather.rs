@@ -12,7 +12,7 @@ use regex::Regex;
 
 use super::ends::TraceFacts;
 use crate::runner::Usage;
-use crate::runner::evidence::OutputDigest;
+use crate::runner::evidence::{Inputs, OutputDigest};
 use crate::store::blob::digest_of_file;
 use candler_schemas::primitives::Digest;
 
@@ -174,6 +174,21 @@ pub fn collect_files(root: &Path, specs: &[CollectSpec]) -> io::Result<Vec<Outpu
         .into_iter()
         .map(|(path, digest)| OutputDigest { path, digest })
         .collect())
+}
+
+/// The files the run produced: [`collect_files`] without the mount point of any input. The mount
+/// point of an input file is an empty file the host made in the workspace, so it is not an output.
+///
+/// # Errors
+/// The errors of [`collect_files`].
+pub fn collect_outputs(
+    root: &Path,
+    specs: &[CollectSpec],
+    inputs: &Inputs,
+) -> io::Result<Vec<OutputDigest>> {
+    let mut found = collect_files(root, specs)?;
+    found.retain(|out| inputs.digests.iter().all(|input| input.path != out.path));
+    Ok(found)
 }
 
 /// Calls `each` with the relative path and the file of every regular file under `dir`.

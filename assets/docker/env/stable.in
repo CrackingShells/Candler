@@ -1,6 +1,0 @@
-libcst>=1.1.0,<2
-jsonschema>=4.0
-python-arango>=8.2.2,<9
-python-dotenv>=1.0,<2
-mcp>=1.18.0
-gtpyhop-core>=2.0.0,<3

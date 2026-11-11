@@ -93,7 +93,9 @@ jobs:
           for name in b06_kernel_facts b08_self_expiry b09_host_uid_sealable b12_sweep_scope \
             b13_client_killed_container_gone b17_canary_absent b18_internal_network_no_route \
             b36_supervisor_sigkill_nothing_left b37_untrusted_upstream_gets_no_credential \
-            b40_kill_all_destroys_lost_jobs_containers; do
+            b40_kill_all_destroys_lost_jobs_containers \
+            x1_env_image_prunes_the_named_file_and_reads_the_pin \
+            x1_env_image_without_requirements_has_only_seed_packages; do
             if ! grep -Eq "PASS \[.*::${name}\$" "$RUNNER_TEMP/e2e.txt"; then
               echo "::error::guard ${name} did not run and pass"
               missing=1

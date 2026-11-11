@@ -49,6 +49,35 @@
       ],
       "type": "object"
     },
+    "ExperimentInput": {
+      "additionalProperties": false,
+      "description": "An input a run reads: a file or a directory, found relative to the experiment file, and who sees it.",
+      "properties": {
+        "at": {
+          "$comment": "A relative path with no `..` segment; the Rust reader refuses an absolute path and a `..` segment.",
+          "description": "The workspace directory the input is mounted under; `.` when absent.",
+          "type": "string"
+        },
+        "audience": {
+          "$ref": "#/$defs/InputAudience",
+          "default": "agent",
+          "description": "Who sees the input; the agent when absent."
+        },
+        "kind": {
+          "$ref": "#/$defs/Name",
+          "description": "What the input is, as a plain name; unique among the inputs of a file."
+        },
+        "path": {
+          "description": "The file or directory, relative to the experiment file.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "path"
+      ],
+      "type": "object"
+    },
     "Factor": {
       "additionalProperties": false,
       "description": "A field that varies across the cells of an experiment: its path and its levels, in the order they are written.",
@@ -110,6 +139,21 @@
       ],
       "type": "object"
     },
+    "InputAudience": {
+      "description": "Who sees an input: the agent, in its workspace, or only the evaluators.",
+      "oneOf": [
+        {
+          "const": "agent",
+          "description": "The agent sees the input, mounted read-only in its workspace.",
+          "type": "string"
+        },
+        {
+          "const": "evaluators",
+          "description": "Only the evaluators see the input; it never enters the agent's workspace.",
+          "type": "string"
+        }
+      ]
+    },
     "Name": {
       "description": "A plain name, such as that of a harness, a reader, a plug-in or a treatment: non-empty, with neither `@` nor white space.",
       "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+(?![\\s\\S])",
@@ -150,9 +194,9 @@
       "pattern": "^[A-Z_][A-Z0-9_]*(?![\\s\\S])",
       "type": "string"
     },
-    "TreatmentRef": {
+    "TreatmentSpec": {
       "additionalProperties": false,
-      "description": "The treatment an experiment applies: a name, and the tag and commit it is pinned to.",
+      "description": "The treatment an experiment file declares: a name, the tag and commit it is pinned to, and where its files are.",
       "properties": {
         "commit": {
           "$ref": "#/$defs/GitCommit",
@@ -161,6 +205,10 @@
         "name": {
           "$ref": "#/$defs/Name",
           "description": "The name of the treatment."
+        },
+        "source": {
+          "description": "Where the treatment's files are, as a path relative to the experiment file.",
+          "type": "string"
         },
         "tag": {
           "description": "The tag the treatment is pinned to, as its source names it.",
@@ -214,6 +262,15 @@
       "$ref": "#/$defs/HarnessRequest",
       "description": "The harness the runs use."
     },
+    "inputs": {
+      "$comment": "The kinds are unique and none is `build_inputs`; the Rust reader refuses a repeated or reserved kind.",
+      "default": [],
+      "description": "The files and directories the runs read, with who sees each.",
+      "items": {
+        "$ref": "#/$defs/ExperimentInput"
+      },
+      "type": "array"
+    },
     "replicates": {
       "$comment": "Fits in 32 bits; the reader enforces it.",
       "description": "The runs of each cell, from 1.",
@@ -235,8 +292,8 @@
       "type": "array"
     },
     "treatment": {
-      "$ref": "#/$defs/TreatmentRef",
-      "description": "The treatment the runs apply."
+      "$ref": "#/$defs/TreatmentSpec",
+      "description": "The treatment the runs apply, and where its files are."
     }
   },
   "required": [

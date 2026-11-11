@@ -119,6 +119,7 @@ exit 1
             plans: Vec::new(),
             force: false,
             inputs: Vec::new(),
+            evaluation_inputs: Vec::new(),
         }
     }
 
@@ -187,7 +188,6 @@ exit 1
                 // TRAIT_OBJECT: the tree is a stub that holds no file
                 skills: Arc::new(NoSkills),
                 eval_infra: EvalInfra::default(),
-                planner_package: None,
             },
         };
         let runtime = tokio::runtime::Builder::new_multi_thread()

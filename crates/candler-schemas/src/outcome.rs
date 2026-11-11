@@ -1399,7 +1399,7 @@ mod tests {
             .run(RunKey::new(digest(), 1, 1).expect("a run key"))
             .expectation_id("A1".parse().expect("an id"))
             .role(Role::Gate)
-            .evaluator("htn-creator-eval@0.4.2".parse().expect("a name@version"))
+            .evaluator("acme-eval@0.4.2".parse().expect("a name@version"))
             .suite_entry_digest(digest())
             .context_digest(digest())
             .request_id(REQUEST.parse().expect("a request id"))
@@ -1417,7 +1417,7 @@ mod tests {
             "run": {"cell": format!("sha256:{HEX}"), "replicate": 1, "attempt": 1},
             "expectation_id": "A1",
             "role": "gate",
-            "evaluator": "htn-creator-eval@0.4.2",
+            "evaluator": "acme-eval@0.4.2",
             "instruments": [],
             "suite_entry_digest": format!("sha256:{HEX}"),
             "context_digest": format!("sha256:{HEX}"),
@@ -1743,7 +1743,7 @@ mod tests {
 
     #[test]
     fn outcome_instrument_with_a_git_digest_must_be_clean() {
-        let identity: NameVersion = "htn_creator_scripts@0.4.2".parse().expect("name@version");
+        let identity: NameVersion = "acme_scripts@0.4.2".parse().expect("name@version");
         let git: InstrumentDigest = format!("git:{}", "ab".repeat(20)).parse().expect("git");
         let sha: InstrumentDigest = format!("sha256:{HEX}").parse().expect("sha");
         assert!(Instrument::new(identity.clone(), git.clone(), false).is_ok());
@@ -1753,7 +1753,7 @@ mod tests {
         ));
         let dirty = Instrument::new(identity, sha, true).expect("a dirty content digest");
         assert!(dirty.dirty());
-        assert_eq!(dirty.name(), "htn_creator_scripts");
+        assert_eq!(dirty.name(), "acme_scripts");
         assert_eq!(dirty.version().to_string(), "0.4.2");
         assert!(!dirty.digest().is_git());
     }
@@ -1975,7 +1975,7 @@ mod tests {
         assert!(fraction.is_err(), "a fraction written as a list");
         let whole = json!([
             {"cell": format!("sha256:{HEX}"), "replicate": 1, "attempt": 1},
-            "A1", "gate", "htn-creator-eval@0.4.2", [], format!("sha256:{HEX}"),
+            "A1", "gate", "acme-eval@0.4.2", [], format!("sha256:{HEX}"),
             format!("sha256:{HEX}"), REQUEST, "pass", [], null, null, null, null
         ]);
         assert!(read(whole).is_err(), "a record written as a list");
@@ -1987,7 +1987,7 @@ mod tests {
             ("status", json!("not-measured")),
             ("role", json!("Gate")),
             ("expectation_id", json!("")),
-            ("evaluator", json!("htn-creator-eval")),
+            ("evaluator", json!("acme-eval")),
             ("suite_entry_digest", json!("sha256:xyz")),
             ("request_id", json!("not-a-uuid")),
             (

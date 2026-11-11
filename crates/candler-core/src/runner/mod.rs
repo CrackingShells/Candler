@@ -64,9 +64,6 @@ pub struct Runtime {
     pub cells: BTreeMap<CellId, Arc<CellRun>>,
     /// The build of the evaluation infrastructure that runs the job.
     pub eval_infra: EvalInfra,
-    /// The import package whose distribution and version the job records for the env image;
-    /// none records nothing.
-    pub planner_package: Option<String>,
 }
 
 /// The job's gateway: the service that talks to it and the handle of the running container.
