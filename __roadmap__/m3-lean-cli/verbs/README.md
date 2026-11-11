@@ -29,7 +29,7 @@ Every new verb exists and works, `evaluate` has a supervised job body, the core'
 graph TD
     refusal_core[Refusal core]:::done
     evaluate_body[Evaluate body]:::done
-    analyze[Analyze]:::planned
+    analyze[Analyze]:::done
     observe[Observe]:::done
     ingest_inspect[Ingest and inspect]:::planned
     docs_frame[Docs frame]:::done
@@ -47,7 +47,7 @@ graph TD
 |:-----|:-----|:-------|
 | `refusal_core.md` | 📄 Leaf Task | ✅ Done |
 | `evaluate_body.md` | 📄 Leaf Task | ✅ Done |
-| `analyze.md` | 📄 Leaf Task | ⬜ Planned |
+| `analyze.md` | 📄 Leaf Task | ✅ Done |
 | `observe.md` | 📄 Leaf Task | ✅ Done |
 | `ingest_inspect.md` | 📄 Leaf Task | ⬜ Planned |
 | `docs_frame.md` | 📄 Leaf Task | ✅ Done |
