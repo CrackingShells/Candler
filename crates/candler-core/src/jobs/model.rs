@@ -34,6 +34,27 @@ pub struct JobSpec {
     pub evaluation_inputs: Vec<DigestRef>,
 }
 
+/// What the job directory's spec file holds: the spec of the kind of job it is. A run job's file
+/// is the bytes of its [`JobSpec`] and no more, so the digest the job record keeps is the digest of
+/// the same document. The enum is exhaustive on purpose: a match over it in this workspace fails to
+/// build when a kind of job is added, instead of falling into a wildcard arm.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "the binary matches every kind of job, and a new kind must fail its build"
+)]
+pub enum JobSpecFile {
+    /// The spec of a job `candler run` starts.
+    Run(JobSpec),
+}
+
+impl From<JobSpec> for JobSpecFile {
+    fn from(spec: JobSpec) -> Self {
+        Self::Run(spec)
+    }
+}
+
 /// How a job ended and what its runs did.
 #[derive(Debug, Clone, PartialEq)]
 pub struct JobOutcome {
