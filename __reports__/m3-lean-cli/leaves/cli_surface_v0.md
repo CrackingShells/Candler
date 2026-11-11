@@ -23,8 +23,8 @@ The binary now carries its container assets and runs from a copy outside its sou
 |:--|:--|
 | Base a72342b | 2026-11-12 07:09:37 |
 | First commit, 68135af | 07:24:16 |
-| Last commit before this report, a9e45aa | 07:44:56 |
-| Elapsed, base to last commit | 35 minutes |
+| Last code commit, e970b9c | 2026-11-12T07:53:50+09:00 |
+| Elapsed | see the timestamps; the base-to-first-commit gap includes reading the spec |
 
 The build directory peaked near 2.1 GiB (candler and its dependencies, tests included); it was removed before the final report.
 
@@ -159,4 +159,24 @@ All inside the OWNED regex:
 
 ## Gates
 
-@GATES@
+| Gate | Result |
+|:--|:--|
+| OWNED | PASS (the report and the three `[internal]` rows noted in defect 11 aside) |
+| U1 `test(/^u1_/)` | PASS (3 tests) |
+| U2 `test(/^u2_/)` | PASS |
+| U3 `test(/^u3_/)` | PASS (2 tests) |
+| U4 quick wins, all names exist | PASS (11 tests run, no name missing) |
+| U5 `test(/^u5_/)` | PASS (3 tests) |
+| No pending list; no `CARGO_MANIFEST_DIR` in the binary's sources | PASS |
+| G-verbs | PASS with the blank-line stop (defect 2); no `m3 scaffold` left |
+| README lists every verb, no `import` | PASS |
+| G-text | red at the base, not by this leaf (defect 3) |
+| G-digest | PASS |
+| `q1_` platform guard | PASS (inside the workspace run) |
+| Three doc lines per `u1`..`u5` guard | PASS |
+| STD, workspace forms | PASS: fmt, clippy `-D warnings`, nextest 599 passed, doc `-D warnings` |
+| LINUX clippy | PASS |
+| `cargo check --workspace --all-targets` | PASS |
+| SUBJ: `cog check a72342b..HEAD`, subjects at most 72 | PASS |
+| `contract_pages` (D1) | PASS, nothing blessed |
+
