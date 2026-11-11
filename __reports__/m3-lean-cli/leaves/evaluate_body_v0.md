@@ -107,6 +107,11 @@ New public types without errors: `EvaluatorSlots`, `RunSelection`, `EvaluateSpec
 4. **Plug-in manifest file names** under `plugins.dirs`: `plugin.toml` (the fixtures') and `candler-plugin.toml` (the golden plug-in's), one per directory, a choice for the coordinator since R01 names none.
 5. **`candler evaluate` document** now comes from `EvaluateReport::to_document`; its four keys are unchanged.
 
+## Fix round: rebase and bridge
+- **Rebase** onto `feat/m3-lean-cli` at fe1a942. One conflict, in `experiment/paths.rs`: both appends kept (`SLOTS_EVALUATORS`, then `refusal_core`'s `is_known_path`).
+- **`slots.evaluators` and `is_known_path`:** it is known through `is_setting`, the first test of `is_known_path`, so unknown-path refusal in `--set`, `[fixed]` and factors never rejects it. Established by a test, `e2_slots_evaluators_is_a_known_path` (bite: the path dropped from `is_setting`, seen red), and it needs no row in the `LEAVES` array.
+- **Bridge** (one edit outside OWNED, authorised by the coordinator): `crates/candler/src/commands/evaluate.rs` maps the runs glob to `RunSelection::Glob` (`All` when absent) and `--concurrency N` to a pool of N slots in `<env_root>/slots-evaluate`, job `evaluate-<pid>`. Output and exit codes are unchanged; the `guard_cli*` binaries pass and no line of them changed. `evaluate_verb` replaces it. The commit follows the report commit rather than `a0cd268`, because rewinding the branch was not allowed.
+
 ## Spec defects found
 - **The workspace does not build between this leaf and `evaluate_verb`.** `crates/candler/src/commands/evaluate.rs` builds an `EvaluateRequest` with `runs` and `concurrency`, and `commands/**` is not OWNED. `cargo check -p candler` fails on those two fields; `-p candler-core` is clean. The coordinator needs `evaluate_verb` on top of this branch, or a two-line edit to that file, before the workspace form of STD can run.
 - **The E3 bite is not single-mechanism** (table above): the three defences overlap, so the bite is "no marker sweep, no orphan sweep" and "no marker sweep and no subreaper".
