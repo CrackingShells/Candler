@@ -140,6 +140,19 @@ fn as_refusal<'e, E: Refusal>(found: &'e E) -> &'e dyn Refusal {
     found
 }
 
+/// The refusal that answers for a [`ResolveError`]: a value or format error it wraps answers with
+/// its own code, side and path, and every other variant with its own.
+fn resolve_answer(error: &ResolveError) -> &dyn Refusal {
+    match error {
+        ResolveError::Value(inner) => crate::refusal::through(inner, error),
+        ResolveError::Format(inner) => crate::refusal::through(inner, error),
+        ResolveError::NonUtf8Path { .. }
+        | ResolveError::DuplicateStep { .. }
+        | ResolveError::DerivedTwice { .. }
+        | ResolveError::Preflight { .. } => error,
+    }
+}
+
 /// The coded error of this module that `error` is, or `None` when it is none of them.
 #[must_use]
 pub(crate) fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal> {
@@ -150,6 +163,6 @@ pub(crate) fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refu
             error
                 .downcast_ref::<PreflightError>()
                 .map(as_refusal)
-                .or_else(|| error.downcast_ref::<ResolveError>().map(as_refusal))
+                .or_else(|| error.downcast_ref::<ResolveError>().map(resolve_answer))
         })
 }

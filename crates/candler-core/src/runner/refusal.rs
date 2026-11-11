@@ -219,6 +219,18 @@ fn as_refusal<'e, E: Refusal>(found: &'e E) -> &'e dyn Refusal {
     found
 }
 
+/// The refusal that answers for an [`ExecError`]: each variant only wraps an error, so the
+/// answer is the wrapped error's own code, side and path.
+fn exec_answer(error: &ExecError) -> &dyn Refusal {
+    match error {
+        ExecError::Isolation(inner) => crate::refusal::through(inner, error),
+        ExecError::Store(inner) => crate::refusal::through(inner, error),
+        ExecError::Driver(inner) => crate::refusal::through(inner, error),
+        ExecError::Manifest(inner) => crate::refusal::through(inner, error),
+        ExecError::Supervise(inner) => crate::refusal::through(inner, error),
+    }
+}
+
 /// The coded error of this module that `error` is, or `None` when it is none of them.
 #[must_use]
 pub(crate) fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal> {
@@ -228,7 +240,7 @@ pub(crate) fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refu
         .or_else(|| {
             error
                 .downcast_ref::<ExecError>()
-                .map(as_refusal)
+                .map(exec_answer)
                 .or_else(|| {
                     error
                         .downcast_ref::<CatalogError>()

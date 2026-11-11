@@ -97,11 +97,23 @@ fn as_refusal<'e, E: Refusal>(found: &'e E) -> &'e dyn Refusal {
     found
 }
 
+/// The refusal that answers for a [`SurfaceError`]: a format error it wraps answers with its own
+/// code, side and path, and every other variant with its own.
+fn surface_answer(error: &SurfaceError) -> &dyn Refusal {
+    match error {
+        SurfaceError::Format(inner) => crate::refusal::through(inner, error),
+        SurfaceError::Missing(..)
+        | SurfaceError::Type { .. }
+        | SurfaceError::ReservedRoot { .. }
+        | SurfaceError::AbsolutePath { .. } => error,
+    }
+}
+
 /// The coded error of this module that `error` is, or `None` when it is none of them.
 #[must_use]
 pub(crate) fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal> {
     error
         .downcast_ref::<InputError>()
         .map(as_refusal)
-        .or_else(|| error.downcast_ref::<SurfaceError>().map(as_refusal))
+        .or_else(|| error.downcast_ref::<SurfaceError>().map(surface_answer))
 }

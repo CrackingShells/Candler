@@ -147,7 +147,7 @@ fn as_refusal<'e, E: Refusal>(found: &'e E) -> &'e dyn Refusal {
 /// code, side and path, and every other variant with its own.
 fn import_answer(error: &ImportError) -> &dyn Refusal {
     match error {
-        ImportError::Format(inner) => crate::refusal::find(inner).unwrap_or(error),
+        ImportError::Format(inner) => crate::refusal::through(inner, error),
         ImportError::MissingField { .. }
         | ImportError::Rules { .. }
         | ImportError::Io { .. }

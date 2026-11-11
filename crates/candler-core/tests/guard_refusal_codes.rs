@@ -17,7 +17,7 @@ const INTERNAL_CODE: &str = "candler.internal";
 const NO_CODE_SECTIONS: [&str; 2] = ["internal", "helper"];
 
 /// The sections whose rows the core and the harness crates own: their rows are in the catalogue.
-const CATALOGUED_SECTIONS: [&str; 11] = [
+const CATALOGUED_SECTIONS: [&str; 12] = [
     "resolve",
     "experiment",
     "runner",
@@ -29,6 +29,7 @@ const CATALOGUED_SECTIONS: [&str; 11] = [
     "jobs",
     "evaluation",
     "import",
+    "analysis",
 ];
 
 /// The workspace root.
@@ -431,6 +432,17 @@ fn r1_a_wrapper_answers_with_the_side_of_what_it_wraps() {
     let found = candler_core::refusal::find(&wrapped).expect("a coded error");
     assert_eq!(found.code().as_str(), "suite.kind_unknown");
     assert_eq!(found.side(), Side::Suite);
+
+    // The core's wrappers: `ExecError::Driver` is written with the side `experiment`, and a
+    // driver that cannot read the harness version is the environment's.
+    let version = candler_core::runner::exec::ExecError::Driver(
+        candler_harness::driver::DriverError::VersionOutput {
+            detail: "no output".to_owned(),
+        },
+    );
+    let found = candler_core::refusal::find(&version).expect("a coded error");
+    assert_eq!(found.code().as_str(), "harness.version_unreadable");
+    assert_eq!(found.side(), Side::Environment);
 
     let locked = OrchestrateError::Plan(PlanError::ExperimentLocked);
     let found = candler_core::refusal::find(&locked).expect("a coded error");

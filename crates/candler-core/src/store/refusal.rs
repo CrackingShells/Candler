@@ -110,13 +110,27 @@ pub(crate) fn catalog() -> Vec<CatalogRow> {
         .collect()
 }
 
-/// Views a coded error as its [`Refusal`].
-fn as_refusal<'e, E: Refusal>(found: &'e E) -> &'e dyn Refusal {
-    found
+/// The refusal that answers for a [`StoreError`]: a format error it wraps answers with its own
+/// code, side and path, and every other variant with its own.
+fn store_answer(error: &StoreError) -> &dyn Refusal {
+    match error {
+        StoreError::Format(inner) => crate::refusal::through(inner, error),
+        StoreError::Io { .. }
+        | StoreError::NotAStore { .. }
+        | StoreError::DigestMismatch { .. }
+        | StoreError::RunExists { .. }
+        | StoreError::RunSealed { .. }
+        | StoreError::ManifestMismatch { .. }
+        | StoreError::StreamExists { .. }
+        | StoreError::OutcomeExists { .. }
+        | StoreError::RecordMismatch { .. }
+        | StoreError::IndexCorrupt { .. }
+        | StoreError::Parse { .. } => error,
+    }
 }
 
 /// The coded error of this module that `error` is, or `None` when it is none of them.
 #[must_use]
 pub(crate) fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal> {
-    error.downcast_ref::<StoreError>().map(as_refusal)
+    error.downcast_ref::<StoreError>().map(store_answer)
 }

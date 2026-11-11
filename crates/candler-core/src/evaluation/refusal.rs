@@ -408,17 +408,10 @@ fn as_refusal<'e, E: Refusal>(found: &'e E) -> &'e dyn Refusal {
     found
 }
 
-/// The refusal that answers for a variant of `wrapper` that only wraps `inner`: what the walk of
-/// causes finds from `inner`, so that its side is the wrapped error's own, or `wrapper` when the
-/// walk finds nothing.
-fn through<'e, E: Error + 'static>(inner: &'e E, wrapper: &'e dyn Refusal) -> &'e dyn Refusal {
-    crate::refusal::find(inner).unwrap_or(wrapper)
-}
-
 /// The refusal that answers for a [`ContextError`].
 fn context_answer(error: &ContextError) -> &dyn Refusal {
     match error {
-        ContextError::Store(inner) => through(inner, error),
+        ContextError::Store(inner) => crate::refusal::through(inner, error),
         ContextError::NotSealed { .. }
         | ContextError::Glob { .. }
         | ContextError::Unsupported { .. }
@@ -435,12 +428,12 @@ fn context_answer(error: &ContextError) -> &dyn Refusal {
 #[cfg(unix)]
 fn evaluate_answer(error: &EvaluateError) -> &dyn Refusal {
     match error {
-        EvaluateError::Registry(inner) => through(inner, error),
-        EvaluateError::Suite { source, .. } => through(source, error),
-        EvaluateError::Store(inner) => through(inner, error),
-        EvaluateError::Plan(inner) => through(inner, error),
-        EvaluateError::Describe { source, .. } => through(source, error),
-        EvaluateError::Slots(inner) => through(inner, error),
+        EvaluateError::Registry(inner) => crate::refusal::through(inner, error),
+        EvaluateError::Suite { source, .. } => crate::refusal::through(source, error),
+        EvaluateError::Store(inner) => crate::refusal::through(inner, error),
+        EvaluateError::Plan(inner) => crate::refusal::through(inner, error),
+        EvaluateError::Describe { source, .. } => crate::refusal::through(source, error),
+        EvaluateError::Slots(inner) => crate::refusal::through(inner, error),
         EvaluateError::EnvironmentNotReady { .. }
         | EvaluateError::Io { .. }
         | EvaluateError::Glob { .. }
@@ -452,8 +445,8 @@ fn evaluate_answer(error: &EvaluateError) -> &dyn Refusal {
 #[cfg(unix)]
 fn registry_answer(error: &RegistryError) -> &dyn Refusal {
     match error {
-        RegistryError::Manifest { source, .. } => through(source, error),
-        RegistryError::Need { source, .. } => through(source, error),
+        RegistryError::Manifest { source, .. } => crate::refusal::through(source, error),
+        RegistryError::Need { source, .. } => crate::refusal::through(source, error),
         RegistryError::Read { .. }
         | RegistryError::NoManifest { .. }
         | RegistryError::ManyManifests { .. }

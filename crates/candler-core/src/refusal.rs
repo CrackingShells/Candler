@@ -15,6 +15,11 @@ use candler_schemas::refusal::{CatalogRow, Refusal};
 #[must_use]
 pub fn catalog() -> Vec<CatalogRow> {
     let mut rows = candler_schemas::refusal::catalog();
+    rows.extend(
+        <crate::analysis::refusal::ReportError as candler_schemas::refusal::Catalogued>::rows()
+            .iter()
+            .copied(),
+    );
     rows.extend(crate::evaluation::refusal::catalog());
     rows.extend(crate::experiment::refusal::catalog());
     rows.extend(crate::frames::refusal::catalog());
@@ -52,10 +57,26 @@ pub fn find<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal> {
     None
 }
 
+/// The refusal that answers for a variant of `wrapper` that only wraps `inner`: what the walk of
+/// causes finds from `inner`, so that its side is the wrapped error's own and not the one its
+/// wrapper was written with, or `wrapper` when the walk finds nothing.
+///
+/// Each module's `coded` hands the walk a wrapper's inner error through this function. Asking a
+/// wrapper for its `side` directly still gives the side of its table row.
+pub(crate) fn through<'e, E: Error + 'static>(
+    inner: &'e E,
+    wrapper: &'e dyn Refusal,
+) -> &'e dyn Refusal {
+    find(inner).unwrap_or(wrapper)
+}
+
 /// The coded type of the catalogue that `error` is, or `None` when it is none of them.
 fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal> {
     if let Some(found) = schemas_coded(error) {
         return Some(found);
+    }
+    if let Some(found) = error.downcast_ref::<crate::analysis::refusal::ReportError>() {
+        return Some(as_refusal(found));
     }
     if let Some(found) = crate::evaluation::refusal::coded(error) {
         return Some(found);
@@ -110,16 +131,72 @@ fn schemas_coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal
     use candler_schemas::primitives::FormatError;
     use candler_schemas::values::ValuesError;
 
+    if let Some(found) = error.downcast_ref::<ExecutionError>() {
+        return Some(execution_answer(found));
+    }
+    if let Some(found) = error.downcast_ref::<EvaluationError>() {
+        return Some(evaluation_answer(found));
+    }
+    if let Some(found) = error.downcast_ref::<OutcomeError>() {
+        return Some(outcome_answer(found));
+    }
+    if let Some(found) = error.downcast_ref::<ValuesError>() {
+        return Some(values_answer(found));
+    }
     error
-        .downcast_ref::<ExecutionError>()
+        .downcast_ref::<FormatError>()
         .map(as_refusal)
-        .or_else(|| error.downcast_ref::<EvaluationError>().map(as_refusal))
-        .or_else(|| error.downcast_ref::<OutcomeError>().map(as_refusal))
-        .or_else(|| error.downcast_ref::<FormatError>().map(as_refusal))
         .or_else(|| error.downcast_ref::<CanonicalError>().map(as_refusal))
         .or_else(|| error.downcast_ref::<CatalogError>().map(as_refusal))
-        .or_else(|| error.downcast_ref::<ValuesError>().map(as_refusal))
         .or_else(|| error.downcast_ref::<VersionMismatch>().map(as_refusal))
+}
+
+/// The refusal that answers for an [`ExecutionError`]: a format, values or canonical error it
+/// wraps answers with its own code, side and path.
+fn execution_answer(error: &candler_schemas::execution::ExecutionError) -> &dyn Refusal {
+    use candler_schemas::execution::ExecutionError;
+    if let ExecutionError::Format(inner) = error {
+        through(inner, error)
+    } else if let ExecutionError::Values(inner) = error {
+        through(inner, error)
+    } else if let ExecutionError::Canonical(inner) = error {
+        through(inner, error)
+    } else {
+        error
+    }
+}
+
+/// The refusal that answers for an [`EvaluationError`]: a canonical error it wraps answers with
+/// its own code, side and path.
+fn evaluation_answer(error: &candler_schemas::evaluation::EvaluationError) -> &dyn Refusal {
+    use candler_schemas::evaluation::EvaluationError;
+    if let EvaluationError::Canonical(inner) = error {
+        through(inner, error)
+    } else {
+        error
+    }
+}
+
+/// The refusal that answers for an [`OutcomeError`]: a format error it wraps answers with its own
+/// code, side and path.
+fn outcome_answer(error: &candler_schemas::outcome::OutcomeError) -> &dyn Refusal {
+    use candler_schemas::outcome::OutcomeError;
+    if let OutcomeError::Format(inner) = error {
+        through(inner, error)
+    } else {
+        error
+    }
+}
+
+/// The refusal that answers for a [`ValuesError`]: a canonical error it wraps answers with its
+/// own code, side and path.
+fn values_answer(error: &candler_schemas::values::ValuesError) -> &dyn Refusal {
+    use candler_schemas::values::ValuesError;
+    if let ValuesError::Canonical(inner) = error {
+        through(inner, error)
+    } else {
+        error
+    }
 }
 
 /// Views a coded error as its [`Refusal`].

@@ -267,18 +267,11 @@ fn as_refusal<'e, E: Refusal>(found: &'e E) -> &'e dyn Refusal {
     found
 }
 
-/// The refusal that answers for a variant of `wrapper` that only wraps `inner`: what the walk of
-/// causes finds from `inner`, so that its side is the wrapped error's own, or `wrapper` when the
-/// walk finds nothing.
-fn through<'e, E: Error + 'static>(inner: &'e E, wrapper: &'e dyn Refusal) -> &'e dyn Refusal {
-    crate::refusal::find(inner).unwrap_or(wrapper)
-}
-
 /// The refusal that answers for a [`RecoverError`].
 fn recover_answer(error: &RecoverError) -> &dyn Refusal {
     match error {
-        RecoverError::Job(inner) => through(inner, error),
-        RecoverError::Sweep(inner) => through(inner, error),
+        RecoverError::Job(inner) => crate::refusal::through(inner, error),
+        RecoverError::Sweep(inner) => crate::refusal::through(inner, error),
         RecoverError::Unavailable { .. }
         | RecoverError::Reap { .. }
         | RecoverError::Store { .. } => error,
@@ -288,7 +281,7 @@ fn recover_answer(error: &RecoverError) -> &dyn Refusal {
 /// The refusal that answers for an [`OrchestrateError`].
 fn orchestrate_answer(error: &OrchestrateError) -> &dyn Refusal {
     match error {
-        OrchestrateError::Plan(inner) => through(inner, error),
+        OrchestrateError::Plan(inner) => crate::refusal::through(inner, error),
         OrchestrateError::TokenSource { .. }
         | OrchestrateError::Gateway { .. }
         | OrchestrateError::Treatment
