@@ -32,7 +32,7 @@ Every row of a Fields table has one class. A `required` followed by a variant in
 <!-- versions -->
 | Line | Version | Manifest |
 |---|---|---|
-| core | `v0.6.0` | `Cargo.toml` |
+| core | `v0.6.1` | `Cargo.toml` |
 | wire schemas | `schemas@0.6.0` | `crates/candler-schemas/Cargo.toml` |
 | evaluator helper | `candler-evaluator@0.1.0` | `python/candler-evaluator/pyproject.toml` |
 <!-- /versions -->
@@ -68,7 +68,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `config.machine_wide_key` | A project configuration sets a machine-wide key, which only the user configuration may set. | The key in the project configuration file named in the message. | config |
 | `config.no_evaluator_slots` | `slots.evaluators` is 0 in the user configuration, so the pool that evaluators draw from has no slot. | - | config |
 | `config.no_plugin_dirs` | `evaluate` is run where no `candler.toml` at or above the working directory lists a plug-in directory under `plugins.dirs`. | - | config |
-| `config.no_store` | No store root is given: no `--store`, no `CANDLER_STORE` and no `store.root` in a configuration file. | - | config |
+| `config.no_store` | Not raised today: a verb that is given no store root takes the default store, and a store that is missing prints `store.not_a_store`. | - | config |
 | `config.no_such_run` | No run of the store has a key that starts with the prefix given to `inspect`. | - | config |
 | `config.nothing_compared` | `diff` found no expectation that both evaluators graded in the same run, such as an evaluator version the store lacks. | - | config |
 | `config.plugin_dir_no_manifest` | A directory of `plugins.dirs` does not exist or holds neither `plugin.toml` nor `candler-plugin.toml`. | - | config |

@@ -53,7 +53,7 @@ Wire line: `schemas@0.6.0`.
 | `suite.evaluator_unknown` | An entry of the suite names an evaluator for which no plug-in manifest was loaded. | - | suite |
 | `suite.evaluator_version_mismatch` | A plug-in describes a version outside the range the suite entry asks for. | - | suite |
 | `suite.id_repeated` | Two expectations of a suite share an id. | - | suite |
-| `suite.json_invalid` | A suite is not valid JSON, or does not have the shape of a suite. | The field at fault, or its parent object when a field is missing; none at the root. | suite |
+| `suite.json_invalid` | A suite is not valid JSON, or does not have the shape of a suite. | The field at fault, or its parent object when a field is missing; none at the root, and the item at fault when the root is an array. | suite |
 | `suite.kind_unknown` | An entry of the suite names a kind that its evaluator does not declare. | - | suite |
 | `suite.list_empty` | A list of a suite entry that needs at least one member is empty, such as `any_of` or `applies_to`. | - | suite |
 | `suite.params_invalid` | The params of a suite entry do not satisfy the params schema of its kind. | The JSON pointer, inside the `params` of the entry, of the value the schema refuses; none when the whole of `params` is refused. | suite |
