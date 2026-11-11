@@ -12,7 +12,7 @@ Every new verb exists and works, `evaluate` has a supervised job body, the core'
 
 ## Pre-conditions
 - [ ] [cmd] L0 is merged: `git grep -q 'fn started_no_earlier' -- crates/candler-core/src/supervise/signal.rs && test -f crates/candler-schemas/src/refusal.rs && test -d crates/candler-core/src/analysis && test -f crates/candler-core/tests/vectors/platform_inventory.toml`
-- [ ] [cmd] `feat/m3-lean-cli` contains both early PRs' merges on `main`: `git merge-base --is-ancestor origin/main feat/m3-lean-cli && git log --format=%s origin/main | grep -q '^merge(jobs): sweep orphans started in the supervisor'`
+- [ ] [cmd] `feat/m3-lean-cli` holds both early PRs' content, merged locally while #17 and #18 wait for review (D1): `git merge-base --is-ancestor refs/heads/m3/scaffold feat/m3-lean-cli && git merge-base --is-ancestor refs/heads/m3/stray_sweep_tick feat/m3-lean-cli`. Once their merge commits are on `main`, `main` is merged into `feat/m3-lean-cli` (a `merge(repo)` commit, no rebase), and the coordination session is told before it happens
 - [ ] [cmd] STD and LINUX pass on the L0 tip
 
 ## Success Gates
