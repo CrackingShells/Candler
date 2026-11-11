@@ -144,9 +144,10 @@ fn ends_with_stamp(help: &str) -> bool {
 
 /// Guards: U2 — the help of every option, global or of a verb, ends with a sentence that starts
 /// `cannot be derived: ` or `not an experiment setting: `; `--help`, `--version` and positional
-/// arguments are outside the walk. Oracle: the `--help` of the real binary, each option's
-/// continuation lines joined. Bite: an option whose stamp is deleted, or whose stamp is followed by
-/// another sentence, names the option and fails.
+/// arguments are outside the walk.
+/// Oracle: the `--help` of the real binary, each option's continuation lines joined.
+/// Bite: an option whose stamp is deleted, or whose stamp is followed by another sentence,
+/// names the option and fails.
 #[test]
 fn u2_every_option_help_ends_with_a_stamp() {
     let mut failing: BTreeSet<String> = BTreeSet::new();
@@ -423,12 +424,14 @@ fn copied_binary(dir: &TempDir) -> PathBuf {
 }
 
 /// Guards: U3 — a copy of the binary, outside the source tree, runs `run` against the fake
-/// world from an unrelated directory: the job id is printed, and every `docker build` it asks for
-/// is given a context below the store root and outside the source tree; the contexts of the base
-/// and gateway images are the written assets, below `<store root>/assets/<digest>/docker/`, hold
-/// the bytes of the tree's directory of the same name, and are the only contexts that outlive
-/// their build. Oracle: the fake client's call log and the tree's files. Bite: asset paths found
-/// through `CARGO_MANIFEST_DIR`, so the recorded context sits under the source tree.
+/// world from an unrelated directory: the job id is printed, and every `docker build` it asks
+/// for is given a context below the store root and outside the source tree; the contexts of the
+/// base and gateway images are the written assets, below `<store
+/// root>/assets/<digest>/docker/`, hold the bytes of the tree's directory of the same name, and
+/// are the only contexts that outlive their build.
+/// Oracle: the fake client's call log and the tree's files.
+/// Bite: asset paths found through `CARGO_MANIFEST_DIR`, so the recorded context sits under the
+/// source tree.
 #[test]
 fn u3_a_copied_binary_runs_run() {
     let elsewhere = TempDir::new().expect("a directory");
@@ -493,10 +496,12 @@ fn u3_a_copied_binary_runs_run() {
 }
 
 /// Guards: U3 — the embedded assets equal the tree: after `resolve` from a copied binary, the
-/// directory `<store root>/assets/<digest>/docker` holds every file of `assets/docker` with equal
-/// bytes and no other, and a second `resolve` writes nothing. Oracle: the tree, read from
-/// `CARGO_MANIFEST_DIR` (test code), and the modification times of the written files. Bite: a file
-/// of the tree left out of the embedded table, or an embedded file that differs from the tree.
+/// directory `<store root>/assets/<digest>/docker` holds every file of `assets/docker` with
+/// equal bytes and no other, and a second `resolve` writes nothing.
+/// Oracle: the tree, read from `CARGO_MANIFEST_DIR` (test code), and the modification times of
+/// the written files.
+/// Bite: a file of the tree left out of the embedded table, or an embedded file that differs
+/// from the tree.
 #[test]
 fn u3_the_embedded_assets_equal_the_tree() {
     let elsewhere = TempDir::new().expect("a directory");
@@ -694,9 +699,11 @@ fn text_of(bytes: &[u8]) -> String {
 
 /// Guards: U5 — `diff --from 1.0.0 --to 2.0.0` equals `--from ev@1.0.0 --to ev@2.0.0` when one
 /// evaluator name holds each version, and is refused, naming both holders, when two names hold
-/// the bare version. Oracle: the output of the same call with the names written out, and the
-/// evaluators written into the store. Bite: the `name@` prefix required again (the bare call exits
-/// 2 with no report), or the first holder of an ambiguous version taken.
+/// the bare version.
+/// Oracle: the output of the same call with the names written out, and the evaluators written
+/// into the store.
+/// Bite: the `name@` prefix required again (the bare call exits 2 with no report), or the first
+/// holder of an ambiguous version taken.
 #[test]
 fn u5_diff_takes_bare_versions() {
     let rows: &[(&str, &[(&str, &str)])] = &[
@@ -738,11 +745,13 @@ fn u5_diff_takes_bare_versions() {
     assert!(out.stdout.is_empty(), "no report for a refusal");
 }
 
-/// Guards: U5 — `show --rates --format toml` with no `--evaluator` equals the call that names the
-/// evaluator when the store holds one evaluator, and is refused, listing the evaluators, when it
-/// holds two. Oracle: the output of the same call with the evaluator named, and the evaluators
-/// written into the store. Bite: `--rates` requiring `--evaluator` again (the bare call exits 2
-/// with a usage error), or the first of two evaluators taken.
+/// Guards: U5 — `show --rates --format toml` with no `--evaluator` equals the call that names
+/// the evaluator when the store holds one evaluator, and is refused, listing the evaluators,
+/// when it holds two.
+/// Oracle: the output of the same call with the evaluator named, and the evaluators written
+/// into the store.
+/// Bite: `--rates` requiring `--evaluator` again (the bare call exits 2 with a usage error), or
+/// the first of two evaluators taken.
 #[test]
 fn u5_show_rates_infers_the_only_evaluator() {
     let one: &[(&str, &[(&str, &str)])] = &[("ev@1.0.0", &[("A1", "pass"), ("A2", "fail")])];
@@ -782,7 +791,8 @@ fn u5_show_rates_infers_the_only_evaluator() {
 }
 
 /// Guards: U5 — `show --evaluator 1.0.0 --format json` equals the call with `ev@1.0.0` when one
-/// evaluator holds that version. Oracle: the output of the same call with the name written out.
+/// evaluator holds that version.
+/// Oracle: the output of the same call with the name written out.
 /// Bite: the `name@` prefix required again (the bare call exits 2 with no counts).
 #[test]
 fn u5_show_takes_a_bare_version() {
@@ -1177,10 +1187,11 @@ fn assert_no_stray(env: &Env) {
     }
 }
 
-/// Guards: U1 — every verb that `candler --help` lists has a row in the working-directory matrix,
-/// and every row names a listed verb. Oracle: the `Commands:` block of the real binary's `--help`,
-/// minus `help`. Bite: a verb added to clap with no row names the verb and fails, as does a row
-/// left behind for a verb that is gone.
+/// Guards: U1 — every verb that `candler --help` lists has a row in the working-directory
+/// matrix, and every row names a listed verb.
+/// Oracle: the `Commands:` block of the real binary's `--help`, minus `help`.
+/// Bite: a verb added to clap with no row names the verb and fails, as does a row left behind
+/// for a verb that is gone.
 #[test]
 fn u1_every_verb_has_a_row() {
     let listed = listed_verbs();
@@ -1189,13 +1200,14 @@ fn u1_every_verb_has_a_row() {
     assert_eq!(rows, listed, "the matrix has one row for each listed verb");
 }
 
-/// Guards: U1 — each verb runs from a fresh directory unrelated to the project and to the binary,
-/// with `HOME` and the XDG variables inside it and every path argument relative to it, and
-/// answers as its row says: `run`, `watch`, `ps` and `evaluate` start real jobs against the
+/// Guards: U1 — each verb runs from a fresh directory unrelated to the project and to the
+/// binary, with `HOME` and the XDG variables inside it and every path argument relative to it,
+/// and answers as its row says: `run`, `watch`, `ps` and `evaluate` start real jobs against the
 /// fake-docker world and wait for them to end. Nothing appears in the source tree or beside the
-/// binary. Oracle: the verb's own answer and the files of the fixture world. Bite: a path joined
-/// to the project directory or to the binary's directory in a verb that has a relative argument
-/// fails that verb's row.
+/// binary.
+/// Oracle: the verb's own answer and the files of the fixture world.
+/// Bite: a path joined to the project directory or to the binary's directory in a verb that has
+/// a relative argument fails that verb's row.
 #[test]
 fn u1_each_verb_runs_from_an_unrelated_directory() {
     assert!(!MATRIX.is_empty(), "the matrix has no row");
@@ -1209,12 +1221,13 @@ fn u1_each_verb_runs_from_an_unrelated_directory() {
     }
 }
 
-/// Guards: U1 — with a `candler.toml` in the working directory and no `--store`,
-/// the store is `<working directory>/.candler/store`; with no project it is below
-/// `$XDG_STATE_HOME`; neither writes below the source tree or beside the binary. Oracle: where
-/// the one run of `ingest traces/` is found, from the directories of the fixture world. Bite: a
-/// store root fixed to the source tree or the binary's directory, or a project store that falls
-/// back to the state home.
+/// Guards: U1 — with a `candler.toml` in the working directory and no `--store`, the store is
+/// `<working directory>/.candler/store`; with no project it is below `$XDG_STATE_HOME`; neither
+/// writes below the source tree or beside the binary.
+/// Oracle: where the one run of `ingest traces/` is found, from the directories of the fixture
+/// world.
+/// Bite: a store root fixed to the source tree or the binary's directory, or a project store
+/// that falls back to the state home.
 #[test]
 fn u1_the_store_comes_from_the_project_or_the_state_home() {
     let runs_in = |store: &Path| {
@@ -1445,14 +1458,16 @@ const SITES: &[Site] = &[
     },
 ];
 
-/// Guards: U6 — each refusal that a caller causes in a verb's own
-/// checks prints, under `--error-format json`, one `refusal/1` record whose code and side are the
-/// row's and not `candler.internal`: a missing experiment file, `kill` without `-y` and of a
-/// missing job, `ps` over an unreadable job, `inspect` of a selector that is invalid, unknown or
-/// ambiguous, an evaluator that is malformed, unknown or compares nothing, and clap's usage
-/// errors, whose message is clap's text. Oracle: the codes written in `docs/contract/codes.toml`
-/// by hand for these sites, and the store the row builds. Bite: a site back to
-/// `CliError::refused(String)`, which prints `candler.internal` with side `candler`.
+/// Guards: U6 — each refusal that a caller causes in a verb's own checks prints, under
+/// `--error-format json`, one `refusal/1` record whose code and side are the row's and not
+/// `candler.internal`: a missing experiment file, `kill` without `-y` and of a missing job,
+/// `ps` over an unreadable job, `inspect` of a selector that is invalid, unknown or ambiguous,
+/// an evaluator that is malformed, unknown or compares nothing, and clap's usage errors, whose
+/// message is clap's text.
+/// Oracle: the codes written in `docs/contract/codes.toml` by hand for these sites, and the
+/// store the row builds.
+/// Bite: a site back to `CliError::refused(String)`, which prints `candler.internal` with side
+/// `candler`.
 #[test]
 fn u6_each_caller_mistake_carries_a_code() {
     let mut misses: Vec<String> = Vec::new();
@@ -1497,11 +1512,12 @@ fn u6_each_caller_mistake_carries_a_code() {
     );
 }
 
-/// Guards: U6 — a missing experiment file is named in the record's `file`, and clap's usage errors
-/// keep their text and exit status when no JSON is asked for, while `--help` still prints its text
-/// on stdout and exits 0 under `--error-format json`. Oracle: the text clap writes for the same
-/// arguments with no `--error-format`, and the status of `--help`. Bite: the usage error printed
-/// as a record in the text form, or `--help` taken for an error.
+/// Guards: U6 — a missing experiment file is named in the record's `file`, and clap's usage
+/// errors keep their text and exit status when no JSON is asked for, while `--help` still
+/// prints its text on stdout and exits 0 under `--error-format json`.
+/// Oracle: the text clap writes for the same arguments with no `--error-format`, and the status
+/// of `--help`.
+/// Bite: the usage error printed as a record in the text form, or `--help` taken for an error.
 #[test]
 fn u6_usage_text_and_help_are_unchanged_and_the_file_is_named() {
     let store = Seeded::with(TWO_EVALUATORS);
