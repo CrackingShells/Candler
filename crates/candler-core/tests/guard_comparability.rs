@@ -120,17 +120,22 @@ fn manifest_doc(arm: &Value) -> Value {
         // BORROW: explicit conversion makes the owned or borrowed form the next line needs
         measured.extend(more.iter().cloned());
     }
-    // Every arm carries a clean provenance block unless its row overrides parts of it.
-    let mut block: Vec<(String, Value)> = [
-        ("eval_infra.tag", json!("v0.1.0")),
-        ("eval_infra.commits_ahead", json!(0)),
-        ("eval_infra.commit", json!("abc1234")),
-        ("eval_infra.dirty", json!(false)),
-        ("sandbox_contract", json!("candler-container@1")),
-    ]
-    // BORROW: explicit conversion makes the owned or borrowed form the next line needs
-    .map(|(key, value)| (key.to_owned(), value))
-    .into();
+    // A live arm carries a clean provenance block unless its row overrides parts of it. An
+    // imported arm carries none: the importer records the legacy build in `comparable.values`.
+    let mut block: Vec<(String, Value)> = if get("import").is_some() {
+        Vec::new()
+    } else {
+        [
+            ("eval_infra.tag", json!("v0.1.0")),
+            ("eval_infra.commits_ahead", json!(0)),
+            ("eval_infra.commit", json!("abc1234")),
+            ("eval_infra.dirty", json!(false)),
+            ("sandbox_contract", json!("candler-container@1")),
+        ]
+        // BORROW: explicit conversion makes the owned or borrowed form the next line needs
+        .map(|(key, value)| (key.to_owned(), value))
+        .into()
+    };
     if let Some(Value::Object(overrides)) = get("provenance") {
         for (key, value) in overrides {
             block.retain(|(held, _)| *held != key);
@@ -178,6 +183,20 @@ fn manifest_doc(arm: &Value) -> Value {
             .unwrap_or_else(|| json!([])),
     );
     doc.insert("integrity".into(), json!({"kind": "valid"}));
+    if let Some(import) = get("import") {
+        let mut record = json!({
+            "format": "legacy@1",
+            "base_commit": "0e84a75000000000000000000000000000000000",
+            "legacy_integrity": {"kind": "valid"},
+            "sources": [],
+            "requests": [],
+        });
+        if let Some(rules) = import.get("rules").filter(|rules| !rules.is_null()) {
+            // BORROW: explicit conversion makes the owned or borrowed form the next line needs
+            record["rules"] = rules.clone();
+        }
+        doc.insert("import".into(), record);
+    }
     for key in ["host", "started_at", "ended_at", "job"] {
         if let Some(value) = outside.get(key) {
             // BORROW: explicit conversion makes the owned or borrowed form the next line needs
@@ -204,12 +223,19 @@ fn read_arm(arm: &Value) -> Result<ArmView, VerdictError> {
 /// unreadable arm gives no verdict. The provenance rows (C45 to C59) gate on the build's identity
 /// alone: `eval_infra.commit` recorded and equal, `eval_infra.dirty` false everywhere,
 /// `sandbox_contract` equal; `eval_infra.tag`, `commits_ahead` and `packages.*` gate nothing, and
-/// an unrecorded commit or dirty flag is refused and named, never counted as equal.
+/// an unrecorded commit or dirty flag is refused and named, never counted as equal. The
+/// `imported_` rows (an arm with an `import` key is imported; its legacy build sits in
+/// `comparable.values`, as the importer writes it) gate an imported stratum on `import.rules`
+/// recorded and equal and on the legacy commit, dirty flag and contract recorded; a legacy dirty
+/// build pools with arms of the same commit, flag, contract and rules; a stratum mixing imported
+/// and live arms is refused naming `import`; the live rows follow D8.
 /// Oracle: the R01 sentence each row of `verdicts.json` cites (C01 to C23 the lead's, C24 on
-/// added); the expected verdict is a literal in the row, written from decision D8.
+/// added); the expected verdict is a literal in the row, written from decision D8, and for the
+/// `imported_` rows from decision D7.
 /// Bite: compare paths with `str::starts_with` instead of whole segments (`covers`); gate every
 /// `provenance.eval_infra.*` path (the tag rows); count an unrecorded commit as equal (the commit
-/// rows).
+/// rows); apply the imported rule to live arms too (the live rows); pool a dirty legacy build
+/// across commits (`imported_commit_differs_refused`).
 #[test]
 fn stratum_verdict_table() {
     let rows = rows();
@@ -221,6 +247,16 @@ fn stratum_verdict_table() {
         // BORROW: explicit conversion makes the owned or borrowed form the next line needs
         Some(lead.iter().map(String::as_str).collect::<Vec<&str>>()),
         "the lead's rows C01 to C23 open the table, in order"
+    );
+    // BORROW: explicit conversion makes the owned or borrowed form the next line needs
+    let imported: Vec<&str> = ids
+        .iter()
+        .copied()
+        .filter(|id| id.starts_with("imported_"))
+        .collect();
+    assert!(
+        imported.len() >= 25,
+        "the D7 rows are in the table, one or more per class: {imported:?}"
     );
     let mut failures = Vec::new();
     for row in &rows {
