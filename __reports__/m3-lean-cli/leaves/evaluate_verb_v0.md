@@ -153,3 +153,30 @@ Guards (all seen red, then reverted):
 - Workspace STD after `cargo clean -p candler-core -p candler`: fmt, clippy `-D warnings`, `cargo check --workspace --all-targets`, nextest (581 passed, 21 skipped) and `cargo doc`: PASS. LINUX clippy: PASS.
 - G-codes: 5 lines added to `codes.toml` against eed99b7, none deleted. `cog check eed99b7..HEAD` and the subject length: PASS.
 - LINUXRUN, `-j 1`, one container at a time: `guard_detach` and `guard_refusal_codes` (5) PASS; `guard_cli_evaluate` and `guard_cli_refusal` (25): 24 PASS. The one failure is refusal_late's `r2_a_job_that_cannot_be_opened_is_told_by_the_kind_of_failure`, which relies on a file mode that root ignores, and the image runs as root; it is not touched by this branch. Two rows of mine had the same root or `ps` dependency and were fixed (the unreadable manifest is now a file that is not text, and the run-job environment guard reads `/proc`).
+
+## Fix round 2
+The branch was rebased onto dfb9399 with no conflict. The round's commits:
+
+```
+86ce3a8 feat(jobs): record the refusal a failed evaluate job ended with
+8f29df5 feat(cli): print the refusal a failed evaluate job recorded
+c00559f test(cli): restore the suite-params row and skip the mode row as root
+f67638f fix(cli): list the refusal carrier of evaluate as Candler's own
+```
+
+### Engine refusals keep their codes through the verb
+- The evaluate supervisor writes `refusal.json` in the job directory before `job.ended`: the `refusal/1` record that `candler_core::refusal::find` gives for the error, written atomically; `candler.internal`, side `candler`, when the chain holds no catalogue type. A failed write is noted in `supervisor.log` and changes nothing else. No schema changes.
+- The verb reads it when a job ends without a report. Under `--error-format json` it prints that record; the text form is byte-identical (`job <id> ended without a report: <log tail>`). A missing or unreadable file keeps the fallback of fix round 1.
+- `JobRefusal` (in `commands/evaluate.rs`) carries the record and the text. `CliError::Failed` needs an `Error`, and `find` walks catalogue types only, so `commands/refusal.rs::refusal_of` also reads a `JobRefusal`. That file is outside the authorized list; the edit is one `or_else`. Because the R1 scan lists every error type, `JobRefusal` has a whole-type `[internal]` row in `codes.toml` (f67638f; one appended row, none deleted).
+- `r2_refused_suite_params_print_as_a_suite_record` is back to its eed99b7 assertions (`suite.params_invalid`, side `suite`, pointer `/n`). New rows through the verb: `r2_a_refusal_raised_in_the_job_keeps_its_code_through_the_verb` and `r2_a_changed_suite_keeps_its_code_through_the_verb` (`evaluation.suite_changed`, side `suite`). Bite: the verb not reading the file turned three rows red (the two new rows and the params row, all `candler.internal`).
+- `e5_the_callers_environment_is_written_nowhere` still passes with `refusal.json` in the store.
+- R01 §Job says that a finished evaluate job leaves `report.json` or, when an error ended it, `refusal.json`.
+
+### The mode-000 row
+`r2_a_job_that_cannot_be_opened_is_told_by_the_kind_of_failure` returns early, with an `eprintln!` that names the reason, when the chmod does not deny (root).
+
+### Gates, from dfb9399
+- Workspace STD after `cargo clean -p candler-core -p candler`: fmt, clippy `-D warnings`, check, doc and LINUX clippy PASS; nextest 587 passed, 21 skipped. The leaf rows (E1, E4, E5, `r2_`, `guard_cli`, `guard_input_seam`, `guard_cli_e2e`, `guard_cli_surface`) and the core guards (`guard_detach`, `guard_refusal_codes`, `guard_evaluate_job`, `guard_platform_seam`, `guard_spec_file`) are in that run.
+- GOLDEN (`--run-ignored all`): `guard_golden` (2) and `guard_oracle_ac` PASS. `guard_golden_parity` NOT RUN, `CANDLER_HTN_PLUGIN` is not at hand (as in round 1).
+- G-codes: 9 lines added to `codes.toml` against dfb9399, none deleted. G-text: 22 lost lines the pattern does not name (23 before; the params assertion is back). Old-options gate PASS. `cog check dfb9399..HEAD`: PASS. One subject, `e4ac6f7` (fix round 1, already handed back), is 74 characters; it was not reworded, which would change every hash after it.
+- LINUXRUN, `-j 1`, one container at a time: `guard_detach` and `guard_refusal_codes` (5) PASS; `guard_cli_evaluate` and `guard_cli_refusal` (27) PASS, including the mode row, which returns early as root.
