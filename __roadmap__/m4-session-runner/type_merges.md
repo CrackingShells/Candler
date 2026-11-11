@@ -9,7 +9,7 @@
 - ⬜ [cmd] The runner reads the reader's framing: `git grep -q -E '\.framing\(\)' -- crates/candler-core/src/runner`
 - ⬜ [cmd] The frame and supervision guards pass: `cargo nextest run -p candler-core --no-tests=fail -E 'binary(guard_frames)|binary(guard_seams)|binary(guard_supervise)|binary(public_surface)'`
 - ⬜ [cmd] The schemas commit leaves every schema file and the accessor as they were: `git diff --quiet a26fe53 -- crates/candler-schemas/schema && git grep -q 'pub fn parent_session' -- crates/candler-schemas/src/trace.rs`, and DRIFT holds
-- ⬜ [cmd] The one schemas commit touches only the schemas crate: `git log --no-merges --format=%H a26fe53..HEAD -- crates/candler-schemas | while read c; do git show --name-only --format= $c | grep -v '^crates/candler-schemas/' | grep -q . && echo $c; done` prints nothing
+- ⬜ [cmd] The one schemas commit touches only the schemas crate: `git log --no-merges --format='%H %s' c356a0e..HEAD -- crates/candler-schemas | grep -E '^[0-9a-f]+ (feat|fix|perf|refactor|style|revert)' | while read c s; do git show --name-only --format= $c | grep -v '^crates/candler-schemas/' | grep -q . && echo $c; done` prints nothing (base: the rebase point; `build(deps)` 30dcde1 below it touches the schemas crate's `Cargo.toml` and releases nothing)
 - ⬜ [cmd] SPAWN, STD (`-p candler-schemas -p candler-core -p candler-harness`), LINUX, DIGEST, GOLDEN and SUBJ pass
 **References**: [R01 §Raw traces, §Normalised trace model](../../__design__/architecture.md) — framing and `parent_session`; [R09 D12](/Users/hacker/Library/Application%20Support/Claude/side-session-notes/local_7f577b41-1698-4eeb-9de3-4ee9460ae606/m4-approved-plan.md); [R08 §Schema line](../../CONTRIBUTING.md) — one crate per release-triggering schemas commit
 
