@@ -786,6 +786,11 @@ side = "config"
 enum = "CliRefusal"
 variant = "RetiredSetting"
 
+[cli."experiment.unknown_request_key"]
+side = "experiment"
+enum = "CliRefusal"
+variant = "UnknownRequestKey"
+
 [jobs]
 
 [evaluation]

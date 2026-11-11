@@ -8,6 +8,7 @@
 
 use std::error::Error;
 
+use candler_core::experiment::paths;
 use candler_schemas::refusal::{Refusal, RefusalCode, RefusalRecord, Side};
 use candler_schemas::refusal_table;
 
@@ -27,7 +28,32 @@ pub enum CliRefusal {
         /// The path of the retired setting.
         path: String,
     },
+    /// `--set` names a key under `request` that no request setting has.
+    #[error(
+        "`{path}` is not a request setting: the known ones are {}",
+        known_request_keys()
+    )]
+    UnknownRequestKey {
+        /// The path `--set` named.
+        path: String,
+    },
 }
+
+/// The request settings, each in backticks, as the refusal of an unknown one lists them.
+fn known_request_keys() -> String {
+    REQUEST_KEYS
+        .iter()
+        .map(|key| format!("`{key}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The request settings `--set` may name, as the experiment's path table defines them.
+pub const REQUEST_KEYS: [&str; 3] = [
+    paths::REQUEST_HARNESS,
+    paths::REQUEST_TREATMENT,
+    paths::REQUEST_INPUTS,
+];
 
 /// The path of an error that names no place in a document.
 fn cli_refusal_path(_error: &CliRefusal) -> Option<String> {
@@ -46,6 +72,12 @@ refusal_table! {
         "config.retired_setting",
         Side::Config,
         "`--set` names `request.treatment_source`, which `[treatment] source` in the experiment file replaced.",
+        "-",
+    ),
+    UnknownRequestKey { .. } => row(
+        "experiment.unknown_request_key",
+        Side::Experiment,
+        "`--set` names a key under `request` that is none of the request settings, such as a misspelt `request.harnes`.",
         "-",
     ),
 }

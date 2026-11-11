@@ -25,7 +25,7 @@ use candler_schemas::primitives::{FieldPath, RunKey};
 use candler_schemas::values::JsonValue;
 
 use super::CliError;
-use super::refusal::CliRefusal;
+use super::refusal::{CliRefusal, REQUEST_KEYS};
 
 /// The path of the setting `[treatment] source` replaces; `--set` refuses it by name.
 const RETIRED_TREATMENT_SOURCE: &str = concat!("request.", "treatment_source");
@@ -109,6 +109,22 @@ pub(crate) fn path_of(text: &str) -> Result<FieldPath, CliError> {
     FieldPath::from_str(text).map_err(CliError::refused_by)
 }
 
+/// Refuses a `--set` path under `request` that is not one of the request settings, or below one.
+fn check_request_key(path: &FieldPath) -> Result<(), CliError> {
+    let mut segments = path.segments();
+    let under_request = segments.next() == Some("request") && segments.next().is_some();
+    let known = REQUEST_KEYS.iter().any(|key| {
+        key.parse::<FieldPath>()
+            .is_ok_and(|known| path.starts_with(&known))
+    });
+    if under_request && !known {
+        return Err(CliError::refused_by(CliRefusal::UnknownRequestKey {
+            path: path.to_string(),
+        }));
+    }
+    Ok(())
+}
+
 /// What the experiment file and the command line ask for, as the input of a resolution: the
 /// file's fixed values, the settings `request.harness` and `request.treatment` it names, and the
 /// arguments of `--set` as explicit values. A location setting (the treatment's source, the build
@@ -117,8 +133,9 @@ pub(crate) fn path_of(text: &str) -> Result<FieldPath, CliError> {
 /// treatment that `--set request.treatment` gives.
 ///
 /// # Errors
-/// [`CliError::Refused`] when a value cannot be written as a setting, or when `--set` names
-/// the retired setting of the treatment's checkout, which `[treatment] source` replaces.
+/// [`CliError::Coded`] when a value cannot be written as a setting, when `--set` names the
+/// retired setting of the treatment's checkout, which `[treatment] source` replaces, or when it
+/// names a key under `request` that no request setting has.
 pub fn request_settings(
     file: &ExperimentFile,
     experiment_dir: &Path,
@@ -145,6 +162,7 @@ pub fn request_settings(
                 path: RETIRED_TREATMENT_SOURCE.to_owned(), // BORROW: the refusal owns its path
             }));
         }
+        check_request_key(path)?;
         let mut value = value_of(text)?;
         if path.as_str() == paths::REQUEST_TREATMENT {
             // BORROW: .clone() gives the file values their own path

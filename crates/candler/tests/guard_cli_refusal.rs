@@ -268,3 +268,64 @@ fn r2_the_pending_rows_still_print_as_internal() {
         assert_eq!(record["side"], "candler", "{name}: {record}");
     }
 }
+
+/// The refusal a `--set` key under `request` that no setting names is.
+const UNKNOWN_REQUEST_KEY: Expect = Expect {
+    code: "experiment.unknown_request_key",
+    side: "experiment",
+    path: None,
+    message_starts: "refused: `request.foo` is not a request setting: the known ones are `request.harness`, `request.treatment`, `request.inputs`",
+};
+
+/// Guards: R3 — `--set request.<key>` names a request setting or is refused by name: the key
+/// `request.foo` prints as the record of `experiment.unknown_request_key`, each setting under
+/// `request` (`harness`, `treatment`, `inputs`) is still accepted, and the retired
+/// `request.treatment_source` keeps its own refusal.
+///
+/// Oracle: a record written by hand from the contract; the three keys of `request` the
+/// resolver reads. A key is accepted when the run goes on to the next step, which in a world
+/// with no docker client is a refusal of another code.
+///
+/// Bite: accept the unknown key; refuse every key under `request`.
+#[test]
+fn r3_unknown_request_key_is_refused() {
+    let world = world();
+    let out = world.launch_with(&["--error-format", "json", "--set", "request.foo=1"]);
+    assert_record(&out, &UNKNOWN_REQUEST_KEY);
+
+    let retired = world.launch_with(&[
+        "--error-format",
+        "json",
+        "--set",
+        "request.treatment_source=somewhere",
+    ]);
+    let record = record_of(&retired);
+    assert_eq!(record["code"], "config.retired_setting", "{record}");
+
+    let empty = TempDir::new().expect("a temporary directory");
+    fs::create_dir_all(empty.path().join("home")).expect("a home");
+    for (key, value) in [
+        ("request.harness", r#"{"name":"claude-code"}"#),
+        ("request.treatment", r#"{"name":"demo"}"#),
+        ("request.inputs", "{}"),
+    ] {
+        let setting = format!("{key}={value}");
+        let out = Command::new(env!("CARGO_BIN_EXE_candler"))
+            .arg("run")
+            .arg(&world.experiment)
+            .args(["--error-format", "json", "--set", setting.as_str()])
+            .current_dir(&world.work)
+            .env_clear()
+            .env("PATH", empty.path())
+            .env("HOME", empty.path().join("home"))
+            .env("XDG_STATE_HOME", &world.state)
+            .stdin(Stdio::null())
+            .output()
+            .expect("the binary runs");
+        let record = record_of(&out);
+        assert_ne!(
+            record["code"], "experiment.unknown_request_key",
+            "{key} is a request setting: {record}"
+        );
+    }
+}
