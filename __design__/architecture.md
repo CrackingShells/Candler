@@ -353,7 +353,10 @@ names.
   `events.jsonl` serve `watch`.
   A finished evaluate job leaves `report.json`, or, when an error ended it, `refusal.json`: the
   `refusal/1` record of that error, written before `job.ended`, which the command prints in place
-  of a report.
+  of a report. The command stops the job on Ctrl-C only: SIGTERM or SIGHUP of the command leaves
+  the job running, as it does for any job. Two evaluations over the same runs at once may grade a
+  run twice; the readers (`show`, `analyze`, `diff`, the pending selection) take the current
+  record under each I4 key, so the run counts once. A claim per run is not in place.
 - **Order of delivery:** `run` + events + `ps` + `kill` → `watch --json` → `ls` + `watch --live`.
 
 ### Run identity and resume
@@ -420,12 +423,20 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
   container. On the host, on Linux, the job supervisor is a child subreaper and scans `/proc` for
   the marker; orphans it adopts are signalled one pid at a time after their parent (itself) and
   start time are re-verified, and reaped with `waitpid(pid)`, never `waitpid(-1)`. macOS has no
-  host scan: its only host children are the docker client and first-party commands, and the gap
-  is recorded. The container sweep lists the job's labelled containers and destroys the strays
+  host scan and no subreaper: a descendant that leaves its group (an evaluator's `setsid` child)
+  survives a `kill` and the end of the job, and the gap is recorded. The docker client and
+  first-party commands are the only host children the design vouches for there, and an evaluator
+  is neither: its stray survives on macOS, so the end of an evaluate job is complete on Linux
+  only. The container sweep lists the job's labelled containers and destroys the strays
   among them. Survivors are evented as `run.stray`, then killed.
 - **Supervisor death.** A job is lost when its lock is free and its events have no `job.ended`.
   `ps`, `kill` and `run` reap a lost job's recorded children, its labelled containers, its network
   and its strays; until one of them runs, an orphaned container runs at most to its own `timeout`.
+  A lost evaluate job owns no container: its recovery builds no docker client, so `ps` and `kill`
+  recover it on a machine with no `docker`. It ends the evaluators' groups and seals the job; it
+  does not end a descendant that left its group with `setsid`, because once the supervisor is dead
+  such a process has no Candler parent and I22 signals only a process whose parent is the caller.
+  Containment by cgroup or pidfd would close that gap and is not in place.
   There is no parent-death signal: setting one needs a `pre_exec` hook, which
   `forbid(unsafe_code)` excludes, and a container outlives its client anyway. Labels, self-expiry
   and the Linux child subreaper (safe through `rustix`) bound orphans instead.
