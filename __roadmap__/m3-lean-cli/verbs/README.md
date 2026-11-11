@@ -27,7 +27,7 @@ Every new verb exists and works, `evaluate` has a supervised job body, the core'
 ## Status
 ```mermaid
 graph TD
-    refusal_core[Refusal core]:::planned
+    refusal_core[Refusal core]:::done
     evaluate_body[Evaluate body]:::planned
     analyze[Analyze]:::planned
     observe[Observe]:::planned
@@ -45,7 +45,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `refusal_core.md` | 📄 Leaf Task | ⬜ Planned |
+| `refusal_core.md` | 📄 Leaf Task | ✅ Done |
 | `evaluate_body.md` | 📄 Leaf Task | ⬜ Planned |
 | `analyze.md` | 📄 Leaf Task | ⬜ Planned |
 | `observe.md` | 📄 Leaf Task | ⬜ Planned |
