@@ -58,6 +58,10 @@ fn what_of(dir: &JobDir) -> String {
         return none();
     };
     match file {
+        JobSpecFile::Evaluate(spec) => spec
+            .suite
+            .file_name()
+            .map_or_else(none, |name| format!("suite:{}", name.to_string_lossy())),
         JobSpecFile::Run(spec) => experiment_of(&spec.experiment, &spec.resolution).map_or_else(
             |_| none(),
             |digest| {

@@ -33,10 +33,11 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use candler_core::evaluation::engine::RunSelection;
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::events::JobEvents;
 use candler_core::jobs::lock::{JobLock, LockState};
-use candler_core::jobs::model::JobSpec;
+use candler_core::jobs::model::{EvaluateSpec, JobSpec};
 use candler_core::jobs::runtime::session::SPEC_FILE;
 use candler_core::resolve::layers::Resolution;
 use candler_core::runner::plan::experiment_of;
@@ -840,4 +841,56 @@ fn o3_launched_job_spec_json_holds_no_secret_value() {
         world.calls()
     );
     world.remove();
+}
+
+/// Guards: O3 — `candler ps` shows `suite:<file name>` for a job whose spec file is an evaluate
+/// spec, with white space in the name turned into `_`, in the same fifth field, and the four
+/// earlier fields stay where they were. The jobs are planted job directories whose `spec.json`
+/// is written by the test, not run jobs. Oracle: hand-written file names. Bite: the evaluate arm
+/// showing `-`; the file name unmodified (a space splits the field).
+#[test]
+fn o3_ps_shows_the_suite_of_an_evaluate_job() {
+    let scratch = TempDir::new().unwrap();
+    let store = scratch.path().join("store");
+    let digest = format!("sha256:{}", "a".repeat(64))
+        .parse::<Digest>()
+        .unwrap();
+    let spec = |suite: &str| EvaluateSpec {
+        suite: suite.into(),
+        suite_digest: digest.clone(), // BORROW: each spec owns its digest
+        plugin_dirs: vec!["/plugins/pool".into()],
+        env_root: "/envs".into(),
+        selection: RunSelection::Glob("*".to_owned()),
+        request_deadline_secs: None,
+    };
+    let plain = "01890000-0000-7000-8000-0000000000c1";
+    let spaced = "01890000-0000-7000-8000-0000000000c2";
+    for (id, suite) in [
+        (plain, "/suites/ok.toml"),
+        (spaced, "/suites/my suite.toml"),
+    ] {
+        let dir = job_in(&store, id, None);
+        fs::write(
+            dir.path().join(SPEC_FILE),
+            serde_json::to_vec(&spec(suite)).unwrap(),
+        )
+        .unwrap();
+    }
+    let out = candler(&store, &["ps"], &[]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+    let rows: Vec<Vec<String>> = text(&out.stdout)
+        .lines()
+        .map(|l| l.split('\t').map(str::to_owned).collect())
+        .collect();
+    assert_eq!(rows.len(), 2, "{}", text(&out.stdout));
+    for (row, (id, what)) in rows
+        .iter()
+        .zip([(plain, "suite:ok.toml"), (spaced, "suite:my_suite.toml")])
+    {
+        assert_eq!(row.len(), 5, "five fields: {row:?}");
+        assert_eq!(row[0], id);
+        assert_eq!(row[2], "ended (completed)");
+        assert_eq!(row[3], "0/0");
+        assert_eq!(row[4], what);
+    }
 }
