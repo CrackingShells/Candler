@@ -9,6 +9,36 @@ use candler_schemas::primitives::Name;
 
 use super::RegistryError;
 
+/// The file names a plug-in directory may hold its manifest under: `plugin.toml`, and
+/// `candler-plugin.toml` for a plug-in whose directory is shared with other files.
+pub const MANIFEST_NAMES: [&str; 2] = ["plugin.toml", "candler-plugin.toml"];
+
+/// The manifest each directory of `dirs` holds, in the order of the directories. A directory is
+/// searched at its top level only.
+///
+/// # Errors
+/// Returns [`RegistryError::NoManifest`] for a directory that holds none of the
+/// [`MANIFEST_NAMES`] and [`RegistryError::ManyManifests`] for one that holds more than one.
+pub fn discover_manifests(dirs: &[PathBuf]) -> Result<Vec<PathBuf>, RegistryError> {
+    let mut found = Vec::with_capacity(dirs.len());
+    for dir in dirs {
+        let mut held = MANIFEST_NAMES
+            .iter()
+            .map(|name| dir.join(name))
+            .filter(|path| path.is_file());
+        let (Some(first), second) = (held.next(), held.next()) else {
+            // BORROW: .clone() keeps the directory in the error
+            return Err(RegistryError::NoManifest { dir: dir.clone() });
+        };
+        if second.is_some() {
+            // BORROW: .clone() keeps the directory in the error
+            return Err(RegistryError::ManyManifests { dir: dir.clone() });
+        }
+        found.push(first);
+    }
+    Ok(found)
+}
+
 /// A plug-in manifest with the directory it was read from: `command` and the environment files
 /// are relative to that directory.
 #[derive(Debug, Clone, PartialEq, Eq)]

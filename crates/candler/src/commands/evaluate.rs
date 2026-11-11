@@ -2,7 +2,7 @@
 
 use super::{CliError, Exit};
 use crate::Cli;
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::path::PathBuf;
 
 /// The arguments of `candler evaluate`.
@@ -31,7 +31,9 @@ pub struct EvaluateArgs {
 pub async fn run(cli: &Cli, args: &EvaluateArgs) -> Result<Exit, CliError> {
     use std::sync::Arc;
 
-    use candler_core::evaluation::engine::{EvaluateRequest, evaluate};
+    use candler_core::evaluation::engine::{
+        EvaluateRequest, EvaluatorSlots, RunSelection, evaluate,
+    };
     use candler_core::evaluation::registry::{Registry, default_env_root};
     use candler_core::supervise::Supervisor;
     use serde_json::json;
@@ -65,14 +67,27 @@ pub async fn run(cli: &Cli, args: &EvaluateArgs) -> Result<Exit, CliError> {
         }
     });
 
+    // `--concurrency N` is a pool of N slots of this call's own, beside the environments.
+    let slots = EvaluatorSlots {
+        dir: env_root.join("slots-evaluate"),
+        count: u32::try_from(args.concurrency.unwrap_or(NonZeroUsize::MIN).get())
+            .ok()
+            .and_then(NonZeroU32::new)
+            .unwrap_or(NonZeroU32::MIN),
+        job: format!("evaluate-{}", std::process::id()),
+    };
     let request = EvaluateRequest {
         store,
         plugins: args.plugins.clone(), // BORROW: the request owns the manifests
         suite: args.suite.clone(),     // BORROW: the request owns the suite path
-        runs: args.runs.clone(),       // BORROW: the request owns the glob
-        concurrency: args.concurrency.unwrap_or(NonZeroUsize::MIN),
+        selection: args
+            .runs
+            .clone() // BORROW: the request owns the glob
+            .map_or(RunSelection::All, RunSelection::Glob),
+        slots,
         env_root,
         request_deadline: None,
+        record_dir: None,
     };
     let report = evaluate(request, supervisor, cancel_rx)
         .await

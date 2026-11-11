@@ -15,22 +15,27 @@ mod oracle;
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::num::NonZeroUsize;
+use std::num::NonZeroU32;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use candler_core::evaluation::engine::{EvaluateReport, EvaluateRequest, evaluate};
+use candler_core::evaluation::engine::{
+    EvaluateReport, EvaluateRequest, EvaluatorSlots, RunSelection, evaluate, evaluate_reporting,
+};
 use candler_core::evaluation::registry::EnvironmentKey;
 use candler_core::evaluation::selection::select::select;
+use candler_core::jobs::slots::{Holder, Slots, default_evaluator_slots, evaluator_slots_dir};
 use candler_core::store::Store;
+use candler_core::store::outcome::OutcomeWriter;
 use candler_core::supervise::signal::Signaller;
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_schemas::execution::EventPayload;
 use candler_schemas::outcome::{Cause, OutcomeRecord, Status};
-use candler_schemas::primitives::RunKey;
+use candler_schemas::primitives::{NameVersion, RunKey};
 use legacy_import::{import_with_reader, mini};
 use rustix::io::Errno;
 use rustix::process::{Pid, Signal};
@@ -79,7 +84,7 @@ fn fixtures() -> PathBuf {
 /// A store with the mini-corpus, a built plug-in environment and the supervisor to run under.
 struct Rig {
     /// Keeps the scratch directory alive.
-    _tmp: tempfile::TempDir,
+    tmp: tempfile::TempDir,
     /// The store root.
     store: PathBuf,
     /// The plug-in manifest.
@@ -146,7 +151,7 @@ async fn rig_of(manifest_name: &str) -> Rig {
     let signaller: Arc<dyn Signaller> = recording.clone();
     let sink: Arc<dyn EventSink> = Arc::new(Quiet);
     Rig {
-        _tmp: tmp,
+        tmp,
         store: store_dir,
         plugin,
         env_root,
@@ -191,21 +196,62 @@ impl Rig {
         fs::write(&path, text).expect("the suite writes");
         let (_keep, cancel) = watch::channel(false);
         evaluate(
-            EvaluateRequest {
-                store: self.store.clone(),
-                plugins: plugins.to_vec(),
-                suite: path,
-                runs: Some(glob.to_owned()),
-                concurrency: NonZeroUsize::new(2).expect("two"),
-                env_root: self.env_root.clone(),
-                request_deadline: deadline,
-            },
+            self.request(
+                plugins,
+                path,
+                RunSelection::Glob(glob.to_owned()),
+                self.pool(2),
+                deadline,
+            ),
             // BORROW: .clone() hands the engine its own handle on the supervisor
             self.supervisor.clone(),
             cancel,
         )
         .await
         .expect("the engine grades the runs")
+    }
+
+    /// An evaluator pool of `count` slots under the rig's scratch directory.
+    fn pool(&self, count: u32) -> EvaluatorSlots {
+        EvaluatorSlots {
+            dir: self.tmp.path().join("evaluator-slots"),
+            count: NonZeroU32::new(count).expect("a slot"),
+            job: "guard-engine".to_owned(),
+        }
+    }
+
+    /// The request that grades `selection` of the rig's store with `plugins` and the suite file
+    /// `suite`, from the pool `slots`.
+    fn request(
+        &self,
+        plugins: &[PathBuf],
+        suite: PathBuf,
+        selection: RunSelection,
+        slots: EvaluatorSlots,
+        deadline: Option<Duration>,
+    ) -> EvaluateRequest {
+        EvaluateRequest {
+            store: self.store.clone(),
+            plugins: plugins.to_vec(),
+            suite,
+            selection,
+            slots,
+            env_root: self.env_root.clone(),
+            request_deadline: deadline,
+            record_dir: None,
+        }
+    }
+
+    /// Writes the fixture suite `suite` to the rig's suite directory with every `(token, text)`
+    /// of `fills` replaced, and returns its path.
+    fn suite_file(&self, suite: &str, fills: &[(&str, String)]) -> PathBuf {
+        let mut text = fs::read_to_string(fixtures().join(suite)).expect("the suite reads");
+        for (token, fill) in fills {
+            text = text.replace(token, fill);
+        }
+        let path = self.suites.join(suite);
+        fs::write(&path, text).expect("the suite writes");
+        path
     }
 
     /// The records of the `engine` evaluator's outcome files of `run`, each with its request id.
@@ -599,4 +645,594 @@ async fn a_regrade_that_changes_a_value_is_an_i4_violation() {
         violation.first.request_id().to_string(),
         first.request_ids.first().expect("a request").to_string()
     );
+}
+
+/// Guards: E2 (the default pool size) — an evaluator is short and CPU-bound, so the default pool
+/// is half the CPUs rounded down and never fewer than one. Oracle: the table written by hand,
+/// 0, 1, 2, 3, 4 and 16 CPUs giving 1, 1, 1, 1, 2 and 8.
+/// Bite: use the CPU count whole (16 gives 16).
+#[test]
+fn e2_default_evaluator_slots_follow_the_cpu_count() {
+    for (cpus, slots) in [(0, 1), (1, 1), (2, 1), (3, 1), (4, 2), (16, 8)] {
+        assert_eq!(default_evaluator_slots(cpus), slots, "{cpus} CPUs");
+    }
+}
+
+/// Reads the lines `<pid> start|end <monotonic>` of an interval file, as `(start, end)` per pid.
+fn intervals(file: &Path) -> Vec<(f64, f64)> {
+    let mut by_pid: BTreeMap<String, (Option<f64>, Option<f64>)> = BTreeMap::new();
+    for line in fs::read_to_string(file).expect("the interval file").lines() {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        let [pid, what, at] = fields.as_slice() else {
+            panic!("a malformed interval line: {line:?}");
+        };
+        let at: f64 = at.parse().expect("a time");
+        let entry = by_pid.entry((*pid).to_owned()).or_default();
+        match *what {
+            "start" => entry.0 = Some(at),
+            "end" => entry.1 = Some(at),
+            other => panic!("an unknown mark {other:?}"),
+        }
+    }
+    by_pid
+        .into_values()
+        .map(|(start, end)| (start.expect("a start"), end.expect("an end")))
+        .collect()
+}
+
+/// Whether any two of the intervals overlap.
+fn overlap(spans: &[(f64, f64)]) -> bool {
+    spans
+        .iter()
+        .enumerate()
+        .any(|(i, a)| spans.iter().skip(i + 1).any(|b| a.0 < b.1 && b.0 < a.1))
+}
+
+/// Guards: E2 — an evaluator request waits for a slot of the evaluator pool and holds it while it
+/// runs: with one slot two requests of the `interval` kind never overlap, with two they do (the
+/// positive control), and while they run the pool's holder files name the call's job. Oracle: the
+/// plug-in's own `start` and `end` lines, written by the evaluator process, and the slot files of
+/// `Slots::held`.
+/// Bite: keep a tokio semaphore instead of the pool, or take no slot: no holder file is ever seen
+/// and the one-slot run overlaps.
+#[tokio::test]
+async fn e2_one_evaluator_slot_serialises_requests_and_two_overlap() {
+    for (count, overlaps) in [(1_u32, false), (2, true)] {
+        let rig = rig_of("plugin_pool.toml").await;
+        let marks = rig.suites.join("interval.log");
+        let suite = rig.suite_file(
+            "suite_pool_interval.toml",
+            &[
+                ("@FILE@", marks.display().to_string()),
+                ("@SLEEP@", "1.0".to_owned()),
+            ],
+        );
+        let slots = rig.pool(count);
+        let (dir, job) = (slots.dir.clone(), slots.job.clone());
+        let request = rig.request(
+            std::slice::from_ref(&rig.plugin),
+            suite,
+            RunSelection::Glob("*-r{6,12}-a1".to_owned()),
+            slots,
+            Some(Duration::from_secs(120)),
+        );
+        let (_keep, cancel) = watch::channel(false);
+        let done = AtomicBool::new(false);
+        let grading = async {
+            let report = evaluate(request, Arc::clone(&rig.supervisor), cancel).await;
+            done.store(true, Ordering::SeqCst);
+            report
+        };
+        let watching = async {
+            let mut most = 0;
+            while !done.load(Ordering::SeqCst) {
+                if dir.is_dir() {
+                    let held = Slots::open(&dir, count)
+                        .expect("the pool opens")
+                        .held()
+                        .expect("the pool reads");
+                    let mine = held
+                        .iter()
+                        .filter(|info| !info.stale)
+                        .filter(|info| info.holder.as_ref().is_some_and(|h| h.job == job))
+                        .count();
+                    most = most.max(mine);
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            most
+        };
+        let (report, most) = tokio::join!(grading, watching);
+        let report = report.expect("the engine grades the runs");
+        assert!(
+            report.failed_requests.is_empty(),
+            "{:?}",
+            report.failed_requests
+        );
+        assert_eq!(report.request_ids.len(), 2, "one request per run");
+        let spans = intervals(&marks);
+        assert_eq!(spans.len(), 2, "two evaluator processes ran");
+        assert_eq!(overlap(&spans), overlaps, "{count} slot(s): {spans:?}");
+        assert!(most >= 1, "{count} slot(s): a holder of this job was seen");
+        assert!(
+            most <= usize::try_from(count).expect("a small count"),
+            "never more holders than slots"
+        );
+    }
+}
+
+/// Guards: E2 — the evaluator pool is not the agent pool: with every slot of the agent pool
+/// directory held, an evaluation over its own pool of one ends inside 60 s with no failed request.
+/// Oracle: the clock, and `Slots::try_acquire` showing the agent pool full.
+/// Bite: draw the evaluators from the agent pool: the held slots stall the call until the timeout.
+#[tokio::test]
+async fn e2_agent_slots_held_by_a_job_do_not_delay_an_evaluator() {
+    let rig = rig_of("plugin_pool.toml").await;
+    let state = rig.suites.join("state");
+    let agent_dir = state.join("candler").join("slots");
+    let agents = Slots::open(&agent_dir, 2).expect("the agent pool opens");
+    let holder = Holder {
+        job: "an-agent-job".to_owned(),
+        run: None,
+    };
+    let _first = agents.acquire(&holder).await.expect("the first slot");
+    let _second = agents.acquire(&holder).await.expect("the second slot");
+    assert!(
+        agents.try_acquire(&holder).expect("a probe").is_none(),
+        "the agent pool is full"
+    );
+    let slots = EvaluatorSlots {
+        dir: evaluator_slots_dir(&state),
+        count: NonZeroU32::MIN,
+        job: "an-evaluate-job".to_owned(),
+    };
+    assert_ne!(slots.dir, agent_dir, "a directory of its own");
+    let suite = rig.suite_file("suite_pool_ok.toml", &[]);
+    let request = rig.request(
+        std::slice::from_ref(&rig.plugin),
+        suite,
+        RunSelection::Glob("*-r{6,12}-a1".to_owned()),
+        slots,
+        Some(Duration::from_secs(120)),
+    );
+    let (_keep, cancel) = watch::channel(false);
+    let report = tokio::time::timeout(
+        Duration::from_secs(60),
+        evaluate(request, Arc::clone(&rig.supervisor), cancel),
+    )
+    .await
+    .expect("the evaluation ends inside 60 s while every agent slot is held")
+    .expect("the engine grades the runs");
+    assert!(
+        report.failed_requests.is_empty(),
+        "{:?}",
+        report.failed_requests
+    );
+    assert_eq!(report.request_ids.len(), 2, "one request per run");
+}
+
+/// What a sink saw, and the outcome events that arrived before their record was in the store.
+struct Events {
+    /// The store the records are published to.
+    store: PathBuf,
+    /// Every event, with its run.
+    seen: Mutex<Vec<(Option<RunKey>, EventPayload)>>,
+    /// The ids of the records whose event came before their file was visible.
+    early: Mutex<Vec<String>>,
+}
+
+impl Events {
+    fn new(store: &Path) -> Arc<Self> {
+        Arc::new(Self {
+            store: store.to_path_buf(),
+            seen: Mutex::new(Vec::new()),
+            early: Mutex::new(Vec::new()),
+        })
+    }
+
+    /// The `evaluation.outcome` events, each as `(run, record as JSON)`, in arrival order.
+    fn outcomes(&self) -> Vec<(Option<RunKey>, Value)> {
+        self.seen
+            .lock()
+            .expect("a lock")
+            .iter()
+            .filter_map(|(run, payload)| {
+                if let EventPayload::EvaluationOutcome { record, .. } = payload {
+                    Some((
+                        run.clone(),
+                        serde_json::to_value(record.as_ref()).expect("a record serialises"),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// The `outcomes` of the `evaluation.planned` events, in arrival order.
+    fn planned(&self) -> Vec<u32> {
+        self.seen
+            .lock()
+            .expect("a lock")
+            .iter()
+            .filter_map(|(_, payload)| {
+                if let EventPayload::EvaluationPlanned { outcomes, .. } = payload {
+                    Some(*outcomes)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+}
+
+impl EventSink for Events {
+    fn emit(&self, run: Option<&RunKey>, payload: EventPayload) {
+        if let EventPayload::EvaluationOutcome { record, .. } = &payload {
+            let store = Store::open(&self.store).expect("the store opens");
+            let wanted = serde_json::to_value(record.as_ref()).expect("a record serialises");
+            let visible = store
+                .outcome_files(record.run())
+                .expect("the outcome files list")
+                .iter()
+                .filter(|file| file.request == *record.request_id())
+                .any(|file| {
+                    store
+                        .read_outcomes(file)
+                        .expect("the file reads")
+                        .iter()
+                        .any(|read| serde_json::to_value(read).expect("a record") == wanted)
+                });
+            if !visible {
+                self.early
+                    .lock()
+                    .expect("a lock")
+                    .push(record.expectation_id().to_string());
+            }
+        }
+        self.seen
+            .lock()
+            .expect("a lock")
+            .push((run.cloned(), payload));
+    }
+}
+
+/// Guards: E1 — through `evaluate_reporting` the engine reports one `evaluation.outcome` per
+/// record it commits, each carrying its run, each equal to its line of the outcome file and in the
+/// file's order, and each arriving only once its file is published; one `evaluation.planned`
+/// before them counts the records. A call cancelled before it starts, and a request cancelled in
+/// flight, report none and leave no file. Oracle: the outcome files read back from the store, and
+/// the store as the sink sees it at the moment of each event.
+/// Bite: commit records and send no event; send the event before the commit.
+#[tokio::test]
+async fn e1_engine_emits_one_outcome_event_per_committed_record() {
+    let rig = rig().await;
+    let events = Events::new(&rig.store);
+    let suite = rig.suite_file("suite_dependencies.toml", &[]);
+    let request = rig.request(
+        std::slice::from_ref(&rig.plugin),
+        suite,
+        RunSelection::Glob("*-r{6,12}-a1".to_owned()),
+        rig.pool(2),
+        Some(Duration::from_secs(120)),
+    );
+    let (_keep, cancel) = watch::channel(false);
+    // TRAIT_OBJECT: the engine takes its sink as a trait object
+    // BORROW: .clone() shares the log between the engine and the test
+    let sink: Arc<dyn EventSink> = events.clone();
+    let report = evaluate_reporting(request, Arc::clone(&rig.supervisor), cancel, sink)
+        .await
+        .expect("the engine grades the runs");
+    assert!(
+        report.failed_requests.is_empty(),
+        "{:?}",
+        report.failed_requests
+    );
+    assert_eq!(report.outcome_files.len(), 2, "one file per run");
+
+    let mut read_back = Vec::new();
+    for replicate in [6, 12] {
+        let run = rig.run_of(replicate);
+        for (_, record) in rig.records(&run) {
+            read_back.push((
+                Some(run.clone()),
+                serde_json::to_value(&record).expect("a record serialises"),
+            ));
+        }
+    }
+    let reported = events.outcomes();
+    assert_eq!(
+        reported.len(),
+        read_back.len(),
+        "one event per committed record"
+    );
+    assert_eq!(
+        reported.len(),
+        usize::try_from(report.counts.values().sum::<u64>()).expect("a small count"),
+        "the counts of the report agree"
+    );
+    for run in [rig.run_of(6), rig.run_of(12)] {
+        let of_run = |list: &[(Option<RunKey>, Value)]| -> Vec<Value> {
+            list.iter()
+                .filter(|(key, _)| key.as_ref() == Some(&run))
+                .map(|(_, record)| record.clone())
+                .collect()
+        };
+        assert_eq!(
+            of_run(&reported),
+            of_run(&read_back),
+            "{run}: each record equals its file's line, in order"
+        );
+    }
+    assert!(
+        events.early.lock().expect("a lock").is_empty(),
+        "an event came before its record was published: {:?}",
+        events.early.lock().expect("a lock")
+    );
+    assert_eq!(
+        events.planned(),
+        [u32::try_from(reported.len()).expect("a small count")],
+        "one `evaluation.planned`, counting the records"
+    );
+    let first_outcome = events
+        .seen
+        .lock()
+        .expect("a lock")
+        .iter()
+        .position(|(_, payload)| matches!(payload, EventPayload::EvaluationOutcome { .. }))
+        .expect("an outcome event");
+    let planned_at = events
+        .seen
+        .lock()
+        .expect("a lock")
+        .iter()
+        .position(|(_, payload)| matches!(payload, EventPayload::EvaluationPlanned { .. }))
+        .expect("a planned event");
+    assert!(planned_at < first_outcome, "the plan comes first");
+
+    // A call cancelled before it starts reports nothing and commits nothing.
+    let rig = rig_of("plugin_pool.toml").await;
+    let events = Events::new(&rig.store);
+    let marks = rig.suites.join("never.log");
+    let suite = rig.suite_file(
+        "suite_pool_interval.toml",
+        &[
+            ("@FILE@", marks.display().to_string()),
+            ("@SLEEP@", "30".to_owned()),
+        ],
+    );
+    let request = rig.request(
+        std::slice::from_ref(&rig.plugin),
+        suite.clone(), // BORROW: the second call reads the same suite
+        RunSelection::Glob("*-r{6,12}-a1".to_owned()),
+        rig.pool(2),
+        None,
+    );
+    let (_keep, cancel) = watch::channel(true);
+    // TRAIT_OBJECT: the engine takes its sink as a trait object
+    // BORROW: .clone() shares the log between the engine and the test
+    let sink: Arc<dyn EventSink> = events.clone();
+    let report = evaluate_reporting(request, Arc::clone(&rig.supervisor), cancel, sink)
+        .await
+        .expect("a cancelled call returns");
+    assert!(events.outcomes().is_empty(), "no event");
+    assert!(report.outcome_files.is_empty(), "no file");
+    assert!(!marks.exists(), "no request started");
+
+    // A request cancelled in flight reports nothing, commits nothing and is a failed request.
+    let request = rig.request(
+        std::slice::from_ref(&rig.plugin),
+        suite,
+        RunSelection::Glob("*-r6-a1".to_owned()),
+        rig.pool(2),
+        None,
+    );
+    let (cancel_tx, cancel) = watch::channel(false);
+    // TRAIT_OBJECT: the engine takes its sink as a trait object
+    // BORROW: .clone() shares the log between the engine and the test
+    let sink: Arc<dyn EventSink> = events.clone();
+    let grading = evaluate_reporting(request, Arc::clone(&rig.supervisor), cancel, sink);
+    let cancelling = async {
+        while !marks.exists() {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        cancel_tx.send(true).expect("a receiver");
+    };
+    let (report, ()) = tokio::join!(grading, cancelling);
+    let report = report.expect("a cancelled call returns");
+    assert!(
+        events.outcomes().is_empty(),
+        "no event for a cancelled request"
+    );
+    assert!(
+        report.outcome_files.is_empty(),
+        "no file for a cancelled request"
+    );
+    assert_eq!(
+        report.failed_requests.len(),
+        1,
+        "the request is a failed one"
+    );
+    assert!(
+        rig.records_of(&rig.run_of(6), "pool").is_empty(),
+        "nothing was committed for it"
+    );
+}
+
+/// How many outcome files of `pool@0.1.0`, the version the fixture plug-in describes, `run` has.
+fn pool_files(rig: &Rig, run: &RunKey) -> usize {
+    Store::open(&rig.store)
+        .expect("the store opens")
+        .outcome_files(run)
+        .expect("the outcome files list")
+        .iter()
+        .filter(|file| file.evaluator.to_string() == "pool@0.1.0")
+        .count()
+}
+
+/// The done runs of the rig's store.
+fn done_runs(rig: &Rig) -> Vec<RunKey> {
+    Store::open(&rig.store)
+        .expect("the store opens")
+        .runs()
+        .expect("the runs list")
+        .into_iter()
+        .filter(|entry| entry.done)
+        .map(|entry| entry.key)
+        .collect()
+}
+
+/// Guards: E1 — `Keys` grades exactly the keys it holds; after a call with `Glob` over one run,
+/// `Pending` grades the other runs and not that one, a second `Pending` grades none, and an outcome
+/// file of another version of the evaluator does not make a run complete. Oracle: the count of
+/// requests and the outcome files in the store, by run, written out by hand.
+/// Bite: `Pending` selecting every run; `Pending` counting a file of another evaluator version.
+#[tokio::test]
+async fn e1_selection_keys_and_pending_pick_the_runs_they_name() {
+    let rig = rig_of("plugin_pool.toml").await;
+    let suite = rig.suite_file("suite_pool_ok.toml", &[]);
+    let runs = done_runs(&rig);
+    assert!(runs.len() >= 4, "the mini corpus has runs to choose among");
+    let (first, second) = (rig.run_of(6), rig.run_of(12));
+    let grade = |selection: RunSelection| {
+        let request = rig.request(
+            std::slice::from_ref(&rig.plugin),
+            suite.clone(), // BORROW: every call reads the same suite
+            selection,
+            rig.pool(2),
+            Some(Duration::from_secs(120)),
+        );
+        let (keep, cancel) = watch::channel(false);
+        let supervisor = Arc::clone(&rig.supervisor);
+        async move {
+            let report = evaluate(request, supervisor, cancel)
+                .await
+                .expect("the engine grades the runs");
+            drop(keep);
+            report
+        }
+    };
+    let graded = |run: &RunKey| pool_files(&rig, run);
+
+    let report = grade(RunSelection::Keys(vec![first.clone(), second.clone()])).await;
+    assert_eq!(report.request_ids.len(), 2, "exactly the two keys");
+    assert_eq!((graded(&first), graded(&second)), (1, 1));
+    for other in runs.iter().filter(|run| **run != first && **run != second) {
+        assert_eq!(graded(other), 0, "{other} was not named");
+    }
+
+    // Keep one run for the Glob call: start from a clean set of results for the others.
+    let rig2 = rig_of("plugin_pool.toml").await;
+    let suite2 = rig2.suite_file("suite_pool_ok.toml", &[]);
+    let call = |selection: RunSelection| {
+        let request = rig2.request(
+            std::slice::from_ref(&rig2.plugin),
+            suite2.clone(), // BORROW: every call reads the same suite
+            selection,
+            rig2.pool(2),
+            Some(Duration::from_secs(120)),
+        );
+        let (keep, cancel) = watch::channel(false);
+        let supervisor = Arc::clone(&rig2.supervisor);
+        async move {
+            let report = evaluate(request, supervisor, cancel)
+                .await
+                .expect("the engine grades the runs");
+            drop(keep);
+            report
+        }
+    };
+    let graded2 = |run: &RunKey| pool_files(&rig2, run);
+    let runs2 = done_runs(&rig2);
+    let (one, other) = (rig2.run_of(6), rig2.run_of(12));
+
+    let report = call(RunSelection::Glob("*-r6-a1".to_owned())).await;
+    assert_eq!(report.request_ids.len(), 1, "the glob names one run");
+    assert_eq!(graded2(&one), 1);
+
+    // An outcome file of another version of the evaluator, for the other run, is no completion.
+    let record = rig2
+        .records_of(&one, "pool")
+        .pop()
+        .expect("the graded run has a record")
+        .1;
+    let mut text = serde_json::to_value(&record).expect("a record serialises");
+    text["evaluator"] = Value::from("pool@0.0.1");
+    text["run"] = serde_json::to_value(&other).expect("a key serialises");
+    let foreign: OutcomeRecord = serde_json::from_value(text).expect("a record of another version");
+    let store = Store::open(&rig2.store).expect("the store opens");
+    let version: NameVersion = "pool@0.0.1".parse().expect("an identity");
+    let mut writer =
+        OutcomeWriter::create(&store, &other, &version, foreign.request_id()).expect("a writer");
+    writer.append(&foreign).expect("the record is written");
+    writer.commit().expect("the file is published");
+
+    let report = call(RunSelection::Pending).await;
+    assert_eq!(
+        report.request_ids.len(),
+        runs2.len() - 1,
+        "every run but the graded one"
+    );
+    assert_eq!(graded2(&one), 1, "the graded run is not graded again");
+    assert_eq!(
+        graded2(&other),
+        1,
+        "the run with a file of another version is graded"
+    );
+    for run in &runs2 {
+        assert_eq!(graded2(run), 1, "{run} has its one record");
+    }
+
+    let report = call(RunSelection::Pending).await;
+    assert!(
+        report.request_ids.is_empty(),
+        "a second Pending grades none"
+    );
+    assert_eq!(report.outcome_files, Vec::<PathBuf>::new());
+}
+
+/// Guards: E3 (the marker) — every evaluator process of an evaluation carries a marker of its own,
+/// `evaluation-<id>`, never the constant `candler-evaluation`: `ProcMarkerSweeper` kills by an
+/// exact marker, so a shared one would let one job's sweep end another job's evaluators. Oracle:
+/// the `marker` of each child record in the record directory the call was given.
+/// Bite: the constant marker back (two requests share it).
+#[tokio::test]
+async fn e3_each_request_carries_its_own_marker() {
+    let rig = rig_of("plugin_pool.toml").await;
+    let suite = rig.suite_file("suite_pool_ok.toml", &[]);
+    let records = rig.suites.join("child-records");
+    let mut request = rig.request(
+        std::slice::from_ref(&rig.plugin),
+        suite,
+        RunSelection::Glob("*-r{6,12}-a1".to_owned()),
+        rig.pool(2),
+        Some(Duration::from_secs(120)),
+    );
+    request.record_dir = Some(records.clone()); // BORROW: the test reads the directory afterwards
+    let (_keep, cancel) = watch::channel(false);
+    let report = evaluate(request, Arc::clone(&rig.supervisor), cancel)
+        .await
+        .expect("the engine grades the runs");
+    assert_eq!(report.request_ids.len(), 2, "two requests");
+
+    let mut markers: Vec<String> = fs::read_dir(&records)
+        .expect("the record directory")
+        .map(|entry| entry.expect("an entry").path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+        .map(|path| {
+            let record: Value =
+                serde_json::from_slice(&fs::read(&path).expect("a record")).expect("JSON");
+            record["marker"].as_str().expect("a marker").to_owned()
+        })
+        .collect();
+    markers.sort();
+    // One describe and one process per request.
+    assert_eq!(markers.len(), 3, "{markers:?}");
+    let mut distinct = markers.clone(); // BORROW: the check below reads the sorted list
+    distinct.dedup();
+    assert_eq!(distinct, markers, "no two processes share a marker");
+    for marker in &markers {
+        assert!(marker.starts_with("evaluation-"), "{marker}");
+        assert_ne!(marker, "candler-evaluation");
+    }
 }

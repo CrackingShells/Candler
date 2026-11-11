@@ -17,7 +17,7 @@ const PROJECT_FILE: &str = "candler.toml";
 const PROJECT_TABLES: [(&str, &[&str]); 2] = [("store", &["root"]), ("plugins", &["dirs"])];
 
 /// The tables of a user configuration and the keys each defines.
-const USER_TABLES: [(&str, &[&str]); 1] = [("slots", &["count"])];
+const USER_TABLES: [(&str, &[&str]); 1] = [("slots", &["count", "evaluators"])];
 
 /// Why a configuration could not be loaded.
 #[derive(Debug, thiserror::Error)]
@@ -209,7 +209,7 @@ impl ProjectConfig {
     }
 }
 
-/// The user configuration: `slots.count`.
+/// The user configuration: `slots.count` and `slots.evaluators`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct UserConfig {
@@ -217,6 +217,8 @@ pub struct UserConfig {
     pub file: Option<PathBuf>,
     /// `slots.count`.
     pub slots_count: Option<u32>,
+    /// `slots.evaluators`: how many evaluator processes run at once on the machine.
+    pub slots_evaluators: Option<u32>,
 }
 
 impl UserConfig {
@@ -239,27 +241,36 @@ impl UserConfig {
         let table = read_table(file.as_path())?;
         // BORROW: `.as_path()` and `.as_slice()` view the owned file and the table list as borrows
         check_keys(file.as_path(), &table, USER_TABLES.as_slice())?;
-        let slots_count = match table.get("slots").and_then(Value::as_table) {
-            Some(slots) => slots
-                .get("count")
-                .map(|v| {
-                    v.as_integer()
-                        .and_then(|n| u32::try_from(n).ok())
-                        .ok_or_else(|| ConfigError::WrongType {
-                            // BORROW: `.clone()` makes the owned file the error carries
-                            file: file.clone(),
-                            key: "slots.count".to_owned(), // BORROW: owned key for the error
-                            expected: "a non-negative integer that fits in 32 bits",
-                        })
-                })
-                .transpose()?,
-            None => None,
-        };
+        // BORROW: `.as_path()` views the owned file as a `&Path`
+        let slots_count = slots_key(file.as_path(), &table, "count")?;
+        // BORROW: `.as_path()` views the owned file as a `&Path`
+        let slots_evaluators = slots_key(file.as_path(), &table, "evaluators")?;
         Ok(Self {
             file: Some(file),
             slots_count,
+            slots_evaluators,
         })
     }
+}
+
+/// The key `slots.<name>` of a user configuration, a non-negative integer that fits in 32 bits.
+fn slots_key(file: &Path, table: &Table, name: &str) -> Result<Option<u32>, ConfigError> {
+    let Some(slots) = table.get("slots").and_then(Value::as_table) else {
+        return Ok(None);
+    };
+    slots
+        .get(name)
+        .map(|v| {
+            v.as_integer()
+                .and_then(|n| u32::try_from(n).ok())
+                .ok_or_else(|| ConfigError::WrongType {
+                    // BORROW: `.to_owned()` makes the owned file the error carries
+                    file: file.to_owned(),
+                    key: format!("slots.{name}"),
+                    expected: "a non-negative integer that fits in 32 bits",
+                })
+        })
+        .transpose()
 }
 
 /// Both configuration files and the working directory they were found from.

@@ -1,0 +1,13 @@
+schema = "suite/1"
+
+[[expectations]]
+id = "K1"
+role = "gate"
+kind = "ok"
+depends_on = []
+
+[expectations.evaluator]
+name = "pool"
+range = "^0.1"
+
+[expectations.params]

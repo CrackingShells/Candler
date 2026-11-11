@@ -22,6 +22,21 @@ use super::dir::write_atomic;
 /// How often [`Slots::acquire`] tries again.
 const POLL: Duration = Duration::from_millis(50);
 
+/// The directory of the evaluator slot pool under the user state directory `state`: a directory of
+/// its own, apart from the agent pool at `<state>/candler/slots`, so that a held agent slot never
+/// delays an evaluator and the reverse.
+#[must_use]
+pub fn evaluator_slots_dir(state: &Path) -> PathBuf {
+    state.join("candler").join("evaluator-slots")
+}
+
+/// The size of the evaluator pool when `slots.evaluators` is not set: half of `cpus`, rounded down,
+/// and at least 1. Evaluators are short and CPU-bound, while the agents mostly wait on the model.
+#[must_use]
+pub fn default_evaluator_slots(cpus: usize) -> u32 {
+    u32::try_from(cpus / 2).unwrap_or(u32::MAX).max(1)
+}
+
 /// Why a slot could not be taken.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]

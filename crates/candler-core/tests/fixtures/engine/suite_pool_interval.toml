@@ -1,0 +1,15 @@
+schema = "suite/1"
+
+[[expectations]]
+id = "I1"
+role = "gate"
+kind = "interval"
+depends_on = []
+
+[expectations.evaluator]
+name = "pool"
+range = "^0.1"
+
+[expectations.params]
+file = "@FILE@"
+sleep_s = @SLEEP@
