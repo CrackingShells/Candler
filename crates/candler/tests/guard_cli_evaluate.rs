@@ -638,9 +638,9 @@ fn e1_ctrl_c_ends_the_evaluate_job_killed() {
     world.remove();
 }
 
-/// Guards: E1 (the binary half) — a job that ends without a report is not printed as one: with no
-/// evaluator slot (`slots.evaluators = 0`) the supervisor cannot run the evaluation and the job
-/// ends `failed`; the command prints nothing on stdout, exits 2 and says why, quoting the end of
+/// Guards: E1 (the binary half) — a job that ends without a report is not printed as one: with a
+/// suite that names an evaluator no plug-in provides the supervisor cannot run the evaluation and
+/// the job ends `failed`; the command prints nothing on stdout, exits 2 and says why, quoting the end of
 /// the job's `supervisor.log`, and `candler ps` shows the job `ended (failed)`.
 ///
 /// Oracle: the exit status, both streams, `ps`.
@@ -650,8 +650,9 @@ fn e1_ctrl_c_ends_the_evaluate_job_killed() {
 fn e1_evaluate_of_a_failed_job_prints_no_report_and_says_why() {
     let (world, _) = sealed_world();
     pool_plugin(&world);
-    user_config(&world, "[slots]\nevaluators = 0\n");
     let suite = suite_of(&world, "suite_pool_ok.toml", &[]);
+    let text = fs::read_to_string(&suite).unwrap();
+    fs::write(&suite, text.replace("name = \"pool\"", "name = \"absent\"")).unwrap();
     let project = project(&world, "project", &["../plugin"]);
     let out = candler(&world, &project)
         .arg("evaluate")
@@ -661,7 +662,7 @@ fn e1_evaluate_of_a_failed_job_prints_no_report_and_says_why() {
     let stderr = stderr_of(&out);
     assert_eq!(out.status.code(), Some(2), "{stderr}");
     assert!(out.stdout.is_empty(), "no report on stdout");
-    assert!(stderr.contains("slots.evaluators"), "{stderr}");
+    assert!(stderr.contains("absent"), "{stderr}");
     let id: JobId = stderr.lines().next().unwrap().parse().unwrap();
     let ps = candler(&world, &project).arg("ps").output().unwrap();
     let listing = String::from_utf8_lossy(&ps.stdout).into_owned();
@@ -994,7 +995,8 @@ fn evaluate_json(world: &World, project: &Path, suite: &Path) -> Output {
 /// Oracle: a record written by hand from the contract.
 ///
 /// Bite: the verb not reading the job's `refusal.json` (the record has the fallback code
-/// `candler.internal` and the side `candler`).
+/// `candler.internal` and the side `candler`); the verb's own message put in the record in place
+/// of the recorded one (the message quotes the log and repeats its cause).
 #[test]
 fn r2_a_refusal_raised_in_the_job_keeps_its_code_through_the_verb() {
     let (world, _) = sealed_world();
@@ -1013,6 +1015,20 @@ fn r2_a_refusal_raised_in_the_job_keeps_its_code_through_the_verb() {
     assert_eq!(record["schema"], "refusal/1", "{record}");
     assert_eq!(record["code"], "suite.evaluator_unknown", "{record}");
     assert_eq!(record["side"], "suite", "{record}");
+    // The record is the job's own, as written: its message is the engine's and its causes are the
+    // engine's, not the words of the verb that quotes the log.
+    let written: Vec<Value> = fs::read_dir(world.store().join("jobs"))
+        .unwrap()
+        .flatten()
+        .filter_map(|entry| fs::read(entry.path().join("refusal.json")).ok())
+        .map(|bytes| serde_json::from_slice(&bytes).unwrap())
+        .collect();
+    assert_eq!(written.len(), 1, "the job wrote one refusal.json");
+    assert_eq!(record["message"], written[0]["message"], "{record}");
+    assert_eq!(record["causes"], written[0]["causes"], "{record}");
+    let message = record["message"].as_str().unwrap();
+    assert!(!message.contains("ended without a report"), "{message}");
+    assert!(!message.contains("supervise failed"), "{message}");
     world.remove();
 }
 
@@ -1195,6 +1211,18 @@ fn e1_a_lost_evaluate_job_is_recovered_with_no_docker_on_the_path() {
     world.remove();
 }
 
+/// The number `i4_violations` holds, wherever the document nests it.
+fn violations(value: &Value) -> Option<u64> {
+    match value {
+        Value::Object(map) => map
+            .get("i4_violations")
+            .and_then(Value::as_u64)
+            .or_else(|| map.values().find_map(violations)),
+        Value::Array(items) => items.iter().find_map(violations),
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => None,
+    }
+}
+
 /// Guards: a run graded twice counts once. Two `evaluate` calls over the same runs, one after the
 /// other as two at once would leave them, hold two complete sets of outcomes for one evaluator
 /// version; `show` and `analyze` read the current record under each I4 key, so their output is
@@ -1243,19 +1271,140 @@ fn e1_a_run_graded_twice_counts_once_for_every_reader() {
     assert_eq!(read("show"), shown, "show counts each run once");
     assert_eq!(read("analyze"), analysed, "analyze counts each run once");
     let report: Value = serde_json::from_slice(&analysed).unwrap();
-    fn violations(value: &Value) -> Option<u64> {
-        match value {
-            Value::Object(map) => map
-                .get("i4_violations")
-                .and_then(Value::as_u64)
-                .or_else(|| map.values().find_map(violations)),
-            Value::Array(items) => items.iter().find_map(violations),
-            _ => None,
-        }
-    }
     assert_eq!(violations(&report), Some(0), "no I4 violation: {report}");
     let after_two = files_by_run(&world);
     evaluate(&[]);
     assert_eq!(files_by_run(&world), after_two, "nothing is pending");
+    world.remove();
+}
+
+/// Guards: R2 — a configuration `evaluate` cannot work with is refused before any job starts, with
+/// a `config` record: `slots.evaluators = 0` is `config.no_evaluator_slots`, and a project with an
+/// empty `plugins.dirs`, or none at all, is `config.no_plugin_dirs`.
+///
+/// Oracle: records written by hand from the contract, and the job directories of the store, which
+/// no row adds to.
+///
+/// Bite: the refusals raised as `CliError::Refused` (the code is `candler.internal`, the side
+/// `candler`).
+#[test]
+fn r2_a_configuration_evaluate_cannot_use_is_a_config_record() {
+    let (world, _) = sealed_world();
+    pool_plugin(&world);
+    let suite = suite_of(&world, "suite_pool_ok.toml", &[]);
+    let jobs = || fs::read_dir(world.store().join("jobs")).unwrap().count();
+    let before = jobs();
+    let expect = |out: &Output, code: &str| {
+        assert_eq!(out.status.code(), Some(2), "{}", stderr_of(out));
+        let record: Value = serde_json::from_slice(&out.stderr).unwrap();
+        assert_eq!(record["schema"], "refusal/1", "{record}");
+        assert_eq!(record["code"], code, "{record}");
+        assert_eq!(record["side"], "config", "{record}");
+    };
+    let empty = project(&world, "empty", &[]);
+    expect(
+        &evaluate_json(&world, &empty, &suite),
+        "config.no_plugin_dirs",
+    );
+    expect(
+        &evaluate_json(&world, &world.work, &suite),
+        "config.no_plugin_dirs",
+    );
+    user_config(&world, "[slots]\nevaluators = 0\n");
+    let project = project(&world, "project", &["../plugin"]);
+    let out = evaluate_json(&world, &project, &suite);
+    expect(&out, "config.no_evaluator_slots");
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("slots.evaluators is 0"),
+        "{}",
+        stderr_of(&out)
+    );
+    assert_eq!(jobs(), before, "no job directory was created");
+    world.remove();
+}
+
+/// Guards: a job found lost by the command is said to be lost. The supervisor of an evaluate job
+/// with an evaluator in flight is killed (SIGKILL) while the command waits; the command recovers
+/// the job, exits 2 and says that the job was lost and what the recovery did, and the job ended
+/// `failed`.
+///
+/// Oracle: the exit status and the text on stderr, the job's one `job.ended`, the evaluator's
+/// pid and start time.
+///
+/// Bite: the words of a job that failed (`its supervisor.log is empty`) for a lost one.
+#[test]
+fn e1_evaluate_says_when_its_job_was_lost() {
+    let (world, _) = sealed_world();
+    pool_plugin(&world);
+    let marks = world.root.join("interval.log");
+    let suite = suite_of(
+        &world,
+        "suite_pool_interval.toml",
+        &[
+            ("@FILE@", marks.display().to_string()),
+            ("@SLEEP@", "60".to_owned()),
+        ],
+    );
+    let project = project(&world, "project", &["../plugin"]);
+    let err_path = world.work.join("evaluate.err");
+    let mut child = candler(&world, &project)
+        .arg("evaluate")
+        .arg(&suite)
+        .process_group(0)
+        .stdout(fs::File::create(world.work.join("evaluate.out")).unwrap())
+        .stderr(fs::File::create(&err_path).unwrap())
+        .spawn()
+        .unwrap();
+    let started = wait_for(JOB_LIMIT, || {
+        child.try_wait().unwrap().is_some()
+            || fs::read_to_string(&marks).is_ok_and(|text| text.contains(" start "))
+    });
+    let err = fs::read_to_string(&err_path).unwrap_or_default();
+    assert!(
+        started && child.try_wait().unwrap().is_none(),
+        "a request is in flight\n{err}"
+    );
+    let evaluator: u32 = fs::read_to_string(&marks)
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let evaluator_start = process_start(evaluator);
+    let job: JobId = err.lines().next().unwrap().parse().unwrap();
+    let dir = JobDir::open(&StoreLayout::new(&world.store()), &job).unwrap();
+    let supervisor = dir.record().unwrap().supervisor().pid();
+    let killed = Command::new("kill")
+        .args(["-KILL", &supervisor.to_string()])
+        .status()
+        .unwrap();
+    assert!(killed.success(), "the supervisor was killed");
+    let limit = Instant::now() + TEARDOWN_BOUND + Duration::from_secs(30);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(
+            Instant::now() < limit,
+            "the command ends once it has recovered the job"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let err = fs::read_to_string(&err_path).unwrap();
+    assert_eq!(status.code(), Some(2), "{err}");
+    assert!(err.contains("it was lost"), "{err}");
+    assert!(err.contains("recovery stopped"), "{err}");
+    assert!(!err.contains("supervisor.log is empty"), "{err}");
+    let ends = events_of(&world, &job)
+        .into_iter()
+        .filter(|event| matches!(event, EventPayload::JobEnded { .. }))
+        .count();
+    assert_eq!(ends, 1, "one job.ended");
+    assert_ne!(
+        process_start(evaluator),
+        evaluator_start,
+        "the evaluator is gone, or its pid is another process's"
+    );
     world.remove();
 }

@@ -821,6 +821,16 @@ side = "config"
 enum = "CliRefusal"
 variant = "RulesInvalid"
 
+[cli."config.no_plugin_dirs"]
+side = "config"
+enum = "CliRefusal"
+variant = "NoPluginDirs"
+
+[cli."config.no_evaluator_slots"]
+side = "config"
+enum = "CliRefusal"
+variant = "NoEvaluatorSlots"
+
 [jobs]
 
 [jobs."jobs.job_not_a_directory"]

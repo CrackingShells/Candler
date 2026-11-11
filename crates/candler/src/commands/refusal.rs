@@ -53,6 +53,15 @@ pub enum CliRefusal {
         /// What the TOML parser reported.
         detail: String,
     },
+    /// `evaluate` finds no plug-in directory under `plugins.dirs`: there is no `candler.toml`, or
+    /// its list is empty.
+    #[error(
+        "no plug-in directory: list one under `plugins.dirs` in a `candler.toml` at or above the working directory"
+    )]
+    NoPluginDirs,
+    /// `slots.evaluators` is 0, so no evaluator could ever run.
+    #[error("no evaluator slot to run in: slots.evaluators is 0")]
+    NoEvaluatorSlots,
 }
 
 /// Where an experiment's dotted path was written.
@@ -130,7 +139,9 @@ fn cli_refusal_path(error: &CliRefusal) -> Option<String> {
         CliRefusal::NoStore
         | CliRefusal::RetiredSetting { .. }
         | CliRefusal::UnknownRequestKey { .. }
-        | CliRefusal::RulesInvalid { .. } => None,
+        | CliRefusal::RulesInvalid { .. }
+        | CliRefusal::NoPluginDirs
+        | CliRefusal::NoEvaluatorSlots => None,
     }
 }
 
@@ -164,6 +175,18 @@ refusal_table! {
         "config.import_rules_invalid",
         Side::Config,
         "The import rules file given to `ingest --rules` is not the rules format: it is not TOML, a field is missing, or a field is not one the format has.",
+        "-",
+    ),
+    NoPluginDirs { .. } => row(
+        "config.no_plugin_dirs",
+        Side::Config,
+        "`evaluate` is run where no `candler.toml` at or above the working directory lists a plug-in directory under `plugins.dirs`.",
+        "-",
+    ),
+    NoEvaluatorSlots { .. } => row(
+        "config.no_evaluator_slots",
+        Side::Config,
+        "`slots.evaluators` is 0 in the user configuration, so the pool that evaluators draw from has no slot.",
         "-",
     ),
 }
@@ -257,20 +280,20 @@ fn refusal_of(error: &CliError) -> Option<&dyn Refusal> {
             let carried: &(dyn Error + 'static) = &**refusal;
             Some(candler_core::refusal::find(carried).unwrap_or(&**refusal))
         }
-        CliError::Failed { source, .. } => {
-            candler_core::refusal::find(source.as_ref()).or_else(|| {
-                // A failed evaluate job's own record, which crossed the process boundary as a file.
-                source
-                    .downcast_ref::<super::evaluate::JobRefusal>()
-                    .map::<&dyn Refusal, _>(|job| job)
-            })
-        }
+        CliError::Failed { source, .. } => candler_core::refusal::find(source.as_ref()),
         CliError::Refused { .. } | CliError::Runtime { .. } => None,
     }
 }
 
 /// The `refusal/1` record of `error`.
 fn record_of(error: &CliError) -> RefusalRecord {
+    // A failed evaluate job's own record crossed the process boundary as a file: it is printed as
+    // written, with the message and the causes of the place that raised it.
+    if let CliError::Failed { source, .. } = error
+        && let Some(job) = source.downcast_ref::<super::evaluate::JobRefusal>()
+    {
+        return job.record().clone(); // BORROW: the caller owns the record it prints
+    }
     let message = error.to_string();
     let record = match refusal_of(error) {
         Some(found) => RefusalRecord::new(found.code(), found.side(), message),

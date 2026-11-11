@@ -30,10 +30,11 @@ use candler_core::store::layout::StoreLayout;
 use candler_core::supervise::Supervisor;
 use candler_schemas::execution::{EventPayload, JobEnd, JobRecord, JobState};
 use candler_schemas::primitives::{JobId, RunKey};
-use candler_schemas::refusal::{Refusal, RefusalCode, RefusalRecord, Side};
+use candler_schemas::refusal::RefusalRecord;
 use serde_json::Value;
 use tokio::signal::unix::{Signal, SignalKind, signal};
 
+use super::refusal::CliRefusal;
 use super::run::STORE_ENV;
 use super::{CliError, Exit, common, kill};
 use crate::Cli;
@@ -79,24 +80,25 @@ impl std::fmt::Display for JobRefusal {
 
 impl std::error::Error for JobRefusal {}
 
-impl Refusal for JobRefusal {
-    fn code(&self) -> RefusalCode {
-        self.record.code().clone() // BORROW: the answer owns its code
-    }
-
-    fn side(&self) -> Side {
-        self.record.side()
-    }
-
-    fn path(&self) -> Option<String> {
-        self.record.path().map(str::to_owned) // BORROW: the answer owns its pointer
+impl JobRefusal {
+    /// The record the supervisor wrote.
+    pub(super) const fn record<'a>(&'a self) -> &'a RefusalRecord {
+        &self.record
     }
 }
 
 /// The error of a job that ended without a report: the job's recorded refusal when it left one,
 /// else the text alone.
-fn job_failure(dir: &JobDir, id: &JobId) -> CliError {
-    let text = format!("job {id} ended without a report: {}", log_tail(dir));
+fn job_failure(dir: &JobDir, id: &JobId, recovered: Option<u32>) -> CliError {
+    let text = recovered.map_or_else(
+        || format!("job {id} ended without a report: {}", log_tail(dir)),
+        |processes| {
+            let lost = format!(
+                "job {id} ended without a report: it was lost, its supervisor died; recovery stopped {processes} process(es) and ended it failed"
+            );
+            log_lines(dir).map_or(lost.clone(), |lines| format!("{lost}; {lines}")) // BORROW: both arms own the text
+        },
+    );
     let record = std::fs::read(dir.path().join(REFUSAL_FILE))
         .ok()
         .and_then(|bytes| serde_json::from_slice::<RefusalRecord>(bytes.as_slice()).ok()); // BORROW: explicit .as_slice()
@@ -115,6 +117,8 @@ struct Followed {
     end: JobEnd,
     /// Whether Ctrl-C reached the command while it waited.
     interrupted: bool,
+    /// How many processes the recovery of a lost job stopped, when the job was found lost.
+    recovered: Option<u32>,
 }
 
 fn failed(error: impl std::error::Error + Send + Sync + 'static) -> CliError {
@@ -161,8 +165,14 @@ fn supervisor_env(root: &Path) -> Vec<(String, String)> {
     env
 }
 
-/// The last lines of the supervisor's log of the job in `dir`, on one line.
+/// The last lines of the supervisor's log of the job in `dir`, on one line, or the words that say
+/// it holds none.
 fn log_tail(dir: &JobDir) -> String {
+    log_lines(dir).unwrap_or_else(|| "its supervisor.log is empty".to_owned()) // BORROW: the text is a literal
+}
+
+/// The last lines of the supervisor's log of the job in `dir`, on one line, if it holds any.
+fn log_lines(dir: &JobDir) -> Option<String> {
     let text = std::fs::read_to_string(dir.path().join("supervisor.log")).unwrap_or_default();
     let lines: Vec<&str> = text
         .lines()
@@ -170,11 +180,7 @@ fn log_tail(dir: &JobDir) -> String {
         .collect();
     let from = lines.len().saturating_sub(LOG_LINES);
     let kept = lines.get(from..).unwrap_or_default();
-    if kept.is_empty() {
-        "its supervisor.log is empty".to_owned() // BORROW: the text is a literal
-    } else {
-        kept.join("; ")
-    }
+    (!kept.is_empty()).then(|| kept.join("; "))
 }
 
 /// Waits for the job to end: looks at its log and lock every [`POLL`], recovers a job found lost,
@@ -188,17 +194,29 @@ async fn follow(
 ) -> Result<Followed, CliError> {
     let dir = JobDir::open(layout, id).map_err(failed)?;
     let mut interrupted = false;
+    let mut recovered = None;
     let mut stopping: Option<(Instant, Option<String>)> = None;
     loop {
         reap_supervisor(supervisor);
         match lost::classify(&dir).map_err(failed)? {
-            JobLiveness::Ended(end) => return Ok(Followed { end, interrupted }),
+            JobLiveness::Ended(end) => {
+                return Ok(Followed {
+                    end,
+                    interrupted,
+                    recovered,
+                });
+            }
             JobLiveness::Lost => {
-                recover_job_dir(&dir).await.map_err(|reason| {
+                let report = recover_job_dir(&dir).await.map_err(|reason| {
                     failed_with(format!("the job is lost and recover failed: {reason}"))
                 })?;
+                recovered = Some(report.processes);
                 if let JobLiveness::Ended(end) = lost::classify(&dir).map_err(failed)? {
-                    return Ok(Followed { end, interrupted });
+                    return Ok(Followed {
+                        end,
+                        interrupted,
+                        recovered,
+                    });
                 }
             }
             JobLiveness::Running | _ => {}
@@ -292,9 +310,10 @@ pub async fn run(cli: &Cli, args: &EvaluateArgs) -> Result<Exit, CliError> {
         .map(|project| project.plugin_dirs.clone()) // BORROW: the spec owns its directories
         .unwrap_or_default();
     if plugin_dirs.is_empty() {
-        return Err(CliError::Refused {
-            reason: "no plug-in directory: list one under `plugins.dirs` in a `candler.toml` at or above the working directory".to_owned(), // BORROW: the error owns its text
-        });
+        return Err(CliError::refused_by(CliRefusal::NoPluginDirs));
+    }
+    if config.user.slots_evaluators == Some(0) {
+        return Err(CliError::refused_by(CliRefusal::NoEvaluatorSlots));
     }
     let cwd = std::env::current_dir().map_err(|e| CliError::Runtime {
         detail: format!("cannot read the working directory: {e}"),
@@ -376,6 +395,6 @@ pub async fn run(cli: &Cli, args: &EvaluateArgs) -> Result<Exit, CliError> {
         JobEnd::Killed => Err(CliError::Runtime {
             detail: "`evaluate` was killed".to_owned(), // BORROW: the error owns its text
         }),
-        JobEnd::Failed | JobEnd::BudgetStop | _ => Err(job_failure(&dir, &id)),
+        JobEnd::Failed | JobEnd::BudgetStop | _ => Err(job_failure(&dir, &id, followed.recovered)),
     }
 }

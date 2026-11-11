@@ -84,6 +84,7 @@ fn registered_pairs() -> Vec<(String, String)> {
 
 /// Panics unless the `(code, side)` of `record` is a row of `codes.toml`, so that a consumer that
 /// maps a code to its side gets one answer.
+/// The `candler.internal` fallback, which `[internal]` lists, counts as a row.
 fn assert_registered(record: &Value) {
     let pair = (
         record["code"].as_str().expect("a code").to_owned(),
@@ -290,10 +291,11 @@ fn assert_refusal(out: &Output, code: &str, side: &str, path: Option<&str>) {
     }
 }
 
-/// Guards: R2 — a plug-in manifest that does not exist prints as the record of
+/// Guards: R2 — a plug-in manifest that cannot be read prints as the record of
 /// `plugin.manifest_unreadable`, side `plugin`, with no pointer because no document was read.
 ///
-/// Oracle: a record written by hand from the contract; the cause is a file that is not there.
+/// Oracle: a record written by hand from the contract; the cause is a `plugin.toml` that exists
+/// and is not text (a directory with none is `config.plugin_dir_no_manifest`).
 ///
 /// Bite: name the code after the function (`evaluate.failed`); leave the registry's `Read` error
 /// without a code, so the record falls back to `candler.internal`.
