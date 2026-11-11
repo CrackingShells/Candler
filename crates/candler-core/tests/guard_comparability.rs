@@ -3,14 +3,24 @@
 //! R01 sentence each cites (`fixtures/comparability/verdicts.json`); no row computes its
 //! expectation from `compare`. Nothing here spawns a process or a container.
 
+#[path = "support/legacy_import.rs"]
+mod legacy_import;
+#[path = "support/legacy_rules.rs"]
+mod legacy_rules;
+#[path = "oracle/mod.rs"]
+mod oracle;
+
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::str::FromStr;
 
+use candler_core::import::assemble::import;
 use candler_core::manifest::compare::{
     ArmView, NUISANCE_PATHS, Verdict, VerdictError, stratum_verdict,
 };
+use candler_core::store::Store;
 use candler_schemas::execution::RunManifest;
+use candler_schemas::primitives::Digest;
 use candler_schemas::primitives::FieldPath;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -359,4 +369,107 @@ fn nuisance_set_is_the_hand_written_one() {
             .all(|e| root(e.name.as_str()) == "comparable"),
         "every hashed path is a `comparable.*` path"
     );
+}
+
+/// The factor the runs of the mini-corpus' two real cells differ in: the version of the skill, with
+/// the value paths and typed roots that carry it.
+const SKILL_FACTORS: [&str; 5] = [
+    "inputs",
+    "plan.skill_version",
+    "provenance.skill_version",
+    "resolved_skill_version",
+    "treatment",
+];
+
+/// Imports the mini-corpus into a fresh store under rules whose file digested to `rules` and
+/// reads three runs of it as the arms of one stratum: runs 6 and 17 of the v0.2.3 cell and run
+/// 12 of the v0.2.6 cell. Every run is asserted sealed first.
+fn mini_arms(rules: &str) -> Vec<Result<ArmView, VerdictError>> {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let store = Store::init(dir.path()).expect("the store initialises");
+    let digest =
+        Digest::from_str(format!("sha256:{}", rules.repeat(64)).as_str()).expect("a sha256 digest");
+    let rules = legacy_rules::builder("resolved_skill_version")
+        .entry_params(legacy_rules::entry_params(&["scale", "text", "tier"]))
+        .source_digest(digest)
+        .build()
+        .expect("the rules of the mini-corpus build");
+    import(
+        &legacy_import::mini(),
+        &rules,
+        &legacy_import::reader,
+        &store,
+    )
+    .expect("the mini-corpus imports");
+    let entries = store.runs().expect("the runs list");
+    assert!(
+        entries.iter().all(|entry| entry.done),
+        "every imported run is sealed: {entries:?}"
+    );
+    [6, 17, 12]
+        .into_iter()
+        .map(|replicate| {
+            let key = entries
+                .iter()
+                .find(|entry| entry.key.replicate() == replicate)
+                .unwrap_or_else(|| panic!("no run {replicate} in the store"))
+                .key
+                .clone(); // BORROW: .clone() gives the lookup its own key
+            let manifest = store.read_manifest(&key).expect("the manifest reads");
+            ArmView::from_manifest(&manifest)
+        })
+        .collect()
+}
+
+/// The declared factors of the mini-corpus' stratum.
+fn skill_factors() -> Vec<FieldPath> {
+    SKILL_FACTORS
+        .iter()
+        .map(|path| FieldPath::from_str(path).expect("a declared path"))
+        .collect()
+}
+
+/// Guards: I7 and R01 §Run manifest (imported strata, D7) — three runs of the mini-corpus, read
+/// by the real importer under one import-rules digest, differ only in the skill version of their
+/// two cells; with that factor declared the stratum is comparable, though the legacy build they
+/// record is dirty.
+/// Oracle: the mini-corpus' two `experiment.json` files, diffed by hand with `jq -S`: they differ
+/// in `plan.out_dir` (which the importer files under `import`), `plan.skill_version`,
+/// `provenance.skill_version` and `resolved_skill_version`; both record `eval_infra` commit
+/// `0e84a75`, `dirty: true` and sandbox contract `v5`. The skill snapshot and the treatment are
+/// the typed fields that version travels in.
+/// Bite: read the measured provenance only (the importer records none there), so the stratum is
+/// refused for its unrecorded commit.
+#[test]
+fn imported_stratum_of_the_mini_corpus_is_comparable() {
+    let arms = mini_arms("1");
+    assert!(
+        arms.iter()
+            .all(|arm| arm.as_ref().is_ok_and(ArmView::is_imported)),
+        "every arm reads as imported: {arms:?}"
+    );
+    // BORROW: explicit conversion makes the owned or borrowed form the next line needs
+    let got = stratum_verdict(arms.as_slice(), skill_factors().as_slice());
+    assert_eq!(got, Verdict::Comparable);
+}
+
+/// Guards: R01 §Run manifest (imported strata, D7) — an arm read under other import rules than
+/// its stratum's refuses the stratum, naming `import.rules`, though every legacy value agrees.
+/// Oracle: the two imports are given the digests `1` repeated and `2` repeated by the test; D7
+/// says differing rules are refused at `import.rules`, and nothing else differs between the arms.
+/// Bite: leave `import.rules` out of the imported gate.
+#[test]
+fn imported_stratum_with_other_rules_is_refused() {
+    let mut arms = mini_arms("1");
+    let other = mini_arms("2");
+    let flipped = other
+        .into_iter()
+        .next()
+        .expect("an arm of the second import");
+    arms.truncate(2);
+    arms.push(flipped);
+    // BORROW: explicit conversion makes the owned or borrowed form the next line needs
+    let got = stratum_verdict(arms.as_slice(), skill_factors().as_slice());
+    let want = FieldPath::from_str("import.rules").expect("a path");
+    assert_eq!(got, Verdict::Refused(vec![want]));
 }
