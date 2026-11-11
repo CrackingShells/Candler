@@ -82,3 +82,48 @@ None. No input is newly refused, no digest moved, no Rust source moved: `git dif
 
 ## Production
 Commit timestamps: first commit 2026-11-12 07:19:03 +0900, last commit before this report 07:30:49 +0900, so about 12 minutes of commits after about 10 minutes of reading and probing from the base (07:09). The report commit follows. The build directory stayed under 10 GiB and is removed.
+
+## Round 2
+The verifier's findings F1 to F9. Commits: `docs(evaluation)` and `docs(schemas)` (row texts, no code, side or variant changed), then `docs(contributing)` (generator, pages, Notes, `[helper]` side).
+
+### Row-text edits
+| Row | File | Edit |
+|---|---|---|
+| `suite.equivalence_invalid` | `candler-core/src/evaluation/refusal.rs` | `when` now gives the real shape: an object `{"rules": [...]}` of rules with `name`, `from`, `to`, `rows`, optional `generator` |
+| `outcome.text_empty` | `candler-schemas/src/refusal_impls.rs` | `when` now names the evidence `note` and the probability `calibration_ref`, not `value.text` |
+| `experiment.cost_not_positive` | `candler-schemas/src/refusal_impls.rs` | `at` is `-` (no path printed) |
+| `helper.deadline_out_of_range` | `codes.toml` `[helper]`, my own row | side `suite`, and the `when` says Candler passes the value on |
+
+The last two rows live in the schemas crate, whose `refusal_impls.rs` is the catalogue's file for them: I edited them in a commit of their own, `docs(schemas)`, which touches no other crate and is not release-triggering. No string of a wire schema moved.
+
+### Changes
+- **F5.** The generator renders a `required` field of a union variant as `required (value.kind = fraction)`, `required (environment.kind = uv)` or `required (exactly one key of cause)`; the index's Field classes says what the parentheses mean. D1's class guard cuts the parenthesis before comparing with the hand table, so the class word is still checked.
+- **F7, binary rows.** `CliRefusal` is in the binary, not in core's `catalog()`. D3 reads its table from `crates/candler/src/commands/refusal.rs` and requires its codes to equal `[cli]` of `codes.toml`; the `cli` surface is in the table. D3 now reads codes from the first cell of a Refusals row and from backticks in Notes only, since a sentence names settings such as `store.root`.
+- **Notes.** Rewritten or added by finding: F1 equivalence file, F2 protocol versions, F3 preflight masking, F4 `group`, F6 and F7 experiment, F9 suite ordering and pointers, `source`, helper index install, outcome unknown key. The suite Note on TOML or JSON and the one on `suite.unknown_field` were dropped to stay within 120 words; the experiment overlap Note is folded into the `document_invalid` one.
+
+### Inputs tried for the new or rewritten Notes
+`EV` is `candler --error-format json evaluate <suite>` from a project listing `plugins.dirs`, over a store holding `store.json`. `RS` is `resolve <file>`. `HP` feeds lines to `python -m candler_evaluator <module>`.
+| Page | Note | Input |
+|---|---|---|
+| suite | `group` is a name | EV; `group = "a b"`: `suite.document_invalid`, path `/expectations/0/group`; `group = "ab"` passes. "Never read" is the ruling |
+| suite | pointers | EV; `id = "r 1"` gives `/expectations/0/id`; `any_of = []` gives `/expectations/0/applies_to/0` |
+| suite | order of checks | EV with a plug-in that cannot describe: a suite naming evaluator `nope` gives `suite.evaluator_unknown`, a suite naming kind `nokind` gives `plugin.describe_failed`. With a working plug-in (the helper): `suite.kind_unknown`, `suite.params_invalid` (kind with `required: ["n"]`) and `suite.evaluator_version_mismatch` (`^9.0`) |
+| suite | equivalence file | `diff --from trial@0.1.0 --to trial@0.2.0 --format json --equivalence F`. A list of rows: `suite.equivalence_invalid`. `{"rules":[...]}` with a rule of `name`, `from`, `to`, `rows`: passes the shape check. `{"rules":[]}` and with `generator`: pass the shape check. `zzz` at the top, and a rule without `rows`: `suite.equivalence_invalid` |
+| protocol | no version comparison | EV with a working plug-in: manifest `major = 2` and helper answering 1; and a plug-in whose `describe` reports `major` 9: both evaluate with no refusal |
+| plugin-manifest | preflight masking | EV; `kind = "uv"` with no `env/uv.lock`: `resolve.preflight_failed`, side `environment`, "cannot read ... uv.lock"; with an empty lock and a bare project: `resolve.preflight_failed`, "`uv sync --frozen` ... did not succeed" |
+| experiment | `unknown_path` | RS; `[fixed] zzz = 1`: `/fixed/zzz`; a factor level `{zzz = 1}`: `/factors/0/levels/0/zzz` |
+| experiment | `document_invalid` list | RS; `max_cost_usd = 0` under `[budget]` and under `[budget.per_run]`, `wall_s = 0`, an `[[inputs]]` with `at = "/abs"` (path `/inputs/0`), two inputs of one kind, `[fixed] model = 9007199254740993` (path `/fixed/model`), plus the round-1 inputs; the cost and `wall_s` cases print no path |
+| experiment | `--set` only | RS; `--set model.endpoint=9007199254740993`: `canonical.integer_out_of_range`; `--set model=null`: `values.null`, side `config` |
+| helper | index install fails `evaluate` too | HP; `INSTRUMENTS = ["pydantic"]` and an `evaluate` request: error -32000 for the request |
+| outcome-record | reader ignores an unknown key | the schema crate's `OutcomeRecord` deserialiser given `"color": "red"` accepted it, by a scratch test since deleted; the helper's model refuses it (round 1) |
+
+### Bites of round 2
+- A row removed from the experiment page that only the binary's table holds (`experiment.unknown_path`): `d3_every_author_code_has_a_page` red.
+- `required (value.kind = fraction)` reverted to `required` in a page: `d1_regenerating_the_pages_changes_nothing` red.
+
+### Follow-ups, not built
+- `ProtocolVersion::accepts` has no caller, so `protocol.version_mismatch` is never raised; wiring it is a behaviour change.
+- The `x-candler-class` of `expectations[].group` says `free` though the value is validated as a `Name`: a schemas change for the next release.
+- An invalid `describe` result prints "no answer within 30000 ms", which misleads.
+- Candler could refuse a `deadline_ms` above 2^53 - 1 at the suite check, instead of the helper.
+- The OWNED gate's regex lacks `__reports__/`; I ran it over the code commits.
