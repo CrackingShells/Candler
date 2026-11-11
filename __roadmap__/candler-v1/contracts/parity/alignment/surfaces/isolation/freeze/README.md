@@ -31,6 +31,7 @@ graph TD
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
 |:---|:-----|:-------|:------------|:----------|
+| A5 | 2026-11-11 | `__reports__/contract-docs/gap_analysis_contract_docs_v0.md` | [ ] | The contract pages M3 and M4 start are tentative until the freeze; M6 gains a gate that checks them against 1.0.0 |
 
 ## Progress
 | Node | Branch | Commits | Notes |

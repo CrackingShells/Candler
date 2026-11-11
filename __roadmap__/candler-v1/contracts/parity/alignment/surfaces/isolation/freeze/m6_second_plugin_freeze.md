@@ -9,6 +9,7 @@
 - ⬜ The `waiting-on-processes` plug-in grades its fixtures as correct, false success or stray process, deterministically
 - ⬜ Paired statistics (McNemar, CMH, bootstrap, fixed-sequence; alongside M3's Wilson intervals and Holm adjustment) run on declared pairing keys, and the pairing keys, execution order and blocking factor are decided and recorded in `__design__/architecture.md`
 - ⬜ Every item of R01's "Deliberately open" list is either decided in the design doc or explicitly carried past 1.0
+- ⬜ The contract page of every surface that freezes carries no tentative stamp: each Note is checked against `v1.0.0` and `schemas@1.0.0`, and the index's compatibility table lists them (amendment A5)
 - ⬜ Core `v1.0.0` and `schemas@1.0.0` are tagged on `main`; the harness traits and the evaluator protocol are frozen
 **References**: [R01 §Data Model, §Deliberately open, §Contracts & Invariants (I5)](../../../../../../../../__design__/architecture.md) — what freezes, what is still open
 
