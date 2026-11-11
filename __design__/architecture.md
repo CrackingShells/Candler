@@ -351,6 +351,9 @@ names.
   container. `candler evaluate` starts the job at once and waits for it; the job form is what lets
   `kill` and the recovery of a lost job reap evaluator processes after a crash, and lets one
   `events.jsonl` serve `watch`.
+  A finished evaluate job leaves `report.json`, or, when an error ended it, `refusal.json`: the
+  `refusal/1` record of that error, written before `job.ended`, which the command prints in place
+  of a report.
 - **Order of delivery:** `run` + events + `ps` + `kill` → `watch --json` → `ls` + `watch --live`.
 
 ### Run identity and resume

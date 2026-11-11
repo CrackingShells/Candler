@@ -969,3 +969,92 @@ fn r2_a_suite_changed_after_the_job_started_prints_as_a_suite_record() {
     );
     world.remove();
 }
+
+/// Starts `evaluate` over the world with `suite` and `--error-format json`, from the project, and
+/// returns the output with its stderr cut to the last line, where the record is: the preflight
+/// and the job's id come before it.
+fn evaluate_json(world: &World, project: &Path, suite: &Path) -> Output {
+    let out = candler(world, project)
+        .args(["--error-format", "json", "evaluate"])
+        .arg(suite)
+        .output()
+        .unwrap();
+    let stderr = stderr_of(&out);
+    let last = stderr.lines().last().unwrap_or_default().to_owned();
+    Output {
+        stderr: format!("{last}\n").into_bytes(),
+        ..out
+    }
+}
+
+/// Guards: R2 — a refusal the engine raises inside an evaluate job keeps its code, side and
+/// pointer through the verb: a suite entry that names an evaluator no plug-in provides is
+/// `suite.evaluator_unknown`, side `suite`, though the job and not the command found it.
+///
+/// Oracle: a record written by hand from the contract.
+///
+/// Bite: the verb not reading the job's `refusal.json` (the record has the fallback code
+/// `candler.internal` and the side `candler`).
+#[test]
+fn r2_a_refusal_raised_in_the_job_keeps_its_code_through_the_verb() {
+    let (world, _) = sealed_world();
+    pool_plugin(&world);
+    let suite = suite_of(&world, "suite_pool_ok.toml", &[]);
+    let text = fs::read_to_string(&suite).unwrap();
+    assert!(
+        text.contains("name = \"pool\""),
+        "the suite names its evaluator"
+    );
+    fs::write(&suite, text.replace("name = \"pool\"", "name = \"absent\"")).unwrap();
+    let project = project(&world, "project", &["../plugin"]);
+    let out = evaluate_json(&world, &project, &suite);
+    assert_eq!(out.status.code(), Some(2));
+    let record: Value = serde_json::from_slice(&out.stderr).unwrap();
+    assert_eq!(record["schema"], "refusal/1", "{record}");
+    assert_eq!(record["code"], "suite.evaluator_unknown", "{record}");
+    assert_eq!(record["side"], "suite", "{record}");
+    world.remove();
+}
+
+/// Guards: R2 — a suite that changed after the verb read it prints as `evaluation.suite_changed`,
+/// side `suite`, through the verb. The plug-in's environment is not built, so the preflight runs
+/// `uv sync` and reports it on stderr; the test edits the suite on the first such line, which is
+/// after the verb read it and before the supervisor does.
+///
+/// Oracle: a record written by hand from the contract.
+///
+/// Bite: the verb not reading the job's `refusal.json` (the record has the fallback code).
+#[test]
+fn r2_a_changed_suite_keeps_its_code_through_the_verb() {
+    use std::io::{BufRead as _, BufReader, Read as _};
+
+    let world = world();
+    let launched = world.launch();
+    finish(&world, &launched);
+    pool_plugin(&world);
+    let suite = suite_of(&world, "suite_pool_ok.toml", &[]);
+    let project = project(&world, "project", &["../plugin"]);
+    let mut child = candler(&world, &project)
+        .args(["--error-format", "json", "evaluate"])
+        .arg(&suite)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let mut first = String::new();
+    stderr.read_line(&mut first).unwrap();
+    assert!(
+        first.contains("event"),
+        "the preflight reported a spawn: {first:?}"
+    );
+    fs::write(&suite, "# edited after the verb read it\n").unwrap();
+    let mut rest = String::new();
+    stderr.read_to_string(&mut rest).unwrap();
+    let status = child.wait().unwrap();
+    assert_eq!(status.code(), Some(2), "{rest}");
+    let record: Value = serde_json::from_str(rest.lines().last().unwrap()).unwrap();
+    assert_eq!(record["code"], "evaluation.suite_changed", "{record}");
+    assert_eq!(record["side"], "suite", "{record}");
+    world.remove();
+}

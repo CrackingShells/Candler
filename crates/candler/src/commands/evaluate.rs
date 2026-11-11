@@ -21,7 +21,7 @@ use candler_core::jobs::lost::{self, JobLiveness};
 use candler_core::jobs::model::{EvaluateSpec, JobSpecFile};
 use candler_core::jobs::runtime::TEARDOWN_BOUND;
 use candler_core::jobs::runtime::detach::{DetachArgs, detach};
-use candler_core::jobs::runtime::evaluate::REPORT_FILE;
+use candler_core::jobs::runtime::evaluate::{REFUSAL_FILE, REPORT_FILE};
 use candler_core::jobs::runtime::launch::{mint_job_id, own_identity, spec_digest};
 use candler_core::jobs::runtime::reap::reap_one;
 use candler_core::jobs::runtime::session::recover_job_dir;
@@ -30,6 +30,7 @@ use candler_core::store::layout::StoreLayout;
 use candler_core::supervise::Supervisor;
 use candler_schemas::execution::{EventPayload, JobEnd, JobRecord, JobState};
 use candler_schemas::primitives::{JobId, RunKey};
+use candler_schemas::refusal::{Refusal, RefusalCode, RefusalRecord, Side};
 use serde_json::Value;
 use tokio::signal::unix::{Signal, SignalKind, signal};
 
@@ -58,6 +59,54 @@ pub struct EvaluateArgs {
     /// cannot be derived: which runs to grade again is the caller's choice.
     #[arg(long)]
     pub runs: Option<String>,
+}
+
+/// The refusal a failed evaluate job recorded in its directory, kept whole so that the command
+/// prints it with the job's own code, side and path. It prints as the text it was made with.
+#[derive(Debug)]
+pub struct JobRefusal {
+    /// The record the supervisor wrote.
+    record: RefusalRecord,
+    /// The text of the failure, as the command has always worded it.
+    text: String,
+}
+
+impl std::fmt::Display for JobRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.text.as_str()) // BORROW: explicit .as_str()
+    }
+}
+
+impl std::error::Error for JobRefusal {}
+
+impl Refusal for JobRefusal {
+    fn code(&self) -> RefusalCode {
+        self.record.code().clone() // BORROW: the answer owns its code
+    }
+
+    fn side(&self) -> Side {
+        self.record.side()
+    }
+
+    fn path(&self) -> Option<String> {
+        self.record.path().map(str::to_owned) // BORROW: the answer owns its pointer
+    }
+}
+
+/// The error of a job that ended without a report: the job's recorded refusal when it left one,
+/// else the text alone.
+fn job_failure(dir: &JobDir, id: &JobId) -> CliError {
+    let text = format!("job {id} ended without a report: {}", log_tail(dir));
+    let record = std::fs::read(dir.path().join(REFUSAL_FILE))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<RefusalRecord>(bytes.as_slice()).ok()); // BORROW: explicit .as_slice()
+    match record {
+        Some(record) => CliError::Failed {
+            verb: "evaluate",
+            source: Box::new(JobRefusal { record, text }),
+        },
+        None => failed_with(text),
+    }
 }
 
 /// How the job the command waited for ended, and whether Ctrl-C reached the command meanwhile.
@@ -327,9 +376,6 @@ pub async fn run(cli: &Cli, args: &EvaluateArgs) -> Result<Exit, CliError> {
         JobEnd::Killed => Err(CliError::Runtime {
             detail: "`evaluate` was killed".to_owned(), // BORROW: the error owns its text
         }),
-        JobEnd::Failed | JobEnd::BudgetStop | _ => Err(failed_with(format!(
-            "job {id} ended without a report: {}",
-            log_tail(&dir)
-        ))),
+        JobEnd::Failed | JobEnd::BudgetStop | _ => Err(job_failure(&dir, &id)),
     }
 }

@@ -257,7 +257,14 @@ fn refusal_of(error: &CliError) -> Option<&dyn Refusal> {
             let carried: &(dyn Error + 'static) = &**refusal;
             Some(candler_core::refusal::find(carried).unwrap_or(&**refusal))
         }
-        CliError::Failed { source, .. } => candler_core::refusal::find(source.as_ref()),
+        CliError::Failed { source, .. } => {
+            candler_core::refusal::find(source.as_ref()).or_else(|| {
+                // A failed evaluate job's own record, which crossed the process boundary as a file.
+                source
+                    .downcast_ref::<super::evaluate::JobRefusal>()
+                    .map::<&dyn Refusal, _>(|job| job)
+            })
+        }
         CliError::Refused { .. } | CliError::Runtime { .. } => None,
     }
 }
