@@ -808,6 +808,41 @@ variant = "UnknownFieldPath"
 
 [analysis]
 
+[analysis."analysis.mixed_evaluator_versions"]
+side = "config"
+enum = "ReportError"
+variant = "MixedEvaluatorVersions"
+
+[analysis."analysis.unknown_evaluator"]
+side = "config"
+enum = "ReportError"
+variant = "UnknownEvaluator"
+
+[analysis."analysis.ambiguous_evaluator_name"]
+side = "config"
+enum = "ReportError"
+variant = "AmbiguousEvaluatorName"
+
+[analysis."analysis.experiment_unreadable"]
+side = "experiment"
+enum = "ReportError"
+variant = "ExperimentUnreadable"
+
+[analysis."analysis.experiment_disagrees"]
+side = "experiment"
+enum = "ReportError"
+variant = "ExperimentDisagrees"
+
+[analysis."analysis.factor_broader_than_variation"]
+side = "environment"
+enum = "ReportError"
+variant = "FactorBroaderThanVariation"
+
+[analysis."analysis.no_outcomes"]
+side = "environment"
+enum = "ReportError"
+variant = "NoOutcomes"
+
 [internal]
 
 [internal."candler_core::resolve::preflight::ResolveError::DuplicateStep"]
