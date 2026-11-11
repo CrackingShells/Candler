@@ -504,6 +504,21 @@ fn e1_evaluate_refuses_without_a_plugin_directory() {
     world.remove();
 }
 
+/// Whether the evaluator `pid`, whose start time was `start`, is gone: the pid is another
+/// process's, or nothing, or the process is a zombie. A zombie is dead but not yet reaped, which
+/// is what the killed evaluator is when the container's PID 1 does not reap its orphans, and
+/// `process_start` still reads its start time.
+fn evaluator_gone(pid: u32, start: &candler_schemas::process::ProcessStart) -> bool {
+    if &process_start(pid) != start {
+        return true;
+    }
+    fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|stat| {
+        stat.rsplit_once(')')
+            .and_then(|(_, rest)| rest.split_whitespace().next().map(str::to_owned))
+            .is_some_and(|state| state == "Z")
+    })
+}
+
 /// An event sink that keeps nothing: the test's own supervisor reports nowhere.
 struct Quiet;
 
@@ -630,9 +645,11 @@ fn e1_ctrl_c_ends_the_evaluate_job_killed() {
         LockState::Free,
         "the lock is free"
     );
-    assert_ne!(
-        process_start(evaluator),
-        evaluator_start,
+    assert!(
+        wait_for(Duration::from_secs(30), || evaluator_gone(
+            evaluator,
+            &evaluator_start
+        )),
         "the evaluator is gone, or its pid is another process's"
     );
     world.remove();
@@ -1173,7 +1190,7 @@ fn e1_a_lost_evaluate_job_is_recovered_with_no_docker_on_the_path() {
     );
     assert!(
         wait_for(Duration::from_secs(30), || {
-            process_start(evaluator) != evaluator_start
+            evaluator_gone(evaluator, &evaluator_start)
         }),
         "the evaluator is gone, or its pid is another process's"
     );
@@ -1401,9 +1418,11 @@ fn e1_evaluate_says_when_its_job_was_lost() {
         .filter(|event| matches!(event, EventPayload::JobEnded { .. }))
         .count();
     assert_eq!(ends, 1, "one job.ended");
-    assert_ne!(
-        process_start(evaluator),
-        evaluator_start,
+    assert!(
+        wait_for(Duration::from_secs(30), || evaluator_gone(
+            evaluator,
+            &evaluator_start
+        )),
         "the evaluator is gone, or its pid is another process's"
     );
     world.remove();
