@@ -14,80 +14,47 @@ use super::CliError;
 pub(crate) const ASSETS: [(&str, &[u8]); 11] = [
     (
         "base/.dockerignore",
-        include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../assets/docker/base/.dockerignore"
-        )),
+        include_bytes!("../../../../assets/docker/base/.dockerignore"),
     ),
     (
         "base/Dockerfile",
-        include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../assets/docker/base/Dockerfile"
-        )),
+        include_bytes!("../../../../assets/docker/base/Dockerfile"),
     ),
     (
         "env/.dockerignore",
-        include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../assets/docker/env/.dockerignore"
-        )),
+        include_bytes!("../../../../assets/docker/env/.dockerignore"),
     ),
     (
         "env/Dockerfile",
-        include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../assets/docker/env/Dockerfile"
-        )),
+        include_bytes!("../../../../assets/docker/env/Dockerfile"),
     ),
     (
         "gateway/.dockerignore",
-        include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../assets/docker/gateway/.dockerignore"
-        )),
+        include_bytes!("../../../../assets/docker/gateway/.dockerignore"),
     ),
     (
         "gateway/Dockerfile",
-        include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../assets/docker/gateway/Dockerfile"
-        )),
+        include_bytes!("../../../../assets/docker/gateway/Dockerfile"),
     ),
     (
         "gateway/entrypoint.sh",
-        include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../assets/docker/gateway/entrypoint.sh"
-        )),
+        include_bytes!("../../../../assets/docker/gateway/entrypoint.sh"),
     ),
     (
         "gateway/gw.js",
-        include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../assets/docker/gateway/gw.js"
-        )),
+        include_bytes!("../../../../assets/docker/gateway/gw.js"),
     ),
     (
         "gateway/nginx.conf.template",
-        include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../assets/docker/gateway/nginx.conf.template"
-        )),
+        include_bytes!("../../../../assets/docker/gateway/nginx.conf.template"),
     ),
     (
         "testagent/Dockerfile",
-        include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../assets/docker/testagent/Dockerfile"
-        )),
+        include_bytes!("../../../../assets/docker/testagent/Dockerfile"),
     ),
     (
         "testagent/testagent.sh",
-        include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../assets/docker/testagent/testagent.sh"
-        )),
+        include_bytes!("../../../../assets/docker/testagent/testagent.sh"),
     ),
 ];
 
