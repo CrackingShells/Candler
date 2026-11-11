@@ -405,10 +405,11 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
   - a group is adopted for stopping only when the job's `children/` records list it and its
     verification passes, never on a marker scan alone;
   - an orphan the subreaper adopted is signalled only if, right before each signal, its parent
-    is this process, its `start` is later than the supervisor's own, the marker re-read from it
-    matches and its uid is ours. The guard signals that pid; it signals the pid's group only if
-    the group's leader passes the same check, never because one member passed. A reparented
-    process without the marker is refused and left alive.
+    is this process, its `start` is not earlier than the supervisor's own (the same boot; a Linux
+    start is counted in 10 ms ticks, so a descendant can share the supervisor's tick), the marker
+    re-read from it matches and its uid is ours. The guard signals that pid; it signals the
+    pid's group only if the group's leader passes the same check, never because one member
+    passed. A reparented process without the marker is refused and left alive.
 - **Destroying containers (I22 for containers).** Destroying a container or a network is as
   dangerous as a signal, so one guard holds the only destroy capability. It never destroys by name,
   pattern or "all". A container is destroyable if the job's `children/` records it, or if it is
