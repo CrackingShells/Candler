@@ -456,16 +456,7 @@ fn r2_refused_suite_params_print_as_a_suite_record() {
         stderr: format!("{last}\n").into_bytes(),
         ..out
     };
-    // The refusal is raised inside the evaluate job, which reaches the command as the end of its
-    // log: the command can say what was refused and where, but not the code, until the job's own
-    // refusal is handed back to it.
-    let record = record_of(&out);
-    assert_eq!(record["code"], "candler.internal", "{record}");
-    let message = record["message"].as_str().expect("a message");
-    assert!(
-        message.contains("params of kind `check` fail the schema at \"/n\""),
-        "{message}"
-    );
+    assert_refusal(&out, "suite.params_invalid", "suite", Some("/n"));
 }
 
 /// Guards: R2 — the refusals of `ingest` print as records that name the file given: a directory
@@ -636,6 +627,14 @@ fn r2_a_job_that_cannot_be_opened_is_told_by_the_kind_of_failure() {
     assert_refusal(&out, "jobs.job_not_a_directory", "environment", None);
 
     fs::set_permissions(&jobs, fs::Permissions::from_mode(0o000)).expect("the mode changes");
+    if fs::read_dir(&jobs).is_ok() {
+        fs::set_permissions(&jobs, fs::Permissions::from_mode(0o755))
+            .expect("the mode is restored");
+        eprintln!(
+            "skipped the mode 000 row: the process can enter a directory with no permission, as root can"
+        );
+        return;
+    }
     let out = watch(&world, "01939f3c-0000-7000-8000-000000000002");
     fs::set_permissions(&jobs, fs::Permissions::from_mode(0o755)).expect("the mode is restored");
     assert_refusal(&out, "jobs.io_failed", "environment", None);
