@@ -21,19 +21,26 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::io::Write as _;
 use std::os::unix::fs::symlink;
+use std::os::unix::process::CommandExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::time::Duration;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use candler_core::evaluation::engine::RunSelection;
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::events::{JobEvents, TailPos};
 use candler_core::jobs::lock::{JobLock, LockState};
 use candler_core::jobs::model::EvaluateSpec;
+use candler_core::jobs::runtime::TEARDOWN_BOUND;
 use candler_core::jobs::runtime::launch::{mint_job_id, own_identity};
 use candler_core::store::layout::StoreLayout;
+use candler_core::supervise::platform::process_start;
+use candler_core::supervise::{EventSink, Supervisor};
+use candler_harness::spec::{StopSignal, StopSpec};
 use candler_schemas::execution::{EventPayload, JobEnd, JobRecord, JobState};
-use candler_schemas::primitives::{Digest, JobId, RunKey};
+use candler_schemas::primitives::{Digest, JobId, Marker, RunKey, Timestamp};
+use candler_schemas::process::ChildRecord;
 use serde_json::{Value, json};
 
 use cli_run::{World, run_keys, wait_for, world};
@@ -494,5 +501,174 @@ fn e1_evaluate_refuses_without_a_plugin_directory() {
     assert!(out.stdout.is_empty(), "nothing on stdout");
     let after = fs::read_dir(world.store().join("jobs")).unwrap().count();
     assert_eq!(before, after, "no job directory was created");
+    world.remove();
+}
+
+/// An event sink that keeps nothing: the test's own supervisor reports nowhere.
+struct Quiet;
+
+impl EventSink for Quiet {
+    fn emit(&self, _run: Option<&RunKey>, _payload: EventPayload) {}
+}
+
+/// Sends SIGINT to `pid`, a process the test spawned as the leader of its own group, through the
+/// guarded stop (`Supervisor::reap`, which checks the identity against the operating system
+/// before it signals). The stop waits for the process to exit, so it runs on a thread of its own.
+fn interrupt(pid: u32, job: &JobId) -> std::thread::JoinHandle<()> {
+    let record = ChildRecord::builder()
+        .pid(pid)
+        .pgid(pid)
+        .start(process_start(pid))
+        .marker(job.as_str().parse::<Marker>().unwrap())
+        .spawned_at("1970-01-01T00:00:00Z".parse::<Timestamp>().unwrap())
+        .build()
+        .unwrap();
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let stop = StopSpec::new(None, StopSignal::Int, TEARDOWN_BOUND);
+        // TRAIT_OBJECT: the supervisor takes its sink as a trait object
+        let sink: Arc<dyn EventSink> = Arc::new(Quiet);
+        let reaped = runtime.block_on(Supervisor::new(sink).reap(None, &record, &stop));
+        assert!(reaped.is_ok(), "the guarded stop ran: {reaped:?}");
+    })
+}
+
+/// Guards: E1 (the binary half) — Ctrl-C on the waiting `evaluate` stops the job through the
+/// guarded `kill` path and leaves it `killed`, with no process of it alive. The `interval` kind
+/// of the `pool` plug-in sleeps 60 seconds, so a request is in flight; the test starts
+/// `evaluate` as a child it owns, waits for the plug-in's `start` line, and sends SIGINT to the
+/// child through the guarded stop.
+///
+/// Oracle: the command's exit status (2) within `TEARDOWN_BOUND`, its message (`cancelled`), the
+/// job's one `job.ended` (`killed`), the job's lock (free), and the evaluator's pid
+/// from the plug-in's own file, whose start time is no longer the one it had.
+///
+/// Bite: the job left running when the command exits (the lock stays held and no `job.ended` is
+/// written).
+#[test]
+fn e1_ctrl_c_ends_the_evaluate_job_killed() {
+    let (world, _) = sealed_world();
+    pool_plugin(&world);
+    let marks = world.root.join("interval.log");
+    let suite = suite_of(
+        &world,
+        "suite_pool_interval.toml",
+        &[
+            ("@FILE@", marks.display().to_string()),
+            ("@SLEEP@", "60".to_owned()),
+        ],
+    );
+    let project = project(&world, "project", &["../plugin"]);
+    let err_path = world.work.join("evaluate.err");
+    let mut child = candler(&world, &project)
+        .arg("evaluate")
+        .arg(&suite)
+        .process_group(0)
+        .stdout(fs::File::create(world.work.join("evaluate.out")).unwrap())
+        .stderr(fs::File::create(&err_path).unwrap())
+        .spawn()
+        .unwrap();
+    let started = wait_for(JOB_LIMIT, || {
+        child.try_wait().unwrap().is_some()
+            || fs::read_to_string(&marks).is_ok_and(|text| text.contains(" start "))
+    });
+    let err = fs::read_to_string(&err_path).unwrap_or_default();
+    assert!(
+        started && child.try_wait().unwrap().is_none(),
+        "a request is in flight\n{err}"
+    );
+    let evaluator: u32 = fs::read_to_string(&marks)
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let evaluator_start = process_start(evaluator);
+    let job: JobId = err.lines().next().unwrap().parse().unwrap();
+    let dir = JobDir::open(&StoreLayout::new(&world.store()), &job).unwrap();
+    assert_eq!(
+        JobLock::probe(&dir).unwrap(),
+        LockState::Held,
+        "the job is running"
+    );
+
+    let stopper = interrupt(child.id(), &job);
+    let limit = Instant::now() + TEARDOWN_BOUND + Duration::from_secs(30);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(
+            Instant::now() < limit,
+            "the command ends within the teardown bound"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    stopper.join().unwrap();
+    let err = fs::read_to_string(&err_path).unwrap();
+    assert_eq!(status.code(), Some(2), "{status:?}\n{err}");
+    assert!(err.contains("cancelled"), "{err}");
+    // The stop's own ladder steps follow `job.ended` in the log, so the end is looked for, not
+    // the last line.
+    let ends: Vec<JobEnd> = events_of(&world, &job)
+        .into_iter()
+        .filter_map(|event| {
+            if let EventPayload::JobEnded { reason, .. } = event {
+                Some(reason)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(ends, [JobEnd::Killed], "one job.ended, and it says killed");
+    assert_eq!(
+        JobLock::probe(&dir).unwrap(),
+        LockState::Free,
+        "the lock is free"
+    );
+    assert_ne!(
+        process_start(evaluator),
+        evaluator_start,
+        "the evaluator is gone, or its pid is another process's"
+    );
+    world.remove();
+}
+
+/// Guards: E1 (the binary half) — a job that ends without a report is not printed as one: with no
+/// evaluator slot (`slots.evaluators = 0`) the supervisor cannot run the evaluation and the job
+/// ends `failed`; the command prints nothing on stdout, exits 2 and says why, quoting the end of
+/// the job's `supervisor.log`, and `candler ps` shows the job `ended (failed)`.
+///
+/// Oracle: the exit status, both streams, `ps`.
+///
+/// Bite: the report read from a job that ended `failed` (stdout is not empty, or the exit is 0).
+#[test]
+fn e1_evaluate_of_a_failed_job_prints_no_report_and_says_why() {
+    let (world, _) = sealed_world();
+    pool_plugin(&world);
+    user_config(&world, "[slots]\nevaluators = 0\n");
+    let suite = suite_of(&world, "suite_pool_ok.toml", &[]);
+    let project = project(&world, "project", &["../plugin"]);
+    let out = candler(&world, &project)
+        .arg("evaluate")
+        .arg(&suite)
+        .output()
+        .unwrap();
+    let stderr = stderr_of(&out);
+    assert_eq!(out.status.code(), Some(2), "{stderr}");
+    assert!(out.stdout.is_empty(), "no report on stdout");
+    assert!(stderr.contains("slots.evaluators"), "{stderr}");
+    let id: JobId = stderr.lines().next().unwrap().parse().unwrap();
+    let ps = candler(&world, &project).arg("ps").output().unwrap();
+    let listing = String::from_utf8_lossy(&ps.stdout).into_owned();
+    let row = listing
+        .lines()
+        .find(|line| line.starts_with(&id.to_string()))
+        .unwrap();
+    assert_eq!(row.split('\t').nth(2), Some("ended (failed)"), "{listing}");
     world.remove();
 }
