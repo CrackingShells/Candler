@@ -58,7 +58,7 @@ const UNCOMPARED: [(&str, u64); 6] = [
     ("D-E5", 240),
     ("D-E6", 240),
 ];
-/// The concurrency of each regrade.
+/// The evaluator slots of each regrade, as `slots.evaluators` in the user configuration.
 const CONCURRENCY: &str = "8";
 
 /// The row key: the cell digest hex, the replicate, the attempt and the expectation.
@@ -164,8 +164,13 @@ impl Fixture {
 /// `dir` (so the plug-in environment is built there) and the rest of the environment kept: `uv`
 /// needs `PATH` and `HOME`.
 fn run_candler(dir: &Path, args: &[&str]) -> Output {
+    run_candler_in(dir, dir, args)
+}
+
+/// [`run_candler`] from the working directory `cwd`.
+fn run_candler_in(cwd: &Path, dir: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_candler"))
-        .current_dir(dir)
+        .current_dir(cwd)
         .env_remove("CANDLER_STORE")
         .env("XDG_STATE_HOME", dir.join("state"))
         .env("XDG_CONFIG_HOME", dir.join("cfg"))
@@ -329,18 +334,32 @@ fn build(dir: &Path, corpus: &Path, manifest: &Path, suite: &Path, rules: &Path)
         "the import holds 240 runs and the oracle's 10,320 records"
     );
 
+    // The verb takes its plug-in from the project it runs in and its concurrency from the user
+    // configuration; `--runs '*'` grades every run again, where the default grades the pending.
+    let project = dir.join("project");
+    fs::create_dir_all(&project).expect("a project directory");
+    let plugin_dir = manifest.parent().expect("a manifest directory");
+    fs::write(
+        project.join("candler.toml"),
+        format!("[plugins]\ndirs = [\"{}\"]\n", plugin_dir.display()),
+    )
+    .expect("the project file writes");
+    fs::create_dir_all(dir.join("cfg/candler")).expect("a configuration directory");
+    fs::write(
+        dir.join("cfg/candler/config.toml"),
+        format!("[slots]\nevaluators = {CONCURRENCY}\n"),
+    )
+    .expect("the user configuration writes");
     for (n, name) in [(1, "regrade1.json"), (2, "regrade2.json")] {
         let started = Instant::now();
-        let out = run_candler(
+        let out = run_candler_in(
+            &project,
             dir,
             &[
                 "evaluate",
-                "--plugin",
-                manifest.to_str().expect("a UTF-8 path"),
-                "--suite",
                 suite.to_str().expect("a UTF-8 path"),
-                "--concurrency",
-                CONCURRENCY,
+                "--runs",
+                "*",
             ],
         );
         writeln!(timings, "regrade {n} {:?}", started.elapsed()).expect("a string writes");

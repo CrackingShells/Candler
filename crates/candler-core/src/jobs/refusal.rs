@@ -279,6 +279,12 @@ refusal_table! {
         "The job could not be set up: the cause is text only, such as a configuration, a slot or a plug-in directory.",
         "-",
     ),
+    SuiteChanged { .. } => row(
+        "evaluation.suite_changed",
+        Side::Suite,
+        "The suite file of an evaluate job changed between the launcher reading it and the supervisor running the job, so the job refuses to grade with another suite.",
+        "-",
+    ),
     Body { .. } => row(
         "candler.internal",
         Side::Candler,

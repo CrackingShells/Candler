@@ -6,15 +6,17 @@
 //! store comes from [`STORE_ENV`], which the launcher sets; without it the store is found from
 //! the working directory as `ps` finds it.
 
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use candler_core::jobs::dir::JobDir;
-use candler_core::jobs::model::JobBody;
+use candler_core::jobs::model::{JobBody, JobSpec, JobSpecFile};
 use candler_core::jobs::orchestrate::orchestrate;
-use candler_core::jobs::runtime::launch::own_identity;
+use candler_core::jobs::runtime::evaluate::{EvaluateEntry, supervise_evaluate};
+use candler_core::jobs::runtime::launch::{own_identity, spec_digest};
 use candler_core::jobs::runtime::session::read_spec;
-use candler_core::jobs::runtime::{JobEntry, JobServices, supervise_entry};
+use candler_core::jobs::runtime::{JobEntry, JobServices, RuntimeError, supervise_entry};
 use candler_core::runner::evidence::provenance::EvalInfra;
 use candler_core::runner::exec::SkillTree;
 use candler_core::store::Store;
@@ -97,7 +99,25 @@ async fn root(store: Option<&Path>) -> Result<PathBuf, CliError> {
     }
 }
 
-/// Supervises the job: reads its spec, takes its place in `job.json` and runs the orchestration.
+/// The bytes of the spec on standard input, once their digest is the one `job.json` records.
+fn spec_bytes(dir: &JobDir) -> Result<Vec<u8>, CliError> {
+    let mut bytes = Vec::new();
+    std::io::stdin().read_to_end(&mut bytes).map_err(failed)?;
+    let record = dir.record().map_err(failed)?;
+    let digest = spec_digest(bytes.as_slice()).map_err(failed)?; // BORROW: explicit .as_slice()
+    if &digest != record.spec_digest() {
+        return Err(failed(RuntimeError::SpecDigest {
+            detail: format!(
+                "the spec's digest is {digest}, the job records {}",
+                record.spec_digest()
+            ),
+        }));
+    }
+    Ok(bytes)
+}
+
+/// Supervises the job: reads its spec, takes its place in `job.json` and runs the job its spec
+/// names: the orchestration of a run, or the evaluation of an evaluate job.
 ///
 /// # Errors
 /// [`CliError::Failed`] when the spec is refused, the store or the job's directory cannot be
@@ -106,9 +126,26 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let job: JobId = args.job.parse().map_err(failed)?;
     let store = Store::open(root(store).await?.as_path()).map_err(failed)?;
     let dir = JobDir::open(store.layout(), &job).map_err(failed)?;
-    let spec = read_spec(dir.path(), std::io::stdin()).map_err(failed)?;
+    let bytes = spec_bytes(&dir)?;
+    let file: JobSpecFile = serde_json::from_slice(bytes.as_slice()).map_err(failed)?; // BORROW: explicit .as_slice()
     dir.set_supervisor(own_identity().map_err(failed)?)
         .map_err(failed)?;
+    match file {
+        JobSpecFile::Run(_) => {
+            // The digest was checked above; the reader checks it again and keeps `spec.json`.
+            let spec = read_spec(dir.path(), std::io::Cursor::new(bytes)).map_err(failed)?;
+            run_job(store, job, spec).await
+        }
+        JobSpecFile::Evaluate(spec) => {
+            let entry = EvaluateEntry { store, job, spec };
+            supervise_evaluate(entry).await.map_err(failed)?;
+            Ok(Exit::Success)
+        }
+    }
+}
+
+/// Runs a run job through the orchestration, with the Claude Code driver.
+async fn run_job(store: Store, job: JobId, spec: JobSpec) -> Result<Exit, CliError> {
     // TRAIT_OBJECT: the driver is the harness's, handed to the job as the trait it implements
     let driver: Arc<dyn HarnessDriver> = Arc::new(ClaudeCodeDriver::new().map_err(failed)?);
     // TRAIT_OBJECT: the skill tree is the harness's, handed to the job as the trait it implements

@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use candler_schemas::execution::{EventPayload, JobEnd, JobState};
 use candler_schemas::primitives::JobId;
+use candler_schemas::refusal::{RefusalCode, RefusalRecord, Side};
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use tokio::sync::watch;
@@ -39,6 +40,11 @@ use crate::supervise::{EventSink, Supervisor};
 /// `EvaluateReport::to_document` makes. It is written before `job.ended`.
 pub const REPORT_FILE: &str = "report.json";
 
+/// The file of the job directory that holds the `refusal/1` record of the error a failed job ended
+/// with, as the binary would print it. It is written, atomically, before `job.ended`, so that a
+/// command that waits for the job can answer with the same code, side and path.
+pub const REFUSAL_FILE: &str = "refusal.json";
+
 /// Everything the supervisor of one evaluate job starts from. The spec's digest was checked against
 /// `job.json` before this is built.
 pub struct EvaluateEntry {
@@ -57,6 +63,42 @@ pub struct EvaluateJobOutcome {
     pub end: JobEnd,
     /// What the evaluation did; empty when the engine could not run.
     pub report: EvaluateReport,
+}
+
+/// Writes the record of `error` to [`REFUSAL_FILE`]: the code, side and path the walk of causes
+/// finds in it, or the fallback code when it finds none. A write that fails is noted and the job
+/// goes on: the command that waits then falls back to the text of the log.
+fn write_refusal(dir: &JobDir, error: &(dyn std::error::Error + 'static)) {
+    let message = error.to_string();
+    let record = match crate::refusal::find(error) {
+        Some(found) => {
+            let record = RefusalRecord::new(found.code(), found.side(), message);
+            match found.path() {
+                Some(pointer) => record.clone().at_path(pointer).unwrap_or(record),
+                None => record,
+            }
+        }
+        None => RefusalRecord::new(
+            RefusalCode::from_checked("candler.internal"),
+            Side::Candler,
+            message,
+        ),
+    };
+    let mut causes = Vec::new();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        causes.push(cause.to_string());
+        source = cause.source();
+    }
+    let record = record.with_causes(causes);
+    let written = serde_json::to_vec(&record)
+        .map_err(|e| e.to_string())
+        .and_then(|bytes| {
+            write_atomic(&dir.path().join(REFUSAL_FILE), &bytes).map_err(|e| e.to_string())
+        });
+    if let Err(reason) = written {
+        note(&format!("the refusal cannot be written: {reason}"));
+    }
 }
 
 fn session_error(detail: &impl ToString) -> RuntimeError {
@@ -175,6 +217,7 @@ async fn run(entry: EvaluateEntry) -> Result<EvaluateJobOutcome, RuntimeError> {
     let told_to_die = matches!(*seen.cancel.borrow(), Some(JobCause::Killed));
     if let Err(error) = &result {
         note(&error.to_string());
+        write_refusal(&dir, error);
     }
     let result = result.map(|outcome| {
         if told_to_die {
@@ -230,11 +273,11 @@ async fn serve(
     })?;
     let digest = digest_of(&suite_bytes)?;
     if digest != spec.suite_digest {
-        return Err(setup_error(&format!(
-            "the suite {} changed after the job was started: its digest is {digest}, the spec records {}",
-            spec.suite.display(),
-            spec.suite_digest
-        )));
+        return Err(RuntimeError::SuiteChanged {
+            suite: spec.suite.display().to_string(),
+            found: digest.to_string(),
+            recorded: spec.suite_digest.to_string(),
+        });
     }
     let plugins = discover_manifests(&spec.plugin_dirs).map_err(|e| setup_error(&e))?;
 
@@ -285,6 +328,7 @@ async fn serve(
         }
         Err(error) => {
             note(&format!("the evaluation failed: {error}"));
+            write_refusal(dir, &error);
             Ok(EvaluateJobOutcome {
                 end: JobEnd::Failed,
                 report: EvaluateReport::default(),

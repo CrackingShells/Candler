@@ -975,7 +975,8 @@ fn registered_pairs() -> BTreeSet<(String, String)> {
 /// variant of the workspace (every `delegate` row of the catalogue) answers through the walk of
 /// causes with the code and side of the error it wraps, and a wrapper of a format error, which
 /// has no document of its own, answers with its own code and the side of its document; a cause
-/// that blames Candler answers with its own code and the side `candler`.
+/// that blames Candler answers with its own code and the side `candler`. The pair is a row of a
+/// section, or the `candler.internal` fallback of `[internal]`.
 ///
 /// Oracle: the pairs of `codes.toml`, which is read and never generated, and the codes written by
 /// hand for each case; the wrappers and their causes are built by hand. A `delegate` row with no

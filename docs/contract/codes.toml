@@ -821,6 +821,16 @@ side = "config"
 enum = "CliRefusal"
 variant = "RulesInvalid"
 
+[cli."config.no_plugin_dirs"]
+side = "config"
+enum = "CliRefusal"
+variant = "NoPluginDirs"
+
+[cli."config.no_evaluator_slots"]
+side = "config"
+enum = "CliRefusal"
+variant = "NoEvaluatorSlots"
+
 [jobs]
 
 [jobs."jobs.job_not_a_directory"]
@@ -1114,6 +1124,11 @@ variant = "Run"
 side = "suite"
 enum = "EquivalenceError"
 variant = "DuplicateRow"
+
+[evaluation."evaluation.suite_changed"]
+side = "suite"
+enum = "RuntimeError"
+variant = "SuiteChanged"
 
 [import]
 
@@ -1496,6 +1511,10 @@ reason = "the envelope of a verb's failure; the record's code is that of the ref
 enum = "CliError"
 variant = "Runtime"
 reason = "the process could not run the verb at all, which is a fault of the machine and not of an input"
+
+[internal."candler::commands::evaluate::JobRefusal"]
+enum = "JobRefusal"
+reason = "the carrier of a refusal the evaluate job recorded in refusal.json; it reports the record's own code, side and pointer and codes nothing of its own"
 
 [internal."candler_core::jobs::dir::JobError::Unavailable"]
 enum = "JobError"

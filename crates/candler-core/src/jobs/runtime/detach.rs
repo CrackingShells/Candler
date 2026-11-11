@@ -6,10 +6,12 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use candler_schemas::execution::EventPayload;
 use candler_schemas::primitives::JobId;
 
 use super::RuntimeError;
 use crate::jobs::dir::JobDir;
+use crate::jobs::events::{JobEvents, TailPos};
 use crate::jobs::lock::{JobLock, LockState};
 
 /// The file the supervisor's output goes to, in the job's directory.
@@ -98,6 +100,12 @@ pub fn detach(args: DetachArgs) -> Result<DetachedJob, RuntimeError> {
             return Ok(DetachedJob { pid, job });
         }
         let exited = matches!(child.try_wait(), Ok(Some(_)));
+        // A job that took the lock and released it between two looks has no lock to show, and its
+        // log says it began: the supervisor started. The log is read after the exit is seen, so a
+        // supervisor that wrote anything has written it by then.
+        if began(&dir) {
+            return Ok(DetachedJob { pid, job });
+        }
         if exited || started.elapsed() >= START_DEADLINE {
             return Err(RuntimeError::DidNotStart {
                 job_dir: job_dir.display().to_string(),
@@ -106,4 +114,19 @@ pub fn detach(args: DetachArgs) -> Result<DetachedJob, RuntimeError> {
         }
         std::thread::sleep(POLL);
     }
+}
+
+/// Whether the job's log holds `job.started` or `job.ended`: its supervisor began, even if it has
+/// already let go of the lock.
+fn began(dir: &JobDir) -> bool {
+    JobEvents::open(dir)
+        .and_then(|events| events.tail(TailPos(0)))
+        .is_ok_and(|tail| {
+            tail.events.iter().any(|envelope| {
+                matches!(
+                    envelope.event(),
+                    EventPayload::JobStarted { .. } | EventPayload::JobEnded { .. }
+                )
+            })
+        })
 }

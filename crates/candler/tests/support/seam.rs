@@ -163,17 +163,23 @@ pub fn sync_environment(world: &World) {
     fs::write(dir.join("ready"), key.digest()).unwrap();
 }
 
-/// Runs `candler evaluate` over the store of the world with the fixture plug-in and suite.
+/// Runs `candler evaluate` over the store of the world with the fixture plug-in and suite, from a
+/// project directory whose `candler.toml` lists the manifest's directory under `plugins.dirs`.
 pub fn evaluate(world: &World, manifest: &Path) -> Output {
+    let project = world.root.join("project");
+    fs::create_dir_all(&project).unwrap();
+    let dir = manifest.parent().unwrap();
+    fs::write(
+        project.join("candler.toml"),
+        format!("[plugins]\ndirs = [\"{}\"]\n", dir.display()),
+    )
+    .unwrap();
     Command::new(env!("CARGO_BIN_EXE_candler"))
         .arg("--store")
         .arg(world.store())
         .arg("evaluate")
-        .arg("--plugin")
-        .arg(manifest)
-        .arg("--suite")
         .arg(suite())
-        .current_dir(&world.work)
+        .current_dir(&project)
         .env_remove("CANDLER_STORE")
         .env("HOME", world.root.join("home"))
         .env("XDG_CONFIG_HOME", world.root.join("config"))

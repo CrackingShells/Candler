@@ -185,8 +185,9 @@ pub enum EvaluateError {
     Task(String),
 }
 
-/// The environment variables a plug-in process is given by name; the supervisor clears the rest.
-const FORWARDED: [&str; 2] = ["PATH", "HOME"];
+/// The variable that tells a job's supervisor which store the launcher used. It is the launcher's
+/// own business, so no plug-in process is given it.
+const STORE_ROOT_VARIABLE: &str = "CANDLER_STORE_ROOT";
 
 /// The size of the evaluator pool `regrade` opens.
 const REGRADE_SLOTS: u32 = 2;
@@ -513,18 +514,17 @@ fn activated_env(
     env
 }
 
-/// The directory and environment a plug-in process starts with.
+/// The directory and environment a plug-in process starts with: the engine process's own
+/// environment, with the environment's `.venv` first on `PATH` for a `uv` plug-in.
 fn process_of(
     plugin: &crate::evaluation::registry::Plugin,
     env_dir: Option<&PathBuf>,
 ) -> (PathBuf, Vec<(String, String)>) {
-    let forwarded: Vec<(String, String)> = FORWARDED
-        .iter()
-        .filter_map(|name| {
-            std::env::var(name)
-                .ok()
-                .map(|value| ((*name).to_owned(), value))
-        })
+    // The evaluators inherit the environment of the process that runs the engine: for an evaluate
+    // job, the caller's. It is passed on as the process environment and recorded nowhere.
+    let forwarded: Vec<(String, String)> = std::env::vars_os()
+        .filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?)))
+        .filter(|(name, _)| name != STORE_ROOT_VARIABLE)
         .collect();
     if let PluginEnvironment::Uv { project, .. } = plugin.manifest.environment() {
         let env = match env_dir {
