@@ -226,7 +226,7 @@ refusal_table! {
     NoStore { .. } => row(
         "config.no_store",
         Side::Config,
-        "No store root is given: no `--store`, no `CANDLER_STORE` and no `store.root` in a configuration file.",
+        "Not raised today: a verb that is given no store root takes the default store, and a store that is missing prints `store.not_a_store`.",
         "-",
     ),
     RetiredSetting { .. } => row(
