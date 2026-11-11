@@ -15,7 +15,9 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr as _;
 use std::time::Duration;
 
-use candler_harness::spec::{Cell, CommandSpec, Observed, PreparedFile, ProcessExit, Workspace};
+use candler_harness::spec::{
+    Cell, CommandSpec, Framing, Observed, PreparedFile, ProcessExit, Workspace,
+};
 use candler_schemas::container::ContainerRole;
 use candler_schemas::execution::{EventPayload, Integrity, InvalidReason, RunManifest, RunTree};
 use candler_schemas::primitives::{ContainerId, Digest, Marker, RunKey};
@@ -40,7 +42,6 @@ use super::evidence::tree::tree_json;
 use super::evidence::{Evidence, Inputs};
 use super::plan::RunPlan;
 use super::{RunControl, RunOutcome, RunStatus, Runtime};
-use crate::frames::FrameMode;
 use crate::isolation::container::mounts::{MountMode, MountRoots, MountSpec, mounts};
 use crate::isolation::model::ContainerPlan;
 use crate::isolation::{Isolation, IsolationError, RunOutputs};
@@ -415,14 +416,18 @@ async fn drive(
     let err_stream = stream("stderr")?;
     let mut reader_id = None;
     let mut handle = None;
-    let mut stdout = OutputSpec::framed(frames.clone(), out_stream.clone(), FrameMode::Lines); // BORROW: the spec owns its directory and stream
-    if let Some(reader) = rt.driver.live_reader() {
+    let reader = rt.driver.live_reader();
+    let framing = reader
+        .as_ref()
+        .map_or(Framing::Lines, |reader| reader.framing());
+    let mut stdout = OutputSpec::framed(frames.clone(), out_stream.clone(), framing); // BORROW: the spec owns its directory and stream
+    if let Some(reader) = reader {
         reader_id = Some(reader.id());
         let (observer, live) = live_observer(reader, out_stream);
         stdout = stdout.with_observer(Box::new(observer));
         handle = Some(live);
     }
-    let stderr = OutputSpec::framed(frames, err_stream, FrameMode::Lines);
+    let stderr = OutputSpec::framed(frames, err_stream, Framing::Lines);
     let isolated = isolation.run_request(
         &container,
         command,

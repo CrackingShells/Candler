@@ -478,7 +478,7 @@ impl Observed {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[expect(
     clippy::exhaustive_enums,
-    reason = "EXHAUSTIVE: a raw frame file holds a stream as one frame per line or as one frame, and a third framing is a new frame-file format that changes this enum and `FrameMode` together"
+    reason = "EXHAUSTIVE: a raw frame file holds a stream as one frame per line or as one frame, and a third framing is a new frame-file format that changes this enum and the frame writer together"
 )]
 pub enum Framing {
     /// One frame per line of the stream.

@@ -451,7 +451,7 @@ impl TryFrom<MapOnly<RawSession>> for Session {
             started_at: raw.started_at,
             ended_at: raw.ended_at,
             ended_by: raw.ended_by,
-            parent_session: raw.parent_session,
+            parent: raw.parent_session,
             raw_ref: raw.raw_ref,
         })
     }
@@ -461,10 +461,6 @@ impl TryFrom<MapOnly<RawSession>> for Session {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(try_from = "MapOnly<RawSession>")]
 #[non_exhaustive]
-#[expect(
-    clippy::struct_field_names,
-    reason = "WIRE: `parent_session` is the field name of the record"
-)]
 pub struct Session {
     id: SessionId,
     source: SessionSource,
@@ -475,8 +471,8 @@ pub struct Session {
     #[serde(skip_serializing_if = "Option::is_none")]
     ended_at: Option<Timestamp>,
     ended_by: EndedBy,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    parent_session: Option<SessionId>,
+    #[serde(rename = "parent_session", skip_serializing_if = "Option::is_none")]
+    parent: Option<SessionId>,
     raw_ref: RawRef,
 }
 
@@ -489,7 +485,7 @@ impl Session {
 
     /// Checks the rule that relates `parent_session` to the id.
     fn checked(session: Self) -> Result<Self, TraceError> {
-        match &session.parent_session {
+        match &session.parent {
             Some(parent) if !session.id.is_child_of(parent) => Err(TraceError::ParentNotPrefix {
                 session: session.id.to_string(),
                 parent: parent.to_string(),
@@ -538,7 +534,7 @@ impl Session {
     /// The session that started this one, if it is a child.
     #[must_use]
     pub const fn parent_session<'a>(&'a self) -> Option<&'a SessionId> {
-        self.parent_session.as_ref()
+        self.parent.as_ref()
     }
 
     /// The frame the session starts at.
@@ -558,7 +554,7 @@ pub struct SessionBuilder {
     started_at: Option<Timestamp>,
     ended_at: Option<Timestamp>,
     ended_by: Option<EndedBy>,
-    parent_session: Option<SessionId>,
+    parent: Option<SessionId>,
     raw_ref: Option<RawRef>,
 }
 
@@ -608,7 +604,7 @@ impl SessionBuilder {
     /// Sets the parent session.
     #[must_use]
     pub fn parent_session(mut self, parent: SessionId) -> Self {
-        self.parent_session = Some(parent);
+        self.parent = Some(parent);
         self
     }
 
@@ -634,7 +630,7 @@ impl SessionBuilder {
             started_at: self.started_at,
             ended_at: self.ended_at,
             ended_by: self.ended_by.ok_or_else(|| missing("ended_by"))?,
-            parent_session: self.parent_session,
+            parent: self.parent,
             raw_ref: self.raw_ref.ok_or_else(|| missing("raw_ref"))?,
         })
     }

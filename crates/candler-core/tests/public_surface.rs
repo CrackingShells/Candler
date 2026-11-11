@@ -158,9 +158,7 @@ mod legacy_mapping {
 
 // ---- supervisor ----
 mod supervisor {
-    use candler_core::frames::{
-        FrameMode, FrameReader, FrameWriter, FramesError, RawFileInfo, frame_bytes,
-    };
+    use candler_core::frames::{FrameReader, FrameWriter, FramesError, RawFileInfo, frame_bytes};
     use candler_core::supervise::http::is_loopback;
     use candler_core::supervise::platform::{Liveness, liveness, parse_proc_stat, process_start};
     use candler_core::supervise::reap::{ReapRefusal, ReapReport};
@@ -173,6 +171,7 @@ mod supervisor {
         Captured, Ended, Exit, StepRecord, StopHandle, StraySweeper,
     };
     use candler_core::supervise::{EventSink, SuperviseError, Supervisor};
+    use candler_harness::spec::Framing;
 
     fn send_sync<T: Send + Sync + ?Sized>() {}
 
@@ -244,7 +243,7 @@ mod supervisor {
             DEFAULT_GRACE,
         );
         let _ = (
-            None::<FrameMode>,
+            None::<Framing>,
             None::<FramesError>,
             None::<SuperviseError>,
             None::<StdinSpec>,

@@ -13,13 +13,14 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Instant;
 
+use candler_harness::spec::Framing;
 use candler_schemas::raw::{Clock, ClockAnchor, StreamName};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::watch;
 
 use super::SuperviseError;
 use super::spawn::FrameObserver;
-use crate::frames::{FrameMode, FrameWriter, RawFileInfo};
+use crate::frames::{FrameWriter, RawFileInfo};
 
 /// How many trailing bytes of an output the supervisor keeps.
 pub const TAIL_LIMIT: usize = 64 * 1024;
@@ -68,7 +69,7 @@ impl FramedStream {
     pub(crate) fn create(
         dir: &Path,
         stream: StreamName,
-        mode: FrameMode,
+        mode: Framing,
         // TRAIT_OBJECT: the observer is supplied by the caller of the supervisor
         observer: Option<Box<dyn FrameObserver>>,
     ) -> Result<Self, SuperviseError> {
