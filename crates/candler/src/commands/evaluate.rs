@@ -19,11 +19,12 @@ use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::events::{JobEvents, TailPos};
 use candler_core::jobs::lost::{self, JobLiveness};
 use candler_core::jobs::model::{EvaluateSpec, JobSpecFile};
-use candler_core::jobs::runtime::TEARDOWN_BOUND;
 use candler_core::jobs::runtime::detach::{DetachArgs, detach};
 use candler_core::jobs::runtime::evaluate::REPORT_FILE;
 use candler_core::jobs::runtime::launch::{mint_job_id, own_identity, spec_digest};
+use candler_core::jobs::runtime::reap::reap_one;
 use candler_core::jobs::runtime::session::recover_job_dir;
+use candler_core::jobs::runtime::{RuntimeError, TEARDOWN_BOUND};
 use candler_core::store::Store;
 use candler_core::store::layout::StoreLayout;
 use candler_core::supervise::Supervisor;
@@ -38,6 +39,9 @@ use crate::Cli;
 
 /// How often the job's log is looked at while the command waits.
 const POLL: Duration = Duration::from_millis(200);
+
+/// How often the supervisor is looked at for a zombie while a stop is under way.
+const REAP_POLL: Duration = Duration::from_millis(50);
 
 /// How many of the last lines of the supervisor's log a failed job's error carries.
 const LOG_LINES: usize = 5;
@@ -137,12 +141,14 @@ fn log_tail(dir: &JobDir) -> String {
 async fn follow(
     layout: &StoreLayout,
     id: &JobId,
+    supervisor: Option<u32>,
     sigint: &mut Signal,
 ) -> Result<Followed, CliError> {
     let dir = JobDir::open(layout, id).map_err(failed)?;
     let mut interrupted = false;
     let mut stopping: Option<(Instant, Option<String>)> = None;
     loop {
+        reap_supervisor(supervisor);
         match lost::classify(&dir).map_err(failed)? {
             JobLiveness::Ended(end) => return Ok(Followed { end, interrupted }),
             JobLiveness::Lost => {
@@ -172,14 +178,29 @@ async fn follow(
                 }
                 interrupted = true;
                 // A second Ctrl-C ends the wait at once; the job stays stopped by the first.
-                let reason = tokio::select! {
-                    stopped = kill::stop_job(layout, id) => stopped.err(),
-                    _ = sigint.recv() => return Err(interrupted_again(id)),
+                let stop = kill::stop_job(layout, id);
+                tokio::pin!(stop);
+                let reason = loop {
+                    tokio::select! {
+                        stopped = &mut stop => break stopped.err(),
+                        _ = sigint.recv() => return Err(interrupted_again(id)),
+                        () = tokio::time::sleep(REAP_POLL) => reap_supervisor(supervisor),
+                    }
                 };
                 stopping = Some((Instant::now() + TEARDOWN_BOUND, reason));
             }
             () = tokio::time::sleep(POLL) => {}
         }
+    }
+}
+
+/// Waits, without blocking, for the supervisor if it has exited. It is this command's child, and a
+/// child nobody waits for stays a zombie, which the guard's liveness check reads as alive: the
+/// stop of `kill` would wait out its whole grace for a supervisor that is already gone.
+fn reap_supervisor(pid: Option<u32>) {
+    if let Some(pid) = pid {
+        // EXPLICIT: whether it was reaped does not matter; the next look tries again
+        let _ = reap_one(pid);
     }
 }
 
@@ -292,15 +313,21 @@ pub async fn run(cli: &Cli, args: &EvaluateArgs) -> Result<Exit, CliError> {
         spec: bytes,
         env: supervisor_env(root.as_path()), // BORROW: explicit .as_path()
     };
-    tokio::task::spawn_blocking(move || detach(launch))
+    let launched = tokio::task::spawn_blocking(move || detach(launch))
         .await
         .map_err(|e| CliError::Runtime {
             detail: e.to_string(),
-        })?
-        .map_err(failed)?;
+        })?;
+    let supervisor = match launched {
+        Ok(started) => Some(started.pid),
+        // A job that ends before the launcher's next look at its lock is not one that never
+        // started: the follow below reads what became of it, and says why from its log.
+        Err(RuntimeError::DidNotStart { .. }) => None,
+        Err(error) => return Err(failed(error)),
+    };
     eprintln!("{id}");
 
-    let followed = follow(store.layout(), &id, &mut sigint).await?;
+    let followed = follow(store.layout(), &id, supervisor, &mut sigint).await?;
     match followed.end {
         JobEnd::Completed => print_report(&dir),
         JobEnd::Killed if followed.interrupted => Err(CliError::Runtime {
