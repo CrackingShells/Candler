@@ -18,7 +18,8 @@ use crate::jobs::orchestrate::session::OrchestrateError;
 use crate::jobs::runtime::RuntimeError;
 use crate::jobs::slots::SlotError;
 use crate::jobs::view::JobViewError;
-use candler_schemas::refusal::{CatalogRow, Catalogued, Refusal, Side};
+use crate::refusal::wrapper_table;
+use candler_schemas::refusal::{CatalogRow, Catalogued, Refusal, RefusalCode, Side};
 use candler_schemas::refusal_table;
 
 /// The path of an error that names no place in a document.
@@ -50,59 +51,138 @@ fn orchestrate_error_path(error: &OrchestrateError) -> Option<String> {
     }
 }
 
-refusal_table! {
-    JobError, path = no_path;
-    Unavailable { .. } => row(
-        "candler.internal",
-        Side::Candler,
-        "The job directory port is not wired in this build.",
-        "-",
-    ),
-    Held { .. } => row(
-        "jobs.job_held",
-        Side::Environment,
-        "Another process holds the job, so this one cannot take it.",
-        "-",
-    ),
-    Io { op: "open the job directory", .. } => row(
-        "jobs.job_not_found",
-        Side::Config,
-        "No directory of the store holds the job whose id was given.",
-        "-",
-    ),
-    Io { .. } => row(
-        "jobs.io_failed",
-        Side::Environment,
-        "A file system call on the job's directory failed, such as a read, a write or a rename.",
-        "-",
-    ),
-    Parse { .. } => row(
-        "candler.internal",
-        Side::Candler,
-        "A file of the job directory is not a valid record.",
-        "-",
-    ),
-    Exists { .. } => row(
-        "jobs.directory_exists",
-        Side::Environment,
-        "The directory of a job to create already exists.",
-        "-",
-    ),
-    Mismatch { .. } => row(
-        "candler.internal",
-        Side::Candler,
-        "The record in a job directory names another job.",
-        "-",
-    ),
-    Corrupt { .. } => row(
-        "candler.internal",
-        Side::Candler,
-        "A line of a job's event log is not an event.",
-        "-",
-    ),
+/// The rows of [`JobError`], in the order of its variants; the impl below picks one by the
+/// variant and, for two of them, by what the error says, which a `refusal_table!` row cannot see.
+static JOB_ROWS: [CatalogRow; 9] = [
+    CatalogRow {
+        enum_name: "JobError",
+        variant: "Unavailable",
+        code: "candler.internal",
+        side: Side::Candler,
+        when: "The job directory port is not wired in this build.",
+        at: "-",
+        delegates: false,
+    },
+    CatalogRow {
+        enum_name: "JobError",
+        variant: "Held",
+        code: "jobs.job_held",
+        side: Side::Environment,
+        when: "Another process holds the job, so this one cannot take it.",
+        at: "-",
+        delegates: false,
+    },
+    CatalogRow {
+        enum_name: "JobError",
+        variant: "Io",
+        code: "jobs.job_not_found",
+        side: Side::Config,
+        when: "No directory of the store holds the job whose id was given.",
+        at: "-",
+        delegates: false,
+    },
+    CatalogRow {
+        enum_name: "JobError",
+        variant: "Io",
+        code: "jobs.io_failed",
+        side: Side::Environment,
+        when: "A file system call on the job's directory failed, such as a read, a write or a rename, or the store's `jobs` directory cannot be entered.",
+        at: "-",
+        delegates: false,
+    },
+    CatalogRow {
+        enum_name: "JobError",
+        variant: "Parse",
+        code: "jobs.job_not_a_directory",
+        side: Side::Environment,
+        when: "The path of a job in the store is not a directory.",
+        at: "-",
+        delegates: false,
+    },
+    CatalogRow {
+        enum_name: "JobError",
+        variant: "Parse",
+        code: "candler.internal",
+        side: Side::Candler,
+        when: "A file of the job directory is not a valid record.",
+        at: "-",
+        delegates: false,
+    },
+    CatalogRow {
+        enum_name: "JobError",
+        variant: "Exists",
+        code: "jobs.directory_exists",
+        side: Side::Environment,
+        when: "The directory of a job to create already exists.",
+        at: "-",
+        delegates: false,
+    },
+    CatalogRow {
+        enum_name: "JobError",
+        variant: "Mismatch",
+        code: "candler.internal",
+        side: Side::Candler,
+        when: "The record in a job directory names another job.",
+        at: "-",
+        delegates: false,
+    },
+    CatalogRow {
+        enum_name: "JobError",
+        variant: "Corrupt",
+        code: "candler.internal",
+        side: Side::Candler,
+        when: "A line of a job's event log is not an event.",
+        at: "-",
+        delegates: false,
+    },
+];
+
+/// The operation of `JobDir::open` that finds the directory of a job.
+const OPEN_JOB: &str = "open the job directory";
+
+/// The text of the error that `ENOENT` gives, which `JobError::Io` keeps as its `detail`.
+const NO_SUCH_ENTRY: &str = "(os error 2)";
+
+/// The row of `error`: the kind of the file system error decides between a job that is not there
+/// and a call that failed, and the one text that `JobDir::open` gives a path that is no directory
+/// decides between the environment's and Candler's own.
+fn job_row(error: &JobError) -> &'static CatalogRow {
+    match error {
+        JobError::Unavailable { .. } => &JOB_ROWS[0],
+        JobError::Held => &JOB_ROWS[1],
+        JobError::Io { op, detail, .. } if *op == OPEN_JOB && detail.ends_with(NO_SUCH_ENTRY) => {
+            &JOB_ROWS[2]
+        }
+        JobError::Io { .. } => &JOB_ROWS[3],
+        JobError::Parse { detail, .. } if detail == "not a directory" => &JOB_ROWS[4],
+        JobError::Parse { .. } => &JOB_ROWS[5],
+        JobError::Exists { .. } => &JOB_ROWS[6],
+        JobError::Mismatch { .. } => &JOB_ROWS[7],
+        JobError::Corrupt { .. } => &JOB_ROWS[8],
+    }
 }
 
-refusal_table! {
+impl Refusal for JobError {
+    fn code(&self) -> RefusalCode {
+        RefusalCode::from_checked(job_row(self).code)
+    }
+
+    fn side(&self) -> Side {
+        job_row(self).side
+    }
+
+    fn path(&self) -> Option<String> {
+        None
+    }
+}
+
+impl Catalogued for JobError {
+    fn rows() -> &'static [CatalogRow] {
+        &JOB_ROWS
+    }
+}
+
+wrapper_table! {
     RecoverError, path = recover_error_path;
     Unavailable { .. } => row(
         "candler.internal",
@@ -126,7 +206,7 @@ refusal_table! {
     ),
 }
 
-refusal_table! {
+wrapper_table! {
     OrchestrateError, path = orchestrate_error_path;
     TokenSource { .. } => row(
         "jobs.token_secret_unreadable",

@@ -7,9 +7,9 @@
 
 use std::error::Error;
 
+use crate::refusal::wrapper_table;
 use crate::store::StoreError;
 use candler_schemas::refusal::{CatalogRow, Catalogued, Refusal, Side};
-use candler_schemas::refusal_table;
 
 /// The pointer of the place in a document where a [`StoreError`] sits, if it names one.
 fn store_error_path(error: &StoreError) -> Option<String> {
@@ -29,7 +29,7 @@ fn store_error_path(error: &StoreError) -> Option<String> {
     }
 }
 
-refusal_table! {
+wrapper_table! {
     StoreError, path = store_error_path;
     Io { .. } => row(
         "store.io_failed",
@@ -97,12 +97,7 @@ refusal_table! {
         "A stored file is not a valid record.",
         "-",
     ),
-    Format (..) => row(
-        "store.value_invalid",
-        Side::Environment,
-        "A value read from or written to the store has the wrong form for what it names, such as a run key that is not one.",
-        "-",
-    ),
+    Format (inner) => value(inner, "store.value_invalid", Side::Environment, "A value read from or written to the store has the wrong form for what it names, such as a run key that is not one."),
 }
 
 /// The rows of every coded error of this module, in the order of the types.

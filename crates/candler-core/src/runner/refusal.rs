@@ -7,6 +7,7 @@
 
 use std::error::Error;
 
+use crate::refusal::wrapper_table;
 use crate::runner::evidence::catalog::CatalogError;
 use crate::runner::evidence::census::CensusError;
 use crate::runner::evidence::tree::EvidenceError;
@@ -47,7 +48,7 @@ fn exec_error_path(error: &ExecError) -> Option<String> {
     }
 }
 
-refusal_table! {
+wrapper_table! {
     PlanError, path = plan_error_path;
     NameCollision { .. } => row(
         "experiment.name_collision",
@@ -106,7 +107,7 @@ refusal_table! {
     ),
 }
 
-refusal_table! {
+wrapper_table! {
     ExecError, path = exec_error_path;
     Isolation (inner) => delegate(inner, Side::Environment),
     Store (inner) => delegate(inner, Side::Environment),

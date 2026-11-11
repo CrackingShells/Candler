@@ -575,6 +575,51 @@ fn r2_an_unknown_job_and_an_unreadable_suite_name_what_the_caller_got_wrong() {
     assert_refusal(&evaluate, "evaluation.suite_unreadable", "config", None);
 }
 
+/// The binary's `watch` of `id` over the store of `world`, under `--error-format json`.
+#[cfg(unix)]
+fn watch(world: &cli_run::World, id: &str) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_candler"))
+        .args(["--error-format", "json", "--store"])
+        .arg(world.store())
+        .args(["watch", id])
+        .current_dir(&world.work)
+        .env_remove("CANDLER_STORE")
+        .env("HOME", world.root.join("home"))
+        .env("XDG_STATE_HOME", &world.state)
+        .stdin(Stdio::null())
+        .output()
+        .expect("the binary runs")
+}
+
+/// Guards: R2 — what stops `watch` from opening a job is told by the kind of the failure, not by
+/// the call that failed: a path of a job that is a regular file is `jobs.job_not_a_directory`
+/// and a `jobs` directory that cannot be entered is `jobs.io_failed`, both side `environment`,
+/// whereas an id that no directory holds is `jobs.job_not_found` (see the row above).
+///
+/// Oracle: records written by hand from the contract; the inputs are a file in place of a job
+/// directory and a `jobs` directory with mode 000.
+///
+/// Bite: map every failure of the call that opens the job directory to `jobs.job_not_found`, as
+/// the text of the call did.
+#[cfg(unix)]
+#[test]
+fn r2_a_job_that_cannot_be_opened_is_told_by_the_kind_of_failure() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let world = world();
+    let jobs = world.store().join("jobs");
+    fs::create_dir_all(&jobs).expect("a jobs directory");
+    let file_id = "01939f3c-0000-7000-8000-000000000001";
+    fs::write(jobs.join(file_id), "not a job").expect("a file in place of a job");
+    let out = watch(&world, file_id);
+    assert_refusal(&out, "jobs.job_not_a_directory", "environment", None);
+
+    fs::set_permissions(&jobs, fs::Permissions::from_mode(0o000)).expect("the mode changes");
+    let out = watch(&world, "01939f3c-0000-7000-8000-000000000002");
+    fs::set_permissions(&jobs, fs::Permissions::from_mode(0o755)).expect("the mode is restored");
+    assert_refusal(&out, "jobs.io_failed", "environment", None);
+}
+
 /// The refusal a `--set` key under `request` that no setting names is.
 const UNKNOWN_REQUEST_KEY: Expect = Expect {
     code: "experiment.unknown_request_key",

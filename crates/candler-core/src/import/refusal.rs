@@ -12,8 +12,8 @@ use std::error::Error;
 
 use crate::import::ImportError;
 use crate::import::raw::RawIngestError;
+use crate::refusal::wrapper_table;
 use candler_schemas::refusal::{CatalogRow, Catalogued, Refusal, Side};
-use candler_schemas::refusal_table;
 
 /// The pointer of the place in a document where an [`ImportError`] sits, if it names one.
 fn import_error_path(error: &ImportError) -> Option<String> {
@@ -36,7 +36,7 @@ fn import_error_path(error: &ImportError) -> Option<String> {
     }
 }
 
-refusal_table! {
+wrapper_table! {
     ImportError, path = import_error_path;
     MissingField { .. } => row(
         "config.import_field_unset",
@@ -122,12 +122,7 @@ refusal_table! {
         "A run that is finished in the store differs from the folder that is imported for it.",
         "-",
     ),
-    Format (..) => row(
-        "import.value_invalid",
-        Side::Environment,
-        "A value found in the legacy results folder has the wrong form for what it names, such as a run name that is not a run key.",
-        "-",
-    ),
+    Format (inner) => value(inner, "import.value_invalid", Side::Environment, "A value found in the legacy results folder has the wrong form for what it names, such as a run name that is not a run key."),
 }
 
 /// The rows of every coded error of this module, in the order of the types.

@@ -58,6 +58,129 @@ pub fn find<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal> {
     None
 }
 
+/// The refusal that answers for `inner`: what the walk of causes finds from it, or `inner` itself
+/// when the walk finds nothing.
+pub(crate) fn answer_of<E: Error + Refusal + 'static>(inner: &E) -> &dyn Refusal {
+    find(inner).unwrap_or(inner)
+}
+
+/// Gives an error type that wraps others its [`Refusal`] impl and its [`CatalogRow`]s from one
+/// table, like `refusal_table!` of the schemas crate, with the answer of a wrapper that follows
+/// its cause, so the pair of the impl is the one the walk of causes finds.
+///
+/// Three kinds of row:
+/// - `row(code, side, when, at)`: a variant with a code of its own;
+/// - `delegate(inner, side)`: a variant that only wraps `inner`, and answers with the code, the
+///   side and the path of what the walk of causes finds from it. The `side` is the best single
+///   answer, for the contract pages' tables;
+/// - `value(inner, code, side, when)`: a variant that wraps a format error. It answers with
+///   its own `code` and `side`, which name the document the value came from, unless the cause
+///   blames Candler: then it answers with the cause's own code and side.
+///
+/// Every pair a wrapper gives is then a row of `docs/contract/codes.toml`.
+macro_rules! wrapper_table {
+    (
+        $enum:ident, path = $path:path;
+        $( $variant:ident $( $shape:tt )? => $kind:ident $args:tt ),+ $(,)?
+    ) => {
+        const _: () = { $( $crate::refusal::wrapper_table!(@check $kind $args); )+ };
+
+        impl ::candler_schemas::refusal::Refusal for $enum {
+            fn code(&self) -> ::candler_schemas::refusal::RefusalCode {
+                match self {
+                    $( Self::$variant $( $shape )? => $crate::refusal::wrapper_table!(@code $kind $args), )+
+                }
+            }
+
+            fn side(&self) -> ::candler_schemas::refusal::Side {
+                match self {
+                    $( Self::$variant $( $shape )? => $crate::refusal::wrapper_table!(@side $kind $args), )+
+                }
+            }
+
+            fn path(&self) -> ::core::option::Option<::std::string::String> {
+                $path(self)
+            }
+        }
+
+        impl ::candler_schemas::refusal::Catalogued for $enum {
+            fn rows() -> &'static [::candler_schemas::refusal::CatalogRow] {
+                &[ $( $crate::refusal::wrapper_table!(@row $enum, $variant, $kind $args), )+ ]
+            }
+        }
+    };
+    (@check row ($code:literal, $side:expr, $when:literal, $at:literal $(,)?)) => {
+        assert!(::candler_schemas::refusal::is_valid_code($code), "a refusal code is `<surface>.<reason>` in lower case");
+    };
+    (@check delegate ($inner:ident, $side:expr)) => {};
+    (@check value ($inner:ident, $code:literal, $side:expr, $when:literal $(,)?)) => {
+        assert!(::candler_schemas::refusal::is_valid_code($code), "a refusal code is `<surface>.<reason>` in lower case");
+    };
+    (@code row ($code:literal, $side:expr, $when:literal, $at:literal $(,)?)) => {
+        ::candler_schemas::refusal::RefusalCode::from_checked($code)
+    };
+    (@code delegate ($inner:ident, $side:expr)) => {
+        $crate::refusal::answer_of($inner).code()
+    };
+    (@code value ($inner:ident, $code:literal, $side:expr, $when:literal $(,)?)) => {{
+        let found = $crate::refusal::answer_of($inner);
+        if found.side() == ::candler_schemas::refusal::Side::Candler {
+            found.code()
+        } else {
+            ::candler_schemas::refusal::RefusalCode::from_checked($code)
+        }
+    }};
+    (@side row ($code:literal, $side:expr, $when:literal, $at:literal $(,)?)) => {
+        $side
+    };
+    (@side delegate ($inner:ident, $side:expr)) => {
+        $crate::refusal::answer_of($inner).side()
+    };
+    (@side value ($inner:ident, $code:literal, $side:expr, $when:literal $(,)?)) => {{
+        let found = $crate::refusal::answer_of($inner);
+        if found.side() == ::candler_schemas::refusal::Side::Candler {
+            ::candler_schemas::refusal::Side::Candler
+        } else {
+            $side
+        }
+    }};
+    (@row $enum:ident, $variant:tt, row ($code:literal, $side:expr, $when:literal, $at:literal $(,)?)) => {
+        ::candler_schemas::refusal::CatalogRow {
+            enum_name: ::core::stringify!($enum),
+            variant: ::core::stringify!($variant),
+            code: $code,
+            side: $side,
+            when: $when,
+            at: $at,
+            delegates: false,
+        }
+    };
+    (@row $enum:ident, $variant:tt, delegate ($inner:ident, $side:expr)) => {
+        ::candler_schemas::refusal::CatalogRow {
+            enum_name: ::core::stringify!($enum),
+            variant: ::core::stringify!($variant),
+            code: "",
+            side: $side,
+            when: "Wraps another error and returns its code and path.",
+            at: "-",
+            delegates: true,
+        }
+    };
+    (@row $enum:ident, $variant:tt, value ($inner:ident, $code:literal, $side:expr, $when:literal $(,)?)) => {
+        ::candler_schemas::refusal::CatalogRow {
+            enum_name: ::core::stringify!($enum),
+            variant: ::core::stringify!($variant),
+            code: $code,
+            side: $side,
+            when: $when,
+            at: "-",
+            delegates: false,
+        }
+    };
+}
+
+pub(crate) use wrapper_table;
+
 /// The refusal that answers for a variant of `wrapper` that only wraps `inner`: what the walk of
 /// causes finds from `inner`, with the code, the side and the path of the cause, or `wrapper`
 /// when the walk finds nothing. A cause that blames Candler answers as it is, with its own code
@@ -97,6 +220,20 @@ impl Refusal for DocumentValue {
 
     fn path(&self) -> Option<String> {
         None
+    }
+}
+
+/// The refusal that answers for a wrapper of the format error `inner`: the wrapper's own
+/// `document` refusal, unless the cause blames Candler, which then answers as it is.
+fn document_value<'e>(
+    inner: &'e candler_schemas::primitives::FormatError,
+    document: &'static DocumentValue,
+) -> &'e dyn Refusal {
+    let found = answer_of(inner);
+    if found.side() == Side::Candler {
+        found
+    } else {
+        document
     }
 }
 
@@ -219,11 +356,12 @@ fn schemas_coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal
 }
 
 /// The refusal that answers for an [`ExecutionError`]: a format error it wraps answers with the
-/// code of the document, and a values or canonical error with its own code, side and path.
+/// code of the document unless the cause blames Candler, and a values or canonical error with its
+/// own code, side and path.
 fn execution_answer(error: &candler_schemas::execution::ExecutionError) -> &dyn Refusal {
     use candler_schemas::execution::ExecutionError;
-    if let ExecutionError::Format(..) = error {
-        &EXECUTION_VALUE
+    if let ExecutionError::Format(inner) = error {
+        document_value(inner, &EXECUTION_VALUE)
     } else if let ExecutionError::Values(inner) = error {
         through(inner, error)
     } else if let ExecutionError::Canonical(inner) = error {
@@ -248,8 +386,8 @@ fn evaluation_answer(error: &candler_schemas::evaluation::EvaluationError) -> &d
 /// of the document.
 fn outcome_answer(error: &candler_schemas::outcome::OutcomeError) -> &dyn Refusal {
     use candler_schemas::outcome::OutcomeError;
-    if let OutcomeError::Format(..) = error {
-        &OUTCOME_VALUE
+    if let OutcomeError::Format(inner) = error {
+        document_value(inner, &OUTCOME_VALUE)
     } else {
         error
     }

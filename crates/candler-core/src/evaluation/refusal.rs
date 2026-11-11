@@ -21,6 +21,7 @@ use crate::evaluation::engine::{EvaluateError, PlanError};
 #[cfg(unix)]
 use crate::evaluation::registry::{NeedError, RegistryError};
 use crate::evaluation::selection::diff::EquivalenceError;
+use crate::refusal::wrapper_table;
 use candler_schemas::refusal::{CatalogRow, Catalogued, Refusal, Side};
 use candler_schemas::refusal_table;
 
@@ -123,7 +124,7 @@ refusal_table! {
     ),
 }
 
-refusal_table! {
+wrapper_table! {
     ContextError, path = context_error_path;
     Store (inner) => delegate(inner, Side::Environment),
     NotSealed { .. } => row(
@@ -183,7 +184,7 @@ refusal_table! {
 }
 
 #[cfg(unix)]
-refusal_table! {
+wrapper_table! {
     EvaluateError, path = evaluate_error_path;
     EnvironmentNotReady { .. } => row(
         "plugin.environment_not_ready",
@@ -247,7 +248,7 @@ refusal_table! {
 }
 
 #[cfg(unix)]
-refusal_table! {
+wrapper_table! {
     RegistryError, path = registry_error_path;
     Read { .. } => row(
         "plugin.manifest_unreadable",

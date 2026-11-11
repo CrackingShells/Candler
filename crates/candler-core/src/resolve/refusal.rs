@@ -7,6 +7,7 @@
 
 use std::error::Error;
 
+use crate::refusal::wrapper_table;
 use crate::resolve::config::ConfigError;
 use crate::resolve::preflight::{PreflightError, ResolveError};
 use candler_schemas::refusal::{CatalogRow, Catalogued, Refusal, Side, pointer_of};
@@ -91,7 +92,7 @@ refusal_table! {
     ),
 }
 
-refusal_table! {
+wrapper_table! {
     ResolveError, path = resolve_error_path;
     NonUtf8Path { .. } => row(
         "resolve.path_not_unicode",
@@ -100,12 +101,7 @@ refusal_table! {
         "-",
     ),
     Value (inner) => delegate(inner, Side::Config),
-    Format (..) => row(
-        "resolve.value_invalid",
-        Side::Config,
-        "A value of the resolution has the wrong form for what it names, such as a name with a space.",
-        "-",
-    ),
+    Format (inner) => value(inner, "resolve.value_invalid", Side::Config, "A value of the resolution has the wrong form for what it names, such as a name with a space."),
     DuplicateStep { .. } => row(
         "candler.internal",
         Side::Candler,

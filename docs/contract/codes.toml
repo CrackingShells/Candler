@@ -818,6 +818,11 @@ variant = "UnknownFieldPath"
 
 [jobs]
 
+[jobs."jobs.job_not_a_directory"]
+side = "environment"
+enum = "JobError"
+variant = "Parse"
+
 [jobs."jobs.job_not_found"]
 side = "config"
 enum = "JobError"

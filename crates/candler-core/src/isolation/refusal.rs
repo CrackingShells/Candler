@@ -15,6 +15,7 @@ use crate::isolation::container::sweeper::SweepError;
 use crate::isolation::docker::DockerError;
 use crate::isolation::gateway::{GatewayError, NotReadyCause, SecretError};
 use crate::isolation::image::ImageError;
+use crate::refusal::wrapper_table;
 use candler_schemas::refusal::{CatalogRow, Catalogued, Refusal, Side};
 use candler_schemas::refusal_table;
 
@@ -122,7 +123,7 @@ refusal_table! {
     ),
 }
 
-refusal_table! {
+wrapper_table! {
     GatewayError, path = gateway_error_path;
     Unavailable { .. } => row(
         "isolation.gateway_unavailable",
@@ -276,7 +277,7 @@ refusal_table! {
     ),
 }
 
-refusal_table! {
+wrapper_table! {
     RunArgvError, path = run_argv_error_path;
     SecretRefused { .. } => row(
         "isolation.env_secret_refused",

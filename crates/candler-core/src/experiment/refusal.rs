@@ -9,6 +9,7 @@ use std::error::Error;
 
 use crate::experiment::inputs::InputError;
 use crate::experiment::surface::SurfaceError;
+use crate::refusal::wrapper_table;
 use candler_schemas::refusal::{CatalogRow, Catalogued, Refusal, Side, pointer_of};
 use candler_schemas::refusal_table;
 
@@ -50,7 +51,7 @@ refusal_table! {
     ),
 }
 
-refusal_table! {
+wrapper_table! {
     SurfaceError, path = surface_error_path;
     Missing (..) => row(
         "experiment.setting_missing",
@@ -76,12 +77,7 @@ refusal_table! {
         "A setting holds an absolute path where a path relative to the project is required.",
         "-",
     ),
-    Format (..) => row(
-        "experiment.setting_value_invalid",
-        Side::Experiment,
-        "A setting holds a value that has the wrong form for what it names, such as a name with a space.",
-        "-",
-    ),
+    Format (inner) => value(inner, "experiment.setting_value_invalid", Side::Experiment, "A setting holds a value that has the wrong form for what it names, such as a name with a space."),
 }
 
 /// The rows of every coded error of this module, in the order of the types.

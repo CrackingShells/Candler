@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use candler_schemas::refusal::{CatalogRow, Side};
+use candler_schemas::refusal::{CatalogRow, Refusal, Side};
 use regex::Regex;
 
 /// The fallback code of an error that is not an author's.
@@ -71,7 +71,8 @@ fn name_of(path: &str) -> &str {
     path.rsplit("::").next().unwrap()
 }
 
-/// Every source file under `crates/*/src`, as `(<file>, <text>)`.
+/// Every source file under `crates/*/src`, as `(<file>, <text>)`. A scan of text: a derive that a
+/// `macro_rules!` expands into is not seen.
 fn source_files() -> Vec<(String, String)> {
     let mut files = Vec::new();
     let mut stack = vec![root().join("crates")];
@@ -80,7 +81,12 @@ fn source_files() -> Vec<(String, String)> {
             let path = entry.path();
             if path.is_dir() {
                 let name = entry.file_name();
-                if name != "target" && name != "tests" && name != "benches" {
+                // `tests` and `benches` of a crate hold no source of the crate; the same names
+                // deeper down are modules of it.
+                let at_crate_root =
+                    path.parent().and_then(Path::parent) == Some(root().join("crates").as_path());
+                let is_test_dir = at_crate_root && (name == "tests" || name == "benches");
+                if name != "target" && !is_test_dir {
                     stack.push(path);
                 }
             } else if path.extension().is_some_and(|ext| ext == "rs")
@@ -153,7 +159,10 @@ fn module_path(file: &str) -> String {
 /// one defined in the same file, or the one whose module the table's file imports it from, or the
 /// only type of that name.
 fn tabled_types(types: &[String]) -> BTreeSet<String> {
-    let table = Regex::new(r"refusal_table!\s*[{(]\s*(?:struct\s+)?(\w+)\s*,").unwrap();
+    let table = Regex::new(
+        r"(?:(?:refusal|wrapper)_table!\s*[{(]\s*(?:struct\s+)?|impl\s+(?:candler_schemas::refusal::)?Refusal\s+for\s+)(\w+)\s*[,{]",
+    )
+    .unwrap();
     let uses = Regex::new(r"(?m)^\s*use\s+([^;]+);").unwrap();
     let mut tabled = BTreeSet::new();
     for (file, text) in source_files() {
@@ -180,6 +189,10 @@ fn tabled_types(types: &[String]) -> BTreeSet<String> {
                 .iter()
                 .filter(|entry| name_of(entry) == name)
                 .collect();
+            if candidates.is_empty() {
+                // A refusal that is no error type, such as an adapter.
+                continue;
+            }
             let chosen: Vec<&&String> = if candidates.len() == 1 {
                 candidates.iter().collect()
             } else {
@@ -562,6 +575,13 @@ fn r1_a_wrapper_answers_with_the_side_of_what_it_wraps() {
     assert_eq!(found.side(), Side::Environment);
 }
 
+/// An error that is a refusal.
+#[cfg(unix)]
+trait Both: std::error::Error + Refusal + 'static {}
+
+#[cfg(unix)]
+impl<T: std::error::Error + Refusal + 'static> Both for T {}
+
 /// One wrapper variant built by hand, with the code the walk of causes must give for it.
 #[cfg(unix)]
 struct Wrapped {
@@ -570,7 +590,9 @@ struct Wrapped {
     /// The variant of the wrapper.
     variant: &'static str,
     /// The wrapper, holding the error it wraps.
-    error: Box<dyn std::error::Error + 'static>,
+    error: Box<dyn Both>,
+    /// The pair `(code, side)` that the wrapper's own `Refusal` impl gives.
+    direct: (String, String),
     /// The code the record carries: the wrapped error's, or the wrapper's own when the cause is a
     /// format error.
     code: &'static str,
@@ -605,7 +627,7 @@ fn wrapped_cases() -> Vec<Wrapped> {
     use candler_schemas::evaluation::EvaluationError;
     use candler_schemas::execution::ExecutionError;
     use candler_schemas::outcome::OutcomeError;
-    use candler_schemas::primitives::{FormatError, Name};
+    use candler_schemas::primitives::{FormatError, Name, RunKey};
     use candler_schemas::values::ValuesError;
 
     let format = || -> FormatError { "BAD NAME".parse::<Name>().unwrap_err() };
@@ -620,12 +642,17 @@ fn wrapped_cases() -> Vec<Wrapped> {
     let sealed = || StoreError::RunSealed {
         run: "r".to_owned(),
     };
-    let case = |enum_name, variant, error: Box<dyn std::error::Error>, code| Wrapped {
+    let case = |enum_name, variant, error: Box<dyn Both>, code| Wrapped {
         enum_name,
         variant,
+        direct: (
+            error.code().as_str().to_owned(),
+            error.side().as_str().to_owned(),
+        ),
         error,
         code,
     };
+    let candler_format = || -> FormatError { "x".parse::<RunKey>().unwrap_err() };
     let evaluate_registry = || RegistryError::UnknownKind {
         entry: "R1".parse().unwrap(),
         evaluator: "e".parse().unwrap(),
@@ -780,6 +807,43 @@ fn wrapped_cases() -> Vec<Wrapped> {
                 source: ExecutionError::Format(format()),
             }),
             "experiment.value_invalid",
+        ),
+        // A format error that blames Candler answers as it is, under every document.
+        case(
+            "ExecutionError",
+            "Format",
+            Box::new(ExecutionError::Format(candler_format())),
+            "format.run_key_invalid",
+        ),
+        case(
+            "OutcomeError",
+            "Format",
+            Box::new(OutcomeError::Format(candler_format())),
+            "format.run_key_invalid",
+        ),
+        case(
+            "SurfaceError",
+            "Format",
+            Box::new(SurfaceError::Format(candler_format())),
+            "format.run_key_invalid",
+        ),
+        case(
+            "ResolveError",
+            "Format",
+            Box::new(ResolveError::Format(candler_format())),
+            "format.run_key_invalid",
+        ),
+        case(
+            "StoreError",
+            "Format",
+            Box::new(StoreError::Format(candler_format())),
+            "format.run_key_invalid",
+        ),
+        case(
+            "ImportError",
+            "Format",
+            Box::new(ImportError::Format(candler_format())),
+            "format.run_key_invalid",
         ),
         // The evaluation's.
         case(
@@ -939,7 +1003,8 @@ fn r1_every_wrapper_answers_with_a_registered_code_and_side() {
     }
     for case in &cases {
         let who = format!("{}::{} over {}", case.enum_name, case.variant, case.code);
-        let found = candler_core::refusal::find(case.error.as_ref())
+        let wrapper: &(dyn std::error::Error + 'static) = &*case.error;
+        let found = candler_core::refusal::find(wrapper)
             .unwrap_or_else(|| panic!("{who}: the walk finds no refusal"));
         assert_eq!(found.code().as_str(), case.code, "{who}: code");
         let pair = (
@@ -952,5 +1017,21 @@ fn r1_every_wrapper_answers_with_a_registered_code_and_side() {
             pair.0,
             pair.1
         );
+        // The wrapper's own impl answers with a row too, though the schemas crate's wrappers
+        // cannot be changed from here and keep the code of their cause with their own side.
+        let schemas_owned = [
+            "ExecutionError",
+            "EvaluationError",
+            "OutcomeError",
+            "ValuesError",
+        ];
+        if !schemas_owned.contains(&case.enum_name) {
+            assert!(
+                pairs.contains(&case.direct),
+                "{who}: the wrapper's own impl gives ({}, {}), which is no row of codes.toml",
+                case.direct.0,
+                case.direct.1
+            );
+        }
     }
 }
