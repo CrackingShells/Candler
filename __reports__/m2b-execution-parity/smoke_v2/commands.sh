@@ -1,6 +1,6 @@
 #!/bin/sh
 # The command lines of the M2c re-validation smoke (Step 2). Every value is in experiment.toml;
-# the command line carries none. Usage: sh commands.sh <stage|run|leak|project|checks|leftovers> [arg]
+# the command line carries none. Usage: sh commands.sh <stage|run|leak|project|checks live|checks post|leftovers> [arg]
 #   CANDLER   the built binary (required for run, leak)
 #   SMOKE     the scratch root (default /private/tmp/claude-501/m2c-smoke)
 #   RIVAULT_LLM_INFERENCE  the key, present in the environment; this script never prints it
@@ -46,10 +46,26 @@ leak() {  # X32: same cell, a prompt that copies a declared input to an output p
 
 project() { jq -f "$HERE/projection.jq" "$1"; }            # a run's manifest.json to PROVENANCE_JSON
 
-checks() {  # the 31 checks as committed; the caller sets the env vars of checks/README.md
-  for c in $(jq -r '.[]|select(.check!=null)|.check' "$FM/feature_map.json" | sort -u); do
-    sh "$FM/checks/$c.sh" >"$S/check-$c.out" 2>&1 && r=0 || r=$?
-    printf '%s\t%s\t%s\n' "$c" "$r" "$(head -n1 "$S/check-$c.out")"
+# The checks that reach the agent through EXEC and judge its provisioned state. They need the
+# live container, so they run while the job is up: `checks live` with EXEC="docker exec -w /work
+# <agent container id>" (the id from `docker ps --filter label=candler.job=<job> --filter
+# label=candler.role=agent`). The rest read the sealed artifacts: `checks post`. Two of those
+# (settings_sources_isolated, stream_invocation) also read EXEC; after the container is gone the
+# caller must say what stands in for it.
+LIVE_CHECKS='benign_devices env_scrubbed layout manifest_outside no_reference_answers non_root venv_contents venv_not_hardlinked venv_scoping'
+
+all_checks() {  # the feature map's scripts, plus non_root (listed in checks/README.md, mapped to no row)
+  { jq -r '.[]|select(.check!=null)|.check' "$FM/feature_map.json"; echo non_root; } | sort -u
+}
+
+checks() {  # $1 = live | post; the caller sets the env vars of checks/README.md
+  mode=${1:?usage: checks live|post}
+  case $mode in live|post) ;; *) echo "checks: live or post" >&2; exit 2 ;; esac
+  if [ "$mode" = live ]; then : "${EXEC:?live checks need EXEC=docker exec -w /work <agent container id>}"; fi
+  for c in $(all_checks); do
+    case " $LIVE_CHECKS " in *" $c "*) [ "$mode" = live ] || continue ;; *) [ "$mode" = post ] || continue ;; esac
+    sh "$FM/checks/$c.sh" >"$S/check-$mode-$c.out" 2>&1 && r=0 || r=$?
+    printf '%s\t%s\t%s\n' "$c" "$r" "$(head -n1 "$S/check-$mode-$c.out")"
   done
 }
 
