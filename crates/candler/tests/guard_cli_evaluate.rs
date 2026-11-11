@@ -1194,3 +1194,68 @@ fn e1_a_lost_evaluate_job_is_recovered_with_no_docker_on_the_path() {
     );
     world.remove();
 }
+
+/// Guards: a run graded twice counts once. Two `evaluate` calls over the same runs, one after the
+/// other as two at once would leave them, hold two complete sets of outcomes for one evaluator
+/// version; `show` and `analyze` read the current record under each I4 key, so their output is
+/// the same with the second set as without it, and the pending selection treats the run as
+/// complete either way.
+///
+/// Oracle: every run's outcome directory holds two files after the second call, the output of
+/// `show --format json` and `analyze --format json` is byte-equal before and after, the I4
+/// violations of `analyze` are none (the evaluator is deterministic), and a third `evaluate`
+/// with the default selection writes no file.
+///
+/// Bite: the I4 key of `select` carrying the request id, so that each set is current under its own
+/// key (`show` differs after the second call).
+#[test]
+fn e1_a_run_graded_twice_counts_once_for_every_reader() {
+    let (world, _) = sealed_world();
+    pool_plugin(&world);
+    let suite = suite_of(&world, "suite_pool_ok.toml", &[]);
+    let project = project(&world, "project", &["../plugin"]);
+    let evaluate = |extra: &[&str]| {
+        let out = candler(&world, &project)
+            .arg("evaluate")
+            .arg(&suite)
+            .args(extra)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(0), "{}", stderr_of(&out));
+    };
+    let read = |verb: &str| {
+        let out = candler(&world, &project)
+            .args([verb, "--format", "json"])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(0), "{verb}: {}", stderr_of(&out));
+        out.stdout
+    };
+
+    evaluate(&[]);
+    let once = files_by_run(&world);
+    let shown = read("show");
+    let analysed = read("analyze");
+    evaluate(&["--runs", "*"]);
+    for (key, files) in &files_by_run(&world) {
+        assert_eq!(files.len(), 2 * once[key].len(), "{key}: a second set");
+    }
+    assert_eq!(read("show"), shown, "show counts each run once");
+    assert_eq!(read("analyze"), analysed, "analyze counts each run once");
+    let report: Value = serde_json::from_slice(&analysed).unwrap();
+    fn violations(value: &Value) -> Option<u64> {
+        match value {
+            Value::Object(map) => map
+                .get("i4_violations")
+                .and_then(Value::as_u64)
+                .or_else(|| map.values().find_map(violations)),
+            Value::Array(items) => items.iter().find_map(violations),
+            _ => None,
+        }
+    }
+    assert_eq!(violations(&report), Some(0), "no I4 violation: {report}");
+    let after_two = files_by_run(&world);
+    evaluate(&[]);
+    assert_eq!(files_by_run(&world), after_two, "nothing is pending");
+    world.remove();
+}
