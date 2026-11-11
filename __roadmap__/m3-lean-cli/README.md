@@ -136,10 +136,10 @@ Every operation of the API is a verb that derives what it can, works from any di
 ## Status
 ```mermaid
 graph TD
-    stray_sweep_tick[Stray sweep tick]:::planned
+    stray_sweep_tick[Stray sweep tick]:::done
     contract_wire[Contract wire]:::planned
     stats[Stats]:::planned
-    platform_seam[Platform seam]:::planned
+    platform_seam[Platform seam]:::done
     verbs[Verbs]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -151,10 +151,10 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `stray_sweep_tick.md` | 📄 Leaf Task | ⬜ Planned |
+| `stray_sweep_tick.md` | 📄 Leaf Task | ✅ Done |
 | `contract_wire.md` | 📄 Leaf Task | ⬜ Planned |
 | `stats.md` | 📄 Leaf Task | ⬜ Planned |
-| `platform_seam.md` | 📄 Leaf Task | ⬜ Planned |
+| `platform_seam.md` | 📄 Leaf Task | ✅ Done |
 | `verbs/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
