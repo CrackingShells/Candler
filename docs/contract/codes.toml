@@ -1115,6 +1115,11 @@ side = "suite"
 enum = "EquivalenceError"
 variant = "DuplicateRow"
 
+[evaluation."evaluation.suite_changed"]
+side = "suite"
+enum = "RuntimeError"
+variant = "SuiteChanged"
+
 [import]
 
 [import."import.value_invalid"]

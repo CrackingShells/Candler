@@ -101,6 +101,18 @@ pub enum RuntimeError {
         /// What failed.
         detail: String,
     },
+    /// The suite file is not the one the launcher read: it changed after the job was started.
+    #[error(
+        "the suite {suite} changed after the job was started: its digest is {found}, the spec records {recorded}"
+    )]
+    SuiteChanged {
+        /// The suite file.
+        suite: String,
+        /// The digest of the file now.
+        found: String,
+        /// The digest the spec records.
+        recorded: String,
+    },
     /// The body did not return an outcome.
     #[error("the job's body failed: {detail}")]
     Body {

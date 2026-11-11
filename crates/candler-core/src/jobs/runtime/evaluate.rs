@@ -230,11 +230,11 @@ async fn serve(
     })?;
     let digest = digest_of(&suite_bytes)?;
     if digest != spec.suite_digest {
-        return Err(setup_error(&format!(
-            "the suite {} changed after the job was started: its digest is {digest}, the spec records {}",
-            spec.suite.display(),
-            spec.suite_digest
-        )));
+        return Err(RuntimeError::SuiteChanged {
+            suite: spec.suite.display().to_string(),
+            found: digest.to_string(),
+            recorded: spec.suite_digest.to_string(),
+        });
     }
     let plugins = discover_manifests(&spec.plugin_dirs).map_err(|e| setup_error(&e))?;
 
