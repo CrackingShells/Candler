@@ -864,3 +864,62 @@ fn a3_a_bare_version_is_accepted_through_the_binary() {
     );
     assert_eq!(out.stdout, Vec::<u8>::new());
 }
+
+/// The one record on stderr of a refused call under `--error-format json`.
+fn record_of(out: &Output) -> Value {
+    assert_eq!(out.status.code(), Some(2));
+    assert_eq!(
+        out.stdout,
+        Vec::<u8>::new(),
+        "nothing is written for a refusal"
+    );
+    let text = String::from_utf8(out.stderr.clone()).expect("UTF-8");
+    assert_eq!(text.lines().count(), 1, "one record on one line: {text}");
+    serde_json::from_str(text.trim_end()).expect("the record is JSON")
+}
+
+/// Guards: R2 — a store with two evaluator versions prints as one `refusal/1` record under
+/// `--error-format json`, with the code `analysis.mixed_evaluator_versions`, the side `config` (the
+/// fix is a setting of the command line, `--evaluator`) and both versions in the message.
+/// Oracle: a record written by hand from the contract.
+/// Bite: route the refusal through `CliError::refused`, and the record's code becomes
+/// `candler.internal`; give the code the side `suite`, and the side turns red.
+#[test]
+fn r2_a_mixed_store_prints_as_a_record() {
+    let runs = layout(&["suite-eval@1.0.0", "suite-eval@2.0.0"], false);
+    let (dir, store) = fixture(&runs);
+    let out = analyze(dir.path(), &store, &["--error-format", "json"]);
+    let record = record_of(&out);
+    assert_eq!(record["schema"], "refusal/1", "{record}");
+    assert_eq!(
+        record["code"], "analysis.mixed_evaluator_versions",
+        "{record}"
+    );
+    assert_eq!(record["side"], "config", "{record}");
+    let message = record["message"].as_str().expect("a message");
+    assert!(message.starts_with("refused: "), "{message}");
+    assert!(message.contains("suite-eval@1.0.0") && message.contains("suite-eval@2.0.0"));
+}
+
+/// Guards: R2 — an experiment file that cannot be read prints as the record of
+/// `analysis.experiment_unreadable`, side `experiment`, naming the file because no pointer into a
+/// document exists. Oracle: a record written by hand from the contract.
+/// Bite: leave the file out of the record, and this turns red.
+#[test]
+fn r2_an_unreadable_experiment_names_the_file() {
+    let runs = layout(&[EVALUATOR], false);
+    let (dir, store) = fixture(&runs);
+    let file = dir.path().join("broken.toml");
+    fs::write(&file, "replicates = [\n").expect("the file writes");
+    let file_arg = file.to_str().expect("a UTF-8 path");
+    let out = analyze(
+        dir.path(),
+        &store,
+        &["--error-format", "json", "--experiment", file_arg],
+    );
+    let record = record_of(&out);
+    assert_eq!(record["code"], "analysis.experiment_unreadable", "{record}");
+    assert_eq!(record["side"], "experiment", "{record}");
+    assert_eq!(record["file"], json!(file_arg), "{record}");
+    assert!(record.get("path").is_none(), "no path: {record}");
+}

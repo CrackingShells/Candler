@@ -51,19 +51,19 @@ refusal_table! {
     ReportError, path = report_path;
     MixedEvaluatorVersions { .. } => row(
         "analysis.mixed_evaluator_versions",
-        Side::Suite,
+        Side::Config,
         "The store holds outcomes of several evaluator versions and the request names none; name one with `--evaluator`.",
         "-",
     ),
     UnknownEvaluator { .. } => row(
         "analysis.unknown_evaluator",
-        Side::Suite,
+        Side::Config,
         "The evaluator, or the version, named has no outcome in the store.",
         "-",
     ),
     AmbiguousEvaluatorName { .. } => row(
         "analysis.ambiguous_evaluator_name",
-        Side::Suite,
+        Side::Config,
         "A bare version is held by several evaluators; write `name@version`.",
         "-",
     ),

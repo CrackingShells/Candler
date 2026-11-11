@@ -809,17 +809,17 @@ variant = "UnknownFieldPath"
 [analysis]
 
 [analysis."analysis.mixed_evaluator_versions"]
-side = "suite"
+side = "config"
 enum = "ReportError"
 variant = "MixedEvaluatorVersions"
 
 [analysis."analysis.unknown_evaluator"]
-side = "suite"
+side = "config"
 enum = "ReportError"
 variant = "UnknownEvaluator"
 
 [analysis."analysis.ambiguous_evaluator_name"]
-side = "suite"
+side = "config"
 enum = "ReportError"
 variant = "AmbiguousEvaluatorName"
 

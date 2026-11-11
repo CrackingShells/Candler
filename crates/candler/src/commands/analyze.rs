@@ -30,7 +30,8 @@ pub struct AnalyzeArgs {
     pub evaluator: Option<String>,
     /// The experiment file whose factors declare which differences between arms are the
     /// experiment's own; without it, arms are tabled and no pair is compared. cannot be derived:
-    /// the declared factors are in the experiment file, and a manifest cannot vouch for its own.
+    /// a run manifest records the digest of the resolved cells, not of the experiment file, and a
+    /// manifest cannot vouch for its own factors.
     #[arg(long)]
     pub experiment: Option<PathBuf>,
     /// How the tables are written. not an experiment setting: chooses how the tables are written.
@@ -75,8 +76,7 @@ pub enum Table {
 pub async fn run(cli: &Cli, args: &AnalyzeArgs) -> Result<Exit, CliError> {
     let store = common::open_store(VERB, cli).await?;
     let selection = common::read_selection(VERB, &store)?;
-    let evaluator =
-        choose_evaluator(&selection, args.evaluator.as_deref()).map_err(|e| refused(&e))?;
+    let evaluator = choose_evaluator(&selection, args.evaluator.as_deref()).map_err(refused)?;
     let declared = args
         .experiment
         .as_deref()
@@ -111,17 +111,18 @@ pub async fn run(cli: &Cli, args: &AnalyzeArgs) -> Result<Exit, CliError> {
 }
 
 /// A refusal of the report as the command line states it.
-fn refused(error: &ReportError) -> CliError {
-    CliError::refused(error.to_string())
+fn refused(error: ReportError) -> CliError {
+    CliError::refused_by(error)
 }
 
 /// The paths of the factors of the experiment file.
 fn declared_factors(file: &std::path::Path) -> Result<Vec<FieldPath>, CliError> {
     let unreadable = |detail: String| {
-        refused(&ReportError::ExperimentUnreadable {
+        refused(ReportError::ExperimentUnreadable {
             file: file.display().to_string(),
             detail,
         })
+        .with_file(file)
     };
     let text = std::fs::read_to_string(file).map_err(|e| unreadable(e.to_string()))?;
     let experiment =
