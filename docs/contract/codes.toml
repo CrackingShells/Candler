@@ -798,9 +798,364 @@ variant = "UnknownFieldPath"
 
 [jobs]
 
+[jobs."jobs.job_held"]
+side = "environment"
+enum = "JobError"
+variant = "Held"
+
+[jobs."jobs.io_failed"]
+side = "environment"
+enum = "JobError"
+variant = "Io"
+
+[jobs."jobs.directory_exists"]
+side = "environment"
+enum = "JobError"
+variant = "Exists"
+
+[jobs."jobs.child_not_reaped"]
+side = "environment"
+enum = "RecoverError"
+variant = "Reap"
+
+[jobs."jobs.recovery_store_failed"]
+side = "environment"
+enum = "RecoverError"
+variant = "Store"
+
+[jobs."jobs.token_secret_unreadable"]
+side = "environment"
+enum = "OrchestrateError"
+variant = "TokenSource"
+
+[jobs."jobs.gateway_not_serving"]
+side = "environment"
+enum = "OrchestrateError"
+variant = "Gateway"
+
+[jobs."jobs.treatment_unset"]
+side = "config"
+enum = "OrchestrateError"
+variant = "Treatment"
+
+[jobs."jobs.token_secret_unset"]
+side = "config"
+enum = "OrchestrateError"
+variant = "TokenSetting"
+
+[jobs."jobs.docker_unavailable"]
+side = "environment"
+enum = "OrchestrateError"
+variant = "Docker"
+
+[jobs."jobs.job_directory_unavailable"]
+side = "environment"
+enum = "OrchestrateError"
+variant = "Job"
+
+[jobs."jobs.already_supervised"]
+side = "environment"
+enum = "RuntimeError"
+variant = "AlreadySupervised"
+
+[jobs."jobs.supervisor_did_not_start"]
+side = "environment"
+enum = "RuntimeError"
+variant = "DidNotStart"
+
+[jobs."jobs.supervisor_spawn_failed"]
+side = "environment"
+enum = "RuntimeError"
+variant = "Detach"
+
+[jobs."jobs.job_directory_failed"]
+side = "environment"
+enum = "RuntimeError"
+variant = "Job"
+
+[jobs."jobs.slot_io_failed"]
+side = "environment"
+enum = "SlotError"
+variant = "Io"
+
+[jobs."jobs.job_unreadable"]
+side = "environment"
+enum = "JobViewError"
+variant = "Read"
+
 [evaluation]
 
+[evaluation."evaluation.evaluator_not_started"]
+side = "plugin"
+enum = "ClientError"
+variant = "Spawn"
+
+[evaluation."evaluation.cancelled"]
+side = "environment"
+enum = "ClientError"
+variant = "Cancelled"
+
+[evaluation."plugin.describe_failed"]
+side = "plugin"
+enum = "ClientError"
+variant = "Describe"
+
+[evaluation."evaluation.run_not_sealed"]
+side = "environment"
+enum = "ContextError"
+variant = "NotSealed"
+
+[evaluation."evaluation.artifact_glob_invalid"]
+side = "plugin"
+enum = "ContextError"
+variant = "Glob"
+
+[evaluation."evaluation.need_unsupported"]
+side = "plugin"
+enum = "ContextError"
+variant = "Unsupported"
+
+[evaluation."evaluation.input_unavailable"]
+side = "plugin"
+enum = "ContextError"
+variant = "InputRefused"
+
+[evaluation."evaluation.metadata_missing"]
+side = "plugin"
+enum = "ContextError"
+variant = "MissingMetadata"
+
+[evaluation."evaluation.workspace_unusable"]
+side = "config"
+enum = "ContextError"
+variant = "Workspace"
+
+[evaluation."evaluation.context_io_failed"]
+side = "environment"
+enum = "ContextError"
+variant = "Io"
+
+[evaluation."evaluation.blob_corrupt"]
+side = "environment"
+enum = "ContextError"
+variant = "CorruptBlob"
+
+[evaluation."plugin.environment_not_ready"]
+side = "plugin"
+enum = "EvaluateError"
+variant = "EnvironmentNotReady"
+
+[evaluation."evaluation.io_failed"]
+side = "environment"
+enum = "EvaluateError"
+variant = "Io"
+
+[evaluation."evaluation.run_selection_invalid"]
+side = "config"
+enum = "EvaluateError"
+variant = "Glob"
+
+[evaluation."evaluation.dependency_cycle"]
+side = "suite"
+enum = "PlanError"
+variant = "Cycle"
+
+[evaluation."evaluation.dependency_unknown"]
+side = "suite"
+enum = "PlanError"
+variant = "UnknownDependency"
+
+[evaluation."evaluation.evaluators_interleaved"]
+side = "suite"
+enum = "PlanError"
+variant = "Interleaved"
+
+[evaluation."plugin.manifest_unreadable"]
+side = "plugin"
+enum = "RegistryError"
+variant = "Read"
+
+[evaluation."config.plugin_dir_no_manifest"]
+side = "config"
+enum = "RegistryError"
+variant = "NoManifest"
+
+[evaluation."plugin.manifest_ambiguous"]
+side = "plugin"
+enum = "RegistryError"
+variant = "ManyManifests"
+
+[evaluation."plugin.name_repeated"]
+side = "plugin"
+enum = "RegistryError"
+variant = "DuplicatePlugin"
+
+[evaluation."plugin.describe_mismatch"]
+side = "plugin"
+enum = "RegistryError"
+variant = "DescribeMismatch"
+
+[evaluation."suite.evaluator_unknown"]
+side = "suite"
+enum = "RegistryError"
+variant = "UnknownEvaluator"
+
+[evaluation."suite.evaluator_version_mismatch"]
+side = "suite"
+enum = "RegistryError"
+variant = "VersionOutsideRange"
+
+[evaluation."suite.kind_unknown"]
+side = "suite"
+enum = "RegistryError"
+variant = "UnknownKind"
+
+[evaluation."plugin.params_schema_invalid"]
+side = "plugin"
+enum = "RegistryError"
+variant = "BadParamsSchema"
+
+[evaluation."suite.params_invalid"]
+side = "suite"
+enum = "RegistryError"
+variant = "Params"
+
+[evaluation."evaluation.state_home_unset"]
+side = "environment"
+enum = "RegistryError"
+variant = "NoStateHome"
+
+[evaluation."plugin.environment_file_unreadable"]
+side = "plugin"
+enum = "RegistryError"
+variant = "EnvironmentFile"
+
+[evaluation."plugin.need_unsupported"]
+side = "plugin"
+enum = "NeedError"
+variant = "Unsupported"
+
+[evaluation."plugin.need_input_reserved"]
+side = "plugin"
+enum = "NeedError"
+variant = "ReservedInput"
+
+[evaluation."plugin.need_glob_outside_outputs"]
+side = "plugin"
+enum = "NeedError"
+variant = "OutsideOutputs"
+
+[evaluation."plugin.need_glob_invalid"]
+side = "plugin"
+enum = "NeedError"
+variant = "BadGlob"
+
+[evaluation."suite.equivalence_unreadable"]
+side = "suite"
+enum = "EquivalenceError"
+variant = "Io"
+
+[evaluation."suite.equivalence_invalid"]
+side = "suite"
+enum = "EquivalenceError"
+variant = "Parse"
+
+[evaluation."suite.equivalence_run_invalid"]
+side = "suite"
+enum = "EquivalenceError"
+variant = "Run"
+
+[evaluation."suite.equivalence_row_repeated"]
+side = "suite"
+enum = "EquivalenceError"
+variant = "DuplicateRow"
+
 [import]
+
+[import."config.import_field_unset"]
+side = "config"
+enum = "ImportError"
+variant = "MissingField"
+
+[import."config.import_rule_invalid"]
+side = "config"
+enum = "ImportError"
+variant = "Rules"
+
+[import."import.file_unreadable"]
+side = "environment"
+enum = "ImportError"
+variant = "Io"
+
+[import."import.json_invalid"]
+side = "environment"
+enum = "ImportError"
+variant = "Json"
+
+[import."import.path_invalid"]
+side = "environment"
+enum = "ImportError"
+variant = "Path"
+
+[import."import.outputs_missing"]
+side = "environment"
+enum = "ImportError"
+variant = "NoOutputs"
+
+[import."import.grading_repeated"]
+side = "environment"
+enum = "ImportError"
+variant = "DuplicateGrading"
+
+[import."import.layout_invalid"]
+side = "environment"
+enum = "ImportError"
+variant = "Layout"
+
+[import."import.verdict_unknown"]
+side = "environment"
+enum = "ImportError"
+variant = "Verdict"
+
+[import."import.sources_disagree"]
+side = "environment"
+enum = "ImportError"
+variant = "Disagree"
+
+[import."import.status_unknown"]
+side = "environment"
+enum = "ImportError"
+variant = "Status"
+
+[import."import.record_unmappable"]
+side = "environment"
+enum = "ImportError"
+variant = "Record"
+
+[import."import.store_failed"]
+side = "environment"
+enum = "ImportError"
+variant = "Store"
+
+[import."import.run_differs"]
+side = "environment"
+enum = "ImportError"
+variant = "Conflict"
+
+[import."import.no_stream"]
+side = "environment"
+enum = "RawIngestError"
+variant = "NoStream"
+
+[import."import.rules_required"]
+side = "config"
+enum = "RawIngestError"
+variant = "RulesRequired"
+
+[import."import.unreadable_path"]
+side = "environment"
+enum = "RawIngestError"
+variant = "Unreadable"
 
 [manifest]
 
@@ -1086,5 +1441,140 @@ reason = "the envelope of a verb's failure; the record's code is that of the ref
 enum = "CliError"
 variant = "Runtime"
 reason = "the process could not run the verb at all, which is a fault of the machine and not of an input"
+
+[internal."candler_core::jobs::dir::JobError::Unavailable"]
+enum = "JobError"
+variant = "Unavailable"
+reason = "the job-directory port is unwired only in a build that forgot to wire it, which is Candler's fault"
+
+[internal."candler_core::jobs::dir::JobError::Parse"]
+enum = "JobError"
+variant = "Parse"
+reason = "a job record or spec is written by Candler, so one it cannot read back is Candler's fault"
+
+[internal."candler_core::jobs::dir::JobError::Mismatch"]
+enum = "JobError"
+variant = "Mismatch"
+reason = "a record that names another job is a wiring fault of Candler, not an input"
+
+[internal."candler_core::jobs::dir::JobError::Corrupt"]
+enum = "JobError"
+variant = "Corrupt"
+reason = "the event log is written by Candler, so a line that is not an event is Candler's fault"
+
+[internal."candler_core::jobs::lost::RecoverError::Unavailable"]
+enum = "RecoverError"
+variant = "Unavailable"
+reason = "the recovery port is unwired only in a build that forgot to wire it"
+
+[internal."candler_core::jobs::runtime::RuntimeError::SpecDigest"]
+enum = "RuntimeError"
+variant = "SpecDigest"
+reason = "the spec and its digest are written by Candler's launcher, so a mismatch is Candler's fault"
+
+[internal."candler_core::jobs::runtime::RuntimeError::Session"]
+enum = "RuntimeError"
+variant = "Session"
+reason = "the supervisor's signal handlers, session and subreaper role are Candler's own set-up, and no input causes their failure"
+
+[internal."candler_core::jobs::runtime::RuntimeError::Setup"]
+enum = "RuntimeError"
+variant = "Setup"
+reason = "a text-only wrapper over many causes, of which the author-facing ones (config, plug-in directory) are coded when raised before the job starts"
+
+[internal."candler_core::jobs::runtime::RuntimeError::Body"]
+enum = "RuntimeError"
+variant = "Body"
+reason = "a text-only wrapper over whatever the job's body returned, which carries its own code in its own chain"
+
+[internal."candler_core::jobs::slots::SlotError::Unavailable"]
+enum = "SlotError"
+variant = "Unavailable"
+reason = "the slot port is unwired only in a build that forgot to wire it"
+
+[internal."candler_core::jobs::view::JobViewError::Unavailable"]
+enum = "JobViewError"
+variant = "Unavailable"
+reason = "the job view port is unwired only in a build that forgot to wire it"
+
+[internal."candler_core::evaluation::client::ClientError::Pipes"]
+enum = "ClientError"
+variant = "Pipes"
+reason = "Candler asks for the evaluator's pipes itself, so their absence is Candler's fault"
+
+[internal."candler_core::evaluation::client::ClientError::Encode"]
+enum = "ClientError"
+variant = "Encode"
+reason = "requests are built by Candler, so one that cannot be written as JSON is Candler's fault"
+
+[internal."candler_core::evaluation::context::ContextError::Build"]
+enum = "ContextError"
+variant = "Build"
+reason = "the context is built by Candler from what it materialised, so a document it cannot form is Candler's fault"
+
+[internal."candler_core::evaluation::engine::EvaluateError::Task"]
+enum = "EvaluateError"
+variant = "Task"
+reason = "a blocking task that panicked or was lost is a fault of the engine"
+
+[internal."candler_core::evaluation::registry::RegistryError::NotDescribed"]
+enum = "RegistryError"
+variant = "NotDescribed"
+reason = "the engine describes every plug-in the suite names before it checks the suite, so a missing answer is the engine's fault"
+
+[internal."candler_core::import::raw::RawIngestError::Store"]
+enum = "RawIngestError"
+variant = "Store"
+reason = "the store steps of an ingest are Candler's own, and no input of the author causes a refusal there"
+
+[internal."candler_core::import::raw::RawIngestError::Frames"]
+enum = "RawIngestError"
+variant = "Frames"
+reason = "framing is Candler's own reading of a stream it has already recognised"
+
+[internal."candler_core::import::raw::RawIngestError::Manifest"]
+enum = "RawIngestError"
+variant = "Manifest"
+reason = "the manifest of a stream is built by Candler from what it has recognised"
+
+[internal."candler_core::import::raw::RawIngestError::Conflict"]
+enum = "RawIngestError"
+variant = "Conflict"
+reason = "one key holds one content, so a sealed run that disagrees with its stream means the store was altered"
+
+[internal."candler_core::manifest::compare::VerdictError::Malformed"]
+enum = "VerdictError"
+variant = "Malformed"
+reason = "it is held inside a verdict and never returned, and only a store that was altered by hand holds a malformed arm"
+
+[internal."candler_core::trace::NormaliseError::Frames"]
+enum = "NormaliseError"
+variant = "Frames"
+reason = "raw frame files are written by Candler's own capture, so one that cannot be read back is Candler's fault"
+
+[internal."candler_core::trace::NormaliseError::Undetected"]
+enum = "NormaliseError"
+variant = "Undetected"
+reason = "a stream is recognised before it is normalised, so a reader that then fails to recognise it is Candler's fault"
+
+[internal."candler_core::trace::NormaliseError::Frame"]
+enum = "NormaliseError"
+variant = "Frame"
+reason = "a frame was accepted when it was captured, so the reader refusing it later is Candler's fault"
+
+[internal."candler_core::trace::NormaliseError::Time"]
+enum = "NormaliseError"
+variant = "Time"
+reason = "wall times are stamped by Candler's capture, so one that is not valid is Candler's fault"
+
+[internal."candler_core::trace::NormaliseError::Finish"]
+enum = "NormaliseError"
+variant = "Finish"
+reason = "a reader that cannot end a stream it read is the reader's fault"
+
+[internal."candler_core::trace::NormaliseError::Trace"]
+enum = "NormaliseError"
+variant = "Trace"
+reason = "the trace file is built by Candler from what it read, so one that is not valid is Candler's fault"
 
 [helper]
