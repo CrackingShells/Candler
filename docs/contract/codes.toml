@@ -561,6 +561,11 @@ variant = "Malformed"
 
 [isolation]
 
+[isolation."isolation.mount_path_unsupported"]
+side = "config"
+enum = "MountError"
+variant = "BadPath"
+
 [isolation."isolation.step_unavailable"]
 side = "environment"
 enum = "IsolationError"
@@ -798,6 +803,11 @@ variant = "UnknownFieldPath"
 
 [jobs]
 
+[jobs."jobs.job_not_found"]
+side = "config"
+enum = "JobError"
+variant = "Io"
+
 [jobs."jobs.job_held"]
 side = "environment"
 enum = "JobError"
@@ -885,6 +895,11 @@ variant = "Read"
 
 [evaluation]
 
+[evaluation."evaluation.suite_unreadable"]
+side = "config"
+enum = "EvaluateError"
+variant = "Io"
+
 [evaluation."evaluation.evaluator_not_started"]
 side = "plugin"
 enum = "ClientError"
@@ -941,7 +956,7 @@ enum = "ContextError"
 variant = "CorruptBlob"
 
 [evaluation."plugin.environment_not_ready"]
-side = "plugin"
+side = "environment"
 enum = "EvaluateError"
 variant = "EnvironmentNotReady"
 
@@ -1485,7 +1500,7 @@ reason = "a text-only wrapper over many causes, of which the author-facing ones 
 [internal."candler_core::jobs::runtime::RuntimeError::Body"]
 enum = "RuntimeError"
 variant = "Body"
-reason = "a text-only wrapper over whatever the job's body returned, which carries its own code in its own chain"
+reason = "a text-only wrapper over whatever the job's body returned; the cause is a string, so no code can be derived from it and the job's log holds the details"
 
 [internal."candler_core::jobs::slots::SlotError::Unavailable"]
 enum = "SlotError"

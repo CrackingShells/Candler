@@ -446,6 +446,96 @@ fn r2_ingest_refusals_print_as_records_naming_the_file() {
     }
 }
 
+/// Guards: R2 — a refusal the verb carries as it is (`CliError::Coded`) answers with the side of
+/// the error it wraps, not the side its wrapper was written with: a `--set` integer that no JSON
+/// number holds exactly is `canonical.integer_out_of_range`, side `experiment`, as the registry
+/// says, though the resolver wraps it as the configuration's.
+///
+/// Oracle: the record written by hand from `docs/contract/codes.toml`, where the code is the
+/// experiment's.
+///
+/// Bite: answer a carried refusal with its own `side()` (the `Coded` arm of `refusal_of`).
+#[test]
+fn r2_a_carried_refusal_answers_with_the_side_of_its_cause() {
+    let world = world();
+    let out = world.launch_with(&[
+        "--error-format",
+        "json",
+        "--set",
+        "model.id=9007199254740993",
+    ]);
+    assert_refusal(&out, "canonical.integer_out_of_range", "experiment", None);
+}
+
+/// Guards: R2 — an absolute path in a fixed setting prints as the record of
+/// `experiment.absolute_path`, side `experiment`, though the plan reports it as a cell that
+/// cannot be built: the cause the cell builder gave is kept and answers.
+///
+/// Oracle: a record written by hand from the contract; the setting `model.effort` holds the
+/// absolute path `/abs/p`.
+///
+/// Bite: flatten the cause into text again, so the record falls back to `candler.internal`.
+#[test]
+fn r2_an_absolute_path_in_fixed_prints_as_the_experiments() {
+    let world = world();
+    add_to_fixed(&world, "\"model.effort\" = \"/abs/p\"");
+    let out = world.launch_with(&["--error-format", "json"]);
+    let record = record_of(&out);
+    assert_eq!(record["code"], "experiment.absolute_path", "{record}");
+    assert_eq!(record["side"], "experiment", "{record}");
+}
+
+/// Guards: R2 — an id that names no job is `jobs.job_not_found` with side `config`, and a suite
+/// file that cannot be read is `evaluation.suite_unreadable` with side `config`; the codes name
+/// what the caller got wrong, not the system call that failed.
+///
+/// Oracle: records written by hand from the contract; the inputs are an absent job id and an
+/// absent suite path.
+///
+/// Bite: name either code after the call (`jobs.io_failed`, `evaluation.io_failed`).
+#[cfg(unix)]
+#[test]
+fn r2_an_unknown_job_and_an_unreadable_suite_name_what_the_caller_got_wrong() {
+    let world = world();
+    fs::create_dir_all(world.store()).expect("a store directory");
+    let watch = Command::new(env!("CARGO_BIN_EXE_candler"))
+        .args(["--error-format", "json", "--store"])
+        .arg(world.store())
+        .args(["watch", "01939f3c-0000-7000-8000-000000000000"])
+        .current_dir(&world.work)
+        .env_remove("CANDLER_STORE")
+        .env("HOME", world.root.join("home"))
+        .env("XDG_STATE_HOME", &world.state)
+        .stdin(Stdio::null())
+        .output()
+        .expect("the binary runs");
+    assert_refusal(&watch, "jobs.job_not_found", "config", None);
+
+    let (manifest, _suite) = params_plugin(&world);
+    let evaluate = Command::new(env!("CARGO_BIN_EXE_candler"))
+        .args(["--error-format", "json", "--store"])
+        .arg(world.store())
+        .arg("evaluate")
+        .arg("--plugin")
+        .arg(&manifest)
+        .args(["--suite", "absent-suite.toml"])
+        .current_dir(&world.work)
+        .env_remove("CANDLER_STORE")
+        .env("HOME", world.root.join("home"))
+        .env("XDG_CONFIG_HOME", world.root.join("config"))
+        .env("XDG_STATE_HOME", &world.state)
+        .stdin(Stdio::null())
+        .output()
+        .expect("the binary runs");
+    let stderr = String::from_utf8_lossy(&evaluate.stderr).into_owned();
+    let last = stderr.lines().last().expect("a line of stderr");
+    let evaluate = Output {
+        stderr: format!("{last}\n").into_bytes(),
+        ..evaluate
+    };
+    assert_refusal(&evaluate, "evaluation.suite_unreadable", "config", None);
+}
+
 /// The refusal a `--set` key under `request` that no setting names is.
 const UNKNOWN_REQUEST_KEY: Expect = Expect {
     code: "experiment.unknown_request_key",

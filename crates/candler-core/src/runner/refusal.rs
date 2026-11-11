@@ -23,6 +23,7 @@ fn no_path<E>(_error: &E) -> Option<String> {
 /// The pointer of the place in a document where a [`PlanError`] sits, if it names one.
 fn plan_error_path(error: &PlanError) -> Option<String> {
     match error {
+        PlanError::Cell { source } => Refusal::path(source),
         PlanError::SettingAsFactor { .. } => Some(pointer_of(["factors"])),
         PlanError::NameCollision { .. }
         | PlanError::ExperimentLocked
@@ -30,7 +31,6 @@ fn plan_error_path(error: &PlanError) -> Option<String> {
         | PlanError::StoredCellUnknown { .. }
         | PlanError::StoredCellAmbiguous { .. }
         | PlanError::AttemptOverflow { .. }
-        | PlanError::Cell { .. }
         | PlanError::Store { .. }
         | PlanError::Lock { .. } => None,
     }
@@ -91,12 +91,7 @@ refusal_table! {
         "A factor varies a setting, which no cell can vary; the setting belongs in `[fixed]`.",
         "The `factors` array of the experiment file; a verb that has read the file narrows it to the `path` of the factor.",
     ),
-    Cell { .. } => row(
-        "candler.internal",
-        Side::Candler,
-        "A cell of the experiment cannot be built from the resolution.",
-        "-",
-    ),
+    Cell { source } => delegate(source, Side::Candler),
     Store { .. } => row(
         "candler.internal",
         Side::Candler,
@@ -231,12 +226,29 @@ fn exec_answer(error: &ExecError) -> &dyn Refusal {
     }
 }
 
+/// The refusal that answers for a [`PlanError`]: the error a cell builder gave answers with its own
+/// code, side and path, and every other variant with its own.
+fn plan_answer(error: &PlanError) -> &dyn Refusal {
+    match error {
+        PlanError::Cell { source } => crate::refusal::through(source, error),
+        PlanError::NameCollision { .. }
+        | PlanError::ExperimentLocked
+        | PlanError::Changed(..)
+        | PlanError::StoredCellUnknown { .. }
+        | PlanError::StoredCellAmbiguous { .. }
+        | PlanError::AttemptOverflow { .. }
+        | PlanError::SettingAsFactor { .. }
+        | PlanError::Store { .. }
+        | PlanError::Lock { .. } => error,
+    }
+}
+
 /// The coded error of this module that `error` is, or `None` when it is none of them.
 #[must_use]
 pub(crate) fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal> {
     error
         .downcast_ref::<PlanError>()
-        .map(as_refusal)
+        .map(plan_answer)
         .or_else(|| {
             error
                 .downcast_ref::<ExecError>()

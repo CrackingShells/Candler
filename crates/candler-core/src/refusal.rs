@@ -6,9 +6,14 @@
 //! error's chain of causes to the first of those types, so a caller that holds a boxed error
 //! learns its code, side and path without knowing which verb raised it.
 
+use std::any::TypeId;
 use std::error::Error;
 
-use candler_schemas::refusal::{CatalogRow, Refusal};
+use candler_schemas::primitives::FormatError;
+use candler_schemas::refusal::{CatalogRow, Refusal, Side};
+
+/// The fallback code of an error that is not an author's.
+const INTERNAL_CODE: &str = "candler.internal";
 
 /// The rows of every coded error, in the order of the modules: the schemas', then the core's by
 /// module, then the harness interface's.
@@ -59,7 +64,9 @@ pub fn find<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal> {
 
 /// The refusal that answers for a variant of `wrapper` that only wraps `inner`: what the walk of
 /// causes finds from `inner`, so that its side is the wrapped error's own and not the one its
-/// wrapper was written with, or `wrapper` when the walk finds nothing.
+/// wrapper was written with. The wrapper itself answers when the walk finds nothing, when `inner`
+/// is a [`FormatError`], and when the cause blames Candler without being the fallback code; it
+/// returns the cause's code in each case.
 ///
 /// Each module's `coded` hands the walk a wrapper's inner error through this function. Asking a
 /// wrapper for its `side` directly still gives the side of its table row.
@@ -67,7 +74,20 @@ pub(crate) fn through<'e, E: Error + 'static>(
     inner: &'e E,
     wrapper: &'e dyn Refusal,
 ) -> &'e dyn Refusal {
-    find(inner).unwrap_or(wrapper)
+    let Some(found) = find(inner) else {
+        return wrapper;
+    };
+    // A format error is a check of a value with no context, so the document it was read from
+    // decides whose fault it is: the wrapper's side stands, with the inner code.
+    if TypeId::of::<E>() == TypeId::of::<FormatError>() {
+        return wrapper;
+    }
+    // A cause that blames Candler names no author, so the wrapper's side stands too, unless the
+    // cause is the fallback code, which only goes with the side `candler`.
+    if found.side() == Side::Candler && found.code().as_str() != INTERNAL_CODE {
+        return wrapper;
+    }
+    found
 }
 
 /// The coded type of the catalogue that `error` is, or `None` when it is none of them.
@@ -128,7 +148,6 @@ fn schemas_coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal
     use candler_schemas::evaluation::{EvaluationError, VersionMismatch};
     use candler_schemas::execution::ExecutionError;
     use candler_schemas::outcome::OutcomeError;
-    use candler_schemas::primitives::FormatError;
     use candler_schemas::values::ValuesError;
 
     if let Some(found) = error.downcast_ref::<ExecutionError>() {

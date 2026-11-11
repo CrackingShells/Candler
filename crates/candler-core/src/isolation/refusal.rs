@@ -257,9 +257,9 @@ refusal_table! {
         "-",
     ),
     BadPath { .. } => row(
-        "candler.internal",
-        Side::Candler,
-        "A mount path holds a comma, a newline or text that is not UTF-8, which would inject an option.",
+        "isolation.mount_path_unsupported",
+        Side::Config,
+        "A mount path holds a comma, a newline or text that is not UTF-8, which cannot be written as a `--mount` option; a project directory with a comma in its name does it.",
         "-",
     ),
     ConfigDirNotWritable { .. } => row(

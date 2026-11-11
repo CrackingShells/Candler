@@ -64,6 +64,12 @@ refusal_table! {
         "Another process holds the job, so this one cannot take it.",
         "-",
     ),
+    Io { op: "open the job directory", .. } => row(
+        "jobs.job_not_found",
+        Side::Config,
+        "No directory of the store holds the job whose id was given.",
+        "-",
+    ),
     Io { .. } => row(
         "jobs.io_failed",
         Side::Environment,
@@ -240,7 +246,7 @@ refusal_table! {
     Read { .. } => row(
         "jobs.job_unreadable",
         Side::Environment,
-        "The directory of a job cannot be read, for example because no job has the id.",
+        "The files of a job's directory cannot be read.",
         "-",
     ),
 }

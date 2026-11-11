@@ -237,7 +237,12 @@ fn causes_of(error: &CliError) -> Vec<String> {
 /// The refusal an error carries or holds in its chain of causes, if any.
 fn refusal_of(error: &CliError) -> Option<&dyn Refusal> {
     match error {
-        CliError::Coded { refusal, .. } => Some(&**refusal),
+        // The carried refusal may wrap another error: the walk answers with the wrapped error's
+        // own side, where the carried error's own `side` is the one its table was written with.
+        CliError::Coded { refusal, .. } => {
+            let carried: &(dyn Error + 'static) = &**refusal;
+            Some(candler_core::refusal::find(carried).unwrap_or(&**refusal))
+        }
         CliError::Failed { source, .. } => candler_core::refusal::find(source.as_ref()),
         CliError::Refused { .. } | CliError::Runtime { .. } => None,
     }

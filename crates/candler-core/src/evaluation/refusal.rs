@@ -187,16 +187,22 @@ refusal_table! {
     EvaluateError, path = evaluate_error_path;
     EnvironmentNotReady { .. } => row(
         "plugin.environment_not_ready",
-        Side::Plugin,
+        Side::Environment,
         "The environment of a plug-in the suite names has not been built: its `ready` marker is missing.",
         "-",
     ),
     Registry (inner) => delegate(inner, Side::Plugin),
     Suite { source, .. } => delegate(source, Side::Suite),
+    Io { op: "read the suite", .. } => row(
+        "evaluation.suite_unreadable",
+        Side::Config,
+        "The suite file the caller named does not exist or cannot be read.",
+        "-",
+    ),
     Io { .. } => row(
         "evaluation.io_failed",
         Side::Environment,
-        "A file system call of the engine failed, such as reading the suite file.",
+        "A file system call of the engine failed, such as creating the directory for the records.",
         "-",
     ),
     Store (inner) => delegate(inner, Side::Environment),

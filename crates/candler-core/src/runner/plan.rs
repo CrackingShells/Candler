@@ -10,8 +10,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use candler_schemas::execution::{
-    Comparable, Deviation, ExperimentFile, Factor, Integrity, Level, SecretPresence,
-    experiment_digest,
+    Comparable, Deviation, ExecutionError, ExperimentFile, Factor, Integrity, Level,
+    SecretPresence, experiment_digest,
 };
 use candler_schemas::primitives::{Digest, FieldPath, JobId, RunKey, SecretName};
 use candler_schemas::values::{JsonValue, ResolvedValue, SourceEntry, ValueSource};
@@ -215,10 +215,11 @@ pub enum PlanError {
         path: String,
     },
     /// A cell of the experiment cannot be built from the resolution.
-    #[error("a cell cannot be built: {detail}")]
+    #[error("a cell cannot be built: {source}")]
     Cell {
         /// What the cell builder said.
-        detail: String,
+        #[source]
+        source: ExecutionError,
     },
     /// The store could not be read or sealed.
     #[error("the store failed: {detail}")]
@@ -374,10 +375,8 @@ fn fresh_cells(
         // BORROW: .cloned() gives the cell its own values
         values.extend(effective.iter().cloned());
         // BORROW: explicit .as_slice() instead of Deref coercion
-        let comparable =
-            Comparable::from_resolved(values.as_slice()).map_err(|e| PlanError::Cell {
-                detail: e.to_string(),
-            })?;
+        let comparable = Comparable::from_resolved(values.as_slice())
+            .map_err(|source| PlanError::Cell { source })?;
         let mut declared: Vec<FieldPath> = effective
             .iter()
             .map(|value| value.path().clone()) // BORROW: the cell owns its declared paths
