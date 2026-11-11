@@ -1,0 +1,12 @@
+analyze
+diff
+evaluate
+ingest
+inspect
+kill
+ls
+ps
+resolve
+run
+show
+watch
