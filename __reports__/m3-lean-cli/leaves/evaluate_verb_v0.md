@@ -102,3 +102,54 @@ Run on 75d34fd, with `-p candler` while working, then the workspace forms once.
 - **`slots.evaluators = 0`** ends the job `failed`; `e1_evaluate_of_a_failed_job…` covers it through the verb.
 - **E3** (`evaluate_body`'s) was not run by me; only my own six guards went through LINUXRUN.
 - **The first stderr line is the job id only when the preflight is silent.** When it builds an environment, `StderrSink` event lines precede the id.
+
+## Fix round
+The branch was rebased onto eed99b7 (refusal_late landed) with no conflict. The round's commits, after the rebase:
+
+```
+d93d49f fix(jobs): see a job that ends at once as started
+1c2384d feat(jobs): code the refusal of a suite changed after the job started
+4250fcc feat(evaluation): give an evaluate job the caller's environment
+bc6018d test(cli): follow evaluate to its new form in the refusal guards
+```
+The `feat(cli)!` commit was reworded with `git commit --fixup=reword:` and an autosquash. Its `BREAKING CHANGE:` footer now names the three removed options, the default selection (the pending runs, `--runs '*'` for all) and the refusal of an empty `plugins.dirs`. The reword was not refused.
+
+### The refusal guards migrated
+`guard_cli_refusal.rs` runs `evaluate` in a project whose `candler.toml` lists the plug-in directory, with the suite positional and `evaluate_args = ["evaluate", "suite.toml", "--store", "store"]`. The rows of refusal_late's that called the old options:
+- `r2_a_malformed_manifest_prints_as_a_record` and `r2_the_text_form_is_unchanged_without_the_flag`: the expected text is `…the plug-in manifest /` with the absolute path, and the text-form row also checks `/plugin.toml is not valid: ` (behaviour change 5).
+- `r2_a_missing_plugin_manifest_prints_as_a_record`: `plugins.dirs` can name only a directory, and a directory with no manifest is `NoManifest`, so the row keeps its code with a manifest file that exists and cannot be read (mode 000).
+- `r2_no_state_home_prints_as_an_environment_record`, `r2_refused_suite_params_print_as_a_suite_record` and `r2_an_unknown_job_and_an_unreadable_suite_name_what_the_caller_got_wrong`: the same project and positional suite. The unreadable suite is raised by the command, as `EvaluateError::Io`, before the preflight, so its code `evaluation.suite_unreadable` holds.
+
+Lines these files lose that the G-text pattern does not name (`--plugin`, `--suite`, `manifest_arg`, `suite_arg`, `"evaluate --`), 23 in all:
+- argument lines of the old call: `"plugin.toml",` (3), `"absent/plugin.toml",`, `"suite.toml",` (the relative path became `../suite.toml`), `.arg(&manifest)` (2), `dir.path(),` (the working directory became the plug-in's), and the `.args([ … ])` lines that held the old arguments (2 blocks);
+- the 3 message lines of behaviour change 5;
+- `assert_refusal(&out, "suite.params_invalid", "suite", Some("/n"))`, described next.
+
+Two lines of `guard_cli_surface.rs` are also lost, the `evaluate --runs` and `--concurrency` entries of `PENDING_STAMPS`, which 2e0c015 put inside the exception.
+
+**One expected result changed for a reason other than behaviour change 5, and needs a ruling.** The suite-params refusal is raised inside the evaluate job, by the engine, and reaches the command as the end of the job's `supervisor.log`. The record the command prints for it is `candler.internal`, side `candler`, with the message text intact; it was `suite.params_invalid`, side `suite`, pointer `/n`, when the engine ran in the command. The same holds for every refusal the engine raises (an unknown evaluator, a plug-in whose environment is not ready, a dependency cycle). Only what the command checks itself keeps its code. The row now asserts the fallback code and the message, with a comment saying so. The fix is for `evaluate_body` and the verb together: the supervisor writes the refusal record of a failed evaluation into the job directory, and the verb prints it as its own.
+
+### The environment (option 1, provisional)
+- The supervisor of an evaluate job is started with the caller's whole environment, as the process environment of the spawn (`detach`'s `.envs`), and `CANDLER_STORE_ROOT`. The engine's evaluator processes take the engine process's environment, less the store variable, where they took `PATH` and `HOME` only. `run` keeps `env_clear()` and its allowlist.
+- It is written nowhere. The spec holds none of it, and neither do the records, the log or any error text; the guard below reads each of them.
+- **Restarts:** there is no restart path. A lost evaluate job is recovered, not run again: `recover_job_dir` stops what the supervisor left, seals the log and ends the job. `follow` never starts a supervisor, and `supervise` is started only by `detach`. A new `evaluate` is a new job with the environment of its own caller.
+- R01 §Agent environment and secrets says that evaluators inherit the caller's environment and agent jobs do not.
+- **Follow-up, not a node:** a manifest field `env = [names]` (option 2) would let a plug-in name the variables it needs and keep the rest out.
+
+Guards (all seen red, then reverted):
+- `e5_a_variable_planted_in_the_caller_reaches_the_evaluator`: the plug-in's kind reports the value in its evidence. Bite: the evaluators given `PATH` and `HOME` only (the evidence says `unset`).
+- `e5_a_variable_planted_in_the_caller_does_not_reach_a_run_job`: `ps eww` while a `run` job's supervisor lives, which shows `CANDLER_STORE_ROOT` as the control. Bite: `run`'s allowlist replaced by the whole environment (the supervisor's line holds the value).
+- `e5_the_callers_environment_is_written_nowhere`: one job completes and one fails; the sentinel is searched by name and bytes under the whole store, and in everything the two calls, `ps`, `watch` and `inspect` printed. Bite: the supervisor printing its environment to its log (the sentinel is found in `supervisor.log`, and in the error text that quotes it).
+
+### The changed-suite refusal
+`RuntimeError::SuiteChanged` has the code `evaluation.suite_changed`, side `suite`, one appended row in `[evaluation]` of `codes.toml` and its row in `jobs/refusal.rs`. `r2_a_suite_changed_after_the_job_started_prints_as_a_suite_record` writes a job by hand, edits the suite, and runs `candler --error-format json supervise --job <id>`: the record has the code and the side. Bite: the refusal left as `Setup` text (the record is `candler.internal`). The verb itself reports it as a job's end, with the text and the fallback code (see above).
+
+### The `detach` race
+`detach` also reads the job's log: a `job.started` or `job.ended` in it means the supervisor began, whether or not it still holds the lock. The verb's workaround for `DidNotStart` is gone; the zombie reap stays. `e1_detach_reports_a_job_that_ends_at_once_as_started` (in `candler-core/tests/guard_detach.rs`) uses a supervisor that is a shell script writing `job.started` and `job.ended` and never holding the lock, and a second one that writes nothing. Bite: the old check (the first row reports `DidNotStart`). `slots.evaluators = 0` through the verb is still covered by `e1_evaluate_of_a_failed_job_prints_no_report_and_says_why`. The file uses no new unix-only API, so the platform inventory is unchanged.
+
+### Gates, from eed99b7
+- Leaf gates: E1 (5), E4 (1), E5 (3) and the `r2_` and `r1_` rows (35 tests with the migrated set `guard_cli`, `guard_input_seam`, `guard_cli_e2e` and `guard_cli_surface`): PASS. OWNED is widened by the round's authorized files; G-platform and the old-options gate: PASS.
+- Core: `guard_detach`, `guard_refusal_codes`, `guard_evaluate_job`, `guard_platform_seam`, `guard_spec_file` (17): PASS. GOLDEN: `guard_golden` (2) and `guard_oracle_ac`: PASS.
+- Workspace STD after `cargo clean -p candler-core -p candler`: fmt, clippy `-D warnings`, `cargo check --workspace --all-targets`, nextest (581 passed, 21 skipped) and `cargo doc`: PASS. LINUX clippy: PASS.
+- G-codes: 5 lines added to `codes.toml` against eed99b7, none deleted. `cog check eed99b7..HEAD` and the subject length: PASS.
+- LINUXRUN, `-j 1`: see the reply.
