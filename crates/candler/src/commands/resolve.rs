@@ -31,6 +31,7 @@ use candler_schemas::primitives::{FieldPath, RunKey};
 use candler_schemas::values::{SourceEntry, ValueSource};
 
 use super::preflight::{check_factors, foreground, request_settings};
+use super::refusal::CliRefusal;
 use super::term::Paint;
 use super::{CliError, Exit, common};
 
@@ -178,8 +179,13 @@ pub fn render_values(resolution: &Resolution, paint: Paint) -> Vec<String> {
 
 /// The experiment file at `path`.
 fn read_experiment(path: &Path) -> Result<ExperimentFile, CliError> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|e| CliError::refused(format!("cannot read {}: {e}", path.display())))?;
+    let text = std::fs::read_to_string(path).map_err(|e| {
+        CliError::refused_by(CliRefusal::ExperimentUnreadable {
+            path: path.display().to_string(),
+            detail: e.to_string(),
+        })
+        .with_file(path)
+    })?;
     ExperimentFile::from_toml_str(text.as_str()) // BORROW: .as_str() views the text as a `&str`
         .map_err(|e| {
             CliError::refused_by(e)

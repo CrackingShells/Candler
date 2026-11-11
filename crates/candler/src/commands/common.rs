@@ -5,12 +5,13 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use candler_core::analysis::report::choose_evaluator;
 use candler_core::evaluation::selection::select::{Selection, select};
 use candler_core::resolve::config::{Config, ConfigEnv};
 use candler_core::resolve::layers::{Resolution, ResolveInput};
 use candler_core::resolve::preflight::Resolver;
 use candler_core::store::Store;
-use candler_schemas::primitives::FieldPath;
+use candler_schemas::primitives::{FieldPath, NameVersion};
 
 use super::CliError;
 use super::refusal::CliRefusal;
@@ -143,6 +144,52 @@ pub fn read_selection(verb: &'static str, store: &Store) -> Result<Selection, Cl
         }
     }
     Ok(select(records))
+}
+
+/// The evaluator a verb works on, as the flag `flag` names it.
+///
+/// A `name@version` is that evaluator, as it was written; a bare version is the one evaluator of
+/// the selection that holds it; no request is the one evaluator the selection holds. The choice of
+/// the last two is [`choose_evaluator`], the one `analyze` makes.
+///
+/// # Errors
+/// [`CliError::Coded`] for a `name@version` that does not parse and for the refusals of
+/// [`choose_evaluator`]: no outcomes, several evaluators and no request, a version no
+/// evaluator holds, and a version several evaluators hold.
+pub fn evaluator_of(
+    selection: &Selection,
+    flag: &'static str,
+    requested: Option<&str>,
+) -> Result<NameVersion, CliError> {
+    if let Some(text) = requested.filter(|text| text.contains('@')) {
+        return named_evaluator(flag, text);
+    }
+    choose_evaluator(selection, requested)
+        .map_err(|e| CliError::refused_by(e).led_by(format!("{flag}: ")))
+}
+
+/// Refuses `text` when it holds an `@` and is not a `name@version`, as [`evaluator_of`] would, so
+/// that the refusal comes before the store is read; any other text passes.
+///
+/// # Errors
+/// [`CliError::Coded`] for a `name@version` that does not parse.
+pub fn check_evaluator_text(flag: &'static str, text: &str) -> Result<(), CliError> {
+    if text.contains('@') {
+        named_evaluator(flag, text).map(drop)
+    } else {
+        Ok(())
+    }
+}
+
+/// The evaluator `text` names, written as `name@version`.
+fn named_evaluator(flag: &'static str, text: &str) -> Result<NameVersion, CliError> {
+    text.parse::<NameVersion>().map_err(|e| {
+        CliError::refused_by(CliRefusal::EvaluatorInvalid {
+            flag: flag.to_owned(), // BORROW: the refusal owns the flag
+            text: text.to_owned(), // BORROW: the refusal owns the text
+            detail: e.to_string(),
+        })
+    })
 }
 
 /// The sink the supervisor reports to: one JSON line per event on stderr.

@@ -19,6 +19,7 @@ use candler_schemas::outcome::OutcomeRecord;
 use candler_schemas::primitives::{JobId, RunKey};
 use serde_json::{Map, Value, json};
 
+use super::refusal::CliRefusal;
 use super::{CliError, Exit, common, ps};
 use crate::Cli;
 
@@ -29,7 +30,7 @@ const CANDIDATES: usize = 5;
 const MIN_PREFIX: usize = 6;
 
 /// The three forms a target takes, as the refusals list them.
-const FORMS: &str = "a run directory (`<store>/runs/<key>`), a prefix of a run key (at least 6 characters), or a job id";
+pub(crate) const FORMS: &str = "a run directory (`<store>/runs/<key>`), a prefix of a run key (at least 6 characters), or a job id";
 
 /// The arguments of `candler inspect`.
 #[derive(Debug, clap::Args)]
@@ -69,7 +70,12 @@ fn looks_like_key_prefix(text: &str) -> bool {
 
 /// The run a directory holds, with the store two levels up.
 fn run_directory(path: &Path) -> Result<Target, CliError> {
-    let fail = |detail: String| CliError::refused(format!("`{}`: {detail}", path.display()));
+    let fail = |detail: String| {
+        CliError::refused_by(CliRefusal::RunDirectoryInvalid {
+            path: path.display().to_string(),
+            detail,
+        })
+    };
     let dir = fs::canonicalize(path).map_err(|e| CliError::failed("inspect", e))?;
     let key = dir
         .file_name()
@@ -95,7 +101,7 @@ fn run_directory(path: &Path) -> Result<Target, CliError> {
 /// the store whose key starts with it.
 ///
 /// # Errors
-/// Returns [`CliError::Refused`] for a target that matches none of the three forms, for a prefix
+/// Returns [`CliError::Coded`] for a target that matches none of the three forms, for a prefix
 /// that names no run or more than one, and for a run directory that no store holds, and
 /// [`CliError::Failed`] when the store cannot be opened or read.
 pub async fn resolve_target(cli: &Cli, target: &str) -> Result<Target, CliError> {
@@ -106,7 +112,9 @@ pub async fn resolve_target(cli: &Cli, target: &str) -> Result<Target, CliError>
     let job = JobId::from_str(target).ok();
     let prefix = looks_like_key_prefix(target);
     if job.is_none() && !prefix {
-        return Err(CliError::refused(format!("`{target}` is none of: {FORMS}")));
+        return Err(CliError::refused_by(CliRefusal::InspectTargetInvalid {
+            target: target.to_owned(), // BORROW: the refusal owns the target
+        }));
     }
     let store = common::open_store("inspect", cli).await?;
     if let Some(id) = job
@@ -127,9 +135,9 @@ pub async fn resolve_target(cli: &Cli, target: &str) -> Result<Target, CliError>
         .filter(|key| key.to_string().starts_with(target))
         .collect();
     match matches.as_slice() {
-        [] => Err(CliError::refused(format!(
-            "no run of the store starts with `{target}`"
-        ))),
+        [] => Err(CliError::refused_by(CliRefusal::NoSuchRun {
+            target: target.to_owned(), // BORROW: the refusal owns the target
+        })),
         [only] => Ok(Target::Run {
             store,
             key: only.clone(), // BORROW: the target owns the key
@@ -146,11 +154,12 @@ pub async fn resolve_target(cli: &Cli, target: &str) -> Result<Target, CliError>
             } else {
                 String::new()
             };
-            Err(CliError::refused(format!(
-                "`{target}` starts {} runs: {}{tail}; give more of the key",
-                many.len(),
-                listed.join(", ")
-            )))
+            Err(CliError::refused_by(CliRefusal::AmbiguousRun {
+                target: target.to_owned(), // BORROW: the refusal owns the target
+                count: many.len(),
+                listed: listed.join(", "),
+                tail,
+            }))
         }
     }
 }

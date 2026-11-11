@@ -6,6 +6,7 @@
 //! the launcher is still waiting for it, or it never began and nothing of it needs recovering.
 
 use std::collections::BTreeSet;
+use std::error::Error;
 use std::io::{self, Write};
 use std::path::Path;
 
@@ -42,6 +43,31 @@ pub struct Row {
     pub what: String,
     /// Whether the row reports a failure, which makes the command exit non-zero.
     pub failed: bool,
+}
+
+/// The error behind a row that failed.
+// TRAIT_OBJECT: the failures of different crates travel as one type
+type Cause = Box<dyn Error + Send + Sync>;
+
+/// A listing in which a row failed: the error behind the first such row is its cause, so that the
+/// refusal it holds names the failure.
+#[derive(Debug)]
+pub struct RowFailed {
+    cause: Option<Cause>,
+}
+
+impl std::fmt::Display for RowFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a job could not be listed or recovered; see its row")
+    }
+}
+
+impl Error for RowFailed {
+    fn source<'a>(&'a self) -> Option<&'a (dyn Error + 'static)> {
+        self.cause
+            .as_ref()
+            .map(|cause| -> &(dyn Error + 'static) { cause.as_ref() })
+    }
 }
 
 /// How many hex digits of the experiment digest a row shows.
@@ -144,8 +170,9 @@ fn is_starting(dir: &JobDir) -> bool {
     young && matches!(lost::has_started(dir), Ok(false))
 }
 
-/// The row of the job in `path`, recovering it once when it is lost.
-async fn row_of(store: &StoreLayout, name: &str, path: &Path) -> Row {
+/// The row of the job in `path`, recovering it once when it is lost, and the error behind the row
+/// when it could not be read.
+async fn row_of(store: &StoreLayout, name: &str, path: &Path) -> (Row, Option<Cause>) {
     let unreadable = |detail: String| Row {
         id: name.to_owned(),  // BORROW: the row owns its id
         spec: "-".to_owned(), // BORROW: the row owns its text
@@ -154,21 +181,22 @@ async fn row_of(store: &StoreLayout, name: &str, path: &Path) -> Row {
         what: "-".to_owned(),     // BORROW: the row owns its text
         failed: true,
     };
-    let Ok(id) = name.parse::<JobId>() else {
-        return unreadable("not a job id".to_owned()); // BORROW: the row owns its text
+    let id = match name.parse::<JobId>() {
+        Ok(id) => id,
+        Err(error) => return (unreadable("not a job id".to_owned()), Some(Box::new(error))), // BORROW: the row owns its text
     };
     let dir = match JobDir::open(store, &id) {
         Ok(dir) => dir,
-        Err(error) => return unreadable(error.to_string()),
+        Err(error) => return (unreadable(error.to_string()), Some(Box::new(error))),
     };
     let record = match dir.record() {
         Ok(record) => record,
-        Err(error) => return unreadable(error.to_string()),
+        Err(error) => return (unreadable(error.to_string()), Some(Box::new(error))),
     };
     let mut failed = false;
     let liveness = match lost::classify(&dir) {
         Ok(liveness) => liveness,
-        Err(error) => return unreadable(error.to_string()),
+        Err(error) => return (unreadable(error.to_string()), Some(Box::new(error))),
     };
     let state = match liveness {
         JobLiveness::Running => "running".to_owned(), // BORROW: the row owns its text
@@ -187,22 +215,27 @@ async fn row_of(store: &StoreLayout, name: &str, path: &Path) -> Row {
         },
         _ => "unknown".to_owned(), // BORROW: the row owns its text
     };
-    Row {
+    let row = Row {
         id: id.to_string(),
         spec: record.spec_digest().to_string(),
         state,
         progress: progress_of(&dir),
         what: what_of(&dir),
         failed,
-    }
+    };
+    (row, None)
 }
 
-/// Lists the jobs of the store, recovering each lost one, and says whether any row failed.
+/// Lists the jobs of the store, recovering each lost one, and says which failure the first failed
+/// row stands for, if any row failed.
 ///
 /// # Errors
 /// [`CliError::Failed`] when the jobs directory cannot be read or `out` cannot be written.
 // TRAIT_OBJECT: the output is stdout, or a buffer in tests
-pub async fn render(store: Option<&Path>, out: &mut dyn Write) -> Result<bool, CliError> {
+pub async fn render(
+    store: Option<&Path>,
+    out: &mut dyn Write,
+) -> Result<Option<RowFailed>, CliError> {
     let root = common::store_root("ps", store).await?;
     let store = StoreLayout::new(&root);
     let jobs = root.join("jobs");
@@ -220,6 +253,7 @@ pub async fn render(store: Option<&Path>, out: &mut dyn Write) -> Result<bool, C
     };
     entries.sort();
     let mut rows = Vec::new();
+    let mut cause: Option<Cause> = None;
     for path in entries {
         let name = path
             .file_name()
@@ -228,10 +262,17 @@ pub async fn render(store: Option<&Path>, out: &mut dyn Write) -> Result<bool, C
         if name.starts_with('.') {
             continue;
         }
-        rows.push(row_of(&store, &name, &path).await);
+        let (row, found) = row_of(&store, &name, &path).await;
+        if cause.is_none() {
+            cause = found;
+        }
+        rows.push(row);
     }
     render_rows(&rows, out).map_err(fail)?;
-    Ok(rows.iter().any(|row| row.failed))
+    Ok(rows
+        .iter()
+        .any(|row| row.failed)
+        .then_some(RowFailed { cause }))
 }
 
 /// Writes one line per row: id, spec digest, state, progress and what the job runs.
@@ -260,10 +301,11 @@ pub fn render_rows(rows: &[Row], out: &mut dyn Write) -> io::Result<()> {
 /// [`CliError`] when the jobs cannot be listed or a job's recovery failed.
 pub async fn run(_args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let mut stdout = io::stdout().lock();
-    if render(store, &mut stdout).await? {
+    if let Some(failed) = render(store, &mut stdout).await? {
         return Err(CliError::Failed {
             verb: "ps",
-            source: "a job could not be listed or recovered; see its row".into(),
+            // TRAIT_OBJECT: the failures of different crates travel as one type
+            source: Box::new(failed),
         });
     }
     Ok(Exit::Success)

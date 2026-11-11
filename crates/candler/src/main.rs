@@ -31,7 +31,8 @@ use crate::commands::{
     about = "Run, evaluate and compare agent experiments"
 )]
 struct Cli {
-    /// The store root, for every verb; by default the store the configuration names.
+    /// The store root, for every verb; by default the store the configuration names. not an
+    /// experiment setting: it chooses where the results of every experiment are kept.
     #[arg(long, env = "CANDLER_STORE", global = true)]
     store: Option<PathBuf>,
     /// How refusals are written on stderr. cannot be derived: what parses the caller's stderr is not
@@ -121,8 +122,37 @@ fn status(result: &Result<Exit, CliError>) -> u8 {
     }
 }
 
+/// Whether the arguments ask for the JSON form of refusals: `--error-format json`, or
+/// `--error-format=json`. The parser has not accepted them when this is asked, so the value is read
+/// from the words themselves.
+fn json_requested(args: &[std::ffi::OsString]) -> bool {
+    let words: Vec<&str> = args.iter().filter_map(|arg| arg.to_str()).collect();
+    words
+        .windows(2)
+        .any(|pair| pair == ["--error-format", "json"])
+        || words.contains(&"--error-format=json")
+}
+
+/// Ends the process for a command line the parser refused: help and version are printed as they
+/// were, and a usage error is one `refusal/1` record when the arguments ask for JSON, or the
+/// parser's own text otherwise. The status is the parser's.
+fn usage_failure(error: &clap::Error) -> ExitCode {
+    let asked = json_requested(&std::env::args_os().collect::<Vec<_>>());
+    if error.use_stderr() && asked {
+        eprintln!(
+            "{}",
+            commands::refusal::usage_record(error.render().to_string().trim_end())
+        );
+        return ExitCode::from(2);
+    }
+    error.exit()
+}
+
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(error) => return usage_failure(&error),
+    };
     let format = cli.error_format;
     let result = dispatch(cli);
     if let Err(error) = &result {

@@ -1,25 +1,28 @@
 //! `candler diff`: the outcomes of two evaluator versions, compared.
 
 use candler_core::evaluation::selection::diff::{DiffReport, Equivalence, diff};
-use candler_schemas::primitives::NameVersion;
 use std::path::PathBuf;
 
+use super::refusal::CliRefusal;
 use super::{CliError, Exit, common};
 use crate::Cli;
 
 /// The arguments of `candler diff`.
 #[derive(Debug, clap::Args)]
 pub struct DiffArgs {
-    /// The base evaluator, as `id@version`.
+    /// The base evaluator, as `id@version` or a bare version one evaluator holds. cannot be
+    /// derived: which versions to compare is the question the caller asks of the store.
     #[arg(long)]
     pub from: String,
-    /// The compared evaluator, as `id@version`.
+    /// The compared evaluator, as `id@version` or a bare version one evaluator holds. cannot be
+    /// derived: which versions to compare is the question the caller asks of the store.
     #[arg(long)]
     pub to: String,
-    /// An equivalence file naming the rows excused from the comparison.
+    /// An equivalence file naming the rows excused from the comparison. not an experiment
+    /// setting: it is the caller's list of rows to excuse from this one comparison.
     #[arg(long)]
     pub equivalence: Option<PathBuf>,
-    /// The output format.
+    /// The output format. not an experiment setting: it is how the output is read.
     #[arg(long, value_enum)]
     pub format: DiffFormat,
 }
@@ -36,12 +39,12 @@ pub enum DiffFormat {
 /// Compares the two versions and prints the report.
 ///
 /// # Errors
-/// Returns [`CliError::Refused`] for an evaluator that is not `name@version`, for a refused
-/// equivalence file and when nothing was compared, and [`CliError::Failed`] when the store cannot
-/// be read.
+/// Returns [`CliError::Coded`] for an evaluator that is not `name@version`, for a bare version that
+/// does not name one evaluator of the store, for a refused equivalence file and when nothing was
+/// compared, and [`CliError::Failed`] when the store cannot be read.
 pub async fn run(cli: &Cli, args: &DiffArgs) -> Result<Exit, CliError> {
-    let from = evaluator("--from", args.from.as_str())?; // BORROW: explicit .as_str()
-    let to = evaluator("--to", args.to.as_str())?; // BORROW: explicit .as_str()
+    common::check_evaluator_text("--from", args.from.as_str())?; // BORROW: explicit .as_str()
+    common::check_evaluator_text("--to", args.to.as_str())?; // BORROW: explicit .as_str()
     let equivalence = args
         .equivalence
         .as_deref()
@@ -49,15 +52,18 @@ pub async fn run(cli: &Cli, args: &DiffArgs) -> Result<Exit, CliError> {
         .transpose()?;
     let store = common::open_store("diff", cli).await?;
     let selection = common::read_selection("diff", &store)?;
+    let from = common::evaluator_of(&selection, "--from", Some(args.from.as_str()))?; // BORROW: explicit .as_str()
+    let to = common::evaluator_of(&selection, "--to", Some(args.to.as_str()))?; // BORROW: explicit .as_str()
     let report = diff(
         &selection.for_evaluator(&from),
         &selection.for_evaluator(&to),
         equivalence.as_ref(),
     );
     if report.compared == 0 {
-        return Err(CliError::refused(format!(
-            "nothing compared between {from} and {to}"
-        )));
+        return Err(CliError::refused_by(CliRefusal::NothingCompared {
+            from: from.to_string(),
+            to: to.to_string(),
+        }));
     }
     let text = match args.format {
         DiffFormat::Json => {
@@ -73,12 +79,6 @@ pub async fn run(cli: &Cli, args: &DiffArgs) -> Result<Exit, CliError> {
     } else {
         Ok(Exit::Success)
     }
-}
-
-/// An evaluator given as `name@version`.
-fn evaluator(flag: &str, text: &str) -> Result<NameVersion, CliError> {
-    text.parse::<NameVersion>()
-        .map_err(|e| CliError::refused(format!("{flag} `{text}`: {e}")))
 }
 
 /// The report as plain lines: the counts, then each change and each uncompared expectation.

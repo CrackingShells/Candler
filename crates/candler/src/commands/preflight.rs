@@ -27,6 +27,7 @@ use candler_schemas::refusal::pointer_of;
 use candler_schemas::values::JsonValue;
 
 use super::CliError;
+use super::assets;
 use super::refusal::{CliRefusal, FieldLocation, REQUEST_KEYS};
 
 /// The path of the setting `[treatment] source` replaces; `--set` refuses it by name.
@@ -47,18 +48,21 @@ pub(crate) struct AssetPaths {
     pub(crate) gateway: PathBuf,
 }
 
-/// The one place the asset paths are named: `assets/docker` of the workspace this binary was
-/// built in, found at compile time from this crate's manifest.
-pub(crate) fn asset_paths(store_root: &Path) -> AssetPaths {
-    let docker = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/docker"));
-    AssetPaths {
+/// The paths of the image sources: the embedded assets, written below the store root when they
+/// are not there yet.
+///
+/// # Errors
+/// [`CliError::Failed`] when the assets cannot be written.
+pub(crate) fn asset_paths(store_root: &Path) -> Result<AssetPaths, CliError> {
+    let docker = assets::materialise(store_root)?.join("docker");
+    Ok(AssetPaths {
         images: ImageAssets {
             base_context: docker.join("base"),
             env_context: docker.join("env"),
             store_root: store_root.to_path_buf(), // BORROW: the assets own their store root
         },
         gateway: docker.join("gateway"),
-    }
+    })
 }
 
 /// An event sink that drops what it is given: the foreground checks belong to no job.
@@ -300,7 +304,7 @@ pub(crate) struct Foreground {
 /// Builds the docker client, the image service and the catalog provider over one supervisor, and
 /// composes the resolver on them.
 pub(crate) fn foreground(config: Arc<Config>, root: &Path) -> Result<Foreground, CliError> {
-    let assets = asset_paths(root);
+    let assets = asset_paths(root)?;
     let control = layout::control_dir(root);
     std::fs::create_dir_all(&control).map_err(failed)?;
     // TRAIT_OBJECT: the foreground checks belong to no job and report no event

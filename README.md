@@ -17,7 +17,7 @@ The wire schemas, the shared contracts, evaluation with plug-ins and execution i
 - `candler-core`: argument resolution, the job and process supervisors, the orchestrator, Docker isolation with its gateway sidecar, the run store, the legacy importer, and the evaluation engine with its registry, outcome selection and `diff`;
 - `candler-harness`: the `HarnessDriver` and `TraceReader` traits;
 - `candler-harness-claude-code`: the Claude Code driver and trace reader;
-- `candler`: the CLI, with `run`, `ps`, `kill`, `watch`, `import`, `evaluate`, `show` and `diff`.
+- `candler`: the CLI, with `run`, `resolve`, `ls`, `ps`, `kill`, `watch`, `ingest`, `inspect`, `evaluate`, `show`, `diff` and `analyze`.
 
 The Python helper for evaluator plug-ins is in [`python/candler-evaluator/`](python/candler-evaluator/). Nothing is published to crates.io or PyPI.
 

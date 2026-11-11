@@ -26,7 +26,8 @@ const POLL: Duration = Duration::from_millis(200);
 pub struct Args {
     /// The job to follow.
     pub id: JobId,
-    /// Print each event as a JSON document on its own line; this is the default.
+    /// Print each event as a JSON document on its own line; this is the default. not an
+    /// experiment setting: it is how the output is read.
     #[arg(long)]
     pub json: bool,
     /// Show the progress of the job instead of its events: one line rewritten on a terminal, one

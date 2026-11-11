@@ -1,6 +1,7 @@
 //! The verbs of the `candler` binary, one file each, and what they share in [`common`].
 
 pub mod analyze;
+pub mod assets;
 pub mod common;
 pub mod diff;
 pub mod evaluate;

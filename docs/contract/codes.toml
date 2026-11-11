@@ -831,6 +831,51 @@ side = "config"
 enum = "CliRefusal"
 variant = "NoEvaluatorSlots"
 
+[cli."config.experiment_unreadable"]
+side = "config"
+enum = "CliRefusal"
+variant = "ExperimentUnreadable"
+
+[cli."config.kill_not_confirmed"]
+side = "config"
+enum = "CliRefusal"
+variant = "KillNotConfirmed"
+
+[cli."config.inspect_target_invalid"]
+side = "config"
+enum = "CliRefusal"
+variant = "InspectTargetInvalid"
+
+[cli."config.no_such_run"]
+side = "config"
+enum = "CliRefusal"
+variant = "NoSuchRun"
+
+[cli."config.ambiguous_run"]
+side = "config"
+enum = "CliRefusal"
+variant = "AmbiguousRun"
+
+[cli."config.run_directory_invalid"]
+side = "config"
+enum = "CliRefusal"
+variant = "RunDirectoryInvalid"
+
+[cli."config.evaluator_invalid"]
+side = "config"
+enum = "CliRefusal"
+variant = "EvaluatorInvalid"
+
+[cli."config.nothing_compared"]
+side = "config"
+enum = "CliRefusal"
+variant = "NothingCompared"
+
+[cli."cli.usage_invalid"]
+side = "config"
+enum = "CliRefusal"
+variant = "UsageInvalid"
+
 [jobs]
 
 [jobs."jobs.job_not_a_directory"]
@@ -1515,6 +1560,18 @@ reason = "the process could not run the verb at all, which is a fault of the mac
 [internal."candler::commands::evaluate::JobRefusal"]
 enum = "JobRefusal"
 reason = "the carrier of a refusal the evaluate job recorded in refusal.json; it reports the record's own code, side and pointer and codes nothing of its own"
+
+[internal."candler::commands::kill::NotStopped"]
+enum = "NotStopped"
+reason = "the carrier of the error behind a job that kill could not stop; it reports that error's own code, side and pointer and codes nothing of its own"
+
+[internal."candler::commands::kill::KillFailed"]
+enum = "KillFailed"
+reason = "the envelope of a kill that left jobs running; its cause chain holds the first failing job's error, which gives the record its code"
+
+[internal."candler::commands::ps::RowFailed"]
+enum = "RowFailed"
+reason = "the envelope of a listing in which a row failed; its cause chain holds the first failing row's error, which gives the record its code"
 
 [internal."candler_core::jobs::dir::JobError::Unavailable"]
 enum = "JobError"
