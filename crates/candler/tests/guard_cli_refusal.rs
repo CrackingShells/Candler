@@ -136,8 +136,8 @@ fn vary_a_setting(world: &cli_run::World) {
 const SETTING_AS_FACTOR: Expect = Expect {
     code: "experiment.setting_as_factor",
     side: "experiment",
-    path: Some("/factors"),
-    message_starts: "`run` failed: the setting slots.count cannot be a factor; write it in [fixed]",
+    path: Some("/factors/1/path"),
+    message_starts: "refused: the setting slots.count cannot be a factor; write it in [fixed]",
 };
 
 /// Guards: R2 — a malformed plug-in manifest prints as one `refusal/1` record under
@@ -161,7 +161,7 @@ fn r2_a_malformed_manifest_prints_as_a_record() {
 }
 
 /// Guards: R2 — a factor that varies a setting prints as the record of
-/// `experiment.setting_as_factor`, at the experiment file's `factors`.
+/// `experiment.setting_as_factor`, at the `path` of the factor in the experiment file.
 ///
 /// Oracle: a record written by hand from the contract, compared field by field.
 ///
@@ -215,7 +215,7 @@ fn r2_the_text_form_is_unchanged_without_the_flag() {
         let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
         assert_eq!(
             stderr,
-            "candler: `run` failed: the setting slots.count cannot be a factor; write it in [fixed]\n"
+            "candler: refused: the setting slots.count cannot be a factor; write it in [fixed]\n"
         );
     }
     let dir = bad_manifest();
@@ -328,4 +328,25 @@ fn r3_unknown_request_key_is_refused() {
             "{key} is a request setting: {record}"
         );
     }
+}
+
+/// Guards: R3 — a factor that varies a setting is refused before any image work: the verb is
+/// `Refused` with the factor's pointer, and the fake docker client was never called, so the
+/// sidecar image is neither looked up nor built for an experiment that cannot run.
+///
+/// Oracle: the call log of the PATH-fake docker client (`World::calls`), which holds one line
+/// per call; the record written by hand from the contract.
+///
+/// Bite: move the factor check after `ensure_sidecar`; check the factors in `plan_runs` only.
+#[test]
+fn r3_factor_refusal_precedes_docker() {
+    let world = world();
+    vary_a_setting(&world);
+    let out = world.launch_with(&["--error-format", "json"]);
+    assert_record(&out, &SETTING_AS_FACTOR);
+    assert_eq!(
+        world.calls(),
+        "",
+        "the refusal comes before any docker call"
+    );
 }

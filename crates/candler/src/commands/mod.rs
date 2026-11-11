@@ -126,6 +126,26 @@ impl CliError {
         }
     }
 
+    /// Narrows the place of the refusal to `pointer`, an RFC 6901 pointer into the document the
+    /// verb read; an error that carries no coded refusal is returned as it is.
+    #[must_use]
+    pub fn with_pointer(self, pointer: String) -> Self {
+        match self {
+            Self::Coded {
+                refusal,
+                lead,
+                file,
+                ..
+            } => Self::Coded {
+                refusal,
+                lead,
+                file,
+                pointer: Some(pointer),
+            },
+            other @ (Self::Refused { .. } | Self::Failed { .. } | Self::Runtime { .. }) => other,
+        }
+    }
+
     /// Puts `lead` before the refusal's own words in the text form; an error that carries no
     /// coded refusal is returned as it is.
     #[must_use]

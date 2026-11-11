@@ -36,7 +36,9 @@ use candler_core::store::Store;
 use candler_schemas::execution::{ExperimentFile, JobRecord, JobState};
 use candler_schemas::primitives::FieldPath;
 
-use super::preflight::{failed, foreground, json_of, path_of, refused, request_settings};
+use super::preflight::{
+    check_factors, failed, foreground, json_of, path_of, refuse_plan, refused, request_settings,
+};
 use super::{CliError, Exit, common};
 
 /// The environment variable that tells the supervisor which store the launcher used. The
@@ -146,6 +148,7 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     } = args;
     let cwd = std::env::current_dir().map_err(|e| refused(format!("no working directory: {e}")))?;
     let file = read_experiment(&experiment)?;
+    check_factors(&file)?;
     let experiment_dir = cwd
         .join(&experiment)
         .parent()
@@ -204,8 +207,8 @@ fn plan_job(
         secrets_present: EnvSecrets::new(file.secrets()).present(),
     };
     let mode = if force { Force::Yes } else { Force::No };
-    let outcome =
-        plan_runs(&ctx, file, &resolution, mode, PlanMode::Check).map_err(CliError::refused_by)?;
+    let outcome = plan_runs(&ctx, file, &resolution, mode, PlanMode::Check)
+        .map_err(|e| refuse_plan(e, file))?;
     Ok(JobSpec {
         experiment: file.clone(), // BORROW: the spec owns its file
         resolution,

@@ -13,15 +13,17 @@ use candler_core::isolation::docker::{ClientEnv, DockerCli};
 use candler_core::isolation::image::{DockerImageService, ImageAssets};
 use candler_core::isolation::layout;
 use candler_core::resolve::config::Config;
-use candler_core::resolve::layers::{FileValues, ResolveInput};
+use candler_core::resolve::layers::{FileValues, Resolution, ResolveInput};
 use candler_core::resolve::preflight::{ResolveError, Resolver};
 use candler_core::resolve::steps::{M2bServices, register_m2b_steps};
 use candler_core::runner::evidence::catalog::{CatalogCommand, CommandCatalogProvider};
+use candler_core::runner::plan::{PlanError, experiment_of};
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_harness::driver::HarnessDriver as _;
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_schemas::execution::{EventPayload, ExperimentFile};
 use candler_schemas::primitives::{FieldPath, RunKey};
+use candler_schemas::refusal::pointer_of;
 use candler_schemas::values::JsonValue;
 
 use super::CliError;
@@ -107,6 +109,47 @@ pub(crate) fn json_of<T: serde::Serialize>(value: &T) -> Result<JsonValue, CliEr
 
 pub(crate) fn path_of(text: &str) -> Result<FieldPath, CliError> {
     FieldPath::from_str(text).map_err(CliError::refused_by)
+}
+
+/// The refusal of a plan, placed where the experiment file writes the fault when it can be told:
+/// a setting a factor varies is placed at the `path` of that factor.
+pub(crate) fn refuse_plan(error: PlanError, file: &ExperimentFile) -> CliError {
+    let pointer = if let PlanError::SettingAsFactor { path } = &error {
+        factor_pointer(file, path.as_str())
+    } else {
+        None
+    };
+    let refused = CliError::refused_by(error);
+    match pointer {
+        Some(pointer) => refused.with_pointer(pointer),
+        None => refused,
+    }
+}
+
+/// The pointer to the `path` of the factor that holds the setting `setting`: the factor whose path
+/// is the setting's or one of its ancestors.
+fn factor_pointer(file: &ExperimentFile, setting: &str) -> Option<String> {
+    let setting = setting.parse::<FieldPath>().ok()?;
+    let index = file
+        .factors()
+        .iter()
+        .position(|factor| setting.starts_with(&factor.path))?;
+    Some(pointer_of(["factors", index.to_string().as_str(), "path"]))
+}
+
+/// Refuses an experiment that has a factor over a setting, before anything is resolved: the same
+/// refusal the plan makes, reached without the resolution it would need, so that nothing has been
+/// built for an experiment that cannot run.
+///
+/// # Errors
+/// [`CliError::Coded`] with [`PlanError::SettingAsFactor`] when a factor varies a setting.
+pub(crate) fn check_factors(file: &ExperimentFile) -> Result<(), CliError> {
+    if let Err(error @ PlanError::SettingAsFactor { .. }) =
+        experiment_of(file, &Resolution::default())
+    {
+        return Err(refuse_plan(error, file));
+    }
+    Ok(())
 }
 
 /// Refuses a `--set` path under `request` that is not one of the request settings, or below one.
