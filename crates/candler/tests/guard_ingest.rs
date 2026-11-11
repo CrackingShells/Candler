@@ -183,9 +183,11 @@ fn strings(value: &Value, out: &mut Vec<String>) {
 /// Guards: I1 — a directory with two streams (one gzipped), a nested stream and a `.jsonl` file no
 /// harness recognises gives three sealed runs, one entry in `skipped`, and for each run an
 /// `import.sources` entry holding the stream's path relative to the ingested directory and its
-/// sha256. Oracle: the sha256 `shasum -a 256` prints for each file on disk, and the relative
-/// paths the test wrote. Bite: a stream left out of the walk, a digest taken of the plain text
-/// instead of the file, or a source path that is not relative to the directory fails the sources.
+/// sha256.
+/// Oracle: the sha256 `shasum -a 256` prints for each file on disk, and the relative paths the test
+/// wrote.
+/// Bite: a stream left out of the walk, a digest taken of the plain text instead of the file, or a
+/// source path that is not relative to the directory fails the sources.
 #[test]
 fn i1_each_stream_becomes_one_run() {
     let dir = TempDir::new().expect("a directory");
@@ -221,9 +223,10 @@ fn i1_each_stream_becomes_one_run() {
 }
 
 /// Guards: I1, I17 — no field of a stored manifest or tree, and no source path, starts with `/` or
-/// holds the temporary directory's text. Oracle: the temporary directory's own path, which the
-/// test created, and the rule that a stored path is relative. Bite: a source path stored as the
-/// absolute path of the stream fails both checks.
+/// holds the temporary directory's text.
+/// Oracle: the temporary directory's own path, which the test created, and the rule that a stored
+/// path is relative.
+/// Bite: a source path stored as the absolute path of the stream fails both checks.
 #[test]
 fn i1_stored_paths_are_relative() {
     let dir = TempDir::new().expect("a directory");
@@ -254,10 +257,10 @@ fn i1_stored_paths_are_relative() {
 }
 
 /// Guards: I1 — ingesting the same directory again creates nothing: the second call reports
-/// `created` 0 and `existing` 3, and every file of `runs/` has the digest it had. Oracle: the byte
-/// digests of the store's files before and after, and the counts of the fixture. Bite: a key taken
-/// from the count of streams seen in the call, or a stream written again without checking the
-/// store, adds runs or moves a digest.
+/// `created` 0 and `existing` 3, and every file of `runs/` has the digest it had.
+/// Oracle: the byte digests of the store's files before and after, and the counts of the fixture.
+/// Bite: a key taken from the count of streams seen in the call, or a stream written again without
+/// checking the store, adds runs or moves a digest.
 #[test]
 fn i1_ingesting_again_creates_nothing() {
     let dir = TempDir::new().expect("a directory");
@@ -275,9 +278,9 @@ fn i1_ingesting_again_creates_nothing() {
 
 /// Guards: I1 — a directory that grows by one stream adds one run: the second ingest of the old
 /// streams and a new one reports `created` 1 and `existing` 3, and the old runs keep their keys.
-/// Oracle: the run directory names before and after, and the counts of the fixture. Bite: a
-/// replicate numbered from the streams of this call instead of the highest in the store gives the
-/// new stream a key an old run holds, and fails the names or the counts.
+/// Oracle: the run directory names before and after, and the counts of the fixture.
+/// Bite: a replicate numbered from the streams of this call instead of the highest in the store
+/// gives the new stream a key an old run holds, and fails the names or the counts.
 #[test]
 fn i1_a_grown_directory_adds_only_the_new_run() {
     let dir = TempDir::new().expect("a directory");
@@ -303,10 +306,11 @@ fn i1_a_grown_directory_adds_only_the_new_run() {
 }
 
 /// Guards: I1, R01 error model — a stream whose init line names Claude Code 2.0.0, outside the
-/// supported range, is an invalid run `format_unknown` with its raw file kept and its seal
-/// written. Oracle: the version the test wrote into the init line and the supported range
-/// `>=2.1.220, <2.2.0` of the reader's documentation. Bite: a run sealed valid, or one whose raw
-/// file is dropped, fails the manifest or the file check.
+/// supported range, is an invalid run `format_unknown` with its raw file kept and its seal written.
+/// Oracle: the version the test wrote into the init line and the supported range `>=2.1.220,
+/// <2.2.0` of the reader's documentation.
+/// Bite: a run sealed valid, or one whose raw file is dropped, fails the manifest or the file
+/// check.
 #[test]
 fn i1_an_unsupported_version_is_an_invalid_run() {
     let dir = TempDir::new().expect("a directory");
@@ -331,7 +335,8 @@ fn i1_an_unsupported_version_is_an_invalid_run() {
 
 /// Guards: I1 — a directory with no stream is refused with `NoStream` and the store holds no run.
 /// Oracle: the directory the test wrote, which holds a `.jsonl` file no harness recognises and a
-/// text file. Bite: a walk that counts every `.jsonl` file as a stream seals a run and fails.
+/// text file.
+/// Bite: a walk that counts every `.jsonl` file as a stream seals a run and fails.
 #[test]
 fn i1_a_directory_with_no_stream_is_refused() {
     let dir = TempDir::new().expect("a directory");
@@ -367,10 +372,11 @@ fn candler(home: &Path, store: &Path, args: &[&str]) -> Output {
 
 /// Guards: I1, I14 — `candler ingest <directory>` run from an unrelated directory with a relative
 /// path prints the counts of the fixture, `{"runs": 3, "created": 3, "existing": 0, "skipped":
-/// [{"path": "notes.jsonl", "reason": "not_a_stream"}]}`, and a second call prints
-/// `created` 0 and `existing` 3. Oracle: the fixture the test wrote and the output shape the
-/// leaf's spec gives. Bite: a path resolved against the checkout instead of the caller's
-/// directory, or a verb that prints the runs written in the call as `runs`, fails the lines.
+/// [{"path": "notes.jsonl", "reason": "not_a_stream"}]}`, and a second call prints `created` 0 and
+/// `existing` 3.
+/// Oracle: the fixture the test wrote and the output shape the leaf's spec gives.
+/// Bite: a path resolved against the checkout instead of the caller's directory, or a verb that
+/// prints the runs written in the call as `runs`, fails the lines.
 #[test]
 fn i1_the_verb_ingests_a_directory() {
     let dir = TempDir::new().expect("a directory");
@@ -392,11 +398,12 @@ fn i1_the_verb_ingests_a_directory() {
     assert_eq!(second["existing"], 3);
 }
 
-/// Guards: I1 — a path that holds no stream is refused with exit 2 and the code
-/// `import.no_stream`, and the message says a results folder needs `--rules`. Oracle: a folder the
-/// test wrote that holds the grading files of a results folder and no stream, and the code the
-/// ruling of 2026-11-11 gives `RawIngestError`. Bite: a verb that treats any folder as a trace
-/// directory, seals no run and exits 0 fails the status.
+/// Guards: I1 — a path that holds no stream is refused with exit 2 and the code `import.no_stream`,
+/// and the message says a results folder needs `--rules`.
+/// Oracle: a folder the test wrote that holds the grading files of a results folder and no stream,
+/// and the code the ruling of 2026-11-11 gives `RawIngestError`.
+/// Bite: a verb that treats any folder as a trace directory, seals no run and exits 0 fails the
+/// status.
 #[test]
 fn i1_a_results_folder_without_rules_is_refused() {
     let dir = TempDir::new().expect("a directory");
@@ -425,8 +432,9 @@ const MINI_RECORDS: u64 = 136;
 /// Guards: I2 — a results folder given with `--rules` behaves as `import` did: the M1 mini-corpus
 /// prints `{"runs": 6, "records": 136}`, and `import` is a hidden alias that prints the same.
 /// Oracle: the counts `guard_cli.rs` hand-counted from the 42 grading files of the corpus, which
-/// the importer's output never produces. Bite: a rename that drops the routing of `--rules` to
-/// the importer sends the folder to the raw path and exits 2 with `import.no_stream`.
+/// the importer's output never produces.
+/// Bite: a rename that drops the routing of `--rules` to the importer sends the folder to the raw
+/// path and exits 2 with `import.no_stream`.
 #[test]
 fn i2_a_results_folder_gives_the_mini_corpus_counts() {
     let dir = TempDir::new().expect("a directory");
@@ -446,9 +454,10 @@ fn i2_a_results_folder_gives_the_mini_corpus_counts() {
 }
 
 /// Guards: I2 — `candler import …` prints exactly what `candler ingest …` prints, and `import` is
-/// not listed in `--help`. Oracle: the two outputs compared with each other and the help text.
-/// Bite: an alias removed from the command fails the first call; an alias made visible shows in
-/// the help.
+/// not listed in `--help`.
+/// Oracle: the two outputs compared with each other and the help text.
+/// Bite: an alias removed from the command fails the first call; an alias made visible shows in the
+/// help.
 #[test]
 fn i2_the_old_name_is_an_alias() {
     let dir = TempDir::new().expect("a directory");
@@ -551,13 +560,13 @@ fn killed_store(dir: &Path, traces: &Path, count: usize) -> PathBuf {
 }
 
 /// Guards: I4 — an ingest killed after at least one run is sealed and before all are, then run
-/// again into the same store, leaves the files of `runs/` that a fresh ingest of the same
-/// directory into a second store leaves, each with its digest. Oracle: the second store, written
-/// by one uninterrupted ingest, and the non-vacuity check that at least one run was sealed and
-/// fewer than 40 were when the child was killed. Bite: a run sealed before its trace is written, a
-/// replicate taken from the count of streams of the call instead of the highest in the store, or
-/// `Existing::Refuse` in place of `ReplaceUnfinished` leaves a store that differs from the fresh
-/// one, or an ingest that refuses.
+/// again into the same store, leaves the files of `runs/` that a fresh ingest of the same directory
+/// into a second store leaves, each with its digest.
+/// Oracle: the second store, written by one uninterrupted ingest, and the non-vacuity check that at
+/// least one run was sealed and fewer than 40 were when the child was killed.
+/// Bite: a run sealed before its trace is written, a replicate taken from the count of streams of
+/// the call instead of the highest in the store, or `Existing::Refuse` in place of
+/// `ReplaceUnfinished` leaves a store that differs from the fresh one, or an ingest that refuses.
 #[test]
 fn i4_a_killed_ingest_resumes_to_the_fresh_store() {
     let dir = TempDir::new().expect("a directory");
@@ -583,11 +592,13 @@ fn i4_a_killed_ingest_resumes_to_the_fresh_store() {
     assert_eq!(resumed, reference);
 }
 
-/// Guards: I4 — after the kill, every run directory without `run.done` is not a record (the
-/// store lists it as unfinished) and every sealed run has a parseable manifest and, when it is
-/// valid, a parseable trace. Oracle: the kill of the test's own child and the store's own reading
-/// of `run.done`; the fixture's streams are valid, so every sealed run must be valid. Bite: a seal
-/// written before the trace leaves a sealed run without a trace and fails the trace check.
+/// Guards: I4 — after the kill, every run directory without `run.done` is not a record (the store
+/// lists it as unfinished) and every sealed run has a parseable manifest and, when it is valid, a
+/// parseable trace.
+/// Oracle: the kill of the test's own child and the store's own reading of `run.done`; the
+/// fixture's streams are valid, so every sealed run must be valid.
+/// Bite: a seal written before the trace leaves a sealed run without a trace and fails the trace
+/// check.
 #[test]
 fn i4_nothing_half_written_is_a_record() {
     let dir = TempDir::new().expect("a directory");
@@ -617,9 +628,10 @@ fn i4_nothing_half_written_is_a_record() {
 
 /// Guards: I4 — a store from a complete ingest with one run's `run.done` removed is repaired by
 /// ingesting again: the run is sealed again under the same key, no run is added, no `.replaced`
-/// directory is left, and every file has the digest it had. Oracle: the store's listing before the
-/// removal and after the repair. Bite: `Existing::Refuse` in place of `ReplaceUnfinished` refuses
-/// the repair, and a replicate taken from the streams of the call adds a run.
+/// directory is left, and every file has the digest it had.
+/// Oracle: the store's listing before the removal and after the repair.
+/// Bite: `Existing::Refuse` in place of `ReplaceUnfinished` refuses the repair, and a replicate
+/// taken from the streams of the call adds a run.
 #[test]
 fn i4_an_unsealed_run_is_replaced() {
     let dir = TempDir::new().expect("a directory");

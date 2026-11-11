@@ -200,9 +200,10 @@ fn snapshot(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
 
 /// Guards: I3 — `candler inspect <store>/runs/<key>`, with no `--store` and no environment, shows
 /// that run, by an absolute path and by a path relative to the caller's directory; the store is
-/// derived from the path. Oracle: the key the test sealed, and the run directory it made. Bite: a
-/// verb that needs `--store` to find the store of a run directory looks in the default store, which
-/// holds no such run, and is refused.
+/// derived from the path.
+/// Oracle: the key the test sealed, and the run directory it made.
+/// Bite: a verb that needs `--store` to find the store of a run directory looks in the default
+/// store, which holds no such run, and is refused.
 #[test]
 fn i3_a_run_directory_needs_no_flag() {
     let dir = TempDir::new().expect("a directory");
@@ -226,11 +227,12 @@ fn i3_a_run_directory_needs_no_flag() {
     assert_eq!(again, shown);
 }
 
-/// Guards: I3 — a unique prefix of a key selects its run; an ambiguous prefix is refused and
-/// lists at most five of its candidates; a missing prefix and a target of no form are refused.
-/// Oracle: the keys the test sealed (seven replicates of one cell, one run of another) and the
-/// rule of the leaf: at least 6 characters, at most 5 candidates. Bite: a prefix that picks the
-/// first match shows a run for the ambiguous one; a list that is not cut shows seven.
+/// Guards: I3 — a unique prefix of a key selects its run; an ambiguous prefix is refused and lists
+/// at most five of its candidates; a missing prefix and a target of no form are refused.
+/// Oracle: the keys the test sealed (seven replicates of one cell, one run of another) and the rule
+/// of the leaf: at least 6 characters, at most 5 candidates.
+/// Bite: a prefix that picks the first match shows a run for the ambiguous one; a list that is not
+/// cut shows seven.
 #[test]
 fn i3_a_key_prefix_selects_one_run() {
     let dir = TempDir::new().expect("a directory");
@@ -286,8 +288,9 @@ fn i3_a_key_prefix_selects_one_run() {
 /// Guards: I3 — a job id shows the job's state and the runs whose manifest names it, each with its
 /// integrity and the counts of its current outcomes; a run that names no job is not listed.
 /// Oracle: the job directory and the three runs the test wrote: two name the job (one with two
-/// passes and a fail, one invalid with none), one names none. Bite: a listing of every run of the
-/// store shows three; a state read from `job.json` shows `running` instead of `ended (completed)`.
+/// passes and a fail, one invalid with none), one names none.
+/// Bite: a listing of every run of the store shows three; a state read from `job.json` shows
+/// `running` instead of `ended (completed)`.
 #[test]
 fn i3_a_job_id_shows_its_runs() {
     let dir = TempDir::new().expect("a directory");
@@ -345,9 +348,11 @@ fn i3_a_job_id_shows_its_runs() {
 /// Guards: I3 — the document of a run shows each outcome with its evaluator, expectation, role,
 /// status, weight, evidence and request, the latest request first for one key, the `provenance.*`
 /// measured values apart from the other measured values, the integrity (with its reason) and the
-/// host. Oracle: the hand-written manifest and the two outcome files the test sealed, one request
-/// a failure and the later one a pass of the same expectation. Bite: outcomes without their
-/// evidence, provenance mixed into `measured`, or the earliest request first fails an assertion.
+/// host.
+/// Oracle: the hand-written manifest and the two outcome files the test sealed, one request a
+/// failure and the later one a pass of the same expectation.
+/// Bite: outcomes without their evidence, provenance mixed into `measured`, or the earliest request
+/// first fails an assertion.
 #[test]
 fn i3_outcomes_come_with_evidence_provenance_and_integrity() {
     let dir = TempDir::new().expect("a directory");
@@ -426,9 +431,10 @@ fn i3_outcomes_come_with_evidence_provenance_and_integrity() {
 
 /// Guards: I3 — inspecting a run directory, a key prefix, an ended job and a lost job writes
 /// nothing: every file of the store has the bytes it had and no file is added, and a lost job is
-/// shown as `lost` and not recovered. Oracle: the byte snapshot of the whole store before and
-/// after. Bite: a verb that recovers a lost job appends a `job.ended` event, and one that probes a
-/// job without a lock creates it; either moves the snapshot.
+/// shown as `lost` and not recovered.
+/// Oracle: the byte snapshot of the whole store before and after.
+/// Bite: a verb that recovers a lost job appends a `job.ended` event, and one that probes a job
+/// without a lock creates it; either moves the snapshot.
 #[test]
 fn i3_inspect_writes_nothing() {
     let dir = TempDir::new().expect("a directory");
