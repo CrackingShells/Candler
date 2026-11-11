@@ -130,3 +130,11 @@ The last two rows live in the schemas crate, whose `refusal_impls.rs` is the cat
 
 ### Rebase onto cli_surface
 Rebased onto 3c61726 with no conflict. The nine new `[cli]` rows enter through the binary's table, the `cli` surface is in the surface table, and the index was re-blessed; D3 named `cli.usage_invalid` before the bless, as expected.
+
+## Round 3
+Rebased onto c0d9abf (core 0.6.1). Gate note: the leaf's OWNED regex lacks `__reports__/` and the two refusal files whose sentences the coordinator authorized (R2-4: text only, `evaluation/refusal.rs` and `schemas/refusal_impls.rs`); the gate passes over the code commits only with those paths added.
+
+- **R2-1.** `CliRefusal::NoStore`'s `when` (`crates/candler/src/commands/refusal.rs`, text only, new `docs(cli)` commit) now says it is not raised today: a verb with no store root takes the default store, and a missing store prints `store.not_a_store`. The variant stays; removing it is a follow-up. Tried: `evaluate` with no `--store`, no `CANDLER_STORE` and no `store.root` prints `store.not_a_store`, side `environment`, naming `<project>/.candler/store`. The index has no Notes section, so there is no Note.
+- **R2-2.** The experiment Note says "`schema` marker" in place of "tag".
+- **R2-3.** The `at` of `suite.json_invalid` (`candler-schemas/src/refusal_impls.rs`, text only, new `docs(schemas)` commit) now says: none at the root, and the item at fault when the root is an array. Tried: `evaluate` over `[1]` prints path `/0`; over `5` and over `{"schema":"suite/1"}` no path; over `{"schema":"suite/1","expectations":"x"}` path `/expectations`.
+- **R2-4.** `scripts/contract_versions.py` rewrote the index to `v0.6.1`; `--check` passes. The Notes' `0.6.0` stamps are untouched, since none was re-tried at 0.6.1.
