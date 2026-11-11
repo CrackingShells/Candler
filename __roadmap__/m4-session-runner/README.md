@@ -30,8 +30,8 @@ Agents can run in long-lived sessions whose end Candler records rather than impo
 - [x] [nl] Eliott approved the plan and decisions D1–D12 (2026-11-11)
 - [ ] [cmd] The milestone branch starts at `main`: `git merge-base --is-ancestor a26fe53 feat/m4-session-runner`
 - [ ] [cmd] The golden corpus is in place: `test -d /Users/hacker/Documents/tmp/candler-m1-golden/campaign/20260806-cont-train`
-- [ ] [cmd] The scope exists before any L0 branch is cut: `grep -q '"adapter-opencode"' cog.toml && grep -q 'adapter-opencode' CONTRIBUTING.md`
-- [ ] [nl] The coordination session sequenced the file overlap with M3 and ruled on D10 (unknown harness refused) and on the contract-docs order
+- [x] [cmd] The scope exists before any L0 branch is cut (d6f91f5): `grep -q '"adapter-opencode"' cog.toml && grep -q 'adapter-opencode' CONTRIBUTING.md`
+- [x] [nl] The coordination session sequenced the file overlap with M3 and ruled (2026-11-11): D10 approved (`feat(cli)!`), `refactor(runner)!` approved, the contract page written by hand now, the scope landed on this branch; the meta leaf's status is the coordinator's to set, together with M3's
 - [x] [cmd] P0 on a26fe53 (2026-11-11): see the Gotchas' P0 line
 
 ## Success Gates
@@ -79,7 +79,7 @@ Agents can run in long-lived sessions whose end Candler records rather than impo
   - Cell digests come from `comparable`. Nothing M4 adds may enter an existing cell: `runner.mode` has no core default, `comparable.harness.driver` stays `None`, the label key `candler.cc_version` and `assets/docker/base/` stay byte-identical.
   - A digest that moves is a defect to report, never a value to bless. An expected digest is never edited "until green" (DIGEST).
 - **Schema commits.** Only `type_merges` touches `crates/candler-schemas/`, in exactly one commit, `refactor(schemas): …`, which touches no other crate and leaves every schema file unchanged (DRIFT clean). A wire defect found later goes to Eliott before any second schemas commit.
-- **Behaviour changes.** A newly refused input or a moved stored digest is a behaviour change: the implementer reports it, and the coordinator sends it to the coordination session for a ruling before the leaf merges. Known ones: D10 (an unknown `request.harness` is refused), D9's census rule for a harness with no tool inventory if it arises, and `refactor(runner)!` (the public `FrameMode` is removed; its body names the migration to `candler_harness::spec::Framing`).
+- **Behaviour changes.** A newly refused input or a moved stored digest is a behaviour change: the implementer reports it, and the coordinator sends it to the coordination session for a ruling before the leaf merges. Ruled (2026-11-11): D10 (an unknown `request.harness` is refused, `feat(cli)!`, the migration in the body; a silent fallback to Claude Code is a defect) and `refactor(runner)!` (the public `FrameMode` is removed; its body names the migration to `candler_harness::spec::Framing`). Open: D9's census rule for a harness with no tool inventory, decided only if `opencode_facts` finds none, and brought to the coordination session first.
 - **Test design** (`designing-tests`; R09 §Test design).
   - Every new guard is written first and seen red. Its doc carries a `Guards:` line and an `Oracle:` line naming an expectation derived without Candler's code.
   - Its bite (the plausible bug that turns it red) is checked against the guard's oracle before it is relied on, and recorded in the leaf report.
@@ -98,7 +98,11 @@ Agents can run in long-lived sessions whose end Candler records rather than impo
 - **Owned files.**
   - Each leaf lists its OWNED paths. Implementers never edit `__design__/` (except `design_record`), `__roadmap__/`, another leaf's files, `cog.toml`, `.github/`, `.config/` or `Cargo.lock` (except a leaf that adds a crate).
   - Shared hunks, merged by the coordinator: at L3, `crates/candler-core/src/runner/exec/mod.rs` and `crates/candler-core/src/isolation/container/mod.rs` (`session_runner` against `opencode_wiring`).
-- **M3 runs in parallel** on `feat/m3-lean-cli`. It owns the contract-docs frame and generator, `analyze` (the verdict's first `src` caller, D8) and the I22 same-tick rule in `supervise/signal.rs`. `guard_job_runtime::b33_setsid_descendant_dies` is a known flake of that rule: never patched here.
+- **M3 runs in parallel** on `feat/m3-lean-cli`. It owns the contract-docs frame and generator, `analyze` (the verdict's first `src` caller, D8) and the I22 same-tick rule in `supervise/signal.rs`. `guard_job_runtime::b33_setsid_descendant_dies` is a known flake of that rule: never patched here. The coordination session's rulings (2026-11-11):
+  - **Rebase point.** Before any branch that edits `crates/candler/src/main.rs`, `crates/candler/src/commands/{run,supervise,import}.rs` or `crates/candler/Cargo.toml` is cut (`harness_out_of_core`, `opencode_wiring`), the coordinator asks the coordination session for the rebase point: M3's scaffold, which moves `foreground`, `asset_paths`, `request_settings` and `compose_resolver` into `commands/preflight.rs` and regenerates `Cargo.lock`, may land on `main` first, and this branch then rebases on it. L0 and L1 do not wait.
+  - **Refusal codes.** M3's `refusal_core` gives every author-facing error variant a stable code (`docs/contract/codes.toml`) and a `Refusal` impl in a `refusal.rs` beside its enum, including in the harness crates. Whichever milestone merges to `main` second codes the other's new variants; the exhaustive matches fail to compile until it does.
+  - **Collisions to keep small.** M3 renames `commands/import.rs` to `ingest.rs`: keep edits there inside function bodies. M3's `evaluate_body` may build `JobServices`: a field added there is a semantic clash to report at the merge. M3 owns all of R01 except its line on the same-tick rule; the second milestone to merge rebases its R01 edits. M3's `feat(schemas)` leaves `trace.rs` alone, so the two schemas commits land in either order.
+  - **Contract pages.** The driver-traits page is written by hand now, in the frame; the milestone that merges second folds it into M3's generator (`crates/candler/tests/contract_pages.rs`).
 
 ## Status
 ```mermaid

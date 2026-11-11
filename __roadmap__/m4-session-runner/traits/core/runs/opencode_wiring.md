@@ -3,6 +3,7 @@
 **Goal**: The run loop executes a driver's collect command inside the agent's container before it is destroyed, reads the output with the offline reader as the authoritative trace, runs an in-container pre-stop with the observed session id, and the binary registers OpenCode.
 **Pre-conditions**:
 - [ ] [cmd] The leaf's worktree is its own checkout: `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints the worktree path
+- [ ] [nl] The branch is cut from the rebase point the coordination session gave (Step 3 edits the binary's `drivers.rs` and `Cargo.toml`)
 - [ ] [nl] OWNED: `crates/candler-core/src/runner/exec/gather.rs`, `crates/candler-core/src/isolation/container/stop.rs`, `crates/candler-core/src/supervise/stop.rs` (the `Action::Exec` dispatch only); `crates/candler/src/drivers.rs` (the OpenCode entry), `crates/candler/Cargo.toml`; new tests. Shared hunks, merged by the coordinator: `runner/exec/mod.rs` (trace assembly), `isolation/container/mod.rs` (collect before destroy), with `session_runner`
 **Success Gates**:
 - ⬜ [cmd] W1, exited run: a fake OpenCode run (recording docker replaying `opencode_facts` fixtures) exits, `session export` runs inside the container before the destroy, its output is framed `Document`, stored as a raw stream and read by the offline reader into the trace: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^wiring_collect_/)'`

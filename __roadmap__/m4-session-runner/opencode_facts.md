@@ -11,6 +11,7 @@
 - ⬜ [cmd] The fixtures carry their provenance: `test -f crates/candler-harness-opencode/tests/fixtures/PROVENANCE.toml && grep -q '^version' crates/candler-harness-opencode/tests/fixtures/PROVENANCE.toml && grep -q '^sha256' crates/candler-harness-opencode/tests/fixtures/PROVENANCE.toml`
 - ⬜ [cmd] Each recorded case holds its stdout, stderr, exit status and, where a session exists, its export: `for d in crates/candler-harness-opencode/tests/fixtures/streams/*/; do test -f "$d/stdout.jsonl" && test -f "$d/exit.toml" && test -f "$d/expected.toml" || echo "$d"; done` prints nothing
 - ⬜ [nl] The leaf report answers every question of Step 1 and Step 2 with its evidence (a command and its output), or names it unanswerable and why; it says which `classify_exit` classes are fixture-backed and which come from the documentation only
+- ⬜ [nl] If no tool inventory source exists, the finding goes to the coordination session before L1, which decides D9's census rule
 - ⬜ [cmd] Docker holds no image the probe built: the image list after equals the list recorded before (`docker images -q | sort`)
 - ⬜ [cmd] SUBJ passes
 **References**: [R01 §OpenCode v2, §Harness drivers](../../__design__/architecture.md) — the facts to confirm and the trait they feed; [R09 D9, D11](/Users/hacker/Library/Application%20Support/Claude/side-session-notes/local_7f577b41-1698-4eeb-9de3-4ee9460ae606/m4-approved-plan.md) — what the driver will do with them

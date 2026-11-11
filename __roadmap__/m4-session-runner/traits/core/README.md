@@ -8,7 +8,8 @@ The core asks the driver for every harness fact, the binary selects drivers by n
 
 ## Pre-conditions
 - [ ] [cmd] L1 merged: `git log --first-parent --format=%s feat/m4-session-runner | grep -qxF 'merge(runner): land driver_traits'`
-- [ ] [nl] The coordination session ruled on D10 (an unknown `request.harness` is refused) before `harness_out_of_core` merges
+- [x] [nl] The coordination session ruled on D10: an unknown `request.harness` is refused (2026-11-11)
+- [ ] [nl] The coordination session gave the rebase point before `harness_out_of_core` is cut (it edits the binary's `commands/` and `Cargo.toml`, which M3's scaffold moves)
 
 ## Success Gates
 - ⬜ [cmd] `harness_out_of_core.md` and `opencode_driver.md` are `done`

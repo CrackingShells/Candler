@@ -1,9 +1,9 @@
 # Contract docs
 
-**Goal**: A coding agent that writes a harness driver has a contract page for the driver traits in A5's frame (amendment A5), generated from the trait definitions where M3's generator exists, and every page of a surface M4 changed is regenerated with its tentative Notes re-stamped.
+**Goal**: A coding agent that writes a harness driver has a contract page for the driver traits in A5's frame (amendment A5), written by hand and held to the trait definitions by a drift guard until it is folded into M3's generator, and every page of a surface M4 changed is regenerated with its tentative Notes re-stamped.
 **Pre-conditions**:
 - [ ] [cmd] The leaf's worktree is its own checkout: `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints the worktree path
-- [ ] [nl] The coordination session ruled on the order with M3: whether M3's frame and generator are on `main` (and rebased into this milestone) before this leaf starts
+- [x] [nl] The coordination session ruled on the order with M3 (2026-11-11): do not wait; write the page by hand in the frame with a drift guard; the milestone that merges to `main` second folds it into M3's generator (`crates/candler/tests/contract_pages.rs`)
 - [ ] [nl] OWNED: `docs/contract/driver-traits.md`, the driver-traits entry of M3's generator if it exists, `docs/contract/experiment-file.md` regenerated if it exists; `crates/candler-harness/tests/guard_contract_page.rs` when the page is written by hand
 **Success Gates**:
 - ⬜ [cmd] The page exists and keeps the frame's sections, in order and no others: `test -f docs/contract/driver-traits.md && grep -E '^## ' docs/contract/driver-traits.md | tr -d '\n' | grep -qx '## Surface## Version## Fields## Refusals## Notes (tentative)'`
