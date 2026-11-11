@@ -59,7 +59,7 @@ The verb prints nothing on stdout, exits 2 and puts the end of the job's `superv
 3. **Every call leaves a job in the store.** `ps` lists it, `watch` follows it and `inspect` shows it.
 4. **The plug-ins come from `plugins.dirs`.** Without one the call is refused, exit 2, and no job is created.
 5. **A refusal's text names the absolute manifest.** The old message said `plug-in manifest plugin.toml`; the new one carries `<dir>/plugin.toml`.
-6. **The plug-in processes' environment is the allowlist** (see above).
+6. **The plug-in processes' environment is the allowlist** (superseded in the Fix round: they inherit the caller's) (see above).
 7. **A suite is read once by the verb.** The supervisor refuses a suite that changed afterwards, which the old in-process call could not meet.
 
 ## Files outside OWNED that the change breaks
@@ -152,4 +152,4 @@ Guards (all seen red, then reverted):
 - Core: `guard_detach`, `guard_refusal_codes`, `guard_evaluate_job`, `guard_platform_seam`, `guard_spec_file` (17): PASS. GOLDEN: `guard_golden` (2) and `guard_oracle_ac`: PASS.
 - Workspace STD after `cargo clean -p candler-core -p candler`: fmt, clippy `-D warnings`, `cargo check --workspace --all-targets`, nextest (581 passed, 21 skipped) and `cargo doc`: PASS. LINUX clippy: PASS.
 - G-codes: 5 lines added to `codes.toml` against eed99b7, none deleted. `cog check eed99b7..HEAD` and the subject length: PASS.
-- LINUXRUN, `-j 1`: see the reply.
+- LINUXRUN, `-j 1`, one container at a time: `guard_detach` and `guard_refusal_codes` (5) PASS; `guard_cli_evaluate` and `guard_cli_refusal` (25): 24 PASS. The one failure is refusal_late's `r2_a_job_that_cannot_be_opened_is_told_by_the_kind_of_failure`, which relies on a file mode that root ignores, and the image runs as root; it is not touched by this branch. Two rows of mine had the same root or `ps` dependency and were fixed (the unreadable manifest is now a file that is not text, and the run-job environment guard reads `/proc`).
