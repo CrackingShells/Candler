@@ -831,6 +831,51 @@ side = "config"
 enum = "CliRefusal"
 variant = "NoEvaluatorSlots"
 
+[cli."config.experiment_unreadable"]
+side = "config"
+enum = "CliRefusal"
+variant = "ExperimentUnreadable"
+
+[cli."config.kill_not_confirmed"]
+side = "config"
+enum = "CliRefusal"
+variant = "KillNotConfirmed"
+
+[cli."config.inspect_target_invalid"]
+side = "config"
+enum = "CliRefusal"
+variant = "InspectTargetInvalid"
+
+[cli."config.no_such_run"]
+side = "config"
+enum = "CliRefusal"
+variant = "NoSuchRun"
+
+[cli."config.ambiguous_run"]
+side = "config"
+enum = "CliRefusal"
+variant = "AmbiguousRun"
+
+[cli."config.run_directory_invalid"]
+side = "config"
+enum = "CliRefusal"
+variant = "RunDirectoryInvalid"
+
+[cli."config.evaluator_invalid"]
+side = "config"
+enum = "CliRefusal"
+variant = "EvaluatorInvalid"
+
+[cli."config.nothing_compared"]
+side = "config"
+enum = "CliRefusal"
+variant = "NothingCompared"
+
+[cli."cli.usage_invalid"]
+side = "config"
+enum = "CliRefusal"
+variant = "UsageInvalid"
+
 [jobs]
 
 [jobs."jobs.job_not_a_directory"]

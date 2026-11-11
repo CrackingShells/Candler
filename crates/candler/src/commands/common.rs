@@ -153,8 +153,8 @@ pub fn read_selection(verb: &'static str, store: &Store) -> Result<Selection, Cl
 /// the last two is [`choose_evaluator`], the one `analyze` makes.
 ///
 /// # Errors
-/// [`CliError::Refused`] for a `name@version` that does not parse, and [`CliError::Coded`] for the
-/// refusals of [`choose_evaluator`]: no outcomes, several evaluators and no request, a version no
+/// [`CliError::Coded`] for a `name@version` that does not parse and for the refusals of
+/// [`choose_evaluator`]: no outcomes, several evaluators and no request, a version no
 /// evaluator holds, and a version several evaluators hold.
 pub fn evaluator_of(
     selection: &Selection,
@@ -162,12 +162,34 @@ pub fn evaluator_of(
     requested: Option<&str>,
 ) -> Result<NameVersion, CliError> {
     if let Some(text) = requested.filter(|text| text.contains('@')) {
-        return text
-            .parse::<NameVersion>()
-            .map_err(|e| CliError::refused(format!("{flag} `{text}`: {e}")));
+        return named_evaluator(flag, text);
     }
     choose_evaluator(selection, requested)
         .map_err(|e| CliError::refused_by(e).led_by(format!("{flag}: ")))
+}
+
+/// Refuses `text` when it holds an `@` and is not a `name@version`, as [`evaluator_of`] would, so
+/// that the refusal comes before the store is read; any other text passes.
+///
+/// # Errors
+/// [`CliError::Coded`] for a `name@version` that does not parse.
+pub fn check_evaluator_text(flag: &'static str, text: &str) -> Result<(), CliError> {
+    if text.contains('@') {
+        named_evaluator(flag, text).map(drop)
+    } else {
+        Ok(())
+    }
+}
+
+/// The evaluator `text` names, written as `name@version`.
+fn named_evaluator(flag: &'static str, text: &str) -> Result<NameVersion, CliError> {
+    text.parse::<NameVersion>().map_err(|e| {
+        CliError::refused_by(CliRefusal::EvaluatorInvalid {
+            flag: flag.to_owned(), // BORROW: the refusal owns the flag
+            text: text.to_owned(), // BORROW: the refusal owns the text
+            detail: e.to_string(),
+        })
+    })
 }
 
 /// The sink the supervisor reports to: one JSON line per event on stderr.

@@ -39,6 +39,7 @@ use candler_schemas::primitives::FieldPath;
 use super::preflight::{
     check_factors, failed, foreground, json_of, path_of, refuse_plan, refused, request_settings,
 };
+use super::refusal::CliRefusal;
 use super::{CliError, Exit, common};
 
 /// The environment variable that tells the supervisor which store the launcher used. The
@@ -126,8 +127,13 @@ fn supervisor_env(file: &ExperimentFile, root: &Path) -> Vec<(String, String)> {
 
 /// Reads the experiment file at `path`.
 fn read_experiment(path: &Path) -> Result<ExperimentFile, CliError> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|e| refused(format!("cannot read {}: {e}", path.display())))?;
+    let text = std::fs::read_to_string(path).map_err(|e| {
+        CliError::refused_by(CliRefusal::ExperimentUnreadable {
+            path: path.display().to_string(),
+            detail: e.to_string(),
+        })
+        .with_file(path)
+    })?;
     ExperimentFile::from_toml_str(text.as_str()) // BORROW: .as_str() views the text as a `&str`
         .map_err(|e| {
             CliError::refused_by(e)

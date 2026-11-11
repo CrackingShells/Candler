@@ -242,7 +242,7 @@ async fn follow(
                 tokio::pin!(stop);
                 let reason = loop {
                     tokio::select! {
-                        stopped = &mut stop => break stopped.err(),
+                        stopped = &mut stop => break stopped.err().map(|error| error.to_string()),
                         _ = sigint.recv() => return Err(interrupted_again(id)),
                         () = tokio::time::sleep(REAP_POLL) => reap_supervisor(supervisor),
                     }

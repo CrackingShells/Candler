@@ -62,6 +62,73 @@ pub enum CliRefusal {
     /// `slots.evaluators` is 0, so no evaluator could ever run.
     #[error("no evaluator slot to run in: slots.evaluators is 0")]
     NoEvaluatorSlots,
+    /// The experiment file `run` or `resolve` was given cannot be read.
+    #[error("cannot read {path}: {detail}")]
+    ExperimentUnreadable {
+        /// The path as the caller gave it.
+        path: String,
+        /// What the operating system reported.
+        detail: String,
+    },
+    /// `kill` asked for a confirmation and was not given one.
+    #[error("pass -y to confirm")]
+    KillNotConfirmed,
+    /// `inspect` was given a target that is none of its three forms.
+    #[error("`{target}` is none of: {}", super::inspect::FORMS)]
+    InspectTargetInvalid {
+        /// The target as the caller gave it.
+        target: String,
+    },
+    /// No run of the store starts with the prefix `inspect` was given.
+    #[error("no run of the store starts with `{target}`")]
+    NoSuchRun {
+        /// The prefix as the caller gave it.
+        target: String,
+    },
+    /// Several runs of the store start with the prefix `inspect` was given.
+    #[error("`{target}` starts {count} runs: {listed}{tail}; give more of the key")]
+    AmbiguousRun {
+        /// The prefix as the caller gave it.
+        target: String,
+        /// How many runs start with it.
+        count: usize,
+        /// The first of their keys, joined.
+        listed: String,
+        /// How many more there are, as words, or nothing.
+        tail: String,
+    },
+    /// The directory `inspect` was given is not a run directory of a store.
+    #[error("`{path}`: {detail}")]
+    RunDirectoryInvalid {
+        /// The path as the caller gave it.
+        path: String,
+        /// What is wrong with it.
+        detail: String,
+    },
+    /// An evaluator option holds text that is not `name@version`.
+    #[error("{flag} `{text}`: {detail}")]
+    EvaluatorInvalid {
+        /// The option.
+        flag: String,
+        /// The text as the caller gave it.
+        text: String,
+        /// Why it does not parse.
+        detail: String,
+    },
+    /// `diff` found no expectation graded by both evaluators.
+    #[error("nothing compared between {from} and {to}")]
+    NothingCompared {
+        /// The base evaluator.
+        from: String,
+        /// The compared evaluator.
+        to: String,
+    },
+    /// The command line is not one the parser accepts.
+    #[error("{message}")]
+    UsageInvalid {
+        /// The parser's own text.
+        message: String,
+    },
 }
 
 /// Where an experiment's dotted path was written.
@@ -141,7 +208,16 @@ fn cli_refusal_path(error: &CliRefusal) -> Option<String> {
         | CliRefusal::UnknownRequestKey { .. }
         | CliRefusal::RulesInvalid { .. }
         | CliRefusal::NoPluginDirs
-        | CliRefusal::NoEvaluatorSlots => None,
+        | CliRefusal::NoEvaluatorSlots
+        | CliRefusal::ExperimentUnreadable { .. }
+        | CliRefusal::KillNotConfirmed
+        | CliRefusal::InspectTargetInvalid { .. }
+        | CliRefusal::NoSuchRun { .. }
+        | CliRefusal::AmbiguousRun { .. }
+        | CliRefusal::RunDirectoryInvalid { .. }
+        | CliRefusal::EvaluatorInvalid { .. }
+        | CliRefusal::NothingCompared { .. }
+        | CliRefusal::UsageInvalid { .. } => None,
     }
 }
 
@@ -187,6 +263,60 @@ refusal_table! {
         "config.no_evaluator_slots",
         Side::Config,
         "`slots.evaluators` is 0 in the user configuration, so the pool that evaluators draw from has no slot.",
+        "-",
+    ),
+    ExperimentUnreadable { .. } => row(
+        "config.experiment_unreadable",
+        Side::Config,
+        "The experiment file given to `run` or `resolve` does not exist or cannot be read.",
+        "-",
+    ),
+    KillNotConfirmed { .. } => row(
+        "config.kill_not_confirmed",
+        Side::Config,
+        "`kill` asked for a confirmation and was not answered `y` or `yes`; `-y` skips the question.",
+        "-",
+    ),
+    InspectTargetInvalid { .. } => row(
+        "config.inspect_target_invalid",
+        Side::Config,
+        "The target given to `inspect` is none of a run directory, a prefix of a run key of at least 6 characters, or a job id.",
+        "-",
+    ),
+    NoSuchRun { .. } => row(
+        "config.no_such_run",
+        Side::Config,
+        "No run of the store has a key that starts with the prefix given to `inspect`.",
+        "-",
+    ),
+    AmbiguousRun { .. } => row(
+        "config.ambiguous_run",
+        Side::Config,
+        "More than one run of the store has a key that starts with the prefix given to `inspect`.",
+        "-",
+    ),
+    RunDirectoryInvalid { .. } => row(
+        "config.run_directory_invalid",
+        Side::Config,
+        "The directory given to `inspect` holds a `manifest.json` but is not named by a run key, or is not below the `runs` directory of a store.",
+        "-",
+    ),
+    EvaluatorInvalid { .. } => row(
+        "config.evaluator_invalid",
+        Side::Config,
+        "`--evaluator`, `--from` or `--to` holds text that is not `name@version` with a SemVer 2.0 version.",
+        "-",
+    ),
+    NothingCompared { .. } => row(
+        "config.nothing_compared",
+        Side::Config,
+        "`diff` found no expectation that both evaluators graded in the same run, such as an evaluator version the store lacks.",
+        "-",
+    ),
+    UsageInvalid { .. } => row(
+        "cli.usage_invalid",
+        Side::Config,
+        "The command line is not one the parser accepts: an unknown option, a missing argument, or a value such as a `--set` without `=`.",
         "-",
     ),
 }
@@ -324,6 +454,21 @@ fn record_of(error: &CliError) -> RefusalRecord {
             .unwrap_or(record);
     }
     record
+}
+
+/// The `refusal/1` record, on one line, of a command line the parser refused, with the parser's own
+/// text as the message.
+#[must_use]
+pub fn usage_record(message: &str) -> String {
+    let refusal = CliRefusal::UsageInvalid {
+        message: message.to_owned(), // BORROW: the refusal owns the text
+    };
+    let record = RefusalRecord::new(
+        Refusal::code(&refusal),
+        Refusal::side(&refusal),
+        message.to_owned(), // BORROW: the record owns the text
+    );
+    serde_json::to_string(&record).unwrap_or_else(|_| format!("candler: {message}"))
 }
 
 /// The fallback code of an error that is not an author's.

@@ -560,11 +560,11 @@ fn digest_text(c: char) -> String {
 }
 
 /// The manifest of a one-cell run whose one factor is `plan.model`, with the cell's real digest.
-fn manifest() -> RunManifest {
+fn manifest(replicate: u32) -> RunManifest {
     let body = |cell: &str| {
         json!({
             "schema": "run-manifest/1",
-            "run": {"cell": cell, "replicate": 1, "attempt": 1},
+            "run": {"cell": cell, "replicate": replicate, "attempt": 1},
             "experiment": digest_text('0'),
             "factors": ["plan.model"],
             "comparable": {
@@ -624,7 +624,7 @@ fn record(
 /// Returns the run's key.
 fn seed(root: &Path, rows: &[(&str, &[(&str, &str)])]) -> RunKey {
     let store = Store::init(root).expect("the store initialises");
-    let manifest = manifest();
+    let manifest = manifest(1);
     let run = manifest.run().clone(); // BORROW: the key is used after the manifest moves
     RunWriter::create(&store, &manifest, Existing::Refuse)
         .expect("the run starts")
@@ -644,6 +644,16 @@ fn seed(root: &Path, rows: &[(&str, &[(&str, &str)])]) -> RunKey {
         writer.commit().expect("the outcomes commit");
     }
     run
+}
+
+/// Adds a second sealed run of the same cell, replicate 2, to the store at `root`: its key starts
+/// like the first run's.
+fn seed_second_replicate(root: &Path) {
+    let store = Store::open(root).expect("the store opens");
+    RunWriter::create(&store, &manifest(2), Existing::Refuse)
+        .expect("the run starts")
+        .done()
+        .expect("the run seals");
 }
 
 /// A store seeded by hand in a directory of its own, which is also the working directory and the
@@ -1199,7 +1209,7 @@ fn u1_each_verb_runs_from_an_unrelated_directory() {
     }
 }
 
-/// Guards: U1 (quick win 6) — with a `candler.toml` in the working directory and no `--store`,
+/// Guards: U1 — with a `candler.toml` in the working directory and no `--store`,
 /// the store is `<working directory>/.candler/store`; with no project it is below
 /// `$XDG_STATE_HOME`; neither writes below the source tree or beside the binary. Oracle: where
 /// the one run of `ingest traces/` is found, from the directories of the fixture world. Bite: a
@@ -1250,4 +1260,268 @@ fn u1_the_store_comes_from_the_project_or_the_state_home() {
         "no project store appears"
     );
     assert_no_stray(&bare);
+}
+
+/// The record on the last line of a refusal's standard error, parsed.
+fn record_on(out: &Output) -> Value {
+    let stderr = text_of(&out.stderr);
+    let line = stderr
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or_default();
+    serde_json::from_str(line).unwrap_or_else(|e| panic!("`{line}` is not a record: {e}"))
+}
+
+/// A refusal a caller causes in a verb's own checks: the arguments that cause it, what the store
+/// holds before, and the code and side the record must carry.
+struct Site {
+    name: &'static str,
+    args: &'static [&'static str],
+    setup: fn(&Seeded),
+    code: &'static str,
+    side: &'static str,
+    /// What the message must contain.
+    says: &'static str,
+}
+
+fn nothing(_: &Seeded) {}
+
+fn plant_unreadable_job(store: &Seeded) {
+    fs::create_dir_all(
+        store
+            .dir
+            .path()
+            .join("store/jobs/01a1ccbc-3339-7146-a3ef-ac307f9d93fd"),
+    )
+    .expect("a directory");
+}
+
+fn plant_second_replicate(store: &Seeded) {
+    seed_second_replicate(&store.dir.path().join("store"));
+}
+
+fn plant_directory_with_a_manifest(store: &Seeded) {
+    let dir = store.dir.path().join("elsewhere");
+    fs::create_dir_all(&dir).expect("a directory");
+    fs::write(dir.join("manifest.json"), "{}").expect("a file");
+}
+
+/// The sites, one row each; `{key8}` in an argument stands for the first eight characters of the
+/// seeded run's key. The store holds one run of the cell of `plan.model = alpha`, graded by
+/// `ev@1.0.0` and `ev@2.0.0`.
+const SITES: &[Site] = &[
+    Site {
+        name: "resolve of a missing experiment file",
+        args: &["resolve", "nope.toml"],
+        setup: nothing,
+        code: "config.experiment_unreadable",
+        side: "config",
+        says: "nope.toml",
+    },
+    Site {
+        name: "run of a missing experiment file",
+        args: &["run", "nope.toml"],
+        setup: nothing,
+        code: "config.experiment_unreadable",
+        side: "config",
+        says: "nope.toml",
+    },
+    Site {
+        name: "kill without -y",
+        args: &["kill", "01a1ccbc-3339-7146-a3ef-ac307f9d93fd"],
+        setup: nothing,
+        code: "config.kill_not_confirmed",
+        side: "config",
+        says: "-y",
+    },
+    Site {
+        name: "kill -y of a missing job",
+        args: &["kill", "-y", "01a1ccbc-3339-7146-a3ef-ac307f9d93fd"],
+        setup: nothing,
+        code: "jobs.job_not_found",
+        side: "config",
+        says: "01a1ccbc-3339-7146-a3ef-ac307f9d93fd",
+    },
+    Site {
+        name: "ps with an unreadable job",
+        args: &["ps"],
+        setup: plant_unreadable_job,
+        code: "jobs.io_failed",
+        side: "environment",
+        says: "see its row",
+    },
+    Site {
+        name: "inspect of a selector that is none of the three forms",
+        args: &["inspect", "zz"],
+        setup: nothing,
+        code: "config.inspect_target_invalid",
+        side: "config",
+        says: "`zz`",
+    },
+    Site {
+        name: "inspect of a prefix no run has",
+        args: &["inspect", "0123456789abcdef"],
+        setup: nothing,
+        code: "config.no_such_run",
+        side: "config",
+        says: "0123456789abcdef",
+    },
+    Site {
+        name: "inspect of a prefix several runs have",
+        args: &["inspect", "{key8}"],
+        setup: plant_second_replicate,
+        code: "config.ambiguous_run",
+        side: "config",
+        says: "-r2-a1",
+    },
+    Site {
+        name: "inspect of a directory that is no run directory",
+        args: &["inspect", "elsewhere"],
+        setup: plant_directory_with_a_manifest,
+        code: "config.run_directory_invalid",
+        side: "config",
+        says: "elsewhere",
+    },
+    Site {
+        name: "show of an evaluator that is not name@version",
+        args: &["show", "--evaluator", "bad@x", "--format", "json"],
+        setup: nothing,
+        code: "config.evaluator_invalid",
+        side: "config",
+        says: "--evaluator `bad@x`",
+    },
+    Site {
+        name: "show of a bare version no evaluator holds",
+        args: &["show", "--evaluator", "9.9.9", "--format", "json"],
+        setup: nothing,
+        code: "analysis.unknown_evaluator",
+        side: "config",
+        says: "9.9.9",
+    },
+    Site {
+        name: "diff from an evaluator that is not name@version",
+        args: &[
+            "diff", "--from", "bad@x", "--to", "ev@1.0.0", "--format", "json",
+        ],
+        setup: nothing,
+        code: "config.evaluator_invalid",
+        side: "config",
+        says: "--from `bad@x`",
+    },
+    Site {
+        name: "diff from an evaluator the store lacks",
+        args: &[
+            "diff", "--from", "ev@9.0.0", "--to", "ev@1.0.0", "--format", "json",
+        ],
+        setup: nothing,
+        code: "config.nothing_compared",
+        side: "config",
+        says: "ev@9.0.0",
+    },
+    Site {
+        name: "an invalid --set path",
+        args: &["run", "exp.toml", "--set", "bad"],
+        setup: nothing,
+        code: "cli.usage_invalid",
+        side: "config",
+        says: "expected PATH=VALUE",
+    },
+    Site {
+        name: "an unknown option",
+        args: &["--bogus"],
+        setup: nothing,
+        code: "cli.usage_invalid",
+        side: "config",
+        says: "unexpected argument '--bogus'",
+    },
+    Site {
+        name: "watch of an unknown job",
+        args: &["watch", "01a1ccbc-3339-7146-a3ef-ac307f9d9399"],
+        setup: nothing,
+        code: "jobs.job_not_found",
+        side: "config",
+        says: "01a1ccbc-3339-7146-a3ef-ac307f9d9399",
+    },
+];
+
+/// Guards: U6 — each refusal that a caller causes in a verb's own
+/// checks prints, under `--error-format json`, one `refusal/1` record whose code and side are the
+/// row's and not `candler.internal`: a missing experiment file, `kill` without `-y` and of a
+/// missing job, `ps` over an unreadable job, `inspect` of a selector that is invalid, unknown or
+/// ambiguous, an evaluator that is malformed, unknown or compares nothing, and clap's usage
+/// errors, whose message is clap's text. Oracle: the codes written in `docs/contract/codes.toml`
+/// by hand for these sites, and the store the row builds. Bite: a site back to
+/// `CliError::refused(String)`, which prints `candler.internal` with side `candler`.
+#[test]
+fn u6_each_caller_mistake_carries_a_code() {
+    let mut misses: Vec<String> = Vec::new();
+    for site in SITES {
+        let store = Seeded::with(TWO_EVALUATORS);
+        (site.setup)(&store);
+        let key8 = manifest(1)
+            .run()
+            .to_string()
+            .chars()
+            .take(8)
+            .collect::<String>();
+        let mut args = vec!["--error-format".to_owned(), "json".to_owned()];
+        args.extend(site.args.iter().map(|arg| arg.replace("{key8}", &key8)));
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let out = store.candler(&args);
+        let stderr = text_of(&out.stderr);
+        let line = stderr
+            .lines()
+            .rev()
+            .find(|line| !line.trim().is_empty())
+            .unwrap_or_default();
+        let record: Value = serde_json::from_str(line).unwrap_or(Value::Null);
+        let message = record["message"].as_str().unwrap_or_default();
+        let held = out.status.code() == Some(2)
+            && record["schema"] == "refusal/1"
+            && record["code"] == site.code
+            && record["side"] == site.side
+            && message.contains(site.says);
+        if !held {
+            misses.push(format!(
+                "{}: exit {:?}, {line}",
+                site.name,
+                out.status.code()
+            ));
+        }
+    }
+    assert!(
+        misses.is_empty(),
+        "sites without their code:\n{}",
+        misses.join("\n")
+    );
+}
+
+/// Guards: U6 — a missing experiment file is named in the record's `file`, and clap's usage errors
+/// keep their text and exit status when no JSON is asked for, while `--help` still prints its text
+/// on stdout and exits 0 under `--error-format json`. Oracle: the text clap writes for the same
+/// arguments with no `--error-format`, and the status of `--help`. Bite: the usage error printed
+/// as a record in the text form, or `--help` taken for an error.
+#[test]
+fn u6_usage_text_and_help_are_unchanged_and_the_file_is_named() {
+    let store = Seeded::with(TWO_EVALUATORS);
+    let out = store.candler(&["--error-format", "json", "resolve", "nope.toml"]);
+    assert_eq!(record_on(&out)["file"], "nope.toml");
+
+    let out = store.candler(&["--bogus"]);
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = text_of(&out.stderr);
+    assert!(
+        stderr.starts_with("error: unexpected argument '--bogus'"),
+        "{stderr}"
+    );
+    assert!(out.stdout.is_empty(), "nothing on stdout");
+
+    let out = store.candler(&["--error-format", "json", "--help"]);
+    assert_eq!(out.status.code(), Some(0));
+    assert!(
+        text_of(&out.stdout).contains("Commands:"),
+        "the help is on stdout"
+    );
+    assert!(out.stderr.is_empty(), "nothing on stderr");
 }

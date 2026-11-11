@@ -38,14 +38,16 @@ pub enum ShowFormat {
 /// Prints the outcomes or the rates.
 ///
 /// # Errors
-/// Returns [`CliError::Refused`] for an evaluator that is not `name@version`, [`CliError::Coded`]
-/// for a bare version or an absent evaluator that does not name one evaluator of the store, and
-/// [`CliError::Failed`] when the store cannot be read or the output cannot be
+/// Returns [`CliError::Coded`] for an evaluator that is not `name@version` and for a bare version
+/// or an absent evaluator that does not name one evaluator of the store, and [`CliError::Failed`] when the store cannot be read or the output cannot be
 /// written.
 pub async fn run(cli: &Cli, args: &ShowArgs) -> Result<Exit, CliError> {
+    let requested = args.evaluator.as_deref();
+    if let Some(text) = requested {
+        common::check_evaluator_text("--evaluator", text)?;
+    }
     let store = common::open_store("show", cli).await?;
     let selection = common::read_selection("show", &store)?;
-    let requested = args.evaluator.as_deref();
     let evaluator = if args.rates || requested.is_some() {
         Some(common::evaluator_of(&selection, "--evaluator", requested)?)
     } else {
