@@ -64,3 +64,24 @@ On the merged tip: G-text, G-digest, and G-codes against 8aad2c9 (1037 added, 0 
 | Implementer, round 2 (rebase, refusal, guard lists) | ~10 min | 390k |
 
 Token counts are the harness's per-call figures. Peak target dir was 3.8 GiB.
+
+## Follow-up merge: ingest_fix
+The same implementer fixed the defects this leaf left, on branch `m3/ingest_fix`, in two rounds (about 20 and 8 minutes). It was merged as `merge(cli): land ingest_fix` (30a64fb) after `refusal_late`.
+- **A results folder is recognised only by its root markers.** `PROVENANCE.json` and `expectations.jsonl` must sit at the path given. A raw trace directory that holds an unrelated `outputs/` directory is now ingested, not refused. Bite: the recursive `outputs/` check restored.
+- **Codes kept:**
+  - `diff` and `ingest` no longer flatten the coded rules and equivalence refusals;
+  - a rules file that does not parse is `config.import_rules_invalid` (side `config`), with the file named. TOML errors carry a span, not a pointer, so the record has no `path`;
+  - the text form is unchanged.
+- **Guards:**
+  - `i1_a_rules_file_that_does_not_parse_is_refused_with_its_code`;
+  - the `outputs/` rows in `guard_ingest.rs`;
+  - `guard_cli_diff_refusal.rs`.
+
+  `refusal_late`'s ingest fixture gained the two markers.
+- **Gates from eed99b7:**
+  - workspace nextest, 574 passed and 21 skipped;
+  - fmt, clippy, doc and LINUX;
+  - I1–I4, R1 and R2;
+  - G-codes (5 lines added) and G-text;
+  - `guard_golden` and `guard_oracle_ac`;
+  - `cog check`.
