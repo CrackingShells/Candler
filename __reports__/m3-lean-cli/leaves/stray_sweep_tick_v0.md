@@ -55,6 +55,9 @@ The guards were written before the code (the S4 file did not compile against the
 | S4 | the `status` cross-check skipped (`if true`) | `s4_cross_check_refuses_when_stat_and_status_disagree_on_every_read`, `s4_cross_check_accepts_...` |
 | S4 | re-read loop cut to one read | `s4_cross_check_accepts_a_disagreement_that_clears_on_a_reread`, `s4_cross_check_refuses_...` (it counts the reads) |
 | S4 | re-read loop left unbounded (`loop`) | `s4_cross_check_refuses_when_stat_and_status_disagree_on_every_read` (the reader fails the test past its limit instead of hanging) |
+| S4 | the group term of the cross-check deleted (`status.group.is_none_or(..)`) | `s4_cross_check_refuses_a_group_that_stat_and_status_disagree_on`, `s4_cross_check_accepts_a_group_disagreement_that_clears_on_a_reread` |
+| S4 | the pid check replaced by `if false` | `s4_cross_check_refuses_files_that_name_another_pid` |
+| S4 | `status` unreadable or unparseable answered from `stat` alone | `s4_cross_check_refuses_when_status_cannot_be_read_or_parsed` |
 
 ## Notes for the coordinator
 
