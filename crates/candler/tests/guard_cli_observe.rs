@@ -37,6 +37,7 @@ use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::events::JobEvents;
 use candler_core::jobs::lock::{JobLock, LockState};
 use candler_core::jobs::model::JobSpec;
+use candler_core::jobs::runtime::session::SPEC_FILE;
 use candler_core::resolve::layers::Resolution;
 use candler_core::runner::plan::experiment_of;
 use candler_core::store::Store;
@@ -736,3 +737,107 @@ fn o3_live_on_a_pipe_prints_plain_lines_and_no_escape_byte() {
     );
 }
 
+/// Guards: O3 — `candler ps` prints each row's four fields as before and a fifth, last, with no
+/// space in it: `experiment:` and the first 12 hex of the experiment digest for a job whose spec
+/// file is a run spec, and `-` for a job with no spec file or one that is not a spec. Oracle: job
+/// directories built by the test; the digest `experiment_of` gives for the spec it wrote, and the
+/// four earlier fields as hand-written text. The `suite:` form needs the evaluate arm of
+/// `JobSpecFile`, which `evaluate_body` adds, so it has no row here. Bite: a row with no fifth
+/// field; the four earlier fields moved.
+#[test]
+fn o3_ps_shows_the_experiment_or_the_suite() {
+    let world = world();
+    let models = Models::start(TOKEN);
+    let out = resolve(&world, &models.url(), &["--json"], Some(TOKEN));
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+    let resolution: Resolution = serde_json::from_slice(&out.stdout).unwrap();
+    let file =
+        ExperimentFile::from_toml_str(&fs::read_to_string(&world.experiment).unwrap()).unwrap();
+    let spec = JobSpec {
+        experiment: file.clone(),
+        resolution: resolution.clone(),
+        plans: Vec::new(),
+        budget: file.budget().clone(),
+        force: false,
+        inputs: Vec::new(),
+        evaluation_inputs: Vec::new(),
+    };
+    let digest = experiment_of(&file, &resolution).unwrap();
+    let expected = format!("experiment:{}", &digest.hex()[..12]);
+
+    let store = world.root.join("jobs-store");
+    let run_job = "01890000-0000-7000-8000-0000000000b1";
+    let bad_job = "01890000-0000-7000-8000-0000000000b2";
+    let none_job = "01890000-0000-7000-8000-0000000000b3";
+    let dir = job_in(&store, run_job, None);
+    fs::write(
+        dir.path().join(SPEC_FILE),
+        serde_json::to_vec(&spec).unwrap(),
+    )
+    .unwrap();
+    let dir = job_in(&store, bad_job, None);
+    fs::write(dir.path().join(SPEC_FILE), "not a spec").unwrap();
+    job_in(&store, none_job, None);
+
+    let out = candler(&store, &["ps"], &[]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+    let rows: Vec<Vec<String>> = text(&out.stdout)
+        .lines()
+        .map(|l| l.split('\t').map(str::to_owned).collect())
+        .collect();
+    assert_eq!(rows.len(), 3, "{}", text(&out.stdout));
+    for (row, (id, what)) in rows.iter().zip([
+        (run_job, expected.as_str()),
+        (bad_job, "-"),
+        (none_job, "-"),
+    ]) {
+        assert_eq!(row.len(), 5, "five fields: {row:?}");
+        assert_eq!(row[0], id);
+        assert!(row[1].starts_with("sha256:"), "{row:?}");
+        assert_eq!(row[2], "ended (completed)");
+        assert_eq!(row[3], "0/0");
+        assert_eq!(row[4], what);
+    }
+    drop(models);
+    world.remove();
+}
+
+/// Guards: O3 — a job `candler run` starts keeps `spec.json` in its directory once it has started,
+/// and the file holds the secret by name only: a value planted in the caller's environment is in
+/// no byte of it. Oracle: the secret's planted value and a byte search of the file the real
+/// supervisor wrote. Bite: the supervisor writing the resolved environment, or a secrets map with
+/// values, into the file.
+#[test]
+fn o3_launched_job_spec_json_holds_no_secret_value() {
+    let world = world();
+    let out = world.launch();
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    let id: JobId = text(&out.stdout).trim().parse().unwrap();
+    let dir = JobDir::open(&StoreLayout::new(&world.store()), &id).unwrap();
+    let spec = dir.path().join(SPEC_FILE);
+    assert!(
+        wait_for(Duration::from_secs(60), || spec.is_file()),
+        "no spec.json in {}",
+        dir.path().display()
+    );
+    let bytes = fs::read(&spec).unwrap();
+    let body = text(&bytes);
+    assert!(body.contains(SECRET_NAME), "the secret appears by name");
+    assert!(
+        !body.contains("fixture-token-0123456789"),
+        "a secret value is in spec.json"
+    );
+    let parsed: Result<JobSpec, _> = serde_json::from_slice(&bytes);
+    assert!(parsed.is_ok(), "spec.json is the spec the launcher sent");
+    let events = dir.path().join("events.jsonl");
+    let ended = wait_for(Duration::from_secs(90), || {
+        fs::read_to_string(&events).is_ok_and(|log| log.contains("job.ended"))
+            && JobLock::probe(&dir).unwrap() == LockState::Free
+    });
+    assert!(
+        ended,
+        "the job ends and releases its lock\n{}",
+        world.calls()
+    );
+    world.remove();
+}

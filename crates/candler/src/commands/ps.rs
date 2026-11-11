@@ -12,8 +12,10 @@ use std::path::Path;
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::events::{JobEvents, TailPos};
 use candler_core::jobs::lost::{self, JobLiveness, RecoverOutcome, RecoverReport};
+use candler_core::jobs::model::JobSpecFile;
 use candler_core::jobs::runtime::detach::START_DEADLINE;
-use candler_core::jobs::runtime::session::recover_job_dir;
+use candler_core::jobs::runtime::session::{SPEC_FILE, recover_job_dir};
+use candler_core::runner::plan::experiment_of;
 use candler_core::store::layout::StoreLayout;
 use candler_schemas::execution::{EventPayload, JobEnd};
 use candler_schemas::primitives::{JobId, RunKey};
@@ -35,8 +37,37 @@ pub struct Row {
     pub state: String,
     /// `<runs ended>/<runs started>`.
     pub progress: String,
+    /// What the job runs, the last field with no space in it: `experiment:<12 hex of the
+    /// experiment digest>`, `suite:<file name>`, or `-` when the job has no readable spec file.
+    pub what: String,
     /// Whether the row reports a failure, which makes the command exit non-zero.
     pub failed: bool,
+}
+
+/// How many hex digits of the experiment digest a row shows.
+const SHORT: usize = 12;
+
+/// What the job of `dir` runs, read from the spec file the supervisor keeps in the job directory.
+/// A job with no file, or one that does not read as a spec, shows `-`.
+fn what_of(dir: &JobDir) -> String {
+    let none = || "-".to_owned(); // BORROW: the row owns its text
+    let Ok(bytes) = std::fs::read(dir.path().join(SPEC_FILE)) else {
+        return none();
+    };
+    let Ok(file) = serde_json::from_slice::<JobSpecFile>(&bytes) else {
+        return none();
+    };
+    match file {
+        JobSpecFile::Run(spec) => experiment_of(&spec.experiment, &spec.resolution).map_or_else(
+            |_| none(),
+            |digest| {
+                format!(
+                    "experiment:{}",
+                    digest.hex().chars().take(SHORT).collect::<String>()
+                )
+            },
+        ),
+    }
 }
 
 /// What a recovery left, as the text a row or a message shows, and whether it is a failure.
@@ -116,6 +147,7 @@ async fn row_of(store: &StoreLayout, name: &str, path: &Path) -> Row {
         spec: "-".to_owned(), // BORROW: the row owns its text
         state: format!("unreadable {}: {detail}", path.display()),
         progress: "-".to_owned(), // BORROW: the row owns its text
+        what: "-".to_owned(),     // BORROW: the row owns its text
         failed: true,
     };
     let Ok(id) = name.parse::<JobId>() else {
@@ -156,6 +188,7 @@ async fn row_of(store: &StoreLayout, name: &str, path: &Path) -> Row {
         spec: record.spec_digest().to_string(),
         state,
         progress: progress_of(&dir),
+        what: what_of(&dir),
         failed,
     }
 }
@@ -197,7 +230,7 @@ pub async fn render(store: Option<&Path>, out: &mut dyn Write) -> Result<bool, C
     Ok(rows.iter().any(|row| row.failed))
 }
 
-/// Writes one line per row: id, spec digest, state, progress.
+/// Writes one line per row: id, spec digest, state, progress and what the job runs.
 ///
 /// # Errors
 /// The write error of `out`.
@@ -206,8 +239,12 @@ pub fn render_rows(rows: &[Row], out: &mut dyn Write) -> io::Result<()> {
     for row in rows {
         writeln!(
             out,
-            "{}\t{}\t{}\t{}",
-            row.id, row.spec, row.state, row.progress
+            "{}\t{}\t{}\t{}\t{}",
+            row.id,
+            row.spec,
+            row.state,
+            row.progress,
+            row.what.split_whitespace().collect::<Vec<_>>().join("_")
         )?;
     }
     Ok(())

@@ -21,7 +21,7 @@ use crate::isolation::container::guard::ContainerGuard;
 use crate::isolation::container::sweeper::LabelSweeper;
 use crate::isolation::docker::{ClientEnv, DockerCli};
 use crate::isolation::driver::DockerDriver;
-use crate::jobs::dir::{JobDir, JobError};
+use crate::jobs::dir::{JobDir, JobError, write_atomic};
 use crate::jobs::events::JobEvents;
 use crate::jobs::lock::JobLock;
 use crate::jobs::lost::{self, JobLiveness, RecoverReport};
@@ -40,6 +40,8 @@ const SWEEP_LIMIT: Duration = Duration::from_mins(2);
 const ZOMBIE_TICK: Duration = Duration::from_millis(250);
 /// The record file of a job.
 const RECORD_FILE: &str = "job.json";
+/// The spec file of a job: the verified bytes the supervisor was started with.
+pub const SPEC_FILE: &str = "spec.json";
 
 fn session_error(detail: &impl ToString) -> RuntimeError {
     RuntimeError::Session {
@@ -122,7 +124,9 @@ pub fn read_spec(job_dir: &Path, mut stdin: impl Read) -> Result<JobSpec, Runtim
             record.spec_digest()
         )));
     }
-    serde_json::from_slice(&bytes).map_err(|e| refused(e.to_string()))
+    let spec = serde_json::from_slice(&bytes).map_err(|e| refused(e.to_string()))?;
+    write_atomic(&job_dir.join(SPEC_FILE), &bytes).map_err(|e| refused(e.to_string()))?;
+    Ok(spec)
 }
 
 /// Recovers the lost job of `dir`, reporting to that job's own log and through a supervisor of
