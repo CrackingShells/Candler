@@ -186,3 +186,57 @@ path = "README.md"
 source = "hand-written"
 sha256 = "08ad28866c3b0f31916c4d26f38cf3e712e4f3350c89e0f5ab4a66bde3424ee5"
 synthetic = false
+
+[[files]]
+path = "sessions/PROVENANCE.toml"
+source = "hand-written"
+sha256 = "56b49b84f37f9794667d2472833dcc3a168f4d5fe22fff11f6bfa346ad395769"
+synthetic = false
+
+[[files]]
+path = "sessions/c1/expected.toml"
+source = "hand-written"
+sha256 = "719f7f0ef37592225f92d073646b5218031345635953905f2cc69446ae9eadce"
+synthetic = false
+
+[[files]]
+path = "sessions/c1/hooks.jsonl"
+source = "recorded: Claude Code 2.1.311 against assets/docker/fakemodel, see sessions/PROVENANCE.toml"
+sha256 = "3097ceae14536a8179a32bd2419dffb4b8c90a25dbecc2e842102ba42872c865"
+synthetic = false
+
+[[files]]
+path = "sessions/c1/stdout.jsonl"
+source = "recorded: Claude Code 2.1.311 against assets/docker/fakemodel, see sessions/PROVENANCE.toml"
+sha256 = "a0631537d466e477eeab9a066488e806d3baf57b9afd9882399cc7d2c5b725c3"
+synthetic = false
+
+[[files]]
+path = "sessions/c1/timings.toml"
+source = "recorded: Claude Code 2.1.311 against assets/docker/fakemodel, see sessions/PROVENANCE.toml"
+sha256 = "da722458d6fddb9ac8ec8ab352fc9efb90e32b5e952ab17d1a349cda99bdbd31"
+synthetic = false
+
+[[files]]
+path = "sessions/c2/expected.toml"
+source = "hand-written"
+sha256 = "79a2ec664bf4d29f25058b14bffaaa9d23f812a81eb0050dd4fc771764a72c9e"
+synthetic = false
+
+[[files]]
+path = "sessions/c2/hooks.jsonl"
+source = "recorded: Claude Code 2.1.311 against assets/docker/fakemodel, see sessions/PROVENANCE.toml"
+sha256 = "9152f35ac2d61319faf0b3d9f3dc77ac93377c52b1c8834ef2b8d02572c23ffa"
+synthetic = false
+
+[[files]]
+path = "sessions/c2/stdout.jsonl"
+source = "recorded: Claude Code 2.1.311 against assets/docker/fakemodel, see sessions/PROVENANCE.toml"
+sha256 = "e0af6fa50bcbfdc173aef7333c81712093cd379c280b1c8a2f8dc3e95dedac72"
+synthetic = false
+
+[[files]]
+path = "sessions/c2/timings.toml"
+source = "recorded: Claude Code 2.1.311 against assets/docker/fakemodel, see sessions/PROVENANCE.toml"
+sha256 = "e1fd828f6621aeb731ea1564b9dfe7a16bb2e2de7a3c31612925220c11bf4600"
+synthetic = false
