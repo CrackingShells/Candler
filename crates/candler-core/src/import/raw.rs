@@ -55,7 +55,7 @@ pub enum RawIngestError {
     },
     /// The path is a legacy results folder, which needs import rules.
     #[error(
-        "`{path}` is a legacy results folder (it holds `outputs/` directories); give `--rules` to import it"
+        "`{path}` is a legacy results folder (it holds `PROVENANCE.json` and `expectations.jsonl`); give `--rules` to import it"
     )]
     RulesRequired {
         /// The path that was ingested.
@@ -374,15 +374,14 @@ fn walk(
     Ok(())
 }
 
-/// Whether a directory named `outputs`, which the legacy importer requires of every run, is under `dir`; links are not followed.
-fn holds_outputs_dir(dir: &Path) -> bool {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return false;
-    };
-    entries.filter_map(Result::ok).any(|entry| {
-        entry.file_type().is_ok_and(|kind| kind.is_dir())
-            && (entry.file_name() == "outputs" || holds_outputs_dir(entry.path().as_path())) // BORROW: explicit .as_path()
-    })
+/// Whether `dir` is a legacy results folder: it holds, at its root, the two files the legacy importer requires there, `PROVENANCE.json` and `expectations.jsonl`.
+///
+/// Nothing deeper is looked at, so a raw trace directory that holds an unrelated `outputs/`
+/// directory, or an unrelated `expectations.jsonl` alone, is not taken for one.
+fn is_results_folder(dir: &Path) -> bool {
+    ["PROVENANCE.json", "expectations.jsonl"]
+        .iter()
+        .all(|name| dir.join(name).is_file())
 }
 
 /// Finds the streams under `path`: a directory is walked recursively in name order and never through a link, a file is a directory of one.
@@ -802,7 +801,7 @@ pub fn ingest_raw(
     recognise: &Recogniser,
     readers: &ReaderFactory,
 ) -> Result<RawReport, RawIngestError> {
-    if holds_outputs_dir(path) {
+    if is_results_folder(path) {
         return Err(RawIngestError::RulesRequired {
             path: path.display().to_string(),
         });
