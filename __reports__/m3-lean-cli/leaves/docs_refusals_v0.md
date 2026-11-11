@@ -127,3 +127,6 @@ The last two rows live in the schemas crate, whose `refusal_impls.rs` is the cat
 - An invalid `describe` result prints "no answer within 30000 ms", which misleads.
 - Candler could refuse a `deadline_ms` above 2^53 - 1 at the suite check, instead of the helper.
 - The OWNED gate's regex lacks `__reports__/`; I ran it over the code commits.
+
+### Rebase onto cli_surface
+Rebased onto 3c61726 with no conflict. The nine new `[cli]` rows enter through the binary's table, the `cli` surface is in the surface table, and the index was re-blessed; D3 named `cli.usage_invalid` before the bless, as expected.
