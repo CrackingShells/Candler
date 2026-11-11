@@ -13,7 +13,7 @@
 - ⬜ [cmd] R1 every enum is coded or internal: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^r1_/)'`
 - ⬜ [cmd] R2 `--error-format json`: `cargo nextest run -p candler --no-tests=fail -E 'test(/^r2_/)'`
 - ⬜ [cmd] R3 the two follow-ups: `cargo nextest run -p candler --no-tests=fail -E 'test(/^r3_/)'`
-- ⬜ [cmd] G-codes: `git diff --numstat a26fe53 -- docs/contract/codes.toml | awk '$2!=0{b=1}END{exit b}'`
+- ⬜ [cmd] G-codes: `git diff --numstat <base>..HEAD -- docs/contract/codes.toml | awk '$2!=0{b=1}END{exit b}'`
 - ⬜ [cmd] G-text: no row of an existing CLI guard is edited or deleted: `git diff --numstat a26fe53 -- 'crates/candler/tests/guard_cli*.rs' | awk '$2!=0{b=1}END{exit b}'`. The text form of every error is unchanged when `--error-format` is absent
 - ⬜ [cmd] No wildcard decides a code: `! git grep -n -E '_ =>' -- 'crates/*/src/**/refusal.rs'`
 - ⬜ [cmd] No schemas change: `git diff --quiet <base>..HEAD -- crates/candler-schemas`

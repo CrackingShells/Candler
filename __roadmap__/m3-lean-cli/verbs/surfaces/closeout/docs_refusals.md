@@ -13,7 +13,7 @@
 - ⬜ [cmd] D1 holds with the filled sections, and D2 with the notes: `cargo nextest run -p candler --no-tests=fail -E 'test(/^d1_/)|test(/^d2_/)'` and `CANDLER_BLESS_CONTRACT=1 cargo nextest run -p candler --no-tests=fail -E 'binary(contract_pages)' && test -z "$(git status --porcelain docs/contract)"`
 - ⬜ [cmd] D3 codes on pages: `cargo nextest run -p candler --no-tests=fail -E 'test(/^d3_/)'`
 - ⬜ [cmd] D4, the helper half (pytest): `(cd python/candler-evaluator && uv run --frozen pytest -q -k d4_ tests/test_guard_codes.py)`, then the whole helper suite, lint and format: `(cd python/candler-evaluator && uv run --frozen pytest -q && uv run --frozen ruff check && uv run --frozen ruff format --check)`
-- ⬜ [cmd] G-codes: `git diff --numstat a26fe53 -- docs/contract/codes.toml | awk '$2!=0{b=1}END{exit b}'`
+- ⬜ [cmd] G-codes: `git diff --numstat <base>..HEAD -- docs/contract/codes.toml | awk '$2!=0{b=1}END{exit b}'`
 - ⬜ [cmd] The helper raises a coded error or a listed standard one only: `! git grep -n -E '^\s*raise (RuntimeError|ValueError|TypeError)\(' -- 'python/candler-evaluator/src/candler_evaluator/{plugin,frames,identity,loop}.py'` (the allowlist is the test's, one line each, with a reason)
 - ⬜ [cmd] No development process in the pages: `! grep -n -i -E 'milestone|roadmap|amendment|leaf|campaign|\bM[0-9]\b|\bA5\b' docs/contract/*.md`
 - ⬜ [cmd] If the driver page exists, the generator covers it: `if test -f docs/contract/driver-traits.md; then CANDLER_BLESS_CONTRACT=1 cargo nextest run -p candler --no-tests=fail -E 'binary(contract_pages)' && test -z "$(git status --porcelain docs/contract)"; fi`

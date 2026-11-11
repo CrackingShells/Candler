@@ -11,7 +11,7 @@
 - ⬜ [cmd] OWNED: `test -z "$(git diff --name-only <base>..HEAD | grep -vE '^(crates/candler-core/src/(refusal\.rs|(jobs|evaluation|import|manifest|trace)/(mod|refusal)\.rs)|crates/candler-core/tests/guard_refusal_codes\.rs|crates/candler/tests/guard_cli_refusal\.rs|docs/contract/codes\.toml$)')"`, `<base>` being the leaf's branch point; a further `<module>/refusal.rs` and its `mod` line are allowed for an enum of M4's that the tsv gives to this leaf
 - ⬜ [cmd] R1 with an empty pending list: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^r1_/)'`, and `! git grep -n -i 'pending' -- crates/candler-core/tests/guard_refusal_codes.rs` (no enum is left waiting)
 - ⬜ [cmd] R2 with every row live: `cargo nextest run -p candler --no-tests=fail -E 'test(/^r2_/)'`, and no row is on a pending list in `crates/candler/tests/guard_cli_refusal.rs`
-- ⬜ [cmd] G-codes: `git diff --numstat a26fe53 -- docs/contract/codes.toml | awk '$2!=0{b=1}END{exit b}'`
+- ⬜ [cmd] G-codes: `git diff --numstat <base>..HEAD -- docs/contract/codes.toml | awk '$2!=0{b=1}END{exit b}'`
 - ⬜ [cmd] G-text: `git diff --numstat a26fe53 -- 'crates/candler/tests/guard_cli*.rs' | awk '$2!=0{b=1}END{exit b}'`. The text of every error is unchanged under `--error-format text`
 - ⬜ [cmd] No wildcard decides a code: `! git grep -n -E '_ =>' -- 'crates/*/src/**/refusal.rs'`
 - ⬜ [cmd] Every enum the oracle assigns to a leaf is in the catalog: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^r1_every_variant_code_equals_its_row/)'`

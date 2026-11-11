@@ -15,7 +15,7 @@
 - ⬜ [cmd] `trace.rs` untouched: `git diff --quiet <base>..HEAD -- crates/candler-schemas/src/trace.rs`
 - ⬜ [cmd] No `#[error(` line of the schemas' sources is edited or deleted, so no CLI text moves (G-text): `! git diff -U0 <base>..HEAD -- ':(glob)crates/candler-schemas/src/**' | grep -E '^-[^-].*#\[error\('`
 - ⬜ [cmd] C1 record: `cargo nextest run -p candler-schemas --no-tests=fail -E 'test(/^c1_/)'`
-- ⬜ [cmd] C2 ★ codes stay stable: `cargo nextest run -p candler-schemas --no-tests=fail -E 'test(/^c2_/)'`, and G-codes: `git diff --numstat a26fe53 -- docs/contract/codes.toml | awk '$2!=0{b=1}END{exit b}'`
+- ⬜ [cmd] C2 ★ codes stay stable: `cargo nextest run -p candler-schemas --no-tests=fail -E 'test(/^c2_/)'`, and G-codes: `git diff --numstat <base>..HEAD -- docs/contract/codes.toml | awk '$2!=0{b=1}END{exit b}'`
 - ⬜ [cmd] C3 pointers: `cargo nextest run -p candler-schemas --no-tests=fail -E 'test(/^c3_/)'`
 - ⬜ [cmd] C5 and C6, the P2 and P6 additions: `cargo nextest run -p candler-schemas --no-tests=fail -E 'test(/^c5_/) | test(/^c6_/)'`, and `jq -e '."$defs".ImportRecord.required | (index("base_commit") or index("legacy_integrity")) | not' crates/candler-schemas/schema/run-manifest.schema.json`
 - ⬜ [cmd] C4 field classes: `cargo nextest run -p candler-schemas --no-tests=fail -E 'test(/^c4_/)'`, and the keyword is declared only where D4 allows: `jq -e '[.. | objects | ."x-candler-class"? | select(. != null)] | all(. == "candler" or . == "free")' crates/candler-schemas/schema/*.schema.json && test -z "$(git grep -l 'x-candler-class' -- crates/candler-schemas/schema | grep -vE '/(plugin-manifest|suite|experiment|outcome-record|evaluator-(describe-result|evaluate-params|message|notification|request-side))\.schema\.json$')"`
