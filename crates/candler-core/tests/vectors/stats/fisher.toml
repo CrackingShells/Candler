@@ -4,6 +4,11 @@ statsmodels = "0.15.0"
 python = "3.12.12"
 tie_tolerance = 1e-14
 
+[ties]
+lower = 1e-14
+upper = 1e-07
+near_ties = 0
+
 [[rows]]
 k1 = 0
 n1 = 1
@@ -4554,4 +4559,196 @@ n1 = 20
 k2 = 2
 n2 = 30
 p = 1.1864522519611216e-07
+tie = false
+
+[[rows]]
+k1 = 0
+n1 = 26
+k2 = 1
+n2 = 26
+p = 1.0
+tie = false
+
+[[rows]]
+k1 = 1
+n1 = 26
+k2 = 0
+n2 = 26
+p = 1.0
+tie = true
+
+[[rows]]
+k1 = 1
+n1 = 26
+k2 = 2
+n2 = 26
+p = 1.0
+tie = false
+
+[[rows]]
+k1 = 2
+n1 = 26
+k2 = 1
+n2 = 26
+p = 1.0
+tie = false
+
+[[rows]]
+k1 = 2
+n1 = 26
+k2 = 3
+n2 = 26
+p = 1.0
+tie = false
+
+[[rows]]
+k1 = 3
+n1 = 26
+k2 = 2
+n2 = 26
+p = 1.0
+tie = true
+
+[[rows]]
+k1 = 5
+n1 = 26
+k2 = 8
+n2 = 26
+p = 0.5230171333809104
+tie = false
+
+[[rows]]
+k1 = 8
+n1 = 26
+k2 = 5
+n2 = 26
+p = 0.5230171333809104
+tie = false
+
+[[rows]]
+k1 = 0
+n1 = 40
+k2 = 1
+n2 = 40
+p = 1.0
+tie = false
+
+[[rows]]
+k1 = 1
+n1 = 40
+k2 = 0
+n2 = 40
+p = 1.0
+tie = false
+
+[[rows]]
+k1 = 1
+n1 = 40
+k2 = 2
+n2 = 40
+p = 1.0
+tie = true
+
+[[rows]]
+k1 = 2
+n1 = 40
+k2 = 1
+n2 = 40
+p = 1.0
+tie = false
+
+[[rows]]
+k1 = 2
+n1 = 40
+k2 = 3
+n2 = 40
+p = 1.0
+tie = false
+
+[[rows]]
+k1 = 3
+n1 = 40
+k2 = 2
+n2 = 40
+p = 1.0
+tie = false
+
+[[rows]]
+k1 = 5
+n1 = 40
+k2 = 8
+n2 = 40
+p = 0.5458405092385874
+tie = false
+
+[[rows]]
+k1 = 8
+n1 = 40
+k2 = 5
+n2 = 40
+p = 0.5458405092385874
+tie = false
+
+[[rows]]
+k1 = 0
+n1 = 60
+k2 = 1
+n2 = 60
+p = 1.0
+tie = true
+
+[[rows]]
+k1 = 1
+n1 = 60
+k2 = 0
+n2 = 60
+p = 1.0
+tie = false
+
+[[rows]]
+k1 = 1
+n1 = 60
+k2 = 2
+n2 = 60
+p = 1.0
+tie = false
+
+[[rows]]
+k1 = 2
+n1 = 60
+k2 = 1
+n2 = 60
+p = 1.0
+tie = true
+
+[[rows]]
+k1 = 2
+n1 = 60
+k2 = 3
+n2 = 60
+p = 1.0
+tie = true
+
+[[rows]]
+k1 = 3
+n1 = 60
+k2 = 2
+n2 = 60
+p = 1.0
+tie = false
+
+[[rows]]
+k1 = 5
+n1 = 60
+k2 = 8
+n2 = 60
+p = 0.5584950739025316
+tie = false
+
+[[rows]]
+k1 = 8
+n1 = 60
+k2 = 5
+n2 = 60
+p = 0.5584950739025316
 tie = false

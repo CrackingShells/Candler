@@ -15,6 +15,7 @@ differing row.
 """
 
 import argparse
+from fractions import Fraction
 import inspect
 import math
 import platform
@@ -94,6 +95,30 @@ def fisher_p(k1: int, n1: int, k2: int, n2: int) -> float:
     return float(fisher_exact([[k1, n1 - k1], [k2, n2 - k2]], alternative="two-sided").pvalue)
 
 
+NEAR_LOWER = Fraction(1, 10**14)
+NEAR_UPPER = Fraction(1, 10**7)
+
+
+def near_ties(cells) -> int:
+    """Pairs of tables, over the margins the grid compares, whose exact probabilities differ
+    relatively by more than 1e-14 and less than 1e-7: the pairs on which a tie tolerance between
+    those two bounds would decide differently from scipy's. Exact rationals, no float."""
+    margins = {(n1, n2, k1 + k2) for k1, n1, k2, n2 in cells}
+    count = 0
+    for n1, n2, big_k in sorted(margins):
+        big_n = n1 + n2
+        lo, hi = max(0, n1 + big_k - big_n), min(n1, big_k)
+        total = math.comb(big_n, n1)
+        pmf = [Fraction(math.comb(big_k, x) * math.comb(big_n - big_k, n1 - x), total)
+               for x in range(lo, hi + 1)]
+        for i, a in enumerate(pmf):
+            for b in pmf[i + 1:]:
+                relative = abs(a - b) / max(a, b)
+                if NEAR_LOWER < relative < NEAR_UPPER:
+                    count += 1
+    return count
+
+
 def make_fisher() -> dict:
     cells = []
     for n1 in (1, 3, 5, 10):
@@ -105,6 +130,36 @@ def make_fisher() -> dict:
     for _ in range(40):
         n1, n2 = rng.choice((20, 30)), rng.choice((20, 30))
         cells.append((rng.randint(0, n1), n1, rng.randint(0, n2), n2))
+    # Equal arms make mirror tables equally likely; at these sizes a float implementation that
+    # computes the two probabilities separately can differ in the last bits, which is what the
+    # tie tolerance is for.
+    for n, k1, k2 in (
+        (26, 0, 1),
+        (26, 1, 0),
+        (26, 1, 2),
+        (26, 2, 1),
+        (26, 2, 3),
+        (26, 3, 2),
+        (26, 5, 8),
+        (26, 8, 5),
+        (40, 0, 1),
+        (40, 1, 0),
+        (40, 1, 2),
+        (40, 2, 1),
+        (40, 2, 3),
+        (40, 3, 2),
+        (40, 5, 8),
+        (40, 8, 5),
+        (60, 0, 1),
+        (60, 1, 0),
+        (60, 1, 2),
+        (60, 2, 1),
+        (60, 2, 3),
+        (60, 3, 2),
+        (60, 5, 8),
+        (60, 8, 5),
+    ):
+        cells.append((k1, n, k2, n))
     rows = []
     for k1, n1, k2, n2 in cells:
         p = fisher_p(k1, n1, k2, n2)
@@ -114,7 +169,8 @@ def make_fisher() -> dict:
     ties = sum(1 for row in rows if row["tie"])
     if ties < 5:
         sys.exit(f"gen_stats: only {ties} tie rows; at least 5 are required")
-    return {"engine": engine(with_tie=True), "rows": rows}
+    ties = {"lower": float(NEAR_LOWER), "upper": float(NEAR_UPPER), "near_ties": near_ties(cells)}
+    return {"engine": engine(with_tie=True), "ties": ties, "rows": rows}
 
 
 # ---- newcombe -----------------------------------------------------------------------------
@@ -242,6 +298,10 @@ def scalar(value) -> str:
 def render(doc: dict) -> str:
     lines = ["[engine]"]
     lines += [f"{key} = {scalar(value)}" for key, value in doc["engine"].items()]
+    if "ties" in doc:
+        lines.append("")
+        lines.append("[ties]")
+        lines += [f"{key} = {scalar(value)}" for key, value in doc["ties"].items()]
     for row in doc["rows"]:
         lines.append("")
         lines.append("[[rows]]")
@@ -266,6 +326,8 @@ def differs(a, b) -> bool:
         return not math.isclose(a, b, rel_tol=REL_TOL, abs_tol=ABS_TOL)
     if isinstance(a, list) and isinstance(b, list):
         return len(a) != len(b) or any(differs(x, y) for x, y in zip(a, b))
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() != b.keys() or any(differs(a[k], b[k]) for k in a)
     return a != b
 
 
@@ -281,6 +343,9 @@ def check() -> int:
             if key == "tie_tolerance" and differs(value, stored["engine"].get(key)):
                 print(f"{name}: engine tie_tolerance {stored['engine'].get(key)} != {value}")
                 return 1
+        if differs(fresh.get("ties"), stored.get("ties")):
+            print(f"{name}: [ties] stored {stored.get('ties')}, regenerated {fresh.get('ties')}")
+            return 1
         if len(fresh["rows"]) != len(stored["rows"]):
             print(f"{name}: {len(stored['rows'])} stored rows, {len(fresh['rows'])} regenerated")
             return 1
