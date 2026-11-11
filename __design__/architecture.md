@@ -737,7 +737,9 @@ host?, job?, integrity, import?, evaluation_inputs[]?}`.
   snapshots[], inputs[], environments[]}`: every resolved value by field path (isolation under
   `isolation.*`), the harness, the treatment reference (name, tag and commit), the catalog snapshot
   and input digests, and the plug-in environment lock digests. A value without `value` was
-  `unrecorded`. Every list is sorted and holds no duplicate; a reader refuses one that is not.
+  `unrecorded`. Every list rises strictly by its key, so it is sorted and holds no duplicate:
+  `values` by path, `snapshots` and `inputs` by kind then digest, `environments` by plug-in then
+  lock digest. A reader refuses a list that does not.
   `Comparable::from_resolved` builds it from the resolved values: the roots `harness`, `treatment`,
   `snapshots`, `inputs` and `environments` fill the typed fields, every other path goes to
   `values`. Operational settings (config keys, explicit paths) are resolved apart and never enter
@@ -753,9 +755,9 @@ host?, job?, integrity, import?, evaluation_inputs[]?}`.
   `[{path, sha256}]`, sorted by `path` and relative to the input's root (a file is a list of one
   entry, named by its file name), is a blob whose bytes are its RFC 8785 form, and the input's
   digest is that blob's key, so any language recomputes it. `comparable.inputs[]` holds one
-  `{kind, digest}` for each build input and each agent input, sorted by kind. An input for the
-  evaluators is in `evaluation_inputs[] {kind, digest}`, sorted by kind and digest, outside the
-  hash, and its blobs are in the store. What the agent's container can see (the argv, the mounts,
+  `{kind, digest}` for each build input and each agent input, sorted by kind then digest (an
+  imported run may repeat a kind). An input for the evaluators is in `evaluation_inputs[] {kind,
+  digest}`, sorted by kind and digest, outside the hash, and its blobs are in the store. What the agent's container can see (the argv, the mounts,
   the workspace, `tree.json` and `comparable`) never names it. The job record may hold its
   `{kind, digest}`, never its content, and the job directory is never mounted. The mount
   points of agent inputs are not outputs, and an output that matches an input only by being empty
