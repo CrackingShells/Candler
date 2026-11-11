@@ -5,6 +5,7 @@ pub mod diff;
 pub mod evaluate;
 pub mod import;
 pub mod kill;
+pub mod preflight;
 pub mod ps;
 pub mod run;
 pub mod show;
