@@ -32,7 +32,7 @@ graph TD
     analyze[Analyze]:::planned
     observe[Observe]:::done
     ingest_inspect[Ingest and inspect]:::planned
-    docs_frame[Docs frame]:::planned
+    docs_frame[Docs frame]:::done
     design_record[Design record]:::done
     surfaces[Surfaces]:::planned
     classDef done       fill:#166534,color:#bbf7d0
@@ -50,7 +50,7 @@ graph TD
 | `analyze.md` | 📄 Leaf Task | ⬜ Planned |
 | `observe.md` | 📄 Leaf Task | ✅ Done |
 | `ingest_inspect.md` | 📄 Leaf Task | ⬜ Planned |
-| `docs_frame.md` | 📄 Leaf Task | ⬜ Planned |
+| `docs_frame.md` | 📄 Leaf Task | ✅ Done |
 | `design_record.md` | 📄 Leaf Task | ✅ Done |
 | `surfaces/` | 📁 Directory | ⬜ Planned |
 

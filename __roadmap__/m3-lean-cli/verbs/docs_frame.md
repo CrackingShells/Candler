@@ -4,7 +4,7 @@
 **Pre-conditions**:
 - [ ] [cmd] The leaf's worktree is its own checkout: `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints the worktree path
 - [ ] [cmd] Phase 0 is in: `test -f docs/contract/codes.toml && test -f crates/candler/tests/guard_cli_surface.rs`
-- [ ] [cmd] The wire is in, and the schemas declare classes: `test -f crates/candler-schemas/src/refusal.rs && test -f crates/candler-schemas/tests/vectors/field_classes.toml && git grep -q 'x-candler-class' -- crates/candler-schemas/schema/experiment.schema.json crates/candler-schemas/schema/outcome-record.schema.json`
+- [ ] [cmd] The wire is in, and the schemas declare classes: `test -f crates/candler-schemas/src/refusal.rs && test -f crates/candler-schemas/tests/vectors/field_classes.toml && git grep -q 'x-candler-class' -- crates/candler-schemas/schema/suite.schema.json crates/candler-schemas/schema/evaluator-evaluate-params.schema.json`
 - [ ] [cmd] The manifests the index reads exist: `test -f crates/candler-schemas/Cargo.toml && test -f python/candler-evaluator/pyproject.toml && grep -q '^version' Cargo.toml`
 - [ ] [nl] OWNED: `crates/candler/tests/contract_pages.rs`, `crates/candler/tests/support/contract_pages/**`, `docs/contract/*.md` (never `codes.toml`, and never `driver-traits.md`, which M4 writes by hand), `CONTRIBUTING.md` (the new §Contract pages only), `scripts/contract_versions.py`. No `Cargo.toml`, no `Cargo.lock`, no schema file
 **Success Gates**:
