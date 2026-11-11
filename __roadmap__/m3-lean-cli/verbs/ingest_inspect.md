@@ -27,7 +27,7 @@
   - I3: `inspect` needing a flag to find the store of a run directory;
   - I4: a partial run sealed (the seal written before the trace); a duplicate run on resume (the key taken from the count of runs seen, not from the content).
   The report also records P2's answer and the branch taken
-- ⬜ [nl] The behaviour ruling for `import` becoming `ingest` (`feat(cli)!`, R10 §3) is given by the coordination session before this leaf merges. This leaf proposes keeping `import` as a hidden alias of `ingest` for results folders so that G-text holds (`guard_cli.rs` calls `import` and may not change); whether the commit still carries `!` is the ruling's call
+- ⬜ [nl] Ruled by the coordination session (2026-11-11): `import` stays a hidden alias of `ingest` for results folders, so G-text holds (`guard_cli.rs` calls `import` and may not change) and nothing breaks. The commit is `feat(cli)`, with no `!`, and its body says the alias is kept and the old name hidden
 - ⬜ [nl] The coordinator reviews the seam with M4's `import/` once M4's changes are on `main` (codes ruled 2026-11-11: `RawIngestError`'s codes are `import.*`, written by `refusal_late`; this leaf writes no `codes.toml` row)
 **References**: [R01 §Operation API (`ingest`, `show`/`inspect`), §Raw traces, §Run store, §Error model (reader errors), §Invariants (I3, I11, I17)](../../../__design__/architecture.md); [R10 §0 (the `import.rs` rename ruling), §2 D1, §5 guards I1–I4](/Users/hacker/Library/Application%20Support/Claude/side-session-notes/local_7f577b41-1698-4eeb-9de3-4ee9460ae606/m3-approved-plan.md); campaign README §Gotchas (M4 overlap, Safety)
 
