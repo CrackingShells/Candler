@@ -1,9 +1,10 @@
 #![cfg(test)]
 #![cfg(unix)]
 //! Guards for the surface every verb of the `candler` binary shares: each verb has a row in the
-//! working-directory matrix or a place on its pending list, and each option's help ends with a
-//! stamp that says why the option exists. The binary is the real one; the verbs and options are
-//! read from its `--help`, so a verb or an option added later is found without editing the guards.
+//! working-directory matrix, each option's help ends with a stamp that says why the option exists,
+//! a copy of the binary runs outside its source tree, and `show` and `diff` take a bare version.
+//! The binary is the real one; the verbs and options are read from its `--help`, so a verb or an
+//! option added later is found without editing the guards.
 
 #[expect(
     dead_code,
@@ -11,6 +12,13 @@
 )]
 #[path = "support/cli_run.rs"]
 mod cli_run;
+
+#[expect(
+    dead_code,
+    reason = "this guard uses the helper's environment and its wait, not every helper"
+)]
+#[path = "support/seam.rs"]
+mod seam;
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -37,30 +45,6 @@ use serde_json::{Value, json};
 use tempfile::TempDir;
 
 use cli_run::{SECRET_NAME, World, wait_for, world};
-
-/// What `candler --help` lists as verbs and has no row for yet: each verb here works from a fixture
-/// world only. A leaf that makes a verb work from any directory moves it to [`MATRIX`].
-pub const PENDING_CWD: &[&str] = &[
-    "run", "watch", "ingest", "evaluate", "show", "diff", "resolve", "ls", "analyze", "inspect",
-];
-
-/// A verb and the arguments that run it, by a relative `--store`, on an empty directory.
-struct Row {
-    verb: &'static str,
-    args: &'static [&'static str],
-}
-
-/// The verbs that run from an unrelated directory with no world around them.
-const MATRIX: &[Row] = &[
-    Row {
-        verb: "ps",
-        args: &["--store", "store", "ps"],
-    },
-    Row {
-        verb: "kill",
-        args: &["--store", "store", "kill", "--all", "--yes"],
-    },
-];
 
 /// The two stamps an option's help may end with.
 const STAMPS: [&str; 2] = ["cannot be derived: ", "not an experiment setting: "];
@@ -156,64 +140,6 @@ fn ends_with_stamp(help: &str) -> bool {
         .rfind(". ")
         .map_or(help, |at| help.get(at + 2..).unwrap_or_default());
     STAMPS.iter().any(|stamp| last.starts_with(stamp))
-}
-
-/// Guards: U1 — every verb that `candler --help` lists has a row in the working-directory matrix
-/// or a place on `PENDING_CWD`, and no verb has both. Oracle: the `Commands:` block of the real
-/// binary's `--help`. Bite: a verb added to clap with neither row nor pending entry, or a pending
-/// entry removed, names the verb and fails; so does a row kept on the list after it has one.
-#[test]
-fn u1_every_verb_has_a_row() {
-    let listed = listed_verbs();
-    let rows: BTreeSet<String> = MATRIX.iter().map(|row| row.verb.to_owned()).collect();
-    let pending: BTreeSet<String> = PENDING_CWD.iter().map(|verb| (*verb).to_owned()).collect();
-    assert!(!listed.is_empty(), "the help lists no verb");
-    let both: Vec<_> = rows.intersection(&pending).collect();
-    assert!(
-        both.is_empty(),
-        "verbs with a row and a pending entry: {both:?}"
-    );
-    let covered: BTreeSet<String> = rows.union(&pending).cloned().collect();
-    assert_eq!(
-        covered, listed,
-        "the matrix and PENDING_CWD cover the listed verbs"
-    );
-}
-
-/// Guards: U1 — each verb with a row runs from a fresh directory, with `HOME` and the XDG
-/// variables inside it and a relative `--store`, exits 0 and leaves the directory empty. Oracle:
-/// the exit status and the directory listing of that run. Bite: a verb that reads the checkout it
-/// was built in, or writes beside the working directory, fails its row.
-#[test]
-fn u1_each_verb_runs_from_an_unrelated_directory() {
-    assert!(!MATRIX.is_empty(), "the matrix has no row");
-    for row in MATRIX {
-        let dir = TempDir::new().expect("a directory");
-        let home: &Path = dir.path();
-        let output = Command::new(env!("CARGO_BIN_EXE_candler"))
-            .args(row.args)
-            .current_dir(home)
-            .env_clear()
-            .env("PATH", "/usr/bin:/bin")
-            .env("HOME", home)
-            .env("XDG_CONFIG_HOME", home)
-            .env("XDG_DATA_HOME", home)
-            .env("XDG_STATE_HOME", home)
-            .env("XDG_CACHE_HOME", home)
-            .output()
-            .expect("the binary runs");
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(output.status.success(), "{}: {stderr}", row.verb);
-        let left: Vec<_> = std::fs::read_dir(home)
-            .expect("the directory lists")
-            .map(|entry| entry.expect("an entry").file_name())
-            .collect();
-        assert!(
-            left.is_empty(),
-            "{} left {left:?} in the directory",
-            row.verb
-        );
-    }
 }
 
 /// Guards: U2 — the help of every option, global or of a verb, ends with a sentence that starts
@@ -372,7 +298,8 @@ impl Env {
     }
 
     /// The binary `exe` runs with `args`, from the working directory, with the home and the XDG
-    /// variables inside the world and the wrapped fake client first on the path.
+    /// variables inside the world and the wrapped fake client first on the path, before the tools of
+    /// the caller's path that a plug-in's environment needs.
     fn command(&self, args: &[&str]) -> Command {
         let root = &self.world.root;
         let mut command = Command::new(&self.exe);
@@ -383,9 +310,10 @@ impl Env {
             .env(
                 "PATH",
                 format!(
-                    "{}:{}:/usr/bin:/bin",
+                    "{}:{}:{}",
                     self.wrap.display(),
-                    self.world.bin.display()
+                    self.world.bin.display(),
+                    std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin".to_owned())
                 ),
             )
             .env("HOME", root.join("home"))
@@ -412,6 +340,17 @@ impl Env {
         .expect("the binary runs")
     }
 
+    /// The store the verbs use with no `--store`: below the project when the working directory
+    /// holds a `candler.toml`, else below the state home.
+    fn store(&self) -> PathBuf {
+        let work = &self.world.work;
+        if work.join("candler.toml").is_file() {
+            work.join(".candler").join("store")
+        } else {
+            self.world.store()
+        }
+    }
+
     /// The `build` calls the fake client logged, each as the context it was given: the last word.
     fn build_contexts(&self) -> Vec<PathBuf> {
         self.world
@@ -434,7 +373,7 @@ impl Env {
             self.world.calls()
         );
         let id: JobId = stdout.trim().parse().expect("a job id on stdout");
-        let dir = JobDir::open(&StoreLayout::new(&self.world.store()), &id).expect("the job");
+        let dir = JobDir::open(&StoreLayout::new(&self.store()), &id).expect("the job");
         let events = dir.path().join("events.jsonl");
         let ended = wait_for(JOB_LIMIT, || {
             fs::read_to_string(&events).is_ok_and(|text| text.contains("job.ended"))
@@ -852,4 +791,463 @@ fn u5_show_takes_a_bare_version() {
         counts,
         json!({"counts": {"ev@1.0.0": {"pass": 1, "fail": 1}}})
     );
+}
+
+/// What a verb's row does in a fresh [`Env`]: it runs the verb from the working directory with
+/// relative paths and asserts what the verb answered.
+type Check = fn(&Env);
+
+/// A verb and what its row asserts.
+struct Row {
+    verb: &'static str,
+    check: Check,
+}
+
+/// The verbs that run from an unrelated directory, one row each.
+const MATRIX: &[Row] = &[
+    Row {
+        verb: "run",
+        check: row_run,
+    },
+    Row {
+        verb: "resolve",
+        check: row_resolve,
+    },
+    Row {
+        verb: "ls",
+        check: row_ls,
+    },
+    Row {
+        verb: "ps",
+        check: row_ps,
+    },
+    Row {
+        verb: "kill",
+        check: row_kill,
+    },
+    Row {
+        verb: "watch",
+        check: row_watch,
+    },
+    Row {
+        verb: "ingest",
+        check: row_ingest,
+    },
+    Row {
+        verb: "inspect",
+        check: row_inspect,
+    },
+    Row {
+        verb: "evaluate",
+        check: row_evaluate,
+    },
+    Row {
+        verb: "show",
+        check: row_show,
+    },
+    Row {
+        verb: "diff",
+        check: row_diff,
+    },
+    Row {
+        verb: "analyze",
+        check: row_analyze,
+    },
+];
+
+/// The text of a call's standard output.
+fn stdout_of(out: &Output) -> String {
+    text_of(&out.stdout)
+}
+
+/// `out`, after asserting that it exited 0.
+fn succeeded(out: Output) -> Output {
+    assert!(
+        out.status.success(),
+        "exit {:?}\nstderr: {}",
+        out.status.code(),
+        text_of(&out.stderr)
+    );
+    out
+}
+
+/// The names in the working directory of `env`.
+fn work_listing(env: &Env) -> BTreeSet<String> {
+    fs::read_dir(&env.world.work)
+        .expect("the directory lists")
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect()
+}
+
+/// Writes the raw trace directory `traces/` below the working directory: one Claude Code stream.
+fn write_traces(env: &Env) {
+    let dir = env.world.work.join("traces");
+    fs::create_dir_all(&dir).expect("a directory");
+    let init = r#"{"type":"system","subtype":"init","session_id":"S","model":"m-a","claude_code_version":"2.1.220"}"#;
+    let result = r#"{"type":"result","subtype":"success","is_error":false,"session_id":"S"}"#;
+    fs::write(dir.join("a.jsonl"), format!("{init}\n{result}\n")).expect("the stream writes");
+}
+
+/// The two evaluators of the matrix's seeded store, graded alike.
+const TWO_EVALUATORS: &[(&str, &[(&str, &str)])] = &[
+    ("ev@1.0.0", &[("A1", "pass"), ("A2", "fail")]),
+    ("ev@2.0.0", &[("A1", "pass"), ("A2", "fail")]),
+];
+
+/// Seeds the store the verbs find with no `--store`, below the state home, and returns the key.
+fn seed_default_store(env: &Env, rows: &[(&str, &[(&str, &str)])]) -> RunKey {
+    seed(&env.world.store(), rows)
+}
+
+fn row_run(env: &Env) {
+    let out = env.run();
+    let id = env.settle(&out);
+    let dir = env.world.store().join("jobs").join(id.to_string());
+    assert!(
+        dir.is_dir(),
+        "the job has its directory in the store: {}",
+        dir.display()
+    );
+}
+
+fn row_resolve(env: &Env) {
+    let models = Models::start();
+    let out = succeeded(
+        env.command(&[
+            "resolve",
+            "exp.toml",
+            "--set",
+            "isolation.build.lock=env.lock",
+            "--set",
+            &models.setting(),
+            "--set",
+            &format!("model.token_secret={SECRET_NAME}"),
+        ])
+        .output()
+        .expect("the binary runs"),
+    );
+    let lines: Vec<String> = stdout_of(&out).lines().map(str::to_owned).collect();
+    assert!(lines.len() > 5, "the values are listed: {lines:?}");
+    for line in &lines {
+        let columns: Vec<&str> = line.split('\t').collect();
+        assert_eq!(columns.len(), 3, "a path, a value and a source: {line}");
+        assert!(columns.iter().all(|column| !column.is_empty()), "{line}");
+    }
+    assert!(
+        !env.world.store().join("jobs").exists(),
+        "no job directory appears"
+    );
+}
+
+fn row_ls(env: &Env) {
+    let dir = env.world.work.join("experiments");
+    fs::create_dir_all(&dir).expect("a directory");
+    fs::copy(env.world.work.join("exp.toml"), dir.join("a.toml")).expect("the file copies");
+    let out = succeeded(env.command(&["ls"]).output().expect("the binary runs"));
+    assert!(
+        stdout_of(&out).lines().any(|line| line.contains("a.toml")),
+        "a.toml is listed: {}",
+        stdout_of(&out)
+    );
+}
+
+fn row_ps(env: &Env) {
+    let launched = env.run();
+    let id = text_of(&launched.stdout).trim().to_owned();
+    let out = succeeded(env.command(&["ps"]).output().expect("the binary runs"));
+    assert!(
+        stdout_of(&out).lines().any(|line| line.starts_with(&id)),
+        "the job just started is listed: {}",
+        stdout_of(&out)
+    );
+    env.settle(&launched);
+}
+
+fn row_kill(env: &Env) {
+    succeeded(
+        env.command(&["kill", "--all", "--yes"])
+            .output()
+            .expect("the binary runs"),
+    );
+}
+
+fn row_watch(env: &Env) {
+    let launched = env.run();
+    let id = env.settle(&launched);
+    let out = succeeded(
+        env.command(&["watch", &id.to_string()])
+            .output()
+            .expect("the binary runs"),
+    );
+    let text = stdout_of(&out);
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines.len() > 1, "the events are printed: {text}");
+    for line in &lines {
+        serde_json::from_str::<Value>(line).expect("each event is one JSON document");
+    }
+    assert!(
+        lines.last().is_some_and(|line| line.contains("job.ended")),
+        "the last event is job.ended: {text}"
+    );
+}
+
+fn row_ingest(env: &Env) {
+    write_traces(env);
+    let before = work_listing(env);
+    let out = succeeded(
+        env.command(&["ingest", "traces/"])
+            .output()
+            .expect("the binary runs"),
+    );
+    let summary: Value = serde_json::from_slice(&out.stdout).expect("a JSON summary");
+    assert_eq!(summary["created"], 1, "{summary}");
+    let runs = fs::read_dir(env.world.store().join("runs"))
+        .expect("the store holds the runs")
+        .flatten()
+        .count();
+    assert_eq!(runs, 1, "the run is below the store");
+    assert_eq!(
+        work_listing(env),
+        before,
+        "nothing else is written in the working directory"
+    );
+}
+
+fn row_inspect(env: &Env) {
+    let key = seed(&env.world.work.join("store"), TWO_EVALUATORS);
+    let target = format!("store/runs/{key}");
+    let out = succeeded(
+        env.command(&["inspect", &target])
+            .output()
+            .expect("the binary runs"),
+    );
+    assert!(
+        stdout_of(&out).contains(&key.to_string()),
+        "the run is shown"
+    );
+}
+
+/// The `pool` plug-in of the engine guards below the working directory, with a `candler.toml`
+/// that lists it under `plugins.dirs`, and the suite beside them.
+fn plugin_project(env: &Env) {
+    let work = &env.world.work;
+    let engine =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../candler-core/tests/fixtures/engine");
+    let helper = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../python/candler-evaluator")
+        .canonicalize()
+        .expect("the helper's project");
+    let plugin = work.join("plugin");
+    fs::create_dir_all(&plugin).expect("a directory");
+    std::os::unix::fs::symlink(&helper, plugin.join("env")).expect("the link");
+    let manifest = fs::read_to_string(engine.join("plugin_pool.toml"))
+        .expect("the manifest reads")
+        .replace("@EXAMPLES@", &helper.join("examples").display().to_string())
+        .replace("@KINDS@", &engine.join("kinds").display().to_string());
+    fs::write(plugin.join("plugin.toml"), manifest).expect("the manifest writes");
+    fs::copy(engine.join("suite_pool_ok.toml"), work.join("suite.toml")).expect("the suite copies");
+    fs::write(
+        work.join("candler.toml"),
+        "[plugins]\ndirs = [\"plugin\"]\n",
+    )
+    .expect("the project");
+}
+
+fn row_evaluate(env: &Env) {
+    plugin_project(env);
+    seam::sync_environment(&env.world);
+    env.settle(&env.run());
+    let out = succeeded(
+        env.command(&["evaluate", "suite.toml"])
+            .output()
+            .expect("the binary runs"),
+    );
+    let stderr = text_of(&out.stderr);
+    let id: JobId = stderr
+        .lines()
+        .next()
+        .expect("a first line")
+        .parse()
+        .expect("the job id is on stderr");
+    let report: Value = serde_json::from_slice(&out.stdout).expect("the report is on stdout");
+    assert_eq!(report["failed_requests"], json!([]), "{report}");
+    assert!(
+        report["request_ids"]
+            .as_array()
+            .is_some_and(|ids| !ids.is_empty()),
+        "the run just run was graded: {report}"
+    );
+    let dir = JobDir::open(&StoreLayout::new(&env.store()), &id).expect("the job");
+    assert!(
+        wait_for(JOB_LIMIT, || JobLock::probe(&dir)
+            .is_ok_and(|state| state == LockState::Free)),
+        "the job's supervisor has gone"
+    );
+}
+
+fn row_show(env: &Env) {
+    seed_default_store(env, TWO_EVALUATORS);
+    let out = succeeded(
+        env.command(&["show", "--format", "json"])
+            .output()
+            .expect("the binary runs"),
+    );
+    let counts: Value = serde_json::from_slice(&out.stdout).expect("JSON counts");
+    assert_eq!(
+        counts,
+        json!({"counts": {
+            "ev@1.0.0": {"pass": 1, "fail": 1},
+            "ev@2.0.0": {"pass": 1, "fail": 1},
+        }})
+    );
+}
+
+fn row_diff(env: &Env) {
+    seed_default_store(env, TWO_EVALUATORS);
+    let out = succeeded(
+        env.command(&[
+            "diff", "--from", "1.0.0", "--to", "2.0.0", "--format", "json",
+        ])
+        .output()
+        .expect("the binary runs"),
+    );
+    let report: Value = serde_json::from_slice(&out.stdout).expect("a JSON report");
+    assert_eq!(report["compared"], 2, "{report}");
+    assert_eq!(report["changed"], 0, "{report}");
+}
+
+fn row_analyze(env: &Env) {
+    seed_default_store(env, &TWO_EVALUATORS[..1]);
+    fs::write(
+        env.world.work.join("exp.toml"),
+        "schema = \"experiment/1\"\nreplicates = 1\n\n[fixed]\npermission_mode = \"plan\"\n\n[[factors]]\npath = \"plan.model\"\nlevels = [\"alpha\", \"beta\"]\n\n[budget.per_run]\nturns = 30\nwall_s = 600\nmax_cost_usd = 1.0\n\n[harness]\nname = \"h\"\n\n[treatment]\nname = \"t\"\n",
+    )
+    .expect("the experiment writes");
+    let out = succeeded(
+        env.command(&["analyze", "--experiment", "exp.toml", "--format", "csv"])
+            .output()
+            .expect("the binary runs"),
+    );
+    let text = stdout_of(&out);
+    let mut lines = text.lines();
+    assert!(
+        lines
+            .next()
+            .is_some_and(|head| head.starts_with("cell,experiment,role,expectation,")),
+        "the arms table: {text}"
+    );
+    assert_eq!(lines.count(), 2, "one row per expectation: {text}");
+}
+
+/// Directories a verb must not create beside the source tree or the binary: the names of what a
+/// store holds. The source tree has an `assets` directory of its own, so that name is only looked
+/// for beside the binary.
+const STORE_PARTS: [&str; 4] = [".candler", "runs", "jobs", "images"];
+
+/// Panics when a store, or what one holds, appeared in the source tree or beside the binary.
+fn assert_no_stray(env: &Env) {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let beside = env.exe.parent().expect("the binary's directory");
+    for dir in [source.as_path(), beside] {
+        for part in STORE_PARTS {
+            assert!(
+                !dir.join(part).exists(),
+                "{} appeared in {}",
+                part,
+                dir.display()
+            );
+        }
+    }
+    for part in ["assets", "store"] {
+        assert!(
+            !beside.join(part).exists(),
+            "{part} appeared beside the binary"
+        );
+    }
+}
+
+/// Guards: U1 — every verb that `candler --help` lists has a row in the working-directory matrix,
+/// and every row names a listed verb. Oracle: the `Commands:` block of the real binary's `--help`,
+/// minus `help`. Bite: a verb added to clap with no row names the verb and fails, as does a row
+/// left behind for a verb that is gone.
+#[test]
+fn u1_every_verb_has_a_row() {
+    let listed = listed_verbs();
+    let rows: BTreeSet<String> = MATRIX.iter().map(|row| row.verb.to_owned()).collect();
+    assert!(!listed.is_empty(), "the help lists no verb");
+    assert_eq!(rows, listed, "the matrix has one row for each listed verb");
+}
+
+/// Guards: U1 — each verb runs from a fresh directory unrelated to the project and to the binary,
+/// with `HOME` and the XDG variables inside it and every path argument relative to it, and
+/// answers as its row says: `run`, `watch`, `ps` and `evaluate` start real jobs against the
+/// fake-docker world and wait for them to end. Nothing appears in the source tree or beside the
+/// binary. Oracle: the verb's own answer and the files of the fixture world. Bite: a path joined
+/// to the project directory or to the binary's directory in a verb that has a relative argument
+/// fails that verb's row.
+#[test]
+fn u1_each_verb_runs_from_an_unrelated_directory() {
+    assert!(!MATRIX.is_empty(), "the matrix has no row");
+    for row in MATRIX {
+        let env = Env::with(Path::new(env!("CARGO_BIN_EXE_candler")));
+        let verb = row.verb;
+        let check = row.check;
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| check(&env)));
+        assert!(caught.is_ok(), "the row of `{verb}` failed");
+        assert_no_stray(&env);
+    }
+}
+
+/// Guards: U1 (quick win 6) — with a `candler.toml` in the working directory and no `--store`,
+/// the store is `<working directory>/.candler/store`; with no project it is below
+/// `$XDG_STATE_HOME`; neither writes below the source tree or beside the binary. Oracle: where
+/// the one run of `ingest traces/` is found, from the directories of the fixture world. Bite: a
+/// store root fixed to the source tree or the binary's directory, or a project store that falls
+/// back to the state home.
+#[test]
+fn u1_the_store_comes_from_the_project_or_the_state_home() {
+    let runs_in = |store: &Path| {
+        fs::read_dir(store.join("runs")).map_or(0, |entries| entries.flatten().count())
+    };
+    let project = Env::with(Path::new(env!("CARGO_BIN_EXE_candler")));
+    write_traces(&project);
+    fs::write(
+        project.world.work.join("candler.toml"),
+        "[plugins]\ndirs = []\n",
+    )
+    .expect("the project file writes");
+    succeeded(
+        project
+            .command(&["ingest", "traces/"])
+            .output()
+            .expect("the binary runs"),
+    );
+    assert_eq!(
+        runs_in(&project.world.work.join(".candler").join("store")),
+        1
+    );
+    assert!(
+        !project.world.store().exists(),
+        "nothing below the state home"
+    );
+    assert_no_stray(&project);
+
+    let bare = Env::with(Path::new(env!("CARGO_BIN_EXE_candler")));
+    write_traces(&bare);
+    succeeded(
+        bare.command(&["ingest", "traces/"])
+            .output()
+            .expect("the binary runs"),
+    );
+    assert_eq!(
+        runs_in(&bare.world.store()),
+        1,
+        "the store is below the state home"
+    );
+    assert!(
+        !bare.world.work.join(".candler").exists(),
+        "no project store appears"
+    );
+    assert_no_stray(&bare);
 }
