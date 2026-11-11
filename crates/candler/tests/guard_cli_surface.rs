@@ -1,14 +1,36 @@
 #![cfg(test)]
+#![cfg(unix)]
 //! Guards for the surface every verb of the `candler` binary shares: each verb has a row in the
 //! working-directory matrix or a place on its pending list, and each option's help ends with a
 //! stamp that says why the option exists. The binary is the real one; the verbs and options are
 //! read from its `--help`, so a verb or an option added later is found without editing the guards.
 
-use std::collections::BTreeSet;
-use std::path::Path;
-use std::process::{Command, Output};
+#[expect(
+    dead_code,
+    reason = "this guard uses the world and its fake client, not every helper of the shared module"
+)]
+#[path = "support/cli_run.rs"]
+mod cli_run;
 
+use std::collections::BTreeSet;
+use std::fs;
+use std::io::{BufRead as _, BufReader, Write as _};
+use std::net::{TcpListener, TcpStream};
+use std::os::unix::fs::PermissionsExt as _;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::JoinHandle;
+use std::time::Duration;
+
+use candler_core::jobs::dir::JobDir;
+use candler_core::jobs::lock::{JobLock, LockState};
+use candler_core::store::layout::StoreLayout;
+use candler_schemas::primitives::JobId;
 use tempfile::TempDir;
+
+use cli_run::{SECRET_NAME, World, wait_for, world};
 
 /// What `candler --help` lists as verbs and has no row for yet: each verb here works from a fixture
 /// world only. A leaf that makes a verb work from any directory moves it to [`MATRIX`].
@@ -249,4 +271,368 @@ fn u2_every_option_help_ends_with_a_stamp() {
         failing, pending,
         "the options without a stamp are the pending list"
     );
+}
+
+/// How long a job that has all it needs may take to end.
+const JOB_LIMIT: Duration = Duration::from_secs(90);
+
+/// The fake docker client's wrapper: an image looked up by a tag is absent until a build made it,
+/// so the builds the binary asks for are made and logged; every call is passed on to the world's
+/// fake, whose log is the record of what was asked.
+const BUILDS: &str = r#"#!/bin/sh
+real="@REAL@"
+here="${0%/*}"
+mkdir -p "$here/built"
+if [ "$1" = image ] && [ "$2" = inspect ]; then
+    for a in "$@"; do ref="$a"; done
+    case "$ref" in
+    sha256:*) ;;
+    *)
+        key=$(printf '%s' "$ref" | tr '/:' '__')
+        if [ ! -f "$here/built/$key" ]; then
+            echo "Error: No such image: $ref" >&2
+            exit 1
+        fi
+        ;;
+    esac
+fi
+if [ "$1" = build ]; then
+    prev=""
+    for a in "$@"; do
+        if [ "$prev" = "-t" ]; then
+            touch "$here/built/$(printf '%s' "$a" | tr '/:' '__')"
+        fi
+        prev="$a"
+    done
+fi
+exec "$real" "$@"
+"#;
+
+/// A stand-in for the endpoint's model list: it answers `200` to every request, so the gateway
+/// check of `resolve` finds the endpoint it is given.
+struct Models {
+    port: u16,
+    stop: Arc<AtomicBool>,
+    handle: Option<JoinHandle<()>>,
+}
+
+impl Models {
+    fn start() -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a port");
+        let port = listener.local_addr().expect("an address").port();
+        let stop = Arc::new(AtomicBool::new(false));
+        let halt = Arc::clone(&stop);
+        let handle = std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                if halt.load(Ordering::SeqCst) {
+                    return;
+                }
+                let Ok(stream) = stream else { continue };
+                let mut reader = BufReader::new(stream);
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line.trim().is_empty() {
+                        break;
+                    }
+                }
+                let reply = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}";
+                drop(reader.get_mut().write_all(reply.as_bytes()));
+            }
+        });
+        Self {
+            port,
+            stop,
+            handle: Some(handle),
+        }
+    }
+
+    /// The `--set` that points a call at this stand-in.
+    fn setting(&self) -> String {
+        format!("model.endpoint=http://127.0.0.1:{}", self.port)
+    }
+}
+
+impl Drop for Models {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        drop(TcpStream::connect(("127.0.0.1", self.port)));
+        if let Some(handle) = self.handle.take() {
+            drop(handle.join());
+        }
+    }
+}
+
+/// One trial: the fake-docker world, a binary to run in it, and an experiment file in the
+/// working directory.
+struct Env {
+    world: World,
+    exe: PathBuf,
+    wrap: PathBuf,
+}
+
+impl Env {
+    /// The world with `exe` as the binary, and `exp.toml` and `env.lock` in the working directory.
+    fn with(exe: &Path) -> Self {
+        let world = world();
+        let wrap = world.root.join("wrap");
+        fs::create_dir_all(&wrap).expect("a directory");
+        let client = wrap.join("docker");
+        let real = world.bin.join("docker");
+        fs::write(
+            &client,
+            BUILDS.replace("@REAL@", &real.display().to_string()),
+        )
+        .expect("the wrapper writes");
+        fs::set_permissions(&client, fs::Permissions::from_mode(0o755)).expect("a mode");
+        fs::copy(&world.experiment, world.work.join("exp.toml")).expect("the experiment copies");
+        Self {
+            world,
+            exe: exe.to_path_buf(), // BORROW: the trial owns its binary's path
+            wrap,
+        }
+    }
+
+    /// The binary `exe` runs with `args`, from the working directory, with the home and the XDG
+    /// variables inside the world and the wrapped fake client first on the path.
+    fn command(&self, args: &[&str]) -> Command {
+        let root = &self.world.root;
+        let mut command = Command::new(&self.exe);
+        command
+            .args(args)
+            .current_dir(&self.world.work)
+            .env_clear()
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}:/usr/bin:/bin",
+                    self.wrap.display(),
+                    self.world.bin.display()
+                ),
+            )
+            .env("HOME", root.join("home"))
+            .env("XDG_CONFIG_HOME", root.join("config"))
+            .env("XDG_DATA_HOME", root.join("data"))
+            .env("XDG_CACHE_HOME", root.join("cache"))
+            .env("XDG_STATE_HOME", &self.world.state)
+            .env(SECRET_NAME, "fixture-token-0123456789")
+            .stdin(Stdio::null());
+        command
+    }
+
+    /// `run exp.toml`, the experiment relative to the working directory.
+    fn run(&self) -> Output {
+        self.command(&[
+            "run",
+            "exp.toml",
+            "--set",
+            "isolation.build.lock=env.lock",
+            "--set",
+            &format!("model.token_secret={SECRET_NAME}"),
+        ])
+        .output()
+        .expect("the binary runs")
+    }
+
+    /// The `build` calls the fake client logged, each as the context it was given: the last word.
+    fn build_contexts(&self) -> Vec<PathBuf> {
+        self.world
+            .calls()
+            .lines()
+            .filter(|line| line.starts_with("build "))
+            .filter_map(|line| line.split_whitespace().last())
+            .map(PathBuf::from)
+            .collect()
+    }
+
+    /// Waits for the job `out` printed to end and release its lock, and returns its id.
+    fn settle(&self, out: &Output) -> JobId {
+        let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert!(
+            out.status.success(),
+            "the launcher exits 0: {:?}\nstdout: {stdout}\nstderr: {stderr}\ncalls:\n{}",
+            out.status,
+            self.world.calls()
+        );
+        let id: JobId = stdout.trim().parse().expect("a job id on stdout");
+        let dir = JobDir::open(&StoreLayout::new(&self.world.store()), &id).expect("the job");
+        let events = dir.path().join("events.jsonl");
+        let ended = wait_for(JOB_LIMIT, || {
+            fs::read_to_string(&events).is_ok_and(|text| text.contains("job.ended"))
+                && JobLock::probe(&dir).is_ok_and(|state| state == LockState::Free)
+        });
+        assert!(ended, "the job ends\ncalls:\n{}", self.world.calls());
+        id
+    }
+}
+
+/// Every file below `root`, by its path relative to `root`, with its bytes.
+fn files_below(root: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+    let mut found = std::collections::BTreeMap::new();
+    let mut stack = vec![root.to_path_buf()]; // BORROW: the walk owns its paths
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(&dir).expect("a directory lists").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                let relative = path
+                    .strip_prefix(root)
+                    .expect("below the root")
+                    .to_path_buf();
+                found.insert(relative, fs::read(&path).expect("a file reads"));
+            }
+        }
+    }
+    found
+}
+
+/// The assets of the workspace this test was built in.
+fn tree() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../assets/docker")
+        .canonicalize()
+        .expect("the tree has assets/docker")
+}
+
+/// A copy of the binary in a directory outside the source tree.
+fn copied_binary(dir: &TempDir) -> PathBuf {
+    let place = dir.path().join("elsewhere");
+    fs::create_dir_all(&place).expect("a directory");
+    let copy = place.join("candler");
+    fs::copy(env!("CARGO_BIN_EXE_candler"), &copy).expect("the binary copies");
+    copy
+}
+
+/// Guards: U3 — a copy of the binary, outside the source tree, runs `run` against the fake
+/// world from an unrelated directory: the job id is printed, and every `docker build` it asks for
+/// is given a context below the store root and outside the source tree; the contexts of the base
+/// and gateway images are the written assets, below `<store root>/assets/<digest>/docker/`, hold
+/// the bytes of the tree's directory of the same name, and are the only contexts that outlive
+/// their build. Oracle: the fake client's call log and the tree's files. Bite: asset paths found
+/// through `CARGO_MANIFEST_DIR`, so the recorded context sits under the source tree.
+#[test]
+fn u3_a_copied_binary_runs_run() {
+    let elsewhere = TempDir::new().expect("a directory");
+    let env = Env::with(&copied_binary(&elsewhere));
+    let out = env.run();
+    env.settle(&out);
+    let store = env.world.store().canonicalize().expect("the store exists");
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("the source tree");
+    let contexts = env.build_contexts();
+    assert!(!contexts.is_empty(), "the world was asked to build");
+    let mut written = 0_usize;
+    for context in &contexts {
+        assert!(
+            !context.starts_with(&source),
+            "{} is under the source tree",
+            context.display()
+        );
+        let staged = context.to_string_lossy().contains("/images/ctx-");
+        if staged {
+            continue;
+        }
+        let here = context
+            .canonicalize()
+            .expect("a context outlives its build");
+        let assets = store.join("assets");
+        assert!(
+            here.starts_with(&assets),
+            "{} is not below {}",
+            here.display(),
+            assets.display()
+        );
+        let below = here.strip_prefix(&assets).expect("below the assets");
+        let mut parts = below.components();
+        let digest = parts
+            .next()
+            .expect("a digest")
+            .as_os_str()
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(
+            digest.len(),
+            64,
+            "the directory is named by a digest: {digest}"
+        );
+        assert_eq!(
+            parts.next().map(|p| p.as_os_str().to_owned()),
+            Some("docker".into())
+        );
+        let name = here.file_name().expect("a name");
+        assert_eq!(
+            files_below(&here),
+            files_below(&tree().join(name)),
+            "{} holds the tree's bytes",
+            here.display()
+        );
+        written += 1;
+    }
+    assert!(written >= 1, "a context was written: {contexts:?}");
+}
+
+/// Guards: U3 — the embedded assets equal the tree: after `resolve` from a copied binary, the
+/// directory `<store root>/assets/<digest>/docker` holds every file of `assets/docker` with equal
+/// bytes and no other, and a second `resolve` writes nothing. Oracle: the tree, read from
+/// `CARGO_MANIFEST_DIR` (test code), and the modification times of the written files. Bite: a file
+/// of the tree left out of the embedded table, or an embedded file that differs from the tree.
+#[test]
+fn u3_the_embedded_assets_equal_the_tree() {
+    let elsewhere = TempDir::new().expect("a directory");
+    let env = Env::with(&copied_binary(&elsewhere));
+    let models = Models::start();
+    let resolve = || {
+        let out = env
+            .command(&[
+                "resolve",
+                "exp.toml",
+                "--set",
+                &models.setting(),
+                "--set",
+                "isolation.build.lock=env.lock",
+                "--set",
+                &format!("model.token_secret={SECRET_NAME}"),
+            ])
+            .output()
+            .expect("the binary runs");
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    resolve();
+    let assets = env.world.store().join("assets");
+    let entries: Vec<_> = fs::read_dir(&assets)
+        .expect("the assets are written")
+        .flatten()
+        .map(|entry| entry.path())
+        .collect();
+    assert_eq!(
+        entries.len(),
+        1,
+        "one directory, no staging left: {entries:?}"
+    );
+    let docker = entries[0].join("docker");
+    assert_eq!(
+        files_below(&docker),
+        files_below(&tree()),
+        "the tree's files, byte for byte"
+    );
+    let stamps = || -> Vec<_> {
+        files_below(&docker)
+            .keys()
+            .map(|file| {
+                fs::metadata(docker.join(file))
+                    .and_then(|m| m.modified())
+                    .expect("a time")
+            })
+            .collect()
+    };
+    let before = stamps();
+    resolve();
+    assert_eq!(stamps(), before, "a second call wrote nothing");
 }

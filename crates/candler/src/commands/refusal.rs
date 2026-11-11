@@ -343,8 +343,6 @@ pub fn render(error: &CliError, format: ErrorFormat) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use candler_schemas::refusal::Side;
 
     use super::catalog;
@@ -359,9 +357,7 @@ mod tests {
     /// raises.
     #[test]
     fn r1_the_binary_rows_equal_codes_toml() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/contract/codes.toml");
-        let table = std::fs::read_to_string(path)
-            .unwrap()
+        let table = include_str!("../../../../docs/contract/codes.toml")
             .parse::<toml::Table>()
             .unwrap();
         let cli = table["cli"].as_table().unwrap();
