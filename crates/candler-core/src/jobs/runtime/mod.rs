@@ -2,6 +2,7 @@
 //! body under a supervisor of its own.
 
 pub mod detach;
+pub mod evaluate;
 pub mod launch;
 pub mod reap;
 pub mod session;

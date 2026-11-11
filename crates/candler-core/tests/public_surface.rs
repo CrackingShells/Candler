@@ -743,3 +743,35 @@ mod engine_surface {
         assert_eq!(deadlines.as_slice(), []);
     }
 }
+
+/// The items of the evaluate job body, filled by the `evaluate_body` leaf.
+#[cfg(unix)]
+mod evaluate_job_surface {
+    use candler_core::jobs::model::{EvaluateSpec, JobControl, JobSpecFile};
+    use candler_core::jobs::runtime::RuntimeError;
+    use candler_core::jobs::runtime::evaluate::{
+        CancelBridge, EvaluateEntry, EvaluateJobOutcome, REPORT_FILE, cancel_bridge,
+        supervise_evaluate,
+    };
+    use candler_core::jobs::slots::evaluator_slots_dir;
+    use futures::future::BoxFuture;
+    use tokio::sync::watch;
+
+    /// Names the evaluate job's entry, outcome, spec and the functions the binary calls.
+    #[test]
+    fn evaluate_job_items_are_nameable() {
+        let supervise: fn(
+            EvaluateEntry,
+        ) -> BoxFuture<'static, Result<EvaluateJobOutcome, RuntimeError>> = supervise_evaluate;
+        let bridge: fn(&JobControl) -> (watch::Receiver<bool>, CancelBridge) = cancel_bridge;
+        let slots: fn(&std::path::Path) -> std::path::PathBuf = evaluator_slots_dir;
+        let _ = (supervise, bridge, slots);
+        let _ = (
+            None::<EvaluateEntry>,
+            None::<EvaluateJobOutcome>,
+            None::<EvaluateSpec>,
+            None::<JobSpecFile>,
+        );
+        assert_eq!(REPORT_FILE, "report.json");
+    }
+}
