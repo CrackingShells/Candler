@@ -6,6 +6,7 @@
 
 #![deny(clippy::allow_attributes)]
 
+pub mod analysis;
 pub mod evaluation;
 pub mod experiment;
 pub mod frames;
