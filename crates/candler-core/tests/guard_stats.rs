@@ -105,9 +105,10 @@ fn check_fisher(row: &FisherRow) {
 
 /// Guards: the Wilson 95 % limits for 179 (k, n) pairs, n from 1 to 100 and every k, agree with
 /// the second engine to 1e-9, so a Wald interval, a hard-coded z or a continuity correction is
-/// seen. Oracle: statsmodels `proportion_confint(method="wilson")`, which the generator
-/// cross-checked against scipy's `binomtest(..).proportion_ci(method="wilson")`. Bite: the Wald
-/// interval in place of Wilson; `z` written as 1.96.
+/// seen.
+/// Oracle: statsmodels `proportion_confint(method="wilson")`, which the generator cross-checked
+/// against scipy's `binomtest(..).proportion_ci(method="wilson")`.
+/// Bite: the Wald interval in place of Wilson; `z` written as 1.96.
 #[test]
 fn t1_wilson_matches_the_second_engine() {
     for row in vector::<WilsonRow>("wilson.toml") {
@@ -119,8 +120,9 @@ fn t1_wilson_matches_the_second_engine() {
 }
 
 /// Guards: the normal quantile behind every Wilson and Newcombe limit is the exact 0.975
-/// quantile, not its two-digit rounding. Oracle: `scipy.stats.norm.ppf(0.975)`, written as a
-/// literal. Bite: `z` written as 1.96.
+/// quantile, not its two-digit rounding.
+/// Oracle: `scipy.stats.norm.ppf(0.975)`, written as a literal.
+/// Bite: `z` written as 1.96.
 #[test]
 fn t1_z_is_the_normal_quantile() {
     let z = z_two_sided().unwrap_or_else(|e| panic!("z: {e}"));
@@ -128,9 +130,10 @@ fn t1_z_is_the_normal_quantile() {
 }
 
 /// Guards: Fisher's two-sided p-value of every vector row that is not a tie, in the small grid
-/// and the 20/30 rows, to 1e-10, with `p < ALPHA` agreeing on each. Oracle: scipy
-/// `fisher_exact(.., alternative="two-sided")`. Bite: twice the smaller tail in place of the sum
-/// of the tables no more likely than the observed one.
+/// and the 20/30 rows, to 1e-10, with `p < ALPHA` agreeing on each.
+/// Oracle: scipy `fisher_exact(.., alternative="two-sided")`.
+/// Bite: twice the smaller tail in place of the sum of the tables no more likely than the
+/// observed one.
 #[test]
 fn t1_fisher_two_sided_matches_the_second_engine() {
     let rows = vector::<FisherRow>("fisher.toml");
@@ -146,9 +149,9 @@ fn t1_fisher_two_sided_matches_the_second_engine() {
 }
 
 /// Guards: the rows where scipy's relative tolerance on equal table probabilities decides the
-/// p-value (the strict sum differs from scipy's by more than 1e-9). At least five exist. Oracle:
-/// scipy `fisher_exact`, read at the version recorded in `fisher.toml`. Bite: the tie tolerance
-/// set to 0.
+/// p-value (the strict sum differs from scipy's by more than 1e-9). At least five exist.
+/// Oracle: scipy `fisher_exact`, read at the version recorded in `fisher.toml`.
+/// Bite: the tie tolerance set to 0.
 #[test]
 fn t1_fisher_ties_follow_the_tolerance() {
     let rows = vector::<FisherRow>("fisher.toml");
@@ -198,10 +201,10 @@ fn t1_the_tie_tolerance_changes_no_vector_value() {
 }
 
 /// Guards: Newcombe's hybrid score difference and both limits for 576 pairs of counts, to 1e-9,
-/// so the Wald difference interval, a continuity correction or a swapped limit is seen. Oracle:
-/// statsmodels `confint_proportions_2indep(method="newcomb", compare="diff")`, which the
-/// generator re-derived from scipy's Wilson limits with Newcombe's formula. Bite: the Wald
-/// difference interval in place of Newcombe's.
+/// so the Wald difference interval, a continuity correction or a swapped limit is seen.
+/// Oracle: statsmodels `confint_proportions_2indep(method="newcomb", compare="diff")`, which
+/// the generator re-derived from scipy's Wilson limits with Newcombe's formula.
+/// Bite: the Wald difference interval in place of Newcombe's.
 #[test]
 fn t1_newcombe_matches_the_second_engine() {
     for row in vector::<NewcombeRow>("newcombe.toml") {
@@ -215,8 +218,9 @@ fn t1_newcombe_matches_the_second_engine() {
 }
 
 /// Guards: Holm's adjusted values for 212 lists (ties, zeros, ones, capped values, adjusted
-/// values equal to alpha, m = 20), in the input order, to 1e-12. Oracle: statsmodels
-/// `multipletests(method="holm")`. Bite: Holm without the step-down maximum.
+/// values equal to alpha, m = 20), in the input order, to 1e-12.
+/// Oracle: statsmodels `multipletests(method="holm")`.
+/// Bite: Holm without the step-down maximum.
 #[test]
 fn t1_holm_matches_the_second_engine() {
     for (index, row) in vector::<HolmRow>("holm.toml").into_iter().enumerate() {
@@ -234,12 +238,14 @@ fn t1_holm_matches_the_second_engine() {
 }
 
 /// Guards: the edges. `k = 0`, `k = n` and `n = 1` give limits inside [0, 1] with the touched
-/// limit at its bound; `n = 0` is a count that every method refuses; `k` above `n`, a count above
-/// 2^53, and a `NaN`, infinite or out-of-range p-value are refused with their own errors; an
-/// empty list adjusts to an empty list; `rejected` is strict (an adjusted value equal to alpha
-/// does not reject). Oracle: hand values from the definitions (Wilson's `k = 0` lower limit is
-/// 0; at n = 1 the upper limit for k = 0 is z²/(1 + z²) = 0.7934507, and the lower limit for k = 1
-/// is its complement 0.2065493). Bite: limits not clamped; `rejected` written with `<=`.
+/// limit at its bound; `n = 0` is a count that every method refuses; `k` above `n`, a count
+/// above 2^53, and a `NaN`, infinite or out-of-range p-value are refused with their own errors;
+/// an empty list adjusts to an empty list; `rejected` is strict (an adjusted value equal to
+/// alpha does not reject).
+/// Oracle: hand values from the definitions (Wilson's `k = 0` lower limit is 0; at n = 1 the
+/// upper limit for k = 0 is z²/(1 + z²) = 0.7934507, and the lower limit for k = 1 is its
+/// complement 0.2065493).
+/// Bite: limits not clamped; `rejected` written with `<=`.
 #[test]
 fn t1_edges_hold() {
     // k = 0 and k = n.
@@ -416,8 +422,9 @@ fn counts_of(arm: &ArmTally, id: &str) -> (u64, u64) {
 }
 
 /// Guards: `blocked` is a failure: it is in `n`, never in `k`, and weighs 0/1 in the rate. With
-/// two passes, one fail and one blocked, `k/n` is 2/4 and the gate rate 2/4. Oracle: R01's rate
-/// rule, hand counts. Bite: `blocked` left out of `n`.
+/// two passes, one fail and one blocked, `k/n` is 2/4 and the gate rate 2/4.
+/// Oracle: R01's rate rule, hand counts.
+/// Bite: `blocked` left out of `n`.
 #[test]
 fn t3_blocked_counts_as_a_failure() {
     let records = vec![
@@ -438,7 +445,8 @@ fn t3_blocked_counts_as_a_failure() {
 
 /// Guards: `not_measured` and `not_applicable` are out of `n` and counted with their causes
 /// (`reason:`, `artifact:`, `expectation:` keys); two instrument errors, one deadline and two
-/// applicability causes leave `n` at the one graded run. Oracle: R01's rate rule, hand counts.
+/// applicability causes leave `n` at the one graded run.
+/// Oracle: R01's rate rule, hand counts.
 /// Bite: `not_applicable` put in `n`.
 #[test]
 fn t3_excluded_statuses_are_counted_with_their_causes() {
@@ -476,8 +484,10 @@ fn t3_excluded_statuses_are_counted_with_their_causes() {
 }
 
 /// Guards: an invalid run is out of `k` and `n` in its own arm only, and is counted once by run
-/// key with its reason, whatever its records (it may have several, or none). Another arm's counts
-/// do not move. Oracle: I10, hand counts. Bite: the records of an invalid run counted anyway.
+/// key with its reason, whatever its records (it may have several, or none). Another arm's
+/// counts do not move.
+/// Oracle: I10, hand counts.
+/// Bite: the records of an invalid run counted anyway.
 #[test]
 fn t3_invalid_runs_are_out_per_arm_with_their_reason() {
     let records = vec![
@@ -514,7 +524,9 @@ fn t3_invalid_runs_are_out_per_arm_with_their_reason() {
 
 /// Guards: a run the experimenter ended (`budget_stop`, `killed`, `interrupted`) is kept in
 /// `experimenter_ends` and never in the arm's `invalid`, so no reader sums it as a failure; its
-/// records are out of `n`. Oracle: I20. Bite: an experimenter end (`killed`) charged to the arm.
+/// records are out of `n`.
+/// Oracle: I20.
+/// Bite: an experimenter end (`killed`) charged to the arm.
 #[test]
 fn t3_experimenter_ends_are_not_charged_to_an_arm() {
     let records = vec![
@@ -550,7 +562,8 @@ fn t3_experimenter_ends_are_not_charged_to_an_arm() {
 /// Guards: an expectation with a counted outcome weighing other than 1/1 or 0/1 is not binary:
 /// its counts, its Wilson interval and every comparison built on them are omitted with the
 /// reason `weighted`, while its rate still sums the weights (3/3 + 0/1 + 1/3 gives 4/7). An
-/// expectation of plain outcomes beside it stays binary. Oracle: R01's weight rule, hand sums.
+/// expectation of plain outcomes beside it stays binary.
+/// Oracle: R01's weight rule, hand sums.
 /// Bite: `binary` left true for a weighted outcome.
 #[test]
 fn t3_weights_make_an_expectation_non_binary() {
@@ -578,8 +591,9 @@ fn t3_weights_make_an_expectation_non_binary() {
 }
 
 /// Guards: a `pass` weighing 0/0 is out of `k`, out of `n` and out of every sum, and is counted
-/// in `zero_weight`. Oracle: R01's rate rule (a 0/0 weight adds nothing), hand counts. Bite: a
-/// zero-weight pass counted as a pass.
+/// in `zero_weight`.
+/// Oracle: R01's rate rule (a 0/0 weight adds nothing), hand counts.
+/// Bite: a zero-weight pass counted as a pass.
 #[test]
 #[expect(deprecated, reason = "a zero weight carries the legacy cause")]
 fn t3_zero_weight_passes_add_nothing() {
@@ -607,9 +621,9 @@ fn t3_zero_weight_passes_add_nothing() {
 
 /// Guards: when every run is valid, each cell's per-role sums equal the existing
 /// `evaluation::selection::rates::rates` on the same selection, over gate, quality and
-/// descriptive expectations with every status and a weight. Oracle: `rates`, an implementation
-/// of the same R01 rule that shares no code with `tally`. Bite: a role's sum taken from the wrong
-/// role.
+/// descriptive expectations with every status and a weight.
+/// Oracle: `rates`, an implementation of the same R01 rule that shares no code with `tally`.
+/// Bite: a role's sum taken from the wrong role.
 #[test]
 fn t3_roles_sum_as_rates_does() {
     let mut n = 0;
@@ -698,11 +712,13 @@ fn t3_roles_sum_as_rates_does() {
     assert_eq!(d1.counts(), Err(Omitted::Descriptive));
 }
 
-/// Guards: no number without its counts. A rate is a pair of counts (a role with nothing counted
-/// is 0/0, not a float), an expectation's `k` and `n` are `pass` and `pass + fail + blocked`,
-/// `n = 0` is omitted as `no_runs`, and a current record of a run the caller did not list is a
-/// refusal, not a guess. Oracle: R01's I2, hand counts. Bite: `n` taken without its blocked
-/// outcomes; a record of an unlisted run skipped in silence.
+/// Guards: no number without its counts. A rate is a pair of counts (a role with nothing
+/// counted is 0/0, not a float), an expectation's `k` and `n` are `pass` and `pass + fail +
+/// blocked`, `n = 0` is omitted as `no_runs`, and a current record of a run the caller did not
+/// list is a refusal, not a guess.
+/// Oracle: R01's I2, hand counts.
+/// Bite: `n` taken without its blocked outcomes; a record of an unlisted run skipped in
+/// silence.
 #[test]
 fn t3_every_rate_carries_its_counts() {
     let records = vec![
@@ -848,11 +864,12 @@ struct PowerRow {
 }
 
 /// Guards: the exact coverage of the Wilson interval, summed over every k with the binomial
-/// probability, equals scipy's table to 1e-9 for n in {5, 10, 30} and p in {0.1, 0.5, 0.9}, and is
-/// at least 0.91 in each. The floor is 0.91 and not 0.93 because Wilson itself cannot reach 0.93
-/// at small n: at n = 5, p = 0.1 the exact coverage is 0.9185. Oracle: scipy's `binom.pmf` over
-/// statsmodels' Wilson limits, in `coverage.toml`. Bite: Wilson with a continuity correction
-/// (the equality goes red); the Wald interval (the floor goes red).
+/// probability, equals scipy's table to 1e-9 for n in {5, 10, 30} and p in {0.1, 0.5, 0.9}, and
+/// is at least 0.91 in each. The floor is 0.91 and not 0.93 because Wilson itself cannot reach
+/// 0.93 at small n: at n = 5, p = 0.1 the exact coverage is 0.9185.
+/// Oracle: scipy's `binom.pmf` over statsmodels' Wilson limits, in `coverage.toml`.
+/// Bite: Wilson with a continuity correction (the equality goes red); the Wald interval (the
+/// floor goes red).
 #[test]
 fn t2_wilson_coverage_is_exact() {
     let rows = vector::<CoverageRow>("coverage.toml");
@@ -882,8 +899,10 @@ fn t2_wilson_coverage_is_exact() {
 /// Holm rejects something in at most 0.05 + 2 standard errors of 2,000 seeded replications, for
 /// n in {5, 10, 30}, m in {1, 5, 20} and p in {1/5, 1/2}, and for a scenario of strongly
 /// correlated expectations (n = 10, m = 20, a shared run-level flag). The observed rates are
-/// printed. Oracle: the truth of the simulation (no difference was planted), with the Monte Carlo
-/// allowance as the bound. Bite: Holm replaced by the identity.
+/// printed.
+/// Oracle: the truth of the simulation (no difference was planted), with the Monte Carlo
+/// allowance as the bound.
+/// Bite: Holm replaced by the identity.
 #[test]
 fn t2_family_wise_error_holds_under_h0() {
     let bound = 0.05 + allowance(0.05);
@@ -912,8 +931,9 @@ fn t2_family_wise_error_holds_under_h0() {
 /// Guards: the positive control. With p = 1/5 against 4/5 over n = 10 runs, the exact power of
 /// Fisher's test (the Rust sum over every pair of counts) equals scipy's value to 1e-9, and the
 /// simulated rejection rate through Fisher and Holm at m = 1 is at least that power minus 2
-/// standard errors. Oracle: scipy's `fisher_exact` and `binom.pmf` in `power.toml`. Bite: a test
-/// that never rejects (the power control goes red).
+/// standard errors.
+/// Oracle: scipy's `fisher_exact` and `binom.pmf` in `power.toml`.
+/// Bite: a test that never rejects (the power control goes red).
 #[test]
 fn t2_power_is_found() {
     let rows = vector::<PowerRow>("power.toml");
