@@ -593,3 +593,146 @@ fn o2_ls_skips_other_toml_with_its_reason_and_never_scans_the_cwd() {
     assert!(out.stdout.is_empty(), "{}", text(&out.stdout));
 }
 
+/// Guards: O3 — colour is on only for a terminal with `NO_COLOR` unset or empty: the rows of
+/// (terminal or pipe) by (unset, set to a value, set empty), and a painter that is off returns its
+/// text byte for byte. Oracle: no-color.org, written out as the table below. Bite: colour on a
+/// pipe; `NO_COLOR` ignored; an escape byte from a painter that is off.
+#[test]
+fn o3_color_is_on_only_on_a_terminal_with_no_color_unset() {
+    let table: [(bool, Option<&str>, bool); 6] = [
+        (true, None, true),
+        (true, Some("1"), false),
+        (true, Some(""), true),
+        (false, None, false),
+        (false, Some("1"), false),
+        (false, Some(""), false),
+    ];
+    for (terminal, no_color, expected) in table {
+        assert_eq!(
+            term::color_enabled(terminal, no_color.map(OsStr::new)),
+            expected,
+            "terminal {terminal}, NO_COLOR {no_color:?}"
+        );
+    }
+    let off = term::Paint::new(false);
+    for painted in [
+        off.bold("a"),
+        off.dim("a"),
+        off.red("a"),
+        off.green("a"),
+        off.rewrite("a").trim_end().to_owned(),
+    ] {
+        assert!(!painted.contains('\x1b'), "{painted:?}");
+    }
+    assert_eq!(off.red("a"), "a");
+    assert!(term::Paint::new(true).red("a").contains('\x1b'));
+}
+
+/// The job `id` of the fixture's event log.
+const WATCHED: &str = "01890000-0000-7000-8000-0000000000a1";
+
+/// A store with the job `id` in it: a record, and `events` as its event log when given.
+fn job_in(store: &Path, id: &str, events: Option<&str>) -> JobDir {
+    let layout = StoreLayout::new(store);
+    Store::init(store).unwrap();
+    let id: JobId = id.parse().unwrap();
+    let record = JobRecord::builder()
+        .id(id.clone()) // BORROW: the record owns its id
+        .supervisor(SupervisorIdentity::new(1, ProcessStart::darwin(1, 0)).unwrap())
+        .spec_digest(
+            format!("sha256:{}", "0".repeat(64))
+                .parse::<Digest>()
+                .unwrap(),
+        )
+        .state(JobState::Ended)
+        .build()
+        .unwrap();
+    let dir = JobDir::create(&layout, id, &record).unwrap();
+    if let Some(log) = events {
+        fs::write(dir.path().join("events.jsonl"), log).unwrap();
+    } else {
+        let events = JobEvents::open(&dir).unwrap();
+        events.append(None, EventPayload::job_started()).unwrap();
+        events
+            .append(None, EventPayload::job_ended(JobEnd::Completed))
+            .unwrap();
+    }
+    dir
+}
+
+/// `candler <args>` over `store`, with `extra` environment, stdout and stderr piped.
+fn candler(store: &Path, args: &[&str], env: &[(&str, &str)]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_candler"))
+        .arg("--store")
+        .arg(store)
+        .args(args)
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .envs(env.iter().copied())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap()
+}
+
+/// Guards: O3 — `candler watch <id>` with no flag prints each event of the job as one JSON line,
+/// as `watch --json` did, and `--json` is still accepted. Oracle: a recorded event log
+/// (`fixtures/observe/events.jsonl`); its lines, read as JSON. Bite: the refusal "watch needs
+/// --json" kept.
+#[test]
+fn o3_watch_prints_json_lines_by_default() {
+    let scratch = TempDir::new().unwrap();
+    let store = scratch.path().join("store");
+    let log = fs::read_to_string(fixtures().join("events.jsonl")).unwrap();
+    job_in(&store, WATCHED, Some(&log));
+    let expected: Vec<Value> = log
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    for args in [vec!["watch", WATCHED], vec!["watch", WATCHED, "--json"]] {
+        let out = candler(&store, &args, &[]);
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "{args:?}: {}",
+            text(&out.stderr)
+        );
+        let got: Vec<Value> = text(&out.stdout)
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        assert_eq!(got, expected, "{args:?}");
+    }
+}
+
+/// Guards: O3 — `candler watch <id> --live` on a pipe prints plain progress lines and no escape
+/// byte anywhere, with `NO_COLOR` unset and set, on both streams; `--live` and `--json` together
+/// are refused by the parser. Oracle: a recorded event log (two runs started, both ended, four
+/// outcomes planned and none seen) and a byte scan for 0x1b over everything the verb wrote. Bite:
+/// ANSI on a pipe.
+#[test]
+fn o3_live_on_a_pipe_prints_plain_lines_and_no_escape_byte() {
+    let scratch = TempDir::new().unwrap();
+    let store = scratch.path().join("store");
+    let log = fs::read_to_string(fixtures().join("events.jsonl")).unwrap();
+    job_in(&store, WATCHED, Some(&log));
+    for env in [vec![], vec![("NO_COLOR", "1")]] {
+        let out = candler(&store, &["watch", WATCHED, "--live"], &env);
+        assert_eq!(out.status.code(), Some(0), "{env:?}: {}", text(&out.stderr));
+        assert_eq!(
+            text(&out.stdout),
+            "progress runs 2/2 outcomes 0/4\n",
+            "{env:?}"
+        );
+        for bytes in [&out.stdout, &out.stderr] {
+            assert!(!bytes.contains(&0x1b), "an escape byte on a pipe: {env:?}");
+        }
+    }
+    let out = candler(&store, &["watch", WATCHED, "--live", "--json"], &[]);
+    assert!(!out.status.success());
+    assert!(
+        text(&out.stderr).contains("cannot be used with"),
+        "{}",
+        text(&out.stderr)
+    );
+}
+
