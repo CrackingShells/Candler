@@ -26,7 +26,7 @@ L2 of `m3-lean-cli`. It needs L1 merged: `evaluate_verb` wires the job body of `
 ```mermaid
 graph TD
     evaluate_verb[Evaluate verb]:::planned
-    refusal_late[Refusal late]:::planned
+    refusal_late[Refusal late]:::done
     closeout[Closeout]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -39,7 +39,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `evaluate_verb.md` | 📄 Leaf Task | ⬜ Planned |
-| `refusal_late.md` | 📄 Leaf Task | ⬜ Planned |
+| `refusal_late.md` | 📄 Leaf Task | ✅ Done |
 | `closeout/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
