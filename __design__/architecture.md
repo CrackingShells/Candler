@@ -141,13 +141,37 @@ tag and a GitHub release per new version, and with publishing to crates.io off u
 enabled), `cocogitto` (`cog verify` in a
 `commit-msg` hook and in CI). `serde_json` with `float_roundtrip`.
 
+### Workspace targets
+
+Candler builds and runs on Linux and macOS. On Windows it runs inside WSL2, where it is Linux;
+Docker Desktop on Windows already runs on WSL2. The binary refuses to compile on a non-unix target,
+with one `compile_error!` whose message names WSL2, so no stub arm compiles nowhere. `candler-schemas`
+and the Python helper stay portable.
+
+A native Windows port is a milestone of its own, after M7. It starts from the committed inventory
+`crates/candler-core/tests/vectors/platform_inventory.toml`, which lists every file that calls a
+unix-only API (`std::os::unix`, `rustix`, `libc`): 21 at the time of writing, each with what it uses
+and its Windows counterpart. A guard fails when a file outside the list starts to use one, so new
+code goes through the existing seams (`Signaller`, `Supervisor`, the job lock and the slots) or
+extends the list deliberately. The counterparts:
+
+| Candler needs | Unix | Windows |
+|---|---|---|
+| Stop a process group, with escalation | process groups, `killpg` | Job Objects |
+| Catch descendants that escape | subreaper and marker sweep | Job Objects (no sweep) |
+| Never signal a reused pid | pid plus start time | a held process handle |
+| Job lock, machine-wide slots | `flock` | `LockFileEx` |
+| Detached supervisor | `setsid`, re-exec | `DETACHED_PROCESS` |
+| Agent isolation | Docker CLI | the same CLI, with host path forms for mounts |
+| The helper's isolation of each expectation | `os.fork` | a spawn mode |
+
 ## Operation API
 
 | Operation | Input | Output | Long-running? |
 |---|---|---|---|
 | `resolve` | experiment or suite + overrides | the resolved experiment, every value with its source; preflight results | no |
 | `run` | resolved experiment + budget | job id | yes (job) |
-| `ingest` | raw trace dirs or a legacy results folder | run keys | yes (job) for big corpora |
+| `ingest` | raw trace dirs or a legacy results folder | run keys | no: runs in the caller, repeats to the same store, safe to interrupt |
 | `evaluate` | suite + run selection | job id | yes (job) |
 | `analyze` | analysis spec + outcome selection | tables (JSON or CSV), intervals, tests | no |
 | `jobs` / `events` / `cancel` | job selection | job records, the event stream, cancellation | no |
@@ -177,10 +201,10 @@ its step; `resolve` itself knows none.
 
 | File | Where | Keys |
 |---|---|---|
-| Project config | `candler.toml` in the project root, the nearest ancestor of the working directory holding one | `store.root` (default `<project root>/.candler/store`; with no project, `$XDG_STATE_HOME/candler/store`, else `~/.local/state/candler/store`), `plugins.dirs[]` |
-| User config | `$XDG_CONFIG_HOME/candler/config.toml`, else `~/.config/candler/config.toml` | `slots.count` |
+| Project config | `candler.toml` in the project root, the nearest ancestor of the working directory holding one | `store.root` (default `<project root>/.candler/store`; with no project, `$XDG_STATE_HOME/candler/store`, else `~/.local/state/candler/store`), `plugins.dirs[]`, the directories `evaluate` finds plug-ins in |
+| User config | `$XDG_CONFIG_HOME/candler/config.toml`, else `~/.config/candler/config.toml` | `slots.count`, `slots.evaluators` |
 
-Unknown keys are refused, naming the file and key. A machine-wide setting (`slots.count`) is
+Unknown keys are refused, naming the file and key. A machine-wide setting (`slots.count`, `slots.evaluators`) is
 refused in a project config. A relative path written in a config file resolves against that file's
 directory; a relative path given as an argument resolves against the caller's working directory
 (I14).
@@ -197,9 +221,14 @@ Keys with a unit carry it: `deadline_ms`, `grace_ms`, `wall_s`, `max_cost_usd`.
 | `max_runs?`, `max_tokens?`, `max_cost?`, `wall?` | Caps on the job | Runs in flight end `invalid(budget_stop)`; no new run starts |
 | `max_parallel` | Concurrent agent runs or evaluator processes in this job; default 1 | — |
 
-Across jobs, without a daemon: each agent or evaluator process holds one of N machine-wide slot
-files (`~/.local/state/candler/slots/<n>.lock`, taken with `flock`, released by the kernel when the
-holder dies). N comes from user config (*provisional* default).
+Across jobs, without a daemon, there are two machine-wide pools of slot files, because an agent run
+holds its slot for minutes or hours while an evaluator is a short, CPU-bound process. Each agent
+process takes one slot file of the agent pool (`~/.local/state/candler/slots/<n>.lock`, N from
+`slots.count`). Each evaluator process takes one slot file of its own pool
+(`~/.local/state/candler/evaluator-slots/<n>.lock`, N from `slots.evaluators`), so an evaluation
+never waits behind agent runs. Both are taken with `flock` and released by the kernel when the
+holder dies. The default of `slots.evaluators` is derived from the CPU count: half of it, rounded
+down, and at least 1. The default of `slots.count` is *provisional*.
 
 ### Experiment file (`experiment/1`, on the `schemas@` line)
 
@@ -265,16 +294,32 @@ field path is dotted: `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`.
 | Command | Does |
 |---|---|
 | `candler run <experiment> [--<field> <value> ...]` | Resolves (file first, CLI fields override), then starts a job; prints the job id |
-| `candler ls` | Lists experiment files. *Provisional:* `experiments/` under the project root, plus any path given |
+| `candler ls` | Lists experiment files under `<project root>/experiments/`, recursively, plus any path given; with no project, under `./experiments/`. A TOML file that does not parse as `experiment/1` is listed as skipped, with the reason |
 | `candler ps` | Lists jobs with id, experiment, state, progress |
 | `candler kill <id> \| --all` | Stops jobs; asks for confirmation unless `--yes` / `-y` |
 | `candler watch <id> [--json \| --live]` | Follows a job's events: `--json` (default) prints event records, `--live` draws progress |
-| `candler import <corpus> --rules <file>` | Imports a legacy results folder under the import rules the TOML file states; prints `{"runs": n, "records": n}` |
-| `candler evaluate`, `show`, `inspect`, `diff`, `analyze`, `resolve` | The other operations |
+| `candler ingest <path>...` | Turns raw Claude Code trace directories (one run per stream) into runs; with `--rules <file>`, imports a legacy results folder under the import rules the TOML file states. It runs to completion in the caller, repeats to the same store and is safe to interrupt; `candler import` stays as a hidden alias for a results folder |
+| `candler resolve <experiment \| suite>` | Prints every resolved value with its source and runs the preflight; starts no job |
+| `candler inspect <run dir \| key prefix \| job id>` | Shows the run, or the job's runs, with outcomes, evidence, provenance and integrity, deriving the store from a run directory |
+| `candler analyze [--evaluator <name@version \| version>] [--experiment <file>] [--format json\|csv]` | Reports rates, Wilson intervals and pairwise tests (§Analysis statistics). It finds the experiment file by the digest the runs' manifests name, under `<project root>/experiments/`; `--experiment` names it when it lives elsewhere |
+| `candler evaluate <suite> [<job-id> \| --runs <glob>]` | Starts the evaluate job, prints its id on stderr, follows it and prints the report; Ctrl-C cancels it. With no selection it grades the runs with no complete outcome set for the suite's evaluator versions |
+| `--error-format text\|json` | Global option: the form of a refusal on stderr (below) |
+| `candler show`, `diff` | The other operations |
 
 Every verb reads one store root: `--store <dir>`, given anywhere on the line, else `CANDLER_STORE`,
 else the configuration's `store.root`, else the default above, as `resolve` layers them. A verb
 that finds none refuses, naming the three ways to give one.
+
+**Terminals.** `watch` prints event records (`--json`) by default, and `--live` draws progress.
+Colour is on only when stdout is a terminal and `NO_COLOR` is unset; there is no `--no-color`. The
+binary embeds the container assets with `include_bytes!` and writes them to a cache keyed by their
+digest, so it runs from any directory.
+
+The global option `--error-format text|json` defaults to `text`; `json` writes one `refusal/1`
+record per line on stderr. It is neither derived nor a file setting: what parses the caller's
+stderr is not visible from the terminal, and a refusal can come before any file is read. Deriving
+it from whether stderr is a terminal would hand JSON to a human who pipes and text to an agent
+behind a pty.
 
 "Experiment" names the file that declares factors, levels, replicates and budget (today's
 `run_config` YAML). The experiment is never called a plan, which collides with HTN planning: the
@@ -298,6 +343,14 @@ names.
   `ended_by` and exit status), `run.failed` (reason code), `run.stray` (survivors found by the
   sweep); `evaluation.outcome`; `process.spawned`, `process.stop_step`, `process.exited`. The job
   record (`job.json`), the envelope and these payloads are on the `schemas@` line.
+- **Evaluate job.** An evaluation is a job like a run job: the same record, lock, children,
+  subreaper and sweep. Its events add `evaluation.planned {outcomes}`, the number of records the job
+  will try to commit, before its first outcome, and `evaluation.outcome` for each committed record.
+  `JobSpec` stays the run spec; the job directory holds a `JobSpecFile` (`Run` or `Evaluate`), read
+  and written at the job-directory boundary only. The evaluate body has its own serve path, with no
+  container. `candler evaluate` starts the job at once and waits for it; the job form is what lets
+  `kill` and the recovery of a lost job reap evaluator processes after a crash, and lets one
+  `events.jsonl` serve `watch`.
 - **Order of delivery:** `run` + events + `ps` + `kill` → `watch --json` → `ls` + `watch --live`.
 
 ### Run identity and resume
@@ -589,8 +642,10 @@ runner keeps a stream-json session's input open so a notification starts a furth
 | `command` | argv, relative to the plug-in directory |
 | `environment` | `{kind: uv \| none, project, lock}`; the core builds one environment per lock digest and reuses it, and runs `command` inside it (`VIRTUAL_ENV` set, its `bin/` first on `PATH`) |
 
-The core reads manifests without running anything. *Provisional:* the project config lists plug-in
-directories; a suite names an evaluator as `name@range`.
+The core reads manifests without running anything. Plug-ins come from the directories of
+`plugins.dirs[]`, which `evaluate` reads; each plug-in directory holds one manifest, named
+`plugin.toml` or `candler-plugin.toml`, and a directory with both, with neither, or with a manifest
+only in a subdirectory is refused. A suite names an evaluator as `name@range`.
 
 **What the core knows of a domain.** Nothing (I1). An evaluator reports the packages of its own
 environment through `describe`, in `environment.packages{}`. The agent's environment is declared
@@ -870,6 +925,35 @@ the latest complete request wins. Differing outcomes under one key, other than a
 `instrument_error` or `deadline` replaced by a measured one, are reported as I4 violations. Roles
 and weights are read from the outcomes, never from today's suite.
 
+### Analysis statistics
+
+`analyze` reports Candler's default statistics. The unit of replication is the run, and an arm is a
+cell: the outcomes of one run share the agent's behaviour, so they are not independent.
+
+- **Rate.** Per role, Σnum/Σden as defined above, reported with its counts and with no interval,
+  because an interval over correlated outcomes is falsely narrow.
+- **Interval.** The Wilson 95 % interval, per (arm, expectation), on k passes over n graded runs. It
+  applies only where every weight is 0/1; otherwise it is omitted, with the reason `weighted`. Wilson
+  keeps its coverage at small n and at k = 0 or k = n, where the Wald interval fails. Its exact
+  coverage dips below 95 % at small n (0.9185 at n = 5, p = 0.1) and stays at or above 0.91 for the
+  sizes replicates give; the implementation equals a second engine's table.
+- **Comparison.** For every pair of cells in one comparable stratum that differ in exactly one
+  declared factor, per expectation: Fisher's exact test (two-sided; the p-value sums the tables no
+  more likely than the observed one, within a relative tolerance of 1e-7, as R's `fisher.test`
+  does) and the difference with its Newcombe interval, the hybrid score interval, consistent with
+  Wilson. Fisher's test needs no large-sample condition, so it is valid at the few runs a replicate
+  count gives.
+- **Multiplicity.** Holm's adjustment runs over every comparison and expectation of one role in one
+  analysis. It controls the family-wise error rate with no independence assumption.
+- **What a run counts for.** An invalid run is in neither k nor n; it is reported per arm with its
+  reason, and an end the experimenter caused is never charged to an arm. A pair the stratum verdict
+  refuses is reported as refused, with its cause and its rates.
+- **Constants.** α is 0.05, recorded with the source `core_default`; there is no option.
+
+These are Candler's defaults, not the analysis: every count is carried, so an author can analyse the
+same results another way. `docs/statistics.md` says what each method answers, where it stops being
+valid and what Candler does not claim.
+
 ### Wire schema: tool-catalog snapshot
 
 What the MCP servers a run targets actually offered, captured per run by a catalog provider. HTN's
@@ -901,7 +985,7 @@ The rules every wire type of the `schemas@` line follows.
 | Causes | One-key objects, as in the outcome record table. Reason codes match `^[a-z][a-z0-9_]*$`; the core reserves `not_applicable_to_arm`, `instrument_error` and `deadline`. |
 | Legacy marker | `{legacy: code}` marks a record whose status, weight or cause the other causes cannot state exactly, such as the zero weight `0/0` of a gate pass in the golden corpus; the code says which case (`zero_weight`, `no_replay_target`, `zero_mappings`, `unrecorded`). It is deprecated (`deprecated: true` in the schema, `#[deprecated]` in Rust), written only by the legacy importer and refused from evaluators. It is the only cause a `pass` or `fail` may carry, and a `0/0` weight, allowed only on a `pass`, requires it. It is removed at the first schema major after M2a's parity is signed off. |
 | Absent vs null | An optional field is omitted when absent. `null` is never written, and both the schema and the Rust reader reject it: the generator strips the `null` type schemars gives `Option`, and record deserialisation refuses an explicit `null`. Collections are always present, possibly empty. |
-| Unknown fields | Schemas are strict (`additionalProperties: false`): they define what a writer at that version emits. Rust readers ignore unknown fields (I18) but read objects only, never a struct written as an array. MCP tool objects, `inputSchema`, `outputSchema` and `ext` are open. |
+| Unknown fields | Schemas are strict (`additionalProperties: false`): they define what a writer at that version emits. Readers of the records Candler writes ignore unknown fields, so that an older reader reads a newer record. Readers of the three author documents (experiment, suite, plug-in manifest) refuse an unknown field with `<surface>.unknown_field` and its pointer (§Refusals). Every reader reads objects only, never a struct written as an array. MCP tool objects, `inputSchema`, `outputSchema` and `ext` are open. |
 | Run key | `{"cell": "sha256:<hex>", "replicate": n, "attempt": m}` in records, both counters from 1. Paths and `CANDLER_RUN` use `<cell hex>-r<n>-a<m>`. |
 | Digests | `sha256:` + 64 lowercase hex; blob paths use the bare hex. An instrument digest may also be `git:<40 or 64 hex>`, a commit of a clean tree, valid only with `dirty: false`. Digests of JSON values (`suite_entry_digest`, `context_digest`, the cell digest) are taken over RFC 8785 canonical JSON. |
 | `name@version` | Split at the last `@`; the name has no `@` or whitespace. Evaluator and instrument versions are SemVer 2.0; a catalog provider's version is a free token `[0-9A-Za-z.+-]+`. |
@@ -1034,6 +1118,50 @@ request files under the new evaluator version; `diff` compares versions.
 | Arms differ outside declared factors | The stratum is invalid; comparisons are refused |
 | Dirty instrument asked to grade a gate or quality expectation | `resolve` fails |
 
+### Refusals
+
+A refusal is an input the caller can fix: a field in a document they wrote, a flag, a setting, a
+missing prerequisite. Each has three parts, so that a coding agent can match on it without parsing
+prose.
+
+- **Code.** A stable dotted name, `<surface>.<reason>` (for example `manifest.unknown_field`,
+  `suite.params_invalid`, `experiment.setting_as_factor`). Numeric codes are unreadable to an agent,
+  and a code kept only in a message cannot be matched.
+- **Side.** Whose input is at fault: `plugin`, `suite`, `experiment`, `config`, `environment` or
+  `candler`. `candler` is never the side of an author's error; it marks a defect in Candler.
+- **Path.** An RFC 6901 JSON pointer into the parsed document, or a file. A pointer reads the same
+  for TOML and for JSON documents. A parse error gets its pointer through `serde_path_to_error`.
+
+The record is `refusal/1`, `{schema, code, side, path?, file?, message, causes[]}`, on the
+`schemas@` line, and the trait `candler_schemas::refusal::Refusal` (`code`, `side`, `path`) is
+implemented by each error enum an author can reach. The three documents an author writes
+(experiment, suite, plug-in manifest) refuse unknown fields, naming the field; the records Candler
+writes stay lenient (§Wire encodings).
+
+The registry is `docs/contract/codes.toml`, hand-written and append-only: a released code is never
+renamed or removed, which makes stability checkable. It is the oracle of the tests that read the
+codes, so no test takes its expectation from the code it checks. Every other error that reaches the
+CLI carries the fallback code `candler.internal`, side `candler`, and is listed in the registry's
+`[internal]` allowlist; `CliError::failed` keeps its bound, and `CliError::refused_by` takes a
+`Refusal`. Exit codes stay 0, 1 and 2.
+
+### Contract pages
+
+The pages of `docs/contract/` tell a coding agent what each surface expects: its fields, their
+classes and the refusals it can raise. A field's class comes from the committed schema files, the
+files plug-in authors validate against: a property in `required` is `required`; one with a default
+or optional is `optional`. Only `candler` (written by Candler, never set by an author) and `free`
+(stored, never read) are declared, as the annotation keyword `x-candler-class`. A class table kept
+outside the types would drift from them.
+
+The pages are generated by the drift test `contract_pages`, which mirrors `schema_drift` and is
+regenerated with `CANDLER_BLESS_CONTRACT=1`. It reads the committed schema files, never the Rust
+types. The code-side catalogue is `candler_core::refusal::catalog()`; the helper's codes are the
+`[helper]` section of `codes.toml`, read by the helper's tests and by the generator. The page of
+the driver traits (`driver-traits.md`) is written by hand by the session-runner milestone and
+folded into the generator by whichever milestone merges to `main` second; until then the generator
+lists it in the index and leaves its file alone.
+
 ## Golden corpus (M2a exit gate)
 
 **Reference, done 2026-10-28.** The 240 runs of 2026-08-06 (12 cells: Haiku 4.5, Sonnet 4.6, Sonnet
@@ -1161,13 +1289,12 @@ by the original artifact commit `36290ab`, and is imported under `measured`. At 
 
 Decided during development: pairing keys, execution order and a declared blocking factor (M6; start
 times are recorded from M2b); a `without_skill` fixture for the parity suite; reporting
-`instrument_error` and `deadline` counts per arm; event kinds beyond the first set; where `ls` looks;
-how plug-ins are registered; the slot count default; a macOS orphan watchdog; long-lived workers; the
-MCP tool shapes; the store root default; `snapshots[]` and `inputs[]` needs (unimplemented,
-refused by the registry). The container backend is decided (M2b): Docker through its CLI, one
-`docker run` per run; `Isolation` turns a plan into a spawn request, then collects and destroys.
-The long-lived handle's `exec`, `inject` and whole-container `census` are M5's, as are a host
-backend and an egress allowlist.
+`instrument_error` and `deadline` counts per arm; event kinds beyond the first set; the slot count
+default; a macOS orphan watchdog; long-lived workers; the MCP tool shapes; the store root default;
+`snapshots[]` and `inputs[]` needs (unimplemented, refused by the registry). The container backend
+is decided (M2b): Docker through its CLI, one `docker run` per run; `Isolation` turns a plan into a
+spawn request, then collects and destroys. The long-lived handle's `exec`, `inject` and
+whole-container `census` are M5's, as are a host backend and an egress allowlist.
 
 ## Implementation
 
