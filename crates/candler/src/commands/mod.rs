@@ -1,11 +1,16 @@
 //! The verbs of the `candler` binary, one file each, and what they share in [`common`].
 
+pub mod analyze;
 pub mod common;
 pub mod diff;
 pub mod evaluate;
 pub mod import;
+pub mod inspect;
 pub mod kill;
+pub mod ls;
+pub mod preflight;
 pub mod ps;
+pub mod resolve;
 pub mod run;
 pub mod show;
 pub mod supervise;

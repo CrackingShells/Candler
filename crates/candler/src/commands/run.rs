@@ -12,21 +12,17 @@
 //! The only paths this verb reads relative to the working directory are the experiment file and
 //! the treatment source a flag names, which the user typed, and the project configuration
 //! `candler.toml` found from the working directory, which `ps` and `kill` find the same way.
-//! Jobs are registered only through [`Resolver::register`]; no `environments[]` is written.
+//! Jobs are registered only through [`candler_core::resolve::preflight::Resolver::register`]; no `environments[]` is written.
 
-use std::collections::BTreeMap;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use candler_core::experiment::inputs::{ResolvedInputs, resolve_inputs};
 use candler_core::experiment::paths;
-use candler_core::isolation::docker::{ClientEnv, DockerCli};
+use candler_core::isolation::docker::DockerCli;
 use candler_core::isolation::driver::DockerDriver as _;
-use candler_core::isolation::image::{DockerImageService, ImageAssets};
-use candler_core::isolation::layout;
 use candler_core::isolation::model::{BuildRequest, Labels};
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::model::JobSpec;
@@ -35,18 +31,12 @@ use candler_core::jobs::runtime::detach::{DetachArgs, detach};
 use candler_core::jobs::runtime::launch::{mint_job_id, own_identity, spec_digest};
 use candler_core::resolve::config::{Config, ConfigEnv};
 use candler_core::resolve::layers::{FileValues, Resolution, ResolveInput};
-use candler_core::resolve::preflight::{ResolveError, Resolver};
-use candler_core::resolve::steps::{M2bServices, register_m2b_steps};
-use candler_core::runner::evidence::catalog::{CatalogCommand, CommandCatalogProvider};
 use candler_core::runner::plan::{Force, PlanCtx, PlanMode, experiment_of, plan_runs};
 use candler_core::store::Store;
-use candler_core::supervise::{EventSink, Supervisor};
-use candler_harness::driver::HarnessDriver as _;
-use candler_harness_claude_code::driver::ClaudeCodeDriver;
-use candler_schemas::execution::{EventPayload, ExperimentFile, JobRecord, JobState};
-use candler_schemas::primitives::{FieldPath, RunKey};
-use candler_schemas::values::JsonValue;
+use candler_schemas::execution::{ExperimentFile, JobRecord, JobState};
+use candler_schemas::primitives::FieldPath;
 
+use super::preflight::{failed, foreground, json_of, path_of, refused, request_settings};
 use super::{CliError, Exit, common};
 
 /// The environment variable that tells the supervisor which store the launcher used. The
@@ -64,19 +54,9 @@ const ENV_ALLOWLIST: [&str; 5] = [
     "DOCKER_CONTEXT",
 ];
 
-/// The path of the setting `[treatment] source` replaces; `--set` refuses it by name.
-const RETIRED_TREATMENT_SOURCE: &str = concat!("request.", "treatment_source");
-
 /// The tag the gateway's sidecar image is looked up by. The tag is not a pin: an image another
 /// build left under it is the one the jobs use.
 const SIDECAR_TAG: &str = "candler-gateway:latest";
-
-/// The time the catalog command gets inside the image.
-const CATALOG_TIMEOUT: Duration = Duration::from_secs(60);
-
-/// The program that prints the catalog of an image that offers no MCP server: a snapshot with no
-/// server in it, captured now.
-const CATALOG_PROGRAM: &str = "printf '{\"schema\":\"tool-catalog-snapshot/1\",\"captured_at\":\"%s\",\"provider\":\"candler-image@1\",\"servers\":[]}' \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"";
 
 /// The arguments of `candler run`.
 #[derive(Debug, clap::Args)]
@@ -99,177 +79,6 @@ fn parse_field(text: &str) -> Result<(FieldPath, String), String> {
     };
     let path = FieldPath::from_str(path).map_err(|e| e.to_string())?;
     Ok((path, value.to_owned())) // BORROW: the argument owns its value
-}
-
-/// The places the sources of the images are.
-struct AssetPaths {
-    /// The base and env build contexts and the store root.
-    images: ImageAssets,
-    /// The build context of the gateway's sidecar image.
-    gateway: PathBuf,
-}
-
-/// The one place the asset paths are named: `assets/docker` of the workspace this binary was
-/// built in, found at compile time from this crate's manifest.
-fn asset_paths(store_root: &Path) -> AssetPaths {
-    let docker = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/docker"));
-    AssetPaths {
-        images: ImageAssets {
-            base_context: docker.join("base"),
-            env_context: docker.join("env"),
-            store_root: store_root.to_path_buf(), // BORROW: the assets own their store root
-        },
-        gateway: docker.join("gateway"),
-    }
-}
-
-/// An event sink that drops what it is given: the foreground checks belong to no job.
-struct Silent;
-
-impl EventSink for Silent {
-    fn emit(&self, _run: Option<&RunKey>, _payload: EventPayload) {}
-}
-
-/// Why a step of the verb failed, as the error of the verb.
-fn failed(error: impl std::error::Error + Send + Sync + 'static) -> CliError {
-    CliError::Failed {
-        verb: "run",
-        source: Box::new(error),
-    }
-}
-
-/// A refusal of the request.
-fn refused(reason: impl Into<String>) -> CliError {
-    CliError::Refused {
-        reason: reason.into(),
-    }
-}
-
-/// The resolver with the preflight steps of the image, the harness, the treatment and the
-/// catalog registered.
-///
-/// # Errors
-/// [`ResolveError`] when a step name is registered twice or malformed.
-pub fn compose_resolver(
-    config: Arc<Config>,
-    services: &M2bServices,
-) -> Result<Resolver, ResolveError> {
-    register_m2b_steps(Resolver::new(config), services)
-}
-
-/// The value `text` stands for: JSON when it parses as JSON, else the text itself.
-fn value_of(text: &str) -> Result<JsonValue, CliError> {
-    let json = serde_json::from_str::<serde_json::Value>(text)
-        .unwrap_or_else(|_| serde_json::Value::String(text.to_owned())); // BORROW: the value owns its text
-    JsonValue::new(json).map_err(|e| refused(e.to_string()))
-}
-
-fn json_of<T: serde::Serialize>(value: &T) -> Result<JsonValue, CliError> {
-    let json = serde_json::to_value(value).map_err(failed)?;
-    JsonValue::new(json).map_err(|e| refused(e.to_string()))
-}
-
-fn path_of(text: &str) -> Result<FieldPath, CliError> {
-    FieldPath::from_str(text).map_err(|e| refused(e.to_string()))
-}
-
-/// What the experiment file and the command line ask for, as the input of a resolution: the
-/// file's fixed values, the settings `request.harness` and `request.treatment` it names, and the
-/// arguments of `--set` as explicit values. A location setting (the treatment's source, the build
-/// requirements, lock, Dockerfile and context) is relative to the file's directory when the file
-/// writes it, and to the working directory `cwd` when `--set` gives it; so is the `source` of a
-/// treatment that `--set request.treatment` gives.
-///
-/// # Errors
-/// [`CliError::Refused`] when a value cannot be written as a setting, or when `--set` names
-/// the retired setting of the treatment's checkout, which `[treatment] source` replaces.
-pub fn request_settings(
-    file: &ExperimentFile,
-    experiment_dir: &Path,
-    fields: &[(FieldPath, String)],
-    cwd: &Path,
-) -> Result<ResolveInput, CliError> {
-    let mut values: BTreeMap<FieldPath, JsonValue> = file
-        .fixed()
-        .iter()
-        .map(|(path, value)| (path.clone(), value.clone())) // BORROW: the input owns its paths and values
-        .collect();
-    values.insert(path_of(paths::REQUEST_HARNESS)?, json_of(file.harness())?);
-    values.insert(
-        path_of(paths::REQUEST_TREATMENT)?,
-        json_of(file.treatment())?,
-    );
-    let file_values = FileValues::new(values.into_iter().collect())
-        .relative_to(experiment_dir)
-        .map_err(|e| refused(e.to_string()))?;
-    let mut input = ResolveInput::default().file(file_values);
-    for (path, text) in fields {
-        if path.as_str() == RETIRED_TREATMENT_SOURCE {
-            return Err(refused(format!(
-                "`{RETIRED_TREATMENT_SOURCE}` is no longer a setting: set `[treatment] source` in the \
-                 experiment file"
-            )));
-        }
-        let mut value = value_of(text)?;
-        if path.as_str() == paths::REQUEST_TREATMENT {
-            // BORROW: .clone() gives the file values their own path
-            let given = FileValues::new(vec![(path.clone(), value.clone())])
-                .relative_to(cwd)
-                .map_err(|e| refused(e.to_string()))?;
-            if let Some((_, resolved)) = given.values.into_iter().next() {
-                value = resolved;
-            }
-        }
-        input = input.explicit(path.clone(), value); // BORROW: the input owns its path
-    }
-    Ok(input)
-}
-
-/// The services the foreground preflight runs on.
-struct Foreground {
-    cli: DockerCli,
-    resolver: Resolver,
-    gateway_context: PathBuf,
-}
-
-/// Builds the docker client, the image service and the catalog provider over one supervisor, and
-/// composes the resolver on them.
-fn foreground(config: Arc<Config>, root: &Path) -> Result<Foreground, CliError> {
-    let assets = asset_paths(root);
-    let control = layout::control_dir(root);
-    std::fs::create_dir_all(&control).map_err(failed)?;
-    // TRAIT_OBJECT: the foreground checks belong to no job and report no event
-    let sink: Arc<dyn EventSink> = Arc::new(Silent);
-    let supervisor = Arc::new(Supervisor::new(sink));
-    let env = ClientEnv::from_process();
-    let cli = DockerCli::new(Arc::clone(&supervisor), env.clone(), control).map_err(failed)?; // BORROW: the client owns its env
-    let images = DockerImageService::new(
-        Arc::clone(&supervisor),
-        cli.clone(), // BORROW: the service owns its client
-        env.clone(), // BORROW: the service owns its env
-        assets.images,
-    );
-    // BORROW: .to_owned() gives the command its own words
-    let argv = vec!["sh".to_owned(), "-c".to_owned(), CATALOG_PROGRAM.to_owned()];
-    let catalog = CommandCatalogProvider::new(
-        Arc::clone(&supervisor),
-        cli.clone(), // BORROW: the provider owns its client
-        env,
-        root.to_path_buf(), // BORROW: the provider owns its root
-        CatalogCommand::new(argv, CATALOG_TIMEOUT),
-    );
-    let services = M2bServices {
-        supervisor,
-        images: Arc::new(images),
-        catalog: Arc::new(catalog),
-        harness_supported: ClaudeCodeDriver::new().map_err(failed)?.supported(),
-    };
-    let resolver = compose_resolver(config, &services).map_err(failed)?;
-    Ok(Foreground {
-        cli,
-        resolver,
-        gateway_context: assets.gateway,
-    })
 }
 
 /// Makes sure the gateway's sidecar image is there: looks it up by its tag, and builds it from

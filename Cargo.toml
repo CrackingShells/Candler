@@ -22,15 +22,18 @@ futures = "0.3"
 globset = "0.4"
 jiff = "0.2"
 libproc = "0.15"
+rand_chacha = "0.10"
 regex = "1"
 rustix = { version = "1", features = ["fs", "process"] }
 ryu-js = "1"
 schemars = "1"
 semver = "1"
 serde = { version = "1", features = ["derive"] }
+serde_path_to_error = "0.1"
 serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.11"
 shell-words = "1"
+statrs = { version = "0.19", default-features = false }
 thiserror = "2"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt", "rt-multi-thread", "signal", "sync", "time"] }
 toml = "1"
