@@ -430,19 +430,349 @@ variant = "ManifestUnknownField"
 
 [resolve]
 
+[resolve."config.file_unreadable"]
+side = "config"
+enum = "ConfigError"
+variant = "Read"
+
+[resolve."config.toml_invalid"]
+side = "config"
+enum = "ConfigError"
+variant = "Parse"
+
+[resolve."config.unknown_key"]
+side = "config"
+enum = "ConfigError"
+variant = "UnknownKey"
+
+[resolve."config.machine_wide_key"]
+side = "config"
+enum = "ConfigError"
+variant = "MachineWideKey"
+
+[resolve."config.wrong_type"]
+side = "config"
+enum = "ConfigError"
+variant = "WrongType"
+
+[resolve."config.cwd_not_absolute"]
+side = "config"
+enum = "ConfigError"
+variant = "RelativeCwd"
+
+[resolve."resolve.preflight_step_failed"]
+side = "environment"
+enum = "PreflightError"
+variant = "Failed"
+
+[resolve."resolve.path_not_utf8"]
+side = "config"
+enum = "ResolveError"
+variant = "NonUtf8Path"
+
+[resolve."resolve.preflight_failed"]
+side = "environment"
+enum = "ResolveError"
+variant = "Preflight"
+
 [experiment]
+
+[experiment."experiment.input_unusable"]
+side = "experiment"
+enum = "InputError"
+variant = "Refused"
+
+[experiment."experiment.input_not_stored"]
+side = "experiment"
+enum = "InputError"
+variant = "Store"
+
+[experiment."experiment.setting_missing"]
+side = "experiment"
+enum = "SurfaceError"
+variant = "Missing"
+
+[experiment."experiment.setting_wrong_type"]
+side = "experiment"
+enum = "SurfaceError"
+variant = "Type"
+
+[experiment."experiment.setting_under_reserved_root"]
+side = "experiment"
+enum = "SurfaceError"
+variant = "ReservedRoot"
+
+[experiment."experiment.setting_absolute_path"]
+side = "experiment"
+enum = "SurfaceError"
+variant = "AbsolutePath"
 
 [runner]
 
+[runner."experiment.name_collision"]
+side = "experiment"
+enum = "PlanError"
+variant = "NameCollision"
+
+[runner."runner.experiment_locked"]
+side = "environment"
+enum = "PlanError"
+variant = "ExperimentLocked"
+
+[runner."runner.fact_changed"]
+side = "environment"
+enum = "PlanError"
+variant = "Changed"
+
+[runner."runner.stored_cell_unknown"]
+side = "experiment"
+enum = "PlanError"
+variant = "StoredCellUnknown"
+
+[runner."experiment.setting_as_factor"]
+side = "experiment"
+enum = "PlanError"
+variant = "SettingAsFactor"
+
+[runner."runner.catalog_command_failed"]
+side = "environment"
+enum = "CatalogError"
+variant = "Command"
+
+[runner."runner.catalog_timeout"]
+side = "environment"
+enum = "CatalogError"
+variant = "Timeout"
+
+[runner."runner.catalog_unreadable"]
+side = "environment"
+enum = "CatalogError"
+variant = "Parse"
+
+[runner."runner.census_no_init"]
+side = "environment"
+enum = "CensusError"
+variant = "NoInit"
+
+[runner."runner.census_malformed"]
+side = "environment"
+enum = "CensusError"
+variant = "Malformed"
+
 [isolation]
+
+[isolation."isolation.step_unavailable"]
+side = "environment"
+enum = "IsolationError"
+variant = "Unavailable"
+
+[isolation."isolation.docker_step_failed"]
+side = "environment"
+enum = "IsolationError"
+variant = "Docker"
+
+[isolation."isolation.docker_unavailable"]
+side = "environment"
+enum = "DockerError"
+variant = "Unavailable"
+
+[isolation."isolation.docker_failed"]
+side = "environment"
+enum = "DockerError"
+variant = "Failed"
+
+[isolation."isolation.docker_resource_missing"]
+side = "environment"
+enum = "DockerError"
+variant = "NotFound"
+
+[isolation."isolation.secret_missing"]
+side = "environment"
+enum = "SecretError"
+variant = "Missing"
+
+[isolation."isolation.gateway_unavailable"]
+side = "environment"
+enum = "GatewayError"
+variant = "Unavailable"
+
+[isolation."isolation.gateway_start_failed"]
+side = "environment"
+enum = "GatewayError"
+variant = "Start"
+
+[isolation."isolation.secret_unsupported_character"]
+side = "environment"
+enum = "GatewayError"
+variant = "SecretFormat"
+
+[isolation."isolation.gateway_misconfigured"]
+side = "environment"
+enum = "GatewayError"
+variant = "Config"
+
+[isolation."isolation.gateway_no_answer"]
+side = "environment"
+enum = "NotReadyCause"
+variant = "NoAnswer"
+
+[isolation."isolation.gateway_unauthorized"]
+side = "environment"
+enum = "NotReadyCause"
+variant = "Unauthorized"
+
+[isolation."isolation.gateway_capped"]
+side = "environment"
+enum = "NotReadyCause"
+variant = "Capped"
+
+[isolation."isolation.gateway_upstream_error"]
+side = "environment"
+enum = "NotReadyCause"
+variant = "Upstream"
+
+[isolation."isolation.image_service_unavailable"]
+side = "environment"
+enum = "ImageError"
+variant = "Unavailable"
+
+[isolation."isolation.image_build_failed"]
+side = "environment"
+enum = "ImageError"
+variant = "Build"
+
+[isolation."isolation.image_lock_mismatch"]
+side = "environment"
+enum = "ImageError"
+variant = "LockMismatch"
+
+[isolation."isolation.image_label_mismatch"]
+side = "environment"
+enum = "ImageError"
+variant = "VersionMismatch"
+
+[isolation."isolation.claude_version_unreadable"]
+side = "environment"
+enum = "ImageError"
+variant = "VersionUnreadable"
+
+[isolation."isolation.guard_docker_failed"]
+side = "environment"
+enum = "GuardError"
+variant = "Docker"
+
+[isolation."isolation.guard_job_unreadable"]
+side = "environment"
+enum = "GuardError"
+variant = "View"
+
+[isolation."isolation.mount_outside_roots"]
+side = "config"
+enum = "MountError"
+variant = "OutsideRoots"
+
+[isolation."isolation.mount_symlink_escape"]
+side = "config"
+enum = "MountError"
+variant = "SymlinkEscape"
+
+[isolation."isolation.mount_docker_socket"]
+side = "config"
+enum = "MountError"
+variant = "DockerSocket"
+
+[isolation."isolation.mount_unresolvable"]
+side = "config"
+enum = "MountError"
+variant = "Unreadable"
+
+[isolation."isolation.env_secret_refused"]
+side = "config"
+enum = "RunArgvError"
+variant = "SecretRefused"
+
+[isolation."isolation.env_name_reserved"]
+side = "config"
+enum = "RunArgvError"
+variant = "ReservedName"
+
+[isolation."isolation.env_name_repeated"]
+side = "config"
+enum = "RunArgvError"
+variant = "DuplicateName"
+
+[isolation."isolation.env_name_invalid"]
+side = "config"
+enum = "RunArgvError"
+variant = "BadEnvName"
+
+[isolation."isolation.sweep_list_failed"]
+side = "environment"
+enum = "SweepError"
+variant = "List"
 
 [store]
 
+[store."store.io_failed"]
+side = "environment"
+enum = "StoreError"
+variant = "Io"
+
+[store."store.not_a_store"]
+side = "environment"
+enum = "StoreError"
+variant = "NotAStore"
+
+[store."store.digest_mismatch"]
+side = "environment"
+enum = "StoreError"
+variant = "DigestMismatch"
+
+[store."store.run_exists"]
+side = "environment"
+enum = "StoreError"
+variant = "RunExists"
+
+[store."store.run_sealed"]
+side = "environment"
+enum = "StoreError"
+variant = "RunSealed"
+
 [supervise]
+
+[supervise."supervise.spawn_failed"]
+side = "environment"
+enum = "SuperviseError"
+variant = "Spawn"
+
+[supervise."supervise.io_failed"]
+side = "environment"
+enum = "SuperviseError"
+variant = "Io"
+
+[supervise."supervise.child_survived_kill"]
+side = "environment"
+enum = "SuperviseError"
+variant = "Survived"
 
 [frames]
 
 [harness]
+
+[harness."experiment.cell_value_missing"]
+side = "experiment"
+enum = "DriverError"
+variant = "MissingValue"
+
+[harness."experiment.cell_value_invalid"]
+side = "experiment"
+enum = "DriverError"
+variant = "InvalidValue"
+
+[harness."harness.version_unreadable"]
+side = "environment"
+enum = "DriverError"
+variant = "VersionOutput"
 
 [cli]
 
@@ -459,5 +789,247 @@ variant = "ManifestUnknownField"
 [analysis]
 
 [internal]
+
+[internal."candler_core::resolve::preflight::ResolveError::DuplicateStep"]
+enum = "ResolveError"
+variant = "DuplicateStep"
+reason = "a step registered twice is a wiring fault of the binary, not an input of the author"
+
+[internal."candler_core::resolve::preflight::ResolveError::DerivedTwice"]
+enum = "ResolveError"
+variant = "DerivedTwice"
+reason = "two steps deriving one path is a wiring fault of the binary, not an input of the author"
+
+[internal."candler_core::runner::plan::PlanError::StoredCellAmbiguous"]
+enum = "PlanError"
+variant = "StoredCellAmbiguous"
+reason = "ambiguous stored cells are a fault of the store's content, not an input of the author"
+
+[internal."candler_core::runner::plan::PlanError::AttemptOverflow"]
+enum = "PlanError"
+variant = "AttemptOverflow"
+reason = "an attempt counter at its limit is a fault of the store, not an input of the author"
+
+[internal."candler_core::runner::plan::PlanError::Cell"]
+enum = "PlanError"
+variant = "Cell"
+reason = "a cell the builder refuses is a fault of the resolver's output, not an input of the author"
+
+[internal."candler_core::runner::plan::PlanError::Store"]
+enum = "PlanError"
+variant = "Store"
+reason = "a store fault met while planning is reported through the store's own error"
+
+[internal."candler_core::runner::plan::PlanError::Lock"]
+enum = "PlanError"
+variant = "Lock"
+reason = "a lock that cannot be tried is an operating-system fault, not an input of the author"
+
+[internal."candler_core::runner::evidence::catalog::CatalogError::Unavailable"]
+enum = "CatalogError"
+variant = "Unavailable"
+reason = "an unwired capture port is a fault of the binary, not an input of the author"
+
+[internal."candler_core::runner::evidence::catalog::CatalogError::AbsolutePath"]
+enum = "CatalogError"
+variant = "AbsolutePath"
+reason = "the catalog is captured by Candler's own command, so an absolute path is Candler's fault"
+
+[internal."candler_core::runner::evidence::catalog::CatalogError::Digest"]
+enum = "CatalogError"
+variant = "Digest"
+reason = "a catalog with no canonical form is a fault of the capture, not an input of the author"
+
+[internal."candler_core::runner::evidence::census::CensusError::Value"]
+enum = "CensusError"
+variant = "Value"
+reason = "a census value the schemas refuse is a fault of the census, not an input of the author"
+
+[internal."candler_core::store::StoreError::ManifestMismatch"]
+enum = "StoreError"
+variant = "ManifestMismatch"
+reason = "a manifest written for another run is a fault of the writer, not an input of the author"
+
+[internal."candler_core::store::StoreError::StreamExists"]
+enum = "StoreError"
+variant = "StreamExists"
+reason = "a stream stored twice is a fault of the writer, not an input of the author"
+
+[internal."candler_core::store::StoreError::OutcomeExists"]
+enum = "StoreError"
+variant = "OutcomeExists"
+reason = "an outcome file written twice is a fault of the writer, not an input of the author"
+
+[internal."candler_core::store::StoreError::RecordMismatch"]
+enum = "StoreError"
+variant = "RecordMismatch"
+reason = "a record for another request is a fault of the writer, not an input of the author"
+
+[internal."candler_core::store::StoreError::IndexCorrupt"]
+enum = "StoreError"
+variant = "IndexCorrupt"
+reason = "an index Candler wrote and cannot read back is Candler's fault, and it repairs itself"
+
+[internal."candler_core::store::StoreError::Parse"]
+enum = "StoreError"
+variant = "Parse"
+reason = "files of the store are written by Candler, so one it cannot read back is Candler's fault"
+
+[internal."candler_core::supervise::SuperviseError::MissingField"]
+enum = "SuperviseError"
+variant = "MissingField"
+reason = "a request built without a required field is a fault of the caller, not an input of the author"
+
+[internal."candler_core::supervise::SuperviseError::InvalidRequest"]
+enum = "SuperviseError"
+variant = "InvalidRequest"
+reason = "a request Candler builds and cannot run is Candler's fault"
+
+[internal."candler_core::supervise::SuperviseError::ProcStat"]
+enum = "SuperviseError"
+variant = "ProcStat"
+reason = "a process table the platform cannot read is a platform fault, not an input of the author"
+
+[internal."candler_core::supervise::SuperviseError::Event"]
+enum = "SuperviseError"
+variant = "Event"
+reason = "an event Candler builds and the schemas refuse is Candler's fault"
+
+[internal."candler_core::supervise::SuperviseError::Clock"]
+enum = "SuperviseError"
+variant = "Clock"
+reason = "a clock the platform cannot read is a platform fault, not an input of the author"
+
+[internal."candler_core::isolation::IsolationError::Plan"]
+enum = "IsolationError"
+variant = "Plan"
+reason = "a cell the surface already checked and the plan cannot use is Candler's fault"
+
+[internal."candler_core::isolation::docker::DockerError::Unreadable"]
+enum = "DockerError"
+variant = "Unreadable"
+reason = "an answer from docker that Candler cannot read is a protocol fault, not an input of the author"
+
+[internal."candler_core::isolation::docker::DockerError::NotAFullId"]
+enum = "DockerError"
+variant = "NotAFullId"
+reason = "a call with a malformed id is a fault of the caller, not an input of the author"
+
+[internal."candler_core::isolation::docker::DockerError::NotAJobNetwork"]
+enum = "DockerError"
+variant = "NotAJobNetwork"
+reason = "a call with a foreign network name is a fault of the caller, not an input of the author"
+
+[internal."candler_core::isolation::container::guard::GuardError::Refused"]
+enum = "GuardError"
+variant = "Refused"
+reason = "the guard refuses on rules of Candler's own, so its refusal is never an input of the author"
+
+[internal."candler_core::isolation::container::mounts::MountError::BadPath"]
+enum = "MountError"
+variant = "BadPath"
+reason = "a path that cannot be written as a mount option is rejected by the argument builder before docker sees it"
+
+[internal."candler_core::isolation::container::mounts::MountError::ConfigDirNotWritable"]
+enum = "MountError"
+variant = "ConfigDirNotWritable"
+reason = "the config directory mount is Candler's own, so a missing one is Candler's fault"
+
+[internal."candler_core::isolation::container::run::RunArgvError::MissingLabel"]
+enum = "RunArgvError"
+variant = "MissingLabel"
+reason = "the plan's labels are set by Candler, so a missing one is Candler's fault"
+
+[internal."candler_core::isolation::container::run::RunArgvError::BadCidfile"]
+enum = "RunArgvError"
+variant = "BadCidfile"
+reason = "the cidfile path is set by Candler, so a bad one is Candler's fault"
+
+[internal."candler_core::isolation::container::run::RunArgvError::Command"]
+enum = "RunArgvError"
+variant = "Command"
+reason = "the wrapped command is built by Candler, so one it cannot build is Candler's fault"
+
+[internal."candler_core::isolation::container::run::RunArgvError::Request"]
+enum = "RunArgvError"
+variant = "Request"
+reason = "the spawn request is built by Candler, so one it cannot build is Candler's fault"
+
+[internal."candler_core::isolation::container::sweeper::SweepError::Unavailable"]
+enum = "SweepError"
+variant = "Unavailable"
+reason = "an unwired sweeper port is a fault of the binary, not an input of the author"
+
+[internal."candler_harness::driver::DriverError::HarnessName"]
+enum = "DriverError"
+variant = "HarnessName"
+reason = "the harness name is a constant of the driver, so an invalid one is the driver's fault"
+
+[internal."candler_core::runner::evidence::tree::EvidenceError"]
+enum = "EvidenceError"
+reason = "the outputs of a run are collected by Candler, so a tree it cannot form is Candler's fault"
+
+[internal."candler_core::supervise::hook::HookError"]
+enum = "HookError"
+reason = "the stop hook translates guard and docker failures that Candler raises itself"
+
+[internal."candler_core::frames::FramesError"]
+enum = "FramesError"
+reason = "raw frame files are written by Candler, so one it cannot read back is Candler's fault"
+
+[internal."candler_harness::reader::ReaderError"]
+enum = "ReaderError"
+reason = "frames and traces are written by Candler's own capture, so a failure to read them is Candler's fault"
+
+[internal."candler_harness::spec::CommandSpecError"]
+enum = "CommandSpecError"
+reason = "the command builder is used by drivers, so its invariants are the driver's to keep, never an input of the author"
+
+[internal."candler_harness_claude_code::ClaudeCodeError"]
+enum = "ClaudeCodeError"
+reason = "the reader identity is a constant of the harness, so an invalid one is the harness's fault"
+
+[internal."candler_core::analysis::error::StatsError"]
+enum = "StatsError"
+reason = "its inputs are counts the store holds, so no variant is an author's to fix"
+
+[internal."candler_schemas::container::ContainerError"]
+enum = "ContainerError"
+reason = "only the container record's builder raises it, on a missing field"
+
+[internal."candler_schemas::generate::SchemaFileError"]
+enum = "SchemaFileError"
+reason = "only the schema drift test and the bless step raise it"
+
+[internal."candler_schemas::process::ProcessError"]
+enum = "ProcessError"
+reason = "only the process record's builder raises it, on a missing field or a zero process id"
+
+[internal."candler_schemas::raw::RawError"]
+enum = "RawError"
+reason = "raw frame stream names and bytes are written by Candler"
+
+[internal."candler_schemas::trace::TraceError"]
+enum = "TraceError"
+reason = "trace files are written by Candler's readers"
+
+[internal."candler_schemas::refusal::RefusalError"]
+enum = "RefusalError"
+reason = "it refuses a code, a pointer or a record that Candler itself built wrongly"
+
+[internal."candler::commands::CliError::Refused"]
+enum = "CliError"
+variant = "Refused"
+reason = "a refusal not yet given a code by the verb that raises it; it reports as candler.internal until that verb converts it"
+
+[internal."candler::commands::CliError::Failed"]
+enum = "CliError"
+variant = "Failed"
+reason = "the envelope of a verb's failure; the record's code is that of the refusal found in its cause chain, and candler.internal when the chain holds none"
+
+[internal."candler::commands::CliError::Runtime"]
+enum = "CliError"
+variant = "Runtime"
+reason = "the process could not run the verb at all, which is a fault of the machine and not of an input"
 
 [helper]
