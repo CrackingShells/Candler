@@ -1058,3 +1058,139 @@ fn r2_a_changed_suite_keeps_its_code_through_the_verb() {
     assert_eq!(record["side"], "suite", "{record}");
     world.remove();
 }
+
+/// Guards: the recovery of a lost evaluate job needs no docker. The command and the supervisor of
+/// a job with an evaluator in flight are killed (SIGKILL), which leaves the job lost; `kill -y`
+/// then runs with a `PATH` that holds no `docker`. An evaluate job owns no container, so its
+/// recovery builds no docker client and sweeps no label.
+///
+/// Oracle: the exit status and text of `kill`, the evaluator's pid and start time (the process
+/// is gone, or the pid is another process's), the job's log (one `job.ended`, `failed`), and the
+/// job's lock (free), then `ps` over the same `PATH` says `ended (failed)`.
+///
+/// Bite: `recover_job_dir_with` building the `DockerCli` for an evaluate job as it does for a
+/// `run` job (`kill` fails with `recover failed: docker call is not available`, and the job
+/// stays lost).
+#[test]
+fn e1_a_lost_evaluate_job_is_recovered_with_no_docker_on_the_path() {
+    let (world, _) = sealed_world();
+    pool_plugin(&world);
+    let marks = world.root.join("interval.log");
+    let suite = suite_of(
+        &world,
+        "suite_pool_interval.toml",
+        &[
+            ("@FILE@", marks.display().to_string()),
+            ("@SLEEP@", "60".to_owned()),
+        ],
+    );
+    let project = project(&world, "project", &["../plugin"]);
+    let err_path = world.work.join("evaluate.err");
+    let mut child = candler(&world, &project)
+        .arg("evaluate")
+        .arg(&suite)
+        .process_group(0)
+        .stdout(fs::File::create(world.work.join("evaluate.out")).unwrap())
+        .stderr(fs::File::create(&err_path).unwrap())
+        .spawn()
+        .unwrap();
+    let started = wait_for(JOB_LIMIT, || {
+        child.try_wait().unwrap().is_some()
+            || fs::read_to_string(&marks).is_ok_and(|text| text.contains(" start "))
+    });
+    let err = fs::read_to_string(&err_path).unwrap_or_default();
+    assert!(
+        started && child.try_wait().unwrap().is_none(),
+        "a request is in flight\n{err}"
+    );
+    let evaluator: u32 = fs::read_to_string(&marks)
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let evaluator_start = process_start(evaluator);
+    let job: JobId = err.lines().next().unwrap().parse().unwrap();
+    let dir = JobDir::open(&StoreLayout::new(&world.store()), &job).unwrap();
+    let supervisor = dir.record().unwrap().supervisor().pid();
+
+    // The supervisor first, so that it cannot answer the command's death; then the command.
+    let killed = Command::new("kill")
+        .args(["-KILL", &supervisor.to_string()])
+        .status()
+        .unwrap();
+    assert!(killed.success(), "the supervisor was killed");
+    child.kill().unwrap();
+    child.wait().unwrap();
+    assert!(
+        wait_for(Duration::from_secs(30), || {
+            JobLock::probe(&dir).unwrap() == LockState::Free
+        }),
+        "the job is lost: nobody holds its lock"
+    );
+    assert_eq!(
+        process_start(evaluator),
+        evaluator_start,
+        "the evaluator is still alive before the recovery"
+    );
+
+    let no_docker = world.root.join("no-docker");
+    fs::create_dir_all(&no_docker).unwrap();
+    let out = candler(&world, &project)
+        .env("PATH", &no_docker)
+        .args(["kill", job.as_str(), "-y"])
+        .output()
+        .unwrap();
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        stderr_of(&out)
+    );
+    assert!(
+        out.status.success() && text.contains("recovered"),
+        "kill recovered the job without docker: {text}"
+    );
+    assert!(
+        !text.contains("docker call is not available"),
+        "no docker was asked for: {text}"
+    );
+    assert!(
+        wait_for(Duration::from_secs(30), || {
+            process_start(evaluator) != evaluator_start
+        }),
+        "the evaluator is gone, or its pid is another process's"
+    );
+    let ends = events_of(&world, &job)
+        .into_iter()
+        .filter(|event| matches!(event, EventPayload::JobEnded { .. }))
+        .count();
+    assert_eq!(ends, 1, "one job.ended");
+    assert!(
+        events_of(&world, &job).into_iter().any(|event| matches!(
+            event,
+            EventPayload::JobEnded {
+                reason: JobEnd::Failed,
+                ..
+            }
+        )),
+        "the job ended failed"
+    );
+    assert_eq!(
+        JobLock::probe(&dir).unwrap(),
+        LockState::Free,
+        "the lock is free"
+    );
+    let ps = candler(&world, &project)
+        .env("PATH", &no_docker)
+        .arg("ps")
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&ps.stdout).contains("ended (failed)"),
+        "ps: {}{}",
+        String::from_utf8_lossy(&ps.stdout),
+        stderr_of(&ps)
+    );
+    world.remove();
+}
