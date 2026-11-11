@@ -31,28 +31,28 @@ An experiment file declares its inputs, its whole table values and its treatment
 - [x] [cmd] The P0 baseline holds on `main` (b017d31, 2026-11-10): every gate binary that exists there passes (`guard_layering_i1` 4/4 despite the 82 segment hits, `guard_experiment_file` 3/3 pinning the flattening, `guard_comparability` 2/2, `guard_cell_digest` 9/9, the core digest set 36/36, DRIFT 2/2, GOLDEN 2/2 + 1/1); the new guards' filters exit 4 (`--no-tests=fail`); G6a/b/c and the G4 grep fail; G6d lists 9 undescribed paths
 
 ## Success Gates
-- ⬜ [cmd] G1 inputs: guards I1, I4 and W3 pass
-- ⬜ [cmd] G2 I8: guards I2, EV1, EV2 and S1 pass
-- ⬜ [cmd] G3 tables: guards W1 and W2 pass, and the smoke's committed command lines hold no `--set`: `! grep -n -- '--set' __reports__/m2b-execution-parity/smoke_v2/commands.sh`
-- ⬜ [cmd] G4 source: guards T1 and T2 pass, and `! git grep -nF 'request.treatment_source' -- ':(glob)crates/*/src/**'`
-- ⬜ [cmd] G5a no expected digest is edited: `git diff --numstat b017d31 -- crates/candler/tests/oracle crates/candler-core/tests/oracle/vectors crates/candler-schemas/tests/vectors ':(exclude)crates/candler-core/tests/oracle/vectors/field_paths.toml' | awk '$2!=0{b=1}END{exit b}'`
-- ⬜ [cmd] G5b `field_paths.toml` loses exactly its `request.treatment_source` row and gains the rows of the new settings: `git diff b017d31 -- crates/candler-core/tests/oracle/vectors/field_paths.toml | grep -c '^-path' | grep -qx 1`
-- ⬜ [cmd] G5c the digest guards pass: `cargo nextest run -p candler-schemas --no-tests=fail -E 'binary(guard_cell_digest)' && cargo nextest run -p candler-core --no-tests=fail -E 'binary(guard_import_mini)|binary(guard_legacy_mapping)|binary(guard_oracle_mini)|binary(guard_run_context)|binary(guard_engine)|binary(guard_seams)'`, and GOLDEN passes
-- ⬜ [nl] G5 measured: `__reports__/m2c-wire-alignment/digest_invariance_v1.md` records 0 moved run keys, context digests and manifests on the golden and mini imports, `main` against the branch
-- ⬜ [cmd] G6a planner: `! git grep -n -i -E 'gtpyhop|planner' -- ':(glob)crates/*/src/**' assets`
-- ⬜ [cmd] G6b assets: `! git grep -n -E 'gtpyhop|libcst|python-arango|python-dotenv|jsonschema|domain\.py|problems\.py' -- assets`
-- ⬜ [cmd] G6c importer: `! git grep -n -w -i tier -- ':(glob)crates/*/src/**'` and `! git grep -n ENTRY_PARAMS -- ':(glob)crates/*/src/**'`
-- ⬜ [cmd] G6d provenance: every `provenance.*` path Candler writes is described in R01 §Run manifest: `for p in $(git grep -ohE '"provenance\.[a-z_.]+' -- ':(glob)crates/*/src/**' | tr -d '"' | sort -u); do sed -n '/^### Run manifest/,/^### Normalised/p' __design__/architecture.md | grep -qF "$p" || echo "$p"; done` prints nothing. And `! git grep -n skill_version -- ':(glob)crates/*/src/**'`
-- ⬜ [cmd] G6e guard: guards L1–L3 pass, and the layering verifier's mutation runs each turn `guard_layering_i1` red
+- ✅ [cmd] G1 inputs: guards I1, I4 and W3 pass
+- ✅ [cmd] G2 I8: guards I2, EV1, EV2 and S1 pass
+- ✅ [cmd] G3 tables: guards W1 and W2 pass, and the smoke's committed command lines hold no `--set`: `! grep -n -- '--set' __reports__/m2b-execution-parity/smoke_v2/commands.sh`
+- ✅ [cmd] G4 source: guards T1 and T2 pass, and `! git grep -nF 'request.treatment_source' -- ':(glob)crates/*/src/**'`
+- ✅ [cmd] G5a no expected digest is edited: `git diff --numstat b017d31 -- crates/candler/tests/oracle crates/candler-core/tests/oracle/vectors crates/candler-schemas/tests/vectors ':(exclude)crates/candler-core/tests/oracle/vectors/field_paths.toml' | awk '$2!=0{b=1}END{exit b}'`
+- ✅ [cmd] G5b `field_paths.toml` loses exactly its `request.treatment_source` row and gains the rows of the new settings: `git diff b017d31 -- crates/candler-core/tests/oracle/vectors/field_paths.toml | grep -c '^-path' | grep -qx 1`
+- ✅ [cmd] G5c the digest guards pass: `cargo nextest run -p candler-schemas --no-tests=fail -E 'binary(guard_cell_digest)' && cargo nextest run -p candler-core --no-tests=fail -E 'binary(guard_import_mini)|binary(guard_legacy_mapping)|binary(guard_oracle_mini)|binary(guard_run_context)|binary(guard_engine)|binary(guard_seams)'`, and GOLDEN passes
+- ✅ [nl] G5 measured: `__reports__/m2c-wire-alignment/digest_invariance_v1.md` records 0 moved run keys, context digests and suite-entry digests on the golden and mini imports, `main` against the branch, and manifests that differ in `import.rules` alone (the rules file's sha256, which `entry_params` changes; amended in `digest_invariance.md`, 7a3eca0)
+- ✅ [cmd] G6a planner: `! git grep -n -i -E 'gtpyhop|planner' -- ':(glob)crates/*/src/**' assets`
+- ✅ [cmd] G6b assets: `! git grep -n -E 'gtpyhop|libcst|python-arango|python-dotenv|jsonschema|domain\.py|problems\.py' -- assets`
+- ✅ [cmd] G6c importer: `! git grep -n -w -i tier -- ':(glob)crates/*/src/**'` and `! git grep -n ENTRY_PARAMS -- ':(glob)crates/*/src/**'`
+- ✅ [cmd] G6d provenance: every `provenance.*` path Candler writes is described in R01 §Run manifest: `for p in $(git grep -ohE '"provenance\.[a-z_.]+' -- ':(glob)crates/*/src/**' | tr -d '"' | sort -u); do sed -n '/^### Run manifest/,/^### Normalised/p' __design__/architecture.md | grep -qF "$p" || echo "$p"; done` prints nothing. And `! git grep -n skill_version -- ':(glob)crates/*/src/**'`
+- ✅ [cmd] G6e guard: guards L1–L3 pass, and the layering verifier's mutation runs each turn `guard_layering_i1` red
 - ⬜ [cmd] G6g environment: guards A1, A2 and X1 pass (X1 in CI's `container-e2e` job, and locally when Docker is up)
 - ⬜ [nl] G6f smoke: `planner_pin` and `provenance_fields` pass through the committed projection, and every moved live HTN cell digest is listed in the smoke report
-- ⬜ [cmd] G7a exactly one release-triggering commit touches the schemas crate, and it is `feat(schemas)`: `test "$(git log --no-merges --format=%s b017d31..HEAD -- crates/candler-schemas | grep -cE '^(feat|fix|perf|refactor|style|revert)')" -eq 1 && git log --no-merges --format=%s b017d31..HEAD -- crates/candler-schemas | grep -qE '^feat\(schemas\): '`
-- ⬜ [cmd] G7b DRIFT holds and `Cargo.lock` is unchanged: `git diff --quiet b017d31 -- Cargo.lock`
-- ⬜ [cmd] G7c the evaluator helper's generated models are unchanged: `(cd python/candler-evaluator && uv run --frozen python scripts/gen_models.py && test -z "$(git status --porcelain -- src)")`
-- ⬜ [cmd] G8 build identity and verdict: guards E1 and V1 pass
-- ⬜ [cmd] STD and LINUX pass on `feat/m2c-wire-alignment`; SUBJ passes over `b017d31..feat/m2c-wire-alignment`
-- ⬜ [cmd] No confirm is left: `! git grep -n 'fn confirm_' -- ':(glob)crates/**'`
-- ⬜ [nl] Each leaf report records the bite of every guard it introduced, and every verifier named in the leaf closed with no open finding
+- ✅ [cmd] G7a exactly one release-triggering commit touches the schemas crate, and it is `feat(schemas)`: `test "$(git log --no-merges --format=%s b017d31..HEAD -- crates/candler-schemas | grep -cE '^(feat|fix|perf|refactor|style|revert)')" -eq 1 && git log --no-merges --format=%s b017d31..HEAD -- crates/candler-schemas | grep -qE '^feat\(schemas\): '`
+- ✅ [cmd] G7b DRIFT holds and `Cargo.lock` is unchanged: `git diff --quiet b017d31 -- Cargo.lock`
+- ✅ [cmd] G7c the evaluator helper's generated models are unchanged: `(cd python/candler-evaluator && uv run --frozen python scripts/gen_models.py && test -z "$(git status --porcelain -- src)")`
+- ✅ [cmd] G8 build identity and verdict: guards E1 and V1 pass
+- ✅ [cmd] STD and LINUX pass on `feat/m2c-wire-alignment`; SUBJ passes over `b017d31..feat/m2c-wire-alignment`
+- ✅ [cmd] No confirm is left: `! git grep -n 'fn confirm_' -- ':(glob)crates/**'`
+- ✅ [nl] Each leaf report records the bite of every guard it introduced, and every verifier named in the leaf closed with no open finding
 - ⬜ [cmd] The PR to `main` is titled `merge(experiment): declare inputs and sources, keep the domain out` (72 characters with ` (#14)`), and its CI is green: `gh pr checks <N>`
 
 ## Gotchas
