@@ -141,25 +141,29 @@
       "properties": {
         "context": {
           "$ref": "#/$defs/RunContext",
-          "description": "What the evaluator may read of the run."
+          "description": "What the evaluator may read of the run.",
+          "x-candler-class": "candler"
         },
         "items": {
           "description": "The expectations to grade.",
           "items": {
             "$ref": "#/$defs/Item"
           },
-          "type": "array"
+          "type": "array",
+          "x-candler-class": "candler"
         },
         "prior": {
           "description": "The outcome records already made for the run, which dependent items may read.",
           "items": {
             "$ref": "#/$defs/OutcomeRecord"
           },
-          "type": "array"
+          "type": "array",
+          "x-candler-class": "candler"
         },
         "scratch": {
           "description": "The absolute path of a directory the evaluator may write in.",
-          "type": "string"
+          "type": "string",
+          "x-candler-class": "candler"
         }
       },
       "required": [

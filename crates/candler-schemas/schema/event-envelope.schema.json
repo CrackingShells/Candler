@@ -1360,6 +1360,36 @@
       "type": "object"
     },
     {
+      "description": "An evaluate job selected what it will grade.",
+      "properties": {
+        "kind": {
+          "const": "evaluation.planned",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": false,
+          "properties": {
+            "outcomes": {
+              "$comment": "Fits in 32 bits; the Rust reader enforces it.",
+              "description": "The number of outcome records the job will try to commit.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "outcomes"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "payload"
+      ],
+      "type": "object"
+    },
+    {
       "description": "An evaluator gave its result for a run.",
       "properties": {
         "kind": {
