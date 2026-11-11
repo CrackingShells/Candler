@@ -8,9 +8,9 @@
 - [ ] [cmd] The evaluator choice of `analyze` is in the core and reusable: `git grep -q 'pub fn choose_evaluator' -- crates/candler-core/src/analysis/report.rs`
 - [ ] [cmd] No Dockerfile needs a mode that `include_bytes!` would lose (each `COPY` of a script sets `--chmod`): `test "$(git grep -c 'COPY --chmod' -- assets/docker | awk -F: '{s+=$2}END{print s}')" -ge 2`
 - [ ] [nl] Cargo commands run under the campaign README's build-footprint exports
-- [ ] [nl] OWNED: `crates/candler/tests/guard_cli_surface.rs` (its pending lists emptied), the `--help` text (the doc comments and `#[arg(help = …)]` of the option fields) in `crates/candler/src/commands/*.rs`, `crates/candler/src/commands/assets.rs` (new) and its `mod` line in `crates/candler/src/commands/mod.rs`, `asset_paths` in `crates/candler/src/commands/preflight.rs`, the evaluator selection in `crates/candler/src/commands/{show,diff,common}.rs`, the root `README.md`. Never the Dockerfiles or `Cargo.toml`
+- [ ] [nl] OWNED: `crates/candler/tests/guard_cli_surface.rs` (its pending lists emptied), `docs/contract/codes.toml` (`[cli]` rows of Step 6 only), the `--help` text (the doc comments and `#[arg(help = …)]` of the option fields) in `crates/candler/src/commands/*.rs`, `crates/candler/src/commands/assets.rs` (new) and its `mod` line in `crates/candler/src/commands/mod.rs`, `asset_paths` in `crates/candler/src/commands/preflight.rs`, the evaluator selection in `crates/candler/src/commands/{show,diff,common}.rs`, the root `README.md`. Never the Dockerfiles or `Cargo.toml`
 **Success Gates**:
-- ⬜ [cmd] OWNED: `test -z "$(git diff --name-only <base>..HEAD | grep -vE '^(crates/candler/tests/guard_cli_surface\.rs|crates/candler/src/commands/[a-z_]+\.rs|crates/candler/src/main\.rs|README\.md)$')"`, `<base>` being the leaf's branch point
+- ⬜ [cmd] OWNED: `test -z "$(git diff --name-only <base>..HEAD | grep -vE '^(crates/candler/tests/guard_cli_surface\.rs|crates/candler/src/commands/[a-z_]+\.rs|crates/candler/src/main\.rs|README\.md|docs/contract/codes\.toml)$')"`, `<base>` being the leaf's branch point
 - ⬜ [cmd] U1 every verb from an unrelated directory, rows from clap's subcommand list: `cargo nextest run -p candler --no-tests=fail -E 'test(/^u1_/)'`
 - ⬜ [cmd] U2 every option's help ends with a stamp: `cargo nextest run -p candler --no-tests=fail -E 'test(/^u2_/)'`
 - ⬜ [cmd] U3 the copied binary runs `run` against the fake world: `cargo nextest run -p candler --no-tests=fail -E 'test(/^u3_/)'`
@@ -112,3 +112,21 @@ Checked while drafting:
 **Deliverables**: `README.md`
 **Consistency Checks**: `test -z "$(while read -r v; do grep -qF "\`$v\`" README.md || echo "missing: $v"; done < __roadmap__/m3-lean-cli/verbs.txt)"` (expected: PASS)
 **Commit**: `docs(readme): list the verbs of the lean cli`
+
+## Step 6: Every caller mistake carries a code
+**Goal**: A refusal that the caller causes in a verb's own checks is printed under `--error-format json` with a code and a side other than `candler` (refusal_late verifier, finding F4, 2026-11-12).
+**Implementation Logic**:
+1. The verbs that print `candler.internal` for the caller's own mistake:
+   - `resolve` and `run` of a missing experiment file (`commands/resolve.rs:182`);
+   - `kill` without `-y`;
+   - `kill -y` of a missing job, where the first failing job's error must be carried as the source, not only printed;
+   - `ps` with an unreadable job, likewise;
+   - `inspect` of an unknown or ambiguous selector;
+   - `show --evaluator` and `diff --from` with an unknown evaluator.
+
+   Give each a `CliRefusal` row in `commands/refusal.rs` and `codes.toml` `[cli]`, with side `config` unless the cause is the environment, and `file` where a file is at fault.
+2. Clap's usage errors (an invalid `--set` path, an unknown option) are printed as one `refusal/1` record under `--error-format json`. Use the code `cli.usage_invalid` and side `config`, and keep clap's text as the message.
+3. Write the guards first, under `--error-format json`, one row per site, and see each red. Bite: a site back to `CliError::refused(String)`.
+**Deliverables**: the coded refusals above; their rows in `codes.toml` `[cli]`; guard rows in `crates/candler/tests/guard_cli_surface.rs`
+**Consistency Checks**: `cargo nextest run -p candler --no-tests=fail -E 'binary(guard_cli_surface)'` (expected: PASS)
+**Commit**: `fix(cli): code the refusals a caller causes in each verb`
