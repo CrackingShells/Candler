@@ -246,7 +246,7 @@ refusal_table! {
         "suite.json_invalid",
         Side::Suite,
         "A suite is not valid JSON, or does not have the shape of a suite.",
-        "The field at fault, or its parent object when a field is missing; none at the root.",
+        "The field at fault, or its parent object when a field is missing; none at the root, and the item at fault when the root is an array.",
     ),
     MissingField { .. } => row(
         "protocol.field_unset",
