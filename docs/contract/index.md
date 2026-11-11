@@ -54,17 +54,26 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `catalog.name_empty` | A server or tool name in the catalog an image prints is empty. | - | environment |
 | `catalog.name_repeated` | A server or tool name in the catalog an image prints is repeated within its scope. | - | environment |
 | `catalog.schema_tag_mismatch` | The tool catalog an image prints carries another `schema` marker than `tool-catalog-snapshot/1`. | `/schema` | environment |
+| `cli.usage_invalid` | The command line is not one the parser accepts: an unknown option, a missing argument, or a value such as a `--set` without `=`. | - | config |
+| `config.ambiguous_run` | More than one run of the store has a key that starts with the prefix given to `inspect`. | - | config |
 | `config.cwd_not_absolute` | The working directory is not an absolute path, so no ancestor can be searched for a configuration. | - | config |
+| `config.evaluator_invalid` | `--evaluator`, `--from` or `--to` holds text that is not `name@version` with a SemVer 2.0 version. | - | config |
+| `config.experiment_unreadable` | The experiment file given to `run` or `resolve` does not exist or cannot be read. | - | config |
 | `config.file_unreadable` | A configuration file exists and cannot be read. | - | config |
 | `config.import_field_unset` | A field the import rules need is not set. | - | config |
 | `config.import_rule_invalid` | A rule of the import rules is not valid. | - | config |
 | `config.import_rules_invalid` | The import rules file given to `ingest --rules` is not the rules format: it is not TOML, a field is missing, or a field is not one the format has. | - | config |
+| `config.inspect_target_invalid` | The target given to `inspect` is none of a run directory, a prefix of a run key of at least 6 characters, or a job id. | - | config |
+| `config.kill_not_confirmed` | `kill` asked for a confirmation and was not answered `y` or `yes`; `-y` skips the question. | - | config |
 | `config.machine_wide_key` | A project configuration sets a machine-wide key, which only the user configuration may set. | The key in the project configuration file named in the message. | config |
 | `config.no_evaluator_slots` | `slots.evaluators` is 0 in the user configuration, so the pool that evaluators draw from has no slot. | - | config |
 | `config.no_plugin_dirs` | `evaluate` is run where no `candler.toml` at or above the working directory lists a plug-in directory under `plugins.dirs`. | - | config |
 | `config.no_store` | No store root is given: no `--store`, no `CANDLER_STORE` and no `store.root` in a configuration file. | - | config |
+| `config.no_such_run` | No run of the store has a key that starts with the prefix given to `inspect`. | - | config |
+| `config.nothing_compared` | `diff` found no expectation that both evaluators graded in the same run, such as an evaluator version the store lacks. | - | config |
 | `config.plugin_dir_no_manifest` | A directory of `plugins.dirs` does not exist or holds neither `plugin.toml` nor `candler-plugin.toml`. | - | config |
 | `config.retired_setting` | `--set` names `request.treatment_source`, which `[treatment] source` in the experiment file replaced. | - | config |
+| `config.run_directory_invalid` | The directory given to `inspect` holds a `manifest.json` but is not named by a run key, or is not below the `runs` directory of a store. | - | config |
 | `config.toml_invalid` | A configuration file is not valid TOML. | - | config |
 | `config.unknown_key` | A configuration file holds a key that no table defines, such as a misspelt setting. | The unknown key in the configuration file named in the message. | config |
 | `config.wrong_type` | A configuration key holds a value of the wrong type. | The key in the configuration file named in the message. | config |
