@@ -1,0 +1,44 @@
+# Where the recorded sessions come from. Both were recorded on 2026-11-12 by one probe run per
+# control (c2, then c1), with nothing mocked between the agent and the fake model except the
+# fake itself: the real Claude Code binary, the production gateway sidecar, and the scripted
+# fake model in assets/docker/fakemodel. No token was spent and no real model was called.
+
+[harness]
+name = "claude-code"
+version = "2.1.311"                  # the CC_VERSION assets/docker/base pins and labels
+base_image_id = "sha256:4ef8094986fe2ec0d84a0bf1070606ace35fbbca0e1834b0db5b8cc29c58f634"
+base_image_tag = "candler-base:src-319fda768a95"
+architecture = "linux/arm64"
+
+[fake_model]
+image_id = "sha256:6173e873c4c3dc7ec87436730df470d50bd50e43b183f62413444612d8f36c8c"
+# The image id changes with every build (layer timestamps); the source does not.
+source = "assets/docker/fakemodel/fakemodel.py"
+source_sha256 = "27d9d6d5b69a8bc6c2ce095c22ad52f36c460704a4405e66ed7f3fc68eb2b841"
+scripts = ["c1", "c2"]
+
+[gateway]
+source = "assets/docker/gateway"
+image_id = "sha256:3f21180e19e4261c401f55de22fe2bea44ce99d38856ab5c2add7ad8f15f3af1"
+upstream = "fake-anthropic.test:8443"   # the fake, on the job's egress network, CA at /run/gw/ca.pem
+
+[engine]
+docker = "29.9.2"
+host = "Docker Desktop on macOS 26.6.2, kernel 7.0.14-linuxkit, arm64"
+
+[invocation]
+# The agent container follows crates/candler-core/src/isolation/container/run.rs: --init,
+# --read-only, /tmp tmpfs noexec, --cap-drop ALL, no-new-privileges, pids 512, memory 4g,
+# cpus 2, the internal network only, /work and /home/agent bind-mounted, the environment
+# PATH HOME VIRTUAL_ENV LANG ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN. Added for a session:
+# `docker run -i`. Not reproduced: the /opt/env volume and the cell's own settings files.
+command = "timeout -s TERM -k 10 300 claude --print --input-format stream-json --output-format stream-json --verbose --model <c1|c2> --setting-sources project,local --permission-mode bypassPermissions --settings /home/agent/.candler/settings.json"
+stdin = "one stream-json user line, stdin left open, closed by the host after the last `result` (c1: 3 s after, c2: 2 s after)"
+hooks = "Stop, SessionEnd and Notification append `<date +%s%N> <payload>` to /home/agent/hooks.jsonl, exit 0, print nothing"
+
+[derivation]
+stdout_jsonl = "the container's stdout, byte for byte, one line per event"
+hooks_jsonl = "hooks.jsonl of the per-run HOME, each line rewritten as {written_ns, payload}; written_ns is the container clock"
+timings_toml = "host time at each stdout line and at each hook-log line, from a host reader polling the bind mount every millisecond"
+clock_skew = "container minus host, from 40 ping-pongs over the bind mount: median -0.829 ms, round trip 0.137 ms"
+expected_toml = "written by hand from the two files above"

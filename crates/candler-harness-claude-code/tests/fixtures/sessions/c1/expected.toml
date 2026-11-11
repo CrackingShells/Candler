@@ -1,0 +1,41 @@
+# Written by hand from reading stdout.jsonl and hooks.jsonl: what the recorded c1 session shows.
+# c1 is the must-wait control: turn 1 starts a 20 s background job and answers; the job's
+# completion starts a second turn with no input from the host. The host closes stdin after it.
+
+[session]
+model = "c1"
+claude_code_version = "2.1.311"
+turns = 2                      # two `result` events
+inits = 2                      # a `system/init` opens each turn, including the notification one
+exit_code = 0                  # after the host closed stdin
+session_end_reason = "other"   # SessionEnd's reason when stdin reaches EOF
+
+# The stdout events of each turn, in order, as "type" or "type/subtype".
+[[turn]]
+started_by = "stdin_prompt"
+events = [
+  "system/init", "assistant", "assistant", "system/background_tasks_changed",
+  "system/task_started", "user", "assistant", "result/success",
+]
+result_num_turns = 2           # API calls of this turn: the tool call, then the answer
+result_total_cost_usd = 0.0016
+result_origin = "absent"
+stop_background_tasks = 1      # the job, listed with id, type "shell", status "running"
+stop_session_crons = 0
+
+[[turn]]
+started_by = "task_notification"
+events = [
+  "system/task_updated", "system/task_notification", "system/background_tasks_changed",
+  "system/init", "assistant", "result/success",
+]
+result_num_turns = 1           # per turn: the count restarts
+result_total_cost_usd = 0.0024 # cumulative
+result_origin_kind = "task-notification"
+stop_background_tasks = 0
+stop_session_crons = 0
+
+[hooks]
+# One Stop per turn and one SessionEnd. Each Stop line was written before its turn's `result`.
+events = ["Stop", "Stop", "SessionEnd"]
+stop_hook_active = false
