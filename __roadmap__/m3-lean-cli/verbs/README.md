@@ -31,7 +31,7 @@ graph TD
     evaluate_body[Evaluate body]:::done
     analyze[Analyze]:::done
     observe[Observe]:::done
-    ingest_inspect[Ingest and inspect]:::planned
+    ingest_inspect[Ingest and inspect]:::done
     docs_frame[Docs frame]:::done
     design_record[Design record]:::done
     surfaces[Surfaces]:::planned
@@ -49,7 +49,7 @@ graph TD
 | `evaluate_body.md` | 📄 Leaf Task | ✅ Done |
 | `analyze.md` | 📄 Leaf Task | ✅ Done |
 | `observe.md` | 📄 Leaf Task | ✅ Done |
-| `ingest_inspect.md` | 📄 Leaf Task | ⬜ Planned |
+| `ingest_inspect.md` | 📄 Leaf Task | ✅ Done |
 | `docs_frame.md` | 📄 Leaf Task | ✅ Done |
 | `design_record.md` | 📄 Leaf Task | ✅ Done |
 | `surfaces/` | 📁 Directory | ⬜ Planned |
