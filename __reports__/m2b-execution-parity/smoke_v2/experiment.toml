@@ -1,0 +1,59 @@
+# M2c re-validation smoke: one cell on RiVault/Reasoning-Small, medium effort.
+# Run it through commands.sh, which stages the files this one names (`inputs/`,
+# `requirements.in`) beside a copy of it under /private/tmp/claude-501/m2c-smoke/exp/.
+# Every value is in the file. The secret is named by its variable only.
+schema = "experiment/1"
+replicates = 1
+secrets = ["RIVAULT_LLM_INFERENCE"]
+
+[fixed]
+permission_mode = "bypassPermissions"
+"model.endpoint" = "https://api.class2.llm.ai.r-ccs.riken.jp"
+"model.effort" = "medium"
+"model.token_secret" = "RIVAULT_LLM_INFERENCE"
+"prompt.template" = "Using the MCP servers at {servers_path}, used in the context of {domain_topic}, write a minimal domain.py for a domain named '{domain_name}' in the current directory (one action and one method), run `import domain` once with python, then stop.\n\n**Hard Context**: This is a non-interactive run - proceed without pausing for confirmation."
+"isolation.build.requirements" = ["requirements.in"]
+"isolation.build.prune" = ["domain.py", "problems.py"]
+"isolation.record_packages" = ["gtpyhop"]
+
+[fixed.prompt.values]
+servers_path = "servers/rikyu_mcp"
+domain_topic = "containerization training of a specialized MDLM diffusion model on a remote GPU"
+domain_name = "cont-train"
+
+[[factors]]
+path = "model.id"
+levels = ["RiVault/Reasoning-Small"]
+
+[budget.per_run]
+turns = 30
+wall_s = 1200
+max_cost_usd = 1.0
+
+[harness]
+name = "claude-code"
+
+[treatment]
+name = "htn-creator"
+tag = "htn-creator@0.2.7"
+source = "/private/tmp/claude-501/m2c-smoke/treatment"
+
+# The reference places the MCP servers (*.py, no dunder, no *_test.py) of one common root,
+# the skill's own scripts/, and a bare pyproject.toml marking the work dir a project.
+[[inputs]]
+kind = "servers"
+path = "inputs/servers"
+at = "servers/rikyu_mcp"
+audience = "agent"
+
+[[inputs]]
+kind = "scripts"
+path = "inputs/scripts"
+at = "scripts"
+audience = "agent"
+
+[[inputs]]
+kind = "project"
+path = "inputs/pyproject.toml"
+at = "."
+audience = "agent"
