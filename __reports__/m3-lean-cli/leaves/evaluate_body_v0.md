@@ -122,3 +122,8 @@ New public types without errors: `EvaluatorSlots`, `RunSelection`, `EvaluateSpec
 ## Disk and time
 Build directory `/private/tmp/claude-501/m3-target-evaluate_body`: 2.3 GiB at the end, removed. The Linux builds went to the shared volume `m3-linux-target` (path `/w`); the coordinator removes it at close-out. No container is left; the strays of P4 and E3 died with their containers or by the sweep.
 
+
+## Corrections (coordinator, after the evaluate_verb verifier)
+- **E3 holds on Linux only.** macOS has no subreaper, so an evaluator's setsid stray survives `kill` and the end of the job. R01 says so.
+- **A lost evaluate job.** Its recovery ends the evaluators' groups and seals the job. It does not reach descendants that left their group with `setsid`, because I22 signals only a process whose parent is the caller. The guard `e3_a_lost_evaluate_job_is_recovered_and_its_evaluator_is_reaped` holds that, and only that.
+- **Recovery needed a docker client.** It built one for every job, so a lost evaluate job with no `docker` on PATH could not be recovered, and its evaluators stayed alive. `evaluate_verb` fixed this (d14e77d on its branch): an evaluate job now recovers without containers.

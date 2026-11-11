@@ -17,7 +17,7 @@ b09f238 feat(cli): code the refusals of jobs and evaluation
 ## What landed
 - **Codes** for `jobs`, `evaluation`, `import` (with `RawIngestError`), `trace` and the manifest verdict, in a `refusal.rs` beside each module, with their rows in `codes.toml` `[jobs]`, `[evaluation]` and `[import]`.
 - **R1 is closed.** Its pending list is empty. The scan keys types by file and name, reads every derive line (split derives and `cfg_attr` included), finds hand-written `impl … Error`, and skips `tests` and `benches` only at a crate's root.
-- **The invariant.** Every printed record's `(code, side)` pair is one row of `codes.toml`. It is asserted over a 46-case wrapper table (`r1_every_wrapper_answers_with_a_registered_code_and_side`), for both the walk of causes (`find`) and each wrapper's direct `Refusal` impl, and on every R2 record.
+- **The invariant.** Every printed record's `(code, side)` pair is one row of `codes.toml`, or the `candler.internal` fallback of `[internal]`. It is asserted over a 46-case wrapper table (`r1_every_wrapper_answers_with_a_registered_code_and_side`), for both the walk of causes (`find`) and each wrapper's direct `Refusal` impl, and on every R2 record.
 - **The wrapper rule.** A wrapper that only carries another error answers with what the walk of causes finds from it. A `FormatError` under a document wrapper answers with the wrapper's own code and side, unless its cause blames Candler, which then answers with its own row. The document codes are:
 
   | code | side | section |
