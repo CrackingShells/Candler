@@ -1405,6 +1405,24 @@ const SITES: &[Site] = &[
         says: "--evaluator `bad@x`",
     },
     Site {
+        name: "diff from a name@version whose version is not SemVer",
+        args: &[
+            "diff", "--from", "a@1", "--to", "b@1.0.0", "--format", "json",
+        ],
+        setup: nothing,
+        code: "config.evaluator_invalid",
+        side: "config",
+        says: "--from `a@1`",
+    },
+    Site {
+        name: "show of a name@version whose version is not SemVer",
+        args: &["show", "--evaluator", "a@1", "--format", "json"],
+        setup: nothing,
+        code: "config.evaluator_invalid",
+        side: "config",
+        says: "--evaluator `a@1`",
+    },
+    Site {
         name: "show of a bare version no evaluator holds",
         args: &["show", "--evaluator", "9.9.9", "--format", "json"],
         setup: nothing,

@@ -1,6 +1,6 @@
 # cli_surface, leaf report v0
 
-The binary now carries its container assets and runs from a copy outside its source tree, every verb has a row that runs it from an unrelated directory, every option's help ends with a stamp, `show` and `diff` take a bare evaluator version, `show --rates` infers the evaluator, the README lists the verbs the binary has, and the refusals a caller causes carry a code. The implementer was Sonnet. Branch `m3/cli_surface` is cut from a72342b and holds eight commits: one per step, then a path refactor and a doc-line format commit that the gates asked for.
+The binary now carries its container assets and runs from a copy outside its source tree, every verb has a row that runs it from an unrelated directory, every option's help ends with a stamp, `show` and `diff` take a bare evaluator version, `show --rates` infers the evaluator, the README lists the verbs the binary has, and the refusals a caller causes carry a code. The implementer was Sonnet. Branch `m3/cli_surface` is cut from a72342b and holds ten commits: one per step, then a path refactor and a doc-line format commit that the gates asked for.
 
 ## Commits
 
@@ -14,6 +14,8 @@ The binary now carries its container assets and runs from a copy outside its sou
 | 12e008e | `fix(cli): code the refusals a caller causes in each verb` |
 | 9ae6208 | `refactor(cli): embed the assets by a path relative to the source` |
 | a9e45aa | `test(cli): give each surface guard its three doc lines` |
+| c3d25dd | `fix(cli): carry the failing job's error without new error enums` |
+| (last) | `fix(cli): register the cause carriers of kill and ps` |
 
 ## Production
 
@@ -142,6 +144,8 @@ Nine rows were appended to `[cli]` of `docs/contract/codes.toml`; none is rename
 8. **The `evaluate` row needs a project, a run and `uv` on the path.** The seeded store of a sealed run is not gradeable by the plug-in, and the `candler.toml` that lists the plug-in makes the store `<working directory>/.candler/store`. The row runs `run` first (so the store is the project's), then `evaluate`, and puts the caller's `PATH` after the fakes so `uv` is found.
 9. **The doc-line gate counts lines that start with `/// Guards:`, `/// Oracle:` and `/// Bite:`.** The scaffold's guards had the three in one paragraph. They are now on lines of their own.
 10. **`stop_job` returned `Result<String, String>`.** Carrying the first failing job's error as the source needed a typed error, so its signature changed and `evaluate.rs` (its other caller) changed by one line. `evaluate.rs` is within the OWNED regex but not named in the spec.
+11. **A typed cause needs a type, and the workspace guard `r1_every_error_enum_is_coded_or_internal` registers every error type, hand-written or `thiserror`.** `NotStopped`, `KillFailed` and `RowFailed` carry the first failing job's error. The guard asked for whole-type `[internal]` rows, so three were appended to `[internal]` of `codes.toml`: an edit outside the `[cli]`-only limit of OWNED, made because the workspace suite is otherwise red. They are append-only and code nothing. If the coordinator would rather own those rows, drop the last commit's `codes.toml` hunk and put them in `refusal_late`'s section.
+12. **A verifier added a site during the leaf** (`diff --from a@1`, a version that is not SemVer, and `show --evaluator a@1`). Both already took the `config.evaluator_invalid` path; two guard rows now hold them.
 
 ## Files touched
 
