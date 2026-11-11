@@ -12,9 +12,11 @@ mod commands;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
-use crate::commands::{CliError, Exit, kill, ps, run, supervise, watch};
+use crate::commands::{
+    CliError, Exit, analyze, inspect, kill, ls, ps, resolve, run, supervise, watch,
+};
 
 /// The command line.
 #[derive(Debug, Parser)]
@@ -27,9 +29,26 @@ struct Cli {
     /// The store root, for every verb; by default the store the configuration names.
     #[arg(long, env = "CANDLER_STORE", global = true)]
     store: Option<PathBuf>,
+    /// How refusals are written on stderr. cannot be derived: what parses the caller's stderr is not
+    /// visible from the terminal; cannot live in the experiment file: a refusal can come before any
+    /// file is read.
+    #[arg(long, value_enum, default_value_t, global = true)]
+    #[expect(
+        dead_code,
+        reason = "no verb reads the format yet; the text rendering is unchanged"
+    )]
+    error_format: ErrorFormat,
     /// The verb to run.
     #[command(subcommand)]
     command: Command,
+}
+
+/// How a refusal is written on stderr: `candler: <message>` on one line, or one JSON object.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
+enum ErrorFormat {
+    #[default]
+    Text,
+    Json,
 }
 
 /// The verbs, one variant per line so that later verbs append.
@@ -54,6 +73,14 @@ enum Command {
     Show(commands::show::ShowArgs),
     /// Compare the outcomes of two evaluator versions.
     Diff(commands::diff::DiffArgs),
+    /// Resolves an experiment and prints what its settings come to.
+    Resolve(resolve::Args),
+    /// Lists what the store holds.
+    Ls(ls::Args),
+    /// Reports the statistics of stored outcomes.
+    Analyze(analyze::Args),
+    /// Prints what the store holds of one run.
+    Inspect(inspect::Args),
 }
 
 /// Runs the verb on a multi-thread runtime, one arm per line.
@@ -75,6 +102,10 @@ fn dispatch(cli: Cli) -> Result<Exit, CliError> {
             Command::Evaluate(ref args) => commands::evaluate::run(&cli, args).await,
             Command::Show(ref args) => commands::show::run(&cli, args).await,
             Command::Diff(ref args) => commands::diff::run(&cli, args).await,
+            Command::Resolve(ref args) => resolve::run(args),
+            Command::Ls(ref args) => ls::run(args),
+            Command::Analyze(ref args) => analyze::run(args),
+            Command::Inspect(ref args) => inspect::run(args),
         }
     })
 }
