@@ -25,7 +25,14 @@ _SEMVER = re.compile(
 
 
 class IdentityError(Exception):
-    """The install does not say what it is, so the helper will not say it either."""
+    """The install does not say what it is, so the helper will not say it either.
+
+    `refusal_code` is the code of the refusal, a row of `[helper]` in `docs/contract/codes.toml`.
+    """
+
+    def __init__(self, message: str, *, refusal_code: str) -> None:
+        super().__init__(message)
+        self.refusal_code = refusal_code
 
 
 @dataclass(frozen=True)
@@ -57,22 +64,35 @@ def identity(dist_name: str) -> Identity:
     try:
         dist = importlib.metadata.distribution(dist_name)
     except importlib.metadata.PackageNotFoundError as err:
-        raise IdentityError(f"{dist_name}: no such distribution is installed") from err
+        raise IdentityError(
+            f"{dist_name}: no such distribution is installed",
+            refusal_code="helper.instrument_not_installed",
+        ) from err
     name = dist.metadata["Name"] or dist_name
     if not _SEMVER.fullmatch(dist.version):
-        raise IdentityError(f"{name}: version {dist.version!r} is not SemVer 2.0")
+        raise IdentityError(
+            f"{name}: version {dist.version!r} is not SemVer 2.0",
+            refusal_code="helper.instrument_version_invalid",
+        )
     text = dist.read_text("direct_url.json")
     if text is None:
         raise IdentityError(
             f"{name}: no direct_url.json, so the install names no commit"
-            " (an index install is refused)"
+            " (an index install is refused)",
+            refusal_code="helper.instrument_install_unrecorded",
         )
     try:
         data = json.loads(text)
     except ValueError as err:
-        raise IdentityError(f"{name}: direct_url.json is not JSON") from err
+        raise IdentityError(
+            f"{name}: direct_url.json is not JSON",
+            refusal_code="helper.instrument_record_malformed",
+        ) from err
     if not isinstance(data, dict):
-        raise IdentityError(f"{name}: direct_url.json is not an object")
+        raise IdentityError(
+            f"{name}: direct_url.json is not an object",
+            refusal_code="helper.instrument_record_malformed",
+        )
     vcs, local = data.get("vcs_info"), data.get("dir_info")
     if isinstance(vcs, dict) and local is None:
         return _from_git(name, dist.version, vcs)
@@ -80,14 +100,21 @@ def identity(dist_name: str) -> Identity:
         digest = "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
         return Identity(name, dist.version, digest, dirty=True)
     raise IdentityError(
-        f"{name}: direct_url.json is neither a git install nor an editable one"
+        f"{name}: direct_url.json is neither a git install nor an editable one",
+        refusal_code="helper.instrument_install_unsupported",
     )
 
 
 def _from_git(name: str, version: str, vcs: dict[str, Any]) -> Identity:
     if vcs.get("vcs") != "git":
-        raise IdentityError(f"{name}: vcs {vcs.get('vcs')!r} is not git")
+        raise IdentityError(
+            f"{name}: vcs {vcs.get('vcs')!r} is not git",
+            refusal_code="helper.instrument_vcs_unsupported",
+        )
     commit = vcs.get("commit_id")
     if not isinstance(commit, str) or not _COMMIT.fullmatch(commit):
-        raise IdentityError(f"{name}: commit_id is not a full lowercase hex hash")
+        raise IdentityError(
+            f"{name}: commit_id is not a full lowercase hex hash",
+            refusal_code="helper.instrument_commit_invalid",
+        )
     return Identity(name, version, f"git:{commit}", dirty=False)

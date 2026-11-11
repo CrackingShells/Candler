@@ -23,7 +23,7 @@ from .frames import (
 )
 from .identity import Identity, IdentityError, identity
 from .isolate import Abandoned, Done, make_runner, run_item
-from .plugin import Plugin, Prior, RunContext
+from .plugin import Plugin, PluginError, Prior, RunContext
 
 __all__ = ["main", "serve"]
 
@@ -174,7 +174,11 @@ def _kind_specs(plugin: Plugin) -> list[dict[str, Any]]:
 
 
 class _ParamsError(ValueError):
-    pass
+    """An `evaluate` request whose params the models accept and the helper cannot honour."""
+
+    def __init__(self, message: str, *, refusal_code: str) -> None:
+        super().__init__(message)
+        self.refusal_code = refusal_code
 
 
 def _parse_evaluate(
@@ -188,7 +192,10 @@ def _parse_evaluate(
     wire = params.model_dump(mode="json", exclude_none=True)
     for item in wire["items"]:
         if item["deadline_ms"] > MAX_DEADLINE_MS:
-            raise _ParamsError("`deadline_ms` is outside 0 to 2**53 - 1")
+            raise _ParamsError(
+                "`deadline_ms` is outside 0 to 2**53 - 1",
+                refusal_code="helper.deadline_out_of_range",
+            )
     context = RunContext.from_wire(wire["context"], wire["scratch"])
     return context, wire["items"], wire["prior"]
 
@@ -230,7 +237,10 @@ class _Loop:
             name = name or meta.metadata["Name"]
             version = version or meta.version
         if not name or not version:
-            raise ValueError("the plug-in has no name or version")
+            raise PluginError(
+                "the plug-in has no name or version",
+                refusal_code="helper.plugin_identity_missing",
+            )
         return name, version
 
     def describe(self, rid: str) -> None:
