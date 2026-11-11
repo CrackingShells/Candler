@@ -9,7 +9,7 @@
 use std::error::Error;
 
 use candler_core::experiment::paths;
-use candler_schemas::refusal::{Refusal, RefusalCode, RefusalRecord, Side};
+use candler_schemas::refusal::{Refusal, RefusalCode, RefusalRecord, Side, pointer_of};
 use candler_schemas::refusal_table;
 
 use super::{Carried, CliError};
@@ -37,6 +37,65 @@ pub enum CliRefusal {
         /// The path `--set` named.
         path: String,
     },
+    /// A dotted path that no path class of the surface knows, written under `[fixed]`, in a
+    /// factor or in `--set`.
+    #[error("`{path}` is not a path of the experiment surface; it is written in {location}")]
+    UnknownFieldPath {
+        /// The dotted path.
+        path: String,
+        /// Where it was written.
+        location: FieldLocation,
+    },
+}
+
+/// Where an experiment's dotted path was written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FieldLocation {
+    /// A key of `[fixed]`.
+    Fixed,
+    /// A factor of the experiment file: its own `path`, or a leaf of one of its levels, given as
+    /// the index of the level and the keys down to the leaf.
+    Factor {
+        /// The index of the factor in `factors`.
+        index: usize,
+        /// The level and the keys of the leaf, when the path comes from a table level.
+        leaf: Option<(usize, Vec<String>)>,
+    },
+    /// A `--set` argument.
+    Set,
+}
+
+impl std::fmt::Display for FieldLocation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Fixed => f.write_str("`[fixed]`"),
+            Self::Factor { index, .. } => write!(f, "the factor at `/factors/{index}`"),
+            Self::Set => f.write_str("`--set`"),
+        }
+    }
+}
+
+/// The pointer into the experiment file of the place an unknown path was written, or `None` for
+/// `--set`, which is no document.
+fn unknown_path_pointer(path: &str, location: &FieldLocation) -> Option<String> {
+    match location {
+        FieldLocation::Fixed => Some(pointer_of(["fixed", path])),
+        FieldLocation::Factor { index, leaf: None } => {
+            Some(pointer_of(["factors", index.to_string().as_str(), "path"]))
+        }
+        FieldLocation::Factor {
+            index,
+            leaf: Some((level, keys)),
+        } => {
+            let (index, level) = (index.to_string(), level.to_string());
+            let head = ["factors", index.as_str(), "levels", level.as_str()];
+            Some(pointer_of(
+                head.into_iter().chain(keys.iter().map(String::as_str)),
+            ))
+        }
+        FieldLocation::Set => None,
+    }
 }
 
 /// The request settings, each in backticks, as the refusal of an unknown one lists them.
@@ -55,9 +114,16 @@ pub const REQUEST_KEYS: [&str; 3] = [
     paths::REQUEST_INPUTS,
 ];
 
-/// The path of an error that names no place in a document.
-fn cli_refusal_path(_error: &CliRefusal) -> Option<String> {
-    None
+/// The pointer of the place in the experiment file where a [`CliRefusal`] sits, if it names one.
+fn cli_refusal_path(error: &CliRefusal) -> Option<String> {
+    match error {
+        CliRefusal::UnknownFieldPath { path, location } => {
+            unknown_path_pointer(path.as_str(), location)
+        }
+        CliRefusal::NoStore
+        | CliRefusal::RetiredSetting { .. }
+        | CliRefusal::UnknownRequestKey { .. } => None,
+    }
 }
 
 refusal_table! {
@@ -79,6 +145,12 @@ refusal_table! {
         Side::Experiment,
         "`--set` names a key under `request` that is none of the request settings, such as a misspelt `request.harnes`.",
         "-",
+    ),
+    UnknownFieldPath { .. } => row(
+        "experiment.unknown_path",
+        Side::Experiment,
+        "A dotted path under `[fixed]`, in a factor or in `--set` is none that the experiment surface has, such as a misspelt `model.idd`.",
+        "The key under `/fixed`, the `path` of the factor, or the key of the level's table that holds the path; none for `--set`.",
     ),
 }
 

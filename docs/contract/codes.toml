@@ -791,6 +791,11 @@ side = "experiment"
 enum = "CliRefusal"
 variant = "UnknownRequestKey"
 
+[cli."experiment.unknown_path"]
+side = "experiment"
+enum = "CliRefusal"
+variant = "UnknownFieldPath"
+
 [jobs]
 
 [evaluation]

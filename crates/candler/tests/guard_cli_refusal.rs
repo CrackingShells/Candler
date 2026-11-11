@@ -350,3 +350,141 @@ fn r3_factor_refusal_precedes_docker() {
         "the refusal comes before any docker call"
     );
 }
+
+/// Adds `entry` to the world's experiment: a line of `[fixed]`, or a block at the end.
+fn add_to_fixed(world: &cli_run::World, line: &str) {
+    let text = fs::read_to_string(&world.experiment).expect("the experiment reads");
+    let marker = "[fixed]\n";
+    assert!(text.contains(marker), "the experiment has a [fixed] table");
+    fs::write(
+        &world.experiment,
+        text.replace(marker, format!("{marker}{line}\n").as_str()),
+    )
+    .expect("the experiment writes");
+}
+
+/// The refusal an unknown path in `[fixed]` is.
+const UNKNOWN_IN_FIXED: Expect = Expect {
+    code: "experiment.unknown_path",
+    side: "experiment",
+    path: Some("/fixed/zzz.unknown_thing"),
+    message_starts: "refused: `zzz.unknown_thing` is not a path of the experiment surface; it is written in `[fixed]`",
+};
+
+/// The refusal an unknown path in a factor is.
+const UNKNOWN_IN_FACTOR: Expect = Expect {
+    code: "experiment.unknown_path",
+    side: "experiment",
+    path: Some("/factors/1/path"),
+    message_starts: "refused: `zzz.other` is not a path of the experiment surface; it is written in the factor at `/factors/1`",
+};
+
+/// The refusal an unknown path in the level of a factor is.
+const UNKNOWN_IN_LEVEL: Expect = Expect {
+    code: "experiment.unknown_path",
+    side: "experiment",
+    path: Some("/factors/1/levels/0/limits/zzz"),
+    message_starts: "refused: `isolation.limits.zzz` is not a path of the experiment surface",
+};
+
+/// The refusal an unknown path in `--set` is: no pointer, because `--set` is no document.
+const UNKNOWN_IN_SET: Expect = Expect {
+    code: "experiment.unknown_path",
+    side: "experiment",
+    path: None,
+    message_starts: "refused: `zzz.third` is not a path of the experiment surface; it is written in `--set`",
+};
+
+/// The paths of the surface an experiment may write: every path of the oracle `field_paths.toml`
+/// (a wildcard row stands for members chosen here) and a child of each open root.
+fn surface_paths() -> Vec<String> {
+    let file = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../candler-core/tests/oracle/vectors/field_paths.toml");
+    let table = fs::read_to_string(file)
+        .expect("field_paths.toml is committed")
+        .parse::<toml::Table>()
+        .expect("field_paths.toml is TOML");
+    let mut paths = Vec::new();
+    for row in table["path"].as_array().expect("a [[path]] array") {
+        let path = row["path"].as_str().expect("a path");
+        match path {
+            "mcp.*" => paths.push("mcp.filesystem".to_owned()),
+            "isolation.limits.*" => {
+                paths.extend(["isolation.limits.pids", "isolation.limits.cpus"].map(str::to_owned));
+            }
+            other => paths.push(other.trim_end_matches("[]").to_owned()),
+        }
+    }
+    paths.extend(["mcp.other.nested", "prompt.values.name"].map(str::to_owned));
+    paths
+}
+
+/// Guards: R3 — a dotted path that no path class knows is refused with its path and where it was
+/// written: under `[fixed]`, in a factor (its `path` or a leaf of a level) and in `--set`, as the
+/// record of `experiment.unknown_path`; and every path of the oracle `field_paths.toml` and every
+/// child of an open root (`mcp`, `isolation.limits`, `prompt.values`) is still accepted, so the
+/// refusal swallows no valid path.
+///
+/// Oracle: records written by hand from the contract; `field_paths.toml`, transcribed from the
+/// design by hand and never read by the code under test. A path is accepted when the run goes on
+/// to the next step, which in a world with no docker client is a refusal of another code.
+///
+/// Bite: skip the check for factors; skip it for `--set`; refuse every path under `isolation`.
+#[test]
+fn r3_unknown_field_path_is_refused() {
+    let world = world();
+    add_to_fixed(&world, "\"zzz.unknown_thing\" = 1");
+    let out = world.launch_with(&["--error-format", "json"]);
+    assert_record(&out, &UNKNOWN_IN_FIXED);
+
+    let world = cli_run::world();
+    let mut text = fs::read_to_string(&world.experiment).expect("the experiment reads");
+    text.push_str("\n[[factors]]\npath = \"zzz.other\"\nlevels = [1, 2]\n");
+    fs::write(&world.experiment, text).expect("the experiment writes");
+    let out = world.launch_with(&["--error-format", "json"]);
+    assert_record(&out, &UNKNOWN_IN_FACTOR);
+
+    let world = cli_run::world();
+    let mut text = fs::read_to_string(&world.experiment).expect("the experiment reads");
+    text.push_str("\n[[factors]]\npath = \"isolation\"\nlevels = [{ limits = { zzz = 1 } }]\n");
+    fs::write(&world.experiment, text).expect("the experiment writes");
+    let out = world.launch_with(&["--error-format", "json"]);
+    assert_record(&out, &UNKNOWN_IN_LEVEL);
+
+    let world = cli_run::world();
+    let out = world.launch_with(&["--error-format", "json", "--set", "zzz.third=1"]);
+    assert_record(&out, &UNKNOWN_IN_SET);
+
+    let empty = TempDir::new().expect("a temporary directory");
+    fs::create_dir_all(empty.path().join("home")).expect("a home");
+    let world = cli_run::world();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_candler"));
+    command
+        .arg("run")
+        .arg(&world.experiment)
+        .args(["--error-format", "json"]);
+    let paths = surface_paths();
+    assert!(
+        paths.len() > 40,
+        "the oracle lists the surface: {}",
+        paths.len()
+    );
+    for path in &paths {
+        command.arg("--set").arg(format!("{path}=1"));
+    }
+    let out = command
+        .current_dir(&world.work)
+        .env_clear()
+        .env("PATH", empty.path())
+        .env("HOME", empty.path().join("home"))
+        .env("XDG_STATE_HOME", &world.state)
+        .stdin(Stdio::null())
+        .output()
+        .expect("the binary runs");
+    let record = record_of(&out);
+    assert_ne!(
+        record["code"], "experiment.unknown_path",
+        "a path of the surface is refused: {record}"
+    );
+    assert_ne!(record["code"], "experiment.unknown_request_key", "{record}");
+}
