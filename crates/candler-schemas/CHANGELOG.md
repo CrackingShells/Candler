@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/CrackingShells/Candler/compare/schemas@0.5.0...schemas@0.6.0) - 2026-11-11
+
+### Features
+
+- *(schemas)* declare inputs, table values and a treatment source
+
 ## [0.5.0](https://github.com/CrackingShells/Candler/compare/schemas@0.4.1...schemas@0.5.0) - 2026-11-10
 
 ### Refactoring

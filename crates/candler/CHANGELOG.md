@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/CrackingShells/Candler/compare/v0.5.0...v0.6.0) - 2026-11-11
+
+### Features
+
+- *(experiment)* [**breaking**] replace the treatment source setting with the file's
+- *(experiment)* read the treatment's source from the experiment file
+- *(experiment)* hash and store the inputs an experiment declares
+- *(isolation)* [**breaking**] record the packages an experiment names, not a planner
+- *(importer)* [**breaking**] take the imported entry's params from the rules
+- *(runner)* mount agent inputs and record evaluator-only inputs
+- *(evaluation)* serve an evaluator's input needs from the run
+- *(manifest)* gate a stratum on the build's commit, not its tag
+- *(isolation)* [**breaking**] take the agent environment from the experiment
+
+### Fixes
+
+- *(manifest)* record only the build identity the build can prove
+- *(manifest)* record a build's identity when it is not a git checkout
+- *(experiment)* keep settings written in the file out of the cell
+- *(manifest)* count evaluation_inputs among the nuisance paths
+
 ## [0.5.0](https://github.com/CrackingShells/Candler/compare/v0.4.1...v0.5.0) - 2026-11-10
 
 ### Features
