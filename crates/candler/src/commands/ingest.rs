@@ -1,7 +1,6 @@
 //! `candler ingest`: raw trace directories into the store, one run per stream, or, with `--rules`,
 //! legacy results folders under rules the caller supplies as a TOML file.
 
-use std::fmt::Display;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -16,7 +15,7 @@ use candler_core::import::streams::ReaderFactory;
 use candler_core::store::Store;
 use candler_harness::reader::TraceReader;
 use candler_harness_claude_code::{ClaudeCodeReader, detect};
-use candler_schemas::primitives::{FieldPath, Name, NameToken, ReasonCode};
+use candler_schemas::primitives::{FieldPath, FormatError, Name, NameToken, ReasonCode};
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -91,15 +90,19 @@ struct MarkerSection {
 /// A primitive read from the text of `field`.
 fn primitive<T>(field: &str, text: &str) -> Result<T, CliError>
 where
-    T: FromStr,
-    T::Err: Display,
+    T: FromStr<Err = FormatError>,
 {
     text.parse::<T>()
-        .map_err(|e| CliError::refused(format!("rules `{field}`: {e}")))
+        .map_err(|e| CliError::refused_by(e).led_by(format!("rules `{field}`: ")))
 }
 
-/// The import rules the file at `path` states.
+/// The import rules the file at `path` states; a coded refusal names the file.
 fn load_rules(path: &Path) -> Result<(ImportRules, String), CliError> {
+    rules_from(path).map_err(|error| error.with_file(path))
+}
+
+/// The steps of [`load_rules`].
+fn rules_from(path: &Path) -> Result<(ImportRules, String), CliError> {
     let bytes = fs::read(path).map_err(|e| {
         CliError::refused(format!(
             "cannot read the rules file {}: {e}",
@@ -163,7 +166,7 @@ fn load_rules(path: &Path) -> Result<(ImportRules, String), CliError> {
     }
     let rules = builder
         .build()
-        .map_err(|e| CliError::refused(format!("rules: {e}")))?;
+        .map_err(|e| CliError::refused_by(e).led_by(String::from("rules: ")))?;
     Ok((rules, file.harness.name))
 }
 
