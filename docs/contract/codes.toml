@@ -828,6 +828,16 @@ side = "experiment"
 enum = "ReportError"
 variant = "ExperimentUnreadable"
 
+[analysis."analysis.experiment_disagrees"]
+side = "experiment"
+enum = "ReportError"
+variant = "ExperimentDisagrees"
+
+[analysis."analysis.factor_broader_than_variation"]
+side = "environment"
+enum = "ReportError"
+variant = "FactorBroaderThanVariation"
+
 [analysis."analysis.no_outcomes"]
 side = "environment"
 enum = "ReportError"

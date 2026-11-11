@@ -5,6 +5,7 @@
 //! carry a pass the report must count nowhere. Every expected count is a hand count, and every
 //! interval, p-value and difference is a row of the second engine's vector files in the core crate.
 
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -40,6 +41,10 @@ struct Spec {
     provenance: Vec<(&'static str, Value)>,
     /// Paths of the cell whose value was not recorded.
     unrecorded: Vec<&'static str>,
+    /// The factors the manifest records.
+    factors: Vec<&'static str>,
+    /// The character the experiment digest is made of.
+    experiment: char,
 }
 
 impl Spec {
@@ -52,6 +57,8 @@ impl Spec {
             measured: Vec::new(),
             provenance: Vec::new(),
             unrecorded: Vec::new(),
+            factors: vec!["plan.model"],
+            experiment: '0',
         }
     }
 }
@@ -104,8 +111,8 @@ fn manifest(spec: &Spec) -> RunManifest {
         json!({
             "schema": "run-manifest/1",
             "run": {"cell": cell, "replicate": spec.replicate, "attempt": 1},
-            "experiment": digest_text('0'),
-            "factors": [],
+            "experiment": digest_text(spec.experiment),
+            "factors": spec.factors,
             "comparable": {
                 "values": values,
                 "harness": {"name": "h", "version": "1.0.0"},
@@ -308,32 +315,31 @@ fn json_of(out: &Output) -> Value {
     serde_json::from_slice(&out.stdout).expect("the output is JSON")
 }
 
-/// An experiment file whose one factor is `plan.model`, with the three models as levels.
-fn experiment(dir: &Path) -> PathBuf {
+/// An experiment file with the factors given as `(path, levels)`.
+fn experiment_of(dir: &Path, factors: &[(&str, &[&str])]) -> PathBuf {
     let path = dir.join("experiment.toml");
-    let text = r#"schema = "experiment/1"
-replicates = 10
-
-[fixed]
-permission_mode = "plan"
-
-[[factors]]
-path = "plan.model"
-levels = ["alpha", "beta", "gamma"]
-
-[budget.per_run]
-turns = 30
-wall_s = 600
-max_cost_usd = 1.0
-
-[harness]
-name = "h"
-
-[treatment]
-name = "t"
-"#;
+    let mut text = String::from(
+        "schema = \"experiment/1\"\nreplicates = 10\n\n[fixed]\npermission_mode = \"plan\"\n\n",
+    );
+    for (factor, levels) in factors {
+        let list: Vec<String> = levels.iter().map(|l| format!("{l:?}")).collect();
+        writeln!(
+            text,
+            "[[factors]]\npath = {factor:?}\nlevels = [{}]\n",
+            list.join(", ")
+        )
+        .expect("a string writes");
+    }
+    text.push_str(
+        "[budget.per_run]\nturns = 30\nwall_s = 600\nmax_cost_usd = 1.0\n\n[harness]\nname = \"h\"\n\n[treatment]\nname = \"t\"\n",
+    );
     fs::write(&path, text).expect("the experiment file writes");
     path
+}
+
+/// An experiment file whose one factor is `plan.model`, with the three models as levels.
+fn experiment(dir: &Path) -> PathBuf {
+    experiment_of(dir, &[("plan.model", &["alpha", "beta", "gamma"])])
 }
 
 /// A store of `runs` and a home directory, both in one temporary directory.
@@ -464,14 +470,19 @@ fn a1_the_json_equals_the_hand_counts() {
         json!({"value": 0.05, "source": "core_default"})
     );
     assert_eq!(report["i4_violations"], 0);
-    assert_eq!(report["comparisons"], json!({"reason": "no_experiment"}));
+    // Without an experiment file the factors are the ones the manifests record.
+    assert_eq!(report["comparisons"].as_array().expect("pairs").len(), 3);
+    assert_eq!(report["pairs_not_one_factor"], 0);
+    for held in report["arms"].as_array().expect("arms") {
+        assert_eq!(held["experiment"], digest_text('0'));
+    }
     assert_eq!(report["runs"].as_array().expect("runs").len(), 32);
     assert_eq!(report["arms"].as_array().expect("arms").len(), 3);
     let alpha = cell_of(&runs, "alpha");
     let a = arm(&report, alpha.as_str());
     assert_eq!(
         a["runs"],
-        json!({"valid": 10, "invalid": {"gateway": 1}, "experimenter_ends": {"killed": 1}})
+        json!({"valid": 10, "unsealed": 0, "invalid": {"gateway": 1}, "experimenter_ends": {"killed": 1}})
     );
     assert_eq!(
         a["rates"],
@@ -640,29 +651,33 @@ fn a1_the_csv_tables_equal_the_hand_counts() {
     let arms = csv(dir.path(), &store, &[]);
     assert_eq!(
         arms[0].join(","),
-        "cell,role,expectation,pass,fail,blocked,not_measured,not_applicable,zero_weight,num,den,wilson_lo,wilson_hi,omitted"
+        "cell,experiment,role,expectation,pass,fail,blocked,not_measured,not_applicable,zero_weight,num,den,wilson_lo,wilson_hi,omitted"
     );
     assert_eq!(arms.len(), 1 + 9, "three cells of three expectations");
     let alpha = cell_of(&runs, "alpha");
     let find = |id: &str| {
         arms.iter()
-            .find(|r| r[0] == alpha && r[2] == id)
+            .find(|r| r[0] == alpha && r[3] == id)
             .expect("a row")
             .clone()
     };
     let e1 = find("E1");
     assert_eq!(
-        e1[1..11],
+        e1[2..12],
         ["gate", "E1", "6", "2", "2", "0", "0", "0", "6", "10"].map(str::to_owned)
     );
     let row = wilson_row(6, 10);
-    close("lo", e1[11].parse().expect("lo"), row.lo);
-    close("hi", e1[12].parse().expect("hi"), row.hi);
-    assert_eq!(e1[13], "");
+    close("lo", e1[12].parse().expect("lo"), row.lo);
+    close("hi", e1[13].parse().expect("hi"), row.hi);
+    assert_eq!(e1[1], digest_text('0'));
+    assert_eq!(e1[14], "");
     let e2 = find("E2");
-    assert_eq!(e2[3..9], ["3", "2", "0", "5", "0", "0"].map(str::to_owned));
+    assert_eq!(e2[4..10], ["3", "2", "0", "5", "0", "0"].map(str::to_owned));
     let e3 = find("E3");
-    assert_eq!(e3[9..], ["44", "50", "", "", "weighted"].map(str::to_owned));
+    assert_eq!(
+        e3[10..],
+        ["44", "50", "", "", "weighted"].map(str::to_owned)
+    );
     // The comparisons table.
     let file = experiment(dir.path());
     let file_arg = file.to_str().expect("a UTF-8 path");
@@ -673,7 +688,7 @@ fn a1_the_csv_tables_equal_the_hand_counts() {
     );
     assert_eq!(
         pairs[0].join(","),
-        "a,b,factor,verdict,expectation,role,a_k,a_n,b_k,b_n,p,p_holm,reject,diff,diff_lo,diff_hi,omitted"
+        "a,b,factor,verdict,expectation,role,a_k,a_n,b_k,b_n,p,p_holm,reject,diff,diff_lo,diff_hi,omitted,experiment,causes"
     );
     assert_eq!(pairs.len(), 1 + 9, "three pairs of three expectations");
     let tested: Vec<&Vec<String>> = pairs[1..].iter().filter(|r| r[16].is_empty()).collect();
@@ -692,6 +707,24 @@ fn a1_the_csv_tables_equal_the_hand_counts() {
         assert!(r[11].parse::<f64>().expect("p_holm") >= fisher.p);
         assert!(r[12] == "true" || r[12] == "false");
     }
+    // The summary table holds what no other row does.
+    let summary = csv(dir.path(), &store, &["--table", "summary"]);
+    let items: Vec<String> = summary
+        .iter()
+        .map(|r| format!("{}={}", r[0], r[1]))
+        .collect();
+    assert_eq!(
+        items,
+        [
+            "item=value",
+            &format!("evaluator={EVALUATOR}"),
+            "alpha=0.05",
+            "i4_violations=0",
+            "pairs_not_one_factor=0",
+            "pairs_compared=3",
+            "family.gate=6",
+        ]
+    );
     // The runs table.
     let listed = csv(dir.path(), &store, &["--table", "runs"]);
     assert_eq!(listed.len(), 1 + 32);
@@ -786,6 +819,27 @@ fn a2_a_refused_pair_is_reported_through_the_binary() {
             "{label}: a refused pair has no test"
         );
         assert_eq!(report["families"], json!([]), "{label}");
+        // The CSV keeps the refused pair, with its verdict and cause and no statistic.
+        let pairs_csv = csv(
+            dir.path(),
+            &store,
+            &["--table", "comparisons", "--experiment", file_arg],
+        );
+        assert_eq!(
+            pairs_csv.len(),
+            2,
+            "{label}: the header and the refused pair"
+        );
+        let held = &pairs_csv[1];
+        assert_eq!(
+            (held[3].as_str(), held[18].as_str()),
+            ("refused", cause),
+            "{label}"
+        );
+        assert!(
+            held[4..17].iter().all(String::is_empty),
+            "{label}: {held:?}"
+        );
         let gates: Vec<Value> = report["arms"]
             .as_array()
             .expect("arms")
@@ -879,8 +933,8 @@ fn record_of(out: &Output) -> Value {
 }
 
 /// Guards: R2 — a store with two evaluator versions prints as one `refusal/1` record under
-/// `--error-format json`, with the code `analysis.mixed_evaluator_versions`, the side `config` (the
-/// fix is a setting of the command line, `--evaluator`) and both versions in the message.
+/// `--error-format json`, with the code `analysis.mixed_evaluator_versions`, the side `config`
+/// (the fix is a setting of the command line, `--evaluator`) and both versions in the message.
 /// Oracle: a record written by hand from the contract.
 /// Bite: route the refusal through `CliError::refused`, and the record's code becomes
 /// `candler.internal`; give the code the side `suite`, and the side turns red.
@@ -903,7 +957,8 @@ fn r2_a_mixed_store_prints_as_a_record() {
 
 /// Guards: R2 — an experiment file that cannot be read prints as the record of
 /// `analysis.experiment_unreadable`, side `experiment`, naming the file because no pointer into a
-/// document exists. Oracle: a record written by hand from the contract.
+/// document exists.
+/// Oracle: a record written by hand from the contract.
 /// Bite: leave the file out of the record, and this turns red.
 #[test]
 fn r2_an_unreadable_experiment_names_the_file() {
@@ -922,4 +977,178 @@ fn r2_an_unreadable_experiment_names_the_file() {
     assert_eq!(record["side"], "experiment", "{record}");
     assert_eq!(record["file"], json!(file_arg), "{record}");
     assert!(record.get("path").is_none(), "no path: {record}");
+}
+
+/// The cells of a 2 by 2 store, `plan.model` by `plan.other`, two runs each, whose manifests record
+/// the factors given.
+fn two_by_two(factors: &[&'static str]) -> Vec<Seeded> {
+    let mut seeded = Vec::new();
+    let mut n = 0_usize;
+    for (model, other) in [("alpha", "x"), ("alpha", "y"), ("beta", "x"), ("beta", "y")] {
+        for replicate in 1..=2_u32 {
+            let mut spec = Spec::new(model, replicate);
+            spec.extra = vec![("plan.other", json!(other))];
+            spec.factors = factors.to_vec();
+            let manifest = manifest(&spec);
+            n += 1;
+            let key = manifest.run().clone();
+            let rec = record(
+                EVALUATOR,
+                &key,
+                &request(n),
+                "E1",
+                "gate",
+                ("pass", None, None),
+            );
+            seeded.push(Seeded {
+                manifest,
+                records: vec![(EVALUATOR.to_owned(), rec)],
+            });
+        }
+    }
+    seeded
+}
+
+/// Guards: A2 — through the binary, a 2 by 2 store compares the four pairs that differ in one
+/// factor and counts the two that differ in two, from the factors its manifests record; a file
+/// that declares the parent path `plan` or an unrelated path is refused with the record of
+/// `analysis.experiment_disagrees` (side `experiment`); the file with the recorded factors is
+/// accepted; and manifests that record the parent `plan` are refused with the record of
+/// `analysis.factor_broader_than_variation`.
+/// Oracle: the factors written into the manifests and the files by the test.
+/// Bite: skip the cross-check, and the wrong files run; skip the prefix check, and the broad
+/// record runs.
+#[test]
+fn a2_a_wrong_experiment_is_refused_through_the_binary() {
+    let (dir, store) = fixture(&two_by_two(&["plan.model", "plan.other"]));
+    let report = json_of(&analyze(dir.path(), &store, &[]));
+    assert_eq!(report["comparisons"].as_array().expect("pairs").len(), 4);
+    assert_eq!(report["pairs_not_one_factor"], 2);
+    let right = experiment_of(
+        dir.path(),
+        &[
+            ("plan.model", &["alpha", "beta"]),
+            ("plan.other", &["x", "y"]),
+        ],
+    );
+    let right_arg = right.to_str().expect("a UTF-8 path");
+    json_of(&analyze(dir.path(), &store, &["--experiment", right_arg]));
+    for (label, wrong) in [
+        (
+            "parent",
+            experiment_of(dir.path(), &[("plan", &["a", "b"])]),
+        ),
+        (
+            "unrelated",
+            experiment_of(dir.path(), &[("plan.zzz", &["a", "b"])]),
+        ),
+    ] {
+        let wrong_arg = wrong.to_str().expect("a UTF-8 path");
+        let out = analyze(
+            dir.path(),
+            &store,
+            &["--error-format", "json", "--experiment", wrong_arg],
+        );
+        let record = record_of(&out);
+        assert_eq!(
+            record["code"], "analysis.experiment_disagrees",
+            "{label}: {record}"
+        );
+        assert_eq!(record["side"], "experiment", "{label}: {record}");
+    }
+    let (dir, store) = fixture(&two_by_two(&["plan"]));
+    let out = analyze(dir.path(), &store, &["--error-format", "json"]);
+    let record = record_of(&out);
+    assert_eq!(
+        record["code"], "analysis.factor_broader_than_variation",
+        "{record}"
+    );
+}
+
+/// Guards: A1 — a cell in two strata is two arms through the binary: each arm names its
+/// experiment digest, the counts are per stratum, there is one comparison per stratum and one
+/// Holm family of two tests.
+/// Oracle: the runs written into the store, three per cell and stratum.
+/// Bite: key the tally by cell alone, and the arms pool six runs.
+#[test]
+fn a1_a_cell_in_two_strata_is_two_arms() {
+    let mut seeded = Vec::new();
+    let mut n = 0_usize;
+    for (at, experiment) in ['0', '1'].into_iter().enumerate() {
+        for (model, status) in [("alpha", "pass"), ("beta", "fail")] {
+            for replicate in 1..=3_u32 {
+                let mut spec = Spec::new(model, 3 * u32::try_from(at).expect("small") + replicate);
+                spec.experiment = experiment;
+                let manifest = manifest(&spec);
+                n += 1;
+                let key = manifest.run().clone();
+                let rec = record(
+                    EVALUATOR,
+                    &key,
+                    &request(n),
+                    "E1",
+                    "gate",
+                    (status, None, None),
+                );
+                seeded.push(Seeded {
+                    manifest,
+                    records: vec![(EVALUATOR.to_owned(), rec)],
+                });
+            }
+        }
+    }
+    let (dir, store) = fixture(&seeded);
+    let report = json_of(&analyze(dir.path(), &store, &[]));
+    let arms = report["arms"].as_array().expect("arms");
+    assert_eq!(arms.len(), 4);
+    for held in arms {
+        assert_eq!(held["runs"]["valid"], 3, "{held}");
+        let den = held["rates"]["gate"]["den"].as_u64().expect("den");
+        assert_eq!(den, 3, "{held}");
+    }
+    let pairs = report["comparisons"].as_array().expect("pairs");
+    assert_eq!(pairs.len(), 2);
+    let experiments: Vec<&Value> = pairs.iter().map(|p| &p["experiment"]).collect();
+    assert_eq!(
+        experiments,
+        [&json!(digest_text('0')), &json!(digest_text('1'))]
+    );
+    assert_eq!(report["families"], json!([{"role": "gate", "m": 2}]));
+}
+
+/// Guards: A1 — a run without a seal does not fail the call through the binary: with the layout
+/// and two unsealed runs, one whose manifest was written and one with none, the call exits 0, the
+/// arm of the first shows `runs.unsealed` 1, a stratum `unknown` holds the second, and the counts
+/// of the sealed runs are the hand counts.
+/// Oracle: the layout's hand counts.
+/// Bite: list only the sealed runs while the unsealed one has records, and the call fails with a
+/// run that has records and no listing.
+#[test]
+fn a1_an_unsealed_run_does_not_fail_the_call() {
+    let runs = layout(&[EVALUATOR], false);
+    let (dir, store) = fixture(&runs);
+    let opened = Store::open(&store).expect("the store opens");
+    let with_manifest = manifest(&Spec::new("alpha", 50));
+    let mut writer =
+        RunWriter::create(&opened, &with_manifest, Existing::Refuse).expect("the run starts");
+    writer
+        .manifest(&with_manifest)
+        .expect("the manifest writes");
+    drop(writer);
+    let without = manifest(&Spec::new("gamma", 51));
+    drop(RunWriter::create(&opened, &without, Existing::Refuse).expect("the run starts"));
+    fs::remove_file(opened.layout().manifest(without.run())).expect("the manifest is removed");
+    let report = json_of(&analyze(dir.path(), &store, &[]));
+    let alpha = cell_of(&runs, "alpha");
+    let held = arm(&report, alpha.as_str());
+    assert_eq!(held["runs"]["unsealed"], 1);
+    assert_eq!(held["rates"]["gate"], json!({"num": 9, "den": 15}));
+    let unknown = report["arms"]
+        .as_array()
+        .expect("arms")
+        .iter()
+        .find(|a| a["experiment"] == "unknown")
+        .expect("the unknown stratum");
+    assert_eq!(unknown["runs"]["unsealed"], 1);
+    assert_eq!(unknown["runs"]["valid"], 0);
 }

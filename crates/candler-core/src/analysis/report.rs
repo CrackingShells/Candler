@@ -6,11 +6,11 @@
 //! sibling modules, and whether two arms may be compared is answered by
 //! [`stratum_verdict`] alone.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use candler_schemas::execution::{Integrity, RunManifest};
 use candler_schemas::outcome::Role;
-use candler_schemas::primitives::{ExpectationId, FieldPath, NameVersion, RunKey};
+use candler_schemas::primitives::{Digest, ExpectationId, FieldPath, NameVersion, RunKey};
 use serde_json::Value;
 
 use super::error::StatsError;
@@ -21,7 +21,7 @@ use super::refusal::ReportError;
 use super::tally::{ArmTally, ExpectationTally, Omitted, Rate, RunFacts, tally};
 use super::wilson::{Counts, Interval};
 use crate::evaluation::selection::rates::CellKey;
-use crate::evaluation::selection::select::Selection;
+use crate::evaluation::selection::select::{Selection, select};
 use crate::manifest::compare::{ArmView, Verdict, compare, covers, stratum_verdict};
 
 /// The role as it is reported: `gate`, `quality` or `descriptive`.
@@ -107,12 +107,23 @@ pub struct ReportInput {
     pub selection: Selection,
     /// The evaluator the report covers.
     pub evaluator: NameVersion,
-    /// Every run of the store.
+    /// Every sealed run of the store.
     pub runs: Vec<RunView>,
-    /// The factors the experiment file declares, or `None` when no experiment file is known, in
-    /// which case no pair is compared.
-    pub declared: Option<Vec<FieldPath>>,
+    /// The runs without a seal: counted apart, in no `k`, no `n` and no verdict.
+    pub unsealed: Vec<Unsealed>,
 }
+
+/// A run that has no seal yet.
+#[derive(Debug, Clone)]
+pub struct Unsealed {
+    /// The run.
+    pub run: RunKey,
+    /// The experiment its manifest names, or `None` when the manifest cannot be read.
+    pub experiment: Option<Digest>,
+}
+
+/// The stratum of an unsealed run whose manifest cannot be read.
+pub const UNKNOWN_STRATUM: &str = "unknown";
 
 /// The status totals of one arm over its gate and quality expectations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -146,8 +157,13 @@ pub struct ExpectationReport {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct ArmReport {
+    /// The experiment digest of the stratum the arm belongs to: an arm is a cell within a
+    /// stratum, and the runs of another stratum are not in it.
+    pub experiment: String,
     /// The cell.
     pub cell: CellKey,
+    /// The runs that have no seal yet, counted in no `k`, no `n` and no verdict.
+    pub unsealed: u64,
     /// Its runs and expectations as counted.
     pub tally: ArmTally,
     /// The gate rate.
@@ -161,7 +177,7 @@ pub struct ArmReport {
 }
 
 impl ArmReport {
-    fn new(cell: CellKey, tally: ArmTally) -> Self {
+    fn new(experiment: String, cell: CellKey, tally: ArmTally) -> Self {
         let mut status = StatusTotals::default();
         let mut expectations = Vec::new();
         for (id, held) in &tally.expectations {
@@ -185,7 +201,9 @@ impl ArmReport {
         Self {
             gate: tally.rate(Role::Gate),
             quality: tally.rate(Role::Quality),
+            experiment,
             cell,
+            unsealed: 0,
             tally,
             status,
             expectations,
@@ -294,20 +312,41 @@ pub struct Tested {
     pub diff_hi: f64,
 }
 
-/// An expectation graded in both arms of a pair, tested or left out.
+/// Why an expectation of a pair is not tested.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum OmitReason {
+    /// An arm holds no plain counts, for the reason of its tally.
+    Counts(Omitted),
+    /// Only one of the two arms graded the expectation.
+    OneArm,
+}
+
+impl OmitReason {
+    /// The reason as it is reported: the tally's, or `one_arm`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Counts(reason) => reason.as_str(),
+            Self::OneArm => "one_arm",
+        }
+    }
+}
+
+/// An expectation of a pair, tested or left out.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum Entry {
     /// Both arms hold plain counts: the expectation was tested.
     Tested(Tested),
-    /// An arm holds no plain counts, so no test was made.
+    /// No test was made.
     Omitted {
         /// The expectation.
         id: ExpectationId,
         /// Its role.
         role: Role,
         /// Why.
-        reason: Omitted,
+        reason: OmitReason,
     },
 }
 
@@ -335,6 +374,8 @@ impl Entry {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Comparison {
+    /// The experiment digest of the stratum the pair is compared in.
+    pub experiment: String,
     /// The first arm, by cell.
     pub a: CellKey,
     /// The second arm.
@@ -365,10 +406,10 @@ pub struct Report {
     pub evaluator: NameVersion,
     /// The I4 violations among the records of the evaluator.
     pub i4_violations: usize,
-    /// The arms, by cell.
+    /// The arms, by stratum and cell.
     pub arms: Vec<ArmReport>,
-    /// The compared pairs; `None` when no experiment file declares the factors.
-    pub comparisons: Option<Vec<Comparison>>,
+    /// The compared pairs, by stratum and cells.
+    pub comparisons: Vec<Comparison>,
     /// The Holm families, by role, for the roles that have a test.
     pub families: Vec<Family>,
     /// The pairs of one stratum that differ in no declared factor or in several, which are not
@@ -388,35 +429,76 @@ impl Report {
             selection,
             evaluator,
             mut runs,
-            declared,
+            unsealed,
         } = input;
         runs.sort_by(|x, y| x.facts.run.cmp(&y.facts.run));
-        let facts: Vec<RunFacts> = runs.iter().map(|view| view.facts.clone()).collect(); // BORROW: the tally reads its own copy
-        let arms: Vec<ArmReport> = tally(&selection, &evaluator, facts.as_slice())?
-            .into_iter()
-            .map(|(cell, held)| ArmReport::new(cell, held))
+        let listed: BTreeSet<&RunKey> = runs
+            .iter()
+            .map(|view| &view.facts.run)
+            .chain(unsealed.iter().map(|held| &held.run))
             .collect();
+        for record in selection
+            .current()
+            .filter(|record| record.evaluator() == &evaluator)
+        {
+            if !listed.contains(record.run()) {
+                return Err(StatsError::RunNotListed {
+                    run: record.run().clone(), // BORROW: the error owns the run
+                });
+            }
+        }
+        // An arm is a cell within a stratum: each stratum is tallied over its own runs.
+        let mut strata: BTreeMap<String, Vec<&RunView>> = BTreeMap::new();
+        for view in &runs {
+            strata
+                .entry(view.manifest.experiment().to_string())
+                .or_default()
+                .push(view);
+        }
+        let mut arms: BTreeMap<(String, CellKey), ArmReport> = BTreeMap::new();
+        for (stratum, views) in &strata {
+            let members: BTreeSet<&RunKey> = views.iter().map(|view| &view.facts.run).collect();
+            let own = select(
+                selection
+                    .current()
+                    .filter(|record| members.contains(record.run()))
+                    .cloned(), // BORROW: the stratum's selection owns its records
+            );
+            let facts: Vec<RunFacts> = views.iter().map(|view| view.facts.clone()).collect(); // BORROW: the tally reads its own copy
+            for (cell, held) in tally(&own, &evaluator, facts.as_slice())? {
+                // BORROW: the key and the arm own the stratum text
+                arms.insert(
+                    (stratum.clone(), cell.clone()),
+                    ArmReport::new(stratum.clone(), cell, held),
+                );
+            }
+        }
+        for held in &unsealed {
+            let stratum = held
+                .experiment
+                .as_ref()
+                .map_or_else(|| UNKNOWN_STRATUM.to_owned(), ToString::to_string);
+            let cell = CellKey::new(held.run.cell().clone()); // BORROW: the key owns the cell
+            arms.entry((stratum.clone(), cell.clone()))
+                .or_insert_with(|| ArmReport::new(stratum, cell, ArmTally::default()))
+                .unsealed += 1;
+        }
+        let arms: Vec<ArmReport> = arms.into_values().collect();
         let i4_violations = selection
             .violations()
             .iter()
             .filter(|violation| violation.key.evaluator == evaluator)
             .count();
-        let mut report = Self {
+        let pairs = compare_pairs(runs.as_slice(), arms.as_slice())?;
+        Ok(Self {
             evaluator,
             i4_violations,
-            comparisons: None,
-            families: Vec::new(),
-            pairs_not_one_factor: 0,
+            comparisons: pairs.comparisons,
+            families: pairs.families,
+            pairs_not_one_factor: pairs.not_one_factor,
             runs: runs.iter().map(RunRow::of).collect(),
             arms,
-        };
-        if let Some(factors) = declared {
-            let pairs = compare_pairs(runs.as_slice(), report.arms.as_slice(), factors.as_slice())?;
-            report.comparisons = Some(pairs.comparisons);
-            report.pairs_not_one_factor = pairs.not_one_factor;
-            report.families = pairs.families;
-        }
-        Ok(report)
+        })
     }
 }
 
@@ -487,15 +569,30 @@ fn verdict_of(a: &[&RunView], b: &[&RunView], declared: &[FieldPath]) -> PairVer
     }
 }
 
-/// The entries of a comparable pair: each expectation graded in both arms, tested when both hold
-/// plain counts.
+/// The entries of a comparable pair: each expectation graded in either arm, tested when both hold
+/// plain counts and left out, with its reason, when not.
 fn entries_of(a: &ArmReport, b: &ArmReport) -> Result<Vec<Entry>, StatsError> {
+    let ids: BTreeSet<&ExpectationId> = a
+        .tally
+        .expectations
+        .keys()
+        .chain(b.tally.expectations.keys())
+        .collect();
     let mut entries = Vec::new();
-    for (id, held_a) in &a.tally.expectations {
-        let Some(held_b) = b.tally.expectations.get(id) else {
+    for id in ids {
+        let id = id.clone(); // BORROW: the entry owns the id
+        let (held_a, held_b) = (a.tally.expectations.get(&id), b.tally.expectations.get(&id));
+        let (Some(held_a), Some(held_b)) = (held_a, held_b) else {
+            let role = held_a
+                .or(held_b)
+                .map_or(Role::Descriptive, |held| held.role);
+            entries.push(Entry::Omitted {
+                id,
+                role,
+                reason: OmitReason::OneArm,
+            });
             continue;
         };
-        let id = id.clone(); // BORROW: the entry owns the id
         let role = held_a.role;
         entries.push(match (held_a.counts(), held_b.counts()) {
             (Ok(counts_a), Ok(counts_b)) => {
@@ -514,10 +611,84 @@ fn entries_of(a: &ArmReport, b: &ArmReport) -> Result<Vec<Entry>, StatsError> {
                     diff_hi: difference.hi(),
                 })
             }
-            (Err(reason), _) | (Ok(_), Err(reason)) => Entry::Omitted { id, role, reason },
+            (Err(reason), _) | (Ok(_), Err(reason)) => Entry::Omitted {
+                id,
+                role,
+                reason: OmitReason::Counts(reason),
+            },
         });
     }
     Ok(entries)
+}
+
+/// The factors a stratum's manifests record: the paths that vary across the experiment's cells.
+fn recorded_factors(cells: &BTreeMap<CellKey, Vec<&RunView>>) -> Vec<FieldPath> {
+    let all: BTreeSet<&FieldPath> = cells
+        .values()
+        .flatten()
+        .flat_map(|view| view.manifest.factors())
+        .collect();
+    all.into_iter().cloned().collect() // BORROW: the list owns its paths
+}
+
+/// The paths where two arms of a stratum differ, over the first run of each cell.
+fn differing(a: &RunView, b: &RunView) -> Vec<FieldPath> {
+    compare(a.manifest.comparable(), b.manifest.comparable())
+        .into_iter()
+        .map(|deviation| deviation.path)
+        .collect()
+}
+
+/// Checks the factors a stratum's manifests record, and the factors of an experiment file when one
+/// is given, before any pair is compared.
+///
+/// A recorded factor must not be broader than the variation it names: a factor that is a strict
+/// prefix of a path where two cells of the stratum differ would make every difference under it
+/// look declared. When an experiment file is given, its factors must be the ones the manifests of
+/// every stratum record.
+///
+/// # Errors
+/// [`ReportError::FactorBroaderThanVariation`] and [`ReportError::ExperimentDisagrees`].
+pub fn check_factors(
+    runs: &[RunView],
+    experiment: Option<&[FieldPath]>,
+) -> Result<(), ReportError> {
+    for (stratum, cells) in &strata_of(runs) {
+        let recorded = recorded_factors(cells);
+        let firsts: Vec<&RunView> = cells
+            .values()
+            .filter_map(|views| views.first().copied())
+            .collect();
+        for (at, one) in firsts.iter().enumerate() {
+            for other in firsts.iter().skip(at + 1) {
+                for path in differing(one, other) {
+                    let own: Vec<&str> = path.segments().collect();
+                    for factor in &recorded {
+                        let prefix: Vec<&str> = factor.segments().collect();
+                        if prefix.len() < own.len() && covers(prefix.as_slice(), own.as_slice()) {
+                            return Err(ReportError::FactorBroaderThanVariation {
+                                experiment: stratum.clone(), // BORROW: the error owns the text
+                                factor: factor.to_string(),
+                                path: path.to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(file) = experiment {
+            let wanted: BTreeSet<&FieldPath> = file.iter().collect();
+            let held: BTreeSet<&FieldPath> = recorded.iter().collect();
+            if wanted != held {
+                return Err(ReportError::ExperimentDisagrees {
+                    experiment: stratum.clone(), // BORROW: the error owns the text
+                    file: wanted.iter().map(ToString::to_string).collect(),
+                    manifests: held.iter().map(ToString::to_string).collect(),
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Compares every pair of arms of one stratum that differ in exactly one declared factor.
@@ -528,35 +699,38 @@ fn entries_of(a: &ArmReport, b: &ArmReport) -> Result<Vec<Entry>, StatsError> {
 ///
 /// # Errors
 /// The [`StatsError`] of a method.
-pub fn compare_pairs(
-    runs: &[RunView],
-    arms: &[ArmReport],
-    declared: &[FieldPath],
-) -> Result<Pairs, StatsError> {
-    let by_cell: BTreeMap<&CellKey, &ArmReport> = arms.iter().map(|arm| (&arm.cell, arm)).collect();
+pub fn compare_pairs(runs: &[RunView], arms: &[ArmReport]) -> Result<Pairs, StatsError> {
+    let by_arm: BTreeMap<(&str, &CellKey), &ArmReport> = arms
+        .iter()
+        .map(|arm| ((arm.experiment.as_str(), &arm.cell), arm))
+        .collect();
     let mut comparisons = Vec::new();
     let mut not_one_factor = 0_usize;
-    for cells in strata_of(runs).values() {
+    for (stratum, cells) in &strata_of(runs) {
+        let declared = recorded_factors(cells);
         let listed: Vec<(&CellKey, &Vec<&RunView>)> = cells.iter().collect();
         for (at, (cell_a, runs_a)) in listed.iter().enumerate() {
             for (cell_b, runs_b) in listed.iter().skip(at + 1) {
                 let (Some(first_a), Some(first_b)) = (runs_a.first(), runs_b.first()) else {
                     continue;
                 };
-                let factors = factors_between(declared, first_a, first_b);
+                let factors = factors_between(declared.as_slice(), first_a, first_b);
                 let [factor] = factors.as_slice() else {
                     not_one_factor += 1;
                     continue;
                 };
-                let verdict = verdict_of(runs_a.as_slice(), runs_b.as_slice(), declared);
-                let entries = match (&verdict, by_cell.get(cell_a), by_cell.get(cell_b)) {
+                let verdict = verdict_of(runs_a.as_slice(), runs_b.as_slice(), declared.as_slice());
+                let arm_a = by_arm.get(&(stratum.as_str(), *cell_a));
+                let arm_b = by_arm.get(&(stratum.as_str(), *cell_b));
+                let entries = match (&verdict, arm_a, arm_b) {
                     (PairVerdict::Comparable, Some(arm_a), Some(arm_b)) => {
                         entries_of(arm_a, arm_b)?
                     }
                     _ => Vec::new(),
                 };
                 comparisons.push(Comparison {
-                    a: (*cell_a).clone(), // BORROW: the comparison owns the cells
+                    experiment: stratum.clone(), // BORROW: the comparison owns the text
+                    a: (*cell_a).clone(),        // BORROW: the comparison owns the cells
                     b: (*cell_b).clone(),
                     factor: (*factor).clone(), // BORROW: the comparison owns the factor
                     verdict,
@@ -565,7 +739,7 @@ pub fn compare_pairs(
             }
         }
     }
-    comparisons.sort_by(|x, y| (&x.a, &x.b).cmp(&(&y.a, &y.b)));
+    comparisons.sort_by(|x, y| (&x.experiment, &x.a, &x.b).cmp(&(&y.experiment, &y.a, &y.b)));
     for comparison in &mut comparisons {
         comparison.entries.sort_by(|x, y| x.id().cmp(y.id()));
     }

@@ -6,11 +6,12 @@ use std::path::PathBuf;
 
 use candler_core::analysis::refusal::ReportError;
 use candler_core::analysis::report::{
-    ArmReport, Comparison, Entry, Report, ReportInput, RunRow, RunView, choose_evaluator, role_name,
+    ArmReport, Comparison, Entry, Report, ReportInput, RunRow, RunView, Unsealed, check_factors,
+    choose_evaluator, role_name,
 };
 use candler_core::analysis::tally::{Rate, RunFacts};
 use candler_core::analysis::{ALPHA, alpha_source};
-use candler_schemas::execution::ExperimentFile;
+use candler_schemas::execution::{ExperimentFile, varying_paths};
 use candler_schemas::primitives::FieldPath;
 use serde_json::{Value, json};
 
@@ -28,10 +29,10 @@ pub struct AnalyzeArgs {
     /// is refused. not an experiment setting: names which stored outcomes to analyse.
     #[arg(long)]
     pub evaluator: Option<String>,
-    /// The experiment file whose factors declare which differences between arms are the
-    /// experiment's own; without it, arms are tabled and no pair is compared. cannot be derived:
-    /// a run manifest records the digest of the resolved cells, not of the experiment file, and a
-    /// manifest cannot vouch for its own factors.
+    /// An experiment file, checked against the factors the run manifests record: the call is
+    /// refused when they differ, and without the file the manifests' factors declare which
+    /// differences between arms are the experiment's own. not an experiment setting: names the
+    /// file the recorded factors are checked against.
     #[arg(long)]
     pub experiment: Option<PathBuf>,
     /// How the tables are written. not an experiment setting: chooses how the tables are written.
@@ -62,8 +63,12 @@ pub enum Table {
     /// One row per cell and expectation.
     #[default]
     Arms,
-    /// One row per compared pair and expectation.
+    /// One row per compared pair and expectation, and one row for a pair with no expectation to
+    /// show.
     Comparisons,
+    /// What belongs to no other row: the evaluator, the I4 violations, the pairs not compared and
+    /// the Holm families.
+    Summary,
     /// One row per run, with a column for every recorded path.
     Runs,
 }
@@ -77,14 +82,23 @@ pub async fn run(cli: &Cli, args: &AnalyzeArgs) -> Result<Exit, CliError> {
     let store = common::open_store(VERB, cli).await?;
     let selection = common::read_selection(VERB, &store)?;
     let evaluator = choose_evaluator(&selection, args.evaluator.as_deref()).map_err(refused)?;
-    let declared = args
+    let file_factors = args
         .experiment
         .as_deref()
-        .map(declared_factors)
+        .map(experiment_factors)
         .transpose()?;
     let mut runs = Vec::new();
+    let mut unsealed = Vec::new();
     for entry in store.runs().map_err(|e| CliError::failed(VERB, e))? {
         if !entry.done {
+            // An unsealed run is counted apart; its experiment is known when its manifest is.
+            unsealed.push(Unsealed {
+                experiment: store
+                    .read_manifest(&entry.key)
+                    .ok()
+                    .map(|manifest| manifest.experiment().clone()), // BORROW: the record owns the digest
+                run: entry.key,
+            });
             continue;
         }
         let manifest = store
@@ -95,11 +109,12 @@ pub async fn run(cli: &Cli, args: &AnalyzeArgs) -> Result<Exit, CliError> {
             manifest,
         });
     }
+    check_factors(runs.as_slice(), file_factors.as_deref()).map_err(refused)?;
     let report = Report::build(ReportInput {
         selection,
         evaluator,
         runs,
-        declared,
+        unsealed,
     })
     .map_err(|e| CliError::failed(VERB, e))?;
     let text = match args.format {
@@ -115,8 +130,8 @@ fn refused(error: ReportError) -> CliError {
     CliError::refused_by(error)
 }
 
-/// The paths of the factors of the experiment file.
-fn declared_factors(file: &std::path::Path) -> Result<Vec<FieldPath>, CliError> {
+/// The paths that vary across the cells of the experiment file: the factors a manifest records.
+fn experiment_factors(file: &std::path::Path) -> Result<Vec<FieldPath>, CliError> {
     let unreadable = |detail: String| {
         refused(ReportError::ExperimentUnreadable {
             file: file.display().to_string(),
@@ -127,11 +142,7 @@ fn declared_factors(file: &std::path::Path) -> Result<Vec<FieldPath>, CliError> 
     let text = std::fs::read_to_string(file).map_err(|e| unreadable(e.to_string()))?;
     let experiment =
         ExperimentFile::from_toml_str(text.as_str()).map_err(|e| unreadable(e.to_string()))?;
-    Ok(experiment
-        .factors()
-        .iter()
-        .map(|factor| factor.path.clone()) // BORROW: the list owns its paths
-        .collect())
+    Ok(varying_paths(experiment.cells().as_slice()))
 }
 
 /// A rate as `{num, den}`.
@@ -176,9 +187,11 @@ fn arm_json(arm: &ArmReport) -> Value {
         })
         .collect();
     json!({
+        "experiment": arm.experiment,
         "cell": arm.cell.to_string(),
         "runs": {
             "valid": arm.tally.valid_runs,
+            "unsealed": arm.unsealed,
             "invalid": map_json(&arm.tally.invalid),
             "experimenter_ends": map_json(&arm.tally.experimenter_ends),
         },
@@ -219,6 +232,7 @@ fn entry_json(entry: &Entry) -> Value {
 
 fn comparison_json(comparison: &Comparison) -> Value {
     json!({
+        "experiment": comparison.experiment,
         "a": comparison.a.to_string(),
         "b": comparison.b.to_string(),
         "factor": comparison.factor.to_string(),
@@ -258,10 +272,7 @@ fn alpha_json() -> Result<Value, CliError> {
 /// # Errors
 /// Returns [`CliError::Failed`] when a stored value cannot be written as JSON.
 pub fn render_json(report: &Report) -> Result<String, CliError> {
-    let comparisons = report.comparisons.as_ref().map_or_else(
-        || json!({"reason": "no_experiment"}),
-        |pairs| Value::Array(pairs.iter().map(comparison_json).collect()),
-    );
+    let comparisons = Value::Array(report.comparisons.iter().map(comparison_json).collect());
     let runs = report
         .runs
         .iter()
@@ -312,6 +323,7 @@ fn json_text(value: &Value) -> String {
 fn arms_csv(report: &Report) -> String {
     let mut text = row(&strings(&[
         "cell",
+        "experiment",
         "role",
         "expectation",
         "pass",
@@ -339,6 +351,7 @@ fn arms_csv(report: &Report) -> String {
             };
             text.push_str(&row(&[
                 arm.cell.to_string(),
+                arm.experiment.clone(), // BORROW: the row owns its text
                 role_name(tally.role).to_owned(),
                 held.id.to_string(),
                 tally.pass.to_string(),
@@ -377,17 +390,27 @@ fn comparisons_csv(report: &Report) -> String {
         "diff_lo",
         "diff_hi",
         "omitted",
+        "experiment",
+        "causes",
     ]));
-    for comparison in report.comparisons.iter().flatten() {
+    for comparison in &report.comparisons {
+        let head = [
+            comparison.a.to_string(),
+            comparison.b.to_string(),
+            comparison.factor.to_string(),
+            comparison.verdict.as_str().to_owned(),
+        ];
+        let experiment = comparison.experiment.clone(); // BORROW: the row owns its text
+        let causes = comparison.verdict.causes().join(";");
+        if comparison.entries.is_empty() {
+            // A pair with nothing to show, a refused one first of all, still has its row.
+            let mut fields: Vec<String> = head.to_vec();
+            fields.extend(vec![String::new(); 13]);
+            fields.extend([experiment, causes]);
+            text.push_str(&row(fields.as_slice()));
+            continue;
+        }
         for entry in &comparison.entries {
-            let head = [
-                comparison.a.to_string(),
-                comparison.b.to_string(),
-                comparison.factor.to_string(),
-                comparison.verdict.as_str().to_owned(),
-                entry.id().to_string(),
-                role_name(entry.role()).to_owned(),
-            ];
             let tail: Vec<String> = match entry {
                 Entry::Tested(tested) => vec![
                     tested.a.k().to_string(),
@@ -409,9 +432,33 @@ fn comparisons_csv(report: &Report) -> String {
                 }
                 _ => vec![String::new(); 11],
             };
-            let fields: Vec<String> = head.into_iter().chain(tail).collect();
+            let mut fields: Vec<String> = head.to_vec();
+            fields.extend([entry.id().to_string(), role_name(entry.role()).to_owned()]);
+            fields.extend(tail);
+            fields.extend([experiment.clone(), causes.clone()]); // BORROW: each row owns its text
             text.push_str(&row(fields.as_slice()));
         }
+    }
+    text
+}
+
+/// The counts that belong to no other table, one `item,value` row each.
+fn summary_csv(report: &Report) -> String {
+    let mut text = row(&strings(&["item", "value"]));
+    let mut put = |item: &str, value: String| text.push_str(&row(&[item.to_owned(), value]));
+    put("evaluator", report.evaluator.to_string());
+    put("alpha", ALPHA.to_string());
+    put("i4_violations", report.i4_violations.to_string());
+    put(
+        "pairs_not_one_factor",
+        report.pairs_not_one_factor.to_string(),
+    );
+    put("pairs_compared", report.comparisons.len().to_string());
+    for family in &report.families {
+        put(
+            &format!("family.{}", role_name(family.role)),
+            family.m.to_string(),
+        );
     }
     text
 }
@@ -467,6 +514,7 @@ pub fn render_csv(report: &Report, table: Table) -> Result<String, CliError> {
     match table {
         Table::Arms => Ok(arms_csv(report)),
         Table::Comparisons => Ok(comparisons_csv(report)),
+        Table::Summary => Ok(summary_csv(report)),
         Table::Runs => runs_csv(report),
     }
 }

@@ -9,7 +9,8 @@ use std::path::PathBuf;
 
 use candler_core::analysis::refusal::ReportError;
 use candler_core::analysis::report::{
-    Entry, PairVerdict, Report, ReportInput, RunView, choose_evaluator,
+    Entry, OmitReason, PairVerdict, Report, ReportInput, RunView, Unsealed, check_factors,
+    choose_evaluator,
 };
 use candler_core::analysis::tally::{Omitted, RunFacts};
 use candler_core::evaluation::selection::select::{Selection, select};
@@ -41,6 +42,10 @@ struct Spec {
     provenance: Vec<(&'static str, Value)>,
     /// Paths of the cell whose value was not recorded.
     unrecorded: Vec<&'static str>,
+    /// The factors the manifest records.
+    factors: Vec<&'static str>,
+    /// The character the experiment digest is made of.
+    experiment: char,
 }
 
 impl Spec {
@@ -53,6 +58,8 @@ impl Spec {
             measured: Vec::new(),
             provenance: Vec::new(),
             unrecorded: Vec::new(),
+            factors: vec!["plan.model"],
+            experiment: '0',
         }
     }
 }
@@ -105,8 +112,8 @@ fn manifest(spec: &Spec) -> RunManifest {
         json!({
             "schema": "run-manifest/1",
             "run": {"cell": cell, "replicate": spec.replicate, "attempt": 1},
-            "experiment": digest_text('0'),
-            "factors": [],
+            "experiment": digest_text(spec.experiment),
+            "factors": spec.factors,
             "comparable": {
                 "values": values,
                 "harness": {"name": "h", "version": "1.0.0"},
@@ -291,12 +298,12 @@ fn paths(list: &[&str]) -> Vec<FieldPath> {
         .collect()
 }
 
-fn report(selection: &Selection, runs: Vec<RunView>, declared: Option<Vec<FieldPath>>) -> Report {
+fn report(selection: &Selection, runs: Vec<RunView>) -> Report {
     Report::build(ReportInput {
         selection: selection.clone(),
         evaluator: evaluator(),
         runs,
-        declared,
+        unsealed: Vec::new(),
     })
     .expect("the report builds")
 }
@@ -382,7 +389,7 @@ fn a1_arms_equal_the_hand_counts() {
         .into_iter()
         .map(|m| (m, cell_of(&runs, m)))
         .collect();
-    let report = report(&selection, runs, None);
+    let report = report(&selection, runs);
     assert_eq!(report.arms.len(), 3);
     // (model, gate, quality, E1 k/n, E2 k/n, status pass/fail/blocked/not_measured/not_applicable
     // over gate and quality)
@@ -487,8 +494,8 @@ fn a1_arms_equal_the_hand_counts() {
 fn a1_invalid_and_experimenter_runs_are_out_of_k_and_n() {
     let (with, runs_with) = layout(true);
     let (without, runs_without) = layout(false);
-    let with = report(&with, runs_with, None);
-    let without = report(&without, runs_without, None);
+    let with = report(&with, runs_with);
+    let without = report(&without, runs_without);
     for (a, b) in with.arms.iter().zip(&without.arms) {
         assert_eq!(a.gate, b.gate);
         assert_eq!(a.quality, b.quality);
@@ -523,7 +530,7 @@ fn a1_runs_form_an_open_map() {
     spec.unrecorded = vec!["plan.absent"];
     let run = view(&spec);
     let selection = select([record(&run, 1, "E1", "gate", "pass", None, None)]);
-    let report = report(&selection, vec![run], None);
+    let report = report(&selection, vec![run]);
     let row = report.runs.first().expect("one row");
     assert_eq!(row.measured.get("session.turns"), Some(&json!(3)));
     assert_eq!(
@@ -554,10 +561,7 @@ fn holm_report() -> (Report, BTreeMap<&'static str, String>) {
         .into_iter()
         .map(|m| (m, cell_of(&runs, m)))
         .collect();
-    (
-        report(&selection, runs, Some(paths(&["plan.model"]))),
-        cells,
-    )
+    (report(&selection, runs), cells)
 }
 
 /// Guards: A1 — the Holm family is one per role per call: the three comparable pairs give six
@@ -569,7 +573,7 @@ fn holm_report() -> (Report, BTreeMap<&'static str, String>) {
 #[test]
 fn a1_holm_family_is_one_per_role_per_call() {
     let (report, cells) = holm_report();
-    let comparisons = report.comparisons.as_ref().expect("an experiment file");
+    let comparisons = &report.comparisons;
     assert_eq!(comparisons.len(), 3);
     assert_eq!(report.pairs_not_one_factor, 0);
     assert_eq!(report.families.len(), 1);
@@ -624,7 +628,7 @@ fn a1_holm_family_is_one_per_role_per_call() {
                     &Entry::Omitted {
                         id: entry.id().clone(),
                         role: Role::Quality,
-                        reason: Omitted::Weighted
+                        reason: OmitReason::Counts(Omitted::Weighted)
                     }
                 );
             }
@@ -705,7 +709,7 @@ fn a3_one_evaluator_version_is_chosen() {
         selection: two,
         evaluator: chosen,
         runs,
-        declared: None,
+        unsealed: Vec::new(),
     })
     .expect("the report builds");
     let arm = built.arms.first().expect("one arm");
@@ -770,7 +774,21 @@ fn runs_of(model: &'static str, count: u32, shape: impl Fn(&mut Spec)) -> Vec<Sp
 
 /// The report of two arms of five runs, whose `E1` is 4 of 5 for the first and 1 of 5 for the
 /// second, with `declared` the factors of the experiment file.
-fn duo(a: Vec<Spec>, b: Vec<Spec>, declared: &[&str]) -> (Report, RunView, RunView) {
+fn duo(a: Vec<Spec>, b: Vec<Spec>, declared: &[&'static str]) -> (Report, RunView, RunView) {
+    let (a, b): (Vec<Spec>, Vec<Spec>) = (
+        a.into_iter()
+            .map(|s| Spec {
+                factors: declared.to_vec(),
+                ..s
+            })
+            .collect(),
+        b.into_iter()
+            .map(|s| Spec {
+                factors: declared.to_vec(),
+                ..s
+            })
+            .collect(),
+    );
     let mut runs: Vec<RunView> = Vec::new();
     let mut records = Vec::new();
     for (side, specs) in [a, b].into_iter().enumerate() {
@@ -796,15 +814,11 @@ fn duo(a: Vec<Spec>, b: Vec<Spec>, declared: &[&str]) -> (Report, RunView, RunVi
     }
     let first = runs.first().expect("a run").clone();
     let last = runs.last().expect("a run").clone();
-    (
-        report(&select(records), runs, Some(paths(declared))),
-        first,
-        last,
-    )
+    (report(&select(records), runs), first, last)
 }
 
 fn only_comparison(report: &Report) -> &candler_core::analysis::report::Comparison {
-    let comparisons = report.comparisons.as_ref().expect("an experiment file");
+    let comparisons = &report.comparisons;
     assert_eq!(comparisons.len(), 1);
     comparisons.first().expect("one comparison")
 }
@@ -910,11 +924,6 @@ fn a2_a_comparable_pair_is_tested() {
     b.push(dirty);
     let (report, _, _) = duo(runs_of("alpha", 5, |_| {}), b, &["plan.model"]);
     assert_eq!(only_comparison(&report).verdict, PairVerdict::Comparable);
-    // With no experiment file nothing is compared, and the arms are still reported.
-    let (selection, runs) = layout(false);
-    let bare = self::report(&selection, runs, None);
-    assert!(bare.comparisons.is_none());
-    assert_eq!(bare.arms.len(), 3);
 }
 
 /// Guards: A2 — only pairs that differ in exactly one declared factor are compared: two arms that
@@ -932,7 +941,7 @@ fn a2_only_one_factor_pairs_are_compared() {
         runs_of("beta", 5, two),
         &["plan.model", "plan.effort"],
     );
-    assert_eq!(report.comparisons.as_ref().map(Vec::len), Some(0));
+    assert_eq!(report.comparisons.len(), 0);
     assert_eq!(report.pairs_not_one_factor, 1);
     let undeclared = |s: &mut Spec| s.extra = vec![("plan.other", json!("x"))];
     let (report, _, _) = duo(
@@ -940,13 +949,259 @@ fn a2_only_one_factor_pairs_are_compared() {
         runs_of("alpha", 5, undeclared),
         &["plan.model"],
     );
-    assert_eq!(report.comparisons.as_ref().map(Vec::len), Some(0));
+    assert_eq!(report.comparisons.len(), 0);
     assert_eq!(report.pairs_not_one_factor, 1);
-    // A path under a declared factor is covered by it: one factor, so the pair is compared.
-    let (report, _, _) = duo(
-        runs_of("alpha", 5, |_| {}),
-        runs_of("beta", 5, |_| {}),
-        &["plan"],
+}
+
+/// Guards: A2 — a cell that sits in two strata is two arms: alpha and beta each have three runs
+/// under one experiment digest and three under another, so the report holds four arms of three
+/// runs each, one comparison per stratum on that stratum's own runs (3 of 3 against 0 of 3), and
+/// one Holm family of exactly two tests.
+/// Oracle: the Fisher row of `fisher.toml` for 3 of 3 against 0 of 3, and Holm's value for two
+/// equal p-values, `2p`, from `holm.toml`'s rule.
+/// Bite: key the tally by cell alone, and each arm pools six runs; compare each pair once on the
+/// pooled arms, and the count of comparisons or the p-value turns red.
+#[test]
+fn a2_a_cell_in_two_strata_is_tallied_per_stratum() {
+    let mut runs: Vec<RunView> = Vec::new();
+    let mut records = Vec::new();
+    for (at, experiment) in ['0', '1'].into_iter().enumerate() {
+        for (model, status) in [("alpha", "pass"), ("beta", "fail")] {
+            for replicate in 1..=3_u32 {
+                let mut spec = Spec::new(model, 3 * u32::try_from(at).expect("small") + replicate);
+                spec.experiment = experiment;
+                let run = view(&spec);
+                records.push(record(
+                    &run,
+                    records.len() + 1,
+                    "E1",
+                    "gate",
+                    status,
+                    None,
+                    None,
+                ));
+                runs.push(run);
+            }
+        }
+    }
+    let report = report(&select(records), runs);
+    assert_eq!(report.arms.len(), 4, "a cell is an arm in each stratum");
+    for arm in &report.arms {
+        assert_eq!(arm.tally.valid_runs, 3, "{}", arm.experiment);
+        let counts = arm.expectations[0].tally.counts().expect("binary");
+        let alpha = counts.k() == 3;
+        assert_eq!((counts.k(), counts.n()), (if alpha { 3 } else { 0 }, 3));
+    }
+    let strata: Vec<&str> = report.arms.iter().map(|a| a.experiment.as_str()).collect();
+    assert_eq!(strata.iter().filter(|s| **s == digest_text('0')).count(), 2);
+    assert_eq!(strata.iter().filter(|s| **s == digest_text('1')).count(), 2);
+    assert_eq!(report.comparisons.len(), 2, "one comparison per stratum");
+    assert_eq!(
+        report
+            .comparisons
+            .iter()
+            .map(|c| c.experiment.clone())
+            .collect::<Vec<_>>(),
+        vec![digest_text('0'), digest_text('1')]
     );
-    assert_eq!(only_comparison(&report).factor.to_string(), "plan");
+    assert_eq!(report.families.len(), 1);
+    assert_eq!(report.families[0].m, 2, "two tests, not four and not one");
+    let p = fisher_p((3, 3), (0, 3));
+    for comparison in &report.comparisons {
+        let [Entry::Tested(tested)] = comparison.entries.as_slice() else {
+            panic!("one tested entry: {:?}", comparison.entries);
+        };
+        let (alpha_side, beta_side) = if tested.a.k() == 3 {
+            (tested.a, tested.b)
+        } else {
+            (tested.b, tested.a)
+        };
+        assert_eq!(
+            (alpha_side.k(), alpha_side.n(), beta_side.k(), beta_side.n()),
+            (3, 3, 0, 3)
+        );
+        close("p", tested.p, p);
+        close("p_holm", tested.p_holm, (2.0 * p).min(1.0));
+    }
+}
+
+/// The cells of a 2 by 2 store, `plan.model` by `plan.other`, one run each, with the factors the
+/// manifests record.
+fn two_by_two(factors: &[&'static str]) -> (Selection, Vec<RunView>) {
+    let mut runs: Vec<RunView> = Vec::new();
+    let mut records = Vec::new();
+    for (model, other) in [("alpha", "x"), ("alpha", "y"), ("beta", "x"), ("beta", "y")] {
+        let mut spec = Spec::new(model, 1);
+        spec.extra = vec![("plan.other", json!(other))];
+        spec.factors = factors.to_vec();
+        let run = view(&spec);
+        records.push(record(
+            &run,
+            records.len() + 1,
+            "E1",
+            "gate",
+            "pass",
+            None,
+            None,
+        ));
+        runs.push(run);
+    }
+    (select(records), runs)
+}
+
+/// Guards: A2 — the factors of a stratum come from its manifests, and an experiment file is a
+/// cross-check: on a 2 by 2 store whose manifests record `plan.model` and `plan.other`, four
+/// pairs differ in one factor and are compared and two differ in both and are not; a file that
+/// declares the parent path `plan` or an unrelated path is refused as
+/// `analysis.experiment_disagrees`, naming both sets; a file with the recorded factors is
+/// accepted; and manifests that record the parent `plan` are refused as
+/// `analysis.factor_broader_than_variation`.
+/// Oracle: the factors written into the manifests and the files by the test, and the codes of
+/// `codes.toml`.
+/// Bite: skip the cross-check, and the parent-path and unrelated-path files are accepted; skip
+/// the prefix check, and the broad record is accepted.
+#[test]
+fn a2_a_wrong_experiment_is_refused() {
+    let (selection, runs) = two_by_two(&["plan.model", "plan.other"]);
+    let report = report(&selection, runs.clone());
+    assert_eq!(report.comparisons.len(), 4);
+    assert_eq!(report.pairs_not_one_factor, 2);
+    assert_eq!(check_factors(&runs, None), Ok(()));
+    assert_eq!(
+        check_factors(&runs, Some(&paths(&["plan.model", "plan.other"]))),
+        Ok(())
+    );
+    for wrong in [&["plan"][..], &["plan.zzz"], &["plan.model"]] {
+        let refusal = check_factors(&runs, Some(&paths(wrong))).expect_err("a wrong file");
+        assert_eq!(
+            refusal.code().as_str(),
+            "analysis.experiment_disagrees",
+            "{wrong:?}"
+        );
+        let text = refusal.to_string();
+        assert!(
+            text.contains("plan.model, plan.other"),
+            "the manifests' factors: {text}"
+        );
+        assert!(
+            text.contains(&wrong.join(", ")),
+            "the file's factors: {text}"
+        );
+    }
+    let (_, broad) = two_by_two(&["plan"]);
+    let refusal = check_factors(&broad, None).expect_err("a record broader than the variation");
+    assert_eq!(
+        refusal.code().as_str(),
+        "analysis.factor_broader_than_variation"
+    );
+}
+
+/// Guards: A1 — a run without a seal is counted apart: with the layout and two unsealed runs, one
+/// whose manifest names the experiment of an arm and one whose manifest is unreadable, the call
+/// succeeds, the arm shows `unsealed` 1, a stratum `unknown` holds the other, and every count,
+/// rate and verdict equals the report without them although the unsealed run has a pass on the
+/// store.
+/// Oracle: the layout's hand counts.
+/// Bite: count the records of an unsealed run, or leave the unsealed runs out of the listed ones
+/// (the store then refuses the call with a run that has records and no listing), and this turns
+/// red.
+#[test]
+fn a1_an_unsealed_run_is_counted_apart() {
+    let (selection, runs) = layout(false);
+    let baseline = report(&selection, runs.clone());
+    let open = view(&Spec::new("alpha", 99));
+    let mut records: Vec<OutcomeRecord> = selection.current().cloned().collect();
+    records.push(record(&open, 9_999, "E1", "gate", "pass", None, None));
+    let held = Report::build(ReportInput {
+        selection: select(records),
+        evaluator: evaluator(),
+        runs,
+        unsealed: vec![
+            Unsealed {
+                run: open.manifest.run().clone(),
+                experiment: Some(digest_text('0').parse().expect("a digest")),
+            },
+            Unsealed {
+                run: view(&Spec::new("gamma", 98)).manifest.run().clone(),
+                experiment: None,
+            },
+        ],
+    })
+    .expect("an unsealed run does not fail the call");
+    assert_eq!(held.arms.len(), baseline.arms.len() + 1);
+    for (a, b) in baseline
+        .arms
+        .iter()
+        .zip(held.arms.iter().filter(|a| a.experiment != "unknown"))
+    {
+        assert_eq!((a.gate, a.quality, a.status), (b.gate, b.quality, b.status));
+        assert_eq!(a.tally.expectations, b.tally.expectations);
+    }
+    let sealed: u64 = held
+        .arms
+        .iter()
+        .filter(|a| a.experiment != "unknown")
+        .map(|a| a.unsealed)
+        .sum();
+    assert_eq!(sealed, 1);
+    let unknown = held
+        .arms
+        .iter()
+        .find(|a| a.experiment == "unknown")
+        .expect("the unknown stratum");
+    assert_eq!((unknown.unsealed, unknown.tally.valid_runs), (1, 0));
+    assert_eq!(held.comparisons, baseline.comparisons);
+}
+
+/// Guards: A2 — an expectation graded in one arm of a comparable pair is reported as omitted with
+/// the reason `one_arm`, and is not dropped.
+/// Oracle: the expectations written into the records, `E1` in both arms and `E9` in the first.
+/// Bite: skip the expectations of one arm, and the `E9` entry is missing.
+#[test]
+fn a2_an_expectation_of_one_arm_is_reported_as_omitted() {
+    let mut runs: Vec<RunView> = Vec::new();
+    let mut records = Vec::new();
+    for (model, status) in [("alpha", "pass"), ("beta", "fail")] {
+        for replicate in 1..=3_u32 {
+            let run = view(&Spec::new(model, replicate));
+            records.push(record(
+                &run,
+                records.len() + 1,
+                "E1",
+                "gate",
+                status,
+                None,
+                None,
+            ));
+            if model == "alpha" {
+                records.push(record(
+                    &run,
+                    records.len() + 1,
+                    "E9",
+                    "quality",
+                    "pass",
+                    None,
+                    None,
+                ));
+            }
+            runs.push(run);
+        }
+    }
+    let report = report(&select(records), runs);
+    let comparison = report.comparisons.first().expect("one comparison");
+    let ids: Vec<String> = comparison
+        .entries
+        .iter()
+        .map(|e| e.id().to_string())
+        .collect();
+    assert_eq!(ids, ["E1", "E9"]);
+    assert_eq!(
+        comparison.entries[1],
+        Entry::Omitted {
+            id: "E9".parse().expect("an id"),
+            role: Role::Quality,
+            reason: OmitReason::OneArm
+        }
+    );
+    assert_eq!(OmitReason::OneArm.as_str(), "one_arm");
 }
