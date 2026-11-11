@@ -15,6 +15,7 @@ pub mod resolve;
 pub mod run;
 pub mod show;
 pub mod supervise;
+pub mod term;
 pub mod watch;
 
 use std::error::Error;

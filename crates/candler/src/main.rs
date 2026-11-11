@@ -103,7 +103,7 @@ fn dispatch(cli: Cli) -> Result<Exit, CliError> {
             Command::Evaluate(ref args) => commands::evaluate::run(&cli, args).await,
             Command::Show(ref args) => commands::show::run(&cli, args).await,
             Command::Diff(ref args) => commands::diff::run(&cli, args).await,
-            Command::Resolve(ref args) => resolve::run(args),
+            Command::Resolve(args) => resolve::run(args, cli.store.as_deref()).await,
             Command::Ls(ref args) => ls::run(args),
             Command::Analyze(ref args) => analyze::run(args),
             Command::Inspect(ref args) => inspect::run(args),
