@@ -66,9 +66,9 @@ enum Command {
     /// Runs a job's supervisor; started by `run`, never by a person.
     #[command(hide = true)]
     Supervise(supervise::Args),
-    /// Import a legacy results folder into the store.
+    /// Ingest raw trace directories, or legacy results folders, into the store.
     #[command(alias = "import")]
-    Ingest(commands::ingest::ImportArgs),
+    Ingest(commands::ingest::IngestArgs),
     /// Grade stored runs with a plug-in's suite.
     Evaluate(commands::evaluate::EvaluateArgs),
     /// Print stored outcomes, or their rates.
