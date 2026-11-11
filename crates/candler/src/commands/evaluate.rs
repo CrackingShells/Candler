@@ -13,18 +13,18 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use candler_core::evaluation::engine::RunSelection;
+use candler_core::evaluation::engine::{EvaluateError, RunSelection};
 use candler_core::evaluation::registry::{Registry, default_env_root, discover_manifests};
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::events::{JobEvents, TailPos};
 use candler_core::jobs::lost::{self, JobLiveness};
 use candler_core::jobs::model::{EvaluateSpec, JobSpecFile};
+use candler_core::jobs::runtime::TEARDOWN_BOUND;
 use candler_core::jobs::runtime::detach::{DetachArgs, detach};
 use candler_core::jobs::runtime::evaluate::REPORT_FILE;
 use candler_core::jobs::runtime::launch::{mint_job_id, own_identity, spec_digest};
 use candler_core::jobs::runtime::reap::reap_one;
 use candler_core::jobs::runtime::session::recover_job_dir;
-use candler_core::jobs::runtime::{RuntimeError, TEARDOWN_BOUND};
 use candler_core::store::Store;
 use candler_core::store::layout::StoreLayout;
 use candler_core::supervise::Supervisor;
@@ -45,10 +45,6 @@ const REAP_POLL: Duration = Duration::from_millis(50);
 
 /// How many of the last lines of the supervisor's log a failed job's error carries.
 const LOG_LINES: usize = 5;
-
-/// The variables of the caller the supervisor is given, besides [`STORE_ENV`]. The user
-/// configuration is read from `XDG_CONFIG_HOME`, because `slots.evaluators` lives there.
-const ENV_ALLOWLIST: [&str; 4] = ["PATH", "HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME"];
 
 /// The arguments of `candler evaluate`.
 #[derive(Debug, clap::Args)]
@@ -104,16 +100,13 @@ fn runs_of_job(layout: &StoreLayout, id: &JobId) -> Result<RunSelection, CliErro
     Ok(RunSelection::Keys(keys.into_iter().collect()))
 }
 
-/// The variables the supervisor is started with: the allowlist as the caller has it and the
-/// store root.
+/// The variables the supervisor is started with: the caller's whole environment, so that the
+/// evaluators inherit it, and the store root. They travel as the process environment of the
+/// supervisor and are written nowhere: the job's spec, records and log hold none of them.
 fn supervisor_env(root: &Path) -> Vec<(String, String)> {
-    let mut env: Vec<(String, String)> = ENV_ALLOWLIST
-        .iter()
-        .filter_map(|name| {
-            std::env::var(name)
-                .ok()
-                .map(|value| ((*name).to_owned(), value)) // BORROW: the pair owns its name
-        })
+    let mut env: Vec<(String, String)> = std::env::vars_os()
+        .filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?)))
+        .filter(|(name, _)| name != STORE_ENV)
         .collect();
     env.push((STORE_ENV.to_owned(), root.display().to_string())); // BORROW: the pair owns its text
     env
@@ -254,6 +247,17 @@ pub async fn run(cli: &Cli, args: &EvaluateArgs) -> Result<Exit, CliError> {
             reason: "no plug-in directory: list one under `plugins.dirs` in a `candler.toml` at or above the working directory".to_owned(), // BORROW: the error owns its text
         });
     }
+    let cwd = std::env::current_dir().map_err(|e| CliError::Runtime {
+        detail: format!("cannot read the working directory: {e}"),
+    })?;
+    let suite = cwd.join(&args.suite);
+    let suite_bytes = std::fs::read(&suite).map_err(|source| {
+        failed(EvaluateError::Io {
+            op: "read the suite",
+            path: suite.clone(), // BORROW: the error owns the path
+            source,
+        })
+    })?;
     let manifests = discover_manifests(plugin_dirs.as_slice()) // BORROW: explicit .as_slice()
         .map_err(failed)?;
     let registry = Registry::load(manifests.as_slice()) // BORROW: explicit .as_slice()
@@ -272,13 +276,6 @@ pub async fn run(cli: &Cli, args: &EvaluateArgs) -> Result<Exit, CliError> {
     let root = common::resolved_root(&resolution)?;
     let store = Store::open(root.as_path()).map_err(failed)?; // BORROW: explicit .as_path()
 
-    let cwd = std::env::current_dir().map_err(|e| CliError::Runtime {
-        detail: format!("cannot read the working directory: {e}"),
-    })?;
-    let suite = cwd.join(&args.suite);
-    let suite_bytes = std::fs::read(&suite).map_err(|e| CliError::Refused {
-        reason: format!("cannot read {}: {e}", suite.display()),
-    })?;
     let selection = match (&args.job, &args.runs) {
         (Some(job), _) => runs_of_job(store.layout(), job)?,
         (None, Some(glob)) => RunSelection::Glob(glob.clone()), // BORROW: the spec owns its glob
@@ -318,16 +315,10 @@ pub async fn run(cli: &Cli, args: &EvaluateArgs) -> Result<Exit, CliError> {
         .map_err(|e| CliError::Runtime {
             detail: e.to_string(),
         })?;
-    let supervisor = match launched {
-        Ok(started) => Some(started.pid),
-        // A job that ends before the launcher's next look at its lock is not one that never
-        // started: the follow below reads what became of it, and says why from its log.
-        Err(RuntimeError::DidNotStart { .. }) => None,
-        Err(error) => return Err(failed(error)),
-    };
+    let supervisor = launched.map_err(failed)?.pid;
     eprintln!("{id}");
 
-    let followed = follow(store.layout(), &id, supervisor, &mut sigint).await?;
+    let followed = follow(store.layout(), &id, Some(supervisor), &mut sigint).await?;
     match followed.end {
         JobEnd::Completed => print_report(&dir),
         JobEnd::Killed if followed.interrupted => Err(CliError::Runtime {

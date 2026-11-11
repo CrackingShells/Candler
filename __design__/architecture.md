@@ -482,6 +482,9 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
   and XDG directories, `TMPDIR`) plus the driver's overlay. Nothing else is inherited (today's code
   removes `CLAUDECODE` and the conda and venv variables explicitly; under an allowlist they never
   arrive).
+- An evaluator is the exception: an evaluate job's supervisor and the evaluator processes inherit
+  the caller's environment, passed as the process environment and written to no file, event or
+  error. Agent jobs inherit nothing.
 - Secrets are referenced by variable name in the experiment, resolved when the process is spawned,
   checked at `resolve` and again at resume, and recorded as `{name, present}`, never as a value.
 - **In a container** the environment is built from nothing and passed with `-e` only; the docker

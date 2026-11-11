@@ -43,8 +43,8 @@ use candler_schemas::primitives::{Digest, JobId, Marker, RunKey, Timestamp};
 use candler_schemas::process::ChildRecord;
 use serde_json::{Value, json};
 
-use cli_run::{World, run_keys, wait_for, world};
-use seam::{entries_under, finish, shasum, sync_environment};
+use cli_run::{World, ps_with_environment, run_keys, wait_for, world};
+use seam::{entries_under, finish, occurrences, shasum, sync_environment};
 
 /// How long a job that has all it needs may take to end.
 const JOB_LIMIT: Duration = Duration::from_secs(120);
@@ -670,5 +670,279 @@ fn e1_evaluate_of_a_failed_job_prints_no_report_and_says_why() {
         .find(|line| line.starts_with(&id.to_string()))
         .unwrap();
     assert_eq!(row.split('\t').nth(2), Some("ended (failed)"), "{listing}");
+    world.remove();
+}
+
+/// The variable the environment guards plant in the caller.
+const SENTINEL: &str = "CANDLER_TEST_SENTINEL";
+
+/// A value no run of the guards has seen before.
+fn sentinel_value() -> String {
+    format!(
+        "sentinel-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    )
+}
+
+/// A plug-in of one kind that reports the value of `CANDLER_TEST_SENTINEL` in its evidence, set up
+/// beside `world` with a link to the helper's project. Returns the plug-in's directory and a suite
+/// that asks it once.
+fn env_plugin(world: &World) -> (PathBuf, PathBuf) {
+    let dir = world.root.join("env-plugin");
+    let kinds = dir.join("kinds");
+    fs::create_dir_all(&kinds).unwrap();
+    symlink(helper(), dir.join("env")).unwrap();
+    fs::write(
+        kinds.join("env_kind.py"),
+        "import os\n\nNAME = \"seam\"\nVERSION = \"0.1.0\"\n\
+         KIND_SPECS = {\"check\": {\"params_schema\": {\"type\": \"object\", \
+         \"additionalProperties\": False}}}\n\n\n\
+         def check(params, context, prior):\n    value = os.environ.get(\"CANDLER_TEST_SENTINEL\", \"unset\")\n    \
+         return {\"status\": \"pass\", \"evidence\": [{\"note\": value}]}\n\n\n\
+         KINDS = {\"check\": check}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("plugin.toml"),
+        format!(
+            "schema = \"plugin-manifest/1\"\nname = \"seam\"\nversion = \"0.1.0\"\n\
+             command = [\"env\", \"PYTHONPATH={}\", \"uv\", \"run\", \"--frozen\", \"python\", \
+             \"-m\", \"candler_evaluator\", \"env_kind\"]\n\n[protocol]\nmajor = 1\nminor = 0\n\n\
+             [environment]\nkind = \"uv\"\nproject = \"env\"\nlock = \"env/uv.lock\"\n",
+            kinds.display()
+        ),
+    )
+    .unwrap();
+    let suite = world.root.join("suites").join("env-suite.toml");
+    fs::create_dir_all(suite.parent().unwrap()).unwrap();
+    fs::write(
+        &suite,
+        "schema = \"suite/1\"\n\n[[expectations]]\nid = \"R1\"\nrole = \"gate\"\nkind = \"check\"\n\
+         depends_on = []\n\n[expectations.evaluator]\nname = \"seam\"\nrange = \"^0.1\"\n\n\
+         [expectations.params]\n",
+    )
+    .unwrap();
+    (dir, suite)
+}
+
+/// Guards: the environment of an evaluate job — a variable planted in the caller's environment
+/// reaches the evaluator process of an evaluate job. The plug-in's kind reports the value of the
+/// variable in its evidence, which the store keeps.
+///
+/// Oracle: the planted value, unique to the run, read back from the store's outcome files.
+///
+/// Bite: the evaluators given `PATH` and `HOME` only, as before the ruling (the evidence says
+/// `unset`).
+#[test]
+fn e5_a_variable_planted_in_the_caller_reaches_the_evaluator() {
+    let (world, _) = sealed_world();
+    let (plugin, suite) = env_plugin(&world);
+    let project = project(&world, "project", &[plugin.to_str().unwrap()]);
+    let value = sentinel_value();
+    let out = candler(&world, &project)
+        .env(SENTINEL, &value)
+        .arg("evaluate")
+        .arg(&suite)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr_of(&out));
+    let stored: String = outcome_files(&world)
+        .iter()
+        .map(|file| fs::read_to_string(file).unwrap())
+        .collect();
+    assert!(
+        stored.contains(&value),
+        "the evaluator saw the variable: {stored}"
+    );
+    world.remove();
+}
+
+/// Guards: the environment of an agent job — a variable planted in the caller's environment does
+/// not reach the supervisor of a `run` job. The test lists the processes of the machine with
+/// their environments while the job runs; the supervisor shows `CANDLER_STORE_ROOT`, which proves
+/// the listing reads its environment, and never the planted value.
+///
+/// Oracle: `ps eww`, read while the job's log has no `job.ended`.
+///
+/// Bite: the allowlist of `run` replaced by the whole environment (the supervisor's line holds the
+/// value).
+#[test]
+fn e5_a_variable_planted_in_the_caller_does_not_reach_a_run_job() {
+    let world = world();
+    let value = sentinel_value();
+    let launched = Command::new(env!("CARGO_BIN_EXE_candler"))
+        .arg("run")
+        .arg(&world.experiment)
+        .arg("--set")
+        .arg("isolation.build.lock=env.lock")
+        .arg("--set")
+        .arg(format!("model.token_secret={}", cli_run::SECRET_NAME))
+        .current_dir(&world.work)
+        .env_clear()
+        .env("PATH", format!("{}:/usr/bin:/bin", world.bin.display()))
+        .env("HOME", world.root.join("home"))
+        .env("XDG_STATE_HOME", &world.state)
+        .env(cli_run::SECRET_NAME, "fixture-token-0123456789")
+        .env(SENTINEL, &value)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(launched.status.success(), "{}", stderr_of(&launched));
+    let id: JobId = String::from_utf8_lossy(&launched.stdout)
+        .trim()
+        .parse()
+        .unwrap();
+    let mut seen_supervisor = false;
+    let ended = wait_for(JOB_LIMIT, || {
+        for line in ps_with_environment()
+            .lines()
+            .filter(|l| l.contains("supervise --job"))
+        {
+            seen_supervisor |= line.contains("CANDLER_STORE_ROOT=");
+            assert!(
+                !line.contains(&value),
+                "the run job's supervisor holds the variable"
+            );
+        }
+        events_of(&world, &id)
+            .iter()
+            .any(|event| matches!(event, EventPayload::JobEnded { .. }))
+    });
+    assert!(ended, "the job ends");
+    assert!(
+        seen_supervisor,
+        "the listing showed the supervisor's environment"
+    );
+    world.remove();
+}
+
+/// Guards: the environment of an evaluate job is written nowhere — a sentinel planted in the
+/// caller appears in no file of the store (the jobs' specs, records, logs and reports among them),
+/// in nothing the command printed, in the error of a job that failed, and in the output of `ps`,
+/// `watch` and `inspect` over either job. One job completes and one fails (`slots.evaluators = 0`),
+/// so that the report and the failure's text are both covered.
+///
+/// Oracle: the planted value, searched by name and bytes under the store and in each output.
+///
+/// Bite: the supervisor writing its environment to its log (the sentinel is found in
+/// `supervisor.log`).
+#[test]
+fn e5_the_callers_environment_is_written_nowhere() {
+    let (world, _) = sealed_world();
+    pool_plugin(&world);
+    let suite = suite_of(&world, "suite_pool_ok.toml", &[]);
+    let project = project(&world, "project", &["../plugin"]);
+    let value = sentinel_value();
+    let run = |args: &[&str]| {
+        candler(&world, &project)
+            .env(SENTINEL, &value)
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let suite_arg = suite.to_str().unwrap();
+    let mut printed = Vec::new();
+    let mut ids = Vec::new();
+    let done = run(&["evaluate", suite_arg, "--runs", "*"]);
+    assert_eq!(done.status.code(), Some(0), "{}", stderr_of(&done));
+    user_config(&world, "[slots]\nevaluators = 0\n");
+    let failed = run(&["evaluate", suite_arg, "--runs", "*"]);
+    assert_eq!(failed.status.code(), Some(2), "{}", stderr_of(&failed));
+    for out in [&done, &failed] {
+        ids.push(stderr_of(out).lines().next().unwrap().to_owned());
+        printed.push(out.clone());
+    }
+    printed.push(run(&["ps"]));
+    for id in &ids {
+        printed.push(run(&["watch", id]));
+        printed.push(run(&["inspect", id]));
+    }
+    for out in &printed {
+        let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), stderr_of(out));
+        assert!(!text.contains(&value), "the variable was printed: {text}");
+    }
+    assert_eq!(
+        occurrences(&world.store(), &value),
+        Vec::<String>::new(),
+        "the variable is in a file of the store"
+    );
+    world.remove();
+}
+
+/// Guards: R2 — a suite that changed after the job was started prints as the record of
+/// `evaluation.suite_changed`, side `suite`, under `--error-format json`. The test writes the job
+/// by hand with the digest of the suite as it was, changes the suite, and starts the hidden
+/// `supervise` verb; the job ends `failed`.
+///
+/// Oracle: a record written by hand from the contract, compared field by field.
+///
+/// Bite: the refusal left as text only (the record has the fallback code `candler.internal` and
+/// the side `candler`).
+#[test]
+fn r2_a_suite_changed_after_the_job_started_prints_as_a_suite_record() {
+    let (world, _) = sealed_world();
+    let plugin = pool_plugin(&world);
+    let suite = suite_of(&world, "suite_pool_ok.toml", &[]);
+    let spec = EvaluateSpec {
+        suite: suite.clone(),
+        suite_digest: Digest::from_hex(&shasum(&fs::read(&suite).unwrap())).unwrap(),
+        plugin_dirs: vec![plugin],
+        env_root: world.state.join("candler").join("environments"),
+        selection: RunSelection::All,
+        request_deadline_secs: None,
+    };
+    fs::write(&suite, "# edited after the launcher read it\n").unwrap();
+    let bytes = serde_json::to_vec(&spec).unwrap();
+    let id = mint_job_id().unwrap();
+    let record = JobRecord::builder()
+        .id(id.clone())
+        .supervisor(own_identity().unwrap())
+        .spec_digest(Digest::from_hex(&shasum(&bytes)).unwrap())
+        .state(JobState::Running)
+        .build()
+        .unwrap();
+    JobDir::create(&StoreLayout::new(&world.store()), id.clone(), &record).unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_candler"))
+        .args([
+            "--error-format",
+            "json",
+            "supervise",
+            "--job",
+            &id.to_string(),
+        ])
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("HOME", world.root.join("home"))
+        .env("XDG_STATE_HOME", &world.state)
+        .env("XDG_CONFIG_HOME", world.root.join("config"))
+        .env("CANDLER_STORE_ROOT", world.store())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(&bytes).unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(out.status.code(), Some(2), "{}", stderr_of(&out));
+    let stderr = stderr_of(&out);
+    let last = stderr.lines().last().unwrap();
+    let record: Value = serde_json::from_str(last).unwrap();
+    assert_eq!(record["schema"], "refusal/1", "{record}");
+    assert_eq!(record["code"], "evaluation.suite_changed", "{record}");
+    assert_eq!(record["side"], "suite", "{record}");
+    assert!(
+        matches!(
+            events_of(&world, &id).last(),
+            Some(EventPayload::JobEnded {
+                reason: JobEnd::Failed,
+                ..
+            })
+        ),
+        "the job ended failed"
+    );
     world.remove();
 }
