@@ -1,0 +1,53 @@
+# The registry of the stable refusal codes.
+#
+# A refusal names its code, and a code is a promise to the caller that parses it: once a
+# release carries a code it is never renamed and never removed. This file therefore only grows;
+# a row is added, never edited away.
+#
+# One section per surface, in the order below. Under a section, each row is a sub-table keyed
+# by its code (`<surface>.<reason>`), so that a row is appended as a block of its own and no
+# existing line moves:
+#
+#   [schemas."manifest.unknown_field"]
+#   side = "..."      # whose input is at fault: plugin, suite, experiment, config, environment
+#                     # or candler (never for an author's error)
+#   enum = "..."      # the Rust error enum that raises it
+#   variant = "..."   # the variant of that enum
+#
+# A section with no row is written as its bare header.
+
+[schemas]
+
+[resolve]
+
+[experiment]
+
+[runner]
+
+[isolation]
+
+[store]
+
+[supervise]
+
+[frames]
+
+[harness]
+
+[cli]
+
+[jobs]
+
+[evaluation]
+
+[import]
+
+[manifest]
+
+[trace]
+
+[analysis]
+
+[internal]
+
+[helper]
