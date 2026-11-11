@@ -93,47 +93,214 @@ fn read_start(_pid: u32) -> Option<ProcessStart> {
     None
 }
 
+/// The fields of a process that Candler reads from `/proc/<pid>/stat`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::exhaustive_structs,
+    reason = "EXHAUSTIVE: these five fields are the ones the line is read for; a field added later is a new reader"
+)]
+pub struct ProcStat {
+    /// Field 1, the process id.
+    pub pid: u32,
+    /// Field 3, the state letter (`R`, `S`, `Z`, ...).
+    pub state: char,
+    /// Field 4, the parent's process id.
+    pub parent: u32,
+    /// Field 5, the process group id.
+    pub group: u32,
+    /// Field 22, the start time in clock ticks since boot.
+    pub start_ticks: u64,
+}
+
+impl ProcStat {
+    /// Reads the process id, state, parent, group and start time from the text of
+    /// `/proc/<pid>/stat`.
+    ///
+    /// The second field, the command name, sits between parentheses and may itself hold spaces and
+    /// parentheses, so the fields that follow it start after the last `)` of the line; every one
+    /// of them is a number or a letter.
+    ///
+    /// # Errors
+    /// Returns [`SuperviseError::ProcStat`] if the line has no process id before the command name,
+    /// no `(` or `)` around it, fewer than 22 fields, a state that is not one letter, or a
+    /// parent, group or start time that is not a number.
+    pub fn parse(line: &str) -> Result<Self, SuperviseError> {
+        let malformed = |detail: &str| SuperviseError::ProcStat {
+            // BORROW: .to_owned() keeps the description in the error
+            detail: detail.to_owned(),
+        };
+        let open = line
+            .find('(')
+            .ok_or_else(|| malformed("no `(` opens the command name"))?;
+        let close = line
+            .rfind(')')
+            .ok_or_else(|| malformed("no `)` closes the command name"))?;
+        if close < open {
+            return Err(malformed("the command name is closed before it opens"));
+        }
+        let leading = line
+            .get(..open)
+            .ok_or_else(|| malformed("the line does not split at the command name"))?;
+        let pid = leading
+            .trim()
+            .parse::<u32>()
+            .map_err(|_| malformed("the process id before the command name is not a number"))?;
+        let rest = line
+            .get(close.saturating_add(1)..)
+            .ok_or_else(|| malformed("the line does not split after the command name"))?;
+        // Field 3 is the first after the command name, so field 22 is the 20th (index 19).
+        let mut fields = rest.split_ascii_whitespace();
+        let mut letters = fields
+            .next()
+            .ok_or_else(|| malformed("the line has fewer than 22 fields"))?
+            .chars();
+        let state = letters
+            .next()
+            .filter(|letter| letter.is_ascii_alphabetic() && letters.next().is_none())
+            .ok_or_else(|| malformed("the state is not one letter"))?;
+        let mut number = |what: &str| -> Result<u64, SuperviseError> {
+            fields
+                .next()
+                .ok_or_else(|| malformed("the line has fewer than 22 fields"))?
+                .parse::<u64>()
+                .map_err(|_| malformed(what))
+        };
+        let parent = u32::try_from(number("field 4 (the parent) is not a number")?)
+            .map_err(|_| malformed("field 4 (the parent) is not a process id"))?;
+        let group = u32::try_from(number("field 5 (the group) is not a number")?)
+            .map_err(|_| malformed("field 5 (the group) is not a process id"))?;
+        // Fields 6 to 21 sit between the group and the start time.
+        let start_ticks = fields
+            .nth(16)
+            .ok_or_else(|| malformed("the line has fewer than 22 fields"))?
+            .parse::<u64>()
+            .map_err(|_| malformed("field 22 is not a number"))?;
+        Ok(Self {
+            pid,
+            state,
+            parent,
+            group,
+            start_ticks,
+        })
+    }
+}
+
 /// Reads field 22 (`starttime`, in clock ticks since boot) from the text of `/proc/<pid>/stat`.
 ///
-/// The second field, the command name, sits between parentheses and may itself hold spaces and
-/// parentheses, so the fields that follow it start after the last `)` of the line.
-///
 /// # Errors
-/// Returns [`SuperviseError::ProcStat`] if the line has no process id before the command name,
-/// no `)`, fewer than 22 fields, or a start time that is not a number.
+/// Returns [`SuperviseError::ProcStat`] as [`ProcStat::parse`] does.
 pub fn parse_proc_stat(line: &str) -> Result<u64, SuperviseError> {
-    let malformed = |detail: &str| SuperviseError::ProcStat {
-        // BORROW: .to_owned() keeps the description in the error
-        detail: detail.to_owned(),
-    };
-    let open = line
-        .find('(')
-        .ok_or_else(|| malformed("no `(` opens the command name"))?;
-    let close = line
-        .rfind(')')
-        .ok_or_else(|| malformed("no `)` closes the command name"))?;
-    if close < open {
-        return Err(malformed("the command name is closed before it opens"));
+    ProcStat::parse(line).map(|stat| stat.start_ticks)
+}
+
+/// The fields of a process that Candler reads from `/proc/<pid>/status`, a file of `key:\tvalue`
+/// lines that no command name can shift.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::exhaustive_structs,
+    reason = "EXHAUSTIVE: these three keys are the ones the file is read for"
+)]
+pub struct ProcStatus {
+    /// The `Pid:` line.
+    pub pid: u32,
+    /// The `PPid:` line.
+    pub parent: u32,
+    /// The leftmost number of the `NSpgid:` line, which is the group in the namespace `/proc` was
+    /// mounted in; `None` on a kernel older than 4.1, which has no such line.
+    pub group: Option<u32>,
+}
+
+impl ProcStatus {
+    /// Reads the process id, the parent and the group from the text of `/proc/<pid>/status`: a
+    /// key is the text before the first `:` of a line and must be `Pid`, `PPid` or `NSpgid`
+    /// exactly, and the first line of a key wins. `None` when `Pid:` or `PPid:` is missing or
+    /// holds no number, or when `NSpgid:` holds no number.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        let (mut pid, mut parent, mut group) = (None, None, None);
+        for line in text.lines() {
+            let Some((key, value)) = line.split_once(':') else {
+                continue;
+            };
+            let first = value.split_ascii_whitespace().next();
+            match key {
+                "Pid" if pid.is_none() => pid = Some(first?.parse::<u32>().ok()?),
+                "PPid" if parent.is_none() => parent = Some(first?.parse::<u32>().ok()?),
+                "NSpgid" if group.is_none() => group = Some(first?.parse::<u32>().ok()?),
+                // EXPLICIT: every other line, and a repeated key, carries nothing read here
+                _ => {}
+            }
+        }
+        Some(Self {
+            pid: pid?,
+            parent: parent?,
+            group,
+        })
     }
-    let leading = line
-        .get(..open)
-        .ok_or_else(|| malformed("the line does not split at the command name"))?;
-    if leading.trim().parse::<u32>().is_err() {
-        return Err(malformed(
-            "the process id before the command name is not a number",
-        ));
+}
+
+/// The two files of `/proc/<pid>` that [`read_proc_checked`] reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "EXHAUSTIVE: the cross-check reads these two files and no third"
+)]
+pub enum ProcFile {
+    /// `/proc/<pid>/stat`.
+    Stat,
+    /// `/proc/<pid>/status`.
+    Status,
+}
+
+/// How many pairs of `stat` and `status` are read before a disagreement stands. An orphan
+/// reparented between the two reads of a pair disagrees with itself once; the next pair agrees.
+pub const CROSS_CHECK_READS: u32 = 3;
+
+/// Reads `pid` through `read`, and answers only when `/proc/<pid>/stat` and `/proc/<pid>/status`
+/// say the same about it: both name `pid`, and the parent agrees and, where `status` has one, the
+/// group agrees. On a disagreement the pair is read again, up to [`CROSS_CHECK_READS`] pairs;
+/// `None` when the last pair still disagrees, when a file cannot be read, or when a file is not
+/// what it should be.
+#[must_use]
+// TRAIT_OBJECT: the reader is `/proc`, or a script of lines in tests
+pub fn read_proc_checked(
+    pid: u32,
+    read: &dyn Fn(u32, ProcFile) -> Option<String>,
+) -> Option<ProcStat> {
+    for _ in 0..CROSS_CHECK_READS {
+        let stat = ProcStat::parse(&read(pid, ProcFile::Stat)?).ok()?;
+        let status = ProcStatus::parse(&read(pid, ProcFile::Status)?)?;
+        if stat.pid != pid || status.pid != pid {
+            return None;
+        }
+        if stat.parent == status.parent && status.group.is_none_or(|group| group == stat.group) {
+            return Some(stat);
+        }
     }
-    let rest = line
-        .get(close.saturating_add(1)..)
-        .ok_or_else(|| malformed("the line does not split after the command name"))?;
-    // Field 3 is the first after the command name, so field 22 is the 20th (index 19).
-    let field = rest
-        .split_ascii_whitespace()
-        .nth(19)
-        .ok_or_else(|| malformed("the line has fewer than 22 fields"))?;
-    field
-        .parse::<u64>()
-        .map_err(|_| malformed("field 22 is not a number"))
+    None
+}
+
+/// Reads the process, group, parent and state of `pid` from `/proc`, accepted only when `stat`
+/// and `status` agree (see [`read_proc_checked`]); `None` when the process is gone, cannot be
+/// read, or its two sources disagree. `None` on a host without `/proc`.
+#[must_use]
+pub fn read_proc_stat(pid: u32) -> Option<ProcStat> {
+    #[cfg(target_os = "linux")]
+    {
+        read_proc_checked(pid, &|pid, file| {
+            let name = match file {
+                ProcFile::Stat => "stat",
+                ProcFile::Status => "status",
+            };
+            let bytes = std::fs::read(format!("/proc/{pid}/{name}")).ok()?;
+            Some(String::from_utf8_lossy(&bytes).into_owned())
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = pid;
+        None
+    }
 }
 
 #[cfg(test)]

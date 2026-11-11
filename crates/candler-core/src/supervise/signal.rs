@@ -26,6 +26,8 @@ use rustix::process::{
 
 #[cfg(target_os = "linux")]
 use super::platform::process_start;
+#[cfg(target_os = "linux")]
+use super::platform::read_proc_stat;
 use super::platform::{alive, pid_of};
 
 /// Delivers a signal to a process group. Implemented by `OsSignaller` for production and by a
@@ -174,24 +176,11 @@ fn marker_in(environ: &[u8]) -> Option<String> {
     })
 }
 
-/// The state, the parent and the group of a process, read from the text of its
-/// `/proc/<pid>/stat`: fields 3 to 5, which follow the command name that ends at the last `)`.
-#[cfg(target_os = "linux")]
-fn state_parent_group(stat: &str) -> Option<(char, u32, u32)> {
-    let rest = stat.get(stat.rfind(')')?.checked_add(1)?..)?;
-    let mut fields = rest.split_ascii_whitespace();
-    let state = fields.next()?.chars().next()?;
-    let parent = fields.next()?.parse().ok()?;
-    let group = fields.next()?.parse().ok()?;
-    Some((state, parent, group))
-}
-
 /// Reads the facts of `pid` from `/proc`; `None` when the process is gone or not readable.
 #[cfg(target_os = "linux")]
 pub(crate) fn read_facts(pid: u32) -> Option<ProcFacts> {
     use std::os::unix::fs::MetadataExt;
-    let line = std::fs::read(format!("/proc/{pid}/stat")).ok()?;
-    let (state, parent, group) = state_parent_group(&String::from_utf8_lossy(&line))?;
+    let stat = read_proc_stat(pid)?;
     let began = process_start(pid);
     let uid = std::fs::metadata(format!("/proc/{pid}")).ok()?.uid();
     let marker = std::fs::read(format!("/proc/{pid}/environ"))
@@ -200,11 +189,11 @@ pub(crate) fn read_facts(pid: u32) -> Option<ProcFacts> {
     // The process may have been replaced while it was read: the start is read last again.
     (process_start(pid) == began).then_some(ProcFacts {
         start: began,
-        parent,
-        group,
+        parent: stat.parent,
+        group: stat.group,
         uid,
         marker,
-        state,
+        state: stat.state,
     })
 }
 
