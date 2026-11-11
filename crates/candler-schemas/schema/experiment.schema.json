@@ -207,7 +207,7 @@
           "description": "The name of the treatment."
         },
         "source": {
-          "description": "Where the treatment's files are, as a path relative to the experiment file.",
+          "description": "Where the treatment's files are: a path relative to the experiment file, or to the working directory when `--set` gives it. It is recorded absolute and normalised.",
           "type": "string"
         },
         "tag": {

@@ -7,7 +7,8 @@
 //! the fields that only name or place it.
 //!
 //! An optional field is omitted when absent and never written as `null`; the reader refuses an
-//! explicit `null`. Unknown fields are ignored on input, and every struct and every tagged enum is
+//! explicit `null`. Unknown fields are ignored on input, except in the documents an author writes (a suite and a
+//! plug-in manifest), which refuse an unknown key; and every struct and every tagged enum is
 //! read from an object only, never from a list.
 
 pub mod rpc;
@@ -28,6 +29,7 @@ use crate::primitives::{
     object_only, present, schema_tag,
 };
 use crate::raw::StreamName;
+use crate::refusal::{Located, read_json, read_toml};
 use crate::values::JsonValue;
 
 /// The version marker every plug-in manifest carries in its `schema` field.
@@ -76,17 +78,48 @@ pub(crate) fn roots() -> Vec<GeneratedSchema> {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum EvaluationError {
-    /// A document that is not valid TOML or does not have the shape of its type.
+    /// A suite that is not valid TOML or does not have the shape of a suite.
     #[error("document is not readable ({detail})")]
     Toml {
         /// The reader's explanation.
         detail: String,
+        /// The RFC 6901 pointer of the field at fault, or of its parent when a field is missing;
+        /// empty at the root and for a text that is not TOML.
+        path: String,
+    },
+    /// A plug-in manifest that is not valid TOML or does not have the shape of a manifest.
+    #[error("document is not readable ({detail})")]
+    ManifestToml {
+        /// The reader's explanation.
+        detail: String,
+        /// The RFC 6901 pointer of the field at fault, or of its parent when a field is missing;
+        /// empty at the root and for a text that is not TOML.
+        path: String,
+    },
+    /// A suite that holds a key its type does not have, at the pointer in `path`.
+    #[error("suite holds a field it does not know ({detail})")]
+    SuiteUnknownField {
+        /// The reader's explanation, which names the key.
+        detail: String,
+        /// The RFC 6901 pointer of the unknown key.
+        path: String,
+    },
+    /// A plug-in manifest that holds a key its type does not have, at the pointer in `path`.
+    #[error("plug-in manifest holds a field it does not know ({detail})")]
+    ManifestUnknownField {
+        /// The reader's explanation, which names the key.
+        detail: String,
+        /// The RFC 6901 pointer of the unknown key.
+        path: String,
     },
     /// A document that is not valid JSON or does not have the shape of its type.
     #[error("document is not readable as JSON ({detail})")]
     Json {
         /// The reader's explanation.
         detail: String,
+        /// The RFC 6901 pointer of the field at fault, or of its parent when a field is missing;
+        /// empty at the root and for a text that is not JSON.
+        path: String,
     },
     /// A builder that was asked to build before a required field was set.
     #[error("evaluation record field is missing (`{field}` was not set)")]
@@ -94,6 +127,9 @@ pub enum EvaluationError {
         /// The name of the field.
         field: &'static str,
     },
+    /// A plug-in manifest whose `command` has no member.
+    #[error("list is empty (`command` needs at least one member)")]
+    ManifestCommandEmpty,
     /// A list that must hold at least one member and holds none.
     #[error("list is empty (`{field}` needs at least one member)")]
     EmptyList {
@@ -231,6 +267,8 @@ impl ProtocolVersion {
 }
 
 /// The side of a connection that has to be upgraded to make two protocol versions compatible.
+///
+/// This is not [`refusal::Side`](crate::refusal::Side), which names whose input a refusal blames.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Side {
@@ -271,6 +309,7 @@ impl fmt::Display for ProtocolVersion {
 /// The environment a plug-in runs in: an object whose `kind` is `uv` (with the `project` and `lock` paths, relative to the plug-in directory) or `none`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(remote = "Self", tag = "kind", rename_all = "snake_case")]
+#[serde(deny_unknown_fields)]
 #[schemars(deny_unknown_fields)]
 #[non_exhaustive]
 pub enum PluginEnvironment {
@@ -301,8 +340,55 @@ schema_tag! {
     ManifestSchemaTag = PLUGIN_MANIFEST_SCHEMA
 }
 
+/// The protocol version of a manifest as the author writes it: the same two members as
+/// [`ProtocolVersion`], with any other key refused. The version a plug-in reports from `describe`
+/// stays lenient, so the strictness lives here and not on the shared type.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StrictProtocol {
+    major: u32,
+    minor: u32,
+}
+
+/// Reads the protocol of a manifest, refusing a key other than `major` and `minor`.
+fn strict_protocol<'de, D>(deserializer: D) -> Result<ProtocolVersion, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let StrictProtocol { major, minor } = MapOnly::<StrictProtocol>::deserialize(deserializer)?.0;
+    Ok(ProtocolVersion::new(major, minor))
+}
+
+/// Reads the environment of a manifest, refusing a key its `kind` does not have.
+///
+/// serde does not refuse an unknown key beside the `kind` of a variant that has no field, so the
+/// keys are checked here. The message ends in "of this table" so that the reader of the error
+/// knows the pointer stops at the table and not at the key.
+fn strict_environment<'de, D>(deserializer: D) -> Result<PluginEnvironment, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error as _;
+    let table = MapOnly::<Map<String, Value>>::deserialize(deserializer)?.0;
+    let known: Option<&[&str]> = match table.get("kind").and_then(Value::as_str) {
+        Some("uv") => Some(&["kind", "project", "lock"]),
+        Some("none") => Some(&["kind"]),
+        _ => None,
+    };
+    if let Some(known) = known
+        && let Some(key) = table.keys().find(|key| !known.contains(&key.as_str()))
+    {
+        return Err(D::Error::custom(format!(
+            "unknown field `{key}` of this table, expected one of `{}`",
+            known.join("`, `")
+        )));
+    }
+    PluginEnvironment::deserialize(Value::Object(table)).map_err(D::Error::custom)
+}
+
 /// The static description of a plug-in, read without running anything: a manifest with the version marker `plugin-manifest/1` in `schema`.
 #[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 #[schemars(deny_unknown_fields, rename = "PluginManifest")]
 struct RawPluginManifest {
     /// The version marker of the document: always `plugin-manifest/1`.
@@ -314,11 +400,15 @@ struct RawPluginManifest {
     #[schemars(with = "String", regex(pattern = SEMVER_PATTERN))]
     version: semver::Version,
     /// The protocol version the plug-in speaks.
+    #[serde(deserialize_with = "strict_protocol")]
+    #[schemars(with = "ProtocolVersion")]
     protocol: ProtocolVersion,
     /// The command that starts the plug-in as an argument vector, with at least one member, relative to the plug-in directory.
     #[schemars(length(min = 1))]
     command: Vec<String>,
     /// The environment the plug-in runs in.
+    #[serde(deserialize_with = "strict_environment")]
+    #[schemars(with = "PluginEnvironment")]
     environment: PluginEnvironment,
 }
 
@@ -357,7 +447,7 @@ impl PluginManifest {
     /// Builds a manifest.
     ///
     /// # Errors
-    /// Returns [`EvaluationError::EmptyList`] if `command` has no member.
+    /// Returns [`EvaluationError::ManifestCommandEmpty`] if `command` has no member.
     pub fn new(
         name: Name,
         version: semver::Version,
@@ -366,7 +456,7 @@ impl PluginManifest {
         environment: PluginEnvironment,
     ) -> Result<Self, EvaluationError> {
         if command.is_empty() {
-            return Err(EvaluationError::EmptyList { field: "command" });
+            return Err(EvaluationError::ManifestCommandEmpty);
         }
         Ok(Self {
             schema: ManifestSchemaTag,
@@ -381,11 +471,11 @@ impl PluginManifest {
     /// Reads a manifest from TOML text.
     ///
     /// # Errors
-    /// Returns [`EvaluationError::Toml`] if the text is not TOML, does not have the shape of a
-    /// manifest or carries another `schema` marker, and [`EvaluationError::EmptyList`] if
+    /// Returns [`EvaluationError::ManifestToml`] if the text is not TOML, does not have the shape of
+    /// a manifest or carries another `schema` marker, and [`EvaluationError::ManifestCommandEmpty`] if
     /// `command` has no member.
     pub fn from_toml_str(text: &str) -> Result<Self, EvaluationError> {
-        let raw: RawPluginManifest = toml::from_str(text).map_err(|error| toml_error(&error))?;
+        let raw: RawPluginManifest = read_toml(text).map_err(manifest_error)?;
         Self::try_from(MapOnly(raw))
     }
 
@@ -422,15 +512,42 @@ impl PluginManifest {
 }
 
 /// Wraps a TOML reader error.
-fn toml_error(error: &toml::de::Error) -> EvaluationError {
+fn toml_error(error: Located) -> EvaluationError {
+    if error.unknown_field {
+        return suite_unknown(error);
+    }
     EvaluationError::Toml {
-        detail: error.to_string(),
+        detail: error.detail,
+        path: error.path,
+    }
+}
+
+/// Wraps a fault in a plug-in manifest.
+fn manifest_error(error: Located) -> EvaluationError {
+    if error.unknown_field {
+        return EvaluationError::ManifestUnknownField {
+            detail: error.detail,
+            path: error.path,
+        };
+    }
+    EvaluationError::ManifestToml {
+        detail: error.detail,
+        path: error.path,
+    }
+}
+
+/// Wraps an unknown key of a suite.
+fn suite_unknown(error: Located) -> EvaluationError {
+    EvaluationError::SuiteUnknownField {
+        detail: error.detail,
+        path: error.path,
     }
 }
 
 /// The evaluator a suite entry asks for: a name and the range of versions that may grade it, written as an object with the string `name` and the `SemVer` requirement `range`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(remote = "Self")]
+#[serde(deny_unknown_fields)]
 #[schemars(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct EvaluatorRef {
@@ -455,6 +572,7 @@ impl EvaluatorRef {
 
 /// A condition on a run: the run's value at `path` is one of the listed values, written as an object with the string `path` and the non-empty list `any_of`.
 #[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 #[schemars(deny_unknown_fields, rename = "Condition")]
 struct RawCondition {
     /// The dotted path of the run field the condition reads.
@@ -509,12 +627,14 @@ impl Condition {
 
 /// One expectation of a suite, written as an object: what to check (`kind` and `params`), who checks it (`evaluator`), how it counts (`role`), what it waits for (`depends_on`) and when it applies (`applies_to`).
 #[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 #[schemars(deny_unknown_fields, rename = "SuiteEntry")]
 struct RawSuiteEntry {
     /// The expectation's identifier, unique in the suite.
     id: ExpectationId,
     /// The group the expectation belongs to.
     #[serde(default, deserialize_with = "present")]
+    #[schemars(extend("x-candler-class" = "free"))]
     group: Option<Name>,
     /// The part the expectation plays in grading.
     role: Role,
@@ -809,6 +929,7 @@ schema_tag! {
 
 /// The expectations a run is graded against: a suite with the version marker `suite/1` in `schema` and the list `expectations`, whose ids are unique, whose dependencies name entries of the list and whose dependency graph has no cycle.
 #[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 #[schemars(deny_unknown_fields, rename = "SuiteFile")]
 struct RawSuiteFile {
     /// The version marker of the document: always `suite/1`.
@@ -816,6 +937,10 @@ struct RawSuiteFile {
     /// The expectations, in the order written.
     #[schemars(extend("$comment" = "Unique ids, dependencies that name entries and the absence of a dependency cycle are enforced in Rust; JSON Schema cannot state them."))]
     expectations: Vec<SuiteEntry>,
+    /// Where a translated suite came from: any table. Candler stores it and never reads it.
+    #[serde(default, deserialize_with = "present")]
+    #[schemars(extend("x-candler-class" = "free"))]
+    source: Option<Map<String, Value>>,
 }
 
 impl TryFrom<MapOnly<RawSuiteFile>> for SuiteFile {
@@ -825,8 +950,11 @@ impl TryFrom<MapOnly<RawSuiteFile>> for SuiteFile {
         let RawSuiteFile {
             schema: SuiteSchemaTag,
             expectations,
+            source,
         } = raw.0;
-        Self::new(expectations)
+        let mut suite = Self::new(expectations)?;
+        suite.source = source;
+        Ok(suite)
     }
 }
 
@@ -837,6 +965,8 @@ impl TryFrom<MapOnly<RawSuiteFile>> for SuiteFile {
 pub struct SuiteFile {
     schema: SuiteSchemaTag,
     expectations: Vec<SuiteEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<Map<String, Value>>,
 }
 
 impl SuiteFile {
@@ -852,7 +982,15 @@ impl SuiteFile {
         Ok(Self {
             schema: SuiteSchemaTag,
             expectations,
+            source: None,
         })
+    }
+
+    /// Where a translated suite came from, as the table the suite file holds under `source`; a
+    /// suite never reads it.
+    #[must_use]
+    pub const fn source<'a>(&'a self) -> Option<&'a Map<String, Value>> {
+        self.source.as_ref()
     }
 
     /// Reads a suite from TOML text and checks its dependency graph.
@@ -862,7 +1000,7 @@ impl SuiteFile {
     /// suite or carries another `schema` marker, and the errors of [`SuiteFile::new`] for a
     /// graph that is not valid.
     pub fn from_toml_str(text: &str) -> Result<Self, EvaluationError> {
-        let raw: RawSuiteFile = toml::from_str(text).map_err(|error| toml_error(&error))?;
+        let raw: RawSuiteFile = read_toml(text).map_err(toml_error)?;
         Self::try_from(MapOnly(raw))
     }
 
@@ -873,10 +1011,16 @@ impl SuiteFile {
     /// suite or carries another `schema` marker, and the errors of [`SuiteFile::new`] for a
     /// graph that is not valid.
     pub fn from_json_str(text: &str) -> Result<Self, EvaluationError> {
-        let raw: RawSuiteFile =
-            serde_json::from_str(text).map_err(|error| EvaluationError::Json {
-                detail: error.to_string(),
-            })?;
+        let raw: RawSuiteFile = read_json(text).map_err(|error| {
+            if error.unknown_field {
+                suite_unknown(error)
+            } else {
+                EvaluationError::Json {
+                    detail: error.detail,
+                    path: error.path,
+                }
+            }
+        })?;
         Self::try_from(MapOnly(raw))
     }
 
@@ -1567,12 +1711,16 @@ impl Item {
 #[non_exhaustive]
 pub struct EvaluateParams {
     /// What the evaluator may read of the run.
+    #[schemars(extend("x-candler-class" = "candler"))]
     pub context: RunContext,
     /// The expectations to grade.
+    #[schemars(extend("x-candler-class" = "candler"))]
     pub items: Vec<Item>,
     /// The outcome records already made for the run, which dependent items may read.
+    #[schemars(extend("x-candler-class" = "candler"))]
     pub prior: Vec<OutcomeRecord>,
     /// The absolute path of a directory the evaluator may write in.
+    #[schemars(extend("x-candler-class" = "candler"))]
     pub scratch: String,
 }
 

@@ -118,7 +118,8 @@
         },
         "group": {
           "$ref": "#/$defs/Name",
-          "description": "The group the expectation belongs to."
+          "description": "The group the expectation belongs to.",
+          "x-candler-class": "free"
         },
         "id": {
           "$ref": "#/$defs/ExpectationId",
@@ -167,6 +168,12 @@
       "const": "suite/1",
       "description": "The version marker of the document: always `suite/1`.",
       "type": "string"
+    },
+    "source": {
+      "additionalProperties": true,
+      "description": "Where a translated suite came from: any table. Candler stores it and never reads it.",
+      "type": "object",
+      "x-candler-class": "free"
     }
   },
   "required": [

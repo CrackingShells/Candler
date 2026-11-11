@@ -3,7 +3,8 @@
 //! An [`ExperimentFile`] is the TOML document that declares fixed values, factors with their
 //! levels, replicates and a budget; its cells are a pure function of the file. An optional field
 //! is omitted when absent and never written as `null`; the reader refuses an explicit `null`.
-//! Unknown fields are ignored on input, and every struct and every tagged enum is read from an
+//! Unknown fields are ignored on input, except in the experiment file an author writes, which
+//! refuses an unknown key; and every struct and every tagged enum is read from an
 //! object only, never from a list.
 
 use std::borrow::Cow;
@@ -26,6 +27,7 @@ use crate::primitives::{
     schema_tag, text_type,
 };
 use crate::process::{ChildRecord, ExitStatus, ProcessStart};
+use crate::refusal::read_value;
 use crate::trace::EndedBy;
 use crate::values::{JsonValue, MeasuredValue, ResolvedValue, SourceEntry, ValuesError};
 
@@ -79,6 +81,9 @@ pub enum ExecutionError {
     Toml {
         /// The reader's explanation.
         detail: String,
+        /// The RFC 6901 pointer of the fault: always empty, since a text that is not TOML has
+        /// no place in a document.
+        path: String,
     },
     /// A TOML value that JSON cannot hold: a date or time, or a number that is not finite.
     #[error("document holds a value JSON cannot state at `{path}` ({problem})")]
@@ -93,6 +98,18 @@ pub enum ExecutionError {
     Document {
         /// The reader's explanation.
         detail: String,
+        /// The RFC 6901 pointer of the field at fault, into the document as Candler reads it
+        /// after the TOML-to-JSON step, or of its parent when a field is missing; empty at the
+        /// root.
+        path: String,
+    },
+    /// An experiment file that holds a key its type does not have, at the pointer in `path`.
+    #[error("experiment file holds a field it does not know ({detail})")]
+    UnknownField {
+        /// The reader's explanation, which names the key.
+        detail: String,
+        /// The RFC 6901 pointer of the unknown key, into the document as Candler reads it.
+        path: String,
     },
     /// A builder that was asked to build before a required field was set.
     #[error("execution record field is missing (`{field}` was not set)")]
@@ -349,6 +366,7 @@ schema_tag! {
 /// The caps on one agent run: a treatment condition, the same for every arm.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(remote = "Self")]
+#[serde(deny_unknown_fields)]
 #[schemars(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct PerRunCaps {
@@ -390,6 +408,7 @@ impl PerRunCaps {
 /// The caps of an experiment: those of one run, and those of the job that runs its cells, with the number of runs that may be in flight at once.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(remote = "Self")]
+#[serde(deny_unknown_fields)]
 #[schemars(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct Budget {
@@ -489,6 +508,7 @@ impl Budget {
 /// The harness an experiment asks for: its name and, when it limits them, the versions that will do.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(remote = "Self")]
+#[serde(deny_unknown_fields)]
 #[schemars(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct HarnessRequest {
@@ -558,6 +578,7 @@ impl TreatmentRef {
 /// The treatment an experiment file declares: a name, the tag and commit it is pinned to, and where its files are.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(remote = "Self")]
+#[serde(deny_unknown_fields)]
 #[schemars(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct TreatmentSpec {
@@ -577,7 +598,7 @@ pub struct TreatmentSpec {
         deserialize_with = "present"
     )]
     pub commit: Option<GitCommit>,
-    /// Where the treatment's files are, as a path relative to the experiment file.
+    /// Where the treatment's files are: a path relative to the experiment file, or to the working directory when `--set` gives it. It is recorded absolute and normalised.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -925,6 +946,7 @@ impl JsonSchema for Level {
 /// A field that varies across the cells of an experiment: its path and its levels, in the order they are written.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(remote = "Self")]
+#[serde(deny_unknown_fields)]
 #[schemars(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct Factor {
@@ -962,6 +984,7 @@ const RESERVED_INPUT_KIND: &str = "build_inputs";
 
 /// An input a run reads: a file or a directory, found relative to the experiment file, and who sees it.
 #[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 #[schemars(deny_unknown_fields, rename = "ExperimentInput")]
 struct RawExperimentInput {
     /// What the input is, as a plain name; unique among the inputs of a file.
@@ -1083,6 +1106,7 @@ struct Plan {
 
 /// An experiment file: the values fixed in every cell, the factors whose levels make the cells, the replicates, the budget, the harness, the treatment and the names of the secrets the runs need.
 #[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 #[schemars(deny_unknown_fields, rename = "ExperimentFile")]
 struct RawExperimentFile {
     /// The version marker of the document: always `experiment/1`.
@@ -1262,6 +1286,7 @@ impl ExperimentFile {
     pub fn from_toml_str(text: &str) -> Result<Self, ExecutionError> {
         let table: toml::Table = toml::from_str(text).map_err(|e| ExecutionError::Toml {
             detail: e.to_string(),
+            path: String::new(),
         })?;
         let mut document = Map::new();
         for (key, value) in table {
@@ -1273,8 +1298,18 @@ impl ExperimentFile {
             };
             document.insert(key, converted);
         }
-        serde_json::from_value(Value::Object(document)).map_err(|e| ExecutionError::Document {
-            detail: e.to_string(),
+        read_value(Value::Object(document)).map_err(|e| {
+            if e.unknown_field {
+                ExecutionError::UnknownField {
+                    detail: e.detail,
+                    path: e.path,
+                }
+            } else {
+                ExecutionError::Document {
+                    detail: e.detail,
+                    path: e.path,
+                }
+            }
         })
     }
 
@@ -2370,7 +2405,7 @@ impl ImportedRequest {
     }
 }
 
-/// How an imported run was read: the format label, the base commit, the legacy integrity block, the source files, the outcome files written and, when known, the digest of the rules file.
+/// How an imported run was read: the format label, the base commit and the legacy integrity block when the legacy format has them, the source files, the outcome files written and, when known, the digest of the rules file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(remote = "Self")]
 #[schemars(deny_unknown_fields)]
@@ -2378,10 +2413,20 @@ impl ImportedRequest {
 pub struct ImportRecord {
     /// The label of the legacy format, as `name@token`.
     pub format: NameToken,
-    /// The commit of the legacy repository the run was read at.
-    pub base_commit: GitCommit,
-    /// The legacy integrity block as it was written; any JSON value except `null`.
-    pub legacy_integrity: JsonValue,
+    /// The commit of the legacy repository the run was read at; absent for a raw trace, which has none.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub base_commit: Option<GitCommit>,
+    /// The legacy integrity block as it was written; any JSON value except `null`. Absent for a raw trace, which has none.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub legacy_integrity: Option<JsonValue>,
     /// The files the import read, each stored as a blob.
     pub sources: Vec<ImportSource>,
     /// The outcome files the import wrote.
@@ -2407,8 +2452,21 @@ impl ImportRecord {
     ) -> Self {
         Self {
             format,
-            base_commit,
-            legacy_integrity,
+            base_commit: Some(base_commit),
+            legacy_integrity: Some(legacy_integrity),
+            sources: Vec::new(),
+            requests: Vec::new(),
+            rules: None,
+        }
+    }
+
+    /// An import record for a raw trace, which has no base commit and no legacy integrity block, with no source and no request yet.
+    #[must_use]
+    pub const fn raw(format: NameToken) -> Self {
+        Self {
+            format,
+            base_commit: None,
+            legacy_integrity: None,
             sources: Vec::new(),
             requests: Vec::new(),
             rules: None,
@@ -3447,6 +3505,12 @@ pub enum EventPayload {
         /// The containers found, each by id and role; empty when none was found.
         containers: Vec<StrayContainer>,
     },
+    /// An evaluate job selected what it will grade.
+    #[non_exhaustive]
+    EvaluationPlanned {
+        /// The number of outcome records the job will try to commit.
+        outcomes: u32,
+    },
     /// An evaluator gave its result for a run.
     #[non_exhaustive]
     EvaluationOutcome {
@@ -3524,13 +3588,14 @@ pub enum EventPayload {
 }
 
 /// The kinds this version knows, as written.
-const KNOWN_EVENT_KINDS: [&str; 13] = [
+const KNOWN_EVENT_KINDS: [&str; 14] = [
     "job.started",
     "job.ended",
     "run.started",
     "run.ended",
     "run.failed",
     "run.stray",
+    "evaluation.planned",
     "evaluation.outcome",
     "process.spawned",
     "process.stop_step",
@@ -3599,6 +3664,13 @@ impl EventPayload {
             processes,
             containers,
         }
+    }
+
+    /// An evaluate job selected what it will grade: `outcomes` is the number of outcome records it
+    /// will try to commit.
+    #[must_use]
+    pub const fn evaluation_planned(outcomes: u32) -> Self {
+        Self::EvaluationPlanned { outcomes }
     }
 
     /// An evaluator's result.
@@ -3705,6 +3777,7 @@ impl EventPayload {
             Self::RunEnded { .. } => "run.ended",
             Self::RunFailed { .. } => "run.failed",
             Self::RunStray { .. } => "run.stray",
+            Self::EvaluationPlanned { .. } => "evaluation.planned",
             Self::EvaluationOutcome { .. } => "evaluation.outcome",
             Self::ProcessSpawned { .. } => "process.spawned",
             Self::ProcessStopStep { .. } => "process.stop_step",
@@ -3766,6 +3839,13 @@ enum KnownPayload {
         /// The containers found, each by id and role; empty when none was found.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         containers: Vec<StrayContainer>,
+    },
+    /// An evaluate job selected what it will grade.
+    #[serde(rename = "evaluation.planned")]
+    EvaluationPlanned {
+        /// The number of outcome records the job will try to commit.
+        #[schemars(extend("$comment" = "Fits in 32 bits; the Rust reader enforces it."))]
+        outcomes: u32,
     },
     /// An evaluator gave its result for a run.
     #[serde(rename = "evaluation.outcome")]
@@ -3865,6 +3945,7 @@ impl Serialize for EventPayload {
             | Self::RunEnded { .. }
             | Self::RunFailed { .. }
             | Self::RunStray { .. }
+            | Self::EvaluationPlanned { .. }
             | Self::EvaluationOutcome { .. }
             | Self::ProcessSpawned { .. }
             | Self::ProcessStopStep { .. }
@@ -3905,6 +3986,7 @@ impl<'de> Deserialize<'de> for EventPayload {
                 | Self::RunEnded { .. }
                 | Self::RunFailed { .. }
                 | Self::RunStray { .. }
+                | Self::EvaluationPlanned { .. }
                 | Self::EvaluationOutcome { .. }
                 | Self::ProcessSpawned { .. }
                 | Self::ContainerCreated { .. }

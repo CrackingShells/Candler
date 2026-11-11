@@ -36,6 +36,7 @@ or file, or a message of the evaluator protocol.
 | `outcome-record.schema.json` | `OutcomeRecord` | none | Wire schema: outcome record |
 | `plugin-manifest.schema.json` | `PluginManifest` | `plugin-manifest/1` | Plug-in manifest |
 | `raw-frames.schema.json` | `RawRecord` | `raw-frames/1`, in the `header` record | Raw traces |
+| `refusal-record.schema.json` | `RefusalRecord` | `refusal/1` | Refusals (`--error-format json`) |
 | `run-manifest.schema.json` | `RunManifest` | `run-manifest/1` | Run manifest |
 | `run-tree.schema.json` | `RunTree` | `run-tree/1` | Run store (`tree.json`) |
 | `suite.schema.json` | `SuiteFile` | `suite/1` | Suite file |

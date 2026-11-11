@@ -1,0 +1,99 @@
+{
+  "$defs": {
+    "RefusalCode": {
+      "description": "The stable name of a refusal, `<surface>.<reason>` in lower case, such as `experiment.path_overlap`.",
+      "pattern": "^[a-z]+(?:\\.[a-z_]+)+(?![\\s\\S])",
+      "type": "string"
+    },
+    "Side": {
+      "description": "Whose input a refusal blames.\n\nThis is not the `Side` of the evaluator protocol (`evaluation::Side`), which names the end of a\nconnection, the core or the plug-in, that has to be upgraded.",
+      "oneOf": [
+        {
+          "const": "plugin",
+          "description": "A plug-in: its manifest, its answers to the protocol or its environment.",
+          "type": "string"
+        },
+        {
+          "const": "suite",
+          "description": "A suite file.",
+          "type": "string"
+        },
+        {
+          "const": "experiment",
+          "description": "An experiment file.",
+          "type": "string"
+        },
+        {
+          "const": "config",
+          "description": "Candler's configuration, its settings or a value it holds for the author.",
+          "type": "string"
+        },
+        {
+          "const": "environment",
+          "description": "The machine, the container runtime or what the run needs from outside.",
+          "type": "string"
+        },
+        {
+          "const": "candler",
+          "description": "Candler itself: the error is not the author's.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$id": "urn:candler:schemas:refusal-record",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One refusal as a caller that parses stderr reads it: a document with the version marker `refusal/1` in `schema`, the stable `code`, the `side` at fault, the `path` into the parsed document or the `file`, never both, the `message` and the `causes` that explain it.",
+  "not": {
+    "required": [
+      "path",
+      "file"
+    ]
+  },
+  "properties": {
+    "causes": {
+      "description": "The messages of the errors that caused this one, outermost first; empty when there are none.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "code": {
+      "$ref": "#/$defs/RefusalCode",
+      "description": "The stable code of the refusal."
+    },
+    "file": {
+      "description": "The file the refusal is about, when it is not about a place in a parsed document.",
+      "minLength": 1,
+      "type": "string"
+    },
+    "message": {
+      "description": "The error's message, as the text form of the CLI prints it.",
+      "type": "string"
+    },
+    "path": {
+      "description": "The RFC 6901 JSON pointer of the place in the parsed document where the error sits; empty for the root. Absent when the refusal names a file or nothing.",
+      "pattern": "^(?:/(?:[^/~]|~[01])*)*(?![\\s\\S])",
+      "type": "string"
+    },
+    "schema": {
+      "const": "refusal/1",
+      "description": "The version marker of the document: always `refusal/1`.",
+      "type": "string"
+    },
+    "side": {
+      "$ref": "#/$defs/Side",
+      "description": "Whose input is at fault."
+    }
+  },
+  "required": [
+    "schema",
+    "code",
+    "side",
+    "message",
+    "causes"
+  ],
+  "title": "RefusalRecord",
+  "type": "object"
+}

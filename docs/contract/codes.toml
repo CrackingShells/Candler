@@ -18,6 +18,416 @@
 
 [schemas]
 
+[schemas."manifest.git_commit_invalid"]
+side = "candler"
+enum = "ExecutionError"
+variant = "GitCommit"
+
+[schemas."experiment.toml_invalid"]
+side = "experiment"
+enum = "ExecutionError"
+variant = "Toml"
+
+[schemas."experiment.value_unrepresentable"]
+side = "experiment"
+enum = "ExecutionError"
+variant = "Unrepresentable"
+
+[schemas."experiment.document_invalid"]
+side = "experiment"
+enum = "ExecutionError"
+variant = "Document"
+
+[schemas."manifest.field_unset"]
+side = "candler"
+enum = "ExecutionError"
+variant = "MissingField"
+
+[schemas."experiment.count_zero"]
+side = "experiment"
+enum = "ExecutionError"
+variant = "Zero"
+
+[schemas."experiment.cost_not_positive"]
+side = "experiment"
+enum = "ExecutionError"
+variant = "NotPositive"
+
+[schemas."experiment.factor_without_levels"]
+side = "experiment"
+enum = "ExecutionError"
+variant = "NoLevels"
+
+[schemas."experiment.table_empty"]
+side = "experiment"
+enum = "ExecutionError"
+variant = "EmptyTable"
+
+[schemas."experiment.path_overlap"]
+side = "experiment"
+enum = "ExecutionError"
+variant = "PathOverlap"
+
+[schemas."manifest.list_unsorted"]
+side = "candler"
+enum = "ExecutionError"
+variant = "Unsorted"
+
+[schemas."manifest.list_empty"]
+side = "candler"
+enum = "ExecutionError"
+variant = "EmptyList"
+
+[schemas."experiment.input_invalid"]
+side = "experiment"
+enum = "ExecutionError"
+variant = "InputDeclaration"
+
+[schemas."experiment.entry_repeated"]
+side = "experiment"
+enum = "ExecutionError"
+variant = "Duplicate"
+
+[schemas."experiment.reserved_root_misused"]
+side = "experiment"
+enum = "ExecutionError"
+variant = "ReservedRoot"
+
+[schemas."experiment.reserved_value_malformed"]
+side = "experiment"
+enum = "ExecutionError"
+variant = "ReservedValue"
+
+[schemas."experiment.absolute_path"]
+side = "experiment"
+enum = "ExecutionError"
+variant = "AbsolutePath"
+
+[schemas."manifest.sources_mismatch"]
+side = "candler"
+enum = "ExecutionError"
+variant = "SourcesMismatch"
+
+[schemas."manifest.event_kind_known"]
+side = "candler"
+enum = "ExecutionError"
+variant = "KnownKind"
+
+[schemas."manifest.tree_entry_under_file"]
+side = "candler"
+enum = "ExecutionError"
+variant = "PathUnderFile"
+
+[schemas."manifest.tree_dir_not_empty"]
+side = "candler"
+enum = "ExecutionError"
+variant = "DirNotEmpty"
+
+[schemas."suite.document_invalid"]
+side = "suite"
+enum = "EvaluationError"
+variant = "Toml"
+
+[schemas."suite.json_invalid"]
+side = "suite"
+enum = "EvaluationError"
+variant = "Json"
+
+[schemas."protocol.field_unset"]
+side = "candler"
+enum = "EvaluationError"
+variant = "MissingField"
+
+[schemas."suite.list_empty"]
+side = "suite"
+enum = "EvaluationError"
+variant = "EmptyList"
+
+[schemas."suite.id_repeated"]
+side = "suite"
+enum = "EvaluationError"
+variant = "DuplicateId"
+
+[schemas."suite.dependency_unknown"]
+side = "suite"
+enum = "EvaluationError"
+variant = "UnknownDependency"
+
+[schemas."suite.dependency_cycle"]
+side = "suite"
+enum = "EvaluationError"
+variant = "Cycle"
+
+[schemas."protocol.outcome_legacy_cause"]
+side = "plugin"
+enum = "EvaluationError"
+variant = "LegacyCause"
+
+[schemas."outcome.field_unset"]
+side = "candler"
+enum = "OutcomeError"
+variant = "MissingField"
+
+[schemas."outcome.cause_missing"]
+side = "plugin"
+enum = "OutcomeError"
+variant = "CauseMissing"
+
+[schemas."outcome.cause_not_allowed"]
+side = "plugin"
+enum = "OutcomeError"
+variant = "CauseNotAllowed"
+
+[schemas."outcome.weight_not_allowed"]
+side = "plugin"
+enum = "OutcomeError"
+variant = "WeightNotAllowed"
+
+[schemas."outcome.weight_mismatch"]
+side = "plugin"
+enum = "OutcomeError"
+variant = "WeightMismatch"
+
+[schemas."outcome.instrument_dirty"]
+side = "plugin"
+enum = "OutcomeError"
+variant = "DirtyInstrument"
+
+[schemas."outcome.probability_not_allowed"]
+side = "plugin"
+enum = "OutcomeError"
+variant = "ProbabilityNotAllowed"
+
+[schemas."outcome.zero_weight_without_legacy"]
+side = "plugin"
+enum = "OutcomeError"
+variant = "ZeroWeightWithoutLegacy"
+
+[schemas."outcome.weight_above_one"]
+side = "plugin"
+enum = "OutcomeError"
+variant = "WeightAboveOne"
+
+[schemas."outcome.fraction_denominator_zero"]
+side = "plugin"
+enum = "OutcomeError"
+variant = "FractionDenominator"
+
+[schemas."outcome.number_not_finite"]
+side = "candler"
+enum = "OutcomeError"
+variant = "NumberNotFinite"
+
+[schemas."outcome.instrument_digest_dirty"]
+side = "plugin"
+enum = "OutcomeError"
+variant = "InstrumentDirty"
+
+[schemas."outcome.evidence_empty"]
+side = "plugin"
+enum = "OutcomeError"
+variant = "EvidenceEmpty"
+
+[schemas."outcome.text_empty"]
+side = "plugin"
+enum = "OutcomeError"
+variant = "TextEmpty"
+
+[schemas."outcome.probability_out_of_range"]
+side = "plugin"
+enum = "OutcomeError"
+variant = "ProbabilityRange"
+
+[schemas."format.name_invalid"]
+side = "config"
+enum = "FormatError"
+variant = "Name"
+
+[schemas."format.name_version_invalid"]
+side = "config"
+enum = "FormatError"
+variant = "NameVersion"
+
+[schemas."format.secret_name_invalid"]
+side = "config"
+enum = "FormatError"
+variant = "SecretName"
+
+[schemas."format.field_path_invalid"]
+side = "config"
+enum = "FormatError"
+variant = "FieldPath"
+
+[schemas."format.rel_path_invalid"]
+side = "config"
+enum = "FormatError"
+variant = "RelPath"
+
+[schemas."format.expectation_id_invalid"]
+side = "config"
+enum = "FormatError"
+variant = "ExpectationId"
+
+[schemas."format.reason_code_invalid"]
+side = "config"
+enum = "FormatError"
+variant = "ReasonCode"
+
+[schemas."format.evidence_ref_invalid"]
+side = "config"
+enum = "FormatError"
+variant = "EvidenceRef"
+
+[schemas."format.marker_invalid"]
+side = "config"
+enum = "FormatError"
+variant = "Marker"
+
+[schemas."format.digest_invalid"]
+side = "candler"
+enum = "FormatError"
+variant = "Digest"
+
+[schemas."format.instrument_digest_invalid"]
+side = "candler"
+enum = "FormatError"
+variant = "InstrumentDigest"
+
+[schemas."format.name_token_invalid"]
+side = "candler"
+enum = "FormatError"
+variant = "NameToken"
+
+[schemas."format.timestamp_invalid"]
+side = "candler"
+enum = "FormatError"
+variant = "Timestamp"
+
+[schemas."format.timestamp_instant_invalid"]
+side = "candler"
+enum = "FormatError"
+variant = "TimestampInstant"
+
+[schemas."format.run_key_invalid"]
+side = "candler"
+enum = "FormatError"
+variant = "RunKey"
+
+[schemas."format.request_id_invalid"]
+side = "candler"
+enum = "FormatError"
+variant = "RequestId"
+
+[schemas."format.job_id_invalid"]
+side = "candler"
+enum = "FormatError"
+variant = "JobId"
+
+[schemas."format.boot_id_invalid"]
+side = "candler"
+enum = "FormatError"
+variant = "BootId"
+
+[schemas."format.container_id_invalid"]
+side = "candler"
+enum = "FormatError"
+variant = "ContainerId"
+
+[schemas."canonical.integer_out_of_range"]
+side = "experiment"
+enum = "CanonicalError"
+variant = "IntegerRange"
+
+[schemas."canonical.number_not_finite"]
+side = "experiment"
+enum = "CanonicalError"
+variant = "NotFinite"
+
+[schemas."canonical.lone_surrogate"]
+side = "experiment"
+enum = "CanonicalError"
+variant = "LoneSurrogate"
+
+[schemas."canonical.key_repeated"]
+side = "experiment"
+enum = "CanonicalError"
+variant = "DuplicateKey"
+
+[schemas."canonical.syntax_invalid"]
+side = "experiment"
+enum = "CanonicalError"
+variant = "Syntax"
+
+[schemas."values.null"]
+side = "config"
+enum = "ValuesError"
+variant = "Null"
+
+[schemas."format.schema_tag_mismatch"]
+side = "config"
+enum = "SchemaTagError"
+variant = "-"
+
+[schemas."protocol.version_mismatch"]
+side = "plugin"
+enum = "VersionMismatch"
+variant = "-"
+
+[schemas."plugin.command_empty"]
+side = "plugin"
+enum = "EvaluationError"
+variant = "ManifestCommandEmpty"
+
+[schemas."plugin.manifest_invalid"]
+side = "plugin"
+enum = "EvaluationError"
+variant = "ManifestToml"
+
+[schemas."catalog.schema_tag_mismatch"]
+side = "environment"
+enum = "CatalogError"
+variant = "SchemaTag"
+
+[schemas."catalog.field_unset"]
+side = "candler"
+enum = "CatalogError"
+variant = "MissingField"
+
+[schemas."catalog.extra_key_reserved"]
+side = "candler"
+enum = "CatalogError"
+variant = "ReservedKey"
+
+[schemas."catalog.field_null"]
+side = "candler"
+enum = "CatalogError"
+variant = "Null"
+
+[schemas."catalog.name_empty"]
+side = "environment"
+enum = "CatalogError"
+variant = "EmptyName"
+
+[schemas."catalog.name_repeated"]
+side = "environment"
+enum = "CatalogError"
+variant = "DuplicateName"
+
+[schemas."experiment.unknown_field"]
+side = "experiment"
+enum = "ExecutionError"
+variant = "UnknownField"
+
+[schemas."suite.unknown_field"]
+side = "suite"
+enum = "EvaluationError"
+variant = "SuiteUnknownField"
+
+[schemas."plugin.unknown_field"]
+side = "plugin"
+enum = "EvaluationError"
+variant = "ManifestUnknownField"
+
 [resolve]
 
 [experiment]
