@@ -177,10 +177,10 @@ its step; `resolve` itself knows none.
 
 | File | Where | Keys |
 |---|---|---|
-| Project config | `candler.toml` in the project root, the nearest ancestor of the working directory holding one | `store.root` (default `<project root>/.candler/store`; with no project, `$XDG_STATE_HOME/candler/store`, else `~/.local/state/candler/store`), `plugins.dirs[]` |
-| User config | `$XDG_CONFIG_HOME/candler/config.toml`, else `~/.config/candler/config.toml` | `slots.count` |
+| Project config | `candler.toml` in the project root, the nearest ancestor of the working directory holding one | `store.root` (default `<project root>/.candler/store`; with no project, `$XDG_STATE_HOME/candler/store`, else `~/.local/state/candler/store`), `plugins.dirs[]`, the directories `evaluate` finds plug-ins in |
+| User config | `$XDG_CONFIG_HOME/candler/config.toml`, else `~/.config/candler/config.toml` | `slots.count`, `slots.evaluators` |
 
-Unknown keys are refused, naming the file and key. A machine-wide setting (`slots.count`) is
+Unknown keys are refused, naming the file and key. A machine-wide setting (`slots.count`, `slots.evaluators`) is
 refused in a project config. A relative path written in a config file resolves against that file's
 directory; a relative path given as an argument resolves against the caller's working directory
 (I14).
@@ -197,9 +197,14 @@ Keys with a unit carry it: `deadline_ms`, `grace_ms`, `wall_s`, `max_cost_usd`.
 | `max_runs?`, `max_tokens?`, `max_cost?`, `wall?` | Caps on the job | Runs in flight end `invalid(budget_stop)`; no new run starts |
 | `max_parallel` | Concurrent agent runs or evaluator processes in this job; default 1 | — |
 
-Across jobs, without a daemon: each agent or evaluator process holds one of N machine-wide slot
-files (`~/.local/state/candler/slots/<n>.lock`, taken with `flock`, released by the kernel when the
-holder dies). N comes from user config (*provisional* default).
+Across jobs, without a daemon, there are two machine-wide pools of slot files, because an agent run
+holds its slot for minutes or hours while an evaluator is a short, CPU-bound process. Each agent
+process takes one slot file of the agent pool (`~/.local/state/candler/slots/<n>.lock`, N from
+`slots.count`). Each evaluator process takes one slot file of its own pool
+(`~/.local/state/candler/evaluator-slots/<n>.lock`, N from `slots.evaluators`), so an evaluation
+never waits behind agent runs. Both are taken with `flock` and released by the kernel when the
+holder dies. The default of `slots.evaluators` is derived from the CPU count: half of it, rounded
+down, and at least 1. The default of `slots.count` is *provisional*.
 
 ### Experiment file (`experiment/1`, on the `schemas@` line)
 
@@ -304,6 +309,14 @@ names.
   `ended_by` and exit status), `run.failed` (reason code), `run.stray` (survivors found by the
   sweep); `evaluation.outcome`; `process.spawned`, `process.stop_step`, `process.exited`. The job
   record (`job.json`), the envelope and these payloads are on the `schemas@` line.
+- **Evaluate job.** An evaluation is a job like a run job: the same record, lock, children,
+  subreaper and sweep. Its events add `evaluation.planned {outcomes}`, the number of records the job
+  will try to commit, before its first outcome, and `evaluation.outcome` for each committed record.
+  `JobSpec` stays the run spec; the job directory holds a `JobSpecFile` (`Run` or `Evaluate`), read
+  and written at the job-directory boundary only. The evaluate body has its own serve path, with no
+  container. `candler evaluate` starts the job at once and waits for it; the job form is what lets
+  `kill` and the recovery of a lost job reap evaluator processes after a crash, and lets one
+  `events.jsonl` serve `watch`.
 - **Order of delivery:** `run` + events + `ps` + `kill` → `watch --json` → `ls` + `watch --live`.
 
 ### Run identity and resume
@@ -595,8 +608,10 @@ runner keeps a stream-json session's input open so a notification starts a furth
 | `command` | argv, relative to the plug-in directory |
 | `environment` | `{kind: uv \| none, project, lock}`; the core builds one environment per lock digest and reuses it, and runs `command` inside it (`VIRTUAL_ENV` set, its `bin/` first on `PATH`) |
 
-The core reads manifests without running anything. *Provisional:* the project config lists plug-in
-directories; a suite names an evaluator as `name@range`.
+The core reads manifests without running anything. Plug-ins come from the directories of
+`plugins.dirs[]`, which `evaluate` reads; each plug-in directory holds one manifest, named
+`plugin.toml` or `candler-plugin.toml`, and a directory with both, with neither, or with a manifest
+only in a subdirectory is refused. A suite names an evaluator as `name@range`.
 
 **What the core knows of a domain.** Nothing (I1). An evaluator reports the packages of its own
 environment through `describe`, in `environment.packages{}`. The agent's environment is declared
@@ -1212,7 +1227,7 @@ by the original artifact commit `36290ab`, and is imported under `measured`. At 
 Decided during development: pairing keys, execution order and a declared blocking factor (M6; start
 times are recorded from M2b); a `without_skill` fixture for the parity suite; reporting
 `instrument_error` and `deadline` counts per arm; event kinds beyond the first set; where `ls` looks;
-how plug-ins are registered; the slot count default; a macOS orphan watchdog; long-lived workers; the
+the slot count default; a macOS orphan watchdog; long-lived workers; the
 MCP tool shapes; the store root default; `snapshots[]` and `inputs[]` needs (unimplemented,
 refused by the registry). The container backend is decided (M2b): Docker through its CLI, one
 `docker run` per run; `Isolation` turns a plan into a spawn request, then collects and destroys.
