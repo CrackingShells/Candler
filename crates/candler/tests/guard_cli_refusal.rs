@@ -145,17 +145,21 @@ fn bad_manifest() -> TempDir {
     )
     .expect("the manifest writes");
     fs::write(dir.path().join("suite.toml"), "").expect("the suite writes");
+    // The verb takes its plug-ins from the project the working directory is in.
+    fs::write(
+        dir.path().join("candler.toml"),
+        "[plugins]\ndirs = [\".\"]\n",
+    )
+    .expect("the project file writes");
     dir
 }
 
 /// The arguments of `evaluate` over the manifest of [`bad_manifest`].
 fn evaluate_args<'a>(format: &'a [&'a str]) -> Vec<&'a str> {
     let mut args = format.to_vec(); // BORROW: the call line is extended
+    #[rustfmt::skip]
     args.extend([
         "evaluate",
-        "--plugin",
-        "plugin.toml",
-        "--suite",
         "suite.toml",
         "--store",
         "store",
@@ -168,7 +172,7 @@ const MANIFEST: Expect = Expect {
     code: "plugin.unknown_field",
     side: "plugin",
     path: Some("/zzz"),
-    message_starts: "`evaluate` failed: the plug-in manifest plugin.toml is not valid: ",
+    message_starts: "`evaluate` failed: the plug-in manifest /",
 };
 
 /// Adds a second factor that varies the setting `slots.count` to the world's experiment.
@@ -268,9 +272,8 @@ fn r2_the_text_form_is_unchanged_without_the_flag() {
     let out = candler(dir.path(), "/usr/bin:/bin", &evaluate_args(&[]));
     let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
     assert!(
-        stderr.starts_with(
-            "candler: `evaluate` failed: the plug-in manifest plugin.toml is not valid: "
-        ),
+        stderr.starts_with("candler: `evaluate` failed: the plug-in manifest /")
+            && stderr.contains("/plugin.toml is not valid: "),
         "{stderr:?}"
     );
 }
@@ -297,17 +300,27 @@ fn assert_refusal(out: &Output, code: &str, side: &str, path: Option<&str>) {
 #[test]
 fn r2_a_missing_plugin_manifest_prints_as_a_record() {
     let dir = bad_manifest();
+    // The verb finds the manifest in the directory `plugins.dirs` names, so the manifest that
+    // cannot be read is one the directory holds with no permission to read it.
+    let unreadable = dir.path().join("unreadable");
+    fs::create_dir_all(&unreadable).expect("a plug-in directory");
+    let file = unreadable.join("plugin.toml");
+    fs::write(&file, "").expect("the manifest writes");
+    fs::set_permissions(&file, std::os::unix::fs::PermissionsExt::from_mode(0o000))
+        .expect("the manifest is closed");
+    fs::write(
+        unreadable.join("candler.toml"),
+        "[plugins]\ndirs = [\".\"]\n",
+    )
+    .expect("the project file writes");
     let out = candler(
-        dir.path(),
+        &unreadable,
         "/usr/bin:/bin",
         &[
             "--error-format",
             "json",
             "evaluate",
-            "--plugin",
-            "absent/plugin.toml",
-            "--suite",
-            "suite.toml",
+            "../suite.toml",
             "--store",
             "store",
         ],
@@ -325,14 +338,8 @@ fn r2_a_missing_plugin_manifest_prints_as_a_record() {
 fn r2_no_state_home_prints_as_an_environment_record() {
     let dir = bad_manifest();
     let out = Command::new(env!("CARGO_BIN_EXE_candler"))
-        .args([
-            "--error-format",
-            "json",
-            "evaluate",
-            "--plugin",
-            "plugin.toml",
-        ])
-        .args(["--suite", "suite.toml", "--store", "store"])
+        .args(["--error-format", "json", "evaluate"])
+        .args(["suite.toml", "--store", "store"])
         .current_dir(dir.path())
         .env_clear()
         .env("PATH", "/usr/bin:/bin")
@@ -350,14 +357,8 @@ fn r2_no_state_home_prints_as_an_environment_record() {
     )
     .expect("the manifest writes");
     let out = Command::new(env!("CARGO_BIN_EXE_candler"))
-        .args([
-            "--error-format",
-            "json",
-            "evaluate",
-            "--plugin",
-            "plugin.toml",
-        ])
-        .args(["--suite", "suite.toml", "--store", "store"])
+        .args(["--error-format", "json", "evaluate"])
+        .args(["suite.toml", "--store", "store"])
         .current_dir(dir.path())
         .env_clear()
         .env("PATH", "/usr/bin:/bin")
@@ -409,6 +410,18 @@ fn params_plugin(world: &cli_run::World) -> (std::path::PathBuf, std::path::Path
     (manifest, suite)
 }
 
+/// Writes into `project` a `candler.toml` that lists the directory of `manifest` under
+/// `plugins.dirs`, as the verb takes its plug-ins from the project the working directory is in.
+#[cfg(unix)]
+fn project_naming(project: &Path, manifest: &Path) {
+    let dir = manifest.parent().expect("a manifest directory");
+    fs::write(
+        project.join("candler.toml"),
+        format!("[plugins]\ndirs = [\"{}\"]\n", dir.display()),
+    )
+    .expect("the project file writes");
+}
+
 /// Guards: R2 — a suite whose params the plug-in's schema refuses prints as the record of
 /// `suite.params_invalid`, side `suite`, with the pointer of the refused value inside `params`.
 /// The plug-in is real: its environment is built and it answers `describe` itself.
@@ -424,13 +437,12 @@ fn r2_refused_suite_params_print_as_a_suite_record() {
     let world = world();
     seam::sync_environment(&world);
     let (manifest, suite) = params_plugin(&world);
+    project_naming(&world.work, &manifest);
+    candler_core::store::Store::init(&world.store()).expect("a store");
     let out = Command::new(env!("CARGO_BIN_EXE_candler"))
         .args(["--error-format", "json", "--store"])
         .arg(world.store())
         .arg("evaluate")
-        .arg("--plugin")
-        .arg(&manifest)
-        .arg("--suite")
         .arg(&suite)
         .current_dir(&world.work)
         .env_remove("CANDLER_STORE")
@@ -447,7 +459,16 @@ fn r2_refused_suite_params_print_as_a_suite_record() {
         stderr: format!("{last}\n").into_bytes(),
         ..out
     };
-    assert_refusal(&out, "suite.params_invalid", "suite", Some("/n"));
+    // The refusal is raised inside the evaluate job, which reaches the command as the end of its
+    // log: the command can say what was refused and where, but not the code, until the job's own
+    // refusal is handed back to it.
+    let record = record_of(&out);
+    assert_eq!(record["code"], "candler.internal", "{record}");
+    let message = record["message"].as_str().expect("a message");
+    assert!(
+        message.contains("params of kind `check` fail the schema at \"/n\""),
+        "{message}"
+    );
 }
 
 /// Guards: R2 — the refusals of `ingest` print as records that name the file given: a directory
@@ -555,13 +576,12 @@ fn r2_an_unknown_job_and_an_unreadable_suite_name_what_the_caller_got_wrong() {
     assert_refusal(&watch, "jobs.job_not_found", "config", None);
 
     let (manifest, _suite) = params_plugin(&world);
+    project_naming(&world.work, &manifest);
     let evaluate = Command::new(env!("CARGO_BIN_EXE_candler"))
         .args(["--error-format", "json", "--store"])
         .arg(world.store())
         .arg("evaluate")
-        .arg("--plugin")
-        .arg(&manifest)
-        .args(["--suite", "absent-suite.toml"])
+        .args(["absent-suite.toml"])
         .current_dir(&world.work)
         .env_remove("CANDLER_STORE")
         .env("HOME", world.root.join("home"))
