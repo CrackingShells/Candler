@@ -8,6 +8,8 @@ pub mod error;
 pub mod fisher;
 pub mod holm;
 pub mod newcombe;
+pub mod refusal;
+pub mod report;
 pub mod tally;
 pub mod wilson;
 
