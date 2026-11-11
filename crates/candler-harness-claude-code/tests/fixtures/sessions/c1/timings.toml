@@ -1,0 +1,94 @@
+# Host-side timings of one recorded session, in milliseconds since the host spawned `docker run`.
+# Host clock (time_ns at each read); hook and job times are the container's clock minus clock_skew_ms.
+[run]
+clock_skew_ms = -0.829   # container clock minus host clock, from a ping-pong over the bind mount
+stdin_prompt_ms = 3.31
+stdin_close_ms = 23542.84
+exit_ms = 23695.57
+exit_code = 0
+job_end_ms = 20378.62   # the job's own `date`, clock-corrected
+
+[[stdout]]
+line = 1
+t_ms = 304.67
+kind = "system/init"
+
+[[stdout]]
+line = 2
+t_ms = 324.85
+kind = "assistant"
+
+[[stdout]]
+line = 3
+t_ms = 327.88
+kind = "assistant"
+
+[[stdout]]
+line = 4
+t_ms = 367.67
+kind = "system/background_tasks_changed"
+
+[[stdout]]
+line = 5
+t_ms = 367.72
+kind = "system/task_started"
+
+[[stdout]]
+line = 6
+t_ms = 370.6
+kind = "user"
+
+[[stdout]]
+line = 7
+t_ms = 422.89
+kind = "assistant"
+
+[[stdout]]
+line = 8
+t_ms = 430.86
+kind = "result/success"
+
+[[stdout]]
+line = 9
+t_ms = 20385.01
+kind = "system/task_updated"
+
+[[stdout]]
+line = 10
+t_ms = 20385.12
+kind = "system/task_notification"
+
+[[stdout]]
+line = 11
+t_ms = 20385.14
+kind = "system/background_tasks_changed"
+
+[[stdout]]
+line = 12
+t_ms = 20477.7
+kind = "system/init"
+
+[[stdout]]
+line = 13
+t_ms = 20526.81
+kind = "assistant"
+
+[[stdout]]
+line = 14
+t_ms = 20532.47
+kind = "result/success"
+
+[[hook]]
+event = "Stop"
+written_ms = 427.05
+seen_ms = 429.14
+
+[[hook]]
+event = "Stop"
+written_ms = 20529.53
+seen_ms = 20531.98
+
+[[hook]]
+event = "SessionEnd"
+written_ms = 23562.87
+seen_ms = 23565.1
