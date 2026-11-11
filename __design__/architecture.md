@@ -147,7 +147,7 @@ enabled), `cocogitto` (`cog verify` in a
 |---|---|---|---|
 | `resolve` | experiment or suite + overrides | the resolved experiment, every value with its source; preflight results | no |
 | `run` | resolved experiment + budget | job id | yes (job) |
-| `ingest` | raw trace dirs or a legacy results folder | run keys | yes (job) for big corpora |
+| `ingest` | raw trace dirs or a legacy results folder | run keys | no: runs in the caller, repeats to the same store, safe to interrupt |
 | `evaluate` | suite + run selection | job id | yes (job) |
 | `analyze` | analysis spec + outcome selection | tables (JSON or CSV), intervals, tests | no |
 | `jobs` / `events` / `cancel` | job selection | job records, the event stream, cancellation | no |
@@ -270,16 +270,26 @@ field path is dotted: `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`.
 | Command | Does |
 |---|---|
 | `candler run <experiment> [--<field> <value> ...]` | Resolves (file first, CLI fields override), then starts a job; prints the job id |
-| `candler ls` | Lists experiment files. *Provisional:* `experiments/` under the project root, plus any path given |
+| `candler ls` | Lists experiment files under `<project root>/experiments/`, recursively, plus any path given; with no project, under `./experiments/`. A TOML file that does not parse as `experiment/1` is listed as skipped, with the reason |
 | `candler ps` | Lists jobs with id, experiment, state, progress |
 | `candler kill <id> \| --all` | Stops jobs; asks for confirmation unless `--yes` / `-y` |
 | `candler watch <id> [--json \| --live]` | Follows a job's events: `--json` (default) prints event records, `--live` draws progress |
-| `candler import <corpus> --rules <file>` | Imports a legacy results folder under the import rules the TOML file states; prints `{"runs": n, "records": n}` |
-| `candler evaluate`, `show`, `inspect`, `diff`, `analyze`, `resolve` | The other operations |
+| `candler ingest <path>...` | Turns raw Claude Code trace directories (one run per stream) into runs; with `--rules <file>`, imports a legacy results folder under the import rules the TOML file states. It runs to completion in the caller, repeats to the same store and is safe to interrupt; `candler import` stays as a hidden alias for a results folder |
+| `candler resolve <experiment \| suite>` | Prints every resolved value with its source and runs the preflight; starts no job |
+| `candler inspect <run dir \| key prefix \| job id>` | Shows the run, or the job's runs, with outcomes, evidence, provenance and integrity, deriving the store from a run directory |
+| `candler analyze [--evaluator <name@version \| version>] [--experiment <file>] [--format json\|csv]` | Reports rates, Wilson intervals and pairwise tests (§Analysis statistics). It finds the experiment file by the digest the runs' manifests name, under `<project root>/experiments/`; `--experiment` names it when it lives elsewhere |
+| `candler evaluate <suite> [<job-id> \| --runs <glob>]` | Starts the evaluate job, prints its id on stderr, follows it and prints the report; Ctrl-C cancels it. With no selection it grades the runs with no complete outcome set for the suite's evaluator versions |
+| `--error-format text\|json` | Global option: the form of a refusal on stderr (below) |
+| `candler show`, `diff` | The other operations |
 
 Every verb reads one store root: `--store <dir>`, given anywhere on the line, else `CANDLER_STORE`,
 else the configuration's `store.root`, else the default above, as `resolve` layers them. A verb
 that finds none refuses, naming the three ways to give one.
+
+**Terminals.** `watch` prints event records (`--json`) by default, and `--live` draws progress.
+Colour is on only when stdout is a terminal and `NO_COLOR` is unset; there is no `--no-color`. The
+binary embeds the container assets with `include_bytes!` and writes them to a cache keyed by their
+digest, so it runs from any directory.
 
 The global option `--error-format text|json` defaults to `text`; `json` writes one `refusal/1`
 record per line on stderr. It is neither derived nor a file setting: what parses the caller's
@@ -1226,13 +1236,12 @@ by the original artifact commit `36290ab`, and is imported under `measured`. At 
 
 Decided during development: pairing keys, execution order and a declared blocking factor (M6; start
 times are recorded from M2b); a `without_skill` fixture for the parity suite; reporting
-`instrument_error` and `deadline` counts per arm; event kinds beyond the first set; where `ls` looks;
-the slot count default; a macOS orphan watchdog; long-lived workers; the
-MCP tool shapes; the store root default; `snapshots[]` and `inputs[]` needs (unimplemented,
-refused by the registry). The container backend is decided (M2b): Docker through its CLI, one
-`docker run` per run; `Isolation` turns a plan into a spawn request, then collects and destroys.
-The long-lived handle's `exec`, `inject` and whole-container `census` are M5's, as are a host
-backend and an egress allowlist.
+`instrument_error` and `deadline` counts per arm; event kinds beyond the first set; the slot count
+default; a macOS orphan watchdog; long-lived workers; the MCP tool shapes; the store root default;
+`snapshots[]` and `inputs[]` needs (unimplemented, refused by the registry). The container backend
+is decided (M2b): Docker through its CLI, one `docker run` per run; `Isolation` turns a plan into a
+spawn request, then collects and destroys. The long-lived handle's `exec`, `inject` and
+whole-container `census` are M5's, as are a host backend and an egress allowlist.
 
 ## Implementation
 
