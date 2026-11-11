@@ -25,6 +25,7 @@ use candler_schemas::primitives::{FieldPath, RunKey};
 use candler_schemas::values::JsonValue;
 
 use super::CliError;
+use super::refusal::CliRefusal;
 
 /// The path of the setting `[treatment] source` replaces; `--set` refuses it by name.
 const RETIRED_TREATMENT_SOURCE: &str = concat!("request.", "treatment_source");
@@ -96,16 +97,16 @@ pub fn compose_resolver(
 fn value_of(text: &str) -> Result<JsonValue, CliError> {
     let json = serde_json::from_str::<serde_json::Value>(text)
         .unwrap_or_else(|_| serde_json::Value::String(text.to_owned())); // BORROW: the value owns its text
-    JsonValue::new(json).map_err(|e| refused(e.to_string()))
+    JsonValue::new(json).map_err(CliError::refused_by)
 }
 
 pub(crate) fn json_of<T: serde::Serialize>(value: &T) -> Result<JsonValue, CliError> {
     let json = serde_json::to_value(value).map_err(failed)?;
-    JsonValue::new(json).map_err(|e| refused(e.to_string()))
+    JsonValue::new(json).map_err(CliError::refused_by)
 }
 
 pub(crate) fn path_of(text: &str) -> Result<FieldPath, CliError> {
-    FieldPath::from_str(text).map_err(|e| refused(e.to_string()))
+    FieldPath::from_str(text).map_err(CliError::refused_by)
 }
 
 /// What the experiment file and the command line ask for, as the input of a resolution: the
@@ -136,21 +137,20 @@ pub fn request_settings(
     );
     let file_values = FileValues::new(values.into_iter().collect())
         .relative_to(experiment_dir)
-        .map_err(|e| refused(e.to_string()))?;
+        .map_err(CliError::refused_by)?;
     let mut input = ResolveInput::default().file(file_values);
     for (path, text) in fields {
         if path.as_str() == RETIRED_TREATMENT_SOURCE {
-            return Err(refused(format!(
-                "`{RETIRED_TREATMENT_SOURCE}` is no longer a setting: set `[treatment] source` in the \
-                 experiment file"
-            )));
+            return Err(CliError::refused_by(CliRefusal::RetiredSetting {
+                path: RETIRED_TREATMENT_SOURCE.to_owned(), // BORROW: the refusal owns its path
+            }));
         }
         let mut value = value_of(text)?;
         if path.as_str() == paths::REQUEST_TREATMENT {
             // BORROW: .clone() gives the file values their own path
             let given = FileValues::new(vec![(path.clone(), value.clone())])
                 .relative_to(cwd)
-                .map_err(|e| refused(e.to_string()))?;
+                .map_err(CliError::refused_by)?;
             if let Some((_, resolved)) = given.values.into_iter().next() {
                 value = resolved;
             }

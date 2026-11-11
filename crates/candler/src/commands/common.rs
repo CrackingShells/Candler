@@ -13,6 +13,7 @@ use candler_core::store::Store;
 use candler_schemas::primitives::FieldPath;
 
 use super::CliError;
+use super::refusal::CliRefusal;
 use crate::Cli;
 
 use candler_core::evaluation::registry::{Registry, register_evaluation_steps};
@@ -98,9 +99,7 @@ pub fn resolved_root(resolution: &Resolution) -> Result<PathBuf, CliError> {
         .and_then(|entry| entry.value())
         .and_then(|value| value.as_value().as_str())
         .map(PathBuf::from)
-        .ok_or_else(|| {
-            CliError::refused("no store: pass --store, set CANDLER_STORE or configure store.root")
-        })
+        .ok_or_else(|| CliError::refused_by(CliRefusal::NoStore))
 }
 
 /// The root of the store every verb uses: `explicit` (`--store` or `CANDLER_STORE`), else the

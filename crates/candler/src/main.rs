@@ -38,10 +38,6 @@ struct Cli {
     /// visible from the terminal; cannot live in the experiment file: a refusal can come before any
     /// file is read.
     #[arg(long, value_enum, default_value_t, global = true)]
-    #[expect(
-        dead_code,
-        reason = "no verb reads the format yet; the text rendering is unchanged"
-    )]
     error_format: ErrorFormat,
     /// The verb to run.
     #[command(subcommand)]
@@ -125,9 +121,11 @@ fn status(result: &Result<Exit, CliError>) -> u8 {
 }
 
 fn main() -> ExitCode {
-    let result = dispatch(Cli::parse());
+    let cli = Cli::parse();
+    let format = cli.error_format;
+    let result = dispatch(cli);
     if let Err(error) = &result {
-        eprintln!("candler: {error}");
+        eprintln!("{}", commands::refusal::render(error, format));
     }
     ExitCode::from(status(&result))
 }

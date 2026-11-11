@@ -126,7 +126,11 @@ fn read_experiment(path: &Path) -> Result<ExperimentFile, CliError> {
     let text = std::fs::read_to_string(path)
         .map_err(|e| refused(format!("cannot read {}: {e}", path.display())))?;
     ExperimentFile::from_toml_str(text.as_str()) // BORROW: .as_str() views the text as a `&str`
-        .map_err(|e| refused(format!("{} is not an experiment: {e}", path.display())))
+        .map_err(|e| {
+            CliError::refused_by(e)
+                .led_by(format!("{} is not an experiment: ", path.display()))
+                .with_file(path)
+        })
 }
 
 /// Resolves, plans and starts the job.
@@ -150,7 +154,7 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let store = Store::init(&root).map_err(failed)?;
     let config = Arc::new(Config::load(&cwd, &ConfigEnv::from_process()).map_err(failed)?);
     let declared = resolve_inputs(&store, file.inputs(), experiment_dir.as_path())
-        .map_err(|e| refused(e.to_string()))?;
+        .map_err(CliError::refused_by)?;
     let input = with_declared_inputs(
         request_settings(&file, experiment_dir.as_path(), &fields, &cwd)?,
         &declared,
@@ -161,7 +165,7 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
         .resolver
         .resolve(input)
         .await
-        .map_err(|e| refused(e.to_string()))?;
+        .map_err(CliError::refused_by)?;
     let spec = plan_job(&store, &file, resolution, force, declared)?;
     start(&store, &file, &spec, &root).await
 }
@@ -200,8 +204,8 @@ fn plan_job(
         secrets_present: EnvSecrets::new(file.secrets()).present(),
     };
     let mode = if force { Force::Yes } else { Force::No };
-    let outcome = plan_runs(&ctx, file, &resolution, mode, PlanMode::Check)
-        .map_err(|e| refused(e.to_string()))?;
+    let outcome =
+        plan_runs(&ctx, file, &resolution, mode, PlanMode::Check).map_err(CliError::refused_by)?;
     Ok(JobSpec {
         experiment: file.clone(), // BORROW: the spec owns its file
         resolution,

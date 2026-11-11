@@ -776,6 +776,16 @@ variant = "VersionOutput"
 
 [cli]
 
+[cli."config.no_store"]
+side = "config"
+enum = "CliRefusal"
+variant = "NoStore"
+
+[cli."config.retired_setting"]
+side = "config"
+enum = "CliRefusal"
+variant = "RetiredSetting"
+
 [jobs]
 
 [evaluation]
