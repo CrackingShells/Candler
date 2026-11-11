@@ -81,8 +81,8 @@ enum Command {
     Ls(ls::Args),
     /// Reports the statistics of stored outcomes.
     Analyze(analyze::Args),
-    /// Prints what the store holds of one run.
-    Inspect(inspect::Args),
+    /// Shows one run, or one job, with its outcomes, evidence, provenance and integrity.
+    Inspect(inspect::InspectArgs),
 }
 
 /// Runs the verb on a multi-thread runtime, one arm per line.
@@ -107,7 +107,7 @@ fn dispatch(cli: Cli) -> Result<Exit, CliError> {
             Command::Resolve(args) => resolve::run(args, cli.store.as_deref()).await,
             Command::Ls(args) => ls::run(args, cli.store.as_deref()).await,
             Command::Analyze(ref args) => analyze::run(&cli, args).await,
-            Command::Inspect(ref args) => inspect::run(args),
+            Command::Inspect(ref args) => inspect::run(&cli, args).await,
         }
     })
 }
