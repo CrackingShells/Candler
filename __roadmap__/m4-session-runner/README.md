@@ -110,7 +110,7 @@ graph TD
     opencode_facts[OpenCode facts]:::inprogress
     session_facts[Session facts]:::inprogress
     type_merges[Type merges]:::done
-    imported_strata[Imported strata]:::inprogress
+    imported_strata[Imported strata]:::done
     traits[Traits]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -125,7 +125,7 @@ graph TD
 | `opencode_facts.md` | 📄 Leaf Task | 🔄 In Progress |
 | `session_facts.md` | 📄 Leaf Task | 🔄 In Progress |
 | `type_merges.md` | 📄 Leaf Task | ✅ Done |
-| `imported_strata.md` | 📄 Leaf Task | 🔄 In Progress |
+| `imported_strata.md` | 📄 Leaf Task | ✅ Done |
 | `traits/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
