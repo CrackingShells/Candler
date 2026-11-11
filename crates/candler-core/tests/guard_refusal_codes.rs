@@ -31,16 +31,6 @@ const CATALOGUED_SECTIONS: [&str; 11] = [
     "import",
 ];
 
-/// The error types the oracle gives to a later leaf, as `<file>::<name>`; that leaf empties this
-/// list. An entry that is not a type of the source, is in the catalogue, or is not a type the
-/// oracle gives to that leaf fails the guard, so the list cannot hide a type of this leaf.
-const PENDING: &[&str] = &[];
-
-/// Whether `<file>::<name>` is on the pending list.
-fn pending_file(file: &str, name: &str) -> bool {
-    PENDING.contains(&format!("{file}::{name}").as_str())
-}
-
 /// The workspace root.
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -49,7 +39,6 @@ fn root() -> PathBuf {
 /// One row of `refusal_scope.tsv`.
 struct Scope {
     path: String,
-    file: String,
     author: String,
     leaf: String,
 }
@@ -61,14 +50,13 @@ fn scope() -> Vec<Scope> {
     let mut lines = text.lines();
     let header: Vec<&str> = lines.next().unwrap().split('\t').collect();
     let at = |name: &str| header.iter().position(|column| *column == name).unwrap();
-    let (enum_at, file_at, author_at, leaf_at) = (at("enum"), at("file"), at("author"), at("leaf"));
+    let (enum_at, author_at, leaf_at) = (at("enum"), at("author"), at("leaf"));
     lines
         .filter(|line| !line.is_empty())
         .map(|line| {
             let cells: Vec<&str> = line.split('\t').collect();
             Scope {
                 path: cells[enum_at].to_owned(),
-                file: cells[file_at].to_owned(),
                 author: cells[author_at].to_owned(),
                 leaf: cells[leaf_at].to_owned(),
             }
@@ -185,14 +173,16 @@ fn catalogue() -> Vec<CatalogRow> {
 }
 
 /// Guards: R1 — every error type of the workspace is coded, or listed as Candler's own in
-/// `[internal]`, or only wraps coded errors, or is on the pending list of a later leaf; an error of this leaf's scope
-/// implements `Refusal` and is in the catalogue; the oracle's classification (an author's enum
-/// has no fallback variant, an enum that is not an author's has nothing else) holds.
+/// `[internal]`, or only wraps coded errors, with no list of types waiting for a later leaf; an
+/// error of the scope of `refusal_core` or `refusal_late` implements `Refusal` and is in the
+/// catalogue; the oracle's classification (an enum that is an author's has a variant coded for
+/// the author, one that is not has only the fallback code, a mixed one has both) holds, and the
+/// fallback code goes with the side `candler`.
 ///
 /// Oracle: the `thiserror` types found by a scan of `crates/*/src`, `codes.toml` and
 /// `__roadmap__/m3-lean-cli/refusal_scope.tsv`, none of them generated from the code under test.
 ///
-/// Bite: a new `thiserror` enum named in neither `codes.toml` nor the pending list; a variant of
+/// Bite: a new `thiserror` enum named in neither `codes.toml` nor `[internal]`; a variant of
 /// an enum the oracle gives to the author whose row carries the fallback code; a variant's side
 /// set to `candler` where the oracle says author.
 #[test]
@@ -209,38 +199,8 @@ fn r1_every_error_enum_is_coded_or_internal() {
     let types = error_types();
     let scope = scope();
     let catalogue = catalogue();
-    let catalogued: BTreeSet<&str> = catalogue.iter().map(|row| row.enum_name).collect();
-
-    for pending in PENDING {
-        assert!(
-            types.contains(&(*pending).to_owned()),
-            "{pending} is on the pending list and is not a type of the source"
-        );
-        let (file, name) = pending.rsplit_once("::").unwrap();
-        let row = scope
-            .iter()
-            .find(|row| row.file == file && name_of(&row.path) == name)
-            .unwrap_or_else(|| panic!("{pending} is on the pending list and not in the oracle"));
-        assert_eq!(
-            row.leaf, "refusal_late",
-            "{pending} is on the pending list and the oracle gives it to {}",
-            row.leaf
-        );
-        let shared = types
-            .iter()
-            .filter(|t| t.rsplit("::").next() == Some(name))
-            .count()
-            > 1;
-        assert!(
-            shared || !catalogued.contains(name),
-            "{pending} is on the pending list and is in the catalogue: remove it"
-        );
-    }
 
     for entry in &types {
-        if PENDING.contains(&entry.as_str()) {
-            continue;
-        }
         let name = entry.rsplit("::").next().unwrap();
         let delegates_only = {
             let mut rows = catalogue
@@ -251,14 +211,11 @@ fn r1_every_error_enum_is_coded_or_internal() {
         };
         assert!(
             coded.contains(name) || internal.contains(name) || delegates_only,
-            "{entry} is in neither codes.toml nor [internal] nor the pending list"
+            "{entry} is in neither codes.toml nor [internal]: code it, or list it as Candler's own"
         );
     }
 
-    for row in scope
-        .iter()
-        .filter(|row| row.leaf == "refusal_late" && !pending_file(&row.file, name_of(&row.path)))
-    {
+    for row in scope.iter().filter(|row| row.leaf == "refusal_late") {
         let name = name_of(&row.path);
         let rows: Vec<&CatalogRow> = catalogue.iter().filter(|r| r.enum_name == name).collect();
         assert!(

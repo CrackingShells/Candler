@@ -1,5 +1,5 @@
 //! The refusal codes of the errors of evaluating stored runs: the plug-in registry, the protocol
-//! client, the run context, the planner, the engine and the equivalence file.
+//! client, the run context, the request plan, the engine and the equivalence file.
 //!
 //! One `refusal_table!` call per error type: a variant without a row does not compile. The `when`
 //! and `at` sentences are written for a coding agent, because the contract pages' tables of
