@@ -1310,6 +1310,11 @@ fn plant_unreadable_job(store: &Seeded) {
     .expect("a directory");
 }
 
+fn plant_rules_with_a_bad_pattern(store: &Seeded) {
+    let rules = "format = \"htn-results@1\"\ninstrument = \"htn-creator-eval\"\nsuite_kind = \"legacy-check\"\nentry_params = [\"scale\"]\n\n[harness]\nname = \"claude-code\"\nversion_pointer = \"/claude_code_version\"\n\n[treatment]\npointer = \"/plan/skill_version\"\nresolved = \"resolved_skill_version\"\n\n[[marker]]\npattern = \"(\"\ncode = \"x\"\n";
+    fs::write(store.dir.path().join("rules.toml"), rules).expect("the rules file writes");
+}
+
 fn plant_second_replicate(store: &Seeded) {
     seed_second_replicate(&store.dir.path().join("store"));
 }
@@ -1449,6 +1454,14 @@ const SITES: &[Site] = &[
         code: "config.nothing_compared",
         side: "config",
         says: "ev@9.0.0",
+    },
+    Site {
+        name: "ingest with a rules file whose marker pattern is invalid",
+        args: &["ingest", "results", "--rules", "rules.toml"],
+        setup: plant_rules_with_a_bad_pattern,
+        code: "config.import_rules_invalid",
+        side: "config",
+        says: "rules `marker.pattern`",
     },
     Site {
         name: "an invalid --set path",

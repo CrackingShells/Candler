@@ -97,6 +97,11 @@ where
         .map_err(|e| CliError::refused_by(e).led_by(format!("rules `{field}`: ")))
 }
 
+/// A refusal of the rules file, whose text is `detail`.
+fn invalid(detail: String) -> CliError {
+    CliError::refused_by(CliRefusal::RulesInvalid { detail })
+}
+
 /// The import rules the file at `path` states; a coded refusal names the file.
 fn load_rules(path: &Path) -> Result<(ImportRules, String), CliError> {
     rules_from(path).map_err(|error| error.with_file(path))
@@ -105,7 +110,7 @@ fn load_rules(path: &Path) -> Result<(ImportRules, String), CliError> {
 /// The steps of [`load_rules`].
 fn rules_from(path: &Path) -> Result<(ImportRules, String), CliError> {
     let bytes = fs::read(path).map_err(|e| {
-        CliError::refused(format!(
+        invalid(format!(
             "cannot read the rules file {}: {e}",
             path.display()
         ))
@@ -113,7 +118,7 @@ fn rules_from(path: &Path) -> Result<(ImportRules, String), CliError> {
     // The digest is of the file's bytes, whatever they parse to: it goes into every import record.
     let digest = digest_of(bytes.as_slice()).map_err(|e| CliError::failed("import", e))?; // BORROW: explicit .as_slice()
     let text = String::from_utf8(bytes).map_err(|e| {
-        CliError::refused(format!(
+        invalid(format!(
             "the rules file {} is not UTF-8: {e}",
             path.display()
         ))
@@ -155,15 +160,13 @@ fn rules_from(path: &Path) -> Result<(ImportRules, String), CliError> {
     }
     for item in &file.marker {
         let pattern = Regex::new(item.pattern.as_str()) // BORROW: explicit .as_str()
-            .map_err(|e| {
-                CliError::refused(format!("rules `marker.pattern`: {e}"))
-            })?;
+            .map_err(|e| invalid(format!("rules `marker.pattern`: {e}")))?;
         let code = match (item.code.as_deref(), item.capture.as_deref()) {
             (Some(code), None) => MarkerCode::Fixed(primitive::<ReasonCode>("marker.code", code)?),
             (None, Some(group)) => MarkerCode::Capture(group.to_owned()), // BORROW: the rule owns the group name
             (Some(_), Some(_)) | (None, None) => {
-                return Err(CliError::refused(
-                    "rules `marker`: exactly one of `code` and `capture` is required",
+                return Err(invalid(
+                    "rules `marker`: exactly one of `code` and `capture` is required".to_owned(),
                 ));
             }
         };
@@ -182,7 +185,7 @@ fn check_reader(name: &str) -> Result<(), CliError> {
         "claude-code" => ClaudeCodeReader::new()
             .map(drop)
             .map_err(|e| CliError::failed("import", e)),
-        other => Err(CliError::refused(format!(
+        other => Err(invalid(format!(
             "rules `harness.name`: no reader for `{other}`"
         ))),
     }
@@ -223,8 +226,9 @@ fn recognise_claude_code(sample: &[u8]) -> Option<Recognised> {
 /// Imports each results folder of `args.paths` into the store under the rules of `rules` and
 /// prints `{"runs": n, "records": n}` for each.
 async fn run_folders(cli: &Cli, args: &IngestArgs, rules: &Path) -> Result<Exit, CliError> {
-    let (rules, harness) = load_rules(rules)?;
-    check_reader(harness.as_str())?; // BORROW: explicit .as_str()
+    let (loaded, harness) = load_rules(rules)?;
+    check_reader(harness.as_str()).map_err(|e| e.with_file(rules))?; // BORROW: explicit .as_str()
+    let rules = loaded;
     let root = common::store_root("import", cli.store.as_deref()).await?;
     let store = Store::init(root.as_path()).map_err(|e| CliError::failed("import", e))?; // BORROW: explicit .as_path()
     let factory: Box<ReaderFactory> = Box::new(move || new_reader(harness.as_str())); // BORROW: explicit .as_str()
