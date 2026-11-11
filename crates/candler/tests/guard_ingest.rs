@@ -400,7 +400,7 @@ fn i1_the_verb_ingests_a_directory() {
 
 /// Guards: I1 — a path that holds no stream is refused with exit 2 and the code
 /// `import.no_stream`, and the message says a results folder needs `--rules`.
-/// Oracle: a folder the test wrote that holds grading files and no `outputs/` directory and no
+/// Oracle: a folder the test wrote that holds grading files and an `expectations.jsonl` but no `PROVENANCE.json` and no
 /// stream, and the code the ruling of 2026-11-11 gives `RawIngestError`.
 /// Bite: a verb that treats any folder as a trace directory, seals no run and exits 0 fails the
 /// status.
@@ -426,9 +426,9 @@ fn i1_a_path_with_no_stream_is_refused() {
 /// Guards: I1 — a legacy results folder given without `--rules` is refused with exit 2, the code
 /// `import.rules_required` and a message naming `--rules`, and the store holds no run, though the
 /// folder holds Claude Code streams.
-/// Oracle: the real M1 mini-corpus, whose runs each hold an `outputs/` directory and a stream, and
+/// Oracle: the real M1 mini-corpus, whose root holds the `PROVENANCE.json` and `expectations.jsonl` the legacy importer requires and whose runs hold streams, and
 /// the code the coordinator's ruling gives the refusal.
-/// Bite: the layout check removed ingests the corpus's six streams as raw runs and exits 0.
+/// Bite: the root-marker check removed ingests the corpus's six streams as raw runs and exits 0.
 #[test]
 fn i1_a_results_folder_without_rules_is_refused() {
     let dir = TempDir::new().expect("a directory");
@@ -453,6 +453,125 @@ fn i1_a_results_folder_without_rules_is_refused() {
                 .next()
                 .is_none()
     );
+}
+
+/// Guards: I1 — a raw trace directory that holds a valid stream and an unrelated `outputs/`
+/// directory at any depth, and an unrelated `expectations.jsonl` at its root, is ingested: one run
+/// created and exit 0, not `import.rules_required`.
+/// Oracle: the directory the test wrote, whose root lacks `PROVENANCE.json`, the file the legacy
+/// importer requires beside `expectations.jsonl`.
+/// Bite: the old recursive check for any `outputs/` directory restored refuses this directory.
+#[test]
+fn i1_a_nested_outputs_directory_does_not_make_a_results_folder() {
+    let dir = TempDir::new().expect("a directory");
+    let traces = dir.path().join("raw2");
+    put(&traces, "a/b/outputs/result.txt", b"unrelated\n");
+    put(&traces, "a/b/trace.jsonl", &stream("2.1.220", "n"));
+    put(&traces, "expectations.jsonl", b"{\"id\":\"A1\"}\n");
+    let store = dir.path().join("store");
+    let out = candler(
+        dir.path(),
+        &store,
+        &[
+            "--error-format",
+            "json",
+            "ingest",
+            traces.to_str().expect("a UTF-8 path"),
+        ],
+    );
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let summary: Value = serde_json::from_slice(&out.stdout).expect("a JSON line");
+    assert_eq!(summary["created"], 1, "{summary}");
+}
+
+/// Guards: I1, R2 — a rules file whose `harness.version_pointer` is not a JSON pointer is refused
+/// under `--error-format json` with the record `{code: config.import_rule_invalid, side: config}`
+/// that names the rules file, and the text form still reads `refused: rules: import rule is
+/// invalid (...)`.
+/// Oracle: the fixture rules file with that one pointer changed by the test, and the code and side
+/// the contract's `codes.toml` gives `ImportError::Rules`.
+/// Bite: the rules error flattened back to `CliError::refused(String)` prints `candler.internal`.
+#[test]
+fn i1_a_rules_file_with_an_invalid_rule_is_refused_with_its_code() {
+    let dir = TempDir::new().expect("a directory");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fixture = fs::read_to_string(root.join("tests/fixtures/cli/mini-corpus-rules.toml"))
+        .expect("the rules fixture reads");
+    let changed = fixture.replace(
+        "version_pointer = \"/claude_code_version\"",
+        "version_pointer = \"claude_code_version\"",
+    );
+    assert_ne!(changed, fixture, "the fixture names no version pointer");
+    let rules = dir.path().join("rules-with-a-bad-pointer.toml");
+    fs::write(&rules, changed).expect("the copy writes");
+    let corpus = root.join("../candler-core/tests/fixtures/mini-corpus");
+    let args = [
+        "ingest",
+        corpus.to_str().expect("a UTF-8 path"),
+        "--rules",
+        rules.to_str().expect("a UTF-8 path"),
+    ];
+    let store = dir.path().join("store");
+    let mut json_args = vec!["--error-format", "json"];
+    json_args.extend_from_slice(&args);
+    let out = candler(dir.path(), &store, &json_args);
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    let record: Value = serde_json::from_slice(&out.stderr).expect("one JSON record");
+    assert_eq!(record["code"], "config.import_rule_invalid", "{record}");
+    assert_eq!(record["side"], "config", "{record}");
+    assert_eq!(
+        record["file"],
+        rules.to_str().expect("a UTF-8 path"),
+        "{record}"
+    );
+    let out = candler(dir.path(), &store, &args);
+    let text = String::from_utf8_lossy(&out.stderr);
+    assert!(text.starts_with("candler: refused: rules: "), "{text}");
+}
+
+/// Guards: I1, R2 — a rules file that does not parse, here the fixture without its `entry_params`
+/// line, is the author's fault: under `--error-format json` the record is `{code:
+/// config.import_rules_invalid, side: config}` and names the rules file, and the text form still
+/// reads `refused: rules file: TOML parse error ...` naming `entry_params`.
+/// Oracle: the fixture rules file with that one line removed by the test, and the code and side
+/// the coordinator's ruling gives a rules file that does not parse.
+/// Bite: the parse error returned to `CliError::refused(format!(..))` prints `candler.internal`.
+#[test]
+fn i1_a_rules_file_that_does_not_parse_is_refused_with_its_code() {
+    let dir = TempDir::new().expect("a directory");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fixture = fs::read_to_string(root.join("tests/fixtures/cli/mini-corpus-rules.toml"))
+        .expect("the rules fixture reads");
+    let kept: Vec<&str> = fixture
+        .lines()
+        .filter(|line| !line.starts_with("entry_params"))
+        .collect();
+    let rules = dir.path().join("rules-without-entry-params.toml");
+    fs::write(&rules, format!("{}\n", kept.join("\n"))).expect("the copy writes");
+    let corpus = root.join("../candler-core/tests/fixtures/mini-corpus");
+    let args = [
+        "ingest",
+        corpus.to_str().expect("a UTF-8 path"),
+        "--rules",
+        rules.to_str().expect("a UTF-8 path"),
+    ];
+    let store = dir.path().join("store");
+    let mut json_args = vec!["--error-format", "json"];
+    json_args.extend_from_slice(&args);
+    let out = candler(dir.path(), &store, &json_args);
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    let record: Value = serde_json::from_slice(&out.stderr).expect("one JSON record");
+    assert_eq!(record["code"], "config.import_rules_invalid", "{record}");
+    assert_eq!(record["side"], "config", "{record}");
+    assert_eq!(
+        record["file"],
+        rules.to_str().expect("a UTF-8 path"),
+        "{record}"
+    );
+    let out = candler(dir.path(), &store, &args);
+    let text = String::from_utf8_lossy(&out.stderr);
+    assert!(text.starts_with("candler: refused: rules file: "), "{text}");
+    assert!(text.contains("entry_params"), "{text}");
 }
 
 /// The sha256 of `fixtures/cli/mini-corpus-rules.toml`'s corpus counts are the hand literals of

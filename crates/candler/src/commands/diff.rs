@@ -45,7 +45,7 @@ pub async fn run(cli: &Cli, args: &DiffArgs) -> Result<Exit, CliError> {
     let equivalence = args
         .equivalence
         .as_deref()
-        .map(|path| Equivalence::load(path).map_err(|e| CliError::refused(format!("{e}"))))
+        .map(|path| Equivalence::load(path).map_err(|e| CliError::refused_by(e).with_file(path)))
         .transpose()?;
     let store = common::open_store("diff", cli).await?;
     let selection = common::read_selection("diff", &store)?;

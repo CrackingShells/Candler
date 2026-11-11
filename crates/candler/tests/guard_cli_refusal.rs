@@ -457,7 +457,8 @@ fn r2_refused_suite_params_print_as_a_suite_record() {
 /// read.
 ///
 /// Oracle: records written by hand from the contract, compared field by field; the three inputs
-/// are an empty directory, a directory holding an `outputs/` directory, and an absent path.
+/// are an empty directory, a directory with the `PROVENANCE.json` and `expectations.jsonl` that a results
+/// folder holds at its root, and an absent path.
 ///
 /// Bite: give `RulesRequired` the side `environment`; name `NoStream` after the verb
 /// (`ingest.failed`).
@@ -467,6 +468,9 @@ fn r2_ingest_refusals_print_as_records_naming_the_file() {
     fs::create_dir_all(dir.path().join("home")).expect("a home");
     fs::create_dir_all(dir.path().join("empty")).expect("an empty directory");
     fs::create_dir_all(dir.path().join("results/run-1/outputs")).expect("a results folder");
+    for marker in ["PROVENANCE.json", "expectations.jsonl"] {
+        fs::write(dir.path().join("results").join(marker), "").expect("a root marker");
+    }
     for (path, code, side) in [
         ("empty", "import.no_stream", "environment"),
         ("results", "import.rules_required", "config"),
