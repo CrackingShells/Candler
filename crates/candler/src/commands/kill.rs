@@ -28,10 +28,12 @@ pub struct Args {
     /// The job to stop.
     #[arg(required_unless_present = "all", conflicts_with = "all")]
     pub id: Option<JobId>,
-    /// Stop every running or lost job.
+    /// Stop every running or lost job. not an experiment setting: it chooses which jobs the call
+    /// stops.
     #[arg(long)]
     pub all: bool,
-    /// Do not ask for confirmation.
+    /// Do not ask for confirmation. not an experiment setting: it answers the question the call
+    /// would ask.
     #[arg(short = 'y', long = "yes", default_value_t = false)]
     pub yes: bool,
 }

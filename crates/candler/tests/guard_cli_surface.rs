@@ -44,24 +44,6 @@ pub const PENDING_CWD: &[&str] = &[
     "run", "watch", "ingest", "evaluate", "show", "diff", "resolve", "ls", "analyze", "inspect",
 ];
 
-/// The options whose help does not end with a stamp yet, as `"<verb> --<option>"`, or
-/// `"--<option>"` for a global option. A leaf that writes the stamp removes the entry.
-pub const PENDING_STAMPS: &[&str] = &[
-    "--store",
-    "run --set",
-    "run --force",
-    "kill --all",
-    "kill --yes",
-    "show --rates",
-    "show --format",
-    "show --evaluator",
-    "diff --from",
-    "diff --to",
-    "diff --equivalence",
-    "diff --format",
-    "watch --json",
-];
-
 /// A verb and the arguments that run it, by a relative `--store`, on an empty directory.
 struct Row {
     verb: &'static str,
@@ -236,10 +218,9 @@ fn u1_each_verb_runs_from_an_unrelated_directory() {
 
 /// Guards: U2 — the help of every option, global or of a verb, ends with a sentence that starts
 /// `cannot be derived: ` or `not an experiment setting: `; `--help`, `--version` and positional
-/// arguments are outside the walk. The options that fail are exactly `PENDING_STAMPS`. Oracle:
-/// the `--help` of the real binary, each option's continuation lines joined. Bite: an entry
-/// removed from the list, or an option whose stamp is deleted, names the option and fails; so
-/// does an entry left on the list after its option has the stamp.
+/// arguments are outside the walk. Oracle: the `--help` of the real binary, each option's
+/// continuation lines joined. Bite: an option whose stamp is deleted, or whose stamp is followed by
+/// another sentence, names the option and fails.
 #[test]
 fn u2_every_option_help_ends_with_a_stamp() {
     let mut failing: BTreeSet<String> = BTreeSet::new();
@@ -266,16 +247,8 @@ fn u2_every_option_help_ends_with_a_stamp() {
     }
     assert!(seen > 10, "the walk saw {seen} options");
     assert!(
-        !PENDING_STAMPS.contains(&"--error-format"),
-        "--error-format has its stamp and is not pending"
-    );
-    let pending: BTreeSet<String> = PENDING_STAMPS
-        .iter()
-        .map(|entry| (*entry).to_owned())
-        .collect();
-    assert_eq!(
-        failing, pending,
-        "the options without a stamp are the pending list"
+        failing.is_empty(),
+        "the options without a stamp: {failing:?}"
     );
 }
 

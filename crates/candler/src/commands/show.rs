@@ -12,14 +12,16 @@ use crate::Cli;
 #[derive(Debug, clap::Args)]
 pub struct ShowArgs {
     /// Print the per-cell rates of one evaluator instead of the outcomes; the evaluator is the
-    /// one the store holds when `--evaluator` is absent.
+    /// one the store holds when `--evaluator` is absent. not an experiment setting: it chooses
+    /// what the call prints.
     #[arg(long)]
     pub rates: bool,
     /// The evaluator whose outcomes are shown, as `name@version` or a bare version one evaluator
-    /// holds; every evaluator when absent.
+    /// holds; every evaluator when absent. not an experiment setting: it narrows which stored
+    /// outcomes the call prints.
     #[arg(long)]
     pub evaluator: Option<String>,
-    /// The output format.
+    /// The output format. not an experiment setting: it is how the output is read.
     #[arg(long, value_enum)]
     pub format: ShowFormat,
 }

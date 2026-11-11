@@ -9,16 +9,19 @@ use crate::Cli;
 /// The arguments of `candler diff`.
 #[derive(Debug, clap::Args)]
 pub struct DiffArgs {
-    /// The base evaluator, as `id@version` or a bare version one evaluator holds.
+    /// The base evaluator, as `id@version` or a bare version one evaluator holds. cannot be
+    /// derived: which versions to compare is the question the caller asks of the store.
     #[arg(long)]
     pub from: String,
-    /// The compared evaluator, as `id@version` or a bare version one evaluator holds.
+    /// The compared evaluator, as `id@version` or a bare version one evaluator holds. cannot be
+    /// derived: which versions to compare is the question the caller asks of the store.
     #[arg(long)]
     pub to: String,
-    /// An equivalence file naming the rows excused from the comparison.
+    /// An equivalence file naming the rows excused from the comparison. not an experiment
+    /// setting: it is the caller's list of rows to excuse from this one comparison.
     #[arg(long)]
     pub equivalence: Option<PathBuf>,
-    /// The output format.
+    /// The output format. not an experiment setting: it is how the output is read.
     #[arg(long, value_enum)]
     pub format: DiffFormat,
 }

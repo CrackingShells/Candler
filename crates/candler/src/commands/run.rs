@@ -66,10 +66,11 @@ pub struct Args {
     /// The experiment file.
     pub experiment: PathBuf,
     /// A value that replaces the file's: `PATH=VALUE`, the value read as JSON when it is JSON
-    /// and as text otherwise. Repeatable.
+    /// and as text otherwise. Repeatable. cannot be derived: an override is what the caller types.
     #[arg(long = "set", value_name = "PATH=VALUE", value_parser = parse_field)]
     pub fields: Vec<(FieldPath, String)>,
-    /// Accept the differences the plan finds against the stored runs.
+    /// Accept the differences the plan finds against the stored runs. cannot be derived: whether
+    /// to accept differences is the caller's decision, taken after the plan has shown them.
     #[arg(long)]
     pub force: bool,
 }

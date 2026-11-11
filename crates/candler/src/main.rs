@@ -31,7 +31,8 @@ use crate::commands::{
     about = "Run, evaluate and compare agent experiments"
 )]
 struct Cli {
-    /// The store root, for every verb; by default the store the configuration names.
+    /// The store root, for every verb; by default the store the configuration names. not an
+    /// experiment setting: it chooses where the results of every experiment are kept.
     #[arg(long, env = "CANDLER_STORE", global = true)]
     store: Option<PathBuf>,
     /// How refusals are written on stderr. cannot be derived: what parses the caller's stderr is not
