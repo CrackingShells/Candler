@@ -12,7 +12,8 @@
   - `import.rules` absent in every arm: refused, naming `import.rules`;
   - a legacy commit or contract unrecorded in `comparable.values` in every arm: refused, naming the path;
   - different legacy commits: refused, naming `provenance.eval_infra.commit`;
-  - one imported arm and one live arm: refused, naming `import`.
+  - one imported arm and one live arm: refused, naming `import`;
+  - an imported arm whose import record has no `base_commit` and no legacy build values, as a raw-trace import has (M3 makes `ImportRecord.base_commit` and `legacy_integrity` optional in `schemas@0.7.0`): refused, naming the unrecorded legacy paths. `base_commit` itself gates nothing.
   Oracle: rows written from D7, not from the code
 - ⬜ [cmd] Live strata are unchanged: no existing row is edited or removed: `! git diff a26fe53 -- crates/candler-core/tests/fixtures/comparability/verdicts.json | grep -q '^-[^-]'`
 - ⬜ [cmd] V2: a real mini-corpus import gives `comparable` for a stratum of its arms that differ only in declared factors: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^imported_stratum_/)'`
