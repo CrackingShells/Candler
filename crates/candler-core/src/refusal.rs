@@ -15,10 +15,13 @@ use candler_schemas::refusal::{CatalogRow, Refusal};
 #[must_use]
 pub fn catalog() -> Vec<CatalogRow> {
     let mut rows = candler_schemas::refusal::catalog();
+    rows.extend(crate::evaluation::refusal::catalog());
     rows.extend(crate::experiment::refusal::catalog());
     rows.extend(crate::frames::refusal::catalog());
     #[cfg(unix)]
     rows.extend(crate::isolation::refusal::catalog());
+    #[cfg(unix)]
+    rows.extend(crate::jobs::refusal::catalog());
     rows.extend(crate::resolve::refusal::catalog());
     #[cfg(unix)]
     rows.extend(crate::runner::refusal::catalog());
@@ -51,6 +54,9 @@ fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal> {
     if let Some(found) = schemas_coded(error) {
         return Some(found);
     }
+    if let Some(found) = crate::evaluation::refusal::coded(error) {
+        return Some(found);
+    }
     if let Some(found) = crate::experiment::refusal::coded(error) {
         return Some(found);
     }
@@ -59,6 +65,10 @@ fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal> {
     }
     #[cfg(unix)]
     if let Some(found) = crate::isolation::refusal::coded(error) {
+        return Some(found);
+    }
+    #[cfg(unix)]
+    if let Some(found) = crate::jobs::refusal::coded(error) {
         return Some(found);
     }
     if let Some(found) = crate::resolve::refusal::coded(error) {

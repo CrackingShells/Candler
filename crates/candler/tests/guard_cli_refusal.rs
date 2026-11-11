@@ -10,6 +10,13 @@
 )]
 #[path = "support/cli_run.rs"]
 mod cli_run;
+#[cfg(unix)]
+#[expect(
+    dead_code,
+    reason = "this guard builds the helper's environment, not every helper of the shared module"
+)]
+#[path = "support/seam.rs"]
+mod seam;
 
 use std::fs;
 use std::path::Path;
@@ -229,44 +236,179 @@ fn r2_the_text_form_is_unchanged_without_the_flag() {
     );
 }
 
-/// The rows of the refusals that a later leaf codes: each runs today and reports the fallback
-/// code, so a leaf that codes one fails this guard until it replaces the row with the record it
-/// expects.
-const PENDING: &[(&str, &[&str])] = &[(
-    "a missing plug-in directory",
-    &[
-        "evaluate",
-        "--plugin",
-        "absent/plugin.toml",
-        "--suite",
-        "suite.toml",
-        "--store",
-        "store",
-    ],
-)];
-
-/// Guards: R2 — the refusals of the evaluation registry are listed here and still print as
-/// `candler.internal`, so the leaf that codes them replaces each row by the record it expects.
-/// The row for a suite whose params the plug-in's schema refuses needs a live plug-in
-/// environment and is added by that leaf.
-///
-/// Oracle: the fallback code of `docs/contract/codes.toml`, `[internal]`.
-///
-/// Bite: code the registry's `Read` error: the row turns red.
-#[test]
-fn r2_the_pending_rows_still_print_as_internal() {
-    let dir = bad_manifest();
-    for (name, args) in PENDING {
-        let mut all = vec!["--error-format", "json"];
-        all.extend_from_slice(args);
-        let out = candler(dir.path(), "/usr/bin:/bin", &all);
-        let record = record_of(&out);
-        assert_eq!(
-            record["code"], "candler.internal",
-            "{name} is coded: replace its row with the record it expects\n{record}"
-        );
-        assert_eq!(record["side"], "candler", "{name}: {record}");
+/// The record a refusal that no test of the refusal's own verb reaches is expected to print.
+fn assert_refusal(out: &Output, code: &str, side: &str, path: Option<&str>) {
+    let record = record_of(out);
+    assert_eq!(record["schema"], "refusal/1", "{record}");
+    assert_eq!(record["code"], code, "{record}");
+    assert_eq!(record["side"], side, "{record}");
+    match path {
+        Some(pointer) => assert_eq!(record["path"], json!(pointer), "{record}"),
+        None => assert!(record.get("path").is_none(), "no path: {record}"),
     }
+}
+
+/// Guards: R2 — a plug-in manifest that does not exist prints as the record of
+/// `plugin.manifest_unreadable`, side `plugin`, with no pointer because no document was read.
+///
+/// Oracle: a record written by hand from the contract; the cause is a file that is not there.
+///
+/// Bite: name the code after the function (`evaluate.failed`); leave the registry's `Read` error
+/// without a code, so the record falls back to `candler.internal`.
+#[test]
+fn r2_a_missing_plugin_manifest_prints_as_a_record() {
+    let dir = bad_manifest();
+    let out = candler(
+        dir.path(),
+        "/usr/bin:/bin",
+        &[
+            "--error-format",
+            "json",
+            "evaluate",
+            "--plugin",
+            "absent/plugin.toml",
+            "--suite",
+            "suite.toml",
+            "--store",
+            "store",
+        ],
+    );
+    assert_refusal(&out, "plugin.manifest_unreadable", "plugin", None);
+}
+
+/// Guards: R2 — an environment with neither `XDG_STATE_HOME` nor `HOME` prints as the record of
+/// `evaluation.state_home_unset`, side `environment`.
+///
+/// Oracle: a record written by hand from the contract; the process environment is empty.
+///
+/// Bite: give the variant side `plugin`.
+#[test]
+fn r2_no_state_home_prints_as_an_environment_record() {
+    let dir = bad_manifest();
+    let out = Command::new(env!("CARGO_BIN_EXE_candler"))
+        .args([
+            "--error-format",
+            "json",
+            "evaluate",
+            "--plugin",
+            "plugin.toml",
+        ])
+        .args(["--suite", "suite.toml", "--store", "store"])
+        .current_dir(dir.path())
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .stdin(Stdio::null())
+        .output()
+        .expect("the binary runs");
+    // The manifest has an unknown key, so the registry refuses first: the empty environment is
+    // asserted by a manifest that loads.
+    assert_refusal(&out, "plugin.unknown_field", "plugin", Some("/zzz"));
+    fs::write(
+        dir.path().join("plugin.toml"),
+        "schema = \"plugin-manifest/1\"\nname = \"seam\"\nversion = \"0.1.0\"\n\
+         command = [\"true\"]\n\n[protocol]\nmajor = 1\nminor = 0\n\n[environment]\n\
+         kind = \"uv\"\nproject = \"env\"\nlock = \"env/uv.lock\"\n",
+    )
+    .expect("the manifest writes");
+    let out = Command::new(env!("CARGO_BIN_EXE_candler"))
+        .args([
+            "--error-format",
+            "json",
+            "evaluate",
+            "--plugin",
+            "plugin.toml",
+        ])
+        .args(["--suite", "suite.toml", "--store", "store"])
+        .current_dir(dir.path())
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .stdin(Stdio::null())
+        .output()
+        .expect("the binary runs");
+    assert_refusal(&out, "evaluation.state_home_unset", "environment", None);
+}
+
+/// A plug-in of one kind whose params schema takes one integer `n`, set up beside `world` with a
+/// link to the helper's project, and a suite that gives `n` a string. Returns the manifest and
+/// the suite.
+#[cfg(unix)]
+fn params_plugin(world: &cli_run::World) -> (std::path::PathBuf, std::path::PathBuf) {
+    let dir = world.root.join("params-plugin");
+    let kinds = dir.join("kinds");
+    fs::create_dir_all(&kinds).expect("a kinds directory");
+    let helper = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../python/candler-evaluator");
+    std::os::unix::fs::symlink(helper, dir.join("env")).expect("a link to the helper");
+    fs::write(
+        kinds.join("params_kind.py"),
+        "NAME = \"seam\"\nVERSION = \"0.1.0\"\n\
+         KIND_SPECS = {\"check\": {\"params_schema\": {\"type\": \"object\", \
+         \"properties\": {\"n\": {\"type\": \"integer\"}}, \"additionalProperties\": False}}}\n\n\n\
+         def check(params, context, prior):\n    return {\"status\": \"pass\", \"evidence\": [{\"note\": \"x\"}]}\n\n\n\
+         KINDS = {\"check\": check}\n",
+    )
+    .expect("the kind writes");
+    let manifest = dir.join("plugin.toml");
+    fs::write(
+        &manifest,
+        format!(
+            "schema = \"plugin-manifest/1\"\nname = \"seam\"\nversion = \"0.1.0\"\n\
+             command = [\"env\", \"PYTHONPATH={}\", \"uv\", \"run\", \"--frozen\", \"python\", \
+             \"-m\", \"candler_evaluator\", \"params_kind\"]\n\n[protocol]\nmajor = 1\nminor = 0\n\n\
+             [environment]\nkind = \"uv\"\nproject = \"env\"\nlock = \"env/uv.lock\"\n",
+            kinds.display()
+        ),
+    )
+    .expect("the manifest writes");
+    let suite = dir.join("suite.toml");
+    fs::write(
+        &suite,
+        "schema = \"suite/1\"\n\n[[expectations]]\nid = \"R1\"\nrole = \"gate\"\nkind = \"check\"\n\
+         depends_on = []\n\n[expectations.evaluator]\nname = \"seam\"\nrange = \"^0.1\"\n\n\
+         [expectations.params]\nn = \"three\"\n",
+    )
+    .expect("the suite writes");
+    (manifest, suite)
+}
+
+/// Guards: R2 — a suite whose params the plug-in's schema refuses prints as the record of
+/// `suite.params_invalid`, side `suite`, with the pointer of the refused value inside `params`.
+/// The plug-in is real: its environment is built and it answers `describe` itself.
+///
+/// Oracle: a record written by hand from the contract; the schema takes an integer `n` and the
+/// suite gives it a string, so the pointer is `/n`.
+///
+/// Bite: name the code after the function (`evaluate.failed`); drop the pointer from the path of
+/// `RegistryError::Params`; give the variant side `plugin`.
+#[cfg(unix)]
+#[test]
+fn r2_refused_suite_params_print_as_a_suite_record() {
+    let world = world();
+    seam::sync_environment(&world);
+    let (manifest, suite) = params_plugin(&world);
+    let out = Command::new(env!("CARGO_BIN_EXE_candler"))
+        .args(["--error-format", "json", "--store"])
+        .arg(world.store())
+        .arg("evaluate")
+        .arg("--plugin")
+        .arg(&manifest)
+        .arg("--suite")
+        .arg(&suite)
+        .current_dir(&world.work)
+        .env_remove("CANDLER_STORE")
+        .env("HOME", world.root.join("home"))
+        .env("XDG_CONFIG_HOME", world.root.join("config"))
+        .env("XDG_STATE_HOME", &world.state)
+        .stdin(Stdio::null())
+        .output()
+        .expect("the binary runs");
+    // The supervisor reports the evaluator it spawned on stderr first; the refusal is the last line.
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    let last = stderr.lines().last().expect("a line of stderr");
+    let out = Output {
+        stderr: format!("{last}\n").into_bytes(),
+        ..out
+    };
+    assert_refusal(&out, "suite.params_invalid", "suite", Some("/n"));
 }
 
 /// The refusal a `--set` key under `request` that no setting names is.

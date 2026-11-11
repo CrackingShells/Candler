@@ -9,6 +9,7 @@ pub mod client;
 pub mod context;
 #[cfg(unix)]
 pub mod engine;
+pub(crate) mod refusal;
 #[cfg(unix)]
 pub mod registry;
 pub mod selection;

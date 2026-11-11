@@ -17,7 +17,7 @@ const INTERNAL_CODE: &str = "candler.internal";
 const NO_CODE_SECTIONS: [&str; 2] = ["internal", "helper"];
 
 /// The sections whose rows the core and the harness crates own: their rows are in the catalogue.
-const CATALOGUED_SECTIONS: [&str; 8] = [
+const CATALOGUED_SECTIONS: [&str; 10] = [
     "resolve",
     "experiment",
     "runner",
@@ -26,30 +26,24 @@ const CATALOGUED_SECTIONS: [&str; 8] = [
     "supervise",
     "frames",
     "harness",
+    "jobs",
+    "evaluation",
 ];
 
 /// The error types the oracle gives to a later leaf, as `<file>::<name>`; that leaf empties this
 /// list. An entry that is not a type of the source, is in the catalogue, or is not a type the
 /// oracle gives to that leaf fails the guard, so the list cannot hide a type of this leaf.
 const PENDING: &[&str] = &[
-    "crates/candler-core/src/evaluation/client/mod.rs::ClientError",
-    "crates/candler-core/src/evaluation/context/mod.rs::ContextError",
-    "crates/candler-core/src/evaluation/engine/mod.rs::EvaluateError",
-    "crates/candler-core/src/evaluation/engine/plan.rs::PlanError",
-    "crates/candler-core/src/evaluation/registry/mod.rs::RegistryError",
-    "crates/candler-core/src/evaluation/registry/needs.rs::NeedError",
-    "crates/candler-core/src/evaluation/selection/diff.rs::EquivalenceError",
     "crates/candler-core/src/import/mod.rs::ImportError",
     "crates/candler-core/src/import/raw.rs::RawIngestError",
-    "crates/candler-core/src/jobs/dir.rs::JobError",
-    "crates/candler-core/src/jobs/lost.rs::RecoverError",
-    "crates/candler-core/src/jobs/orchestrate/session.rs::OrchestrateError",
-    "crates/candler-core/src/jobs/runtime/mod.rs::RuntimeError",
-    "crates/candler-core/src/jobs/slots.rs::SlotError",
-    "crates/candler-core/src/jobs/view.rs::JobViewError",
     "crates/candler-core/src/manifest/compare.rs::VerdictError",
     "crates/candler-core/src/trace/mod.rs::NormaliseError",
 ];
+
+/// Whether `<file>::<name>` is on the pending list.
+fn pending_file(file: &str, name: &str) -> bool {
+    PENDING.contains(&format!("{file}::{name}").as_str())
+}
 
 /// The workspace root.
 fn root() -> PathBuf {
@@ -265,6 +259,59 @@ fn r1_every_error_enum_is_coded_or_internal() {
         );
     }
 
+    for row in scope
+        .iter()
+        .filter(|row| row.leaf == "refusal_late" && !pending_file(&row.file, name_of(&row.path)))
+    {
+        let name = name_of(&row.path);
+        let rows: Vec<&CatalogRow> = catalogue.iter().filter(|r| r.enum_name == name).collect();
+        assert!(
+            !rows.is_empty(),
+            "{} is in this leaf's scope and has no row in the catalogue",
+            row.path
+        );
+        let own = |r: &&&CatalogRow| !r.delegates;
+        let authored = rows
+            .iter()
+            .filter(own)
+            .filter(|r| r.code != INTERNAL_CODE)
+            .count();
+        let internal = rows
+            .iter()
+            .filter(own)
+            .filter(|r| r.code == INTERNAL_CODE)
+            .count();
+        for r in rows.iter().filter(own) {
+            assert_eq!(
+                r.code == INTERNAL_CODE,
+                r.side == Side::Candler,
+                "{}::{} has code {:?} and side {}: the fallback code and the side `candler` go together",
+                row.path,
+                r.variant,
+                r.code,
+                r.side
+            );
+        }
+        match row.author.as_str() {
+            "yes" => assert!(
+                authored > 0,
+                "{} is an author's enum by the oracle and codes no variant",
+                row.path
+            ),
+            "no" => assert!(
+                authored == 0 && internal > 0,
+                "{} is not an author's enum by the oracle and codes a variant for the author",
+                row.path
+            ),
+            "mixed" => assert!(
+                authored > 0 && internal > 0,
+                "{} is a mixed enum by the oracle and has {authored} author and {internal} internal variants",
+                row.path
+            ),
+            other => panic!("{}: the oracle's author column holds {other:?}", row.path),
+        }
+    }
+
     for row in scope.iter().filter(|row| row.leaf == "refusal_core") {
         let name = name_of(&row.path);
         if name == "CliError" {
@@ -401,4 +448,39 @@ fn r1_every_variant_code_equals_its_row() {
             );
         }
     }
+}
+
+/// Guards: R1 — a variant that only wraps a coded error answers, through the walk of causes,
+/// with the wrapped error's own code, side and path, not with the side its wrapper was written
+/// with: an unknown kind found by the registry is the suite's, whoever wraps it, and a lock held
+/// on the experiment is the environment's, though the orchestration wraps it as the
+/// experiment's.
+///
+/// Oracle: the sides written by hand from the contract (`suite.kind_unknown` is the suite's,
+/// `runner.experiment_locked` the environment's); the errors are built by hand.
+///
+/// Bite: make `coded` of the module return the wrapper (`Some(wrapper)`) instead of what it
+/// wraps.
+#[cfg(unix)]
+#[test]
+fn r1_a_wrapper_answers_with_the_side_of_what_it_wraps() {
+    use candler_core::evaluation::engine::EvaluateError;
+    use candler_core::evaluation::registry::RegistryError;
+    use candler_core::jobs::orchestrate::session::OrchestrateError;
+    use candler_core::runner::plan::PlanError;
+
+    let kind = RegistryError::UnknownKind {
+        entry: "R1".parse().unwrap(),
+        evaluator: "seam".parse().unwrap(),
+        kind: "check".parse().unwrap(),
+    };
+    let wrapped = EvaluateError::Registry(kind);
+    let found = candler_core::refusal::find(&wrapped).expect("a coded error");
+    assert_eq!(found.code().as_str(), "suite.kind_unknown");
+    assert_eq!(found.side(), Side::Suite);
+
+    let locked = OrchestrateError::Plan(PlanError::ExperimentLocked);
+    let found = candler_core::refusal::find(&locked).expect("a coded error");
+    assert_eq!(found.code().as_str(), "runner.experiment_locked");
+    assert_eq!(found.side(), Side::Environment);
 }
