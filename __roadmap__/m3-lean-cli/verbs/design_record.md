@@ -1,6 +1,6 @@
 # Design record
 
-**Goal**: R01 (`__design__/architecture.md`) records decisions D1 to D10 of M3, the evaluator slot pool, the final CLI surface, the refusal identity, the analysis statistics and the workspace targets, so that the design says what the code does; it writes no code.
+**Goal**: R01 (`__design__/architecture.md`) records decisions D2 to D10 of M3 (D1, how the changes land, is process and stays out), the evaluator slot pool, the final CLI surface, the refusal identity, the analysis statistics and the workspace targets, so that the design says what the code does; it writes no code.
 **Pre-conditions**:
 - [ ] [cmd] The leaf's worktree is its own checkout: `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints the worktree path
 - [ ] [cmd] R01 still holds the provisional text this leaf replaces, and none of the new sections: `git grep -q 'Provisional:\*.*experiments/' -- __design__/architecture.md && ! git grep -q 'refusal/1' -- __design__/architecture.md && ! git grep -q '^### Analysis statistics' -- __design__/architecture.md && ! git grep -q '^### Workspace targets' -- __design__/architecture.md`
@@ -63,7 +63,6 @@ The key terms, one row per `step|heading|term`; the gates read this block, so a 
 3|### CLI surface over the jobs|--live
 3|### CLI surface over the jobs|NO_COLOR
 3|### CLI surface over the jobs|include_bytes!
-3|## Deliberately open|`ls`
 4|### Analysis statistics|Wilson
 4|### Analysis statistics|Fisher
 4|### Analysis statistics|Newcombe
@@ -77,8 +76,6 @@ The key terms, one row per `step|heading|term`; the gates read this block, so a 
 5|### Workspace targets|after M7
 5|### Workspace targets|Linux
 5|### Workspace targets|macOS
-5|### Landing order|scaffold
-5|### Landing order|orphan
 ```
 
 ## Step 1: Refusals and contract pages
@@ -123,11 +120,11 @@ The key terms, one row per `step|heading|term`; the gates read this block, so a 
 **Consistency Checks**: `test -z "$(sed -n '/^```terms$/,/^```$/p' __roadmap__/m3-lean-cli/verbs/design_record.md | grep '^4|' | while IFS='|' read -r n h t; do awk -v h="$h" '$0==h{f=1;next} /^##+ /{if(f)exit} f' __design__/architecture.md | grep -qF -- "$t" || echo "$h: $t"; done)"` (expected: PASS)
 **Commit**: `docs(design): record the analysis statistics`
 
-## Step 5: Workspace targets and the landing order
-**Goal**: R01 records D7 (what Candler builds for, and how a Windows port stays ready) and D1 (how the first changes land).
+## Step 5: Workspace targets and the unknown-field rule
+**Goal**: R01 records D7 (what Candler builds for, and how a Windows port stays ready) and the rule for unknown fields that the author documents now follow.
 **Implementation Logic**:
 1. New `### Workspace targets`, right after `### Workspace` (under `## Proposed State`, before `## Operation API`): Candler builds and runs on Linux and macOS; on Windows it runs inside WSL2, where it is Linux; the binary refuses to compile on a non-unix target with a message that names WSL2 (one `compile_error!`); `candler-schemas` and the Python helper stay portable. A native Windows port is a milestone of its own after M7. It starts from the committed inventory `crates/candler-core/tests/vectors/platform_inventory.toml`, which lists every file that calls a unix-only API (the count at the time of writing, from the inventory) with what it uses and its Windows counterpart, and from a guard that fails when a file outside the list starts to use one. A short table of the counterparts: process-group stop with escalation → Job Objects; descendants that escape → Job Objects (no sweep); never signalling a reused pid → a held process handle; `flock` → `LockFileEx`; a detached supervisor → `DETACHED_PROCESS`; Docker → the same CLI with host path forms for mounts; the helper's `os.fork` isolation → a spawn mode.
-2. New `### Landing order` at the end of `## Implementation`, after the Tooling paragraph: the supervisor's orphan fix lands on `main` first, on its own, because the flake it cures fails every pull request's CI; the CLI scaffold (dependencies, the verbs as stubs, the registry skeleton) lands beside it; the rest of the lean CLI follows as one change. Two sentences, no dates, no plan references.
-**Deliverables**: `__design__/architecture.md`: `### Workspace targets`, `### Landing order`
+2. No landing order is written into R01: how the changes reach `main` is development process, which R01 does not carry (AGENTS.md). D1 lives in the campaign README and the PR bodies. Also reword §Wire encodings' "Unknown fields" row so it matches §Refusals: readers of the records Candler writes ignore unknown fields, so an older reader reads a newer record, and readers of the three author documents (experiment, suite, plug-in manifest) refuse them with `<surface>.unknown_field`. I18 (event and message consumers skip unknown kinds) is not the rule for fields, so §Refusals cites §Wire encodings, not I18.
+**Deliverables**: `__design__/architecture.md`: `### Workspace targets`, §Wire encodings' "Unknown fields" row
 **Consistency Checks**: `test -z "$(sed -n '/^```terms$/,/^```$/p' __roadmap__/m3-lean-cli/verbs/design_record.md | grep '^5|' | while IFS='|' read -r n h t; do awk -v h="$h" '$0==h{f=1;next} /^##+ /{if(f)exit} f' __design__/architecture.md | grep -qF -- "$t" || echo "$h: $t"; done)"` (expected: PASS)
-**Commit**: `docs(design): record the workspace targets and the landing order`
+**Commit**: `docs(design): record the workspace targets and the unknown-field rule`
