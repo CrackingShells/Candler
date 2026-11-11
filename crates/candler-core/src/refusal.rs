@@ -18,16 +18,19 @@ pub fn catalog() -> Vec<CatalogRow> {
     rows.extend(crate::evaluation::refusal::catalog());
     rows.extend(crate::experiment::refusal::catalog());
     rows.extend(crate::frames::refusal::catalog());
+    rows.extend(crate::import::refusal::catalog());
     #[cfg(unix)]
     rows.extend(crate::isolation::refusal::catalog());
     #[cfg(unix)]
     rows.extend(crate::jobs::refusal::catalog());
+    rows.extend(crate::manifest::refusal::catalog());
     rows.extend(crate::resolve::refusal::catalog());
     #[cfg(unix)]
     rows.extend(crate::runner::refusal::catalog());
     rows.extend(crate::store::refusal::catalog());
     #[cfg(unix)]
     rows.extend(crate::supervise::refusal::catalog());
+    rows.extend(crate::trace::refusal::catalog());
     rows.extend(candler_harness::refusal::catalog());
     rows
 }
@@ -63,12 +66,18 @@ fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal> {
     if let Some(found) = crate::frames::refusal::coded(error) {
         return Some(found);
     }
+    if let Some(found) = crate::import::refusal::coded(error) {
+        return Some(found);
+    }
     #[cfg(unix)]
     if let Some(found) = crate::isolation::refusal::coded(error) {
         return Some(found);
     }
     #[cfg(unix)]
     if let Some(found) = crate::jobs::refusal::coded(error) {
+        return Some(found);
+    }
+    if let Some(found) = crate::manifest::refusal::coded(error) {
         return Some(found);
     }
     if let Some(found) = crate::resolve::refusal::coded(error) {
@@ -83,6 +92,9 @@ fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal> {
     }
     #[cfg(unix)]
     if let Some(found) = crate::supervise::refusal::coded(error) {
+        return Some(found);
+    }
+    if let Some(found) = crate::trace::refusal::coded(error) {
         return Some(found);
     }
     candler_harness::refusal::coded(error)

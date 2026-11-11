@@ -411,6 +411,41 @@ fn r2_refused_suite_params_print_as_a_suite_record() {
     assert_refusal(&out, "suite.params_invalid", "suite", Some("/n"));
 }
 
+/// Guards: R2 — the refusals of `ingest` print as records that name the file given: a directory
+/// with no stream is `import.no_stream` (side `environment`), a legacy results folder given
+/// without `--rules` is `import.rules_required` (side `config`) and a path that does not exist is
+/// `import.unreadable_path` (side `environment`); none has a pointer, because no document was
+/// read.
+///
+/// Oracle: records written by hand from the contract, compared field by field; the three inputs
+/// are an empty directory, a directory holding an `outputs/` directory, and an absent path.
+///
+/// Bite: give `RulesRequired` the side `environment`; name `NoStream` after the verb
+/// (`ingest.failed`).
+#[test]
+fn r2_ingest_refusals_print_as_records_naming_the_file() {
+    let dir = TempDir::new().expect("a temporary directory");
+    fs::create_dir_all(dir.path().join("home")).expect("a home");
+    fs::create_dir_all(dir.path().join("empty")).expect("an empty directory");
+    fs::create_dir_all(dir.path().join("results/run-1/outputs")).expect("a results folder");
+    for (path, code, side) in [
+        ("empty", "import.no_stream", "environment"),
+        ("results", "import.rules_required", "config"),
+        ("absent", "import.unreadable_path", "environment"),
+    ] {
+        let out = candler(
+            dir.path(),
+            "/usr/bin:/bin",
+            &["--error-format", "json", "--store", "store", "ingest", path],
+        );
+        let record = record_of(&out);
+        assert_eq!(record["code"], code, "{path}: {record}");
+        assert_eq!(record["side"], side, "{path}: {record}");
+        assert_eq!(record["file"], json!(path), "{path}: {record}");
+        assert!(record.get("path").is_none(), "no pointer: {record}");
+    }
+}
+
 /// The refusal a `--set` key under `request` that no setting names is.
 const UNKNOWN_REQUEST_KEY: Expect = Expect {
     code: "experiment.unknown_request_key",

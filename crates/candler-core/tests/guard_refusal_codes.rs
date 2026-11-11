@@ -17,7 +17,7 @@ const INTERNAL_CODE: &str = "candler.internal";
 const NO_CODE_SECTIONS: [&str; 2] = ["internal", "helper"];
 
 /// The sections whose rows the core and the harness crates own: their rows are in the catalogue.
-const CATALOGUED_SECTIONS: [&str; 10] = [
+const CATALOGUED_SECTIONS: [&str; 11] = [
     "resolve",
     "experiment",
     "runner",
@@ -28,17 +28,13 @@ const CATALOGUED_SECTIONS: [&str; 10] = [
     "harness",
     "jobs",
     "evaluation",
+    "import",
 ];
 
 /// The error types the oracle gives to a later leaf, as `<file>::<name>`; that leaf empties this
 /// list. An entry that is not a type of the source, is in the catalogue, or is not a type the
 /// oracle gives to that leaf fails the guard, so the list cannot hide a type of this leaf.
-const PENDING: &[&str] = &[
-    "crates/candler-core/src/import/mod.rs::ImportError",
-    "crates/candler-core/src/import/raw.rs::RawIngestError",
-    "crates/candler-core/src/manifest/compare.rs::VerdictError",
-    "crates/candler-core/src/trace/mod.rs::NormaliseError",
-];
+const PENDING: &[&str] = &[];
 
 /// Whether `<file>::<name>` is on the pending list.
 fn pending_file(file: &str, name: &str) -> bool {
