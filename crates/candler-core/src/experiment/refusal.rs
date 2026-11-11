@@ -9,6 +9,7 @@ use std::error::Error;
 
 use crate::experiment::inputs::InputError;
 use crate::experiment::surface::SurfaceError;
+use crate::refusal::wrapper_table;
 use candler_schemas::refusal::{CatalogRow, Catalogued, Refusal, Side, pointer_of};
 use candler_schemas::refusal_table;
 
@@ -26,11 +27,11 @@ fn input_error_path(error: &InputError) -> Option<String> {
 /// The pointer of the place in a document where a [`SurfaceError`] sits, if it names one.
 fn surface_error_path(error: &SurfaceError) -> Option<String> {
     match error {
-        SurfaceError::Format(inner) => Refusal::path(inner),
         SurfaceError::Missing(..)
         | SurfaceError::Type { .. }
         | SurfaceError::ReservedRoot { .. }
-        | SurfaceError::AbsolutePath { .. } => None,
+        | SurfaceError::AbsolutePath { .. }
+        | SurfaceError::Format(..) => None,
     }
 }
 
@@ -50,7 +51,7 @@ refusal_table! {
     ),
 }
 
-refusal_table! {
+wrapper_table! {
     SurfaceError, path = surface_error_path;
     Missing (..) => row(
         "experiment.setting_missing",
@@ -76,7 +77,7 @@ refusal_table! {
         "A setting holds an absolute path where a path relative to the project is required.",
         "-",
     ),
-    Format (inner) => delegate(inner, Side::Experiment),
+    Format (inner) => value(inner, "experiment.setting_value_invalid", Side::Experiment, "A setting holds a value that has the wrong form for what it names, such as a name with a space."),
 }
 
 /// The rows of every coded error of this module, in the order of the types.
@@ -97,11 +98,23 @@ fn as_refusal<'e, E: Refusal>(found: &'e E) -> &'e dyn Refusal {
     found
 }
 
+/// The refusal that answers for a [`SurfaceError`]: a format error it wraps answers with its own
+/// code, side and path, and every other variant with its own.
+fn surface_answer(error: &SurfaceError) -> &dyn Refusal {
+    match error {
+        SurfaceError::Missing(..)
+        | SurfaceError::Type { .. }
+        | SurfaceError::ReservedRoot { .. }
+        | SurfaceError::AbsolutePath { .. }
+        | SurfaceError::Format(..) => error,
+    }
+}
+
 /// The coded error of this module that `error` is, or `None` when it is none of them.
 #[must_use]
 pub(crate) fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal> {
     error
         .downcast_ref::<InputError>()
         .map(as_refusal)
-        .or_else(|| error.downcast_ref::<SurfaceError>().map(as_refusal))
+        .or_else(|| error.downcast_ref::<SurfaceError>().map(surface_answer))
 }

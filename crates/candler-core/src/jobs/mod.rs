@@ -10,6 +10,7 @@ pub mod lock;
 pub mod lost;
 pub mod model;
 pub mod orchestrate;
+pub(crate) mod refusal;
 pub mod runtime;
 pub mod slots;
 pub mod view;

@@ -7,6 +7,7 @@
 
 use std::error::Error;
 
+use crate::refusal::wrapper_table;
 use crate::resolve::config::ConfigError;
 use crate::resolve::preflight::{PreflightError, ResolveError};
 use candler_schemas::refusal::{CatalogRow, Catalogued, Refusal, Side, pointer_of};
@@ -33,11 +34,11 @@ fn config_error_path(error: &ConfigError) -> Option<String> {
 fn resolve_error_path(error: &ResolveError) -> Option<String> {
     match error {
         ResolveError::Value(inner) => Refusal::path(inner),
-        ResolveError::Format(inner) => Refusal::path(inner),
         ResolveError::NonUtf8Path { .. }
         | ResolveError::DuplicateStep { .. }
         | ResolveError::DerivedTwice { .. }
-        | ResolveError::Preflight { .. } => None,
+        | ResolveError::Preflight { .. }
+        | ResolveError::Format(..) => None,
     }
 }
 
@@ -91,7 +92,7 @@ refusal_table! {
     ),
 }
 
-refusal_table! {
+wrapper_table! {
     ResolveError, path = resolve_error_path;
     NonUtf8Path { .. } => row(
         "resolve.path_not_unicode",
@@ -100,7 +101,7 @@ refusal_table! {
         "-",
     ),
     Value (inner) => delegate(inner, Side::Config),
-    Format (inner) => delegate(inner, Side::Config),
+    Format (inner) => value(inner, "resolve.value_invalid", Side::Config, "A value of the resolution has the wrong form for what it names, such as a name with a space."),
     DuplicateStep { .. } => row(
         "candler.internal",
         Side::Candler,
@@ -140,6 +141,19 @@ fn as_refusal<'e, E: Refusal>(found: &'e E) -> &'e dyn Refusal {
     found
 }
 
+/// The refusal that answers for a [`ResolveError`]: a value or format error it wraps answers with
+/// its own code, side and path, and every other variant with its own.
+fn resolve_answer(error: &ResolveError) -> &dyn Refusal {
+    match error {
+        ResolveError::Value(inner) => crate::refusal::through(inner, error),
+        ResolveError::NonUtf8Path { .. }
+        | ResolveError::DuplicateStep { .. }
+        | ResolveError::DerivedTwice { .. }
+        | ResolveError::Preflight { .. }
+        | ResolveError::Format(..) => error,
+    }
+}
+
 /// The coded error of this module that `error` is, or `None` when it is none of them.
 #[must_use]
 pub(crate) fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal> {
@@ -150,6 +164,6 @@ pub(crate) fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refu
             error
                 .downcast_ref::<PreflightError>()
                 .map(as_refusal)
-                .or_else(|| error.downcast_ref::<ResolveError>().map(as_refusal))
+                .or_else(|| error.downcast_ref::<ResolveError>().map(resolve_answer))
         })
 }

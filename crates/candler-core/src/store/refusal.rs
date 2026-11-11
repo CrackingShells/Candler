@@ -7,14 +7,13 @@
 
 use std::error::Error;
 
+use crate::refusal::wrapper_table;
 use crate::store::StoreError;
 use candler_schemas::refusal::{CatalogRow, Catalogued, Refusal, Side};
-use candler_schemas::refusal_table;
 
 /// The pointer of the place in a document where a [`StoreError`] sits, if it names one.
 fn store_error_path(error: &StoreError) -> Option<String> {
     match error {
-        StoreError::Format(inner) => Refusal::path(inner),
         StoreError::Io { .. }
         | StoreError::NotAStore { .. }
         | StoreError::DigestMismatch { .. }
@@ -25,11 +24,12 @@ fn store_error_path(error: &StoreError) -> Option<String> {
         | StoreError::OutcomeExists { .. }
         | StoreError::RecordMismatch { .. }
         | StoreError::IndexCorrupt { .. }
-        | StoreError::Parse { .. } => None,
+        | StoreError::Parse { .. }
+        | StoreError::Format(..) => None,
     }
 }
 
-refusal_table! {
+wrapper_table! {
     StoreError, path = store_error_path;
     Io { .. } => row(
         "store.io_failed",
@@ -97,7 +97,7 @@ refusal_table! {
         "A stored file is not a valid record.",
         "-",
     ),
-    Format (inner) => delegate(inner, Side::Environment),
+    Format (inner) => value(inner, "store.value_invalid", Side::Environment, "A value read from or written to the store has the wrong form for what it names, such as a run key that is not one."),
 }
 
 /// The rows of every coded error of this module, in the order of the types.
@@ -110,13 +110,27 @@ pub(crate) fn catalog() -> Vec<CatalogRow> {
         .collect()
 }
 
-/// Views a coded error as its [`Refusal`].
-fn as_refusal<'e, E: Refusal>(found: &'e E) -> &'e dyn Refusal {
-    found
+/// The refusal that answers for a [`StoreError`]: a format error it wraps answers with its own
+/// code, side and path, and every other variant with its own.
+fn store_answer(error: &StoreError) -> &dyn Refusal {
+    match error {
+        StoreError::Io { .. }
+        | StoreError::NotAStore { .. }
+        | StoreError::DigestMismatch { .. }
+        | StoreError::RunExists { .. }
+        | StoreError::RunSealed { .. }
+        | StoreError::ManifestMismatch { .. }
+        | StoreError::StreamExists { .. }
+        | StoreError::OutcomeExists { .. }
+        | StoreError::RecordMismatch { .. }
+        | StoreError::IndexCorrupt { .. }
+        | StoreError::Parse { .. }
+        | StoreError::Format(..) => error,
+    }
 }
 
 /// The coded error of this module that `error` is, or `None` when it is none of them.
 #[must_use]
 pub(crate) fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal> {
-    error.downcast_ref::<StoreError>().map(as_refusal)
+    error.downcast_ref::<StoreError>().map(store_answer)
 }

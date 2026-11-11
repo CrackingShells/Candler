@@ -7,6 +7,7 @@
 
 use std::error::Error;
 
+use crate::refusal::wrapper_table;
 use crate::runner::evidence::catalog::CatalogError;
 use crate::runner::evidence::census::CensusError;
 use crate::runner::evidence::tree::EvidenceError;
@@ -23,6 +24,7 @@ fn no_path<E>(_error: &E) -> Option<String> {
 /// The pointer of the place in a document where a [`PlanError`] sits, if it names one.
 fn plan_error_path(error: &PlanError) -> Option<String> {
     match error {
+        PlanError::Cell { source } => Refusal::path(source),
         PlanError::SettingAsFactor { .. } => Some(pointer_of(["factors"])),
         PlanError::NameCollision { .. }
         | PlanError::ExperimentLocked
@@ -30,7 +32,6 @@ fn plan_error_path(error: &PlanError) -> Option<String> {
         | PlanError::StoredCellUnknown { .. }
         | PlanError::StoredCellAmbiguous { .. }
         | PlanError::AttemptOverflow { .. }
-        | PlanError::Cell { .. }
         | PlanError::Store { .. }
         | PlanError::Lock { .. } => None,
     }
@@ -47,7 +48,7 @@ fn exec_error_path(error: &ExecError) -> Option<String> {
     }
 }
 
-refusal_table! {
+wrapper_table! {
     PlanError, path = plan_error_path;
     NameCollision { .. } => row(
         "experiment.name_collision",
@@ -91,12 +92,7 @@ refusal_table! {
         "A factor varies a setting, which no cell can vary; the setting belongs in `[fixed]`.",
         "The `factors` array of the experiment file; a verb that has read the file narrows it to the `path` of the factor.",
     ),
-    Cell { .. } => row(
-        "candler.internal",
-        Side::Candler,
-        "A cell of the experiment cannot be built from the resolution.",
-        "-",
-    ),
+    Cell { source } => delegate(source, Side::Candler),
     Store { .. } => row(
         "candler.internal",
         Side::Candler,
@@ -111,7 +107,7 @@ refusal_table! {
     ),
 }
 
-refusal_table! {
+wrapper_table! {
     ExecError, path = exec_error_path;
     Isolation (inner) => delegate(inner, Side::Environment),
     Store (inner) => delegate(inner, Side::Environment),
@@ -219,16 +215,45 @@ fn as_refusal<'e, E: Refusal>(found: &'e E) -> &'e dyn Refusal {
     found
 }
 
+/// The refusal that answers for an [`ExecError`]: each variant only wraps an error, so the
+/// answer is the wrapped error's own code, side and path.
+fn exec_answer(error: &ExecError) -> &dyn Refusal {
+    match error {
+        ExecError::Isolation(inner) => crate::refusal::through(inner, error),
+        ExecError::Store(inner) => crate::refusal::through(inner, error),
+        ExecError::Driver(inner) => crate::refusal::through(inner, error),
+        ExecError::Manifest(inner) => crate::refusal::through(inner, error),
+        ExecError::Supervise(inner) => crate::refusal::through(inner, error),
+    }
+}
+
+/// The refusal that answers for a [`PlanError`]: the error a cell builder gave answers with its own
+/// code, side and path, and every other variant with its own.
+fn plan_answer(error: &PlanError) -> &dyn Refusal {
+    match error {
+        PlanError::Cell { source } => crate::refusal::through(source, error),
+        PlanError::NameCollision { .. }
+        | PlanError::ExperimentLocked
+        | PlanError::Changed(..)
+        | PlanError::StoredCellUnknown { .. }
+        | PlanError::StoredCellAmbiguous { .. }
+        | PlanError::AttemptOverflow { .. }
+        | PlanError::SettingAsFactor { .. }
+        | PlanError::Store { .. }
+        | PlanError::Lock { .. } => error,
+    }
+}
+
 /// The coded error of this module that `error` is, or `None` when it is none of them.
 #[must_use]
 pub(crate) fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal> {
     error
         .downcast_ref::<PlanError>()
-        .map(as_refusal)
+        .map(plan_answer)
         .or_else(|| {
             error
                 .downcast_ref::<ExecError>()
-                .map(as_refusal)
+                .map(exec_answer)
                 .or_else(|| {
                     error
                         .downcast_ref::<CatalogError>()

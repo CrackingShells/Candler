@@ -15,6 +15,7 @@ use crate::isolation::container::sweeper::SweepError;
 use crate::isolation::docker::DockerError;
 use crate::isolation::gateway::{GatewayError, NotReadyCause, SecretError};
 use crate::isolation::image::ImageError;
+use crate::refusal::wrapper_table;
 use candler_schemas::refusal::{CatalogRow, Catalogued, Refusal, Side};
 use candler_schemas::refusal_table;
 
@@ -122,7 +123,7 @@ refusal_table! {
     ),
 }
 
-refusal_table! {
+wrapper_table! {
     GatewayError, path = gateway_error_path;
     Unavailable { .. } => row(
         "isolation.gateway_unavailable",
@@ -257,9 +258,9 @@ refusal_table! {
         "-",
     ),
     BadPath { .. } => row(
-        "candler.internal",
-        Side::Candler,
-        "A mount path holds a comma, a newline or text that is not UTF-8, which would inject an option.",
+        "isolation.mount_path_unsupported",
+        Side::Config,
+        "A mount path holds a comma, a newline or text that is not UTF-8, which cannot be written as a `--mount` option; a project directory with a comma in its name does it.",
         "-",
     ),
     ConfigDirNotWritable { .. } => row(
@@ -276,7 +277,7 @@ refusal_table! {
     ),
 }
 
-refusal_table! {
+wrapper_table! {
     RunArgvError, path = run_argv_error_path;
     SecretRefused { .. } => row(
         "isolation.env_secret_refused",
@@ -371,6 +372,35 @@ fn as_refusal<'e, E: Refusal>(found: &'e E) -> &'e dyn Refusal {
     found
 }
 
+/// The refusal that answers for a [`GatewayError`]: a secret error or a not-ready cause it wraps
+/// answers with its own code, side and path, and every other variant with its own.
+fn gateway_answer(error: &GatewayError) -> &dyn Refusal {
+    match error {
+        GatewayError::Secret(inner) => crate::refusal::through(inner, error),
+        GatewayError::NotReady { cause } => crate::refusal::through(cause, error),
+        GatewayError::Unavailable { .. }
+        | GatewayError::Start { .. }
+        | GatewayError::SecretFormat { .. }
+        | GatewayError::Config { .. } => error,
+    }
+}
+
+/// The refusal that answers for a [`RunArgvError`]: a mount error it wraps answers with its own
+/// code, side and path, and every other variant with its own.
+fn run_argv_answer(error: &RunArgvError) -> &dyn Refusal {
+    match error {
+        RunArgvError::Mount(inner) => crate::refusal::through(inner, error),
+        RunArgvError::SecretRefused { .. }
+        | RunArgvError::ReservedName { .. }
+        | RunArgvError::DuplicateName { .. }
+        | RunArgvError::BadEnvName { .. }
+        | RunArgvError::MissingLabel { .. }
+        | RunArgvError::BadCidfile
+        | RunArgvError::Command { .. }
+        | RunArgvError::Request { .. } => error,
+    }
+}
+
 /// The coded error of this module that `error` is, or `None` when it is none of them.
 #[must_use]
 pub(crate) fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal> {
@@ -388,7 +418,7 @@ pub(crate) fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refu
                         .or_else(|| {
                             error
                                 .downcast_ref::<GatewayError>()
-                                .map(as_refusal)
+                                .map(gateway_answer)
                                 .or_else(|| {
                                     error
                                         .downcast_ref::<NotReadyCause>()
@@ -397,7 +427,7 @@ pub(crate) fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refu
                                             error.downcast_ref::<ImageError>().map(as_refusal)
         .or_else(|| error.downcast_ref::<GuardError>().map(as_refusal)
         .or_else(|| error.downcast_ref::<MountError>().map(as_refusal)
-        .or_else(|| error.downcast_ref::<RunArgvError>().map(as_refusal)
+        .or_else(|| error.downcast_ref::<RunArgvError>().map(run_argv_answer)
         .or_else(|| error.downcast_ref::<SweepError>().map(as_refusal)))))
                                         })
                                 })

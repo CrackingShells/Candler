@@ -15,6 +15,8 @@ use jiff::SignedDuration;
 
 use crate::frames::{FrameReader, FramesError, RawFileInfo};
 
+pub(crate) mod refusal;
+
 /// How many bytes of the start of a stream the format detection sees at most.
 const SAMPLE_BYTES: usize = 64 * 1024;
 
