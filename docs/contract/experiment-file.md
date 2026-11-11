@@ -65,7 +65,7 @@ Wire line: `schemas@0.6.0`.
 | `experiment.absolute_path` | A value holds an absolute path as a string, and a file enters a cell as an input digest. | - | experiment |
 | `experiment.cell_value_invalid` | A cell value cannot be used by the harness driver. | - | experiment |
 | `experiment.cell_value_missing` | A cell lacks a value that the harness driver needs. | - | experiment |
-| `experiment.cost_not_positive` | A cost cap is not a finite number above 0. | The cap under `/budget`. | experiment |
+| `experiment.cost_not_positive` | A cost cap is not a finite number above 0. | - | experiment |
 | `experiment.count_zero` | A count, duration or process id that must be at least 1 is 0. | The field when it is `replicates` or one under `budget`; none otherwise. | experiment |
 | `experiment.document_invalid` | The TOML is not an experiment file: a field is missing, has the wrong type or breaks the format of its own. | The field at fault, or its parent table when a field is missing; none at the root. | experiment |
 | `experiment.entry_repeated` | A list holds the same entry twice: a fixed path, a factor path or an input kind. | - | experiment |
@@ -86,6 +86,8 @@ Wire line: `schemas@0.6.0`.
 | `experiment.table_empty` | A table among the fixed values or the levels holds no value, so it fills no path. | - | experiment |
 | `experiment.toml_invalid` | The experiment file is not valid TOML. | - | experiment |
 | `experiment.unknown_field` | The experiment file holds a key its type does not have, such as a misspelt option. | The unknown key itself. | experiment |
+| `experiment.unknown_path` | A dotted path under `[fixed]`, in a factor or in `--set` is none that the experiment surface has, such as a misspelt `model.idd`. | The key under `/fixed`, the `path` of the factor, or the key of the level's table that holds the path; none for `--set`. | experiment |
+| `experiment.unknown_request_key` | `--set` names a key under `request` that is none of the request settings, such as a misspelt `request.harnes`. | - | experiment |
 | `experiment.value_invalid` | A value of an experiment record has the wrong form for what it names, such as a name with a space. | - | experiment |
 | `experiment.value_unrepresentable` | A TOML value is a date, a time or a number that JSON cannot state. | - | experiment |
 | `format.evidence_ref_invalid` | An evidence reference does not fit the format of a reference. | - | config |
@@ -103,7 +105,7 @@ Wire line: `schemas@0.6.0`.
 
 ## Notes
 
-- The document has no `free` fields. An unknown key anywhere outside `[fixed]` and the `levels` of a factor, at the top or in `[budget]`, is refused with `experiment.unknown_field`. [checked: v@0.6.0]
+- The document has no `free` fields. An unknown key outside `[fixed]` and the `levels` of a factor is `experiment.unknown_field`; a key under `[fixed]` or in a level table that is no setting path is `experiment.unknown_path`. [checked: v@0.6.0]
 - A TOML date or time among the values is refused with `experiment.value_unrepresentable`. [checked: v@0.6.0]
-- A value that breaks a rule of its own, such as a name with a space, a factor with no level or a `replicates` of 0, is refused with `experiment.document_invalid`; its `path`, when it has one, points at the field, and the message gives the rule. [checked: v@0.6.0]
-- Two paths among `[fixed]` and the factors that are equal, or one below the other, are refused the same way. [checked: v@0.6.0]
+- A name, secret name or tag of the wrong form, a factor with no level, a `replicates`, `wall_s` or cost cap of 0, an absolute `inputs[].at`, a repeated input kind, an integer out of range and overlapping paths print `experiment.document_invalid`, never `format.*`. [checked: v@0.6.0]
+- `canonical.integer_out_of_range` and `values.null` print only for a value given with `--set`. [checked: v@0.6.0]

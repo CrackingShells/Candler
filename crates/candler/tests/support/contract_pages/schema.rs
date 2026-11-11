@@ -49,6 +49,21 @@ pub struct Row {
     pub class: Class,
     /// The `default` keyword as JSON, or `-`.
     pub default: String,
+    /// The variants of a union that require the field, when only they do; empty for a field the
+    /// object requires whatever the variant.
+    pub variants: Vec<String>,
+}
+
+impl Row {
+    /// The class column: the class word, and for a `required` field of some variants only, those
+    /// variants.
+    pub fn class_text(&self) -> String {
+        if self.class == Class::Required && !self.variants.is_empty() {
+            format!("required ({})", self.variants.join("; "))
+        } else {
+            self.class.as_str().to_owned()
+        }
+    }
 }
 
 /// The rows of one alternative of a root, or of the root itself when it has no alternatives.
@@ -86,7 +101,7 @@ pub fn fields(schema: &Value) -> Result<Vec<Block>, String> {
     for (number, (title, nodes)) in alternatives.into_iter().enumerate() {
         let mut table = Table::default();
         for node in &nodes {
-            walker.walk(node, "", &mut Vec::new(), 0, &mut table)?;
+            walker.walk(node, "", &mut Vec::new(), 0, &mut table, None)?;
         }
         let title = if !several {
             None
@@ -133,6 +148,15 @@ impl Table {
             if existing.default == "-" {
                 existing.default = row.default;
             }
+            if row.variants.is_empty() || existing.variants.is_empty() {
+                existing.variants.clear();
+            } else {
+                for variant in row.variants {
+                    if !existing.variants.contains(&variant) {
+                        existing.variants.push(variant);
+                    }
+                }
+            }
         } else {
             self.index.insert(row.path.clone(), self.rows.len());
             self.rows.push(row);
@@ -159,6 +183,18 @@ fn discriminator(node: &Value) -> Option<String> {
             let value = sub.get("const")?.as_str()?;
             Some(format!("{key} = \"{value}\""))
         })
+}
+
+/// The name of the required constant `method` or `kind` property of an object.
+fn discriminator_key(node: &Value) -> Option<String> {
+    let required: BTreeSet<&str> = required_of(node);
+    node.get("properties")?
+        .as_object()?
+        .iter()
+        .filter(|(key, _)| matches!(key.as_str(), "method" | "kind"))
+        .filter(|(key, _)| required.contains(key.as_str()))
+        .find(|(_, sub)| sub.get("const").is_some_and(Value::is_string))
+        .map(|(key, _)| key.clone())
 }
 
 fn required_of(node: &Value) -> BTreeSet<&str> {
@@ -268,6 +304,7 @@ impl Walker<'_> {
         stack: &mut Vec<String>,
         depth: usize,
         table: &mut Table,
+        variant: Option<&str>,
     ) -> Result<(), String> {
         if depth > MAX_DEPTH {
             return Ok(());
@@ -281,23 +318,30 @@ impl Walker<'_> {
         }
         let required = required_of(&node);
         if let Some(properties) = node.get("properties").and_then(Value::as_object) {
+            let selector = discriminator_key(&node);
             for (key, sub) in properties {
                 let path = if prefix.is_empty() {
                     key.clone()
                 } else {
                     format!("{prefix}.{key}")
                 };
+                let own = if selector.as_deref() == Some(key.as_str()) {
+                    None
+                } else {
+                    variant
+                };
                 table.push(Row {
                     path: path.clone(),
                     ty: self.type_of(sub)?,
                     class: self.class_of(sub, required.contains(key.as_str()))?,
                     default: self.default_of(sub)?,
+                    variants: own.map(str::to_owned).into_iter().collect(),
                 })?;
-                self.walk(sub, &path, stack, depth + 1, table)?;
+                self.walk(sub, &path, stack, depth + 1, table, None)?;
             }
         }
         if let Some(items) = node.get("items").filter(|items| items.is_object()) {
-            self.walk(items, &format!("{prefix}[]"), stack, depth + 1, table)?;
+            self.walk(items, &format!("{prefix}[]"), stack, depth + 1, table, None)?;
         }
         for key in ["oneOf", "anyOf", "allOf"] {
             for branch in node
@@ -306,13 +350,62 @@ impl Walker<'_> {
                 .into_iter()
                 .flatten()
             {
-                self.walk(branch, prefix, stack, depth + 1, table)?;
+                let named = if key == "allOf" {
+                    variant.map(str::to_owned)
+                } else {
+                    self.variant_of(branch, prefix, self.all_single(&node, key)?)?
+                };
+                self.walk(branch, prefix, stack, depth + 1, table, named.as_deref())?;
             }
         }
         if name.is_some() {
             stack.pop();
         }
         Ok(())
+    }
+
+    /// What names a branch of a nested union: the constant `kind` it fixes, or for a branch that
+    /// holds one key, that it is the one key of the object.
+    fn variant_of(
+        &self,
+        branch: &Value,
+        prefix: &str,
+        all_single: bool,
+    ) -> Result<Option<String>, String> {
+        let (_, node) = self.resolve(branch)?;
+        if let Some(key) = discriminator_key(&node)
+            && let Some(value) = node
+                .get("properties")
+                .and_then(|properties| properties.get(&key))
+                .and_then(|sub| sub.get("const"))
+                .and_then(Value::as_str)
+        {
+            return Ok(Some(if prefix.is_empty() {
+                format!("{key} = {value}")
+            } else {
+                format!("{prefix}.{key} = {value}")
+            }));
+        }
+        Ok((all_single && !prefix.is_empty()).then(|| format!("exactly one key of {prefix}")))
+    }
+
+    /// Whether every branch of the union `key` of `node` is an object of one property: a union
+    /// of keys, of which an object holds exactly one.
+    fn all_single(&self, node: &Value, key: &str) -> Result<bool, String> {
+        let mut single = true;
+        for branch in node
+            .get(key)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let (_, branch) = self.resolve(branch)?;
+            single &= branch
+                .get("properties")
+                .and_then(Value::as_object)
+                .is_some_and(|properties| properties.len() == 1);
+        }
+        Ok(single)
     }
 
     /// `x-candler-class` on the property or on its `$ref` target, else `required` or `optional`.

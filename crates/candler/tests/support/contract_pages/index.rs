@@ -48,7 +48,7 @@ One page per surface an author writes or a plug-in speaks. Each page holds the s
 
 ## Field classes
 
-Every row of a Fields table has one class.
+Every row of a Fields table has one class. A `required` followed by a variant in parentheses, such as `required (value.kind = fraction)`, is required only when the object takes that variant.
 
 | Class | Meaning |
 |---|---|

@@ -46,7 +46,7 @@ Wire line: `schemas@0.6.0`.
 | `suite.dependency_cycle` | Expectations depend on each other in a loop. | - | suite |
 | `suite.dependency_unknown` | An expectation depends on an id that no expectation has. | - | suite |
 | `suite.document_invalid` | A suite is not valid TOML, or does not have the shape of a suite. | The field at fault, or its parent table when a field is missing; none at the root. | suite |
-| `suite.equivalence_invalid` | The equivalence file is not a list of rows of a run and an expectation. | - | suite |
+| `suite.equivalence_invalid` | The equivalence file is not a JSON object `{"rules": [...]}` whose rules hold `name`, `from` and `to` (each a status with an optional value, weight and cause) and `rows` (objects of `run` and `expectation`), with an optional `generator`. | - | suite |
 | `suite.equivalence_row_repeated` | The equivalence file lists one row of a run and an expectation twice. | - | suite |
 | `suite.equivalence_run_invalid` | A row of the equivalence file names a run that is not a run key. | - | suite |
 | `suite.equivalence_unreadable` | The equivalence file does not exist or cannot be read. | - | suite |
@@ -62,9 +62,8 @@ Wire line: `schemas@0.6.0`.
 
 ## Notes
 
-- `source` is an open table of class `free` that records where a translated suite came from; Candler stores it and never reads it. [checked: schemas@0.6.0]
-- Any other unknown key is refused with `suite.unknown_field`, and its path is the key. [checked: schemas@0.6.0]
-- A value of the wrong form, such as an id with a space or an empty `any_of`, is refused with `suite.document_invalid`, its `path` pointing at the field. [checked: v@0.6.0]
-- A suite is TOML, or JSON when its file name ends in `.json`. [checked: v@0.6.0]
-- Expectations form a graph through `depends_on`: a loop is `suite.dependency_cycle`, an id no entry has is `suite.dependency_unknown`, and an id used twice is `suite.id_repeated`. [checked: v@0.6.0]
-- The suite is checked before any plug-in is asked to describe itself. [checked: v@0.6.0]
+- `source` is an open table of class `free` recording where a translated suite came from; Candler never reads it. `group` is a name, checked like any name, and never read. [checked: schemas@0.6.0]
+- A value of the wrong form, such as an id with a space (`/expectations/0/id`) or an empty `any_of` (`/expectations/0/applies_to/0`), is `suite.document_invalid`. [checked: v@0.6.0]
+- Dependency loops, unknown ids and repeated ids are `suite.dependency_cycle`, `suite.dependency_unknown` and `suite.id_repeated`. [checked: v@0.6.0]
+- The document, the graph and `suite.evaluator_unknown` are checked before a plug-in describes itself; `suite.kind_unknown`, `suite.params_invalid` and `suite.evaluator_version_mismatch` after. [checked: v@0.6.0]
+- An equivalence file, the `--equivalence` input of `diff`, is no suite: a JSON object `{"rules": [...]}` of rules with `name`, `from`, `to` and `rows` of `run` and `expectation`. [checked: v@0.6.0]

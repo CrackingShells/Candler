@@ -1841,6 +1841,6 @@ when = "A request Candler sent names a method other than describe and evaluate; 
 at = "-"
 
 [helper."helper.deadline_out_of_range"]
-side = "candler"
-when = "An evaluate request has an item whose deadline_ms is above 2**53 - 1; the helper answers with error -32602."
+side = "suite"
+when = "A suite entry has a deadline_ms above 2**53 - 1, which Candler passes on and the helper refuses with error -32602."
 at = "-"

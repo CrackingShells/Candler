@@ -16,7 +16,8 @@ use contract_pages::hand::section;
 use contract_pages::index::render_index;
 use contract_pages::pages::{PAGES, blocks_markdown, render_page, root_fields};
 use contract_pages::refusals::{
-    Home, all_entries, catalogue_entries, codes_named_in, home_of, known_codes, listed_codes,
+    Home, all_entries, binary_entries, catalogue_entries, codes_named_in, home_of, known_codes,
+    listed_codes,
 };
 use contract_pages::versions::{Versions, check_blocks, tokens, tokens_outside_blocks};
 use contract_pages::{blessing, docs_dir, repo_root, schema_dir, write_atomically};
@@ -84,7 +85,14 @@ fn classes_of(root: &str) -> BTreeMap<String, Vec<String>> {
     for line in markdown.lines().filter(|line| line.starts_with("| `")) {
         let cells: Vec<&str> = line.trim_matches('|').split(" | ").collect();
         let path = cells.first().expect("a path cell").trim().trim_matches('`');
-        let class = cells.get(2).expect("a class cell").trim();
+        // A `required` field of some variants only names them after the class word.
+        let class = cells
+            .get(2)
+            .expect("a class cell")
+            .split(" (")
+            .next()
+            .unwrap_or_default()
+            .trim();
         out.entry(path.to_owned())
             .or_default()
             .push(class.to_owned());
@@ -270,23 +278,18 @@ fn d4_a_stale_version_is_refused() {
     );
 }
 
-/// The text of a page that may name codes: its Refusals and Notes sections.
-fn refusal_text(file: &str) -> String {
+/// The codes a page names: those in the first cell of a row of its Refusals, and those in
+/// backticks in its Notes. A sentence of a row may name a setting such as `store.root`, which is no
+/// code.
+fn named_codes(file: &str) -> Vec<String> {
     let text = existing(file).unwrap_or_else(|| panic!("{file} does not exist"));
-    let mut out = section(&text, "Refusals").unwrap_or_default();
-    out.push('\n');
-    out.push_str(&section(&text, "Notes").unwrap_or_default());
-    out
+    let mut codes = listed_codes(&text);
+    codes.extend(codes_named_in(&section(&text, "Notes").unwrap_or_default()));
+    codes
 }
 
-/// The text of the index that lists codes: its Other refusals section.
-fn index_refusal_text() -> String {
-    let text = existing("index.md").expect("docs/contract/index.md exists");
-    section(&text, "Other refusals").unwrap_or_default()
-}
-
-/// Guards: D3 — every code in backticks in a Refusals section or a Note of a page, or in the
-/// index's list of other refusals, is a row of the code's catalogue or of the registry's `[helper]`
+/// Guards: D3 — every code in the first cell of a row of a page's Refusals, or of the index's list
+/// of other refusals, and every code in backticks in a Note, is a row of the code's catalogue or of the registry's `[helper]`
 /// section; the finder reads a backticked `<surface>.<reason>` and nothing else.
 /// Oracle: `candler_core::refusal::catalog()` and `docs/contract/codes.toml`.
 /// Bite: a code deleted from the catalogue and left in a page; a code in a Note that no row has.
@@ -298,13 +301,10 @@ fn d3_every_code_on_a_page_is_in_the_catalog() {
         "the finder reads a backticked code of a named surface and nothing else"
     );
     let known = known_codes().expect("the codes are read");
-    let mut texts: Vec<(String, String)> = PAGES
-        .iter()
-        .map(|page| (page.file.to_owned(), refusal_text(page.file)))
-        .collect();
-    texts.push(("index.md".to_owned(), index_refusal_text()));
-    for (file, text) in texts {
-        for code in codes_named_in(&text) {
+    let mut files: Vec<&str> = PAGES.iter().map(|page| page.file).collect();
+    files.push("index.md");
+    for file in files {
+        for code in named_codes(file) {
             assert!(
                 known.contains(&code),
                 "{file} names `{code}`, which is no row of the catalogue or of [helper]"
@@ -321,7 +321,9 @@ fn d3_every_code_on_a_page_is_in_the_catalog() {
 /// Bite: an author code with neither page nor index entry; a surface the table does not name.
 #[test]
 fn d3_every_author_code_has_a_page() {
-    for row in catalogue_entries() {
+    let mut surfaced = catalogue_entries();
+    surfaced.extend(binary_entries().expect("the binary's rows are read"));
+    for row in surfaced {
         assert!(
             home_of(row.surface()).is_some(),
             "the surface `{}` of `{}` is not named by the surface table",

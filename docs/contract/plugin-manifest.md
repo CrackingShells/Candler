@@ -22,8 +22,8 @@ Wire line: `schemas@0.6.0`.
 | `command` | `array of string` | required | - |
 | `environment` | `PluginEnvironment` | required | - |
 | `environment.kind` | `"uv" \| "none"` | required | - |
-| `environment.lock` | `RelPath` | required | - |
-| `environment.project` | `RelPath` | required | - |
+| `environment.lock` | `RelPath` | required (environment.kind = uv) | - |
+| `environment.project` | `RelPath` | required (environment.kind = uv) | - |
 | `name` | `Name` | required | - |
 | `protocol` | `ProtocolVersion` | required | - |
 | `protocol.major` | `integer` | required | - |
@@ -61,3 +61,4 @@ Wire line: `schemas@0.6.0`.
 - `command` runs with the plug-in directory as its working directory, so `./run.sh` names the file beside the manifest. [checked: v@0.6.0]
 - `environment.kind = "uv"` needs both `project` and `lock`; a missing one is `plugin.manifest_invalid`. [checked: v@0.6.0]
 - A plug-in directory holds `plugin.toml` or `candler-plugin.toml`, never both (`plugin.manifest_ambiguous`). [checked: v@0.6.0]
+- A missing `lock` file, or an environment that `uv sync --frozen` cannot build, prints `resolve.preflight_failed` with side `environment`, not `plugin.environment_file_unreadable` or `plugin.environment_not_ready`. [checked: v@0.6.0]

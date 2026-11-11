@@ -7,6 +7,7 @@ use std::fs;
 
 use candler_core::refusal::catalog;
 use candler_schemas::refusal::Side;
+use regex::Regex;
 
 use super::repo_root;
 
@@ -21,7 +22,7 @@ pub enum Home {
 
 /// The surface of a code is the part before its dot. Every surface the catalogue and the helper's
 /// section hold is named here; a surface that is not named fails the guard with its name.
-pub const SURFACES: [(&str, Home); 23] = [
+pub const SURFACES: [(&str, Home); 24] = [
     ("plugin", Home::Page("plugin-manifest.md")),
     ("suite", Home::Page("suite-file.md")),
     ("protocol", Home::Page("evaluator-protocol.md")),
@@ -36,6 +37,7 @@ pub const SURFACES: [(&str, Home); 23] = [
     // holds it.
     ("candler", Home::Index),
     ("analysis", Home::Index),
+    ("cli", Home::Index),
     ("catalog", Home::Index),
     ("config", Home::Index),
     ("evaluation", Home::Index),
@@ -106,6 +108,60 @@ pub fn catalogue_entries() -> Vec<Entry> {
     by_code.into_values().collect()
 }
 
+/// The rows of the binary's own coded errors, which `candler_core::refusal::catalog()` does not
+/// hold: the `CliRefusal` table of `crates/candler/src/commands/refusal.rs`, read from its source
+/// (the binary has no library to call). The codes read must be the rows of `[cli]` in the
+/// registry, so a row of one without the other is an error.
+pub fn binary_entries() -> Result<Vec<Entry>, String> {
+    let path = repo_root().join("crates/candler/src/commands/refusal.rs");
+    let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let start = text
+        .find("refusal_table! {\n    CliRefusal,")
+        .ok_or("no refusal table of CliRefusal")?;
+    let block = text.get(start..).unwrap_or_default();
+    let end = block
+        .find("\n}\n")
+        .ok_or("the CliRefusal table is not closed")?;
+    let block = block.get(..end).unwrap_or_default();
+    let literal = r#""((?:[^"\\]|\\.)*)""#;
+    let row = Regex::new(&format!(
+        r"(?s)row\(\s*{literal},\s*Side::(\w+),\s*{literal},\s*{literal},?\s*\)"
+    ))
+    .map_err(|e| e.to_string())?;
+    let unescape = |text: &str| text.replace("\\\"", "\"").replace("\\\\", "\\");
+    let rows: Vec<Entry> = row
+        .captures_iter(block)
+        .map(|c| Entry {
+            code: unescape(c.get(1).map_or("", |m| m.as_str())),
+            side: c.get(2).map_or("", |m| m.as_str()).to_lowercase(),
+            when: unescape(c.get(3).map_or("", |m| m.as_str())),
+            at: unescape(c.get(4).map_or("", |m| m.as_str())),
+        })
+        .collect();
+    let registry = registry_codes("cli")?;
+    let read: BTreeSet<String> = rows.iter().map(|row| row.code.clone()).collect();
+    if read != registry {
+        return Err(format!(
+            "the CliRefusal table has {read:?}, `[cli]` of codes.toml has {registry:?}"
+        ));
+    }
+    Ok(rows)
+}
+
+/// The codes of one section of the registry.
+fn registry_codes(section: &str) -> Result<BTreeSet<String>, String> {
+    let path = repo_root().join("docs/contract/codes.toml");
+    let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let table: toml::Table = text.parse().map_err(|e| format!("codes.toml: {e}"))?;
+    Ok(table
+        .get(section)
+        .and_then(toml::Value::as_table)
+        .ok_or_else(|| format!("codes.toml has no [{section}] section"))?
+        .keys()
+        .cloned()
+        .collect())
+}
+
 /// The rows of the `[helper]` section of the registry.
 pub fn helper_entries() -> Result<Vec<Entry>, String> {
     let path = repo_root().join("docs/contract/codes.toml");
@@ -144,6 +200,11 @@ pub fn all_entries() -> Result<Vec<Entry>, String> {
         .into_iter()
         .filter(|row| row.side != Side::Candler.as_str())
         .collect();
+    for row in binary_entries()? {
+        if row.side != Side::Candler.as_str() && !rows.iter().any(|known| known.code == row.code) {
+            rows.push(row);
+        }
+    }
     rows.extend(helper_entries()?);
     rows.sort_by(|a, b| a.code.cmp(&b.code));
     Ok(rows)
@@ -152,6 +213,7 @@ pub fn all_entries() -> Result<Vec<Entry>, String> {
 /// The codes of the catalogue and of the helper's section, whatever their side.
 pub fn known_codes() -> Result<BTreeSet<String>, String> {
     let mut known: BTreeSet<String> = catalogue_entries().into_iter().map(|e| e.code).collect();
+    known.extend(binary_entries()?.into_iter().map(|e| e.code));
     known.extend(helper_entries()?.into_iter().map(|e| e.code));
     Ok(known)
 }

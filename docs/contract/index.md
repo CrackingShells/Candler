@@ -18,7 +18,7 @@ One page per surface an author writes or a plug-in speaks. Each page holds the s
 
 ## Field classes
 
-Every row of a Fields table has one class.
+Every row of a Fields table has one class. A `required` followed by a variant in parentheses, such as `required (value.kind = fraction)`, is required only when the object takes that variant.
 
 | Class | Meaning |
 |---|---|
@@ -58,8 +58,13 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `config.file_unreadable` | A configuration file exists and cannot be read. | - | config |
 | `config.import_field_unset` | A field the import rules need is not set. | - | config |
 | `config.import_rule_invalid` | A rule of the import rules is not valid. | - | config |
+| `config.import_rules_invalid` | The import rules file given to `ingest --rules` is not the rules format: it is not TOML, a field is missing, or a field is not one the format has. | - | config |
 | `config.machine_wide_key` | A project configuration sets a machine-wide key, which only the user configuration may set. | The key in the project configuration file named in the message. | config |
+| `config.no_evaluator_slots` | `slots.evaluators` is 0 in the user configuration, so the pool that evaluators draw from has no slot. | - | config |
+| `config.no_plugin_dirs` | `evaluate` is run where no `candler.toml` at or above the working directory lists a plug-in directory under `plugins.dirs`. | - | config |
+| `config.no_store` | No store root is given: no `--store`, no `CANDLER_STORE` and no `store.root` in a configuration file. | - | config |
 | `config.plugin_dir_no_manifest` | A directory of `plugins.dirs` does not exist or holds neither `plugin.toml` nor `candler-plugin.toml`. | - | config |
+| `config.retired_setting` | `--set` names `request.treatment_source`, which `[treatment] source` in the experiment file replaced. | - | config |
 | `config.toml_invalid` | A configuration file is not valid TOML. | - | config |
 | `config.unknown_key` | A configuration file holds a key that no table defines, such as a misspelt setting. | The unknown key in the configuration file named in the message. | config |
 | `config.wrong_type` | A configuration key holds a value of the wrong type. | The key in the configuration file named in the message. | config |

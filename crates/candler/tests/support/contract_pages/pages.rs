@@ -133,7 +133,7 @@ fn table(rows: &[Row]) -> String {
             "| `{}` | `{}` | {} | {} |",
             cell(&row.path),
             cell(&row.ty.join(" | ")),
-            row.class.as_str(),
+            row.class_text(),
             default
         );
     }

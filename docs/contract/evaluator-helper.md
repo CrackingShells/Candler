@@ -20,10 +20,10 @@ Package: `candler-evaluator@0.1.0`.
 | Path | Type | Class | Default |
 |---|---|---|---|
 | `cause` | `Cause` | optional | - |
-| `cause.expectation` | `ExpectationId` | required | - |
-| `cause.artifact` | `RelPath` | required | - |
-| `cause.reason` | `ReasonCode` | required | - |
-| `cause.legacy` | `ReasonCode` | required | - |
+| `cause.expectation` | `ExpectationId` | required (exactly one key of cause) | - |
+| `cause.artifact` | `RelPath` | required (exactly one key of cause) | - |
+| `cause.reason` | `ReasonCode` | required (exactly one key of cause) | - |
+| `cause.legacy` | `ReasonCode` | required (exactly one key of cause) | - |
 | `context_digest` | `Digest` | required | - |
 | `evaluator` | `NameVersion` | required | - |
 | `evidence` | `array of Evidence` | required | - |
@@ -48,12 +48,12 @@ Package: `candler-evaluator@0.1.0`.
 | `suite_entry_digest` | `Digest` | required | - |
 | `value` | `Value` | optional | - |
 | `value.kind` | `"number" \| "count" \| "fraction" \| "text" \| "counts"` | required | - |
-| `value.number` | `Finite` | required | - |
-| `value.count` | `integer` | required | - |
-| `value.den` | `integer` | required | - |
-| `value.num` | `integer` | required | - |
-| `value.text` | `string` | required | - |
-| `value.counts` | `map of integer` | required | - |
+| `value.number` | `Finite` | required (value.kind = number) | - |
+| `value.count` | `integer` | required (value.kind = count) | - |
+| `value.den` | `integer` | required (value.kind = fraction) | - |
+| `value.num` | `integer` | required (value.kind = fraction) | - |
+| `value.text` | `string` | required (value.kind = text) | - |
+| `value.counts` | `map of integer` | required (value.kind = counts) | - |
 | `weight` | `Weight` | optional | - |
 | `weight.den` | `integer` | required | - |
 | `weight.num` | `integer` | required | - |
@@ -65,7 +65,7 @@ Package: `candler-evaluator@0.1.0`.
 <!-- generated:refusals -->
 | Code | When | Path at fault | Side to fix |
 |---|---|---|---|
-| `helper.deadline_out_of_range` | An evaluate request has an item whose deadline_ms is above 2**53 - 1; the helper answers with error -32602. | - | candler |
+| `helper.deadline_out_of_range` | A suite entry has a deadline_ms above 2**53 - 1, which Candler passes on and the helper refuses with error -32602. | - | suite |
 | `helper.instrument_commit_invalid` | An instrument's git install records a commit_id that is not a full lower-case hex hash. | - | plugin |
 | `helper.instrument_install_unrecorded` | An instrument's installation has no direct_url.json, as an install from a package index has none. | - | plugin |
 | `helper.instrument_install_unsupported` | An instrument's direct_url.json is neither a git install nor an editable one. | - | plugin |
@@ -99,5 +99,5 @@ Package: `candler-evaluator@0.1.0`.
 - A kind returns an `Outcome` or a mapping. Anything else, or an outcome that breaks the outcome rules, costs that item only: its record is `not_measured` with the cause `instrument_error`, and the evidence note quotes the error. [checked: candler-evaluator@0.1.0]
 - An item running past its `deadline_ms` ends the same way. [checked: candler-evaluator@0.1.0]
 - `print` in a kind goes to stderr; stdout carries the frames alone. [checked: candler-evaluator@0.1.0]
-- An instrument installed from a package index makes `describe` fail with error -32000. [checked: candler-evaluator@0.1.0]
+- An instrument installed from a package index makes `describe` and `evaluate` fail with error -32000. [checked: candler-evaluator@0.1.0]
 - A module with no `KINDS` ends the process with exit 1 before it sends a frame. [checked: candler-evaluator@0.1.0]
