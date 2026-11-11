@@ -214,6 +214,9 @@ jobs:
             echo "Nothing to release."
             exit 0
           fi
+          # The contract pages quote the released versions; rewrite them from
+          # the manifests release-plz just bumped, so the pages ship with them.
+          python3 scripts/contract_versions.py
           {
             echo "chore(release): bump the versions and changelogs [skip ci]"
             echo
