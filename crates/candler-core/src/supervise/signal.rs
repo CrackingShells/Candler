@@ -205,10 +205,12 @@ pub(crate) fn read_facts(pid: u32) -> Option<ProcFacts> {
     None
 }
 
-/// Whether `later` is a start after `earlier` of the same host and boot; two starts that cannot
-/// be compared are not ordered. The variants are read through their wire form, which is the one
+/// Whether `later` is a start no earlier than `earlier` of the same host and boot; two starts that
+/// cannot be compared are not ordered. A Linux start counts 10 ms ticks, so a descendant spawned
+/// within the supervisor's own tick shares its start, and a start on a darwin host may equal it
+/// as well. The variants are read through their wire form, which is the one
 /// place their members are public.
-fn started_after(later: &ProcessStart, earlier: &ProcessStart) -> bool {
+fn started_no_earlier(later: &ProcessStart, earlier: &ProcessStart) -> bool {
     let (Ok(later), Ok(earlier)) = (serde_json::to_value(later), serde_json::to_value(earlier))
     else {
         return false;
@@ -221,12 +223,12 @@ fn started_after(later: &ProcessStart, earlier: &ProcessStart) -> bool {
     ) {
         (Some("linux"), Some("linux")) => {
             later.get("boot_id") == earlier.get("boot_id")
-                && number(&later, "ticks") > number(&earlier, "ticks")
+                && number(&later, "ticks") >= number(&earlier, "ticks")
                 && number(&later, "ticks").is_some()
         }
         (Some("darwin"), Some("darwin")) => {
             let key = |value: &serde_json::Value| (number(value, "sec"), number(value, "usec"));
-            key(&later).0.is_some() && key(&later) > key(&earlier)
+            key(&later).0.is_some() && key(&later) >= key(&earlier)
         }
         // Two starts of different kinds, or of a kind this comparison does not know, do not order:
         // a start is never later than one it cannot be compared with.
@@ -476,14 +478,14 @@ impl Guard {
         self.deliver_process(target, signal)
     }
 
-    /// Whether `facts` is an orphan this process adopted: its parent is the caller, it started
-    /// after the caller, it carries a well-formed marker and it belongs to the caller's user.
+    /// Whether `facts` is an orphan this process adopted: its parent is the caller, it started no
+    /// earlier than the caller, it carries a well-formed marker and it belongs to the caller's user.
     fn adopted(facts: &ProcFacts, own_pid: u32, own: &ProcFacts) -> Result<(), &'static str> {
         if facts.parent != own_pid {
             return Err("the process is not a child of the caller");
         }
-        if !started_after(&facts.start, &own.start) {
-            return Err("the process did not start after the caller");
+        if !started_no_earlier(&facts.start, &own.start) {
+            return Err("the process started before the caller");
         }
         // BORROW: .as_str() reads the marker text for the parse
         if facts
@@ -501,7 +503,7 @@ impl Guard {
 
     /// Sends `signal` to the one process `pid` that this process adopted as a subreaper, and to
     /// its process group only when the group's leader passes the same checks. Right before the
-    /// signal the process is read again: its start time must be `start` and later than the
+    /// signal the process is read again: its start time must be `start` and no earlier than the
     /// caller's own, its parent must be the caller, its environment must carry a well-formed
     /// `CANDLER_RUN`, and its user must be the caller's. A group is signalled only for a leader
     /// that passes, never because one member did. The caller reaps with `waitpid(pid)`.

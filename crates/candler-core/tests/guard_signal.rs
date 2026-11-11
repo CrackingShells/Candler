@@ -464,7 +464,8 @@ fn signal_marked_refuses_all_but_the_verified_process() {
 ///
 /// Guards: I22 — parent, start, marker and user are re-read right before the signal.
 /// Oracle: the fake's single and group call logs against a made-up process table.
-/// Bite: drop the parent check in `signal_adopted`.
+/// Bite: drop the parent check in `signal_adopted`; leave the darwin arm of `started_no_earlier`
+/// strict (the row that starts with the caller goes red).
 #[test]
 fn signal_adopted_refuses_all_but_a_verified_orphan_and_its_verified_group() {
     let orphan = |start: u64, group: u32| facts(start, OWN_PID, group, OWN_UID, Some("run-aaa"));
@@ -507,15 +508,15 @@ fn signal_adopted_refuses_all_but_a_verified_orphan_and_its_verified_group() {
         ),
         (
             "started before the caller",
-            orphan(100, STRAY),
-            at(100),
-            "the process did not start after the caller",
+            orphan(99, STRAY),
+            at(99),
+            "the process started before the caller",
         ),
         (
             "started before the caller, by a later clock",
             orphan(50, STRAY),
             at(50),
-            "the process did not start after the caller",
+            "the process started before the caller",
         ),
         (
             "reparented without the marker",
@@ -630,6 +631,11 @@ fn signal_adopted_refuses_all_but_a_verified_orphan_and_its_verified_group() {
     set(&table, STRAY, Some(orphan(200, STRAY)));
     assert_eq!(guard.signal_adopted(STRAY, &at(200), Signal::TERM), Ok(()));
     assert_eq!(fake.calls().last(), Some(&(stray, Signal::TERM.as_raw())));
+
+    // The caller's own start (100): the orphan started in the caller's own tick, so it is signalled.
+    set(&table, STRAY, Some(orphan(100, STRAY)));
+    assert_eq!(guard.signal_adopted(STRAY, &at(100), Signal::KILL), Ok(()));
+    assert_eq!(fake.calls().last(), Some(&(stray, Signal::KILL.as_raw())));
 }
 
 /// A start on a made-up Linux host: `ticks` since the boot `boot`.
@@ -637,12 +643,16 @@ fn linux_at(boot: &str, ticks: u64) -> ProcessStart {
     ProcessStart::linux(boot.parse().expect("a boot id"), ticks)
 }
 
-/// An orphan that started before the caller on a Linux host is refused, and one that started
-/// after it, in the same boot, is signalled; a start of another boot cannot be ordered.
+/// An orphan that started before the caller on a Linux host is refused, and one that started in
+/// the caller's own tick or after it, in the same boot, is signalled; a start of another boot
+/// cannot be ordered.
 ///
-/// Guards: I22 — the order of two Linux starts reads the boot and the ticks.
-/// Oracle: the fake's call log against made-up boot ids and ticks.
-/// Bite: compare the ticks the wrong way round in `started_after`.
+/// Guards: I22 — the order of two Linux starts reads the boot and the ticks, and a start in the
+/// caller's own tick is not earlier.
+/// Oracle: R01 §Process supervision as amended (an adopted orphan's start is not earlier than the
+/// supervisor's own); the fake's call log against made-up boot ids and ticks.
+/// Bite: restore `>` in the Linux arm of `started_no_earlier` (the same-ticks row goes red); loosen
+/// the comparison to `true` (the fewer-ticks and another-boot rows go red).
 #[test]
 fn signal_adopted_orders_linux_starts_by_boot_and_ticks() {
     /// The boot id of the caller and of the orphan that shares its boot.
@@ -661,7 +671,7 @@ fn signal_adopted_orders_linux_starts_by_boot_and_ticks() {
     set(&table, OWN_PID, Some(own(linux_at(BOOT, 1_000))));
     for (label, start, ordered) in [
         ("fewer ticks", linux_at(BOOT, 900), false),
-        ("the same ticks", linux_at(BOOT, 1_000), false),
+        ("the same ticks", linux_at(BOOT, 1_000), true),
         ("another boot", linux_at(OTHER, 5_000), false),
         ("more ticks", linux_at(BOOT, 1_001), true),
     ] {
@@ -672,7 +682,7 @@ fn signal_adopted_orders_linux_starts_by_boot_and_ticks() {
         } else {
             assert_eq!(
                 reason(&got),
-                "the process did not start after the caller",
+                "the process started before the caller",
                 "{label}"
             );
         }
@@ -680,8 +690,11 @@ fn signal_adopted_orders_linux_starts_by_boot_and_ticks() {
     let stray = i32::try_from(STRAY).expect("fits");
     assert_eq!(
         fake.singles(),
-        vec![(stray, Signal::KILL.as_raw())],
-        "only the later start was signalled"
+        vec![
+            (stray, Signal::KILL.as_raw()),
+            (stray, Signal::KILL.as_raw())
+        ],
+        "the same ticks and the later start were signalled"
     );
 }
 
