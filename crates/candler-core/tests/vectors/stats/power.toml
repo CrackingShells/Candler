@@ -1,0 +1,12 @@
+[engine]
+scipy = "1.17.0"
+statsmodels = "0.15.0"
+python = "3.12.12"
+tie_tolerance = 1e-14
+
+[[rows]]
+n = 10
+p_a = 0.2
+p_b = 0.8
+alpha = 0.05
+power = 0.6353228186482801

@@ -1,0 +1,49 @@
+[engine]
+scipy = "1.17.0"
+statsmodels = "0.15.0"
+python = "3.12.12"
+
+[[rows]]
+n = 5
+p = 0.1
+coverage = 0.9185399999999998
+
+[[rows]]
+n = 5
+p = 0.5
+coverage = 0.9375
+
+[[rows]]
+n = 5
+p = 0.9
+coverage = 0.9185400000000001
+
+[[rows]]
+n = 10
+p = 0.1
+coverage = 0.9298091736000005
+
+[[rows]]
+n = 10
+p = 0.5
+coverage = 0.9785156250000003
+
+[[rows]]
+n = 10
+p = 0.9
+coverage = 0.9298091736
+
+[[rows]]
+n = 30
+p = 0.1
+coverage = 0.97417321133809
+
+[[rows]]
+n = 30
+p = 0.5
+coverage = 0.9572260547429325
+
+[[rows]]
+n = 30
+p = 0.9
+coverage = 0.9741732113380903
