@@ -67,7 +67,10 @@
 **Implementation Logic**:
 1. For each page, write the few rules a table cannot state: for example that a manifest's `command` is relative to the plug-in directory, that suite entries form a graph with no cycle, that a pinned input is hashed. Take each from code or a schema `$comment`, and try it with a hand input against the binary or the helper before it stays. A rule you cannot try is not written.
 2. Stamp each note `[checked: <line>@<version>]` with the version in the manifest at the commit (the stamp format and cap are D2's). No tutorial, no narrative, no analogy, no process.
-3. Run D2: the cap and the stamps hold for every page. Do not touch generated sections.
+3. Coordinator rulings for these Notes (2026-11-12):
+   - `suite-file.md`: `source` is an open table of class `free` that records where a translated suite came from; Candler stores it and never reads it.
+   - `experiment-file.md` and `plugin-manifest.md`: say that the document has no `free` fields, and that an unknown key anywhere outside `[fixed]` and a factor's `levels` is refused with `<surface>.unknown_field`.
+4. Run D2: the cap and the stamps hold for every page. Do not touch generated sections.
 **Deliverables**: `docs/contract/{plugin-manifest,suite-file,evaluator-protocol,outcome-record,experiment-file,evaluator-helper}.md`: Notes sections
 **Consistency Checks**: `cargo nextest run -p candler --no-tests=fail -E 'test(/^d1_/)|test(/^d2_/)|test(/^d3_/)'` (expected: PASS)
 **Commit**: `docs(contributing): add tentative notes to the contract pages`
