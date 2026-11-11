@@ -761,12 +761,38 @@ fn e5_a_variable_planted_in_the_caller_reaches_the_evaluator() {
     world.remove();
 }
 
+/// The environments of the supervisors running now, as text: from `/proc/<pid>/environ` where
+/// there is a `/proc`, else from `ps eww`.
+fn supervisor_environments() -> Vec<String> {
+    let mut found = Vec::new();
+    if let Ok(read) = fs::read_dir("/proc") {
+        for entry in read.flatten() {
+            let Ok(command) = fs::read(entry.path().join("cmdline")) else {
+                continue;
+            };
+            let command = String::from_utf8_lossy(&command).replace('\0', " ");
+            if command.contains("supervise --job")
+                && let Ok(environment) = fs::read(entry.path().join("environ"))
+            {
+                found.push(String::from_utf8_lossy(&environment).replace('\0', " "));
+            }
+        }
+        return found;
+    }
+    ps_with_environment()
+        .lines()
+        .filter(|line| line.contains("supervise --job"))
+        .map(str::to_owned)
+        .collect()
+}
+
 /// Guards: the environment of an agent job — a variable planted in the caller's environment does
 /// not reach the supervisor of a `run` job. The test lists the processes of the machine with
 /// their environments while the job runs; the supervisor shows `CANDLER_STORE_ROOT`, which proves
 /// the listing reads its environment, and never the planted value.
 ///
-/// Oracle: `ps eww`, read while the job's log has no `job.ended`.
+/// Oracle: the supervisor's environment as the operating system reports it (`/proc` or `ps eww`),
+/// read while the job's log has no `job.ended`.
 ///
 /// Bite: the allowlist of `run` replaced by the whole environment (the supervisor's line holds the
 /// value).
@@ -798,13 +824,10 @@ fn e5_a_variable_planted_in_the_caller_does_not_reach_a_run_job() {
         .unwrap();
     let mut seen_supervisor = false;
     let ended = wait_for(JOB_LIMIT, || {
-        for line in ps_with_environment()
-            .lines()
-            .filter(|l| l.contains("supervise --job"))
-        {
-            seen_supervisor |= line.contains("CANDLER_STORE_ROOT=");
+        for environment in supervisor_environments() {
+            seen_supervisor |= environment.contains("CANDLER_STORE_ROOT=");
             assert!(
-                !line.contains(&value),
+                !environment.contains(&value),
                 "the run job's supervisor holds the variable"
             );
         }

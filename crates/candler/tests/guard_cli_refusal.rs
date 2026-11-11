@@ -301,13 +301,10 @@ fn assert_refusal(out: &Output, code: &str, side: &str, path: Option<&str>) {
 fn r2_a_missing_plugin_manifest_prints_as_a_record() {
     let dir = bad_manifest();
     // The verb finds the manifest in the directory `plugins.dirs` names, so the manifest that
-    // cannot be read is one the directory holds with no permission to read it.
+    // cannot be read is one the directory holds that is not text.
     let unreadable = dir.path().join("unreadable");
     fs::create_dir_all(&unreadable).expect("a plug-in directory");
-    let file = unreadable.join("plugin.toml");
-    fs::write(&file, "").expect("the manifest writes");
-    fs::set_permissions(&file, std::os::unix::fs::PermissionsExt::from_mode(0o000))
-        .expect("the manifest is closed");
+    fs::write(unreadable.join("plugin.toml"), [0xff, 0xfe, 0xfd]).expect("the manifest writes");
     fs::write(
         unreadable.join("candler.toml"),
         "[plugins]\ndirs = [\".\"]\n",
