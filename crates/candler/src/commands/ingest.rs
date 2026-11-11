@@ -1,4 +1,4 @@
-//! `candler import`: a legacy results folder into the store, under rules the caller supplies as
+//! `candler ingest`: a legacy results folder into the store, under rules the caller supplies as
 //! a TOML file.
 
 use std::fmt::Display;
@@ -183,7 +183,7 @@ fn new_reader(name: &str) -> Box<dyn TraceReader> {
         Box::new(reader)
     } else {
         // EXPLICIT: construction succeeded once in `check_reader` and its inputs are constants
-        eprintln!("candler import: cannot build the reader for `{name}`");
+        eprintln!("candler ingest: cannot build the reader for `{name}`");
         std::process::exit(2)
     }
 }
