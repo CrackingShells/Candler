@@ -108,7 +108,7 @@ Agents can run in long-lived sessions whose end Candler records rather than impo
 ```mermaid
 graph TD
     opencode_facts[OpenCode facts]:::inprogress
-    session_facts[Session facts]:::inprogress
+    session_facts[Session facts]:::done
     type_merges[Type merges]:::done
     imported_strata[Imported strata]:::done
     traits[Traits]:::planned
@@ -123,7 +123,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `opencode_facts.md` | 📄 Leaf Task | 🔄 In Progress |
-| `session_facts.md` | 📄 Leaf Task | 🔄 In Progress |
+| `session_facts.md` | 📄 Leaf Task | ✅ Done |
 | `type_merges.md` | 📄 Leaf Task | ✅ Done |
 | `imported_strata.md` | 📄 Leaf Task | ✅ Done |
 | `traits/` | 📁 Directory | ⬜ Planned |
