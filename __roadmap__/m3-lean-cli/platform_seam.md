@@ -7,7 +7,7 @@
 - [ ] [cmd] The inventory does not exist yet: `test ! -e crates/candler-core/tests/vectors/platform_inventory.toml && test -f crates/candler/src/main.rs`
 - [ ] [nl] OWNED: `crates/candler-core/tests/guard_platform_seam.rs`, `crates/candler-core/tests/vectors/platform_inventory.toml`, `crates/candler/src/main.rs`, `crates/candler/src/commands/{evaluate,common}.rs` (the `cfg(unix)` gates and the stub only), `__reports__/m3-lean-cli/leaves/platform_seam_v0.md`. It lists `supervise/`, `jobs/` and the other files in the inventory and edits none of them
 **Success Gates**:
-- ⬜ [cmd] Only owned paths changed: `test -z "$(git diff --name-only a26fe53..HEAD | grep -vE '^crates/candler-core/tests/(guard_platform_seam\.rs|vectors/platform_inventory\.toml)$|^crates/candler/src/(main\.rs|commands/(evaluate|common)\.rs)$|^__reports__/m3-lean-cli/leaves/platform_seam_v0\.md$')"`
+- ⬜ [cmd] Only owned paths changed: `test -z "$(git diff --name-only <base>..HEAD | grep -vE '^crates/candler-core/tests/(guard_platform_seam\.rs|vectors/platform_inventory\.toml)$|^crates/candler/src/(main\.rs|commands/(evaluate|common)\.rs)$|^__reports__/m3-lean-cli/leaves/platform_seam_v0\.md$')"`, `<base>` being the commit the leaf branched from
 - ⬜ [cmd] Q1: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^q1_/)'`. Oracle: the inventory, listed by hand from today's 21 files
 - ⬜ [cmd] G-platform: `test "$(git grep -c 'cfg(not(unix))' -- 'crates/candler/src/**' | awk -F: '{s+=$2}END{print s+0}')" -eq 1 && git grep -q 'WSL2' -- crates/candler/src/main.rs`
 - ⬜ [cmd] No `cfg(unix)` gate is left in the binary's sources, because the one `compile_error!` makes them inert: `! git grep -n 'cfg(unix)' -- 'crates/candler/src/**'`
