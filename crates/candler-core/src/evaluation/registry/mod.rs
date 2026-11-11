@@ -19,7 +19,7 @@ mod suite;
 pub use environment::{
     EnvironmentKey, EnvironmentStep, default_env_root, register_evaluation_steps,
 };
-pub use manifest::{Plugin, Registry};
+pub use manifest::{MANIFEST_NAMES, Plugin, Registry, discover_manifests};
 pub use needs::NeedError;
 pub use suite::{CheckedEntry, CheckedSuite};
 
@@ -44,6 +44,18 @@ pub enum RegistryError {
         /// What the schema reader reported.
         #[source]
         source: EvaluationError,
+    },
+    /// A plug-in directory that holds no manifest.
+    #[error("the plug-in directory {} holds no `plugin.toml` or `candler-plugin.toml`", dir.display())]
+    NoManifest {
+        /// The directory.
+        dir: PathBuf,
+    },
+    /// A plug-in directory that holds more than one manifest.
+    #[error("the plug-in directory {} holds both `plugin.toml` and `candler-plugin.toml`", dir.display())]
+    ManyManifests {
+        /// The directory.
+        dir: PathBuf,
     },
     /// Two manifests that carry the same plug-in name.
     #[error("two plug-in manifests are named `{name}`")]

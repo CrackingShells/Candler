@@ -25,6 +25,7 @@ use std::time::Duration;
 use candler_core::evaluation::engine::{EvaluateReport, EvaluateRequest, evaluate};
 use candler_core::evaluation::registry::EnvironmentKey;
 use candler_core::evaluation::selection::select::select;
+use candler_core::jobs::slots::default_evaluator_slots;
 use candler_core::store::Store;
 use candler_core::supervise::signal::Signaller;
 use candler_core::supervise::{EventSink, Supervisor};
@@ -599,4 +600,15 @@ async fn a_regrade_that_changes_a_value_is_an_i4_violation() {
         violation.first.request_id().to_string(),
         first.request_ids.first().expect("a request").to_string()
     );
+}
+
+/// Guards: E2 (the default pool size) — an evaluator is short and CPU-bound, so the default pool
+/// is half the CPUs rounded down and never fewer than one. Oracle: the table written by hand,
+/// 0, 1, 2, 3, 4 and 16 CPUs giving 1, 1, 1, 1, 2 and 8.
+/// Bite: use the CPU count whole (16 gives 16).
+#[test]
+fn e2_default_evaluator_slots_follow_the_cpu_count() {
+    for (cpus, slots) in [(0, 1), (1, 1), (2, 1), (3, 1), (4, 2), (16, 8)] {
+        assert_eq!(default_evaluator_slots(cpus), slots, "{cpus} CPUs");
+    }
 }

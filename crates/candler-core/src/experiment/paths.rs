@@ -117,6 +117,9 @@ pub const PLUGINS_DIRS: &str = "plugins.dirs";
 /// A setting: how many runs execute at once.
 pub const SLOTS_COUNT: &str = "slots.count";
 
+/// A setting: how many evaluator processes run at once on the machine.
+pub const SLOTS_EVALUATORS: &str = "slots.evaluators";
+
 /// Reports whether `path` belongs to the configuration surface: a path named above, an operational
 /// setting ([`is_setting`](crate::resolve::layers::is_setting)), a typed root or a path below one
 /// (which another check refuses on its own terms), a path below `mcp` or `prompt.values`, whose
