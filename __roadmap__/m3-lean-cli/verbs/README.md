@@ -30,7 +30,7 @@ graph TD
     refusal_core[Refusal core]:::done
     evaluate_body[Evaluate body]:::done
     analyze[Analyze]:::planned
-    observe[Observe]:::planned
+    observe[Observe]:::done
     ingest_inspect[Ingest and inspect]:::planned
     docs_frame[Docs frame]:::planned
     design_record[Design record]:::done
@@ -48,7 +48,7 @@ graph TD
 | `refusal_core.md` | 📄 Leaf Task | ✅ Done |
 | `evaluate_body.md` | 📄 Leaf Task | ✅ Done |
 | `analyze.md` | 📄 Leaf Task | ⬜ Planned |
-| `observe.md` | 📄 Leaf Task | ⬜ Planned |
+| `observe.md` | 📄 Leaf Task | ✅ Done |
 | `ingest_inspect.md` | 📄 Leaf Task | ⬜ Planned |
 | `docs_frame.md` | 📄 Leaf Task | ⬜ Planned |
 | `design_record.md` | 📄 Leaf Task | ✅ Done |
