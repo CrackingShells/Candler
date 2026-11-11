@@ -180,3 +180,12 @@ All inside the OWNED regex:
 | SUBJ: `cog check a72342b..HEAD`, subjects at most 72 | PASS |
 | `contract_pages` (D1) | PASS, nothing blessed |
 
+
+## Merge (coordinator)
+- **A last round coded the rules-file refusals of `ingest`** (5b2be6c). An unreadable or non-UTF-8 rules file, an invalid `marker.pattern`, a marker with both or neither of `code` and `capture`, and a harness with no reader now print `config.import_rules_invalid` (side `config`), with the file named. The text of each is unchanged. Guard: one `u6` row. Bite: the `marker.pattern` site back to `refused(format!(..))`.
+- **The rest stays `candler.internal`, by ruling.** That is the "no working directory" sites, `evaluate.rs:125` and the `resolve` summary line: they are not author mistakes.
+- **The merge.** The branch was merged as `merge(cli): land cli_surface` (68a5203) without a rebase, since the tip's one new commit (f7bb2d1) touches only a core test helper.
+- **For Eliott:**
+  - the relaxations above;
+  - every option's stamp, listed in this report;
+  - the asset cache, which is never pruned (about 44 KB per asset digest), a follow-up.
