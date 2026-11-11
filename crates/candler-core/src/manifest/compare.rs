@@ -10,7 +10,7 @@ use std::str::FromStr;
 
 use candler_schemas::canonical;
 use candler_schemas::execution::{Comparable, Deviation, RunManifest};
-use candler_schemas::primitives::FieldPath;
+use candler_schemas::primitives::{Digest, FieldPath};
 use candler_schemas::values::JsonValue;
 use serde_json::Value;
 
@@ -27,6 +27,13 @@ const EVAL_INFRA_DIRTY_PATH: &str = "provenance.eval_infra.dirty";
 
 /// The measured path of the sandbox contract, which must agree across the runs of a stratum.
 const SANDBOX_CONTRACT_PATH: &str = "provenance.sandbox_contract";
+
+/// The path an imported stratum is refused at when it mixes imported and live arms.
+const IMPORT_PATH: &str = "import";
+
+/// The path an imported stratum is refused at when the arms were not read with one set of import
+/// rules, or an arm does not record them.
+const IMPORT_RULES_PATH: &str = "import.rules";
 
 /// The first segments of the declared factors that change the tool list the harness reports, and
 /// so exempt `census.init_tools`.
@@ -74,6 +81,8 @@ pub struct ArmView {
     claimed_factors: Vec<FieldPath>,
     init_tools: Option<JsonValue>,
     provenance: BTreeMap<String, JsonValue>,
+    imported: bool,
+    import_rules: Option<Digest>,
 }
 
 /// Whether a measured path is one a verdict reads from the provenance block.
@@ -87,8 +96,9 @@ fn gates_verdict(path: &str) -> bool {
 }
 
 impl ArmView {
-    /// Reads the three things a verdict needs from a manifest: `comparable`, `factors` and the
-    /// measured `census.init_tools` (absent is `unrecorded`).
+    /// Reads what a verdict needs from a manifest: `comparable`, `factors`, the measured
+    /// `census.init_tools` (absent is `unrecorded`) and, for an imported run, the digest of the
+    /// import rules.
     ///
     /// # Errors
     /// [`VerdictError::Malformed`] when a value sits at a root the typed fields own, or when
@@ -147,6 +157,9 @@ impl ArmView {
             claimed_factors: manifest.factors().to_vec(),
             init_tools,
             provenance,
+            imported: manifest.import().is_some(),
+            // BORROW: .cloned() gives the view its own digest
+            import_rules: manifest.import().and_then(|import| import.rules.clone()),
         })
     }
 
@@ -162,6 +175,19 @@ impl ArmView {
     pub fn claimed_factors<'a>(&'a self) -> &'a [FieldPath] {
         // BORROW: explicit .as_slice() instead of Deref coercion
         self.claimed_factors.as_slice()
+    }
+
+    /// Whether the run was imported: its manifest holds an import record.
+    #[must_use]
+    pub const fn is_imported(&self) -> bool {
+        self.imported
+    }
+
+    /// The sha256 of the import rules the run was read with, or `None` for a live run and for an
+    /// import that did not record them.
+    #[must_use]
+    pub const fn import_rules<'a>(&'a self) -> Option<&'a Digest> {
+        self.import_rules.as_ref()
     }
 
     /// The tool list the harness reported at start, or `None` when it was not recorded.
@@ -382,16 +408,79 @@ fn provenance_refused(views: &[&ArmView]) -> Vec<FieldPath> {
         .collect()
 }
 
+/// The paths that keep a stratum of imported arms from a verdict, each named by the path that
+/// refused. The import recorded its own identity, so the stratum is gated on that instead of on
+/// the measured provenance:
+/// - `import.rules` when any arm did not record the digest of its import rules, or the arms
+///   record different ones;
+/// - `provenance.eval_infra.commit`, `provenance.eval_infra.dirty` and
+///   `provenance.sandbox_contract` when any arm did not record the path in `comparable.values`
+///   (the commit must be a non-empty string), or the arms record different values. The gate
+///   compares them itself, so no declared factor can pool arms of two legacy builds.
+///
+/// A dirty legacy build is not refused: one legacy launch is one checkout, so arms that record
+/// the same commit, flag, contract and rules came from one tree.
+fn imported_refused(views: &[&ArmView]) -> Vec<FieldPath> {
+    fn held<'a>(arm: &'a ArmView, path: &str) -> Option<&'a Value> {
+        arm.comparable()
+            .values()
+            .iter()
+            // BORROW: explicit .as_str() instead of Deref coercion
+            .find(|value| value.path().as_str() == path)
+            .and_then(|value| value.value())
+            .map(JsonValue::as_value)
+    }
+    fn recorded(arm: &ArmView, path: &str) -> bool {
+        match held(arm, path) {
+            None => false,
+            Some(json) if path == EVAL_INFRA_COMMIT_PATH => {
+                json.as_str().is_some_and(|text| !text.is_empty())
+            }
+            Some(_) => true,
+        }
+    }
+    let mut paths: Vec<&str> = Vec::new();
+    let rules_agree = views.iter().all(|arm| {
+        arm.import_rules().is_some()
+            && arm.import_rules() == views.first().and_then(|first| first.import_rules())
+    });
+    if !rules_agree {
+        paths.push(IMPORT_RULES_PATH);
+    }
+    for path in [
+        EVAL_INFRA_COMMIT_PATH,
+        EVAL_INFRA_DIRTY_PATH,
+        SANDBOX_CONTRACT_PATH,
+    ] {
+        // The gate compares these itself: a declared factor never pools arms of two builds.
+        let keys: Vec<Option<String>> = views.iter().map(|arm| leaf_key(held(arm, path))).collect();
+        let agree = !keys.windows(2).any(|pair| pair.first() != pair.get(1));
+        if !views.iter().all(|arm| recorded(arm, path)) || !agree {
+            paths.push(path);
+        }
+    }
+    paths
+        .into_iter()
+        .filter_map(|path| FieldPath::from_str(path).ok())
+        .collect()
+}
+
 /// Whether the arms of a stratum are comparable, given the factors the experiment declares.
 ///
 /// Every arm is diffed against the first. A deviation is dropped when a declared factor covers
 /// it; the arms' own `factors[]` is never read. `census.init_tools` differing between any two
 /// arms is a deviation unless a declared `tools.*` or `mcp.*` factor itself differs between those
 /// two arms, so two arms that agree on every such factor must agree on the tool list. The check
-/// always runs. A stratum is also refused on the provenance that says whether the runs came from the
-/// same Candler: see `provenance_refused`.
-/// An arm that could not be read gives no verdict, whatever the other arms hold, and a stratum
-/// with no arm has none either.
+/// always runs. A stratum of live arms is also refused on the provenance that says whether the
+/// runs came from the same Candler: see `provenance_refused`. An arm that could not be read gives
+/// no verdict, whatever the other arms hold, and a stratum with no arm has none either.
+///
+/// An arm is imported if and only if its manifest holds an import record. A stratum that mixes
+/// imported and live arms is refused, naming `import`. A stratum of imported arms is gated by
+/// `imported_refused` in place of the provenance gate: the import rules recorded and equal, and
+/// the legacy commit, dirty flag and sandbox contract recorded. The dirty flag of a legacy build
+/// does not refuse: arms that agree on commit, flag, contract and rules pool, on the assumption
+/// that one legacy launch is one checkout; no declared factor pools arms of two legacy builds.
 #[must_use]
 pub fn stratum_verdict(arms: &[Result<ArmView, VerdictError>], declared: &[FieldPath]) -> Verdict {
     let errors: Vec<VerdictError> = arms
@@ -419,7 +508,17 @@ pub fn stratum_verdict(arms: &[Result<ArmView, VerdictError>], declared: &[Field
             .skip(at + 1)
             .any(|other| tools_unexplained(one, other, declared))
     });
-    refused.extend(provenance_refused(&views));
+    let imported = views.iter().filter(|arm| arm.is_imported()).count();
+    if imported == 0 {
+        refused.extend(provenance_refused(&views));
+    } else if imported == views.len() {
+        refused.extend(imported_refused(&views));
+    } else {
+        let Ok(field) = FieldPath::from_str(IMPORT_PATH) else {
+            unreachable!("`import` is a field path")
+        };
+        refused.push(field);
+    }
     if unexplained {
         let Ok(field) = FieldPath::from_str(INIT_TOOLS_PATH) else {
             unreachable!("`census.init_tools` is a field path")
