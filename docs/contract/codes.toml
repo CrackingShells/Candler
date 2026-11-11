@@ -430,6 +430,11 @@ variant = "ManifestUnknownField"
 
 [resolve]
 
+[resolve."resolve.value_invalid"]
+side = "config"
+enum = "ResolveError"
+variant = "Format"
+
 [resolve."config.file_unreadable"]
 side = "config"
 enum = "ConfigError"
@@ -476,6 +481,11 @@ enum = "ResolveError"
 variant = "Preflight"
 
 [experiment]
+
+[experiment."experiment.setting_value_invalid"]
+side = "experiment"
+enum = "SurfaceError"
+variant = "Format"
 
 [experiment."experiment.input_unusable"]
 side = "experiment"
@@ -718,6 +728,11 @@ variant = "List"
 
 [store]
 
+[store."store.value_invalid"]
+side = "environment"
+enum = "StoreError"
+variant = "Format"
+
 [store."store.io_failed"]
 side = "environment"
 enum = "StoreError"
@@ -894,6 +909,11 @@ enum = "JobViewError"
 variant = "Read"
 
 [evaluation]
+
+[evaluation."outcome.value_invalid"]
+side = "plugin"
+enum = "OutcomeError"
+variant = "Format"
 
 [evaluation."evaluation.suite_unreadable"]
 side = "config"
@@ -1087,6 +1107,11 @@ variant = "DuplicateRow"
 
 [import]
 
+[import."import.value_invalid"]
+side = "environment"
+enum = "ImportError"
+variant = "Format"
+
 [import."config.import_field_unset"]
 side = "config"
 enum = "ImportError"
@@ -1173,6 +1198,11 @@ enum = "RawIngestError"
 variant = "Unreadable"
 
 [manifest]
+
+[manifest."experiment.value_invalid"]
+side = "experiment"
+enum = "ExecutionError"
+variant = "Format"
 
 [trace]
 

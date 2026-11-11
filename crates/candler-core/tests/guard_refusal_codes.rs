@@ -17,7 +17,7 @@ const INTERNAL_CODE: &str = "candler.internal";
 const NO_CODE_SECTIONS: [&str; 2] = ["internal", "helper"];
 
 /// The sections whose rows the core and the harness crates own: their rows are in the catalogue.
-const CATALOGUED_SECTIONS: [&str; 12] = [
+const CATALOGUED_SECTIONS: [&str; 13] = [
     "resolve",
     "experiment",
     "runner",
@@ -30,6 +30,7 @@ const CATALOGUED_SECTIONS: [&str; 12] = [
     "evaluation",
     "import",
     "analysis",
+    "manifest",
 ];
 
 /// The workspace root.
@@ -561,8 +562,7 @@ fn r1_a_wrapper_answers_with_the_side_of_what_it_wraps() {
     assert_eq!(found.side(), Side::Environment);
 }
 
-/// One wrapper variant built by hand, with the code and side that the walk of causes must give
-/// for it.
+/// One wrapper variant built by hand, with the code the walk of causes must give for it.
 #[cfg(unix)]
 struct Wrapped {
     /// The enum of the wrapper.
@@ -571,15 +571,13 @@ struct Wrapped {
     variant: &'static str,
     /// The wrapper, holding the error it wraps.
     error: Box<dyn std::error::Error + 'static>,
-    /// The code the record carries: the wrapped error's.
+    /// The code the record carries: the wrapped error's, or the wrapper's own when the cause is a
+    /// format error.
     code: &'static str,
-    /// The `(enum, variant)` of the delegate row whose own side the record carries, when the
-    /// cause is a format error or blames Candler without being the fallback code; otherwise the
-    /// record carries the side `codes.toml` registers for the code.
-    stands: Option<(&'static str, &'static str)>,
 }
 
-/// The wrappers of every `delegate` row of the catalogue, each built over a cause.
+/// The wrappers of every `delegate` row of the catalogue, and of every wrapper of a format
+/// error, each built over a cause.
 #[cfg(unix)]
 fn wrapped_cases() -> Vec<Wrapped> {
     use candler_core::evaluation::context::ContextError;
@@ -622,87 +620,79 @@ fn wrapped_cases() -> Vec<Wrapped> {
     let sealed = || StoreError::RunSealed {
         run: "r".to_owned(),
     };
-    let locked = || PlanError::ExperimentLocked;
-    let case = |enum_name, variant, error: Box<dyn std::error::Error>, code, stands| Wrapped {
+    let case = |enum_name, variant, error: Box<dyn std::error::Error>, code| Wrapped {
         enum_name,
         variant,
         error,
         code,
-        stands,
     };
-    let experiment_format = Some(("ExecutionError", "Format"));
+    let evaluate_registry = || RegistryError::UnknownKind {
+        entry: "R1".parse().unwrap(),
+        evaluator: "e".parse().unwrap(),
+        kind: "k".parse().unwrap(),
+    };
     vec![
         // The schemas'.
         case(
             "ExecutionError",
             "Format",
             Box::new(ExecutionError::Format(format())),
-            "format.name_invalid",
-            experiment_format,
+            "experiment.value_invalid",
         ),
         case(
             "ExecutionError",
             "Values",
             Box::new(ExecutionError::Values(ValuesError::Null)),
             "values.null",
-            None,
         ),
         case(
             "ExecutionError",
             "Canonical",
             Box::new(ExecutionError::Canonical(finite())),
             "canonical.number_not_finite",
-            None,
         ),
         case(
             "EvaluationError",
             "Canonical",
             Box::new(EvaluationError::Canonical(finite())),
             "canonical.number_not_finite",
-            None,
         ),
         case(
             "OutcomeError",
             "Format",
             Box::new(OutcomeError::Format(format())),
-            "format.name_invalid",
-            Some(("OutcomeError", "Format")),
+            "outcome.value_invalid",
         ),
         case(
             "ValuesError",
             "Canonical",
             Box::new(ValuesError::Canonical(finite())),
             "canonical.number_not_finite",
-            None,
         ),
         // The core's.
         case(
             "SurfaceError",
             "Format",
             Box::new(SurfaceError::Format(format())),
-            "format.name_invalid",
-            Some(("SurfaceError", "Format")),
+            "experiment.setting_value_invalid",
         ),
         case(
             "ResolveError",
             "Value",
             Box::new(ResolveError::Value(ValuesError::Null)),
             "values.null",
-            None,
         ),
         case(
             "ResolveError",
             "Format",
             Box::new(ResolveError::Format(format())),
-            "format.name_invalid",
-            Some(("ResolveError", "Format")),
+            "resolve.value_invalid",
         ),
         case(
             "StoreError",
             "Format",
             Box::new(StoreError::Format(format())),
-            "format.name_invalid",
-            Some(("StoreError", "Format")),
+            "store.value_invalid",
         ),
         case(
             "ExecError",
@@ -711,14 +701,12 @@ fn wrapped_cases() -> Vec<Wrapped> {
                 detail: "d".to_owned(),
             })),
             "isolation.docker_step_failed",
-            None,
         ),
         case(
             "ExecError",
             "Store",
             Box::new(ExecError::Store(sealed())),
             "store.run_sealed",
-            None,
         ),
         case(
             "ExecError",
@@ -727,14 +715,12 @@ fn wrapped_cases() -> Vec<Wrapped> {
                 detail: "d".to_owned(),
             })),
             "harness.version_unreadable",
-            None,
         ),
         case(
             "ExecError",
             "Manifest",
             Box::new(ExecError::Manifest(git())),
             "manifest.git_commit_invalid",
-            Some(("ExecError", "Manifest")),
         ),
         case(
             "ExecError",
@@ -744,7 +730,6 @@ fn wrapped_cases() -> Vec<Wrapped> {
                 source: std::io::Error::other("x"),
             })),
             "supervise.spawn_failed",
-            None,
         ),
         case(
             "GatewayError",
@@ -753,7 +738,6 @@ fn wrapped_cases() -> Vec<Wrapped> {
                 name: "n".to_owned(),
             })),
             "isolation.secret_missing",
-            None,
         ),
         case(
             "GatewayError",
@@ -762,7 +746,6 @@ fn wrapped_cases() -> Vec<Wrapped> {
                 cause: NotReadyCause::Capped,
             }),
             "isolation.gateway_capped",
-            None,
         ),
         case(
             "RunArgvError",
@@ -771,40 +754,39 @@ fn wrapped_cases() -> Vec<Wrapped> {
                 path: "/p".into(),
             })),
             "isolation.mount_outside_roots",
-            None,
         ),
         case(
             "DriverError",
             "Command",
             Box::new(DriverError::Command(CommandSpecError::EmptyArgv)),
             "candler.internal",
-            None,
         ),
         case(
             "PlanError",
             "Cell",
             Box::new(PlanError::Cell { source: absolute() }),
             "experiment.absolute_path",
-            None,
         ),
         case(
             "PlanError",
             "Cell",
             Box::new(PlanError::Cell { source: git() }),
             "manifest.git_commit_invalid",
-            Some(("PlanError", "Cell")),
+        ),
+        case(
+            "PlanError",
+            "Cell",
+            Box::new(PlanError::Cell {
+                source: ExecutionError::Format(format()),
+            }),
+            "experiment.value_invalid",
         ),
         // The evaluation's.
         case(
             "EvaluateError",
             "Registry",
-            Box::new(EvaluateError::Registry(RegistryError::UnknownKind {
-                entry: "R1".parse().unwrap(),
-                evaluator: "e".parse().unwrap(),
-                kind: "k".parse().unwrap(),
-            })),
+            Box::new(EvaluateError::Registry(evaluate_registry())),
             "suite.kind_unknown",
-            None,
         ),
         case(
             "EvaluateError",
@@ -816,21 +798,18 @@ fn wrapped_cases() -> Vec<Wrapped> {
                 },
             }),
             "suite.list_empty",
-            None,
         ),
         case(
             "EvaluateError",
             "Store",
             Box::new(EvaluateError::Store(sealed())),
             "store.run_sealed",
-            None,
         ),
         case(
             "EvaluateError",
             "Plan",
             Box::new(EvaluateError::Plan(EvalPlanError::Cycle { cycle: vec![] })),
             "evaluation.dependency_cycle",
-            None,
         ),
         case(
             "EvaluateError",
@@ -840,7 +819,6 @@ fn wrapped_cases() -> Vec<Wrapped> {
                 source: candler_core::evaluation::client::ClientError::Cancelled,
             }),
             "evaluation.cancelled",
-            None,
         ),
         case(
             "EvaluateError",
@@ -851,7 +829,6 @@ fn wrapped_cases() -> Vec<Wrapped> {
                 detail: "d".to_owned(),
             })),
             "jobs.slot_io_failed",
-            None,
         ),
         case(
             "RegistryError",
@@ -861,7 +838,6 @@ fn wrapped_cases() -> Vec<Wrapped> {
                 source: EvaluationError::EmptyList { field: "f" },
             }),
             "suite.list_empty",
-            None,
         ),
         case(
             "RegistryError",
@@ -875,14 +851,12 @@ fn wrapped_cases() -> Vec<Wrapped> {
                 },
             }),
             "plugin.need_glob_invalid",
-            None,
         ),
         case(
             "ContextError",
             "Store",
             Box::new(ContextError::Store(sealed())),
             "store.run_sealed",
-            None,
         ),
         // The jobs'.
         case(
@@ -890,7 +864,6 @@ fn wrapped_cases() -> Vec<Wrapped> {
             "Job",
             Box::new(RecoverError::Job(JobError::Held)),
             "jobs.job_held",
-            None,
         ),
         case(
             "RecoverError",
@@ -899,69 +872,60 @@ fn wrapped_cases() -> Vec<Wrapped> {
                 detail: "d".to_owned(),
             })),
             "isolation.sweep_list_failed",
-            None,
         ),
         case(
             "OrchestrateError",
             "Plan",
-            Box::new(OrchestrateError::Plan(locked())),
+            Box::new(OrchestrateError::Plan(PlanError::ExperimentLocked)),
             "runner.experiment_locked",
-            None,
         ),
         case(
             "OrchestrateError",
             "Plan",
             Box::new(OrchestrateError::Plan(PlanError::Cell { source: git() })),
             "manifest.git_commit_invalid",
-            Some(("OrchestrateError", "Plan")),
         ),
         // The import's.
         case(
             "ImportError",
             "Format",
             Box::new(ImportError::Format(format())),
-            "format.name_invalid",
-            Some(("ImportError", "Format")),
+            "import.value_invalid",
         ),
     ]
 }
 
-/// Guards: R1 — every wrapper variant of the workspace (every `delegate` row of the catalogue)
-/// answers through the walk of causes with the code of the error it wraps, and with that error's
-/// registered side, except where the cause is a format error or blames Candler without being the
-/// fallback code: there the side of the wrapper's own row stands, because the document the value
-/// came from decides whose fault it is. A format error read from a legacy results folder is the
-/// environment's, not Candler's.
+/// Every `(code, side)` pair `codes.toml` registers, with the fallback code and the side
+/// `candler`.
+fn registered_pairs() -> BTreeSet<(String, String)> {
+    let mut pairs: BTreeSet<(String, String)> = code_rows(&codes())
+        .into_iter()
+        .map(|row| (row.code, row.side))
+        .collect();
+    pairs.insert((INTERNAL_CODE.to_owned(), "candler".to_owned()));
+    pairs
+}
+
+/// Guards: R1 — the invariant of every record: the `(code, side)` pair a record carries is a row
+/// of `codes.toml`, so a consumer that maps a code to its side gets one answer. Every wrapper
+/// variant of the workspace (every `delegate` row of the catalogue) answers through the walk of
+/// causes with the code and side of the error it wraps, and a wrapper of a format error, which
+/// has no document of its own, answers with its own code and the side of its document; a cause
+/// that blames Candler answers with its own code and the side `candler`.
 ///
-/// Oracle: the code and the side `codes.toml` registers for the cause, and the side written in
-/// the wrapper's own row of the catalogue; the wrappers and their causes are built by hand. A
-/// `delegate` row with no case here fails the guard.
+/// Oracle: the pairs of `codes.toml`, which is read and never generated, and the codes written by
+/// hand for each case; the wrappers and their causes are built by hand. A `delegate` row with no
+/// case here fails the guard.
 ///
-/// Bite: `through` always returning the wrapper; the `through` calls of the schemas' wrappers
-/// removed; the format and Candler exceptions removed from `through`.
+/// Bite: `through` returning the wrapper; the `through` calls of the schemas' wrappers removed;
+/// the round-two rule restored, where a wrapper of a format error answers with the cause's code
+/// and its own side.
 #[cfg(unix)]
 #[test]
-fn r1_every_wrapper_answers_with_the_side_its_rule_gives() {
-    let table = codes();
-    let registered = |code: &str| -> String {
-        if code == INTERNAL_CODE {
-            return "candler".to_owned();
-        }
-        code_rows(&table)
-            .into_iter()
-            .find(|row| row.code == code)
-            .unwrap_or_else(|| panic!("{code} is not in codes.toml"))
-            .side
-    };
+fn r1_every_wrapper_answers_with_a_registered_code_and_side() {
+    let pairs = registered_pairs();
     let mut catalogue = catalogue();
     catalogue.extend(candler_harness::refusal::catalog());
-    let own_side = |enum_name: &str, variant: &str| -> Side {
-        catalogue
-            .iter()
-            .find(|row| row.delegates && row.enum_name == enum_name && row.variant == variant)
-            .unwrap_or_else(|| panic!("{enum_name}::{variant} is no delegate row"))
-            .side
-    };
     let cases = wrapped_cases();
     for row in catalogue.iter().filter(|row| row.delegates) {
         assert!(
@@ -978,10 +942,15 @@ fn r1_every_wrapper_answers_with_the_side_its_rule_gives() {
         let found = candler_core::refusal::find(case.error.as_ref())
             .unwrap_or_else(|| panic!("{who}: the walk finds no refusal"));
         assert_eq!(found.code().as_str(), case.code, "{who}: code");
-        let side = case.stands.map_or_else(
-            || registered(case.code),
-            |(enum_name, variant)| own_side(enum_name, variant).as_str().to_owned(),
+        let pair = (
+            found.code().as_str().to_owned(),
+            found.side().as_str().to_owned(),
         );
-        assert_eq!(found.side().as_str(), side, "{who}: side");
+        assert!(
+            pairs.contains(&pair),
+            "{who}: the record ({}, {}) is no row of codes.toml",
+            pair.0,
+            pair.1
+        );
     }
 }

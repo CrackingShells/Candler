@@ -18,7 +18,6 @@ use candler_schemas::refusal_table;
 /// The pointer of the place in a document where an [`ImportError`] sits, if it names one.
 fn import_error_path(error: &ImportError) -> Option<String> {
     match error {
-        ImportError::Format(inner) => Refusal::path(inner),
         ImportError::MissingField { .. }
         | ImportError::Rules { .. }
         | ImportError::Io { .. }
@@ -32,7 +31,8 @@ fn import_error_path(error: &ImportError) -> Option<String> {
         | ImportError::Status { .. }
         | ImportError::Record { .. }
         | ImportError::Store { .. }
-        | ImportError::Conflict { .. } => None,
+        | ImportError::Conflict { .. }
+        | ImportError::Format(..) => None,
     }
 }
 
@@ -122,7 +122,12 @@ refusal_table! {
         "A run that is finished in the store differs from the folder that is imported for it.",
         "-",
     ),
-    Format (inner) => delegate(inner, Side::Environment),
+    Format (..) => row(
+        "import.value_invalid",
+        Side::Environment,
+        "A value found in the legacy results folder has the wrong form for what it names, such as a run name that is not a run key.",
+        "-",
+    ),
 }
 
 /// The rows of every coded error of this module, in the order of the types.
@@ -147,7 +152,6 @@ fn as_refusal<'e, E: Refusal>(found: &'e E) -> &'e dyn Refusal {
 /// code, side and path, and every other variant with its own.
 fn import_answer(error: &ImportError) -> &dyn Refusal {
     match error {
-        ImportError::Format(inner) => crate::refusal::through(inner, error),
         ImportError::MissingField { .. }
         | ImportError::Rules { .. }
         | ImportError::Io { .. }
@@ -161,7 +165,8 @@ fn import_answer(error: &ImportError) -> &dyn Refusal {
         | ImportError::Status { .. }
         | ImportError::Record { .. }
         | ImportError::Store { .. }
-        | ImportError::Conflict { .. } => error,
+        | ImportError::Conflict { .. }
+        | ImportError::Format(..) => error,
     }
 }
 

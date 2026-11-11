@@ -26,11 +26,11 @@ fn input_error_path(error: &InputError) -> Option<String> {
 /// The pointer of the place in a document where a [`SurfaceError`] sits, if it names one.
 fn surface_error_path(error: &SurfaceError) -> Option<String> {
     match error {
-        SurfaceError::Format(inner) => Refusal::path(inner),
         SurfaceError::Missing(..)
         | SurfaceError::Type { .. }
         | SurfaceError::ReservedRoot { .. }
-        | SurfaceError::AbsolutePath { .. } => None,
+        | SurfaceError::AbsolutePath { .. }
+        | SurfaceError::Format(..) => None,
     }
 }
 
@@ -76,7 +76,12 @@ refusal_table! {
         "A setting holds an absolute path where a path relative to the project is required.",
         "-",
     ),
-    Format (inner) => delegate(inner, Side::Experiment),
+    Format (..) => row(
+        "experiment.setting_value_invalid",
+        Side::Experiment,
+        "A setting holds a value that has the wrong form for what it names, such as a name with a space.",
+        "-",
+    ),
 }
 
 /// The rows of every coded error of this module, in the order of the types.
@@ -101,11 +106,11 @@ fn as_refusal<'e, E: Refusal>(found: &'e E) -> &'e dyn Refusal {
 /// code, side and path, and every other variant with its own.
 fn surface_answer(error: &SurfaceError) -> &dyn Refusal {
     match error {
-        SurfaceError::Format(inner) => crate::refusal::through(inner, error),
         SurfaceError::Missing(..)
         | SurfaceError::Type { .. }
         | SurfaceError::ReservedRoot { .. }
-        | SurfaceError::AbsolutePath { .. } => error,
+        | SurfaceError::AbsolutePath { .. }
+        | SurfaceError::Format(..) => error,
     }
 }
 

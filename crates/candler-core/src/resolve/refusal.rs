@@ -33,11 +33,11 @@ fn config_error_path(error: &ConfigError) -> Option<String> {
 fn resolve_error_path(error: &ResolveError) -> Option<String> {
     match error {
         ResolveError::Value(inner) => Refusal::path(inner),
-        ResolveError::Format(inner) => Refusal::path(inner),
         ResolveError::NonUtf8Path { .. }
         | ResolveError::DuplicateStep { .. }
         | ResolveError::DerivedTwice { .. }
-        | ResolveError::Preflight { .. } => None,
+        | ResolveError::Preflight { .. }
+        | ResolveError::Format(..) => None,
     }
 }
 
@@ -100,7 +100,12 @@ refusal_table! {
         "-",
     ),
     Value (inner) => delegate(inner, Side::Config),
-    Format (inner) => delegate(inner, Side::Config),
+    Format (..) => row(
+        "resolve.value_invalid",
+        Side::Config,
+        "A value of the resolution has the wrong form for what it names, such as a name with a space.",
+        "-",
+    ),
     DuplicateStep { .. } => row(
         "candler.internal",
         Side::Candler,
@@ -145,11 +150,11 @@ fn as_refusal<'e, E: Refusal>(found: &'e E) -> &'e dyn Refusal {
 fn resolve_answer(error: &ResolveError) -> &dyn Refusal {
     match error {
         ResolveError::Value(inner) => crate::refusal::through(inner, error),
-        ResolveError::Format(inner) => crate::refusal::through(inner, error),
         ResolveError::NonUtf8Path { .. }
         | ResolveError::DuplicateStep { .. }
         | ResolveError::DerivedTwice { .. }
-        | ResolveError::Preflight { .. } => error,
+        | ResolveError::Preflight { .. }
+        | ResolveError::Format(..) => error,
     }
 }
 

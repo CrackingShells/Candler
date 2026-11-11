@@ -55,7 +55,46 @@ fn record_of(out: &Output) -> Value {
         !line.contains('\n'),
         "one line on stderr, it holds: {stderr:?}"
     );
-    serde_json::from_str(line).unwrap_or_else(|e| panic!("stderr is JSON ({e}): {line:?}"))
+    let record: Value =
+        serde_json::from_str(line).unwrap_or_else(|e| panic!("stderr is JSON ({e}): {line:?}"));
+    assert_registered(&record);
+    record
+}
+
+/// The `(code, side)` pairs `docs/contract/codes.toml` registers, with the fallback code and the
+/// side `candler`.
+fn registered_pairs() -> Vec<(String, String)> {
+    let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/contract/codes.toml");
+    let table = fs::read_to_string(file)
+        .expect("codes.toml is committed")
+        .parse::<toml::Table>()
+        .expect("codes.toml is TOML");
+    let mut pairs = vec![("candler.internal".to_owned(), "candler".to_owned())];
+    for (section, rows) in &table {
+        if section == "internal" || section == "helper" {
+            continue;
+        }
+        for (code, row) in rows.as_table().expect("a section of rows") {
+            let side = row["side"].as_str().expect("a side");
+            pairs.push((code.clone(), side.to_owned()));
+        }
+    }
+    pairs
+}
+
+/// Panics unless the `(code, side)` of `record` is a row of `codes.toml`, so that a consumer that
+/// maps a code to its side gets one answer.
+fn assert_registered(record: &Value) {
+    let pair = (
+        record["code"].as_str().expect("a code").to_owned(),
+        record["side"].as_str().expect("a side").to_owned(),
+    );
+    assert!(
+        registered_pairs().contains(&pair),
+        "the record ({}, {}) is no row of codes.toml: {record}",
+        pair.0,
+        pair.1
+    );
 }
 
 /// Panics unless `out` is the refusal `expect` describes.

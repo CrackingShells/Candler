@@ -14,7 +14,6 @@ use candler_schemas::refusal_table;
 /// The pointer of the place in a document where a [`StoreError`] sits, if it names one.
 fn store_error_path(error: &StoreError) -> Option<String> {
     match error {
-        StoreError::Format(inner) => Refusal::path(inner),
         StoreError::Io { .. }
         | StoreError::NotAStore { .. }
         | StoreError::DigestMismatch { .. }
@@ -25,7 +24,8 @@ fn store_error_path(error: &StoreError) -> Option<String> {
         | StoreError::OutcomeExists { .. }
         | StoreError::RecordMismatch { .. }
         | StoreError::IndexCorrupt { .. }
-        | StoreError::Parse { .. } => None,
+        | StoreError::Parse { .. }
+        | StoreError::Format(..) => None,
     }
 }
 
@@ -97,7 +97,12 @@ refusal_table! {
         "A stored file is not a valid record.",
         "-",
     ),
-    Format (inner) => delegate(inner, Side::Environment),
+    Format (..) => row(
+        "store.value_invalid",
+        Side::Environment,
+        "A value read from or written to the store has the wrong form for what it names, such as a run key that is not one.",
+        "-",
+    ),
 }
 
 /// The rows of every coded error of this module, in the order of the types.
@@ -114,7 +119,6 @@ pub(crate) fn catalog() -> Vec<CatalogRow> {
 /// code, side and path, and every other variant with its own.
 fn store_answer(error: &StoreError) -> &dyn Refusal {
     match error {
-        StoreError::Format(inner) => crate::refusal::through(inner, error),
         StoreError::Io { .. }
         | StoreError::NotAStore { .. }
         | StoreError::DigestMismatch { .. }
@@ -125,7 +129,8 @@ fn store_answer(error: &StoreError) -> &dyn Refusal {
         | StoreError::OutcomeExists { .. }
         | StoreError::RecordMismatch { .. }
         | StoreError::IndexCorrupt { .. }
-        | StoreError::Parse { .. } => error,
+        | StoreError::Parse { .. }
+        | StoreError::Format(..) => error,
     }
 }
 
