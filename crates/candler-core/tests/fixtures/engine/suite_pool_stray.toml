@@ -1,0 +1,14 @@
+schema = "suite/1"
+
+[[expectations]]
+id = "Y1"
+role = "gate"
+kind = "stray"
+depends_on = []
+
+[expectations.evaluator]
+name = "pool"
+range = "^0.1"
+
+[expectations.params]
+pidfile = "@PIDFILE@"

@@ -2,28 +2,60 @@
 
 use std::collections::BTreeMap;
 use std::io;
-use std::num::NonZeroUsize;
+use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use candler_schemas::evaluation::{EvaluationError, PluginEnvironment, SuiteFile};
-use candler_schemas::primitives::{Name, NameVersion, RequestId};
+use candler_schemas::execution::EventPayload;
+use candler_schemas::primitives::{Marker, Name, NameVersion, RequestId, RunKey};
 use futures::future::join_all;
 use globset::Glob;
-use tokio::sync::{Semaphore, watch};
+use tokio::sync::watch;
 
 use crate::evaluation::client::{Client, ClientError};
 use crate::evaluation::registry::{EnvironmentKey, Registry, RegistryError};
+use crate::jobs::slots::{Holder, SlotError, Slots};
 use crate::store::{Store, StoreError};
-use crate::supervise::Supervisor;
+use crate::supervise::{EventSink, Supervisor};
 
+mod pending;
 mod plan;
 mod run;
 mod write;
 
+pub use pending::pending_runs;
+
 pub use plan::{Batch, PlanError, RunPlan, applies, plan};
 pub use run::REQUEST_DEADLINE_MARGIN;
+
+/// The machine-wide pool an evaluation's requests take their slot from: one slot per evaluator
+/// process in flight, whoever holds the others.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EvaluatorSlots {
+    /// The pool's directory, `jobs::slots::evaluator_slots_dir` for a job.
+    pub dir: PathBuf,
+    /// How many slots the pool has.
+    pub count: NonZeroU32,
+    /// The job the slots are held for, as the holder files name it.
+    pub job: String,
+}
+
+/// Which runs of the store an evaluation grades. Only sealed runs are ever graded.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[non_exhaustive]
+pub enum RunSelection {
+    /// Every run.
+    All,
+    /// The runs whose key matches the glob.
+    Glob(String),
+    /// The runs whose key is in the list.
+    Keys(Vec<RunKey>),
+    /// The runs with no complete outcome set for the suite's evaluator versions, as
+    /// [`pending_runs`] decides.
+    Pending,
+}
 
 /// What one `evaluate` call grades: which runs of which store, by which plug-ins and suite.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,15 +66,18 @@ pub struct EvaluateRequest {
     pub plugins: Vec<PathBuf>,
     /// The suite file.
     pub suite: PathBuf,
-    /// A glob over run keys; `None` selects every run.
-    pub runs: Option<String>,
-    /// How many requests run at once.
-    pub concurrency: NonZeroUsize,
+    /// Which runs to grade.
+    pub selection: RunSelection,
+    /// The pool the requests take their evaluator slot from.
+    pub slots: EvaluatorSlots,
     /// The root under which the plug-in environments are built, outside the store.
     pub env_root: PathBuf,
     /// A flat deadline for every request; `None` sets each request's deadline to the sum of its
     /// items' deadlines plus a margin.
     pub request_deadline: Option<Duration>,
+    /// Where the evaluator processes' child records go; `None` keeps them in the call's own
+    /// scratch directory, which the call removes.
+    pub record_dir: Option<PathBuf>,
 }
 
 /// What one `evaluate` call did.
@@ -60,6 +95,28 @@ pub struct EvaluateReport {
     pub outcome_files: Vec<PathBuf>,
     /// The requests that failed, each with why.
     pub failed_requests: Vec<(RequestId, String)>,
+}
+
+impl EvaluateReport {
+    /// The report as the document `candler evaluate` prints: `request_ids`, `counts`,
+    /// `outcome_files` and `failed_requests`, each failure as `{request, reason}`.
+    #[must_use]
+    pub fn to_document(&self) -> serde_json::Value {
+        serde_json::json!({
+            "request_ids": self.request_ids.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            "counts": self.counts,
+            "outcome_files": self
+                .outcome_files
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>(),
+            "failed_requests": self
+                .failed_requests
+                .iter()
+                .map(|(id, why)| serde_json::json!({"request": id.to_string(), "reason": why}))
+                .collect::<Vec<_>>(),
+        })
+    }
 }
 
 /// Why an `evaluate` call could not run.
@@ -120,6 +177,9 @@ pub enum EvaluateError {
         #[source]
         source: ClientError,
     },
+    /// The evaluator slot pool could not be opened.
+    #[error("the evaluator slots: {0}")]
+    Slots(#[from] SlotError),
     /// A blocking task of the engine panicked or was lost.
     #[error("an engine task failed: {0}")]
     Task(String),
@@ -128,12 +188,43 @@ pub enum EvaluateError {
 /// The environment variables a plug-in process is given by name; the supervisor clears the rest.
 const FORWARDED: [&str; 2] = ["PATH", "HOME"];
 
-/// The concurrency `regrade` runs with.
-const REGRADE_CONCURRENCY: usize = 2;
+/// The size of the evaluator pool `regrade` opens.
+const REGRADE_SLOTS: u32 = 2;
+
+/// The directory under the environment root where `regrade`'s evaluator pool lives.
+const REGRADE_POOL: &str = "slots-regrade";
+
+/// Drops what the engine reports: the sink of a call that does not ask for events.
+struct Quiet;
+
+impl EventSink for Quiet {
+    fn emit(&self, _run: Option<&RunKey>, _payload: EventPayload) {}
+}
+
+/// Grades the runs `request` selects and records their outcomes, as [`evaluate_reporting`] does,
+/// and reports nothing to anyone but the supervisor's sink.
+///
+/// # Errors
+///
+/// Returns the errors of [`evaluate_reporting`].
+pub async fn evaluate(
+    request: EvaluateRequest,
+    supervisor: Arc<Supervisor>,
+    cancel: watch::Receiver<bool>,
+) -> Result<EvaluateReport, EvaluateError> {
+    // TRAIT_OBJECT: the call reports through a sink that drops what it is given
+    evaluate_reporting(request, supervisor, cancel, Arc::new(Quiet)).await
+}
 
 /// Grades the runs `request` selects and records their outcomes. Every evaluator process is
 /// spawned and stopped through `supervisor`; when `cancel` turns `true`, the requests in flight are
 /// cancelled through the client and commit no outcome file.
+///
+/// Each request waits for a slot of `request.slots` before its evaluator process starts, and holds
+/// it until the request's outcome is settled. Once the runs are selected and planned, `events`
+/// gets one `evaluation.planned` with the number of outcome records the call will try to commit;
+/// then one `evaluation.outcome` for each record of an outcome file, right after that file is
+/// published, in the order of the file. A cancelled or failed request reports no outcome.
 ///
 /// Each run's entries are planned by [`plan()`], and each batch of the plan is one request with one
 /// outcome file. A run that is not sealed is skipped, since its context can still change. A
@@ -145,10 +236,12 @@ const REGRADE_CONCURRENCY: usize = 2;
 /// Returns [`EvaluateError::EnvironmentNotReady`] when a plug-in the suite names has no built
 /// environment, and the other [`EvaluateError`] variants when the manifests, the suite or the store
 /// cannot be read, a plug-in cannot describe itself, the suite fails its check or cannot be planned.
-pub async fn evaluate(
+pub async fn evaluate_reporting(
     request: EvaluateRequest,
     supervisor: Arc<Supervisor>,
     cancel: watch::Receiver<bool>,
+    // TRAIT_OBJECT: the sink is the job's event log, or a recording fake in tests
+    events: Arc<dyn EventSink>,
 ) -> Result<EvaluateReport, EvaluateError> {
     let env_root = std::path::absolute(&request.env_root).map_err(|source| EvaluateError::Io {
         op: "resolve the environment root",
@@ -157,7 +250,7 @@ pub async fn evaluate(
     })?;
 
     let work = env_root.join(format!("work-{}", RequestId::new_v7()));
-    let result = evaluate_in(request, &env_root, &work, supervisor, cancel).await;
+    let result = evaluate_in(request, &env_root, &work, supervisor, cancel, events).await;
     // A failed removal leaves a scratch directory outside the store; the next call has its own.
     let removal = work; // BORROW: the blocking task owns the path
     let _ = blocking(move || std::fs::remove_dir_all(removal)).await;
@@ -171,7 +264,13 @@ async fn evaluate_in(
     work: &Path,
     supervisor: Arc<Supervisor>,
     cancel: watch::Receiver<bool>,
+    // TRAIT_OBJECT: the sink is the job's event log, or a recording fake in tests
+    events: Arc<dyn EventSink>,
 ) -> Result<EvaluateReport, EvaluateError> {
+    let record_dir = request
+        .record_dir
+        .clone() // BORROW: the batches own the path
+        .unwrap_or_else(|| work.join("records"));
     let plugins = request.plugins.clone(); // BORROW: the blocking task owns the paths
     let suite_path = request.suite.clone(); // BORROW: the blocking task owns the path
     let (registry, suite) = blocking(move || {
@@ -253,21 +352,22 @@ async fn evaluate_in(
             continue;
         };
         let (cwd, env) = process_of(plugin, env_dirs.get(name).and_then(Option::as_ref));
+        let marker: Marker = format!("evaluation-describe-{}", RequestId::new_v7())
+            .parse()
+            .map_err(|_| EvaluateError::Task("the evaluation marker is invalid".to_owned()))?;
         let command = crate::evaluation::client::EvaluatorCommand::new(
             // BORROW: .to_vec() gives the command its own argument list
             plugin.manifest.command().to_vec(),
-            "candler-evaluation"
-                .parse()
-                .map_err(|_| EvaluateError::Task("the evaluation marker is invalid".to_owned()))?,
-            work.join("records"),
+            marker,
+            record_dir.clone(), // BORROW: the command owns the path
         )
         .env(env.clone()) // BORROW: the command owns its environment
         .cwd(cwd.clone()); // BORROW: the command owns its directory
-        tokio::fs::create_dir_all(work.join("records"))
+        tokio::fs::create_dir_all(&record_dir)
             .await
             .map_err(|source| EvaluateError::Io {
                 op: "create the record directory",
-                path: work.join("records"),
+                path: record_dir.clone(), // BORROW: the error owns the path
                 source,
             })?;
         let result = Client::new(&supervisor)
@@ -298,39 +398,69 @@ async fn evaluate_in(
 
     // Select and plan the runs.
     let store = Store::open(&request.store)?;
-    let matcher = request
-        .runs
-        .as_deref()
-        .map(|glob| {
-            Glob::new(glob)
+    let matcher = match &request.selection {
+        RunSelection::Glob(glob) => Some(
+            Glob::new(glob.as_str()) // BORROW: explicit .as_str()
                 .map(|compiled| compiled.compile_matcher())
                 .map_err(|error| EvaluateError::Glob {
-                    glob: glob.to_owned(),
+                    glob: glob.clone(), // BORROW: the error owns the text
                     detail: error.to_string(),
-                })
-        })
-        .transpose()?;
+                })?,
+        ),
+        RunSelection::All | RunSelection::Keys(_) | RunSelection::Pending => None,
+    };
     let mut plans = Vec::new();
     for entry in store.runs()? {
         if !entry.done {
             continue;
         }
-        if let Some(matcher) = &matcher
-            && !matcher.is_match(entry.key.to_string())
-        {
+        let selected = match &request.selection {
+            RunSelection::Glob(_) => matcher
+                .as_ref()
+                .is_some_and(|matcher| matcher.is_match(entry.key.to_string())),
+            RunSelection::Keys(keys) => keys.contains(&entry.key),
+            RunSelection::All | RunSelection::Pending => true,
+        };
+        if !selected {
             continue;
         }
         let manifest = store.read_manifest(&entry.key)?;
         plans.push(plan::plan(&manifest, &checked)?);
     }
+    if request.selection == RunSelection::Pending {
+        let identities: BTreeMap<Name, NameVersion> = evaluators
+            .iter()
+            .map(|(name, evaluator)| (name.clone(), evaluator.identity.clone())) // BORROW: the map owns its keys and identities
+            .collect();
+        plans = pending_runs(&store, plans, &identities)?;
+    }
+    let planned: usize = plans
+        .iter()
+        .map(|plan| {
+            plan.not_applicable
+                .len()
+                .saturating_add(plan.batches.iter().map(|batch| batch.entries.len()).sum())
+        })
+        .sum();
+    events.emit(
+        None,
+        EventPayload::evaluation_planned(u32::try_from(planned).unwrap_or(u32::MAX)),
+    );
 
+    let pool = Slots::open(&request.slots.dir, request.slots.count.get())?;
     let shared = run::Shared {
         store,
         evaluators,
         supervisor,
-        permits: Semaphore::new(request.concurrency.get()),
+        pool,
+        holder: Holder {
+            job: request.slots.job.clone(), // BORROW: the batches own the holder
+            run: None,
+        },
+        events,
         cancel,
         work: work.to_path_buf(), // BORROW: the batches own the path
+        record_dir,
         deadline: request.request_deadline,
     };
     let outputs = join_all(plans.iter().map(|plan| run::run_plan(&shared, plan))).await;
@@ -420,8 +550,9 @@ where
 
 /// Grades the runs `runs` selects (every run for `None`) of the store at `store` with the plug-in
 /// whose manifest is `plugin` and the suite at `suite`, as [`evaluate`] does, with the defaults the
-/// golden-parity comparison uses: two requests at once, each with the deadline its items add up
-/// to, and no cancel. It keeps the sender of its cancel watch alive until [`evaluate`] returns.
+/// golden-parity comparison uses: two requests at once, from an evaluator pool of its own under
+/// `env_root/slots-regrade`, each with the deadline its items add up to, and no cancel. It keeps
+/// the sender of its cancel watch alive until [`evaluate`] returns.
 ///
 /// # Errors
 ///
@@ -439,10 +570,17 @@ pub async fn regrade(
         store: store.to_path_buf(),
         plugins: vec![plugin.to_path_buf()],
         suite: suite.to_path_buf(),
-        runs: runs.map(str::to_owned),
-        concurrency: NonZeroUsize::new(REGRADE_CONCURRENCY).unwrap_or(NonZeroUsize::MIN),
+        selection: runs.map_or(RunSelection::All, |glob| {
+            RunSelection::Glob(glob.to_owned())
+        }),
+        slots: EvaluatorSlots {
+            dir: env_root.join(REGRADE_POOL),
+            count: NonZeroU32::new(REGRADE_SLOTS).unwrap_or(NonZeroU32::MIN),
+            job: format!("regrade-{}", RequestId::new_v7()),
+        },
         env_root: env_root.to_path_buf(),
         request_deadline: None,
+        record_dir: None,
     };
     let report = evaluate(request, supervisor, receiver).await;
     drop(sender);

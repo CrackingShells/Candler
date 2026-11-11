@@ -1,7 +1,7 @@
 //! Running the batches of a run plan: one request, one process and one outcome file per batch.
 //!
-//! A run's batches go stage by stage; the batches of a stage run at once, under the engine's one
-//! semaphore. Entries a batch does not send, because they do not apply or because a dependency
+//! A run's batches go stage by stage; the batches of a stage run at once, each holding a slot of
+//! the evaluator pool while its request is in flight. Entries a batch does not send, because they do not apply or because a dependency
 //! ended without a passing verdict, are written by the engine into the same file.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -10,27 +10,30 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use candler_schemas::evaluation::{EvaluateParams, Item, Needs};
+use candler_schemas::execution::EventPayload;
 use candler_schemas::outcome::{Instrument, OutcomeRecord, Status};
 use candler_schemas::primitives::{
     Digest, ExpectationId, Marker, Name, NameVersion, RequestId, RunKey,
 };
 use futures::future::join_all;
-use tokio::sync::{Semaphore, watch};
+use tokio::sync::watch;
 
 use super::plan::{Batch, RunPlan};
 use super::write::{self, Stamp};
 use crate::evaluation::client::{Client, ClientError, EvaluatorCommand, ItemOutcome};
 use crate::evaluation::context::{assemble, materialise};
 use crate::evaluation::registry::CheckedEntry;
+use crate::jobs::slots::{Holder, Slot, SlotError, Slots};
 use crate::store::Store;
-use crate::supervise::Supervisor;
+use crate::supervise::{EventSink, Supervisor};
 
 /// What the request deadline adds to the sum of the item deadlines, for the evaluator's start, the
 /// frames and the stop (R01 §Deadlines).
 pub const REQUEST_DEADLINE_MARGIN: Duration = Duration::from_secs(30);
 
-/// The marker the evaluator processes carry.
-const MARKER: &str = "candler-evaluation";
+/// What every evaluator process's marker starts with; the request's own id follows. A marker is
+/// the key of the stray sweep, so two requests never share one.
+const MARKER_PREFIX: &str = "evaluation-";
 
 /// An evaluator the engine can start: its identity from `describe` and how to run it.
 #[derive(Debug)]
@@ -55,12 +58,19 @@ pub(crate) struct Shared {
     pub(crate) evaluators: BTreeMap<Name, Evaluator>,
     /// The supervisor every process is spawned through.
     pub(crate) supervisor: Arc<Supervisor>,
-    /// One permit per request in flight.
-    pub(crate) permits: Semaphore,
+    /// The evaluator slot pool: one slot per request in flight.
+    pub(crate) pool: Slots,
+    /// Who the slots are held for; each batch adds the run it grades.
+    pub(crate) holder: Holder,
+    // TRAIT_OBJECT: the sink is the job's event log, or a recording fake in tests
+    /// Where each committed outcome record is reported.
+    pub(crate) events: Arc<dyn EventSink>,
     /// Turns `true` when the caller cancels.
     pub(crate) cancel: watch::Receiver<bool>,
     /// The directory of this call's workspaces and child records, outside the store.
     pub(crate) work: PathBuf,
+    /// Where the evaluator processes' child records go.
+    pub(crate) record_dir: PathBuf,
     /// A flat request deadline, or `None` for the sum of the item deadlines plus the margin.
     pub(crate) deadline: Option<Duration>,
 }
@@ -69,6 +79,31 @@ impl Shared {
     /// Whether the caller has cancelled. A dropped sender reads as "not cancelled".
     fn cancelled(&self) -> bool {
         *self.cancel.borrow()
+    }
+
+    /// Takes a slot of the pool for `run`, waiting for one; `None` when the caller cancels first.
+    /// A dropped sender reads as "not cancelled".
+    async fn acquire_slot(&self, run: &RunKey) -> Result<Option<Slot>, SlotError> {
+        let holder = Holder {
+            job: self.holder.job.clone(), // BORROW: the holder file owns its text
+            run: Some(run.to_string()),
+        };
+        let mut cancel = self.cancel.clone(); // BORROW: the wait owns its receiver
+        let cancelled = async {
+            loop {
+                if *cancel.borrow_and_update() {
+                    return;
+                }
+                if cancel.changed().await.is_err() {
+                    // EXPLICIT: no sender left, so the call can no longer be cancelled
+                    std::future::pending::<()>().await;
+                }
+            }
+        };
+        tokio::select! {
+            slot = self.pool.acquire(&holder) => slot.map(Some),
+            () = cancelled => Ok(None),
+        }
     }
 }
 
@@ -367,6 +402,7 @@ async fn publish(
     let store = shared.store.clone(); // BORROW: the blocking task owns a handle on the store
     let cancel = shared.cancel.clone(); // BORROW: the blocking task owns a receiver
     let request = stamp.request.clone(); // BORROW: the result owns the id
+    let stamp_run = stamp.run.clone(); // BORROW: the events own the key
     let (written, records) = blocking(move || {
         let written = write::commit(&store, &stamp, &records, &cancel);
         (written, records)
@@ -374,12 +410,21 @@ async fn publish(
     .await
     .map_err(Fault::new)?;
     match written {
-        Ok(Some(file)) => Ok(BatchResult::Committed {
-            request,
-            deadline: None,
-            file,
-            records,
-        }),
+        Ok(Some(file)) => {
+            // Only a published file is reported, so no event names a record a reader cannot see.
+            for record in &records {
+                shared.events.emit(
+                    Some(&stamp_run),
+                    EventPayload::evaluation_outcome(record.clone()), // BORROW: the event owns its record
+                );
+            }
+            Ok(BatchResult::Committed {
+                request,
+                deadline: None,
+                file,
+                records,
+            })
+        }
         Ok(None) => Err(Fault {
             request: Some(request),
             message: "the request was cancelled".to_owned(),
@@ -391,8 +436,8 @@ async fn publish(
     }
 }
 
-/// Runs one batch: waits for a permit, decides which entries to send, sends them and publishes
-/// the file.
+/// Runs one batch: waits for an evaluator slot, decides which entries to send, sends them and
+/// publishes the file. The slot is held until the batch's outcome is settled.
 async fn run_batch(
     shared: &Shared,
     run: &RunKey,
@@ -401,12 +446,16 @@ async fn run_batch(
     finished: &BTreeMap<ExpectationId, OutcomeRecord>,
     na_ids: &BTreeSet<ExpectationId>,
 ) -> BatchResult {
-    let Ok(_permit) = shared.permits.acquire().await else {
-        return BatchResult::Failed {
-            request: RequestId::new_v7(),
-            message: "the engine stopped before the request could start".to_owned(),
-            deadline: None,
-        };
+    let _slot = match shared.acquire_slot(run).await {
+        Ok(Some(slot)) => slot,
+        Ok(None) => return BatchResult::NotStarted,
+        Err(error) => {
+            return BatchResult::Failed {
+                request: RequestId::new_v7(),
+                message: format!("no evaluator slot could be taken: {error}"),
+                deadline: None,
+            };
+        }
     };
     if shared.cancelled() {
         return BatchResult::NotStarted;
@@ -598,7 +647,7 @@ async fn send(
     let dir = shared.work.join(ticket.minted.as_str());
     let workspace = dir.join("workspace");
     let scratch = dir.join("scratch");
-    let records_dir = shared.work.join("records");
+    let records_dir = shared.record_dir.clone(); // BORROW: the blocking task owns the path
     let context = blocking(move || {
         std::fs::create_dir_all(&scratch).map_err(|error| {
             format!(
@@ -651,14 +700,14 @@ async fn send(
     let deadline = shared
         .deadline
         .unwrap_or_else(|| total.saturating_add(REQUEST_DEADLINE_MARGIN));
-    let marker: Marker = MARKER
+    let marker: Marker = format!("{MARKER_PREFIX}{}", ticket.minted)
         .parse()
         .map_err(|_| Fault::new("the evaluation marker is not a marker"))?;
     let command = EvaluatorCommand::new(
         // BORROW: .clone() gives the command its own copy
         evaluator.argv.clone(),
         marker,
-        shared.work.join("records"),
+        shared.record_dir.clone(), // BORROW: the command owns the path
     )
     .env(evaluator.env.clone()) // BORROW: the command owns its environment
     .cwd(evaluator.cwd.clone()) // BORROW: the command owns its directory

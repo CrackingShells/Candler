@@ -700,10 +700,12 @@ mod engine_surface {
     use std::time::Duration;
 
     use candler_core::evaluation::engine::{
-        Batch, EvaluateError, EvaluateReport, EvaluateRequest, PlanError, REQUEST_DEADLINE_MARGIN,
-        RunPlan, applies, evaluate, plan, regrade,
+        Batch, EvaluateError, EvaluateReport, EvaluateRequest, EvaluatorSlots, PlanError,
+        REQUEST_DEADLINE_MARGIN, RunPlan, RunSelection, applies, evaluate, evaluate_reporting,
+        pending_runs, plan, regrade,
     };
-    use candler_core::evaluation::registry::CheckedSuite;
+    use candler_core::evaluation::registry::{CheckedSuite, discover_manifests};
+    use candler_core::jobs::slots::default_evaluator_slots;
     use candler_schemas::evaluation::SuiteEntry;
     use candler_schemas::execution::RunManifest;
     use candler_schemas::primitives::RequestId;
@@ -713,13 +715,27 @@ mod engine_surface {
     fn engine_items_are_nameable() {
         let planned: fn(&RunManifest, &CheckedSuite) -> Result<RunPlan, PlanError> = plan;
         let applied: fn(&RunManifest, &SuiteEntry) -> bool = applies;
-        let _ = (planned, applied, evaluate, regrade);
+        let _ = (
+            planned,
+            applied,
+            evaluate,
+            evaluate_reporting,
+            regrade,
+            pending_runs,
+        );
         let _ = (
             None::<Batch>,
             None::<EvaluateError>,
             None::<EvaluateReport>,
             None::<EvaluateRequest>,
+            None::<EvaluatorSlots>,
+            None::<RunSelection>,
         );
+        let document: fn(&EvaluateReport) -> serde_json::Value = EvaluateReport::to_document;
+        let slots: fn(usize) -> u32 = default_evaluator_slots;
+        let discovered: fn(&[std::path::PathBuf]) -> Result<Vec<std::path::PathBuf>, _> =
+            discover_manifests;
+        let _ = (document, slots, discovered);
         assert_eq!(REQUEST_DEADLINE_MARGIN, Duration::from_secs(30));
         // The report names one `(request id, deadline)` per request sent.
         let report = EvaluateReport::default();
