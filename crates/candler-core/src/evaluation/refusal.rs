@@ -372,7 +372,7 @@ refusal_table! {
     Parse { .. } => row(
         "suite.equivalence_invalid",
         Side::Suite,
-        "The equivalence file is not a list of rows of a run and an expectation.",
+        "The equivalence file is not a JSON object `{\"rules\": [...]}` whose rules hold `name`, `from` and `to` (each a status with an optional value, weight and cause) and `rows` (objects of `run` and `expectation`), with an optional `generator`.",
         "-",
     ),
     Run { .. } => row(
