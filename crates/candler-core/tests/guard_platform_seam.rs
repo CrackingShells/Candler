@@ -161,3 +161,42 @@ fn q1_every_inventory_entry_names_its_use_and_a_windows_counterpart() {
         "entries without a use or a Windows counterpart: {bad:#?}"
     );
 }
+
+/// Guards: the binary states its targets with one `compile_error!` under `cfg(not(unix))` that
+/// names WSL2, and has no other `cfg(not(unix))`, so it refuses a Windows build with one message
+/// instead of carrying stubs that compile nowhere.
+/// Oracle: the decision that Windows waits and that WSL2, where Candler is Linux, is the way for
+/// a Windows user today.
+/// Bite: the `compile_error!` removed from `crates/candler/src/main.rs` fails the test.
+#[test]
+fn q1_the_binary_states_its_targets_with_one_compile_error() {
+    let main = fs::read_to_string(workspace_root().join("crates/candler/src/main.rs"))
+        .expect("main.rs is readable");
+    let lines: Vec<&str> = main.lines().map(str::trim).collect();
+    let gated = lines
+        .iter()
+        .filter(|line| **line == "#[cfg(not(unix))]")
+        .count();
+    let message = lines
+        .iter()
+        .position(|line| line.starts_with("compile_error!("))
+        .expect("main.rs holds a compile_error!");
+    assert_eq!(
+        lines[message - 1],
+        "#[cfg(not(unix))]",
+        "the compile_error! sits under cfg(not(unix))"
+    );
+    let call: String = lines[message..]
+        .iter()
+        .take_while(|line| !line.ends_with(");"))
+        .chain(lines[message..].iter().find(|line| line.ends_with(");")))
+        .copied()
+        .collect();
+    assert!(call.contains("WSL2"), "the compile_error! names WSL2");
+    assert_eq!(
+        main.matches("compile_error!").count(),
+        1,
+        "the binary has one compile_error!"
+    );
+    assert_eq!(gated, 1, "the binary has one cfg(not(unix))");
+}
