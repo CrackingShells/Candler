@@ -40,6 +40,7 @@ const PENDING: &[&str] = &[
     "crates/candler-core/src/evaluation/registry/needs.rs::NeedError",
     "crates/candler-core/src/evaluation/selection/diff.rs::EquivalenceError",
     "crates/candler-core/src/import/mod.rs::ImportError",
+    "crates/candler-core/src/import/raw.rs::RawIngestError",
     "crates/candler-core/src/jobs/dir.rs::JobError",
     "crates/candler-core/src/jobs/lost.rs::RecoverError",
     "crates/candler-core/src/jobs/orchestrate/session.rs::OrchestrateError",
