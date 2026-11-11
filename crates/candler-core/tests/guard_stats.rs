@@ -10,10 +10,19 @@ use candler_core::analysis::error::StatsError;
 use candler_core::analysis::fisher::{TIE_TOLERANCE, fisher_two_sided};
 use candler_core::analysis::holm::{holm, rejected};
 use candler_core::analysis::newcombe::newcombe_difference;
+use candler_core::analysis::tally::{ArmTally, Omitted, RunFacts, tally};
 use candler_core::analysis::wilson::{Counts, wilson};
 use candler_core::analysis::{ALPHA, z_two_sided};
+use candler_core::evaluation::selection::rates::{CellKey, rates};
+use candler_core::evaluation::selection::select::select;
+use candler_schemas::execution::{Integrity, InvalidReason};
+use candler_schemas::outcome::{
+    Cause, OutcomeRecord, OutcomeRecordBuilder, Role, Status, Value, Weight,
+};
+use candler_schemas::primitives::{Digest, ExpectationId, NameVersion, RequestId, RunKey};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use std::collections::BTreeMap;
 
 #[derive(Deserialize)]
 struct Vectors<R> {
@@ -310,5 +319,413 @@ fn t1_edges_hold() {
     assert_eq!(
         rejected(&[ALPHA, 0.049_999_9, 0.0, 1.0]),
         vec![false, true, true, false]
+    );
+}
+
+// ---- T3: the rate algebra ----------------------------------------------------------------------
+
+const EVALUATOR: &str = "live-eval@0.5.0";
+
+fn digest(c: char) -> Digest {
+    format!("sha256:{}", String::from(c).repeat(64))
+        .parse()
+        .expect("a digest")
+}
+
+fn evaluator() -> NameVersion {
+    EVALUATOR.parse().expect("an evaluator")
+}
+
+fn run(cell: char, replicate: u32) -> RunKey {
+    format!("{}-r{replicate}-a1", String::from(cell).repeat(64))
+        .parse()
+        .expect("a run key")
+}
+
+fn expectation(id: &str) -> ExpectationId {
+    id.parse().expect("an expectation id")
+}
+
+/// Every record gets its own request id, so the selection keeps them all current.
+fn request(n: u64) -> RequestId {
+    format!("01926b3a-7c3e-7a1b-8c4d-{n:012x}")
+        .parse()
+        .expect("a request id")
+}
+
+fn reason(code: &str) -> Cause {
+    Cause::Reason(code.parse().expect("a reason code"))
+}
+
+/// A record of arm `cell`, replicate `replicate`, expectation `id` and role `role`.
+fn record(
+    n: u64,
+    cell: char,
+    replicate: u32,
+    id: &str,
+    role: Role,
+    status: Status,
+) -> OutcomeRecordBuilder {
+    OutcomeRecord::builder()
+        .run(run(cell, replicate))
+        .expectation_id(expectation(id))
+        .role(role)
+        .evaluator(evaluator())
+        .suite_entry_digest(digest('d'))
+        .context_digest(digest('c'))
+        .request_id(request(n))
+        .status(status)
+}
+
+fn gate(n: u64, cell: char, replicate: u32, id: &str, status: Status) -> OutcomeRecordBuilder {
+    record(n, cell, replicate, id, Role::Gate, status)
+}
+
+fn built(builder: OutcomeRecordBuilder) -> OutcomeRecord {
+    builder.build().expect("a valid record")
+}
+
+fn valid(cell: char, replicate: u32) -> RunFacts {
+    RunFacts::new(run(cell, replicate), Integrity::Valid)
+}
+
+fn invalid(cell: char, replicate: u32, why: InvalidReason) -> RunFacts {
+    RunFacts::new(run(cell, replicate), Integrity::invalid(why))
+}
+
+fn tallied(records: Vec<OutcomeRecord>, runs: &[RunFacts]) -> BTreeMap<CellKey, ArmTally> {
+    tally(&select(records), &evaluator(), runs).expect("a tally")
+}
+
+fn arm(arms: &BTreeMap<CellKey, ArmTally>, cell: char) -> &ArmTally {
+    arms.get(&CellKey::new(digest(cell)))
+        .unwrap_or_else(|| panic!("no arm {cell}"))
+}
+
+fn counts_of(arm: &ArmTally, id: &str) -> (u64, u64) {
+    let counts = arm
+        .expectations
+        .get(&expectation(id))
+        .unwrap_or_else(|| panic!("no expectation {id}"))
+        .counts()
+        .expect("counts");
+    (counts.k(), counts.n())
+}
+
+/// Guards: `blocked` is a failure: it is in `n`, never in `k`, and weighs 0/1 in the rate. With
+/// two passes, one fail and one blocked, `k/n` is 2/4 and the gate rate 2/4. Oracle: R01's rate
+/// rule, hand counts. Bite: `blocked` left out of `n`.
+#[test]
+fn t3_blocked_counts_as_a_failure() {
+    let records = vec![
+        built(gate(1, 'a', 1, "E1", Status::Pass)),
+        built(gate(2, 'a', 2, "E1", Status::Blocked).cause(reason("missing_input"))),
+        built(gate(3, 'a', 3, "E1", Status::Fail)),
+        built(gate(4, 'a', 4, "E1", Status::Pass)),
+    ];
+    let runs: Vec<RunFacts> = (1..=4).map(|r| valid('a', r)).collect();
+    let arms = tallied(records, &runs);
+    let a = arm(&arms, 'a');
+    let e1 = a.expectations.get(&expectation("E1")).expect("E1");
+    assert_eq!((e1.pass, e1.fail, e1.blocked), (2, 1, 1));
+    assert_eq!(counts_of(a, "E1"), (2, 4));
+    let rate = a.rate(Role::Gate);
+    assert_eq!((rate.num(), rate.den()), (2, 4));
+}
+
+/// Guards: `not_measured` and `not_applicable` are out of `n` and counted with their causes
+/// (`reason:`, `artifact:`, `expectation:` keys); two instrument errors, one deadline and two
+/// applicability causes leave `n` at the one graded run. Oracle: R01's rate rule, hand counts.
+/// Bite: `not_applicable` put in `n`.
+#[test]
+fn t3_excluded_statuses_are_counted_with_their_causes() {
+    let artifact = Cause::Artifact("out/plan.json".parse().expect("a path"));
+    let upstream = Cause::Expectation(expectation("E0"));
+    let records = vec![
+        built(gate(1, 'a', 1, "E1", Status::Pass)),
+        built(gate(2, 'a', 2, "E1", Status::NotMeasured).cause(reason("instrument_error"))),
+        built(gate(3, 'a', 3, "E1", Status::NotMeasured).cause(reason("instrument_error"))),
+        built(gate(4, 'a', 4, "E1", Status::NotMeasured).cause(reason("deadline"))),
+        built(gate(5, 'a', 5, "E1", Status::NotApplicable).cause(artifact)),
+        built(gate(6, 'a', 6, "E1", Status::NotApplicable).cause(upstream)),
+    ];
+    let runs: Vec<RunFacts> = (1..=6).map(|r| valid('a', r)).collect();
+    let arms = tallied(records, &runs);
+    let a = arm(&arms, 'a');
+    let e1 = a.expectations.get(&expectation("E1")).expect("E1");
+    assert_eq!(counts_of(a, "E1"), (1, 1));
+    assert_eq!(
+        e1.not_measured,
+        BTreeMap::from([
+            ("reason:instrument_error".to_owned(), 2),
+            ("reason:deadline".to_owned(), 1)
+        ])
+    );
+    assert_eq!(
+        e1.not_applicable,
+        BTreeMap::from([
+            ("artifact:out/plan.json".to_owned(), 1),
+            ("expectation:E0".to_owned(), 1)
+        ])
+    );
+    let rate = a.rate(Role::Gate);
+    assert_eq!((rate.num(), rate.den()), (1, 1));
+}
+
+/// Guards: an invalid run is out of `k` and `n` in its own arm only, and is counted once by run
+/// key with its reason, whatever its records (it may have several, or none). Another arm's counts
+/// do not move. Oracle: I10, hand counts. Bite: the records of an invalid run counted anyway.
+#[test]
+fn t3_invalid_runs_are_out_per_arm_with_their_reason() {
+    let records = vec![
+        built(gate(1, 'a', 1, "E1", Status::Pass)),
+        // Run a2 is invalid and has two records, both passes: none may count.
+        built(gate(2, 'a', 2, "E1", Status::Pass)),
+        built(gate(3, 'a', 2, "E2", Status::Pass)),
+        built(gate(4, 'b', 1, "E1", Status::Fail)),
+    ];
+    let runs = vec![
+        valid('a', 1),
+        invalid('a', 2, InvalidReason::Gateway),
+        // Run a3 is invalid and has no record at all.
+        invalid('a', 3, InvalidReason::InputLeak),
+        invalid('a', 4, InvalidReason::Gateway),
+        valid('b', 1),
+    ];
+    let arms = tallied(records, &runs);
+    let a = arm(&arms, 'a');
+    assert_eq!(a.valid_runs, 1);
+    assert_eq!(
+        a.invalid,
+        BTreeMap::from([("gateway".to_owned(), 2), ("input_leak".to_owned(), 1)])
+    );
+    assert_eq!(counts_of(a, "E1"), (1, 1));
+    assert!(
+        !a.expectations.contains_key(&expectation("E2")),
+        "E2 had records only in the invalid run"
+    );
+    let b = arm(&arms, 'b');
+    assert_eq!((b.valid_runs, b.invalid.len()), (1, 0));
+    assert_eq!(counts_of(b, "E1"), (0, 1));
+}
+
+/// Guards: a run the experimenter ended (`budget_stop`, `killed`, `interrupted`) is kept in
+/// `experimenter_ends` and never in the arm's `invalid`, so no reader sums it as a failure; its
+/// records are out of `n`. Oracle: I20. Bite: an experimenter end (`killed`) charged to the arm.
+#[test]
+fn t3_experimenter_ends_are_not_charged_to_an_arm() {
+    let records = vec![
+        built(gate(1, 'a', 1, "E1", Status::Pass)),
+        built(gate(2, 'a', 2, "E1", Status::Fail)),
+        built(gate(3, 'a', 3, "E1", Status::Fail)),
+    ];
+    let runs = vec![
+        valid('a', 1),
+        invalid('a', 2, InvalidReason::Killed),
+        invalid('a', 3, InvalidReason::BudgetStop),
+        invalid('a', 4, InvalidReason::Interrupted),
+        invalid('a', 5, InvalidReason::Killed),
+        invalid('a', 6, InvalidReason::Infrastructure),
+    ];
+    let arms = tallied(records, &runs);
+    let a = arm(&arms, 'a');
+    assert_eq!(
+        a.experimenter_ends,
+        BTreeMap::from([
+            ("budget_stop".to_owned(), 1),
+            ("interrupted".to_owned(), 1),
+            ("killed".to_owned(), 2)
+        ])
+    );
+    assert_eq!(
+        a.invalid,
+        BTreeMap::from([("infrastructure".to_owned(), 1)])
+    );
+    assert_eq!(counts_of(a, "E1"), (1, 1));
+}
+
+/// Guards: an expectation with a counted outcome weighing other than 1/1 or 0/1 is not binary:
+/// its counts, its Wilson interval and every comparison built on them are omitted with the
+/// reason `weighted`, while its rate still sums the weights (3/3 + 0/1 + 1/3 gives 4/7). An
+/// expectation of plain outcomes beside it stays binary. Oracle: R01's weight rule, hand sums.
+/// Bite: `binary` left true for a weighted outcome.
+#[test]
+fn t3_weights_make_an_expectation_non_binary() {
+    let records = vec![
+        built(gate(1, 'a', 1, "W", Status::Pass).weight(Weight::new(3, 3).expect("a weight"))),
+        built(gate(2, 'a', 2, "W", Status::Fail)),
+        built(gate(3, 'a', 3, "W", Status::Fail).weight(Weight::new(1, 3).expect("a weight"))),
+        built(gate(4, 'a', 1, "P", Status::Pass)),
+        built(gate(5, 'a', 2, "P", Status::Fail)),
+    ];
+    let runs: Vec<RunFacts> = (1..=3).map(|r| valid('a', r)).collect();
+    let arms = tallied(records, &runs);
+    let a = arm(&arms, 'a');
+    let weighted = a.expectations.get(&expectation("W")).expect("W");
+    assert!(!weighted.binary);
+    assert_eq!(weighted.counts(), Err(Omitted::Weighted));
+    assert_eq!(weighted.wilson(), Err(Omitted::Weighted));
+    assert_eq!(Omitted::Weighted.as_str(), "weighted");
+    assert_eq!((weighted.num, weighted.den), (4, 7));
+    let plain = a.expectations.get(&expectation("P")).expect("P");
+    assert!(plain.binary);
+    assert!(plain.wilson().is_ok());
+    let rate = a.rate(Role::Gate);
+    assert_eq!((rate.num(), rate.den()), (5, 9));
+}
+
+/// Guards: a `pass` weighing 0/0 is out of `k`, out of `n` and out of every sum, and is counted
+/// in `zero_weight`. Oracle: R01's rate rule (a 0/0 weight adds nothing), hand counts. Bite: a
+/// zero-weight pass counted as a pass.
+#[test]
+#[expect(deprecated, reason = "a zero weight carries the legacy cause")]
+fn t3_zero_weight_passes_add_nothing() {
+    let legacy = Cause::Legacy("zero_weight".parse().expect("a reason code"));
+    let records = vec![
+        built(gate(1, 'a', 1, "E1", Status::Pass)),
+        built(
+            gate(2, 'a', 2, "E1", Status::Pass)
+                .weight(Weight::new(0, 0).expect("a weight"))
+                .cause(legacy),
+        ),
+        built(gate(3, 'a', 3, "E1", Status::Fail)),
+    ];
+    let runs: Vec<RunFacts> = (1..=3).map(|r| valid('a', r)).collect();
+    let arms = tallied(records, &runs);
+    let a = arm(&arms, 'a');
+    let e1 = a.expectations.get(&expectation("E1")).expect("E1");
+    assert_eq!(e1.zero_weight, 1);
+    assert_eq!((e1.pass, e1.fail), (1, 1));
+    assert_eq!(counts_of(a, "E1"), (1, 2));
+    assert!(e1.binary, "a zero weight does not make the rest weighted");
+    let rate = a.rate(Role::Gate);
+    assert_eq!((rate.num(), rate.den()), (1, 2));
+}
+
+/// Guards: when every run is valid, each cell's per-role sums equal the existing
+/// `evaluation::selection::rates::rates` on the same selection, over gate, quality and
+/// descriptive expectations with every status and a weight. Oracle: `rates`, an implementation
+/// of the same R01 rule that shares no code with `tally`. Bite: a role's sum taken from the wrong
+/// role.
+#[test]
+fn t3_roles_sum_as_rates_does() {
+    let mut n = 0;
+    let mut next = || {
+        n += 1;
+        n
+    };
+    let mut records = Vec::new();
+    for (cell, replicates) in [('a', 4_u32), ('b', 3)] {
+        for r in 1..=replicates {
+            records.push(built(record(
+                next(),
+                cell,
+                r,
+                "G1",
+                Role::Gate,
+                Status::Pass,
+            )));
+            records.push(built(record(
+                next(),
+                cell,
+                r,
+                "G2",
+                Role::Gate,
+                if r % 2 == 0 {
+                    Status::Fail
+                } else {
+                    Status::Pass
+                },
+            )));
+            records.push(built(
+                record(next(), cell, r, "Q1", Role::Quality, Status::Pass)
+                    .weight(Weight::new(2, 2).expect("a weight")),
+            ));
+            records.push(built(
+                record(next(), cell, r, "Q2", Role::Quality, Status::Fail)
+                    .weight(Weight::new(r.into(), 5).expect("a weight")),
+            ));
+            records.push(built(
+                record(next(), cell, r, "Q3", Role::Quality, Status::Blocked)
+                    .cause(reason("missing_input")),
+            ));
+            records.push(built(
+                record(next(), cell, r, "Q4", Role::Quality, Status::NotApplicable)
+                    .cause(reason("not_applicable_to_arm")),
+            ));
+            records.push(built(
+                record(next(), cell, r, "D1", Role::Descriptive, Status::Pass)
+                    .value(Value::count(3)),
+            ));
+        }
+    }
+    let runs: Vec<RunFacts> = [('a', 4_u32), ('b', 3)]
+        .into_iter()
+        .flat_map(|(cell, count)| (1..=count).map(move |r| valid(cell, r)))
+        .collect();
+    let selection = select(records);
+    let expected = rates(&selection, &evaluator());
+    let arms = tally(&selection, &evaluator(), &runs).expect("a tally");
+    assert_eq!(expected.len(), 2);
+    for (cell, sums) in &expected {
+        let arm = arms.get(cell).expect("the same cells");
+        let gate = arm.rate(Role::Gate);
+        let quality = arm.rate(Role::Quality);
+        assert_eq!((gate.num(), gate.den()), sums.gate(), "gate of {cell}");
+        assert_eq!(
+            (quality.num(), quality.den()),
+            sums.quality(),
+            "quality of {cell}"
+        );
+        let descriptive = arm.rate(Role::Descriptive);
+        assert_eq!((descriptive.num(), descriptive.den()), (0, 0));
+    }
+    // Hand check of cell a: G1 4/4, G2 2/4 (replicates 1 and 3 pass); Q1 weighs 2/2 four times,
+    // Q2 weighs r/5 with r from 1 to 4, Q3 weighs 0/1 four times.
+    let a = arm(&arms, 'a');
+    let gate = a.rate(Role::Gate);
+    assert_eq!((gate.num(), gate.den()), (4 + 2, 8));
+    let quality = a.rate(Role::Quality);
+    assert_eq!(
+        (quality.num(), quality.den()),
+        (8 + (1 + 2 + 3 + 4), 8 + 20 + 4)
+    );
+    let d1 = a.expectations.get(&expectation("D1")).expect("D1");
+    assert_eq!(d1.pass, 4);
+    assert_eq!(d1.counts(), Err(Omitted::Descriptive));
+}
+
+/// Guards: no number without its counts. A rate is a pair of counts (a role with nothing counted
+/// is 0/0, not a float), an expectation's `k` and `n` are `pass` and `pass + fail + blocked`,
+/// `n = 0` is omitted as `no_runs`, and a current record of a run the caller did not list is a
+/// refusal, not a guess. Oracle: R01's I2, hand counts. Bite: `n` taken without its blocked
+/// outcomes; a record of an unlisted run skipped in silence.
+#[test]
+fn t3_every_rate_carries_its_counts() {
+    let records = vec![
+        built(gate(1, 'a', 1, "E1", Status::Pass)),
+        built(gate(2, 'a', 2, "E1", Status::Blocked).cause(reason("missing_input"))),
+        built(gate(3, 'a', 3, "E2", Status::NotMeasured).cause(reason("instrument_error"))),
+    ];
+    let runs: Vec<RunFacts> = (1..=3).map(|r| valid('a', r)).collect();
+    let arms = tallied(records.clone(), &runs);
+    let a = arm(&arms, 'a');
+    let e1 = a.expectations.get(&expectation("E1")).expect("E1");
+    let counts = e1.counts().expect("counts");
+    assert_eq!(
+        (counts.k(), counts.n()),
+        (e1.pass, e1.pass + e1.fail + e1.blocked)
+    );
+    assert_eq!((counts.k(), counts.n()), (1, 2));
+    let e2 = a.expectations.get(&expectation("E2")).expect("E2");
+    assert_eq!(e2.counts(), Err(Omitted::NoRuns));
+    assert_eq!(e2.wilson(), Err(Omitted::NoRuns));
+    let quality = a.rate(Role::Quality);
+    assert_eq!((quality.num(), quality.den()), (0, 0));
+
+    let unlisted = tally(&select(records), &evaluator(), &runs[..2]);
+    assert_eq!(
+        unlisted,
+        Err(candler_core::analysis::error::StatsError::RunNotListed { run: run('a', 3) })
     );
 }

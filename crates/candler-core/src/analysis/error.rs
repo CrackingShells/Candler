@@ -1,5 +1,7 @@
 //! The error of the statistics.
 
+use candler_schemas::primitives::RunKey;
+
 /// Why a statistic is not computed.
 ///
 /// None of these is an author's to fix: the inputs are counts the store holds, so the enum has no
@@ -33,6 +35,16 @@ pub enum StatsError {
     /// The statistic is declared and not yet computed.
     #[error("the statistic is not computed")]
     NotComputed,
+    /// A current record belongs to a run whose validity the caller did not list, so nothing is
+    /// guessed.
+    #[error("run {run} has current records and no listed validity")]
+    RunNotListed {
+        /// The run.
+        run: RunKey,
+    },
+    /// A stored value has a shape this version cannot read.
+    #[error("unreadable stored value: {0}")]
+    Unreadable(String),
     /// The distribution library refused its parameters.
     #[error("distribution error: {0}")]
     Distribution(String),
