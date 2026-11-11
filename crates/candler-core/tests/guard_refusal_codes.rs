@@ -70,14 +70,9 @@ fn name_of(path: &str) -> &str {
     path.rsplit("::").next().unwrap()
 }
 
-/// Every type that derives `thiserror::Error` under `crates/*/src`, as `<file>::<name>`.
-fn error_types() -> Vec<String> {
-    let derive = Regex::new(
-        r"(?s)#\[derive\(([^)]*)\)\]((?:\s*#\[[^\]]*\])*)\s*(?:pub(?:\([^)]*\))?\s+)?(?:enum|struct)\s+(\w+)",
-    )
-    .unwrap();
-    let error = Regex::new(r"\bError\b").unwrap();
-    let mut found = Vec::new();
+/// Every source file under `crates/*/src`, as `(<file>, <text>)`.
+fn source_files() -> Vec<(String, String)> {
+    let mut files = Vec::new();
     let mut stack = vec![root().join("crates")];
     while let Some(dir) = stack.pop() {
         for entry in fs::read_dir(&dir).unwrap().flatten() {
@@ -90,23 +85,128 @@ fn error_types() -> Vec<String> {
             } else if path.extension().is_some_and(|ext| ext == "rs")
                 && path.components().any(|c| c.as_os_str() == "src")
             {
-                let text = fs::read_to_string(&path).unwrap();
                 let file = path
                     .strip_prefix(root().join(""))
                     .unwrap()
                     .to_string_lossy()
                     .into_owned();
                 let file = file.trim_start_matches("../../").to_owned();
-                for capture in derive.captures_iter(&text) {
-                    if error.is_match(&capture[1]) {
-                        found.push(format!("{file}::{}", &capture[3]));
-                    }
-                }
+                files.push((file, fs::read_to_string(&path).unwrap()));
             }
         }
     }
+    files.sort();
+    files
+}
+
+/// Every error type under `crates/*/src`, as `<file>::<name>`: a type with any `derive(..)` of
+/// the attributes above it that names `Error`, however many `derive` lines it has, and a type
+/// with a hand-written `impl Error for`.
+fn error_types() -> Vec<String> {
+    let header = Regex::new(
+        r"(?s)((?:\s*(?:#\[[^\]]*\]|///[^\n]*))+)\s*(?:pub(?:\([^)]*\))?\s+)?(?:enum|struct)\s+(\w+)",
+    )
+    .unwrap();
+    let derive = Regex::new(r"derive\(([^)]*)\)").unwrap();
+    let error = Regex::new(r"\bError\b").unwrap();
+    let manual =
+        Regex::new(r"impl(?:<[^>]*>)?\s+(?:std::error::|core::error::)?Error\s+for\s+(\w+)")
+            .unwrap();
+    let mut found = Vec::new();
+    for (file, text) in source_files() {
+        for capture in header.captures_iter(&text) {
+            let derives_error = derive
+                .captures_iter(&capture[1])
+                .any(|group| error.is_match(&group[1]));
+            if derives_error {
+                found.push(format!("{file}::{}", &capture[2]));
+            }
+        }
+        for capture in manual.captures_iter(&text) {
+            found.push(format!("{file}::{}", &capture[1]));
+        }
+    }
     found.sort();
+    found.dedup();
     found
+}
+
+/// The module path of a source file, as `<crate>::<module>`: `crates/candler-core/src/a/b.rs`
+/// and `crates/candler-core/src/a/b/mod.rs` are `candler_core::a::b`.
+fn module_path(file: &str) -> String {
+    let rest = file.strip_prefix("crates/").unwrap();
+    let (krate, inside) = rest.split_once("/src/").unwrap();
+    let inside = inside.strip_suffix(".rs").unwrap();
+    let inside = inside.strip_suffix("/mod").unwrap_or(inside);
+    let mut path = krate.replace('-', "_");
+    if inside != "lib" && inside != "main" {
+        for segment in inside.split('/') {
+            path.push_str("::");
+            path.push_str(segment);
+        }
+    }
+    path
+}
+
+/// The error types that have a `refusal_table!`, as `<file>::<name>`: the type a table names is the
+/// one defined in the same file, or the one whose module the table's file imports it from, or the
+/// only type of that name.
+fn tabled_types(types: &[String]) -> BTreeSet<String> {
+    let table = Regex::new(r"refusal_table!\s*[{(]\s*(?:struct\s+)?(\w+)\s*,").unwrap();
+    let uses = Regex::new(r"(?m)^\s*use\s+([^;]+);").unwrap();
+    let mut tabled = BTreeSet::new();
+    for (file, text) in source_files() {
+        let krate = module_path(&file);
+        let krate = krate.split("::").next().unwrap().to_owned();
+        let mut imports: Vec<String> = Vec::new();
+        for statement in uses.captures_iter(&text) {
+            let statement = statement[1].replace('\n', " ");
+            if let Some((prefix, group)) = statement.split_once("::{") {
+                for item in group.trim_end_matches('}').split(',') {
+                    imports.push(format!("{}::{}", prefix.trim(), item.trim()));
+                }
+            } else {
+                imports.push(statement.trim().to_owned());
+            }
+        }
+        let imports: Vec<String> = imports
+            .into_iter()
+            .map(|path| path.replacen("crate::", &format!("{krate}::"), 1))
+            .collect();
+        for capture in table.captures_iter(&text) {
+            let name = &capture[1];
+            let candidates: Vec<&String> = types
+                .iter()
+                .filter(|entry| name_of(entry) == name)
+                .collect();
+            let chosen: Vec<&&String> = if candidates.len() == 1 {
+                candidates.iter().collect()
+            } else {
+                candidates
+                    .iter()
+                    .filter(|entry| {
+                        let (defined_in, _) = entry.rsplit_once("::").unwrap();
+                        let module = module_path(defined_in);
+                        defined_in == file
+                            || imports.iter().any(|import| {
+                                import.rsplit_once("::").is_some_and(|(from, last)| {
+                                    last == name
+                                        && (module == from
+                                            || module.starts_with(&format!("{from}::")))
+                                })
+                            })
+                    })
+                    .collect()
+            };
+            assert!(
+                chosen.len() == 1,
+                "{file}: the table of `{name}` names {} types of that name ({candidates:?}): import it by its module",
+                chosen.len()
+            );
+            tabled.insert((*chosen[0]).clone());
+        }
+    }
+    tabled
 }
 
 /// The parsed `codes.toml`.
@@ -201,8 +301,18 @@ fn r1_every_error_enum_is_coded_or_internal() {
     let scope = scope();
     let catalogue = catalogue();
 
+    let tabled = tabled_types(&types);
+    let whole_enum_internal: BTreeSet<String> = table["internal"]
+        .as_table()
+        .unwrap()
+        .iter()
+        .filter(|(_, row)| row.get("variant").is_none())
+        .map(|(key, _)| key.clone())
+        .collect();
     for entry in &types {
-        let name = entry.rsplit("::").next().unwrap();
+        let name = name_of(entry);
+        let (file, _) = entry.rsplit_once("::").unwrap();
+        let qualified = format!("{}::{name}", module_path(file));
         let delegates_only = {
             let mut rows = catalogue
                 .iter()
@@ -210,9 +320,10 @@ fn r1_every_error_enum_is_coded_or_internal() {
                 .peekable();
             rows.peek().is_some() && rows.all(|row| row.delegates)
         };
+        let registered = coded.contains(name) || internal.contains(name) || delegates_only;
         assert!(
-            coded.contains(name) || internal.contains(name) || delegates_only,
-            "{entry} is in neither codes.toml nor [internal]: code it, or list it as Candler's own"
+            (tabled.contains(entry) && registered) || whole_enum_internal.contains(&qualified),
+            "{entry} has no table of codes in its own module's `refusal_table!` and no whole-enum [internal] row keyed `{qualified}`: code it, or list it as Candler's own"
         );
     }
 
@@ -448,4 +559,429 @@ fn r1_a_wrapper_answers_with_the_side_of_what_it_wraps() {
     let found = candler_core::refusal::find(&locked).expect("a coded error");
     assert_eq!(found.code().as_str(), "runner.experiment_locked");
     assert_eq!(found.side(), Side::Environment);
+}
+
+/// One wrapper variant built by hand, with the code and side that the walk of causes must give
+/// for it.
+#[cfg(unix)]
+struct Wrapped {
+    /// The enum of the wrapper.
+    enum_name: &'static str,
+    /// The variant of the wrapper.
+    variant: &'static str,
+    /// The wrapper, holding the error it wraps.
+    error: Box<dyn std::error::Error + 'static>,
+    /// The code the record carries: the wrapped error's.
+    code: &'static str,
+    /// The `(enum, variant)` of the delegate row whose own side the record carries, when the
+    /// cause is a format error or blames Candler without being the fallback code; otherwise the
+    /// record carries the side `codes.toml` registers for the code.
+    stands: Option<(&'static str, &'static str)>,
+}
+
+/// The wrappers of every `delegate` row of the catalogue, each built over a cause.
+#[cfg(unix)]
+fn wrapped_cases() -> Vec<Wrapped> {
+    use candler_core::evaluation::context::ContextError;
+    use candler_core::evaluation::engine::{EvaluateError, PlanError as EvalPlanError};
+    use candler_core::evaluation::registry::{NeedError, RegistryError};
+    use candler_core::experiment::surface::SurfaceError;
+    use candler_core::import::ImportError;
+    use candler_core::isolation::IsolationError;
+    use candler_core::isolation::container::mounts::MountError;
+    use candler_core::isolation::container::run::RunArgvError;
+    use candler_core::isolation::container::sweeper::SweepError;
+    use candler_core::isolation::gateway::{GatewayError, NotReadyCause, SecretError};
+    use candler_core::jobs::dir::JobError;
+    use candler_core::jobs::lost::RecoverError;
+    use candler_core::jobs::orchestrate::session::OrchestrateError;
+    use candler_core::jobs::slots::SlotError;
+    use candler_core::resolve::preflight::ResolveError;
+    use candler_core::runner::exec::ExecError;
+    use candler_core::runner::plan::PlanError;
+    use candler_core::store::StoreError;
+    use candler_core::supervise::SuperviseError;
+    use candler_harness::driver::DriverError;
+    use candler_harness::spec::CommandSpecError;
+    use candler_schemas::canonical::CanonicalError;
+    use candler_schemas::evaluation::EvaluationError;
+    use candler_schemas::execution::ExecutionError;
+    use candler_schemas::outcome::OutcomeError;
+    use candler_schemas::primitives::{FormatError, Name};
+    use candler_schemas::values::ValuesError;
+
+    let format = || -> FormatError { "BAD NAME".parse::<Name>().unwrap_err() };
+    let finite = || CanonicalError::NotFinite;
+    let absolute = || ExecutionError::AbsolutePath {
+        path: "model.effort".to_owned(),
+    };
+    let git = || ExecutionError::GitCommit {
+        problem: "is short",
+        value: "abc".to_owned(),
+    };
+    let sealed = || StoreError::RunSealed {
+        run: "r".to_owned(),
+    };
+    let locked = || PlanError::ExperimentLocked;
+    let case = |enum_name, variant, error: Box<dyn std::error::Error>, code, stands| Wrapped {
+        enum_name,
+        variant,
+        error,
+        code,
+        stands,
+    };
+    let experiment_format = Some(("ExecutionError", "Format"));
+    vec![
+        // The schemas'.
+        case(
+            "ExecutionError",
+            "Format",
+            Box::new(ExecutionError::Format(format())),
+            "format.name_invalid",
+            experiment_format,
+        ),
+        case(
+            "ExecutionError",
+            "Values",
+            Box::new(ExecutionError::Values(ValuesError::Null)),
+            "values.null",
+            None,
+        ),
+        case(
+            "ExecutionError",
+            "Canonical",
+            Box::new(ExecutionError::Canonical(finite())),
+            "canonical.number_not_finite",
+            None,
+        ),
+        case(
+            "EvaluationError",
+            "Canonical",
+            Box::new(EvaluationError::Canonical(finite())),
+            "canonical.number_not_finite",
+            None,
+        ),
+        case(
+            "OutcomeError",
+            "Format",
+            Box::new(OutcomeError::Format(format())),
+            "format.name_invalid",
+            Some(("OutcomeError", "Format")),
+        ),
+        case(
+            "ValuesError",
+            "Canonical",
+            Box::new(ValuesError::Canonical(finite())),
+            "canonical.number_not_finite",
+            None,
+        ),
+        // The core's.
+        case(
+            "SurfaceError",
+            "Format",
+            Box::new(SurfaceError::Format(format())),
+            "format.name_invalid",
+            Some(("SurfaceError", "Format")),
+        ),
+        case(
+            "ResolveError",
+            "Value",
+            Box::new(ResolveError::Value(ValuesError::Null)),
+            "values.null",
+            None,
+        ),
+        case(
+            "ResolveError",
+            "Format",
+            Box::new(ResolveError::Format(format())),
+            "format.name_invalid",
+            Some(("ResolveError", "Format")),
+        ),
+        case(
+            "StoreError",
+            "Format",
+            Box::new(StoreError::Format(format())),
+            "format.name_invalid",
+            Some(("StoreError", "Format")),
+        ),
+        case(
+            "ExecError",
+            "Isolation",
+            Box::new(ExecError::Isolation(IsolationError::Docker {
+                detail: "d".to_owned(),
+            })),
+            "isolation.docker_step_failed",
+            None,
+        ),
+        case(
+            "ExecError",
+            "Store",
+            Box::new(ExecError::Store(sealed())),
+            "store.run_sealed",
+            None,
+        ),
+        case(
+            "ExecError",
+            "Driver",
+            Box::new(ExecError::Driver(DriverError::VersionOutput {
+                detail: "d".to_owned(),
+            })),
+            "harness.version_unreadable",
+            None,
+        ),
+        case(
+            "ExecError",
+            "Manifest",
+            Box::new(ExecError::Manifest(git())),
+            "manifest.git_commit_invalid",
+            Some(("ExecError", "Manifest")),
+        ),
+        case(
+            "ExecError",
+            "Supervise",
+            Box::new(ExecError::Supervise(SuperviseError::Spawn {
+                program: "p".to_owned(),
+                source: std::io::Error::other("x"),
+            })),
+            "supervise.spawn_failed",
+            None,
+        ),
+        case(
+            "GatewayError",
+            "Secret",
+            Box::new(GatewayError::Secret(SecretError::Missing {
+                name: "n".to_owned(),
+            })),
+            "isolation.secret_missing",
+            None,
+        ),
+        case(
+            "GatewayError",
+            "NotReady",
+            Box::new(GatewayError::NotReady {
+                cause: NotReadyCause::Capped,
+            }),
+            "isolation.gateway_capped",
+            None,
+        ),
+        case(
+            "RunArgvError",
+            "Mount",
+            Box::new(RunArgvError::Mount(MountError::OutsideRoots {
+                path: "/p".into(),
+            })),
+            "isolation.mount_outside_roots",
+            None,
+        ),
+        case(
+            "DriverError",
+            "Command",
+            Box::new(DriverError::Command(CommandSpecError::EmptyArgv)),
+            "candler.internal",
+            None,
+        ),
+        case(
+            "PlanError",
+            "Cell",
+            Box::new(PlanError::Cell { source: absolute() }),
+            "experiment.absolute_path",
+            None,
+        ),
+        case(
+            "PlanError",
+            "Cell",
+            Box::new(PlanError::Cell { source: git() }),
+            "manifest.git_commit_invalid",
+            Some(("PlanError", "Cell")),
+        ),
+        // The evaluation's.
+        case(
+            "EvaluateError",
+            "Registry",
+            Box::new(EvaluateError::Registry(RegistryError::UnknownKind {
+                entry: "R1".parse().unwrap(),
+                evaluator: "e".parse().unwrap(),
+                kind: "k".parse().unwrap(),
+            })),
+            "suite.kind_unknown",
+            None,
+        ),
+        case(
+            "EvaluateError",
+            "Suite",
+            Box::new(EvaluateError::Suite {
+                path: "s.toml".into(),
+                source: EvaluationError::EmptyList {
+                    field: "expectations",
+                },
+            }),
+            "suite.list_empty",
+            None,
+        ),
+        case(
+            "EvaluateError",
+            "Store",
+            Box::new(EvaluateError::Store(sealed())),
+            "store.run_sealed",
+            None,
+        ),
+        case(
+            "EvaluateError",
+            "Plan",
+            Box::new(EvaluateError::Plan(EvalPlanError::Cycle { cycle: vec![] })),
+            "evaluation.dependency_cycle",
+            None,
+        ),
+        case(
+            "EvaluateError",
+            "Describe",
+            Box::new(EvaluateError::Describe {
+                plugin: "p".parse().unwrap(),
+                source: candler_core::evaluation::client::ClientError::Cancelled,
+            }),
+            "evaluation.cancelled",
+            None,
+        ),
+        case(
+            "EvaluateError",
+            "Slots",
+            Box::new(EvaluateError::Slots(SlotError::Io {
+                op: "open",
+                path: "/p".into(),
+                detail: "d".to_owned(),
+            })),
+            "jobs.slot_io_failed",
+            None,
+        ),
+        case(
+            "RegistryError",
+            "Manifest",
+            Box::new(RegistryError::Manifest {
+                path: "m.toml".into(),
+                source: EvaluationError::EmptyList { field: "f" },
+            }),
+            "suite.list_empty",
+            None,
+        ),
+        case(
+            "RegistryError",
+            "Need",
+            Box::new(RegistryError::Need {
+                entry: "R1".parse().unwrap(),
+                kind: "k".parse().unwrap(),
+                source: NeedError::BadGlob {
+                    glob: "[".to_owned(),
+                    detail: "d".to_owned(),
+                },
+            }),
+            "plugin.need_glob_invalid",
+            None,
+        ),
+        case(
+            "ContextError",
+            "Store",
+            Box::new(ContextError::Store(sealed())),
+            "store.run_sealed",
+            None,
+        ),
+        // The jobs'.
+        case(
+            "RecoverError",
+            "Job",
+            Box::new(RecoverError::Job(JobError::Held)),
+            "jobs.job_held",
+            None,
+        ),
+        case(
+            "RecoverError",
+            "Sweep",
+            Box::new(RecoverError::Sweep(SweepError::List {
+                detail: "d".to_owned(),
+            })),
+            "isolation.sweep_list_failed",
+            None,
+        ),
+        case(
+            "OrchestrateError",
+            "Plan",
+            Box::new(OrchestrateError::Plan(locked())),
+            "runner.experiment_locked",
+            None,
+        ),
+        case(
+            "OrchestrateError",
+            "Plan",
+            Box::new(OrchestrateError::Plan(PlanError::Cell { source: git() })),
+            "manifest.git_commit_invalid",
+            Some(("OrchestrateError", "Plan")),
+        ),
+        // The import's.
+        case(
+            "ImportError",
+            "Format",
+            Box::new(ImportError::Format(format())),
+            "format.name_invalid",
+            Some(("ImportError", "Format")),
+        ),
+    ]
+}
+
+/// Guards: R1 — every wrapper variant of the workspace (every `delegate` row of the catalogue)
+/// answers through the walk of causes with the code of the error it wraps, and with that error's
+/// registered side, except where the cause is a format error or blames Candler without being the
+/// fallback code: there the side of the wrapper's own row stands, because the document the value
+/// came from decides whose fault it is. A format error read from a legacy results folder is the
+/// environment's, not Candler's.
+///
+/// Oracle: the code and the side `codes.toml` registers for the cause, and the side written in
+/// the wrapper's own row of the catalogue; the wrappers and their causes are built by hand. A
+/// `delegate` row with no case here fails the guard.
+///
+/// Bite: `through` always returning the wrapper; the `through` calls of the schemas' wrappers
+/// removed; the format and Candler exceptions removed from `through`.
+#[cfg(unix)]
+#[test]
+fn r1_every_wrapper_answers_with_the_side_its_rule_gives() {
+    let table = codes();
+    let registered = |code: &str| -> String {
+        if code == INTERNAL_CODE {
+            return "candler".to_owned();
+        }
+        code_rows(&table)
+            .into_iter()
+            .find(|row| row.code == code)
+            .unwrap_or_else(|| panic!("{code} is not in codes.toml"))
+            .side
+    };
+    let mut catalogue = catalogue();
+    catalogue.extend(candler_harness::refusal::catalog());
+    let own_side = |enum_name: &str, variant: &str| -> Side {
+        catalogue
+            .iter()
+            .find(|row| row.delegates && row.enum_name == enum_name && row.variant == variant)
+            .unwrap_or_else(|| panic!("{enum_name}::{variant} is no delegate row"))
+            .side
+    };
+    let cases = wrapped_cases();
+    for row in catalogue.iter().filter(|row| row.delegates) {
+        assert!(
+            cases
+                .iter()
+                .any(|case| case.enum_name == row.enum_name && case.variant == row.variant),
+            "the delegate row {}::{} has no case in this guard",
+            row.enum_name,
+            row.variant
+        );
+    }
+    for case in &cases {
+        let who = format!("{}::{} over {}", case.enum_name, case.variant, case.code);
+        let found = candler_core::refusal::find(case.error.as_ref())
+            .unwrap_or_else(|| panic!("{who}: the walk finds no refusal"));
+        assert_eq!(found.code().as_str(), case.code, "{who}: code");
+        let side = case.stands.map_or_else(
+            || registered(case.code),
+            |(enum_name, variant)| own_side(enum_name, variant).as_str().to_owned(),
+        );
+        assert_eq!(found.side().as_str(), side, "{who}: side");
+    }
 }
