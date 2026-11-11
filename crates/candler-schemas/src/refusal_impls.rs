@@ -109,7 +109,7 @@ refusal_table! {
         "experiment.cost_not_positive",
         Side::Experiment,
         "A cost cap is not a finite number above 0.",
-        "The cap under `/budget`.",
+        "-",
     ),
     NoLevels { .. } => row(
         "experiment.factor_without_levels",
@@ -246,7 +246,7 @@ refusal_table! {
         "suite.json_invalid",
         Side::Suite,
         "A suite is not valid JSON, or does not have the shape of a suite.",
-        "The field at fault, or its parent object when a field is missing; none at the root.",
+        "The field at fault, or its parent object when a field is missing; none at the root, and the item at fault when the root is an array.",
     ),
     MissingField { .. } => row(
         "protocol.field_unset",
@@ -398,7 +398,7 @@ refusal_table! {
     TextEmpty { .. } => row(
         "outcome.text_empty",
         Side::Plugin,
-        "A text field of an outcome has no character.",
+        "A `note` of a piece of evidence, or a `calibration_ref` of a probability, has no character.",
         "-",
     ),
     ProbabilityRange { .. } => row(

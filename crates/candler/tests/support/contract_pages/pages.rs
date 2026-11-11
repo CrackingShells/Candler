@@ -4,6 +4,7 @@ use std::fmt::Write;
 use std::path::Path;
 
 use super::hand::section;
+use super::refusals::page_refusals;
 use super::schema::{self, Block, Class, Row};
 use super::versions::{CLOSE, OPEN, Versions};
 
@@ -132,7 +133,7 @@ fn table(rows: &[Row]) -> String {
             "| `{}` | `{}` | {} | {} |",
             cell(&row.path),
             cell(&row.ty.join(" | ")),
-            row.class.as_str(),
+            row.class_text(),
             default
         );
     }
@@ -221,10 +222,11 @@ pub fn render_page(
         .and_then(|text| section(text, "Notes"))
         .unwrap_or_default();
     let mut out = format!(
-        "# {}\n\n## Surface\n\n{surface}\n\n## Version\n\n{}\n\n## Fields\n\n{}\n\n## Refusals\n\n<!-- generated:refusals -->\n\n## Notes\n",
+        "# {}\n\n## Surface\n\n{surface}\n\n## Version\n\n{}\n\n## Fields\n\n{}\n\n## Refusals\n\n{}\n\n## Notes\n",
         page.title,
         version_section(dir, page, versions)?,
         fields_section(dir, page)?,
+        page_refusals(page.file)?,
     );
     if !notes.is_empty() {
         out.push('\n');

@@ -37,14 +37,26 @@ _guard_installed = False
 
 
 class ProtocolError(ValueError):
-    """A line that is not a message of the evaluator protocol and cannot be answered."""
+    """A line that is not a message of the evaluator protocol and cannot be answered.
+
+    `refusal_code` is the code of the refusal, a row of `[helper]` in `docs/contract/codes.toml`.
+    """
+
+    def __init__(self, message: str, *, refusal_code: str) -> None:
+        super().__init__(message)
+        self.refusal_code = refusal_code
 
 
 class Refused(ProtocolError):
-    """A request with an id that the models refuse; the id's owner is owed an error."""
+    """A request with an id that the models refuse; the id's owner is owed an error.
 
-    def __init__(self, request_id: str, code: int, message: str) -> None:
-        super().__init__(message)
+    `code` is the JSON-RPC error code; `refusal_code` is the registry's.
+    """
+
+    def __init__(
+        self, request_id: str, code: int, message: str, *, refusal_code: str
+    ) -> None:
+        super().__init__(message, refusal_code=refusal_code)
         self.request_id = request_id
         self.code = code
 
@@ -137,7 +149,9 @@ def parse_message(line: bytes | str) -> Any:
     try:
         raw = json.loads(line)
     except (ValueError, RecursionError):
-        raise ProtocolError(f"not JSON: {reason}") from None
+        raise ProtocolError(
+            f"not JSON: {reason}", refusal_code="helper.line_not_json"
+        ) from None
     if (
         isinstance(raw, dict)
         and raw.get("jsonrpc") == "2.0"
@@ -146,10 +160,20 @@ def parse_message(line: bytes | str) -> Any:
         and "result" not in raw
         and "error" not in raw
     ):
-        code = INVALID_PARAMS if raw["method"] in _REQUEST_METHODS else METHOD_NOT_FOUND
-        text = reason if code == INVALID_PARAMS else f"no method {raw['method']}"
-        raise Refused(raw["id"], code, text)
-    raise ProtocolError(reason)
+        if raw["method"] in _REQUEST_METHODS:
+            raise Refused(
+                raw["id"],
+                INVALID_PARAMS,
+                reason,
+                refusal_code="helper.request_invalid",
+            )
+        raise Refused(
+            raw["id"],
+            METHOD_NOT_FOUND,
+            f"no method {raw['method']}",
+            refusal_code="helper.method_unknown",
+        )
+    raise ProtocolError(reason, refusal_code="helper.message_invalid")
 
 
 class LineReader:

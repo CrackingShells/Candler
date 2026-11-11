@@ -15,6 +15,7 @@ __all__ = [
     "Outcome",
     "OutcomeError",
     "Plugin",
+    "PluginError",
     "Prior",
     "RunContext",
     "normalise_outcome",
@@ -32,7 +33,26 @@ _OUTCOME_KEYS = frozenset({"status", "value", "weight", "cause", "evidence"})
 
 
 class OutcomeError(ValueError):
-    """A kind returned something that is not an outcome the protocol can carry."""
+    """A kind returned something that is not an outcome the protocol can carry.
+
+    `refusal_code` is the code of the refusal, a row of `[helper]` in `docs/contract/codes.toml`.
+    """
+
+    def __init__(self, message: str, *, refusal_code: str) -> None:
+        super().__init__(message)
+        self.refusal_code = refusal_code
+
+
+class PluginError(ValueError, TypeError):
+    """A plug-in that does not say what it is, so the helper cannot serve it.
+
+    It is both a `ValueError` and a `TypeError`, so a caller may catch either.
+    `refusal_code` is the code of the refusal, a row of `[helper]`.
+    """
+
+    def __init__(self, message: str, *, refusal_code: str) -> None:
+        super().__init__(message)
+        self.refusal_code = refusal_code
 
 
 @dataclass(frozen=True)
@@ -125,7 +145,10 @@ class Plugin:
         try:
             kinds = module.KINDS
         except AttributeError as err:
-            raise TypeError(f"{module.__name__} defines no KINDS") from err
+            raise PluginError(
+                f"{module.__name__} defines no KINDS",
+                refusal_code="helper.plugin_kinds_missing",
+            ) from err
         return cls(
             kinds=kinds,
             name=getattr(module, "NAME", None),
@@ -152,14 +175,21 @@ def normalise_outcome(raw: Outcome | Mapping[str, Any]) -> dict[str, Any]:
         raw = raw.to_mapping()
     if not isinstance(raw, Mapping):
         raise OutcomeError(
-            f"a kind returns an Outcome or a mapping, not {type(raw).__name__}"
+            f"a kind returns an Outcome or a mapping, not {type(raw).__name__}",
+            refusal_code="helper.outcome_type_invalid",
         )
     extra = sorted(set(raw) - _OUTCOME_KEYS)
     if extra:
-        raise OutcomeError(f"unknown outcome key {extra[0]!r}")
+        raise OutcomeError(
+            f"unknown outcome key {extra[0]!r}",
+            refusal_code="helper.outcome_key_unknown",
+        )
     status = raw.get("status")
     if status not in _STATUSES:
-        raise OutcomeError(f"status {status!r} is not one of the five statuses")
+        raise OutcomeError(
+            f"status {status!r} is not one of the five statuses",
+            refusal_code="helper.outcome_status_invalid",
+        )
     out: dict[str, Any] = {"status": status}
     weight = raw.get("weight")
     if weight is not None:
@@ -169,59 +199,101 @@ def normalise_outcome(raw: Outcome | Mapping[str, Any]) -> dict[str, Any]:
     if status in _NEEDS_CAUSE:
         out["cause"] = _check_cause(cause)
     elif cause is not None:
-        raise OutcomeError(f"a {status} carries no cause")
+        raise OutcomeError(
+            f"a {status} carries no cause",
+            refusal_code="helper.outcome_cause_not_allowed",
+        )
     value = raw.get("value")
     if value is not None:
         if not isinstance(value, Mapping) or value.get("kind") not in _VALUE_KINDS:
             raise OutcomeError(
-                "value is an object whose `kind` is one of the five value kinds"
+                "value is an object whose `kind` is one of the five value kinds",
+                refusal_code="helper.outcome_value_invalid",
             )
         out["value"] = dict(value)
     out["evidence"] = _check_evidence(raw.get("evidence", ()))
     try:
         json.dumps(out, allow_nan=False)
     except (TypeError, ValueError) as err:
-        raise OutcomeError(f"outcome is not JSON: {err}") from err
+        raise OutcomeError(
+            f"outcome is not JSON: {err}", refusal_code="helper.outcome_not_json"
+        ) from err
     return out
 
 
 def _check_weight(status: str, weight: Any) -> None:
     if status in ("not_measured", "not_applicable"):
-        raise OutcomeError(f"a {status} carries no weight")
+        raise OutcomeError(
+            f"a {status} carries no weight",
+            refusal_code="helper.outcome_weight_not_allowed",
+        )
     if not isinstance(weight, Mapping) or set(weight) != {"num", "den"}:
-        raise OutcomeError("weight is an object with `num` and `den`")
+        raise OutcomeError(
+            "weight is an object with `num` and `den`",
+            refusal_code="helper.outcome_weight_invalid",
+        )
     num, den = weight["num"], weight["den"]
     if not (_is_int(num) and _is_int(den)) or den < 1 or not 0 <= num <= den:
-        raise OutcomeError("weight has integers with 0 <= num <= den and den >= 1")
+        raise OutcomeError(
+            "weight has integers with 0 <= num <= den and den >= 1",
+            refusal_code="helper.outcome_weight_invalid",
+        )
     if status == "pass" and num != den:
-        raise OutcomeError("a pass has num equal to den")
+        raise OutcomeError(
+            "a pass has num equal to den",
+            refusal_code="helper.outcome_weight_mismatch",
+        )
     if status == "fail" and num >= den:
-        raise OutcomeError("a fail has num below den")
+        raise OutcomeError(
+            "a fail has num below den", refusal_code="helper.outcome_weight_mismatch"
+        )
     if status == "blocked" and num != 0:
-        raise OutcomeError("a blocked has num 0")
+        raise OutcomeError(
+            "a blocked has num 0", refusal_code="helper.outcome_weight_mismatch"
+        )
 
 
 def _check_cause(cause: Any) -> dict[str, str]:
+    if cause is None:
+        raise OutcomeError(
+            "cause is an object with exactly one key",
+            refusal_code="helper.outcome_cause_missing",
+        )
     if not isinstance(cause, Mapping) or len(cause) != 1:
-        raise OutcomeError("cause is an object with exactly one key")
+        raise OutcomeError(
+            "cause is an object with exactly one key",
+            refusal_code="helper.outcome_cause_invalid",
+        )
     ((key, val),) = cause.items()
     if key not in _CAUSE_KEYS or not isinstance(val, str) or not val:
         raise OutcomeError(
-            "cause key is one of expectation, artifact, reason, with a string"
+            "cause key is one of expectation, artifact, reason, with a string",
+            refusal_code="helper.outcome_cause_invalid",
         )
     if key == "reason" and (not _REASON.fullmatch(val) or val in _CORE_REASONS):
-        raise OutcomeError(f"reason {val!r} is not a code an evaluator may emit")
+        raise OutcomeError(
+            f"reason {val!r} is not a code an evaluator may emit",
+            refusal_code="helper.outcome_cause_reason_invalid",
+        )
     return {key: val}
 
 
 def _check_evidence(evidence: Any) -> list[dict[str, str]]:
     if isinstance(evidence, (str, bytes)) or not isinstance(evidence, Sequence):
-        raise OutcomeError("evidence is a list")
+        raise OutcomeError(
+            "evidence is a list", refusal_code="helper.outcome_evidence_invalid"
+        )
     out = []
     for item in evidence:
         if not isinstance(item, Mapping) or not item or set(item) - {"ref", "note"}:
-            raise OutcomeError("evidence is an object with `ref` and `note`")
+            raise OutcomeError(
+                "evidence is an object with `ref` and `note`",
+                refusal_code="helper.outcome_evidence_invalid",
+            )
         if not all(isinstance(v, str) and v for v in item.values()):
-            raise OutcomeError("evidence members are non-empty strings")
+            raise OutcomeError(
+                "evidence members are non-empty strings",
+                refusal_code="helper.outcome_evidence_invalid",
+            )
         out.append(dict(item))
     return out

@@ -4,6 +4,7 @@ use std::fmt::Write;
 use std::path::Path;
 
 use super::pages::{PAGES, wire_tags};
+use super::refusals::other_refusals;
 use super::versions::{CLOSE, OPEN, Versions};
 
 /// The reserved page of the driver contract. The index lists it; nothing here reads, writes or
@@ -32,6 +33,7 @@ pub fn render_index(dir: &Path, versions: &Versions) -> Result<String, String> {
     let evaluator = versions
         .tag("candler-evaluator@")
         .ok_or("no evaluator version")?;
+    let other = other_refusals()?;
     Ok(format!(
         "# Contract pages
 
@@ -46,7 +48,7 @@ One page per surface an author writes or a plug-in speaks. Each page holds the s
 
 ## Field classes
 
-Every row of a Fields table has one class.
+Every row of a Fields table has one class. A `required` followed by a variant in parentheses, such as `required (value.kind = fraction)`, is required only when the object takes that variant.
 
 | Class | Meaning |
 |---|---|
@@ -64,6 +66,12 @@ Every row of a Fields table has one class.
 | wire schemas | {schemas} | `crates/candler-schemas/Cargo.toml` |
 | evaluator helper | {evaluator} | `python/candler-evaluator/pyproject.toml` |
 {CLOSE}
+
+## Other refusals
+
+Surfaces that name no page of their own: configuration, resolving, running, isolation, the store, jobs, evaluation and importing. The path is an RFC 6901 pointer into the document at fault, or a file.
+
+{other}
 "
     ))
 }

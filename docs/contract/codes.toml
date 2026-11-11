@@ -1709,3 +1709,138 @@ variant = "Trace"
 reason = "the trace file is built by Candler from what it read, so one that is not valid is Candler's fault"
 
 [helper]
+
+[helper."helper.outcome_type_invalid"]
+side = "plugin"
+when = "A kind returns something that is neither an Outcome nor a mapping."
+at = "-"
+
+[helper."helper.outcome_key_unknown"]
+side = "plugin"
+when = "A kind's outcome mapping has a key other than status, value, weight, cause and evidence."
+at = "-"
+
+[helper."helper.outcome_status_invalid"]
+side = "plugin"
+when = "A kind's outcome has a status that is not one of pass, fail, blocked, not_measured and not_applicable."
+at = "-"
+
+[helper."helper.outcome_cause_missing"]
+side = "plugin"
+when = "A blocked, not_measured or not_applicable outcome carries no cause."
+at = "-"
+
+[helper."helper.outcome_cause_not_allowed"]
+side = "plugin"
+when = "A pass or fail outcome carries a cause."
+at = "-"
+
+[helper."helper.outcome_cause_invalid"]
+side = "plugin"
+when = "A cause is not an object with exactly one of the keys expectation, artifact and reason, holding a non-empty string."
+at = "-"
+
+[helper."helper.outcome_cause_reason_invalid"]
+side = "plugin"
+when = "A cause reason is not a lower-case code, or is one that only Candler emits."
+at = "-"
+
+[helper."helper.outcome_weight_not_allowed"]
+side = "plugin"
+when = "A not_measured or not_applicable outcome carries a weight."
+at = "-"
+
+[helper."helper.outcome_weight_invalid"]
+side = "plugin"
+when = "A weight is not an object with the integers num and den, with den at least 1 and num from 0 to den."
+at = "-"
+
+[helper."helper.outcome_weight_mismatch"]
+side = "plugin"
+when = "A weight disagrees with the status: a pass needs num equal to den, a fail a num below den, a blocked a num of 0."
+at = "-"
+
+[helper."helper.outcome_value_invalid"]
+side = "plugin"
+when = "A value is not an object whose kind is one of number, count, fraction, text and counts."
+at = "-"
+
+[helper."helper.outcome_evidence_invalid"]
+side = "plugin"
+when = "The evidence is not a list of objects whose only members are a non-empty ref and a non-empty note."
+at = "-"
+
+[helper."helper.outcome_not_json"]
+side = "plugin"
+when = "An outcome holds a value that JSON cannot carry, such as NaN."
+at = "-"
+
+[helper."helper.plugin_kinds_missing"]
+side = "plugin"
+when = "A plug-in module defines no KINDS."
+at = "-"
+
+[helper."helper.plugin_identity_missing"]
+side = "plugin"
+when = "A plug-in gives no name or version, and names no distribution that supplies them."
+at = "-"
+
+[helper."helper.instrument_not_installed"]
+side = "plugin"
+when = "An instrument names a distribution that is not installed."
+at = "-"
+
+[helper."helper.instrument_version_invalid"]
+side = "plugin"
+when = "An instrument's installed version is not SemVer 2.0."
+at = "-"
+
+[helper."helper.instrument_install_unrecorded"]
+side = "plugin"
+when = "An instrument's installation has no direct_url.json, as an install from a package index has none."
+at = "-"
+
+[helper."helper.instrument_record_malformed"]
+side = "plugin"
+when = "An instrument's direct_url.json is not a JSON object."
+at = "-"
+
+[helper."helper.instrument_install_unsupported"]
+side = "plugin"
+when = "An instrument's direct_url.json is neither a git install nor an editable one."
+at = "-"
+
+[helper."helper.instrument_vcs_unsupported"]
+side = "plugin"
+when = "An instrument is installed from a version control system other than git."
+at = "-"
+
+[helper."helper.instrument_commit_invalid"]
+side = "plugin"
+when = "An instrument's git install records a commit_id that is not a full lower-case hex hash."
+at = "-"
+
+[helper."helper.line_not_json"]
+side = "candler"
+when = "A line Candler sent is not JSON and carries no request id to answer."
+at = "-"
+
+[helper."helper.message_invalid"]
+side = "candler"
+when = "A line Candler sent is not a message of the evaluator protocol and carries no request id to answer."
+at = "-"
+
+[helper."helper.request_invalid"]
+side = "candler"
+when = "A request Candler sent has an id but fails the protocol's models; the helper answers with error -32602."
+at = "-"
+
+[helper."helper.method_unknown"]
+side = "candler"
+when = "A request Candler sent names a method other than describe and evaluate; the helper answers with error -32601."
+at = "-"
+
+[helper."helper.deadline_out_of_range"]
+side = "suite"
+when = "A suite entry has a deadline_ms above 2**53 - 1, which Candler passes on and the helper refuses with error -32602."
+at = "-"

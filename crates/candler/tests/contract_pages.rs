@@ -12,8 +12,13 @@ use std::collections::BTreeMap;
 use std::fs;
 
 use contract_pages::frame::{MAX_NOTE_WORDS, SECTIONS, check_frame, check_notes};
+use contract_pages::hand::section;
 use contract_pages::index::render_index;
 use contract_pages::pages::{PAGES, blocks_markdown, render_page, root_fields};
+use contract_pages::refusals::{
+    Home, all_entries, binary_entries, catalogue_entries, codes_named_in, home_of, known_codes,
+    listed_codes,
+};
 use contract_pages::versions::{Versions, check_blocks, tokens, tokens_outside_blocks};
 use contract_pages::{blessing, docs_dir, repo_root, schema_dir, write_atomically};
 
@@ -80,7 +85,14 @@ fn classes_of(root: &str) -> BTreeMap<String, Vec<String>> {
     for line in markdown.lines().filter(|line| line.starts_with("| `")) {
         let cells: Vec<&str> = line.trim_matches('|').split(" | ").collect();
         let path = cells.first().expect("a path cell").trim().trim_matches('`');
-        let class = cells.get(2).expect("a class cell").trim();
+        // A `required` field of some variants only names them after the class word.
+        let class = cells
+            .get(2)
+            .expect("a class cell")
+            .split(" (")
+            .next()
+            .unwrap_or_default()
+            .trim();
         out.entry(path.to_owned())
             .or_default()
             .push(class.to_owned());
@@ -264,4 +276,84 @@ fn d4_a_stale_version_is_refused() {
         tokens_outside_blocks(&outside).expect("blocks"),
         vec![("v".to_owned(), "9.9.9".to_owned())]
     );
+}
+
+/// The codes a page names: those in the first cell of a row of its Refusals, and those in
+/// backticks in its Notes. A sentence of a row may name a setting such as `store.root`, which is no
+/// code.
+fn named_codes(file: &str) -> Vec<String> {
+    let text = existing(file).unwrap_or_else(|| panic!("{file} does not exist"));
+    let mut codes = listed_codes(&text);
+    codes.extend(codes_named_in(&section(&text, "Notes").unwrap_or_default()));
+    codes
+}
+
+/// Guards: D3 — every code in the first cell of a row of a page's Refusals, or of the index's list
+/// of other refusals, and every code in backticks in a Note, is a row of the code's catalogue or of the registry's `[helper]`
+/// section; the finder reads a backticked `<surface>.<reason>` and nothing else.
+/// Oracle: `candler_core::refusal::catalog()` and `docs/contract/codes.toml`.
+/// Bite: a code deleted from the catalogue and left in a page; a code in a Note that no row has.
+#[test]
+fn d3_every_code_on_a_page_is_in_the_catalog() {
+    assert_eq!(
+        codes_named_in("`experiment.no_such_code` is `direct_url.json` in `a b.c` and `plugin.`"),
+        vec!["experiment.no_such_code".to_owned()],
+        "the finder reads a backticked code of a named surface and nothing else"
+    );
+    let known = known_codes().expect("the codes are read");
+    let mut files: Vec<&str> = PAGES.iter().map(|page| page.file).collect();
+    files.push("index.md");
+    for file in files {
+        for code in named_codes(file) {
+            assert!(
+                known.contains(&code),
+                "{file} names `{code}`, which is no row of the catalogue or of [helper]"
+            );
+        }
+    }
+}
+
+/// Guards: D3 — every surface of the catalogue is named by the surface table; every code of a side
+/// other than Candler's, and every `[helper]` code, is listed in the Refusals of the page the table
+/// gives its surface, or in the index's other refusals.
+/// Oracle: `candler_core::refusal::catalog()` and `docs/contract/codes.toml`; the surface table,
+/// written by hand in `support/contract_pages/refusals.rs`.
+/// Bite: an author code with neither page nor index entry; a surface the table does not name.
+#[test]
+fn d3_every_author_code_has_a_page() {
+    let mut surfaced = catalogue_entries();
+    surfaced.extend(binary_entries().expect("the binary's rows are read"));
+    for row in surfaced {
+        assert!(
+            home_of(row.surface()).is_some(),
+            "the surface `{}` of `{}` is not named by the surface table",
+            row.surface(),
+            row.code
+        );
+    }
+    let mut listed: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for page in &PAGES {
+        let text = existing(page.file).unwrap_or_else(|| panic!("{} does not exist", page.file));
+        listed.insert(page.file.to_owned(), listed_codes(&text));
+    }
+    let index = existing("index.md").expect("docs/contract/index.md exists");
+    listed.insert("index.md".to_owned(), listed_codes(&index));
+    let mut checked = 0;
+    for row in all_entries().expect("the rows are read") {
+        let home = home_of(row.surface())
+            .unwrap_or_else(|| panic!("the surface `{}` is not named", row.surface()));
+        let file = match home {
+            Home::Page(file) => file,
+            Home::Index => "index.md",
+        };
+        assert!(
+            listed
+                .get(file)
+                .is_some_and(|codes| codes.contains(&row.code)),
+            "`{}` is not listed in the Refusals of {file}",
+            row.code
+        );
+        checked += 1;
+    }
+    assert!(checked > 150, "{checked} codes are checked");
 }

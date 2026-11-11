@@ -81,10 +81,10 @@ Wire line: `schemas@0.6.0`.
 | `items[].params` | `map` | required | - |
 | `prior` | `array of OutcomeRecord` | candler | - |
 | `prior[].cause` | `Cause` | optional | - |
-| `prior[].cause.expectation` | `ExpectationId` | required | - |
-| `prior[].cause.artifact` | `RelPath` | required | - |
-| `prior[].cause.reason` | `ReasonCode` | required | - |
-| `prior[].cause.legacy` | `ReasonCode` | required | - |
+| `prior[].cause.expectation` | `ExpectationId` | required (exactly one key of prior[].cause) | - |
+| `prior[].cause.artifact` | `RelPath` | required (exactly one key of prior[].cause) | - |
+| `prior[].cause.reason` | `ReasonCode` | required (exactly one key of prior[].cause) | - |
+| `prior[].cause.legacy` | `ReasonCode` | required (exactly one key of prior[].cause) | - |
 | `prior[].context_digest` | `Digest` | required | - |
 | `prior[].evaluator` | `NameVersion` | required | - |
 | `prior[].evidence` | `array of Evidence` | required | - |
@@ -109,12 +109,12 @@ Wire line: `schemas@0.6.0`.
 | `prior[].suite_entry_digest` | `Digest` | required | - |
 | `prior[].value` | `Value` | optional | - |
 | `prior[].value.kind` | `"number" \| "count" \| "fraction" \| "text" \| "counts"` | required | - |
-| `prior[].value.number` | `Finite` | required | - |
-| `prior[].value.count` | `integer` | required | - |
-| `prior[].value.den` | `integer` | required | - |
-| `prior[].value.num` | `integer` | required | - |
-| `prior[].value.text` | `string` | required | - |
-| `prior[].value.counts` | `map of integer` | required | - |
+| `prior[].value.number` | `Finite` | required (prior[].value.kind = number) | - |
+| `prior[].value.count` | `integer` | required (prior[].value.kind = count) | - |
+| `prior[].value.den` | `integer` | required (prior[].value.kind = fraction) | - |
+| `prior[].value.num` | `integer` | required (prior[].value.kind = fraction) | - |
+| `prior[].value.text` | `string` | required (prior[].value.kind = text) | - |
+| `prior[].value.counts` | `map of integer` | required (prior[].value.kind = counts) | - |
 | `prior[].weight` | `Weight` | optional | - |
 | `prior[].weight.den` | `integer` | required | - |
 | `prior[].weight.num` | `integer` | required | - |
@@ -169,10 +169,10 @@ Wire line: `schemas@0.6.0`.
 | `params.items[].params` | `map` | required | - |
 | `params.prior` | `array of OutcomeRecord` | candler | - |
 | `params.prior[].cause` | `Cause` | optional | - |
-| `params.prior[].cause.expectation` | `ExpectationId` | required | - |
-| `params.prior[].cause.artifact` | `RelPath` | required | - |
-| `params.prior[].cause.reason` | `ReasonCode` | required | - |
-| `params.prior[].cause.legacy` | `ReasonCode` | required | - |
+| `params.prior[].cause.expectation` | `ExpectationId` | required (exactly one key of params.prior[].cause) | - |
+| `params.prior[].cause.artifact` | `RelPath` | required (exactly one key of params.prior[].cause) | - |
+| `params.prior[].cause.reason` | `ReasonCode` | required (exactly one key of params.prior[].cause) | - |
+| `params.prior[].cause.legacy` | `ReasonCode` | required (exactly one key of params.prior[].cause) | - |
 | `params.prior[].context_digest` | `Digest` | required | - |
 | `params.prior[].evaluator` | `NameVersion` | required | - |
 | `params.prior[].evidence` | `array of Evidence` | required | - |
@@ -197,12 +197,12 @@ Wire line: `schemas@0.6.0`.
 | `params.prior[].suite_entry_digest` | `Digest` | required | - |
 | `params.prior[].value` | `Value` | optional | - |
 | `params.prior[].value.kind` | `"number" \| "count" \| "fraction" \| "text" \| "counts"` | required | - |
-| `params.prior[].value.number` | `Finite` | required | - |
-| `params.prior[].value.count` | `integer` | required | - |
-| `params.prior[].value.den` | `integer` | required | - |
-| `params.prior[].value.num` | `integer` | required | - |
-| `params.prior[].value.text` | `string` | required | - |
-| `params.prior[].value.counts` | `map of integer` | required | - |
+| `params.prior[].value.number` | `Finite` | required (params.prior[].value.kind = number) | - |
+| `params.prior[].value.count` | `integer` | required (params.prior[].value.kind = count) | - |
+| `params.prior[].value.den` | `integer` | required (params.prior[].value.kind = fraction) | - |
+| `params.prior[].value.num` | `integer` | required (params.prior[].value.kind = fraction) | - |
+| `params.prior[].value.text` | `string` | required (params.prior[].value.kind = text) | - |
+| `params.prior[].value.counts` | `map of integer` | required (params.prior[].value.kind = counts) | - |
 | `params.prior[].weight` | `Weight` | optional | - |
 | `params.prior[].weight.den` | `integer` | required | - |
 | `params.prior[].weight.num` | `integer` | required | - |
@@ -217,10 +217,10 @@ Wire line: `schemas@0.6.0`.
 | `params` | `OutcomeParams` | required | - |
 | `params.record` | `OutcomeRecord` | required | - |
 | `params.record.cause` | `Cause` | optional | - |
-| `params.record.cause.expectation` | `ExpectationId` | required | - |
-| `params.record.cause.artifact` | `RelPath` | required | - |
-| `params.record.cause.reason` | `ReasonCode` | required | - |
-| `params.record.cause.legacy` | `ReasonCode` | required | - |
+| `params.record.cause.expectation` | `ExpectationId` | required (exactly one key of params.record.cause) | - |
+| `params.record.cause.artifact` | `RelPath` | required (exactly one key of params.record.cause) | - |
+| `params.record.cause.reason` | `ReasonCode` | required (exactly one key of params.record.cause) | - |
+| `params.record.cause.legacy` | `ReasonCode` | required (exactly one key of params.record.cause) | - |
 | `params.record.context_digest` | `Digest` | required | - |
 | `params.record.evaluator` | `NameVersion` | required | - |
 | `params.record.evidence` | `array of Evidence` | required | - |
@@ -245,12 +245,12 @@ Wire line: `schemas@0.6.0`.
 | `params.record.suite_entry_digest` | `Digest` | required | - |
 | `params.record.value` | `Value` | optional | - |
 | `params.record.value.kind` | `"number" \| "count" \| "fraction" \| "text" \| "counts"` | required | - |
-| `params.record.value.number` | `Finite` | required | - |
-| `params.record.value.count` | `integer` | required | - |
-| `params.record.value.den` | `integer` | required | - |
-| `params.record.value.num` | `integer` | required | - |
-| `params.record.value.text` | `string` | required | - |
-| `params.record.value.counts` | `map of integer` | required | - |
+| `params.record.value.number` | `Finite` | required (params.record.value.kind = number) | - |
+| `params.record.value.count` | `integer` | required (params.record.value.kind = count) | - |
+| `params.record.value.den` | `integer` | required (params.record.value.kind = fraction) | - |
+| `params.record.value.num` | `integer` | required (params.record.value.kind = fraction) | - |
+| `params.record.value.text` | `string` | required (params.record.value.kind = text) | - |
+| `params.record.value.counts` | `map of integer` | required (params.record.value.kind = counts) | - |
 | `params.record.weight` | `Weight` | optional | - |
 | `params.record.weight.den` | `integer` | required | - |
 | `params.record.weight.num` | `integer` | required | - |
@@ -335,10 +335,10 @@ Wire line: `schemas@0.6.0`.
 | `params` | `OutcomeParams` | required | - |
 | `params.record` | `OutcomeRecord` | required | - |
 | `params.record.cause` | `Cause` | optional | - |
-| `params.record.cause.expectation` | `ExpectationId` | required | - |
-| `params.record.cause.artifact` | `RelPath` | required | - |
-| `params.record.cause.reason` | `ReasonCode` | required | - |
-| `params.record.cause.legacy` | `ReasonCode` | required | - |
+| `params.record.cause.expectation` | `ExpectationId` | required (exactly one key of params.record.cause) | - |
+| `params.record.cause.artifact` | `RelPath` | required (exactly one key of params.record.cause) | - |
+| `params.record.cause.reason` | `ReasonCode` | required (exactly one key of params.record.cause) | - |
+| `params.record.cause.legacy` | `ReasonCode` | required (exactly one key of params.record.cause) | - |
 | `params.record.context_digest` | `Digest` | required | - |
 | `params.record.evaluator` | `NameVersion` | required | - |
 | `params.record.evidence` | `array of Evidence` | required | - |
@@ -363,12 +363,12 @@ Wire line: `schemas@0.6.0`.
 | `params.record.suite_entry_digest` | `Digest` | required | - |
 | `params.record.value` | `Value` | optional | - |
 | `params.record.value.kind` | `"number" \| "count" \| "fraction" \| "text" \| "counts"` | required | - |
-| `params.record.value.number` | `Finite` | required | - |
-| `params.record.value.count` | `integer` | required | - |
-| `params.record.value.den` | `integer` | required | - |
-| `params.record.value.num` | `integer` | required | - |
-| `params.record.value.text` | `string` | required | - |
-| `params.record.value.counts` | `map of integer` | required | - |
+| `params.record.value.number` | `Finite` | required (params.record.value.kind = number) | - |
+| `params.record.value.count` | `integer` | required (params.record.value.kind = count) | - |
+| `params.record.value.den` | `integer` | required (params.record.value.kind = fraction) | - |
+| `params.record.value.num` | `integer` | required (params.record.value.kind = fraction) | - |
+| `params.record.value.text` | `string` | required (params.record.value.kind = text) | - |
+| `params.record.value.counts` | `map of integer` | required (params.record.value.kind = counts) | - |
 | `params.record.weight` | `Weight` | optional | - |
 | `params.record.weight.den` | `integer` | required | - |
 | `params.record.weight.num` | `integer` | required | - |
@@ -440,10 +440,10 @@ Wire line: `schemas@0.6.0`.
 | `params.items[].params` | `map` | required | - |
 | `params.prior` | `array of OutcomeRecord` | candler | - |
 | `params.prior[].cause` | `Cause` | optional | - |
-| `params.prior[].cause.expectation` | `ExpectationId` | required | - |
-| `params.prior[].cause.artifact` | `RelPath` | required | - |
-| `params.prior[].cause.reason` | `ReasonCode` | required | - |
-| `params.prior[].cause.legacy` | `ReasonCode` | required | - |
+| `params.prior[].cause.expectation` | `ExpectationId` | required (exactly one key of params.prior[].cause) | - |
+| `params.prior[].cause.artifact` | `RelPath` | required (exactly one key of params.prior[].cause) | - |
+| `params.prior[].cause.reason` | `ReasonCode` | required (exactly one key of params.prior[].cause) | - |
+| `params.prior[].cause.legacy` | `ReasonCode` | required (exactly one key of params.prior[].cause) | - |
 | `params.prior[].context_digest` | `Digest` | required | - |
 | `params.prior[].evaluator` | `NameVersion` | required | - |
 | `params.prior[].evidence` | `array of Evidence` | required | - |
@@ -468,12 +468,12 @@ Wire line: `schemas@0.6.0`.
 | `params.prior[].suite_entry_digest` | `Digest` | required | - |
 | `params.prior[].value` | `Value` | optional | - |
 | `params.prior[].value.kind` | `"number" \| "count" \| "fraction" \| "text" \| "counts"` | required | - |
-| `params.prior[].value.number` | `Finite` | required | - |
-| `params.prior[].value.count` | `integer` | required | - |
-| `params.prior[].value.den` | `integer` | required | - |
-| `params.prior[].value.num` | `integer` | required | - |
-| `params.prior[].value.text` | `string` | required | - |
-| `params.prior[].value.counts` | `map of integer` | required | - |
+| `params.prior[].value.number` | `Finite` | required (params.prior[].value.kind = number) | - |
+| `params.prior[].value.count` | `integer` | required (params.prior[].value.kind = count) | - |
+| `params.prior[].value.den` | `integer` | required (params.prior[].value.kind = fraction) | - |
+| `params.prior[].value.num` | `integer` | required (params.prior[].value.kind = fraction) | - |
+| `params.prior[].value.text` | `string` | required (params.prior[].value.kind = text) | - |
+| `params.prior[].value.counts` | `map of integer` | required (params.prior[].value.kind = counts) | - |
 | `params.prior[].weight` | `Weight` | optional | - |
 | `params.prior[].weight.den` | `integer` | required | - |
 | `params.prior[].weight.num` | `integer` | required | - |
@@ -497,5 +497,15 @@ Wire line: `schemas@0.6.0`.
 ## Refusals
 
 <!-- generated:refusals -->
+| Code | When | Path at fault | Side to fix |
+|---|---|---|---|
+| `protocol.outcome_legacy_cause` | An outcome notification carries the legacy cause, which evaluators never emit. | - | plugin |
+| `protocol.version_mismatch` | The protocol version of the evaluator is not accepted by the core's, or the reverse. | - | plugin |
+<!-- /generated:refusals -->
 
 ## Notes
+
+- A request `id` is a UUID version 7. A line with any other `id`, or one that is not JSON, is dropped with no answer, and the helper logs it on stderr. [checked: candler-evaluator@0.1.0]
+- A request with a valid `id` and a method other than `describe` or `evaluate` is answered with error -32601; `evaluate` params that break the schema, with error -32602. [checked: candler-evaluator@0.1.0]
+- An `evaluate` request ends with the result `{"reported": n}`, after its `n` outcome notifications. [checked: candler-evaluator@0.1.0]
+- Candler does not compare protocol versions: any `describe` protocol is accepted. [checked: v@0.6.0]
