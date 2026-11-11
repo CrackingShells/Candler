@@ -26,8 +26,14 @@ use std::time::Duration;
 
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::lock::{JobLock, LockState};
+use candler_core::store::Store;
 use candler_core::store::layout::StoreLayout;
-use candler_schemas::primitives::JobId;
+use candler_core::store::outcome::OutcomeWriter;
+use candler_core::store::run::{Existing, RunWriter};
+use candler_schemas::execution::RunManifest;
+use candler_schemas::outcome::OutcomeRecord;
+use candler_schemas::primitives::{JobId, NameVersion, RequestId, RunKey};
+use serde_json::{Value, json};
 use tempfile::TempDir;
 
 use cli_run::{SECRET_NAME, World, wait_for, world};
@@ -635,4 +641,242 @@ fn u3_the_embedded_assets_equal_the_tree() {
     let before = stamps();
     resolve();
     assert_eq!(stamps(), before, "a second call wrote nothing");
+}
+
+fn digest_text(c: char) -> String {
+    format!("sha256:{}", String::from(c).repeat(64))
+}
+
+/// The manifest of a one-cell run whose one factor is `plan.model`, with the cell's real digest.
+fn manifest() -> RunManifest {
+    let body = |cell: &str| {
+        json!({
+            "schema": "run-manifest/1",
+            "run": {"cell": cell, "replicate": 1, "attempt": 1},
+            "experiment": digest_text('0'),
+            "factors": ["plan.model"],
+            "comparable": {
+                "values": [{"path": "plan.model", "value": "alpha"}],
+                "harness": {"name": "h", "version": "1.0.0"},
+                "treatment": {"name": "t"},
+                "snapshots": [],
+                "inputs": [],
+                "environments": []
+            },
+            "sources": [
+                {"path": "plan.model", "source": {"kind": "experiment_file"}},
+                {"path": "harness", "source": {"kind": "experiment_file"}},
+                {"path": "treatment", "source": {"kind": "experiment_file"}}
+            ],
+            "secrets": [],
+            "measured": [
+                {"path": "provenance.eval_infra.commit", "value": "abc1234", "source": {"kind": "experiment_file"}},
+                {"path": "provenance.eval_infra.dirty", "value": false, "source": {"kind": "experiment_file"}},
+                {"path": "provenance.sandbox_contract", "value": "candler-container@1", "source": {"kind": "experiment_file"}}
+            ],
+            "deviations": [],
+            "integrity": {"kind": "valid"}
+        })
+    };
+    let probe: RunManifest = serde_json::from_value(body(&digest_text('f'))).expect("a manifest");
+    let cell = probe.cell_digest().to_string();
+    serde_json::from_value(body(cell.as_str())).expect("a manifest") // BORROW: explicit .as_str()
+}
+
+/// One outcome record: `expectation` graded `status` (`pass` or `fail`) by `evaluator`.
+fn record(
+    run: &RunKey,
+    request: &RequestId,
+    evaluator: &str,
+    expectation: &str,
+    status: &str,
+) -> OutcomeRecord {
+    let num = u32::from(status == "pass");
+    serde_json::from_value(json!({
+        "run": {"cell": run.cell().to_string(), "replicate": run.replicate(), "attempt": run.attempt()},
+        "expectation_id": expectation,
+        "role": "gate",
+        "evaluator": evaluator,
+        "instruments": [],
+        "suite_entry_digest": digest_text('1'),
+        "context_digest": digest_text('2'),
+        "request_id": request.to_string(),
+        "status": status,
+        "weight": {"num": num, "den": 1},
+        "evidence": [],
+    }))
+    .expect("an outcome record")
+}
+
+/// A store of one sealed run at `root`, holding, per evaluator, the rows `(expectation, status)`.
+/// Returns the run's key.
+fn seed(root: &Path, rows: &[(&str, &[(&str, &str)])]) -> RunKey {
+    let store = Store::init(root).expect("the store initialises");
+    let manifest = manifest();
+    let run = manifest.run().clone(); // BORROW: the key is used after the manifest moves
+    RunWriter::create(&store, &manifest, Existing::Refuse)
+        .expect("the run starts")
+        .done()
+        .expect("the run seals");
+    for (n, (evaluator, graded)) in rows.iter().enumerate() {
+        let request: RequestId = format!("01926b3a-7c3e-7a1b-8c4d-{:012x}", n + 1)
+            .parse()
+            .expect("a request id");
+        let name: NameVersion = evaluator.parse().expect("name@version");
+        let mut writer = OutcomeWriter::create(&store, &run, &name, &request).expect("a writer");
+        for (expectation, status) in *graded {
+            writer
+                .append(&record(&run, &request, evaluator, expectation, status))
+                .expect("a record appends");
+        }
+        writer.commit().expect("the outcomes commit");
+    }
+    run
+}
+
+/// A store seeded by hand in a directory of its own, which is also the working directory and the
+/// home of the calls made over it.
+struct Seeded {
+    dir: TempDir,
+}
+
+impl Seeded {
+    fn with(rows: &[(&str, &[(&str, &str)])]) -> Self {
+        let dir = TempDir::new().expect("a directory");
+        seed(&dir.path().join("store"), rows);
+        Self { dir }
+    }
+
+    /// `candler --store store <args>` from the directory, with the home inside it.
+    fn candler(&self, args: &[&str]) -> Output {
+        let home = self.dir.path();
+        Command::new(env!("CARGO_BIN_EXE_candler"))
+            .arg("--store")
+            .arg("store")
+            .args(args)
+            .current_dir(home)
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", home)
+            .env("XDG_CONFIG_HOME", home.join("config"))
+            .env("XDG_STATE_HOME", home.join("state"))
+            .stdin(Stdio::null())
+            .output()
+            .expect("the binary runs")
+    }
+}
+
+fn text_of(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+/// Guards: U5 — `diff --from 1.0.0 --to 2.0.0` equals `--from ev@1.0.0 --to ev@2.0.0` when one
+/// evaluator name holds each version, and is refused, naming both holders, when two names hold
+/// the bare version. Oracle: the output of the same call with the names written out, and the
+/// evaluators written into the store. Bite: the `name@` prefix required again (the bare call exits
+/// 2 with no report), or the first holder of an ambiguous version taken.
+#[test]
+fn u5_diff_takes_bare_versions() {
+    let rows: &[(&str, &[(&str, &str)])] = &[
+        ("ev@1.0.0", &[("A1", "pass"), ("A2", "fail")]),
+        ("ev@2.0.0", &[("A1", "pass"), ("A2", "pass")]),
+    ];
+    let store = Seeded::with(rows);
+    let bare = store.candler(&[
+        "diff", "--from", "1.0.0", "--to", "2.0.0", "--format", "json",
+    ]);
+    let named = store.candler(&[
+        "diff", "--from", "ev@1.0.0", "--to", "ev@2.0.0", "--format", "json",
+    ]);
+    assert_eq!(named.status.code(), Some(1), "{}", text_of(&named.stderr));
+    assert_eq!(
+        bare.status.code(),
+        named.status.code(),
+        "{}",
+        text_of(&bare.stderr)
+    );
+    assert_eq!(bare.stdout, named.stdout, "the same report");
+    assert!(!bare.stdout.is_empty(), "a report was printed");
+
+    let held_twice: &[(&str, &[(&str, &str)])] = &[
+        ("ev@1.0.0", &[("A1", "pass")]),
+        ("other@1.0.0", &[("A1", "pass")]),
+        ("ev@2.0.0", &[("A1", "pass")]),
+    ];
+    let store = Seeded::with(held_twice);
+    let out = store.candler(&[
+        "diff", "--from", "1.0.0", "--to", "2.0.0", "--format", "json",
+    ]);
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = text_of(&out.stderr);
+    assert!(
+        stderr.contains("ev@1.0.0") && stderr.contains("other@1.0.0"),
+        "both holders are named: {stderr}"
+    );
+    assert!(out.stdout.is_empty(), "no report for a refusal");
+}
+
+/// Guards: U5 — `show --rates --format toml` with no `--evaluator` equals the call that names the
+/// evaluator when the store holds one evaluator, and is refused, listing the evaluators, when it
+/// holds two. Oracle: the output of the same call with the evaluator named, and the evaluators
+/// written into the store. Bite: `--rates` requiring `--evaluator` again (the bare call exits 2
+/// with a usage error), or the first of two evaluators taken.
+#[test]
+fn u5_show_rates_infers_the_only_evaluator() {
+    let one: &[(&str, &[(&str, &str)])] = &[("ev@1.0.0", &[("A1", "pass"), ("A2", "fail")])];
+    let store = Seeded::with(one);
+    let inferred = store.candler(&["show", "--rates", "--format", "toml"]);
+    let named = store.candler(&[
+        "show",
+        "--rates",
+        "--evaluator",
+        "ev@1.0.0",
+        "--format",
+        "toml",
+    ]);
+    assert_eq!(named.status.code(), Some(0), "{}", text_of(&named.stderr));
+    assert_eq!(
+        inferred.status.code(),
+        Some(0),
+        "{}",
+        text_of(&inferred.stderr)
+    );
+    assert_eq!(inferred.stdout, named.stdout, "the same rates");
+    assert!(!inferred.stdout.is_empty(), "rates were printed");
+
+    let two: &[(&str, &[(&str, &str)])] = &[
+        ("ev@1.0.0", &[("A1", "pass")]),
+        ("other@2.0.0", &[("A1", "pass")]),
+    ];
+    let store = Seeded::with(two);
+    let out = store.candler(&["show", "--rates", "--format", "toml"]);
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = text_of(&out.stderr);
+    assert!(
+        stderr.contains("ev@1.0.0") && stderr.contains("other@2.0.0"),
+        "the evaluators are listed: {stderr}"
+    );
+    assert!(out.stdout.is_empty(), "no rates for a refusal");
+}
+
+/// Guards: U5 — `show --evaluator 1.0.0 --format json` equals the call with `ev@1.0.0` when one
+/// evaluator holds that version. Oracle: the output of the same call with the name written out.
+/// Bite: the `name@` prefix required again (the bare call exits 2 with no counts).
+#[test]
+fn u5_show_takes_a_bare_version() {
+    let rows: &[(&str, &[(&str, &str)])] = &[
+        ("ev@1.0.0", &[("A1", "pass"), ("A2", "fail")]),
+        ("ev@2.0.0", &[("A1", "pass")]),
+    ];
+    let store = Seeded::with(rows);
+    let bare = store.candler(&["show", "--evaluator", "1.0.0", "--format", "json"]);
+    let named = store.candler(&["show", "--evaluator", "ev@1.0.0", "--format", "json"]);
+    assert_eq!(named.status.code(), Some(0), "{}", text_of(&named.stderr));
+    assert_eq!(bare.status.code(), Some(0), "{}", text_of(&bare.stderr));
+    assert_eq!(bare.stdout, named.stdout, "the same counts");
+    let counts: Value = serde_json::from_slice(&bare.stdout).expect("JSON counts");
+    assert_eq!(
+        counts,
+        json!({"counts": {"ev@1.0.0": {"pass": 1, "fail": 1}}})
+    );
 }

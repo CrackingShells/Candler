@@ -3,7 +3,6 @@
 use std::collections::BTreeMap;
 
 use candler_core::evaluation::selection::rates::{rates, rates_toml};
-use candler_schemas::primitives::NameVersion;
 use serde_json::{Value, json};
 
 use super::{CliError, Exit, common};
@@ -12,10 +11,12 @@ use crate::Cli;
 /// The arguments of `candler show`.
 #[derive(Debug, clap::Args)]
 pub struct ShowArgs {
-    /// Print the per-cell rates of one evaluator instead of the outcomes.
-    #[arg(long, requires = "evaluator")]
+    /// Print the per-cell rates of one evaluator instead of the outcomes; the evaluator is the
+    /// one the store holds when `--evaluator` is absent.
+    #[arg(long)]
     pub rates: bool,
-    /// The evaluator whose outcomes are shown, as `name@version`; every evaluator when absent.
+    /// The evaluator whose outcomes are shown, as `name@version` or a bare version one evaluator
+    /// holds; every evaluator when absent.
     #[arg(long)]
     pub evaluator: Option<String>,
     /// The output format.
@@ -35,23 +36,21 @@ pub enum ShowFormat {
 /// Prints the outcomes or the rates.
 ///
 /// # Errors
-/// Returns [`CliError::Refused`] for an evaluator that is not `name@version` and for `--rates`
-/// without one, and [`CliError::Failed`] when the store cannot be read or the output cannot be
+/// Returns [`CliError::Refused`] for an evaluator that is not `name@version`, [`CliError::Coded`]
+/// for a bare version or an absent evaluator that does not name one evaluator of the store, and
+/// [`CliError::Failed`] when the store cannot be read or the output cannot be
 /// written.
 pub async fn run(cli: &Cli, args: &ShowArgs) -> Result<Exit, CliError> {
-    let evaluator = args
-        .evaluator
-        .as_deref()
-        .map(|text| {
-            text.parse::<NameVersion>()
-                .map_err(|e| CliError::refused(format!("--evaluator `{text}`: {e}")))
-        })
-        .transpose()?;
     let store = common::open_store("show", cli).await?;
     let selection = common::read_selection("show", &store)?;
+    let requested = args.evaluator.as_deref();
+    let evaluator = if args.rates || requested.is_some() {
+        Some(common::evaluator_of(&selection, "--evaluator", requested)?)
+    } else {
+        None
+    };
     let text = if args.rates {
-        let evaluator =
-            evaluator.ok_or_else(|| CliError::refused("--rates requires --evaluator"))?;
+        let evaluator = evaluator.ok_or_else(|| CliError::refused("--rates needs an evaluator"))?;
         let cells = rates(&selection, &evaluator);
         match args.format {
             ShowFormat::Toml => rates_toml(&cells),
