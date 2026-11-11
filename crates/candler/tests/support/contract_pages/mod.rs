@@ -6,6 +6,7 @@ pub mod frame;
 pub mod hand;
 pub mod index;
 pub mod pages;
+pub mod refusals;
 pub mod schema;
 pub mod versions;
 

@@ -497,5 +497,10 @@ Wire line: `schemas@0.6.0`.
 ## Refusals
 
 <!-- generated:refusals -->
+| Code | When | Path at fault | Side to fix |
+|---|---|---|---|
+| `protocol.outcome_legacy_cause` | An outcome notification carries the legacy cause, which evaluators never emit. | - | plugin |
+| `protocol.version_mismatch` | The protocol version of the evaluator is not accepted by the core's, or the reverse. | - | plugin |
+<!-- /generated:refusals -->
 
 ## Notes

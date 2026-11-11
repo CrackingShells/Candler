@@ -63,5 +63,22 @@ Wire line: `schemas@0.6.0`.
 ## Refusals
 
 <!-- generated:refusals -->
+| Code | When | Path at fault | Side to fix |
+|---|---|---|---|
+| `outcome.cause_missing` | A blocked, not-measured or not-applicable outcome carries no cause. | - | plugin |
+| `outcome.cause_not_allowed` | A pass or fail outcome carries a cause other than the legacy one. | - | plugin |
+| `outcome.evidence_empty` | A piece of evidence has neither a reference nor a note. | - | plugin |
+| `outcome.fraction_denominator_zero` | The denominator of a fraction is 0. | - | plugin |
+| `outcome.instrument_digest_dirty` | An instrument digest names a commit of a dirty tree. | - | plugin |
+| `outcome.instrument_dirty` | A gate or quality outcome names an instrument that is not clean. | - | plugin |
+| `outcome.probability_not_allowed` | A gate or quality outcome carries a probability. | - | plugin |
+| `outcome.probability_out_of_range` | A probability lies outside 0 to 1. | - | plugin |
+| `outcome.text_empty` | A text field of an outcome has no character. | - | plugin |
+| `outcome.value_invalid` | A value of an outcome record has the wrong form for what it names, such as a name with a space. | - | plugin |
+| `outcome.weight_above_one` | The numerator of a weight exceeds its denominator. | - | plugin |
+| `outcome.weight_mismatch` | The weight of an outcome does not fit its status. | - | plugin |
+| `outcome.weight_not_allowed` | A not-measured or not-applicable outcome carries a weight. | - | plugin |
+| `outcome.zero_weight_without_legacy` | A weight of 0/0 comes without the legacy cause. | - | plugin |
+<!-- /generated:refusals -->
 
 ## Notes

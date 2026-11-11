@@ -41,5 +41,23 @@ Wire line: `schemas@0.6.0`.
 ## Refusals
 
 <!-- generated:refusals -->
+| Code | When | Path at fault | Side to fix |
+|---|---|---|---|
+| `suite.dependency_cycle` | Expectations depend on each other in a loop. | - | suite |
+| `suite.dependency_unknown` | An expectation depends on an id that no expectation has. | - | suite |
+| `suite.document_invalid` | A suite is not valid TOML, or does not have the shape of a suite. | The field at fault, or its parent table when a field is missing; none at the root. | suite |
+| `suite.equivalence_invalid` | The equivalence file is not a list of rows of a run and an expectation. | - | suite |
+| `suite.equivalence_row_repeated` | The equivalence file lists one row of a run and an expectation twice. | - | suite |
+| `suite.equivalence_run_invalid` | A row of the equivalence file names a run that is not a run key. | - | suite |
+| `suite.equivalence_unreadable` | The equivalence file does not exist or cannot be read. | - | suite |
+| `suite.evaluator_unknown` | An entry of the suite names an evaluator for which no plug-in manifest was loaded. | - | suite |
+| `suite.evaluator_version_mismatch` | A plug-in describes a version outside the range the suite entry asks for. | - | suite |
+| `suite.id_repeated` | Two expectations of a suite share an id. | - | suite |
+| `suite.json_invalid` | A suite is not valid JSON, or does not have the shape of a suite. | The field at fault, or its parent object when a field is missing; none at the root. | suite |
+| `suite.kind_unknown` | An entry of the suite names a kind that its evaluator does not declare. | - | suite |
+| `suite.list_empty` | A list of a suite entry that needs at least one member is empty, such as `any_of` or `applies_to`. | - | suite |
+| `suite.params_invalid` | The params of a suite entry do not satisfy the params schema of its kind. | The JSON pointer, inside the `params` of the entry, of the value the schema refuses; none when the whole of `params` is refused. | suite |
+| `suite.unknown_field` | The suite holds a key its type does not have, such as a misspelt option. | The unknown key itself. | suite |
+<!-- /generated:refusals -->
 
 ## Notes
