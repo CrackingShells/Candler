@@ -95,3 +95,9 @@ Package: `candler-evaluator@0.1.0`.
 <!-- /generated:refusals -->
 
 ## Notes
+
+- A kind returns an `Outcome` or a mapping. Anything else, or an outcome that breaks the outcome rules, costs that item only: its record is `not_measured` with the cause `instrument_error`, and the evidence note quotes the error. [checked: candler-evaluator@0.1.0]
+- An item running past its `deadline_ms` ends the same way. [checked: candler-evaluator@0.1.0]
+- `print` in a kind goes to stderr; stdout carries the frames alone. [checked: candler-evaluator@0.1.0]
+- An instrument installed from a package index makes `describe` fail with error -32000. [checked: candler-evaluator@0.1.0]
+- A module with no `KINDS` ends the process with exit 1 before it sends a frame. [checked: candler-evaluator@0.1.0]

@@ -102,3 +102,8 @@ Wire line: `schemas@0.6.0`.
 <!-- /generated:refusals -->
 
 ## Notes
+
+- The document has no `free` fields. An unknown key anywhere outside `[fixed]` and the `levels` of a factor, at the top or in `[budget]`, is refused with `experiment.unknown_field`. [checked: v@0.6.0]
+- A TOML date or time among the values is refused with `experiment.value_unrepresentable`. [checked: v@0.6.0]
+- A value that breaks a rule of its own, such as a name with a space, a factor with no level or a `replicates` of 0, is refused with `experiment.document_invalid`; its `path`, when it has one, points at the field, and the message gives the rule. [checked: v@0.6.0]
+- Two paths among `[fixed]` and the factors that are equal, or one below the other, are refused the same way. [checked: v@0.6.0]

@@ -56,3 +56,8 @@ Wire line: `schemas@0.6.0`.
 <!-- /generated:refusals -->
 
 ## Notes
+
+- The document has no `free` fields: an unknown key anywhere, such as `color` at the top or `project` under `kind = "none"`, is refused with `plugin.unknown_field`. [checked: v@0.6.0]
+- `command` runs with the plug-in directory as its working directory, so `./run.sh` names the file beside the manifest. [checked: v@0.6.0]
+- `environment.kind = "uv"` needs both `project` and `lock`; a missing one is `plugin.manifest_invalid`. [checked: v@0.6.0]
+- A plug-in directory holds `plugin.toml` or `candler-plugin.toml`, never both (`plugin.manifest_ambiguous`). [checked: v@0.6.0]

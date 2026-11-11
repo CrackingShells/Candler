@@ -82,3 +82,7 @@ Wire line: `schemas@0.6.0`.
 <!-- /generated:refusals -->
 
 ## Notes
+
+- An evaluator gives `pass` and `fail` no `cause`, and `blocked`, `not_measured` and `not_applicable` exactly one: a single key among `expectation`, `artifact` and `reason`. [checked: candler-evaluator@0.1.0]
+- `not_measured` and `not_applicable` carry no `weight`. `num` never exceeds `den`; a `pass` needs `num` equal to `den`, a `fail` a `num` below it, a `blocked` a `num` of 0. [checked: candler-evaluator@0.1.0]
+- The helper sends `descriptive` for `role` and zeros for both digests as placeholders of the fields Candler fills. [checked: candler-evaluator@0.1.0]

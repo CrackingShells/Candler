@@ -61,3 +61,10 @@ Wire line: `schemas@0.6.0`.
 <!-- /generated:refusals -->
 
 ## Notes
+
+- `source` is an open table of class `free` that records where a translated suite came from; Candler stores it and never reads it. [checked: schemas@0.6.0]
+- Any other unknown key is refused with `suite.unknown_field`, and its path is the key. [checked: schemas@0.6.0]
+- A value of the wrong form, such as an id with a space or an empty `any_of`, is refused with `suite.document_invalid`, its `path` pointing at the field. [checked: v@0.6.0]
+- A suite is TOML, or JSON when its file name ends in `.json`. [checked: v@0.6.0]
+- Expectations form a graph through `depends_on`: a loop is `suite.dependency_cycle`, an id no entry has is `suite.dependency_unknown`, and an id used twice is `suite.id_repeated`. [checked: v@0.6.0]
+- The suite is checked before any plug-in is asked to describe itself. [checked: v@0.6.0]

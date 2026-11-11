@@ -504,3 +504,7 @@ Wire line: `schemas@0.6.0`.
 <!-- /generated:refusals -->
 
 ## Notes
+
+- A request `id` is a UUID version 7. A line with any other `id`, or one that is not JSON, is dropped with no answer, and the helper logs it on stderr. [checked: candler-evaluator@0.1.0]
+- A request with a valid `id` and a method other than `describe` or `evaluate` is answered with error -32601; `evaluate` params that break the schema, with error -32602. [checked: candler-evaluator@0.1.0]
+- An `evaluate` request ends with the result `{"reported": n}`, after its `n` outcome notifications. [checked: candler-evaluator@0.1.0]
