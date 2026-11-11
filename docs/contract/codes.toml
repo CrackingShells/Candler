@@ -816,6 +816,11 @@ side = "experiment"
 enum = "CliRefusal"
 variant = "UnknownFieldPath"
 
+[cli."config.import_rules_invalid"]
+side = "config"
+enum = "CliRefusal"
+variant = "RulesInvalid"
+
 [jobs]
 
 [jobs."jobs.job_not_a_directory"]

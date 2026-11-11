@@ -20,6 +20,7 @@ use regex::Regex;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::refusal::CliRefusal;
 use super::{CliError, Exit, common};
 use crate::Cli;
 
@@ -118,8 +119,12 @@ fn rules_from(path: &Path) -> Result<(ImportRules, String), CliError> {
         ))
     })?;
     // BORROW: explicit .as_str()
-    let file: RulesFile =
-        toml::from_str(text.as_str()).map_err(|e| CliError::refused(format!("rules file: {e}")))?;
+    let file: RulesFile = toml::from_str(text.as_str()).map_err(|e| {
+        CliError::refused_by(CliRefusal::RulesInvalid {
+            detail: e.to_string(),
+        })
+        .led_by(String::from("rules file: "))
+    })?;
     let mut builder = ImportRules::builder()
         .source_digest(digest)
         .format(primitive::<NameToken>("format", file.format.as_str())?) // BORROW: explicit .as_str()

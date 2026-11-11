@@ -46,6 +46,13 @@ pub enum CliRefusal {
         /// Where it was written.
         location: FieldLocation,
     },
+    /// An import rules file that is not the rules format: not TOML, a field missing, or a field
+    /// the format does not have.
+    #[error("{detail}")]
+    RulesInvalid {
+        /// What the TOML parser reported.
+        detail: String,
+    },
 }
 
 /// Where an experiment's dotted path was written.
@@ -122,7 +129,8 @@ fn cli_refusal_path(error: &CliRefusal) -> Option<String> {
         }
         CliRefusal::NoStore
         | CliRefusal::RetiredSetting { .. }
-        | CliRefusal::UnknownRequestKey { .. } => None,
+        | CliRefusal::UnknownRequestKey { .. }
+        | CliRefusal::RulesInvalid { .. } => None,
     }
 }
 
@@ -151,6 +159,12 @@ refusal_table! {
         Side::Experiment,
         "A dotted path under `[fixed]`, in a factor or in `--set` is none that the experiment surface has, such as a misspelt `model.idd`.",
         "The key under `/fixed`, the `path` of the factor, or the key of the level's table that holds the path; none for `--set`.",
+    ),
+    RulesInvalid { .. } => row(
+        "config.import_rules_invalid",
+        Side::Config,
+        "The import rules file given to `ingest --rules` is not the rules format: it is not TOML, a field is missing, or a field is not one the format has.",
+        "-",
     ),
 }
 

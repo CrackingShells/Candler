@@ -529,6 +529,51 @@ fn i1_a_rules_file_with_an_invalid_rule_is_refused_with_its_code() {
     assert!(text.starts_with("candler: refused: rules: "), "{text}");
 }
 
+/// Guards: I1, R2 — a rules file that does not parse, here the fixture without its `entry_params`
+/// line, is the author's fault: under `--error-format json` the record is `{code:
+/// config.import_rules_invalid, side: config}` and names the rules file, and the text form still
+/// reads `refused: rules file: TOML parse error ...` naming `entry_params`.
+/// Oracle: the fixture rules file with that one line removed by the test, and the code and side
+/// the coordinator's ruling gives a rules file that does not parse.
+/// Bite: the parse error returned to `CliError::refused(format!(..))` prints `candler.internal`.
+#[test]
+fn i1_a_rules_file_that_does_not_parse_is_refused_with_its_code() {
+    let dir = TempDir::new().expect("a directory");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fixture = fs::read_to_string(root.join("tests/fixtures/cli/mini-corpus-rules.toml"))
+        .expect("the rules fixture reads");
+    let kept: Vec<&str> = fixture
+        .lines()
+        .filter(|line| !line.starts_with("entry_params"))
+        .collect();
+    let rules = dir.path().join("rules-without-entry-params.toml");
+    fs::write(&rules, format!("{}\n", kept.join("\n"))).expect("the copy writes");
+    let corpus = root.join("../candler-core/tests/fixtures/mini-corpus");
+    let args = [
+        "ingest",
+        corpus.to_str().expect("a UTF-8 path"),
+        "--rules",
+        rules.to_str().expect("a UTF-8 path"),
+    ];
+    let store = dir.path().join("store");
+    let mut json_args = vec!["--error-format", "json"];
+    json_args.extend_from_slice(&args);
+    let out = candler(dir.path(), &store, &json_args);
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    let record: Value = serde_json::from_slice(&out.stderr).expect("one JSON record");
+    assert_eq!(record["code"], "config.import_rules_invalid", "{record}");
+    assert_eq!(record["side"], "config", "{record}");
+    assert_eq!(
+        record["file"],
+        rules.to_str().expect("a UTF-8 path"),
+        "{record}"
+    );
+    let out = candler(dir.path(), &store, &args);
+    let text = String::from_utf8_lossy(&out.stderr);
+    assert!(text.starts_with("candler: refused: rules file: "), "{text}");
+    assert!(text.contains("entry_params"), "{text}");
+}
+
 /// The sha256 of `fixtures/cli/mini-corpus-rules.toml`'s corpus counts are the hand literals of
 /// `guard_cli.rs`: 6 runs and 136 records.
 const MINI_RUNS: u64 = 6;
