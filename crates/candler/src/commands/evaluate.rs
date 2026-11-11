@@ -164,15 +164,30 @@ async fn follow(
             )));
         }
         tokio::select! {
-            got = sigint.recv(), if !interrupted => {
+            got = sigint.recv() => {
                 // EXPLICIT: a closed stream only ends the wait for Ctrl-C
                 let _ = got;
+                if interrupted {
+                    return Err(interrupted_again(id));
+                }
                 interrupted = true;
-                let reason = kill::stop_job(layout, id).await.err();
+                // A second Ctrl-C ends the wait at once; the job stays stopped by the first.
+                let reason = tokio::select! {
+                    stopped = kill::stop_job(layout, id) => stopped.err(),
+                    _ = sigint.recv() => return Err(interrupted_again(id)),
+                };
                 stopping = Some((Instant::now() + TEARDOWN_BOUND, reason));
             }
             () = tokio::time::sleep(POLL) => {}
         }
+    }
+}
+
+/// The error of a command that was interrupted twice: the first Ctrl-C has already told the job
+/// to stop.
+fn interrupted_again(id: &JobId) -> CliError {
+    CliError::Runtime {
+        detail: format!("`evaluate` was interrupted again; job {id} is being stopped"),
     }
 }
 
