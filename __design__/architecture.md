@@ -141,6 +141,30 @@ tag and a GitHub release per new version, and with publishing to crates.io off u
 enabled), `cocogitto` (`cog verify` in a
 `commit-msg` hook and in CI). `serde_json` with `float_roundtrip`.
 
+### Workspace targets
+
+Candler builds and runs on Linux and macOS. On Windows it runs inside WSL2, where it is Linux;
+Docker Desktop on Windows already runs on WSL2. The binary refuses to compile on a non-unix target,
+with one `compile_error!` whose message names WSL2, so no stub arm compiles nowhere. `candler-schemas`
+and the Python helper stay portable.
+
+A native Windows port is a milestone of its own, after M7. It starts from the committed inventory
+`crates/candler-core/tests/vectors/platform_inventory.toml`, which lists every file that calls a
+unix-only API (`std::os::unix`, `rustix`, `libc`): 21 at the time of writing, each with what it uses
+and its Windows counterpart. A guard fails when a file outside the list starts to use one, so new
+code goes through the existing seams (`Signaller`, `Supervisor`, the job lock and the slots) or
+extends the list deliberately. The counterparts:
+
+| Candler needs | Unix | Windows |
+|---|---|---|
+| Stop a process group, with escalation | process groups, `killpg` | Job Objects |
+| Catch descendants that escape | subreaper and marker sweep | Job Objects (no sweep) |
+| Never signal a reused pid | pid plus start time | a held process handle |
+| Job lock, machine-wide slots | `flock` | `LockFileEx` |
+| Detached supervisor | `setsid`, re-exec | `DETACHED_PROCESS` |
+| Agent isolation | Docker CLI | the same CLI, with host path forms for mounts |
+| The helper's isolation of each expectation | `os.fork` | a spawn mode |
+
 ## Operation API
 
 | Operation | Input | Output | Long-running? |
@@ -961,7 +985,7 @@ The rules every wire type of the `schemas@` line follows.
 | Causes | One-key objects, as in the outcome record table. Reason codes match `^[a-z][a-z0-9_]*$`; the core reserves `not_applicable_to_arm`, `instrument_error` and `deadline`. |
 | Legacy marker | `{legacy: code}` marks a record whose status, weight or cause the other causes cannot state exactly, such as the zero weight `0/0` of a gate pass in the golden corpus; the code says which case (`zero_weight`, `no_replay_target`, `zero_mappings`, `unrecorded`). It is deprecated (`deprecated: true` in the schema, `#[deprecated]` in Rust), written only by the legacy importer and refused from evaluators. It is the only cause a `pass` or `fail` may carry, and a `0/0` weight, allowed only on a `pass`, requires it. It is removed at the first schema major after M2a's parity is signed off. |
 | Absent vs null | An optional field is omitted when absent. `null` is never written, and both the schema and the Rust reader reject it: the generator strips the `null` type schemars gives `Option`, and record deserialisation refuses an explicit `null`. Collections are always present, possibly empty. |
-| Unknown fields | Schemas are strict (`additionalProperties: false`): they define what a writer at that version emits. Rust readers ignore unknown fields (I18) but read objects only, never a struct written as an array. MCP tool objects, `inputSchema`, `outputSchema` and `ext` are open. |
+| Unknown fields | Schemas are strict (`additionalProperties: false`): they define what a writer at that version emits. Readers of the records Candler writes ignore unknown fields, so that an older reader reads a newer record. Readers of the three author documents (experiment, suite, plug-in manifest) refuse an unknown field with `<surface>.unknown_field` and its pointer (§Refusals). Every reader reads objects only, never a struct written as an array. MCP tool objects, `inputSchema`, `outputSchema` and `ext` are open. |
 | Run key | `{"cell": "sha256:<hex>", "replicate": n, "attempt": m}` in records, both counters from 1. Paths and `CANDLER_RUN` use `<cell hex>-r<n>-a<m>`. |
 | Digests | `sha256:` + 64 lowercase hex; blob paths use the bare hex. An instrument digest may also be `git:<40 or 64 hex>`, a commit of a clean tree, valid only with `dirty: false`. Digests of JSON values (`suite_entry_digest`, `context_digest`, the cell digest) are taken over RFC 8785 canonical JSON. |
 | `name@version` | Split at the last `@`; the name has no `@` or whitespace. Evaluator and instrument versions are SemVer 2.0; a catalog provider's version is a free token `[0-9A-Za-z.+-]+`. |
