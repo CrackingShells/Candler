@@ -47,7 +47,7 @@
    The OWNED gate prints these three files as outside; they are listed again under "Files outside OWNED".
 2. **Unit guards cannot sit in `guard_cli_observe.rs`.** The binary's modules are not reachable from a test crate. `o3_color_...` reads `term.rs` through a `#[path]` include, so it is selected by `test(/^o3_/)`. `o1_the_source_printer_names_all_eight_kinds` is an inline test of `resolve.rs`, whose nextest name starts with `commands::resolve::tests::`, so `test(/^o1_/)` does not select it, nor the two inline gateway rows. The unanchored `test(/o1_/)` selects all seven; it ran 15 tests across `o1_`, `o2_` and `o3_`, all PASS.
 3. **Step 2's world cannot pass its own gateway check.** The `cli_run` experiment's endpoint is `http://127.0.0.1:9`, so `resolve` would fail with exit 2. The guards pass `--set model.endpoint=<a local stand-in>`, which answers 200 only to the right bearer token.
-4. **`ps` cannot show `suite:` yet.** `JobSpecFile` has no `Evaluate` arm until `evaluate_body`. `what_of` matches the enum exhaustively, so that leaf's merge fails to build in `ps.rs` until it adds the `suite:` arm, which is the point of the exhaustive enum. `o3_ps_shows_the_experiment_or_the_suite` covers `experiment:` and `-` (no file, and a file that is not a spec).
+4. **`ps` could not show `suite:` at first (resolved in the fix round below).** `JobSpecFile` has no `Evaluate` arm until `evaluate_body`. `what_of` matches the enum exhaustively, so that leaf's merge fails to build in `ps.rs` until it adds the `suite:` arm, which is the point of the exhaustive enum. `o3_ps_shows_the_experiment_or_the_suite` covers `experiment:` and `-` (no file, and a file that is not a spec).
 5. **Step 4 words the progress line twice** (`progress outcomes <n>/<planned>` and `progress runs <ended>/<started> outcomes <n>`). One line serves both.
 6. **`o3_spec_file_holds_no_secret_value` as written**, "through the real supervisor and the test harness", has no harness in `candler-core` that runs `read_spec`. The guard re-executes its own test binary as a child that calls `read_spec` with a planted value in the environment. A second row, `o3_launched_job_spec_json_holds_no_secret_value` in `guard_cli_observe.rs`, runs the real `candler run` supervisor over the fake docker.
 
@@ -97,3 +97,24 @@ Each bite was run on the working tree, seen red, and reverted.
 
 ## Cost
 About 45 minutes of wall clock under a load of about 8. The target directory peaked at 3.2 GiB and is deleted. P5 made three `GET /v1/models` reads (no token, the real token, a made-up token) and nothing else; no token was spent.
+
+## Fix round (rebased onto 9dd00a1)
+`m3/observe` was rebased onto 9dd00a1 (`evaluate_body` landed) and nothing else was rebased. One commit was added, `feat(cli): show the suite of an evaluate job in ps`.
+- **`ps`:** `what_of` has the `JobSpecFile::Evaluate` arm and shows `suite:<file name>`, with white space turned into `_`.
+- **`evaluate.rs`, one add-only hunk** (authorized by the coordinator): `supervise_evaluate` writes `<job dir>/spec.json` with `write_atomic` and the same `SPEC_FILE` constant, before it takes the lock. The evaluate supervisor is handed a parsed spec, not the launcher's bytes, so the file is `serde_json::to_vec` of that spec. That is the form a launcher digests, but the supervisor does not re-verify it here. The hunk adds one `use` line and three lines in `run`.
+- **Guard `o3_ps_shows_the_suite_of_an_evaluate_job`** uses planted job directories (a `spec.json` written by the test), not a run evaluate job. Bites: the evaluate arm showing `-`; the file name left with its space. Both red.
+- **Guard `o3_evaluate_spec_file_holds_no_secret_value`** (`guard_spec_file.rs`) re-executes the test binary as a child that runs the real `supervise_evaluate` with a planted value under each secret name. The suite path does not exist, so the job fails in setup, after the file is written and before any plug-in or process starts, so it needs no `uv` environment. The file must equal the spec's bytes and hold no planted value. Bites: the evaluate supervisor writing nothing; the environment appended to the file. Both red. An evaluate spec has no secret field at all (paths, a digest, a selection), so the guard keeps it so.
+
+### Gates from 9dd00a1
+| Gate | Result |
+|:--|:--|
+| Only files of OWNED, plus `main.rs`, `commands/mod.rs`, `gateway.rs` (accepted) and `jobs/runtime/evaluate.rs` (authorized) | PASS |
+| `test(/o1_/)`, `test(/o2_/)`, `test(/o3_/)` (unanchored) | PASS (8 `o3_` tests now) |
+| STD, workspace form: `fmt --check`, `clippy --workspace --all-targets -D warnings`, `nextest run --workspace --no-fail-fast`, `cargo doc --workspace --no-deps -D warnings` | PASS (514 run, 19 skipped). A first fail-fast run stopped on `guard_protocol_client::every_failure_path_of_an_evaluator_is_accounted_for`, which passes alone and in the second full run; it is a timing test under a load of about 8 |
+| LINUX, workspace form | PASS |
+| `binary(guard_evaluate_job)`, `binary(guard_engine)` | PASS (16 tests) |
+| `cargo check --workspace --all-targets` | PASS |
+| `guard_cli*.rs` and oracle/vectors numstat | PASS (no deleted line) |
+| G-platform | PASS |
+| SUBJ (`cog check`, lengths) | PASS |
+| SPAWN (clean core source, `cargo clean -p candler-core`, `guard_signal`) | PASS (9 tests), re-run after the `evaluate.rs` hunk |
