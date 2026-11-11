@@ -15,13 +15,9 @@ use candler_schemas::primitives::FieldPath;
 use super::CliError;
 use crate::Cli;
 
-#[cfg(unix)]
 use candler_core::evaluation::registry::{Registry, register_evaluation_steps};
-#[cfg(unix)]
 use candler_core::supervise::{EventSink, Supervisor};
-#[cfg(unix)]
 use candler_schemas::execution::EventPayload;
-#[cfg(unix)]
 use candler_schemas::primitives::RunKey;
 
 /// The path of the store root among the resolved settings.
@@ -51,7 +47,6 @@ pub fn plain_resolver(config: &Arc<Config>) -> Resolver {
 ///
 /// # Errors
 /// Returns [`CliError::Failed`] when a step cannot be registered.
-#[cfg(unix)]
 pub fn evaluation_resolver(
     verb: &'static str,
     config: &Arc<Config>,
@@ -152,11 +147,9 @@ pub fn read_selection(verb: &'static str, store: &Store) -> Result<Selection, Cl
 }
 
 /// The sink the supervisor reports to: one JSON line per event on stderr.
-#[cfg(unix)]
 #[derive(Debug, Default, Clone, Copy)]
 pub struct StderrSink;
 
-#[cfg(unix)]
 impl EventSink for StderrSink {
     fn emit(&self, run: Option<&RunKey>, payload: EventPayload) {
         if let Ok(line) = serde_json::to_string(&payload) {

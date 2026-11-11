@@ -28,7 +28,6 @@ pub struct EvaluateArgs {
 /// Returns [`CliError::Failed`] when the plug-ins, the preflight or the engine fail,
 /// [`CliError::Runtime`] when a request failed or Ctrl-C cancelled the call, and
 /// [`CliError::Refused`] when no store is named.
-#[cfg(unix)]
 pub async fn run(cli: &Cli, args: &EvaluateArgs) -> Result<Exit, CliError> {
     use std::sync::Arc;
 
@@ -109,18 +108,4 @@ pub async fn run(cli: &Cli, args: &EvaluateArgs) -> Result<Exit, CliError> {
             ),
         })
     }
-}
-
-/// Grades the selected runs.
-///
-/// # Errors
-/// Returns [`CliError::Refused`]: evaluation spawns processes through the supervisor, which this
-/// platform lacks.
-#[cfg(not(unix))]
-#[expect(
-    clippy::unused_async,
-    reason = "every verb has the async entry `main` calls"
-)]
-pub async fn run(_cli: &Cli, _args: &EvaluateArgs) -> Result<Exit, CliError> {
-    Err(CliError::refused("unsupported on this platform"))
 }

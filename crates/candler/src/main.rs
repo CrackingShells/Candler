@@ -7,6 +7,11 @@
 
 #![deny(clippy::allow_attributes)]
 
+#[cfg(not(unix))]
+compile_error!(
+    "candler builds for Linux and macOS only; on Windows run it inside WSL2, where it is Linux"
+);
+
 mod commands;
 
 use std::path::PathBuf;
