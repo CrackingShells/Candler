@@ -901,6 +901,35 @@ the latest complete request wins. Differing outcomes under one key, other than a
 `instrument_error` or `deadline` replaced by a measured one, are reported as I4 violations. Roles
 and weights are read from the outcomes, never from today's suite.
 
+### Analysis statistics
+
+`analyze` reports Candler's default statistics. The unit of replication is the run, and an arm is a
+cell: the outcomes of one run share the agent's behaviour, so they are not independent.
+
+- **Rate.** Per role, Σnum/Σden as defined above, reported with its counts and with no interval,
+  because an interval over correlated outcomes is falsely narrow.
+- **Interval.** The Wilson 95 % interval, per (arm, expectation), on k passes over n graded runs. It
+  applies only where every weight is 0/1; otherwise it is omitted, with the reason `weighted`. Wilson
+  keeps its coverage at small n and at k = 0 or k = n, where the Wald interval fails. Its exact
+  coverage dips below 95 % at small n (0.9185 at n = 5, p = 0.1) and stays at or above 0.91 for the
+  sizes replicates give; the implementation equals a second engine's table.
+- **Comparison.** For every pair of cells in one comparable stratum that differ in exactly one
+  declared factor, per expectation: Fisher's exact test (two-sided; the p-value sums the tables no
+  more likely than the observed one, within a relative tolerance of 1e-7, as R's `fisher.test`
+  does) and the difference with its Newcombe interval, the hybrid score interval, consistent with
+  Wilson. Fisher's test needs no large-sample condition, so it is valid at the few runs a replicate
+  count gives.
+- **Multiplicity.** Holm's adjustment runs over every comparison and expectation of one role in one
+  analysis. It controls the family-wise error rate with no independence assumption.
+- **What a run counts for.** An invalid run is in neither k nor n; it is reported per arm with its
+  reason, and an end the experimenter caused is never charged to an arm. A pair the stratum verdict
+  refuses is reported as refused, with its cause and its rates.
+- **Constants.** α is 0.05, recorded with the source `core_default`; there is no option.
+
+These are Candler's defaults, not the analysis: every count is carried, so an author can analyse the
+same results another way. `docs/statistics.md` says what each method answers, where it stops being
+valid and what Candler does not claim.
+
 ### Wire schema: tool-catalog snapshot
 
 What the MCP servers a run targets actually offered, captured per run by a catalog provider. HTN's
