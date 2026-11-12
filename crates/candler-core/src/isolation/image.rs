@@ -28,6 +28,13 @@ use candler_schemas::process::ExitStatus;
 /// container.
 const PROBE_SECONDS: &str = "10";
 
+/// The home of a control container's harness: a directory of the `/tmp` tmpfs, the one place the
+/// read-only root leaves writable.
+const PROBE_HOME: &str = "/tmp/home";
+
+/// The tmpfs of a control container, as `docker run --tmpfs` takes it.
+const PROBE_TMPFS: &str = "/tmp:rw,noexec,nosuid,size=64m";
+
 /// How long the docker client of a control call may run before the supervisor ends it.
 const CONTROL_DEADLINE: Duration = Duration::from_secs(60);
 
@@ -501,7 +508,11 @@ impl DockerImageService {
                 "the version probe sets an environment or a directory, which a control container cannot honour",
             ));
         }
-        let argv = control_argv(&self.binary, image, probe.argv());
+        // Like a run, the probe gives the harness a home and the state variables its driver
+        // declares, set by the same function.
+        let mut env = vec![(String::from("HOME"), String::from(PROBE_HOME))];
+        env.extend(layout::state_env(&self.harness.state_paths(), PROBE_HOME));
+        let argv = control_argv(&self.binary, image, &env, probe.argv());
         let stdout = control_output(&self.sup, &self.env, records, argv).await?;
         self.harness
             .parse_version(&stdout)
@@ -624,6 +635,7 @@ impl PackageProbe {
         let argv = control_argv_with(
             &self.binary,
             image,
+            &[],
             // BORROW: the script text is passed to the container as one argument
             &[PROBE_SECONDS, "python", "-c", script.as_str()],
         );
@@ -967,17 +979,28 @@ fn unreadable(detail: &str) -> ImageError {
 }
 
 /// The argv of the control container that prints the version: it removes itself, has no
-/// network, no capabilities and a read-only root, and its entrypoint is a coreutils `timeout`
-/// over the probe `command`.
-fn control_argv(program: &Path, image: &ImageRef, command: &[String]) -> Vec<String> {
+/// network, no capabilities and a read-only root with a tmpfs at `/tmp`, it carries `env`, and its
+/// entrypoint is a coreutils `timeout` over the probe `command`.
+fn control_argv(
+    program: &Path,
+    image: &ImageRef,
+    env: &[(String, String)],
+    command: &[String],
+) -> Vec<String> {
     let mut tail: Vec<&str> = vec![PROBE_SECONDS];
     // BORROW: explicit .as_str() lends each word of the probe
     tail.extend(command.iter().map(String::as_str));
-    control_argv_with(program, image, &tail)
+    control_argv_with(program, image, env, &tail)
 }
 
-/// The argv of a control container of `image` that runs `tail` under `timeout`.
-fn control_argv_with(program: &Path, image: &ImageRef, tail: &[&str]) -> Vec<String> {
+/// The argv of a control container of `image` that runs `tail` under `timeout`, with `env` set and
+/// a tmpfs at `/tmp`.
+fn control_argv_with(
+    program: &Path,
+    image: &ImageRef,
+    env: &[(String, String)],
+    tail: &[&str],
+) -> Vec<String> {
     let mut argv: Vec<String> = [
         "run",
         "--rm",
@@ -985,6 +1008,8 @@ fn control_argv_with(program: &Path, image: &ImageRef, tail: &[&str]) -> Vec<Str
         "--network",
         "none",
         "--read-only",
+        "--tmpfs",
+        PROBE_TMPFS,
         "--cap-drop",
         "ALL",
         "--security-opt",
@@ -1002,6 +1027,10 @@ fn control_argv_with(program: &Path, image: &ImageRef, tail: &[&str]) -> Vec<Str
     // BORROW: `.to_owned()` makes each word an owned argument
     .map(|word| (*word).to_owned())
     .collect();
+    for (name, value) in env {
+        argv.push(String::from("-e"));
+        argv.push(format!("{name}={value}"));
+    }
     // BORROW: .clone() keeps the id in the argv
     argv.push(image.id.0.clone());
     argv.extend(

@@ -5,11 +5,33 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use candler_harness::spec::StatePath;
+
 /// The workspace directory inside the container.
 pub const CONTAINER_WORKDIR: &str = "/work";
 
 /// The home directory inside the container.
 pub const CONTAINER_HOME: &str = "/home/agent";
+
+/// The variables that place a harness's state under `home` inside the container: one per state
+/// path, named by the path's variable and valued `<home>/<subpath>`. A run and a control
+/// container give the harness its state through this one function.
+#[must_use]
+pub fn state_env(state: &[StatePath], home: &str) -> Vec<(String, String)> {
+    state
+        .iter()
+        .map(|path| {
+            (
+                path.env.clone(), // BORROW: the caller owns its names
+                format!(
+                    "{}/{}",
+                    home.trim_end_matches('/'),
+                    path.subpath.as_str() // BORROW: explicit .as_str()
+                ),
+            )
+        })
+        .collect()
+}
 
 /// The user name inside the container.
 pub const CONTAINER_USER: &str = "agent";
