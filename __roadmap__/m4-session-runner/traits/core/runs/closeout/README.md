@@ -19,7 +19,7 @@ graph TD
     session_controls[Session controls]:::done
     harness_guard[Harness guard]:::done
     contract_docs[Contract docs]:::done
-    design_record[Design record]:::inprogress
+    design_record[Design record]:::done
     revalidation[Revalidation]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -34,7 +34,7 @@ graph TD
 | `session_controls.md` | 📄 Leaf Task | ✅ Done |
 | `harness_guard.md` | 📄 Leaf Task | ✅ Done |
 | `contract_docs.md` | 📄 Leaf Task | ✅ Done |
-| `design_record.md` | 📄 Leaf Task | 🔄 In Progress |
+| `design_record.md` | 📄 Leaf Task | ✅ Done |
 | `revalidation/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
