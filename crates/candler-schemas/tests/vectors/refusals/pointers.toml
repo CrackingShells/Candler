@@ -1,0 +1,706 @@
+# Hand-written pointers: malformed documents and the RFC 6901 pointer a person would give.
+#
+# `file` names the document kind (experiment, suite, manifest) and `format` its text form. For the
+# experiment file the pointer is into the document as Candler reads it, after the TOML-to-JSON
+# step: `fixed` is flat, so a key `plan.model` is `/fixed/plan.model`. `pointer` is omitted when
+# the fault is at the root of the document, which has no pointer to name it; `missing` names the
+# required field the message must mention, since the pointer then names its parent.
+#
+# `unknown = true` marks a key the type does not have: the refusal carries the code
+# `<surface>.unknown_field` and the pointer names the key itself. The tables `fixed` and a factor's
+# levels, and a suite entry's `params`, are open: their keys are not checked here. So is a suite's
+# optional `[source]` table, which records where a translated suite came from.
+
+[[case]]
+name = "a wrong type"
+file = "experiment"
+format = "toml"
+pointer = "/replicates"
+text = '''
+schema = "experiment/1"
+replicates = "two"
+
+[budget.per_run]
+wall_s = 60
+
+[harness]
+name = "claude-code"
+
+[treatment]
+name = "t"
+'''
+
+[[case]]
+name = "a wrong type in a nested table"
+file = "experiment"
+format = "toml"
+pointer = "/budget/max_parallel"
+text = '''
+schema = "experiment/1"
+replicates = 2
+
+[budget.per_run]
+wall_s = 60
+
+[budget]
+max_parallel = "many"
+
+[harness]
+name = "claude-code"
+
+[treatment]
+name = "t"
+'''
+
+[[case]]
+name = "a missing required field of a nested table"
+file = "experiment"
+format = "toml"
+pointer = "/treatment"
+missing = "name"
+text = '''
+schema = "experiment/1"
+replicates = 2
+
+[budget.per_run]
+wall_s = 60
+
+[harness]
+name = "claude-code"
+
+[treatment]
+'''
+
+[[case]]
+name = "a missing required field at the root"
+file = "experiment"
+format = "toml"
+missing = "harness"
+text = '''
+schema = "experiment/1"
+replicates = 2
+
+[budget.per_run]
+wall_s = 60
+
+[treatment]
+name = "t"
+'''
+
+[[case]]
+name = "a wrong schema tag"
+file = "experiment"
+format = "toml"
+pointer = "/schema"
+text = '''
+schema = "experiment/2"
+replicates = 2
+
+[budget.per_run]
+wall_s = 60
+
+[harness]
+name = "claude-code"
+
+[treatment]
+name = "t"
+'''
+
+[[case]]
+name = "an item of an array"
+file = "experiment"
+format = "toml"
+pointer = "/factors/1/levels"
+text = '''
+schema = "experiment/1"
+replicates = 2
+
+[budget.per_run]
+wall_s = 60
+
+[harness]
+name = "claude-code"
+
+[treatment]
+name = "t"
+
+[[factors]]
+path = "plan.model"
+levels = ["a"]
+
+[[factors]]
+path = "plan.skill"
+levels = "b"
+'''
+
+[[case]]
+name = "a missing field of an item of an array"
+file = "experiment"
+format = "toml"
+pointer = "/factors/1"
+missing = "levels"
+text = '''
+schema = "experiment/1"
+replicates = 2
+
+[budget.per_run]
+wall_s = 60
+
+[harness]
+name = "claude-code"
+
+[treatment]
+name = "t"
+
+[[factors]]
+path = "plan.model"
+levels = ["a"]
+
+[[factors]]
+path = "plan.skill"
+'''
+
+[[case]]
+name = "a key that holds a slash"
+file = "experiment"
+format = "toml"
+pointer = "/fixed/a~1b"
+text = '''
+schema = "experiment/1"
+replicates = 2
+
+[budget.per_run]
+wall_s = 60
+
+[harness]
+name = "claude-code"
+
+[treatment]
+name = "t"
+
+[fixed]
+"a/b" = 1
+'''
+
+[[case]]
+name = "a key that holds a tilde"
+file = "experiment"
+format = "toml"
+pointer = "/fixed/a~0b"
+text = '''
+schema = "experiment/1"
+replicates = 2
+
+[budget.per_run]
+wall_s = 60
+
+[harness]
+name = "claude-code"
+
+[treatment]
+name = "t"
+
+[fixed]
+"a~b" = 1
+'''
+
+[[case]]
+name = "a key that holds a dot"
+file = "experiment"
+format = "toml"
+pointer = "/fixed/a.b"
+text = '''
+schema = "experiment/1"
+replicates = 2
+
+[budget.per_run]
+wall_s = 60
+
+[harness]
+name = "claude-code"
+
+[treatment]
+name = "t"
+
+[fixed]
+"a.b" = 9007199254740993
+'''
+
+[[case]]
+name = "a wrong type"
+file = "suite"
+format = "toml"
+pointer = "/expectations/0/role"
+text = '''
+schema = "suite/1"
+
+[[expectations]]
+id = "A1"
+role = 5
+kind = "run_script"
+depends_on = []
+[expectations.evaluator]
+name = "rubric"
+range = "^0.4"
+[expectations.params]
+script = "check.py"
+'''
+
+[[case]]
+name = "an item of an array"
+file = "suite"
+format = "toml"
+pointer = "/expectations/1/id"
+text = '''
+schema = "suite/1"
+
+[[expectations]]
+id = "A1"
+role = "gate"
+kind = "run_script"
+depends_on = []
+[expectations.evaluator]
+name = "rubric"
+range = "^0.4"
+[expectations.params]
+script = "check.py"
+
+[[expectations]]
+id = "not an id"
+role = "gate"
+kind = "run_script"
+depends_on = ["A1"]
+[expectations.evaluator]
+name = "rubric"
+range = "^0.4"
+[expectations.params]
+script = "check.py"
+'''
+
+[[case]]
+name = "a missing required field of an item"
+file = "suite"
+format = "toml"
+pointer = "/expectations/0"
+missing = "role"
+text = '''
+schema = "suite/1"
+
+[[expectations]]
+id = "A1"
+kind = "run_script"
+depends_on = []
+[expectations.evaluator]
+name = "rubric"
+range = "^0.4"
+[expectations.params]
+script = "check.py"
+'''
+
+[[case]]
+name = "a missing required field at the root"
+file = "suite"
+format = "toml"
+missing = "expectations"
+text = '''
+schema = "suite/1"
+'''
+
+[[case]]
+name = "a wrong schema tag"
+file = "suite"
+format = "toml"
+pointer = "/schema"
+text = '''
+schema = "suite/2"
+
+[[expectations]]
+id = "A1"
+role = "gate"
+kind = "run_script"
+depends_on = []
+[expectations.evaluator]
+name = "rubric"
+range = "^0.4"
+[expectations.params]
+script = "check.py"
+'''
+
+[[case]]
+name = "a wrong type in a nested table"
+file = "suite"
+format = "toml"
+pointer = "/expectations/0/evaluator/range"
+text = '''
+schema = "suite/1"
+
+[[expectations]]
+id = "A1"
+role = "gate"
+kind = "run_script"
+depends_on = []
+[expectations.evaluator]
+name = "rubric"
+range = 4
+[expectations.params]
+script = "check.py"
+'''
+
+[[case]]
+name = "a wrong type in JSON"
+file = "suite"
+format = "json"
+pointer = "/expectations/1/role"
+text = '{"schema":"suite/1","expectations":[{"id":"A1","role":"gate","kind":"run_script","depends_on":[],"evaluator":{"name":"rubric","range":"^0.4"},"params":{}},{"id":"A2","role":7,"kind":"run_script","depends_on":[],"evaluator":{"name":"rubric","range":"^0.4"},"params":{}}]}'
+
+[[case]]
+name = "a missing required field in JSON"
+file = "suite"
+format = "json"
+missing = "expectations"
+text = '{"schema":"suite/1"}'
+
+[[case]]
+name = "a wrong type"
+file = "manifest"
+format = "toml"
+pointer = "/command"
+text = '''
+schema = "plugin-manifest/1"
+name = "rubric"
+version = "0.4.2"
+protocol = { major = 1, minor = 0 }
+command = "python"
+environment = { kind = "uv", project = "py", lock = "py/uv.lock" }
+'''
+
+[[case]]
+name = "a wrong type in a nested table"
+file = "manifest"
+format = "toml"
+pointer = "/protocol/major"
+text = '''
+schema = "plugin-manifest/1"
+name = "rubric"
+version = "0.4.2"
+protocol = { major = "one", minor = 0 }
+command = ["python", "run.py"]
+environment = { kind = "uv", project = "py", lock = "py/uv.lock" }
+'''
+
+[[case]]
+name = "a missing required field of a nested table"
+file = "manifest"
+format = "toml"
+pointer = "/environment"
+missing = "project"
+text = '''
+schema = "plugin-manifest/1"
+name = "rubric"
+version = "0.4.2"
+protocol = { major = 1, minor = 0 }
+command = ["python", "run.py"]
+environment = { kind = "uv", lock = "py/uv.lock" }
+'''
+
+[[case]]
+name = "a missing required field at the root"
+file = "manifest"
+format = "toml"
+missing = "name"
+text = '''
+schema = "plugin-manifest/1"
+version = "0.4.2"
+protocol = { major = 1, minor = 0 }
+command = ["python", "run.py"]
+environment = { kind = "uv", project = "py", lock = "py/uv.lock" }
+'''
+
+[[case]]
+name = "a wrong schema tag"
+file = "manifest"
+format = "toml"
+pointer = "/schema"
+text = '''
+schema = "plugin-manifest/2"
+name = "rubric"
+version = "0.4.2"
+protocol = { major = 1, minor = 0 }
+command = ["python", "run.py"]
+environment = { kind = "uv", project = "py", lock = "py/uv.lock" }
+'''
+
+[[case]]
+name = "a name that is not a name"
+file = "manifest"
+format = "toml"
+pointer = "/name"
+text = '''
+schema = "plugin-manifest/1"
+name = "Not A Name"
+version = "0.4.2"
+protocol = { major = 1, minor = 0 }
+command = ["python", "run.py"]
+environment = { kind = "uv", project = "py", lock = "py/uv.lock" }
+'''
+
+[[case]]
+name = "an unknown key at the top"
+file = "experiment"
+format = "toml"
+pointer = "/bogus"
+unknown = true
+text = '''
+schema = "experiment/1"
+bogus = 1
+replicates = 2
+
+[budget.per_run]
+wall_s = 60
+
+[harness]
+name = "claude-code"
+
+[treatment]
+name = "t"
+'''
+
+[[case]]
+name = "an unknown key in a nested table"
+file = "experiment"
+format = "toml"
+pointer = "/budget/max_paralel"
+unknown = true
+text = '''
+schema = "experiment/1"
+replicates = 2
+
+[budget.per_run]
+wall_s = 60
+
+[budget]
+max_paralel = 2
+
+[harness]
+name = "claude-code"
+
+[treatment]
+name = "t"
+'''
+
+[[case]]
+name = "an unknown key two tables down"
+file = "experiment"
+format = "toml"
+pointer = "/budget/per_run/turn_cap"
+unknown = true
+text = '''
+schema = "experiment/1"
+replicates = 2
+
+[budget.per_run]
+wall_s = 60
+turn_cap = 3
+
+[harness]
+name = "claude-code"
+
+[treatment]
+name = "t"
+'''
+
+[[case]]
+name = "an unknown key of the treatment"
+file = "experiment"
+format = "toml"
+pointer = "/treatment/branch"
+unknown = true
+text = '''
+schema = "experiment/1"
+replicates = 2
+
+[budget.per_run]
+wall_s = 60
+
+[harness]
+name = "claude-code"
+
+[treatment]
+name = "t"
+branch = "main"
+'''
+
+[[case]]
+name = "an unknown key of an item of an array"
+file = "experiment"
+format = "toml"
+pointer = "/factors/0/bogus"
+unknown = true
+text = '''
+schema = "experiment/1"
+replicates = 2
+
+[budget.per_run]
+wall_s = 60
+
+[harness]
+name = "claude-code"
+
+[treatment]
+name = "t"
+
+[[factors]]
+path = "plan.model"
+levels = ["a"]
+bogus = 1
+'''
+
+[[case]]
+name = "an unknown key of an entry"
+file = "suite"
+format = "toml"
+pointer = "/expectations/0/weight"
+unknown = true
+text = '''
+schema = "suite/1"
+
+[[expectations]]
+id = "A1"
+role = "gate"
+kind = "run_script"
+depends_on = []
+weight = 2
+[expectations.evaluator]
+name = "rubric"
+range = "^0.4"
+[expectations.params]
+script = "check.py"
+'''
+
+[[case]]
+name = "an unknown key of the evaluator"
+file = "suite"
+format = "toml"
+pointer = "/expectations/0/evaluator/bogus"
+unknown = true
+text = '''
+schema = "suite/1"
+
+[[expectations]]
+id = "A1"
+role = "gate"
+kind = "run_script"
+depends_on = []
+[expectations.evaluator]
+name = "rubric"
+range = "^0.4"
+bogus = 1
+[expectations.params]
+script = "check.py"
+'''
+
+[[case]]
+name = "an unknown key in JSON"
+file = "suite"
+format = "json"
+pointer = "/expectations/1/bogus"
+unknown = true
+text = '{"schema":"suite/1","expectations":[{"id":"A1","role":"gate","kind":"run_script","depends_on":[],"evaluator":{"name":"rubric","range":"^0.4"},"params":{}},{"id":"A2","role":"gate","kind":"run_script","depends_on":[],"evaluator":{"name":"rubric","range":"^0.4"},"params":{},"bogus":1}]}'
+
+[[case]]
+name = "an unknown key at the top"
+file = "manifest"
+format = "toml"
+pointer = "/bogus"
+unknown = true
+text = '''
+schema = "plugin-manifest/1"
+name = "rubric"
+version = "0.4.2"
+protocol = { major = 1, minor = 0 }
+command = ["python", "run.py"]
+environment = { kind = "uv", project = "py", lock = "py/uv.lock" }
+bogus = 1
+'''
+
+[[case]]
+name = "an unknown key of the environment"
+file = "manifest"
+format = "toml"
+pointer = "/environment/bogus"
+unknown = true
+text = '''
+schema = "plugin-manifest/1"
+name = "rubric"
+version = "0.4.2"
+protocol = { major = 1, minor = 0 }
+command = ["python", "run.py"]
+environment = { kind = "uv", project = "py", lock = "py/uv.lock", bogus = 1 }
+'''
+
+[[case]]
+name = "an unknown key of the protocol"
+file = "manifest"
+format = "toml"
+pointer = "/protocol/patch"
+unknown = true
+text = '''
+schema = "plugin-manifest/1"
+name = "rubric"
+version = "0.4.2"
+protocol = { major = 1, minor = 0, patch = 1 }
+command = ["python", "run.py"]
+environment = { kind = "uv", project = "py", lock = "py/uv.lock" }
+'''
+
+[[case]]
+name = "an unknown key at the top"
+file = "suite"
+format = "toml"
+pointer = "/zzz"
+unknown = true
+text = '''
+schema = "suite/1"
+zzz = 1
+
+[[expectations]]
+id = "A1"
+role = "gate"
+kind = "run_script"
+depends_on = []
+[expectations.evaluator]
+name = "rubric"
+range = "^0.4"
+[expectations.params]
+script = "check.py"
+'''
+
+[[case]]
+name = "an unknown key beside the kind of a none environment"
+file = "manifest"
+format = "toml"
+pointer = "/environment/bogus"
+unknown = true
+text = '''
+schema = "plugin-manifest/1"
+name = "rubric"
+version = "0.4.2"
+protocol = { major = 1, minor = 0 }
+command = ["python", "run.py"]
+environment = { kind = "none", bogus = 1 }
+'''
+
+[[case]]
+name = "an unknown key named like its parent"
+file = "manifest"
+format = "toml"
+pointer = "/environment/environment"
+unknown = true
+text = '''
+schema = "plugin-manifest/1"
+name = "rubric"
+version = "0.4.2"
+protocol = { major = 1, minor = 0 }
+command = ["python", "run.py"]
+environment = { kind = "uv", project = "py", lock = "py/uv.lock", environment = 1 }
+'''

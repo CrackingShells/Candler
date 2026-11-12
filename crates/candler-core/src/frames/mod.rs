@@ -11,6 +11,8 @@
 //! empty stream has no frame in either mode. The data of the frames, concatenated, is the stream
 //! byte for byte.
 
+pub(crate) mod refusal;
+
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};

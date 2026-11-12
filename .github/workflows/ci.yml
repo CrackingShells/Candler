@@ -209,11 +209,21 @@ jobs:
       - name: Commit the new versions and changelogs
         run: |
           set -eu
+          # Two merges close together start two runs; the older one cannot
+          # push on top of the newer, and the newer run releases both.
+          git fetch -q origin main
+          if [ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]; then
+            echo "main has moved past $GITHUB_SHA; the run for the newer push releases."
+            exit 0
+          fi
           release-plz update --repo-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" > "$RUNNER_TEMP/bumps"
           if [ -z "$(git status --porcelain)" ]; then
             echo "Nothing to release."
             exit 0
           fi
+          # The contract pages quote the released versions; rewrite them from
+          # the manifests release-plz just bumped, so the pages ship with them.
+          python3 scripts/contract_versions.py
           {
             echo "chore(release): bump the versions and changelogs [skip ci]"
             echo

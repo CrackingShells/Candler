@@ -6,6 +6,7 @@
 
 #![deny(clippy::allow_attributes)]
 
+pub mod analysis;
 pub mod evaluation;
 pub mod experiment;
 pub mod frames;
@@ -15,6 +16,7 @@ pub mod isolation;
 #[cfg(unix)]
 pub mod jobs;
 pub mod manifest;
+pub mod refusal;
 pub mod resolve;
 #[cfg(unix)]
 pub mod runner;

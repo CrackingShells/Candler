@@ -700,10 +700,12 @@ mod engine_surface {
     use std::time::Duration;
 
     use candler_core::evaluation::engine::{
-        Batch, EvaluateError, EvaluateReport, EvaluateRequest, PlanError, REQUEST_DEADLINE_MARGIN,
-        RunPlan, applies, evaluate, plan, regrade,
+        Batch, EvaluateError, EvaluateReport, EvaluateRequest, EvaluatorSlots, PlanError,
+        REQUEST_DEADLINE_MARGIN, RunPlan, RunSelection, applies, evaluate, evaluate_reporting,
+        pending_runs, plan, regrade,
     };
-    use candler_core::evaluation::registry::CheckedSuite;
+    use candler_core::evaluation::registry::{CheckedSuite, discover_manifests};
+    use candler_core::jobs::slots::default_evaluator_slots;
     use candler_schemas::evaluation::SuiteEntry;
     use candler_schemas::execution::RunManifest;
     use candler_schemas::primitives::RequestId;
@@ -713,17 +715,63 @@ mod engine_surface {
     fn engine_items_are_nameable() {
         let planned: fn(&RunManifest, &CheckedSuite) -> Result<RunPlan, PlanError> = plan;
         let applied: fn(&RunManifest, &SuiteEntry) -> bool = applies;
-        let _ = (planned, applied, evaluate, regrade);
+        let _ = (
+            planned,
+            applied,
+            evaluate,
+            evaluate_reporting,
+            regrade,
+            pending_runs,
+        );
         let _ = (
             None::<Batch>,
             None::<EvaluateError>,
             None::<EvaluateReport>,
             None::<EvaluateRequest>,
+            None::<EvaluatorSlots>,
+            None::<RunSelection>,
         );
+        let document: fn(&EvaluateReport) -> serde_json::Value = EvaluateReport::to_document;
+        let slots: fn(usize) -> u32 = default_evaluator_slots;
+        let discovered: fn(&[std::path::PathBuf]) -> Result<Vec<std::path::PathBuf>, _> =
+            discover_manifests;
+        let _ = (document, slots, discovered);
         assert_eq!(REQUEST_DEADLINE_MARGIN, Duration::from_secs(30));
         // The report names one `(request id, deadline)` per request sent.
         let report = EvaluateReport::default();
         let deadlines: &Vec<(RequestId, Duration)> = &report.request_deadlines;
         assert_eq!(deadlines.as_slice(), []);
+    }
+}
+
+/// The items of the evaluate job body, filled by the `evaluate_body` leaf.
+#[cfg(unix)]
+mod evaluate_job_surface {
+    use candler_core::jobs::model::{EvaluateSpec, JobControl, JobSpecFile};
+    use candler_core::jobs::runtime::RuntimeError;
+    use candler_core::jobs::runtime::evaluate::{
+        CancelBridge, EvaluateEntry, EvaluateJobOutcome, REPORT_FILE, cancel_bridge,
+        supervise_evaluate,
+    };
+    use candler_core::jobs::slots::evaluator_slots_dir;
+    use futures::future::BoxFuture;
+    use tokio::sync::watch;
+
+    /// Names the evaluate job's entry, outcome, spec and the functions the binary calls.
+    #[test]
+    fn evaluate_job_items_are_nameable() {
+        let supervise: fn(
+            EvaluateEntry,
+        ) -> BoxFuture<'static, Result<EvaluateJobOutcome, RuntimeError>> = supervise_evaluate;
+        let bridge: fn(&JobControl) -> (watch::Receiver<bool>, CancelBridge) = cancel_bridge;
+        let slots: fn(&std::path::Path) -> std::path::PathBuf = evaluator_slots_dir;
+        let _ = (supervise, bridge, slots);
+        let _ = (
+            None::<EvaluateEntry>,
+            None::<EvaluateJobOutcome>,
+            None::<EvaluateSpec>,
+            None::<JobSpecFile>,
+        );
+        assert_eq!(REPORT_FILE, "report.json");
     }
 }

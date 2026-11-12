@@ -16,8 +16,8 @@ The CLI is lean and the runner covers long-lived sessions and a second harness.
 ## Status
 ```mermaid
 graph TD
-    m3_lean_cli[M3 Lean CLI]:::planned
-    m4_session_runner[M4 Session runner and second harness]:::planned
+    m3_lean_cli[M3 Lean CLI]:::inprogress
+    m4_session_runner[M4 Session runner and second harness]:::inprogress
     isolation[Isolation]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -29,8 +29,8 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `m3_lean_cli.md` | 📄 Leaf Task | ⬜ Planned |
-| `m4_session_runner.md` | 📄 Leaf Task | ⬜ Planned |
+| `m3_lean_cli.md` | 📄 Leaf Task | 🔄 In Progress |
+| `m4_session_runner.md` | 📄 Leaf Task | 🔄 In Progress |
 | `isolation/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log

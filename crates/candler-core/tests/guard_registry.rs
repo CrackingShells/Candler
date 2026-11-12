@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use candler_core::evaluation::registry::{
-    EnvironmentStep, NeedError, Registry, RegistryError, default_env_root,
+    EnvironmentStep, MANIFEST_NAMES, NeedError, Registry, RegistryError, default_env_root,
+    discover_manifests,
 };
 use candler_core::resolve::config::{Config, UserConfig};
 use candler_core::resolve::layers::ResolveInput;
@@ -217,4 +218,57 @@ async fn a_second_preflight_under_one_digest_spawns_nothing() {
     assert_eq!(before.ino(), after.ino());
     assert_eq!(before.mtime(), after.mtime());
     assert_eq!(before.mtime_nsec(), after.mtime_nsec());
+}
+
+/// Guards: E1 (`plugins.dirs`) — a plug-in directory yields the one manifest it holds:
+/// `plugin.toml` gives that path, `candler-plugin.toml` gives that path, both is `ManyManifests`,
+/// none is `NoManifest`, and a manifest in a subdirectory is not found. Oracle: the paths and
+/// variants written out by hand.
+/// Bite: scan the directories recursively; take the first of two manifests without refusing.
+#[test]
+fn e1_plugin_dirs_find_one_manifest_each() {
+    let root = tempfile::tempdir().expect("a temp dir");
+    let dir = |name: &str| {
+        let path = root.path().join(name);
+        fs::create_dir(&path).expect("a directory");
+        path
+    };
+    let (plain, named, both, empty, nested) = (
+        dir("plain"),
+        dir("named"),
+        dir("both"),
+        dir("empty"),
+        dir("nested"),
+    );
+    fs::write(plain.join("plugin.toml"), "").expect("a manifest");
+    fs::write(named.join("candler-plugin.toml"), "").expect("a manifest");
+    fs::write(both.join("plugin.toml"), "").expect("a manifest");
+    fs::write(both.join("candler-plugin.toml"), "").expect("a manifest");
+    fs::create_dir(nested.join("inner")).expect("a subdirectory");
+    fs::write(nested.join("inner").join("plugin.toml"), "").expect("a manifest");
+
+    let found = discover_manifests(&[plain.clone(), named.clone()]).expect("two good directories");
+    assert_eq!(
+        found,
+        [plain.join("plugin.toml"), named.join("candler-plugin.toml")],
+        "one path each, in the order of the directories"
+    );
+    assert_eq!(MANIFEST_NAMES, ["plugin.toml", "candler-plugin.toml"]);
+
+    let error = discover_manifests(std::slice::from_ref(&both)).expect_err("two manifests");
+    assert!(
+        matches!(&error, RegistryError::ManyManifests { dir } if *dir == both),
+        "{error}"
+    );
+    for missing in [&empty, &nested] {
+        let error = discover_manifests(std::slice::from_ref(missing)).expect_err("no manifest");
+        assert!(
+            matches!(&error, RegistryError::NoManifest { dir } if dir == missing),
+            "{error}"
+        );
+    }
+    assert_eq!(
+        discover_manifests(&[]).expect("no directories"),
+        Vec::<PathBuf>::new()
+    );
 }

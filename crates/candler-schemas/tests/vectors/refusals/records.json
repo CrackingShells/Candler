@@ -1,0 +1,230 @@
+{
+  "comment": "Hand-written refusal/1 records. Each valid record must read, write back to the same JSON value and validate against refusal-record.schema.json; each invalid one must be refused by the reader and by the schema. `code` is the dotted text and never an index; `side` is one of plugin, suite, experiment, config, environment, candler; `path` and `file` are never both present, and a record may carry neither.",
+  "valid": [
+    {
+      "name": "a path into a document",
+      "record": {
+        "schema": "refusal/1",
+        "code": "experiment.path_overlap",
+        "side": "experiment",
+        "path": "/fixed",
+        "message": "paths `plan.model` and `plan` overlap: one is the other or lies below it",
+        "causes": []
+      }
+    },
+    {
+      "name": "a file instead of a path",
+      "record": {
+        "schema": "refusal/1",
+        "code": "manifest.unreadable",
+        "side": "plugin",
+        "file": "evaluators/rubric/plugin.toml",
+        "message": "document is not readable (TOML parse error at line 1)",
+        "causes": ["expected `=`"]
+      }
+    },
+    {
+      "name": "neither a path nor a file",
+      "record": {
+        "schema": "refusal/1",
+        "code": "protocol.version_mismatch",
+        "side": "plugin",
+        "message": "protocol 1.0 is not accepted by protocol 2.0 (upgrade the plug-in)",
+        "causes": []
+      }
+    },
+    {
+      "name": "the root of a document and several causes",
+      "record": {
+        "schema": "refusal/1",
+        "code": "suite.dependency_cycle",
+        "side": "suite",
+        "path": "",
+        "message": "suite entries depend on each other in a cycle (A -> B -> A)",
+        "causes": ["A depends on B", "B depends on A"]
+      }
+    },
+    {
+      "name": "a key that holds a slash and a tilde",
+      "record": {
+        "schema": "refusal/1",
+        "code": "format.field_path_invalid",
+        "side": "config",
+        "path": "/fixed/a~1b~0c",
+        "message": "field path is not segments of `[a-z][a-z0-9_]*` joined by `.` (got \"a/b~c\")",
+        "causes": []
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "an unknown field",
+      "why": "deny_unknown_fields",
+      "record": {
+        "schema": "refusal/1",
+        "code": "experiment.path_overlap",
+        "side": "experiment",
+        "message": "m",
+        "causes": [],
+        "hint": "x"
+      }
+    },
+    {
+      "name": "code as a number",
+      "why": "a code is the dotted text, never an index",
+      "record": {
+        "schema": "refusal/1",
+        "code": 7,
+        "side": "experiment",
+        "message": "m",
+        "causes": []
+      }
+    },
+    {
+      "name": "code with no dot",
+      "why": "the pattern needs a surface and a reason",
+      "record": {
+        "schema": "refusal/1",
+        "code": "overlap",
+        "side": "experiment",
+        "message": "m",
+        "causes": []
+      }
+    },
+    {
+      "name": "code in upper case",
+      "why": "the pattern is lower case",
+      "record": {
+        "schema": "refusal/1",
+        "code": "Experiment.Path_Overlap",
+        "side": "experiment",
+        "message": "m",
+        "causes": []
+      }
+    },
+    {
+      "name": "code with an empty reason",
+      "why": "every segment after the first needs a character",
+      "record": {
+        "schema": "refusal/1",
+        "code": "experiment..overlap",
+        "side": "experiment",
+        "message": "m",
+        "causes": []
+      }
+    },
+    {
+      "name": "a side outside the six",
+      "why": "side is plugin, suite, experiment, config, environment or candler",
+      "record": {
+        "schema": "refusal/1",
+        "code": "experiment.path_overlap",
+        "side": "operator",
+        "message": "m",
+        "causes": []
+      }
+    },
+    {
+      "name": "a side in capitals",
+      "why": "sides are written in lower case",
+      "record": {
+        "schema": "refusal/1",
+        "code": "experiment.path_overlap",
+        "side": "Experiment",
+        "message": "m",
+        "causes": []
+      }
+    },
+    {
+      "name": "causes missing",
+      "why": "causes is always written",
+      "record": {
+        "schema": "refusal/1",
+        "code": "experiment.path_overlap",
+        "side": "experiment",
+        "message": "m"
+      }
+    },
+    {
+      "name": "both a path and a file",
+      "why": "a refusal locates itself in a document or in a file, not both",
+      "record": {
+        "schema": "refusal/1",
+        "code": "experiment.path_overlap",
+        "side": "experiment",
+        "path": "/fixed",
+        "file": "experiments/a.toml",
+        "message": "m",
+        "causes": []
+      }
+    },
+    {
+      "name": "a path that is not a JSON pointer",
+      "why": "RFC 6901 pointers are empty or start with a slash",
+      "record": {
+        "schema": "refusal/1",
+        "code": "experiment.path_overlap",
+        "side": "experiment",
+        "path": "budget/max_parallel",
+        "message": "m",
+        "causes": []
+      }
+    },
+    {
+      "name": "a path with a bare tilde",
+      "why": "a tilde is written ~0 and a slash ~1",
+      "record": {
+        "schema": "refusal/1",
+        "code": "experiment.path_overlap",
+        "side": "experiment",
+        "path": "/fixed/a~b",
+        "message": "m",
+        "causes": []
+      }
+    },
+    {
+      "name": "a null path",
+      "why": "an absent path is omitted, never null",
+      "record": {
+        "schema": "refusal/1",
+        "code": "experiment.path_overlap",
+        "side": "experiment",
+        "path": null,
+        "message": "m",
+        "causes": []
+      }
+    },
+    {
+      "name": "another version tag",
+      "why": "the tag is refusal/1",
+      "record": {
+        "schema": "refusal/2",
+        "code": "experiment.path_overlap",
+        "side": "experiment",
+        "message": "m",
+        "causes": []
+      }
+    },
+    {
+      "name": "message missing",
+      "why": "message is required",
+      "record": {
+        "schema": "refusal/1",
+        "code": "experiment.path_overlap",
+        "side": "experiment",
+        "causes": []
+      }
+    },
+    {
+      "name": "causes holding a number",
+      "why": "causes is a list of texts",
+      "record": {
+        "schema": "refusal/1",
+        "code": "experiment.path_overlap",
+        "side": "experiment",
+        "message": "m",
+        "causes": [1]
+      }
+    }
+  ]
+}

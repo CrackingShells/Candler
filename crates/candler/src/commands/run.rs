@@ -36,7 +36,10 @@ use candler_core::store::Store;
 use candler_schemas::execution::{ExperimentFile, JobRecord, JobState};
 use candler_schemas::primitives::FieldPath;
 
-use super::preflight::{failed, foreground, json_of, path_of, refused, request_settings};
+use super::preflight::{
+    check_factors, failed, foreground, json_of, path_of, refuse_plan, refused, request_settings,
+};
+use super::refusal::CliRefusal;
 use super::{CliError, Exit, common};
 
 /// The environment variable that tells the supervisor which store the launcher used. The
@@ -64,10 +67,11 @@ pub struct Args {
     /// The experiment file.
     pub experiment: PathBuf,
     /// A value that replaces the file's: `PATH=VALUE`, the value read as JSON when it is JSON
-    /// and as text otherwise. Repeatable.
+    /// and as text otherwise. Repeatable. cannot be derived: an override is what the caller types.
     #[arg(long = "set", value_name = "PATH=VALUE", value_parser = parse_field)]
     pub fields: Vec<(FieldPath, String)>,
-    /// Accept the differences the plan finds against the stored runs.
+    /// Accept the differences the plan finds against the stored runs. cannot be derived: whether
+    /// to accept differences is the caller's decision, taken after the plan has shown them.
     #[arg(long)]
     pub force: bool,
 }
@@ -123,10 +127,19 @@ fn supervisor_env(file: &ExperimentFile, root: &Path) -> Vec<(String, String)> {
 
 /// Reads the experiment file at `path`.
 fn read_experiment(path: &Path) -> Result<ExperimentFile, CliError> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|e| refused(format!("cannot read {}: {e}", path.display())))?;
+    let text = std::fs::read_to_string(path).map_err(|e| {
+        CliError::refused_by(CliRefusal::ExperimentUnreadable {
+            path: path.display().to_string(),
+            detail: e.to_string(),
+        })
+        .with_file(path)
+    })?;
     ExperimentFile::from_toml_str(text.as_str()) // BORROW: .as_str() views the text as a `&str`
-        .map_err(|e| refused(format!("{} is not an experiment: {e}", path.display())))
+        .map_err(|e| {
+            CliError::refused_by(e)
+                .led_by(format!("{} is not an experiment: ", path.display()))
+                .with_file(path)
+        })
 }
 
 /// Resolves, plans and starts the job.
@@ -142,6 +155,7 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     } = args;
     let cwd = std::env::current_dir().map_err(|e| refused(format!("no working directory: {e}")))?;
     let file = read_experiment(&experiment)?;
+    check_factors(&file)?;
     let experiment_dir = cwd
         .join(&experiment)
         .parent()
@@ -150,7 +164,7 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let store = Store::init(&root).map_err(failed)?;
     let config = Arc::new(Config::load(&cwd, &ConfigEnv::from_process()).map_err(failed)?);
     let declared = resolve_inputs(&store, file.inputs(), experiment_dir.as_path())
-        .map_err(|e| refused(e.to_string()))?;
+        .map_err(CliError::refused_by)?;
     let input = with_declared_inputs(
         request_settings(&file, experiment_dir.as_path(), &fields, &cwd)?,
         &declared,
@@ -161,7 +175,7 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
         .resolver
         .resolve(input)
         .await
-        .map_err(|e| refused(e.to_string()))?;
+        .map_err(CliError::refused_by)?;
     let spec = plan_job(&store, &file, resolution, force, declared)?;
     start(&store, &file, &spec, &root).await
 }
@@ -201,7 +215,7 @@ fn plan_job(
     };
     let mode = if force { Force::Yes } else { Force::No };
     let outcome = plan_runs(&ctx, file, &resolution, mode, PlanMode::Check)
-        .map_err(|e| refused(e.to_string()))?;
+        .map_err(|e| refuse_plan(e, file))?;
     Ok(JobSpec {
         experiment: file.clone(), // BORROW: the spec owns its file
         resolution,

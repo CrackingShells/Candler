@@ -13,4 +13,5 @@
 
 pub mod driver;
 pub mod reader;
+pub mod refusal;
 pub mod spec;

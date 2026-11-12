@@ -1,0 +1,108 @@
+# The source files of the workspace that call unix-only APIs (`std::os::unix`, `rustix::`,
+# `libc::`). It is the checklist of a native Windows port: each entry says what the file calls
+# and what replaces it on Windows. `guard_platform_seam` keeps it equal to the code.
+
+[[file]]
+path = "crates/candler-core/src/supervise/signal.rs"
+uses = ["kill and process-group signals (`kill_process`, `kill_process_group`, `getpgrp`)", "`/proc/<pid>/stat` reads for the start time", "`MetadataExt` on a file"]
+windows = "Job Objects: `TerminateJobObject` stops the tree, and a gentle stop is `CTRL_BREAK` to a `CREATE_NEW_PROCESS_GROUP` console; a held process handle pins the process, so its id cannot be reused while the handle is open (the pid-reuse rule)"
+
+[[file]]
+path = "crates/candler-core/src/supervise/platform.rs"
+uses = ["`rustix::process::Pid` as the process id type", "start time from `/proc` (Linux) or `libproc` (macOS)"]
+windows = "a held process handle pins the process, so its id cannot be reused while the handle is open (the pid-reuse rule); the start time is `GetProcessTimes` on that handle"
+
+[[file]]
+path = "crates/candler-core/src/supervise/reap.rs"
+uses = ["`getpgid` to check that the record's process leads its group"]
+windows = "no group id to check: a Job Object holds the group, so the record names the job and the held handle replaces the leader check"
+
+[[file]]
+path = "crates/candler-core/src/supervise/spawn.rs"
+uses = ["`Signal` for the stop signal of a spawned process"]
+windows = "Job Objects: `TerminateJobObject` stops the tree, and a gentle stop is `CTRL_BREAK` to a `CREATE_NEW_PROCESS_GROUP` console"
+
+[[file]]
+path = "crates/candler-core/src/supervise/stop.rs"
+uses = ["`Signal` and the TERM then KILL ladder", "`ExitStatusExt::signal` to read how a child died"]
+windows = "Job Objects: `TerminateJobObject` stops the tree, and a gentle stop is `CTRL_BREAK` to a `CREATE_NEW_PROCESS_GROUP` console; an exit code is all a Windows child reports, so `ExitStatus::Signal` has no source"
+
+[[file]]
+path = "crates/candler-core/src/supervise/mod.rs"
+uses = ["`Signal::KILL` in `kill_all`, the test-support cleanup"]
+windows = "`TerminateJobObject` in `kill_all`"
+
+[[file]]
+path = "crates/candler-core/src/jobs/lock.rs"
+uses = ["`flock` for the job lock"]
+windows = "`LockFileEx` on the file, released when the holder dies"
+
+[[file]]
+path = "crates/candler-core/src/jobs/slots.rs"
+uses = ["`flock` for the machine-wide slots"]
+windows = "`LockFileEx` on the file, released when the holder dies"
+
+[[file]]
+path = "crates/candler-core/src/jobs/events.rs"
+uses = ["`flock` while an event line is appended"]
+windows = "`LockFileEx` on the file, released when the holder dies"
+
+[[file]]
+path = "crates/candler-core/src/jobs/runtime/session.rs"
+uses = ["`setsid` to detach the job supervisor", "`set_child_subreaper` (Linux) to adopt orphans"]
+windows = "`DETACHED_PROCESS` with `CREATE_NEW_PROCESS_GROUP` for the detached supervisor; no counterpart is needed for the subreaper, because a Job Object contains every descendant"
+
+[[file]]
+path = "crates/candler-core/src/jobs/runtime/reap.rs"
+uses = ["`waitpid` to reap a child of the supervisor"]
+windows = "`WaitForSingleObject` on the held process handle, then `GetExitCodeProcess`"
+
+[[file]]
+path = "crates/candler-core/src/jobs/runtime/sweep.rs"
+uses = ["`Signal::KILL` on strays found by marker or adopted"]
+windows = "no counterpart is needed: a Job Object contains every descendant, so there are no strays to sweep"
+
+[[file]]
+path = "crates/candler-core/src/isolation/container/mod.rs"
+uses = ["`getuid` and `getgid` for the owner of the bind mount"]
+windows = "no uid or gid: Docker Desktop's Linux containers map the owner themselves, and only the host path form of a mount differs"
+
+[[file]]
+path = "crates/candler-core/src/isolation/image.rs"
+uses = ["an exclusive `flock` on a file of the image cache"]
+windows = "`LockFileEx` on the file, released when the holder dies"
+
+[[file]]
+path = "crates/candler-core/src/runner/plan.rs"
+uses = ["`flock` on the experiment lock"]
+windows = "`LockFileEx` on the file, released when the holder dies"
+
+[[file]]
+path = "crates/candler-core/src/runner/exec/mod.rs"
+uses = ["`PermissionsExt::from_mode` to set the execute bit (0755)"]
+windows = "ACLs, or no mode bits: the read-only attribute stands in for 0444; an executable is told by its extension, so there is no bit to set"
+
+[[file]]
+path = "crates/candler-core/src/store/blob.rs"
+uses = ["`PermissionsExt::from_mode` to make a stored blob read-only (0444)"]
+windows = "ACLs, or no mode bits: the read-only attribute stands in for 0444"
+
+[[file]]
+path = "crates/candler-core/src/store/index.rs"
+uses = ["`flock` on the index"]
+windows = "`LockFileEx` on the file, released when the holder dies"
+
+[[file]]
+path = "crates/candler-core/src/store/sync.rs"
+uses = ["`fsync` and `fdatasync`"]
+windows = "`FlushFileBuffers` on the file handle"
+
+[[file]]
+path = "crates/candler-core/src/evaluation/context/materialise.rs"
+uses = ["`OpenOptionsExt::mode` for the writing mode", "`PermissionsExt::from_mode` for the final read-only mode"]
+windows = "ACLs, or no mode bits: the read-only attribute stands in for 0444"
+
+[[file]]
+path = "crates/candler-core/src/import/read.rs"
+uses = ["`PermissionsExt` in a `cfg(unix)` function, which has a `cfg(not(unix))` twin"]
+windows = "already portable: the `cfg(not(unix))` twin is the Windows arm, and it stays as it is"

@@ -25,6 +25,7 @@ pub mod output;
 pub mod platform;
 pub mod reap;
 pub mod record;
+pub(crate) mod refusal;
 pub mod spawn;
 pub mod stop;
 

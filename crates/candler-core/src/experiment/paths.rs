@@ -116,3 +116,66 @@ pub const PLUGINS_DIRS: &str = "plugins.dirs";
 
 /// A setting: how many runs execute at once.
 pub const SLOTS_COUNT: &str = "slots.count";
+
+/// A setting: how many evaluator processes run at once on the machine.
+pub const SLOTS_EVALUATORS: &str = "slots.evaluators";
+
+/// Reports whether `path` belongs to the configuration surface: a path named above, an operational
+/// setting ([`is_setting`](crate::resolve::layers::is_setting)), a typed root or a path below one
+/// (which another check refuses on its own terms), a path below `mcp` or `prompt.values`, whose
+/// children are free, or an ancestor of any of these.
+#[must_use]
+pub fn is_known_path(path: &candler_schemas::primitives::FieldPath) -> bool {
+    const LEAVES: [&str; 31] = [
+        MODEL_ID,
+        MODEL_ENDPOINT,
+        MODEL_EFFORT,
+        MODEL_TOKEN_SECRET,
+        TOOLS_ALLOWED,
+        TOOLS_DISALLOWED,
+        PERMISSION_MODE,
+        REQUEST_HARNESS,
+        REQUEST_TREATMENT,
+        REQUEST_INPUTS,
+        PROMPT_TEMPLATE,
+        ISOLATION_IMAGE,
+        ISOLATION_NETWORK,
+        ISOLATION_ENV_LOCK,
+        ISOLATION_LIMITS_PIDS,
+        ISOLATION_LIMITS_MEMORY,
+        ISOLATION_LIMITS_CPUS,
+        ISOLATION_BUILD_DOCKERFILE,
+        ISOLATION_BUILD_CONTEXT,
+        ISOLATION_BUILD_REQUIREMENTS,
+        ISOLATION_BUILD_PRUNE,
+        ISOLATION_BUILD_LOCK,
+        ISOLATION_RECORD_PACKAGES,
+        BUDGET_PER_RUN_WALL_S,
+        BUDGET_PER_RUN_TURNS,
+        BUDGET_PER_RUN_MAX_COST_USD,
+        STORE_ROOT,
+        PLUGINS_DIRS,
+        SLOTS_COUNT,
+        ISOLATION_LIMITS,
+        PROMPT_VALUES,
+    ];
+    const SUBTREES: [&str; 7] = [
+        MCP,
+        PROMPT_VALUES,
+        HARNESS,
+        TREATMENT,
+        INPUTS,
+        SNAPSHOTS,
+        ENVIRONMENTS,
+    ];
+    let known = |text: &str| text.parse::<candler_schemas::primitives::FieldPath>().ok();
+    crate::resolve::layers::is_setting(path)
+        || LEAVES
+            .iter()
+            .filter_map(|text| known(text))
+            .any(|leaf| leaf.starts_with(path))
+        || SUBTREES
+            .iter()
+            .filter_map(|text| known(text))
+            .any(|root| path.starts_with(&root) || root.starts_with(path))
+}

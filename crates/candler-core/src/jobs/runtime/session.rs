@@ -10,6 +10,7 @@ use std::time::Duration;
 use candler_schemas::execution::{EventPayload, JobEnd, JobRecord, JobState};
 use candler_schemas::primitives::{Digest, JobId};
 use futures::FutureExt as _;
+use futures::future::BoxFuture;
 use rustix::process::{getpid, setsid};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -17,15 +18,16 @@ use tokio::task::JoinHandle;
 use super::signals::SignalWatch;
 use super::sweep::{ProcMarkerSweeper, reap_confirmed, sweep_orphans};
 use super::{JobEntry, RuntimeError};
-use crate::isolation::container::guard::ContainerGuard;
-use crate::isolation::container::sweeper::LabelSweeper;
+use crate::isolation::container::guard::{ContainerGuard, LostProof};
+use crate::isolation::container::sweeper::{ContainerSweeper, LabelSweeper, SweepError};
 use crate::isolation::docker::{ClientEnv, DockerCli};
 use crate::isolation::driver::DockerDriver;
-use crate::jobs::dir::{JobDir, JobError};
+use crate::isolation::model::{ContainerSweep, SweepScope};
+use crate::jobs::dir::{JobDir, JobError, write_atomic};
 use crate::jobs::events::JobEvents;
 use crate::jobs::lock::JobLock;
 use crate::jobs::lost::{self, JobLiveness, RecoverReport};
-use crate::jobs::model::{JobBody, JobCause, JobControl, JobOutcome, JobSpec};
+use crate::jobs::model::{JobBody, JobCause, JobControl, JobOutcome, JobSpec, JobSpecFile};
 use crate::jobs::slots::Slots;
 use crate::jobs::view::JobView;
 use crate::resolve::config::{ConfigEnv, UserConfig};
@@ -40,6 +42,8 @@ const SWEEP_LIMIT: Duration = Duration::from_mins(2);
 const ZOMBIE_TICK: Duration = Duration::from_millis(250);
 /// The record file of a job.
 const RECORD_FILE: &str = "job.json";
+/// The spec file of a job: the verified bytes the supervisor was started with.
+pub const SPEC_FILE: &str = "spec.json";
 
 fn session_error(detail: &impl ToString) -> RuntimeError {
     RuntimeError::Session {
@@ -122,7 +126,9 @@ pub fn read_spec(job_dir: &Path, mut stdin: impl Read) -> Result<JobSpec, Runtim
             record.spec_digest()
         )));
     }
-    serde_json::from_slice(&bytes).map_err(|e| refused(e.to_string()))
+    let spec = serde_json::from_slice(&bytes).map_err(|e| refused(e.to_string()))?;
+    write_atomic(&job_dir.join(SPEC_FILE), &bytes).map_err(|e| refused(e.to_string()))?;
+    Ok(spec)
 }
 
 /// Recovers the lost job of `dir`, reporting to that job's own log and through a supervisor of
@@ -150,6 +156,12 @@ where
     // TRAIT_OBJECT: the supervisor and the guard take their sink as a trait object
     let sink: Arc<dyn EventSink> = events;
     let sup = Arc::new(Supervisor::new(Arc::clone(&sink)));
+    if is_evaluate(dir) {
+        // An evaluate job owns no container: nothing to list, so no docker client is built.
+        return lost::recover(&sup, &NoContainers, dir)
+            .await
+            .map_err(|e| e.to_string());
+    }
     let cli = DockerCli::new(
         Arc::clone(&sup),
         ClientEnv::from_process(),
@@ -165,6 +177,34 @@ where
     lost::recover(&sup, &sweeper, dir)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Whether the spec of `dir` is that of an evaluate job. A job whose spec is missing or does not
+/// read is not: it recovers over docker, as a `run` job does.
+fn is_evaluate(dir: &JobDir) -> bool {
+    std::fs::read(dir.path().join(SPEC_FILE))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<JobSpecFile>(&bytes).ok())
+        .is_some_and(|file| matches!(file, JobSpecFile::Evaluate(_)))
+}
+
+/// The sweeper of a job that owns no container: it finds none.
+struct NoContainers;
+
+impl ContainerSweeper for NoContainers {
+    fn sweep<'a>(
+        &'a self,
+        _scope: &'a SweepScope,
+    ) -> BoxFuture<'a, Result<ContainerSweep, SweepError>> {
+        Box::pin(async { Ok(ContainerSweep::default()) })
+    }
+
+    fn sweep_lost<'a>(
+        &'a self,
+        _proof: &'a LostProof,
+    ) -> BoxFuture<'a, Result<ContainerSweep, SweepError>> {
+        Box::pin(async { Ok(ContainerSweep::default()) })
+    }
 }
 
 /// The task that waits, on a tick, for the children of the supervisor that have exited and that

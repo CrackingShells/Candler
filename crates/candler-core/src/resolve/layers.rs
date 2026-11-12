@@ -23,6 +23,8 @@ const STORE_ROOT: &str = "store.root";
 const PLUGINS_DIRS: &str = "plugins.dirs";
 /// The path of the slot count.
 const SLOTS_COUNT: &str = "slots.count";
+/// The path of the evaluator slot count.
+const SLOTS_EVALUATORS: &str = crate::experiment::paths::SLOTS_EVALUATORS;
 
 /// The setting that names the harness a request asks for.
 const REQUEST_HARNESS: &str = "request.harness";
@@ -46,7 +48,7 @@ const TREATMENT_SOURCE_PREFIX: &str = "treatment:";
 const MODEL_TOKEN_SECRET: &str = "model.token_secret";
 
 /// Reports whether `path` is an operational setting, by its path alone: a configuration key
-/// (`store.root`, `plugins.dirs`, `slots.count`), a job cap (every `budget.*` path except
+/// (`store.root`, `plugins.dirs`, `slots.count`, `slots.evaluators`), a job cap (every `budget.*` path except
 /// `budget.per_run.*`), `replicates`, a request key (`request.harness`, `request.treatment`,
 /// `request.inputs`), the gateway's secret (`model.token_secret`), the packages a run records
 /// (`isolation.record_packages`) or an image build request (every `isolation.build.*` path). A
@@ -68,6 +70,7 @@ pub fn is_setting(path: &FieldPath) -> bool {
             STORE_ROOT
                 | PLUGINS_DIRS
                 | SLOTS_COUNT
+                | SLOTS_EVALUATORS
                 | REQUEST_HARNESS
                 | REQUEST_TREATMENT
                 | ISOLATION_RECORD_PACKAGES
@@ -231,7 +234,7 @@ pub struct Layered {
 
 impl Layered {
     /// Lays out the layers: the configuration values enter as `store.root` and `plugins.dirs`
-    /// (project) and `slots.count` (user). The core default of `store.root` is
+    /// (project) and `slots.count` and `slots.evaluators` (user). The core default of `store.root` is
     /// `<project root>/.candler/store` with a project, and `<state home>/candler/store` without
     /// one (`$XDG_STATE_HOME`, else `~/.local/state`); with neither, there is no default.
     ///
@@ -241,6 +244,7 @@ impl Layered {
         let store_root: FieldPath = STORE_ROOT.parse()?;
         let plugins_dirs: FieldPath = PLUGINS_DIRS.parse()?;
         let slots_count: FieldPath = SLOTS_COUNT.parse()?;
+        let slots_evaluators: FieldPath = SLOTS_EVALUATORS.parse()?;
 
         let mut project = Vec::new();
         if let Some(found) = config.project.as_ref() {
@@ -261,6 +265,9 @@ impl Layered {
         let mut user = Vec::new();
         if let Some(count) = config.user.slots_count {
             user.push((slots_count, JsonValue::new(Value::from(count))?));
+        }
+        if let Some(count) = config.user.slots_evaluators {
+            user.push((slots_evaluators, JsonValue::new(Value::from(count))?));
         }
         let default_root = match config.project.as_ref() {
             Some(found) => Some(found.root.join(".candler").join("store")),

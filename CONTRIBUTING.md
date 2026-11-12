@@ -143,3 +143,47 @@ Git does not copy hooks on clone, so `cog install-hook --all` is the per-clone s
 The types and scopes live in `cog.toml` and equal the tables in this file; change both together. `cog` itself does not require a scope, which is why the hook checks the prefix first. A checkout without `cog.toml` passes the hook, so a branch cut before the file landed can still commit.
 
 Commits made before `cog.toml` landed on `main` are outside every checked range: a pull request's range starts at `main`, so CI never sees them.
+
+## Contract pages
+
+`docs/contract/` holds one page per surface an author writes or a plug-in speaks, and `index.md`, which lists the pages and the versions they match. The reader is a coding agent, so the pages hold tables and rules, no narrative.
+
+Every page has these `##` sections, in this order, and no other:
+
+| Section | Holds | Comes from |
+|---|---|---|
+| Surface | One sentence: what the surface is, who writes it, who reads it | By hand |
+| Version | The wire tag, and the release line the page matches | Generated from the committed schema files and the manifests |
+| Fields | One row per property: path, type, class, default | Generated from the committed schema files in `crates/candler-schemas/schema/` |
+| Refusals | The codes a reader of the surface refuses with | Generated from the code's catalog and `docs/contract/codes.toml` |
+| Notes | What the generated sections cannot say | By hand |
+
+A `###` heading inside Fields names one root of a page that has several. A union is one table per alternative, titled by its `method` or `kind`.
+
+Each field has one class:
+
+| Class | Meaning | Read from |
+|---|---|---|
+| `required` | An author sets it | The object's `required` |
+| `optional` | An author may set it | A property not in `required` |
+| `candler` | Candler writes it; an author never sets it | `x-candler-class` in the schema |
+| `free` | Stored and never read | `x-candler-class` in the schema |
+
+Notes are tentative. A page holds at most 120 words of them, not counting bullet markers and stamps, and each note is a bullet ending in a stamp `[checked: <line>@<version>]`, where `<line>` is `schemas`, `v` or `candler-evaluator`.
+
+Every version number of a page sits inside a `<!-- versions -->` block. After a release, `python3 scripts/contract_versions.py` rewrites those blocks from the manifests (Python 3.11 or later, no build), and with `--check` it writes nothing and exits 1 when a block differs.
+
+After a schema file or a manifest changes, regenerate the pages and commit them with the change:
+
+```
+CANDLER_BLESS_CONTRACT=1 cargo nextest run -p candler -E 'binary(contract_pages)'
+```
+
+`docs/contract/codes.toml` is append-only: a released code is never renamed or removed.
+
+| Check | Test | Fails when |
+|---|---|---|
+| Generated sections | `d1_regenerating_the_pages_changes_nothing` | A page or the index differs from what the schema files and manifests generate |
+| Classes | `d1_fields_agree_with_the_hand_classes` | A generated class differs from `crates/candler-schemas/tests/vectors/field_classes.toml` |
+| Frame | `d2_each_page_has_the_five_sections_in_order` | A page has an extra or misplaced section, or a Notes section that is too long or unstamped |
+| Versions | `d4_compatibility_table_equals_the_manifests` | A version a page quotes differs from its manifest, or sits outside a block |

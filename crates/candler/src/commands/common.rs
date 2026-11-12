@@ -5,23 +5,21 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use candler_core::analysis::report::choose_evaluator;
 use candler_core::evaluation::selection::select::{Selection, select};
 use candler_core::resolve::config::{Config, ConfigEnv};
 use candler_core::resolve::layers::{Resolution, ResolveInput};
 use candler_core::resolve::preflight::Resolver;
 use candler_core::store::Store;
-use candler_schemas::primitives::FieldPath;
+use candler_schemas::primitives::{FieldPath, NameVersion};
 
 use super::CliError;
+use super::refusal::CliRefusal;
 use crate::Cli;
 
-#[cfg(unix)]
 use candler_core::evaluation::registry::{Registry, register_evaluation_steps};
-#[cfg(unix)]
 use candler_core::supervise::{EventSink, Supervisor};
-#[cfg(unix)]
 use candler_schemas::execution::EventPayload;
-#[cfg(unix)]
 use candler_schemas::primitives::RunKey;
 
 /// The path of the store root among the resolved settings.
@@ -51,7 +49,6 @@ pub fn plain_resolver(config: &Arc<Config>) -> Resolver {
 ///
 /// # Errors
 /// Returns [`CliError::Failed`] when a step cannot be registered.
-#[cfg(unix)]
 pub fn evaluation_resolver(
     verb: &'static str,
     config: &Arc<Config>,
@@ -103,9 +100,7 @@ pub fn resolved_root(resolution: &Resolution) -> Result<PathBuf, CliError> {
         .and_then(|entry| entry.value())
         .and_then(|value| value.as_value().as_str())
         .map(PathBuf::from)
-        .ok_or_else(|| {
-            CliError::refused("no store: pass --store, set CANDLER_STORE or configure store.root")
-        })
+        .ok_or_else(|| CliError::refused_by(CliRefusal::NoStore))
 }
 
 /// The root of the store every verb uses: `explicit` (`--store` or `CANDLER_STORE`), else the
@@ -151,12 +146,56 @@ pub fn read_selection(verb: &'static str, store: &Store) -> Result<Selection, Cl
     Ok(select(records))
 }
 
+/// The evaluator a verb works on, as the flag `flag` names it.
+///
+/// A `name@version` is that evaluator, as it was written; a bare version is the one evaluator of
+/// the selection that holds it; no request is the one evaluator the selection holds. The choice of
+/// the last two is [`choose_evaluator`], the one `analyze` makes.
+///
+/// # Errors
+/// [`CliError::Coded`] for a `name@version` that does not parse and for the refusals of
+/// [`choose_evaluator`]: no outcomes, several evaluators and no request, a version no
+/// evaluator holds, and a version several evaluators hold.
+pub fn evaluator_of(
+    selection: &Selection,
+    flag: &'static str,
+    requested: Option<&str>,
+) -> Result<NameVersion, CliError> {
+    if let Some(text) = requested.filter(|text| text.contains('@')) {
+        return named_evaluator(flag, text);
+    }
+    choose_evaluator(selection, requested)
+        .map_err(|e| CliError::refused_by(e).led_by(format!("{flag}: ")))
+}
+
+/// Refuses `text` when it holds an `@` and is not a `name@version`, as [`evaluator_of`] would, so
+/// that the refusal comes before the store is read; any other text passes.
+///
+/// # Errors
+/// [`CliError::Coded`] for a `name@version` that does not parse.
+pub fn check_evaluator_text(flag: &'static str, text: &str) -> Result<(), CliError> {
+    if text.contains('@') {
+        named_evaluator(flag, text).map(drop)
+    } else {
+        Ok(())
+    }
+}
+
+/// The evaluator `text` names, written as `name@version`.
+fn named_evaluator(flag: &'static str, text: &str) -> Result<NameVersion, CliError> {
+    text.parse::<NameVersion>().map_err(|e| {
+        CliError::refused_by(CliRefusal::EvaluatorInvalid {
+            flag: flag.to_owned(), // BORROW: the refusal owns the flag
+            text: text.to_owned(), // BORROW: the refusal owns the text
+            detail: e.to_string(),
+        })
+    })
+}
+
 /// The sink the supervisor reports to: one JSON line per event on stderr.
-#[cfg(unix)]
 #[derive(Debug, Default, Clone, Copy)]
 pub struct StderrSink;
 
-#[cfg(unix)]
 impl EventSink for StderrSink {
     fn emit(&self, run: Option<&RunKey>, payload: EventPayload) {
         if let Ok(line) = serde_json::to_string(&payload) {

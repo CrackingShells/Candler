@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use candler_core::resolve::config::{Config, ConfigEnv, ConfigError, ProjectConfig, UserConfig};
-use candler_core::resolve::layers::{FileValues, Layered, Resolution, ResolveInput};
+use candler_core::resolve::layers::{FileValues, Layered, Resolution, ResolveInput, is_setting};
 use candler_core::resolve::preflight::{
     CheckResult, PreflightError, PreflightStep, ResolveContext, ResolveError, Resolver, StepReport,
 };
@@ -686,4 +686,112 @@ async fn the_default_store_root_follows_the_project_or_the_user_state_directory(
         store(config).await.0,
         Some(format!("{base_text}/work/.candler/store"))
     );
+}
+
+/// Guards: E2 (`slots.evaluators`) — the user configuration reads `slots.evaluators`: absent is
+/// `None`, `3` is `Some(3)`, `-1` and `"x"` are `WrongType` naming the key and the file, and a
+/// project `candler.toml` that sets it is `MachineWideKey` naming `slots.evaluators`. Oracle: the
+/// values written out by hand below.
+/// Bite: accept the key in a project file (`ProjectConfig::read` stops refusing the `slots` table).
+#[test]
+fn e2_user_config_reads_slots_evaluators_and_refuses_a_bad_value() {
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let xdg = dir.path().join("xdg");
+    fs::create_dir_all(xdg.join("candler")).expect("create the user config dir");
+    let user_file = xdg.join("candler").join("config.toml");
+    let env = ConfigEnv::new(Some(xdg), None, None);
+
+    fs::write(&user_file, "[slots]\ncount = 4\n").expect("write the user file");
+    let loaded = UserConfig::load(&env).expect("a file without the key");
+    assert_eq!(loaded.slots_evaluators, None, "absent");
+    assert_eq!(
+        loaded.slots_count,
+        Some(4),
+        "the other key is not disturbed"
+    );
+
+    fs::write(&user_file, "[slots]\nevaluators = 3\n").expect("write the user file");
+    let loaded = UserConfig::load(&env).expect("a file with the key");
+    assert_eq!(loaded.slots_evaluators, Some(3), "present");
+    assert_eq!(loaded.slots_count, None);
+
+    for bad in ["-1", "\"x\"", "2.5", "[1]"] {
+        fs::write(&user_file, format!("[slots]\nevaluators = {bad}\n")).expect("write the file");
+        let error = UserConfig::load(&env).expect_err("a bad value is refused");
+        assert!(
+            matches!(&error, ConfigError::WrongType { file, key, .. } if *file == user_file && key == "slots.evaluators"),
+            "{bad}: {error}"
+        );
+        assert!(error.to_string().contains("slots.evaluators"), "{error}");
+    }
+
+    let project_file = dir.path().join("candler.toml");
+    fs::write(&project_file, "[slots]\nevaluators = 2\n").expect("write the project file");
+    let error = ProjectConfig::discover(dir.path()).expect_err("slots is machine-wide");
+    assert!(
+        matches!(&error, ConfigError::MachineWideKey { file, key } if *file == project_file && key == "slots.evaluators"),
+        "{error}"
+    );
+    assert!(error.to_string().contains("slots.evaluators"), "{error}");
+}
+
+/// Guards: E2 — `slots.evaluators` is a setting and not a cell value: `is_setting` is true for it
+/// and false for `slots.evaluator`, and a user configuration value resolves into the settings with
+/// the source `user_config`, never into the values. Oracle: R01 §Configuration, written by hand.
+/// Bite: drop the path from `is_setting`; it then lands in the values, which reach a cell digest.
+#[test]
+fn e2_slots_evaluators_is_a_setting_not_a_cell_value() {
+    assert!(is_setting(&fp("slots.evaluators")));
+    assert!(!is_setting(&fp("slots.evaluator")));
+    assert!(
+        is_setting(&fp("slots.count")),
+        "the neighbour stays a setting"
+    );
+
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let xdg = dir.path().join("xdg");
+    fs::create_dir_all(xdg.join("candler")).expect("create the user config dir");
+    fs::write(
+        xdg.join("candler").join("config.toml"),
+        "[slots]\nevaluators = 3\n",
+    )
+    .expect("write the user file");
+    let user = UserConfig::load(&ConfigEnv::new(Some(xdg), None, None)).expect("loads");
+    let config = Config::new(
+        dir.path().to_owned(),
+        None,
+        user,
+        Some(dir.path().join("state")),
+    );
+    let resolution = Layered::new(&config, ResolveInput::default())
+        .expect("layers")
+        .resolve();
+    let path = fp("slots.evaluators");
+    let setting = resolution
+        .settings
+        .iter()
+        .find(|value| value.path() == &path)
+        .expect("a setting");
+    assert_eq!(setting.value(), Some(&num(3)));
+    assert!(
+        !value_paths(&resolution).contains(&"slots.evaluators"),
+        "not a cell value"
+    );
+    let source = resolution
+        .sources
+        .iter()
+        .find(|entry| entry.path() == &path)
+        .map(SourceEntry::source);
+    assert_eq!(source, Some(&ValueSource::UserConfig));
+}
+
+/// Guards: E2 — `slots.evaluators` is a known path of the configuration surface (through
+/// `is_setting`), so refusing unknown field paths never touches it, and `slots.evaluator` stays
+/// unknown. Oracle: the two paths written out by hand.
+/// Bite: drop the path from `is_setting`; it is then unknown.
+#[test]
+fn e2_slots_evaluators_is_a_known_path() {
+    use candler_core::experiment::paths::is_known_path;
+    assert!(is_known_path(&fp("slots.evaluators")));
+    assert!(!is_known_path(&fp("slots.evaluator")));
 }

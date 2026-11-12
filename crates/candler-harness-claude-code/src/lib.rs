@@ -11,6 +11,7 @@ pub mod discovery;
 pub mod driver;
 mod parse;
 pub mod prepare;
+pub mod refusal;
 mod sessions;
 mod usage;
 

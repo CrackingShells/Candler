@@ -123,6 +123,35 @@ fn candler(home: &Path, store: &Path, args: &[&str]) -> Output {
         .expect("the binary runs")
 }
 
+/// Runs the binary as [`candler`] does, from the working directory `cwd`.
+fn candler_in(cwd: &Path, home: &Path, store: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_candler"))
+        .current_dir(cwd)
+        .env_remove("CANDLER_STORE")
+        .env("HOME", home)
+        .env("XDG_CONFIG_HOME", home.join("config"))
+        .env("XDG_STATE_HOME", home.join("state"))
+        .arg("--store")
+        .arg(store)
+        .args(args)
+        .output()
+        .expect("the binary runs")
+}
+
+/// A project directory for plug-in `version` under `parent`: a `candler.toml` that lists the
+/// directory of `manifest` under `plugins.dirs`. Returns the project.
+fn project_of(parent: &Path, version: &str, manifest: &Path) -> PathBuf {
+    let project = parent.join(format!("project-{version}"));
+    fs::create_dir_all(&project).expect("a project directory");
+    let plugin_dir = manifest.parent().expect("a manifest directory");
+    fs::write(
+        project.join("candler.toml"),
+        format!("[plugins]\ndirs = [\"{}\"]\n", plugin_dir.display()),
+    )
+    .expect("the project file writes");
+    project
+}
+
 fn keys(value: &Value) -> BTreeSet<String> {
     value
         .as_object()
@@ -477,15 +506,16 @@ fn evaluate_diff_and_show_over_two_plugin_versions_follow_the_fixture_verdicts()
     let verdicts = json!({"blocked": 1, "fail": 1, "not_applicable": 1, "pass": 2});
     for version in ["0.1.0", "0.1.1"] {
         let manifest = plugin_of(dir.path(), version);
-        let manifest_arg = manifest.to_str().expect("a UTF-8 path");
+        // Each version runs from a project of its own, whose `candler.toml` lists its directory.
+        let project = project_of(dir.path(), version, &manifest);
+        let candler =
+            |home: &Path, store: &Path, args: &[&str]| candler_in(&project, home, store, args);
+        #[rustfmt::skip]
         let out = candler(
             dir.path(),
             &store,
             &[
                 "evaluate",
-                "--plugin",
-                manifest_arg,
-                "--suite",
                 suite_arg,
                 "--runs",
                 "*-r6-a1",

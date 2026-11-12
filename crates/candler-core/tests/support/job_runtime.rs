@@ -243,15 +243,27 @@ pub fn wait_for(path: &Path, limit: Duration) -> Option<String> {
 }
 
 /// Whether the process `pid` is gone, as the system answers a signal-0 probe, or is another
-/// process than the one that started at `before`.
+/// process than the one that started at `before`, or is a zombie: a process that has exited and
+/// waits for a parent to reap it. A zombie answers the probe and keeps its start time, and under a
+/// PID 1 that does not reap (a container started without `--init`) it stays one.
 pub fn gone(pid: u32, before: &ProcessStart) -> bool {
     let Some(target) = i32::try_from(pid).ok().and_then(Pid::from_raw) else {
         return true;
     };
     match test_kill_process(target) {
-        Ok(()) => process_start(pid) != *before,
+        Ok(()) => process_start(pid) != *before || is_zombie(pid),
         Err(error) => error == Errno::SRCH,
     }
+}
+
+/// Whether `/proc/<pid>/stat` gives the state `Z`. The state is the first field after the last
+/// `)`, since the command name may hold one. No `/proc` (macOS) reads as not a zombie.
+fn is_zombie(pid: u32) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|stat| {
+        stat.rsplit_once(')')
+            .and_then(|(_, rest)| rest.split_whitespace().next())
+            .is_some_and(|state| state == "Z")
+    })
 }
 
 /// Waits up to `limit` for every process of `starts` to be gone.

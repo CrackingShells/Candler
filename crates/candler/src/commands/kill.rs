@@ -4,6 +4,7 @@
 //! record is read against the operating system again and every signal passes the process guard.
 //! A job whose supervisor is gone, or still has not ended the job after the grace, is recovered.
 
+use std::error::Error;
 use std::io::{self, BufRead, Write};
 use std::path::Path;
 
@@ -20,6 +21,7 @@ use candler_schemas::process::ChildRecord;
 use std::sync::Arc;
 
 use super::ps::{describe_recovery, end_text};
+use super::refusal::CliRefusal;
 use super::{CliError, Exit, common};
 
 /// The arguments of `candler kill`.
@@ -28,10 +30,12 @@ pub struct Args {
     /// The job to stop.
     #[arg(required_unless_present = "all", conflicts_with = "all")]
     pub id: Option<JobId>,
-    /// Stop every running or lost job.
+    /// Stop every running or lost job. not an experiment setting: it chooses which jobs the call
+    /// stops.
     #[arg(long)]
     pub all: bool,
-    /// Do not ask for confirmation.
+    /// Do not ask for confirmation. not an experiment setting: it answers the question the call
+    /// would ask.
     #[arg(short = 'y', long = "yes", default_value_t = false)]
     pub yes: bool,
 }
@@ -71,43 +75,102 @@ fn supervisor_record(dir: &JobDir, id: &JobId) -> Result<ChildRecord, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Stops the job `id` and says what became of it; the error text is the reason it was not
-/// stopped.
+/// Why a job was not stopped: the reason as text, and the error behind it when there is one.
+#[derive(Debug)]
+pub struct NotStopped {
+    reason: String,
+    cause: Option<Box<dyn Error + Send + Sync>>,
+}
+
+impl std::fmt::Display for NotStopped {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.reason)
+    }
+}
+
+impl Error for NotStopped {
+    fn source<'a>(&'a self) -> Option<&'a (dyn Error + 'static)> {
+        self.cause
+            .as_ref()
+            .map(|cause| -> &(dyn Error + 'static) { cause.as_ref() })
+    }
+}
+
+impl NotStopped {
+    /// A job that was not stopped for `reason`, which no error stands behind.
+    fn text(reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+            cause: None,
+        }
+    }
+
+    /// A job that was not stopped because of `error`, whose text is the reason.
+    fn caused<E: Error + Send + Sync + 'static>(error: E) -> Self {
+        Self {
+            reason: error.to_string(),
+            // TRAIT_OBJECT: the failures of different crates travel as one type
+            cause: Some(Box::new(error)),
+        }
+    }
+}
+
+/// The failure of a `kill` that left jobs running: how many and which, with the first job's
+/// reason as its cause, so that the refusal behind that reason names the failure.
+#[derive(Debug)]
+struct KillFailed {
+    text: String,
+    first: NotStopped,
+}
+
+impl std::fmt::Display for KillFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.text)
+    }
+}
+
+impl Error for KillFailed {
+    fn source<'a>(&'a self) -> Option<&'a (dyn Error + 'static)> {
+        Some(&self.first)
+    }
+}
+
+/// Stops the job `id` and says what became of it.
 ///
 /// # Errors
-/// The reason, as text, when the job could not be stopped or recovered.
-pub async fn stop_job(store: &StoreLayout, id: &JobId) -> Result<String, String> {
-    let dir = JobDir::open(store, id).map_err(|e| e.to_string())?;
-    let first = lost::classify(&dir).map_err(|e| e.to_string())?;
+/// [`NotStopped`] when the job could not be stopped or recovered.
+pub async fn stop_job(store: &StoreLayout, id: &JobId) -> Result<String, NotStopped> {
+    let dir = JobDir::open(store, id).map_err(NotStopped::caused)?;
+    let first = lost::classify(&dir).map_err(NotStopped::caused)?;
     if let JobLiveness::Ended(end) = first {
         return Ok(format!("{id}: {} (left alone)", end_text(end)));
     }
     if first == JobLiveness::Running {
-        let events = Arc::new(JobEvents::open(&dir).map_err(|e| e.to_string())?);
+        let events = Arc::new(JobEvents::open(&dir).map_err(NotStopped::caused)?);
         // TRAIT_OBJECT: the supervisor takes its sink as a trait object
         let sink: Arc<dyn EventSink> = events;
         let sup = Supervisor::new(sink);
-        let record = supervisor_record(&dir, id)?;
+        let record = supervisor_record(&dir, id).map_err(NotStopped::text)?;
         let stop = StopSpec::new(None, StopSignal::Term, TEARDOWN_BOUND);
         sup.reap(None, &record, &stop)
             .await
-            .map_err(|e| e.to_string())?;
-        if let JobLiveness::Ended(end) = lost::classify(&dir).map_err(|e| e.to_string())? {
+            .map_err(NotStopped::caused)?;
+        if let JobLiveness::Ended(end) = lost::classify(&dir).map_err(NotStopped::caused)? {
             return Ok(format!("{id}: {}", end_text(end)));
         }
     }
     let report = recover_job_dir(&dir)
         .await
-        .map_err(|e| format!("recover failed: {e}"))?;
+        .map_err(|e| NotStopped::text(format!("recover failed: {e}")))?;
     match report.outcome {
-        RecoverOutcome::NotLost => Err("its supervisor still holds the job".to_owned()), // BORROW: the error owns its text
+        RecoverOutcome::NotLost => Err(NotStopped::text("its supervisor still holds the job")),
         RecoverOutcome::Recovered | RecoverOutcome::AlreadyEnded => Ok(format!(
             "{id}: recovered ({} containers destroyed)",
             report.containers
         )),
         RecoverOutcome::Incomplete | _ => {
             let (text, _) = describe_recovery(&report);
-            Err(text)
+            Err(NotStopped::text(text))
         }
     }
 }
@@ -159,38 +222,40 @@ pub async fn kill(
         write!(out, "stop them? [y/N] ").map_err(fail)?;
         out.flush().map_err(fail)?;
         if !confirm(input) {
-            return Err(CliError::Refused {
-                reason: "pass -y to confirm".to_owned(), // BORROW: the error owns its text
-            });
+            return Err(CliError::refused_by(CliRefusal::KillNotConfirmed));
         }
     }
     let store = StoreLayout::new(&root);
     let mut failures = Vec::new();
+    let mut first: Option<NotStopped> = None;
     for name in names {
         let stopped = match name.parse::<JobId>() {
             Ok(id) => stop_job(&store, &id).await,
-            Err(error) => Err(error.to_string()),
+            Err(error) => Err(NotStopped::caused(error)),
         };
         match stopped {
             Ok(text) => writeln!(out, "{text}").map_err(fail)?,
             Err(reason) => {
                 writeln!(out, "{name}: not stopped: {reason}").map_err(fail)?;
                 failures.push(name);
+                first.get_or_insert(reason);
             }
         }
     }
-    if failures.is_empty() {
-        Ok(())
-    } else {
-        Err(CliError::Failed {
+    match first {
+        None => Ok(()),
+        Some(first) => Err(CliError::Failed {
             verb: "kill",
-            source: format!(
-                "{} job(s) not stopped: {}",
-                failures.len(),
-                failures.join(" ")
-            )
-            .into(),
-        })
+            // TRAIT_OBJECT: the failures of different crates travel as one type
+            source: Box::new(KillFailed {
+                text: format!(
+                    "{} job(s) not stopped: {}",
+                    failures.len(),
+                    failures.join(" ")
+                ),
+                first,
+            }),
+        }),
     }
 }
 
