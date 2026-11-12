@@ -485,6 +485,11 @@ side = "environment"
 enum = "ResolveError"
 variant = "Preflight"
 
+[resolve."experiment.session_refused"]
+side = "experiment"
+enum = "SessionRefusal"
+variant = "Refused"
+
 [experiment]
 
 [experiment."experiment.setting_value_invalid"]

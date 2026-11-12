@@ -6,6 +6,7 @@ pub mod leak;
 mod measure;
 pub mod provenance;
 pub mod run;
+pub mod session;
 pub mod tree;
 
 use candler_schemas::execution::RunTree;

@@ -190,6 +190,9 @@ pub enum ResolveError {
         /// The step that derived it second, as `name@token`.
         second: String,
     },
+    /// A cell's session settings are refused by the session step, and no other step failed.
+    #[error(transparent)]
+    Session(#[from] crate::resolve::steps::session::SessionRefusal),
     /// At least one step failed; every step ran.
     #[error(
         "preflight failed: {} failed step report(s), {} step error(s){}",
@@ -328,6 +331,11 @@ impl Resolver {
                 }),
             }
         }
+        if errors.is_empty()
+            && let Some(refusal) = session_refusal(&reports)
+        {
+            return Err(refusal);
+        }
         if !reports.is_empty() || !errors.is_empty() {
             return Err(ResolveError::Preflight { reports, errors });
         }
@@ -335,4 +343,25 @@ impl Resolver {
         resolution.preflight = passed;
         Ok(resolution)
     }
+}
+
+/// The session refusal of `reports` when the session step is the only step that failed and one
+/// of its checks says why.
+fn session_refusal(reports: &[StepReport]) -> Option<ResolveError> {
+    let [report] = reports else {
+        return None;
+    };
+    if report.step.to_string() != crate::resolve::steps::session::STEP_NAME {
+        return None;
+    }
+    report
+        .checks
+        .iter()
+        .find(|result| !result.passed)
+        .map(|result| {
+            ResolveError::Session(crate::resolve::steps::session::SessionRefusal::Refused {
+                check: result.name.to_string(), // BORROW: the refusal owns the check name
+                detail: result.explanation.clone(), // BORROW: the refusal owns the explanation
+            })
+        })
 }

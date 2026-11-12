@@ -279,6 +279,7 @@ pub fn scene(dir: &Path) -> Scene {
         expiry: Duration::from_secs(3600),
         project_root: root.clone(), // BORROW: the scene keeps the root
         store_root: root.clone(),   // BORROW: the scene keeps the root
+        interactive: false,
     };
     Scene {
         root,

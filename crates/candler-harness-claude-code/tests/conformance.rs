@@ -383,7 +383,7 @@ fn conformance_claude_hook_command_observes_without_deciding() -> Res<()> {
     let command = settings["hooks"]["Stop"][0]["hooks"][0]["command"]
         .as_str()
         .ok_or("no hook command")?;
-    let payload = r#"{"hook_event_name":"Stop","background_tasks":[{"id":"b1"}],"session_crons":[{"id":"w1","recurring":false},{"id":"c1","recurring":true}]}"#;
+    let payload = r#"{"prompt_id":"p1","hook_event_name":"Stop","background_tasks":[{"id":"b1"}],"session_crons":[{"id":"w1","recurring":false},{"id":"c1","recurring":true}]}"#;
     let run = |home: &Path| -> Res<std::process::Output> {
         let mut child = Command::new("sh")
             .args(["-c", command])
@@ -530,7 +530,7 @@ fn conformance_claude_tracker_and_pending_work() -> Res<()> {
     };
     let stop = |tasks: &str, crons: &str| {
         format!(
-            r#"{{"hook_event_name":"Stop","background_tasks":{tasks},"session_crons":{crons}}}"#
+            r#"{{"prompt_id":"p1","hook_event_name":"Stop","background_tasks":{tasks},"session_crons":{crons}}}"#
         )
     };
 

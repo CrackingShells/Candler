@@ -110,6 +110,7 @@ fn plan_in(dir: &Path, job: &JobId) -> ContainerPlan {
         expiry: Duration::from_secs(10),
         project_root: dir.to_path_buf(),
         store_root: dir.to_path_buf(),
+        interactive: false,
     }
 }
 

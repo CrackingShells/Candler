@@ -93,6 +93,14 @@ pub const BUDGET_PER_RUN_TURNS: &str = "budget.per_run.turns";
 /// A cell value: the cost cap of one run.
 pub const BUDGET_PER_RUN_MAX_COST_USD: &str = "budget.per_run.max_cost_usd";
 
+/// A cell value: how the harness runs, `headless` or `session`. It has no core default: a cell
+/// that does not write it runs headless.
+pub const RUNNER_MODE: &str = "runner.mode";
+
+/// A cell value: the seconds a session stays open after the agent yields with nothing pending, or
+/// `none`. It is refused unless [`RUNNER_MODE`] is `session`.
+pub const RUNNER_IDLE_S: &str = "runner.idle_s";
+
 /// A typed root, derived: the harness identity.
 pub const HARNESS: &str = "harness";
 
@@ -126,7 +134,7 @@ pub const SLOTS_EVALUATORS: &str = "slots.evaluators";
 /// children are free, or an ancestor of any of these.
 #[must_use]
 pub fn is_known_path(path: &candler_schemas::primitives::FieldPath) -> bool {
-    const LEAVES: [&str; 31] = [
+    const LEAVES: [&str; 33] = [
         MODEL_ID,
         MODEL_ENDPOINT,
         MODEL_EFFORT,
@@ -153,6 +161,8 @@ pub fn is_known_path(path: &candler_schemas::primitives::FieldPath) -> bool {
         BUDGET_PER_RUN_WALL_S,
         BUDGET_PER_RUN_TURNS,
         BUDGET_PER_RUN_MAX_COST_USD,
+        RUNNER_MODE,
+        RUNNER_IDLE_S,
         STORE_ROOT,
         PLUGINS_DIRS,
         SLOTS_COUNT,

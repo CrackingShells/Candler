@@ -74,6 +74,16 @@ class = "cell_value"
 source = "experiment file"
 
 [[path]]
+path = "runner.mode"
+class = "cell_value"
+source = "experiment file (fixed, factors); headless or session, absent means headless (M4 D1)"
+
+[[path]]
+path = "runner.idle_s"
+class = "cell_value"
+source = "experiment file; whole seconds or none; session mode only, derived as 60 when absent (M4 D1)"
+
+[[path]]
 path = "isolation.image"
 class = "cell_value"
 source = "derived by the image_id step: local image ID sha256:..."

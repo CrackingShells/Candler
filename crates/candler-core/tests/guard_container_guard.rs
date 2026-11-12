@@ -518,6 +518,7 @@ async fn b10_guard_refusals() {
         expiry: Duration::from_secs(10),
         project_root: work.path().to_path_buf(),
         store_root: work.path().to_path_buf(),
+        interactive: false,
     };
     std::fs::write(&plan.cidfile, id.as_str()).expect("a cidfile"); // BORROW: explicit .as_str()
     let exit = Exit::new(

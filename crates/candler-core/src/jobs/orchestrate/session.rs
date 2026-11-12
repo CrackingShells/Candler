@@ -6,17 +6,18 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
+use std::str::FromStr as _;
 use std::sync::Arc;
 use std::time::Duration;
 
 use candler_schemas::container::ContainerRole;
 use candler_schemas::execution::{Comparable, EventPayload, SecretPresence, TreatmentSpec};
-use candler_schemas::primitives::{Digest, FieldPath, Marker, SecretName};
+use candler_schemas::primitives::{Digest, FieldPath, Marker, NameToken, SecretName};
 use candler_schemas::values::{ResolvedValue, SourceEntry, ValueSource};
 use futures::future::BoxFuture;
 
 use super::schedule::{Clock, wall_clock};
-use crate::experiment::paths::{ISOLATION_IMAGE, ISOLATION_RECORD_PACKAGES};
+use crate::experiment::paths::{ISOLATION_IMAGE, ISOLATION_RECORD_PACKAGES, RUNNER_IDLE_S};
 use crate::isolation::Isolation;
 use crate::isolation::container::guard::ContainerGuard;
 use crate::isolation::container::sweeper::LabelSweeper;
@@ -35,6 +36,7 @@ use crate::jobs::dir::JobDir;
 use crate::jobs::model::JobSpec;
 use crate::jobs::view::JobView;
 use crate::resolve::layers::Resolution;
+use crate::resolve::steps::session;
 use crate::runner::evidence::Inputs;
 use crate::runner::exec::CellRun;
 use crate::runner::plan::{CellId, PlanError, PlanOutcome};
@@ -368,7 +370,11 @@ pub struct JobSession {
 /// The sources a cell's manifest carries: one for each value of the cell, and the ones of the
 /// typed records. A value the resolution gives no source is one the experiment file sets for the
 /// cell: a factor level or a cap. The sources of settings are not the cell's.
-fn sources_of(comparable: &Comparable, resolution: &Resolution) -> Vec<SourceEntry> {
+fn sources_of(
+    comparable: &Comparable,
+    resolution: &Resolution,
+    idle_derived: bool,
+) -> Vec<SourceEntry> {
     let held: BTreeSet<&FieldPath> = comparable
         .values()
         .iter()
@@ -389,11 +395,15 @@ fn sources_of(comparable: &Comparable, resolution: &Resolution) -> Vec<SourceEnt
         .collect();
     for path in &held {
         if !sources.iter().any(|entry| entry.path() == *path) {
+            // A session whose mode is a factor level gets its idle default per cell, from the
+            // session rule: planning says which cells it derived it for.
+            let derived = path.as_str() == RUNNER_IDLE_S && idle_derived;
+            let source = match NameToken::from_str(session::STEP_NAME) {
+                Ok(step) if derived => ValueSource::derived(step),
+                _ => ValueSource::ExperimentFile,
+            };
             // BORROW: the entry owns its path
-            sources.push(SourceEntry::new(
-                (*path).clone(),
-                ValueSource::ExperimentFile,
-            ));
+            sources.push(SourceEntry::new((*path).clone(), source));
         }
     }
     sources.sort_by(|a, b| a.path().cmp(b.path()));
@@ -457,7 +467,11 @@ pub fn cells_of(
             comparable.clone(),         // BORROW: the cell owns its comparable
             outcome.experiment.clone(), // BORROW: the cell owns its experiment digest
             factors.clone(),            // BORROW: the cell owns its factors
-            sources_of(written, &spec.resolution),
+            sources_of(
+                written,
+                &spec.resolution,
+                outcome.idle_derived.contains(digest),
+            ),
             secrets.clone(), // BORROW: the cell owns its secrets
             source.clone(),  // BORROW: the cell owns its treatment source
             inputs.clone(),  // BORROW: the cell owns its inputs

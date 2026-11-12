@@ -210,6 +210,7 @@ impl Rig {
             project_root: self.base.clone(),
             // BORROW: the spec owns its path
             store_root: self.base.clone(),
+            interactive: false,
         }
     }
 

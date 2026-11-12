@@ -19,10 +19,11 @@ use rustix::fs::{FlockOperation, flock};
 use rustix::io::Errno;
 use serde_json::Value;
 
-use crate::experiment::paths::{HARNESS, ISOLATION_IMAGE, TREATMENT};
+use crate::experiment::paths::{self, HARNESS, ISOLATION_IMAGE, TREATMENT};
 use crate::jobs::dir::JobDir;
 use crate::jobs::lock::{JobLock, LockState};
 use crate::resolve::layers::{Resolution, is_setting};
+use crate::resolve::steps::session::{self, SessionRefusal};
 use crate::store::Store;
 
 /// The digest of a cell.
@@ -43,6 +44,9 @@ pub struct PlanCtx {
     /// The secrets that are present now, by name; the caller fills it from the secret resolution
     /// it already does for the gateway token.
     pub secrets_present: BTreeSet<SecretName>,
+    /// Whether the harness's driver can run a session; `None` when the caller does not know, and
+    /// the capability is then left unchecked.
+    pub session_capable: Option<bool>,
 }
 
 /// Whether a forced plan may accept a differing re-check.
@@ -122,6 +126,9 @@ pub struct PlanOutcome {
     pub experiment: Digest,
     /// The cell each plan runs as the current files and resolution build it, by the plan's cell.
     pub fresh: BTreeMap<CellId, Comparable>,
+    /// The cells whose `runner.idle_s` is the session rule's default, derived for the cell, by
+    /// the cell's id as in [`PlanOutcome::fresh`].
+    pub idle_derived: BTreeSet<CellId>,
 }
 
 /// The digest of the experiment `file` makes under `resolution`, from its fresh cells.
@@ -129,7 +136,7 @@ pub struct PlanOutcome {
 /// # Errors
 /// [`PlanError::Cell`] when a cell cannot be built.
 pub fn experiment_of(file: &ExperimentFile, resolution: &Resolution) -> Result<Digest, PlanError> {
-    let cells = fresh_cells(file, resolution)?;
+    let cells = fresh_cells(file, resolution, None)?;
     let digests: Vec<Digest> = cells.iter().map(|cell| cell.comparable.digest()).collect();
     // BORROW: explicit .as_slice() instead of Deref coercion
     Ok(experiment_digest(digests.as_slice()))
@@ -208,6 +215,10 @@ pub enum PlanError {
         /// The replicate.
         replicate: u32,
     },
+    /// A cell's session settings are refused: the mode or the idle is not valid, the idle is set
+    /// without session mode, or the driver cannot run a session.
+    #[error(transparent)]
+    Session(#[from] SessionRefusal),
     /// A factor of the experiment varies a setting, which no cell can vary.
     #[error("the setting {path} cannot be a factor; write it in [fixed]")]
     SettingAsFactor {
@@ -299,6 +310,8 @@ struct FreshCell {
     declared: Vec<FieldPath>,
     /// The cell built from the effective values and everything else the resolution holds.
     comparable: Comparable,
+    /// Whether the session rule derived the cell's `runner.idle_s`.
+    idle_derived: bool,
 }
 
 /// Reports whether two paths are the same or one lies below the other.
@@ -343,6 +356,7 @@ fn setting_in(prefix: &str, table: &serde_json::Map<String, Value>) -> Option<St
 fn fresh_cells(
     file: &ExperimentFile,
     resolution: &Resolution,
+    session_capable: Option<bool>,
 ) -> Result<Vec<FreshCell>, PlanError> {
     if let Some(path) = file.factors().iter().find_map(setting_of_factor) {
         return Err(PlanError::SettingAsFactor { path });
@@ -374,6 +388,30 @@ fn fresh_cells(
             .collect();
         // BORROW: .cloned() gives the cell its own values
         values.extend(effective.iter().cloned());
+        let derived_idle = {
+            let at = |path: &str| {
+                values
+                    .iter()
+                    .find(|value| value.path().as_str() == path)
+                    .and_then(ResolvedValue::value)
+                    .map(JsonValue::as_value)
+            };
+            let settled = session::settle(
+                at(paths::RUNNER_MODE),
+                at(paths::RUNNER_IDLE_S),
+                session_capable,
+            )?;
+            settled.derive_idle
+        };
+        if derived_idle {
+            let (path, value) = session::default_idle().map_err(|error| {
+                PlanError::Session(SessionRefusal::Refused {
+                    check: String::from(session::STEP_NAME),
+                    detail: error.to_string(),
+                })
+            })?;
+            values.push(ResolvedValue::recorded(path, value));
+        }
         // BORROW: explicit .as_slice() instead of Deref coercion
         let comparable = Comparable::from_resolved(values.as_slice())
             .map_err(|source| PlanError::Cell { source })?;
@@ -391,6 +429,7 @@ fn fresh_cells(
         cells.push(FreshCell {
             declared,
             comparable,
+            idle_derived: derived_idle,
         });
     }
     Ok(cells)
@@ -820,7 +859,7 @@ pub fn plan_runs(
             None
         }
     };
-    let cells = fresh_cells(file, resolution)?;
+    let cells = fresh_cells(file, resolution, ctx.session_capable)?;
     let groups = stored_groups(&ctx.store)?;
     // BORROW: explicit .as_slice() instead of Deref coercion
     let matched = match_stored(cells.as_slice(), groups.as_slice())?;
@@ -852,6 +891,7 @@ pub fn plan_runs(
         }
     }
     let mut fresh: BTreeMap<CellId, Comparable> = BTreeMap::new();
+    let mut idle_derived: BTreeSet<CellId> = BTreeSet::new();
     let mut digests: BTreeSet<Digest> = BTreeSet::new();
     let mut per_cell: Vec<(Digest, Option<Comparable>, Vec<Deviation>)> = Vec::new();
     let mut changed: Vec<Deviation> = Vec::new();
@@ -880,6 +920,9 @@ pub fn plan_runs(
         digests.insert(digest.clone()); // BORROW: the set keeps the digest beside the plan
         // BORROW: the map keeps the digest and the fresh cell beside the plan
         fresh.insert(digest.clone(), cell.comparable.clone());
+        if cell.idle_derived {
+            idle_derived.insert(digest.clone());
+        }
         per_cell.push((digest, pinned, deviations));
     }
     if force == Force::No && !changed.is_empty() {
@@ -939,5 +982,6 @@ pub fn plan_runs(
         lock,
         experiment,
         fresh,
+        idle_derived,
     })
 }
