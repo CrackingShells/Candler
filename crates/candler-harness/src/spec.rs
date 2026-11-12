@@ -449,8 +449,9 @@ pub enum CollectSpec {
     /// driver's [`StatePath`]s hold the values the run used, which the core supplies. A harness
     /// that keeps its sessions in per-run state reads them through this form.
     ///
-    /// The command inherits the whole run environment, including the variable that holds the
-    /// gateway token, and its output is archived raw: the command must not print its environment.
+    /// The command runs in a fresh container with no network, sees the agent's state and the state
+    /// variables of `state_paths()` but none of the gateway's variables, and its output is
+    /// archived raw.
     #[non_exhaustive]
     Exec {
         /// The command the core runs inside the isolation.
