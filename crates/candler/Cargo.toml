@@ -12,7 +12,7 @@ publish = false
 candler-core.workspace = true
 candler-harness.workspace = true
 candler-harness-claude-code.workspace = true
-candler-harness-opencode = { path = "../candler-harness-opencode" }
+candler-harness-opencode.workspace = true
 semver.workspace = true
 candler-schemas.workspace = true
 clap.workspace = true

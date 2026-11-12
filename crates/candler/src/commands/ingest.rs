@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use candler_core::import::assemble::import;
 use candler_core::import::digest_of;
-use candler_core::import::raw::{RawIngestError, ingest_raw};
+use candler_core::import::raw::{RawIngestError, ingest_raw_with};
 use candler_core::import::rules::{
     HarnessRule, ImportRules, MarkerCode, MarkerRule, SnapshotRule, TreatmentRule,
 };
@@ -269,11 +269,16 @@ async fn run_traces(cli: &Cli, args: &IngestArgs) -> Result<Exit, CliError> {
                 Some(found)
             }
         };
-        let report = ingest_raw(
+        let offline = {
+            let registry = Arc::clone(&registry); // BORROW: the callback owns a handle on the registry
+            move |harness: &str| registry.offline(harness)
+        };
+        let report = ingest_raw_with(
             &store,
             path.as_path(), // BORROW: explicit .as_path()
             &recognise,
             factory.as_ref(),
+            &offline,
         )
         .map_err(|error| {
             if matches!(

@@ -38,6 +38,16 @@ fn document_frame(raw: &str) -> String {
         .to_owned()
 }
 
+/// `stdout` with one more event after it that names another session, as a child's: the root is
+/// the session the stream named first.
+fn with_child(stdout: &str, root: &str) -> String {
+    let last = stdout.lines().last().expect("a line");
+    format!(
+        "{stdout}{}\n",
+        last.replace(root, "ses_childchildchildchild")
+    )
+}
+
 /// Guards: R01 §Harness drivers (the export goes to `offline_reader`), I3 — a run that exits has
 /// its collect command run in a container over the run's mounts *before* the agent's container
 /// is destroyed; the command carries the session id the live stream named, the run's state
@@ -129,6 +139,20 @@ fn wiring_collect_exports_before_the_destroy_and_the_export_is_the_trace() {
             "{case}"
         );
     }
+    // A stream that names a child session after the root: the collect command gets the root's id.
+    let root = session_of("completed_o1");
+    let mut scenario = Scenario::exited("completed_o1");
+    scenario.stdout = with_child(&scenario.stdout, &root);
+    let ran = run(&scenario, |_, _| {});
+    let export = first_call(&ran.docker, |call| {
+        call.first().is_some_and(|verb| verb == "run") && call.contains(&String::from("export"))
+    })
+    .expect("an export call");
+    assert_eq!(
+        ran.docker[export].last(), // INDEX: found above
+        Some(&root),
+        "the collect command carries the root session, not the last one seen"
+    );
 }
 
 /// Guards: R01 §Process supervision (stop escalation, containers) — a stopped run's pre-stop is
@@ -145,7 +169,7 @@ fn wiring_collect_exports_before_the_destroy_and_the_export_is_the_trace() {
 fn wiring_stop_execs_in_the_container_with_the_observed_id() {
     let id = session_of("completed_o1");
     // (case, what the agent prints, the fake client's exit for `exec`, the pre-stop outcome, exec)
-    let rows: [(&str, String, &str, &str, bool); 3] = [
+    let rows: [(&str, String, &str, &str, bool); 4] = [
         (
             "an id observed",
             recorded("completed_o1", "stdout.jsonl"),
@@ -165,6 +189,13 @@ fn wiring_stop_execs_in_the_container_with_the_observed_id() {
             recorded("completed_o1", "stdout.jsonl"),
             "1",
             "exec failed",
+            true,
+        ),
+        (
+            "a child session seen after the root",
+            with_child(&recorded("completed_o1", "stdout.jsonl"), &id),
+            "0",
+            "exec done",
             true,
         ),
     ];

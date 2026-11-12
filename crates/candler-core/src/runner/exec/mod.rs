@@ -555,6 +555,7 @@ async fn drive(
 
     rt.sink.emit(Some(&plan.key), EventPayload::run_started());
     let attempt_began = std::time::Instant::now();
+    let attempt_wall = std::time::SystemTime::now();
     let Started {
         mut child,
         end_facts,
@@ -671,15 +672,31 @@ async fn drive(
     }
     // The census of a harness with no init event, read from what the gateway relayed.
     let mut gateway_init = None;
-    // EXPLICIT: a census the gateway cannot give or the reader cannot read records no census value,
-    // as for a run whose requests carry no tools; it is not a collect failure
-    if let (Some(name), Some(gateway)) = (rt.driver.census_stream(), &rt.gateway)
-        && let Ok(bytes) = gateway.service.run_census(&gateway.handle, &plan.key).await
-        && let Some(reader) = rt.driver.offline_reader(&name)
-        && let Ok(read) = read_stream(&frames, &name, &bytes, reader)
-    {
-        gateway_init = read.observed.init;
-        extra.push(read.file);
+    // A census that cannot be read whole, or that its reader refuses, is a collect failure and
+    // never an absent census; a run whose requests carry no tools records no census value.
+    if let (Some(name), Some(gateway)) = (rt.driver.census_stream(), &rt.gateway) {
+        let read = match gateway
+            .service
+            .run_census(&gateway.handle, &plan.key, attempt_wall)
+            .await
+        {
+            Ok(bytes) => rt
+                .driver
+                .offline_reader(&name)
+                .map(|reader| read_stream(&frames, &name, &bytes, reader)),
+            Err(_) => None,
+        };
+        match read {
+            Some(Ok(read)) if read.trace.is_ok() => {
+                gateway_init = read.observed.init;
+                extra.push(read.file);
+            }
+            Some(Ok(read)) => {
+                extra.push(read.file);
+                collect_ok = false;
+            }
+            Some(Err(_)) | None => collect_ok = false,
+        }
     }
     // What the driver resolved from the cell.
     match stream("resolved").map(|name| store_stream(&frames, &name, Framing::Document, &resolved))

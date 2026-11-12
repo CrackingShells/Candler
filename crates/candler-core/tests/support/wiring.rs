@@ -242,6 +242,7 @@ impl Gateway for CensusGateway {
         &'a self,
         handle: &'a GatewayHandle,
         run: &'a RunKey,
+        _since: std::time::SystemTime,
     ) -> BoxFuture<'a, Result<Vec<u8>, GatewayError>> {
         Box::pin(async move {
             let tag = handle.run_tag(run);

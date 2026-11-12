@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use candler_schemas::container::{ContainerLabels, ContainerRecord, ContainerRole};
 use candler_schemas::primitives::{ContainerId, Digest, JobId, Marker, RunKey};
@@ -205,16 +205,19 @@ pub trait Gateway: Send + Sync {
 
     /// The model requests the gateway relayed for the run `run`, one JSON line each:
     /// `{"seq":<n>,"tools":["<name>",...]}`, the tool names of the request and nothing else of
-    /// it, in the order the requests began. A gateway that records none answers no bytes.
+    /// it, in the order the requests began. A gateway that records none answers no bytes. Only
+    /// what the gateway wrote since `since`, the start of the run's attempt, is read; a log cut
+    /// short is an error, never an empty census.
     ///
     /// # Errors
-    /// [`GatewayError`] when the gateway cannot be asked.
+    /// [`GatewayError`] when the gateway cannot be asked or its log is cut short.
     fn run_census<'a>(
         &'a self,
         handle: &'a GatewayHandle,
         run: &'a RunKey,
+        since: SystemTime,
     ) -> BoxFuture<'a, Result<Vec<u8>, GatewayError>> {
-        let _ = (handle, run);
+        let _ = (handle, run, since);
         Box::pin(async { Ok(Vec::new()) })
     }
 }
@@ -849,9 +852,10 @@ impl Gateway for DockerGateway {
         &'a self,
         handle: &'a GatewayHandle,
         run: &'a RunKey,
+        since: SystemTime,
     ) -> BoxFuture<'a, Result<Vec<u8>, GatewayError>> {
         Box::pin(async move {
-            let log = self.logs().read(handle).await?;
+            let log = self.logs().read_since(handle, since).await?;
             // BORROW: explicit .as_str() instead of Deref coercion
             Ok(census_of(log.as_str(), run, handle.run_tag(run).as_str()))
         })
@@ -867,6 +871,41 @@ pub struct GatewayLogs {
 }
 
 impl GatewayLogs {
+    /// The sidecar's output since `since`, so that a long job's log is not read again for every
+    /// run.
+    ///
+    /// # Errors
+    /// [`GatewayError::Start`] when `docker logs` fails, and [`GatewayError::Unavailable`] when
+    /// the output reaches the client's capture limit and so may be cut short.
+    pub fn read_since<'a>(
+        &'a self,
+        handle: &'a GatewayHandle,
+        since: SystemTime,
+    ) -> BoxFuture<'a, Result<String, GatewayError>> {
+        Box::pin(async move {
+            // A margin of two seconds covers the option's whole-second resolution.
+            let secs = since
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_secs().saturating_sub(2));
+            let args = vec![
+                String::from("logs"),
+                String::from("--since"),
+                secs.to_string(),
+                handle.container.cid.to_string(),
+            ];
+            let out = self.cli.run(&self.sup, args, StdinSpec::Null).await?;
+            if !out.succeeded() {
+                return Err(out.failure("docker logs"));
+            }
+            if out.stdout.len() >= crate::isolation::docker::OUTPUT_LIMIT {
+                return Err(GatewayError::Unavailable {
+                    detail: String::from("the gateway log is cut short at the capture limit"),
+                });
+            }
+            Ok(format!("{}\n{}", out.stdout, out.stderr))
+        })
+    }
+
     /// The sidecar's standard output, then its standard error, as text.
     ///
     /// # Errors

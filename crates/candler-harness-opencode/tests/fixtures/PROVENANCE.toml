@@ -175,3 +175,14 @@ log_sha256 = "fae2f18f82fb3138871253fd84c900d402b909d72f2488619b000d882efa8833"
 config = "crates/candler-core/tests/fixtures/gateway/census_deny_shell_config.json"
 config_sha256 = "1be70a693a780ee38c1bdd288bb8db0c759354fe2f4cf914181608097466c5aa"
 run = "3333333333333333333333333333333333333333333333333333333333333333-r1-a1"
+
+# `census_log.txt` (`opencode_wiring`, 2026-11-12) is synthetic. It was written by the production
+# gateway sidecar image on hand-built request bodies sent to it with `wget` on a scratch network,
+# not by an OpenCode run and not through the fake model: tool-less and twelve-tool requests
+# with descriptions, schemas, message text and a system prompt that held canary words, for two run
+# keys, to show what the census line keeps. The twelve names are those of a recorded OpenCode
+# request (`completed_o1`). Contrast `[gateway_census.deny_shell]`, which is a real run's log.
+[gateway_census.synthetic]
+log = "crates/candler-core/tests/fixtures/gateway/census_log.txt"
+log_sha256 = "55ac88272a5bd76ed130f13d8e872586bda81c048215d8226a58d5084f834a36"
+synthetic = true

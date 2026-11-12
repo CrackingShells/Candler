@@ -20,6 +20,7 @@ use candler_harness_opencode::live::OpenCodeLiveReader;
 use candler_harness_opencode::skills::OpenCodeSkills;
 use candler_harness_opencode::{OpenCodeError, SUPPORTED as OPENCODE_SUPPORTED};
 use candler_schemas::primitives::Name;
+use candler_schemas::raw::StreamName;
 use serde_json::Value;
 
 use crate::commands::CliError;
@@ -62,6 +63,8 @@ pub struct DriverEntry {
     pub skills: Arc<dyn SkillTree>,
     /// The directory under `assets/docker` that holds the build context of the base image.
     pub base_context: &'static str,
+    /// The streams the harness collects after a run, each read offline by its driver's reader.
+    pub offline_streams: &'static [&'static str],
     /// Builds a reader of the harness's output.
     pub reader: ReaderBuilder,
     /// Recognises a raw stream of the harness from its first line.
@@ -126,6 +129,7 @@ impl Registry {
                 driver: Arc::new(driver),
                 skills: Arc::new(ClaudeSkills),
                 base_context: "base",
+                offline_streams: &[],
                 reader: claude_code_reader,
                 detect: claude_code_detect,
             },
@@ -137,6 +141,7 @@ impl Registry {
                 driver: Arc::new(opencode),
                 skills: Arc::new(OpenCodeSkills),
                 base_context: "base-opencode",
+                offline_streams: &[candler_harness_opencode::EXPORT_STREAM],
                 reader: opencode_reader,
                 detect: opencode_detect,
             },
@@ -148,6 +153,25 @@ impl Registry {
     #[must_use]
     pub fn names(&self) -> Vec<String> {
         self.entries.keys().cloned().collect() // BORROW: the names are owned by the caller
+    }
+
+    /// The streams the harness `name` collects after a run, each with the offline reader its
+    /// driver gives it. A harness that is not registered, or that collects none, gives none.
+    // TRAIT_OBJECT: the readers are the drivers', chosen by the harness's name at runtime
+    #[must_use]
+    pub fn offline(&self, name: &str) -> Vec<(StreamName, Box<dyn TraceReader>)> {
+        let Some(entry) = self.entries.get(name) else {
+            return Vec::new();
+        };
+        entry
+            .offline_streams
+            .iter()
+            .filter_map(|stream| {
+                let stream: StreamName = stream.parse().ok()?;
+                let reader = entry.driver.offline_reader(&stream)?;
+                Some((stream, reader))
+            })
+            .collect()
     }
 
     /// What the first harness that recognises `sample`, the start of a raw stream, says of it. The

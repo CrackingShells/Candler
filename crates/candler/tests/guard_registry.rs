@@ -265,6 +265,12 @@ fn registry_ingest_reads_each_path_with_its_own_harness() {
     }
     fs::write(first.join("stdout.jsonl"), claude).expect("a stream");
     fs::write(second.join("stdout.jsonl"), opencode).expect("a stream");
+    // The run's collected export, beside its stream: ingest reads it as the run did.
+    fs::copy(
+        root.join("../candler-harness-opencode/tests/fixtures/streams/completed_o1/export.json"),
+        second.join("export.json"),
+    )
+    .expect("the recorded export");
 
     let store = dir.path().join("store");
     let out = Command::new(env!("CARGO_BIN_EXE_candler"))
@@ -281,6 +287,7 @@ fn registry_ingest_reads_each_path_with_its_own_harness() {
     assert!(out.status.success(), "{out:?}");
 
     let mut names = Vec::new();
+    let mut readers = Vec::new();
     for entry in fs::read_dir(store.join("runs")).expect("runs lists") {
         let path = entry.expect("an entry").path();
         if path
@@ -291,6 +298,19 @@ fn registry_ingest_reads_each_path_with_its_own_harness() {
         }
         let text = fs::read_to_string(path.join("manifest.json")).expect("a manifest");
         let manifest: serde_json::Value = serde_json::from_str(&text).expect("JSON");
+        assert_eq!(
+            manifest["integrity"]["kind"], "valid",
+            "the run is supported by its harness's reader: {manifest}"
+        );
+        let trace = fs::read_to_string(path.join("trace.jsonl")).expect("a trace");
+        let header: serde_json::Value =
+            serde_json::from_str(trace.lines().next().expect("a header")).expect("header JSON");
+        readers.push(
+            header["reader"]
+                .as_str()
+                .unwrap_or_else(|| panic!("a reader: {header}"))
+                .to_owned(), // BORROW: the list owns the names
+        );
         names.push(
             manifest["comparable"]["harness"]["name"]
                 .as_str()
@@ -300,4 +320,9 @@ fn registry_ingest_reads_each_path_with_its_own_harness() {
     }
     names.sort();
     assert_eq!(names, ["claude-code", "opencode"]);
+    // Each path is read by its own harness's reader, and the export wins as it does at run time.
+    readers.sort();
+    assert_eq!(readers.len(), 2, "two runs: {readers:?}");
+    assert!(readers[0].starts_with("claude-code"), "{readers:?}"); // INDEX: two readers, checked above
+    assert_eq!(readers[1], "opencode-export@0.1.0", "{readers:?}"); // INDEX: two readers, checked above
 }

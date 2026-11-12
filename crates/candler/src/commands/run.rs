@@ -87,17 +87,10 @@ fn parse_field(text: &str) -> Result<(FieldPath, String), String> {
     Ok((path, value.to_owned())) // BORROW: the argument owns its value
 }
 
-/// Makes sure the gateway's sidecar image is there: looks it up by its tag, and builds it from
-/// the gateway's assets, through the supervised docker client, only when it is absent.
+/// Builds the gateway's sidecar image from the gateway's assets, through the supervised docker
+/// client. Docker's layer cache makes the build a lookup when the context is unchanged, so an
+/// image another build left under the tag is never the one a job uses.
 async fn ensure_sidecar(cli: &DockerCli, context: PathBuf) -> Result<(), CliError> {
-    if cli
-        .image_inspect(SIDECAR_TAG)
-        .await
-        .map_err(failed)?
-        .is_some()
-    {
-        return Ok(());
-    }
     let request = BuildRequest {
         context,
         tag: SIDECAR_TAG.to_owned(), // BORROW: the request owns its tag

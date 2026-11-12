@@ -44,7 +44,7 @@ const DEFAULT_STOP_GRACE: Duration = Duration::from_secs(5);
 const BUILD_DEADLINE: Duration = Duration::from_mins(15);
 
 /// How many bytes of a client's output are kept.
-const OUTPUT_LIMIT: usize = 4 * 1024 * 1024;
+pub(crate) const OUTPUT_LIMIT: usize = 4 * 1024 * 1024;
 
 /// How many bytes of a captured container call's output are kept: an export of a long session.
 const CAPTURE_LIMIT: usize = 64 * 1024 * 1024;
@@ -545,49 +545,13 @@ fn parse_ids(text: &str) -> Result<Vec<String>, DockerError> {
         .collect()
 }
 
-/// Whether `args` are a container call that destroys nothing: `exec` in a container named by its
-/// full id without `--privileged`, or `run --rm` of a control container with no network, the label
-/// `candler.role=control` and none of the flags that widen a container.
-fn is_capturable(args: &[String]) -> bool {
-    let at = |index: usize| args.get(index).map(String::as_str);
-    match at(0) {
-        Some("exec") => args
-            .iter()
-            .skip(1)
-            .find(|arg| is_full_id(arg))
-            .is_some_and(|_| !args.iter().any(|arg| arg == "--privileged")),
-        Some("run") => {
-            at(1) == Some("--rm")
-                && args.windows(2).any(|pair| pair == ["--network", "none"])
-                && args
-                    .windows(2)
-                    .any(|pair| pair == ["--label", "candler.role=control"])
-                && !args.iter().any(|arg| {
-                    matches!(
-                        arg.as_str(),
-                        "--privileged" | "--pid" | "--ipc" | "--cap-add" | "--device"
-                    )
-                })
-        }
-        _ => false,
-    }
-}
-
 impl DockerDriver for DockerCli {
     fn capture(
         &self,
         args: Vec<String>,
         deadline: Duration,
     ) -> BoxFuture<'_, Result<Vec<u8>, DockerError>> {
-        Box::pin(async move {
-            if !is_capturable(&args) {
-                return Err(DockerError::Failed {
-                    // BORROW: the error owns its text
-                    detail: "a captured call is `exec` in a container or `run --rm`".to_owned(),
-                });
-            }
-            self.runner.run_bytes(args, deadline, CAPTURE_LIMIT).await
-        })
+        Box::pin(async move { self.runner.run_bytes(args, deadline, CAPTURE_LIMIT).await })
     }
 
     fn inspect<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Inspect, DockerError>> {
