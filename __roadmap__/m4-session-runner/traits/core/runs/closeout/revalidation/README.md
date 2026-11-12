@@ -15,7 +15,7 @@ Zero digest moves are recorded, and the live confirmations of C1, C2, a notifica
 ## Status
 ```mermaid
 graph TD
-    digest_invariance[Digest invariance]:::planned
+    digest_invariance[Digest invariance]:::inprogress
     live_confirmation[Live confirmation]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -27,7 +27,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `digest_invariance.md` | 📄 Leaf Task | ⬜ Planned |
+| `digest_invariance.md` | 📄 Leaf Task | 🔄 In Progress |
 | `live_confirmation.md` | 📄 Leaf Task | ⬜ Planned |
 
 ## Amendment Log
