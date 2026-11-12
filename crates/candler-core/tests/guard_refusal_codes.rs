@@ -831,6 +831,17 @@ fn wrapped_cases() -> Vec<Wrapped> {
         ),
         case(
             "PlanError",
+            "Driver",
+            Box::new(PlanError::Driver(DriverError::Unsupported {
+                path: "/budget/per_run/turns".to_owned(),
+                harness: "h".to_owned(),
+                version: semver::Version::new(1, 0, 0),
+                detail: "d".to_owned(),
+            })),
+            "experiment.setting_unsupported",
+        ),
+        case(
+            "PlanError",
             "Cell",
             Box::new(PlanError::Cell { source: absolute() }),
             "experiment.absolute_path",

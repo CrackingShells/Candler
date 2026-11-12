@@ -203,6 +203,17 @@ pub trait HarnessDriver: Send + Sync {
         Vec::new()
     }
 
+    /// Refuses a cell that sets something the driver cannot honour, with the error `prepare` and
+    /// `command` give for it, so the core can refuse the cell before any job starts. The default
+    /// accepts every cell.
+    ///
+    /// # Errors
+    /// [`DriverError`] for the first setting of the cell the driver cannot honour.
+    fn check_settings(&self, cell: &Cell<'_>) -> Result<(), DriverError> {
+        let _ = cell;
+        Ok(())
+    }
+
     /// The names of the variables through which the core hands the gateway to the agent, or
     /// `None` for a driver that names none. The core sets the values; a driver whose
     /// configuration needs the address or the token writes a reference to the variable's name

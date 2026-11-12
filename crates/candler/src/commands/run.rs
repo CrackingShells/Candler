@@ -33,6 +33,7 @@ use candler_core::resolve::config::{Config, ConfigEnv};
 use candler_core::resolve::layers::{FileValues, Resolution, ResolveInput};
 use candler_core::runner::plan::{Force, PlanCtx, PlanMode, experiment_of, plan_runs};
 use candler_core::store::Store;
+use candler_harness::driver::HarnessDriver;
 use candler_schemas::execution::{ExperimentFile, JobRecord, JobState};
 use candler_schemas::primitives::FieldPath;
 
@@ -180,7 +181,7 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
         resolution,
         force,
         declared,
-        Some(entry.driver.capabilities().session),
+        Arc::clone(&entry.driver),
     )?;
     start(&store, &file, &spec, &root).await
 }
@@ -211,14 +212,15 @@ fn plan_job(
     resolution: Resolution,
     force: bool,
     declared: ResolvedInputs,
-    session_capable: Option<bool>,
+    // TRAIT_OBJECT: the registry selects the driver at runtime
+    driver: Arc<dyn HarnessDriver>,
 ) -> Result<JobSpec, CliError> {
     let experiment = experiment_of(file, &resolution).map_err(failed)?;
     let ctx = PlanCtx {
         store: store.clone(), // BORROW: the context owns its handle on the store
         experiment_lock: store.layout().experiment_lock(&experiment),
         secrets_present: EnvSecrets::new(file.secrets()).present(),
-        session_capable,
+        driver: Some(driver),
     };
     let mode = if force { Force::Yes } else { Force::No };
     let outcome = plan_runs(&ctx, file, &resolution, mode, PlanMode::Check)

@@ -230,7 +230,7 @@ pub fn plan_ctx(store: &Store, lock: &Path, facts: &Facts) -> PlanCtx {
             .iter()
             .map(|name| name.parse::<SecretName>().expect("a secret name"))
             .collect::<BTreeSet<_>>(),
-        session_capable: Some(true),
+        driver: None,
     }
 }
 

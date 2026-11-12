@@ -8,6 +8,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use candler_harness::driver::{DriverError, HarnessDriver};
+use candler_harness::spec::Cell;
 
 use candler_schemas::execution::{
     Comparable, Deviation, ExecutionError, ExperimentFile, Factor, Integrity, Level,
@@ -35,7 +39,7 @@ const HARNESS_VERSION: &str = "harness.version";
 const SECRETS: &str = "secrets";
 
 /// What planning reads.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PlanCtx {
     /// The store.
     pub store: Store,
@@ -44,9 +48,10 @@ pub struct PlanCtx {
     /// The secrets that are present now, by name; the caller fills it from the secret resolution
     /// it already does for the gateway token.
     pub secrets_present: BTreeSet<SecretName>,
-    /// Whether the harness's driver can run a session; `None` when the caller does not know, and
-    /// the capability is then left unchecked.
-    pub session_capable: Option<bool>,
+    /// The harness's driver, which settles whether a cell may run a session and refuses a setting
+    /// it cannot honour; `None` when the caller has none, and both are then left unchecked.
+    // TRAIT_OBJECT: the binary selects the driver at runtime
+    pub driver: Option<Arc<dyn HarnessDriver>>,
 }
 
 /// Whether a forced plan may accept a differing re-check.
@@ -219,6 +224,9 @@ pub enum PlanError {
     /// without session mode, or the driver cannot run a session.
     #[error(transparent)]
     Session(#[from] SessionRefusal),
+    /// The harness's driver cannot honour a value of a cell.
+    #[error(transparent)]
+    Driver(#[from] DriverError),
     /// A factor of the experiment varies a setting, which no cell can vary.
     #[error("the setting {path} cannot be a factor; write it in [fixed]")]
     SettingAsFactor {
@@ -351,13 +359,15 @@ fn setting_in(prefix: &str, table: &serde_json::Map<String, Value>) -> Option<St
 /// is a setting of the run, which the resolution holds, and no value of a cell.
 ///
 /// # Errors
-/// [`PlanError::SettingAsFactor`] when a factor of `file` varies a setting, and [`PlanError::Cell`]
-/// when a cell cannot be built.
+/// [`PlanError::SettingAsFactor`] when a factor of `file` varies a setting, [`PlanError::Cell`]
+/// when a cell cannot be built, [`PlanError::Session`] when a cell breaks the session rule, and
+/// [`PlanError::Driver`] when the driver cannot honour a value of a settled cell.
 fn fresh_cells(
     file: &ExperimentFile,
     resolution: &Resolution,
-    session_capable: Option<bool>,
+    driver: Option<&dyn HarnessDriver>,
 ) -> Result<Vec<FreshCell>, PlanError> {
+    let session_capable = driver.map(|driver| driver.capabilities().session);
     if let Some(path) = file.factors().iter().find_map(setting_of_factor) {
         return Err(PlanError::SettingAsFactor { path });
     }
@@ -431,6 +441,11 @@ fn fresh_cells(
             comparable,
             idle_derived: derived_idle,
         });
+    }
+    if let Some(driver) = driver {
+        for cell in &cells {
+            driver.check_settings(&Cell::new(cell.comparable.values()))?;
+        }
     }
     Ok(cells)
 }
@@ -859,7 +874,7 @@ pub fn plan_runs(
             None
         }
     };
-    let cells = fresh_cells(file, resolution, ctx.session_capable)?;
+    let cells = fresh_cells(file, resolution, ctx.driver.as_deref())?;
     let groups = stored_groups(&ctx.store)?;
     // BORROW: explicit .as_slice() instead of Deref coercion
     let matched = match_stored(cells.as_slice(), groups.as_slice())?;

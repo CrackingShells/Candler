@@ -579,8 +579,8 @@ I3, so event times are reproducible even where the harness emits none.
 
 ### Traits (signatures only)
 
-Every item added for the second harness (`settings_table`, `gateway`, `state_paths`,
-`census_stream`, `session`, `session_tracker`, `classify_end`) has a default body, so a driver
+Every item added for the second harness (`settings_table`, `check_settings`, `gateway`,
+`state_paths`, `census_stream`, `session`, `session_tracker`, `classify_end`) has a default body, so a driver
 implements only what its harness has.
 
 - `HarnessDriver`
@@ -595,6 +595,8 @@ implements only what its harness has.
     `Mapped` (with the harness construct it writes) or `Refused` (with the reason). The driver
     builds its command and files from the same rows. A setting the harness cannot honour is
     refused with `experiment.setting_unsupported`, naming the setting's pointer, never dropped
+  - `check_settings(cell) -> Result<(), DriverError>`: the same refusal `prepare` and `command`
+    give, which the core asks for each planned cell, so the cell is refused before a job starts
   - `gateway() -> Option<GatewayEnv { base_url, auth_token, reserved[] }>`: the names of the two
     variables through which the core hands the gateway to the agent. The core sets the values; a
     harness configured by file refers to the names (`prepare`), so no value passes through the

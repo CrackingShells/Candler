@@ -238,6 +238,10 @@ impl HarnessDriver for OpenCodeDriver {
         prepare::table()
     }
 
+    fn check_settings(&self, cell: &Cell<'_>) -> Result<(), DriverError> {
+        prepare::settings(cell, &VALIDATED).map(|_| ())
+    }
+
     fn prepare(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Prepared, DriverError> {
         let _ = workspace;
         let file = prepare::render_config(

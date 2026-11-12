@@ -38,6 +38,6 @@ Core line: `v0.7.0`; the `candler-harness` crate has the same version.
 
 ## Notes
 
-- `no (refused)` is a refusal with a code: `experiment.session_refused` while resolving, `experiment.setting_unsupported` when a run is prepared, after its job has started. [checked: v@0.7.0]
+- `no (refused)` is a refusal with a code: `experiment.session_refused` while resolving, `experiment.setting_unsupported` when the cells are planned, before a job starts. [checked: v@0.7.0]
 - In session mode Candler also counts turns across the session and ends the run when they exceed `budget.per_run.turns`. [checked: v@0.7.0]
 - The settings a driver maps or refuses, such as permission modes, effort levels and tool names, are rows of its `settings_table()`. [checked: v@0.7.0]

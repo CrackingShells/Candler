@@ -27,6 +27,7 @@ Core line: `v0.7.0`; the `candler-harness` crate has the same version.
 | `HarnessDriver::prepare` | `(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Prepared, DriverError>` | required | - |
 | `HarnessDriver::command` | `(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<CommandSpec, DriverError>` | required | - |
 | `HarnessDriver::settings_table` | `(&self) -> Vec<SettingRow>` | optional | `Vec::new()` |
+| `HarnessDriver::check_settings` | `(&self, cell: &Cell<'_>) -> Result<(), DriverError>` | optional | `Ok(())` |
 | `HarnessDriver::gateway` | `(&self) -> Option<GatewayEnv>` | optional | `None` |
 | `HarnessDriver::state_paths` | `(&self) -> Vec<StatePath>` | optional | `Vec::new()` |
 | `HarnessDriver::census_stream` | `(&self) -> Option<StreamName>` | optional | `None` |

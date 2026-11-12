@@ -119,7 +119,7 @@ async fn run_job(
         store: rt.store.clone(), // BORROW: the context owns its handle on the store
         experiment_lock: rt.store.layout().experiment_lock(&fresh),
         secrets_present: secrets.present(),
-        session_capable: Some(rt.driver.capabilities().session),
+        driver: Some(Arc::clone(&rt.driver)),
     };
     let force = if spec.force { Force::Yes } else { Force::No };
     let outcome = match plan_runs(

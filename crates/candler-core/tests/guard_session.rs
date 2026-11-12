@@ -21,6 +21,7 @@ use candler_core::runner::plan::{Force, PlanCtx, PlanError, PlanMode, plan_runs}
 use candler_harness::driver::HarnessDriver as _;
 use candler_harness::spec::{Cell, Workspace};
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
+use candler_harness_opencode::driver::OpenCodeDriver;
 use candler_schemas::execution::ExperimentFile;
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::refusal::{Refusal, Side};
@@ -293,7 +294,11 @@ async fn planned(
         store,
         experiment_lock: lock,
         secrets_present: BTreeSet::new(),
-        session_capable: Some(capable),
+        driver: Some(if capable {
+            Arc::new(ClaudeCodeDriver::new().expect("the Claude Code driver"))
+        } else {
+            Arc::new(OpenCodeDriver::new().expect("the OpenCode driver"))
+        }),
     };
     let outcome = plan_runs(&ctx, file, &resolution, Force::No, PlanMode::Check)?;
     let spec = JobSpec {
@@ -443,6 +448,36 @@ async fn session_resolve_settles_each_cell() {
             assert_eq!(refusal.check(), "idle_s_needs_session@1");
         }
         other => panic!("idle in [fixed] without a mode: {:?}", other.is_ok()),
+    }
+}
+
+/// Guards: R01 §Harness drivers — a setting the driver cannot honour is refused when the cells are
+/// planned, before any job exists, with the driver's own code: an `OpenCode` cell with a turn cap
+/// answers `experiment.setting_unsupported` (experiment side), and the same cell without the cap
+/// plans.
+/// Oracle: the refused `budget.per_run.turns` row of `OpenCode`'s settings table, which the
+/// `oc_step_cap` fixture backs.
+/// Bite: drop the settings pass from the plan (the capped cell plans, and fails only when its run
+/// is prepared).
+#[tokio::test]
+async fn session_plan_refuses_a_setting_the_driver_cannot_honour() {
+    let file = experiment_with("");
+    let mode = ("permission_mode", json!("bypassPermissions"));
+    assert!(
+        planned(&file, std::slice::from_ref(&mode), false)
+            .await
+            .is_ok(),
+        "the cell without a cap plans"
+    );
+    match planned(&file, &[mode, ("budget.per_run.turns", json!(5))], false).await {
+        Err(error) => {
+            assert_eq!(
+                Refusal::code(&error).as_str(),
+                "experiment.setting_unsupported"
+            );
+            assert_eq!(Refusal::side(&error), Side::Experiment);
+        }
+        Ok(_) => panic!("an OpenCode cell with a turn cap planned"),
     }
 }
 
