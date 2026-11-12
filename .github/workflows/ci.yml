@@ -211,6 +211,7 @@ jobs:
           set -eu
           # Two merges close together start two runs; the older one cannot
           # push on top of the newer, and the newer run releases both.
+          git fetch -q origin main
           if [ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]; then
             echo "main has moved past $GITHUB_SHA; the run for the newer push releases."
             exit 0
