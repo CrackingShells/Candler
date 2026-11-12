@@ -29,7 +29,7 @@ In `candler-harness` (names from the campaign's shared names):
 8. The trait `candler_harness::skills::SkillTree`, with the methods of the core's `runner::exec::cell::SkillTree`; the core's trait stays until L2 removes it.
 **Deliverables**: `crates/candler-harness/src/{driver.rs,spec.rs,reader.rs}`: `GatewayEnv`, `StatePath`, `InitReport`, `SessionSpec`, `HookSpec`, `PendingState`, `Action::Exec`; `crates/candler-harness/src/skills.rs`: `SkillTree`
 **Consistency Checks**: `cargo nextest run --workspace` (expected: PASS)
-**Commit**: `feat(runner): let a driver supply its gateway, state, census, skills and session`
+**Commit**: `feat(runner): let a driver supply gateway, state, census and session`
 
 ## Step 2: Share one fixture suite
 **Goal**: Each driver crate runs the same checks on its own recorded fixtures.
@@ -48,4 +48,4 @@ Add `candler_harness::conformance` behind the feature `conformance`: given a dri
 4. The crate's conformance test runs the suite on the existing stream fixtures and the session fixtures of `session_facts`.
 **Deliverables**: `crates/candler-harness-claude-code/src/{driver.rs,prepare.rs}`; `crates/candler-harness-claude-code/src/session.rs`: the session spec, hook spec and pending parse; `crates/candler-harness-claude-code/src/skills.rs`: `ClaudeSkills`; `crates/candler-harness-claude-code/tests/conformance.rs`
 **Consistency Checks**: `cargo nextest run -p candler-harness-claude-code --no-tests=fail -E 'test(/^conformance_/)|binary(guard_claude_code_driver)'` (expected: PASS)
-**Commit**: `feat(adapter-claude-code): implement session mode and the new driver facts`
+**Commit**: `feat(adapter-claude-code): add session mode and the new driver facts`
