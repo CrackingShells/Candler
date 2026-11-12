@@ -20,7 +20,7 @@ The core asks the driver for every harness fact, the binary selects drivers by n
 graph TD
     harness_out_of_core[Harness out of core]:::done
     opencode_driver[OpenCode driver]:::done
-    runs[Runs]:::planned
+    runs[Runs]:::done
     opencode_settings[OpenCode settings]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -34,7 +34,7 @@ graph TD
 |:-----|:-----|:-------|
 | `harness_out_of_core.md` | 📄 Leaf Task | ✅ Done |
 | `opencode_driver.md` | 📄 Leaf Task | ✅ Done |
-| `runs/` | 📁 Directory | ⬜ Planned |
+| `runs/` | 📁 Directory | ✅ Done |
 | `opencode_settings.md` | 📄 Leaf Task | ✅ Done |
 
 ## Amendment Log

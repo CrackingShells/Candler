@@ -20,7 +20,7 @@ graph TD
     harness_guard[Harness guard]:::done
     contract_docs[Contract docs]:::done
     design_record[Design record]:::done
-    revalidation[Revalidation]:::inprogress
+    revalidation[Revalidation]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -35,7 +35,7 @@ graph TD
 | `harness_guard.md` | 📄 Leaf Task | ✅ Done |
 | `contract_docs.md` | 📄 Leaf Task | ✅ Done |
 | `design_record.md` | 📄 Leaf Task | ✅ Done |
-| `revalidation/` | 📁 Directory | 🔄 In Progress |
+| `revalidation/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

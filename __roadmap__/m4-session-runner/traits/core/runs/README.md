@@ -18,7 +18,7 @@ A session cell runs with stdin open and closes by the conservative rule, and an 
 graph TD
     session_runner[Session runner]:::done
     opencode_wiring[OpenCode wiring]:::done
-    closeout[Closeout]:::planned
+    closeout[Closeout]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -31,7 +31,7 @@ graph TD
 |:-----|:-----|:-------|
 | `session_runner.md` | 📄 Leaf Task | ✅ Done |
 | `opencode_wiring.md` | 📄 Leaf Task | ✅ Done |
-| `closeout/` | 📁 Directory | ⬜ Planned |
+| `closeout/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

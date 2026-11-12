@@ -111,7 +111,7 @@ graph TD
     session_facts[Session facts]:::done
     type_merges[Type merges]:::done
     imported_strata[Imported strata]:::done
-    traits[Traits]:::planned
+    traits[Traits]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -126,7 +126,7 @@ graph TD
 | `session_facts.md` | 📄 Leaf Task | ✅ Done |
 | `type_merges.md` | 📄 Leaf Task | ✅ Done |
 | `imported_strata.md` | 📄 Leaf Task | ✅ Done |
-| `traits/` | 📁 Directory | ⬜ Planned |
+| `traits/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
