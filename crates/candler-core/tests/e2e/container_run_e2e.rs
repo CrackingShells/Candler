@@ -191,6 +191,8 @@ impl Rig {
                 .with("candler.test", "container_run"),
             mounts,
             env,
+            gateway: None,
+            state: Vec::new(),
             // BORROW: the spec owns its network name
             network: self.network.clone(),
             egress: None,

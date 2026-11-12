@@ -226,10 +226,10 @@ mod tests {
     fn glob_forms() {
         let all = glob_regex("**/*").expect("glob");
         assert!(all.is_match("a") && all.is_match("a/b/c.txt"));
-        let hidden = glob_regex("**/.claude/**").expect("glob");
-        assert!(hidden.is_match("x/.claude/s.json") && hidden.is_match(".claude/s.json"));
-        assert!(!hidden.is_match("x/claude/s.json"));
-        let top = glob_regex(".claude/**").expect("glob");
-        assert!(top.is_match(".claude/a/b") && !top.is_match("x/.claude/a"));
+        let hidden = glob_regex("**/.hidden/**").expect("glob");
+        assert!(hidden.is_match("x/.hidden/s.json") && hidden.is_match(".hidden/s.json"));
+        assert!(!hidden.is_match("x/hidden/s.json"));
+        let top = glob_regex(".hidden/**").expect("glob");
+        assert!(top.is_match(".hidden/a/b") && !top.is_match("x/.hidden/a"));
     }
 }

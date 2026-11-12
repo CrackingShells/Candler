@@ -9,7 +9,9 @@ use candler_core::isolation::container::run::{RunArgvError, run_argv};
 use candler_core::isolation::model::{
     ContainerPlan, ImageId, ImageRef, Labels, Limits, NetworkName, UserSpec,
 };
+use candler_harness::driver::HarnessDriver as _;
 use candler_harness::spec::{CommandSpec, EnvEntry};
+use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_schemas::primitives::{JobId, SecretName};
 
 /// A value no refusal may echo into an argv or an error.
@@ -28,6 +30,8 @@ fn plan() -> ContainerPlan {
             .with("candler.role", "agent"),
         mounts: Vec::new(),
         env: vec![(String::from("HOME"), String::from("/home/agent"))],
+        gateway: ClaudeCodeDriver::new().expect("the driver").gateway(),
+        state: Vec::new(),
         network: NetworkName::for_job(&job),
         egress: None,
         limits: Limits {

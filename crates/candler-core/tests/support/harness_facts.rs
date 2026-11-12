@@ -15,15 +15,13 @@ use std::str::FromStr as _;
 use std::sync::Arc;
 use std::time::Duration;
 
-use candler_core::isolation::container::expiry::{ceil_secs, wrap_expiry};
-use candler_core::isolation::container::mounts::{MountMode, MountRoots, MountSpec, mounts};
-use candler_core::isolation::container::run::run_argv;
+use candler_core::isolation::container::mounts::{MountMode, MountSpec};
+use candler_core::isolation::container::run::agent_argv as agent_argv_of;
 use candler_core::isolation::docker::{ClientEnv, DockerCli};
 use candler_core::isolation::image::{
     BuildSetting, DockerImageService, ImageAssets, ImageError, ImageService, LockDigest,
     LockRequest,
 };
-use candler_core::isolation::layout::EXPIRY_MARGIN;
 use candler_core::isolation::model::{
     ContainerPlan, ImageId, ImageRef, Labels, Limits, NetworkName, UserSpec,
 };
@@ -35,6 +33,7 @@ use candler_core::resolve::preflight::{
 use candler_core::resolve::steps::identity::HarnessIdentityStep;
 use candler_core::resolve::steps::image::ImageIdStep;
 use candler_core::runner::evidence::census::census;
+use candler_core::runner::exec::apply_harness_env;
 use candler_core::runner::plan::{Force, PlanMode, plan_runs};
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_harness::driver::HarnessDriver;
@@ -127,17 +126,23 @@ fn raw_ref(index: usize) -> RawRef {
 /// The three census values of the stream `lines`, by path, or `null` when the core records none.
 pub fn census_value(lines: &[String]) -> Value {
     let mut reader = ClaudeCodeReader::new().expect("the reader");
-    let mut events = Vec::new();
     for (index, line) in lines.iter().enumerate() {
-        match reader.feed(FrameIn::new(raw_ref(index), None, &frame_of(line))) {
-            Ok(mut found) => events.append(&mut found),
-            Err(_) => return Value::Null,
+        if reader
+            .feed(FrameIn::new(raw_ref(index), None, &frame_of(line)))
+            .is_err()
+        {
+            return Value::Null;
         }
     }
+    // ----- adapter: the call the core offers for the census -----
+    let observed = reader.observed();
     let Ok(sessions) = Box::new(reader).finish() else {
         return Value::Null;
     };
-    let Ok(values) = census(sessions.as_slice(), events.as_slice()) else {
+    if sessions.is_empty() {
+        return Value::Null;
+    }
+    let Ok(values) = census(observed.init.as_ref()) else {
         return Value::Null;
     };
     let mut map = serde_json::Map::new();
@@ -215,6 +220,8 @@ pub fn scene(dir: &Path) -> Scene {
             (String::from("VIRTUAL_ENV"), String::from("/opt/env")),
             (String::from("LANG"), String::from("C.UTF-8")),
         ],
+        gateway: None,
+        state: Vec::new(),
         network: NetworkName::for_job(&job),
         egress: None,
         limits: Limits {
@@ -289,26 +296,12 @@ pub fn agent_argv(
     driver: &dyn HarnessDriver,
     command: &CommandSpec,
 ) -> Result<Vec<String>, String> {
-    // ----- adapter: the call the core offers for the argv -----
-    let _ = driver;
-    let plan = &scene.plan;
-    let mut planned = plan.clone();
-    planned.mounts = mounts(plan, &MountRoots::from_plan(plan)).map_err(|e| e.to_string())?;
-    planned.labels = planned
-        .labels
-        .with("candler.run", &scene.key.to_string())
-        .with("candler.role", "agent");
-    let base_url = Url::parse(BASE_URL).expect("a URL");
-    planned.env.push((
-        String::from("ANTHROPIC_BASE_URL"),
-        base_url.as_str().to_owned(),
-    ));
-    planned
-        .env
-        .push((String::from("ANTHROPIC_AUTH_TOKEN"), DUMMY_TOKEN.to_owned()));
-    let secs = ceil_secs(plan.expiry + EXPIRY_MARGIN);
-    let wrapped = wrap_expiry(command, secs).map_err(|e| e.to_string())?;
-    let argv = run_argv(&planned, &wrapped).map_err(|e| e.to_string())?;
+    // ----- adapter: the calls the core offers for the argv -----
+    let mut plan = scene.plan.clone(); // BORROW: the scene keeps its plan
+    apply_harness_env(&mut plan, driver, &scene.home).map_err(|e| e.to_string())?;
+    let base_url = Url::parse(BASE_URL).map_err(|e| e.to_string())?;
+    let argv = agent_argv_of(&plan, command, &scene.key, &base_url, DUMMY_TOKEN)
+        .map_err(|e| e.to_string())?;
     Ok(normalised(scene, argv))
 }
 

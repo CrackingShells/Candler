@@ -12,17 +12,22 @@ use std::str::FromStr as _;
 use std::sync::Arc;
 
 use candler_core::isolation::container::mounts::{MountMode, MountRoots, MountSpec, mounts};
+use candler_core::runner::evidence::census::{CensusError, census};
+use candler_core::runner::exec::spawn::live_observer;
+use candler_core::supervise::spawn::FrameObserver as _;
 use candler_harness::driver::{DriverError, HarnessDriver};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
-    BudgetCaps, Capabilities, Cell, CollectSpec, CommandSpec, EnvEntry, GatewayEnv, HarnessId,
-    Observed, Prepared, ProcessExit, StateKind, StatePath, StopSignal, StopSpec, Workspace,
+    BudgetCaps, Capabilities, Cell, CensusSource, CollectSpec, CommandSpec, EnvEntry, GatewayEnv,
+    HarnessId, InitReport, Observed, Prepared, ProcessExit, StateKind, StatePath, StopSignal,
+    StopSpec, Workspace,
 };
+use candler_harness_claude_code::ClaudeCodeReader;
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_schemas::primitives::RelPath;
-use candler_schemas::raw::StreamName;
+use candler_schemas::raw::{FrameData, RawFrame, StreamName};
 use candler_schemas::trace::{EndedBy, Session};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 #[path = "support/harness_facts.rs"]
 mod facts;
@@ -398,6 +403,100 @@ fn harness_census_equals_cf3de30_on_every_fixture() {
         "every baseline entry has a fixture"
     );
     assert!(recorded_some >= 6, "the check is not over empty values");
+}
+
+/// The inventory a source reported, as the driver's reader builds it.
+fn inventory(tools: Value, servers: Option<Value>, source: CensusSource) -> InitReport {
+    InitReport::new(tools, servers, source).expect("an inventory")
+}
+
+/// The paths and values of `census` over `init`.
+fn census_pairs(init: Option<&InitReport>) -> Vec<(String, Value)> {
+    census(init)
+        .expect("a census")
+        .iter()
+        .map(|value| (value.path().to_string(), value.value().as_value().clone())) // BORROW: the pairs own their values
+        .collect()
+}
+
+/// Guards: R01 §Run manifest (`census.*`) — an inventory from a source that sees no servers
+/// records `census.tools` and `census.init_tools` only, never an empty server list.
+/// Oracle: the sorted, deduplicated tool names, written here by hand.
+/// Bite: `census.mcp_servers` recorded as an empty list, or `census.init_tools` left unsorted.
+#[test]
+fn harness_census_without_servers_records_tools_only() {
+    let init = inventory(json!(["b", "a", "b"]), None, CensusSource::Gateway);
+    assert_eq!(
+        census_pairs(Some(&init)),
+        [
+            (String::from("census.tools"), json!(["b", "a", "b"])),
+            (String::from("census.init_tools"), json!(["a", "b"])),
+        ]
+    );
+}
+
+/// Guards: R01 §Run manifest (`census.*`) — an inventory from the harness's own init lists the
+/// three values in the order of the baseline, and the server list stays out of
+/// `census.init_tools`.
+/// Oracle: the order and shape of `census.json`, recorded at cf3de30, and a server list written
+/// here by hand.
+/// Bite: servers merged into `census.init_tools`, or the three values reordered.
+#[test]
+fn harness_census_with_servers_records_the_three_values() {
+    let servers = json!([{"name": "s", "status": "connected"}]);
+    let init = inventory(
+        json!(["Bash", "Agent"]),
+        Some(servers.clone()),
+        CensusSource::Harness,
+    );
+    assert_eq!(
+        census_pairs(Some(&init)),
+        [
+            (String::from("census.tools"), json!(["Bash", "Agent"])),
+            (String::from("census.mcp_servers"), servers),
+            (String::from("census.init_tools"), json!(["Agent", "Bash"])),
+        ]
+    );
+}
+
+/// Guards: R01 §Run manifest (`census.*`) — a harness that reported no inventory records nothing:
+/// no value, and no empty list.
+/// Oracle: the rule that an absent inventory is unrecorded.
+/// Bite: an absent inventory recorded as an empty tool list.
+#[test]
+fn harness_census_absent_report_records_nothing() {
+    assert!(matches!(census(None), Err(CensusError::NoInit)));
+}
+
+/// Guards: R01 §Run manifest (`census.*`) — the inventory the live reader saw is readable while
+/// the run is still going, before the reader finishes, and it is the first init of the stream.
+/// Oracle: the baseline census of the same stream, `census.json`.
+/// Bite: `LiveHandle::observed` returning an empty view, or reading only after `finish`.
+#[test]
+fn harness_census_live_handle_reports_the_inventory_before_finish() {
+    let baseline = recorded("census.json");
+    let (name, path) = facts::stream_paths()
+        .into_iter()
+        .find(|(name, _)| name == "streams/synthetic_mcp")
+        .expect("the stream fixture");
+    let reader = ClaudeCodeReader::new().expect("the reader");
+    let stream: StreamName = "stdout".parse().expect("a stream name");
+    let (mut observer, handle) = live_observer(Box::new(reader), stream);
+    for (index, line) in facts::lines_of(&path).iter().enumerate() {
+        let frame = RawFrame::new(None, FrameData::from_bytes(line.as_bytes()));
+        observer.frame(u64::try_from(index).expect("an index"), &frame);
+    }
+    let observed = handle.observed();
+    let init = observed
+        .init
+        .as_ref()
+        .expect("the inventory is observed before finish");
+    assert_eq!(init.tools, baseline[name.as_str()]["census.tools"]);
+    assert!(
+        !observed.session_ids.is_empty(),
+        "the session ids are observed"
+    );
+    handle.finish().expect("the reader finishes");
 }
 
 // ---------------------------------------------------------------------------------------------

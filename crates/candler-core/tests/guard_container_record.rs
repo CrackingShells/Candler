@@ -94,6 +94,8 @@ fn plan_in(dir: &Path, job: &JobId) -> ContainerPlan {
             .with("candler.role", "agent"),
         mounts: Vec::new(),
         env: Vec::new(),
+        gateway: Some(support::job_orchestrate::quiet_gateway()),
+        state: Vec::new(),
         network: NetworkName::for_job(job),
         egress: None,
         limits: Limits {

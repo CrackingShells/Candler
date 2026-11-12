@@ -43,8 +43,8 @@ use candler_core::supervise::{EventSink, Supervisor};
 use candler_harness::driver::{DriverError, HarnessDriver};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
-    BudgetCaps, Capabilities, Cell, CollectSpec, CommandSpec, HarnessId, Observed, Prepared,
-    PreparedFile, ProcessExit, StopSignal, StopSpec, Workspace,
+    BudgetCaps, Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId, Observed,
+    Prepared, PreparedFile, ProcessExit, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::execution::{Budget, EventPayload, ExperimentFile, JobState, TreatmentRef};
 use candler_schemas::primitives::{ContainerId, JobId, Marker, RunKey};
@@ -335,6 +335,15 @@ impl JobHost for FakeHost {
     }
 }
 
+/// The gateway variables of the quiet harness.
+pub fn quiet_gateway() -> GatewayEnv {
+    let names = [
+        String::from("QUIET_GATEWAY_URL"),
+        String::from("QUIET_GATEWAY_TOKEN"),
+    ];
+    GatewayEnv::new(names[0].clone(), names[1].clone(), names.to_vec()) // BORROW: the names are owned by the environment
+}
+
 /// A harness that describes one command and reads no output.
 pub struct QuietDriver;
 
@@ -363,6 +372,10 @@ impl HarnessDriver for QuietDriver {
             .graceful_stop(true)
             .budgets(BudgetCaps::new(true, true))
             .build()
+    }
+
+    fn gateway(&self) -> Option<GatewayEnv> {
+        Some(quiet_gateway())
     }
 
     fn prepare(

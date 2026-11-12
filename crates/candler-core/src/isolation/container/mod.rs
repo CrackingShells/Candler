@@ -314,6 +314,8 @@ impl Isolation for DockerIsolation {
                 (String::from("VIRTUAL_ENV"), String::from(AGENT_VENV)),
                 (String::from("LANG"), String::from(AGENT_LANG)),
             ],
+            gateway: None,
+            state: Vec::new(),
             network,
             egress,
             limits: cell_limits(cell)?,

@@ -15,8 +15,9 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr as _;
 use std::time::Duration;
 
+use candler_harness::driver::HarnessDriver;
 use candler_harness::spec::{
-    Cell, CommandSpec, Framing, Observed, PreparedFile, ProcessExit, Workspace,
+    Cell, CommandSpec, Framing, Observed, PreparedFile, ProcessExit, StateKind, Workspace,
 };
 use candler_schemas::container::ContainerRole;
 use candler_schemas::execution::{EventPayload, Integrity, InvalidReason, RunManifest, RunTree};
@@ -248,6 +249,51 @@ async fn skill_files(
     Ok(rt.skills.files(treatment, &captured.stdout)?)
 }
 
+/// Gives `container` the gateway variable names and the state paths of `driver`: the state paths
+/// are made under `home` on the host, and each one's variable names its place in the container.
+///
+/// # Errors
+/// [`IsolationError::Plan`] when the driver names no gateway variables, when a state variable is
+/// one the plan already sets, or when a state path cannot be made.
+pub fn apply_harness_env(
+    container: &mut ContainerPlan,
+    driver: &dyn HarnessDriver, // TRAIT_OBJECT: the driver is the binary's choice, or a fake in tests
+    home: &Path,
+) -> Result<(), IsolationError> {
+    let gateway = driver.gateway().ok_or_else(|| IsolationError::Plan {
+        detail: format!(
+            "the harness driver {} names no gateway variables",
+            driver.id()
+        ),
+    })?;
+    let state = driver.state_paths();
+    for path in &state {
+        if container.env.iter().any(|(name, _)| *name == path.env) {
+            return Err(IsolationError::Plan {
+                detail: format!("the state variable {} is already set", path.env),
+            });
+        }
+        let here = home.join(path.subpath.as_str()); // BORROW: explicit .as_str()
+        let made = if path.kind == StateKind::File {
+            here.parent().map_or(Ok(()), fs::create_dir_all)
+        } else {
+            fs::create_dir_all(&here)
+        };
+        made.map_err(|e| local("cannot make a state path", &e))?;
+        container.env.push((
+            path.env.clone(), // BORROW: the plan owns its names
+            format!(
+                "{}/{}",
+                container.home.trim_end_matches('/'),
+                path.subpath.as_str() // BORROW: explicit .as_str()
+            ),
+        ));
+    }
+    container.gateway = Some(gateway);
+    container.state = state;
+    Ok(())
+}
+
 /// Waits for `child`, and stops it when the job's cancel carries a cause.
 async fn wait_or_cancel(
     child: crate::supervise::spawn::Child,
@@ -410,6 +456,11 @@ async fn drive(
             .map_err(candler_harness::driver::DriverError::from)?;
     }
     let mut container = isolation.plan(&view, &workspace)?;
+    apply_harness_env(
+        &mut container,
+        rt.driver.as_ref(),
+        &layout.run_dir(&plan.key).join("home"),
+    )?;
     mount_inputs(rt, &mut container, &workspace_dir, &cell.inputs)?;
 
     let out_stream = stream("stdout")?;
@@ -480,7 +531,9 @@ async fn drive(
     // What the reader made of the output.
     let mut reader_failed = false;
     let (mut sessions, mut events) = (Vec::new(), Vec::new());
+    let mut live_view = None;
     if let Some(live) = handle {
+        live_view = Some(live.observed());
         match live.finish() {
             Ok(trace) => {
                 sessions = trace.sessions;
@@ -518,18 +571,24 @@ async fn drive(
         })?
     };
     let used = spent(&events);
+    // What the live reader saw: the session ids, the inventory and the stream's last word.
+    // BORROW: the view owns its ids
+    let observed = live_view
+        .unwrap_or_else(|| Observed::new(sessions.iter().map(|s| s.id().clone()).collect()));
     let facts = if reader_failed {
         TraceFacts::ReaderError
     } else if sessions.is_empty() {
         TraceFacts::Silent
     } else {
         let process = ProcessExit::new(exit.status, exit.ended.into(), exit.stderr_tail.clone()); // BORROW: the exit keeps its tail
-        gather::read_facts(rt.driver.classify_exit(&process, &sessions), &used)
+        gather::read_facts(
+            rt.driver.classify_end(&process, &sessions, &observed),
+            &used,
+        )
     };
 
     // What the run left in its workspace.
     let mut collect_ok = finished.collect_ok;
-    let observed = Observed::new(sessions.iter().map(|s| s.id().clone()).collect()); // BORROW: the view owns its ids
     let specs = rt.driver.collect(&workspace, &observed);
     let outputs = if let Ok(mut found) = collect_outputs(&workspace_dir, &specs, &cell.inputs) {
         found.retain(|out| written.get(&out.path) != Some(&out.digest));
@@ -554,7 +613,11 @@ async fn drive(
         Ok(tree) => evidence.tree = tree,
         Err(_) => collect_ok = false,
     }
-    let mut measured = census(&evidence.sessions, &evidence.events).unwrap_or_default();
+    let mut measured = if evidence.sessions.is_empty() {
+        Vec::new()
+    } else {
+        census(observed.init.as_ref()).unwrap_or_default()
+    };
 
     let gateway_failed = match &rt.gateway {
         Some(gateway) => gateway

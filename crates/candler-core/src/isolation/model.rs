@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use candler_harness::spec::{GatewayEnv, StatePath};
 use candler_schemas::container::SweepScope as WireScope;
 use candler_schemas::primitives::{ContainerId, JobId, RunKey, Timestamp};
 use url::Url;
@@ -331,6 +332,11 @@ pub struct ContainerPlan {
     pub mounts: Vec<MountSpec>,
     /// The environment, by name.
     pub env: Vec<(String, String)>,
+    /// The names of the variables that carry the gateway's address and token to the agent, which
+    /// the harness driver gives; `None` until the run takes them from its driver.
+    pub gateway: Option<GatewayEnv>,
+    /// The places the harness keeps state inside the home; each one is writable in the container.
+    pub state: Vec<StatePath>,
     /// The network: the job's internal network, where the gateway answers.
     pub network: NetworkName,
     /// A second network the container joins, the job's egress network, when the cell asks for

@@ -566,6 +566,12 @@ impl HarnessDriver for Collecting {
     fn capabilities(&self) -> Capabilities {
         self.0.capabilities()
     }
+    fn gateway(&self) -> Option<candler_harness::spec::GatewayEnv> {
+        self.0.gateway()
+    }
+    fn state_paths(&self) -> Vec<candler_harness::spec::StatePath> {
+        self.0.state_paths()
+    }
     fn prepare(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Prepared, DriverError> {
         self.0.prepare(cell, workspace)
     }

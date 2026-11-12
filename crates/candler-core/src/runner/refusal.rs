@@ -161,13 +161,13 @@ refusal_table! {
     NoInit { .. } => row(
         "runner.census_no_init",
         Side::Environment,
-        "The first session of a run has no init frame, so Claude Code did not run usably.",
+        "The harness reported no tool inventory, so it did not run usably.",
         "-",
     ),
     Malformed { .. } => row(
         "runner.census_malformed",
         Side::Environment,
-        "The init frame lacks a list the census needs, or the list holds an entry of the wrong kind.",
+        "The tool inventory lacks a list the census needs, or the list holds an entry of the wrong kind.",
         "-",
     ),
     Value { .. } => row(

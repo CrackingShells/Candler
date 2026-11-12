@@ -117,7 +117,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `import.unreadable_path` | The path given to `ingest` cannot be read. | - | environment |
 | `import.value_invalid` | A value found in the legacy results folder has the wrong form for what it names, such as a run name that is not a run key. | - | environment |
 | `import.verdict_unknown` | A verdict in the legacy results folder is not `clean`, `incomplete` or `contaminated`. | - | environment |
-| `isolation.claude_version_unreadable` | The version output of Claude Code in the image names no version. | - | environment |
+| `isolation.claude_version_unreadable` | The version output of the harness in the image names no version. | - | environment |
 | `isolation.docker_failed` | Docker exited with an error. | - | environment |
 | `isolation.docker_resource_missing` | Docker has no such container, network or image. | - | environment |
 | `isolation.docker_step_failed` | Docker failed while the run was being placed in a container. | - | environment |
@@ -136,7 +136,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `isolation.guard_docker_failed` | Docker failed under the container guard; nothing was destroyed after that call. | - | environment |
 | `isolation.guard_job_unreadable` | The job directory could not be read, so the guard could not tell what is recorded. | - | environment |
 | `isolation.image_build_failed` | An image build failed. | - | environment |
-| `isolation.image_label_mismatch` | The binary in the image and the image's label name different Claude Code versions. | - | environment |
+| `isolation.image_label_mismatch` | The binary in the image and the image's label name different versions of the harness. | - | environment |
 | `isolation.image_lock_mismatch` | The lock bytes do not have the digest the caller named. | - | environment |
 | `isolation.image_service_unavailable` | The image service is not available. | - | environment |
 | `isolation.mount_docker_socket` | A mount source names the docker socket or sits under a run directory. | - | config |
@@ -174,8 +174,8 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `runner.catalog_command_failed` | The command that prints the tool catalog exited non-zero or was ended by a signal. | - | environment |
 | `runner.catalog_timeout` | The command that prints the tool catalog overran its time. | - | environment |
 | `runner.catalog_unreadable` | The output of the catalog command is not a tool catalog. | - | environment |
-| `runner.census_malformed` | The init frame lacks a list the census needs, or the list holds an entry of the wrong kind. | - | environment |
-| `runner.census_no_init` | The first session of a run has no init frame, so Claude Code did not run usably. | - | environment |
+| `runner.census_malformed` | The tool inventory lacks a list the census needs, or the list holds an entry of the wrong kind. | - | environment |
+| `runner.census_no_init` | The harness reported no tool inventory, so it did not run usably. | - | environment |
 | `runner.experiment_locked` | Another supervisor holds the experiment, or a job that owns an unfinished attempt is alive. | - | environment |
 | `runner.fact_changed` | A fact re-checked now differs from the stored cell and the plan was not forced; `--force` accepts the difference. | - | environment |
 | `runner.stored_cell_unknown` | A past experiment has stored cells that no cell of this experiment answers, so it cannot be replayed. | - | experiment |

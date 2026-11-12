@@ -14,9 +14,6 @@ const RUN_DIRS: [&str; 3] = ["/var/run", "/private/var/run", "/run"];
 /// The name of the docker socket, which no mount may name.
 const DOCKER_SOCK: &str = "docker.sock";
 
-/// The environment name that moves the config directory of Claude Code.
-const CONFIG_DIR_ENV: &str = "CLAUDE_CONFIG_DIR";
-
 /// Whether a mount may be written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -88,7 +85,7 @@ pub enum MountError {
         /// The path, lossily written.
         path: String,
     },
-    /// No mount makes the config directory writable.
+    /// No mount makes the home directory and the state paths of the harness writable.
     #[error("no writable mount holds the config directory")]
     ConfigDirNotWritable,
     /// The source cannot be resolved on the host.
@@ -150,12 +147,24 @@ fn canonical(path: &Path) -> Result<PathBuf, MountError> {
     })
 }
 
+/// Whether the path `target` of the container is writable in `mounts`: the mount with the longest
+/// target that holds it is writable.
+fn writable_at(mounts: &[MountSpec], target: &str) -> bool {
+    mounts
+        .iter()
+        // BORROW: explicit .as_str() instead of Deref coercion
+        .filter(|mount| Path::new(target).starts_with(Path::new(mount.target.as_str())))
+        // BORROW: explicit .as_str() instead of Deref coercion
+        .max_by_key(|mount| Path::new(mount.target.as_str()).components().count())
+        .is_some_and(|mount| mount.mode == MountMode::ReadWrite)
+}
+
 /// Checks every mount of the plan and returns them with canonical sources.
 ///
 /// # Errors
 /// A [`MountError`] naming the first source that is refused, or
-/// [`MountError::ConfigDirNotWritable`] when no writable mount holds the home directory or the
-/// directory `CLAUDE_CONFIG_DIR` names.
+/// [`MountError::ConfigDirNotWritable`] when no writable mount has the home directory as its
+/// target, or a state path of the harness is held by a read-only mount.
 pub fn mounts(plan: &ContainerPlan, roots: &MountRoots) -> Result<Vec<MountSpec>, MountError> {
     let project = canonical(&roots.project)?;
     let store = canonical(&roots.store)?;
@@ -172,18 +181,18 @@ pub fn mounts(plan: &ContainerPlan, roots: &MountRoots) -> Result<Vec<MountSpec>
             mode: mount.mode,
         });
     }
-    let config_dir = plan
-        .env
+    let home_writable = checked
         .iter()
-        .find(|(name, _)| name == CONFIG_DIR_ENV)
-        // BORROW: explicit .as_str() instead of Deref coercion
-        .map(|(_, value)| value.as_str());
-    let writable = checked.iter().any(|mount| {
-        mount.mode == MountMode::ReadWrite
-            // BORROW: explicit .as_str() instead of Deref coercion
-            && (mount.target == plan.home || Some(mount.target.as_str()) == config_dir)
+        .any(|mount| mount.mode == MountMode::ReadWrite && mount.target == plan.home);
+    let state_writable = plan.state.iter().all(|state| {
+        let target = format!(
+            "{}/{}",
+            plan.home.trim_end_matches('/'),
+            state.subpath.as_str() // BORROW: explicit .as_str()
+        );
+        writable_at(&checked, target.as_str()) // BORROW: explicit .as_str()
     });
-    if writable {
+    if home_writable && state_writable {
         Ok(checked)
     } else {
         Err(MountError::ConfigDirNotWritable)
