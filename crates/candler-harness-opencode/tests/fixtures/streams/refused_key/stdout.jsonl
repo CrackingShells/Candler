@@ -1,0 +1,2 @@
+{"type":"step_start","timestamp":1794444538284,"sessionID":"ses_e32c54fa8ffeReS3d3QypZ4WwP","part":{"id":"prt_1cd3ab1ac001qeHvrYd5WePC8i","sessionID":"ses_e32c54fa8ffeReS3d3QypZ4WwP","messageID":"msg_1cd3ab19e001CAWwq2eIxPTWf5","type":"step-start"}}
+{"type":"error","timestamp":1794444538304,"sessionID":"ses_e32c54fa8ffeReS3d3QypZ4WwP","error":{"type":"provider.auth","message":"not the job's token","status":401,"response":{"body":"{\"error\":\"not the job's token\"}"}}}

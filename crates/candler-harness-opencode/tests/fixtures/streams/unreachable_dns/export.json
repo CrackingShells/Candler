@@ -1,0 +1,50 @@
+{
+  "info": {
+    "id": "ses_e32c32c7dffexxFMfNbhDHGD45",
+    "projectID": "bc7447dce6aa45fd13129230dddc6abeb62cb974",
+    "model": {
+      "id": "o1",
+      "providerID": "dead",
+      "variant": "default"
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "outcome": "interrupted",
+    "time": {
+      "created": 1794444678209,
+      "updated": 1794444763800,
+      "busy": 1794444678339,
+      "idle": 1794444777822
+    },
+    "location": {
+      "directory": "/work"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_1cd3cd44b001xMefGC6hWCV2Ea",
+      "time": {
+        "created": 1794444678346
+      },
+      "text": "Run the scripted command.",
+      "files": [],
+      "type": "user"
+    },
+    {
+      "id": "msg_1cd3e595e001eLWRYxZyrFSh9U",
+      "time": {
+        "created": 1794444777822
+      },
+      "type": "idle",
+      "outcome": "interrupted"
+    }
+  ]
+}

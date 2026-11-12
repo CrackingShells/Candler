@@ -1,0 +1,8 @@
+# What the container reported for this case (the hardened container of the probe, internal network).
+command = "timeout --preserve-status -s INT -k 10 8 opencode run --standalone --format json --auto -m fake/o2 <prompt>"
+exit_status = 130
+elapsed_ms = 8101
+# Processes left in the container after the command returned (the server child, the tool and
+# its children included): none.
+processes_left = 0
+note = "SIGINT after 8 s, with a 90 s shell call running (128 + 2)."

@@ -1,0 +1,2 @@
+{"type":"step_start","timestamp":1794444537354,"sessionID":"ses_e32c55377ffeZ1Xhcftp5fRgJ6","part":{"id":"prt_1cd3aae0a0013Jr7QrqGnu9Ajh","sessionID":"ses_e32c55377ffeZ1Xhcftp5fRgJ6","messageID":"msg_1cd3aadd7001cKzJ6EGQbi6Jn9","type":"step-start"}}
+{"type":"error","timestamp":1794444537365,"sessionID":"ses_e32c55377ffeZ1Xhcftp5fRgJ6","error":{"type":"provider.invalid-request","message":"model: nomodel1","status":404,"response":{"body":"{\"type\": \"error\", \"error\": {\"type\": \"not_found_error\", \"message\": \"model: nomodel1\"}}"}}}

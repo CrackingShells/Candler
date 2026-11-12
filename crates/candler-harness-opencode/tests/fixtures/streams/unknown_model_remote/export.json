@@ -1,0 +1,82 @@
+{
+  "info": {
+    "id": "ses_e32c55377ffeZ1Xhcftp5fRgJ6",
+    "projectID": "bc7447dce6aa45fd13129230dddc6abeb62cb974",
+    "model": {
+      "id": "nomodel1",
+      "providerID": "fake",
+      "variant": "default"
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "outcome": "failed",
+    "time": {
+      "created": 1794444537169,
+      "updated": 1794444537356,
+      "busy": 1794444537287,
+      "idle": 1794444537358
+    },
+    "location": {
+      "directory": "/work"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_1cd3aad5e001lzZsLBgxJUPDuG",
+      "time": {
+        "created": 1794444537294
+      },
+      "text": "hello",
+      "files": [],
+      "type": "user"
+    },
+    {
+      "id": "msg_1cd3aadd7001cKzJ6EGQbi6Jn9",
+      "time": {
+        "created": 1794444537306,
+        "completed": 1794444537356
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "nomodel1",
+        "providerID": "fake",
+        "variant": "default"
+      },
+      "content": [],
+      "finish": "error",
+      "error": {
+        "type": "provider.invalid-request",
+        "message": "model: nomodel1",
+        "status": 404,
+        "response": {
+          "body": "{\"type\": \"error\", \"error\": {\"type\": \"not_found_error\", \"message\": \"model: nomodel1\"}}"
+        }
+      }
+    },
+    {
+      "id": "msg_1cd3aae0e001ZAksL1RvEwDFMI",
+      "time": {
+        "created": 1794444537358
+      },
+      "type": "idle",
+      "outcome": "failed",
+      "error": {
+        "type": "provider.invalid-request",
+        "message": "model: nomodel1",
+        "status": 404,
+        "response": {
+          "body": "{\"type\": \"error\", \"error\": {\"type\": \"not_found_error\", \"message\": \"model: nomodel1\"}}"
+        }
+      }
+    }
+  ]
+}

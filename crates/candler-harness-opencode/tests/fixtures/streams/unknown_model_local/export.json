@@ -1,0 +1,54 @@
+{
+  "info": {
+    "id": "ses_e32c577b9ffeoJgn99GZuaL4R2",
+    "projectID": "bc7447dce6aa45fd13129230dddc6abeb62cb974",
+    "model": {
+      "id": "zzz-not-configured",
+      "providerID": "fake",
+      "variant": "default"
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "outcome": "failed",
+    "time": {
+      "created": 1794444527882,
+      "updated": 1794444527983,
+      "busy": 1794444527985,
+      "idle": 1794444527995
+    },
+    "location": {
+      "directory": "/work"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_1cd3a8914001cnP4EWLXqtkWX2",
+      "time": {
+        "created": 1794444527992
+      },
+      "text": "hello",
+      "files": [],
+      "type": "user"
+    },
+    {
+      "id": "msg_1cd3a897b001Aq0453saZ28Oo9",
+      "time": {
+        "created": 1794444527995
+      },
+      "type": "idle",
+      "outcome": "failed",
+      "error": {
+        "type": "provider.no-route",
+        "message": "Model unavailable: fake/zzz-not-configured"
+      }
+    }
+  ]
+}

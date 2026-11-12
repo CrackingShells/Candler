@@ -1,0 +1,20 @@
+# What the container reported for this case (the hardened container of the probe, internal network).
+command = "timeout --preserve-status -s TERM -k 10 60 opencode run --standalone --format json --auto -m fake/o2 <prompt>"
+exit_status = 1
+elapsed_ms = 5224
+# Processes left in the container after the command returned (the server child, the tool and
+# its children included): none.
+processes_left = 0
+note = "No signal: POST /api/session/{id}/interrupt from inside the container at about 5 s; see the interrupt table."
+
+[interrupt]
+# Found from inside the container: the loopback port of the 'opencode serve --stdio --port 0'
+# child (from /proc/net/tcp and the child's open sockets) and its password (OPENCODE_PASSWORD in
+# the child's environ, same uid). The call was 'opencode api --server http://127.0.0.1:<port>
+# session.interrupt --param sessionID=<id>'.
+port = 44435
+session_id = "ses_e32c17b4fffe2bjBVM2E3xAaLZ"
+sent_ms = 5099
+returned_ms = 5179
+response_file = "interrupt_response.json"
+client = "opencode api (the same binary); the image has no curl, wget or nc, only python3"
