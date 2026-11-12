@@ -19,6 +19,7 @@ use std::fs;
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::str::FromStr as _;
+use std::sync::LazyLock;
 
 use candler_core::import::assemble::import;
 use candler_core::import::rules::{
@@ -79,7 +80,26 @@ const SKIPPED_NAMES: [&str; 5] = [
     ".venv",
 ];
 
-/// What every scan of this file denies and excuses.
+/// The identifier segments of the harnesses that the core and the published schemas may not
+/// hold, each in lowercase: the driver crates and the binary name their harness freely.
+const HARNESS_SEGMENTS: [&str; 3] = ["claude", "anthropic", "opencode"];
+
+/// The harness names that split into several segments (`OpenCode`, `open_code`).
+const HARNESS_SEQUENCES: [&[&str]; 1] = [&["open", "code"]];
+
+/// The roots, relative to the workspace root, that also deny `HARNESS_SEGMENTS` and
+/// `HARNESS_SEQUENCES`.
+const HARNESS_ROOTS: [&str; 2] = ["crates/candler-core/src", "crates/candler-schemas/src"];
+
+/// The domain and harness segments together, for the roots of `HARNESS_ROOTS`.
+static HARNESS_DENIED: LazyLock<Vec<&'static str>> =
+    LazyLock::new(|| [&DENIED_SEGMENTS[..], &HARNESS_SEGMENTS[..]].concat());
+
+/// The domain and harness sequences together, for the roots of `HARNESS_ROOTS`.
+static HARNESS_DENIED_SEQUENCES: LazyLock<Vec<&'static [&'static str]>> =
+    LazyLock::new(|| [&DENIED_SEQUENCES[..], &HARNESS_SEQUENCES[..]].concat());
+
+/// What every scan of this file denies and excuses: the domain names.
 fn rules() -> support::SegmentRules<'static> {
     support::SegmentRules {
         denied: &DENIED_SEGMENTS,
@@ -88,6 +108,25 @@ fn rules() -> support::SegmentRules<'static> {
         allow: &ALLOWED_LINES,
         binary: &BINARY_EXTENSIONS,
         skip: &SKIPPED_NAMES,
+    }
+}
+
+/// The rules of the scan of `target` below `base`: the domain names, and the harness names too
+/// for a root of `HARNESS_ROOTS`.
+fn rules_for(base: &Path, target: &Path) -> support::SegmentRules<'static> {
+    let rooted = HARNESS_ROOTS.iter().any(|root| {
+        target
+            .strip_prefix(base)
+            .is_ok_and(|rel| rel.starts_with(root))
+    });
+    if rooted {
+        support::SegmentRules {
+            denied: &HARNESS_DENIED,
+            sequences: &HARNESS_DENIED_SEQUENCES,
+            ..rules()
+        }
+    } else {
+        rules()
     }
 }
 
@@ -153,7 +192,7 @@ fn workspace_root() -> PathBuf {
 
 /// The hits of a segment scan of `target` below `base`, which must read a file.
 fn segment_hits(base: &Path, target: &Path) -> Vec<support::SegmentHit> {
-    let found = support::scan_segments(base, target, &rules());
+    let found = support::scan_segments(base, target, &rules_for(base, target));
     assert!(
         found.is_ok(),
         "scan of {} failed: {found:?}",
@@ -177,7 +216,8 @@ fn assert_no_segment(dir: &Path) {
 /// Guards: I1 — no line, file name or folder name under any crate's `src`, manifest or build
 /// script, the published schemas, `assets/` or the Python evaluator helper holds a denied
 /// identifier segment (`planner`, `tier`, `problems`, ...) or sequence, and a crate added under
-/// `crates/` is scanned without editing the guard.
+/// `crates/` is scanned without editing the guard. The core's and the schemas' `src` also hold
+/// no harness name (`claude`, `anthropic`, `opencode`, `OpenCode`).
 /// Oracle: the deny literals of this file.
 #[test]
 fn workspace_holds_no_domain_segment() {
@@ -286,6 +326,7 @@ fn planted_tree(at: &str, content: &str) -> tempfile::TempDir {
         "candler-core",
         "candler-harness",
         "candler-harness-claude-code",
+        "candler-harness-opencode",
         "candler-schemas",
     ] {
         let dir = tree.path().join("crates").join(krate);
@@ -448,6 +489,63 @@ fn plant_table_is_found_or_passes_as_written() {
             None,
         ),
         ("crates/candler/src/o.rs", "struct HTTPServer;\n", None),
+    ];
+    for (at, content, expected) in table {
+        let tree = planted_tree(at, content);
+        let found = planted_hits(tree.path());
+        let want: Vec<String> = expected.iter().map(|s| (*s).to_owned()).collect();
+        assert_eq!(found, want, "plant {content:?} at {at}");
+    }
+}
+
+/// Guards: I1 — a harness name planted in the core's or the schemas' sources, as a constant, a
+/// type or a string, in any separator style, fails the guard, and the same plants in a harness
+/// driver crate or the binary do not.
+/// Oracle: the hand-written table below.
+#[test]
+fn harness_plants_are_found_only_in_the_core_and_the_schemas() {
+    // (where, content, the name found or none)
+    let table: &[(&str, &str, Option<&str>)] = &[
+        (
+            "crates/candler-core/src/a.rs",
+            "const claude_version: u8 = 1;\n",
+            Some("claude"),
+        ),
+        (
+            "crates/candler-schemas/src/b.rs",
+            "struct AnthropicKey;\n",
+            Some("anthropic"),
+        ),
+        (
+            "crates/candler-schemas/src/c.rs",
+            "let k = \"ANTHROPIC_API_KEY\";\n",
+            Some("anthropic"),
+        ),
+        (
+            "crates/candler-core/src/d.rs",
+            "let p = \"opencode-db\";\n",
+            Some("opencode"),
+        ),
+        (
+            "crates/candler-core/src/h.rs",
+            "enum Harness { OpenCode }\n",
+            Some("open_code"),
+        ),
+        (
+            "crates/candler-harness-claude-code/src/e.rs",
+            "const claude_version: u8 = 1;\n",
+            None,
+        ),
+        (
+            "crates/candler-harness-opencode/src/f.rs",
+            "let p = \"opencode-db\";\n",
+            None,
+        ),
+        (
+            "crates/candler/src/g.rs",
+            "let k = \"ANTHROPIC_API_KEY\";\n",
+            None,
+        ),
     ];
     for (at, content, expected) in table {
         let tree = planted_tree(at, content);
