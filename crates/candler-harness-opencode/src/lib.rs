@@ -4,3 +4,8 @@
 //! hands them out as JSON through `opencode session export <id>`. The recorded runs that the
 //! driver is written against are under `tests/fixtures/streams/`, and
 //! `tests/fixtures/PROVENANCE.toml` names the binary they came from.
+
+#![deny(clippy::allow_attributes)]
+
+pub mod driver;
+pub mod skills;

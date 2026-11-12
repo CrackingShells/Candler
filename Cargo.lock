@@ -318,6 +318,14 @@ dependencies = [
 [[package]]
 name = "candler-harness-opencode"
 version = "0.7.0"
+dependencies = [
+ "candler-harness",
+ "candler-schemas",
+ "jiff",
+ "semver",
+ "serde_json",
+ "thiserror",
+]
 
 [[package]]
 name = "candler-schemas"
