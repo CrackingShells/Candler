@@ -4,17 +4,17 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use candler_core::import::assemble::import;
 use candler_core::import::digest_of;
-use candler_core::import::raw::{RawIngestError, Recognised, ingest_raw};
+use candler_core::import::raw::{RawIngestError, ingest_raw};
 use candler_core::import::rules::{
     HarnessRule, ImportRules, MarkerCode, MarkerRule, SnapshotRule, TreatmentRule,
 };
 use candler_core::import::streams::ReaderFactory;
 use candler_core::store::Store;
 use candler_harness::reader::TraceReader;
-use candler_harness_claude_code::detect;
 use candler_schemas::primitives::{FieldPath, FormatError, Name, NameToken, ReasonCode};
 use regex::Regex;
 use serde::Deserialize;
@@ -207,26 +207,6 @@ fn new_reader(name: &str) -> Box<dyn TraceReader> {
     }
 }
 
-/// The harness a raw Claude Code stream names.
-const CLAUDE_CODE: &str = "claude-code";
-
-/// Recognises a Claude Code stream: its first non-blank line is an init line that names a version.
-fn recognise_claude_code(sample: &[u8]) -> Option<Recognised> {
-    let line = sample
-        .split(|byte| *byte == b'\n')
-        .find(|line| !line.iter().all(u8::is_ascii_whitespace))?;
-    let Value::Object(map) = serde_json::from_slice::<Value>(line).ok()? else {
-        return None;
-    };
-    let version = detect::init_version(&map)?;
-    let supported = detect::supports(&version);
-    Some(Recognised::new(
-        Name::from_str(CLAUDE_CODE).ok()?,
-        version,
-        supported,
-    ))
-}
-
 /// Imports each results folder of `args.paths` into the store under the rules of `rules` and
 /// prints `{"runs": n, "records": n}` for each.
 async fn run_folders(cli: &Cli, args: &IngestArgs, rules: &Path) -> Result<Exit, CliError> {
@@ -254,17 +234,48 @@ async fn run_folders(cli: &Cli, args: &IngestArgs, rules: &Path) -> Result<Exit,
 
 /// Ingests each raw trace directory of `args.paths` and prints one line summed over them.
 async fn run_traces(cli: &Cli, args: &IngestArgs) -> Result<Exit, CliError> {
-    check_reader(CLAUDE_CODE)?;
+    let registry = Arc::new(Registry::builtin().map_err(|e| CliError::failed("ingest", e))?);
+    let names = registry.names();
+    for name in &names {
+        check_reader(name.as_str())?; // BORROW: explicit .as_str()
+    }
     let root = common::store_root("ingest", cli.store.as_deref()).await?;
     let store = Store::init(root.as_path()).map_err(|e| CliError::failed("ingest", e))?; // BORROW: explicit .as_path()
-    let factory: Box<ReaderFactory> = Box::new(|| new_reader(CLAUDE_CODE));
+    // The streams of one path share a harness: the readers are those of the first stream the
+    // registry recognised, which the ingest has seen before it builds any reader.
+    let recognised: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::clone(&recognised); // BORROW: the factory shares the list the recogniser fills
+    let factory: Box<ReaderFactory> = Box::new(move || {
+        let first = seen
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .first()
+            .cloned(); // BORROW: the factory owns the name
+        new_reader(
+            first
+                .or_else(|| names.first().cloned())
+                .unwrap_or_default()
+                .as_str(),
+        )
+    });
+    let recognise = {
+        let registry = Arc::clone(&registry); // BORROW: the recogniser owns a handle on the registry
+        move |sample: &[u8]| {
+            let found = registry.recognise(sample)?;
+            recognised
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(found.harness.to_string());
+            Some(found)
+        }
+    };
     let (mut created, mut existing) = (0_u64, 0_u64);
     let mut skipped: Vec<Value> = Vec::new();
     for path in &args.paths {
         let report = ingest_raw(
             &store,
             path.as_path(), // BORROW: explicit .as_path()
-            &recognise_claude_code,
+            &recognise,
             factory.as_ref(),
         )
         .map_err(|error| {

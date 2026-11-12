@@ -34,49 +34,103 @@ fn world_naming(name: &str) -> World {
     world
 }
 
-/// Guards: R01 §Harness drivers — an experiment that names a harness the binary does not ship is
-/// refused before any docker call, and the refusal names the harness and the registered ones; the
-/// name given by `--set request.harness` is checked the same way.
+/// Runs `candler resolve` on the world's experiment with `extra` arguments, from the unrelated
+/// working directory of the world, over the PATH-fake docker.
+fn resolve_with(world: &World, extra: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_candler"))
+        .arg("resolve")
+        .arg(&world.experiment)
+        .args(extra)
+        .current_dir(&world.work)
+        .env_clear()
+        .env("PATH", format!("{}:/usr/bin:/bin", world.bin.display()))
+        .env("HOME", world.root.join("home"))
+        .env("XDG_STATE_HOME", &world.state)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("the binary runs")
+}
+
+/// Guards: R01 §Harness drivers — a harness name the binary does not ship is refused before any
+/// docker call, with the code `experiment.unknown_harness`, naming the harness and the registered
+/// ones, whichever way the name arrives: in the experiment file, as an object given to `--set
+/// request.harness`, or as the bare name given to it; and `candler resolve` refuses it the same
+/// way `candler run` does.
 /// Oracle: the registered name, `claude-code`, which the experiment fixtures and the recorded
-/// streams carry; the fake docker's log, empty before the refusal.
-/// Bite: an unknown name that falls back to Claude Code, which makes the launcher start a job.
+/// streams carry; the fake docker's log, empty before the refusal; the code in
+/// `docs/contract/codes.toml`.
+/// Bite: an unknown name that falls back to Claude Code, which makes the launcher start a job; a
+/// `resolve` that builds its services before it asks the registry; a bare name that is not read.
 #[test]
 fn registry_unknown_harness_is_refused_naming_it() {
-    let world = world_naming("nonesuch");
-    let out = world.launch();
-    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
-    assert_eq!(out.status.code(), Some(2), "stderr: {stderr}");
-    assert!(
-        stderr.contains("`nonesuch`"),
-        "the name is in the refusal: {stderr}"
-    );
-    assert!(
-        stderr.contains("claude-code"),
-        "the registered names are listed: {stderr}"
-    );
-    assert_eq!(world.calls(), "", "no docker call precedes the refusal");
-
-    let world = self::world();
-    let out = world.launch_with(&["--set", "request.harness={\"name\":\"other-one\"}"]);
-    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
-    assert_eq!(out.status.code(), Some(2), "stderr: {stderr}");
-    assert!(
-        stderr.contains("`other-one`"),
-        "the name given to --set: {stderr}"
-    );
-    assert_eq!(world.calls(), "", "no docker call precedes the refusal");
-
-    let out = world.launch_with(&[
-        "--error-format",
-        "json",
-        "--set",
-        "request.harness={\"name\":\"third\"}",
-    ]);
-    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
-    assert!(
-        stderr.contains("experiment.unknown_harness"),
-        "the refusal carries its code: {stderr}"
-    );
+    let json = ["--error-format", "json"];
+    // (case, the experiment names this harness, command, extra arguments, the name refused)
+    let rows: [(&str, &str, &str, &[&str], &str); 6] = [
+        ("run, in the file", "nonesuch", "run", &[], "nonesuch"),
+        (
+            "run, an object given to --set",
+            "claude-code",
+            "run",
+            &["--set", "request.harness={\"name\":\"other-one\"}"],
+            "other-one",
+        ),
+        (
+            "run, a bare name given to --set",
+            "claude-code",
+            "run",
+            &["--set", "request.harness=bare-one"],
+            "bare-one",
+        ),
+        (
+            "resolve, in the file",
+            "nonesuch",
+            "resolve",
+            &[],
+            "nonesuch",
+        ),
+        (
+            "resolve, a bare name given to --set",
+            "claude-code",
+            "resolve",
+            &["--set", "request.harness=bare-two"],
+            "bare-two",
+        ),
+        (
+            "resolve, an object given to --set",
+            "claude-code",
+            "resolve",
+            &["--set", "request.harness={\"name\":\"other-two\"}"],
+            "other-two",
+        ),
+    ];
+    for (case, named, command, extra, refused) in rows {
+        let world = if named == "claude-code" {
+            self::world()
+        } else {
+            world_naming(named)
+        };
+        let args: Vec<&str> = json.iter().chain(extra.iter()).copied().collect();
+        let out = if command == "run" {
+            world.launch_with(&args)
+        } else {
+            resolve_with(&world, &args)
+        };
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert_eq!(out.status.code(), Some(2), "{case}: stderr: {stderr}");
+        assert!(
+            stderr.contains("experiment.unknown_harness"),
+            "{case}: the refusal carries its code: {stderr}"
+        );
+        assert!(
+            stderr.contains(&format!("`{refused}`")),
+            "{case}: the name is in the refusal: {stderr}"
+        );
+        assert!(
+            stderr.contains("claude-code"),
+            "{case}: the registered names are listed: {stderr}"
+        );
+        assert_eq!(world.calls(), "", "{case}: no docker call precedes it");
+    }
 }
 
 /// Guards: R01 §Harness drivers — the harness an experiment names is the one whose driver reads
