@@ -1,0 +1,11 @@
+# The OpenCode binary every recorded run in this directory came from.
+
+[harness]
+name = "opencode"
+version = "2.2.7"
+source = "https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-linux-arm64.tar.gz"
+size_bytes = 120326654
+sha256 = "c1682057f0815cb2abdd6e00305f1146ebaf1c167f0335cdb74ddc80008120e7"   # the release archive
+binary = "opencode"                       # the only file in the archive, installed at /opt/opencode/opencode
+binary_sha256 = "c577783eacf7d1e66661fc7fd904b7646761497b687ff8f8f82ebe4f2f3ea425"
+architecture = "linux/arm64"

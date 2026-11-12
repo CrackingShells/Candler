@@ -316,6 +316,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "candler-harness-opencode"
+version = "0.6.1"
+
+[[package]]
 name = "candler-schemas"
 version = "0.7.0"
 dependencies = [
