@@ -16,8 +16,8 @@ A session cell runs with stdin open and closes by the conservative rule, and an 
 ## Status
 ```mermaid
 graph TD
-    session_runner[Session runner]:::inprogress
-    opencode_wiring[OpenCode wiring]:::inprogress
+    session_runner[Session runner]:::done
+    opencode_wiring[OpenCode wiring]:::done
     closeout[Closeout]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -29,8 +29,8 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `session_runner.md` | 📄 Leaf Task | 🔄 In Progress |
-| `opencode_wiring.md` | 📄 Leaf Task | 🔄 In Progress |
+| `session_runner.md` | 📄 Leaf Task | ✅ Done |
+| `opencode_wiring.md` | 📄 Leaf Task | ✅ Done |
 | `closeout/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
