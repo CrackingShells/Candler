@@ -14,7 +14,7 @@ features_always_increment_minor = true
 # refactor, style, revert, breaking changes and docs(readme).
 release_commits = '^(feat|fix|perf|refactor|style|revert)(\(|!|:)|^docs\(readme\)'
 
-# Core line: one tag, v<version>, for the four core crates. Every member names
+# Core line: one tag, v<version>, for the five core crates. Every member names
 # the template so each finds its baseline tag; only `candler` creates it.
 [[package]]
 name = "candler"
@@ -23,7 +23,7 @@ git_tag_enable = true
 git_tag_name = "v{{ version }}"
 git_release_enable = true
 # The core's changelog and release notes cover the whole group.
-changelog_include = ["candler-core", "candler-harness", "candler-harness-claude-code"]
+changelog_include = ["candler-core", "candler-harness", "candler-harness-claude-code", "candler-harness-opencode"]
 
 [[package]]
 name = "candler-core"
@@ -39,6 +39,13 @@ git_tag_name = "v{{ version }}"
 name = "candler-harness-claude-code"
 version_group = "core"
 git_tag_name = "v{{ version }}"
+
+[[package]]
+name = "candler-harness-opencode"
+version_group = "core"
+# No v<version> tag holds this crate before v0.8.0, so it takes no baseline
+# tag yet; its changes are in candler's changelog.
+changelog_update = false
 
 # Schema line: schemas@<version>.
 [[package]]
