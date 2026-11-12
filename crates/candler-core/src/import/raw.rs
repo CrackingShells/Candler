@@ -13,6 +13,7 @@ use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 use std::str::FromStr as _;
 
+use candler_harness::spec::Framing;
 use candler_schemas::execution::{
     Comparable, HarnessIdentity, ImportRecord, ImportSource, Integrity, InvalidReason, RunManifest,
     RunTree, TreatmentRef, experiment_digest,
@@ -26,7 +27,7 @@ use flate2::read::MultiGzDecoder;
 use sha2::{Digest as _, Sha256};
 
 use super::streams::ReaderFactory;
-use crate::frames::{FrameMode, FrameWriter, RawFileInfo};
+use crate::frames::{FrameWriter, RawFileInfo};
 use crate::store::run::{Existing, RunWriter};
 use crate::store::{Store, StoreError};
 use crate::trace::{NormaliseError, normalise};
@@ -571,7 +572,7 @@ fn frame_stream(found: &Found, dir: &Path) -> Result<RawFileInfo, RawIngestError
     let mut writer = FrameWriter::create(
         dir,
         stream,
-        FrameMode::Lines,
+        Framing::Lines,
         Clock::Unrecorded,
         // BORROW: .clone() gives the header its own copy of the file's digest
         Some(found.digest.clone()),
