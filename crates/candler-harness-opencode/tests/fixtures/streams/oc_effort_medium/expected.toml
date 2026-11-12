@@ -1,0 +1,12 @@
+# Written by hand from stdout.jsonl, export.json and wire.jsonl of this case (wire.jsonl is a
+# redacted projection of the fake model's own records: model id, whether `tools` was offered,
+# `tool_choice`, `thinking` and `output_config`; no header, no secret, no message body).
+session_id = "ses_e31e018b1ffeTbGJMdR9PAR0YI"
+session_id_first_event = "step_start"
+export_outcome = "succeeded"
+export_model_variant = "medium"
+exit_status = 0
+event_kinds = ["step_start", "text", "tool_use", "step_finish", "step_start", "text", "step_finish"]
+wire_request_count = 3
+wire_thinking = { type = "adaptive", display = "summarized" }
+wire_output_config = { effort = "medium" }

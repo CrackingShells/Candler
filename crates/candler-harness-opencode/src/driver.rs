@@ -7,7 +7,7 @@
 use std::str::FromStr as _;
 use std::time::Duration;
 
-use candler_harness::driver::{DriverError, HarnessDriver};
+use candler_harness::driver::{DriverError, HarnessDriver, SettingRow};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
     Action, Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId, Observed,
@@ -233,6 +233,10 @@ impl HarnessDriver for OpenCodeDriver {
             .collect()
     }
 
+    fn settings_table(&self) -> Vec<SettingRow> {
+        prepare::table()
+    }
+
     fn prepare(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Prepared, DriverError> {
         let _ = workspace;
         let file = prepare::render_config(
@@ -261,13 +265,8 @@ impl HarnessDriver for OpenCodeDriver {
         };
         let prompt = render_prompt(template, values)?;
         let mut line = argv(&[PROGRAM, "run", "--standalone", "--format", "json"]);
-        if settings.auto {
-            line.push("--auto".to_owned()); // BORROW: .to_owned() makes the owned argument
-        }
-        if let Some(agent) = settings.agent {
-            line.push("--agent".to_owned()); // BORROW: .to_owned() makes the owned argument
-            line.push(agent.to_owned()); // BORROW: .to_owned() makes the owned argument
-        }
+        // `bypassPermissions` is the only mode accepted, and it is `--auto`.
+        line.push("--auto".to_owned()); // BORROW: .to_owned() makes the owned argument
         line.push("-m".to_owned()); // BORROW: .to_owned() makes the owned argument
         let variant = settings.variant.map(|(id, _)| id);
         let model_arg = match &variant {

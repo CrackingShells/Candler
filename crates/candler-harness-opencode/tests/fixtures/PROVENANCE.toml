@@ -71,8 +71,8 @@ model = "fake"
 stdout_sha256 = "a424c4f23943e99cb2af6b7850aa355a8a36967f62b6b4abc2070ffb8db320b2"
 export_sha256 = "9cba204e5219c7c10f13396c2c5b638dc68f687178a6107dcab63c3dff7ce667"
 
-# The four streams below (`oc_step_cap`, `oc_effort_variant`, `oc_permission_ask`,
-# `oc_plan_mode_blocks_shell`) were recorded on 2026-11-12 for the `opencode_settings` leaf, against
+# The streams below (`oc_step_cap`, `oc_permission_ask`; `oc_effort_*` and the removal of
+# `oc_effort_variant` and `oc_plan_mode_blocks_shell` are in fix round 1) were recorded on 2026-11-12 for the `opencode_settings` leaf, against
 # the same scratch fake model (`oc-*` model ids, extended with the `shell` tool and driven by the
 # request's own `tool_choice`; the committed `assets/docker/fakemodel/fakemodel.py` is untouched),
 # through a real production-shaped gateway sidecar (`assets/docker/gateway`, built from the
@@ -81,7 +81,7 @@ export_sha256 = "9cba204e5219c7c10f13396c2c5b638dc68f687178a6107dcab63c3dff7ce66
 # `[engine]` above. The base image is `assets/docker/base-opencode` built unmodified at v2.2.7. No
 # token was spent, no real model and no RiVault host was called.
 
-# oc_step_cap and oc_effort_variant were each re-recorded a second time on 2026-11-12, to commit a
+# oc_step_cap was re-recorded a second time on 2026-11-12, to commit a
 # `wire.jsonl` alongside `stdout.jsonl`/`export.json`: a redacted, per-request projection of the
 # fake model's own `records.jsonl` (model id, whether `tools` was offered, `tool_choice`, and for
 # the effort case `thinking`/whether `effort` itself reached the wire) -- no header, no secret, no
@@ -90,34 +90,57 @@ export_sha256 = "9cba204e5219c7c10f13396c2c5b638dc68f687178a6107dcab63c3dff7ce66
 # from this table's prose. Session ids changed accordingly; `oc_step_cap`'s re-recording also
 # surfaced a third, tool-less prefatory HTTP request that the committed `stdout.jsonl`'s own step
 # trace never counts (see its `exit.toml`/`expected.toml`).
+# Since fix round 1 `oc_step_cap` is no longer a mapping's proof but the evidence for REFUSING
+# `budget.per_run.turns`: the last request is tool-less with an injected prompt and the run ends
+# `succeeded`, not Claude Code's `error_max_turns`. Its extra tool-less request is the hidden
+# `title` agent's. `oc_permission_ask` is the evidence that OpenCode without `--auto` rejects a
+# pending ask.
 [stream.oc_step_cap]
 model = "fake"
 stdout_sha256 = "9c909dfb9e02b2ddcf32851734911242b0eaa47d112b7448f2703a7c9cd8fa11"
 export_sha256 = "7ecd73939b40a9fdcb3562a74a120805bb6597f831c373d19185897145ce755b"
 wire_sha256 = "0d6a56c13197b12878ca5d9b720e39489d4a57c54f2f955fea807760a954d9e6"
 
-# oc_effort_variant's first re-recording (below) also used a hand-invented `budget_tokens` shape to
-# prove the pass-through mechanism alone; this one uses the literal shape `prepare::effort_variant`
-# writes (`{"thinking": {"type": "adaptive", "display": "summarized"}, "effort": "<level>"}`, cited
-# from `packages/core/src/variant.ts:325-339`), so the fixture now proves the exact wire shape the
-# shipped driver produces, not just the mechanism. Same network, same images, same fake model
-# script; the recorded request also includes one scripted tool call (`--auto` approves it), so the
-# session runs two steps instead of one.
-[stream.oc_effort_variant]
+# Fix round 1 (2026-11-12): `oc_effort_<level>` replace `oc_effort_variant`, one session per level the
+# driver maps, each recorded with the literal `variants` entry `prepare::effort_variant` writes
+# (its `config.json`), for the model id `oc-claude-opus-4-7` (the fake's name for the recorded
+# family) and read back through `wire.jsonl`, which now records `thinking` and `output_config` of
+# every request. The first request of a session has no `tools`: it is the hidden `title` agent's
+# (`plugin/agent.ts:102-108`, v2.2.7). Same network, images and fake-model script as above.
+[stream.oc_effort_low]
 model = "fake"
-stdout_sha256 = "a248ffcb0aa37c268dd93b8b84128e7a2b3f197b227352d26f66a3f0461bfe69"
-export_sha256 = "4c19f8289c77fca7568940e9df0090d28ab88b0f8ad59a57491e07fe48fc20f5"
-wire_sha256 = "a031d85591f9f7fc3b24f85cd2b809ae3f694ecedad363c8bf10cc826ac11fdf"
+stdout_sha256 = "54b1468530b320456215b1a38b83dd4e70d036873d3e5fc1970247efaab8c67d"
+export_sha256 = "0680a47ac101c09c00ac52922d496c837022253e4336bad3d17c85b5e228a4c4"
+wire_sha256 = "a9fa0a172a4788e51c371e01a0671e4727a8f2101e60211e42b3680cd311bf78"
+
+[stream.oc_effort_medium]
+model = "fake"
+stdout_sha256 = "fab4a2e4762351ccac5646301b226c9875786864368af2a864b538fbfc31591c"
+export_sha256 = "b994ef7c86e82e7a63d9c0fbf62da3e26fb5a41155b1812110bae8c8a1bc5343"
+wire_sha256 = "bf23ffd65925f413f1c4637c393f537d28f9350d3c1c4954b1ed6ec4c8f53ebc"
+
+[stream.oc_effort_high]
+model = "fake"
+stdout_sha256 = "3580adaf531894a6727276ad4963b0b9f32bf13d14c7e30fae0468011d3cd5d6"
+export_sha256 = "5d702c1a4df161ddd4f0a847c899b2e3c360a457e37a12b45026112247e39ac2"
+wire_sha256 = "3985c2ea01cca68542be2d310fbe8cb434da39f30e0d4a916d2fce1bdb08cb3c"
+
+[stream.oc_effort_xhigh]
+model = "fake"
+stdout_sha256 = "e7eba63f8cf3e5d2b037e51ec8f7f76475b0b019337c04d56f8a6aa98869109e"
+export_sha256 = "d6efbc9284e7f0aa683f45610fa3e85f5148c4b57476d80b068ab34de4346c38"
+wire_sha256 = "a93549b4913d73d33bddb2166bbed5e5329acd3719db6a3f2bbbccc642781205"
+
+[stream.oc_effort_max]
+model = "fake"
+stdout_sha256 = "dbefd861a57684c44304e8aeea81efd22d05ec197babe97f98484193c4f74651"
+export_sha256 = "729baf198276b73f02d76c36b2d32da8ba86843ba67edd3a6834b92e309fd8cc"
+wire_sha256 = "91ed90c2343eedd8725f78a88c829074bc0f4424f0ef56c23726e7f6379f69fc"
 
 [stream.oc_permission_ask]
 model = "fake"
 stdout_sha256 = "370d14f5a399ba0b3d50ffabcf67fbcfd226d490184e67a8b004260239c6bd10"
 export_sha256 = "900e4f35668e9ef14bc6a98be9a8684f0eb546da8fe0ec2e99b2b089cd1973e6"
-
-[stream.oc_plan_mode_blocks_shell]
-model = "fake"
-stdout_sha256 = "a8133feb12202d4fa0bbc2a613860ec60add763248c16a697c0536951e978bd9"
-export_sha256 = "ff8d611617e774cc19f92b92f1872a7fcaf1c56d489bfe2aa22072a465a32f6c"
 
 # config/opencode.json is a file the driver renders for a cell with the model `claude-x` and two MCP
 # servers; it was run through `opencode debug config` in the base image (assets/docker/base-opencode,

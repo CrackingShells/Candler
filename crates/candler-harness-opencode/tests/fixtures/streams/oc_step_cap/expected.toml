@@ -11,7 +11,7 @@ assistant_message_count = 2           # agents.build.steps = 2: exactly two assi
 tool_calls = [{ id = "toolu_fake_oc", tool = "shell", status = "completed" }]
 
 # wire.jsonl: three HTTP requests reached the fake model, not two. The first carries no `tools`
-# at all (a prefatory request, before the agentic loop's first tool-bearing step -- not one of
+# at all (the hidden `title` agent's request, before the agentic loop's first tool-bearing step -- not one of
 # the two capped steps); the second and third both carry `tools`, which is the N = 2 the cap
 # counts, and only the THIRD (the last of the two tool-bearing requests) carries
 # `tool_choice.type = "none"`, which is what forces the model to answer text only and end the

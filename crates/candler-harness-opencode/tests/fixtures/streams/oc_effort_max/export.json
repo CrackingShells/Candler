@@ -1,0 +1,146 @@
+{
+  "info": {
+    "id": "ses_e31e00d9ffferDWbXnuSTUl7FA",
+    "projectID": "470c8549ef01a2a9d3c85b22965766cefc874134",
+    "model": {
+      "id": "oc-claude-opus-4-7",
+      "providerID": "candler",
+      "variant": "max"
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 300,
+      "output": 60,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "outcome": "succeeded",
+    "time": {
+      "created": 1794459562703,
+      "updated": 1794459562929,
+      "busy": 1794459562818,
+      "idle": 1794459562930
+    },
+    "title": "I will run a command.",
+    "location": {
+      "directory": "/tmp"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_1ce1ff310001ht4Z8kuzde68ON",
+      "time": {
+        "created": 1794459562823
+      },
+      "text": "call the shell tool to echo hi",
+      "files": [],
+      "type": "user"
+    },
+    {
+      "id": "msg_1ce1ff34e0015RdT0Aiubo9lkS",
+      "time": {
+        "created": 1794459562832,
+        "streamed": 1794459562876,
+        "completed": 1794459562877
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "oc-claude-opus-4-7",
+        "providerID": "candler",
+        "variant": "max"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "I will run a command."
+        },
+        {
+          "type": "tool",
+          "id": "toolu_fake_oc",
+          "name": "shell",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "true",
+              "description": "scripted tool call"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "(no output)"
+              }
+            ],
+            "metadata": {
+              "status": "completed",
+              "truncated": false,
+              "exit": 0
+            }
+          },
+          "time": {
+            "created": 1794459562840,
+            "ran": 1794459562842,
+            "completed": 1794459562847
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0,
+      "tokens": {
+        "input": 100,
+        "output": 20,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_1ce1ff380001VxkRZkPPHOFqNT",
+      "time": {
+        "created": 1794459562882,
+        "streamed": 1794459562928,
+        "completed": 1794459562929
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "oc-claude-opus-4-7",
+        "providerID": "candler",
+        "variant": "max"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "done: the tool finished"
+        }
+      ],
+      "finish": "stop",
+      "rawFinish": "end_turn",
+      "cost": 0,
+      "tokens": {
+        "input": 100,
+        "output": 20,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_1ce1ff3b2002EiV7c337FaqBWe",
+      "time": {
+        "created": 1794459562930
+      },
+      "type": "idle",
+      "outcome": "succeeded"
+    }
+  ]
+}
