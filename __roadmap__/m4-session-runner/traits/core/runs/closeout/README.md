@@ -16,7 +16,7 @@ Session mode is refused for a harness version whose controls fail, the core cann
 ## Status
 ```mermaid
 graph TD
-    session_controls[Session controls]:::inprogress
+    session_controls[Session controls]:::done
     harness_guard[Harness guard]:::done
     contract_docs[Contract docs]:::done
     design_record[Design record]:::inprogress
@@ -31,7 +31,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `session_controls.md` | 📄 Leaf Task | 🔄 In Progress |
+| `session_controls.md` | 📄 Leaf Task | ✅ Done |
 | `harness_guard.md` | 📄 Leaf Task | ✅ Done |
 | `contract_docs.md` | 📄 Leaf Task | ✅ Done |
 | `design_record.md` | 📄 Leaf Task | 🔄 In Progress |
