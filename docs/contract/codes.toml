@@ -13,8 +13,13 @@
 #                     # or candler (never for an author's error)
 #   enum = "..."      # the Rust error enum that raises it
 #   variant = "..."   # the variant of that enum
+#   retired = "..."   # only on a retired code: the code that replaces it
 #
 # A section with no row is written as its bare header.
+#
+# A code that a release carried is never removed. It may be retired: its row stays, with the
+# appended `retired` key naming the code that replaces it. No refusal emits a retired code, and
+# a retired row is not the code of its variant: the replacement is.
 
 [schemas]
 
@@ -667,6 +672,12 @@ enum = "ImageError"
 variant = "VersionMismatch"
 
 [isolation."isolation.claude_version_unreadable"]
+side = "environment"
+enum = "ImageError"
+variant = "VersionUnreadable"
+retired = "isolation.harness_version_unreadable"
+
+[isolation."isolation.harness_version_unreadable"]
 side = "environment"
 enum = "ImageError"
 variant = "VersionUnreadable"

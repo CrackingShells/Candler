@@ -192,6 +192,36 @@ pub fn helper_entries() -> Result<Vec<Entry>, String> {
         .collect()
 }
 
+/// The retired codes of the registry: a code that a release carried and that no refusal emits any
+/// more, each listed as retired with the code that replaces it.
+pub fn retired_entries() -> Result<Vec<Entry>, String> {
+    let path = repo_root().join("docs/contract/codes.toml");
+    let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let table: toml::Table = text.parse().map_err(|e| format!("codes.toml: {e}"))?;
+    let mut found = Vec::new();
+    for (section, body) in &table {
+        if section == "internal" || section == "helper" {
+            continue;
+        }
+        for (code, row) in body.as_table().into_iter().flatten() {
+            let Some(replacement) = row.get("retired").and_then(toml::Value::as_str) else {
+                continue;
+            };
+            let side = row
+                .get("side")
+                .and_then(toml::Value::as_str)
+                .ok_or_else(|| format!("[{section}.\"{code}\"] has no `side`"))?;
+            found.push(Entry {
+                code: code.clone(),
+                side: side.to_owned(),
+                when: format!("Retired, no refusal emits it: replaced by `{replacement}`."),
+                at: "-".to_owned(),
+            });
+        }
+    }
+    Ok(found)
+}
+
 /// Every row the pages draw on, sorted by code. A code of a side other than Candler's is an
 /// author's; a code of Candler's own is not listed, except the helper's, whose Candler-side rows
 /// say what a malformed request from Candler does.
@@ -206,6 +236,7 @@ pub fn all_entries() -> Result<Vec<Entry>, String> {
         }
     }
     rows.extend(helper_entries()?);
+    rows.extend(retired_entries()?);
     rows.sort_by(|a, b| a.code.cmp(&b.code));
     Ok(rows)
 }
@@ -215,6 +246,7 @@ pub fn known_codes() -> Result<BTreeSet<String>, String> {
     let mut known: BTreeSet<String> = catalogue_entries().into_iter().map(|e| e.code).collect();
     known.extend(binary_entries()?.into_iter().map(|e| e.code));
     known.extend(helper_entries()?.into_iter().map(|e| e.code));
+    known.extend(retired_entries()?.into_iter().map(|e| e.code));
     Ok(known)
 }
 

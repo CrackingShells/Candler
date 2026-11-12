@@ -144,7 +144,12 @@ impl DockerImageService {
         let _ = tokio::fs::remove_dir_all(&records).await;
         outcome.map_err(|error| {
             if let ImageError::VersionUnreadable { detail } = &error {
-                unreadable(&format!("{}: {detail}", self.harness.id()))
+                let probe = self.harness.version_probe();
+                unreadable(&format!(
+                    "{} (probe `{}`): {detail}",
+                    self.harness.id(),
+                    probe.argv().join(" ")
+                ))
             } else {
                 error
             }

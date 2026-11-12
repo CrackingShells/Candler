@@ -117,7 +117,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `import.unreadable_path` | The path given to `ingest` cannot be read. | - | environment |
 | `import.value_invalid` | A value found in the legacy results folder has the wrong form for what it names, such as a run name that is not a run key. | - | environment |
 | `import.verdict_unknown` | A verdict in the legacy results folder is not `clean`, `incomplete` or `contaminated`. | - | environment |
-| `isolation.claude_version_unreadable` | The version output of the harness in the image names no version. | - | environment |
+| `isolation.claude_version_unreadable` | Retired, no refusal emits it: replaced by `isolation.harness_version_unreadable`. | - | environment |
 | `isolation.docker_failed` | Docker exited with an error. | - | environment |
 | `isolation.docker_resource_missing` | Docker has no such container, network or image. | - | environment |
 | `isolation.docker_step_failed` | Docker failed while the run was being placed in a container. | - | environment |
@@ -135,6 +135,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `isolation.gateway_upstream_error` | The upstream answered with an error status other than 401 and 429. | - | environment |
 | `isolation.guard_docker_failed` | Docker failed under the container guard; nothing was destroyed after that call. | - | environment |
 | `isolation.guard_job_unreadable` | The job directory could not be read, so the guard could not tell what is recorded. | - | environment |
+| `isolation.harness_version_unreadable` | The version output of the harness in the image names no version. | - | environment |
 | `isolation.image_build_failed` | An image build failed. | - | environment |
 | `isolation.image_label_mismatch` | The binary in the image and the image's label name different versions of the harness. | - | environment |
 | `isolation.image_lock_mismatch` | The lock bytes do not have the digest the caller named. | - | environment |

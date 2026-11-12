@@ -208,7 +208,7 @@ refusal_table! {
         "-",
     ),
     VersionUnreadable { .. } => row(
-        "isolation.claude_version_unreadable",
+        "isolation.harness_version_unreadable",
         Side::Environment,
         "The version output of the harness in the image names no version.",
         "-",
