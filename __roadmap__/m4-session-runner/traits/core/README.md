@@ -18,8 +18,8 @@ The core asks the driver for every harness fact, the binary selects drivers by n
 ## Status
 ```mermaid
 graph TD
-    harness_out_of_core[Harness out of core]:::planned
-    opencode_driver[OpenCode driver]:::planned
+    harness_out_of_core[Harness out of core]:::inprogress
+    opencode_driver[OpenCode driver]:::inprogress
     runs[Runs]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -31,8 +31,8 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `harness_out_of_core.md` | 📄 Leaf Task | ⬜ Planned |
-| `opencode_driver.md` | 📄 Leaf Task | ⬜ Planned |
+| `harness_out_of_core.md` | 📄 Leaf Task | 🔄 In Progress |
+| `opencode_driver.md` | 📄 Leaf Task | 🔄 In Progress |
 | `runs/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log

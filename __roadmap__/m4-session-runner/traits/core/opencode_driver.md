@@ -26,11 +26,11 @@ Turn each recorded case of `tests/fixtures/streams/` into a conformance case (st
 ## Step 2: Implement the driver and its readers
 **Goal**: The driver turns a cell into an OpenCode run and its output into sessions.
 **Implementation Logic**:
-1. `command`: `run --standalone --format json` with the model and the prompt as the facts require; `prepare`: the provider configuration from the run-time gateway (the form `driver_traits` chose), MCP servers with `codemode` from `mcp.<server>.codemode`, the skill layout `opencode_facts` found.
+1. `command`: `run --standalone --format json` with the model and the prompt as the facts require; `prepare`: a home-rooted `$XDG_CONFIG_HOME/opencode/opencode.json` (`PreparedFile::in_home`) whose provider names the `GatewayEnv` variables as `{env:<base>}/v1` and `{env:<token>}` (confirm inline `{env:}` concatenation in V2 with `opencode debug config` inside the base image, offline), MCP servers under `mcp.servers.<name>` with `codemode` from the cell value `mcp.<server>.codemode`, the skill layout `opencode_facts` found.
 2. `state_paths`: HOME's XDG directories and `OPENCODE_DB` (a file).
-3. `stop`: `Action::Exec` calling the interrupt with `{session_id}`, then the signal and grace the facts show.
-4. `collect`: `CollectSpec::Command` running `session export {session_id}`; `live_reader`: a Lines reader over the NDJSON that reports the session id and early events; `offline_reader`: a Document reader of the export, the authoritative trace.
-5. `classify_exit` from the recorded exit classes; `capabilities`: no session, `execution_outside_child`, the census as the facts allow.
+3. `stop`: `Action::Exec` running an in-container script that finds the `opencode serve` child by exact `/proc/<pid>/cmdline` match, reads its port and `OPENCODE_PASSWORD` from `/proc`, and calls `opencode api ... session.interrupt` with `{session_id}` (resolved through `Action::resolve`); then SIGTERM and the grace the facts show (TERM is honoured, exit 143).
+4. `collect`: `CollectSpec::Exec` running `opencode session export --standalone {session_id}` inside the isolation, with the run's state environment; `live_reader`: a Lines reader over the NDJSON that reports the session id and early events; `offline_reader`: a Document reader of the export, the authoritative trace.
+5. `classify_end` from the recorded classes: exit 1 is a failure, an API interrupt or an abort, told apart by the last `error` event's type or the export's `outcome`, and the export wins; `capabilities`: no session, `execution_outside_child`, and `census = false` for now: the gateway census source belongs to the `opencode_wiring` amendment, pending Eliott's approval, which adds it.
 **Deliverables**: `crates/candler-harness-opencode/src/{lib.rs,driver.rs,live.rs,export.rs,prepare.rs,skills.rs}`: `OpenCodeDriver`, `OpenCodeLiveReader`, `OpenCodeExportReader`, `OpenCodeSkills`
 **Consistency Checks**: `cargo nextest run -p candler-harness-opencode --no-tests=fail -E 'test(/^conformance_/)|test(/^opencode_/)'` (expected: PASS)
 **Commit**: `feat(adapter-opencode): drive opencode v2 through the shared traits`
@@ -38,7 +38,7 @@ Turn each recorded case of `tests/fixtures/streams/` into a conformance case (st
 ## Step 3: Add the base image recipe
 **Goal**: An OpenCode experiment has a base image, pinned as Claude Code's is.
 **Implementation Logic**:
-`assets/docker/base-opencode/Dockerfile`: the same Debian base, uv and Python as `assets/docker/base`, OpenCode V2 at the pinned version, its checksum verified, and the harness version label under the key the core reads. A local build needs Docker and reuses the download Eliott approved for `opencode_facts`; remove the image by id afterwards.
+`assets/docker/base-opencode/Dockerfile`: the same Debian base, uv and Python as `assets/docker/base`, OpenCode V2 at the pinned version, its checksum verified, and the harness version label under the key the core reads. A local build needs Docker and reuses the download Eliott approved for `opencode_facts` (linux-arm64 only); the x64 checksum may be written from the release's published digest, but no x64 file is downloaded without his go. Remove the image by id afterwards.
 **Deliverables**: `assets/docker/base-opencode/Dockerfile`
 **Consistency Checks**: `docker build -q assets/docker/base-opencode` (expected: PASS)
 **Commit**: `build(adapter-opencode): add the opencode base image recipe`
