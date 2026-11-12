@@ -15,8 +15,9 @@ use std::str::FromStr as _;
 use std::sync::Arc;
 use std::time::Duration;
 
+use candler_core::isolation::IsolationError;
 use candler_core::isolation::container::mounts::{MountMode, MountSpec};
-use candler_core::isolation::container::run::agent_argv as agent_argv_of;
+use candler_core::isolation::container::run::{RunArgvError, agent_argv as agent_argv_of};
 use candler_core::isolation::docker::{ClientEnv, DockerCli};
 use candler_core::isolation::image::{
     BuildSetting, DockerImageService, ImageAssets, ImageError, ImageService, LockDigest,
@@ -328,20 +329,49 @@ pub fn normalised(scene: &Scene, mut argv: Vec<String>) -> Vec<String> {
         .collect()
 }
 
+/// What refused the argv of an agent container.
+#[derive(Debug)]
+pub enum ArgvRefusal {
+    /// The core refused the driver's gateway or state variables.
+    Env(IsolationError),
+    /// The `docker run` argv refused the plan, the overlay or the gateway variables.
+    Run(RunArgvError),
+}
+
+/// The argv of the agent container that runs `command` in `plan`, which already holds the
+/// driver's gateway and state variables, as the core builds it.
+pub fn plan_argv(
+    scene: &Scene,
+    plan: &ContainerPlan,
+    command: &CommandSpec,
+) -> Result<Vec<String>, ArgvRefusal> {
+    // ----- adapter: the call the core offers for the argv -----
+    let base_url = Url::parse(BASE_URL).expect("a base url");
+    let argv = agent_argv_of(plan, command, &scene.key, &base_url, DUMMY_TOKEN)
+        .map_err(ArgvRefusal::Run)?;
+    Ok(normalised(scene, argv))
+}
+
 /// The argv of the agent container that runs `command` under `driver` in `scene`, as the core
 /// builds it: the driver's gateway and state variables, the base URL and the token.
 pub fn agent_argv(
     scene: &Scene,
     driver: &dyn HarnessDriver,
     command: &CommandSpec,
-) -> Result<Vec<String>, String> {
-    // ----- adapter: the calls the core offers for the argv -----
-    let mut plan = scene.plan.clone(); // BORROW: the scene keeps its plan
-    apply_harness_env(&mut plan, driver, &scene.home).map_err(|e| e.to_string())?;
-    let base_url = Url::parse(BASE_URL).map_err(|e| e.to_string())?;
-    let argv = agent_argv_of(&plan, command, &scene.key, &base_url, DUMMY_TOKEN)
-        .map_err(|e| e.to_string())?;
-    Ok(normalised(scene, argv))
+) -> Result<Vec<String>, ArgvRefusal> {
+    plan_argv_over(scene, scene.plan.clone(), driver, command) // BORROW: the scene keeps its plan
+}
+
+/// The argv of the agent container over `plan`, to which the core adds the variables of `driver`.
+pub fn plan_argv_over(
+    scene: &Scene,
+    mut plan: ContainerPlan,
+    driver: &dyn HarnessDriver,
+    command: &CommandSpec,
+) -> Result<Vec<String>, ArgvRefusal> {
+    // ----- adapter: the call the core offers for the driver's variables -----
+    apply_harness_env(&mut plan, driver, &scene.home).map_err(ArgvRefusal::Env)?;
+    plan_argv(scene, &plan, command)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -428,11 +458,11 @@ impl VersionRig {
 
     /// The argv of every `docker run` the fake saw, as JSON arrays of words.
     pub fn runs(&self) -> Vec<Vec<String>> {
+        // The fake writes its log on its first call: no log is no call.
         let mut text = String::new();
-        File::open(&self.log)
-            .expect("the fake's log")
-            .read_to_string(&mut text)
-            .expect("text");
+        if let Ok(mut log) = File::open(&self.log) {
+            log.read_to_string(&mut text).expect("text");
+        }
         text.lines()
             .map(|line| serde_json::from_str::<Vec<String>>(line).expect("a JSON array"))
             .filter(|argv| argv.first().is_some_and(|verb| verb == "run"))

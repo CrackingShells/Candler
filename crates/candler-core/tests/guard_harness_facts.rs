@@ -11,7 +11,10 @@ use std::path::PathBuf;
 use std::str::FromStr as _;
 use std::sync::Arc;
 
-use candler_core::isolation::container::mounts::{MountMode, MountRoots, MountSpec, mounts};
+use candler_core::isolation::IsolationError;
+use candler_core::isolation::container::mounts::{MountError, MountMode, MountSpec};
+use candler_core::isolation::container::run::RunArgvError;
+use candler_core::isolation::image::ImageError;
 use candler_core::runner::evidence::census::{CensusError, census};
 use candler_core::runner::exec::spawn::live_observer;
 use candler_core::supervise::spawn::FrameObserver as _;
@@ -59,10 +62,33 @@ fn words(value: &Value) -> Vec<String> {
 /// A harness that shares nothing with Claude Code: its own program, version text, state locations
 /// and gateway names, which are the neutral pair an OpenCode-shaped driver declares (neither of
 /// them is an `ANTHROPIC_*` name).
-struct FakeHarness;
+struct FakeHarness {
+    shape: Shape,
+}
+
+/// How a fake harness departs from the plain one.
+#[derive(Clone, Copy)]
+enum Shape {
+    /// The harness as declared: a gateway, two state paths, a plain probe.
+    Plain,
+    /// A harness that names no gateway variables.
+    NoGateway,
+    /// A harness whose version probe sets an environment variable.
+    EnvProbe,
+    /// A harness whose version probe sets a working directory.
+    CwdProbe,
+}
 
 impl FakeHarness {
     const ID: &'static str = "fake-harness";
+
+    const fn plain() -> Self {
+        Self::shaped(Shape::Plain)
+    }
+
+    const fn shaped(shape: Shape) -> Self {
+        Self { shape }
+    }
 }
 
 impl HarnessDriver for FakeHarness {
@@ -75,10 +101,21 @@ impl HarnessDriver for FakeHarness {
     }
 
     fn version_probe(&self) -> CommandSpec {
-        CommandSpec::builder()
-            .argv(vec![String::from("fakeharness"), String::from("--semver")])
-            .build()
-            .expect("a command")
+        let mut builder = CommandSpec::builder()
+            .argv(vec![String::from("fakeharness"), String::from("--semver")]);
+        match self.shape {
+            Shape::EnvProbe => {
+                builder = builder.env(EnvEntry::literal(
+                    String::from("FAKE_PROBE"),
+                    String::from("1"),
+                ));
+            }
+            Shape::CwdProbe => {
+                builder = builder.cwd(RelPath::from_str("sub").expect("a path"));
+            }
+            Shape::Plain | Shape::NoGateway => {}
+        }
+        builder.build().expect("a command")
     }
 
     fn parse_version(&self, output: &[u8]) -> Result<semver::Version, DriverError> {
@@ -102,6 +139,9 @@ impl HarnessDriver for FakeHarness {
     }
 
     fn gateway(&self) -> Option<GatewayEnv> {
+        if matches!(self.shape, Shape::NoGateway) {
+            return None;
+        }
         Some(GatewayEnv::new(
             String::from("CANDLER_GATEWAY_URL"),
             String::from("CANDLER_GATEWAY_TOKEN"),
@@ -173,70 +213,141 @@ impl HarnessDriver for FakeHarness {
 // H1: the version of the harness.
 // ---------------------------------------------------------------------------------------------
 
-/// Guards: R01 §Harness drivers — the control container that reads the harness version runs the
-/// Claude Code driver's probe, and the version the service reports is the driver's parse of what
-/// the probe printed.
-/// Oracle: the argv the PATH-fake docker logged at cf3de30 (`argv.json`, recorded there) and the
-/// version text the fake printed.
-/// Bite: a probe argv that differs from `timeout 10 claude --version`, or a parse that keeps the
-/// `(Claude Code)` suffix.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn harness_version_claude_code_probe_equals_cf3de30() {
-    let rig = facts::VersionRig::new(
-        Arc::new(ClaudeCodeDriver::new().expect("the driver")),
-        "2.1.311 (Claude Code)\n",
-    );
-    let version = rig.version().await.expect("a version");
-    let baseline = recorded("argv.json");
-    assert_eq!(
-        version.to_string(),
-        baseline["version"].as_str().expect("text")
-    );
-    let runs = rig.runs();
-    assert_eq!(runs.len(), 1, "one control container ran: {runs:?}");
-    assert_eq!(runs[0], words(&baseline["control_version_probe"]));
+/// What a row of the version table expects.
+enum VersionWant {
+    /// The version the service reports, and the words the control container's argv ends with.
+    Read {
+        version: semver::Version,
+        argv_ends: Vec<String>,
+        exact: bool,
+    },
+    /// A refusal as `ImageError::VersionUnreadable`, whose text holds and omits the given words,
+    /// after this many control containers ran.
+    Unreadable {
+        names: &'static [&'static str],
+        omits: &'static [&'static str],
+        runs: usize,
+    },
 }
 
-/// Guards: R01 §Harness drivers — the core runs the probe the driver names and reads the version
-/// with the driver's parse, so a harness other than Claude Code needs no change in the core.
-/// Oracle: the fake driver's own declared probe and version format, written here by hand; the
-/// fake docker's log of what the control container ran.
-/// Bite: the core's own `claude --version` argv, or its own parse of the output.
+/// Guards: R01 §Harness drivers — the control container that reads the harness version runs the
+/// probe the driver names, and the version the service reports is the driver's parse of what the
+/// probe printed: the Claude Code probe is the argv cf3de30 ran; another driver's own probe and
+/// format are used, with no change in the core. An output the driver cannot parse is refused as
+/// `VersionUnreadable` naming the harness and its probe and no other harness, and a probe that
+/// sets an environment or a directory, which a control container cannot honour, is refused before
+/// any container runs.
+/// Oracle: the argv the PATH-fake docker logged at cf3de30 (`argv.json`, recorded there), the
+/// version text the fake printed, and the fake driver's own declared probe, format and id,
+/// written here by hand.
+/// Bite: a probe argv that differs from `timeout 10 claude --version`, a parse that keeps the
+/// `(Claude Code)` suffix, the core's own `claude --version` argv or parse, an error that names a
+/// harness other than the driver's, or the probe's environment and directory check removed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn harness_version_comes_from_the_drivers_probe_and_parse() {
-    let rig = facts::VersionRig::new(Arc::new(FakeHarness), "fakeharness 7.8.9\n");
-    let version = rig
-        .version()
-        .await
-        .expect("the driver's parse reads the output");
-    assert_eq!(version, semver::Version::new(7, 8, 9));
-    let runs = rig.runs();
-    assert_eq!(runs.len(), 1, "one control container ran: {runs:?}");
-    let tail = &runs[0][runs[0].len() - 3..];
-    assert_eq!(tail, ["10", "fakeharness", "--semver"]);
-}
-
-/// Guards: R01 §Harness drivers — an output the driver cannot parse is refused, and the error
-/// names the harness by its id.
-/// Oracle: the fake driver's declared format; the harness id the fake declares.
-/// Bite: the core's own parse, which accepts or refuses by Claude Code's format, or an error text
-/// that names a harness other than the driver's.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn harness_version_refusal_names_the_harness() {
-    let rig = facts::VersionRig::new(Arc::new(FakeHarness), "9.9.9\n");
-    let error = rig
-        .version()
-        .await
-        .expect_err("the driver cannot read this output");
-    let text = error.to_string();
-    assert!(
-        text.contains(FakeHarness::ID),
-        "the error names the harness: {text}"
-    );
-    assert!(
-        !text.contains("Claude"),
-        "the error names no other harness: {text}"
-    );
+    let baseline = recorded("argv.json");
+    let claude: Arc<dyn HarnessDriver> = Arc::new(ClaudeCodeDriver::new().expect("the driver"));
+    let rows: Vec<(&str, Arc<dyn HarnessDriver>, &str, VersionWant)> = vec![
+        (
+            "Claude Code's probe equals cf3de30's",
+            claude,
+            "2.1.311 (Claude Code)\n",
+            VersionWant::Read {
+                version: baseline["version"]
+                    .as_str()
+                    .expect("text")
+                    .parse()
+                    .expect("a version"),
+                argv_ends: words(&baseline["control_version_probe"]),
+                exact: true,
+            },
+        ),
+        (
+            "another driver's probe and parse",
+            Arc::new(FakeHarness::plain()),
+            "fakeharness 7.8.9\n",
+            VersionWant::Read {
+                version: semver::Version::new(7, 8, 9),
+                argv_ends: ["10", "fakeharness", "--semver"].map(String::from).to_vec(),
+                exact: false,
+            },
+        ),
+        (
+            "an output the driver cannot parse",
+            Arc::new(FakeHarness::plain()),
+            "9.9.9\n",
+            VersionWant::Unreadable {
+                names: &[FakeHarness::ID, "fakeharness --semver"],
+                omits: &["Claude"],
+                runs: 1,
+            },
+        ),
+        (
+            "a probe that sets an environment variable",
+            Arc::new(FakeHarness::shaped(Shape::EnvProbe)),
+            "fakeharness 7.8.9\n",
+            VersionWant::Unreadable {
+                names: &[FakeHarness::ID, "environment or a directory"],
+                omits: &["Claude"],
+                runs: 0,
+            },
+        ),
+        (
+            "a probe that sets a directory",
+            Arc::new(FakeHarness::shaped(Shape::CwdProbe)),
+            "fakeharness 7.8.9\n",
+            VersionWant::Unreadable {
+                names: &[FakeHarness::ID, "environment or a directory"],
+                omits: &["Claude"],
+                runs: 0,
+            },
+        ),
+    ];
+    for (case, driver, output, want) in rows {
+        let rig = facts::VersionRig::new(driver, output);
+        let got = rig.version().await;
+        let runs = rig.runs();
+        match want {
+            VersionWant::Read {
+                version,
+                argv_ends,
+                exact,
+            } => {
+                assert_eq!(got.as_ref().ok(), Some(&version), "{case}: {got:?}");
+                assert_eq!(runs.len(), 1, "{case}: one control container ran: {runs:?}");
+                assert!(
+                    runs[0].ends_with(&argv_ends),
+                    "{case}: the control container ran {:?}",
+                    runs[0]
+                );
+                if exact {
+                    assert_eq!(runs[0], argv_ends, "{case}: the whole argv");
+                }
+            }
+            VersionWant::Unreadable {
+                names,
+                omits,
+                runs: ran,
+            } => {
+                let Err(ImageError::VersionUnreadable { detail }) = got else {
+                    panic!("{case}: not refused as VersionUnreadable: {got:?}");
+                };
+                for word in names {
+                    assert!(
+                        detail.contains(word),
+                        "{case}: the error names {word}: {detail}"
+                    );
+                }
+                for word in omits {
+                    assert!(
+                        !detail.contains(word),
+                        "{case}: the error omits {word}: {detail}"
+                    );
+                }
+                assert_eq!(runs.len(), ran, "{case}: control containers run: {runs:?}");
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -277,7 +388,8 @@ fn fake_command(overlay: Vec<EnvEntry>) -> CommandSpec {
 fn harness_env_second_driver_names_reach_the_argv() {
     let dir = tempfile::tempdir().expect("a directory");
     let scene = facts::scene(dir.path());
-    let argv = facts::agent_argv(&scene, &FakeHarness, &fake_command(Vec::new())).expect("an argv");
+    let argv = facts::agent_argv(&scene, &FakeHarness::plain(), &fake_command(Vec::new()))
+        .expect("an argv");
     let pair = |name: &str, value: &str| {
         let wanted = format!("{name}={value}");
         argv.windows(2).any(|w| w[0] == "-e" && w[1] == wanted)
@@ -299,80 +411,223 @@ fn harness_env_second_driver_names_reach_the_argv() {
     assert!(!scene.home.join(".fake/db/fake.db").exists());
 }
 
-/// Guards: R01 §Agent environment — the names the driver reserves are refused in its plain
-/// environment, and the names Claude Code reserves are not reserved for another driver.
-/// Oracle: the fake driver's declared reserved list, written here by hand.
+/// What a row of an argv table expects.
+enum ArgvWant {
+    /// An argv.
+    Built,
+    /// The overlay sets this reserved name.
+    Reserved(&'static str),
+    /// The plan already sets this gateway variable.
+    Duplicate(&'static str),
+    /// The driver names no gateway variables.
+    NoGateway,
+    /// The plan already sets this state variable.
+    StateSet(&'static str),
+    /// The plan reaches the `docker run` argv with no gateway variables.
+    PlanNoGateway,
+    /// No writable mount holds the home or a state path.
+    NotWritable,
+}
+
+/// Whether `got` is the refusal `want` names, by variant.
+fn is_refusal(got: &Result<Vec<String>, facts::ArgvRefusal>, want: &ArgvWant) -> bool {
+    match (want, got) {
+        (ArgvWant::Built, Ok(_)) => true,
+        (
+            ArgvWant::Reserved(name),
+            Err(facts::ArgvRefusal::Run(RunArgvError::ReservedName { name: got })),
+        )
+        | (
+            ArgvWant::Duplicate(name),
+            Err(facts::ArgvRefusal::Run(RunArgvError::DuplicateName { name: got })),
+        ) => got == name,
+        (ArgvWant::NoGateway, Err(facts::ArgvRefusal::Env(IsolationError::Plan { detail }))) => {
+            detail.contains("names no gateway variables") && detail.contains(FakeHarness::ID)
+        }
+        (
+            ArgvWant::StateSet(name),
+            Err(facts::ArgvRefusal::Env(IsolationError::Plan { detail })),
+        ) => detail.contains(&format!("state variable {name} is already set")),
+        (
+            ArgvWant::PlanNoGateway,
+            Err(facts::ArgvRefusal::Run(RunArgvError::Request { detail })),
+        ) => detail.contains("names no gateway variables"),
+        (
+            ArgvWant::NotWritable,
+            Err(facts::ArgvRefusal::Run(RunArgvError::Mount(MountError::ConfigDirNotWritable))),
+        ) => true,
+        _ => false,
+    }
+}
+
+/// Guards: R01 §Harness drivers, §Agent environment — what the core refuses of a driver's
+/// variables, each by its variant: the names the driver reserves are refused in its plain
+/// environment and no other name is reserved; a plan variable that repeats a gateway variable, a
+/// state variable the plan already sets, a driver with no gateway variables and a plan that
+/// reaches the `docker run` argv with none are refused.
+/// Oracle: the fake driver's declared names and reserved list, written here by hand, and the
+/// variants of the refusal enums.
 /// Bite: a reserved list fixed in the core (the fake's reserved name accepted, or a Claude Code
-/// name refused for the fake).
+/// name refused for the fake); the gateway-name collision check in `container/run.rs` removed; the
+/// `already set` check or the no-gateway refusal in `apply_harness_env` removed; the no-gateway
+/// refusal in `agent_argv` removed.
 #[test]
-fn harness_env_reserved_names_are_the_drivers() {
+fn harness_env_refusals_name_their_variant() {
+    let entry = |name: &str| EnvEntry::literal(name.to_owned(), String::from("v")); // BORROW: the entry owns its name
     let dir = tempfile::tempdir().expect("a directory");
     let scene = facts::scene(dir.path());
-    let entry = |name: &str| EnvEntry::literal(name.to_owned(), String::from("v")); // BORROW: the entry owns its name
-    let own = facts::agent_argv(
-        &scene,
-        &FakeHarness,
-        &fake_command(vec![entry("FAKE_GATEWAY_KEY")]),
-    );
-    assert!(
-        own.is_err(),
-        "the driver's reserved name is refused: {own:?}"
-    );
-    let other = facts::agent_argv(
-        &scene,
-        &FakeHarness,
-        &fake_command(vec![entry("ANTHROPIC_BASE_URL")]),
-    );
-    assert!(
-        other.is_ok(),
-        "a name the driver does not reserve is allowed: {other:?}"
-    );
+    let plain = || FakeHarness::plain();
+    // (case, driver, overlay names, plan variables, reaches the argv with no gateway, expected)
+    let rows: Vec<(&str, FakeHarness, Vec<&str>, Vec<&str>, bool, ArgvWant)> = vec![
+        (
+            "the driver's reserved name",
+            plain(),
+            vec!["FAKE_GATEWAY_KEY"],
+            vec![],
+            false,
+            ArgvWant::Reserved("FAKE_GATEWAY_KEY"),
+        ),
+        (
+            "a name the driver does not reserve",
+            plain(),
+            vec!["ANTHROPIC_BASE_URL"],
+            vec![],
+            false,
+            ArgvWant::Built,
+        ),
+        (
+            "a plan variable named like the gateway URL",
+            plain(),
+            vec![],
+            vec!["CANDLER_GATEWAY_URL"],
+            false,
+            ArgvWant::Duplicate("CANDLER_GATEWAY_URL"),
+        ),
+        (
+            "a plan variable named like the gateway token",
+            plain(),
+            vec![],
+            vec!["CANDLER_GATEWAY_TOKEN"],
+            false,
+            ArgvWant::Duplicate("CANDLER_GATEWAY_TOKEN"),
+        ),
+        (
+            "a state variable the plan already sets",
+            plain(),
+            vec![],
+            vec!["FAKE_STATE"],
+            false,
+            ArgvWant::StateSet("FAKE_STATE"),
+        ),
+        (
+            "a driver with no gateway variables",
+            FakeHarness::shaped(Shape::NoGateway),
+            vec![],
+            vec![],
+            false,
+            ArgvWant::NoGateway,
+        ),
+        (
+            "a plan with no gateway reaching the argv",
+            plain(),
+            vec![],
+            vec![],
+            true,
+            ArgvWant::PlanNoGateway,
+        ),
+    ];
+    for (case, driver, overlay, plan_env, direct, want) in rows {
+        let mut plan = scene.plan.clone(); // BORROW: each row plans over its own copy
+        for name in plan_env {
+            plan.env.push((name.to_owned(), String::from("set"))); // BORROW: the plan owns its names
+        }
+        let command = fake_command(overlay.into_iter().map(entry).collect());
+        let got = if direct {
+            facts::plan_argv(&scene, &plan, &command)
+        } else {
+            facts::plan_argv_over(&scene, plan, &driver, &command)
+        };
+        assert!(is_refusal(&got, &want), "{case}: {got:?}");
+    }
 }
 
-/// Guards: R01 §Process supervision — a state location the harness writes must sit in a writable
-/// mount: one under a read-only mount is refused, and one in the writable home is accepted.
+/// Which mount an argv row adds to the scene.
+enum Mounted {
+    /// Only the scene's own mounts.
+    Own,
+    /// A read-only mount over a state path of the fake harness.
+    ReadOnlyState,
+    /// The home mounted read-only.
+    ReadOnlyHome,
+}
+
+/// Guards: R01 §Process supervision — the home and every state location the harness writes sit in
+/// a writable mount: a state location under a read-only mount is refused, one in the writable home
+/// is accepted, a driver with no state path is not concerned by a read-only mount over another
+/// driver's path, and a mount list with a read-only home is refused.
 /// Oracle: the mount modes the test sets, and the rule that a nested read-only mount hides the
 /// writable parent; written here by hand.
-/// Bite: the check dropped (a state path under a read-only mount accepted), or the check made over
-/// the home alone.
+/// Bite: the state check dropped (a state path under a read-only mount accepted), the check made
+/// over the home alone, or the home check dropped.
 #[test]
-fn harness_env_state_path_under_a_read_only_mount_is_refused() {
-    let dir = tempfile::tempdir().expect("a directory");
-    let mut scene = facts::scene(dir.path());
-    let ok = facts::agent_argv(&scene, &FakeHarness, &fake_command(Vec::new()));
-    assert!(ok.is_ok(), "a state path in the writable home: {ok:?}");
-    let shadow = scene.home.join(".fake/state");
-    std::fs::create_dir_all(&shadow).expect("a directory");
-    scene.plan.mounts.push(MountSpec {
-        source: shadow,
-        target: String::from("/home/agent/.fake/state"),
-        mode: MountMode::ReadOnly,
-    });
-    let refused = facts::agent_argv(&scene, &FakeHarness, &fake_command(Vec::new()));
-    assert!(
-        refused.is_err(),
-        "a state path under a read-only mount: {refused:?}"
-    );
-    // Claude Code has no state path, so the same mount list does not concern it.
+fn harness_env_state_paths_are_in_writable_mounts() {
     let claude = ClaudeCodeDriver::new().expect("the driver");
-    let argv = facts::agent_argv(&scene, &claude, &facts::reference_command());
-    assert!(argv.is_ok(), "no state path to check: {argv:?}");
-}
-
-/// Guards: R01 §Process supervision — a mount list with no writable home is refused, as before.
-/// Oracle: the mount modes the test sets.
-/// Bite: the home check dropped.
-#[test]
-fn harness_env_a_read_only_home_is_refused() {
-    let dir = tempfile::tempdir().expect("a directory");
-    let mut scene = facts::scene(dir.path());
-    for mount in &mut scene.plan.mounts {
-        if mount.target == "/home/agent" {
-            mount.mode = MountMode::ReadOnly;
+    // (case, driver is Claude Code, mount, expected)
+    let rows = [
+        (
+            "a state path in the writable home",
+            false,
+            Mounted::Own,
+            ArgvWant::Built,
+        ),
+        (
+            "a state path under a read-only mount",
+            false,
+            Mounted::ReadOnlyState,
+            ArgvWant::NotWritable,
+        ),
+        (
+            "no state path to check under that mount",
+            true,
+            Mounted::ReadOnlyState,
+            ArgvWant::Built,
+        ),
+        (
+            "a read-only home",
+            true,
+            Mounted::ReadOnlyHome,
+            ArgvWant::NotWritable,
+        ),
+    ];
+    for (case, is_claude, mounted, want) in rows {
+        let dir = tempfile::tempdir().expect("a directory");
+        let mut scene = facts::scene(dir.path());
+        match mounted {
+            Mounted::Own => {}
+            Mounted::ReadOnlyState => {
+                let shadow = scene.home.join(".fake/state");
+                std::fs::create_dir_all(&shadow).expect("a directory");
+                scene.plan.mounts.push(MountSpec {
+                    source: shadow,
+                    target: String::from("/home/agent/.fake/state"),
+                    mode: MountMode::ReadOnly,
+                });
+            }
+            Mounted::ReadOnlyHome => {
+                for mount in &mut scene.plan.mounts {
+                    if mount.target == "/home/agent" {
+                        mount.mode = MountMode::ReadOnly;
+                    }
+                }
+            }
         }
+        let got = if is_claude {
+            facts::agent_argv(&scene, &claude, &facts::reference_command())
+        } else {
+            facts::agent_argv(&scene, &FakeHarness::plain(), &fake_command(Vec::new()))
+        };
+        assert!(is_refusal(&got, &want), "{case}: {got:?}");
     }
-    let roots = MountRoots::from_plan(&scene.plan);
-    assert!(mounts(&scene.plan, &roots).is_err());
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -437,53 +692,55 @@ fn census_pairs(init: Option<&InitReport>) -> Vec<(String, Value)> {
         .collect()
 }
 
-/// Guards: R01 §Run manifest (`census.*`) — an inventory from a source that sees no servers
-/// records `census.tools` and `census.init_tools` only, never an empty server list.
-/// Oracle: the sorted, deduplicated tool names, written here by hand.
-/// Bite: `census.mcp_servers` recorded as an empty list, or `census.init_tools` left unsorted.
+/// Guards: R01 §Run manifest (`census.*`) — an inventory records what its source saw: from a
+/// source that sees no servers, `census.tools` and `census.init_tools` only, never an empty server
+/// list; from the harness's own init, the three values in the order of the baseline with the
+/// server list out of `census.init_tools`; from no inventory, nothing, and no empty list.
+/// Oracle: the sorted, deduplicated tool names and the order and shape of `census.json`
+/// (recorded at cf3de30), with the lists written here by hand.
+/// Bite: `census.mcp_servers` recorded as an empty list, `census.init_tools` left unsorted,
+/// servers merged into `census.init_tools`, the three values reordered, or an absent inventory
+/// recorded as an empty tool list.
 #[test]
-fn harness_census_without_servers_records_tools_only() {
-    let init = inventory(json!(["b", "a", "b"]), None, CensusSource::Gateway);
-    assert_eq!(
-        census_pairs(Some(&init)),
-        [
-            (String::from("census.tools"), json!(["b", "a", "b"])),
-            (String::from("census.init_tools"), json!(["a", "b"])),
-        ]
-    );
-}
-
-/// Guards: R01 §Run manifest (`census.*`) — an inventory from the harness's own init lists the
-/// three values in the order of the baseline, and the server list stays out of
-/// `census.init_tools`.
-/// Oracle: the order and shape of `census.json`, recorded at cf3de30, and a server list written
-/// here by hand.
-/// Bite: servers merged into `census.init_tools`, or the three values reordered.
-#[test]
-fn harness_census_with_servers_records_the_three_values() {
+fn harness_census_records_what_the_source_saw() {
     let servers = json!([{"name": "s", "status": "connected"}]);
-    let init = inventory(
-        json!(["Bash", "Agent"]),
-        Some(servers.clone()),
-        CensusSource::Harness,
-    );
-    assert_eq!(
-        census_pairs(Some(&init)),
-        [
-            (String::from("census.tools"), json!(["Bash", "Agent"])),
-            (String::from("census.mcp_servers"), servers),
-            (String::from("census.init_tools"), json!(["Agent", "Bash"])),
-        ]
-    );
-}
-
-/// Guards: R01 §Run manifest (`census.*`) — a harness that reported no inventory records nothing:
-/// no value, and no empty list.
-/// Oracle: the rule that an absent inventory is unrecorded.
-/// Bite: an absent inventory recorded as an empty tool list.
-#[test]
-fn harness_census_absent_report_records_nothing() {
-    assert!(matches!(census(None), Err(CensusError::NoInit)));
+    let rows: Vec<(&str, Option<InitReport>, Option<Vec<(String, Value)>>)> = vec![
+        (
+            "a source that sees no servers",
+            Some(inventory(
+                json!(["b", "a", "b"]),
+                None,
+                CensusSource::Gateway,
+            )),
+            Some(vec![
+                (String::from("census.tools"), json!(["b", "a", "b"])),
+                (String::from("census.init_tools"), json!(["a", "b"])),
+            ]),
+        ),
+        (
+            "the harness's own init",
+            Some(inventory(
+                json!(["Bash", "Agent"]),
+                Some(servers.clone()), // BORROW: the row owns its list
+                CensusSource::Harness,
+            )),
+            Some(vec![
+                (String::from("census.tools"), json!(["Bash", "Agent"])),
+                (String::from("census.mcp_servers"), servers),
+                (String::from("census.init_tools"), json!(["Agent", "Bash"])),
+            ]),
+        ),
+        ("no inventory", None, None),
+    ];
+    for (case, init, want) in rows {
+        match want {
+            Some(pairs) => assert_eq!(census_pairs(init.as_ref()), pairs, "{case}"),
+            None => assert!(
+                matches!(census(init.as_ref()), Err(CensusError::NoInit)),
+                "{case}"
+            ),
+        }
+    }
 }
 
 /// Guards: R01 §Run manifest (`census.*`) — the inventory the live reader saw is readable while
