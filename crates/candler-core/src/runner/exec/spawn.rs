@@ -7,6 +7,7 @@ use candler_harness::spec::Observed;
 use candler_schemas::raw::{RawFrame, RawRef, StreamName};
 use candler_schemas::trace::{Session, SessionEvent};
 
+use super::session::SessionWatch;
 use crate::isolation::{EndFacts, IsolatedRequest, Isolation, IsolationError};
 use crate::runner::Runtime;
 use crate::supervise::SuperviseError;
@@ -29,6 +30,8 @@ pub struct LiveObserver {
     stream: StreamName,
     /// The state shared with the handle.
     shared: Arc<Mutex<Live>>,
+    /// The session's watch, which sees each frame after the reader has.
+    session: Option<Arc<SessionWatch>>,
 }
 
 /// The sessions and events a live reader produced.
@@ -54,6 +57,18 @@ pub fn live_observer(
     reader: Box<dyn TraceReader>,
     stream: StreamName,
 ) -> (LiveObserver, LiveHandle) {
+    live_observer_with(reader, stream, None)
+}
+
+/// A live observer for `reader` on `stream` that also tells `session`, when there is one, about
+/// each frame, and the handle that finishes it.
+#[must_use]
+// TRAIT_OBJECT: the reader is the harness driver's
+pub fn live_observer_with(
+    reader: Box<dyn TraceReader>,
+    stream: StreamName,
+    session: Option<Arc<SessionWatch>>,
+) -> (LiveObserver, LiveHandle) {
     let shared = Arc::new(Mutex::new(Live {
         reader: Some(reader),
         events: Vec::new(),
@@ -63,6 +78,7 @@ pub fn live_observer(
         LiveObserver {
             stream,
             shared: Arc::clone(&shared),
+            session,
         },
         LiveHandle { shared },
     )
@@ -71,16 +87,29 @@ pub fn live_observer(
 impl FrameObserver for LiveObserver {
     fn frame(&mut self, index: u64, frame: &RawFrame) {
         let mut live = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
-        if live.error.is_some() {
-            return;
+        if live.error.is_none()
+            && let Some(reader) = live.reader.as_mut()
+        {
+            let raw_ref = RawRef::new(self.stream.clone(), index); // BORROW: the reference owns its stream name
+            match reader.feed(FrameIn::new(raw_ref, None, frame)) {
+                Ok(mut events) => live.events.append(&mut events),
+                Err(error) => live.error = Some(error),
+            }
         }
-        let Some(reader) = live.reader.as_mut() else {
-            return;
-        };
-        let raw_ref = RawRef::new(self.stream.clone(), index); // BORROW: the reference owns its stream name
-        match reader.feed(FrameIn::new(raw_ref, None, frame)) {
-            Ok(mut events) => live.events.append(&mut events),
-            Err(error) => live.error = Some(error),
+        if let Some(session) = &self.session {
+            // The session follows the stream even when the reader failed: closing does not
+            // depend on the trace.
+            let turns = || {
+                live.reader.as_ref().and_then(|reader| {
+                    reader
+                        .observed()
+                        .totals
+                        .num_turns
+                        .as_ref()
+                        .and_then(serde_json::Value::as_u64)
+                })
+            };
+            session.feed_stream(&frame.data.to_bytes(), turns);
         }
     }
 }

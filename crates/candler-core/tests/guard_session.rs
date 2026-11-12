@@ -24,6 +24,8 @@ use serde_json::{Value, json};
 
 #[path = "support/harness_facts.rs"]
 mod facts;
+#[path = "support/session_rig.rs"]
+mod rig;
 mod support;
 
 fn fp(text: &str) -> FieldPath {
@@ -78,11 +80,14 @@ fn held(resolution: &Resolution, path: &str) -> Option<(Value, bool)> {
 /// One row of the resolve table: what the file writes, whether the driver can run a session,
 /// and what resolves: the `runner.mode` and `runner.idle_s` of the cell with whether the idle was
 /// derived, or the refusal.
+/// What a resolve row expects: the mode and the idle with whether it was derived, or the refusal.
+type Resolved = Result<(Option<Value>, Option<(Value, bool)>), &'static str>;
+
 struct Row {
     name: &'static str,
     file: Vec<(&'static str, Value)>,
     capable: bool,
-    expect: Result<(Option<Value>, Option<(Value, bool)>), &'static str>,
+    expect: Resolved,
 }
 
 fn rows() -> Vec<Row> {
@@ -401,4 +406,831 @@ fn harness_env_session_adds_input_flag_only_when_interactive() {
             "interactive = {interactive}: the request's stdin is {stdin}"
         );
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// S1: when the input closes.
+// ---------------------------------------------------------------------------------------------
+
+use std::collections::BTreeMap;
+use std::time::Duration;
+
+use candler_core::runner::exec::session::{CloseRule, HOOK_SETTLE, Idle};
+use candler_harness::spec::{SessionRecord, SessionTracker};
+
+/// One record of a replay.
+#[derive(Clone)]
+enum Rec {
+    Stream(String),
+    Hook(String),
+}
+
+/// A time of `ms` milliseconds.
+fn ms(value: f64) -> Duration {
+    Duration::from_secs_f64(value / 1000.0)
+}
+
+/// Whether two times are the same to the microsecond.
+fn same(left: Duration, right: Duration) -> bool {
+    left.abs_diff(right) < Duration::from_micros(1)
+}
+
+/// The records of the recorded session `session` with the host times `timings.toml` gives them:
+/// each stdout line at its `t_ms`, each hook line at its `seen_ms`, in time order.
+fn recorded(session: &str, with_hooks: bool) -> Vec<(Duration, Rec)> {
+    let dir = rig::sessions_dir().join(session);
+    let timings: toml::Table = std::fs::read_to_string(dir.join("timings.toml"))
+        .expect("timings")
+        .parse()
+        .expect("timings TOML");
+    let lines = rig::fixture_lines(session, "stdout.jsonl");
+    let hooks = rig::fixture_lines(session, "hooks.jsonl");
+    let float = |entry: &toml::Value, key: &str| entry[key].as_float().expect("a time");
+    let mut events: Vec<(Duration, Rec)> = Vec::new();
+    for entry in timings["stdout"].as_array().expect("stdout timings") {
+        let number = usize::try_from(entry["line"].as_integer().expect("a line")).expect("a line");
+        events.push((
+            ms(float(entry, "t_ms")),
+            Rec::Stream(lines[number - 1].clone()),
+        ));
+    }
+    if with_hooks {
+        for (entry, line) in timings["hook"]
+            .as_array()
+            .expect("hook timings")
+            .iter()
+            .zip(&hooks)
+        {
+            events.push((ms(float(entry, "seen_ms")), Rec::Hook(line.clone())));
+        }
+    }
+    events.sort_by_key(|(at, _)| *at);
+    events
+}
+
+/// The state of a replay after its last record: the rule's due time and whether the tracker was
+/// quiet at every moment the rule was due.
+struct Replayed {
+    due: Option<Duration>,
+    quiet_when_due: bool,
+}
+
+/// Feeds `events` to the Claude Code tracker and a rule, as the runner does.
+fn replay(events: &[(Duration, Rec)], idle: Idle) -> Replayed {
+    let mut tracker = candler_harness_claude_code::session::Tracker::default();
+    let mut rule = CloseRule::new(idle, HOOK_SETTLE);
+    let mut quiet_when_due = true;
+    for (at, record) in events {
+        // EXPLICIT: an unreadable record leaves the tracker's state unknown, which the rule reads
+        let _ = match record {
+            Rec::Stream(line) => tracker.feed(SessionRecord::Stream(line.as_bytes())),
+            Rec::Hook(line) => tracker.feed(SessionRecord::Hook(line.as_bytes())),
+        };
+        let state = tracker.state();
+        rule.observe(*at, &state);
+        if rule.due_at().is_some() {
+            quiet_when_due &= state.turn_ended && state.known && state.pending.is_empty();
+        }
+    }
+    Replayed {
+        due: rule.due_at(),
+        quiet_when_due,
+    }
+}
+
+/// Guards: R01 §Session runner, M4 D2 — over the recorded sessions c1 and c2, with the times the
+/// host saw each line, the input closes `idle_s` after the turn's end (at least the hook settle),
+/// never while the turn runs, never while a background task is pending, never when the pending
+/// list was not read (no hook line), and never with `idle_s = none`.
+/// Oracle: `timings.toml` of the recorded sessions, by hand: c2's `result` at 1062.01 ms, c1's
+/// first `result` at 430.86 ms with one task listed by its Stop line, c1's second at 20532.47 ms.
+/// Bite: count the idle from the last record instead of the turn's end (see the stray-frame rows
+/// of `session_close_ignores_records_that_do_not_change_the_state`), or close with a task pending.
+#[test]
+fn session_close_replays_the_recorded_sessions() {
+    struct Row {
+        name: &'static str,
+        session: &'static str,
+        hooks: bool,
+        upto_line: Option<usize>,
+        idle: Idle,
+        due_ms: Option<f64>,
+    }
+    let rows = [
+        Row {
+            name: "c2, two seconds idle: due two seconds after the result",
+            session: "c2",
+            hooks: true,
+            upto_line: None,
+            idle: Idle::Seconds(2),
+            due_ms: Some(1062.01 + 2000.0),
+        },
+        Row {
+            name: "c2, zero idle: the hook settle holds the close back",
+            session: "c2",
+            hooks: true,
+            upto_line: None,
+            idle: Idle::Seconds(0),
+            due_ms: Some(1062.01 + 250.0),
+        },
+        Row {
+            name: "c2, none: never",
+            session: "c2",
+            hooks: true,
+            upto_line: None,
+            idle: Idle::Never,
+            due_ms: None,
+        },
+        Row {
+            name: "c2 without a hook line: the pending list is unread, never",
+            session: "c2",
+            hooks: false,
+            upto_line: None,
+            idle: Idle::Seconds(2),
+            due_ms: None,
+        },
+        Row {
+            name: "c1 after its first result: a task is pending",
+            session: "c1",
+            hooks: true,
+            upto_line: Some(8),
+            idle: Idle::Seconds(1),
+            due_ms: None,
+        },
+        Row {
+            name: "c1 once the notification arrived and before its turn's first event",
+            session: "c1",
+            hooks: true,
+            upto_line: Some(11),
+            idle: Idle::Seconds(1),
+            due_ms: None,
+        },
+        Row {
+            name: "c1 in the middle of its second turn",
+            session: "c1",
+            hooks: true,
+            upto_line: Some(13),
+            idle: Idle::Seconds(1),
+            due_ms: None,
+        },
+        Row {
+            name: "c1 whole, three seconds idle: due after the second result",
+            session: "c1",
+            hooks: true,
+            upto_line: None,
+            idle: Idle::Seconds(3),
+            due_ms: Some(20532.47 + 3000.0),
+        },
+    ];
+    for row in rows {
+        let mut events = recorded(row.session, row.hooks);
+        if let Some(line) = row.upto_line {
+            // the first `line` stdout records, and the hook lines seen by then
+            let stdout_at = recorded(row.session, false)[line - 1].0;
+            events.retain(|(at, _)| *at <= stdout_at);
+        }
+        assert!(!events.is_empty(), "{}: a replay has records", row.name);
+        let replayed = replay(&events, row.idle);
+        assert!(replayed.quiet_when_due, "{}: due only when quiet", row.name);
+        match (row.due_ms, replayed.due) {
+            (None, None) => {}
+            (Some(expected), Some(due)) => assert!(
+                same(due, ms(expected)),
+                "{}: due at {due:?}, expected {expected} ms",
+                row.name
+            ),
+            (expected, due) => panic!("{}: due {due:?}, expected {expected:?}", row.name),
+        }
+    }
+}
+
+/// Guards: M4 D2 — an event that does not change what the tracker reports never moves the close
+/// (a stray frame after the turn's end), a new turn takes the close away until it ends, a later
+/// turn end restarts the idle from that end, a wake-up listed by the Stop line and a hook line
+/// that cannot be read both keep the session open.
+/// Oracle: c2's lines with hand-written additions at the times in the table.
+/// Bite: count the idle from the last event (the stray-frame row due at the frame's time plus
+/// One row of the pure close table: a name, the timed records and the expected close in ms.
+type CloseRow = (&'static str, Vec<(Duration, Rec)>, Option<f64>);
+
+/// idle), or ignore the cron list of the Stop payload.
+#[test]
+fn session_close_ignores_records_that_do_not_change_the_state() {
+    let base = recorded("c2", true);
+    let stream = |at: f64, line: &str| (ms(at), Rec::Stream(line.to_owned()));
+    let idle = Idle::Seconds(2);
+    // The Stop line of c2 with a one-shot wake-up listed.
+    let hook_line = rig::fixture_lines("c2", "hooks.jsonl")[0].clone();
+    let with_wakeup = hook_line.replace(
+        "\"session_crons\":[]",
+        "\"session_crons\":[{\"id\":\"w1\",\"schedule\":\"+1m\",\"recurring\":false,\"prompt\":\"p\"}]",
+    );
+    assert_ne!(
+        with_wakeup, hook_line,
+        "the fixture's cron list is replaced"
+    );
+    let mut wake: Vec<(Duration, Rec)> = base
+        .iter()
+        .filter(|(_, rec)| !matches!(rec, Rec::Hook(_)))
+        .cloned() // BORROW: the row owns its records
+        .collect();
+    wake.push((ms(1018.81), Rec::Hook(with_wakeup)));
+    wake.sort_by_key(|(at, _)| *at);
+    let mut garbled: Vec<(Duration, Rec)> = base
+        .iter()
+        .filter(|(_, rec)| !matches!(rec, Rec::Hook(_)))
+        .cloned() // BORROW: the row owns its records
+        .collect();
+    garbled.push((ms(1018.81), Rec::Hook("{\"payload\": ".to_owned())));
+    garbled.sort_by_key(|(at, _)| *at);
+    let stray = r#"{"type":"system","subtype":"task_updated","session_id":"s"}"#;
+    let started =
+        r#"{"type":"assistant","session_id":"s","message":{"role":"assistant","content":[]}}"#;
+    let ended =
+        r#"{"type":"result","subtype":"success","is_error":false,"num_turns":1,"session_id":"s"}"#;
+    let with = |extra: Vec<(Duration, Rec)>| {
+        let mut events = base.clone(); // BORROW: the row owns its records
+        events.extend(extra);
+        events.sort_by_key(|(at, _)| *at);
+        events
+    };
+    let rows: Vec<CloseRow> = vec![
+        ("no extra record", with(Vec::new()), Some(1062.01 + 2000.0)),
+        (
+            "a stray frame 600 ms after the turn's end",
+            with(vec![stream(1662.01, stray)]),
+            Some(1062.01 + 2000.0),
+        ),
+        (
+            "a new turn starts 600 ms after the end",
+            with(vec![stream(1662.01, started)]),
+            None,
+        ),
+        (
+            "a second turn ends 600 ms after the first",
+            with(vec![stream(1662.01, started), stream(1700.0, ended)]),
+            Some(1700.0 + 2000.0),
+        ),
+        ("a wake-up pending in the Stop line", wake, None),
+        ("a hook line that is not JSON", garbled, None),
+    ];
+    for (name, events, expected) in rows {
+        let replayed = replay(&events, idle);
+        assert!(replayed.quiet_when_due, "{name}: due only when quiet");
+        match (expected, replayed.due) {
+            (None, None) => {}
+            (Some(want), Some(due)) => {
+                assert!(
+                    same(due, ms(want)),
+                    "{name}: due at {due:?}, expected {want} ms"
+                );
+            }
+            (want, due) => panic!("{name}: due {due:?}, expected {want:?}"),
+        }
+    }
+}
+
+/// The stub's script for c2's single turn, then end of input, then exit 0.
+fn c2_script(after_result: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
+    let mut steps = rig::replay_of("c2", &BTreeMap::new());
+    steps.extend(after_result);
+    steps.push(rig::wait_eof(None));
+    steps.push(rig::exit(0));
+    steps
+}
+
+/// The stub's script for c1 with a 2.5 s pause where the background job runs, then end of input,
+/// then exit 0. A pause is inserted before the notification's first line (line 9).
+fn c1_script() -> Vec<serde_json::Value> {
+    let mut between = BTreeMap::new();
+    between.insert(9, vec![rig::sleep(2.5)]);
+    let mut steps = rig::replay_of("c1", &between);
+    steps.push(rig::wait_eof(None));
+    steps.push(rig::exit(0));
+    steps
+}
+
+/// Guards: R01 §Session runner, M4 D2 — through the run loop (a stub harness replaying the
+/// recorded sessions over a fake isolation), the harness's stdin stays open until the agent has
+/// yielded with nothing pending and `idle_s` has passed since the turn's end: the end of input
+/// reaches the harness `idle_s` after the last turn's `result` (not after a later stray frame),
+/// not while a background task is pending, not during a turn; `idle_s = none` never closes it.
+/// Oracle: the stub's own trace of when it wrote each line and when its stdin ended, on one
+/// monotonic clock; the expected delay is `idle_s` plus at most the runner's polling slack.
+/// Bite: count the idle from the last frame (stray-frame row 2 closes 0.6 s late), close at the
+/// first turn end (row 3 closes with a task pending), or never close.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_close_wired_through_the_run_loop() {
+    let values = rig::cell_values(&[]);
+    // Row 1: one turn, nothing pending.
+    let one = rig::run(
+        &c2_script(Vec::new()),
+        &values,
+        rig::Driver::new(true),
+        None,
+    )
+    .await;
+    let _ = one.outcome();
+    let result = one.last_at("out", "result").expect("a result");
+    let eof = one.at("eof", "").expect("the input closed");
+    assert!(
+        (1.0..1.4).contains(&(eof - result)),
+        "row 1: the input closed {:.3} s after the result",
+        eof - result
+    );
+    // Row 2: a stray frame 0.6 s after the turn's end.
+    let stray = r#"{"type":"system","subtype":"task_updated","session_id":"s"}"#;
+    let two = rig::run(
+        &c2_script(vec![rig::sleep(0.6), rig::out(stray, "stray")]),
+        &values,
+        rig::Driver::new(true),
+        None,
+    )
+    .await;
+    let result = two.last_at("out", "result").expect("a result");
+    let eof = two.at("eof", "").expect("the input closed");
+    assert!(
+        (1.0..1.4).contains(&(eof - result)),
+        "row 2: the input closed {:.3} s after the result, with a frame at 0.6 s",
+        eof - result
+    );
+    // Row 3: a task is pending after the first turn and its notification starts a second turn.
+    let three = rig::run(&c1_script(), &values, rig::Driver::new(true), None).await;
+    let results: Vec<f64> = three
+        .trace
+        .iter()
+        .filter(|(_, kind, detail)| kind == "out" && detail == "result")
+        .map(|(at, _, _)| *at)
+        .collect();
+    assert_eq!(results.len(), 2, "row 3: two turns ended");
+    let eofs = three
+        .trace
+        .iter()
+        .filter(|(_, kind, _)| kind == "eof")
+        .count();
+    assert_eq!(eofs, 1, "row 3: the input closed once");
+    let eof = three.at("eof", "").expect("the input closed");
+    assert!(
+        eof > results[1] && (1.0..1.4).contains(&(eof - results[1])),
+        "row 3: the input closed {:.3} s after the second result (first at {:.3}, closed at {eof:.3})",
+        eof - results[1],
+        results[0]
+    );
+    // Row 4: idle_s = none runs to the wall.
+    let never = rig::cell_values(&[
+        ("runner.idle_s", serde_json::json!("none")),
+        ("budget.per_run.wall_s", serde_json::json!(3)),
+    ]);
+    let four = rig::run(&c2_script(Vec::new()), &never, rig::Driver::new(true), None).await;
+    assert!(
+        four.at("eof", "").is_none(),
+        "row 4: the input never closed"
+    );
+    assert_eq!(
+        four.measured("run.ended_by"),
+        Some(serde_json::json!({"kind": "cap", "cap": "wall"})),
+        "row 4: the wall ended the run"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// S2: what a session records.
+// ---------------------------------------------------------------------------------------------
+
+use candler_core::jobs::model::JobCause;
+use serde_json::json as j;
+
+/// The tool names of the init line of the recorded session `session`, sorted and deduplicated.
+fn init_tools(session: &str) -> serde_json::Value {
+    let line = rig::fixture_lines(session, "stdout.jsonl")
+        .into_iter()
+        .find(|line| line.contains("\"subtype\":\"init\""))
+        .expect("an init line");
+    let value: serde_json::Value = serde_json::from_str(&line).expect("init JSON");
+    let mut names: Vec<String> = value["tools"]
+        .as_array()
+        .expect("tools")
+        .iter()
+        .map(|tool| tool.as_str().expect("a name").to_owned())
+        .collect();
+    names.sort();
+    names.dedup();
+    serde_json::Value::from(names)
+}
+
+/// Turns of c2 repeated: init, an assistant line and a result that counts two turns, `count`
+/// times, `gap` seconds apart.
+fn looping_script(count: usize, gap: f64) -> Vec<serde_json::Value> {
+    let lines = rig::fixture_lines("c2", "stdout.jsonl");
+    let mut steps = Vec::new();
+    for _ in 0..count {
+        for line in &lines {
+            let line = line.replace("\"num_turns\":1", "\"num_turns\":2");
+            steps.push(rig::out_of(&line));
+        }
+        steps.push(rig::sleep(gap));
+    }
+    steps.push(rig::wait_eof(None));
+    steps
+}
+
+/// One row of the measures table: its name, the stub's script, the cell's values, a job stop with
+/// the second it comes at, and what the manifest holds.
+type MeasureRow<'a> = (
+    &'static str,
+    Vec<serde_json::Value>,
+    &'a [(String, serde_json::Value)],
+    Option<(JobCause, f64)>,
+    Expect,
+);
+
+/// What a row of the measures table expects of the manifest.
+struct Expect {
+    ended_by: serde_json::Value,
+    end: Option<&'static str>,
+    forced: bool,
+    valid: bool,
+}
+
+/// Guards: R01 §Session runner, M4 D3, I20 — a closed session records `session.turns`,
+/// `session.yielded_at_ms`, `session.pending_at_end`, `session.end = closed`, `run.ended_by =
+/// completed` and `census.init_tools`; a session that loops to the turn limit or the wall records
+/// `session.end = cap`; a harness that leaves first is `harness_exit`; one that outlives its grace
+/// after the close is stopped and records `session.close_forced`; a job kill or a budget stop
+/// mid-session is the experimenter's end: the run is invalid, its `ended_by` is that stop and no
+/// `session.end` is recorded for the arm.
+/// Oracle: the scripts below, by hand; the init tools read from the fixture's init line with
+/// `serde_json`; the turn counts are the `num_turns` the script writes.
+/// Bite: record a closed session as a cap, charge a kill to the arm as a session end, or count the
+/// turn limit with `>=`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_measures_by_how_the_session_ended() {
+    let values = rig::cell_values(&[]);
+    let capped = rig::cell_values(&[("budget.per_run.turns", j!(3))]);
+    let wall = rig::cell_values(&[
+        ("runner.idle_s", j!("none")),
+        ("budget.per_run.wall_s", j!(3)),
+    ]);
+    let long_idle = rig::cell_values(&[("runner.idle_s", j!(60))]);
+    let mut exits_first = rig::replay_of("c2", &BTreeMap::new());
+    exits_first.push(rig::exit(0));
+    let mut ignores_eof = rig::replay_of("c2", &BTreeMap::new());
+    ignores_eof.extend([rig::wait_eof(None), rig::sleep(30.0)]);
+    let rows: Vec<MeasureRow<'_>> = vec![
+        (
+            "closed",
+            c2_script(Vec::new()),
+            &values,
+            None,
+            Expect {
+                ended_by: j!({"kind": "completed"}),
+                end: Some("closed"),
+                forced: false,
+                valid: true,
+            },
+        ),
+        (
+            "the turn limit across the session",
+            looping_script(6, 0.3),
+            &capped,
+            None,
+            Expect {
+                ended_by: j!({"kind": "cap", "cap": "turns"}),
+                end: Some("cap"),
+                forced: false,
+                valid: true,
+            },
+        ),
+        (
+            "the wall",
+            looping_script(40, 0.3),
+            &wall,
+            None,
+            Expect {
+                ended_by: j!({"kind": "cap", "cap": "wall"}),
+                end: Some("cap"),
+                forced: false,
+                valid: true,
+            },
+        ),
+        (
+            "the harness leaves first",
+            exits_first,
+            &long_idle,
+            None,
+            Expect {
+                ended_by: j!({"kind": "completed"}),
+                end: Some("harness_exit"),
+                forced: false,
+                valid: true,
+            },
+        ),
+        (
+            "a harness that outlives its grace after the close",
+            ignores_eof,
+            &values,
+            None,
+            Expect {
+                ended_by: j!({"kind": "completed"}),
+                end: Some("closed"),
+                forced: true,
+                valid: true,
+            },
+        ),
+        (
+            "the experimenter kills the job",
+            looping_script(40, 0.3),
+            &long_idle,
+            Some((JobCause::Killed, 0.8)),
+            Expect {
+                ended_by: j!({"kind": "killed"}),
+                end: None,
+                forced: false,
+                valid: false,
+            },
+        ),
+        (
+            "the job's budget stops the run",
+            looping_script(40, 0.3),
+            &long_idle,
+            Some((JobCause::BudgetStop, 0.8)),
+            Expect {
+                ended_by: j!({"kind": "budget_stop"}),
+                end: None,
+                forced: false,
+                valid: false,
+            },
+        ),
+    ];
+    assert!(rows.len() >= 7, "the table is not empty");
+    for (name, steps, cell, cancel, expect) in rows {
+        let ran = rig::run(&steps, cell, rig::Driver::new(true), cancel).await;
+        let outcome = ran.outcome();
+        assert_eq!(
+            ran.measured("run.ended_by"),
+            Some(expect.ended_by.clone()),
+            "{name}: run.ended_by ({:?})",
+            outcome.invalid
+        );
+        assert_eq!(
+            outcome.invalid.is_none(),
+            expect.valid,
+            "{name}: the run is valid"
+        );
+        assert_eq!(
+            ran.measured("session.end"),
+            expect.end.map(serde_json::Value::from),
+            "{name}: session.end"
+        );
+        assert_eq!(
+            ran.measured("session.close_forced"),
+            Some(serde_json::Value::Bool(expect.forced)),
+            "{name}: session.close_forced"
+        );
+        assert!(
+            ran.measured("session.turns")
+                .and_then(|turns| turns.as_u64())
+                .is_some_and(|turns| turns >= 1),
+            "{name}: session.turns"
+        );
+        assert!(
+            ran.run_dir.join("run.done").is_file(),
+            "{name}: the run is sealed"
+        );
+        assert_eq!(
+            ran.measured("census.init_tools"),
+            Some(init_tools("c2")),
+            "{name}: census.init_tools"
+        );
+        match name {
+            "closed" => {
+                assert_eq!(ran.measured("session.turns"), Some(j!(1)));
+                assert_eq!(ran.measured("session.pending_at_end"), Some(j!([])));
+                assert_eq!(ran.measured("session.idle_s"), Some(j!(1)));
+                let result = ran.last_at("out", "result").expect("a result");
+                let opened = ran.at("opened", "").expect("opened");
+                let yielded = ran
+                    .measured("session.yielded_at_ms")
+                    .and_then(|ms| ms.as_f64())
+                    .expect("yielded_at_ms");
+                let floor = (result - opened) * 1000.0;
+                assert!(
+                    yielded >= floor && yielded < floor + 2000.0,
+                    "closed: yielded at {yielded} ms, the stub's result {floor} ms after it opened"
+                );
+            }
+            "the turn limit across the session" => {
+                let turns = ran
+                    .measured("session.turns")
+                    .and_then(|t| t.as_u64())
+                    .expect("turns");
+                assert_eq!(
+                    ran.measured("run.num_turns").and_then(|t| t.as_u64()),
+                    Some(turns * 2),
+                    "the run's turns are the sum over the session's results"
+                );
+                assert_eq!(
+                    turns, 2,
+                    "two turns of two exceed a limit of three, and no more ran"
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// S3: the observation hooks.
+// ---------------------------------------------------------------------------------------------
+
+use std::process::{Command, Stdio};
+
+/// Every hook command of the settings file the driver installs.
+fn hook_commands() -> Vec<(String, String)> {
+    let values = vec![
+        ("model.id", j!("m")),
+        ("permission_mode", j!("bypassPermissions")),
+        ("prompt.template", j!("go")),
+    ];
+    let resolved: Vec<candler_schemas::values::ResolvedValue> = values
+        .into_iter()
+        .map(|(path, value)| candler_schemas::values::ResolvedValue::recorded(fp(path), js(value)))
+        .collect();
+    let driver = ClaudeCodeDriver::new().expect("the driver");
+    let spec = driver
+        .session(
+            &Cell::new(&resolved),
+            &Workspace::new(Path::new("/work/run")),
+        )
+        .expect("a session")
+        .expect("a session spec");
+    let hooks = spec.hooks.expect("the driver installs hooks");
+    assert_eq!(hooks.files.len(), 1, "one settings file");
+    let settings: serde_json::Value =
+        serde_json::from_slice(&hooks.files[0].contents).expect("settings JSON");
+    let mut commands = Vec::new();
+    for (event, entries) in settings["hooks"].as_object().expect("hooks") {
+        for entry in entries.as_array().expect("entries") {
+            for hook in entry["hooks"].as_array().expect("hooks") {
+                commands.push((
+                    event.clone(), // BORROW: the list owns its event names
+                    hook["command"].as_str().expect("a command").to_owned(), // BORROW: the list owns its commands
+                ));
+            }
+        }
+    }
+    commands
+}
+
+/// Guards: R01 §Session runner, I9 — a hook the driver installs never decides: whatever its input
+/// and wherever its log write goes (a home that does not exist, a home that is a file, a read-only
+/// home), it exits 0 and prints nothing on stdout, which is where a harness reads a decision.
+/// Oracle: the exit status and stdout of `sh -c <command>` run by the test, with `HOME` and the
+/// payload set by hand; the harness reads exit 2 as a block and stdout as a decision.
+/// Bite: a hook command that ends in `exit 2`, or one that prints its payload to stdout.
+#[test]
+fn session_hooks_never_decide_whatever_the_log_does() {
+    let commands = hook_commands();
+    assert!(commands.len() >= 2, "Stop and SessionEnd are installed");
+    let dir = tempfile::tempdir().expect("a directory");
+    let file = dir.path().join("a-file");
+    std::fs::write(&file, "x").expect("a file");
+    let readonly = dir.path().join("readonly");
+    std::fs::create_dir_all(readonly.join(".candler")).expect("a directory");
+    let mut perms = std::fs::metadata(readonly.join(".candler"))
+        .expect("metadata")
+        .permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o500);
+    std::fs::set_permissions(readonly.join(".candler"), perms).expect("a mode");
+    let homes: [(&str, std::path::PathBuf); 3] = [
+        ("a home that does not exist", dir.path().join("missing")),
+        ("a home that is a file", file),
+        ("a log directory that cannot be written", readonly),
+    ];
+    let payloads: [&[u8]; 3] = [
+        br#"{"hook_event_name":"Stop","background_tasks":[],"session_crons":[]}"#,
+        b"\xff\xfe not json at all",
+        b"",
+    ];
+    for (event, command) in &commands {
+        for (home_name, home) in &homes {
+            for payload in payloads {
+                let mut child = Command::new("sh")
+                    .args(["-c", command])
+                    .env("HOME", home)
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()
+                    .expect("sh runs");
+                std::io::Write::write_all(&mut child.stdin.take().expect("stdin"), payload)
+                    .expect("the payload");
+                let output = child.wait_with_output().expect("the hook ends");
+                assert_eq!(
+                    output.status.code(),
+                    Some(0),
+                    "{event} with {home_name}: the hook exits 0"
+                );
+                assert!(
+                    output.stdout.is_empty(),
+                    "{event} with {home_name}: the hook prints nothing on stdout"
+                );
+            }
+        }
+    }
+    // the read-only directory is made writable again so the temporary directory can be removed
+    let mut perms = std::fs::metadata(dir.path().join("readonly/.candler"))
+        .expect("metadata")
+        .permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o700);
+    std::fs::set_permissions(dir.path().join("readonly/.candler"), perms).expect("a mode");
+}
+
+/// The files under `dir`, relative, sorted.
+fn files_under(dir: &Path) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(next) = pending.pop() {
+        for entry in std::fs::read_dir(&next).expect("a directory").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                found.push(
+                    path.strip_prefix(dir)
+                        .expect("below")
+                        .to_string_lossy()
+                        .into_owned(),
+                );
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// Guards: R01 §Session runner, I9 — the same stub run with the observation hooks installed and
+/// without them calls the same tools, runs the same turns and leaves the same files in the
+/// workspace: the hooks are installed in the agent's home, never in the workspace.
+/// Oracle: the run without hooks, which has no observer at all; the tool-call count is c1's
+/// recorded Bash call.
+/// Bite: install the hook settings in the workspace (a `.candler` entry appears), or let the
+/// hooked run's measures differ (a hook that alters the stream).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_hooks_leave_the_run_as_it_is() {
+    let cell = rig::cell_values(&[
+        ("runner.idle_s", j!("none")),
+        ("budget.per_run.wall_s", j!(4)),
+    ]);
+    let hooked_steps = {
+        let mut steps = rig::replay_of("c1", &BTreeMap::new());
+        steps.push(rig::wait_eof(None));
+        steps
+    };
+    let bare_steps: Vec<serde_json::Value> = hooked_steps
+        .iter()
+        .filter(|step| step.get("hook").is_none())
+        .cloned() // BORROW: the run owns its script
+        .collect();
+    assert!(
+        bare_steps.len() < hooked_steps.len(),
+        "the hooked script has hook lines"
+    );
+    let hooked = rig::run(&hooked_steps, &cell, rig::Driver::new(true), None).await;
+    let bare = rig::run(&bare_steps, &cell, rig::Driver::new(false), None).await;
+    let _ = (hooked.outcome(), bare.outcome());
+    for path in ["run.tool_calls", "session.turns", "run.num_turns"] {
+        assert_eq!(
+            hooked.measured(path),
+            bare.measured(path),
+            "{path} with and without hooks"
+        );
+    }
+    assert_eq!(hooked.measured("run.tool_calls"), Some(j!({"Bash": 1})));
+    assert_eq!(hooked.measured("session.turns"), Some(j!(2)));
+    let (with_files, without_files) = (
+        files_under(&hooked.run_dir.join("workspace")),
+        files_under(&bare.run_dir.join("workspace")),
+    );
+    assert_eq!(
+        with_files, without_files,
+        "the workspace holds the same files"
+    );
+    assert!(
+        with_files.iter().all(|file| !file.contains(".candler")),
+        "no hook file in the workspace: {with_files:?}"
+    );
+    assert!(
+        hooked.run_dir.join("home/.candler/settings.json").is_file(),
+        "the hooks are installed in the home"
+    );
+    assert!(
+        !bare.run_dir.join("home/.candler/settings.json").exists(),
+        "no hook is installed without hooks"
+    );
+    assert!(
+        hooked.run_dir.join("raw/hooks.jsonl.jsonl.gz").is_file(),
+        "the hook log is archived as a raw stream: {:?}",
+        files_under(&hooked.run_dir)
+    );
 }
