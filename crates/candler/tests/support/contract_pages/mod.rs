@@ -1,9 +1,11 @@
 //! Support of the contract-page guards: the walk of a committed schema, the renderer of a page and
-//! of the index, the frame check and the version blocks. Everything is read from the committed
-//! schema files and the three manifests, never from the Rust types.
+//! of the index, the frame check and the version blocks. The schema pages are read from the
+//! committed schema files and the three manifests, never from the Rust types; the harness pages
+//! are read from the trait definitions and the binary's driver registry.
 
 pub mod frame;
 pub mod hand;
+pub mod harness;
 pub mod index;
 pub mod pages;
 pub mod refusals;

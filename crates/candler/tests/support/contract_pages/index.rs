@@ -3,13 +3,10 @@
 use std::fmt::Write;
 use std::path::Path;
 
+use super::harness::HARNESS_PAGES;
 use super::pages::{PAGES, wire_tags};
 use super::refusals::other_refusals;
 use super::versions::{CLOSE, OPEN, Versions};
-
-/// The reserved page of the driver contract. The index lists it; nothing here reads, writes or
-/// checks the file.
-pub const DRIVER_PAGE: &str = "driver-traits.md";
 
 /// The whole index, generated.
 pub fn render_index(dir: &Path, versions: &Versions) -> Result<String, String> {
@@ -24,10 +21,15 @@ pub fn render_index(dir: &Path, versions: &Versions) -> Result<String, String> {
             tag = wire_tags(dir, page)?,
         );
     }
-    let _ = writeln!(
-        rows,
-        "| [{DRIVER_PAGE}]({DRIVER_PAGE}) | Driver traits | driver author, by hand | none |"
-    );
+    for page in HARNESS_PAGES {
+        let _ = writeln!(
+            rows,
+            "| [{file}]({file}) | {title} | {writer} | none |",
+            file = page.file,
+            title = page.title,
+            writer = page.writer,
+        );
+    }
     let core = versions.tag("v").ok_or("no core version")?;
     let schemas = versions.tag("schemas@").ok_or("no schemas version")?;
     let evaluator = versions
@@ -37,15 +39,13 @@ pub fn render_index(dir: &Path, versions: &Versions) -> Result<String, String> {
     Ok(format!(
         "# Contract pages
 
-One page per surface an author writes or a plug-in speaks. Each page holds the sections Surface, Version, Fields, Refusals and Notes, in that order. Version and Fields are generated from the committed schema files in `crates/candler-schemas/schema/`.
+One page per surface an author writes or a plug-in speaks. Each page holds the sections Surface, Version, Fields, Refusals and Notes, in that order. Version and Fields are generated from the committed schema files in `crates/candler-schemas/schema/`; the driver-traits page is generated from the trait definitions.
 
 ## Pages
 
 | Page | Surface | Written by | Wire tag |
 |---|---|---|---|
 {rows}
-`{DRIVER_PAGE}` is written by hand and is not generated.
-
 ## Field classes
 
 Every row of a Fields table has one class. A `required` followed by a variant in parentheses, such as `required (value.kind = fraction)`, is required only when the object takes that variant.

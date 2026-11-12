@@ -108,7 +108,7 @@ Wire line: `schemas@0.7.0`.
 
 ## Notes
 
-- The document has no `free` fields. An unknown key outside `[fixed]` and the `levels` of a factor is `experiment.unknown_field`; a key under `[fixed]` or in a level table that is no setting path is `experiment.unknown_path`. [checked: v@0.6.0]
-- A TOML date or time among the values is refused with `experiment.value_unrepresentable`. [checked: v@0.6.0]
-- A name, secret name or `schema` marker of the wrong form, a factor with no level, a `replicates`, `wall_s` or cost cap of 0, an absolute `inputs[].at`, a repeated input kind, an integer out of range and overlapping paths print `experiment.document_invalid`, never `format.*`. [checked: v@0.6.0]
-- `canonical.integer_out_of_range` and `values.null` print only for a value given with `--set`. [checked: v@0.6.0]
+- The document has no `free` fields. An unknown key outside `[fixed]` and the `levels` of a factor is `experiment.unknown_field`; a key under `[fixed]` or in a level table that is no setting path is `experiment.unknown_path`. [checked: v@0.7.0]
+- A TOML date or time among the values is refused with `experiment.value_unrepresentable`. [checked: v@0.7.0]
+- A name, secret name or `schema` marker of the wrong form, a factor with no level, a `replicates`, `wall_s` or cost cap of 0, an absolute `inputs[].at`, a repeated input kind, an integer out of range and overlapping paths print `experiment.document_invalid`, never `format.*`. [checked: v@0.7.0]
+- `canonical.integer_out_of_range` and `values.null` print only for a value given with `--set`. [checked: v@0.7.0]

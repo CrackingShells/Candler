@@ -13,6 +13,7 @@ use std::fs;
 
 use contract_pages::frame::{MAX_NOTE_WORDS, SECTIONS, check_frame, check_notes};
 use contract_pages::hand::section;
+use contract_pages::harness::{HARNESS_PAGES, render_driver_traits};
 use contract_pages::index::render_index;
 use contract_pages::pages::{PAGES, blocks_markdown, render_page, root_fields};
 use contract_pages::refusals::{
@@ -59,11 +60,21 @@ fn existing(name: &str) -> Option<String> {
     fs::read_to_string(docs_dir().join(name)).ok()
 }
 
-/// Guards: D1 — regenerating the six pages and the index from the committed schema files and the
-/// manifests changes no byte of them; the hand text (Surface, Notes) is carried over.
+/// The files of every page that holds the five sections: the schema pages, then the harness pages.
+fn page_files() -> Vec<&'static str> {
+    PAGES
+        .iter()
+        .map(|page| page.file)
+        .chain(HARNESS_PAGES.iter().map(|page| page.file))
+        .collect()
+}
+
+/// Guards: D1 — regenerating the six schema pages, the driver-traits page and the index from the
+/// committed schema files, the manifests and the trait definitions changes no byte of them; the
+/// hand text (Surface, Notes) is carried over.
 /// Oracle: the committed files under `docs/contract/`.
 /// Bite: a property added to a copy of a committed schema file without regenerating; a cell of a
-/// Fields table edited by hand.
+/// Fields table edited by hand; a method added to a trait.
 #[test]
 fn d1_regenerating_the_pages_changes_nothing() {
     let versions = versions();
@@ -73,6 +84,9 @@ fn d1_regenerating_the_pages_changes_nothing() {
             .expect("the page is rendered");
         settle(page.file, &generated);
     }
+    let traits = render_driver_traits(&versions, existing("driver-traits.md").as_deref())
+        .expect("the driver traits page is rendered");
+    settle("driver-traits.md", &traits);
     let index = render_index(&schema_dir(), &versions).expect("the index is rendered");
     settle("index.md", &index);
 }
@@ -201,10 +215,10 @@ fn d2_each_page_has_the_five_sections_in_order() {
         .expect("a `###` heading is allowed");
     check_notes("").expect("no notes");
 
-    for page in &PAGES {
-        let text = existing(page.file).unwrap_or_else(|| panic!("{} does not exist", page.file));
+    for file in page_files() {
+        let text = existing(file).unwrap_or_else(|| panic!("{file} does not exist"));
         if let Err(e) = check_frame(&text) {
-            panic!("{}: {e}", page.file);
+            panic!("{file}: {e}");
         }
     }
 }
@@ -231,13 +245,12 @@ fn d4_compatibility_table_equals_the_manifests() {
             "the table has no `{line}` row"
         );
     }
-    for page in &PAGES {
-        let text = existing(page.file).unwrap_or_else(|| panic!("{} does not exist", page.file));
-        check_blocks(&text, &versions).unwrap_or_else(|e| panic!("{}: {e}", page.file));
+    for file in page_files() {
+        let text = existing(file).unwrap_or_else(|| panic!("{file} does not exist"));
+        check_blocks(&text, &versions).unwrap_or_else(|e| panic!("{file}: {e}"));
         assert!(
             tokens_outside_blocks(&text).expect("blocks").is_empty(),
-            "{}: a version number sits outside a versions block",
-            page.file
+            "{file}: a version number sits outside a versions block"
         );
     }
 }
@@ -301,7 +314,7 @@ fn d3_every_code_on_a_page_is_in_the_catalog() {
         "the finder reads a backticked code of a named surface and nothing else"
     );
     let known = known_codes().expect("the codes are read");
-    let mut files: Vec<&str> = PAGES.iter().map(|page| page.file).collect();
+    let mut files = page_files();
     files.push("index.md");
     for file in files {
         for code in named_codes(file) {
@@ -332,9 +345,9 @@ fn d3_every_author_code_has_a_page() {
         );
     }
     let mut listed: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for page in &PAGES {
-        let text = existing(page.file).unwrap_or_else(|| panic!("{} does not exist", page.file));
-        listed.insert(page.file.to_owned(), listed_codes(&text));
+    for file in page_files() {
+        let text = existing(file).unwrap_or_else(|| panic!("{file} does not exist"));
+        listed.insert(file.to_owned(), listed_codes(&text));
     }
     let index = existing("index.md").expect("docs/contract/index.md exists");
     listed.insert("index.md".to_owned(), listed_codes(&index));
