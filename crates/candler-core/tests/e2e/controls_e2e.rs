@@ -6,10 +6,12 @@
 //! The test removes, by exact id, the images it made, and checks that it left no container.
 #![cfg(test)]
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use candler_core::isolation::docker::{ClientEnv, DockerCli};
-use candler_core::isolation::image::context_digest;
+use candler_core::isolation::image::{DockerImageService, ImageAssets, context_digest};
+use candler_core::isolation::model::ImageRef;
 use candler_core::jobs::model::JobControl;
 use candler_core::jobs::orchestrate::controls::{ControlContexts, DockerControlRunner, ensure};
 use candler_core::jobs::slots::Slots;
@@ -42,6 +44,34 @@ impl EventSink for NullSink {
 fn image_id(reference: &str) -> Option<String> {
     let found = docker(&["image", "inspect", "--format", "{{.Id}}", reference]);
     found.ok().then(|| found.out.trim().to_owned())
+}
+
+/// The agent base image of `context`, found or built by the core's image service, as a job's
+/// image step finds or builds it.
+async fn base_image(context: &str) -> ImageRef {
+    let tmp = tempfile::tempdir().expect("a scratch directory");
+    // TRAIT_OBJECT: the supervisor takes its sink as a trait object
+    let sink: Arc<dyn EventSink> = Arc::new(NullSink);
+    let supervisor = Arc::new(Supervisor::new(sink));
+    let env = ClientEnv::from_process();
+    let cli = DockerCli::new(
+        Arc::clone(&supervisor),
+        env.clone(),
+        tmp.path().join("records"),
+    )
+    .expect("a docker client"); // BORROW: .clone() gives the service its own environment
+    let service = DockerImageService::new(
+        supervisor,
+        cli,
+        env,
+        ImageAssets {
+            base_context: PathBuf::from(context),
+            env_context: tmp.path().join("env"),
+            store_root: tmp.path().join("store"),
+        },
+        Arc::new(ClaudeCodeDriver::new().expect("the driver")),
+    );
+    service.base().await.expect("the agent base image builds")
 }
 
 /// The sorted lines `docker` prints for `args`.
@@ -80,14 +110,16 @@ async fn controls_e2e_pinned_harness_passes() {
 
     let base_tag = candler_core::isolation::image::base_tag(std::path::Path::new(base_context))
         .expect("a tag");
+    let base_made = image_id(&base_tag).is_none();
+    let base = base_image(base_context).await;
     let version = docker(&[
         "image",
         "inspect",
         "--format",
         "{{index .Config.Labels \"candler.cc_version\"}}",
-        &base_tag,
+        &base.id.0,
     ])
-    .must("the agent base image: run `candler preflight` once to build assets/docker/base")
+    .must("the agent base image's harness label")
     .trim()
     .to_owned();
 
@@ -143,6 +175,9 @@ async fn controls_e2e_pinned_harness_passes() {
     }
     if sidecar_made && let Some(id) = image_id(SIDECAR_TAG) {
         docker(&["image", "rm", &id]).must("removing the sidecar image");
+    }
+    if base_made {
+        docker(&["image", "rm", &base.id.0]).must("removing the agent base image");
     }
 
     let reference = result.unwrap_or_else(|error| panic!("the controls did not pass: {error}"));
