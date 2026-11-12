@@ -26,10 +26,10 @@ mod kill_live {
     use candler_core::resolve::layers::Resolution;
     use candler_core::runner::Runtime;
     use candler_core::runner::evidence::provenance::EvalInfra;
-    use candler_core::runner::exec::SkillTree;
     use candler_core::store::Store;
     use candler_core::supervise::platform::process_start;
     use candler_harness::driver::DriverError;
+    use candler_harness::skills::SkillTree;
     use candler_harness::spec::{CommandSpec, PreparedFile};
     use candler_harness_claude_code::driver::ClaudeCodeDriver;
     use candler_schemas::execution::{

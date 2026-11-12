@@ -1,13 +1,9 @@
-//! What `exec_run` is given about a cell, where a treatment's skill tree comes from, and why a
-//! run cannot be executed.
+//! What `exec_run` is given about a cell, and why a run cannot be executed.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use candler_harness::driver::DriverError;
-use candler_harness::spec::{CommandSpec, PreparedFile};
-use candler_schemas::execution::{
-    Comparable, DigestRef, ExecutionError, SecretPresence, TreatmentRef,
-};
+use candler_schemas::execution::{Comparable, DigestRef, ExecutionError, SecretPresence};
 use candler_schemas::primitives::{Digest, FieldPath};
 use candler_schemas::values::SourceEntry;
 
@@ -82,31 +78,6 @@ impl CellRun {
         self.packages = packages;
         self
     }
-}
-
-/// Where a treatment's skill tree comes from: the command that archives it, and the files the
-/// archive holds. The harness driver's crate supplies the real one.
-pub trait SkillTree: Send + Sync {
-    /// The command that archives the tree `treatment` pins from `source`.
-    ///
-    /// # Errors
-    /// [`DriverError`] when the treatment pins no tree or the command cannot be built.
-    fn archive_command(
-        &self,
-        treatment: &TreatmentRef,
-        source: &Path,
-    ) -> Result<CommandSpec, DriverError>;
-
-    /// The files of `archive`, the output of the archive command for `treatment`.
-    ///
-    /// # Errors
-    /// [`DriverError`] when the archive cannot be read or holds an entry outside the treatment's
-    /// skill tree.
-    fn files(
-        &self,
-        treatment: &TreatmentRef,
-        archive: &[u8],
-    ) -> Result<Vec<PreparedFile>, DriverError>;
 }
 
 /// Why a run could not be executed. It never means the run was deleted: either no run directory

@@ -29,7 +29,7 @@ use futures::future::BoxFuture;
 use tokio::sync::watch;
 use tokio::time::MissedTickBehavior;
 
-pub use self::cell::{CellRun, ExecError, SkillTree};
+pub use self::cell::{CellRun, ExecError};
 use self::collect::finish_attempt;
 use self::ends::{EndInput, TraceFacts, classify_end};
 use self::gather::{collect_outputs, spent};

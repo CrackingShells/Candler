@@ -841,6 +841,11 @@ side = "experiment"
 enum = "CliRefusal"
 variant = "UnknownRequestKey"
 
+[cli."experiment.unknown_harness"]
+side = "experiment"
+enum = "CliRefusal"
+variant = "UnknownHarness"
+
 [cli."experiment.unknown_path"]
 side = "experiment"
 enum = "CliRefusal"
@@ -1594,6 +1599,10 @@ reason = "the envelope of a verb's failure; the record's code is that of the ref
 enum = "CliError"
 variant = "Runtime"
 reason = "the process could not run the verb at all, which is a fault of the machine and not of an input"
+
+[internal."candler::drivers::BuildError"]
+enum = "BuildError"
+reason = "a shipped driver or reader that cannot be built is a fault of the binary's own constants, not an input of the author"
 
 [internal."candler::commands::evaluate::JobRefusal"]
 enum = "JobRefusal"

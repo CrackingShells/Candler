@@ -34,7 +34,6 @@ use candler_core::jobs::orchestrate::session::{JobHost, OrchestrateError};
 use candler_core::jobs::slots::Slots;
 use candler_core::runner::Runtime;
 use candler_core::runner::evidence::provenance::EvalInfra;
-use candler_core::runner::exec::SkillTree;
 use candler_core::store::Store;
 use candler_core::supervise::hook::StopHook;
 use candler_core::supervise::spawn::SpawnRequest;
@@ -42,6 +41,7 @@ use candler_core::supervise::stop::Exit;
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_harness::driver::{DriverError, HarnessDriver};
 use candler_harness::reader::TraceReader;
+use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
     BudgetCaps, Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId, Observed,
     Prepared, PreparedFile, ProcessExit, StopSignal, StopSpec, Workspace,

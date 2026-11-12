@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use candler_harness::driver::HarnessDriver;
+use candler_harness::skills::SkillTree;
 use candler_schemas::execution::InvalidReason;
 use candler_schemas::primitives::{JobId, RunKey};
 use candler_schemas::trace::EndedBy;
@@ -29,8 +30,8 @@ use crate::store::Store;
 use crate::supervise::{EventSink, Supervisor};
 
 use self::evidence::provenance::EvalInfra;
+use self::exec::CellRun;
 use self::exec::ends::Retry;
-use self::exec::{CellRun, SkillTree};
 use self::plan::CellId;
 
 /// What a run needs from the job around it.

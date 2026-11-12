@@ -87,6 +87,7 @@ Wire line: `schemas@0.7.0`.
 | `experiment.table_empty` | A table among the fixed values or the levels holds no value, so it fills no path. | - | experiment |
 | `experiment.toml_invalid` | The experiment file is not valid TOML. | - | experiment |
 | `experiment.unknown_field` | The experiment file holds a key its type does not have, such as a misspelt option. | The unknown key itself. | experiment |
+| `experiment.unknown_harness` | `request.harness`, written as `name` under `[harness]` or given to `--set`, names a harness that is not registered in this binary; the refusal lists the registered names. | - | experiment |
 | `experiment.unknown_path` | A dotted path under `[fixed]`, in a factor or in `--set` is none that the experiment surface has, such as a misspelt `model.idd`. | The key under `/fixed`, the `path` of the factor, or the key of the level's table that holds the path; none for `--set`. | experiment |
 | `experiment.unknown_request_key` | `--set` names a key under `request` that is none of the request settings, such as a misspelt `request.harnes`. | - | experiment |
 | `experiment.value_invalid` | A value of an experiment record has the wrong form for what it names, such as a name with a space. | - | experiment |

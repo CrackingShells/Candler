@@ -14,7 +14,7 @@ use candler_core::import::rules::{
 use candler_core::import::streams::ReaderFactory;
 use candler_core::store::Store;
 use candler_harness::reader::TraceReader;
-use candler_harness_claude_code::{ClaudeCodeReader, detect};
+use candler_harness_claude_code::detect;
 use candler_schemas::primitives::{FieldPath, FormatError, Name, NameToken, ReasonCode};
 use regex::Regex;
 use serde::Deserialize;
@@ -23,6 +23,7 @@ use serde_json::{Value, json};
 use super::refusal::CliRefusal;
 use super::{CliError, Exit, common};
 use crate::Cli;
+use crate::drivers::Registry;
 
 /// The arguments of `candler ingest`.
 #[derive(Debug, clap::Args)]
@@ -181,21 +182,24 @@ fn rules_from(path: &Path) -> Result<(ImportRules, String), CliError> {
 /// Checks that the reader of the harness `name` can be built, so that the factory cannot fail.
 /// The table holds the readers this binary ships.
 fn check_reader(name: &str) -> Result<(), CliError> {
-    match name {
-        "claude-code" => ClaudeCodeReader::new()
-            .map(drop)
-            .map_err(|e| CliError::failed("import", e)),
-        other => Err(invalid(format!(
-            "rules `harness.name`: no reader for `{other}`"
-        ))),
-    }
+    let registry = Registry::builtin().map_err(|e| CliError::failed("import", e))?;
+    let entry = registry
+        .entry(name)
+        .map_err(|_| invalid(format!("rules `harness.name`: no reader for `{name}`")))?;
+    (entry.reader)()
+        .map(drop)
+        .map_err(|e| CliError::failed("import", e))
 }
 
 /// A new reader of the harness `name`, which [`check_reader`] accepted.
 // TRAIT_OBJECT: the import's factory type returns boxed readers
 fn new_reader(name: &str) -> Box<dyn TraceReader> {
-    if let ("claude-code", Ok(reader)) = (name, ClaudeCodeReader::new()) {
-        Box::new(reader)
+    let built = Registry::builtin()
+        .ok()
+        .and_then(|registry| registry.entry(name).ok())
+        .and_then(|entry| (entry.reader)().ok());
+    if let Some(reader) = built {
+        reader
     } else {
         // EXPLICIT: construction succeeded once in `check_reader` and its inputs are constants
         eprintln!("candler ingest: cannot build the reader for `{name}`");
