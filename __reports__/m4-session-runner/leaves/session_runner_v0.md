@@ -91,3 +91,32 @@ None. No new error variant, no `refusal_table!` row, `codes.toml` and the contra
 ## For the verifier
 
 Close cannot fire mid-turn or with pending work: one mutex covers tracker and rule; the decision re-drains the hook log after `HOOK_SETTLE`; the pure rule is replayed on both recorded sessions. An experimenter's stop (kill, budget) is classified as ours, makes the run invalid and records no `session.end` (S2 rows 6 and 7).
+
+## Fix round 1
+
+The verifier's findings, each closed by a row in an existing guard, seen red by the bite named. Bites were restored from copies. Commits: bc01d41 (B1), ccfdaba (M1/M2, L5, L6), 1af50af (M3, M4, M5, L1, L2, L8, L10).
+
+| Finding | Closed by | Bite, failing message seen |
+|---|---|---|
+| B1 factor-level `runner.mode` | `session::settle()`, one pure rule called by the preflight step and by `fresh_cells` on each cell's own values; the cell gets `runner.idle_s = 60` with a Derived source (`cells_of` records it unless a factor sets the idle). Row: `session_resolve_settles_each_cell` | rule skipped in `fresh_cells`: the factor cell has no `runner.idle_s`, so it differs from its `[fixed]` twin |
+| B1 refusals | New code `experiment.session_refused` (Side::Experiment, enum `SessionRefusal`, variant `Refused`; wrapped by `ResolveError::Session` and `PlanError::Session`), used at resolve and at planning. Rows: bad factor mode and no capability refused when planning; `[fixed] runner.idle_s` with factor modes `headless`, `session` is refused as a whole at resolve (idle applies to session cells only) | same test |
+| M1/M2 | The tracker's state is known only once there are as many Stop lines as ended turns. Rows in `session_close_needs_a_stop_for_every_turn`: result before a late Stop, Stop before result, Stop-less turn after a quiet one, wake-up in a late Stop. The existing "second turn" row now needs its Stop line | known without the count: `a second turn ends with no Stop line` due at 3.1 s, expected never |
+| M3 | `run.usage` is the sum over the results, read from each result frame; `run.cost_usd` is the harness's cumulative value (checked in c1: 0.0016, then 0.0024), `run.num_turns` the sum. Row: `session_measures_run_values_are_session_totals` | last result's usage: input tokens 100, expected 300 |
+| M4 | A wall end with no Stop line ever read is invalid as infrastructure (`ended_by` unknown), with `session.end = hooks_silent`. The wall row now runs with Stop lines; a new row has none | check removed: `run.ended_by` cap wall, expected unknown |
+| M5 | Row: limit 2 with one result of 2 turns continues and closes | `>=`: `run.ended_by` cap turns, expected completed |
+| L1 | Turns are read from each result frame itself; a result with no `num_turns` adds none. Row: `session_measures_turns_come_from_each_result` | absent count read as 2: 4, expected 2 |
+| L2 | The close rule reads its clock under the lock. `idle_s = 0` is documented (never sooner than the 250 ms settle). `yielded_at_ms` is documented from the runner's preparation of the session, a few ms before the container starts, not the attempt start (docs fixed; the code is unchanged) | none (documentation, ordering) |
+| L5 | The hook redirects its own stderr; `session_hooks_never_decide_whatever_the_log_does` now asserts stderr is empty. The earlier report line "no output" was wrong for a failing log write | before the fix: `sh: .../missing/.candler/hooks.jsonl: No such file or directory` on stderr |
+| L6 | The stream is named `hooks`; the archive is `raw/hooks.jsonl.gz` | |
+| L8 | S4 no longer names a base tag: it takes the `candler-base:src-*` image the machine holds and says how to build one. The digest function is private to the image service, and building the base downloads the harness binary | |
+| L10 | One step name (`session_mode@1`) for the derived values and the measures; `session_config` is the run-time backstop over `settle` | |
+
+Notes without a fix. L4: the session's own stop is folded into "ours" in `classify_end`, as a deadline is. L7: S3 is behavioural on Candler's side only; what Claude Code does with a hook that fails is not exercised here.
+
+Other changes of this round: `PlanCtx` gained `session_capable: Option<bool>` (the job runtime and `candler run` pass the driver's capability; `experiment_of` passes none); `plan_job` in the binary takes it; `ResolveError` and `PlanError` gained `Session`; `End` gained `hooks_silent`; the S4 world and guard rows above.
+
+New code: `experiment.session_refused`, with its `refusal_table!` rows, its `codes.toml` row under `[resolve]` and the regenerated `docs/contract/experiment-file.md`.
+
+Gates after the round: S1, S2, S3, S5, P1, `harness_env_`, `harness_resolution_`, resolve-surface and container-run binaries pass; S4 2/2 with Docker (images removed by exact id, lists equal); SPAWN 9/9; the workspace 656/657 (see below); LINUX, clippy and doc clean; DIGEST 9 + 45; GOLDEN 2 + 1; SUBJ clean.
+
+**Environment finding.** The shared repository's `core.bare` became `true` while the round ran, so `git` fails in every worktree (`this operation must be run in a work tree`). I did not change the shared config: I ran git with `--work-tree` and `-c core.bare=false`. The one workspace failure, `guard_eval_infra::this_checkout_records_the_full_commit`, is this and nothing in the leaf; it needs `git config core.bare false` on the main checkout.
