@@ -41,8 +41,11 @@ use gateway_support::{GATEWAY_CONTEXT, SECRET_NAME, UPSTREAM_PORT, canary, clien
 /// The context of the fake model image.
 const FAKE_CONTEXT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/docker/fakemodel");
 
-/// The agent base image the harness runs in, by the tag the build of `assets/docker/base` made.
-const BASE_TAG: &str = "candler-base:src-319fda768a95";
+/// The reference of the agent base image the harness runs in: the build of `assets/docker/base`
+/// tags it `candler-base:src-<digest of its sources>`. The digest is private to the image service,
+/// and building the base downloads the harness binary, so the test uses the base the machine
+/// already holds and says how to make one when it holds none.
+const BASE_REFERENCE: &str = "candler-base:src-*";
 
 /// The name the fake model's certificate is for.
 const FAKE_HOST: &str = "fake-anthropic.test";
@@ -152,9 +155,20 @@ impl World {
         let rigged = Rig::new(0);
         let job = rigged.job.clone();
         let base = String::from(
-            docker(&["image", "inspect", "--format", "{{.Id}}", BASE_TAG])
-                .must("the agent base image is built")
-                .trim(),
+            docker(&[
+                "images",
+                "--no-trunc",
+                "--format",
+                "{{.ID}}",
+                "--filter",
+                &format!("reference={BASE_REFERENCE}"),
+            ])
+            .must("docker images")
+            .lines()
+            .next()
+            .expect(
+                "an agent base image: run `candler preflight` once to build assets/docker/base",
+            ),
         );
         let gateway_image = build(GATEWAY_CONTEXT, "candler-gateway:test");
         let fake_image = build(FAKE_CONTEXT, "candler-fakemodel:test");

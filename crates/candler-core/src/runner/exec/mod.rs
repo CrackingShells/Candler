@@ -710,18 +710,29 @@ async fn drive(
             session_outcome
                 .as_ref()
                 .and_then(session::SessionOutcome::cap),
+        )
+        .with_session_hooks_silent(
+            session_outcome
+                .as_ref()
+                .is_some_and(session::SessionOutcome::hooks_silent),
         );
     let end = classify_end(&input);
     // A run whose trace could not be read has no totals, as it has no events.
     let no_totals = RunTotals::default();
-    // A session's turns are the sum of its results'; the harness's own total is the last turn's.
+    // A session's turns and usage are the sums over its results'; the harness's own totals are
+    // the last turn's (the cost it reports is already cumulative).
+    let outcome_usage = session_outcome
+        .as_ref()
+        .and_then(session::SessionOutcome::usage_counted);
     let session_totals = session_outcome
         .as_ref()
         .map(session::SessionOutcome::turns_counted)
         .filter(|counted| *counted > 0)
         .map(|counted| {
             RunTotals::new(
-                observed.totals.usage.clone(), // BORROW: the session totals own their copy
+                outcome_usage
+                    .clone()
+                    .or_else(|| observed.totals.usage.clone()), // BORROW: the session totals own their copy
                 observed.totals.cost_usd.clone(), // BORROW: the session totals own their copy
                 Some(serde_json::Value::from(counted)),
             )
@@ -741,7 +752,11 @@ async fn drive(
     measured.extend(provenance_values(&rt.eval_infra, &cell.packages));
     if let Some(outcome) = &session_outcome {
         let own_end = end.invalid.is_none();
-        measured.extend(session_values(&outcome.measures(&end.ended_by, own_end)));
+        measured.extend(session_values(&outcome.measures(
+            &end.ended_by,
+            own_end,
+            end.hooks_silent,
+        )));
     }
 
     let integrity = end.invalid.map_or(Integrity::Valid, Integrity::invalid);

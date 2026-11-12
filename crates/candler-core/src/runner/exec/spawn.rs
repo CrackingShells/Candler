@@ -99,17 +99,7 @@ impl FrameObserver for LiveObserver {
         if let Some(session) = &self.session {
             // The session follows the stream even when the reader failed: closing does not
             // depend on the trace.
-            let turns = || {
-                live.reader.as_ref().and_then(|reader| {
-                    reader
-                        .observed()
-                        .totals
-                        .num_turns
-                        .as_ref()
-                        .and_then(serde_json::Value::as_u64)
-                })
-            };
-            session.feed_stream(&frame.data.to_bytes(), turns);
+            session.feed_stream(&frame.data.to_bytes());
         }
     }
 }

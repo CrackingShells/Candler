@@ -23,7 +23,7 @@ use candler_schemas::primitives::FieldPath;
 use candler_schemas::raw::{Clock as FrameClock, ClockAnchor, StreamName};
 use candler_schemas::trace::{Cap, EndedBy};
 use candler_schemas::values::JsonValue;
-use serde_json::Value;
+use serde_json::{Number, Value};
 use tokio::io::AsyncWriteExt as _;
 use tokio::process::ChildStdin;
 use tokio::sync::Notify;
@@ -35,7 +35,7 @@ pub use crate::runner::evidence::session::{Idle, SessionEnd, SessionMeasures};
 use crate::experiment::paths;
 use crate::frames::{FrameWriter, RawFileInfo};
 use crate::isolation::IsolationError;
-use crate::resolve::steps::session::{DEFAULT_IDLE_S, IDLE_NONE, MODE_SESSION, MODES};
+use crate::resolve::steps::session::{DEFAULT_IDLE_S, MODE_SESSION, settle};
 use crate::supervise::now;
 use crate::supervise::spawn::Child;
 use crate::supervise::stop::StopHandle;
@@ -93,45 +93,23 @@ fn cell_value<'a>(cell: &'a Cell<'_>, path: &str) -> Result<Option<&'a Value>, I
 
 /// The session settings of a cell, or `None` for a headless cell.
 ///
-/// The rules are those of the resolve step, which sees `[fixed]` only: a factor level of
-/// `runner.mode` is checked here, and an absent `runner.idle_s` is 60.
+/// The rule is [`settle`], which resolve and planning have applied already: a refusal here is a
+/// backstop for a cell that reached the run without them.
 ///
 /// # Errors
-/// [`IsolationError::Plan`] when `runner.mode` is neither `headless` nor `session`, when
-/// `runner.idle_s` is set without session mode or is not whole seconds or `none`, or when the
-/// turn limit is not a whole number.
+/// [`IsolationError::Plan`] when the cell fails the session rule or its turn limit is not a whole
+/// number.
 pub fn session_config(cell: &Cell<'_>) -> Result<Option<SessionConfig>, IsolationError> {
     let mode = cell_value(cell, paths::RUNNER_MODE)?;
     let idle = cell_value(cell, paths::RUNNER_IDLE_S)?;
-    let session = match mode {
-        None => false,
-        // BORROW: explicit .as_str()
-        Some(Value::String(text)) if MODES.contains(&text.as_str()) => text == MODE_SESSION,
-        Some(other) => {
-            return Err(plan_error(format!(
-                "runner.mode is {other}: write \"headless\" or \"session\""
-            )));
-        }
-    };
-    if !session {
-        if idle.is_some() {
-            return Err(plan_error(
-                "runner.idle_s is set and the cell is not a session".to_owned(), // BORROW: owned text
-            ));
-        }
+    settle(mode, idle, None).map_err(|refusal| plan_error(refusal.detail().to_owned()))?; // BORROW: owned text
+    if mode.and_then(Value::as_str) != Some(MODE_SESSION) {
         return Ok(None);
     }
     let idle = match idle {
-        None => Idle::Seconds(DEFAULT_IDLE_S),
-        Some(Value::Number(number)) if number.is_u64() => {
-            Idle::Seconds(number.as_u64().unwrap_or(DEFAULT_IDLE_S))
-        }
-        Some(Value::String(text)) if text == IDLE_NONE => Idle::Never,
-        Some(other) => {
-            return Err(plan_error(format!(
-                "runner.idle_s is {other}: write whole seconds, or \"{IDLE_NONE}\""
-            )));
-        }
+        Some(Value::Number(number)) => Idle::Seconds(number.as_u64().unwrap_or(DEFAULT_IDLE_S)),
+        Some(Value::String(_)) => Idle::Never,
+        _ => Idle::Seconds(DEFAULT_IDLE_S),
     };
     let turn_limit = match cell_value(cell, paths::BUDGET_PER_RUN_TURNS)? {
         None => None,
@@ -232,7 +210,61 @@ struct Inner {
     state: PendingState,
     last_turn_end: Option<Duration>,
     turns_sum: u64,
+    ever_known: bool,
+    usage_sum: Option<Value>,
     turn_limit: Option<u64>,
+}
+
+/// What a `result` frame says of its turn.
+struct ResultFacts {
+    turns: Option<u64>,
+    usage: Option<Value>,
+}
+
+/// The turns and the usage of `frame` when it is a `result` frame.
+fn result_of(frame: &[u8]) -> Option<ResultFacts> {
+    let Ok(Value::Object(object)) = serde_json::from_slice::<Value>(frame) else {
+        return None;
+    };
+    if object.get("type").and_then(Value::as_str) != Some("result") {
+        return None;
+    }
+    Some(ResultFacts {
+        turns: object.get("num_turns").and_then(Value::as_u64),
+        usage: object.get("usage").cloned(), // BORROW: the facts own their copy
+    })
+}
+
+/// Adds `new`, one result's usage, to the running sum: whole numbers add, objects add field by
+/// field, and anything else (a service level, a speed, a list) takes the latest value.
+pub fn add_usage(sum: &mut Option<Value>, new: &Value) {
+    match sum {
+        None => *sum = Some(new.clone()), // BORROW: the sum owns its copy
+        Some(total) => merge_usage(total, new),
+    }
+}
+
+fn merge_usage(total: &mut Value, new: &Value) {
+    match (total, new) {
+        (Value::Object(total), Value::Object(new)) => {
+            for (key, value) in new {
+                match total.get_mut(key) {
+                    Some(held) => merge_usage(held, value),
+                    None => {
+                        total.insert(key.clone(), value.clone()); // BORROW: the sum owns its copy
+                    }
+                }
+            }
+        }
+        (Value::Number(held), Value::Number(added)) if held.is_u64() && added.is_u64() => {
+            let sum = held
+                .as_u64()
+                .unwrap_or(0)
+                .saturating_add(added.as_u64().unwrap_or(0));
+            *held = Number::from(sum);
+        }
+        (held, other) => *held = other.clone(), // BORROW: the sum owns its copy
+    }
 }
 
 /// The tracker and the close rule behind one lock, fed by the live observer and the hook log.
@@ -262,6 +294,8 @@ impl SessionWatch {
                 state,
                 last_turn_end: None,
                 turns_sum: 0,
+                ever_known: false,
+                usage_sum: None,
                 turn_limit,
             }),
             clock,
@@ -273,22 +307,27 @@ impl SessionWatch {
     }
 
     /// Reads one record into the tracker and the rule, at the clock's reading.
-    fn take(
-        &self,
-        record: SessionRecord<'_>,
-        turns_of_result: impl FnOnce() -> Option<u64>,
-    ) -> bool {
-        let at = (self.clock)();
+    fn take(&self, record: SessionRecord<'_>, result: Option<ResultFacts>) -> bool {
         let mut inner = locked(&self.inner);
+        // The clock is read under the lock, so the readings follow the order the records are taken.
+        let at = (self.clock)();
         // EXPLICIT: a record the tracker cannot read leaves its state unknown, which it reports
         let readable = inner.tracker.feed(record).is_ok();
         let state = inner.tracker.state();
         if state.turns > inner.state.turns {
             inner.last_turn_end = Some(at);
-            if let Some(counted) = turns_of_result() {
-                inner.turns_sum = inner.turns_sum.saturating_add(counted);
+            // A result that gives no turn count adds none: a count is never carried over from
+            // an earlier result.
+            if let Some(ResultFacts { turns, usage }) = result {
+                if let Some(counted) = turns {
+                    inner.turns_sum = inner.turns_sum.saturating_add(counted);
+                }
+                if let Some(usage) = usage {
+                    add_usage(&mut inner.usage_sum, &usage);
+                }
             }
         }
+        inner.ever_known |= state.known;
         inner.rule.observe(at, &state);
         inner.state = state;
         drop(inner);
@@ -296,15 +335,15 @@ impl SessionWatch {
         readable
     }
 
-    /// Feeds one frame of the harness's stdout. `turns_of_result` is read only when the frame
-    /// ended a turn: the number of turns that turn counted, from the live reader.
-    pub fn feed_stream(&self, frame: &[u8], turns_of_result: impl FnOnce() -> Option<u64>) {
-        self.take(SessionRecord::Stream(frame), turns_of_result);
+    /// Feeds one frame of the harness's stdout. A `result` frame also gives the turns and the
+    /// token usage its turn counted, read from the frame itself.
+    pub fn feed_stream(&self, frame: &[u8]) {
+        self.take(SessionRecord::Stream(frame), result_of(frame));
     }
 
     /// Feeds one line of the hook log, without its newline.
     pub fn feed_hook(&self, line: &[u8]) {
-        self.take(SessionRecord::Hook(line), || None);
+        self.take(SessionRecord::Hook(line), None);
     }
 
     /// What to do now: end at the cap when the turns across the session exceed the limit, close
@@ -330,6 +369,18 @@ impl SessionWatch {
     pub fn snapshot(&self) -> (PendingState, Option<Duration>, u64) {
         let inner = locked(&self.inner);
         (inner.state.clone(), inner.last_turn_end, inner.turns_sum) // BORROW: the snapshot owns its state
+    }
+
+    /// Whether the pending state was ever known: a `Stop` hook line was read for a turn.
+    #[must_use]
+    pub fn ever_known(&self) -> bool {
+        locked(&self.inner).ever_known
+    }
+
+    /// The token usage summed over the session's results, when any result gave one.
+    #[must_use]
+    pub fn usage(&self) -> Option<Value> {
+        locked(&self.inner).usage_sum.clone() // BORROW: the caller owns the sum
     }
 }
 
@@ -644,6 +695,18 @@ impl SessionOutcome {
         if self.capped { Some(Cap::Turns) } else { None }
     }
 
+    /// Whether turns ended and no `Stop` hook line was ever read: the hook channel gave nothing.
+    #[must_use]
+    pub fn hooks_silent(&self) -> bool {
+        self.watch.snapshot().0.turns > 0 && !self.watch.ever_known()
+    }
+
+    /// The token usage summed over the session's results.
+    #[must_use]
+    pub fn usage_counted(&self) -> Option<Value> {
+        self.watch.usage()
+    }
+
     /// The turns the session counted, summed over its results.
     #[must_use]
     pub fn turns_counted(&self) -> u64 {
@@ -653,14 +716,23 @@ impl SessionOutcome {
     /// The measures of the session. `own_end` is whether the run's end is the arm's own: it is not
     /// when the experimenter stopped the run or the run failed, and no end is recorded then.
     #[must_use]
-    pub fn measures(&self, ended_by: &EndedBy, own_end: bool) -> SessionMeasures {
+    pub fn measures(
+        &self,
+        ended_by: &EndedBy,
+        own_end: bool,
+        hooks_silent: bool,
+    ) -> SessionMeasures {
         let (state, last, _) = self.watch.snapshot();
         SessionMeasures::new(
             self.config.idle,
             state.turns,
             last.map(|at| u64::try_from(at.as_millis()).unwrap_or(u64::MAX)),
             state.known.then_some(state.pending),
-            own_end.then(|| session_end(self.closed, ended_by)),
+            if hooks_silent {
+                Some(SessionEnd::HooksSilent)
+            } else {
+                own_end.then(|| session_end(self.closed, ended_by))
+            },
             self.forced,
         )
     }

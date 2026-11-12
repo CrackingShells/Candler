@@ -740,6 +740,12 @@ fn wrapped_cases() -> Vec<Wrapped> {
         ),
         case(
             "ResolveError",
+            "Session",
+            Box::new(ResolveError::Session(session_refusal())),
+            "experiment.session_refused",
+        ),
+        case(
+            "ResolveError",
             "Format",
             Box::new(ResolveError::Format(format())),
             "resolve.value_invalid",
@@ -816,6 +822,12 @@ fn wrapped_cases() -> Vec<Wrapped> {
             "Command",
             Box::new(DriverError::Command(CommandSpecError::EmptyArgv)),
             "candler.internal",
+        ),
+        case(
+            "PlanError",
+            "Session",
+            Box::new(PlanError::Session(session_refusal())),
+            "experiment.session_refused",
         ),
         case(
             "PlanError",
@@ -986,6 +998,14 @@ fn wrapped_cases() -> Vec<Wrapped> {
             "import.value_invalid",
         ),
     ]
+}
+
+/// A refusal of a cell's session settings.
+fn session_refusal() -> candler_core::resolve::steps::session::SessionRefusal {
+    candler_core::resolve::steps::session::SessionRefusal::Refused {
+        check: "mode_valid@1".to_owned(),
+        detail: "runner.mode is 1".to_owned(),
+    }
 }
 
 /// Every `(code, side)` pair `codes.toml` registers, with the fallback code and the side

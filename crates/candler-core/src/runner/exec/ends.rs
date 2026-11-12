@@ -66,6 +66,9 @@ pub struct EndInput {
     session_stop: bool,
     /// The cap the session runner ended the run at, when it did.
     session_cap: Option<Cap>,
+    /// Whether a session ran with no `Stop` hook line ever read: its pending state was never
+    /// known, so the hook channel cannot be told from an agent that never stops.
+    session_hooks_silent: bool,
 }
 
 impl EndInput {
@@ -85,6 +88,7 @@ impl EndInput {
             attempt: 1,
             session_stop: false,
             session_cap: None,
+            session_hooks_silent: false,
         }
     }
 
@@ -166,6 +170,13 @@ impl EndInput {
         self
     }
 
+    /// Sets whether the session ran with no `Stop` hook line ever read.
+    #[must_use]
+    pub const fn with_session_hooks_silent(mut self, silent: bool) -> Self {
+        self.session_hooks_silent = silent;
+        self
+    }
+
     /// Sets the cap the session runner ended the run at. It implies a stop by the runner.
     #[must_use]
     pub const fn with_session_cap(mut self, cap: Option<Cap>) -> Self {
@@ -202,6 +213,8 @@ pub struct End {
     pub ended_by: EndedBy,
     /// Whether the run is tried again.
     pub retry: Retry,
+    /// Whether the run is invalid because a session's hook channel gave no `Stop` line.
+    pub hooks_silent: bool,
 }
 
 impl End {
@@ -211,6 +224,7 @@ impl End {
             invalid: None,
             ended_by,
             retry,
+            hooks_silent: false,
         }
     }
 
@@ -220,6 +234,7 @@ impl End {
             invalid: Some(reason),
             ended_by,
             retry,
+            hooks_silent: false,
         }
     }
 }
@@ -346,6 +361,13 @@ pub fn classify_end(input: &EndInput) -> End {
     let ended_by = qualify(input);
     if ended_by == EndedBy::Unknown && !ours {
         return infra(Retry::None);
+    }
+    // A session that hit the wall without one `Stop` line read is an instrument failure, not an
+    // agent that never stopped.
+    if input.session_hooks_silent && ended_by == EndedBy::cap(Cap::Wall) {
+        let mut end = infra(Retry::None);
+        end.hooks_silent = true;
+        return end;
     }
     let retry = if matches!(ended_by, EndedBy::AgentError { .. }) {
         Retry::Never

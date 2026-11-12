@@ -6,20 +6,25 @@
 //! The expected values are literals, the recorded session fixtures of the Claude Code crate, or
 //! counts made by hand.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Arc;
 
 use candler_core::experiment::paths;
+use candler_core::jobs::model::JobSpec;
+use candler_core::jobs::orchestrate::session::cells_of;
 use candler_core::resolve::config::{Config, UserConfig};
 use candler_core::resolve::layers::{FileValues, Resolution, ResolveInput};
 use candler_core::resolve::preflight::{ResolveError, Resolver};
 use candler_core::resolve::steps::session::SessionModeStep;
+use candler_core::runner::plan::{Force, PlanCtx, PlanError, PlanMode, plan_runs};
 use candler_harness::driver::HarnessDriver as _;
 use candler_harness::spec::{Cell, Workspace};
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_schemas::execution::ExperimentFile;
 use candler_schemas::primitives::FieldPath;
-use candler_schemas::values::{JsonValue, ValueSource};
+use candler_schemas::refusal::{Refusal, Side};
+use candler_schemas::values::{JsonValue, ResolvedValue, ValueSource};
 use serde_json::{Value, json};
 
 #[path = "support/harness_facts.rs"]
@@ -235,15 +240,15 @@ async fn session_resolve_table() {
                     row.name
                 );
             }
-            (Err(check), Err(ResolveError::Preflight { reports, errors })) => {
-                assert!(errors.is_empty(), "{}: no step error", row.name);
-                let failed: Vec<String> = reports
-                    .iter()
-                    .flat_map(|report| report.checks.iter())
-                    .filter(|found| !found.passed)
-                    .map(|found| found.name.to_string())
-                    .collect();
-                assert_eq!(failed, [(*check).to_owned()], "{}: failed check", row.name);
+            (Err(check), Err(ResolveError::Session(refusal))) => {
+                assert_eq!(refusal.check(), *check, "{}: failed check", row.name);
+                assert_eq!(
+                    Refusal::code(&refusal).as_str(),
+                    "experiment.session_refused",
+                    "{}: the author's code",
+                    row.name
+                );
+                assert_eq!(Refusal::side(&refusal), Side::Experiment);
             }
             (expected, got) => panic!("{}: expected {expected:?}, got {:?}", row.name, got.is_ok()),
         }
@@ -275,6 +280,182 @@ fn session_resolve_factor_levels_and_known_paths() {
         })
         .collect();
     assert_eq!(modes, [Some(json!("headless")), Some(json!("session"))]);
+}
+
+/// The experiment text with the factors `factors` (already TOML) and no `[fixed]` value.
+fn experiment_with(factors: &str) -> ExperimentFile {
+    let text = format!(
+        "schema = \"experiment/1\"\nreplicates = 1\n\n{factors}\n[budget.per_run]\nwall_s = 60\n\n\
+         [harness]\nname = \"claude-code\"\n\n[treatment]\nname = \"t\"\n"
+    );
+    ExperimentFile::from_toml_str(&text).expect("an experiment")
+}
+
+/// Plans `file` over the resolution of `fixed`, on a driver that is, or is not, capable, and
+/// returns the cells' values and, per cell, the sources a job would record.
+async fn planned(
+    file: &ExperimentFile,
+    fixed: &[(&str, Value)],
+    capable: bool,
+) -> Result<Vec<(Vec<(String, Value)>, Vec<(String, bool)>)>, PlanError> {
+    let mut all = vec![
+        (
+            "harness",
+            json!({"name": "claude-code", "version": "2.1.311"}),
+        ),
+        ("treatment", json!({"name": "t"})),
+    ];
+    all.extend(fixed.iter().map(|(path, value)| (*path, value.clone())));
+    let mut resolution = resolve(&all, true).await.expect("the fixed values resolve");
+    resolution.settings.push(ResolvedValue::recorded(
+        fp(paths::REQUEST_TREATMENT),
+        js(json!({"name": "t"})),
+    ));
+    let (dir, store, lock) = support::run_plan::fresh_store();
+    let ctx = PlanCtx {
+        store,
+        experiment_lock: lock,
+        secrets_present: BTreeSet::new(),
+        session_capable: Some(capable),
+    };
+    let outcome = plan_runs(&ctx, file, &resolution, Force::No, PlanMode::Check)?;
+    let spec = JobSpec {
+        experiment: file.clone(),
+        resolution,
+        plans: outcome.plans.clone(),
+        budget: file.budget().clone(),
+        force: false,
+        inputs: Vec::new(),
+        evaluation_inputs: Vec::new(),
+    };
+    let cells = cells_of(&spec, &outcome, &BTreeSet::new(), &BTreeMap::new()).expect("cells");
+    drop(dir);
+    Ok(cells
+        .values()
+        .map(|cell| {
+            let values = cell
+                .comparable
+                .values()
+                .iter()
+                .filter_map(|value| {
+                    Some((value.path().to_string(), value.value()?.as_value().clone()))
+                })
+                .collect();
+            let sources = cell
+                .sources
+                .iter()
+                .map(|entry| {
+                    (
+                        entry.path().to_string(),
+                        matches!(entry.source(), ValueSource::Derived { .. }),
+                    )
+                })
+                .collect();
+            (values, sources)
+        })
+        .collect())
+}
+
+fn value_of(values: &[(String, Value)], path: &str) -> Option<Value> {
+    values
+        .iter()
+        .find(|(own, _)| own == path)
+        .map(|(_, value)| value.clone())
+}
+
+/// Guards: M4 D1, I12 — the session rule is settled per cell: a session cell whose mode is a
+/// factor level is the same cell as its `[fixed]` twin (the same values, `runner.idle_s = 60`
+/// derived in both), a bad factor-level mode and a factor-level session on a driver that cannot
+/// run one are refused when planning with the author's code `experiment.session_refused`, never
+/// when running, and `runner.idle_s` in `[fixed]` with factor modes `headless` and `session` is
+/// refused as a whole, at resolve, because it applies to session cells only.
+/// Oracle: the experiment texts below; the twin's values are the `[fixed]` cell's own.
+/// Bite: leave the factor-level cells out of the session rule (no idle derived, no refusal).
+#[tokio::test]
+async fn session_resolve_settles_each_cell() {
+    let twin_fixed = planned(
+        &experiment_with(""),
+        &[(paths::RUNNER_MODE, json!("session"))],
+        true,
+    )
+    .await
+    .expect("plans");
+    let twin_factor = planned(
+        &experiment_with("[[factors]]\npath = \"runner.mode\"\nlevels = [\"session\"]\n"),
+        &[],
+        true,
+    )
+    .await
+    .expect("plans");
+    assert_eq!(twin_fixed.len(), 1);
+    assert_eq!(
+        twin_factor, twin_fixed,
+        "the factor level is its fixed twin, values and sources"
+    );
+    let (values, sources) = twin_fixed.first().expect("a cell");
+    assert_eq!(value_of(values, paths::RUNNER_IDLE_S), Some(json!(60)));
+    assert!(
+        sources.contains(&(paths::RUNNER_IDLE_S.to_owned(), true)),
+        "the default is derived: {sources:?}"
+    );
+    let both = planned(
+        &experiment_with(
+            "[[factors]]\npath = \"runner.mode\"\nlevels = [\"headless\", \"session\"]\n",
+        ),
+        &[],
+        true,
+    )
+    .await
+    .expect("plans");
+    let mut idles: Vec<Option<Value>> = both
+        .iter()
+        .map(|(values, _)| value_of(values, paths::RUNNER_IDLE_S))
+        .collect();
+    idles.sort_by_key(Option::is_some);
+    assert_eq!(
+        idles,
+        [None, Some(json!(60))],
+        "only the session cell holds an idle"
+    );
+    let factor_modes = |levels: &str| {
+        experiment_with(&format!(
+            "[[factors]]\npath = \"runner.mode\"\nlevels = {levels}\n"
+        ))
+    };
+    for (name, levels, capable, check) in [
+        (
+            "a bad mode",
+            "[\"headless\", \"sesion\"]",
+            true,
+            "mode_valid@1",
+        ),
+        (
+            "no capability",
+            "[\"headless\", \"session\"]",
+            false,
+            "session_capable@1",
+        ),
+    ] {
+        match planned(&factor_modes(levels), &[], capable).await {
+            Err(PlanError::Session(refusal)) => {
+                assert_eq!(refusal.check(), check, "{name}");
+                assert_eq!(
+                    Refusal::code(&refusal).as_str(),
+                    "experiment.session_refused"
+                );
+            }
+            other => panic!(
+                "{name}: expected a session refusal, got {:?}",
+                other.map(|cells| cells.len())
+            ),
+        }
+    }
+    match resolve(&[(paths::RUNNER_IDLE_S, json!(5))], true).await {
+        Err(ResolveError::Session(refusal)) => {
+            assert_eq!(refusal.check(), "idle_s_needs_session@1");
+        }
+        other => panic!("idle in [fixed] without a mode: {:?}", other.is_ok()),
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -412,7 +593,6 @@ fn harness_env_session_adds_input_flag_only_when_interactive() {
 // S1: when the input closes.
 // ---------------------------------------------------------------------------------------------
 
-use std::collections::BTreeMap;
 use std::time::Duration;
 
 use candler_core::runner::exec::session::{CloseRule, HOOK_SETTLE, Idle};
@@ -667,9 +847,13 @@ fn session_close_ignores_records_that_do_not_change_the_state() {
             None,
         ),
         (
-            "a second turn ends 600 ms after the first",
-            with(vec![stream(1662.01, started), stream(1700.0, ended)]),
-            Some(1700.0 + 2000.0),
+            "a second turn ends 600 ms after the first, its Stop line 11 ms later",
+            with(vec![
+                stream(1662.01, started),
+                stream(1700.0, ended),
+                (ms(1711.0), Rec::Hook(hook_line.clone())), // BORROW: the row owns its records
+            ]),
+            Some(1711.0 + 2000.0),
         ),
         ("a wake-up pending in the Stop line", wake, None),
         ("a hook line that is not JSON", garbled, None),
@@ -697,6 +881,95 @@ fn c2_script(after_result: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
     steps.push(rig::wait_eof(None));
     steps.push(rig::exit(0));
     steps
+}
+
+/// Guards: R01 §Session runner, M4 D2 — the input never closes on a turn's pending list that was
+/// not read for that turn: in the order the host sees in production (a turn's `result` line
+/// before its `Stop` line) the state is unknown until the `Stop` line arrives, however late; a
+/// turn that ends with no `Stop` line (the turn limit) after a quiet turn leaves the state
+/// unknown, so the wake-up it scheduled is not dropped; a `Stop` line that lists a wake-up keeps
+/// the session open; a `Stop` line read before its `result` still counts for that turn.
+/// Oracle: the records below, by hand; the times are the ones the rows say.
+/// Bite: let an earlier turn's `Stop` list stand for a later turn without one.
+#[test]
+fn session_close_needs_a_stop_for_every_turn() {
+    let stream = |text: &str| Rec::Stream(text.to_owned()); // BORROW: the row owns its records
+    let stop = |crons: &str| {
+        Rec::Hook(format!(
+            r#"{{"written_ns":1,"payload":{{"hook_event_name":"Stop","background_tasks":[],"session_crons":{crons}}}}}"#
+        ))
+    };
+    let assistant = || stream(r#"{"type":"assistant","message":{"content":[]}}"#);
+    let result = || stream(r#"{"type":"result","subtype":"success","num_turns":1}"#);
+    let max_turns = || stream(r#"{"type":"result","subtype":"error_max_turns","num_turns":2}"#);
+    let tasks_changed =
+        || stream(r#"{"type":"system","subtype":"background_tasks_changed","tasks":[]}"#);
+    let quiet_turn = |from: f64| {
+        vec![
+            (ms(from), assistant()),
+            (ms(from + 10.0), result()),
+            (ms(from + 21.0), stop("[]")),
+        ]
+    };
+    let rows: Vec<CloseRow> = vec![
+        (
+            "the result is read and the Stop line is not yet: unknown",
+            vec![(ms(0.0), assistant()), (ms(10.0), result())],
+            None,
+        ),
+        (
+            "the Stop line arrives 11 ms after the result: due one second after it",
+            quiet_turn(0.0),
+            Some(21.0 + 1000.0),
+        ),
+        (
+            "the Stop line is read before its result: still that turn's",
+            vec![
+                (ms(0.0), assistant()),
+                (ms(5.0), stop("[]")),
+                (ms(10.0), result()),
+            ],
+            Some(10.0 + 1000.0),
+        ),
+        (
+            "a second turn ends with no Stop line: unknown, not the first turn's list",
+            {
+                let mut events = quiet_turn(0.0);
+                events.push((ms(2000.0), assistant()));
+                events.push((ms(2100.0), max_turns()));
+                events.push((ms(2110.0), tasks_changed()));
+                events
+            },
+            None,
+        ),
+        (
+            "a late Stop line of the second turn lists a wake-up: pending, not due",
+            {
+                let mut events = quiet_turn(0.0);
+                events.push((ms(2000.0), assistant()));
+                events.push((ms(2100.0), result()));
+                events.push((ms(2111.0), stop(r#"[{"id":"w1","recurring":false}]"#)));
+                events
+            },
+            None,
+        ),
+    ];
+    for (name, events, due_ms) in rows {
+        let replayed = replay(&events, Idle::Seconds(1));
+        match due_ms {
+            None => assert_eq!(replayed.due, None, "{name}"),
+            Some(expected) => {
+                let due = replayed
+                    .due
+                    .unwrap_or_else(|| panic!("{name}: no due time"));
+                assert!(
+                    same(due, ms(expected)),
+                    "{name}: due at {due:?}, expected {expected} ms"
+                );
+            }
+        }
+        assert!(replayed.quiet_when_due, "{name}: quiet whenever due");
+    }
 }
 
 /// The stub's script for c1 with a 2.5 s pause where the background job runs, then end of input,
@@ -819,13 +1092,21 @@ fn init_tools(session: &str) -> serde_json::Value {
 }
 
 /// Turns of c2 repeated: init, an assistant line and a result that counts two turns, `count`
-/// times, `gap` seconds apart.
-fn looping_script(count: usize, gap: f64) -> Vec<serde_json::Value> {
+/// times, `gap` seconds apart, each result preceded by c2's Stop line when `with_stops` is set.
+fn looping_script(count: usize, gap: f64, with_stops: bool) -> Vec<serde_json::Value> {
     let lines = rig::fixture_lines("c2", "stdout.jsonl");
+    let stop_line = rig::fixture_lines("c2", "hooks.jsonl")
+        .into_iter()
+        .find(|line| line.contains("\"hook_event_name\":\"Stop\""))
+        .expect("a Stop line");
     let mut steps = Vec::new();
     for _ in 0..count {
         for line in &lines {
             let line = line.replace("\"num_turns\":1", "\"num_turns\":2");
+            if with_stops && line.contains("\"type\":\"result\"") {
+                steps.push(rig::hook(&stop_line));
+                steps.push(rig::sleep(0.01));
+            }
             steps.push(rig::out_of(&line));
         }
         steps.push(rig::sleep(gap));
@@ -867,6 +1148,7 @@ struct Expect {
 async fn session_measures_by_how_the_session_ended() {
     let values = rig::cell_values(&[]);
     let capped = rig::cell_values(&[("budget.per_run.turns", j!(3))]);
+    let limit_two = rig::cell_values(&[("budget.per_run.turns", j!(2))]);
     let wall = rig::cell_values(&[
         ("runner.idle_s", j!("none")),
         ("budget.per_run.wall_s", j!(3)),
@@ -891,7 +1173,7 @@ async fn session_measures_by_how_the_session_ended() {
         ),
         (
             "the turn limit across the session",
-            looping_script(6, 0.3),
+            looping_script(6, 0.3, true),
             &capped,
             None,
             Expect {
@@ -903,12 +1185,36 @@ async fn session_measures_by_how_the_session_ended() {
         ),
         (
             "the wall",
-            looping_script(40, 0.3),
+            looping_script(40, 0.3, true),
             &wall,
             None,
             Expect {
                 ended_by: j!({"kind": "cap", "cap": "wall"}),
                 end: Some("cap"),
+                forced: false,
+                valid: true,
+            },
+        ),
+        (
+            "the wall with a hook channel that never delivers a Stop line",
+            looping_script(40, 0.3, false),
+            &wall,
+            None,
+            Expect {
+                ended_by: j!({"kind": "unknown"}),
+                end: Some("hooks_silent"),
+                forced: false,
+                valid: false,
+            },
+        ),
+        (
+            "the turn limit equals the sum of one result: the session goes on and closes",
+            looping_script(1, 0.1, true),
+            &limit_two,
+            None,
+            Expect {
+                ended_by: j!({"kind": "completed"}),
+                end: Some("closed"),
                 forced: false,
                 valid: true,
             },
@@ -939,7 +1245,7 @@ async fn session_measures_by_how_the_session_ended() {
         ),
         (
             "the experimenter kills the job",
-            looping_script(40, 0.3),
+            looping_script(40, 0.3, true),
             &long_idle,
             Some((JobCause::Killed, 0.8)),
             Expect {
@@ -951,7 +1257,7 @@ async fn session_measures_by_how_the_session_ended() {
         ),
         (
             "the job's budget stops the run",
-            looping_script(40, 0.3),
+            looping_script(40, 0.3, true),
             &long_idle,
             Some((JobCause::BudgetStop, 0.8)),
             Expect {
@@ -1036,6 +1342,69 @@ async fn session_measures_by_how_the_session_ended() {
             }
             _ => {}
         }
+    }
+}
+
+/// Guards: R01 §Session runner, M4 D3 — in session mode every `run.*` value is the session's
+/// total: `run.usage` sums the usage of every result (the harness reports each result's own),
+/// `run.num_turns` sums the turns, and `run.cost_usd` is the last result's (the harness reports
+/// the cost cumulatively).
+/// Oracle: the recorded session c1 by hand: results with usage 200+40 and 100+20 tokens, turns 2
+/// and 1, total cost 0.0016 then 0.0024.
+/// Bite: record the last result's usage as the session's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_measures_run_values_are_session_totals() {
+    let values = rig::cell_values(&[("runner.idle_s", j!(1))]);
+    let ran = rig::run(&c1_script(), &values, rig::Driver::new(true), None).await;
+    let _ = ran.outcome();
+    let usage = ran.measured("run.usage").expect("run.usage");
+    assert_eq!(usage["input_tokens"], j!(300), "input tokens summed");
+    assert_eq!(usage["output_tokens"], j!(60), "output tokens summed");
+    assert_eq!(ran.measured("run.num_turns"), Some(j!(3)));
+    let cost = ran
+        .measured("run.cost_usd")
+        .and_then(|cost| cost.as_f64())
+        .expect("a cost");
+    assert!(
+        (cost - 0.0024).abs() < 1e-9,
+        "the cost is the cumulative one: {cost}"
+    );
+    assert_eq!(ran.measured("session.turns"), Some(j!(2)));
+}
+
+/// Guards: R01 §Session runner, M4 D3 — the turns of a session are counted from each `result`
+/// frame itself: a result that gives no `num_turns` adds none, and never repeats the count of an
+/// earlier result.
+/// Oracle: the frames below; 2 + 1 = 3 by hand, and the result with no count between them.
+/// Bite: read the count from the reader's latest totals (a stale count is added again).
+#[test]
+fn session_measures_turns_come_from_each_result() {
+    let watch = candler_core::runner::exec::session::SessionWatch::new(
+        Box::new(candler_harness_claude_code::session::Tracker::default()),
+        CloseRule::new(Idle::Never, HOOK_SETTLE),
+        None,
+        candler_core::runner::exec::session::monotonic_clock(),
+    );
+    let assistant = br#"{"type":"assistant","message":{"content":[]}}"#;
+    for (frame, expected) in [
+        (
+            &br#"{"type":"result","subtype":"success","num_turns":2}"#[..],
+            2,
+        ),
+        (&br#"{"type":"result","subtype":"success"}"#[..], 2),
+        (
+            &br#"{"type":"result","subtype":"success","num_turns":1}"#[..],
+            3,
+        ),
+    ] {
+        watch.feed_stream(assistant);
+        watch.feed_stream(frame);
+        assert_eq!(
+            watch.snapshot().2,
+            expected,
+            "after {}",
+            String::from_utf8_lossy(frame)
+        );
     }
 }
 
@@ -1135,6 +1504,11 @@ fn session_hooks_never_decide_whatever_the_log_does() {
                     output.stdout.is_empty(),
                     "{event} with {home_name}: the hook prints nothing on stdout"
                 );
+                assert!(
+                    output.stderr.is_empty(),
+                    "{event} with {home_name}: the hook prints nothing on stderr: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
             }
         }
     }
@@ -1229,7 +1603,7 @@ async fn session_hooks_leave_the_run_as_it_is() {
         "no hook is installed without hooks"
     );
     assert!(
-        hooked.run_dir.join("raw/hooks.jsonl.jsonl.gz").is_file(),
+        hooked.run_dir.join("raw/hooks.jsonl.gz").is_file(),
         "the hook log is archived as a raw stream: {:?}",
         files_under(&hooked.run_dir)
     );

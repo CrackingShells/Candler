@@ -13,7 +13,7 @@ use super::measure::measured;
 use crate::resolve::steps::session::IDLE_NONE;
 
 /// The preflight step the session values name as their source.
-const STEP: &str = "session@1";
+const STEP: &str = crate::resolve::steps::session::STEP_NAME;
 
 /// How a session ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,6 +27,9 @@ pub enum SessionEnd {
     Budget,
     /// The harness exited before the runner closed the input.
     HarnessExit,
+    /// The wall ended the run and no `Stop` hook line was ever read: the hook channel is at fault,
+    /// not the agent, and the run is invalid.
+    HooksSilent,
 }
 
 impl SessionEnd {
@@ -38,6 +41,7 @@ impl SessionEnd {
             Self::Cap => "cap",
             Self::Budget => "budget",
             Self::HarnessExit => "harness_exit",
+            Self::HooksSilent => "hooks_silent",
         }
     }
 }
@@ -46,7 +50,8 @@ impl SessionEnd {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Idle {
-    /// This many whole seconds.
+    /// This many whole seconds. Zero closes as soon as the agent is quiet and the runner's hook
+    /// settle (a quarter of a second) has passed: the input never closes sooner than the settle.
     Seconds(u64),
     /// Never: only a cap, the budget or the harness's own exit ends the session.
     Never,
@@ -60,8 +65,8 @@ pub struct SessionMeasures {
     pub idle: Idle,
     /// The turns that ended (`result` events of the harness's stream).
     pub turns: u64,
-    /// Milliseconds from the start of the attempt to the end of the last turn; none when no turn
-    /// ended.
+    /// Milliseconds from the runner's preparation of the session, a few milliseconds before the
+    /// container starts, to the end of the last turn; none when no turn ended.
     pub yielded_at_ms: Option<u64>,
     /// What was pending at the end of the run; none when it could not be read.
     pub pending_at_end: Option<Vec<PendingItem>>,
