@@ -283,8 +283,9 @@ field path is dotted: `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`.
   - `isolation.build.prune` lists file names the env build deletes after the install, each
     `^[A-Za-z0-9._-]+$` and neither `.` nor `..`. It is part of the env image's key: with nothing
     pruned the key is the lock's digest, otherwise the sha256 of the lock's hex digest followed by
-    a NUL byte and each distinct name, sorted. The image's own id enters the cell as
-    `isolation.image`.
+    a NUL byte and each distinct name, sorted. The env image's tag joins that key and the base
+    image's content tag (`<key>-src-<12 hex>`), so each base has its own env image for one lock.
+    The image's own id enters the cell as `isolation.image`.
   - `isolation.record_packages` lists import package names, each `^[a-z_][a-z0-9_]*$`. Each run
     reads the distribution and version of each from its env image and records them under
     `provenance.packages` (§Run manifest).
