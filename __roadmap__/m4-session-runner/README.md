@@ -131,6 +131,7 @@ graph TD
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
 |:---|:-----|:-------|:------------|:----------|
+| A1 | 2026-11-12 | __reports__/m4-session-runner/gap_analysis_census_v0.md | [] | OpenCode lists its tools only on the wire; opencode_wiring gains a gateway tool-name record and the census reads it (Eliott approved, relayed by the coordination session) |
 
 ## Progress
 | Node | Branch | Commits | Notes |
