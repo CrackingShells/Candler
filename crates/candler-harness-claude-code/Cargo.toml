@@ -17,6 +17,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+candler-harness = { workspace = true, features = ["conformance"] }
 flate2.workspace = true
 sha2.workspace = true
 toml.workspace = true

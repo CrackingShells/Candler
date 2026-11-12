@@ -7,11 +7,15 @@
 //!
 //! - [`spec`] holds the data a driver returns to the core.
 //! - [`driver`] holds [`driver::HarnessDriver`] and its error.
+//! - [`skills`] holds [`skills::SkillTree`], the per-harness skill layout.
 //! - [`reader`] holds [`reader::TraceReader`], its frame input and its error.
 
 #![deny(clippy::allow_attributes)]
 
+#[cfg(feature = "conformance")]
+pub mod conformance;
 pub mod driver;
 pub mod reader;
 pub mod refusal;
+pub mod skills;
 pub mod spec;

@@ -10,8 +10,8 @@ use candler_schemas::trace::{EndedBy, Session};
 
 use crate::reader::TraceReader;
 use crate::spec::{
-    Capabilities, Cell, CollectSpec, CommandSpec, CommandSpecError, HarnessId, Observed, Prepared,
-    ProcessExit, StopSpec, Workspace,
+    Capabilities, Cell, CollectSpec, CommandSpec, CommandSpecError, GatewayEnv, HarnessId,
+    Observed, Prepared, ProcessExit, SessionSpec, SessionTracker, StatePath, StopSpec, Workspace,
 };
 
 /// Why a driver could not answer.
@@ -47,6 +47,12 @@ pub enum DriverError {
     /// A command the driver could not build.
     #[error(transparent)]
     Command(#[from] CommandSpecError),
+    /// A record of a session that a tracker cannot read.
+    #[error("session record cannot be read: {detail}")]
+    Record {
+        /// What is wrong with the record.
+        detail: String,
+    },
 }
 
 /// What the runner needs from one harness, returned as data for the core to act on.
@@ -88,6 +94,57 @@ pub trait HarnessDriver: Send + Sync {
         workspace: &Workspace<'_>,
     ) -> Result<CommandSpec, DriverError>;
 
+    /// The names of the variables through which the core hands the gateway to the agent, or
+    /// `None` for a driver that names none. The core sets the values; a driver whose
+    /// configuration needs the address or the token writes a reference to the variable's name
+    /// into it (`prepare`), so no value passes through the driver. A driver the core runs against
+    /// the gateway names its variables: there is no default set of names.
+    fn gateway(&self) -> Option<GatewayEnv> {
+        None
+    }
+
+    /// The places the harness keeps state inside the agent's home. The core creates each one per
+    /// run and sets its variable, so a run never reads or leaves another run's state. A harness
+    /// with no state of its own beyond the home keeps the default, an empty list.
+    ///
+    /// No two paths are the same path, and a [`crate::spec::StateKind::File`] is never another
+    /// path's parent. A file inside a directory the driver also lists is fine: the core creates
+    /// parents, and no state path is mounted on its own.
+    fn state_paths(&self) -> Vec<StatePath> {
+        Vec::new()
+    }
+
+    /// The raw stream the census is read from when the harness has no init event, or `None` when
+    /// the census comes from the live reader's init report. The reader that
+    /// [`HarnessDriver::offline_reader`] returns for this stream reports the inventory in
+    /// [`Observed::init`]. A stream that holds no inventory leaves it `None`: unrecorded, never an
+    /// empty set.
+    fn census_stream(&self) -> Option<StreamName> {
+        None
+    }
+
+    /// How the harness runs the cell as a session, or `None` for a harness that runs none.
+    ///
+    /// # Errors
+    /// Returns [`DriverError::MissingValue`] if the cell lacks a value the driver needs.
+    /// Returns [`DriverError::InvalidValue`] if a value cannot be used.
+    /// Returns [`DriverError::Command`] if the command cannot be built.
+    fn session(
+        &self,
+        cell: &Cell<'_>,
+        workspace: &Workspace<'_>,
+    ) -> Result<Option<SessionSpec>, DriverError> {
+        let _ = (cell, workspace);
+        Ok(None)
+    }
+
+    /// A tracker that follows a session from its stream frames and hook records, or `None` for a
+    /// harness that runs none.
+    fn session_tracker(&self) -> Option<Box<dyn SessionTracker>> {
+        // TRAIT_OBJECT: the core selects drivers and trackers at runtime
+        None
+    }
+
     /// How the core stops the harness.
     fn stop(&self) -> StopSpec;
 
@@ -105,6 +162,20 @@ pub trait HarnessDriver: Send + Sync {
     /// status alone: an exit 0 with an error result is an agent error. A run the experimenter
     /// stopped (job budget, `candler kill`) is classified by the core, whatever this returns.
     fn classify_exit(&self, exit: &ProcessExit, sessions: &[Session]) -> EndedBy;
+
+    /// How the run ended, from the exit, the parsed sessions and the live reader's last word.
+    /// The core calls this one. The default is [`HarnessDriver::classify_exit`], which ignores
+    /// `observed`. A harness whose exit status covers several endings overrides it: only the
+    /// stream's last error event or the export tells them apart.
+    fn classify_end(
+        &self,
+        exit: &ProcessExit,
+        sessions: &[Session],
+        observed: &Observed,
+    ) -> EndedBy {
+        let _ = observed;
+        self.classify_exit(exit, sessions)
+    }
 
     /// What the core collects after the run. `observed` is what the live reader reported, so the
     /// ids a collect command needs come from the live reader's `observed()`.
