@@ -77,6 +77,7 @@ Wire line: `schemas@0.7.0`.
 | `experiment.path_overlap` | Two paths set by the fixed values and the factors are the same, or one lies below the other. | - | experiment |
 | `experiment.reserved_root_misused` | A value at a reserved root is not the root alone, or has no value. | - | experiment |
 | `experiment.reserved_value_malformed` | The value of a reserved root is not the shape the root takes. | - | experiment |
+| `experiment.session_refused` | A cell's session settings are refused: `runner.mode` is not `headless` or `session`, `runner.idle_s` is not whole seconds or `none`, `runner.idle_s` is set on a cell that is not a session, or the harness's driver cannot run a session. | - | experiment |
 | `experiment.setting_absolute_path` | A setting holds an absolute path where a path relative to the project is required. | - | experiment |
 | `experiment.setting_as_factor` | A factor varies a setting, which no cell can vary; the setting belongs in `[fixed]`. | The `factors` array of the experiment file; a verb that has read the file narrows it to the `path` of the factor. | experiment |
 | `experiment.setting_missing` | A setting the harness needs has no value in the cell. | - | experiment |

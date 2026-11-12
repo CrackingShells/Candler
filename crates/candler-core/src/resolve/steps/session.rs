@@ -4,7 +4,9 @@
 //! for a cell that does not write it, so every cell that predates session mode keeps its digest.
 //! In session mode the step derives `runner.idle_s = 60` when the cell gives none. `runner.idle_s`
 //! without session mode is refused, and so is session mode on a harness whose driver lacks the
-//! session capability.
+//! session capability. [`settle`] is that rule as one pure function: the step applies it to the
+//! experiment-wide values and planning to each cell's own, so a session cell is the same cell
+//! whether `runner.mode` is fixed or a factor level.
 
 use std::str::FromStr as _;
 use std::sync::Arc;
@@ -31,6 +33,9 @@ pub const MODES: [&str; 2] = ["headless", MODE_SESSION];
 /// The `runner.mode` that keeps the harness's input open.
 pub const MODE_SESSION: &str = "session";
 
+/// The name of the step.
+pub const STEP_NAME: &str = "session_mode@1";
+
 /// The check that names a refusal.
 fn check(name: &str, passed: bool, explanation: String) -> Result<CheckResult, PreflightError> {
     let name = NameToken::from_str(name).map_err(|error| PreflightError::Failed {
@@ -48,6 +53,116 @@ fn idle_is_valid(value: &Value) -> bool {
     }
 }
 
+/// Why a cell's session settings are refused: the name of the check that failed, and why.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum SessionRefusal {
+    /// The settings of a cell fail the session rule.
+    #[error("{detail}")]
+    Refused {
+        /// The check that failed, as `name@token`.
+        check: String,
+        /// What is wrong, for the author of the experiment.
+        detail: String,
+    },
+}
+
+impl SessionRefusal {
+    fn new(check: &str, detail: String) -> Self {
+        Self::Refused {
+            check: check.to_owned(), // BORROW: the refusal owns the check name
+            detail,
+        }
+    }
+
+    /// The check that failed, as `name@token`.
+    #[must_use]
+    pub fn check(&self) -> &str {
+        match self {
+            Self::Refused { check, .. } => check.as_str(),
+        }
+    }
+
+    /// What is wrong, for the author of the experiment.
+    #[must_use]
+    pub fn detail(&self) -> &str {
+        match self {
+            Self::Refused { detail, .. } => detail.as_str(),
+        }
+    }
+}
+
+/// What the session rule asks of a cell that passes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Settled {
+    /// Whether the cell is a session that gave no `runner.idle_s`, so the default belongs in it.
+    pub derive_idle: bool,
+}
+
+/// The session rule of one cell, from its `runner.mode` and `runner.idle_s`.
+///
+/// `runner.mode` is `headless` or `session`; `runner.idle_s` is whole seconds or `none` and
+/// belongs to session mode only; a session needs a driver that can run one (`capable`, unknown
+/// when `None`: the check is then left to the caller that knows the driver). A session without
+/// `runner.idle_s` takes [`DEFAULT_IDLE_S`], which the caller derives.
+///
+/// # Errors
+/// [`SessionRefusal`] naming the check that failed.
+pub fn settle(
+    mode: Option<&Value>,
+    idle: Option<&Value>,
+    capable: Option<bool>,
+) -> Result<Settled, SessionRefusal> {
+    if let Some(idle) = idle
+        && !idle_is_valid(idle)
+    {
+        return Err(SessionRefusal::new(
+            "idle_s_valid@1",
+            format!(
+                "runner.idle_s is {idle}: write whole seconds, or \"{IDLE_NONE}\" to keep the session open until a cap ends it"
+            ),
+        ));
+    }
+    let Some(mode) = mode else {
+        return if idle.is_some() {
+            Err(SessionRefusal::new(
+                "idle_s_needs_session@1",
+                "runner.idle_s is set and runner.mode is not: idle_s applies to session mode only"
+                    .to_owned(), // BORROW: owned text
+            ))
+        } else {
+            Ok(Settled { derive_idle: false })
+        };
+    };
+    // BORROW: explicit .as_str()
+    let Some(mode) = mode.as_str().filter(|text| MODES.contains(text)) else {
+        return Err(SessionRefusal::new(
+            "mode_valid@1",
+            format!("runner.mode is {mode}: write \"headless\" or \"session\""),
+        ));
+    };
+    if mode != MODE_SESSION {
+        return if idle.is_some() {
+            Err(SessionRefusal::new(
+                "idle_s_needs_session@1",
+                "runner.idle_s is set and runner.mode is headless: idle_s applies to session mode only"
+                    .to_owned(), // BORROW: owned text
+            ))
+        } else {
+            Ok(Settled { derive_idle: false })
+        };
+    }
+    if capable == Some(false) {
+        return Err(SessionRefusal::new(
+            "session_capable@1",
+            "runner.mode is session and the harness's driver cannot run a session".to_owned(), // BORROW: owned text
+        ));
+    }
+    Ok(Settled {
+        derive_idle: idle.is_none(),
+    })
+}
+
 /// Validates `runner.mode` and `runner.idle_s`, and derives the idle default of a session.
 pub struct SessionModeStep {
     name: NameToken,
@@ -61,7 +176,7 @@ impl SessionModeStep {
     /// [`FormatError`] when the step name is not a name token.
     pub fn new(session_capable: bool) -> Result<Self, FormatError> {
         Ok(Self {
-            name: NameToken::from_str("session_mode@1")?,
+            name: NameToken::from_str(STEP_NAME)?,
             session_capable,
         })
     }
@@ -73,6 +188,23 @@ fn value_at<'a>(ctx: &'a ResolveContext, path: &str) -> Result<Option<&'a Value>
         detail: error.to_string(), // BORROW: .to_string() gives owned text
     })?;
     Ok(ctx.get(&path).map(JsonValue::as_value))
+}
+
+/// The derived default of `runner.idle_s`, as a path and a value.
+///
+/// # Errors
+/// [`PreflightError::Failed`] when the path or the value cannot be built.
+pub fn default_idle() -> Result<(FieldPath, JsonValue), PreflightError> {
+    let path =
+        FieldPath::from_str(paths::RUNNER_IDLE_S).map_err(|error| PreflightError::Failed {
+            detail: error.to_string(), // BORROW: .to_string() gives owned text
+        })?;
+    let value = JsonValue::new(Value::Number(Number::from(DEFAULT_IDLE_S))).map_err(|error| {
+        PreflightError::Failed {
+            detail: error.to_string(), // BORROW: .to_string() gives owned text
+        }
+    })?;
+    Ok((path, value))
 }
 
 impl PreflightStep for SessionModeStep {
@@ -90,65 +222,16 @@ impl PreflightStep for SessionModeStep {
             let mut report = StepReport::new(step);
             let mode = value_at(&ctx, paths::RUNNER_MODE)?;
             let idle = value_at(&ctx, paths::RUNNER_IDLE_S)?;
-            if let Some(idle) = idle
-                && !idle_is_valid(idle)
-            {
-                return Ok(report.check(check(
-                    "idle_s_valid@1",
-                    false,
-                    format!(
-                        "runner.idle_s is {idle}: write whole seconds, or \"{IDLE_NONE}\" to keep the session open until a cap ends it"
-                    ),
-                )?));
-            }
-            let Some(mode) = mode else {
-                if idle.is_some() {
-                    report = report.check(check(
-                        "idle_s_needs_session@1",
-                        false,
-                        "runner.idle_s is set and runner.mode is not: idle_s applies to session mode only".to_owned(), // BORROW: owned text
-                    )?);
+            match settle(mode, idle, Some(capable)) {
+                Err(refusal) => {
+                    report =
+                        report.check(check(refusal.check(), false, refusal.detail().to_owned())?); // BORROW: owned text
                 }
-                return Ok(report);
-            };
-            // BORROW: explicit .as_str()
-            let Some(mode) = mode.as_str().filter(|text| MODES.contains(text)) else {
-                return Ok(report.check(check(
-                    "mode_valid@1",
-                    false,
-                    format!("runner.mode is {mode}: write \"headless\" or \"session\""),
-                )?));
-            };
-            if mode == "headless" {
-                if idle.is_some() {
-                    report = report.check(check(
-                        "idle_s_needs_session@1",
-                        false,
-                        "runner.idle_s is set and runner.mode is headless: idle_s applies to session mode only".to_owned(), // BORROW: owned text
-                    )?);
+                Ok(Settled { derive_idle: true }) => {
+                    let (path, value) = default_idle()?;
+                    report = report.derive(path, value);
                 }
-                return Ok(report);
-            }
-            if !capable {
-                return Ok(report.check(check(
-                    "session_capable@1",
-                    false,
-                    "runner.mode is session and the harness's driver cannot run a session"
-                        .to_owned(), // BORROW: owned text
-                )?));
-            }
-            if idle.is_none() {
-                let path = FieldPath::from_str(paths::RUNNER_IDLE_S).map_err(|error| {
-                    PreflightError::Failed {
-                        detail: error.to_string(), // BORROW: .to_string() gives owned text
-                    }
-                })?;
-                let value = JsonValue::new(Value::Number(Number::from(DEFAULT_IDLE_S))).map_err(
-                    |error| PreflightError::Failed {
-                        detail: error.to_string(), // BORROW: .to_string() gives owned text
-                    },
-                )?;
-                report = report.derive(path, value);
+                Ok(Settled { derive_idle: false }) => {}
             }
             Ok(report)
         })();

@@ -25,6 +25,7 @@ fn no_path<E>(_error: &E) -> Option<String> {
 fn plan_error_path(error: &PlanError) -> Option<String> {
     match error {
         PlanError::Cell { source } => Refusal::path(source),
+        PlanError::Session(inner) => Refusal::path(inner),
         PlanError::SettingAsFactor { .. } => Some(pointer_of(["factors"])),
         PlanError::NameCollision { .. }
         | PlanError::ExperimentLocked
@@ -86,6 +87,7 @@ wrapper_table! {
         "The highest attempt number of a replicate is the largest value, so no next attempt exists.",
         "-",
     ),
+    Session (inner) => delegate(inner, Side::Experiment),
     SettingAsFactor { .. } => row(
         "experiment.setting_as_factor",
         Side::Experiment,
@@ -239,6 +241,7 @@ fn plan_answer(error: &PlanError) -> &dyn Refusal {
         | PlanError::StoredCellAmbiguous { .. }
         | PlanError::AttemptOverflow { .. }
         | PlanError::SettingAsFactor { .. }
+        | PlanError::Session(..)
         | PlanError::Store { .. }
         | PlanError::Lock { .. } => error,
     }

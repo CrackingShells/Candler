@@ -181,7 +181,14 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
         .resolve(input)
         .await
         .map_err(CliError::refused_by)?;
-    let spec = plan_job(&store, &file, resolution, force, declared)?;
+    let spec = plan_job(
+        &store,
+        &file,
+        resolution,
+        force,
+        declared,
+        Some(entry.driver.capabilities().session),
+    )?;
     start(&store, &file, &spec, &root).await
 }
 
@@ -211,12 +218,14 @@ fn plan_job(
     resolution: Resolution,
     force: bool,
     declared: ResolvedInputs,
+    session_capable: Option<bool>,
 ) -> Result<JobSpec, CliError> {
     let experiment = experiment_of(file, &resolution).map_err(failed)?;
     let ctx = PlanCtx {
         store: store.clone(), // BORROW: the context owns its handle on the store
         experiment_lock: store.layout().experiment_lock(&experiment),
         secrets_present: EnvSecrets::new(file.secrets()).present(),
+        session_capable,
     };
     let mode = if force { Force::Yes } else { Force::No };
     let outcome = plan_runs(&ctx, file, &resolution, mode, PlanMode::Check)
