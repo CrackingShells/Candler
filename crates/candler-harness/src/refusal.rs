@@ -25,7 +25,8 @@ fn driver_error_path(error: &DriverError) -> Option<String> {
         DriverError::MissingValue { .. }
         | DriverError::InvalidValue { .. }
         | DriverError::VersionOutput { .. }
-        | DriverError::HarnessName { .. } => None,
+        | DriverError::HarnessName { .. }
+        | DriverError::Record { .. } => None,
     }
 }
 
@@ -56,6 +57,12 @@ refusal_table! {
         "-",
     ),
     Command (inner) => delegate(inner, Side::Candler),
+    Record { .. } => row(
+        "harness.session_record_unreadable",
+        Side::Environment,
+        "A session record that the harness wrote, such as a hook payload or a stream event, cannot be read by the driver's tracker.",
+        "-",
+    ),
 }
 
 refusal_table! {
@@ -98,6 +105,12 @@ refusal_table! {
         "candler.internal",
         Side::Candler,
         "A command sets one environment variable twice.",
+        "-",
+    ),
+    UnsafeSessionId { .. } => row(
+        "candler.internal",
+        Side::Candler,
+        "A session id holds a character that cannot be written into a command, so the pre-stop is skipped.",
         "-",
     ),
 }

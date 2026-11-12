@@ -794,6 +794,11 @@ side = "environment"
 enum = "DriverError"
 variant = "VersionOutput"
 
+[harness."harness.session_record_unreadable"]
+side = "environment"
+enum = "DriverError"
+variant = "Record"
+
 [cli]
 
 [cli."config.no_store"]
