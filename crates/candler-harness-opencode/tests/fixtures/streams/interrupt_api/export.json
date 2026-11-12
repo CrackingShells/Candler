@@ -1,0 +1,113 @@
+{
+  "info": {
+    "id": "ses_e32c17b4fffe2bjBVM2E3xAaLZ",
+    "projectID": "bc7447dce6aa45fd13129230dddc6abeb62cb974",
+    "model": {
+      "id": "o2",
+      "providerID": "fake",
+      "variant": "default"
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 200,
+      "output": 40,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "outcome": "interrupted",
+    "time": {
+      "created": 1794444789098,
+      "updated": 1794444793894,
+      "busy": 1794444789214,
+      "idle": 1794444793896
+    },
+    "title": "done: the tool finished.",
+    "location": {
+      "directory": "/work"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_1cd3e8574001OmeFQeI4J3ufcW",
+      "time": {
+        "created": 1794444789220
+      },
+      "text": "Run the scripted command.",
+      "files": [],
+      "type": "user"
+    },
+    {
+      "id": "msg_1cd3e85ec001dAzUwy2FWDwXh3",
+      "time": {
+        "created": 1794444789231,
+        "streamed": 1794444789274,
+        "completed": 1794444793894
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "o2",
+        "providerID": "fake",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "I will run a command."
+        },
+        {
+          "type": "tool",
+          "id": "toolu_fake_oc",
+          "name": "shell",
+          "executed": false,
+          "state": {
+            "status": "error",
+            "input": {
+              "command": "echo started > /work/o2.started; sleep 90; echo finished > /work/o2.finished",
+              "description": "scripted tool call"
+            },
+            "error": {
+              "type": "aborted",
+              "message": "Tool execution interrupted"
+            },
+            "metadata": {
+              "shellID": "sh_1cd3e85fe001wcLvItyO6Jlc9s"
+            }
+          },
+          "time": {
+            "created": 1794444789240,
+            "ran": 1794444789242,
+            "completed": 1794444793892
+          }
+        }
+      ],
+      "finish": "error",
+      "rawFinish": "tool_use",
+      "cost": 0,
+      "tokens": {
+        "input": 100,
+        "output": 20,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      },
+      "error": {
+        "type": "aborted",
+        "message": "Step interrupted"
+      }
+    },
+    {
+      "id": "msg_1cd3e9828001ZbzQ2GsnbVu5GW",
+      "time": {
+        "created": 1794444793896
+      },
+      "type": "idle",
+      "outcome": "interrupted"
+    }
+  ]
+}

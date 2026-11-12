@@ -1,0 +1,9 @@
+# Written by hand from stdout.jsonl, exit.toml and export.json of this case.
+session_id = "ses_e32c32c7dffexxFMfNbhDHGD45"      # first stdout line carries it; the export's info.id is the same
+session_id_first_event = "step_start"
+export_outcome = "interrupted"             # info.outcome, and the outcome of the closing 'idle' message
+exit_status = 143
+event_kinds = ["step_start", "retry"]
+retry_events = 7
+terminal_event = false         # still retrying when SIGTERM arrived at 100 s
+retry_error_type = "provider.transport"

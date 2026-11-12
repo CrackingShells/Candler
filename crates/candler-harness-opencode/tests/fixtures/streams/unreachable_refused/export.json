@@ -1,0 +1,74 @@
+{
+  "info": {
+    "id": "ses_e32c54c07ffeh2kV277gw4edcE",
+    "projectID": "bc7447dce6aa45fd13129230dddc6abeb62cb974",
+    "model": {
+      "id": "o1",
+      "providerID": "dead",
+      "variant": "default"
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "outcome": "failed",
+    "time": {
+      "created": 1794444539040,
+      "updated": 1794444623288,
+      "busy": 1794444539232,
+      "idle": 1794444623290
+    },
+    "location": {
+      "directory": "/work"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_1cd3ab4dc001TQdJXJU5T93Pr2",
+      "time": {
+        "created": 1794444539239
+      },
+      "text": "hello",
+      "files": [],
+      "type": "user"
+    },
+    {
+      "id": "msg_1cd3ab5700018Q7SMf762sAHkF",
+      "time": {
+        "created": 1794444623282,
+        "completed": 1794444623288
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "o1",
+        "providerID": "dead",
+        "variant": "default"
+      },
+      "content": [],
+      "finish": "error",
+      "error": {
+        "type": "provider.transport",
+        "message": "ECONNREFUSED: Unable to connect. Is the computer able to access the url?"
+      }
+    },
+    {
+      "id": "msg_1cd3bfdba001pmTdrbsX25pDYo",
+      "time": {
+        "created": 1794444623290
+      },
+      "type": "idle",
+      "outcome": "failed",
+      "error": {
+        "type": "provider.transport",
+        "message": "ECONNREFUSED: Unable to connect. Is the computer able to access the url?"
+      }
+    }
+  ]
+}
