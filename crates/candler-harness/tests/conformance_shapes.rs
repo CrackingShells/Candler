@@ -627,11 +627,27 @@ fn refusal(driver: &Patched, cases: &[Case]) -> Result<String, TestError> {
     }
 }
 
-/// Guards: R01 §Harness drivers — a session capability declared without a session spec is
-/// refused, and the same driver without the capability passes. Oracle: the capability rule of the
-/// leaf (a session implies a session spec), hand-written.
+/// Guards: R01 §Harness drivers, §Agent environment and secrets, §`OpenCode` v2, §Session runner —
+/// the 13 checks that refuse a broken driver, each its own section below: a session capability
+/// without a session spec; a census capability with neither a census stream nor an init report;
+/// a census record with no request read as an empty inventory (unrecorded, never an empty set);
+/// execution outside the child with no pre-stop; a secret in the argument vector, or a variable
+/// the core owns; a driver that names no gateway variables; a config naming an undeclared
+/// variable; a host collect for a driver with per-run state; two state paths that are one path,
+/// or a file that is another's parent; a census stream with no reader; a stop script that matches
+/// itself (`pgrep`/`pkill` with the full-command-line option, in any cluster); `Action::resolve`
+/// falling back for an unknown or refused id; an inventory from a source that saw no tool.
+/// Removing any one check from `candler-harness/src/conformance.rs` turns the matching section
+/// below red alone.
+/// Oracle: the capability and census rules of the leaf, the hand-written canary and the driver's
+/// own reserved names, `opencode_facts` F6 and row 6, the `pgrep` manual's options, hand-written
+/// ids and documents — each cited again at its section.
 #[test]
-fn conformance_refuses_session_capability_without_spec() -> TestResult {
+fn conformance_refuses_a_broken_driver() -> TestResult {
+    use candler_harness::spec::InitReportError;
+
+    // A session capability declared without a session spec is refused, and the same driver
+    // without the capability passes.
     let cases = open_cases()?;
     assert!(run_suite(&Patched::new(), &cases).is_ok());
     let mut broken = Patched::new();
@@ -649,55 +665,39 @@ fn conformance_refuses_session_capability_without_spec() -> TestResult {
         message.contains("session capability is declared and the driver returns no session spec"),
         "{message}"
     );
-    Ok(())
-}
 
-/// Guards: R01 §Harness drivers — a census capability with neither a census stream nor an init
-/// report is refused. Oracle: the capability rule of the leaf, hand-written.
-#[test]
-fn conformance_refuses_census_capability_without_a_source() -> TestResult {
+    // A census capability with neither a census stream nor an init report is refused.
     let mut broken = Patched::new();
     broken.census_stream_removed = true;
     // Only the cases that expect no inventory remain, so no init report backs the capability.
-    let cases: Vec<Case> = open_cases()?
+    let no_inventory_cases: Vec<Case> = open_cases()?
         .into_iter()
         .filter(|case| case.init.is_none() && case.name.starts_with("exit"))
         .collect();
-    assert!(!cases.is_empty());
-    let message = refusal(&broken, &cases)?;
+    assert!(!no_inventory_cases.is_empty());
+    let message = refusal(&broken, &no_inventory_cases)?;
     assert!(
         message.contains("neither a census stream nor an init report"),
         "{message}"
     );
-    Ok(())
-}
 
-/// Guards: R01 §`OpenCode` v2 — a census record with no request that is read as an empty inventory
-/// is refused: nothing seen is unrecorded, never an empty set. Oracle: the leaf's census rule,
-/// hand-written.
-#[test]
-fn conformance_refuses_an_empty_inventory_for_an_empty_record() -> TestResult {
-    let cases: Vec<Case> = open_cases()?
+    // A census record with no request that is read as an empty inventory is refused: nothing
+    // seen is unrecorded, never an empty set.
+    let census_cases: Vec<Case> = open_cases()?
         .into_iter()
         .filter(|case| case.name.starts_with("census_record_"))
         .collect();
-    assert_eq!(cases.len(), 2);
-    assert!(run_suite(&Patched::new(), &cases).is_ok());
+    assert_eq!(census_cases.len(), 2);
+    assert!(run_suite(&Patched::new(), &census_cases).is_ok());
     let mut broken = Patched::new();
     broken.eager_census = true;
-    let message = refusal(&broken, &cases)?;
+    let message = refusal(&broken, &census_cases)?;
     assert!(
         message.contains("census_record_without_a_request"),
         "{message}"
     );
-    Ok(())
-}
 
-/// Guards: R01 §Harness drivers — a harness whose execution lives outside the child must carry a
-/// pre-stop. Oracle: the capability rule of the leaf, hand-written.
-#[test]
-fn conformance_refuses_outside_execution_without_a_pre_stop() -> TestResult {
-    let cases = open_cases()?;
+    // A harness whose execution lives outside the child must carry a pre-stop.
     let mut broken = Patched::new();
     broken.stop = Some(StopSpec::new(
         None,
@@ -706,15 +706,9 @@ fn conformance_refuses_outside_execution_without_a_pre_stop() -> TestResult {
     ));
     let message = refusal(&broken, &cases)?;
     assert!(message.contains("no pre-stop"), "{message}");
-    Ok(())
-}
 
-/// Guards: R01 §Agent environment and secrets — a command that carries the token in its argument
-/// vector, or one that sets a variable the core owns, is refused. Oracle: the hand-written canary
-/// and the driver's own reserved names.
-#[test]
-fn conformance_refuses_a_secret_in_argv_and_an_owned_name() -> TestResult {
-    let cases = open_cases()?;
+    // A command that carries the token in its argument vector, or one that sets a variable the
+    // core owns, is refused.
     let mut leaky = Patched::new();
     leaky.extra_arg = Some(format!("--api-key={CANARY}"));
     let message = refusal(&leaky, &cases)?;
@@ -722,7 +716,6 @@ fn conformance_refuses_a_secret_in_argv_and_an_owned_name() -> TestResult {
         message.contains("secret value is in the argument vector"),
         "{message}"
     );
-
     let owned = CommandSpec::builder()
         .argv(vec![String::from("sh")])
         .env(EnvEntry::literal(
@@ -738,6 +731,167 @@ fn conformance_refuses_a_secret_in_argv_and_an_owned_name() -> TestResult {
     ));
     let message = refusal(&setting, &cases)?;
     assert!(message.contains("which the core owns"), "{message}");
+
+    // A driver that does not name its gateway variables gets no set of names from the trait: the
+    // suite refuses it, and the same driver with names passes.
+    let lines_cases = lines_cases()?;
+    assert!(run_suite(&LinesDriver, &lines_cases).is_ok());
+    let Err(failure) = run_suite(&Silent(LinesDriver), &lines_cases) else {
+        return Err("the suite passed a driver with no gateway names".into());
+    };
+    assert!(
+        failure.to_string().contains("names no gateway variables"),
+        "{failure}"
+    );
+
+    // A written configuration may name only variables the driver declared: a file that refers to
+    // an undeclared variable is refused, and the driver's own config passes.
+    assert!(run_suite(&Patched::new(), &cases).is_ok());
+    let mut broken = Patched::new();
+    broken.extra_file = Some(PreparedFile::in_home(
+        "extra.json".parse()?,
+        br#"{"apiKey":"{env:OPENAI_API_KEY}"}"#.to_vec(),
+        false,
+    ));
+    let message = refusal(&broken, &cases)?;
+    assert!(
+        message.contains("{env:OPENAI_API_KEY}, which the driver does not declare"),
+        "{message}"
+    );
+
+    // A harness that keeps per-run state collects through a command inside the isolation; a host
+    // command is refused.
+    let mut broken = Patched::new();
+    broken.host_collect = true;
+    let message = refusal(&broken, &cases)?;
+    assert!(message.contains("host command"), "{message}");
+
+    // Two state paths that are one path, or a file that is another path's parent, are refused; a
+    // file inside a directory the driver also lists, and sibling paths, pass.
+    let path = |env: &str, kind: StateKind, text: &str| -> Result<StatePath, TestError> {
+        Ok(StatePath::new(String::from(env), kind, text.parse()?))
+    };
+    let with = |paths: Vec<StatePath>| {
+        let mut driver = Patched::new();
+        driver.state_override = Some(paths);
+        driver
+    };
+    let same = with(vec![
+        path("A_DIR", StateKind::Dir, ".xdg/data")?,
+        path("B_DIR", StateKind::Dir, ".xdg/data")?,
+    ]);
+    assert!(refusal(&same, &cases)?.contains("one path, or a file is the other's parent"));
+    let parent = with(vec![
+        path("OPENCODE_DB", StateKind::File, ".xdg/db")?,
+        path("XDG_DATA_HOME", StateKind::Dir, ".xdg/db/data")?,
+    ]);
+    assert!(refusal(&parent, &cases)?.contains("one path, or a file is the other's parent"));
+    // The same pair in the other order.
+    let reversed = with(vec![
+        path("XDG_DATA_HOME", StateKind::Dir, ".xdg/db/data")?,
+        path("OPENCODE_DB", StateKind::File, ".xdg/db")?,
+    ]);
+    assert!(refusal(&reversed, &cases)?.contains("one path, or a file is the other's parent"));
+    let file_in_dir = with(vec![
+        path("XDG_DATA_HOME", StateKind::Dir, ".xdg/data")?,
+        path("OPENCODE_DB", StateKind::File, ".xdg/data/oc.db")?,
+    ]);
+    assert!(run_suite(&file_in_dir, &cases).is_ok());
+    let siblings = with(vec![
+        path("A_DIR", StateKind::Dir, ".xdg/data")?,
+        path("B_DIR", StateKind::Dir, ".xdg/database")?,
+    ]);
+    assert!(run_suite(&siblings, &cases).is_ok());
+
+    // A census capability with a census stream the driver cannot read is refused.
+    let mut broken = Patched::new();
+    broken.census_reader_missing = true;
+    let message = refusal(&broken, &cases)?;
+    assert!(message.contains("no offline reader"), "{message}");
+
+    // An in-container script that finds a process with the full-command-line option of `pgrep`
+    // or `pkill` is refused, in any option cluster; exact-name and `/proc` forms pass.
+    let driver_with = |script: &str| -> Result<Patched, TestError> {
+        let command = CommandSpec::builder()
+            .argv(vec![
+                String::from("sh"),
+                String::from("-c"),
+                format!("{script}; echo {{session_id}}"),
+            ])
+            .build()?;
+        let mut driver = Patched::new();
+        driver.stop = Some(StopSpec::new(
+            Some(Action::exec(command)),
+            StopSignal::Term,
+            Duration::from_secs(5),
+        ));
+        Ok(driver)
+    };
+    for script in [
+        "pid=$(pgrep -f 'opencode serve')",
+        "pid=$(pgrep -af opencode)",
+        "pid=$(pgrep -fl opencode)",
+        "pkill -9 -f opencode",
+        "pid=`pgrep -9f opencode`",
+        "pgrep --full opencode",
+        "echo a && pgrep -n -f opencode",
+    ] {
+        let message = refusal(&driver_with(script)?, &cases)?;
+        assert!(message.contains("pgrep -f"), "{script}: {message}");
+    }
+    for script in [
+        "pid=$(pgrep -x opencode)",
+        "pgrep -l opencode",
+        "pkill -9 -x opencode",
+        "echo -f pgrep",
+    ] {
+        assert!(run_suite(&driver_with(script)?, &cases).is_ok(), "{script}");
+    }
+
+    // `Action::resolve` gives the action to run now: itself when it needs no id, the filled
+    // action for a plain id, and `None` for an unknown or refused id.
+    let needs = Action::exec(
+        CommandSpec::builder()
+            .argv(vec![String::from("x"), String::from("{session_id}")])
+            .build()?,
+    );
+    let plain = Action::exec(
+        CommandSpec::builder()
+            .argv(vec![String::from("x")])
+            .build()?,
+    );
+    let id = sid("ses_ok")?;
+    let filled = needs.resolve(Some(&id));
+    assert!(filled.as_ref().is_some_and(|a| !a.uses_session_id()));
+    assert_eq!(needs.resolve(None), None);
+    assert_eq!(needs.resolve(Some(&sid("a;b")?)), None);
+    assert_eq!(needs.resolve(Some(&sid("p/child")?)), None);
+    assert_eq!(plain.resolve(None), Some(plain.clone()));
+
+    // An inventory from a source that saw no tool is refused (it is unrecorded), the harness's
+    // own empty init list is a recorded one, and the three sources never compare equal.
+    for source in [CensusSource::Gateway, CensusSource::Collected] {
+        assert_eq!(
+            InitReport::new(json!([]), None, source),
+            Err(InitReportError::NoTools)
+        );
+    }
+    assert!(InitReport::new(json!([]), Some(json!([])), CensusSource::Harness).is_ok());
+    for source in [
+        CensusSource::Harness,
+        CensusSource::Gateway,
+        CensusSource::Collected,
+    ] {
+        assert_eq!(
+            InitReport::new(json!(["read", ""]), None, source),
+            Err(InitReportError::EmptyToolName)
+        );
+    }
+    let tools = || json!(["read"]);
+    let by = |source| InitReport::new(tools(), None, source);
+    assert_ne!(by(CensusSource::Harness)?, by(CensusSource::Gateway)?);
+    assert_ne!(by(CensusSource::Gateway)?, by(CensusSource::Collected)?);
+    assert_ne!(by(CensusSource::Harness)?, by(CensusSource::Collected)?);
     Ok(())
 }
 
@@ -785,23 +939,6 @@ impl HarnessDriver for Silent {
     fn collect(&self, workspace: &Workspace<'_>, observed: &Observed) -> Vec<CollectSpec> {
         self.0.collect(workspace, observed)
     }
-}
-
-/// Guards: R01 §Harness drivers — a driver that does not name its gateway variables gets no set of
-/// names from the trait: the suite refuses it, and the same driver with names passes. Oracle: the
-/// leaf's rule that no Claude Code default does the work.
-#[test]
-fn conformance_requires_the_driver_to_name_its_gateway() -> TestResult {
-    let cases = lines_cases()?;
-    assert!(run_suite(&LinesDriver, &cases).is_ok());
-    let Err(failure) = run_suite(&Silent(LinesDriver), &cases) else {
-        return Err("the suite passed a driver with no gateway names".into());
-    };
-    assert!(
-        failure.to_string().contains("names no gateway variables"),
-        "{failure}"
-    );
-    Ok(())
 }
 
 /// Guards: R01 §Session runner — a session spec whose close action is checked like a stop (a
@@ -988,198 +1125,5 @@ fn conformance_session_surface_on_a_fake() -> TestResult {
     let filled = closing.with_session_id(&sid("ses_ok")?)?;
     assert!(!filled.uses_session_id());
     assert!(closing.with_session_id(&sid("a;b")?).is_err());
-    Ok(())
-}
-
-/// Guards: R01 §`OpenCode` v2 — a written configuration may name only variables the driver
-/// declared: a file that refers to an undeclared variable is refused, and the driver's own config
-/// (`{env:<base var>}/v1`, `{env:<token var>}`, home-rooted) passes. Oracle: the facts of
-/// `opencode_facts` row 7 and the driver's declared names, hand-written.
-#[test]
-fn conformance_refuses_a_config_naming_an_undeclared_variable() -> TestResult {
-    let cases = open_cases()?;
-    assert!(run_suite(&Patched::new(), &cases).is_ok());
-    let mut broken = Patched::new();
-    broken.extra_file = Some(PreparedFile::in_home(
-        "extra.json".parse()?,
-        br#"{"apiKey":"{env:OPENAI_API_KEY}"}"#.to_vec(),
-        false,
-    ));
-    let message = refusal(&broken, &cases)?;
-    assert!(
-        message.contains("{env:OPENAI_API_KEY}, which the driver does not declare"),
-        "{message}"
-    );
-    Ok(())
-}
-
-/// Guards: R01 §`OpenCode` v2 — a harness that keeps per-run state collects through a command inside
-/// the isolation, which has the run's state environment; a host command is refused. Oracle:
-/// `opencode_facts` F6 (`session export` needs the run's `OPENCODE_DB` and `--standalone`).
-#[test]
-fn conformance_refuses_a_host_collect_for_a_driver_with_state() -> TestResult {
-    let cases = open_cases()?;
-    let mut broken = Patched::new();
-    broken.host_collect = true;
-    // Only cases that name no collect expectation reach the check, so drop the one that does.
-    let message = refusal(&broken, &cases)?;
-    assert!(message.contains("host command"), "{message}");
-    Ok(())
-}
-
-/// Guards: R01 §`OpenCode` v2 — two state paths that are one path, or a file that is another
-/// path's parent, are refused; a file inside a directory the driver also lists (`OpenCode`'s own
-/// default, `OPENCODE_DB` in the data directory) and sibling paths pass. Oracle: hand-written
-/// paths, and the paths of `opencode_facts` row 6.
-#[test]
-fn conformance_refuses_duplicate_state_paths_and_a_file_that_is_a_parent() -> TestResult {
-    let cases = open_cases()?;
-    let path = |env: &str, kind: StateKind, text: &str| -> Result<StatePath, TestError> {
-        Ok(StatePath::new(String::from(env), kind, text.parse()?))
-    };
-    let with = |paths: Vec<StatePath>| {
-        let mut driver = Patched::new();
-        driver.state_override = Some(paths);
-        driver
-    };
-    let same = with(vec![
-        path("A_DIR", StateKind::Dir, ".xdg/data")?,
-        path("B_DIR", StateKind::Dir, ".xdg/data")?,
-    ]);
-    assert!(refusal(&same, &cases)?.contains("one path, or a file is the other's parent"));
-    let parent = with(vec![
-        path("OPENCODE_DB", StateKind::File, ".xdg/db")?,
-        path("XDG_DATA_HOME", StateKind::Dir, ".xdg/db/data")?,
-    ]);
-    assert!(refusal(&parent, &cases)?.contains("one path, or a file is the other's parent"));
-    // The same pair in the other order.
-    let reversed = with(vec![
-        path("XDG_DATA_HOME", StateKind::Dir, ".xdg/db/data")?,
-        path("OPENCODE_DB", StateKind::File, ".xdg/db")?,
-    ]);
-    assert!(refusal(&reversed, &cases)?.contains("one path, or a file is the other's parent"));
-    let file_in_dir = with(vec![
-        path("XDG_DATA_HOME", StateKind::Dir, ".xdg/data")?,
-        path("OPENCODE_DB", StateKind::File, ".xdg/data/oc.db")?,
-    ]);
-    assert!(run_suite(&file_in_dir, &cases).is_ok());
-    let siblings = with(vec![
-        path("A_DIR", StateKind::Dir, ".xdg/data")?,
-        path("B_DIR", StateKind::Dir, ".xdg/database")?,
-    ]);
-    assert!(run_suite(&siblings, &cases).is_ok());
-    Ok(())
-}
-
-/// Guards: R01 §`OpenCode` v2 — a census capability with a census stream the driver cannot read is
-/// refused. Oracle: the leaf's capability rule, hand-written.
-#[test]
-fn conformance_refuses_a_census_stream_with_no_reader() -> TestResult {
-    let mut broken = Patched::new();
-    broken.census_reader_missing = true;
-    let message = refusal(&broken, &open_cases()?)?;
-    assert!(message.contains("no offline reader"), "{message}");
-    Ok(())
-}
-
-/// Guards: R01 §`OpenCode` v2 — an in-container script that finds a process with the
-/// full-command-line option of `pgrep` or `pkill` is refused, in any option cluster, because on
-/// Linux it matches the script's own `sh -c`; exact-name and `/proc` forms pass. Oracle: the
-/// `pgrep` manual's options, hand-written scripts.
-#[test]
-fn conformance_refuses_a_stop_script_that_matches_itself() -> TestResult {
-    let driver_with = |script: &str| -> Result<Patched, TestError> {
-        let command = CommandSpec::builder()
-            .argv(vec![
-                String::from("sh"),
-                String::from("-c"),
-                format!("{script}; echo {{session_id}}"),
-            ])
-            .build()?;
-        let mut driver = Patched::new();
-        driver.stop = Some(StopSpec::new(
-            Some(Action::exec(command)),
-            StopSignal::Term,
-            Duration::from_secs(5),
-        ));
-        Ok(driver)
-    };
-    let cases = open_cases()?;
-    for script in [
-        "pid=$(pgrep -f 'opencode serve')",
-        "pid=$(pgrep -af opencode)",
-        "pid=$(pgrep -fl opencode)",
-        "pkill -9 -f opencode",
-        "pid=`pgrep -9f opencode`",
-        "pgrep --full opencode",
-        "echo a && pgrep -n -f opencode",
-    ] {
-        let message = refusal(&driver_with(script)?, &cases)?;
-        assert!(message.contains("pgrep -f"), "{script}: {message}");
-    }
-    for script in [
-        "pid=$(pgrep -x opencode)",
-        "pgrep -l opencode",
-        "pkill -9 -x opencode",
-        "echo -f pgrep",
-    ] {
-        assert!(run_suite(&driver_with(script)?, &cases).is_ok(), "{script}");
-    }
-    Ok(())
-}
-
-/// Guards: R01 §Session runner — `Action::resolve` gives the action to run now: itself when it
-/// needs no id, the filled action for a plain id, and `None` for an unknown or refused id, so the
-/// core falls back to the signal. Oracle: hand-written ids.
-#[test]
-fn conformance_action_resolve_falls_back_when_the_id_is_unknown() -> TestResult {
-    let needs = Action::exec(
-        CommandSpec::builder()
-            .argv(vec![String::from("x"), String::from("{session_id}")])
-            .build()?,
-    );
-    let plain = Action::exec(
-        CommandSpec::builder()
-            .argv(vec![String::from("x")])
-            .build()?,
-    );
-    let id = sid("ses_ok")?;
-    let filled = needs.resolve(Some(&id));
-    assert!(filled.as_ref().is_some_and(|a| !a.uses_session_id()));
-    assert_eq!(needs.resolve(None), None);
-    assert_eq!(needs.resolve(Some(&sid("a;b")?)), None);
-    assert_eq!(needs.resolve(Some(&sid("p/child")?)), None);
-    assert_eq!(plain.resolve(None), Some(plain.clone()));
-    Ok(())
-}
-
-/// Guards: R01 §Harness drivers — an inventory from a source that saw no tool is refused (it is
-/// unrecorded), the harness's own empty init list is a recorded one, and the three sources never
-/// compare equal. Oracle: the leaf's census rule, hand-written.
-#[test]
-fn conformance_inventory_sources_are_labelled_and_never_empty() -> TestResult {
-    use candler_harness::spec::InitReportError;
-    for source in [CensusSource::Gateway, CensusSource::Collected] {
-        assert_eq!(
-            InitReport::new(json!([]), None, source),
-            Err(InitReportError::NoTools)
-        );
-    }
-    assert!(InitReport::new(json!([]), Some(json!([])), CensusSource::Harness).is_ok());
-    for source in [
-        CensusSource::Harness,
-        CensusSource::Gateway,
-        CensusSource::Collected,
-    ] {
-        assert_eq!(
-            InitReport::new(json!(["read", ""]), None, source),
-            Err(InitReportError::EmptyToolName)
-        );
-    }
-    let tools = || json!(["read"]);
-    let by = |source| InitReport::new(tools(), None, source);
-    assert_ne!(by(CensusSource::Harness)?, by(CensusSource::Gateway)?);
-    assert_ne!(by(CensusSource::Gateway)?, by(CensusSource::Collected)?);
-    assert_ne!(by(CensusSource::Harness)?, by(CensusSource::Collected)?);
     Ok(())
 }
