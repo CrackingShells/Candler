@@ -1,6 +1,0 @@
-# What the container reported for this case (this leaf's probe: --network bridge, a user-defined
-# network with the production gateway sidecar and the fake model, through the base-opencode image).
-command = "opencode run --standalone --format json --auto --agent plan -m candler/oc-steps -- <prompt>"
-config_overlay = "permissions = [{action:\"shell\", resource:\"*\", effect:\"deny\"}] (opencode.json, top level; the plan agent's own built-in edit deny is unconditional)"
-exit_status = 0
-note = "Settles A (permission_mode = plan): with --agent plan plus an added shell-deny rule, a shell tool call is refused (the tool is not offered to the model at all: error 'No tool named \"shell\" is currently available'), matching no-shell-side-effects; edit is denied by the plan agent's own built-in rule except its .opencode/plan/* directory (confirmed from source, not re-run here). A control run with --agent plan and no added rule (not committed as a fixture) completed the same shell call successfully, confirming the deny rule -- not the agent alone -- is what blocks it."

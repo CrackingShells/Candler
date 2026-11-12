@@ -15,7 +15,7 @@ use std::time::Duration;
 use candler_harness::conformance::{
     Case, ExpectedSession, ReaderSource, RecordBytes, Setup, TrackStep, run,
 };
-use candler_harness::driver::{DriverError, HarnessDriver};
+use candler_harness::driver::{DriverError, HarnessDriver, SettingRow};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
     Action, Capabilities, Cell, CensusSource, CollectSpec, CommandSpec, EnvEntry, GatewayEnv,
@@ -449,6 +449,8 @@ struct Patched {
     host_collect: bool,
     census_reader_missing: bool,
     state_override: Option<Vec<StatePath>>,
+    gateway_override: Option<GatewayEnv>,
+    settings_override: Option<Vec<SettingRow>>,
 }
 
 impl Patched {
@@ -465,6 +467,8 @@ impl Patched {
             host_collect: false,
             census_reader_missing: false,
             state_override: None,
+            gateway_override: None,
+            settings_override: None,
         }
     }
 }
@@ -528,7 +532,14 @@ impl HarnessDriver for Patched {
             .unwrap_or_else(|| self.inner.capabilities())
     }
     fn gateway(&self) -> Option<GatewayEnv> {
-        self.inner.gateway()
+        self.gateway_override
+            .clone() // BORROW: .clone() copies the override
+            .or_else(|| self.inner.gateway())
+    }
+    fn settings_table(&self) -> Vec<SettingRow> {
+        self.settings_override
+            .clone() // BORROW: .clone() copies the override
+            .unwrap_or_else(|| self.inner.settings_table())
     }
     fn state_paths(&self) -> Vec<StatePath> {
         self.state_override
@@ -628,7 +639,7 @@ fn refusal(driver: &Patched, cases: &[Case]) -> Result<String, TestError> {
 }
 
 /// Guards: R01 §Harness drivers, §Agent environment and secrets, §`OpenCode` v2, §Session runner —
-/// the 13 checks that refuse a broken driver, each its own section below: a session capability
+/// the checks that refuse a broken driver, each its own section below: a session capability
 /// without a session spec; a census capability with neither a census stream nor an init report;
 /// a census record with no request read as an empty inventory (unrecorded, never an empty set);
 /// execution outside the child with no pre-stop; a secret in the argument vector, or a variable
@@ -636,7 +647,10 @@ fn refusal(driver: &Patched, cases: &[Case]) -> Result<String, TestError> {
 /// variable; a host collect for a driver with per-run state; two state paths that are one path,
 /// or a file that is another's parent; a census stream with no reader; a stop script that matches
 /// itself (`pgrep`/`pkill` with the full-command-line option, in any cluster); `Action::resolve`
-/// falling back for an unknown or refused id; an inventory from a source that saw no tool.
+/// falling back for an unknown or refused id; an inventory from a source that saw no tool; two state
+/// paths sharing a variable or named like a gateway variable or not a variable at all; gateway names
+/// that are no variable, one variable for two uses, unreserved or listed twice; a settings table
+/// with a row twice, a refusal with no reason or a mapping with no construct.
 /// Removing any one check from `candler-harness/src/conformance.rs` turns the matching section
 /// below red alone.
 /// Oracle: the capability and census rules of the leaf, the hand-written canary and the driver's
@@ -802,6 +816,79 @@ fn conformance_refuses_a_broken_driver() -> TestResult {
         path("B_DIR", StateKind::Dir, ".xdg/database")?,
     ]);
     assert!(run_suite(&siblings, &cases).is_ok());
+
+    // Two state paths that share one variable, a variable that is also a gateway name, and a name
+    // that is no variable are refused.
+    let shared = with(vec![
+        path("A_DIR", StateKind::Dir, ".xdg/data")?,
+        path("A_DIR", StateKind::Dir, ".xdg/other")?,
+    ]);
+    assert!(refusal(&shared, &cases)?.contains("two state paths share a variable"));
+    let gateway_named = with(vec![path("OC_BASE_URL", StateKind::Dir, ".xdg/data")?]);
+    assert!(refusal(&gateway_named, &cases)?.contains("OC_BASE_URL is also a gateway name"));
+    let not_a_name = with(vec![path("not-a-var", StateKind::Dir, ".xdg/data")?]);
+    assert!(refusal(&not_a_name, &cases)?.contains("is not a variable name"));
+
+    // The gateway names: a name that is no variable, one variable for the address and the token,
+    // a name the core sets but the driver does not reserve, and a reserved name listed twice.
+    let gateway = |base: &str, token: &str, reserved: &[&str]| {
+        let mut driver = Patched::new();
+        driver.gateway_override = Some(GatewayEnv::new(
+            String::from(base),
+            String::from(token),
+            reserved.iter().map(|name| String::from(*name)).collect(),
+        ));
+        driver
+    };
+    assert!(
+        run_suite(
+            &gateway("OC_BASE_URL", "OC_API_KEY", &["OC_BASE_URL", "OC_API_KEY"]),
+            &cases
+        )
+        .is_ok()
+    );
+    let bad_name = gateway(
+        "OC_BASE_URL",
+        "OC_API_KEY",
+        &["OC_BASE_URL", "OC_API_KEY", "a b"],
+    );
+    assert!(refusal(&bad_name, &cases)?.contains("is not a variable name"));
+    let one_variable = gateway("OC_BASE_URL", "OC_BASE_URL", &["OC_BASE_URL"]);
+    assert!(refusal(&one_variable, &cases)?.contains("share one variable"));
+    let unreserved = gateway("OC_BASE_URL", "OC_API_KEY", &["OC_BASE_URL"]);
+    assert!(
+        refusal(&unreserved, &cases)?.contains("OC_API_KEY is set by the core but not reserved")
+    );
+    let twice = gateway(
+        "OC_BASE_URL",
+        "OC_API_KEY",
+        &["OC_BASE_URL", "OC_API_KEY", "OC_API_KEY"],
+    );
+    assert!(refusal(&twice, &cases)?.contains("a reserved name is listed twice"));
+
+    // A settings table that names a setting and value twice, a refused row that gives no reason
+    // and a mapped row that names no construct are refused; a sound table passes.
+    let table = |rows: Vec<SettingRow>| {
+        let mut driver = Patched::new();
+        driver.settings_override = Some(rows);
+        driver
+    };
+    let mapped = SettingRow::mapped("permission_mode", "bypassPermissions", "`--auto`", "all");
+    let refused = SettingRow::refused("permission_mode", "plan", "reads and read-only shell");
+    assert!(run_suite(&table(vec![mapped.clone(), refused.clone()]), &cases).is_ok()); // BORROW: .clone() copies the row
+    let duplicate = table(vec![mapped.clone(), mapped.clone()]); // BORROW: .clone() copies the row
+    assert!(
+        refusal(&duplicate, &cases)?.contains("two rows name permission_mode bypassPermissions")
+    );
+    let no_reason = table(vec![SettingRow::refused("permission_mode", "plan", "")]);
+    assert!(refusal(&no_reason, &cases)?.contains("gives no reason"));
+    let no_construct = table(vec![SettingRow::mapped(
+        "permission_mode",
+        "plan",
+        "",
+        "all",
+    )]);
+    assert!(refusal(&no_construct, &cases)?.contains("names no construct"));
 
     // A census capability with a census stream the driver cannot read is refused.
     let mut broken = Patched::new();

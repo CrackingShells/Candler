@@ -12,7 +12,7 @@ use std::fmt;
 use candler_schemas::raw::{FrameData, RawFrame, RawRef, StreamName};
 use candler_schemas::trace::{EndedBy, Session, SessionId};
 
-use crate::driver::{DriverError, HarnessDriver};
+use crate::driver::{Disposition, DriverError, HarnessDriver};
 use crate::reader::{FrameIn, TraceReader};
 use crate::spec::{
     Action, Cell, CensusSource, CollectSpec, CommandSpec, EnvValue, FileRoot, Framing, HttpMethod,
@@ -615,6 +615,37 @@ fn check_names(driver: &dyn HarnessDriver) -> Result<(), Failure> {
     Ok(())
 }
 
+/// Checks the settings table: no two rows name the same setting and value, a refused row says
+/// why, and a mapped row says what it writes.
+fn check_settings_table(
+    driver: &dyn HarnessDriver, // TRAIT_OBJECT: the suite checks any driver
+) -> Result<(), Failure> {
+    let rows = driver.settings_table();
+    for (index, row) in rows.iter().enumerate() {
+        if rows
+            .iter()
+            .skip(index.saturating_add(1))
+            .any(|other| other.setting == row.setting && other.value == row.value)
+        {
+            return Err(driver_failure(
+                "settings_table",
+                format!("two rows name {} {}", row.setting, row.value),
+            ));
+        }
+        let (empty, what) = match row.disposition {
+            Disposition::Mapped => (row.construct.is_empty(), "names no construct"),
+            Disposition::Refused => (row.detail.is_empty(), "gives no reason"),
+        };
+        if empty {
+            return Err(driver_failure(
+                "settings_table",
+                format!("the row {} {} {what}", row.setting, row.value),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Checks the capability rules and the session surface.
 fn check_capabilities(
     driver: &dyn HarnessDriver, // TRAIT_OBJECT: the suite checks any driver
@@ -1126,6 +1157,7 @@ pub fn run(
 ) -> Result<(), Failure> {
     let owned = owned_names(driver);
     check_names(driver)?;
+    check_settings_table(driver)?;
     check_capabilities(driver, setup, cases, &owned)?;
     check_builds(driver, setup, &owned)?;
     for case in cases {
