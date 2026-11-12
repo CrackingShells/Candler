@@ -265,7 +265,7 @@ fn values() -> Res<Vec<ResolvedValue>> {
     .collect()
 }
 
-/// Guards: R01 §Harness drivers, §OpenCode v2 — the recorded runs of OpenCode V2 read, classify and
+/// Guards: R01 §Harness drivers, §`OpenCode` v2 — the recorded runs of `OpenCode` V2 read, classify and
 /// collect through the shared traits: sessions from the export, the end from the export's outcome
 /// over the stream's last error event, the collect command inside the isolation.
 /// Oracle: the fixtures' hand-written `expected.toml` and `exit.toml`, and R01 §Ends by hand.

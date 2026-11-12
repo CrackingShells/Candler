@@ -70,3 +70,13 @@ export_sha256 = "982cc0ff7404a9f86deee0bfd626bbc1ce8f42dd9b5378fb73a95222a1d1b8b
 model = "fake"
 stdout_sha256 = "a424c4f23943e99cb2af6b7850aa355a8a36967f62b6b4abc2070ffb8db320b2"
 export_sha256 = "9cba204e5219c7c10f13396c2c5b638dc68f687178a6107dcab63c3dff7ce667"
+
+# config/opencode.json is a file the driver renders for a cell with the model `claude-x` and two MCP
+# servers; it was run through `opencode debug config` in the base image (assets/docker/base-opencode,
+# --network none, hardened as above, CANDLER_GATEWAY_URL=http://gateway:8080/r/tag/run/key,
+# CANDLER_GATEWAY_TOKEN set), and `opencode run -m candler/zzz` loaded it without error. The
+# recorded output is config/debug_config.out: `{env:CANDLER_GATEWAY_URL}/v1` expanded inline to
+# `http://gateway:8080/r/tag/run/key/v1`, secrets shown as `***`. No model was called.
+[config.opencode_json]
+recorded = "2026-11-12"
+checked_with = "opencode debug config, opencode v2.2.7, linux/arm64"

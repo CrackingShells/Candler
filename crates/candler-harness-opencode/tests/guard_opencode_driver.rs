@@ -50,6 +50,8 @@ fn values(extra: &[(&str, Value)]) -> Res<Vec<ResolvedValue>> {
         ("prompt.template", json!("Do {thing}")),
         ("prompt.values", json!({"thing": "it"})),
     ];
+    // An extra value replaces the default at the same path.
+    all.retain(|(path, _)| !extra.iter().any(|(over, _)| over == path));
     all.extend(extra.iter().map(|(path, value)| (*path, value.clone()))); // BORROW: .clone() copies the value
     all.into_iter()
         .map(|(path, value)| {
@@ -89,7 +91,7 @@ fn prepared_config(extra: &[(&str, Value)]) -> Res<(candler_harness::spec::Prepa
     Ok((file, parsed))
 }
 
-/// Guards: R01 §OpenCode v2 — the run is `run --standalone --format json --auto -m <provider>/<model>`
+/// Guards: R01 §`OpenCode` v2 — the run is `run --standalone --format json --auto -m <provider>/<model>`
 /// with the rendered prompt after `--`, so a prompt that starts with `-` stays a message.
 /// Oracle: `opencode_facts` row 2 (the run form) and the real binary, which refused
 /// `run … "--hello x"` as an unrecognised flag and took the same text after `--`.
@@ -117,7 +119,7 @@ fn opencode_command_forces_standalone_json() -> Res<()> {
     Ok(())
 }
 
-/// Guards: R01 §Run manifest — a cell value that OpenCode cannot honour is refused, never dropped:
+/// Guards: R01 §Run manifest — a cell value that `OpenCode` cannot honour is refused, never dropped:
 /// a silent drop would make a treatment factor that changes nothing.
 /// Oracle: `opencode run --help` (no effort, turn or cost flag; `opencode_facts` row 2 and F2); the
 /// tool names of `tools.*` are Claude Code's.
@@ -174,7 +176,7 @@ fn opencode_prepare_is_the_config_the_binary_accepted() -> Res<()> {
 }
 
 /// Guards: I7 — `codemode` is a cell value read per server: absent is written as on, so the run
-/// does not depend on OpenCode's default, and `false` makes the server's tools direct tools.
+/// does not depend on `OpenCode`'s default, and `false` makes the server's tools direct tools.
 /// Oracle: `opencode_facts` row 17 (omitted is on; `false` is direct) and the V2 shape the real
 /// binary printed for `mcp.servers.<name>.codemode`.
 #[test]
@@ -204,7 +206,7 @@ fn opencode_codemode_is_read_from_the_cell_value() -> Res<()> {
     Ok(())
 }
 
-/// Guards: R01 §OpenCode v2 — an MCP server shape that the driver cannot translate is refused, not
+/// Guards: R01 §`OpenCode` v2 — an MCP server shape that the driver cannot translate is refused, not
 /// guessed. Oracle: the shapes the real binary printed (`local` with a command list, `remote` with a
 /// url); nothing else was recorded.
 #[test]
@@ -298,7 +300,7 @@ fn opencode_stop_interrupts_inside_the_container_then_terms() -> Res<()> {
     Ok(())
 }
 
-/// Guards: R01 §OpenCode v2 — the export is collected inside the isolation, for the root session
+/// Guards: R01 §`OpenCode` v2 — the export is collected inside the isolation, for the root session
 /// the live reader saw, with `--standalone`.
 /// Oracle: `opencode_facts` rows 4 and 6 and F6 (`session export --standalone <id>` prints the JSON
 /// on stdout, and needs the run's `OPENCODE_DB`).
@@ -326,10 +328,9 @@ fn opencode_collect_exports_the_root_session_inside() -> Res<()> {
             "ses_e32c17b4fffe2bjBVM2E3xAaLZ"
         ])
     );
-    assert!(
-        driver
-            .collect(&workspace, &Observed::new(Vec::new()))
-            .is_empty()
+    assert_eq!(
+        driver.collect(&workspace, &Observed::new(Vec::new())),
+        Vec::new()
     );
     Ok(())
 }
@@ -412,7 +413,7 @@ fn usage(scope: &str, input: u64, output: u64) -> Value {
            "cache_read_tokens": 0, "cache_creation_tokens": 0})
 }
 
-/// Guards: R01 §OpenCode v2 — the export is the trace: the user and assistant messages, the tool
+/// Guards: R01 §`OpenCode` v2 — the export is the trace: the user and assistant messages, the tool
 /// call and its result paired by the call id, per-message usage and the session's total (which
 /// holds the requests the stream does not show).
 /// Oracle: `completed_o1/export.json`, read by hand: two assistant messages of 100/20 tokens, one
@@ -483,7 +484,7 @@ fn opencode_export_keeps_errors() -> Res<()> {
     Ok(())
 }
 
-/// Guards: R01 §Run manifest (usage) — tokens and cost come through as OpenCode counts them: cache
+/// Guards: R01 §Run manifest (usage) — tokens and cost come through as `OpenCode` counts them: cache
 /// reads and writes in their own fields, the cost as a number, reasoning tokens kept beside the
 /// usage, a reasoning block as its own event, and a tool with no recorded origin as `other`.
 /// Oracle: a document written by hand in the recorded shape, with the numbers
@@ -667,8 +668,8 @@ fn git(repo: &Path, args: &[&str]) -> Res<Vec<u8>> {
     Ok(out.stdout)
 }
 
-/// Guards: R01 §OpenCode v2, I7 — the treatment's skill tree is archived from the pinned commit
-/// and written to the project's `.opencode/skills/<name>/`, which OpenCode reads, with the
+/// Guards: R01 §`OpenCode` v2, I7 — the treatment's skill tree is archived from the pinned commit
+/// and written to the project's `.opencode/skills/<name>/`, which `OpenCode` reads, with the
 /// executable bit kept and nothing of a sibling skill.
 /// Oracle: `git` on a fixture repo (`git ls-tree`, `git cat-file`), and `opencode_facts` row 16
 /// for the layout.
