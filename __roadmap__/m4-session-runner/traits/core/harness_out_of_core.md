@@ -15,6 +15,7 @@
 - ⬜ [cmd] R1: the registry selects the driver, skill tree, reader and base context by name from an unrelated cwd, and an unknown name is refused naming it: `cargo nextest run -p candler --no-tests=fail -E 'test(/^registry_/)'`
 - ⬜ [cmd] The core names no harness: `! git grep -n -i -E 'claude|anthropic|opencode' -- crates/candler-core/src`, `git grep -q -E '\.version_probe\(' -- crates/candler-core/src`, `! git grep -n -E '"subtype"|"init"' -- crates/candler-core/src/runner/evidence`
 - ⬜ [cmd] Only the registry names a driver in the binary: `test -z "$(git grep -l -E 'ClaudeCodeDriver|ClaudeCodeReader|ClaudeSkills' -- crates/candler/src | grep -v 'crates/candler/src/drivers.rs')"`
+- ⬜ [cmd] The runner calls `classify_end`, never `classify_exit`: `git grep -q -E '\.classify_end\(' -- crates/candler-core/src/runner && ! git grep -n -E '\.classify_exit\(' -- crates/candler-core/src`
 - ⬜ [cmd] SPAWN, STD (workspace form: the leaf spans the core and the binary), LINUX, DIGEST, GOLDEN and SUBJ pass
 - ⬜ [nl] The leaf report records the bites: the core's own `--version` argv (H1 red), `ANTHROPIC_*` hardcoded or a new `CLAUDE_CONFIG_DIR` (H2 red), the core matching `system`/`init` with a reordered key (H3 red), `harness.driver` recorded (H4 red), the fallback to Claude Code (R1 red)
 **References**: [R03 Gap analysis A3](../../../../__reports__/candler-v1-review/01-gap_analysis_harness_env_v0.md) — H1's evidence; [R01 §Harness drivers, §Process supervision (control containers), §Run manifest (`comparable.harness`)](../../../../__design__/architecture.md); [R09 D9, D10](/Users/hacker/Library/Application%20Support/Claude/side-session-notes/local_7f577b41-1698-4eeb-9de3-4ee9460ae606/m4-approved-plan.md)
@@ -40,8 +41,9 @@ On a checkout of a26fe53 (a scratch worktree, removed afterwards), record with t
 **Implementation Logic**:
 1. `container/run.rs`: the reserved names, the base URL and token variables from `GatewayEnv` (or the provider-configuration form `driver_traits` chose).
 2. `container/mounts.rs`: the writability check runs over the driver's `state_paths()`, and over HOME as today; the `CLAUDE_CONFIG_DIR` constant goes. Claude Code's paths are empty, so its argv equals the baseline.
-3. `census.rs` derives the three values from `Observed.init` exactly as today; it no longer reads event keys. `LiveHandle::observed()` exposes the live reader's ids before `finish`.
-4. The `.claude/**` test glob in `gather.rs` and the doc line in `rule.rs` become harness-neutral.
+3. `census.rs` derives the three values from `Observed.init` exactly as today; it no longer reads event keys. An `InitReport` whose `mcp_servers` is `None` (a gateway or collected source) records `census.tools` and `census.init_tools` only, and an absent report records nothing. `LiveHandle::observed()` exposes the live reader's ids before `finish`.
+4. The runner classifies the end through `HarnessDriver::classify_end(exit, sessions, &observed)`, not `classify_exit`, so a driver's observed end and authoritative export reach the classification; Claude Code's classification is unchanged (its default delegates).
+5. The `.claude/**` test glob in `gather.rs` and the doc line in `rule.rs` become harness-neutral.
 **Deliverables**: `crates/candler-core/src/isolation/container/{run,mounts}.rs`; `crates/candler-core/src/runner/evidence/census.rs`; `crates/candler-core/src/runner/exec/{mod,spawn,gather}.rs`: `LiveHandle::observed`; `crates/candler-core/src/evaluation/context/rule.rs`
 **Consistency Checks**: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^harness_env_/)|test(/^harness_census_/)'` (expected: PASS)
 **Commit**: `refactor(isolation): take the gateway, state and census from the driver`
