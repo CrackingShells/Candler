@@ -14,6 +14,15 @@
 //! (an earlier turn's list says nothing about what this turn scheduled) and the session runs to
 //! its cap. A `result` line may be read before its turn's `Stop` line, and the state is unknown
 //! in between.
+//!
+//! A `Stop` payload is tied to its turn by what the recorded sessions show it carries: a
+//! `prompt_id` that differs from turn to turn, and a `last_assistant_message` equal to the text
+//! of that turn's `result` line. A payload whose `prompt_id` was already read is a duplicate and
+//! counts for nothing. Otherwise it counts for the earliest ended turn that has none, and only
+//! when its message equals that turn's `result` text; a payload read before its turn's `result`
+//! waits for the turn that ends next, under the same test. The stream carries no `prompt_id`, so
+//! the text is the only link between the two records, and a turn whose `Stop` payload cannot be
+//! linked stays uncovered: the state is then unknown, which keeps the input open.
 
 use std::str::FromStr as _;
 
@@ -153,14 +162,28 @@ pub fn spec(cell: &candler_harness::spec::Cell<'_>) -> Result<SessionSpec, Drive
     Ok(SessionSpec::new(command, input, SessionClose::Eof).with_hooks(hooks()?))
 }
 
+/// A turn that has ended.
+#[derive(Debug)]
+struct EndedTurn {
+    /// The text of its `result` line.
+    text: String,
+    /// Whether a `Stop` payload was linked to it.
+    covered: bool,
+}
+
 /// Follows a Claude Code session: the turns that have ended, whether the latest has, and what is
 /// pending.
 #[derive(Debug, Default)]
 pub struct Tracker {
     /// The turns that have ended.
     turns: u64,
-    /// The `Stop` payloads read. The state is known only once there are as many as ended turns.
-    stops: u64,
+    /// The turns that have ended, each with the text of its `result` line and whether a `Stop`
+    /// payload was linked to it. The state is known only when every one is covered.
+    ended: Vec<EndedTurn>,
+    /// The message of a `Stop` payload read while no ended turn waited for one.
+    ahead: Option<String>,
+    /// The keys of the `Stop` payloads read: the `prompt_id`, or the payload's own text.
+    seen: Vec<String>,
     /// Whether the latest turn has ended and no later one has started.
     turn_ended: bool,
     /// Whether the background tasks were read: from a `background_tasks_changed` line or a `Stop`
@@ -203,6 +226,9 @@ impl Tracker {
             ("result", _) => {
                 self.turns = self.turns.saturating_add(1);
                 self.turn_ended = true;
+                let text = text_of(&object, "result").to_owned(); // BORROW: the turn owns its text
+                let covered = self.ahead.take().is_some_and(|message| message == text);
+                self.ended.push(EndedTurn { text, covered });
             }
             ("assistant" | "user", _) | ("system", "init" | "task_notification") => {
                 self.turn_ended = false;
@@ -236,6 +262,19 @@ impl Tracker {
         if text_of(payload, "hook_event_name") != "Stop" {
             return Ok(());
         }
+        let key = match payload.get("prompt_id").and_then(Value::as_str) {
+            Some(id) if !id.is_empty() => id.to_owned(), // BORROW: the tracker owns its keys
+            _ => Value::Object(payload.clone()).to_string(), // BORROW: the tracker owns its keys
+        };
+        if self.seen.contains(&key) {
+            return Ok(());
+        }
+        self.seen.push(key);
+        let message = text_of(payload, "last_assistant_message");
+        match self.ended.iter_mut().find(|turn| !turn.covered) {
+            Some(turn) => turn.covered = turn.text == message,
+            None => self.ahead = Some(message.to_owned()), // BORROW: the tracker owns the message
+        }
         let readable = |key: &str| payload.get(key).is_some_and(Value::is_array);
         let tasks = pending_items(list_of(payload, "background_tasks"), "id", |_| {
             PendingKind::Task
@@ -250,7 +289,6 @@ impl Tracker {
             }
         })
         .filter(|_| readable("session_crons"));
-        self.stops = self.stops.saturating_add(1);
         let complete = tasks.is_some() && timers.is_some();
         match tasks {
             Some(tasks) => {
@@ -325,7 +363,7 @@ impl SessionTracker for Tracker {
         PendingState::new(
             self.turns,
             self.turn_ended,
-            self.tasks_known && self.timers_known && self.stops >= self.turns,
+            self.tasks_known && self.timers_known && self.ended.iter().all(|turn| turn.covered),
             pending,
         )
     }
