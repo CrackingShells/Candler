@@ -95,6 +95,7 @@ jobs:
             b36_supervisor_sigkill_nothing_left b37_untrusted_upstream_gets_no_credential \
             b40_kill_all_destroys_lost_jobs_containers \
             controls_e2e_pinned_harness_passes \
+            opencode_probe_reads_each_real_base_image_version \
             x1_env_image_prunes_the_named_file_and_reads_the_pin \
             x1_env_image_without_requirements_has_only_seed_packages; do
             if ! grep -Eq "PASS \[.*::${name}\$" "$RUNNER_TEMP/e2e.txt"; then
