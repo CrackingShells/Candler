@@ -248,6 +248,13 @@ fn table_cases() -> Vec<Case> {
             Expect::Invalid,
         ),
     ];
+    // `ultracode` is a Claude Code level the Claude Code driver passes through; OpenCode refuses it.
+    cases.push(case(
+        "model.effort",
+        "ultracode",
+        vec![("model.effort", json!("ultracode")), opus.clone()], // BORROW: .clone() copies the value
+        refuses("/fixed/model.effort", "no equivalent of that mode"),
+    ));
     for level in ["low", "medium", "high", "xhigh", "max"] {
         cases.push(case(
             "model.effort",
@@ -277,7 +284,16 @@ fn table_cases() -> Vec<Case> {
         ("claude-3-7-sonnet", "high"),
         ("claude-opus-4-5", "high"),
         ("claude-sonnet-4-20250514", "high"),
+        ("claude-opus-4-20250514", "high"),
+        ("claude-sonnet-4-5-20250929", "high"),
+        // Dated 3.x ids: the date is no major, these models take no adaptive thinking.
+        ("claude-3-5-sonnet-20241022", "high"),
+        ("claude-3-7-sonnet-20250219", "high"),
+        ("claude-3-opus-20240229", "high"),
+        // Haiku, even at a version that would otherwise take an effort.
         ("claude-haiku-4-5", "high"),
+        ("claude-haiku-4-6", "high"),
+        ("claude-haiku-5", "high"),
         ("gpt-x", "high"),
     ] {
         cases.push(case(

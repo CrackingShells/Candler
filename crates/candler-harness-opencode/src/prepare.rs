@@ -98,6 +98,12 @@ const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 /// The model families whose id `OpenCode`'s `claudeInfo` recognises (`variant.ts:68-80`).
 const FAMILIES: [&str; 5] = ["opus", "sonnet", "haiku", "fable", "mythos"];
 
+/// Why `ultracode` is refused: Claude Code's `--effort` takes it (CLI reference: `xhigh` with its
+/// ultracode workflow turned on), the Claude Code driver passes it through, and `OpenCode` has no
+/// equivalent of that mode.
+const ULTRACODE: &str = "Claude Code honours `ultracode` (`xhigh` effort with its ultracode mode on) \
+     and OpenCode has no equivalent of that mode, so it is refused rather than run as `xhigh`";
+
 /// Why an effort the model cannot take is refused.
 const EFFORT_MODEL: &str = "`OpenCode` gives a model a reasoning effort only for a Claude opus, \
      sonnet, fable or mythos of version 4.6 or later (older models get a token budget, which is \
@@ -159,8 +165,9 @@ pub(crate) fn table() -> Vec<SettingRow> {
     rows.push(SettingRow::refused(
         MODEL_EFFORT,
         "*",
-        "a level outside Claude Code's own five is not a value",
+        "a level that is none of Claude Code's `--effort` levels is not a value",
     ));
+    rows.push(SettingRow::refused(MODEL_EFFORT, "ultracode", ULTRACODE));
     for path in [TOOLS_ALLOWED, TOOLS_DISALLOWED] {
         let allowed = path == TOOLS_ALLOWED;
         for (name, action) in TOOLS {
@@ -473,11 +480,16 @@ fn leading_number(text: &str) -> Option<(u32, usize, &str)> {
     Some((digits.parse().ok()?, end, rest))
 }
 
-/// A version at the start of `text`: a major, and after a `.` or `-` a minor of one or two digits
+/// A version at the start of `text`: a major of one or two digits, and after a `.` or `-` a minor of one or two digits
 /// (`OpenCode` also reads a date as a minor; a longer number is left out here, which makes the
 /// model a manual one and so refused). Returns the major, the minor (0 when none) and the rest.
 fn version_of(text: &str) -> Option<(u32, u32, &str)> {
-    let (major, _, rest) = leading_number(text)?;
+    let (major, width, rest) = leading_number(text)?;
+    if width > 2 {
+        // A date such as `20241022` after a family is no major: `claude-3-5-sonnet-20241022` is
+        // read by its version-first form, 3.5, which takes no effort.
+        return None;
+    }
     match rest.strip_prefix(['.', '-']).and_then(leading_number) {
         Some((minor, width, after)) if width <= 2 => Some((major, minor, after)),
         _ => Some((major, 0, rest)),
@@ -532,6 +544,9 @@ fn effort_variant(
     let level = value
         .as_str()
         .ok_or_else(|| invalid(MODEL_EFFORT, "is not text".to_owned()))?; // BORROW: .to_owned() makes the owned text
+    if level == "ultracode" {
+        return Err(unsupported(MODEL_EFFORT, version, ULTRACODE));
+    }
     if !EFFORT_LEVELS.contains(&level) {
         return Err(invalid(
             MODEL_EFFORT,
