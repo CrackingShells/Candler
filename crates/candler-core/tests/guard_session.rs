@@ -398,6 +398,17 @@ async fn session_resolve_settles_each_cell() {
         sources.contains(&(paths::RUNNER_IDLE_S.to_owned(), true)),
         "the default is derived: {sources:?}"
     );
+    let table_level = planned(
+        &experiment_with("[[factors]]\npath = \"runner\"\nlevels = [{ mode = \"session\" }]\n"),
+        &[],
+        true,
+    )
+    .await
+    .expect("plans");
+    assert_eq!(
+        table_level, twin_fixed,
+        "a table-valued level is the same cell and labels the idle the same"
+    );
     let both = planned(
         &experiment_with(
             "[[factors]]\npath = \"runner.mode\"\nlevels = [\"headless\", \"session\"]\n",
@@ -826,8 +837,8 @@ fn session_close_ignores_records_that_do_not_change_the_state() {
     let stray = r#"{"type":"system","subtype":"task_updated","session_id":"s"}"#;
     let started =
         r#"{"type":"assistant","session_id":"s","message":{"role":"assistant","content":[]}}"#;
-    let ended =
-        r#"{"type":"result","subtype":"success","is_error":false,"num_turns":1,"session_id":"s"}"#;
+    let ended = r#"{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"hello","session_id":"s"}"#;
+    let second_stop = hook_line.replace("746d51f1-9ffb-45ce-8416-088580bcf6de", "second-turn");
     let with = |extra: Vec<(Duration, Rec)>| {
         let mut events = base.clone(); // BORROW: the row owns its records
         events.extend(extra);
@@ -851,7 +862,7 @@ fn session_close_ignores_records_that_do_not_change_the_state() {
             with(vec![
                 stream(1662.01, started),
                 stream(1700.0, ended),
-                (ms(1711.0), Rec::Hook(hook_line.clone())), // BORROW: the row owns its records
+                (ms(1711.0), Rec::Hook(second_stop)),
             ]),
             Some(1711.0 + 2000.0),
         ),
@@ -888,15 +899,17 @@ fn c2_script(after_result: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
 /// before its `Stop` line) the state is unknown until the `Stop` line arrives, however late; a
 /// turn that ends with no `Stop` line (the turn limit) after a quiet turn leaves the state
 /// unknown, so the wake-up it scheduled is not dropped; a `Stop` line that lists a wake-up keeps
-/// the session open; a `Stop` line read before its `result` still counts for that turn.
+/// the session open; a `Stop` line read before its `result` still counts for that turn; a
+/// `Stop` line counts once (its `prompt_id`), for the earliest ended turn without one, and only
+/// when its message is that turn's result text.
 /// Oracle: the records below, by hand; the times are the ones the rows say.
-/// Bite: let an earlier turn's `Stop` list stand for a later turn without one.
+/// Bite: count the `Stop` lines instead of tying each to its turn.
 #[test]
 fn session_close_needs_a_stop_for_every_turn() {
     let stream = |text: &str| Rec::Stream(text.to_owned()); // BORROW: the row owns its records
-    let stop = |crons: &str| {
+    let stop = |id: &str, crons: &str| {
         Rec::Hook(format!(
-            r#"{{"written_ns":1,"payload":{{"hook_event_name":"Stop","background_tasks":[],"session_crons":{crons}}}}}"#
+            r#"{{"written_ns":1,"payload":{{"prompt_id":"{id}","hook_event_name":"Stop","background_tasks":[],"session_crons":{crons}}}}}"#
         ))
     };
     let assistant = || stream(r#"{"type":"assistant","message":{"content":[]}}"#);
@@ -908,7 +921,7 @@ fn session_close_needs_a_stop_for_every_turn() {
         vec![
             (ms(from), assistant()),
             (ms(from + 10.0), result()),
-            (ms(from + 21.0), stop("[]")),
+            (ms(from + 21.0), stop("p1", "[]")),
         ]
     };
     let rows: Vec<CloseRow> = vec![
@@ -926,7 +939,7 @@ fn session_close_needs_a_stop_for_every_turn() {
             "the Stop line is read before its result: still that turn's",
             vec![
                 (ms(0.0), assistant()),
-                (ms(5.0), stop("[]")),
+                (ms(5.0), stop("p1", "[]")),
                 (ms(10.0), result()),
             ],
             Some(10.0 + 1000.0),
@@ -948,9 +961,55 @@ fn session_close_needs_a_stop_for_every_turn() {
                 let mut events = quiet_turn(0.0);
                 events.push((ms(2000.0), assistant()));
                 events.push((ms(2100.0), result()));
-                events.push((ms(2111.0), stop(r#"[{"id":"w1","recurring":false}]"#)));
+                events.push((ms(2111.0), stop("p2", r#"[{"id":"w1","recurring":false}]"#)));
                 events
             },
+            None,
+        ),
+        (
+            "the same Stop line twice, then a second result with no Stop line yet",
+            {
+                let mut events = quiet_turn(0.0);
+                events.push((ms(40.0), stop("p1", "[]")));
+                events.push((ms(2000.0), assistant()));
+                events.push((ms(2100.0), result()));
+                events
+            },
+            None,
+        ),
+        (
+            "a Stop line of the first turn read after the second result: the second has none",
+            vec![
+                (ms(0.0), assistant()),
+                (ms(10.0), result()),
+                (ms(1000.0), assistant()),
+                (ms(1010.0), result()),
+                (ms(1021.0), stop("p1", "[]")),
+            ],
+            None,
+        ),
+        (
+            "then the second turn's own Stop line arrives: both are covered",
+            vec![
+                (ms(0.0), assistant()),
+                (ms(10.0), result()),
+                (ms(1000.0), assistant()),
+                (ms(1010.0), result()),
+                (ms(1021.0), stop("p1", "[]")),
+                (ms(1032.0), stop("p2", "[]")),
+            ],
+            Some(1032.0 + 1000.0),
+        ),
+        (
+            "a Stop line whose message is not the turn's result text covers no turn",
+            vec![
+                (ms(0.0), assistant()),
+                (
+                    ms(10.0),
+                    stream(r#"{"type":"result","subtype":"success","result":"done"}"#),
+                ),
+                (ms(21.0), stop("p1", "[]")),
+            ],
             None,
         ),
     ];
@@ -1100,16 +1159,43 @@ fn looping_script(count: usize, gap: f64, with_stops: bool) -> Vec<serde_json::V
         .find(|line| line.contains("\"hook_event_name\":\"Stop\""))
         .expect("a Stop line");
     let mut steps = Vec::new();
-    for _ in 0..count {
+    for turn in 0..count {
         for line in &lines {
             let line = line.replace("\"num_turns\":1", "\"num_turns\":2");
             if with_stops && line.contains("\"type\":\"result\"") {
-                steps.push(rig::hook(&stop_line));
+                steps.push(rig::hook(&stop_line.replace(
+                    "746d51f1-9ffb-45ce-8416-088580bcf6de",
+                    &format!("turn-{turn}"),
+                )));
                 steps.push(rig::sleep(0.01));
             }
             steps.push(rig::out_of(&line));
         }
         steps.push(rig::sleep(gap));
+    }
+    steps.push(rig::wait_eof(None));
+    steps
+}
+
+/// Turns of c2 repeated as `looping_script` does, with the Stop line of the second turn missing,
+/// so the pending state was known after the first turn and not after the second.
+fn lost_stop_script() -> Vec<serde_json::Value> {
+    let lines = rig::fixture_lines("c2", "stdout.jsonl");
+    let stop_line = rig::fixture_lines("c2", "hooks.jsonl")
+        .into_iter()
+        .find(|line| line.contains("\"hook_event_name\":\"Stop\""))
+        .expect("a Stop line");
+    let mut steps = Vec::new();
+    for turn in 0..40 {
+        for line in &lines {
+            let line = line.replace("\"num_turns\":1", "\"num_turns\":2");
+            if turn == 0 && line.contains("\"type\":\"result\"") {
+                steps.push(rig::hook(&stop_line));
+                steps.push(rig::sleep(0.01));
+            }
+            steps.push(rig::out_of(&line));
+        }
+        steps.push(rig::sleep(0.3));
     }
     steps.push(rig::wait_eof(None));
     steps
@@ -1196,13 +1282,25 @@ async fn session_measures_by_how_the_session_ended() {
             },
         ),
         (
-            "the wall with a hook channel that never delivers a Stop line",
+            "the wall with a hook channel that never delivers a Stop line (no turn is covered)",
             looping_script(40, 0.3, false),
             &wall,
             None,
             Expect {
                 ended_by: j!({"kind": "unknown"}),
-                end: Some("hooks_silent"),
+                end: Some("hooks_incomplete"),
+                forced: false,
+                valid: false,
+            },
+        ),
+        (
+            "one Stop line lost mid-session, after the state was known once",
+            lost_stop_script(),
+            &wall,
+            None,
+            Expect {
+                ended_by: j!({"kind": "unknown"}),
+                end: Some("hooks_incomplete"),
                 forced: false,
                 valid: false,
             },

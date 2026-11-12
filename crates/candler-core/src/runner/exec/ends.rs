@@ -66,9 +66,9 @@ pub struct EndInput {
     session_stop: bool,
     /// The cap the session runner ended the run at, when it did.
     session_cap: Option<Cap>,
-    /// Whether a session ran with no `Stop` hook line ever read: its pending state was never
-    /// known, so the hook channel cannot be told from an agent that never stops.
-    session_hooks_silent: bool,
+    /// Whether a session ended with a turn whose `Stop` hook line was never read: its pending
+    /// state was not known, so the hook channel cannot be told from an agent that never stops.
+    session_hooks_incomplete: bool,
 }
 
 impl EndInput {
@@ -88,7 +88,7 @@ impl EndInput {
             attempt: 1,
             session_stop: false,
             session_cap: None,
-            session_hooks_silent: false,
+            session_hooks_incomplete: false,
         }
     }
 
@@ -170,10 +170,10 @@ impl EndInput {
         self
     }
 
-    /// Sets whether the session ran with no `Stop` hook line ever read.
+    /// Sets whether the session ended with a turn whose `Stop` hook line was never read.
     #[must_use]
-    pub const fn with_session_hooks_silent(mut self, silent: bool) -> Self {
-        self.session_hooks_silent = silent;
+    pub const fn with_session_hooks_incomplete(mut self, incomplete: bool) -> Self {
+        self.session_hooks_incomplete = incomplete;
         self
     }
 
@@ -213,8 +213,8 @@ pub struct End {
     pub ended_by: EndedBy,
     /// Whether the run is tried again.
     pub retry: Retry,
-    /// Whether the run is invalid because a session's hook channel gave no `Stop` line.
-    pub hooks_silent: bool,
+    /// Whether the run is invalid because a session's hook channel did not give the `Stop` line of every ended turn.
+    pub hooks_incomplete: bool,
 }
 
 impl End {
@@ -224,7 +224,7 @@ impl End {
             invalid: None,
             ended_by,
             retry,
-            hooks_silent: false,
+            hooks_incomplete: false,
         }
     }
 
@@ -234,7 +234,7 @@ impl End {
             invalid: Some(reason),
             ended_by,
             retry,
-            hooks_silent: false,
+            hooks_incomplete: false,
         }
     }
 }
@@ -362,11 +362,11 @@ pub fn classify_end(input: &EndInput) -> End {
     if ended_by == EndedBy::Unknown && !ours {
         return infra(Retry::None);
     }
-    // A session that hit the wall without one `Stop` line read is an instrument failure, not an
-    // agent that never stopped.
-    if input.session_hooks_silent && ended_by == EndedBy::cap(Cap::Wall) {
+    // A session that hit the wall with an ended turn whose `Stop` line was never read is an
+    // instrument failure, not an agent that never stopped.
+    if input.session_hooks_incomplete && ended_by == EndedBy::cap(Cap::Wall) {
         let mut end = infra(Retry::None);
-        end.hooks_silent = true;
+        end.hooks_incomplete = true;
         return end;
     }
     let retry = if matches!(ended_by, EndedBy::AgentError { .. }) {

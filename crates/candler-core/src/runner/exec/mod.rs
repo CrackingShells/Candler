@@ -711,10 +711,10 @@ async fn drive(
                 .as_ref()
                 .and_then(session::SessionOutcome::cap),
         )
-        .with_session_hooks_silent(
+        .with_session_hooks_incomplete(
             session_outcome
                 .as_ref()
-                .is_some_and(session::SessionOutcome::hooks_silent),
+                .is_some_and(session::SessionOutcome::hooks_incomplete),
         );
     let end = classify_end(&input);
     // A run whose trace could not be read has no totals, as it has no events.
@@ -755,7 +755,7 @@ async fn drive(
         measured.extend(session_values(&outcome.measures(
             &end.ended_by,
             own_end,
-            end.hooks_silent,
+            end.hooks_incomplete,
         )));
     }
 

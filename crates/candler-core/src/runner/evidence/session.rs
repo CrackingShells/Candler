@@ -27,9 +27,9 @@ pub enum SessionEnd {
     Budget,
     /// The harness exited before the runner closed the input.
     HarnessExit,
-    /// The wall ended the run and no `Stop` hook line was ever read: the hook channel is at fault,
-    /// not the agent, and the run is invalid.
-    HooksSilent,
+    /// The wall ended the run with an ended turn whose `Stop` hook line was never read: the hook
+    /// channel is at fault, not the agent, and the run is invalid.
+    HooksIncomplete,
 }
 
 impl SessionEnd {
@@ -41,7 +41,7 @@ impl SessionEnd {
             Self::Cap => "cap",
             Self::Budget => "budget",
             Self::HarnessExit => "harness_exit",
-            Self::HooksSilent => "hooks_silent",
+            Self::HooksIncomplete => "hooks_incomplete",
         }
     }
 }

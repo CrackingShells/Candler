@@ -126,6 +126,9 @@ pub struct PlanOutcome {
     pub experiment: Digest,
     /// The cell each plan runs as the current files and resolution build it, by the plan's cell.
     pub fresh: BTreeMap<CellId, Comparable>,
+    /// The cells whose `runner.idle_s` is the session rule's default, derived for the cell, by
+    /// the cell's id as in [`PlanOutcome::fresh`].
+    pub idle_derived: BTreeSet<CellId>,
 }
 
 /// The digest of the experiment `file` makes under `resolution`, from its fresh cells.
@@ -307,6 +310,8 @@ struct FreshCell {
     declared: Vec<FieldPath>,
     /// The cell built from the effective values and everything else the resolution holds.
     comparable: Comparable,
+    /// Whether the session rule derived the cell's `runner.idle_s`.
+    idle_derived: bool,
 }
 
 /// Reports whether two paths are the same or one lies below the other.
@@ -424,6 +429,7 @@ fn fresh_cells(
         cells.push(FreshCell {
             declared,
             comparable,
+            idle_derived: derived_idle,
         });
     }
     Ok(cells)
@@ -885,6 +891,7 @@ pub fn plan_runs(
         }
     }
     let mut fresh: BTreeMap<CellId, Comparable> = BTreeMap::new();
+    let mut idle_derived: BTreeSet<CellId> = BTreeSet::new();
     let mut digests: BTreeSet<Digest> = BTreeSet::new();
     let mut per_cell: Vec<(Digest, Option<Comparable>, Vec<Deviation>)> = Vec::new();
     let mut changed: Vec<Deviation> = Vec::new();
@@ -913,6 +920,9 @@ pub fn plan_runs(
         digests.insert(digest.clone()); // BORROW: the set keeps the digest beside the plan
         // BORROW: the map keeps the digest and the fresh cell beside the plan
         fresh.insert(digest.clone(), cell.comparable.clone());
+        if cell.idle_derived {
+            idle_derived.insert(digest.clone());
+        }
         per_cell.push((digest, pinned, deviations));
     }
     if force == Force::No && !changed.is_empty() {
@@ -972,5 +982,6 @@ pub fn plan_runs(
         lock,
         experiment,
         fresh,
+        idle_derived,
     })
 }

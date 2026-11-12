@@ -210,7 +210,6 @@ struct Inner {
     state: PendingState,
     last_turn_end: Option<Duration>,
     turns_sum: u64,
-    ever_known: bool,
     usage_sum: Option<Value>,
     turn_limit: Option<u64>,
 }
@@ -294,7 +293,6 @@ impl SessionWatch {
                 state,
                 last_turn_end: None,
                 turns_sum: 0,
-                ever_known: false,
                 usage_sum: None,
                 turn_limit,
             }),
@@ -327,7 +325,6 @@ impl SessionWatch {
                 }
             }
         }
-        inner.ever_known |= state.known;
         inner.rule.observe(at, &state);
         inner.state = state;
         drop(inner);
@@ -369,12 +366,6 @@ impl SessionWatch {
     pub fn snapshot(&self) -> (PendingState, Option<Duration>, u64) {
         let inner = locked(&self.inner);
         (inner.state.clone(), inner.last_turn_end, inner.turns_sum) // BORROW: the snapshot owns its state
-    }
-
-    /// Whether the pending state was ever known: a `Stop` hook line was read for a turn.
-    #[must_use]
-    pub fn ever_known(&self) -> bool {
-        locked(&self.inner).ever_known
     }
 
     /// The token usage summed over the session's results, when any result gave one.
@@ -695,10 +686,12 @@ impl SessionOutcome {
         if self.capped { Some(Cap::Turns) } else { None }
     }
 
-    /// Whether turns ended and no `Stop` hook line was ever read: the hook channel gave nothing.
+    /// Whether a turn ended whose `Stop` hook line was never read, or the pending state could not
+    /// be read at the end: the hook channel failed to say what was pending.
     #[must_use]
-    pub fn hooks_silent(&self) -> bool {
-        self.watch.snapshot().0.turns > 0 && !self.watch.ever_known()
+    pub fn hooks_incomplete(&self) -> bool {
+        let state = self.watch.snapshot().0;
+        state.turns > 0 && !state.known
     }
 
     /// The token usage summed over the session's results.
@@ -720,7 +713,7 @@ impl SessionOutcome {
         &self,
         ended_by: &EndedBy,
         own_end: bool,
-        hooks_silent: bool,
+        hooks_incomplete: bool,
     ) -> SessionMeasures {
         let (state, last, _) = self.watch.snapshot();
         SessionMeasures::new(
@@ -728,8 +721,8 @@ impl SessionOutcome {
             state.turns,
             last.map(|at| u64::try_from(at.as_millis()).unwrap_or(u64::MAX)),
             state.known.then_some(state.pending),
-            if hooks_silent {
-                Some(SessionEnd::HooksSilent)
+            if hooks_incomplete {
+                Some(SessionEnd::HooksIncomplete)
             } else {
                 own_end.then(|| session_end(self.closed, ended_by))
             },

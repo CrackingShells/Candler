@@ -373,7 +373,7 @@ pub struct JobSession {
 fn sources_of(
     comparable: &Comparable,
     resolution: &Resolution,
-    factors: &[FieldPath],
+    idle_derived: bool,
 ) -> Vec<SourceEntry> {
     let held: BTreeSet<&FieldPath> = comparable
         .values()
@@ -396,12 +396,8 @@ fn sources_of(
     for path in &held {
         if !sources.iter().any(|entry| entry.path() == *path) {
             // A session whose mode is a factor level gets its idle default per cell, from the
-            // session rule, unless a factor sets the idle itself.
-            let derived = path.as_str() == RUNNER_IDLE_S
-                && !factors.iter().any(|factor| {
-                    let (own, factor) = (path.as_str(), factor.as_str());
-                    own == factor || own.starts_with(&format!("{factor}."))
-                });
+            // session rule: planning says which cells it derived it for.
+            let derived = path.as_str() == RUNNER_IDLE_S && idle_derived;
             let source = match NameToken::from_str(session::STEP_NAME) {
                 Ok(step) if derived => ValueSource::derived(step),
                 _ => ValueSource::ExperimentFile,
@@ -471,7 +467,11 @@ pub fn cells_of(
             comparable.clone(),         // BORROW: the cell owns its comparable
             outcome.experiment.clone(), // BORROW: the cell owns its experiment digest
             factors.clone(),            // BORROW: the cell owns its factors
-            sources_of(written, &spec.resolution, &factors),
+            sources_of(
+                written,
+                &spec.resolution,
+                outcome.idle_derived.contains(digest),
+            ),
             secrets.clone(), // BORROW: the cell owns its secrets
             source.clone(),  // BORROW: the cell owns its treatment source
             inputs.clone(),  // BORROW: the cell owns its inputs
