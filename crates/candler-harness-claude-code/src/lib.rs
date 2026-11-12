@@ -12,11 +12,13 @@ pub mod driver;
 mod parse;
 pub mod prepare;
 pub mod refusal;
+pub mod session;
 mod sessions;
+pub mod skills;
 mod usage;
 
 use candler_harness::reader::{FrameIn, ReaderError, TraceReader};
-use candler_harness::spec::{Confidence, FormatVersion, Framing, Observed};
+use candler_harness::spec::{Confidence, FormatVersion, Framing, InitReport, Observed};
 use candler_schemas::primitives::{Name, NameVersion, Timestamp};
 use candler_schemas::raw::RawRef;
 use candler_schemas::trace::{Session, SessionEvent, SessionSource, UsageScope};
@@ -65,6 +67,8 @@ pub struct ClaudeCodeReader {
     registry: Registry,
     /// The Claude Code version of the first init line.
     harness_version: Option<semver::Version>,
+    /// The tools and MCP servers of the first init line that lists tools.
+    init: Option<InitReport>,
     /// Frames that arrived before any session was known, replayed when the first session opens.
     pending: Vec<Held>,
 }
@@ -85,6 +89,7 @@ impl ClaudeCodeReader {
             identity,
             registry: Registry::default(),
             harness_version: None,
+            init: None,
             pending: Vec::new(),
         })
     }
@@ -102,6 +107,7 @@ impl ClaudeCodeReader {
             message_line,
             at: _,
             harness_version: _,
+            init: _,
             model,
             drafts,
             message,
@@ -173,6 +179,10 @@ impl TraceReader for ClaudeCodeReader {
         if self.harness_version.is_none() {
             self.harness_version = version;
         }
+        let init = parsed.init.take();
+        if self.init.is_none() {
+            self.init = init;
+        }
         let held = Held {
             parsed,
             raw_ref: frame.raw_ref,
@@ -197,7 +207,12 @@ impl TraceReader for ClaudeCodeReader {
     }
 
     fn observed(&self) -> Observed {
-        Observed::new(self.registry.root_ids())
+        let observed = Observed::new(self.registry.root_ids());
+        match &self.init {
+            // BORROW: .clone() copies the inventory out of the reader
+            Some(init) => observed.with_init(init.clone()),
+            None => observed,
+        }
     }
 
     fn finish(self: Box<Self>) -> Result<Vec<Session>, ReaderError> {

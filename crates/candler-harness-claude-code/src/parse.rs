@@ -1,5 +1,6 @@
 //! One stream-json line, read into the events it holds.
 
+use candler_harness::spec::{CensusSource, InitReport};
 use candler_schemas::outcome::Finite;
 use candler_schemas::primitives::Timestamp;
 use candler_schemas::raw::{FrameData, RawFrame};
@@ -95,6 +96,8 @@ pub(crate) struct Parsed {
     pub(crate) at: Option<Timestamp>,
     /// The Claude Code version, when the line is an init line.
     pub(crate) harness_version: Option<semver::Version>,
+    /// The tools and MCP servers the line lists, when it is an init line that lists tools.
+    pub(crate) init: Option<InitReport>,
     /// The model the line names.
     pub(crate) model: Option<String>,
     /// The events of the line, in order.
@@ -119,6 +122,7 @@ impl Parsed {
             message_line: false,
             at: None,
             harness_version: None,
+            init: None,
             model: None,
             drafts,
             message: None,
@@ -165,6 +169,24 @@ pub(crate) fn parse(frame: &RawFrame) -> Parsed {
     }
 }
 
+/// The inventory an init line lists: its `tools` and, when it has them, its `mcp_servers`, as the
+/// line gives them. A line that is not an init line, or lists no tool names, gives none.
+fn init_report(line: &Map<String, Value>) -> Option<InitReport> {
+    let is_init = line.get("type").and_then(Value::as_str) == Some("system")
+        && line.get("subtype").and_then(Value::as_str) == Some("init");
+    if !is_init {
+        return None;
+    }
+    let tools = line.get("tools")?;
+    InitReport::new(
+        tools.clone(), // BORROW: .clone() copies the list out of the line
+        // BORROW: .cloned() copies the list out of the line
+        line.get("mcp_servers").filter(|v| v.is_array()).cloned(),
+        CensusSource::Harness,
+    )
+    .ok()
+}
+
 /// Reads one JSON object line.
 fn object_line(line: Map<String, Value>) -> Parsed {
     let text_of = |key: &str| line.get(key).and_then(Value::as_str);
@@ -189,6 +211,7 @@ fn object_line(line: Map<String, Value>) -> Parsed {
         session_id,
         at,
         harness_version: detect::init_version(&line),
+        init: init_report(&line),
         model,
         ..Parsed::empty()
     };

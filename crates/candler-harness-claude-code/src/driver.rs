@@ -9,8 +9,8 @@ use std::time::Duration;
 use candler_harness::driver::{DriverError, HarnessDriver};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
-    BudgetCaps, Capabilities, Cell, CollectSpec, CommandSpec, HarnessId, Observed, Prepared,
-    ProcessExit, StopSignal, StopSpec, Workspace,
+    BudgetCaps, Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId, Observed,
+    Prepared, ProcessExit, SessionSpec, SessionTracker, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::primitives::{FieldPath, Name};
 use candler_schemas::raw::StreamName;
@@ -18,27 +18,33 @@ use candler_schemas::trace::{EndedBy, Session};
 use semver::{Comparator, Op, Prerelease, Version, VersionReq};
 use serde_json::{Map, Value};
 
-use crate::{ClaudeCodeReader, SUPPORTED, discovery, prepare};
+use crate::{ClaudeCodeReader, SUPPORTED, discovery, prepare, session};
 
 /// The cell path of the model id.
-const MODEL_ID: &str = "model.id";
+pub(crate) const MODEL_ID: &str = "model.id";
 /// The cell path of the reasoning effort.
-const MODEL_EFFORT: &str = "model.effort";
+pub(crate) const MODEL_EFFORT: &str = "model.effort";
 /// The cell path of the permission mode.
-const PERMISSION_MODE: &str = "permission_mode";
+pub(crate) const PERMISSION_MODE: &str = "permission_mode";
 /// The cell path of the prompt template.
-const PROMPT_TEMPLATE: &str = "prompt.template";
+pub(crate) const PROMPT_TEMPLATE: &str = "prompt.template";
 /// The cell path of the prompt values.
-const PROMPT_VALUES: &str = "prompt.values";
+pub(crate) const PROMPT_VALUES: &str = "prompt.values";
 /// The cell path of the per-run turn cap.
-const BUDGET_TURNS: &str = "budget.per_run.turns";
+pub(crate) const BUDGET_TURNS: &str = "budget.per_run.turns";
 /// The cell path of the per-run cost cap.
-const BUDGET_COST: &str = "budget.per_run.max_cost_usd";
+pub(crate) const BUDGET_COST: &str = "budget.per_run.max_cost_usd";
 
 /// The name of the harness.
 const HARNESS_NAME: &str = "claude-code";
 /// The program the driver runs.
-const PROGRAM: &str = "claude";
+pub(crate) const PROGRAM: &str = "claude";
+/// The variable that carries the gateway's address.
+const GATEWAY_BASE_URL: &str = "ANTHROPIC_BASE_URL";
+/// The variable that carries the token the agent presents.
+const GATEWAY_AUTH_TOKEN: &str = "ANTHROPIC_AUTH_TOKEN";
+/// Every variable the core owns for this harness.
+const GATEWAY_RESERVED: [&str; 3] = [GATEWAY_BASE_URL, GATEWAY_AUTH_TOKEN, "ANTHROPIC_API_KEY"];
 /// How long the core waits after the stop signal before it escalates.
 const STOP_GRACE: Duration = Duration::from_secs(15);
 
@@ -73,7 +79,7 @@ pub(crate) fn value_at<'c>(cell: &Cell<'c>, path: &str) -> Result<Option<&'c Val
 }
 
 /// The text of the cell at `path`; the cell must have it.
-fn required_text<'c>(cell: &Cell<'c>, path: &str) -> Result<&'c str, DriverError> {
+pub(crate) fn required_text<'c>(cell: &Cell<'c>, path: &str) -> Result<&'c str, DriverError> {
     match value_at(cell, path)? {
         None => Err(missing(path)),
         Some(Value::String(text)) => Ok(text.as_str()), // BORROW: explicit .as_str()
@@ -161,7 +167,11 @@ fn nothing() -> VersionReq {
 }
 
 /// The turn or cost cap of the cell as flag text, when the cell sets it.
-fn cap_text(cell: &Cell<'_>, path: &str, whole: bool) -> Result<Option<String>, DriverError> {
+pub(crate) fn cap_text(
+    cell: &Cell<'_>,
+    path: &str,
+    whole: bool,
+) -> Result<Option<String>, DriverError> {
     match value_at(cell, path)? {
         None => Ok(None),
         Some(Value::Number(number)) => {
@@ -237,7 +247,31 @@ impl HarnessDriver for ClaudeCodeDriver {
             .graceful_stop(true)
             .live_events(true)
             .budgets(BudgetCaps::new(true, true))
+            .census(true)
+            .session(true)
             .build()
+    }
+
+    fn gateway(&self) -> Option<GatewayEnv> {
+        Some(GatewayEnv::new(
+            // BORROW: .to_owned() makes the owned names the spec keeps
+            GATEWAY_BASE_URL.to_owned(),
+            GATEWAY_AUTH_TOKEN.to_owned(),
+            GATEWAY_RESERVED.map(str::to_owned).to_vec(),
+        ))
+    }
+
+    fn session(
+        &self,
+        cell: &Cell<'_>,
+        workspace: &Workspace<'_>,
+    ) -> Result<Option<SessionSpec>, DriverError> {
+        let _ = workspace;
+        session::spec(cell).map(Some)
+    }
+
+    fn session_tracker(&self) -> Option<Box<dyn SessionTracker>> {
+        Some(Box::new(session::Tracker::default())) // TRAIT_OBJECT: the core selects trackers at runtime
     }
 
     fn prepare(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Prepared, DriverError> {
