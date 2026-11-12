@@ -527,7 +527,7 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
   | `prompt.template`, `prompt.values` | cell value |
   | `isolation.image` (the derived local image ID), `isolation.network`, `isolation.env_lock`, `isolation.limits.*` | cell value |
   | `budget.per_run.{wall_s, turns, max_cost_usd}` | cell value |
-| `runner.mode` (`headless` or `session`; no core default, so an absent value is headless and every existing cell keeps its digest), `runner.idle_s` (whole seconds or `none`; session mode only) | cell value |
+  | `runner.mode` (`headless` or `session`; no core default, so an absent value is headless and every existing cell keeps its digest), `runner.idle_s` (whole seconds or `none`; session mode only) | cell value |
   | `isolation.build.{dockerfile, context}` (its content enters `inputs[]`); `isolation.build.{requirements, lock}` (the lock they give enters the cell as `isolation.env_lock`); `isolation.build.prune` (part of the env image's key, so it reaches the cell through `isolation.image`) | setting |
   | `isolation.record_packages` (read from the env image, recorded in `measured[]`, never in the cell) | setting |
   | `request.harness`, `request.treatment`, `request.inputs`, `model.token_secret` | setting |
@@ -579,8 +579,9 @@ I3, so event times are reproducible even where the harness emits none.
 
 ### Traits (signatures only)
 
-Every item after `capabilities` has a default body, so a driver implements only what its harness
-has.
+Every item added for the second harness (`settings_table`, `gateway`, `state_paths`,
+`census_stream`, `session`, `session_tracker`, `classify_end`) has a default body, so a driver
+implements only what its harness has.
 
 - `HarnessDriver`
   - `id() -> HarnessId`; `supported() -> VersionReq`
@@ -625,7 +626,7 @@ has.
     reader's output changes
   - `framing() -> Lines | Document`; the runner frames the raw stream by it
   - `detect(sample) -> Option<(FormatVersion, Confidence)>`
-  - `feed(frame {raw_ref, at?, record}) -> Event[]` (one line, or the whole document); the core
+  - `feed(FrameIn {raw_ref, at?, frame}) -> Event[]` (one line, or the whole document); the core
     supplies the frame's place and its wall time from the raw header's clock
   - `observed() -> Observed { session_ids[], init?, end?, totals? }`: the ids, the init report
     (the tool inventory, labelled by its source: `Harness`, `Gateway` or `Collected`; never an
@@ -690,7 +691,7 @@ The driver is written against OpenCode 2.2.7 and accepts exactly that version: `
 `opencode`, installed only inside a Candler image (`assets/docker/base-opencode`), pinned by
 version and by the sha256 of the release archive of each architecture.
 
-- **Command.** `opencode run --standalone --format json --auto -m candler/<model> -- <prompt>`.
+- **Command.** `opencode run --standalone --format json --auto -m candler/<model>[#<effort>] -- <prompt>`.
   `--standalone` keeps the session out of a shared background server (without it a run also writes
   a service file with a password). `--auto` is the only permission behaviour, so `bypassPermissions`
   is the one mode accepted. `--` keeps a prompt that starts with `-` a message. `run` has no
@@ -714,7 +715,7 @@ version and by the sha256 of the release archive of each architecture.
   (`error` event type).
 - **Export.** `opencode session export --standalone <id>` prints JSON on stdout (`info` with an
   `outcome` of `succeeded`, `interrupted` or `failed`, and `messages`), after any ending, signals
-  included. The driver collects it with `CollectSpec::Exec` for the first root session id, as the
+  included. The driver collects it with `CollectSpec::Exec` for the first session id the live reader reports, as the
   stream `export`, framed `Document` and read by `offline_reader`. The export is authoritative for
   the trace and the end; a child session is linked to its parent.
 - **Exit codes and signals.** Exit 0 is `succeeded`. Exit 1 covers three endings (a provider or
@@ -740,7 +741,7 @@ version and by the sha256 of the release archive of each architecture.
   `permission_mode` `bypassPermissions` is `--auto` and every other mode is refused;
   `model.effort` (`low` to `max`, on a Claude opus, sonnet, fable or mythos of 4.6 or later) is a
   config-declared model variant (`xhigh` from 4.7); `tools.allowed` and `tools.disallowed` are
-  `permissions` rows per tool name (`Write` and `Edit` are the one action `edit`; MCP names are
+  `permissions` rows per tool name (`Write` and `Edit` are the one action `edit`, so they are listed together or refused; MCP names are
   `<server>_<tool>`), the deny rows last. A name with no OpenCode action is refused.
 - **Census.** No event, command or export lists OpenCode's tools. The tool names in the request the
   agent sends to the model are the inventory, so the gateway sidecar records the names of each
@@ -772,9 +773,8 @@ through stdin and stdin stays open, so a notification starts a further turn.
   driver's tracker reports that nothing pending could wake the agent (a background task, a monitor,
   a cron, a wake-up) and has read it (`known`); and `runner.idle_s` seconds have passed since the
   session became quiet. A new turn, a turn end, pending work or an unreadable state restarts the
-  wait. Idle is never counted mid-turn, and `none` never closes. The rule cuts no behaviour short:
-  closing while only background tasks are pending is safe, since Claude Code waits for them, and the
-  rule never closes with a wake-up or a cron pending, which Claude Code would drop. After the close
+  wait. Idle is never counted mid-turn, and `none` never closes. The rule cuts no behaviour short: it
+  never closes while anything is pending, so no notification, wake-up or cron is dropped. After the close
   the core waits for the harness to exit; past the driver's stop grace it stops the harness with
   the normal escalation (`session.close_forced`). A driver that closes by an action instead of end of
   input is refused at run time. The turn cap ends the run when the session's turns exceed
@@ -811,16 +811,17 @@ through stdin and stdin stays open, so a notification starts a further turn.
   The check runs when a job opens, once and before any run, if any fresh cell is a session cell;
   each cell's mode is known only after planning, because `runner.mode` can be a factor level, and a
   job with no session cell never runs a control. Control runs go to a scratch store and never
-  reach `runs/`. The verdict is a pure function over the measured `session.*` values: the turns,
-  `session.end`, the close, and the close falling between `idle_s` and `idle_s + 1 s` after the
-  turn end. The controls prove the close rule at the control's own short `idle_s` only; the
-  run-loop guards cover the other values. The record is keyed by the base image's content digest
-  and a control digest (the fake model's files plus the control's parameters), so a changed script
-  or parameter re-runs the controls with no manual version. It is written once and never rewritten
-  (I11), and a failing verdict is not written. A failure refuses the job's session cells with a
-  refusal on the environment side that names the harness version and the failed control. Every
-  session run records `session.control` (the record's path and digest) as a resolved setting
-  outside the cell digest. A model's behaviour never refuses a run.
+  reach `runs/`. The verdict is a pure function over the control run's own manifest: the turns,
+  `session.end`, `ended_by`, the recorded `idle_s`, C1 still waiting when its job ends, and the
+  harness exiting between `idle_s` and `idle_s + 1 s` after the turn end. The controls prove the close rule at the control's own short `idle_s` only; the
+  run-loop guards cover the other values. The record is keyed by the digest of the base image's
+  build sources and a control digest (the fake model's files, the control's parameters and
+  Candler's version, which holds the verdict and the close rule), so a changed script, parameter
+  or release re-runs the controls with no manual version. It is written once and never rewritten
+  (I11), and a failing verdict is not written. A failure refuses the whole job before any run with
+  `jobs.session_controls_failed` (environment side), naming the harness version and the failed
+  control. Every session run records `session.control` (the record's path and digest) in
+  `measured[]`, outside the cell digest. A model's behaviour never refuses a run.
 - **Tool inventory.** The census (`census.tools`, `census.init_tools`) is captured per run; when
   `census.init_tools` differs between arms of one stratum that no declared `tools.*` or `mcp.*`
   factor explains, that stratum is refused (I7). Claude Code reports the list at each turn's start
