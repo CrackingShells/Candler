@@ -209,6 +209,12 @@ jobs:
       - name: Commit the new versions and changelogs
         run: |
           set -eu
+          # Two merges close together start two runs; the older one cannot
+          # push on top of the newer, and the newer run releases both.
+          if [ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]; then
+            echo "main has moved past $GITHUB_SHA; the run for the newer push releases."
+            exit 0
+          fi
           release-plz update --repo-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" > "$RUNNER_TEMP/bumps"
           if [ -z "$(git status --porcelain)" ]; then
             echo "Nothing to release."
