@@ -6,6 +6,7 @@
 
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::raw::StreamName;
+use candler_schemas::refusal::pointer_of;
 use candler_schemas::trace::{EndedBy, Session};
 
 use crate::reader::TraceReader;
@@ -32,6 +33,18 @@ pub enum DriverError {
         /// What is wrong with it.
         detail: String,
     },
+    /// A setting the harness has no way to honour, refused rather than dropped.
+    #[error("{harness} {version} cannot honour {path}: {detail}")]
+    Unsupported {
+        /// The pointer into the experiment file of the setting.
+        path: String,
+        /// The harness's name, as its users write it.
+        harness: String,
+        /// The harness version the driver was validated against.
+        version: semver::Version,
+        /// Why the harness cannot honour it, and what it accepts instead.
+        detail: String,
+    },
     /// The output of the version probe, which names no version.
     #[error("version output cannot be read: {detail}")]
     VersionOutput {
@@ -53,6 +66,34 @@ pub enum DriverError {
         /// What is wrong with the record.
         detail: String,
     },
+}
+
+impl DriverError {
+    /// The refusal of `setting`, which the harness `harness` at `version` cannot honour for the
+    /// reason `detail`.
+    ///
+    /// The pointer is the setting's place in the experiment file: a `budget` field sits under
+    /// `/budget`, and any other setting is a key of `[fixed]`, written as its dotted path.
+    #[must_use]
+    pub fn unsupported(
+        setting: &FieldPath,
+        harness: &str,
+        version: &semver::Version,
+        detail: &str,
+    ) -> Self {
+        let text = setting.to_string(); // BORROW: .to_string() gives owned text
+        let path = if setting.segments().next() == Some("budget") {
+            pointer_of(setting.segments())
+        } else {
+            pointer_of(["fixed", text.as_str()])
+        };
+        Self::Unsupported {
+            path,
+            harness: harness.to_owned(), // BORROW: .to_owned() makes the owned text
+            version: version.clone(),    // BORROW: .clone() copies the version
+            detail: detail.to_owned(),   // BORROW: .to_owned() makes the owned text
+        }
+    }
 }
 
 /// What the runner needs from one harness, returned as data for the core to act on.

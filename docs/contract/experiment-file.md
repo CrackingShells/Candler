@@ -81,6 +81,7 @@ Wire line: `schemas@0.7.0`.
 | `experiment.setting_as_factor` | A factor varies a setting, which no cell can vary; the setting belongs in `[fixed]`. | The `factors` array of the experiment file; a verb that has read the file narrows it to the `path` of the factor. | experiment |
 | `experiment.setting_missing` | A setting the harness needs has no value in the cell. | - | experiment |
 | `experiment.setting_under_reserved_root` | A setting is written below a reserved root, which takes one value. | - | experiment |
+| `experiment.setting_unsupported` | The experiment sets a setting that the harness has no way to honour, such as a turn cap for a harness with no turn limit; the run is refused rather than the setting dropped. | The setting in the experiment file: a field under `/budget`, or the key of `[fixed]` that holds it, such as `/fixed/model.effort`. | experiment |
 | `experiment.setting_value_invalid` | A setting holds a value that has the wrong form for what it names, such as a name with a space. | - | experiment |
 | `experiment.setting_wrong_type` | A setting holds a JSON value of a type its path does not take. | - | experiment |
 | `experiment.table_empty` | A table among the fixed values or the levels holds no value, so it fills no path. | - | experiment |

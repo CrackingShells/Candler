@@ -22,6 +22,7 @@ fn no_path<E>(_error: &E) -> Option<String> {
 fn driver_error_path(error: &DriverError) -> Option<String> {
     match error {
         DriverError::Command(inner) => Refusal::path(inner),
+        DriverError::Unsupported { path, .. } => Some(path.clone()), // BORROW: the path owns its text
         DriverError::MissingValue { .. }
         | DriverError::InvalidValue { .. }
         | DriverError::VersionOutput { .. }
@@ -43,6 +44,12 @@ refusal_table! {
         Side::Experiment,
         "A cell value cannot be used by the harness driver.",
         "-",
+    ),
+    Unsupported { .. } => row(
+        "experiment.setting_unsupported",
+        Side::Experiment,
+        "The experiment sets a setting that the harness has no way to honour, such as a turn cap for a harness with no turn limit; the run is refused rather than the setting dropped.",
+        "The setting in the experiment file: a field under `/budget`, or the key of `[fixed]` that holds it, such as `/fixed/model.effort`.",
     ),
     VersionOutput { .. } => row(
         "harness.version_unreadable",
