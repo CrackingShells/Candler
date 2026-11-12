@@ -17,6 +17,10 @@ use serde_json::Value;
 /// The manifest path of the tool list the harness reported at start.
 const INIT_TOOLS_PATH: &str = "census.init_tools";
 
+/// The manifest path of who observed the tool list, recorded when it was not the harness itself.
+/// An absent source is the harness's own report.
+const INIT_SOURCE_PATH: &str = "census.source";
+
 /// The measured path of the commit the evaluation infrastructure was built from. A verdict needs
 /// it recorded, and equal across the runs of a stratum.
 const EVAL_INFRA_COMMIT_PATH: &str = "provenance.eval_infra.commit";
@@ -80,6 +84,7 @@ pub struct ArmView {
     comparable: Comparable,
     claimed_factors: Vec<FieldPath>,
     init_tools: Option<JsonValue>,
+    init_source: Option<JsonValue>,
     provenance: BTreeMap<String, JsonValue>,
     imported: bool,
     import_rules: Option<Digest>,
@@ -131,6 +136,12 @@ impl ArmView {
             (Some(only), None) => Some(only.value().clone()),
             (None, _) => None,
         };
+        let init_source = manifest
+            .measured()
+            .iter()
+            // BORROW: explicit .as_str() instead of Deref coercion
+            .find(|m| m.path().as_str() == INIT_SOURCE_PATH)
+            .map(|m| m.value().clone()); // BORROW: .clone() gives the view its own value
         let mut provenance = BTreeMap::new();
         // EXPLICIT: the loop fills `provenance` and refuses a repeated path; .map() would hide the state update
         for entry in manifest.measured() {
@@ -156,6 +167,7 @@ impl ArmView {
             // BORROW: .to_vec() gives the view its own list
             claimed_factors: manifest.factors().to_vec(),
             init_tools,
+            init_source,
             provenance,
             imported: manifest.import().is_some(),
             // BORROW: .cloned() gives the view its own digest
@@ -348,8 +360,15 @@ fn residual(first: &ArmView, arm: &ArmView, declared: &[FieldPath]) -> Vec<Field
 /// Whether two arms differ in `census.init_tools` without a declared `tools.*` or `mcp.*` factor
 /// that differs between them to account for it.
 fn tools_unexplained(one: &ArmView, other: &ArmView, declared: &[FieldPath]) -> bool {
-    let differ = leaf_key(one.init_tools().map(JsonValue::as_value))
-        != leaf_key(other.init_tools().map(JsonValue::as_value));
+    // A tool list is the same observation only from the same source: a list the gateway saw is
+    // never the harness's own, nor an unrecorded one.
+    let key = |arm: &ArmView| {
+        (
+            leaf_key(arm.init_tools().map(JsonValue::as_value)),
+            leaf_key(arm.init_source.as_ref().map(JsonValue::as_value)),
+        )
+    };
+    let differ = key(one) != key(other);
     let factor_varies = compare(one.comparable(), other.comparable())
         .iter()
         .any(|d| {

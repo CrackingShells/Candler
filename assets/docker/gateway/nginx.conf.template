@@ -8,6 +8,11 @@ events { worker_connections 512; }
 http {
   access_log off;
   js_import gw from /etc/gw/gw.js;
+  # The count of model requests per run key, for the census line.
+  js_shared_dict_zone zone=gwseq:256k timeout=24h type=number evict;
+  # The census line of a model request: run, tag, sequence number and the names of its tools.
+  js_set $gw_seq gw.seq;
+  js_set $gw_census gw.census;
   # "1" when the request holds the job's dummy token and no other credential.
   js_set $gw_authentic gw.authentic;
   # The model name, unquoted-regex form of a map key.
@@ -28,12 +33,15 @@ http {
   # No Authorization, no query string, no prompt. Every value is json-escaped and the path, the
   # one value an agent writes, is the last field and quoted, so it cannot forge another field.
   log_format gw escape=json 'ts=$time_iso8601 run=$gw_run tag=$gw_tag method=$request_method status=$status up_status=$upstream_status req_ms=$request_time up_ms=$upstream_response_time req_bytes=$request_length resp_bytes=$bytes_sent model=$gw_model path="$uri"';
+  # One line per model request, after the access log's: the tool names and nothing else of the body.
+  log_format census escape=none 'census $gw_census';
   limit_conn_zone "all" zone=gw:1m;
   client_body_buffer_size 8m;
   client_max_body_size 64m;
   server {
     listen 8080;
     access_log /dev/stdout gw;
+    access_log /dev/stdout census if=$gw_census;
     location = /healthz {
       access_log off;
       default_type text/plain;
@@ -42,6 +50,8 @@ http {
     location / {
       limit_conn gw ${GW_MAX_PARALLEL};
       limit_conn_status 429;
+      # The request's place in its run, taken before the body is read.
+      set $gw_n $gw_seq;
       # set $gw_token, set $gw_dummy, proxy_set_header Authorization, proxy_set_header x-api-key
       # and sub_filter, from stdin. It comes first: `rewrite ... break` ends the set directives.
       include /run/gw/auth.conf;

@@ -1,6 +1,7 @@
 //! The container half of isolation: mounts, the run command, expiry, the stop hook, the guard and
 //! the label sweeper, and the [`DockerIsolation`] that ties them together.
 
+pub mod exec;
 pub mod expiry;
 pub mod guard;
 pub mod mounts;
@@ -30,7 +31,8 @@ use self::sweeper::ContainerSweeper;
 use super::driver::DockerDriver;
 use super::gateway::ChildRecorder;
 use super::layout::{
-    CONTAINER_HOME, CONTAINER_WORKDIR, LABEL_EXPERIMENT, LABEL_JOB, LABEL_ROLE, LABEL_RUN,
+    CONTAINER_HOME, CONTAINER_WORKDIR, EXPIRY_MARGIN, LABEL_EXPERIMENT, LABEL_JOB, LABEL_ROLE,
+    LABEL_RUN,
 };
 use super::model::{
     ContainerOutcome, ContainerPlan, ContainerRef, ContainerSweep, GatewayHandle, ImageId,
@@ -40,6 +42,9 @@ use super::{EndFacts, IsolatedRequest, Isolation, IsolationError, RunOutputs};
 use crate::experiment::paths;
 use crate::supervise::hook::StopHook;
 use crate::supervise::stop::Exit;
+
+/// How long a collect command may run in its throwaway container.
+const COLLECT_WALL: Duration = Duration::from_secs(120);
 
 /// The process limit of a container whose cell sets none.
 const DEFAULT_PIDS: u32 = 512;
@@ -373,7 +378,11 @@ impl Isolation for DockerIsolation {
             .ok_or_else(|| IsolationError::Plan {
                 detail: format!("the plan carries no valid `{LABEL_JOB}` label"),
             })?;
-        let hook = Arc::new(ContainerStopHook::new(self.guard(), sweeper, job));
+        let mut stop_hook = ContainerStopHook::new(self.guard(), sweeper, job);
+        if let Some(view) = outputs.observer.as_ref() {
+            stop_hook = stop_hook.with_observer(Arc::clone(view)); // BORROW: the hook shares the run's live view
+        }
+        let hook = Arc::new(stop_hook);
         // TRAIT_OBJECT: the request carries its hook as the supervisor's trait
         let attached: Arc<dyn StopHook> = Arc::<ContainerStopHook>::clone(&hook);
         let request = build_run_request(
@@ -451,6 +460,26 @@ impl Isolation for DockerIsolation {
                 Err(GuardError::Docker { .. } | GuardError::View { .. }) => sweep.unknown = true,
             }
             Ok(ContainerOutcome { inspect, sweep })
+        })
+    }
+
+    fn collect_exec<'a>(
+        &'a self,
+        plan: &'a ContainerPlan,
+        command: &'a CommandSpec,
+    ) -> BoxFuture<'a, Result<Vec<u8>, IsolationError>> {
+        Box::pin(async move {
+            let args = exec::collect_args(plan, command, COLLECT_WALL).map_err(|source| {
+                IsolationError::Plan {
+                    detail: source.to_string(),
+                }
+            })?;
+            self.docker
+                .capture(args, COLLECT_WALL + EXPIRY_MARGIN)
+                .await
+                .map_err(|source| IsolationError::Docker {
+                    detail: source.to_string(),
+                })
         })
     }
 

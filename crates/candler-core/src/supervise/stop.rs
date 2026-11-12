@@ -513,10 +513,26 @@ impl Ladder<'_> {
                 Some(name) => http::call(name, url, body.as_deref(), grace).await,
                 None => "refused: unknown method".to_owned(), // BORROW: .to_owned() makes the owned outcome from a literal
             }
+        } else if let Action::Exec(spec) = action {
+            self.exec_in_isolation(spec, grace).await
         } else {
             "refused: unknown action".to_owned() // BORROW: .to_owned() makes the owned outcome from a literal
         };
         self.log(climb, StopStep::PreStop, started, outcome);
+    }
+
+    /// Runs an `Action::Exec` pre-stop through the request's hook, which holds the isolation it
+    /// runs in. A request with no hook has none, and the step is refused.
+    async fn exec_in_isolation(&self, spec: &CommandSpec, grace: Duration) -> String {
+        let Some(hook) = self.hook else {
+            return "refused: no isolation to run the command in".to_owned(); // BORROW: .to_owned() makes the owned outcome from a literal
+        };
+        let ctx = self.hook_ctx();
+        match timeout(grace, hook.exec(&ctx, spec, grace)).await {
+            Ok(Ok(done)) => done,
+            Ok(Err(error)) => format!("exec failed: {error}"),
+            Err(_) => "exec timed out".to_owned(), // BORROW: .to_owned() makes the owned outcome from a literal
+        }
     }
 
     /// Runs a pre-stop command in a group of its own, killing the group if the grace passes.

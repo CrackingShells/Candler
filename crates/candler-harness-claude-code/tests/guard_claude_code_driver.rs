@@ -9,7 +9,7 @@ use std::process::Command;
 use std::str::FromStr as _;
 
 use candler_harness::driver::HarnessDriver;
-use candler_harness::spec::{Cell, CollectSpec, EnvValue, Observed, Workspace};
+use candler_harness::spec::{Cell, CollectSpec, EnvValue, Observed, StopSignal, Workspace};
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_harness_claude_code::prepare::{skill_archive_command, skill_files};
 use candler_schemas::execution::{GitCommit, TreatmentRef};
@@ -393,5 +393,19 @@ fn b23_output_discovery_exclusions() -> Res<()> {
         paths.iter().filter(|p| matches("**/*", p)).count(),
         paths.len()
     );
+    Ok(())
+}
+
+/// Guards: nothing moves for Claude Code when the core applies a driver's stop — the driver
+/// declares `SIGTERM`, no pre-stop action and the five seconds of grace the core applied before it
+/// read the driver's stop.
+/// Oracle: `DEFAULT_GRACE`, `Duration::from_secs(5)`, of `supervise/spawn.rs` at 40ef2fe.
+/// Bite: `STOP_GRACE` of the driver back to 15 seconds.
+#[test]
+fn b24_stop_is_term_with_the_grace_the_core_applied_before() -> Res<()> {
+    let stop = ClaudeCodeDriver::new()?.stop();
+    assert_eq!(stop.signal, StopSignal::Term);
+    assert_eq!(stop.pre_stop, None);
+    assert_eq!(stop.grace, std::time::Duration::from_secs(5));
     Ok(())
 }

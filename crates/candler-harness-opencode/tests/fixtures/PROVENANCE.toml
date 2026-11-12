@@ -156,3 +156,22 @@ export_sha256 = "900e4f35668e9ef14bc6a98be9a8684f0eb546da8fe0ec2e99b2b089cd1973e
 [config.opencode_json]
 recorded = "2026-11-12"
 checked_with = "opencode debug config, opencode v2.2.7, linux/arm64"
+
+# The gateway census of a run that denies the shell tool (`opencode_wiring`, 2026-11-12). Recorded
+# against the committed `assets/docker/fakemodel/fakemodel.py` (unmodified: it answers a model id
+# it has no script for with a short text), through the production gateway sidecar
+# (`assets/docker/gateway`, built from the repository's own Dockerfile, `--internal` bridge
+# network), with `assets/docker/base-opencode` built unmodified at v2.2.7. The cell was
+# `bypassPermissions` (`--auto`) with `tools.disallowed: ["Bash"]`, which the driver writes as the
+# permission row `{shell, *, deny}`; the agent ran `opencode run --standalone --format json --auto`
+# with the configuration `census_deny_shell_config.json`. The log is the sidecar's stdout as it
+# was (the access lines and the census lines); its two census lines are the two requests of the
+# run: the hidden title agent's, with no tools, then the run's own with eleven tool names, `shell`
+# among none of them. Compare `census_log.txt`, recorded without the deny, which lists twelve.
+# No token was spent and no real model was called. Docker 29.9.2, Docker Desktop on macOS.
+[gateway_census.deny_shell]
+log = "crates/candler-core/tests/fixtures/gateway/census_log_deny_shell.txt"
+log_sha256 = "fae2f18f82fb3138871253fd84c900d402b909d72f2488619b000d882efa8833"
+config = "crates/candler-core/tests/fixtures/gateway/census_deny_shell_config.json"
+config_sha256 = "1be70a693a780ee38c1bdd288bb8db0c759354fe2f4cf914181608097466c5aa"
+run = "3333333333333333333333333333333333333333333333333333333333333333-r1-a1"

@@ -19,10 +19,11 @@ use candler_schemas::trace::{EndedBy, Session};
 use semver::{Comparator, Op, Prerelease, Version, VersionReq};
 use serde_json::{Map, Value};
 
+use crate::census::OpenCodeCensusReader;
 use crate::export::{OpenCodeExportReader, ended_by_of_observed, export_stream};
 use crate::live::OpenCodeLiveReader;
 use crate::prepare::{self, invalid, model_id, required_text, value_at};
-use crate::{EXPORT_READER, HARNESS, SUPPORTED, VALIDATED};
+use crate::{CENSUS_STREAM, EXPORT_READER, HARNESS, SUPPORTED, VALIDATED};
 
 const PROGRAM: &str = "opencode";
 const PROMPT_TEMPLATE: &str = "prompt.template";
@@ -204,10 +205,11 @@ impl HarnessDriver for OpenCodeDriver {
 
     fn capabilities(&self) -> Capabilities {
         // Tools run in the `serve` child, so a signal to the client alone does not stop them. There
-        // is no turn or cost cap, no census source and no session mode, and the live reader emits
-        // no event: the trace comes from the export.
+        // is no turn or cost cap and no session mode, and the live reader emits no event: the trace
+        // comes from the export. The tool inventory is what the gateway saw in the model requests.
         Capabilities::builder()
             .graceful_stop(true)
+            .census(true)
             .execution_outside_child(true)
             .build()
     }
@@ -301,12 +303,20 @@ impl HarnessDriver for OpenCodeDriver {
         Some(Box::new(reader)) // TRAIT_OBJECT: the core selects readers at runtime
     }
 
+    fn census_stream(&self) -> Option<StreamName> {
+        census_stream()
+    }
+
     fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {
-        if export_stream().as_ref() != Some(stream) {
-            return None;
+        if export_stream().as_ref() == Some(stream) {
+            let reader = OpenCodeExportReader::new().ok()?;
+            return Some(Box::new(reader)); // TRAIT_OBJECT: the core selects readers at runtime
         }
-        let reader = OpenCodeExportReader::new().ok()?;
-        Some(Box::new(reader)) // TRAIT_OBJECT: the core selects readers at runtime
+        if census_stream().as_ref() == Some(stream) {
+            let reader = OpenCodeCensusReader::new().ok()?;
+            return Some(Box::new(reader)); // TRAIT_OBJECT: the core selects readers at runtime
+        }
+        None
     }
 
     fn classify_exit(&self, exit: &ProcessExit, sessions: &[Session]) -> EndedBy {
@@ -360,6 +370,11 @@ impl HarnessDriver for OpenCodeDriver {
         };
         vec![CollectSpec::exec(spec, name)]
     }
+}
+
+/// The stream the gateway's census is stored as.
+fn census_stream() -> Option<StreamName> {
+    CENSUS_STREAM.parse().ok()
 }
 
 /// The placeholder the core fills with the root session id.

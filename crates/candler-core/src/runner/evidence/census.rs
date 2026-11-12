@@ -1,7 +1,7 @@
 //! The census of a run: the tools and MCP servers the agent saw at its start, as the harness's
 //! driver reports them.
 
-use candler_harness::spec::InitReport;
+use candler_harness::spec::{CensusSource, InitReport};
 use candler_schemas::primitives::{FieldPath, NameToken};
 use candler_schemas::values::{JsonValue, MeasuredValue, ValueSource};
 use serde_json::Value;
@@ -43,10 +43,23 @@ fn measured(path: &str, value: Value) -> Result<MeasuredValue, CensusError> {
     Ok(MeasuredValue::new(path, value, ValueSource::derived(step)))
 }
 
+/// The label a census records for a source other than the harness's own init event, which
+/// records none: a record without `census.source` is the harness's own.
+const fn source_label(source: CensusSource) -> Option<&'static str> {
+    match source {
+        CensusSource::Harness => None,
+        CensusSource::Gateway => Some("gateway"),
+        CensusSource::Collected => Some("collected"),
+        // EXPLICIT: a source this core does not know is labelled, never taken for the harness's
+        _ => Some("other"),
+    }
+}
+
 /// The census values of a run, from the inventory its harness reported: `census.tools` and, when
 /// the source sees servers, `census.mcp_servers`, as the harness lists them, and
 /// `census.init_tools`, the tool names sorted and deduplicated. The server list never enters
-/// `census.init_tools`.
+/// `census.init_tools`. An inventory the gateway or a collected command observed also records
+/// `census.source`, so that the verdict never takes it for the harness's own.
 ///
 /// # Errors
 /// [`CensusError::NoInit`] when the harness reported no inventory, which records nothing, and
@@ -79,5 +92,8 @@ pub fn census(init: Option<&InitReport>) -> Result<Vec<MeasuredValue>, CensusErr
         "census.init_tools",
         Value::Array(names.into_iter().map(Value::String).collect()),
     )?);
+    if let Some(label) = source_label(init.source) {
+        values.push(measured("census.source", Value::String(label.to_owned()))?); // BORROW: .to_owned() gives the value its own text
+    }
     Ok(values)
 }

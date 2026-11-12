@@ -9,10 +9,13 @@
 //!   paths, the in-container interrupt, the export collect and how a run ended.
 //! - [`live::OpenCodeLiveReader`] reads the NDJSON on stdout for the session id and the last word.
 //! - [`export::OpenCodeExportReader`] reads the export, which is the authoritative trace.
+//! - [`census::OpenCodeCensusReader`] reads the tool names the gateway saw in the model requests,
+//!   the only source of the tool inventory.
 //! - [`skills::OpenCodeSkills`] places a treatment's skill tree where `OpenCode` reads it.
 
 #![deny(clippy::allow_attributes)]
 
+pub mod census;
 pub mod driver;
 pub mod export;
 pub mod live;
@@ -37,6 +40,12 @@ pub const LIVE_READER: &str = "opencode-ndjson@0.1.0";
 
 /// The reader of the session export, as the trace header names it.
 pub const EXPORT_READER: &str = "opencode-export@0.1.0";
+
+/// The reader of the gateway's census stream, as the trace header names it.
+pub const CENSUS_READER: &str = "opencode-gateway-census@0.1.0";
+
+/// The stream name under which the gateway's census is stored.
+pub const CENSUS_STREAM: &str = "gateway_census";
 
 /// The name of the harness.
 pub const HARNESS: &str = "opencode";

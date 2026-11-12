@@ -911,15 +911,17 @@ fn opencode_version_is_parsed_from_the_probe() -> Res<()> {
     Ok(())
 }
 
-/// Guards: R01 §Harness drivers (capabilities) — the driver declares no session, no census, no
-/// budget and no in-harness guard, and declares that execution lives outside the child.
-/// Oracle: the leaf's rule, `opencode_facts` F1 (no tool inventory), F2 (no turn or cost flag) and
-/// row 9 (tools run in the `serve` child).
+/// Guards: R01 §Harness drivers (capabilities) — the driver declares no session, no budget and no
+/// in-harness guard, declares that execution lives outside the child, and declares a census whose
+/// source is the gateway's stream.
+/// Oracle: the leaf's rule, `opencode_facts` F1 (no tool inventory in any event or command), F2 (no
+/// turn or cost flag) and row 9 (tools run in the `serve` child); amendment A1 (the gateway's
+/// stream is the census source).
 #[test]
 fn opencode_capabilities_declare_no_session_and_outside_execution() -> Res<()> {
     let driver = OpenCodeDriver::new()?;
     let caps = driver.capabilities();
-    assert!(!caps.session && !caps.census && !caps.in_harness_guard);
+    assert!(!caps.session && caps.census && !caps.in_harness_guard);
     assert!(!caps.budgets.turns && !caps.budgets.cost);
     assert!(caps.execution_outside_child && caps.graceful_stop);
     assert!(!caps.live_events, "the live reader emits no event");
@@ -927,7 +929,10 @@ fn opencode_capabilities_declare_no_session_and_outside_execution() -> Res<()> {
     let workspace = Workspace::new(Path::new("."));
     assert!(driver.session(&Cell::new(&values), &workspace)?.is_none());
     assert!(driver.session_tracker().is_none());
-    assert!(driver.census_stream().is_none());
+    assert_eq!(
+        driver.census_stream().map(|name| name.to_string()),
+        Some(String::from("gateway_census"))
+    );
     Ok(())
 }
 

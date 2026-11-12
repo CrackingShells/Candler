@@ -32,7 +32,13 @@ const BUDGET_TURNS: &str = "budget.per_run.turns";
 const BUDGET_COST: &str = "budget.per_run.max_cost_usd";
 /// The cell path of the allowed-tools list.
 const TOOLS_ALLOWED: &str = "tools.allowed";
-/// The cell path of the disallowed-tools list.
+/// The cell path of the disallowed-tools list. Each name becomes a `{action, *, deny}` row, and
+/// `OpenCode` v2.2.7 leaves a tool whose last matching row is a deny on `*` out of the tools it
+/// sends the model (`packages/core/src/tool.ts:260`, `whollyDisabled`, `tool.ts:386-389`), as
+/// Claude Code's `--disallowedTools` does; `--auto` only answers asks with once and adds no row
+/// (`packages/cli/src/run/noninteractive.ts:108`), so it never overrides the deny. No request of a
+/// `bypassPermissions` run with `Bash` disallowed lists `shell` (`candler-core` guard
+/// `census_gateway_denied_shell_is_offered_in_no_request`).
 const TOOLS_DISALLOWED: &str = "tools.disallowed";
 
 /// The baseline every `OpenCode` agent starts from (`packages/schema/src/agent.ts`, v2.2.7): the

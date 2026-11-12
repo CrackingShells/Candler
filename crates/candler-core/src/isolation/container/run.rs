@@ -86,7 +86,7 @@ pub enum RunArgvError {
 }
 
 /// The hardening every container carries, then its limits.
-fn hardening(limits: &Limits, argv: &mut Vec<String>) {
+pub(super) fn hardening(limits: &Limits, argv: &mut Vec<String>) {
     argv.extend(["--init", "--read-only"].map(str::to_owned));
     argv.push(String::from("--tmpfs"));
     argv.push(format!("/tmp:rw,noexec,nosuid,size={TMPFS_MIB}m"));
@@ -138,7 +138,7 @@ pub fn env_args(overlay: &[EnvEntry], reserved: &[String]) -> Result<Vec<String>
 }
 
 /// Checks an environment name docker could take.
-fn check_name(name: &str) -> Result<(), RunArgvError> {
+pub(super) fn check_name(name: &str) -> Result<(), RunArgvError> {
     if name.is_empty() || name.contains(['=', '\0']) {
         Err(RunArgvError::BadEnvName {
             // BORROW: .to_owned() keeps the name in the error

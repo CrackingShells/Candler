@@ -202,6 +202,21 @@ pub trait Gateway: Send + Sync {
         handle: &'a GatewayHandle,
         run: &'a RunKey,
     ) -> BoxFuture<'a, Result<Vec<GatewaySignal>, GatewayError>>;
+
+    /// The model requests the gateway relayed for the run `run`, one JSON line each:
+    /// `{"seq":<n>,"tools":["<name>",...]}`, the tool names of the request and nothing else of
+    /// it, in the order the requests began. A gateway that records none answers no bytes.
+    ///
+    /// # Errors
+    /// [`GatewayError`] when the gateway cannot be asked.
+    fn run_census<'a>(
+        &'a self,
+        handle: &'a GatewayHandle,
+        run: &'a RunKey,
+    ) -> BoxFuture<'a, Result<Vec<u8>, GatewayError>> {
+        let _ = (handle, run);
+        Box::pin(async { Ok(Vec::new()) })
+    }
 }
 
 /// The name the agent's container resolves the gateway by on the job's network.
@@ -829,6 +844,18 @@ impl Gateway for DockerGateway {
             Ok(signals_of(log.as_str(), run, handle.run_tag(run).as_str()))
         })
     }
+
+    fn run_census<'a>(
+        &'a self,
+        handle: &'a GatewayHandle,
+        run: &'a RunKey,
+    ) -> BoxFuture<'a, Result<Vec<u8>, GatewayError>> {
+        Box::pin(async move {
+            let log = self.logs().read(handle).await?;
+            // BORROW: explicit .as_str() instead of Deref coercion
+            Ok(census_of(log.as_str(), run, handle.run_tag(run).as_str()))
+        })
+    }
 }
 
 /// Reads the sidecar's logs: the access log (method, path, status, model, run; never the
@@ -958,6 +985,56 @@ fn signals_of(log: &str, run: &RunKey, tag: &str) -> Vec<GatewaySignal> {
         }
     }
     signals
+}
+
+/// The most tool names one request's census line may carry.
+const CENSUS_TOOL_LIMIT: usize = 1024;
+
+/// The census of the run `run` under its tag `tag`, from the sidecar's log: one line
+/// `{"seq":<n>,"tools":[...]}` for each census line of the gateway whose `run=` and `tag=` fields
+/// equal these. A census line is `census run=<key> tag=<tag> seq=<n> tools=<JSON array>`; the
+/// array is the last field and must be a list of strings, so what an agent writes in a tool name
+/// cannot become a field. Only the sequence number and the names are kept: whatever else a line
+/// carries is dropped, and a line that is not exactly that shape is dropped whole.
+#[must_use]
+pub fn census_of(log: &str, run: &RunKey, tag: &str) -> Vec<u8> {
+    let wanted_run = format!("run={run}");
+    let wanted_tag = format!("tag={tag}");
+    let mut out = Vec::new();
+    for line in log.lines() {
+        let mut parts = line.splitn(5, ' ');
+        let (Some("census"), Some(found_run), Some(found_tag), Some(found_seq), Some(rest)) = (
+            parts.next(),
+            parts.next(),
+            parts.next(),
+            parts.next(),
+            parts.next(),
+        ) else {
+            continue;
+        };
+        if found_run != wanted_run || found_tag != wanted_tag {
+            continue;
+        }
+        let Some(seq) = found_seq
+            .strip_prefix("seq=")
+            .and_then(|text| text.parse::<u64>().ok())
+        else {
+            continue;
+        };
+        let Some(tools) = rest
+            .strip_prefix("tools=")
+            .and_then(|text| serde_json::from_str::<Vec<String>>(text).ok())
+            .filter(|names| names.len() <= CENSUS_TOOL_LIMIT)
+        else {
+            continue;
+        };
+        if let Ok(mut record) = serde_json::to_vec(&serde_json::json!({"seq": seq, "tools": tools}))
+        {
+            record.push(b'\n');
+            out.extend(record);
+        }
+    }
+    out
 }
 
 /// 128 random bits as hex, from the operating system.

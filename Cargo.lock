@@ -263,6 +263,7 @@ dependencies = [
  "candler-core",
  "candler-harness",
  "candler-harness-claude-code",
+ "candler-harness-opencode",
  "candler-schemas",
  "flate2",
  "futures",

@@ -171,6 +171,7 @@ impl Isolation for Placed {
             .ok_or_else(|| IsolationError::Plan {
                 detail: String::from("the cidfile has no directory"),
             })?;
+        let observer = outputs.observer.clone(); // BORROW: the hook shares the live view
         let path = std::env::var("PATH").unwrap_or_default();
         let argv = match &self.agent {
             Some(agent) => vec![
@@ -208,11 +209,12 @@ impl Isolation for Placed {
                 .ok_or_else(|| IsolationError::Plan {
                     detail: String::from("the plan carries no job label"),
                 })?;
-            let hook = Arc::new(ContainerStopHook::new(
-                self.inner.guard(),
-                Arc::clone(sweeper),
-                job,
-            ));
+            let mut stop_hook =
+                ContainerStopHook::new(self.inner.guard(), Arc::clone(sweeper), job);
+            if let Some(view) = observer {
+                stop_hook = stop_hook.with_observer(view);
+            }
+            let hook = Arc::new(stop_hook);
             // TRAIT_OBJECT: the request carries its hook as the supervisor's trait
             let attached: Arc<dyn StopHook> = hook.clone(); // BORROW: the facts share the hook
             builder = builder.stop_hook(attached);
@@ -230,6 +232,21 @@ impl Isolation for Placed {
         key: &'a RunKey,
     ) -> BoxFuture<'a, Result<Option<ContainerId>, IsolationError>> {
         self.inner.record_container(plan, key)
+    }
+
+    fn collect_exec<'a>(
+        &'a self,
+        plan: &'a ContainerPlan,
+        command: &'a CommandSpec,
+    ) -> BoxFuture<'a, Result<Vec<u8>, IsolationError>> {
+        if self.agent.is_some() {
+            return self.inner.collect_exec(plan, command);
+        }
+        Box::pin(async {
+            Err(IsolationError::Unavailable {
+                detail: String::from("collect_exec"),
+            })
+        })
     }
 
     fn collect_and_destroy<'a>(

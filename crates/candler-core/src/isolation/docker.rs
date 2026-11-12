@@ -46,6 +46,9 @@ const BUILD_DEADLINE: Duration = Duration::from_mins(15);
 /// How many bytes of a client's output are kept.
 const OUTPUT_LIMIT: usize = 4 * 1024 * 1024;
 
+/// How many bytes of a captured container call's output are kept: an export of a long session.
+const CAPTURE_LIMIT: usize = 64 * 1024 * 1024;
+
 /// How many characters of a client's error are shown in an error.
 const DETAIL_LIMIT: usize = 400;
 
@@ -152,6 +155,17 @@ struct Runner {
 impl Runner {
     /// Runs `docker <args>` and returns what it printed on standard output.
     async fn run(&self, rest: Vec<String>, deadline: Duration) -> Result<String, DockerError> {
+        let bytes = self.run_bytes(rest, deadline, OUTPUT_LIMIT).await?;
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    /// Runs `docker <args>` and returns the bytes it printed on standard output, at most `limit`.
+    async fn run_bytes(
+        &self,
+        rest: Vec<String>,
+        deadline: Duration,
+        limit: usize,
+    ) -> Result<Vec<u8>, DockerError> {
         let marker = control_marker();
         let mut argv = Vec::with_capacity(rest.len() + 1);
         // BORROW: .to_string_lossy().into_owned() gives the request the binary path as text
@@ -169,7 +183,7 @@ impl Runner {
             })?;
         let captured = self
             .supervisor
-            .run_captured(request, OUTPUT_LIMIT)
+            .run_captured(request, limit)
             .await
             .map_err(|error| DockerError::Failed {
                 detail: format!("the docker client could not run: {error}"),
@@ -177,9 +191,7 @@ impl Runner {
         let stderr = detail_of(&captured.stderr);
         match captured.exit.ended {
             Ended::Exited => match captured.exit.status {
-                ExitStatus::Code { code: 0 } => {
-                    Ok(String::from_utf8_lossy(&captured.stdout).into_owned())
-                }
+                ExitStatus::Code { code: 0 } => Ok(captured.stdout),
                 ExitStatus::Code { .. } | ExitStatus::Signal { .. } => {
                     if is_not_found(&stderr) {
                         Err(DockerError::NotFound { detail: stderr })
@@ -533,7 +545,51 @@ fn parse_ids(text: &str) -> Result<Vec<String>, DockerError> {
         .collect()
 }
 
+/// Whether `args` are a container call that destroys nothing: `exec` in a container named by its
+/// full id without `--privileged`, or `run --rm` of a control container with no network, the label
+/// `candler.role=control` and none of the flags that widen a container.
+fn is_capturable(args: &[String]) -> bool {
+    let at = |index: usize| args.get(index).map(String::as_str);
+    match at(0) {
+        Some("exec") => args
+            .iter()
+            .skip(1)
+            .find(|arg| is_full_id(arg))
+            .is_some_and(|_| !args.iter().any(|arg| arg == "--privileged")),
+        Some("run") => {
+            at(1) == Some("--rm")
+                && args.windows(2).any(|pair| pair == ["--network", "none"])
+                && args
+                    .windows(2)
+                    .any(|pair| pair == ["--label", "candler.role=control"])
+                && !args.iter().any(|arg| {
+                    matches!(
+                        arg.as_str(),
+                        "--privileged" | "--pid" | "--ipc" | "--cap-add" | "--device"
+                    )
+                })
+        }
+        _ => false,
+    }
+}
+
 impl DockerDriver for DockerCli {
+    fn capture(
+        &self,
+        args: Vec<String>,
+        deadline: Duration,
+    ) -> BoxFuture<'_, Result<Vec<u8>, DockerError>> {
+        Box::pin(async move {
+            if !is_capturable(&args) {
+                return Err(DockerError::Failed {
+                    // BORROW: the error owns its text
+                    detail: "a captured call is `exec` in a container or `run --rm`".to_owned(),
+                });
+            }
+            self.runner.run_bytes(args, deadline, CAPTURE_LIMIT).await
+        })
+    }
+
     fn inspect<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Inspect, DockerError>> {
         Box::pin(async move {
             if !is_full_id(id) {

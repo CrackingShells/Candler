@@ -16,10 +16,11 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr as _;
 use std::time::Duration;
 
+use crate::frames::RawFileInfo;
 use candler_harness::driver::HarnessDriver;
 use candler_harness::spec::{
-    Cell, CommandSpec, Framing, Observed, PreparedFile, ProcessExit, RunTotals, StateKind,
-    Workspace,
+    Cell, CommandSpec, FileRoot, Framing, Observed, PreparedFile, ProcessExit, RunTotals,
+    StateKind, Workspace,
 };
 use candler_schemas::container::ContainerRole;
 use candler_schemas::execution::{EventPayload, Integrity, InvalidReason, RunManifest, RunTree};
@@ -34,7 +35,9 @@ use tokio::time::MissedTickBehavior;
 pub use self::cell::{CellRun, ExecError};
 use self::collect::finish_attempt;
 use self::ends::{EndInput, TraceFacts, classify_end};
-use self::gather::{collect_outputs, spent};
+use self::gather::{
+    collect_commands, collect_outputs, read_stream, resolved_record, spent, store_stream,
+};
 use self::seal::{RawStreamFile, seal_run};
 use self::session::{SessionHandle, SessionRun, monotonic_clock, session_config};
 use self::spawn::{Started, live_observer_with, require_isolation, start_attempt};
@@ -441,9 +444,18 @@ async fn drive(
             .into());
         }
     }
+    let home_dir = agent_home(&layout.run_dir(&plan.key));
     for file in skills.iter().chain(&prepared.files) {
-        let digest = write_file(&workspace_dir, file)
-            .map_err(|e| local("cannot write a workspace file", &e))?;
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "a root this core does not know is the workspace, where the agent's tools work"
+        )]
+        let root = match file.root {
+            FileRoot::Home => home_dir.as_path(), // BORROW: explicit .as_path()
+            _ => workspace_dir.as_path(),         // BORROW: explicit .as_path()
+        };
+        let digest =
+            write_file(root, file).map_err(|e| local("cannot write a workspace file", &e))?;
         written.insert(file.path.as_str().to_owned(), digest); // BORROW: the map owns its paths
     }
 
@@ -478,6 +490,9 @@ async fn drive(
             .build()
             .map_err(candler_harness::driver::DriverError::from)?;
     }
+    // What the driver resolved from the cell, kept with the run: the argv, the variable names the
+    // overlay sets and each prepared file.
+    let resolved = resolved_record(&command, &prepared.files, &written);
     let mut container = isolation.plan(&view, &workspace)?;
     apply_harness_env(
         &mut container,
@@ -522,14 +537,21 @@ async fn drive(
         stdout = stdout.with_observer(Box::new(observer));
         handle = Some(live);
     }
-    let stderr = OutputSpec::framed(frames, err_stream, Framing::Lines);
-    let isolated = isolation.run_request(
+    let stderr = OutputSpec::framed(frames.clone(), err_stream, Framing::Lines); // BORROW: the spec owns its directory
+    let mut outputs = RunOutputs::new(stdout, stderr);
+    if let Some(live) = &handle {
+        outputs = outputs.with_observer(live.view());
+    }
+    let mut isolated = isolation.run_request(
         &container,
         command,
         Marker::for_run(&plan.key),
         plan.key.clone(), // BORROW: the request owns its key
-        RunOutputs::new(stdout, stderr),
+        outputs,
     )?;
+    // The harness says how its run is stopped; the name differs from the destroy driver's.
+    let harness = rt.driver.as_ref();
+    isolated.request = isolated.request.with_stop(harness.stop());
 
     rt.sink.emit(Some(&plan.key), EventPayload::run_started());
     let attempt_began = std::time::Instant::now();
@@ -575,6 +597,11 @@ async fn drive(
     }
     let exit = waited?;
     let duration_ms = u64::try_from(attempt_began.elapsed().as_millis()).unwrap_or(u64::MAX);
+    // What the live reader saw, read before the container goes: a collect command needs the ids.
+    let live_view = handle.as_ref().map(spawn::LiveHandle::observed);
+    let observed_now = live_view.clone().unwrap_or_default(); // BORROW: the view is read again after the finish
+    let specs = rt.driver.collect(&workspace, &observed_now);
+    let collected = collect_commands(isolation.as_ref(), &container, &specs).await;
     let finished = finish_attempt(
         isolation.as_ref(),
         &container,
@@ -587,20 +614,81 @@ async fn drive(
 
     // What the reader made of the output.
     let mut reader_failed = false;
+    let mut live_failed = false;
     let (mut sessions, mut events) = (Vec::new(), Vec::new());
-    let mut live_view = None;
     if let Some(live) = handle {
-        live_view = Some(live.observed());
         match live.finish() {
             Ok(trace) => {
                 sessions = trace.sessions;
                 events = trace.events;
             }
-            Err(_) => reader_failed = true,
+            Err(_) => live_failed = true,
         }
     }
-    let raw_refs: Vec<RawFileRef> = exit
-        .raw
+    // The streams the run's commands printed, stored as raw files and read offline. A reader that
+    // yields sessions makes them the trace; the live reader's are used otherwise.
+    let mut extra: Vec<RawFileInfo> = Vec::new();
+    let mut collect_ok = finished.collect_ok;
+    let mut offline: Option<candler_schemas::primitives::NameVersion> = None;
+    let mut offline_sessions = Vec::new();
+    let mut offline_events = Vec::new();
+    for item in collected {
+        let Ok(bytes) = item.output else {
+            collect_ok = false;
+            continue;
+        };
+        match rt.driver.offline_reader(&item.name) {
+            Some(reader) => {
+                let Ok(read) = read_stream(&frames, &item.name, &bytes, reader) else {
+                    collect_ok = false;
+                    continue;
+                };
+                extra.push(read.file);
+                match read.trace {
+                    Ok((mut found, mut made)) => {
+                        if !found.is_empty() && offline.is_none() {
+                            offline = Some(read.reader);
+                        }
+                        offline_sessions.append(&mut found);
+                        offline_events.append(&mut made);
+                    }
+                    Err(_) => reader_failed = true,
+                }
+            }
+            None => match store_stream(&frames, &item.name, Framing::Document, &bytes) {
+                Ok(file) => extra.push(file),
+                Err(_) => collect_ok = false,
+            },
+        }
+    }
+    if let Some(identity) = offline {
+        reader_id = Some(identity);
+        sessions = offline_sessions;
+        events = offline_events;
+    } else {
+        // EXPLICIT: with no offline sessions the live reader's failure is the run's
+        reader_failed = reader_failed || live_failed;
+    }
+    // The census of a harness with no init event, read from what the gateway relayed.
+    let mut gateway_init = None;
+    // EXPLICIT: a census the gateway cannot give or the reader cannot read records no census value,
+    // as for a run whose requests carry no tools; it is not a collect failure
+    if let (Some(name), Some(gateway)) = (rt.driver.census_stream(), &rt.gateway)
+        && let Ok(bytes) = gateway.service.run_census(&gateway.handle, &plan.key).await
+        && let Some(reader) = rt.driver.offline_reader(&name)
+        && let Ok(read) = read_stream(&frames, &name, &bytes, reader)
+    {
+        gateway_init = read.observed.init;
+        extra.push(read.file);
+    }
+    // What the driver resolved from the cell.
+    match stream("resolved").map(|name| store_stream(&frames, &name, Framing::Document, &resolved))
+    {
+        Ok(Ok(file)) => extra.push(file),
+        Ok(Err(_)) | Err(_) => collect_ok = false,
+    }
+    let raw_infos: Vec<RawFileInfo> = exit.raw.iter().cloned().chain(extra).collect(); // BORROW: the run's files are listed once for the header and the seal
+    let raw_refs: Vec<RawFileRef> = raw_infos
         .iter()
         .filter_map(|info| {
             stream_of(&info.path).map(|name| RawFileRef::new(name, info.digest.clone())) // BORROW: the header owns the digest
@@ -645,8 +733,6 @@ async fn drive(
     };
 
     // What the run left in its workspace.
-    let mut collect_ok = finished.collect_ok;
-    let specs = rt.driver.collect(&workspace, &observed);
     let outputs = if let Ok(mut found) = collect_outputs(&workspace_dir, &specs, &cell.inputs) {
         found.retain(|out| written.get(&out.path) != Some(&out.digest));
         found
@@ -673,7 +759,7 @@ async fn drive(
     let mut measured = if evidence.sessions.is_empty() {
         Vec::new()
     } else {
-        census(observed.init.as_ref()).unwrap_or_default()
+        census(observed.init.as_ref().or(gateway_init.as_ref())).unwrap_or_default()
     };
 
     let gateway_failed = match &rt.gateway {
@@ -769,8 +855,7 @@ async fn drive(
         started_at,
         Some(now()?),
     )?;
-    let mut raw_files: Vec<RawStreamFile> = exit
-        .raw
+    let mut raw_files: Vec<RawStreamFile> = raw_infos
         .iter()
         .filter_map(|info| {
             stream_of(&info.path)
