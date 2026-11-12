@@ -1,0 +1,75 @@
+[
+  {
+    "environments": [
+      {
+        "lock_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "plugin": "p@1.0.0"
+      }
+    ],
+    "harness": {
+      "name": "claude-code",
+      "version": "2.1.311"
+    },
+    "inputs": [],
+    "snapshots": [
+      {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "kind": "catalog"
+      }
+    ],
+    "treatment": {
+      "commit": "1111111111111111111111111111111111111111",
+      "name": "htn"
+    },
+    "values": [
+      {
+        "path": "budget.per_run.max_cost_usd",
+        "value": 1.0
+      },
+      {
+        "path": "budget.per_run.turns",
+        "value": 30
+      },
+      {
+        "path": "budget.per_run.wall_s",
+        "value": 1200
+      },
+      {
+        "path": "isolation.env_lock",
+        "value": "sha256:0c030586945fe504b604ecc2e875c38ede400cd5cd73da9730302162e6b02c6f"
+      },
+      {
+        "path": "isolation.image",
+        "value": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      {
+        "path": "model.effort",
+        "value": "medium"
+      },
+      {
+        "path": "model.endpoint",
+        "value": "https://api.class2.llm.ai.r-ccs.riken.jp"
+      },
+      {
+        "path": "model.id",
+        "value": "RiVault/Reasoning-Small"
+      },
+      {
+        "path": "permission_mode",
+        "value": "bypassPermissions"
+      },
+      {
+        "path": "prompt.template",
+        "value": "Using the MCP servers at {servers_path}, used in the context of {domain_topic}, write a minimal domain.py for a domain named '{domain_name}' in the current directory (one action and one method), run `import domain` once with python, then stop.\n\n**Hard Context**: This is a non-interactive run - proceed without pausing for confirmation."
+      },
+      {
+        "path": "prompt.values",
+        "value": {
+          "domain_name": "cont-train",
+          "domain_topic": "containerization training of a specialized MDLM diffusion model on a remote GPU",
+          "servers_path": "servers/rikyu_mcp"
+        }
+      }
+    ]
+  }
+]
