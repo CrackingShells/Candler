@@ -7,7 +7,8 @@ these files byte for byte; a difference is a defect of the change under test.
 - `argv.json`: `headless_run`, the `docker run` argv of a reference cell (every flag of the
   headless command line set; the scene's root is written `<root>`), and
   `control_version_probe`, the argv of the control container that reads the harness version,
-  with the `version` it printed.
+  with the `version` it printed. Recorded at cf3de30; the probe's `--tmpfs /tmp` pair and
+  `-e HOME=/tmp/home` pair were inserted by hand, where the core now puts them.
 - `census.json`: the three `census.*` values of every Claude Code stream fixture (the gzip
   streams of `candler-harness-claude-code/tests/fixtures/streams` and the two recorded session
   stdouts), or `null` where the core records no census.

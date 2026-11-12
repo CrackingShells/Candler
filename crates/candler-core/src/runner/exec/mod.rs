@@ -53,6 +53,7 @@ use super::{RunControl, RunOutcome, RunStatus, Runtime};
 use crate::isolation::container::agent_home;
 use crate::isolation::container::mounts::{MountMode, MountRoots, MountSpec, mounts};
 use crate::isolation::gateway::census_init;
+use crate::isolation::layout;
 use crate::isolation::model::ContainerPlan;
 use crate::isolation::{Isolation, IsolationError, RunOutputs};
 use crate::jobs::model::JobCause;
@@ -289,15 +290,10 @@ pub fn apply_harness_env(
             fs::create_dir_all(&here)
         };
         made.map_err(|e| local("cannot make a state path", &e))?;
-        container.env.push((
-            path.env.clone(), // BORROW: the plan owns its names
-            format!(
-                "{}/{}",
-                container.home.trim_end_matches('/'),
-                path.subpath.as_str() // BORROW: explicit .as_str()
-            ),
-        ));
     }
+    container
+        .env
+        .extend(layout::state_env(&state, container.home.as_str())); // BORROW: explicit .as_str()
     container.gateway = Some(gateway);
     container.state = state;
     Ok(())
