@@ -22,6 +22,7 @@ use candler_schemas::execution::{GitCommit, TreatmentRef};
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::process::ExitStatus;
 use candler_schemas::raw::{FrameData, RawFrame, RawRef, StreamName};
+use candler_schemas::refusal::{Refusal, RefusalCode, Side};
 use candler_schemas::trace::{EndedBy, Session, SessionEvent, SessionId};
 use candler_schemas::values::{JsonValue, ResolvedValue};
 use serde_json::{Value, json};
@@ -119,36 +120,102 @@ fn opencode_command_forces_standalone_json() -> Res<()> {
     Ok(())
 }
 
-/// Guards: R01 §Run manifest — a cell value that `OpenCode` cannot honour is refused, never dropped:
-/// a silent drop would make a treatment factor that changes nothing.
-/// Oracle: `opencode run --help` (no effort, turn or cost flag; `opencode_facts` row 2 and F2); the
-/// tool names of `tools.*` are Claude Code's.
-#[test]
-fn opencode_command_refuses_values_it_cannot_honour() -> Res<()> {
-    for (path, value) in [
-        ("model.effort", json!("high")),
-        ("budget.per_run.turns", json!(5)),
-        ("budget.per_run.max_cost_usd", json!(1.5)),
-        ("tools.allowed", json!(["Bash"])),
-        ("tools.disallowed", json!(["Bash"])),
-        ("permission_mode", json!("acceptEdits")),
-    ] {
-        match command_of(&[(path, value)])? {
-            Err(DriverError::InvalidValue {
-                path: named,
-                detail,
-            }) => {
-                assert_eq!(named.to_string(), path);
-                if path == "permission_mode" {
-                    assert!(
-                        detail.contains("bypassPermissions"),
-                        "names the mode: {detail}"
-                    );
-                }
-            }
-            other => return Err(format!("{path}: expected a refusal, got {other:?}").into()),
-        }
+/// The refusal of a command whose cell sets `path` to `value`, read through its [`Refusal`] and its text.
+fn unsupported_of(path: &str, value: Value) -> Res<(RefusalCode, Side, Option<String>, String)> {
+    let error = command_of(&[(path, value)])?
+        .err()
+        .ok_or_else(|| format!("{path}: expected a refusal, got a command"))?;
+    Ok((
+        Refusal::code(&error),
+        Refusal::side(&error),
+        Refusal::path(&error),
+        error.to_string(),
+    ))
+}
+
+/// One setting `OpenCode` cannot honour is refused as unsupported, at the setting's pointer in
+/// the experiment file, in a message that names the setting, the harness and its version.
+fn assert_unsupported(path: &str, value: Value, pointer: &str) -> Res<()> {
+    let (code, side, at, message) = unsupported_of(path, value)?;
+    assert_eq!(code.as_str(), "experiment.setting_unsupported", "{path}");
+    assert_eq!(side, Side::Experiment, "{path}");
+    assert_eq!(at.as_deref(), Some(pointer), "{path}");
+    for needle in [pointer, "OpenCode", "2.2.7"] {
+        assert!(
+            message.contains(needle),
+            "{path}: `{needle}` in `{message}`"
+        );
     }
+    Ok(())
+}
+
+/// Guards: R01 §Run manifest — a cell value that `OpenCode` cannot honour is refused, never dropped,
+/// and the refusal says where the setting sits: `model.effort` is a key of `[fixed]`.
+/// Oracle: `opencode run --help` (no effort flag; `opencode_facts` row 2 and F2); the pointer is
+/// written by hand from the `[fixed]` arm of `unknown_path_pointer` in `candler/src/commands/refusal.rs`.
+#[test]
+fn opencode_refuses_model_effort_as_unsupported() -> Res<()> {
+    assert_unsupported("model.effort", json!("high"), "/fixed/model.effort")
+}
+
+/// Guards: R01 §Run manifest — a turn cap is refused, never dropped, at `/budget/per_run/turns`.
+/// Oracle: `opencode run --help` (no turn cap flag; `opencode_facts` row 2); the pointer is the
+/// `budget` arm of `file_field` in `candler-schemas/src/refusal_impls.rs`, written out by hand.
+#[test]
+fn opencode_refuses_a_turn_cap_as_unsupported() -> Res<()> {
+    assert_unsupported("budget.per_run.turns", json!(5), "/budget/per_run/turns")
+}
+
+/// Guards: R01 §Run manifest — a per-run cost cap is refused, never dropped, at
+/// `/budget/per_run/max_cost_usd`.
+/// Oracle: `opencode run --help` (no cost cap; `opencode_facts` F2); the pointer is the `budget`
+/// arm of `file_field`, written out by hand.
+#[test]
+fn opencode_refuses_a_cost_cap_as_unsupported() -> Res<()> {
+    assert_unsupported(
+        "budget.per_run.max_cost_usd",
+        json!(1.5),
+        "/budget/per_run/max_cost_usd",
+    )
+}
+
+/// Guards: R01 §Run manifest — an allowed-tools list is refused, never dropped, because the tool
+/// names are Claude Code's; the setting is a key of `[fixed]`.
+/// Oracle: the tool names of `tools.*` are Claude Code's (`opencode_facts`); the pointer is
+/// written by hand from the `[fixed]` arm of `unknown_path_pointer`.
+#[test]
+fn opencode_refuses_allowed_tools_as_unsupported() -> Res<()> {
+    assert_unsupported("tools.allowed", json!(["Bash"]), "/fixed/tools.allowed")
+}
+
+/// Guards: R01 §Run manifest — a disallowed-tools list is refused, never dropped; the setting is
+/// a key of `[fixed]`.
+/// Oracle: as `tools.allowed`; the pointer is written by hand from `unknown_path_pointer`.
+#[test]
+fn opencode_refuses_disallowed_tools_as_unsupported() -> Res<()> {
+    assert_unsupported(
+        "tools.disallowed",
+        json!(["Bash"]),
+        "/fixed/tools.disallowed",
+    )
+}
+
+/// Guards: R01 §Run manifest — a permission mode other than `bypassPermissions` is refused as
+/// unsupported and the refusal names the mode `--auto` implements.
+/// Oracle: `opencode run --help` (`--auto` approves everything not denied, the one mode); the
+/// pointer is written by hand from the `[fixed]` arm of `unknown_path_pointer`.
+#[test]
+fn opencode_refuses_another_permission_mode_as_unsupported() -> Res<()> {
+    assert_unsupported(
+        "permission_mode",
+        json!("acceptEdits"),
+        "/fixed/permission_mode",
+    )?;
+    let (_, _, _, message) = unsupported_of("permission_mode", json!("acceptEdits"))?;
+    assert!(
+        message.contains("bypassPermissions"),
+        "names the mode: {message}"
+    );
     Ok(())
 }
 
