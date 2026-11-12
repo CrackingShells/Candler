@@ -279,6 +279,14 @@ fn table(rows: &[&Entry]) -> String {
     out
 }
 
+/// The generated refusals block of `rows`.
+pub fn refusals_block(rows: &[&Entry]) -> String {
+    format!(
+        "<!-- generated:refusals -->\n{}<!-- /generated:refusals -->",
+        table(rows)
+    )
+}
+
 /// The generated Refusals of the page `file`: the rows whose surface the table gives to it.
 pub fn page_refusals(file: &str) -> Result<String, String> {
     let rows = all_entries()?;
@@ -286,10 +294,28 @@ pub fn page_refusals(file: &str) -> Result<String, String> {
         .iter()
         .filter(|row| matches!(home_of(row.surface()), Some(Home::Page(name)) if name == file))
         .collect();
-    Ok(format!(
-        "<!-- generated:refusals -->\n{}<!-- /generated:refusals -->",
-        table(&mine)
-    ))
+    Ok(refusals_block(&mine))
+}
+
+/// The rows of the catalogue that the error types `enums` give, sorted by code: a variant that
+/// delegates has no code of its own, and Candler's own codes are no author's.
+pub fn entries_of_enums(enums: &[&str]) -> Vec<Entry> {
+    let mut by_code: BTreeMap<String, Entry> = BTreeMap::new();
+    for row in catalog() {
+        if enums.contains(&row.enum_name)
+            && !row.delegates
+            && !row.code.is_empty()
+            && row.side != Side::Candler
+        {
+            by_code.entry(row.code.to_owned()).or_insert_with(|| Entry {
+                code: row.code.to_owned(),
+                side: row.side.as_str().to_owned(),
+                when: row.when.to_owned(),
+                at: row.at.to_owned(),
+            });
+        }
+    }
+    by_code.into_values().collect()
 }
 
 /// The generated list of the index: the rows whose surface names no page.
