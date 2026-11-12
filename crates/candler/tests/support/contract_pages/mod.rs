@@ -3,6 +3,7 @@
 //! committed schema files and the three manifests, never from the Rust types; the harness pages
 //! are read from the trait definitions and the binary's driver registry.
 
+pub mod capabilities;
 pub mod frame;
 pub mod hand;
 pub mod harness;

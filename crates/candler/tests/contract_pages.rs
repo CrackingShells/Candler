@@ -8,9 +8,53 @@
 #[path = "support/contract_pages/mod.rs"]
 mod contract_pages;
 
+/// The binary's driver registry, compiled from its source so the capability page reads the drivers
+/// the binary registers. The registry reaches the binary's command layer only to build the refusal
+/// of an unknown harness, which these stand-ins give.
+#[path = "../src/drivers.rs"]
+#[expect(
+    dead_code,
+    reason = "the page reads the registry's drivers, not every method"
+)]
+mod drivers;
+
+/// The stand-ins for the binary's command layer that `drivers` names.
+#[expect(
+    dead_code,
+    reason = "the registry only builds the refusal it never reads here"
+)]
+mod commands {
+    /// A refusal of a command.
+    #[derive(Debug)]
+    pub struct CliError;
+
+    impl CliError {
+        /// The error of a refusal.
+        pub fn refused_by(_: refusal::CliRefusal) -> Self {
+            Self
+        }
+    }
+
+    /// The binary's refusals.
+    pub mod refusal {
+        /// A refusal of the binary.
+        #[derive(Debug)]
+        pub enum CliRefusal {
+            /// A harness that no driver answers to.
+            UnknownHarness {
+                /// The name asked for.
+                name: String,
+                /// The names registered.
+                registered: String,
+            },
+        }
+    }
+}
+
 use std::collections::BTreeMap;
 use std::fs;
 
+use contract_pages::capabilities::render_capabilities;
 use contract_pages::frame::{MAX_NOTE_WORDS, SECTIONS, check_frame, check_notes};
 use contract_pages::hand::section;
 use contract_pages::harness::{HARNESS_PAGES, render_driver_traits};
@@ -69,12 +113,13 @@ fn page_files() -> Vec<&'static str> {
         .collect()
 }
 
-/// Guards: D1 — regenerating the six schema pages, the driver-traits page and the index from the
-/// committed schema files, the manifests and the trait definitions changes no byte of them; the
-/// hand text (Surface, Notes) is carried over.
+/// Guards: D1 — regenerating the six schema pages, the two harness pages and the index from the
+/// committed schema files, the manifests, the trait definitions and the binary's driver registry
+/// changes no byte of them; the hand text (Surface, Notes) is carried over.
 /// Oracle: the committed files under `docs/contract/`.
 /// Bite: a property added to a copy of a committed schema file without regenerating; a cell of a
-/// Fields table edited by hand; a method added to a trait.
+/// Fields table edited by hand; a driver declaring a capability it did not (`OpenCode` declaring
+/// `session`); a method added to a trait.
 #[test]
 fn d1_regenerating_the_pages_changes_nothing() {
     let versions = versions();
@@ -84,9 +129,17 @@ fn d1_regenerating_the_pages_changes_nothing() {
             .expect("the page is rendered");
         settle(page.file, &generated);
     }
+    let registry = drivers::Registry::builtin().expect("the drivers are built");
     let traits = render_driver_traits(&versions, existing("driver-traits.md").as_deref())
         .expect("the driver traits page is rendered");
     settle("driver-traits.md", &traits);
+    let capabilities = render_capabilities(
+        &versions,
+        &registry,
+        existing("harness-capabilities.md").as_deref(),
+    )
+    .expect("the capability page is rendered");
+    settle("harness-capabilities.md", &capabilities);
     let index = render_index(&schema_dir(), &versions).expect("the index is rendered");
     settle("index.md", &index);
 }

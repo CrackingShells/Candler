@@ -1,6 +1,6 @@
 # Contract pages
 
-One page per surface an author writes or a plug-in speaks. Each page holds the sections Surface, Version, Fields, Refusals and Notes, in that order. Version and Fields are generated from the committed schema files in `crates/candler-schemas/schema/`; the driver-traits page is generated from the trait definitions.
+One page per surface an author writes or a plug-in speaks. Each page holds the sections Surface, Version, Fields, Refusals and Notes, in that order. Version and Fields are generated from the committed schema files in `crates/candler-schemas/schema/`; the two harness pages are generated from the driver traits and the registered drivers.
 
 ## Pages
 
@@ -13,6 +13,7 @@ One page per surface an author writes or a plug-in speaks. Each page holds the s
 | [experiment-file.md](experiment-file.md) | Experiment file | experimenter | `experiment/1` |
 | [evaluator-helper.md](evaluator-helper.md) | Evaluator helper | evaluator kind author | none |
 | [driver-traits.md](driver-traits.md) | Driver traits | driver author | none |
+| [harness-capabilities.md](harness-capabilities.md) | Harness capabilities | experimenter, reading | none |
 
 ## Field classes
 

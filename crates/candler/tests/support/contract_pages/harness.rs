@@ -4,6 +4,7 @@
 use std::fmt::Write;
 use std::fs;
 
+use super::capabilities::CAPABILITY_PAGE;
 use syn::spanned::Spanned as _;
 
 use super::hand::section;
@@ -29,7 +30,7 @@ pub const DRIVER_PAGE: HarnessPage = HarnessPage {
 };
 
 /// The pages of the harness surface, in the order of the index.
-pub const HARNESS_PAGES: [&HarnessPage; 1] = [&DRIVER_PAGE];
+pub const HARNESS_PAGES: [&HarnessPage; 2] = [&DRIVER_PAGE, &CAPABILITY_PAGE];
 
 const DRIVER_SURFACE: &str = "The traits a harness driver crate implements: `HarnessDriver` describes how to prepare, launch, stop and collect one harness as data, `TraceReader` turns its output into sessions, and `SkillTree` places a treatment's skills; the core calls them and runs what they describe.";
 

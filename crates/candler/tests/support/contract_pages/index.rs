@@ -39,7 +39,7 @@ pub fn render_index(dir: &Path, versions: &Versions) -> Result<String, String> {
     Ok(format!(
         "# Contract pages
 
-One page per surface an author writes or a plug-in speaks. Each page holds the sections Surface, Version, Fields, Refusals and Notes, in that order. Version and Fields are generated from the committed schema files in `crates/candler-schemas/schema/`; the driver-traits page is generated from the trait definitions.
+One page per surface an author writes or a plug-in speaks. Each page holds the sections Surface, Version, Fields, Refusals and Notes, in that order. Version and Fields are generated from the committed schema files in `crates/candler-schemas/schema/`; the two harness pages are generated from the driver traits and the registered drivers.
 
 ## Pages
 
