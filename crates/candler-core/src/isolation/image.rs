@@ -135,6 +135,19 @@ impl DockerImageService {
         }
     }
 
+    /// The base image, built from the base context when docker does not hold it under its
+    /// content tag: the image every env layer and every session control starts from.
+    ///
+    /// # Errors
+    /// [`ImageError::Build`] when the base sources cannot be read or the build fails.
+    pub async fn base(&self) -> Result<ImageRef, ImageError> {
+        let base = self.ensure_base().await?;
+        Ok(ImageRef {
+            id: base.id,
+            harness_version: None,
+        })
+    }
+
     /// Runs the harness's version probe in a control container of `image` and parses its output
     /// with the harness driver. An error names the harness.
     async fn read_version(&self, image: &ImageRef) -> Result<semver::Version, ImageError> {
