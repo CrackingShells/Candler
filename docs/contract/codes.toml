@@ -819,6 +819,11 @@ side = "environment"
 enum = "InitReportError"
 variant = "NoTools"
 
+[harness."experiment.setting_unsupported"]
+side = "experiment"
+enum = "DriverError"
+variant = "Unsupported"
+
 [cli]
 
 [cli."config.no_store"]

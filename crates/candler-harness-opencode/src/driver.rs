@@ -13,7 +13,7 @@ use candler_harness::spec::{
     Action, Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId, Observed,
     Prepared, ProcessExit, StateKind, StatePath, StopSignal, StopSpec, Workspace,
 };
-use candler_schemas::primitives::{Name, RelPath};
+use candler_schemas::primitives::{FieldPath, Name, RelPath};
 use candler_schemas::raw::StreamName;
 use candler_schemas::trace::{EndedBy, Session};
 use semver::{Comparator, Op, Prerelease, Version, VersionReq};
@@ -26,6 +26,8 @@ use crate::{EXPORT_READER, HARNESS, SUPPORTED, VALIDATED};
 
 const PROGRAM: &str = "opencode";
 const PERMISSION_MODE: &str = "permission_mode";
+/// How the harness is named in a refusal, as its users write it.
+const DISPLAY_NAME: &str = "OpenCode";
 /// The one permission mode `--auto` implements.
 const ACCEPTED_MODE: &str = "bypassPermissions";
 const PROMPT_TEMPLATE: &str = "prompt.template";
@@ -59,6 +61,16 @@ const STOP_GRACE: Duration = Duration::from_secs(10);
 
 /// The in-container interrupt, run as `python3 -I -c <script> {session_id}`.
 const STOP_SCRIPT: &str = include_str!("stop.py");
+
+/// The refusal of the setting at `path`, which `OpenCode` cannot honour.
+fn unsupported(path: &str, why: &str) -> DriverError {
+    match FieldPath::from_str(path) {
+        Ok(setting) => DriverError::unsupported(&setting, DISPLAY_NAME, &VALIDATED, why),
+        Err(error) => DriverError::VersionOutput {
+            detail: error.to_string(), // BORROW: .to_string() gives owned text
+        },
+    }
+}
 
 fn nothing() -> VersionReq {
     VersionReq {
@@ -264,15 +276,15 @@ impl HarnessDriver for OpenCodeDriver {
         let _ = workspace;
         for (path, why) in REFUSED {
             if value_at(cell, path)?.is_some() {
-                return Err(invalid(path, why.to_owned())); // BORROW: .to_owned() makes the owned text
+                return Err(unsupported(path, why));
             }
         }
         // `--auto` approves everything not denied, which is the one mode there is.
         let mode = required_text(cell, PERMISSION_MODE)?;
         if mode != ACCEPTED_MODE {
-            return Err(invalid(
+            return Err(unsupported(
                 PERMISSION_MODE,
-                format!(
+                &format!(
                     "`{mode}` is not a mode OpenCode runs: only `{ACCEPTED_MODE}`, which `--auto` implements"
                 ),
             ));
