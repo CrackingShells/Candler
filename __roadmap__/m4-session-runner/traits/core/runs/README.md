@@ -7,7 +7,7 @@ L3 of `m4-session-runner`. Both leaves edit the run loop that L2 reshaped, so th
 A session cell runs with stdin open and closes by the conservative rule, and an OpenCode run yields a trace whether it exits or is stopped.
 
 ## Pre-conditions
-- [ ] [cmd] L2 merged: `for l in 'merge(isolation): land harness_out_of_core' 'merge(adapter-opencode): land opencode_driver'; do git log --first-parent --format=%s feat/m4-session-runner | grep -qxF "$l" || echo "missing $l"; done` prints nothing
+- [ ] [cmd] L2 merged: `for l in 'merge(isolation): land harness_out_of_core' 'merge(adapter-opencode): land opencode_driver' 'merge(adapter-opencode): land opencode_settings'; do git log --first-parent --format=%s feat/m4-session-runner | grep -qxF "$l" || echo "missing $l"; done` prints nothing
 
 ## Success Gates
 - ⬜ [cmd] `session_runner.md` and `opencode_wiring.md` are `done`
@@ -16,8 +16,8 @@ A session cell runs with stdin open and closes by the conservative rule, and an 
 ## Status
 ```mermaid
 graph TD
-    session_runner[Session runner]:::planned
-    opencode_wiring[OpenCode wiring]:::planned
+    session_runner[Session runner]:::inprogress
+    opencode_wiring[OpenCode wiring]:::inprogress
     closeout[Closeout]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -29,8 +29,8 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `session_runner.md` | 📄 Leaf Task | ⬜ Planned |
-| `opencode_wiring.md` | 📄 Leaf Task | ⬜ Planned |
+| `session_runner.md` | 📄 Leaf Task | 🔄 In Progress |
+| `opencode_wiring.md` | 📄 Leaf Task | 🔄 In Progress |
 | `closeout/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
