@@ -1,0 +1,38 @@
+# M4 live confirmation, session experiment: three cells on RiVault/Reasoning-Small, Claude Code,
+# runner.mode = "session", the default runner.idle_s. The cells differ only in the prompt.
+# Every value is in the file. The secret is named by its variable only.
+schema = "experiment/1"
+replicates = 1
+secrets = ["RIVAULT_LLM_INFERENCE"]
+
+[fixed]
+permission_mode = "bypassPermissions"
+"model.id" = "RiVault/Reasoning-Small"
+"model.endpoint" = "https://api.class2.llm.ai.r-ccs.riken.jp"
+"model.effort" = "medium"
+"model.token_secret" = "RIVAULT_LLM_INFERENCE"
+"runner.mode" = "session"
+
+[[factors]]
+path = "prompt.template"
+levels = [
+  # C1: one background job, a notification turn
+  "Start one background job with the Bash tool (run_in_background true) that runs: sleep 40; echo c1-finished > /work/c1_out.txt. Do not poll and do not sleep yourself: end your turn right after starting it and wait for its completion notification. When the notification arrives, read /work/c1_out.txt and report its content. This is a non-interactive run: proceed without asking for confirmation.",
+  # C2: one answer
+  "Say hello.",
+  # C3: two jobs finishing together, then a long final answer
+  "In one message, start two background jobs with the Bash tool (run_in_background true): the first runs `sleep 20; echo c3-a > /work/c3_a.txt`, the second runs `sleep 20; echo c3-b > /work/c3_b.txt`. Do not poll and do not sleep yourself: end your turn right after starting both and wait for their completion notifications. When they have arrived, read both files, then give a long final answer of at least five paragraphs on how a background job differs from a foreground one, ending with the content of both files. This is a non-interactive run: proceed without asking for confirmation.",
+]
+
+[budget.per_run]
+turns = 30
+wall_s = 900
+max_cost_usd = 1.0
+
+[harness]
+name = "claude-code"
+
+[treatment]
+name = "live-probe"
+tag = "v1"
+source = "/private/tmp/claude-501/m4-live/treatment"
