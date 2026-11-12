@@ -346,8 +346,8 @@ impl DockerImageService {
                 "a prune name has characters the build refuses",
             ));
         }
-        let key = env_key(&hex, &setting.prune);
         let base = self.ensure_base().await?;
+        let key = env_key(&hex, &setting.prune, &base.tag);
         let labels = Labels::new().with(LOCK_LABEL, &hex);
         let env_tag = format!("{ENV_REPO}:{key}");
         let (mut info, mut built) = self
@@ -724,15 +724,17 @@ impl Layer<'_> {
     }
 }
 
-/// The key of an env image: the lock's hex digest when nothing is pruned, else the sha256 of the
-/// lock's hex digest followed by a NUL and each distinct prune name in order.
-fn env_key(lock_hex: &str, prune: &[String]) -> String {
+/// The key of an env image: the lock's hex digest, or the sha256 of it followed by a NUL and each
+/// distinct prune name in order when something is pruned, then `-` and the base image's tag
+/// without its repository (`src-<digits of the base sources' digest>`). The base tag follows the
+/// base's content, so two bases on one lock give two env images.
+fn env_key(lock_hex: &str, prune: &[String], base_tag: &str) -> String {
+    let base = base_tag.rsplit_once(':').map_or(base_tag, |(_, tag)| tag);
     let mut names: Vec<&str> = prune.iter().map(String::as_str).collect();
     names.sort_unstable();
     names.dedup();
     if names.is_empty() {
-        // BORROW: .to_owned() gives the key its own text
-        return lock_hex.to_owned();
+        return format!("{lock_hex}-{base}");
     }
     let mut hasher = sha2::Sha256::new();
     hasher.update(lock_hex.as_bytes());
@@ -740,7 +742,7 @@ fn env_key(lock_hex: &str, prune: &[String]) -> String {
         hasher.update([0_u8]);
         hasher.update(name.as_bytes());
     }
-    hex_of(&hasher.finalize())
+    format!("{}-{base}", hex_of(&hasher.finalize()))
 }
 
 /// Whether `name` is a file name the env build may delete: letters, digits, `.`, `_` and `-`,
