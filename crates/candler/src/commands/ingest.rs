@@ -241,37 +241,34 @@ async fn run_traces(cli: &Cli, args: &IngestArgs) -> Result<Exit, CliError> {
     }
     let root = common::store_root("ingest", cli.store.as_deref()).await?;
     let store = Store::init(root.as_path()).map_err(|e| CliError::failed("ingest", e))?; // BORROW: explicit .as_path()
-    // The streams of one path share a harness: the readers are those of the first stream the
-    // registry recognised, which the ingest has seen before it builds any reader.
-    let recognised: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-    let seen = Arc::clone(&recognised); // BORROW: the factory shares the list the recogniser fills
-    let factory: Box<ReaderFactory> = Box::new(move || {
-        let first = seen
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .first()
-            .cloned(); // BORROW: the factory owns the name
-        new_reader(
-            first
-                .or_else(|| names.first().cloned())
-                .unwrap_or_default()
-                .as_str(),
-        )
-    });
-    let recognise = {
-        let registry = Arc::clone(&registry); // BORROW: the recogniser owns a handle on the registry
-        move |sample: &[u8]| {
-            let found = registry.recognise(sample)?;
-            recognised
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .push(found.harness.to_string());
-            Some(found)
-        }
-    };
     let (mut created, mut existing) = (0_u64, 0_u64);
     let mut skipped: Vec<Value> = Vec::new();
     for path in &args.paths {
+        // The streams of one path share a harness: the readers are those of the first stream the
+        // registry recognised in this path, which the ingest has seen before it builds any
+        // reader. Another path starts from nothing.
+        let recognised: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&recognised); // BORROW: the factory shares the list the recogniser fills
+        let fallback = names.first().cloned().unwrap_or_default(); // BORROW: the factory owns the name
+        let factory: Box<ReaderFactory> = Box::new(move || {
+            let first = seen
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .first()
+                .cloned(); // BORROW: the factory owns the name
+            new_reader(first.unwrap_or_else(|| fallback.clone()).as_str()) // BORROW: .clone() copies the fallback name
+        });
+        let recognise = {
+            let registry = Arc::clone(&registry); // BORROW: the recogniser owns a handle on the registry
+            move |sample: &[u8]| {
+                let found = registry.recognise(sample)?;
+                recognised
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(found.harness.to_string());
+                Some(found)
+            }
+        };
         let report = ingest_raw(
             &store,
             path.as_path(), // BORROW: explicit .as_path()

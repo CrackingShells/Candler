@@ -125,10 +125,12 @@ fn registry_unknown_harness_is_refused_naming_it() {
             stderr.contains(&format!("`{refused}`")),
             "{case}: the name is in the refusal: {stderr}"
         );
-        assert!(
-            stderr.contains("claude-code"),
-            "{case}: the registered names are listed: {stderr}"
-        );
+        for registered in ["claude-code", "opencode"] {
+            assert!(
+                stderr.contains(registered),
+                "{case}: the registered name {registered} is listed: {stderr}"
+            );
+        }
         assert_eq!(world.calls(), "", "{case}: no docker call precedes it");
     }
 }
@@ -231,4 +233,71 @@ fn registry_ingest_selects_the_reader_by_name() {
     assert_eq!(refused.status.code(), Some(2), "{refused:?}");
     let stderr = String::from_utf8_lossy(&refused.stderr);
     assert!(stderr.contains("no reader for `nonesuch`"), "{stderr}");
+}
+
+/// Guards: R01 §Harness drivers — `candler ingest` reads each path with the reader of the harness
+/// that wrote the path's stream, named as its driver names itself: one call over a Claude Code
+/// stream and an `OpenCode` stream stores two runs, each recorded under its own harness name, and
+/// neither is read with the other's reader.
+/// Oracle: the recorded `completed_o1` stdout of `opencode_facts` and a hand-written Claude Code
+/// stream; the harness names `claude-code` and `opencode` the drivers' `id()` give; the stored
+/// manifests' `comparable.harness.name`.
+/// Bite: one reader chosen once for every path, or the recognised name taken from a literal: the
+/// second run is read as Claude Code, or both are named `claude-code`.
+#[test]
+fn registry_ingest_reads_each_path_with_its_own_harness() {
+    let dir = tempfile::TempDir::new().expect("a directory");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let opencode = fs::read(
+        root.join("../candler-harness-opencode/tests/fixtures/streams/completed_o1/stdout.jsonl"),
+    )
+    .expect("the recorded stream");
+    let claude = concat!(
+        r#"{"type":"system","subtype":"init","session_id":"S","model":"m","claude_code_version":"2.1.220"}"#,
+        "\n",
+        r#"{"type":"result","subtype":"success","is_error":false,"session_id":"S"}"#,
+        "\n"
+    );
+    let first = dir.path().join("claude");
+    let second = dir.path().join("opencode");
+    for folder in [&first, &second] {
+        fs::create_dir_all(folder).expect("a folder");
+    }
+    fs::write(first.join("stdout.jsonl"), claude).expect("a stream");
+    fs::write(second.join("stdout.jsonl"), opencode).expect("a stream");
+
+    let store = dir.path().join("store");
+    let out = Command::new(env!("CARGO_BIN_EXE_candler"))
+        .current_dir(dir.path())
+        .env_remove("CANDLER_STORE")
+        .env("HOME", dir.path())
+        .env("XDG_CONFIG_HOME", dir.path().join("config"))
+        .env("XDG_STATE_HOME", dir.path().join("state"))
+        .arg("--store")
+        .arg(&store)
+        .args(["ingest", "claude", "opencode"])
+        .output()
+        .expect("the binary runs");
+    assert!(out.status.success(), "{out:?}");
+
+    let mut names = Vec::new();
+    for entry in fs::read_dir(store.join("runs")).expect("runs lists") {
+        let path = entry.expect("an entry").path();
+        if path
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with('.'))
+        {
+            continue;
+        }
+        let text = fs::read_to_string(path.join("manifest.json")).expect("a manifest");
+        let manifest: serde_json::Value = serde_json::from_str(&text).expect("JSON");
+        names.push(
+            manifest["comparable"]["harness"]["name"]
+                .as_str()
+                .unwrap_or_else(|| panic!("a harness name: {manifest}"))
+                .to_owned(), // BORROW: the list owns the names
+        );
+    }
+    names.sort();
+    assert_eq!(names, ["claude-code", "opencode"]);
 }
