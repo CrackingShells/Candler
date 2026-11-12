@@ -10,6 +10,7 @@ use candler_schemas::values::MeasuredValue;
 use serde_json::{Map, Number, Value};
 
 use super::measure::measured;
+use crate::resolve::steps::session::IDLE_NONE;
 
 /// The preflight step the session values name as their source.
 const STEP: &str = "session@1";
@@ -127,7 +128,7 @@ pub fn session_values(facts: &SessionMeasures) -> Vec<MeasuredValue> {
     });
     let idle = match facts.idle {
         Idle::Seconds(seconds) => Value::Number(Number::from(seconds)),
-        Idle::Never => Value::String("none".to_owned()), // BORROW: owned text
+        Idle::Never => Value::String(IDLE_NONE.to_owned()), // BORROW: owned text
     };
     let entries = [
         ("session.idle_s", Some(idle)),

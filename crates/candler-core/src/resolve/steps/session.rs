@@ -26,7 +26,10 @@ pub const DEFAULT_IDLE_S: u64 = 60;
 pub const IDLE_NONE: &str = "none";
 
 /// The two modes a cell can run in.
-pub const MODES: [&str; 2] = ["headless", "session"];
+pub const MODES: [&str; 2] = ["headless", MODE_SESSION];
+
+/// The `runner.mode` that keeps the harness's input open.
+pub const MODE_SESSION: &str = "session";
 
 /// The check that names a refusal.
 fn check(name: &str, passed: bool, explanation: String) -> Result<CheckResult, PreflightError> {
@@ -108,6 +111,7 @@ impl PreflightStep for SessionModeStep {
                 }
                 return Ok(report);
             };
+            // BORROW: explicit .as_str()
             let Some(mode) = mode.as_str().filter(|text| MODES.contains(text)) else {
                 return Ok(report.check(check(
                     "mode_valid@1",

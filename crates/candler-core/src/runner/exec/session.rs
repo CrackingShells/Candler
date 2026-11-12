@@ -35,7 +35,7 @@ pub use crate::runner::evidence::session::{Idle, SessionEnd, SessionMeasures};
 use crate::experiment::paths;
 use crate::frames::{FrameWriter, RawFileInfo};
 use crate::isolation::IsolationError;
-use crate::resolve::steps::session::{DEFAULT_IDLE_S, IDLE_NONE, MODES};
+use crate::resolve::steps::session::{DEFAULT_IDLE_S, IDLE_NONE, MODE_SESSION, MODES};
 use crate::supervise::now;
 use crate::supervise::spawn::Child;
 use crate::supervise::stop::StopHandle;
@@ -105,7 +105,8 @@ pub fn session_config(cell: &Cell<'_>) -> Result<Option<SessionConfig>, Isolatio
     let idle = cell_value(cell, paths::RUNNER_IDLE_S)?;
     let session = match mode {
         None => false,
-        Some(Value::String(text)) if MODES.contains(&text.as_str()) => text == "session",
+        // BORROW: explicit .as_str()
+        Some(Value::String(text)) if MODES.contains(&text.as_str()) => text == MODE_SESSION,
         Some(other) => {
             return Err(plan_error(format!(
                 "runner.mode is {other}: write \"headless\" or \"session\""
@@ -390,6 +391,7 @@ impl HookLog {
 
     /// Finishes the archive of the log.
     fn finish(self) -> Option<RawFileInfo> {
+        // EXPLICIT: an archive that cannot be finished is left out of the seal
         self.writer?.finish().ok()
     }
 }
@@ -434,14 +436,14 @@ impl std::fmt::Debug for SessionWatch {
 impl SessionRun {
     /// Installs the hooks of `spec` under `home` and prepares the watch.
     ///
-    /// The tracker is `driver`'s. The hook log is archived as a raw stream under `frames`.
+    /// The tracker is `harness`'s. The hook log is archived as a raw stream under `frames`.
     ///
     /// # Errors
     /// [`IsolationError::Plan`] when the driver declares a session it gives no tracker for, closes
     /// it by an action (which the runner does not run), or when a hook file or the archive cannot
     /// be made.
     pub fn prepare(
-        driver: &dyn HarnessDriver, // TRAIT_OBJECT: the driver is the binary's choice, or a fake in tests
+        harness: &dyn HarnessDriver, // TRAIT_OBJECT: the driver is the binary's choice, or a fake in tests
         spec: &SessionSpec,
         home: &Path,
         frames: &Path,
@@ -453,10 +455,10 @@ impl SessionRun {
                 "the session is closed by an action, which the runner does not run".to_owned(), // BORROW: owned text
             ));
         }
-        let tracker = driver.session_tracker().ok_or_else(|| {
+        let tracker = harness.session_tracker().ok_or_else(|| {
             plan_error(format!(
                 "the harness driver {} runs sessions and gives no tracker",
-                driver.id()
+                harness.id()
             ))
         })?;
         let mut log = None;
@@ -482,6 +484,7 @@ impl SessionRun {
                 FrameClock::monotonic(anchor),
                 None,
             )
+            // EXPLICIT: a log that cannot be archived is still read; the raw stream is lost
             .ok();
             log = Some(HookLog::new(home.join(hooks.log.as_str()), writer)); // BORROW: explicit .as_str()
         }
@@ -489,7 +492,7 @@ impl SessionRun {
         Ok(Self {
             watch: SessionWatch::new(tracker, rule, config.turn_limit, clock),
             input: spec.input.clone(), // BORROW: the run owns its opening bytes
-            grace: driver.stop().grace,
+            grace: harness.stop().grace,
             log,
             hook_stream: spec.hooks.as_ref().map(|hooks| hooks.stream.clone()), // BORROW: the run owns the stream name
             config,

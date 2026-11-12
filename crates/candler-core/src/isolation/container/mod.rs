@@ -340,7 +340,7 @@ impl Isolation for DockerIsolation {
             // BORROW: the roots are copied out of the directories
             store_root: dirs.store_root.clone(),
             interactive: cell_value(cell, paths::RUNNER_MODE)?.and_then(serde_json::Value::as_str)
-                == Some("session"),
+                == Some(crate::resolve::steps::session::MODE_SESSION),
         };
         plan.mounts = mounts(&plan, &MountRoots::from_plan(&plan)).map_err(|source| {
             IsolationError::Plan {
