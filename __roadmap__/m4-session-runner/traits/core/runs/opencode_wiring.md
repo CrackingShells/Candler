@@ -10,6 +10,7 @@
 - ⬜ [cmd] W1, stopped run: the pre-stop is a `docker exec` in the agent's container carrying the observed session id; no HTTP call leaves for host loopback; with no id observed yet the pre-stop is skipped and the escalation continues: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^wiring_stop_/)'`
 - ⬜ [cmd] A1 census: on fake-model fixtures, the gateway records per run the tool names of each model request (names only); `init_tools` is the sorted set from the first request with a non-empty `tools` array, labelled observed by the gateway; a run whose requests carry no tools records no census, never an empty set; a gateway census never equals a harness, collected or unrecorded one in the verdict: `cargo nextest run -p candler-core -p candler-harness-opencode --no-tests=fail -E 'test(/^census_gateway_/)'`
 - ⬜ [cmd] A1 keeps secrets and content out: no tool schema, description, message text, credential or canary reaches the recorded stream: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^census_gateway_names_only_/)'`
+- ⬜ [cmd] A run records what the driver resolved from its cell: the harness argv and each prepared file (for OpenCode, `opencode.json`, whose secrets are `{env:VAR}` names, never values), stored with the run so a reader sees which setting became which flag or rule (amendment A2): `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^wiring_resolved_/)'`
 - ⬜ [cmd] The binary selects OpenCode by its name: `cargo nextest run -p candler --no-tests=fail -E 'test(/^registry_/)'`
 - ⬜ [cmd] Claude Code runs are unchanged: `cargo nextest run -p candler-core --no-tests=fail -E 'binary(guard_harness_facts)'`
 - ⬜ [cmd] SPAWN, STD (`-p candler-core -p candler`), LINUX, DIGEST, GOLDEN and SUBJ pass
@@ -23,7 +24,8 @@
 **Implementation Logic**:
 1. Tests first (`wiring_collect_*`), red.
 2. Before the destroy step, run each `CollectSpec::Command` in the agent's container (an exec through the isolation, the command's placeholders filled from the observed ids), frame its stdout with the offline reader's framing, store it as a named raw stream, and feed it to `offline_reader`.
-3. When the driver's offline reader yields sessions, they are the trace; the live reader's sessions are used otherwise (Claude Code: no command, unchanged). The trace header names the reader that produced it.
+3. Store the resolved argv and every prepared file with the run's evidence; a test checks that no secret value reaches them (`wiring_resolved_*`).
+4. When the driver's offline reader yields sessions, they are the trace; the live reader's sessions are used otherwise (Claude Code: no command, unchanged). The trace header names the reader that produced it.
 **Deliverables**: `crates/candler-core/src/runner/exec/gather.rs`: `collect_commands`; the trace-assembly hunk of `runner/exec/mod.rs`; the collect hunk of `isolation/container/mod.rs`; `crates/candler-core/tests/guard_wiring.rs`: `wiring_collect_*`
 **Consistency Checks**: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^wiring_collect_/)|binary(guard_harness_facts)'` (expected: PASS)
 **Commit**: `feat(runner): collect a harness's export and read it offline`
