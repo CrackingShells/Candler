@@ -432,7 +432,11 @@ enum ArgvWant {
 /// Whether `got` is the refusal `want` names, by variant.
 fn is_refusal(got: &Result<Vec<String>, facts::ArgvRefusal>, want: &ArgvWant) -> bool {
     match (want, got) {
-        (ArgvWant::Built, Ok(_)) => true,
+        (ArgvWant::Built, Ok(_))
+        | (
+            ArgvWant::NotWritable,
+            Err(facts::ArgvRefusal::Run(RunArgvError::Mount(MountError::ConfigDirNotWritable))),
+        ) => true,
         (
             ArgvWant::Reserved(name),
             Err(facts::ArgvRefusal::Run(RunArgvError::ReservedName { name: got })),
@@ -452,13 +456,20 @@ fn is_refusal(got: &Result<Vec<String>, facts::ArgvRefusal>, want: &ArgvWant) ->
             ArgvWant::PlanNoGateway,
             Err(facts::ArgvRefusal::Run(RunArgvError::Request { detail })),
         ) => detail.contains("names no gateway variables"),
-        (
-            ArgvWant::NotWritable,
-            Err(facts::ArgvRefusal::Run(RunArgvError::Mount(MountError::ConfigDirNotWritable))),
-        ) => true,
         _ => false,
     }
 }
+
+/// A row of the refusal table: the case, the driver, the overlay names, the plan variables, whether
+/// the plan reaches the `docker run` argv with no gateway, and the expected outcome.
+type EnvRow = (
+    &'static str,
+    FakeHarness,
+    Vec<&'static str>,
+    Vec<&'static str>,
+    bool,
+    ArgvWant,
+);
 
 /// Guards: R01 §Harness drivers, §Agent environment — what the core refuses of a driver's
 /// variables, each by its variant: the names the driver reserves are refused in its plain
@@ -476,12 +487,12 @@ fn harness_env_refusals_name_their_variant() {
     let entry = |name: &str| EnvEntry::literal(name.to_owned(), String::from("v")); // BORROW: the entry owns its name
     let dir = tempfile::tempdir().expect("a directory");
     let scene = facts::scene(dir.path());
-    let plain = || FakeHarness::plain();
+    let ordinary = FakeHarness::plain;
     // (case, driver, overlay names, plan variables, reaches the argv with no gateway, expected)
-    let rows: Vec<(&str, FakeHarness, Vec<&str>, Vec<&str>, bool, ArgvWant)> = vec![
+    let rows: Vec<EnvRow> = vec![
         (
             "the driver's reserved name",
-            plain(),
+            ordinary(),
             vec!["FAKE_GATEWAY_KEY"],
             vec![],
             false,
@@ -489,7 +500,7 @@ fn harness_env_refusals_name_their_variant() {
         ),
         (
             "a name the driver does not reserve",
-            plain(),
+            ordinary(),
             vec!["ANTHROPIC_BASE_URL"],
             vec![],
             false,
@@ -497,7 +508,7 @@ fn harness_env_refusals_name_their_variant() {
         ),
         (
             "a plan variable named like the gateway URL",
-            plain(),
+            ordinary(),
             vec![],
             vec!["CANDLER_GATEWAY_URL"],
             false,
@@ -505,7 +516,7 @@ fn harness_env_refusals_name_their_variant() {
         ),
         (
             "a plan variable named like the gateway token",
-            plain(),
+            ordinary(),
             vec![],
             vec!["CANDLER_GATEWAY_TOKEN"],
             false,
@@ -513,7 +524,7 @@ fn harness_env_refusals_name_their_variant() {
         ),
         (
             "a state variable the plan already sets",
-            plain(),
+            ordinary(),
             vec![],
             vec!["FAKE_STATE"],
             false,
@@ -529,7 +540,7 @@ fn harness_env_refusals_name_their_variant() {
         ),
         (
             "a plan with no gateway reaching the argv",
-            plain(),
+            ordinary(),
             vec![],
             vec![],
             true,
@@ -692,6 +703,13 @@ fn census_pairs(init: Option<&InitReport>) -> Vec<(String, Value)> {
         .collect()
 }
 
+/// A row of the census table: the case, the inventory, and the pairs recorded (none for no census).
+type CensusRow = (
+    &'static str,
+    Option<InitReport>,
+    Option<Vec<(String, Value)>>,
+);
+
 /// Guards: R01 §Run manifest (`census.*`) — an inventory records what its source saw: from a
 /// source that sees no servers, `census.tools` and `census.init_tools` only, never an empty server
 /// list; from the harness's own init, the three values in the order of the baseline with the
@@ -704,7 +722,7 @@ fn census_pairs(init: Option<&InitReport>) -> Vec<(String, Value)> {
 #[test]
 fn harness_census_records_what_the_source_saw() {
     let servers = json!([{"name": "s", "status": "connected"}]);
-    let rows: Vec<(&str, Option<InitReport>, Option<Vec<(String, Value)>>)> = vec![
+    let rows: Vec<CensusRow> = vec![
         (
             "a source that sees no servers",
             Some(inventory(

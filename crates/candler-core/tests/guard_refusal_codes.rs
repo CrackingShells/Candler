@@ -484,9 +484,9 @@ fn r1_every_variant_code_equals_its_row() {
     for row in &catalogue {
         let who = format!("{}::{}", row.enum_name, row.variant);
         assert!(
-            !by_code
+            by_code
                 .get(row.code)
-                .is_some_and(|registered| registered.retired.is_some()),
+                .is_none_or(|registered| registered.retired.is_none()),
             "{who}: code {} is retired and a refusal still emits it",
             row.code
         );

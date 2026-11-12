@@ -549,8 +549,11 @@ fn agent_stream() -> String {
                "session_id": session}),
     ]
     .iter()
-    .map(|line| format!("{line}\n"))
-    .collect()
+    .fold(String::new(), |mut text, line| {
+        text.push_str(&line.to_string());
+        text.push('\n');
+        text
+    })
 }
 
 /// Guards: R01 §Run manifest (`run.ended_by`, `run.usage`, `run.cost_usd`, `run.num_turns`,
