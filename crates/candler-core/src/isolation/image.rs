@@ -182,11 +182,10 @@ impl DockerImageService {
     async fn ensure_base(&self) -> Result<BaseImage, ImageError> {
         // BORROW: .clone() moves the context into the blocking task
         let context = self.assets.base_context.clone();
-        let source = tokio::task::spawn_blocking(move || source_digest(&context))
+        let tag = tokio::task::spawn_blocking(move || base_tag(&context))
             .await
             .map_err(|error| build_failed(&format!("the digest task ended: {error}")))?
             .map_err(|error| build_failed(&format!("cannot read the base sources: {error}")))?;
-        let tag = format!("{BASE_REPO}:src-{source}");
         let _guard = self.lock_tag(&tag).await?;
         let found = self
             .docker
@@ -826,6 +825,23 @@ fn source_digest(dir: &Path) -> Result<String, std::io::Error> {
     let mut hex = tree_digest(dir)?;
     hex.truncate(SOURCE_DIGITS);
     Ok(hex)
+}
+
+/// The tag of the base image built from the context `dir`: `candler-base:src-<digits of the
+/// digest of its sources>`. The tag follows the content, so it names the image the sources make.
+///
+/// # Errors
+/// [`std::io::Error`] when a file of the context cannot be read.
+pub fn base_tag(dir: &Path) -> Result<String, std::io::Error> {
+    Ok(format!("{BASE_REPO}:src-{}", source_digest(dir)?))
+}
+
+/// The hex digest of every file under the build context `dir`.
+///
+/// # Errors
+/// [`std::io::Error`] when a file of the context cannot be read.
+pub fn context_digest(dir: &Path) -> Result<String, std::io::Error> {
+    tree_digest(dir)
 }
 
 /// The digest of an extension over the env image it builds on: the env id, the Dockerfile and

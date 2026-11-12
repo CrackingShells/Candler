@@ -45,6 +45,8 @@ pub(crate) struct AssetPaths {
     pub(crate) images: ImageAssets,
     /// The build context of the gateway's sidecar image.
     pub(crate) gateway: PathBuf,
+    /// The build context of the fake model's image, which the session controls run against.
+    pub(crate) fakemodel: PathBuf,
 }
 
 /// The paths of the image sources: the embedded assets, written below the store root when they
@@ -62,6 +64,7 @@ pub(crate) fn asset_paths(store_root: &Path, base_context: &str) -> Result<Asset
             store_root: store_root.to_path_buf(), // BORROW: the assets own their store root
         },
         gateway: docker.join("gateway"),
+        fakemodel: docker.join("fakemodel"),
     })
 }
 

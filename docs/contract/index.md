@@ -161,6 +161,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `jobs.job_not_found` | No directory of the store holds the job whose id was given. | - | config |
 | `jobs.job_unreadable` | The files of a job's directory cannot be read. | - | environment |
 | `jobs.recovery_store_failed` | The store could not be read or written while a lost job was recovered. | - | environment |
+| `jobs.session_controls_failed` | A session control (C1: the agent must wait for a background job; C2: the agent must stop once it has answered) did not pass for the harness version in the base image, or could not run, so session mode is refused for that harness version. No model's behaviour causes this. | - | environment |
 | `jobs.slot_io_failed` | A file system call on the slots directory failed, such as opening or locking a slot file. | - | environment |
 | `jobs.supervisor_did_not_start` | The detached supervisor did not take the job's lock by the deadline, or exited first; its log says why. | - | environment |
 | `jobs.supervisor_spawn_failed` | The supervisor process could not be started or given the job's spec. | - | environment |
