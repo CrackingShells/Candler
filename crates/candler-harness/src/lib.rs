@@ -12,6 +12,8 @@
 
 #![deny(clippy::allow_attributes)]
 
+#[cfg(feature = "conformance")]
+pub mod conformance;
 pub mod driver;
 pub mod reader;
 pub mod refusal;
