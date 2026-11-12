@@ -204,13 +204,13 @@ refusal_table! {
     VersionMismatch { .. } => row(
         "isolation.image_label_mismatch",
         Side::Environment,
-        "The binary in the image and the image's label name different Claude Code versions.",
+        "The binary in the image and the image's label name different versions of the harness.",
         "-",
     ),
     VersionUnreadable { .. } => row(
-        "isolation.claude_version_unreadable",
+        "isolation.harness_version_unreadable",
         Side::Environment,
-        "The version output of Claude Code in the image names no version.",
+        "The version output of the harness in the image names no version.",
         "-",
     ),
 }

@@ -13,8 +13,13 @@
 #                     # or candler (never for an author's error)
 #   enum = "..."      # the Rust error enum that raises it
 #   variant = "..."   # the variant of that enum
+#   retired = "..."   # only on a retired code: the code that replaces it
 #
 # A section with no row is written as its bare header.
+#
+# A code that a release carried is never removed. It may be retired: its row stays, with the
+# appended `retired` key naming the code that replaces it. No refusal emits a retired code, and
+# a retired row is not the code of its variant: the replacement is.
 
 [schemas]
 
@@ -670,6 +675,12 @@ variant = "VersionMismatch"
 side = "environment"
 enum = "ImageError"
 variant = "VersionUnreadable"
+retired = "isolation.harness_version_unreadable"
+
+[isolation."isolation.harness_version_unreadable"]
+side = "environment"
+enum = "ImageError"
+variant = "VersionUnreadable"
 
 [isolation."isolation.guard_docker_failed"]
 side = "environment"
@@ -840,6 +851,11 @@ variant = "RetiredSetting"
 side = "experiment"
 enum = "CliRefusal"
 variant = "UnknownRequestKey"
+
+[cli."experiment.unknown_harness"]
+side = "experiment"
+enum = "CliRefusal"
+variant = "UnknownHarness"
 
 [cli."experiment.unknown_path"]
 side = "experiment"
@@ -1594,6 +1610,10 @@ reason = "the envelope of a verb's failure; the record's code is that of the ref
 enum = "CliError"
 variant = "Runtime"
 reason = "the process could not run the verb at all, which is a fault of the machine and not of an input"
+
+[internal."candler::drivers::BuildError"]
+enum = "BuildError"
+reason = "a shipped driver or reader that cannot be built is a fault of the binary's own constants, not an input of the author"
 
 [internal."candler::commands::evaluate::JobRefusal"]
 enum = "JobRefusal"

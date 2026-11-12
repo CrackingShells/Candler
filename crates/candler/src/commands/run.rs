@@ -38,9 +38,11 @@ use candler_schemas::primitives::FieldPath;
 
 use super::preflight::{
     check_factors, failed, foreground, json_of, path_of, refuse_plan, refused, request_settings,
+    requested_harness,
 };
 use super::refusal::CliRefusal;
 use super::{CliError, Exit, common};
+use crate::drivers::Registry;
 
 /// The environment variable that tells the supervisor which store the launcher used. The
 /// supervisor is started with a cleared environment, and the launcher found the store from its
@@ -169,7 +171,10 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
         request_settings(&file, experiment_dir.as_path(), &fields, &cwd)?,
         &declared,
     )?;
-    let services = foreground(Arc::clone(&config), &root)?;
+    let entry = Registry::builtin()
+        .map_err(failed)?
+        .entry(&requested_harness(&input)?)?;
+    let services = foreground(Arc::clone(&config), &root, &entry)?;
     ensure_sidecar(&services.cli, services.gateway_context).await?;
     let resolution = services
         .resolver

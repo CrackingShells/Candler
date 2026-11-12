@@ -497,11 +497,13 @@ async fn b10_guard_refusals() {
     let plan = ContainerPlan {
         image: ImageRef {
             id: ImageId(String::from("sha256:aa")),
-            cc_version: None,
+            harness_version: None,
         },
         labels: Labels::new().with("candler.job", current.as_str()), // BORROW: explicit .as_str()
         mounts: Vec::new(),
         env: Vec::new(),
+        gateway: None,
+        state: Vec::new(),
         network: NetworkName::for_job(&current),
         egress: None,
         limits: Limits {

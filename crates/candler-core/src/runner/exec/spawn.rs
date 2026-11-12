@@ -3,6 +3,7 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use candler_harness::reader::{FrameIn, ReaderError, TraceReader};
+use candler_harness::spec::Observed;
 use candler_schemas::raw::{RawFrame, RawRef, StreamName};
 use candler_schemas::trace::{Session, SessionEvent};
 
@@ -85,6 +86,16 @@ impl FrameObserver for LiveObserver {
 }
 
 impl LiveHandle {
+    /// What the live reader has seen so far: the ids of the sessions and the inventory its stream
+    /// showed. Empty once the handle has finished.
+    #[must_use]
+    pub fn observed(&self) -> Observed {
+        let live = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
+        live.reader
+            .as_ref()
+            .map_or_else(Observed::default, |reader| reader.observed())
+    }
+
     /// Ends the stream and returns what the reader made of it.
     ///
     /// # Errors

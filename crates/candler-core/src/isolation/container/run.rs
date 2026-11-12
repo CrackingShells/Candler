@@ -1,8 +1,9 @@
 //! The `docker run` command line of a run's container, and the spawn request that carries it.
 //!
 //! The environment is built from nothing: the plan's entries, the gateway's base url and
-//! dummy token, and the harness's plain overlay. A secret in the overlay, and the three names
-//! that carry the model endpoint and credentials, are refused rather than overridden.
+//! dummy token under the variable names the harness driver gives, and the harness's plain
+//! overlay. A secret in the overlay, and the names the driver reserves for the model endpoint and
+//! credentials, are refused rather than overridden.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -23,19 +24,6 @@ use crate::supervise::spawn::SpawnRequest;
 
 /// The size of the tmpfs mounted at `/tmp`, in mebibytes.
 const TMPFS_MIB: u32 = 256;
-
-/// The names the wrapper owns: the harness may not set them.
-const RESERVED_NAMES: [&str; 3] = [
-    "ANTHROPIC_BASE_URL",
-    "ANTHROPIC_AUTH_TOKEN",
-    "ANTHROPIC_API_KEY",
-];
-
-/// The variable that carries the gateway's address to the agent.
-const BASE_URL_NAME: &str = "ANTHROPIC_BASE_URL";
-
-/// The variable that carries the dummy token to the agent.
-const AUTH_TOKEN_NAME: &str = "ANTHROPIC_AUTH_TOKEN";
 
 /// The docker client's own variables, the only ones it inherits.
 const CLIENT_ENV: [&str; 3] = ["DOCKER_HOST", "DOCKER_CONTEXT", "HOME"];
@@ -118,18 +106,19 @@ fn hardening(limits: &Limits, argv: &mut Vec<String>) {
     ]);
 }
 
-/// The `-e NAME=value` pairs of the harness's overlay.
+/// The `-e NAME=value` pairs of the harness's overlay. `reserved` lists the names the wrapper
+/// owns, which the overlay may not set.
 ///
 /// # Errors
 /// [`RunArgvError::SecretRefused`] for a secret, [`RunArgvError::ReservedName`] for a name the
 /// wrapper owns, [`RunArgvError::BadEnvName`] for a name docker would misread.
-pub fn env_args(overlay: &[EnvEntry]) -> Result<Vec<String>, RunArgvError> {
+pub fn env_args(overlay: &[EnvEntry], reserved: &[String]) -> Result<Vec<String>, RunArgvError> {
     let mut argv = Vec::with_capacity(overlay.len() * 2);
     for entry in overlay {
         // BORROW: explicit .as_str() instead of Deref coercion
         let name = entry.name.as_str();
         if let EnvValue::Literal(value) = &entry.value {
-            if RESERVED_NAMES.contains(&name) {
+            if reserved.iter().any(|owned| owned == name) {
                 return Err(RunArgvError::ReservedName {
                     // BORROW: .to_owned() keeps the name in the error
                     name: name.to_owned(),
@@ -221,7 +210,7 @@ pub fn run_argv(plan: &ContainerPlan, cmd: &CommandSpec) -> Result<Vec<String>, 
         // BORROW: explicit .as_str() instead of Deref coercion
         check_name(entry.name.as_str())?;
     }
-    argv.extend(env_args(cmd.env_overlay())?);
+    argv.extend(env_args(cmd.env_overlay(), reserved_names(plan))?);
     for mount in &plan.mounts {
         argv.push(String::from("--mount"));
         argv.push(mount.to_arg()?);
@@ -257,7 +246,8 @@ pub fn control_argv(
     argv.extend([String::from("--network"), String::from("none")]);
     argv.push(String::from("--label"));
     argv.push(format!("{LABEL_ROLE}={CONTROL_ROLE}"));
-    argv.extend(env_args(wrapped.env_overlay())?);
+    // A control container has no gateway: it reserves no name.
+    argv.extend(env_args(wrapped.env_overlay(), &[])?);
     // BORROW: the owned copy is made where it is needed
     argv.push(image.0.clone());
     argv.extend(wrapped.argv().iter().cloned());
@@ -289,13 +279,68 @@ fn client_env() -> Vec<(String, String)> {
         .collect()
 }
 
-/// The request that runs `cmd` in the plan's container: the mounts checked against the plan's
-/// roots, the labels of the run, the gateway's address and dummy token set by the wrapper, the
-/// command under an expiry of the wall plus the margin, and the supervisor's deadline at the
-/// wall. The request carries no stop hook; the isolation attaches one per request.
+/// The names the plan reserves for the wrapper: the driver's gateway variables, none when the
+/// plan names no gateway.
+fn reserved_names<'a>(plan: &'a ContainerPlan) -> &'a [String] {
+    plan.gateway
+        .as_ref()
+        .map_or(&[], |gateway| gateway.reserved.as_slice())
+}
+
+/// The `docker run` argv of the agent container that runs `cmd` for the run `key`: the mounts
+/// checked against the plan's roots, the labels of the run, the gateway's address and dummy token
+/// set by the wrapper under the variable names the plan's gateway gives, and the command under an
+/// expiry of the wall plus the margin. The program is `docker`.
 ///
 /// # Errors
-/// [`RunArgvError`] when a mount, the overlay or the request is refused.
+/// [`RunArgvError`] when a mount or the overlay is refused, when the plan names no gateway
+/// variables ([`RunArgvError::Request`]), or when a gateway variable is one the plan already sets.
+pub fn agent_argv(
+    plan: &ContainerPlan,
+    cmd: &CommandSpec,
+    key: &RunKey,
+    base_url: &Url,
+    dummy_token: &str,
+) -> Result<Vec<String>, RunArgvError> {
+    let gateway = plan.gateway.as_ref().ok_or_else(|| RunArgvError::Request {
+        detail: String::from("the plan names no gateway variables"),
+    })?;
+    for name in [&gateway.base_url, &gateway.auth_token] {
+        if plan.env.iter().any(|(own, _)| own == name) {
+            return Err(RunArgvError::DuplicateName {
+                // BORROW: .clone() keeps the name in the error
+                name: name.clone(),
+            });
+        }
+    }
+    // BORROW: the plan is copied so the checked mounts and the run's labels can be set
+    let mut planned = plan.clone();
+    planned.mounts = mounts(plan, &MountRoots::from_plan(plan))?;
+    planned.labels = planned
+        .labels
+        .with(LABEL_RUN, &key.to_string())
+        .with(LABEL_ROLE, "agent");
+    planned
+        .env
+        // BORROW: the owned copy is made where it is needed
+        .push((gateway.base_url.clone(), base_url.as_str().to_owned()));
+    planned
+        .env
+        // BORROW: the owned copy is made where it is needed
+        .push((gateway.auth_token.clone(), dummy_token.to_owned()));
+    let secs = ceil_secs(plan.expiry + EXPIRY_MARGIN);
+    let wrapped = wrap_expiry(cmd, secs).map_err(|source| RunArgvError::Command {
+        detail: source.to_string(),
+    })?;
+    run_argv(&planned, &wrapped)
+}
+
+/// The request that runs `cmd` in the plan's container: the argv of [`agent_argv`], the docker
+/// client's own environment, and the supervisor's deadline at the wall. The request carries no
+/// stop hook; the isolation attaches one per request.
+///
+/// # Errors
+/// [`RunArgvError`] when a mount, the overlay, the gateway variables or the request is refused.
 #[expect(
     clippy::too_many_arguments,
     reason = "each argument is one fact of the request and none belongs with another"
@@ -310,26 +355,7 @@ pub fn build_run_request(
     hook: Option<Arc<dyn StopHook>>,
     outputs: RunOutputs,
 ) -> Result<SpawnRequest, RunArgvError> {
-    // BORROW: the plan is copied so the checked mounts and the run's labels can be set
-    let mut planned = plan.clone();
-    planned.mounts = mounts(plan, &MountRoots::from_plan(plan))?;
-    planned.labels = planned
-        .labels
-        .with(LABEL_RUN, &key.to_string())
-        .with(LABEL_ROLE, "agent");
-    planned
-        .env
-        // BORROW: the owned copy is made where it is needed
-        .push((String::from(BASE_URL_NAME), base_url.as_str().to_owned()));
-    planned
-        .env
-        // BORROW: the owned copy is made where it is needed
-        .push((String::from(AUTH_TOKEN_NAME), dummy_token.to_owned()));
-    let secs = ceil_secs(plan.expiry + EXPIRY_MARGIN);
-    let wrapped = wrap_expiry(cmd, secs).map_err(|source| RunArgvError::Command {
-        detail: source.to_string(),
-    })?;
-    let mut argv = run_argv(&planned, &wrapped)?;
+    let mut argv = agent_argv(plan, cmd, key, base_url, dummy_token)?;
     if let Some(first) = argv.first_mut() {
         *first = docker_binary();
     }

@@ -19,8 +19,6 @@ use candler_core::resolve::steps::{M2bServices, register_m2b_steps};
 use candler_core::runner::evidence::catalog::{CatalogCommand, CommandCatalogProvider};
 use candler_core::runner::plan::{PlanError, experiment_of};
 use candler_core::supervise::{EventSink, Supervisor};
-use candler_harness::driver::HarnessDriver as _;
-use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_schemas::execution::{EventPayload, ExperimentFile, Level};
 use candler_schemas::primitives::{FieldPath, RunKey};
 use candler_schemas::refusal::pointer_of;
@@ -29,6 +27,7 @@ use candler_schemas::values::JsonValue;
 use super::CliError;
 use super::assets;
 use super::refusal::{CliRefusal, FieldLocation, REQUEST_KEYS};
+use crate::drivers::DriverEntry;
 
 /// The path of the setting `[treatment] source` replaces; `--set` refuses it by name.
 const RETIRED_TREATMENT_SOURCE: &str = concat!("request.", "treatment_source");
@@ -49,15 +48,16 @@ pub(crate) struct AssetPaths {
 }
 
 /// The paths of the image sources: the embedded assets, written below the store root when they
-/// are not there yet.
+/// are not there yet. The base image is built from the directory `base_context` of
+/// `assets/docker`.
 ///
 /// # Errors
 /// [`CliError::Failed`] when the assets cannot be written.
-pub(crate) fn asset_paths(store_root: &Path) -> Result<AssetPaths, CliError> {
+pub(crate) fn asset_paths(store_root: &Path, base_context: &str) -> Result<AssetPaths, CliError> {
     let docker = assets::materialise(store_root)?.join("docker");
     Ok(AssetPaths {
         images: ImageAssets {
-            base_context: docker.join("base"),
+            base_context: docker.join(base_context),
             env_context: docker.join("env"),
             store_root: store_root.to_path_buf(), // BORROW: the assets own their store root
         },
@@ -301,10 +301,51 @@ pub(crate) struct Foreground {
     pub(crate) gateway_context: PathBuf,
 }
 
+/// The name of the harness the request asks for: the experiment file's, as `--set
+/// request.harness` replaces it (an object with a `name`, or the name itself).
+///
+/// # Errors
+/// [`CliError::Refused`] when the request names no harness or a name that is not text.
+pub(crate) fn requested_harness(input: &ResolveInput) -> Result<String, CliError> {
+    let whole = path_of(paths::REQUEST_HARNESS)?;
+    let from_value = |value: &JsonValue| match value.as_value() {
+        serde_json::Value::String(name) => Some(name.clone()), // BORROW: the caller owns the name
+        serde_json::Value::Object(map) => map
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned), // BORROW: the caller owns the name
+        serde_json::Value::Null
+        | serde_json::Value::Bool(_)
+        | serde_json::Value::Number(_)
+        | serde_json::Value::Array(_) => None,
+    };
+    let mut name = input
+        .file
+        .as_ref()
+        .and_then(|file| file.values.iter().rev().find(|(path, _)| *path == whole))
+        .and_then(|(_, value)| from_value(value));
+    for (path, value) in &input.explicit {
+        if *path == whole {
+            name = from_value(value);
+        }
+    }
+    name.ok_or_else(|| refused("`request.harness` names no harness"))
+}
+
 /// Builds the docker client, the image service and the catalog provider over one supervisor, and
-/// composes the resolver on them.
-pub(crate) fn foreground(config: Arc<Config>, root: &Path) -> Result<Foreground, CliError> {
-    let assets = asset_paths(root)?;
+/// composes the resolver on them. The harness is the registry's `entry`: its driver reads the
+/// image's version and says which versions are supported, and its base context builds the base
+/// image.
+///
+/// # Errors
+/// [`CliError`] when the assets cannot be written, the control directory cannot be made, or the
+/// docker client cannot be built.
+pub(crate) fn foreground(
+    config: Arc<Config>,
+    root: &Path,
+    entry: &DriverEntry,
+) -> Result<Foreground, CliError> {
+    let assets = asset_paths(root, entry.base_context)?;
     let control = layout::control_dir(root);
     std::fs::create_dir_all(&control).map_err(failed)?;
     // TRAIT_OBJECT: the foreground checks belong to no job and report no event
@@ -312,11 +353,13 @@ pub(crate) fn foreground(config: Arc<Config>, root: &Path) -> Result<Foreground,
     let supervisor = Arc::new(Supervisor::new(sink));
     let env = ClientEnv::from_process();
     let cli = DockerCli::new(Arc::clone(&supervisor), env.clone(), control).map_err(failed)?; // BORROW: the client owns its env
+    let driver = Arc::clone(&entry.driver);
     let images = DockerImageService::new(
         Arc::clone(&supervisor),
         cli.clone(), // BORROW: the service owns its client
         env.clone(), // BORROW: the service owns its env
         assets.images,
+        Arc::clone(&driver),
     );
     // BORROW: .to_owned() gives the command its own words
     let argv = vec!["sh".to_owned(), "-c".to_owned(), CATALOG_PROGRAM.to_owned()];
@@ -331,7 +374,7 @@ pub(crate) fn foreground(config: Arc<Config>, root: &Path) -> Result<Foreground,
         supervisor,
         images: Arc::new(images),
         catalog: Arc::new(catalog),
-        harness_supported: ClaudeCodeDriver::new().map_err(failed)?.supported(),
+        harness_supported: driver.supported(),
     };
     let resolver = compose_resolver(config, &services).map_err(failed)?;
     Ok(Foreground {

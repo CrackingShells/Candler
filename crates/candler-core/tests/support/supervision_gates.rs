@@ -221,7 +221,7 @@ pub fn gates_body(
             .expect("an upstream");
         let image = ImageRef {
             id: ImageId(var(ENV_SIDECAR)),
-            cc_version: None,
+            harness_version: None,
         };
         let service = DockerGateway::new(image, upstream, 2, cli, Arc::clone(&rt.supervisor));
         let experiment: Digest = EXPERIMENT.parse().expect("a digest");

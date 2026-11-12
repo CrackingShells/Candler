@@ -13,13 +13,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use candler_harness::driver::HarnessDriver;
+use candler_harness::skills::SkillTree;
 use candler_schemas::primitives::JobId;
 use futures::future::BoxFuture;
 
 use super::model::{JobBody, JobOutcome, JobSpec};
 use crate::jobs::orchestrate::teardown::TEARDOWN_ALLOWANCE;
 use crate::runner::evidence::provenance::EvalInfra;
-use crate::runner::exec::SkillTree;
 use crate::store::Store;
 use crate::supervise::spawn::DEFAULT_GRACE;
 

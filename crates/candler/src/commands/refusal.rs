@@ -37,6 +37,14 @@ pub enum CliRefusal {
         /// The path `--set` named.
         path: String,
     },
+    /// `request.harness` names a harness that this binary does not ship.
+    #[error("`{name}` is not a harness this binary ships: the registered ones are {registered}")]
+    UnknownHarness {
+        /// The name the request gave.
+        name: String,
+        /// The registered names, joined.
+        registered: String,
+    },
     /// A dotted path that no path class of the surface knows, written under `[fixed]`, in a
     /// factor or in `--set`.
     #[error("`{path}` is not a path of the experiment surface; it is written in {location}")]
@@ -206,6 +214,7 @@ fn cli_refusal_path(error: &CliRefusal) -> Option<String> {
         CliRefusal::NoStore
         | CliRefusal::RetiredSetting { .. }
         | CliRefusal::UnknownRequestKey { .. }
+        | CliRefusal::UnknownHarness { .. }
         | CliRefusal::RulesInvalid { .. }
         | CliRefusal::NoPluginDirs
         | CliRefusal::NoEvaluatorSlots
@@ -239,6 +248,12 @@ refusal_table! {
         "experiment.unknown_request_key",
         Side::Experiment,
         "`--set` names a key under `request` that is none of the request settings, such as a misspelt `request.harnes`.",
+        "-",
+    ),
+    UnknownHarness { .. } => row(
+        "experiment.unknown_harness",
+        Side::Experiment,
+        "`request.harness`, written as `name` under `[harness]` or given to `--set`, names a harness that is not registered in this binary; the refusal lists the registered names.",
         "-",
     ),
     UnknownFieldPath { .. } => row(

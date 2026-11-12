@@ -34,7 +34,6 @@ use candler_core::jobs::orchestrate::session::{JobHost, OrchestrateError};
 use candler_core::jobs::slots::Slots;
 use candler_core::runner::Runtime;
 use candler_core::runner::evidence::provenance::EvalInfra;
-use candler_core::runner::exec::SkillTree;
 use candler_core::store::Store;
 use candler_core::supervise::hook::StopHook;
 use candler_core::supervise::spawn::SpawnRequest;
@@ -42,9 +41,10 @@ use candler_core::supervise::stop::Exit;
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_harness::driver::{DriverError, HarnessDriver};
 use candler_harness::reader::TraceReader;
+use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
-    BudgetCaps, Capabilities, Cell, CollectSpec, CommandSpec, HarnessId, Observed, Prepared,
-    PreparedFile, ProcessExit, StopSignal, StopSpec, Workspace,
+    BudgetCaps, Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId, Observed,
+    Prepared, PreparedFile, ProcessExit, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::execution::{Budget, EventPayload, ExperimentFile, JobState, TreatmentRef};
 use candler_schemas::primitives::{ContainerId, JobId, Marker, RunKey};
@@ -134,6 +134,8 @@ pub struct FakeAgent {
     /// The sweeper the run's stop hook sweeps through; no hook is attached when `None`.
     // TRAIT_OBJECT: the sweeper is a recording fake in tests
     pub sweeper: Option<Arc<dyn ContainerSweeper>>,
+    /// What the run prints on its standard output before it sleeps.
+    pub stdout: String,
 }
 
 /// The isolation of a job over the fake client: the real plan, a run that is the fake client's
@@ -174,11 +176,12 @@ impl Isolation for Placed {
             Some(agent) => vec![
                 String::from("/bin/sh"),
                 String::from("-c"),
-                String::from("printf %s \"$1\" > \"$2\"; exec sleep \"$3\""),
+                String::from("printf %s \"$1\" > \"$2\"; printf %s \"$4\"; exec sleep \"$3\""),
                 String::from("agent"),
                 agent.cid.as_str().to_owned(),
                 plan.cidfile.to_string_lossy().into_owned(),
                 agent.sleep_s.to_string(),
+                agent.stdout.clone(), // BORROW: the argv owns the text
             ],
             None => vec![
                 self.docker.to_string_lossy().into_owned(),
@@ -335,6 +338,15 @@ impl JobHost for FakeHost {
     }
 }
 
+/// The gateway variables of the quiet harness.
+pub fn quiet_gateway() -> GatewayEnv {
+    let names = [
+        String::from("QUIET_GATEWAY_URL"),
+        String::from("QUIET_GATEWAY_TOKEN"),
+    ];
+    GatewayEnv::new(names[0].clone(), names[1].clone(), names.to_vec()) // BORROW: the names are owned by the environment
+}
+
 /// A harness that describes one command and reads no output.
 pub struct QuietDriver;
 
@@ -363,6 +375,10 @@ impl HarnessDriver for QuietDriver {
             .graceful_stop(true)
             .budgets(BudgetCaps::new(true, true))
             .build()
+    }
+
+    fn gateway(&self) -> Option<GatewayEnv> {
+        Some(quiet_gateway())
     }
 
     fn prepare(
@@ -403,6 +419,81 @@ impl HarnessDriver for QuietDriver {
 
     fn collect(&self, _workspace: &Workspace<'_>, _observed: &Observed) -> Vec<CollectSpec> {
         Vec::new()
+    }
+}
+
+/// The quiet harness with a live reader that reads Claude Code's stream-json, and an end of its
+/// own: the exit classifies as completed and the observed end as an agent error, so the end a run
+/// records says which of the two the core asked.
+pub struct ObservingDriver(pub QuietDriver);
+
+impl HarnessDriver for ObservingDriver {
+    fn id(&self) -> HarnessId {
+        self.0.id()
+    }
+
+    fn supported(&self) -> semver::VersionReq {
+        self.0.supported()
+    }
+
+    fn version_probe(&self) -> CommandSpec {
+        self.0.version_probe()
+    }
+
+    fn parse_version(&self, output: &[u8]) -> Result<semver::Version, DriverError> {
+        self.0.parse_version(output)
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        self.0.capabilities()
+    }
+
+    fn gateway(&self) -> Option<GatewayEnv> {
+        self.0.gateway()
+    }
+
+    fn prepare(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Prepared, DriverError> {
+        self.0.prepare(cell, workspace)
+    }
+
+    fn command(
+        &self,
+        cell: &Cell<'_>,
+        workspace: &Workspace<'_>,
+    ) -> Result<CommandSpec, DriverError> {
+        self.0.command(cell, workspace)
+    }
+
+    fn stop(&self) -> StopSpec {
+        self.0.stop()
+    }
+
+    // TRAIT_OBJECT: the host hands out its trace reader as a trait object
+    fn live_reader(&self) -> Option<Box<dyn TraceReader>> {
+        let reader = candler_harness_claude_code::ClaudeCodeReader::new().ok()?;
+        Some(Box::new(reader))
+    }
+
+    // TRAIT_OBJECT: the host hands out its trace reader as a trait object
+    fn offline_reader(&self, _stream: &StreamName) -> Option<Box<dyn TraceReader>> {
+        None
+    }
+
+    fn classify_exit(&self, exit: &ProcessExit, sessions: &[Session]) -> EndedBy {
+        self.0.classify_exit(exit, sessions)
+    }
+
+    fn classify_end(
+        &self,
+        _exit: &ProcessExit,
+        _sessions: &[Session],
+        _observed: &Observed,
+    ) -> EndedBy {
+        EndedBy::agent_error(None)
+    }
+
+    fn collect(&self, workspace: &Workspace<'_>, observed: &Observed) -> Vec<CollectSpec> {
+        self.0.collect(workspace, observed)
     }
 }
 

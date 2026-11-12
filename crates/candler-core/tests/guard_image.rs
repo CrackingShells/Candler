@@ -20,6 +20,7 @@ use candler_core::resolve::layers::{FileValues, ResolveInput};
 use candler_core::resolve::preflight::Resolver;
 use candler_core::resolve::steps::image::ImageIdStep;
 use candler_core::supervise::{EventSink, Supervisor};
+use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_schemas::execution::EventPayload;
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::primitives::RunKey;
@@ -114,6 +115,7 @@ impl Rig {
                 env_context: sources.join("env"),
                 store_root: store_root.clone(), // BORROW: .clone() keeps the root for the probe
             },
+            Arc::new(ClaudeCodeDriver::new().expect("the driver builds from constants")),
         ));
         Self {
             service,
@@ -289,7 +291,7 @@ async fn a2_package_read_pairs_each_name_with_its_distributions() {
     .expect("an answer");
     let image = ImageRef {
         id: ImageId(FAKE_ID.to_owned()), // BORROW: the reference owns the id
-        cc_version: None,
+        harness_version: None,
     };
 
     let read = rig

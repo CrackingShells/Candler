@@ -1,0 +1,734 @@
+[
+  {
+    "environments": [
+      {
+        "lock_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "plugin": "p@1.0.0"
+      }
+    ],
+    "harness": {
+      "name": "claude-code",
+      "version": "2.1.311"
+    },
+    "inputs": [],
+    "snapshots": [
+      {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "kind": "catalog"
+      }
+    ],
+    "treatment": {
+      "commit": "1111111111111111111111111111111111111111",
+      "name": "htn"
+    },
+    "values": [
+      {
+        "path": "budget.per_run.wall_s",
+        "value": 3600
+      },
+      {
+        "path": "isolation.env_lock",
+        "value": "sha256:0c030586945fe504b604ecc2e875c38ede400cd5cd73da9730302162e6b02c6f"
+      },
+      {
+        "path": "isolation.image",
+        "value": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      {
+        "path": "plan.config",
+        "value": "with_skill"
+      },
+      {
+        "path": "plan.model",
+        "value": "claude-sonnet-4-6"
+      },
+      {
+        "path": "plan.prompt_domain_name",
+        "value": "cont-train"
+      },
+      {
+        "path": "plan.prompt_domain_topic",
+        "value": "containerization training of a specialized MDLM diffusion model on a remote GPU"
+      },
+      {
+        "path": "plan.prompt_servers_path",
+        "value": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp"
+      },
+      {
+        "path": "plan.skill_version",
+        "value": "htn-creator@v0.2.3"
+      }
+    ]
+  },
+  {
+    "environments": [
+      {
+        "lock_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "plugin": "p@1.0.0"
+      }
+    ],
+    "harness": {
+      "name": "claude-code",
+      "version": "2.1.311"
+    },
+    "inputs": [],
+    "snapshots": [
+      {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "kind": "catalog"
+      }
+    ],
+    "treatment": {
+      "commit": "1111111111111111111111111111111111111111",
+      "name": "htn"
+    },
+    "values": [
+      {
+        "path": "budget.per_run.wall_s",
+        "value": 3600
+      },
+      {
+        "path": "isolation.env_lock",
+        "value": "sha256:0c030586945fe504b604ecc2e875c38ede400cd5cd73da9730302162e6b02c6f"
+      },
+      {
+        "path": "isolation.image",
+        "value": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      {
+        "path": "plan.config",
+        "value": "with_skill"
+      },
+      {
+        "path": "plan.model",
+        "value": "claude-haiku-4-5"
+      },
+      {
+        "path": "plan.prompt_domain_name",
+        "value": "cont-train"
+      },
+      {
+        "path": "plan.prompt_domain_topic",
+        "value": "containerization training of a specialized MDLM diffusion model on a remote GPU"
+      },
+      {
+        "path": "plan.prompt_servers_path",
+        "value": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp"
+      },
+      {
+        "path": "plan.skill_version",
+        "value": "htn-creator@0.2.5"
+      }
+    ]
+  },
+  {
+    "environments": [
+      {
+        "lock_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "plugin": "p@1.0.0"
+      }
+    ],
+    "harness": {
+      "name": "claude-code",
+      "version": "2.1.311"
+    },
+    "inputs": [],
+    "snapshots": [
+      {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "kind": "catalog"
+      }
+    ],
+    "treatment": {
+      "commit": "1111111111111111111111111111111111111111",
+      "name": "htn"
+    },
+    "values": [
+      {
+        "path": "budget.per_run.wall_s",
+        "value": 3600
+      },
+      {
+        "path": "isolation.env_lock",
+        "value": "sha256:0c030586945fe504b604ecc2e875c38ede400cd5cd73da9730302162e6b02c6f"
+      },
+      {
+        "path": "isolation.image",
+        "value": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      {
+        "path": "plan.config",
+        "value": "with_skill"
+      },
+      {
+        "path": "plan.model",
+        "value": "claude-sonnet-5"
+      },
+      {
+        "path": "plan.prompt_domain_name",
+        "value": "cont-train"
+      },
+      {
+        "path": "plan.prompt_domain_topic",
+        "value": "containerization training of a specialized MDLM diffusion model on a remote GPU"
+      },
+      {
+        "path": "plan.prompt_servers_path",
+        "value": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp"
+      },
+      {
+        "path": "plan.skill_version",
+        "value": "htn-creator@0.2.4"
+      }
+    ]
+  },
+  {
+    "environments": [
+      {
+        "lock_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "plugin": "p@1.0.0"
+      }
+    ],
+    "harness": {
+      "name": "claude-code",
+      "version": "2.1.311"
+    },
+    "inputs": [],
+    "snapshots": [
+      {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "kind": "catalog"
+      }
+    ],
+    "treatment": {
+      "commit": "1111111111111111111111111111111111111111",
+      "name": "htn"
+    },
+    "values": [
+      {
+        "path": "budget.per_run.wall_s",
+        "value": 3600
+      },
+      {
+        "path": "isolation.env_lock",
+        "value": "sha256:0c030586945fe504b604ecc2e875c38ede400cd5cd73da9730302162e6b02c6f"
+      },
+      {
+        "path": "isolation.image",
+        "value": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      {
+        "path": "plan.config",
+        "value": "with_skill"
+      },
+      {
+        "path": "plan.model",
+        "value": "claude-sonnet-4-6"
+      },
+      {
+        "path": "plan.prompt_domain_name",
+        "value": "cont-train"
+      },
+      {
+        "path": "plan.prompt_domain_topic",
+        "value": "containerization training of a specialized MDLM diffusion model on a remote GPU"
+      },
+      {
+        "path": "plan.prompt_servers_path",
+        "value": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp"
+      },
+      {
+        "path": "plan.skill_version",
+        "value": "htn-creator@0.2.5"
+      }
+    ]
+  },
+  {
+    "environments": [
+      {
+        "lock_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "plugin": "p@1.0.0"
+      }
+    ],
+    "harness": {
+      "name": "claude-code",
+      "version": "2.1.311"
+    },
+    "inputs": [],
+    "snapshots": [
+      {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "kind": "catalog"
+      }
+    ],
+    "treatment": {
+      "commit": "1111111111111111111111111111111111111111",
+      "name": "htn"
+    },
+    "values": [
+      {
+        "path": "budget.per_run.wall_s",
+        "value": 3600
+      },
+      {
+        "path": "isolation.env_lock",
+        "value": "sha256:0c030586945fe504b604ecc2e875c38ede400cd5cd73da9730302162e6b02c6f"
+      },
+      {
+        "path": "isolation.image",
+        "value": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      {
+        "path": "plan.config",
+        "value": "with_skill"
+      },
+      {
+        "path": "plan.model",
+        "value": "claude-sonnet-5"
+      },
+      {
+        "path": "plan.prompt_domain_name",
+        "value": "cont-train"
+      },
+      {
+        "path": "plan.prompt_domain_topic",
+        "value": "containerization training of a specialized MDLM diffusion model on a remote GPU"
+      },
+      {
+        "path": "plan.prompt_servers_path",
+        "value": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp"
+      },
+      {
+        "path": "plan.skill_version",
+        "value": "htn-creator@0.2.5"
+      }
+    ]
+  },
+  {
+    "environments": [
+      {
+        "lock_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "plugin": "p@1.0.0"
+      }
+    ],
+    "harness": {
+      "name": "claude-code",
+      "version": "2.1.311"
+    },
+    "inputs": [],
+    "snapshots": [
+      {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "kind": "catalog"
+      }
+    ],
+    "treatment": {
+      "commit": "1111111111111111111111111111111111111111",
+      "name": "htn"
+    },
+    "values": [
+      {
+        "path": "budget.per_run.wall_s",
+        "value": 3600
+      },
+      {
+        "path": "isolation.env_lock",
+        "value": "sha256:0c030586945fe504b604ecc2e875c38ede400cd5cd73da9730302162e6b02c6f"
+      },
+      {
+        "path": "isolation.image",
+        "value": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      {
+        "path": "plan.config",
+        "value": "with_skill"
+      },
+      {
+        "path": "plan.model",
+        "value": "claude-sonnet-4-6"
+      },
+      {
+        "path": "plan.prompt_domain_name",
+        "value": "cont-train"
+      },
+      {
+        "path": "plan.prompt_domain_topic",
+        "value": "containerization training of a specialized MDLM diffusion model on a remote GPU"
+      },
+      {
+        "path": "plan.prompt_servers_path",
+        "value": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp"
+      },
+      {
+        "path": "plan.skill_version",
+        "value": "htn-creator@0.2.4"
+      }
+    ]
+  },
+  {
+    "environments": [
+      {
+        "lock_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "plugin": "p@1.0.0"
+      }
+    ],
+    "harness": {
+      "name": "claude-code",
+      "version": "2.1.311"
+    },
+    "inputs": [],
+    "snapshots": [
+      {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "kind": "catalog"
+      }
+    ],
+    "treatment": {
+      "commit": "1111111111111111111111111111111111111111",
+      "name": "htn"
+    },
+    "values": [
+      {
+        "path": "budget.per_run.wall_s",
+        "value": 3600
+      },
+      {
+        "path": "isolation.env_lock",
+        "value": "sha256:0c030586945fe504b604ecc2e875c38ede400cd5cd73da9730302162e6b02c6f"
+      },
+      {
+        "path": "isolation.image",
+        "value": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      {
+        "path": "plan.config",
+        "value": "with_skill"
+      },
+      {
+        "path": "plan.model",
+        "value": "claude-haiku-4-5"
+      },
+      {
+        "path": "plan.prompt_domain_name",
+        "value": "cont-train"
+      },
+      {
+        "path": "plan.prompt_domain_topic",
+        "value": "containerization training of a specialized MDLM diffusion model on a remote GPU"
+      },
+      {
+        "path": "plan.prompt_servers_path",
+        "value": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp"
+      },
+      {
+        "path": "plan.skill_version",
+        "value": "htn-creator@0.2.6"
+      }
+    ]
+  },
+  {
+    "environments": [
+      {
+        "lock_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "plugin": "p@1.0.0"
+      }
+    ],
+    "harness": {
+      "name": "claude-code",
+      "version": "2.1.311"
+    },
+    "inputs": [],
+    "snapshots": [
+      {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "kind": "catalog"
+      }
+    ],
+    "treatment": {
+      "commit": "1111111111111111111111111111111111111111",
+      "name": "htn"
+    },
+    "values": [
+      {
+        "path": "budget.per_run.wall_s",
+        "value": 3600
+      },
+      {
+        "path": "isolation.env_lock",
+        "value": "sha256:0c030586945fe504b604ecc2e875c38ede400cd5cd73da9730302162e6b02c6f"
+      },
+      {
+        "path": "isolation.image",
+        "value": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      {
+        "path": "plan.config",
+        "value": "with_skill"
+      },
+      {
+        "path": "plan.model",
+        "value": "claude-sonnet-5"
+      },
+      {
+        "path": "plan.prompt_domain_name",
+        "value": "cont-train"
+      },
+      {
+        "path": "plan.prompt_domain_topic",
+        "value": "containerization training of a specialized MDLM diffusion model on a remote GPU"
+      },
+      {
+        "path": "plan.prompt_servers_path",
+        "value": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp"
+      },
+      {
+        "path": "plan.skill_version",
+        "value": "htn-creator@0.2.6"
+      }
+    ]
+  },
+  {
+    "environments": [
+      {
+        "lock_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "plugin": "p@1.0.0"
+      }
+    ],
+    "harness": {
+      "name": "claude-code",
+      "version": "2.1.311"
+    },
+    "inputs": [],
+    "snapshots": [
+      {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "kind": "catalog"
+      }
+    ],
+    "treatment": {
+      "commit": "1111111111111111111111111111111111111111",
+      "name": "htn"
+    },
+    "values": [
+      {
+        "path": "budget.per_run.wall_s",
+        "value": 3600
+      },
+      {
+        "path": "isolation.env_lock",
+        "value": "sha256:0c030586945fe504b604ecc2e875c38ede400cd5cd73da9730302162e6b02c6f"
+      },
+      {
+        "path": "isolation.image",
+        "value": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      {
+        "path": "plan.config",
+        "value": "with_skill"
+      },
+      {
+        "path": "plan.model",
+        "value": "claude-sonnet-4-6"
+      },
+      {
+        "path": "plan.prompt_domain_name",
+        "value": "cont-train"
+      },
+      {
+        "path": "plan.prompt_domain_topic",
+        "value": "containerization training of a specialized MDLM diffusion model on a remote GPU"
+      },
+      {
+        "path": "plan.prompt_servers_path",
+        "value": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp"
+      },
+      {
+        "path": "plan.skill_version",
+        "value": "htn-creator@0.2.6"
+      }
+    ]
+  },
+  {
+    "environments": [
+      {
+        "lock_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "plugin": "p@1.0.0"
+      }
+    ],
+    "harness": {
+      "name": "claude-code",
+      "version": "2.1.311"
+    },
+    "inputs": [],
+    "snapshots": [
+      {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "kind": "catalog"
+      }
+    ],
+    "treatment": {
+      "commit": "1111111111111111111111111111111111111111",
+      "name": "htn"
+    },
+    "values": [
+      {
+        "path": "budget.per_run.wall_s",
+        "value": 3600
+      },
+      {
+        "path": "isolation.env_lock",
+        "value": "sha256:0c030586945fe504b604ecc2e875c38ede400cd5cd73da9730302162e6b02c6f"
+      },
+      {
+        "path": "isolation.image",
+        "value": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      {
+        "path": "plan.config",
+        "value": "with_skill"
+      },
+      {
+        "path": "plan.model",
+        "value": "claude-haiku-4-5"
+      },
+      {
+        "path": "plan.prompt_domain_name",
+        "value": "cont-train"
+      },
+      {
+        "path": "plan.prompt_domain_topic",
+        "value": "containerization training of a specialized MDLM diffusion model on a remote GPU"
+      },
+      {
+        "path": "plan.prompt_servers_path",
+        "value": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp"
+      },
+      {
+        "path": "plan.skill_version",
+        "value": "htn-creator@v0.2.3"
+      }
+    ]
+  },
+  {
+    "environments": [
+      {
+        "lock_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "plugin": "p@1.0.0"
+      }
+    ],
+    "harness": {
+      "name": "claude-code",
+      "version": "2.1.311"
+    },
+    "inputs": [],
+    "snapshots": [
+      {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "kind": "catalog"
+      }
+    ],
+    "treatment": {
+      "commit": "1111111111111111111111111111111111111111",
+      "name": "htn"
+    },
+    "values": [
+      {
+        "path": "budget.per_run.wall_s",
+        "value": 3600
+      },
+      {
+        "path": "isolation.env_lock",
+        "value": "sha256:0c030586945fe504b604ecc2e875c38ede400cd5cd73da9730302162e6b02c6f"
+      },
+      {
+        "path": "isolation.image",
+        "value": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      {
+        "path": "plan.config",
+        "value": "with_skill"
+      },
+      {
+        "path": "plan.model",
+        "value": "claude-sonnet-5"
+      },
+      {
+        "path": "plan.prompt_domain_name",
+        "value": "cont-train"
+      },
+      {
+        "path": "plan.prompt_domain_topic",
+        "value": "containerization training of a specialized MDLM diffusion model on a remote GPU"
+      },
+      {
+        "path": "plan.prompt_servers_path",
+        "value": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp"
+      },
+      {
+        "path": "plan.skill_version",
+        "value": "htn-creator@v0.2.3"
+      }
+    ]
+  },
+  {
+    "environments": [
+      {
+        "lock_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "plugin": "p@1.0.0"
+      }
+    ],
+    "harness": {
+      "name": "claude-code",
+      "version": "2.1.311"
+    },
+    "inputs": [],
+    "snapshots": [
+      {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "kind": "catalog"
+      }
+    ],
+    "treatment": {
+      "commit": "1111111111111111111111111111111111111111",
+      "name": "htn"
+    },
+    "values": [
+      {
+        "path": "budget.per_run.wall_s",
+        "value": 3600
+      },
+      {
+        "path": "isolation.env_lock",
+        "value": "sha256:0c030586945fe504b604ecc2e875c38ede400cd5cd73da9730302162e6b02c6f"
+      },
+      {
+        "path": "isolation.image",
+        "value": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      {
+        "path": "plan.config",
+        "value": "with_skill"
+      },
+      {
+        "path": "plan.model",
+        "value": "claude-haiku-4-5"
+      },
+      {
+        "path": "plan.prompt_domain_name",
+        "value": "cont-train"
+      },
+      {
+        "path": "plan.prompt_domain_topic",
+        "value": "containerization training of a specialized MDLM diffusion model on a remote GPU"
+      },
+      {
+        "path": "plan.prompt_servers_path",
+        "value": ".claude/skills/htn-creator-workspace/servers/rikyu_mcp"
+      },
+      {
+        "path": "plan.skill_version",
+        "value": "htn-creator@0.2.4"
+      }
+    ]
+  }
+]

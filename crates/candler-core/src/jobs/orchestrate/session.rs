@@ -327,7 +327,7 @@ impl JobHost for DockerHost {
                 .ok_or_else(|| failed("sidecar_image_missing".to_owned()))?;
             let image = ImageRef {
                 id: info.id,
-                cc_version: None,
+                harness_version: None,
             };
             let mut env: Vec<(String, String)> = ClientEnv::from_process().pairs().to_vec();
             if let Some(path) = std::env::var_os("PATH") {

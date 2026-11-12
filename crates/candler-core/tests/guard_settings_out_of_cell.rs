@@ -74,12 +74,12 @@ impl ImageService for Recording {
         Box::pin(async {
             Ok(ImageRef {
                 id: ImageId(format!("sha256:{}", "7".repeat(64))),
-                cc_version: None,
+                harness_version: None,
             })
         })
     }
 
-    fn cc_version<'a>(
+    fn harness_version<'a>(
         &'a self,
         _image: &'a ImageRef,
     ) -> BoxFuture<'a, Result<semver::Version, ImageError>> {

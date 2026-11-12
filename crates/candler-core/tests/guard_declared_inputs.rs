@@ -223,12 +223,12 @@ impl ImageService for OneImage {
         Box::pin(async {
             Ok(ImageRef {
                 id: ImageId(format!("sha256:{}", "7".repeat(64))),
-                cc_version: None,
+                harness_version: None,
             })
         })
     }
 
-    fn cc_version<'a>(
+    fn harness_version<'a>(
         &'a self,
         _image: &'a ImageRef,
     ) -> BoxFuture<'a, Result<semver::Version, ImageError>> {
@@ -565,6 +565,12 @@ impl HarnessDriver for Collecting {
     }
     fn capabilities(&self) -> Capabilities {
         self.0.capabilities()
+    }
+    fn gateway(&self) -> Option<candler_harness::spec::GatewayEnv> {
+        self.0.gateway()
+    }
+    fn state_paths(&self) -> Vec<candler_harness::spec::StatePath> {
+        self.0.state_paths()
     }
     fn prepare(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Prepared, DriverError> {
         self.0.prepare(cell, workspace)

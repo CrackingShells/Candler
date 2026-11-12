@@ -2,7 +2,7 @@
 //!
 //! A file is an artifact when an artifact glob matches `outputs/<path>` and every component of
 //! `<path>` that starts with `.` is named literally by that same glob. The rule therefore drops
-//! `.claude/`, `AppleDouble` `._*` files and `.DS_Store` under a glob such as `outputs/**`, and
+//! `.cache/`, `AppleDouble` `._*` files and `.DS_Store` under a glob such as `outputs/**`, and
 //! keeps a dot path only for a glob that spells the dot component out, as in `outputs/.env`.
 
 use candler_schemas::primitives::RelPath;

@@ -79,7 +79,7 @@ fn sidecar_image() -> ImageRef {
     .must("docker image inspect");
     ImageRef {
         id: ImageId(String::from(id.trim())),
-        cc_version: None,
+        harness_version: None,
     }
 }
 

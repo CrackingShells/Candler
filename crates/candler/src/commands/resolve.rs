@@ -30,10 +30,11 @@ use candler_schemas::execution::{EventPayload, ExperimentFile};
 use candler_schemas::primitives::{FieldPath, RunKey};
 use candler_schemas::values::{SourceEntry, ValueSource};
 
-use super::preflight::{check_factors, foreground, request_settings};
+use super::preflight::{check_factors, foreground, request_settings, requested_harness};
 use super::refusal::CliRefusal;
 use super::term::Paint;
 use super::{CliError, Exit, common};
+use crate::drivers::Registry;
 
 /// The arguments of `candler resolve`.
 #[derive(Debug, clap::Args)]
@@ -242,7 +243,10 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let root = common::store_root("resolve", store).await?;
     let config = Arc::new(Config::load(&cwd, &ConfigEnv::from_process()).map_err(failed_here)?);
     let input = request_settings(&file, experiment_dir.as_path(), &fields, &cwd)?;
-    let services = foreground(Arc::clone(&config), &root)?;
+    let entry = Registry::builtin()
+        .map_err(failed_here)?
+        .entry(&requested_harness(&input)?)?;
+    let services = foreground(Arc::clone(&config), &root, &entry)?;
     let supervisor = {
         // TRAIT_OBJECT: the check belongs to no job and reports no event
         let sink: Arc<dyn EventSink> = Arc::new(Silent);
