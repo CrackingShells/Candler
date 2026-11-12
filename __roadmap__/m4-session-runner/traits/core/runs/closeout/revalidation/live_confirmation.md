@@ -3,7 +3,7 @@
 **Goal**: On a model Eliott chose, session mode is confirmed once live: C1 (the agent waits, a background job's notification wakes it for a second turn, the session closes), C2 (one answer, the session closes `runner.idle_s` later), and one OpenCode run goes through Candler end to end.
 **Pre-conditions**:
 - [ ] [cmd] The leaf's worktree is its own checkout: `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints the worktree path
-- [ ] [nl] Eliott gave his go and his model choice for at most 5 RiVault runs, after a RiVault health check
+- [x] [nl] Eliott gave his go and his model choice for at most 5 RiVault runs (2026-11-12: Reasoning-Small), run after a RiVault health check
 - [ ] [nl] OWNED: `__reports__/m4-session-runner/live_confirmation_v0.md`, the experiment files and command lines it commits under `__reports__/m4-session-runner/live/`; scratch stores under `/private/tmp/claude-501/m4-live/`
 **Success Gates**:
 - ⬜ [nl] C1 live: one session run records at least two turns, a notification-started turn, `session.end = closed` and `run.ended_by` `completed`

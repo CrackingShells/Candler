@@ -5,7 +5,7 @@
 - [ ] [cmd] The leaf's worktree is its own checkout: `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints the worktree path
 - [ ] [cmd] The scope exists: `grep -q '"adapter-opencode"' cog.toml`
 - [x] [nl] Eliott gave his go for the download before Step 1 (2026-11-12): `opencode-linux-arm64.tar.gz` of the GitHub release `anomalyco/opencode` v2.2.7, 120,326,654 bytes, sha256 `c1682057f0815cb2abdd6e00305f1146ebaf1c167f0335cdb74ddc80008120e7`; that file only
-- [ ] [nl] Eliott gave his go and model for at most 3 RiVault runs before the real-model runs of Step 2, after a RiVault health check
+- [x] [nl] Eliott gave his go for at most 3 RiVault runs (2026-11-12); the runs used Reasoning-Small, which he confirmed afterwards as his model choice
 - [ ] [nl] OWNED: `crates/candler-harness-opencode/{Cargo.toml,src/lib.rs,tests/fixtures/**}`, `Cargo.lock` (the new member only), `__reports__/m4-session-runner/leaves/opencode_facts_v0.md`
 **Success Gates**:
 - ⬜ [cmd] The stub crate is a workspace member and builds: `cargo metadata --format-version 1 --no-deps | jq -e '.packages[] | select(.name=="candler-harness-opencode")' >/dev/null && cargo build -p candler-harness-opencode`
