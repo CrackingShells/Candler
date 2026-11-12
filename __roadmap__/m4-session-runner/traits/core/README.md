@@ -21,7 +21,7 @@ graph TD
     harness_out_of_core[Harness out of core]:::done
     opencode_driver[OpenCode driver]:::done
     runs[Runs]:::planned
-    opencode_settings[OpenCode settings]:::inprogress
+    opencode_settings[OpenCode settings]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -35,7 +35,7 @@ graph TD
 | `harness_out_of_core.md` | 📄 Leaf Task | ✅ Done |
 | `opencode_driver.md` | 📄 Leaf Task | ✅ Done |
 | `runs/` | 📁 Directory | ⬜ Planned |
-| `opencode_settings.md` | 📄 Leaf Task | 🔄 In Progress |
+| `opencode_settings.md` | 📄 Leaf Task | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
