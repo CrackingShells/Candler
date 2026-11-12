@@ -4,7 +4,7 @@
 **Pre-conditions**:
 - [ ] [cmd] The leaf's worktree is its own checkout: `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints the worktree path
 - [ ] [nl] Read first: `__reports__/m4-session-runner/leaves/opencode_facts_v0.md`
-- [ ] [nl] OWNED: `crates/candler-harness-opencode/**`, `Cargo.lock` (this crate's dependencies), `assets/docker/base-opencode/**`
+- [ ] [nl] OWNED: `crates/candler-harness-opencode/**`, `Cargo.lock` (this crate's dependencies), `assets/docker/base-opencode/**`; the `ASSETS` array of `crates/candler/src/commands/assets.rs` (the binary embeds every file under `assets/docker`, as M3's U3 guard checks); its error enums' codes in `docs/contract/codes.toml`
 **Success Gates**:
 - ⬜ [cmd] K1 for OpenCode: `cargo nextest run -p candler-harness-opencode --no-tests=fail -E 'test(/^conformance_/)'`
 - ⬜ [cmd] O1: the export parse, the forced `--standalone --format json`, the in-container pre-stop carrying `{session_id}`, the isolated state paths, and `codemode` read from a cell value under `mcp.*`: `cargo nextest run -p candler-harness-opencode --no-tests=fail -E 'test(/^opencode_/)'`
