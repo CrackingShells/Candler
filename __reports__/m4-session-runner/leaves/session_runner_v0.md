@@ -134,3 +134,24 @@ Commits: df539b4 (Stop lines tied to turns), 2486ee1 (lost Stop, idle label). Ea
 **4. Notes, no fix.** `experiment.session_refused` is returned at resolve only when the session step is the only failed step; otherwise the author sees `resolve.preflight_failed`. A refusal covering several bad cells names the first. `[fixed] runner.idle_s` is refused even when every factor level is `session`.
 
 New code: none this round. Gates: workspace 657/657; S4 2/2 with Docker (images removed by exact id); SPAWN 9/9; LINUX, clippy `-D warnings`, doc clean; DIGEST 9 + 45; GOLDEN 2 + 1; SUBJ clean (all subjects ≤72); `field_paths.toml` has no `-` lines.
+
+## Fix round 3
+
+Commits: 707e492 (coverage rule), 57ae13c (`hooks_incomplete` doc). Bites restored from copies, each seen red.
+
+**Rule.** No text gate. A Stop payload with a new `prompt_id` covers the earliest ended turn that needs one (a payload read before its `result` waits for the next turn). A later payload with the same `prompt_id` (a continuation) covers nothing new; its pending lists replace the turn's, so the latest list stands. A payload without `prompt_id` leaves the state unknown. A `result` with `num_turns == 0` creates no turn that needs a Stop. An error result (`is_error`) needs none but leaves the state unknown until a later turn is covered; if the agent never takes another turn, the wall end is `hooks_incomplete`.
+
+**Sources.** The coalesced `num_turns` 0 shape is not in the documentation reachable through context7 (the SDK docs only describe the task-notification message); it rests on the verifier's probe. StopFailure's documented payload holds `error`, `error_details` and `last_assistant_message`, with no `background_tasks` or `session_crons`, so no StopFailure hook is installed and it cannot cover the error turn.
+
+**Text diagnostic dropped.** I first recorded `session.stop_text_mismatches`; on the coordinator's correction it was removed (tracker, `PendingState`, `SessionMeasures`, the measure). Text takes no part. Net effect on `candler-harness` and the evidence code: none.
+
+**`hooks_incomplete()`.** Kept, true for any unknown final state after a turn ended; the doc says the value names the instrument, not the cause.
+
+**Guard rows.** `session_close_needs_a_stop_for_every_turn` now holds two rows: the same Stop twice then a second result (stays unknown), and coalesced notifications (closes). Removed as restating those: result-before-Stop, Stop 11 ms later, Stop-before-result, Stop-less second turn, late Stop with a wake-up, turn-1 Stop after turn 2's result then turn 2's own Stop, and the text-gate row. I added no rows for the API error, continuation, missing `prompt_id` or trailing newline; the conformance tests' Stop payloads gained `"prompt_id":"p1"`.
+
+| Bite | Failing message |
+|---|---|
+| any Stop line covers a turn (id check off) | `the same Stop line twice, then a second result with no Stop line of its own: unknown`, due 3.1 s, expected never |
+| every result counts as a turn | `coalesced notifications: results that count no turn need no Stop line: no due time` |
+
+Gates: workspace 657/657, clippy `-D warnings`, doc `-D warnings`, LINUX clippy clean, fmt clean; S4 2/2 with Docker (the two images removed by exact id: 12 images and 3 containers, as before). SPAWN, DIGEST and GOLDEN were not re-run: this round touched no spawn, argv or digest code.
