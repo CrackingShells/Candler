@@ -18,7 +18,7 @@ Session mode is refused for a harness version whose controls fail, the core cann
 graph TD
     session_controls[Session controls]:::inprogress
     harness_guard[Harness guard]:::done
-    contract_docs[Contract docs]:::inprogress
+    contract_docs[Contract docs]:::done
     design_record[Design record]:::inprogress
     revalidation[Revalidation]:::planned
     classDef done       fill:#166534,color:#bbf7d0
@@ -33,7 +33,7 @@ graph TD
 |:-----|:-----|:-------|
 | `session_controls.md` | 📄 Leaf Task | 🔄 In Progress |
 | `harness_guard.md` | 📄 Leaf Task | ✅ Done |
-| `contract_docs.md` | 📄 Leaf Task | 🔄 In Progress |
+| `contract_docs.md` | 📄 Leaf Task | ✅ Done |
 | `design_record.md` | 📄 Leaf Task | 🔄 In Progress |
 | `revalidation/` | 📁 Directory | ⬜ Planned |
 
