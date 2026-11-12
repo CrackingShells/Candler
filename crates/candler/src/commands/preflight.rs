@@ -19,7 +19,7 @@ use candler_core::resolve::steps::{M2bServices, register_m2b_steps};
 use candler_core::runner::evidence::catalog::{CatalogCommand, CommandCatalogProvider};
 use candler_core::runner::plan::{PlanError, experiment_of};
 use candler_core::supervise::{EventSink, Supervisor};
-use candler_harness::driver::HarnessDriver as _;
+use candler_harness::driver::HarnessDriver;
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_schemas::execution::{EventPayload, ExperimentFile, Level};
 use candler_schemas::primitives::{FieldPath, RunKey};
@@ -312,11 +312,14 @@ pub(crate) fn foreground(config: Arc<Config>, root: &Path) -> Result<Foreground,
     let supervisor = Arc::new(Supervisor::new(sink));
     let env = ClientEnv::from_process();
     let cli = DockerCli::new(Arc::clone(&supervisor), env.clone(), control).map_err(failed)?; // BORROW: the client owns its env
+    // TRAIT_OBJECT: the driver is handed to the image service as the trait it implements
+    let driver: Arc<dyn HarnessDriver> = Arc::new(ClaudeCodeDriver::new().map_err(failed)?);
     let images = DockerImageService::new(
         Arc::clone(&supervisor),
         cli.clone(), // BORROW: the service owns its client
         env.clone(), // BORROW: the service owns its env
         assets.images,
+        Arc::clone(&driver),
     );
     // BORROW: .to_owned() gives the command its own words
     let argv = vec!["sh".to_owned(), "-c".to_owned(), CATALOG_PROGRAM.to_owned()];
@@ -331,7 +334,7 @@ pub(crate) fn foreground(config: Arc<Config>, root: &Path) -> Result<Foreground,
         supervisor,
         images: Arc::new(images),
         catalog: Arc::new(catalog),
-        harness_supported: ClaudeCodeDriver::new().map_err(failed)?.supported(),
+        harness_supported: driver.supported(),
     };
     let resolver = compose_resolver(config, &services).map_err(failed)?;
     Ok(Foreground {

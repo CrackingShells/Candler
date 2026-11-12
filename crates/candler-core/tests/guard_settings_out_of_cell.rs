@@ -79,7 +79,7 @@ impl ImageService for Recording {
         })
     }
 
-    fn cc_version<'a>(
+    fn harness_version<'a>(
         &'a self,
         _image: &'a ImageRef,
     ) -> BoxFuture<'a, Result<semver::Version, ImageError>> {

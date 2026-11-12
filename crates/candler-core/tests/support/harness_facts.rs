@@ -376,8 +376,7 @@ impl VersionRig {
             store_root: dir.path().join("store"),
         };
         // ----- adapter: the service's constructor -----
-        let _ = &driver;
-        let service = DockerImageService::new(supervisor, cli, env, assets);
+        let service = DockerImageService::new(supervisor, cli, env, assets, driver);
         Self {
             service,
             log,
@@ -392,7 +391,7 @@ impl VersionRig {
             cc_version: None,
         };
         // ----- adapter: the call that reads the harness version -----
-        self.service.cc_version(&image).await
+        self.service.harness_version(&image).await
     }
 
     /// The argv of every `docker run` the fake saw, as JSON arrays of words.
@@ -435,7 +434,7 @@ impl ImageService for Fixed {
     }
 
     // ----- adapter: the method that reads the harness version -----
-    fn cc_version<'a>(
+    fn harness_version<'a>(
         &'a self,
         _image: &'a ImageRef,
     ) -> BoxFuture<'a, Result<semver::Version, ImageError>> {
@@ -543,13 +542,11 @@ pub fn experiments(dir: &Path) -> Vec<(String, ExperimentFile)> {
         ExperimentFile::from_toml_str(text.as_str()).expect("an experiment file")
     };
     std::fs::write(dir.join("requirements.in"), "gtpyhop\n").expect("a requirements file");
-    let settings = format!(
-        "schema = \"experiment/1\"\nreplicates = 1\n\n[fixed]\n\"prompt.template\" = \"say hello\"\n\
+    let settings = "schema = \"experiment/1\"\nreplicates = 1\n\n[fixed]\n\"prompt.template\" = \"say hello\"\n\
          \"isolation.build.prune\" = [\"a.py\", \"b.py\"]\n\"isolation.record_packages\" = [\"numpy\"]\n\
          \"permission_mode\" = \"acceptEdits\"\n\n\
          [[factors]]\npath = \"model.id\"\nlevels = [\"m1\", \"m2\"]\n\n\
-         [budget.per_run]\nwall_s = 5\nturns = 4\n\n[harness]\nname = \"claude-code\"\n\n[treatment]\nname = \"htn\"\n"
-    );
+         [budget.per_run]\nwall_s = 5\nturns = 4\n\n[harness]\nname = \"claude-code\"\n\n[treatment]\nname = \"htn\"\n";
     vec![
         (
             String::from("cont_train"),
@@ -565,7 +562,7 @@ pub fn experiments(dir: &Path) -> Vec<(String, ExperimentFile)> {
         ),
         (
             String::from("settings_experiment"),
-            ExperimentFile::from_toml_str(settings.as_str()).expect("an experiment file"),
+            ExperimentFile::from_toml_str(settings).expect("an experiment file"),
         ),
     ]
 }

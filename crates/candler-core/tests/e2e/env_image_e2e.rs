@@ -21,6 +21,7 @@ use candler_core::isolation::image::{
 };
 use candler_core::isolation::model::ImageRef;
 use candler_core::supervise::{EventSink, Supervisor};
+use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_schemas::execution::EventPayload;
 use candler_schemas::primitives::RunKey;
 use serde_json::{Value, json};
@@ -207,6 +208,7 @@ impl World {
                 env_context,
                 store_root: store_root.clone(), // BORROW: .clone() keeps the root for the probe
             },
+            Arc::new(ClaudeCodeDriver::new().expect("the driver builds from constants")),
         );
         Self {
             service,

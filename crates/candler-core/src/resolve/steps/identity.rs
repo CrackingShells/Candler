@@ -59,7 +59,7 @@ fn json_of<T: serde::Serialize>(value: &T) -> Result<JsonValue, PreflightError> 
     JsonValue::new(json).map_err(|e| failed(e.to_string()))
 }
 
-/// Derives `harness`: the name the request asks for and the Claude Code version in the image.
+/// Derives `harness`: the name the request asks for and the version of that harness in the image.
 pub struct HarnessIdentityStep {
     name: NameToken,
     // TRAIT_OBJECT: the service is docker, or a fake in tests
@@ -108,19 +108,21 @@ impl PreflightStep for HarnessIdentityStep {
                 cc_version: None,
             };
             let version = images
-                .cc_version(&image)
+                .harness_version(&image)
                 .await
                 .map_err(|e| failed(e.to_string()))?;
             if !supported.matches(&version) {
                 return Err(failed(format!(
-                    "Claude Code {version} is outside the versions the driver supports ({supported})"
+                    "{name} {version} is outside the versions the driver supports ({supported})",
+                    name = request.name
                 )));
             }
             if let Some(wanted) = &request.version
                 && !wanted.matches(&version)
             {
                 return Err(failed(format!(
-                    "Claude Code {version} is outside the version the request asks for ({wanted})"
+                    "{name} {version} is outside the version the request asks for ({wanted})",
+                    name = request.name
                 )));
             }
             let identity = HarnessIdentity::new(request.name, version);

@@ -108,12 +108,12 @@ impl ImageInfo {
     }
 }
 
-/// An image a run may start containers from, and the Claude Code version inside it.
+/// An image a run may start containers from, and the version of the harness inside it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageRef {
     /// The image id.
     pub id: ImageId,
-    /// The version the image's `claude --version` reports, when it has been read.
+    /// The version the harness's version probe reports inside the image, when it has been read.
     pub cc_version: Option<semver::Version>,
 }
 

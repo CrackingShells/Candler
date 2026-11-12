@@ -1,5 +1,5 @@
-//! The image the agent runs in: built from the lock, found by id, and read for its Claude Code
-//! version and the packages an experiment names.
+//! The image the agent runs in: built from the lock, found by id, and read for the version of its
+//! harness and the packages an experiment names.
 
 use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+use candler_harness::driver::HarnessDriver;
 use futures::future::BoxFuture;
 use rustix::fs::{FlockOperation, flock};
 use sha2::Digest as _;
@@ -23,7 +24,8 @@ use crate::supervise::spawn::SpawnRequest;
 use crate::supervise::stop::Ended;
 use candler_schemas::process::ExitStatus;
 
-/// The seconds the entrypoint `timeout` gives `claude --version` inside the control container.
+/// The seconds the entrypoint `timeout` gives the harness's version probe inside the control
+/// container.
 const PROBE_SECONDS: &str = "10";
 
 /// How long the docker client of a control call may run before the supervisor ends it.
@@ -31,9 +33,6 @@ const CONTROL_DEADLINE: Duration = Duration::from_secs(60);
 
 /// The most bytes of the probe's output that are read.
 const PROBE_OUTPUT_LIMIT: usize = 4 * 1024;
-
-/// The suffix `claude --version` puts after the version.
-const VERSION_SUFFIX: &str = " (Claude Code)";
 
 /// The repository of the base image.
 const BASE_REPO: &str = "candler-base";
@@ -44,8 +43,8 @@ const ENV_REPO: &str = "candler-env";
 /// The label of an env image that holds the hex digest of its lock.
 const LOCK_LABEL: &str = "candler.lock";
 
-/// The label of the base image that holds the Claude Code version it carries.
-const CC_LABEL: &str = "candler.cc_version";
+/// The label of the base image that holds the version of the harness it carries.
+pub const HARNESS_VERSION_LABEL: &str = "candler.cc_version";
 
 /// The repository of the images that carry an experiment's own layer.
 const EXT_REPO: &str = "candler-ext";
@@ -97,6 +96,8 @@ pub struct DockerImageService {
     sup: Arc<Supervisor>,
     // TRAIT_OBJECT: the driver is the real CLI in production and a fake in tests
     docker: Arc<dyn DockerDriver>,
+    // TRAIT_OBJECT: the harness driver names the version probe and parses its output
+    harness: Arc<dyn HarnessDriver>,
     assets: ImageAssets,
     binary: PathBuf,
     env: ClientEnv,
@@ -104,21 +105,31 @@ pub struct DockerImageService {
 
 impl DockerImageService {
     /// A service over the docker client `cli`; control containers are run through `sup` with the
-    /// client's binary and `env`.
+    /// client's binary and `env`. The version of the image's harness is read with `harness`'s
+    /// version probe and parse.
     #[must_use]
-    pub fn new(sup: Arc<Supervisor>, cli: DockerCli, env: ClientEnv, assets: ImageAssets) -> Self {
+    // TRAIT_OBJECT: the harness driver is the binary's choice, or a fake in tests
+    pub fn new(
+        sup: Arc<Supervisor>,
+        cli: DockerCli,
+        env: ClientEnv,
+        assets: ImageAssets,
+        harness: Arc<dyn HarnessDriver>,
+    ) -> Self {
         // BORROW: .to_path_buf() keeps the client's binary for the control calls
         let binary = cli.binary().to_path_buf();
         Self {
             sup,
             docker: Arc::new(cli),
+            harness,
             assets,
             binary,
             env,
         }
     }
 
-    /// Runs `claude --version` in a control container of `image` and parses its output.
+    /// Runs the harness's version probe in a control container of `image` and parses its output
+    /// with the harness driver. An error names the harness.
     async fn read_version(&self, image: &ImageRef) -> Result<semver::Version, ImageError> {
         let records = layout::control_dir(&self.assets.store_root).join(format!(
             "{}-{}",
@@ -131,7 +142,13 @@ impl DockerImageService {
         let outcome = self.probe(image, &records).await;
         // The record dir is this call's own and holds only this call's record.
         let _ = tokio::fs::remove_dir_all(&records).await;
-        outcome
+        outcome.map_err(|error| {
+            if let ImageError::VersionUnreadable { detail } = &error {
+                unreadable(&format!("{}: {detail}", self.harness.id()))
+            } else {
+                error
+            }
+        })
     }
 
     /// Takes the exclusive lock of the image `tag`, waiting for its holder. The lock is held for
@@ -356,7 +373,7 @@ impl DockerImageService {
             info = made;
             built = built || ran;
         }
-        let label = label_version(&info)?;
+        let label = label_version(&info, &self.harness.id().to_string())?;
         let image = ImageRef {
             id: info.id,
             // BORROW: .clone() keeps the label version to compare with the binary
@@ -366,6 +383,7 @@ impl DockerImageService {
             let binary = self.read_version(&image).await?;
             if binary != label {
                 return Err(ImageError::VersionMismatch {
+                    harness: self.harness.id().to_string(),
                     label: label.to_string(),
                     binary: binary.to_string(),
                 });
@@ -473,12 +491,17 @@ impl DockerImageService {
         image: &ImageRef,
         records: &std::path::Path,
     ) -> Result<semver::Version, ImageError> {
-        let argv = control_argv(&self.binary, image);
+        let probe = self.harness.version_probe();
+        if !probe.env_overlay().is_empty() || probe.cwd().is_some() {
+            return Err(unreadable(
+                "the version probe sets an environment or a directory, which a control container cannot honour",
+            ));
+        }
+        let argv = control_argv(&self.binary, image, probe.argv());
         let stdout = control_output(&self.sup, &self.env, records, argv).await?;
-        let text =
-            String::from_utf8(stdout).map_err(|_| unreadable("the version output is not text"))?;
-        // BORROW: explicit .as_str() instead of Deref coercion
-        parse_cc_version(text.as_str())
+        self.harness
+            .parse_version(&stdout)
+            .map_err(|error| unreadable(&error.to_string()))
     }
 }
 
@@ -676,7 +699,7 @@ impl ImageService for DockerImageService {
         Box::pin(self.ensure_image(lock, setting))
     }
 
-    fn cc_version<'a>(
+    fn harness_version<'a>(
         &'a self,
         image: &'a ImageRef,
     ) -> BoxFuture<'a, Result<semver::Version, ImageError>> {
@@ -758,14 +781,14 @@ fn docker_failed(error: &DockerError) -> ImageError {
     build_failed(&error.to_string())
 }
 
-/// The Claude Code version the image's label names.
-fn label_version(info: &ImageInfo) -> Result<semver::Version, ImageError> {
+/// The version of the harness `harness` that the image's label names.
+fn label_version(info: &ImageInfo, harness: &str) -> Result<semver::Version, ImageError> {
     let text = info
         .labels
-        .get(CC_LABEL)
-        .ok_or_else(|| unreadable("the image has no Claude Code version label"))?;
+        .get(HARNESS_VERSION_LABEL)
+        .ok_or_else(|| unreadable(&format!("{harness}: the image has no version label")))?;
     semver::Version::from_str(text)
-        .map_err(|_| unreadable("the Claude Code version label is not a version"))
+        .map_err(|_| unreadable(&format!("{harness}: the version label is not a version")))
 }
 
 /// Lower-case hex of `bytes`.
@@ -921,9 +944,13 @@ fn unreadable(detail: &str) -> ImageError {
 }
 
 /// The argv of the control container that prints the version: it removes itself, has no
-/// network, no capabilities and a read-only root, and its entrypoint is a coreutils `timeout`.
-fn control_argv(program: &Path, image: &ImageRef) -> Vec<String> {
-    control_argv_with(program, image, &[PROBE_SECONDS, "claude", "--version"])
+/// network, no capabilities and a read-only root, and its entrypoint is a coreutils `timeout`
+/// over the probe `command`.
+fn control_argv(program: &Path, image: &ImageRef, command: &[String]) -> Vec<String> {
+    let mut tail: Vec<&str> = vec![PROBE_SECONDS];
+    // BORROW: explicit .as_str() lends each word of the probe
+    tail.extend(command.iter().map(String::as_str));
+    control_argv_with(program, image, &tail)
 }
 
 /// The argv of a control container of `image` that runs `tail` under `timeout`.
@@ -962,29 +989,6 @@ fn control_argv_with(program: &Path, image: &ImageRef, tail: &[&str]) -> Vec<Str
     // BORROW: .to_string_lossy().into_owned() gives the argv the binary path as text
     argv.insert(0, program.to_string_lossy().into_owned());
     argv
-}
-
-/// Reads the version from the output of `claude --version`: one line,
-/// `<major>.<minor>.<patch> (Claude Code)`, and nothing else.
-///
-/// # Errors
-/// [`ImageError::VersionUnreadable`] for any other output.
-pub fn parse_cc_version(output: &str) -> Result<semver::Version, ImageError> {
-    let line = output.trim();
-    let bad = || unreadable("the output is not `<major>.<minor>.<patch> (Claude Code)`");
-    let number = line.strip_suffix(VERSION_SUFFIX).ok_or_else(bad)?;
-    let mut parts = number.split('.').map(|part| {
-        if part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()) {
-            return None;
-        }
-        part.parse::<u64>().ok()
-    });
-    match (parts.next(), parts.next(), parts.next(), parts.next()) {
-        (Some(Some(major)), Some(Some(minor)), Some(Some(patch)), None) => {
-            Ok(semver::Version::new(major, minor, patch))
-        }
-        _ => Err(bad()),
-    }
 }
 
 /// The digest of the image lock the build starts from: the bare sha256 hex of the lock bytes.
@@ -1049,16 +1053,18 @@ pub enum ImageError {
     /// The lock bytes do not have the digest the caller named.
     #[error("the lock does not match its digest")]
     LockMismatch,
-    /// The binary in the image and its label name different Claude Code versions.
-    #[error("the image label says {label} but the binary says {binary}")]
+    /// The binary in the image and its label name different versions of the harness.
+    #[error("the image label says {label} but the {harness} binary says {binary}")]
     VersionMismatch {
+        /// The id of the harness.
+        harness: String,
         /// The version the label names.
         label: String,
         /// The version the binary prints.
         binary: String,
     },
     /// The version output named no version.
-    #[error("the Claude Code version cannot be read: {detail}")]
+    #[error("the harness version cannot be read: {detail}")]
     VersionUnreadable {
         /// What is wrong with the output.
         detail: String,
@@ -1086,11 +1092,12 @@ pub trait ImageService: Send + Sync {
         setting: &'a BuildSetting,
     ) -> BoxFuture<'a, Result<ImageRef, ImageError>>;
 
-    /// Reads the Claude Code version inside the image.
+    /// Reads the version of the harness inside the image: the driver's version probe runs in a
+    /// control container, and the driver parses what it prints.
     ///
     /// # Errors
     /// [`ImageError::VersionUnreadable`] when the output names no version.
-    fn cc_version<'a>(
+    fn harness_version<'a>(
         &'a self,
         image: &'a ImageRef,
     ) -> BoxFuture<'a, Result<semver::Version, ImageError>>;
