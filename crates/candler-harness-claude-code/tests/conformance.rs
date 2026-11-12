@@ -477,12 +477,24 @@ fn conformance_claude_skills_layout() -> Res<()> {
     Ok(())
 }
 
-/// Guards: R01 §Session runner, D2 fallback — a turn that ends with no `Stop` line (an
-/// `error_max_turns` result) is a turn end whose pending list is the latest
-/// `background_tasks_changed`, and the next turn starts at the notification. Oracle: the hand-written
-/// lines, shaped as `session_facts` F1 and the recorded c1 lines describe them.
+/// Guards: R01 §Session runner, D2 fallback, §Agent environment and secrets — the tracker and
+/// pending-work table: (1) a turn that ends with no `Stop` line (an `error_max_turns` result) is a
+/// turn end whose pending list is the latest `background_tasks_changed`, and the next turn starts
+/// at the notification; (2) no Stop line ever seen keeps a readable empty task list as "not
+/// nothing pending", with or without a task list at all; (3) a Stop whose cron list cannot be read
+/// is unknown until a readable task list follows; (4) a readable Stop and task list make the state
+/// known, and a line about the task list that does not parse (cut JSON, non-JSON, a renamed key, a
+/// non-list) makes it unknown while keeping the last known list, restored by the next readable
+/// list; (5) entries and keys that cannot be read (`run_id` instead of `task_id`, an empty id, `id`
+/// instead of `task_id`, a bare string) leave the state unknown with the list unchanged; (6) a Stop
+/// payload with an id-less item or a missing list is refused and leaves the tracker unknown.
+/// Oracle: the hand-written lines, shaped as `session_facts` F1 and the recorded c1 lines describe
+/// them.
 #[test]
-fn conformance_claude_tracker_without_a_stop_line() -> Res<()> {
+fn conformance_claude_tracker_and_pending_work() -> Res<()> {
+    type Tracker = Box<dyn candler_harness::spec::SessionTracker>; // TRAIT_OBJECT: the core holds trackers as objects
+
+    // (1) A turn that ends with no Stop line.
     let driver = ClaudeCodeDriver::new()?;
     let mut tracker = driver.session_tracker().ok_or("no tracker")?;
     let lines = [
@@ -504,6 +516,106 @@ fn conformance_claude_tracker_without_a_stop_line() -> Res<()> {
         tracker.state(),
         PendingState::new(1, false, false, tasks(&["b9"]))
     );
+
+    let fresh = || driver.session_tracker().ok_or("no tracker");
+    let stream =
+        |tracker: &mut Tracker, line: &str| tracker.feed(SessionRecord::Stream(line.as_bytes()));
+    let hook = |tracker: &mut Tracker, payload: &str| {
+        tracker.feed(SessionRecord::Hook(
+            format!(r#"{{"written_ns":1,"payload":{payload}}}"#).as_bytes(),
+        ))
+    };
+    let tasks_line = |tasks: &str| {
+        format!(r#"{{"type":"system","subtype":"background_tasks_changed","tasks":{tasks}}}"#)
+    };
+    let stop = |tasks: &str, crons: &str| {
+        format!(
+            r#"{{"hook_event_name":"Stop","background_tasks":{tasks},"session_crons":{crons}}}"#
+        )
+    };
+
+    // (2) No Stop line was ever seen: a readable empty task list is not "nothing pending".
+    let mut tracker = fresh()?;
+    stream(&mut tracker, r#"{"type":"assistant"}"#)?;
+    stream(&mut tracker, &tasks_line("[]"))?;
+    stream(
+        &mut tracker,
+        r#"{"type":"result","subtype":"error_max_turns"}"#,
+    )?;
+    assert_eq!(tracker.state(), PendingState::new(1, true, false, vec![]));
+    // The same with no task list at all.
+    let mut tracker = fresh()?;
+    stream(
+        &mut tracker,
+        r#"{"type":"result","subtype":"error_max_turns"}"#,
+    )?;
+    assert_eq!(tracker.state(), PendingState::new(1, true, false, vec![]));
+
+    // (3) A Stop whose cron list cannot be read, then a readable task list.
+    let mut tracker = fresh()?;
+    assert!(hook(&mut tracker, &stop("[]", r#"[{"x":1}]"#)).is_err());
+    assert!(!tracker.state().known);
+    stream(&mut tracker, &tasks_line("[]"))?;
+    assert_eq!(tracker.state(), PendingState::new(0, false, false, vec![]));
+
+    // (4) A readable Stop and task list make the state known; a line about the task list that
+    // does not parse then makes it unknown and keeps the list.
+    let mut tracker = fresh()?;
+    hook(&mut tracker, &stop(r#"[{"id":"b9"}]"#, "[]"))?;
+    assert_eq!(
+        tracker.state(),
+        PendingState::new(0, false, true, tasks(&["b9"]))
+    );
+    for cut in [
+        r#"{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"b9"#,
+        "not json at all, background_tasks_changed",
+    ] {
+        stream(&mut tracker, cut)?;
+        assert_eq!(
+            tracker.state(),
+            PendingState::new(0, false, false, tasks(&["b9"])),
+            "{cut}"
+        );
+        stream(&mut tracker, &tasks_line(r#"[{"task_id":"b9"}]"#))?;
+        assert!(tracker.state().known, "a readable list restores it");
+    }
+    // A line that does not parse and is not about the task list changes nothing.
+    stream(&mut tracker, "not json")?;
+    assert!(tracker.state().known);
+
+    // (5) Entries and keys that cannot be read.
+    for bad in [
+        r#"[{"task_id":"b8"},{"run_id":"r"}]"#,
+        r#"[{"task_id":""}]"#,
+        r#"[{"id":"b8"}]"#,
+        r#""b8""#,
+    ] {
+        stream(&mut tracker, &tasks_line(bad))?;
+        assert_eq!(
+            tracker.state(),
+            PendingState::new(0, false, false, tasks(&["b9"])),
+            "{bad}"
+        );
+        stream(&mut tracker, &tasks_line(r#"[{"task_id":"b9"}]"#))?;
+        assert!(tracker.state().known);
+    }
+    stream(
+        &mut tracker,
+        r#"{"type":"system","subtype":"background_tasks_changed","jobs":[{"task_id":"b8"}]}"#,
+    )?;
+    assert!(!tracker.state().known);
+
+    // (6) A Stop payload with an id-less item or a missing list is refused and unknown.
+    for bad in [
+        stop(r#"[{"type":"shell"}]"#, "[]"),
+        stop("[]", r#"[{"id":""}]"#),
+        r#"{"hook_event_name":"Stop","background_tasks":[]}"#.to_owned(),
+    ] {
+        let mut tracker = fresh()?;
+        hook(&mut tracker, &stop(r#"[{"id":"b9"}]"#, "[]"))?;
+        assert!(hook(&mut tracker, &bad).is_err(), "{bad}");
+        assert!(!tracker.state().known, "{bad}");
+    }
     Ok(())
 }
 
@@ -575,118 +687,5 @@ fn conformance_claude_session_command_keeps_the_headless_arguments() -> Res<()> 
             "/home/agent/.candler/settings.json"
         ]
     );
-    Ok(())
-}
-
-/// Guards: R01 §Session runner, D2 — pending work that cannot be read is never "nothing". The state
-/// is known only when the task list and the wake-up and cron list were both read, and only a `Stop`
-/// payload lists the second. So: a turn with no Stop line is unknown, whatever the task list says;
-/// a Stop with an unreadable cron list stays unknown when a readable task list follows; a task list
-/// line that does not parse makes the state unknown and keeps the last list; an entry with no id,
-/// a renamed key or a list that is not a list makes it unknown; a readable Stop and task list
-/// restore it. Oracle: hand-written lines, shaped as the recorded c1 lines.
-#[test]
-fn conformance_claude_unreadable_pending_work_is_never_nothing() -> Res<()> {
-    type Tracker = Box<dyn candler_harness::spec::SessionTracker>; // TRAIT_OBJECT: the core holds trackers as objects
-    let driver = ClaudeCodeDriver::new()?;
-    let fresh = || driver.session_tracker().ok_or("no tracker");
-    let stream =
-        |tracker: &mut Tracker, line: &str| tracker.feed(SessionRecord::Stream(line.as_bytes()));
-    let hook = |tracker: &mut Tracker, payload: &str| {
-        tracker.feed(SessionRecord::Hook(
-            format!(r#"{{"written_ns":1,"payload":{payload}}}"#).as_bytes(),
-        ))
-    };
-    let tasks_line = |tasks: &str| {
-        format!(r#"{{"type":"system","subtype":"background_tasks_changed","tasks":{tasks}}}"#)
-    };
-    let stop = |tasks: &str, crons: &str| {
-        format!(
-            r#"{{"hook_event_name":"Stop","background_tasks":{tasks},"session_crons":{crons}}}"#
-        )
-    };
-
-    // (b) No Stop line was ever seen: a readable empty task list is not "nothing pending".
-    let mut tracker = fresh()?;
-    stream(&mut tracker, r#"{"type":"assistant"}"#)?;
-    stream(&mut tracker, &tasks_line("[]"))?;
-    stream(
-        &mut tracker,
-        r#"{"type":"result","subtype":"error_max_turns"}"#,
-    )?;
-    assert_eq!(tracker.state(), PendingState::new(1, true, false, vec![]));
-    // The same with no task list at all.
-    let mut tracker = fresh()?;
-    stream(
-        &mut tracker,
-        r#"{"type":"result","subtype":"error_max_turns"}"#,
-    )?;
-    assert_eq!(tracker.state(), PendingState::new(1, true, false, vec![]));
-
-    // (a) A Stop whose cron list cannot be read, then a readable task list.
-    let mut tracker = fresh()?;
-    assert!(hook(&mut tracker, &stop("[]", r#"[{"x":1}]"#)).is_err());
-    assert!(!tracker.state().known);
-    stream(&mut tracker, &tasks_line("[]"))?;
-    assert_eq!(tracker.state(), PendingState::new(0, false, false, vec![]));
-
-    // A readable Stop and task list make the state known; (c) a line about the task list that
-    // does not parse then makes it unknown and keeps the list.
-    let mut tracker = fresh()?;
-    hook(&mut tracker, &stop(r#"[{"id":"b9"}]"#, "[]"))?;
-    assert_eq!(
-        tracker.state(),
-        PendingState::new(0, false, true, tasks(&["b9"]))
-    );
-    for cut in [
-        r#"{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"b9"#,
-        "not json at all, background_tasks_changed",
-    ] {
-        stream(&mut tracker, cut)?;
-        assert_eq!(
-            tracker.state(),
-            PendingState::new(0, false, false, tasks(&["b9"])),
-            "{cut}"
-        );
-        stream(&mut tracker, &tasks_line(r#"[{"task_id":"b9"}]"#))?;
-        assert!(tracker.state().known, "a readable list restores it");
-    }
-    // A line that does not parse and is not about the task list changes nothing.
-    stream(&mut tracker, "not json")?;
-    assert!(tracker.state().known);
-
-    // Entries and keys that cannot be read.
-    for bad in [
-        r#"[{"task_id":"b8"},{"run_id":"r"}]"#,
-        r#"[{"task_id":""}]"#,
-        r#"[{"id":"b8"}]"#,
-        r#""b8""#,
-    ] {
-        stream(&mut tracker, &tasks_line(bad))?;
-        assert_eq!(
-            tracker.state(),
-            PendingState::new(0, false, false, tasks(&["b9"])),
-            "{bad}"
-        );
-        stream(&mut tracker, &tasks_line(r#"[{"task_id":"b9"}]"#))?;
-        assert!(tracker.state().known);
-    }
-    stream(
-        &mut tracker,
-        r#"{"type":"system","subtype":"background_tasks_changed","jobs":[{"task_id":"b8"}]}"#,
-    )?;
-    assert!(!tracker.state().known);
-
-    // A Stop payload with an id-less item or a missing list is refused and unknown.
-    for bad in [
-        stop(r#"[{"type":"shell"}]"#, "[]"),
-        stop("[]", r#"[{"id":""}]"#),
-        r#"{"hook_event_name":"Stop","background_tasks":[]}"#.to_owned(),
-    ] {
-        let mut tracker = fresh()?;
-        hook(&mut tracker, &stop(r#"[{"id":"b9"}]"#, "[]"))?;
-        assert!(hook(&mut tracker, &bad).is_err(), "{bad}");
-        assert!(!tracker.state().known, "{bad}");
-    }
     Ok(())
 }

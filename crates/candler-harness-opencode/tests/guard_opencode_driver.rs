@@ -5,12 +5,13 @@
 //! Each expectation is a literal written by hand from `opencode_facts`, from the recorded fixtures,
 //! or from what the real binary printed for the same file (`tests/fixtures/config`).
 
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr as _;
 
-use candler_harness::driver::{DriverError, HarnessDriver};
+use candler_harness::driver::{Disposition, DriverError, HarnessDriver};
 use candler_harness::reader::FrameIn;
 use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
@@ -92,39 +93,13 @@ fn prepared_config(extra: &[(&str, Value)]) -> Res<(candler_harness::spec::Prepa
     Ok((file, parsed))
 }
 
-/// Guards: R01 §`OpenCode` v2 — the run is `run --standalone --format json --auto -m <provider>/<model>`
-/// with the rendered prompt after `--`, so a prompt that starts with `-` stays a message.
-/// Oracle: `opencode_facts` row 2 (the run form) and the real binary, which refused
-/// `run … "--hello x"` as an unrecognised flag and took the same text after `--`.
-#[test]
-fn opencode_command_forces_standalone_json() -> Res<()> {
-    let argv = command_of(&[])??;
-    assert_eq!(
-        argv,
-        strings(&[
-            "opencode",
-            "run",
-            "--standalone",
-            "--format",
-            "json",
-            "--auto",
-            "-m",
-            "candler/claude-x",
-            "--",
-            "Do it"
-        ])
-    );
-    let dashed = command_of(&[("prompt.template", json!("--hello {thing}"))])??;
-    assert_eq!(dashed.get(dashed.len() - 2).map(String::as_str), Some("--"));
-    assert_eq!(dashed.last().map(String::as_str), Some("--hello it"));
-    Ok(())
-}
-
-/// The refusal of a command whose cell sets `path` to `value`, read through its [`Refusal`] and its text.
-fn unsupported_of(path: &str, value: Value) -> Res<(RefusalCode, Side, Option<String>, String)> {
-    let error = command_of(&[(path, value)])?
+/// The refusal of a command whose cell sets `extra`, read through its [`Refusal`] and its text.
+fn unsupported_of_cell(
+    extra: &[(&str, Value)],
+) -> Res<(RefusalCode, Side, Option<String>, String)> {
+    let error = command_of(extra)?
         .err()
-        .ok_or_else(|| format!("{path}: expected a refusal, got a command"))?;
+        .ok_or_else(|| format!("{extra:?}: expected a refusal, got a command"))?;
     Ok((
         Refusal::code(&error),
         Refusal::side(&error),
@@ -133,99 +108,406 @@ fn unsupported_of(path: &str, value: Value) -> Res<(RefusalCode, Side, Option<St
     ))
 }
 
-/// One setting `OpenCode` cannot honour is refused as unsupported, at the setting's pointer in
-/// the experiment file, in a message that names the setting, the harness and its version.
-fn assert_unsupported(path: &str, value: Value, pointer: &str) -> Res<()> {
-    let (code, side, at, message) = unsupported_of(path, value)?;
-    assert_eq!(code.as_str(), "experiment.setting_unsupported", "{path}");
-    assert_eq!(side, Side::Experiment, "{path}");
-    assert_eq!(at.as_deref(), Some(pointer), "{path}");
-    for needle in [pointer, "OpenCode", "2.2.7"] {
-        assert!(
-            message.contains(needle),
-            "{path}: `{needle}` in `{message}`"
-        );
+/// What one case of the settings table expects of a cell.
+enum Expect {
+    /// The command and the file map the setting: `permissions` is the exact top-level `permissions`
+    /// of the file (`Null` for none) and `variants` the model's `variants` entry (`Null` for none,
+    /// else the command line also selects it with `#<id>`).
+    Maps { permissions: Value, variants: Value },
+    /// The cell is refused as unsupported at `pointer`, the message holding `needle`.
+    Refuses {
+        pointer: &'static str,
+        needle: &'static str,
+    },
+}
+
+/// One case: the table row it answers, the cell values it sets, and what follows.
+struct Case {
+    setting: &'static str,
+    value: &'static str,
+    extra: Vec<(&'static str, Value)>,
+    expect: Expect,
+}
+
+fn case(
+    setting: &'static str,
+    value: &'static str,
+    extra: Vec<(&'static str, Value)>,
+    expect: Expect,
+) -> Case {
+    Case {
+        setting,
+        value,
+        extra,
+        expect,
+    }
+}
+
+/// A mapping that writes `permissions` and no variant.
+fn maps(permissions: Value) -> Expect {
+    Expect::Maps {
+        permissions,
+        variants: Value::Null,
+    }
+}
+
+/// Permission rows of one effect, one per action.
+fn perm_rows(effect: &str, actions: &[&str]) -> Value {
+    Value::Array(
+        actions
+            .iter()
+            .map(|action| json!({"action": action, "resource": "*", "effect": effect}))
+            .collect(),
+    )
+}
+
+fn refuses(pointer: &'static str, needle: &'static str) -> Expect {
+    Expect::Refuses { pointer, needle }
+}
+
+/// The variants entry an effort `level` writes.
+fn variants_of(level: &str) -> Value {
+    json!([{"id": level, "settings": {
+        "thinking": {"type": "adaptive", "display": "summarized"},
+        "effort": level,
+    }}])
+}
+
+/// Every case of the settings table. Each expectation is written by hand: the actions from the
+/// tools' registered permissions, the reasons from Claude Code's and `OpenCode`'s own sources.
+fn table_cases() -> Vec<Case> {
+    let mode = "permission_mode";
+    let opus = ("model.id", json!("claude-opus-4-7"));
+    let mut cases = vec![
+        case(mode, "bypassPermissions", vec![], maps(Value::Null)),
+        case(
+            mode,
+            "plan",
+            vec![(mode, json!("plan"))],
+            refuses("/fixed/permission_mode", "read-only shell"),
+        ),
+        // Plan with a tool list, a subagent or an MCP tool stays refused: nothing reopens it.
+        case(
+            mode,
+            "plan",
+            vec![(mode, json!("plan")), ("tools.allowed", json!(["Edit"]))],
+            refuses("/fixed/permission_mode", "read-only shell"),
+        ),
+        case(
+            mode,
+            "plan",
+            vec![(mode, json!("plan")), ("tools.allowed", json!(["Task"]))],
+            refuses("/fixed/permission_mode", "`subagent` child can edit"),
+        ),
+        case(
+            mode,
+            "plan",
+            vec![
+                (mode, json!("plan")),
+                ("tools.allowed", json!(["mcp__srv__tool"])),
+            ],
+            refuses("/fixed/permission_mode", "read-only shell"),
+        ),
+        case(
+            mode,
+            "default",
+            vec![(mode, json!("default"))],
+            refuses("/fixed/permission_mode", "built-in, non-configurable set"),
+        ),
+        case(
+            mode,
+            "acceptEdits",
+            vec![(mode, json!("acceptEdits"))],
+            refuses("/fixed/permission_mode", "knows no working directory"),
+        ),
+        case(
+            mode,
+            "*",
+            vec![(mode, json!("dontAsk"))],
+            refuses("/fixed/permission_mode", "only `bypassPermissions`"),
+        ),
+        case(
+            "budget.per_run.max_cost_usd",
+            "*",
+            vec![("budget.per_run.max_cost_usd", json!(1.5))],
+            refuses("/budget/per_run/max_cost_usd", "no cost cap"),
+        ),
+        case(
+            "budget.per_run.turns",
+            "*",
+            vec![("budget.per_run.turns", json!(5))],
+            refuses("/budget/per_run/turns", "`error_max_turns`"),
+        ),
+        // The models and levels the effort does not map for.
+        case(
+            "model.effort",
+            "*",
+            vec![("model.effort", json!("extreme")), opus.clone()], // BORROW: .clone() copies the value
+            refuses("/fixed/model.effort", "low, medium, high, xhigh and max"),
+        ),
+    ];
+    // `ultracode` is a Claude Code level the Claude Code driver passes through; OpenCode refuses it.
+    cases.push(case(
+        "model.effort",
+        "ultracode",
+        vec![("model.effort", json!("ultracode")), opus.clone()], // BORROW: .clone() copies the value
+        refuses("/fixed/model.effort", "no equivalent of that mode"),
+    ));
+    for level in ["low", "medium", "high", "xhigh", "max"] {
+        cases.push(case(
+            "model.effort",
+            level,
+            vec![("model.effort", json!(level)), opus.clone()], // BORROW: .clone() copies the value
+            Expect::Maps {
+                permissions: Value::Null,
+                variants: variants_of(level),
+            },
+        ));
+    }
+    // 4.6 takes `high` but not `xhigh`.
+    cases.push(case(
+        "model.effort",
+        "high",
+        vec![
+            ("model.effort", json!("high")),
+            ("model.id", json!("claude-opus-4-6")),
+        ],
+        Expect::Maps {
+            permissions: Value::Null,
+            variants: variants_of("high"),
+        },
+    ));
+    for (id, level) in [
+        ("claude-opus-4-6", "xhigh"),
+        ("claude-3-7-sonnet", "high"),
+        ("claude-opus-4-5", "high"),
+        ("claude-sonnet-4-20250514", "high"),
+        ("claude-opus-4-20250514", "high"),
+        ("claude-sonnet-4-5-20250929", "high"),
+        // Dated 3.x ids: the date is no major, these models take no adaptive thinking.
+        ("claude-3-5-sonnet-20241022", "high"),
+        ("claude-3-7-sonnet-20250219", "high"),
+        ("claude-3-opus-20240229", "high"),
+        // Haiku, even at a version that would otherwise take an effort.
+        ("claude-haiku-4-5", "high"),
+        ("claude-haiku-4-6", "high"),
+        ("claude-haiku-5", "high"),
+        ("gpt-x", "high"),
+    ] {
+        cases.push(case(
+            "model.effort",
+            "<model>",
+            vec![("model.effort", json!(level)), ("model.id", json!(id))],
+            refuses("/fixed/model.effort", "version 4.6 or later"),
+        ));
+    }
+    // The tool lists: one row per name, at the action the tool asserts.
+    let tools = [
+        ("Bash", "shell"),
+        ("Edit", "edit"),
+        ("Write", "edit"),
+        ("Read", "read"),
+        ("Glob", "glob"),
+        ("Grep", "grep"),
+        ("WebFetch", "webfetch"),
+        ("WebSearch", "websearch"),
+        ("Task", "subagent"),
+        ("Skill", "skill"),
+        ("TodoWrite", "todowrite"),
+    ];
+    for (path, effect) in [("tools.allowed", "allow"), ("tools.disallowed", "deny")] {
+        let pointer = if effect == "allow" {
+            "/fixed/tools.allowed"
+        } else {
+            "/fixed/tools.disallowed"
+        };
+        for (name, action) in tools {
+            let expect = if effect == "deny" && (name == "Edit" || name == "Write") {
+                refuses(pointer, "list both")
+            } else {
+                maps(perm_rows(effect, &[action]))
+            };
+            cases.push(case(path, name, vec![(path, json!([name]))], expect));
+        }
+        for (name, action) in [
+            ("mcp__srv__tool", "srv_tool"),
+            // `OpenCode` spells every character outside `[A-Za-z0-9_-]` as `_`.
+            ("mcp__my.server__a b", "my_server_a_b"),
+            ("mcp__my_server__tool", "my_server_tool"),
+        ] {
+            cases.push(case(
+                path,
+                "mcp__<server>__<tool>",
+                vec![(path, json!([name]))],
+                maps(perm_rows(effect, &[action])),
+            ));
+        }
+        for name in ["NotebookEdit", "MultiEdit"] {
+            cases.push(case(
+                path,
+                "*",
+                vec![(path, json!([name]))],
+                refuses(pointer, "is not a tool OpenCode has an action for"),
+            ));
+        }
+    }
+    cases.push(case(
+        "tools.disallowed",
+        "Edit+Write",
+        vec![("tools.disallowed", json!(["Write", "Edit"]))],
+        maps(perm_rows("deny", &["edit", "edit"])),
+    ));
+    // Both lists: the deny rows come last, so the last matching row is a deny.
+    cases.push(case(
+        "tools.disallowed",
+        "with tools.allowed",
+        vec![
+            ("tools.allowed", json!(["Bash", "Edit"])),
+            ("tools.disallowed", json!(["Bash"])),
+        ],
+        maps(json!([
+            {"action": "shell", "resource": "*", "effect": "allow"},
+            {"action": "edit", "resource": "*", "effect": "allow"},
+            {"action": "shell", "resource": "*", "effect": "deny"},
+        ])),
+    ));
+    cases
+}
+
+/// Guards: R01 §`OpenCode` v2, §Run manifest — the declared settings table and what the driver does
+/// are one set. Every row of `settings_table()` has a case below and every case answers a row
+/// (dropping either side turns this red), a mapped row's case maps and a refused row's is refused,
+/// at the setting's pointer in the experiment file, in a message naming the setting, the harness
+/// and its version, and the same refusal comes from `prepare` as from `command`. Mapped: the run is
+/// `run --standalone --format json --auto -m <provider>/<model>` with the rendered prompt after
+/// `--` (a prompt that starts with `-` stays a message), and no `--agent`; an effort suffixes the
+/// model with `#<level>` and writes the `variants` entry; each tool name is one permission row at
+/// the action the tool asserts, allow rows before deny rows. Refused: every mode but
+/// `bypassPermissions`, the cost and the turn cap, an effort the model cannot take, a tool name
+/// with no action, a lone `Edit` or `Write` in the deny list.
+/// Oracle: `opencode_facts` row 2 and the real binary, which refused `run … "--hello x"` as an
+/// unrecognised flag and took the same text after `--`; the actions are the permissions the tools
+/// register in `OpenCode` v2.2.7 (`write.ts:49`, `edit.ts`, `glob.ts`, `shell.ts`, `todo.ts`); the
+/// MCP spelling is `tool/runtime.ts:288-293`; the baseline `{*, *, allow}` and last-match-wins are
+/// `schema/src/agent.ts:39-50` and `permission.ts:98`; the effort shape is `variant.ts:325-339`
+/// and its wire effect the `oc_effort_*` fixtures; what Claude Code's modes allow is its permission
+/// modes and permissions pages (`default` reads and a built-in read-only shell set, `acceptEdits`
+/// adds edits and mkdir, touch, rm, rmdir, mv, cp, sed in the working directory, `plan` reads and
+/// read-only shell, `--allowedTools` only auto-approves); the turn cap is refused for what the
+/// `oc_step_cap` fixture records (the last request tool-less, the run completed); the pointers are
+/// written by hand from `unknown_path_pointer` and `file_field`.
+#[test]
+fn opencode_command_line_maps_or_refuses_every_setting() -> Res<()> {
+    let plain = strings(&[
+        "opencode",
+        "run",
+        "--standalone",
+        "--format",
+        "json",
+        "--auto",
+        "-m",
+        "candler/claude-x",
+        "--",
+        "Do it",
+    ]);
+    assert_eq!(command_of(&[])??, plain);
+    let dashed = command_of(&[("prompt.template", json!("--hello {thing}"))])??;
+    assert_eq!(dashed.get(dashed.len() - 2).map(String::as_str), Some("--"));
+    assert_eq!(dashed.last().map(String::as_str), Some("--hello it"));
+
+    let cases = table_cases();
+    let driver = OpenCodeDriver::new()?;
+    let rows = driver.settings_table();
+    let declared: BTreeSet<(String, String)> = rows
+        .iter()
+        .map(|row| (row.setting.clone(), row.value.clone())) // BORROW: .clone() copies the key out of the row
+        .collect();
+    let covered: BTreeSet<(String, String)> = cases
+        .iter()
+        .map(|c| (c.setting.to_owned(), c.value.to_owned())) // BORROW: .to_owned() makes the owned key
+        .collect();
+    assert_eq!(
+        declared, covered,
+        "the declared rows and the cases are one set"
+    );
+    for row in &rows {
+        for c in cases
+            .iter()
+            .filter(|c| c.setting == row.setting && c.value == row.value)
+        {
+            let mapped = matches!(c.expect, Expect::Maps { .. });
+            assert_eq!(
+                mapped,
+                row.disposition == Disposition::Mapped,
+                "{} {}: the case and the row disagree",
+                row.setting,
+                row.value
+            );
+        }
+    }
+
+    for c in &cases {
+        let label = format!("{} {} {:?}", c.setting, c.value, c.extra);
+        match &c.expect {
+            Expect::Maps {
+                permissions,
+                variants,
+            } => {
+                let argv = command_of(&c.extra)??;
+                assert!(argv.contains(&"--auto".to_owned()), "{label}: {argv:?}"); // BORROW: .to_owned() makes an owned needle
+                assert!(!argv.contains(&"--agent".to_owned()), "{label}: {argv:?}"); // BORROW: .to_owned() makes an owned needle
+                let (_, parsed) = prepared_config(&c.extra)?;
+                assert_eq!(&parsed["permissions"], permissions, "{label}");
+                assert!(parsed.get("agents").is_none(), "{label}: no agents block");
+                let model = c
+                    .extra
+                    .iter()
+                    .find(|(path, _)| *path == "model.id")
+                    .and_then(|(_, id)| id.as_str())
+                    .unwrap_or("claude-x");
+                let got = &parsed["providers"]["candler"]["models"][model]["variants"];
+                if variants.is_null() {
+                    assert!(got.is_null(), "{label}: {got}");
+                } else {
+                    let id = variants[0]["id"].as_str().ok_or("variant id")?;
+                    assert!(
+                        argv.contains(&format!("candler/{model}#{id}")),
+                        "{label}: {argv:?}"
+                    );
+                    assert_eq!(got, variants, "{label}");
+                }
+            }
+            Expect::Refuses { pointer, needle } => {
+                let (code, side, at, message) = unsupported_of_cell(&c.extra)?;
+                assert_eq!(code.as_str(), "experiment.setting_unsupported", "{label}");
+                assert_eq!(side, Side::Experiment, "{label}");
+                assert_eq!(at.as_deref(), Some(*pointer), "{label}");
+                for want in [pointer, needle, &"OpenCode", &"2.2.7"] {
+                    assert!(message.contains(want), "{label}: `{want}` in `{message}`");
+                }
+                assert!(prepared_config(&c.extra).is_err(), "{label}: prepare too");
+            }
+        }
     }
     Ok(())
 }
 
-/// Guards: R01 §Run manifest — a cell value that `OpenCode` cannot honour is refused, never dropped,
-/// and the refusal says where the setting sits: `model.effort` is a key of `[fixed]`.
-/// Oracle: `opencode run --help` (no effort flag; `opencode_facts` row 2 and F2); the pointer is
-/// written by hand from the `[fixed]` arm of `unknown_path_pointer` in `candler/src/commands/refusal.rs`.
-#[test]
-fn opencode_refuses_model_effort_as_unsupported() -> Res<()> {
-    assert_unsupported("model.effort", json!("high"), "/fixed/model.effort")
-}
-
-/// Guards: R01 §Run manifest — a turn cap is refused, never dropped, at `/budget/per_run/turns`.
-/// Oracle: `opencode run --help` (no turn cap flag; `opencode_facts` row 2); the pointer is the
-/// `budget` arm of `file_field` in `candler-schemas/src/refusal_impls.rs`, written out by hand.
-#[test]
-fn opencode_refuses_a_turn_cap_as_unsupported() -> Res<()> {
-    assert_unsupported("budget.per_run.turns", json!(5), "/budget/per_run/turns")
-}
-
-/// Guards: R01 §Run manifest — a per-run cost cap is refused, never dropped, at
-/// `/budget/per_run/max_cost_usd`.
-/// Oracle: `opencode run --help` (no cost cap; `opencode_facts` F2); the pointer is the `budget`
-/// arm of `file_field`, written out by hand.
-#[test]
-fn opencode_refuses_a_cost_cap_as_unsupported() -> Res<()> {
-    assert_unsupported(
-        "budget.per_run.max_cost_usd",
-        json!(1.5),
-        "/budget/per_run/max_cost_usd",
-    )
-}
-
-/// Guards: R01 §Run manifest — an allowed-tools list is refused, never dropped, because the tool
-/// names are Claude Code's; the setting is a key of `[fixed]`.
-/// Oracle: the tool names of `tools.*` are Claude Code's (`opencode_facts`); the pointer is
-/// written by hand from the `[fixed]` arm of `unknown_path_pointer`.
-#[test]
-fn opencode_refuses_allowed_tools_as_unsupported() -> Res<()> {
-    assert_unsupported("tools.allowed", json!(["Bash"]), "/fixed/tools.allowed")
-}
-
-/// Guards: R01 §Run manifest — a disallowed-tools list is refused, never dropped; the setting is
-/// a key of `[fixed]`.
-/// Oracle: as `tools.allowed`; the pointer is written by hand from `unknown_path_pointer`.
-#[test]
-fn opencode_refuses_disallowed_tools_as_unsupported() -> Res<()> {
-    assert_unsupported(
-        "tools.disallowed",
-        json!(["Bash"]),
-        "/fixed/tools.disallowed",
-    )
-}
-
-/// Guards: R01 §Run manifest — a permission mode other than `bypassPermissions` is refused as
-/// unsupported and the refusal names the mode `--auto` implements.
-/// Oracle: `opencode run --help` (`--auto` approves everything not denied, the one mode); the
-/// pointer is written by hand from the `[fixed]` arm of `unknown_path_pointer`.
-#[test]
-fn opencode_refuses_another_permission_mode_as_unsupported() -> Res<()> {
-    assert_unsupported(
-        "permission_mode",
-        json!("acceptEdits"),
-        "/fixed/permission_mode",
-    )?;
-    let (_, _, _, message) = unsupported_of("permission_mode", json!("acceptEdits"))?;
-    assert!(
-        message.contains("bypassPermissions"),
-        "names the mode: {message}"
-    );
-    Ok(())
-}
-
-/// Guards: R01 §Agent environment and secrets — the provider's address and key are references to
-/// the variables the core sets, in a home-rooted file inside the config directory the state paths
-/// name, and the file is the one the real binary accepted.
+/// Guards: R01 §Agent environment and secrets, §`OpenCode` v2, I7 — the written config: the
+/// provider's address and key are references to the variables the core sets, in a home-rooted
+/// file inside the config directory the state paths name, and the file is the one the real binary
+/// accepted; the gateway is named by two variables and nothing else of the configuration is a
+/// value; `codemode` is a cell value read per server, absent written as on, `false` making the
+/// server's tools direct tools; an MCP server shape the driver cannot translate is refused, not
+/// guessed.
 /// Oracle: `tests/fixtures/config/opencode.json`, run through `opencode debug config` in the base
-/// image (`debug_config.out`: `{env:…}/v1` expanded to `http://gateway:8080/r/tag/run/key/v1`).
+/// image (`debug_config.out`: `{env:…}/v1` expanded to `http://gateway:8080/r/tag/run/key/v1`);
+/// the names are the ones that fixture refers to; `opencode_facts` row 17 (omitted is on, `false`
+/// is direct) and the V2 shape the real binary printed for `mcp.servers.<name>.codemode`; the
+/// shapes the real binary printed (`local` with a command list, `remote` with a url) are the only
+/// ones recorded.
 #[test]
-fn opencode_prepare_is_the_config_the_binary_accepted() -> Res<()> {
+fn opencode_prepare_writes_the_provider_mcp_codemode_and_gateway_names() -> Res<()> {
+    // The provider, the model and the config file's place.
     let (file, parsed) = prepared_config(&[(
         "mcp",
         json!({
@@ -239,15 +521,17 @@ fn opencode_prepare_is_the_config_the_binary_accepted() -> Res<()> {
         fixtures().join("config").join("opencode.json"),
     )?)?;
     assert_eq!(parsed, recorded);
-    Ok(())
-}
 
-/// Guards: I7 — `codemode` is a cell value read per server: absent is written as on, so the run
-/// does not depend on `OpenCode`'s default, and `false` makes the server's tools direct tools.
-/// Oracle: `opencode_facts` row 17 (omitted is on; `false` is direct) and the V2 shape the real
-/// binary printed for `mcp.servers.<name>.codemode`.
-#[test]
-fn opencode_codemode_is_read_from_the_cell_value() -> Res<()> {
+    // The gateway names are the ones the config refers to.
+    let gateway = OpenCodeDriver::new()?.gateway().ok_or("no gateway names")?;
+    let config = String::from_utf8(std::fs::read(
+        fixtures().join("config").join("opencode.json"),
+    )?)?;
+    assert!(config.contains(&format!("{{env:{}}}/v1", gateway.base_url)));
+    assert!(config.contains(&format!("{{env:{}}}", gateway.auth_token)));
+    assert_eq!(gateway.reserved, vec![gateway.base_url, gateway.auth_token]);
+
+    // `codemode` is read from the cell, absent written as on.
     let servers = |codemode: Option<Value>| {
         let mut server = json!({"command": "uvx", "args": []});
         if let (Some(value), Some(map)) = (codemode, server.as_object_mut()) {
@@ -270,18 +554,10 @@ fn opencode_codemode_is_read_from_the_cell_value() -> Res<()> {
         prepared_config(&[("mcp", servers(Some(json!(false))))])?.0,
     );
     assert_ne!(on.contents, off.contents, "codemode changes the treatment");
-    Ok(())
-}
 
-/// Guards: R01 §`OpenCode` v2 — an MCP server shape that the driver cannot translate is refused, not
-/// guessed. Oracle: the shapes the real binary printed (`local` with a command list, `remote` with a
-/// url); nothing else was recorded.
-#[test]
-fn opencode_mcp_refuses_a_shape_it_cannot_translate() -> Res<()> {
-    // The control: a shape the binary printed is accepted, so a refusal below is about the shape.
+    // An MCP shape the driver cannot translate is refused, not guessed.
     let (_, parsed) = prepared_config(&[("mcp", json!({"s": {"command": "uvx"}}))])?;
     assert_eq!(parsed["mcp"]["servers"]["s"]["type"], "local");
-    // Every key of each shape is accepted.
     prepared_config(&[(
         "mcp",
         json!({"a": {"type": "stdio", "command": "uvx", "args": ["x"], "env": {"K": "v"}, "codemode": true},
@@ -331,40 +607,6 @@ fn opencode_state_paths_are_the_recorded_layout() -> Res<()> {
 
 fn sample_id() -> Res<SessionId> {
     Ok("ses_e32c17b4fffe2bjBVM2E3xAaLZ".parse()?)
-}
-
-/// Guards: I22 — the stop interrupts through the API inside the container, then signals: the
-/// pre-stop is an `Exec` that carries the session id as its own argument, is refused for an id
-/// that is not plain, and the signal is TERM.
-/// Oracle: `opencode_facts` rows 9 and 10; the script itself was run against the real binary in
-/// the base image (the server child's argv is `<path>/opencode serve --stdio --port 0`).
-#[test]
-fn opencode_stop_interrupts_inside_the_container_then_terms() -> Res<()> {
-    let stop = OpenCodeDriver::new()?.stop();
-    assert_eq!(stop.signal, StopSignal::Term);
-    let action = stop.pre_stop.ok_or("no pre-stop")?;
-    assert!(
-        matches!(action, Action::Exec(_)),
-        "runs inside the isolation"
-    );
-    assert!(action.uses_session_id());
-    let Some(Action::Exec(filled)) = action.resolve(Some(&sample_id()?)) else {
-        return Err("the placeholder does not resolve".into());
-    };
-    assert!(!filled.uses_session_id());
-    assert_eq!(
-        filled.argv().last().map(String::as_str),
-        Some("ses_e32c17b4fffe2bjBVM2E3xAaLZ")
-    );
-    assert!(action.resolve(None).is_none(), "no id, no interrupt");
-    let unsafe_id: SessionId = "ses_1;touch$IFS/x".parse()?;
-    assert!(action.resolve(Some(&unsafe_id)).is_none());
-    let text = filled.argv().join(" ");
-    for needle in ["session.interrupt", "OPENCODE_PASSWORD", "/proc"] {
-        assert!(text.contains(needle), "the script lacks {needle}");
-    }
-    assert!(!text.contains("pgrep") && !text.contains("pkill"));
-    Ok(())
 }
 
 /// Guards: R01 §`OpenCode` v2 — the export is collected inside the isolation, for the root session
@@ -480,13 +722,23 @@ fn usage(scope: &str, input: u64, output: u64) -> Value {
            "cache_read_tokens": 0, "cache_creation_tokens": 0})
 }
 
-/// Guards: R01 §`OpenCode` v2 — the export is the trace: the user and assistant messages, the tool
-/// call and its result paired by the call id, per-message usage and the session's total (which
-/// holds the requests the stream does not show).
+/// Guards: R01 §`OpenCode` v2, §Ends, §Run manifest (usage) — the export reader, a table over the
+/// fixtures: the trace (the user and assistant messages, the tool call and its result paired by
+/// the call id, per-message usage and the session's total, which holds the requests the stream
+/// does not show); errors (a tool the interrupt cut short is an error result, and a run that
+/// failed before any step keeps its terminal error as a notice); cache, cost and reasoning (cache
+/// reads and writes in their own fields, the cost as a number, reasoning tokens kept beside the
+/// usage, a reasoning block as its own event, and a tool with no recorded origin as `other`); a
+/// child session (`info.parentID`) is never a root, its id its parent's, `/`, its own; a document
+/// that is not an export is refused, and one that names no outcome ends `unknown`.
 /// Oracle: `completed_o1/export.json`, read by hand: two assistant messages of 100/20 tokens, one
-/// `shell` call that completed, `info.tokens` 300/60.
+/// `shell` call that completed, `info.tokens` 300/60; `interrupt_api/export.json` (`state.status`
+/// is `error`, outcome `interrupted`) and `unknown_model_local/export.json` (no assistant message,
+/// `idle.error`), read by hand; a document written by hand in the recorded shape, with the numbers
+/// `opencode_facts` reports for the real-model run (cost 0.00054, 4704 cached tokens); the schema's
+/// rule that a child's id is its parent's id, `/`, a call id; hand-written documents.
 #[test]
-fn opencode_export_is_the_trace() -> Res<()> {
+fn opencode_export_reader_covers_trace_errors_cache_cost_and_child_sessions() -> Res<()> {
     let (events, sessions) = read_export(&stream_file("completed_o1", "export.json")?)?;
     assert_eq!(
         kinds(&events)?,
@@ -521,15 +773,9 @@ fn opencode_export_is_the_trace() -> Res<()> {
         Some("o1"),
         "the model as OpenCode names it"
     );
-    Ok(())
-}
 
-/// Guards: R01 §Ends — a tool that the interrupt cut short is an error result, and a run that
-/// failed before any step keeps its terminal error as a notice.
-/// Oracle: `interrupt_api/export.json` (`state.status` is `error`, outcome `interrupted`) and
-/// `unknown_model_local/export.json` (no assistant message, `idle.error`), read by hand.
-#[test]
-fn opencode_export_keeps_errors() -> Res<()> {
+    // Errors: a tool the interrupt cut short is an error result, and a run that failed before any
+    // step keeps its terminal error as a notice.
     let (events, _) = read_export(&stream_file("interrupt_api", "export.json")?)?;
     let results: Vec<Value> = kinds(&events)?
         .into_iter()
@@ -548,16 +794,8 @@ fn opencode_export_keeps_errors() -> Res<()> {
     let notice = events.get(1).ok_or("no notice")?;
     assert_eq!(notice.event.ext["error"]["type"], "provider.no-route");
     assert_eq!(sessions.len(), 1);
-    Ok(())
-}
 
-/// Guards: R01 §Run manifest (usage) — tokens and cost come through as `OpenCode` counts them: cache
-/// reads and writes in their own fields, the cost as a number, reasoning tokens kept beside the
-/// usage, a reasoning block as its own event, and a tool with no recorded origin as `other`.
-/// Oracle: a document written by hand in the recorded shape, with the numbers
-/// `opencode_facts` reports for the real-model run (cost 0.00054, 4704 cached tokens).
-#[test]
-fn opencode_export_counts_cache_cost_and_reasoning() -> Res<()> {
+    // Cache, cost and reasoning: tokens and cost come through as OpenCode counts them.
     let document = json!({
         "info": {"id": "ses_h", "model": {"id": "m", "providerID": "p"}, "cost": 0.00067,
                  "tokens": {"input": 900, "output": 40, "reasoning": 7,
@@ -607,13 +845,22 @@ fn opencode_export_counts_cache_cost_and_reasoning() -> Res<()> {
         .find(|k| k["kind"] == "tool_call")
         .ok_or("no call")?;
     assert_eq!(call["origin"], json!({"kind": "other"}));
-    Ok(())
-}
 
-/// Guards: R01 §Ends — a document that is not an export is refused, and one that names no outcome
-/// ends `unknown`. Oracle: hand-written documents.
-#[test]
-fn opencode_export_refuses_what_is_not_an_export() -> Res<()> {
+    // A child session (`info.parentID`) is never a root.
+    let child_document = json!({
+        "info": {"id": "ses_child", "parentID": "ses_parent", "outcome": "succeeded"},
+        "messages": [{"id": "m1", "type": "user", "text": "go"}]
+    });
+    let (child_events, child_sessions) = read_export(&serde_json::to_vec(&child_document)?)?;
+    let child = child_sessions.first().ok_or("no session")?;
+    assert_eq!(child.id().as_str(), "ses_parent/ses_child");
+    assert_eq!(
+        child.parent_session().map(SessionId::as_str),
+        Some("ses_parent")
+    );
+    assert!(child_events.iter().all(|e| e.session == *child.id()));
+
+    // A document that is not an export is refused, and one that names no outcome ends `unknown`.
     assert!(read_export(b"not json").is_err());
     assert!(read_export(br#"{"messages": []}"#).is_err());
     let (_, sessions) = read_export(br#"{"info": {"id": "ses_x"}, "messages": []}"#)?;
@@ -621,28 +868,6 @@ fn opencode_export_refuses_what_is_not_an_export() -> Res<()> {
         sessions.first().map(|s| s.ended_by().clone()),
         Some(EndedBy::Unknown)
     ); // BORROW: .clone() copies the end
-    Ok(())
-}
-
-/// Guards: R01 §Ends — an exit the stream and the export say nothing about is classified from the
-/// process alone, and never as completed. Oracle: `opencode_facts` row 15 (0 completed, 130 and 143
-/// signals) read by hand.
-#[test]
-fn opencode_classifies_an_exit_with_no_trace_as_unknown() -> Res<()> {
-    let driver = OpenCodeDriver::new()?;
-    for code in [0, 1, 130, 143] {
-        let exit = ProcessExit::new(ExitStatus::Code { code }, ProcessEnd::Exited, Vec::new());
-        assert_eq!(
-            driver.classify_exit(&exit, &[]),
-            EndedBy::Unknown,
-            "exit {code}"
-        );
-        assert_eq!(
-            driver.classify_end(&exit, &[], &Observed::default()),
-            EndedBy::Unknown,
-            "exit {code}"
-        );
-    }
     Ok(())
 }
 
@@ -703,21 +928,6 @@ fn opencode_capabilities_declare_no_session_and_outside_execution() -> Res<()> {
     assert!(driver.session(&Cell::new(&values), &workspace)?.is_none());
     assert!(driver.session_tracker().is_none());
     assert!(driver.census_stream().is_none());
-    Ok(())
-}
-
-/// Guards: R01 §Agent environment and secrets — the gateway is named by two variables and nothing
-/// else of the driver's configuration is a value. Oracle: the names are the ones the recorded
-/// config fixture refers to.
-#[test]
-fn opencode_gateway_names_are_the_ones_the_config_refers_to() -> Res<()> {
-    let gateway = OpenCodeDriver::new()?.gateway().ok_or("no gateway names")?;
-    let config = String::from_utf8(std::fs::read(
-        fixtures().join("config").join("opencode.json"),
-    )?)?;
-    assert!(config.contains(&format!("{{env:{}}}/v1", gateway.base_url)));
-    assert!(config.contains(&format!("{{env:{}}}", gateway.auth_token)));
-    assert_eq!(gateway.reserved, vec![gateway.base_url, gateway.auth_token]);
     Ok(())
 }
 
@@ -969,12 +1179,16 @@ fn live_and_export(
     Ok((live.finish()?, exported, observed))
 }
 
-/// Guards: R01 §Ends, `opencode_facts` row 15 — the export is authoritative whatever the order of
-/// the sessions the core hands over: the live reader's sessions come first or last, and the run
-/// ends as the export says. Oracle: live `completed_o1` (finished) with the `interrupt_api` export
-/// (outcome `interrupted`, so `unknown`), and the reverse pairing, read from their `expected.toml`.
+/// Guards: R01 §Ends, `opencode_facts` row 15 — the end: the export is authoritative whatever the
+/// order of the sessions the core hands over (the live reader's sessions come first or last, and
+/// the run ends as the export says), standing in for the live reader's only when no export session
+/// was read; an exit the stream and the export say nothing about is classified from the process
+/// alone, and never as completed.
+/// Oracle: live `completed_o1` (finished) with the `interrupt_api` export (outcome `interrupted`,
+/// so `unknown`), and the reverse pairing, read from their `expected.toml`; `opencode_facts` row 15
+/// (0 completed, 130 and 143 signals) read by hand.
 #[test]
-fn opencode_export_wins_whatever_the_order() -> Res<()> {
+fn opencode_end_is_the_export_whatever_the_order_or_unknown_with_no_trace() -> Res<()> {
     let driver = OpenCodeDriver::new()?;
     let exit = ProcessExit::new(ExitStatus::Code { code: 1 }, ProcessEnd::Exited, Vec::new());
     for (live_case, export_case, want) in [
@@ -1006,27 +1220,20 @@ fn opencode_export_wins_whatever_the_order() -> Res<()> {
             "live only {live_case}"
         );
     }
-    Ok(())
-}
-
-/// Guards: R01 §Run manifest — the export of a child session (`info.parentID`) is a child, never
-/// the root: its session names its parent and its id is the parent's, `/`, its own.
-/// Oracle: a document in the recorded shape with `parentID` added, and the schema's rule that a
-/// child's id is its parent's id, `/`, a call id.
-#[test]
-fn opencode_export_of_a_child_session_is_not_a_root() -> Res<()> {
-    let document = json!({
-        "info": {"id": "ses_child", "parentID": "ses_parent", "outcome": "succeeded"},
-        "messages": [{"id": "m1", "type": "user", "text": "go"}]
-    });
-    let (events, sessions) = read_export(&serde_json::to_vec(&document)?)?;
-    let child = sessions.first().ok_or("no session")?;
-    assert_eq!(child.id().as_str(), "ses_parent/ses_child");
-    assert_eq!(
-        child.parent_session().map(SessionId::as_str),
-        Some("ses_parent")
-    );
-    assert!(events.iter().all(|e| e.session == *child.id()));
+    // An exit the stream and the export say nothing about is classified from the process alone.
+    for code in [0, 1, 130, 143] {
+        let no_trace = ProcessExit::new(ExitStatus::Code { code }, ProcessEnd::Exited, Vec::new());
+        assert_eq!(
+            driver.classify_exit(&no_trace, &[]),
+            EndedBy::Unknown,
+            "exit {code}"
+        );
+        assert_eq!(
+            driver.classify_end(&no_trace, &[], &Observed::default()),
+            EndedBy::Unknown,
+            "exit {code}"
+        );
+    }
     Ok(())
 }
 
@@ -1093,13 +1300,36 @@ print(json.dumps([bool(names["is_server"](argv, parent)) for argv, parent in cas
     Ok(Some(serde_json::from_slice(&out.stdout)?))
 }
 
-/// Guards: I22 — the stop script interrupts only the server child of an `opencode run` client: the
-/// real child matches; a decoy holding the same words, an `sh -c` that mentions them, a `timeout`
-/// wrapper, and a server whose parent is not the client do not. Skipped when the host has no
-/// `python3`. Oracle: the command lines `/proc` showed in the base image (`opencode run ... ` and
-/// `/usr/local/bin/opencode serve --stdio --port 0`), hand-listed.
+/// Guards: I22 — the stop: the pre-stop is an `Exec` that runs inside the isolation and signals
+/// TERM after it, carrying the session id as its own argument (refused to resolve for an id that
+/// is not plain, or for none); and the stop script interrupts only the server child of an
+/// `opencode run` client: the real child matches; a decoy holding the same words, an `sh -c` that
+/// mentions them, a `timeout` wrapper, and a server whose parent is not the client do not. The
+/// predicate part is skipped when the host has no `python3`.
+/// Oracle: `opencode_facts` rows 9 and 10 (signal, `Exec`); the command lines `/proc` showed in the
+/// base image (`opencode run ...` and `/usr/local/bin/opencode serve --stdio --port 0`), hand-listed.
 #[test]
-fn opencode_stop_script_matches_only_the_server_child() -> Res<()> {
+fn opencode_stop_terms_after_the_interrupt_and_matches_only_the_server_child() -> Res<()> {
+    let stop = OpenCodeDriver::new()?.stop();
+    assert_eq!(stop.signal, StopSignal::Term);
+    let action = stop.pre_stop.ok_or("no pre-stop")?;
+    assert!(
+        matches!(action, Action::Exec(_)),
+        "runs inside the isolation"
+    );
+    assert!(action.uses_session_id());
+    let Some(Action::Exec(filled)) = action.resolve(Some(&sample_id()?)) else {
+        return Err("the placeholder does not resolve".into());
+    };
+    assert!(!filled.uses_session_id());
+    assert_eq!(
+        filled.argv().last().map(String::as_str),
+        Some("ses_e32c17b4fffe2bjBVM2E3xAaLZ")
+    );
+    assert!(action.resolve(None).is_none(), "no id, no interrupt");
+    let unsafe_id: SessionId = "ses_1;touch$IFS/x".parse()?;
+    assert!(action.resolve(Some(&unsafe_id)).is_none());
+
     let serve = vec!["/usr/local/bin/opencode", "serve", "--stdio", "--port", "0"];
     let run = vec![
         "opencode",
@@ -1142,5 +1372,57 @@ fn opencode_stop_script_matches_only_the_server_child() -> Res<()> {
         return Ok(());
     };
     assert_eq!(got, [true, true, false, false, false, false, false, false]);
+    Ok(())
+}
+
+/// One row of a fixture's committed `wire.jsonl`: a redacted, per-request projection of the fake
+/// model's own `records.jsonl` (no header, no secret, no message body).
+fn wire_rows(case: &str) -> Res<Vec<Value>> {
+    let bytes = stream_file(case, "wire.jsonl")?;
+    String::from_utf8(bytes)?
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(|line| Ok(serde_json::from_str(line)?))
+        .collect()
+}
+
+/// Guards: R01 §`OpenCode` v2, O1 wire — for each effort level the driver maps, the `variants`
+/// entry it writes is the one the recorded session ran with, and every request body of that session
+/// carries `thinking = adaptive/summarized` and `output_config.effort = <level>`: the C mapping of
+/// `model.effort` proven on Candler's wire level by level, not from the source citation. The first
+/// request of a session has no `tools`: it is the hidden `title` agent's, which runs on the same
+/// model and variant, so the rule holds for it too.
+/// Oracle: `tests/fixtures/streams/oc_effort_<level>/wire.jsonl`, the fake model's own recorded
+/// request bodies of each session, and `config.json`, the file that session ran with
+/// (`PROVENANCE.toml`); the shape is `packages/core/src/variant.ts:325-339` (v2.2.7).
+#[test]
+fn opencode_wire_effort_levels_reach_the_request_body_as_output_config() -> Res<()> {
+    for level in ["low", "medium", "high", "xhigh", "max"] {
+        let case = format!("oc_effort_{level}");
+        let rows = wire_rows(&case)?;
+        assert!(rows.len() >= 2, "{case}: the title request and a turn");
+        for row in &rows {
+            assert_eq!(
+                row["thinking"],
+                json!({"type": "adaptive", "display": "summarized"}),
+                "{case}: {row}"
+            );
+            assert_eq!(
+                row["output_config"],
+                json!({"effort": level}),
+                "{case}: {row}"
+            );
+        }
+        let ran: Value = serde_json::from_slice(&stream_file(&case, "config.json")?)?;
+        let (_, written) = prepared_config(&[
+            ("model.effort", json!(level)),
+            ("model.id", json!("claude-opus-4-7")),
+        ])?;
+        assert_eq!(
+            ran["providers"]["candler"]["models"]["oc-claude-opus-4-7"]["variants"],
+            written["providers"]["candler"]["models"]["claude-opus-4-7"]["variants"],
+            "{case}: the driver writes the variants entry the session ran with"
+        );
+    }
     Ok(())
 }

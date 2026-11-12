@@ -1,0 +1,7 @@
+# What the container reported for this case: a user-defined Docker network with the production
+# gateway sidecar and a scratch fake model (the committed fakemodel.py plus an `oc-*` script that
+# answers OpenCode's `shell` tool), through the base-opencode image (OpenCode 2.2.7).
+command = "opencode run --standalone --format json --auto -m candler/oc-claude-opus-4-7#xhigh -- call the shell tool to echo hi"
+config = "config.json (the `variants` entry is the one the driver writes for `model.effort = xhigh`)"
+exit_status = 0
+note = "Effort `xhigh`: every request of the session carries `thinking = adaptive/summarized` and `output_config.effort = xhigh`. The first request has no `tools`: it is the hidden `title` agent's, which runs on the session's model and variant."

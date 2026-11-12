@@ -1,0 +1,3 @@
+{"model": "oc-claude-opus-4-7", "has_tools": false, "tool_choice": null, "thinking": {"type": "adaptive", "display": "summarized"}, "output_config": {"effort": "max"}}
+{"model": "oc-claude-opus-4-7", "has_tools": true, "tool_choice": null, "thinking": {"type": "adaptive", "display": "summarized"}, "output_config": {"effort": "max"}}
+{"model": "oc-claude-opus-4-7", "has_tools": true, "tool_choice": null, "thinking": {"type": "adaptive", "display": "summarized"}, "output_config": {"effort": "max"}}
