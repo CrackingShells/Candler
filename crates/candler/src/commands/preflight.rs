@@ -375,6 +375,7 @@ pub(crate) fn foreground(
         images: Arc::new(images),
         catalog: Arc::new(catalog),
         harness_supported: driver.supported(),
+        session_capable: driver.capabilities().session,
     };
     let resolver = compose_resolver(config, &services).map_err(failed)?;
     Ok(Foreground {
