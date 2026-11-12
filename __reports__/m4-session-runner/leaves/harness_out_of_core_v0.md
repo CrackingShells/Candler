@@ -63,3 +63,79 @@ The leaf text lists "the core matching `system`/`init` with a reordered key" for
 ## 5. Cleanup
 
 The leaf's target directory, the scratch worktree and its target directory are removed after this report.
+
+## 6. Fix round 1
+
+The verifier found nothing moved: the cf3de30 baselines, DIGEST and GOLDEN stood. This round closes what survived mutation and the one remaining Claude Code shape. Every fix is a row of a table guard or a strengthening of an existing guard, and each guard was seen red by the named mutation before it was relied on.
+
+### 6.1 Commits
+
+| sha | subject |
+|:--|:--|
+| 7a7de7e | `fix(isolation)!: retire the claude-named version refusal code` (`BREAKING CHANGE:` footer) |
+| 319a968 | `refactor(runner): take the run totals from the driver's live reader` |
+| 782e0ef | `test(isolation): guard the refusals the driver wiring adds` |
+| 9613160 | `refactor(cli): recognise raw trace streams through the registry` |
+| a662e6f | `refactor(isolation): harness-neutral version field, one agent home` |
+| eb29f71 | `rdm(runner): grep the evidence for the harness's result frame` |
+| 3ba5c17 | `test(isolation): keep the new guards clippy-clean` |
+
+The report commit follows.
+
+### 6.2 What changed, and the mutation that bites
+
+| Finding | Change | Guard | Mutation | Red before the change / with the mutation | Green after |
+|:--|:--|:--|:--|:--|:--|
+| F1 (ruled by the coordination session) | `ImageError::VersionUnreadable` carries `isolation.harness_version_unreadable` for every harness; the message names the harness and the probe argv. `codes.toml` keeps the old row with `retired = "<new code>"`, and its header defines retirement. The contract pages list the old code as retired. | `guard_refusal_codes::r1_every_variant_code_equals_its_row`, new rows: a retired row names a live replacement for the same variant and side, only live rows must be raised, and no table emits a retired code | the variant pointed back at `isolation.claude_version_unreadable` | `VersionUnreadable: code isolation.claude_version_unreadable is retired and a refusal still emits it` | 4 of 4 |
+| F5 and F4 | `drive` is held to `classify_end` and to the observed census by one guard that runs a job over a driver whose live reader reports an inventory and totals and whose observed end (`agent_error`) differs from its exit classification (`completed`) | `guard_container_record::harness_census_and_end_come_from_the_drivers_live_reader` | `classify_exit` in place of `classify_end` at the call in `runner/exec/mod.rs` | `the end is the driver's observed end`: `completed` against `agent_error` | pass |
+| | | | `census(None)` | `census.tools`: `None` against `["Bash","Agent"]` | pass |
+| F2 | `Observed.totals` (`RunTotals`: usage, cost, turns; none by default) is filled by the Claude Code reader from its last `result` line, and the core reads only `Observed`. `run_totals.json` pins the three `run.*` values on every Claude Code fixture. | `harness_census_equals_cf3de30_on_every_fixture` (extended by `run_totals.json`) and the guard above | the reader's `observed()` leaves the totals empty | `run totals of sessions/c1`: `{}` against the three recorded values | pass |
+| | | | the core takes the totals from an empty view | `run.num_turns`: `None` against `2` | pass |
+| F7 | one table, `harness_env_refusals_name_their_variant`, one row per refusal (reserved name, repeated gateway URL and token variable, state variable already set, no gateway in the driver, no gateway in the plan); one table, `harness_env_state_paths_are_in_writable_mounts`, one row per mount case (the read-only home folded in); a row each for the probe's environment and directory in `harness_version_comes_from_the_drivers_probe_and_parse` | those three | gateway-name collision check removed (`container/run.rs`) | `harness_env_refusals_name_their_variant` red | pass |
+| | | | probe environment and directory check removed (`isolation/image.rs`) | `harness_version_comes_from_the_drivers_probe_and_parse` red | pass |
+| | | | `already set` check removed (`apply_harness_env`) | `harness_env_refusals_name_their_variant` red | pass |
+| | | | no-gateway refusal of `apply_harness_env` removed | `harness_env_refusals_name_their_variant` red | pass |
+| | | | no-gateway refusal of `agent_argv` removed | `harness_env_refusals_name_their_variant` red | pass |
+| | | | state check dropped from `mounts` | `harness_env_state_paths_are_in_writable_mounts` red | pass |
+| | | | home check dropped from `mounts` | `harness_env_state_paths_are_in_writable_mounts` red | pass |
+| | | | reserved list fixed to `ANTHROPIC*` | `harness_env_refusals_name_their_variant` red | pass |
+| F6 | `DriverEntry.detect` and `Registry::recognise`; ingest asks the registry for the recogniser and the reader, and names no harness. | `registry_unknown_harness_is_refused_naming_it` (now a table, six rows: the file, an object and a bare name given to `--set`, for `run` and for `resolve`); `guard_ingest::i1_the_verb_ingests_a_directory` and `i4_*` for the recogniser | the bare-string arm of `requested_harness` returns none; `resolve` falls back to `claude-code`; `Registry::recognise` finds nothing | the table red for the first two; `i1` and `i4` red for the third | pass |
+| F3 | `ImageRef.cc_version` is `harness_version`; the label key `candler.cc_version` is unchanged | the leaf's H1 grep and the e2e label reads | none (a rename) | | pass |
+| LOW | the three `harness_version_*` tests are one table, the three `harness_census_*` inventory tests are one table; the mounted home and the state directories come from `agent_home`; the baseline README says the producers were adapted to the old API | | | | pass |
+
+### 6.3 Test counts
+
+| Test file | Before | After |
+|:--|--:|--:|
+| `candler-core/tests/guard_harness_facts.rs` | 14 | 9 (version 3 to 1, env 5 to 4, census 5 to 3; the rows hold what the removed tests held, plus the new refusal rows) |
+| `candler-core/tests/guard_container_record.rs` | 5 | 6 |
+| `candler/tests/guard_registry.rs` | 3 | 3 (the first is a six-row table) |
+| `candler-core/tests/guard_refusal_codes.rs` | 4 | 4 |
+| workspace | 668 | 664 |
+
+### 6.4 Gates
+
+| Gate | Result |
+|:--|:--|
+| H1, H2, H3, H4 (`harness_version_`, `harness_env_`, `harness_census_`, `harness_resolution_`) | PASS: 1, 4, 4 and 1 tests; the label key is still in `image.rs` |
+| R1 (`registry_`) | PASS: 3 tests |
+| The core names no harness (`claude|anthropic|opencode` over `candler-core/src` and `candler-schemas/src`) | PASS with no waiver: no line |
+| `.version_probe(` in the core; no `"subtype"` or `"init"` under `runner/evidence` | PASS |
+| New grep: no `"result"`, `total_cost_usd` or `"num_turns"` under `runner/evidence` | PASS (see 6.5 for the form of the last key) |
+| Only `drivers.rs` names a driver in the binary | PASS |
+| `.classify_end(` in the runner, no `.classify_exit(` in the core | PASS |
+| STD: `fmt --check`, clippy `--workspace --all-targets -D warnings`, `nextest --workspace`, `doc -D warnings` | PASS: 664 run, 664 passed, 22 skipped |
+| LINUX | PASS |
+| SPAWN | PASS: `guard_signal` 9 of 9 |
+| DIGEST | PASS: numstat 0, field_paths no removed line, `guard_cell_digest` 9, the core's digest binaries 45 |
+| GOLDEN | PASS: `guard_golden` 2, `guard_oracle_ac` 1 |
+| SUBJ | PASS: `cog check 9bdfc1c..HEAD`, every subject at most 72 characters |
+
+### 6.5 For the coordinator
+
+1. **The ruling on F1 is in.** `isolation.harness_version_unreadable` is emitted for every harness. The retirement is a `retired = "<replacement>"` key appended to the old row: the old row's lines do not move, and the key is the smallest form that a reader of the row sees at once. `guard_refusal_codes` reads it, the contract pages list a retired code as a row that says it is retired and names its replacement, and no schema file changed. The commit carries `BREAKING CHANGE:`.
+2. **The grep gate's last key** is written `"num_turns"` (quoted) in the roadmap leaf, not bare `num_turns`: the measured value paths `run.num_turns` and `run.cost_usd` live in `runner/evidence/run.rs` and a bare match would fail on them. I edited the leaf's gate line for this (the one `rdm` commit).
+3. **`Observed` gained `totals` (`RunTotals`)**, an additive field with a default of none, and `RunFacts` a `new` constructor, because the struct is non-exhaustive. `candler-harness` is touched only in `spec.rs`. The OpenCode crate builds `Observed::new` and needed no change; it reports no totals, so its runs record no `run.usage`, `run.cost_usd` or `run.num_turns`, as before.
+4. **`run_totals.json`** was recorded with the pre-change derivation (the last `result` event's keys), re-derived independently of the new code. `runner/evidence/run.rs` and the reader's result path are byte for byte what cf3de30 has, which the README says. The same producer, now through `Observed`, equals it on all eight fixtures.
+5. **Ingest and mixed paths.** The reader of a raw path's streams is that of the first stream the registry recognised. With one registered harness this is Claude Code's, as before. A path that mixes streams of two harnesses reads all of them with the first one's reader until the core's factory takes the harness name; that is a core change outside this leaf.
+6. Finding 8 of the first round (no test covers the `classify_end` wiring) is closed by the guard of 6.2. Finding 7 (`ingest` calls the Claude Code crate's `detect`) is closed by `DriverEntry.detect`.
