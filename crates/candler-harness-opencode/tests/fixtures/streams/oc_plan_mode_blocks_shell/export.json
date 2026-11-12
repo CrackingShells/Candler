@@ -1,0 +1,157 @@
+{
+  "info": {
+    "id": "ses_e3224567cffeGC2NbFkyJWTjot",
+    "projectID": "470c8549ef01a2a9d3c85b22965766cefc874134",
+    "agent": "plan",
+    "model": {
+      "id": "oc-steps",
+      "providerID": "candler",
+      "variant": "default"
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 300,
+      "output": 60,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "outcome": "succeeded",
+    "time": {
+      "created": 1794455087659,
+      "updated": 1794455087874,
+      "busy": 1794455087759,
+      "idle": 1794455087876
+    },
+    "title": "I will run a command.",
+    "location": {
+      "directory": "/tmp"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_1cddbaa57001oDVHq6EJEXBF4t",
+      "time": {
+        "created": 1794455087703
+      },
+      "type": "agent-switched",
+      "agent": "plan",
+      "previous": "plan"
+    },
+    {
+      "id": "msg_1cddbaa2e001k0tA0AxsH1sGIw",
+      "time": {
+        "created": 1794455087765
+      },
+      "text": "<system-reminder>\nYou are in Plan mode. Discuss the plan with the user directly in the conversation. Do not create or update plan files unless the user explicitly asks you to; when they do, write them only in:\n/home/agent/.opencode/plan\n\nDo not modify any other files or ask a subagent to do so.\n\nYou remain in Plan mode until the user switches agents. If the user asks you to implement changes, do not do so. Tell them they need to switch agents.\n</system-reminder>",
+      "type": "synthetic"
+    },
+    {
+      "id": "msg_1cddbaa54001K2tLLc7Hpn1CWo",
+      "time": {
+        "created": 1794455087765
+      },
+      "text": "Run a command under plan mode.",
+      "files": [],
+      "type": "user"
+    },
+    {
+      "id": "msg_1cddbaa9d001SgFF2ukFHVPHq6",
+      "time": {
+        "created": 1794455087776,
+        "streamed": 1794455087820,
+        "completed": 1794455087821
+      },
+      "type": "assistant",
+      "agent": "plan",
+      "model": {
+        "id": "oc-steps",
+        "providerID": "candler",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "I will run a command."
+        },
+        {
+          "type": "tool",
+          "id": "toolu_fake_oc",
+          "name": "shell",
+          "executed": false,
+          "state": {
+            "status": "error",
+            "input": {
+              "command": "true",
+              "description": "scripted tool call"
+            },
+            "error": {
+              "type": "tool.execution",
+              "message": "No tool named \"shell\" is currently available. Please use a tool from the available tool list."
+            }
+          },
+          "time": {
+            "created": 1794455087785,
+            "ran": 1794455087787,
+            "completed": 1794455087789
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0,
+      "tokens": {
+        "input": 100,
+        "output": 20,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_1cddbaad1001cvzcAKNJDL5vDX",
+      "time": {
+        "created": 1794455087827,
+        "streamed": 1794455087874,
+        "completed": 1794455087874
+      },
+      "type": "assistant",
+      "agent": "plan",
+      "model": {
+        "id": "oc-steps",
+        "providerID": "candler",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "done: the tool finished"
+        }
+      ],
+      "finish": "stop",
+      "rawFinish": "end_turn",
+      "cost": 0,
+      "tokens": {
+        "input": 100,
+        "output": 20,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_1cddbab04001eVYGpH1rmRT2Ix",
+      "time": {
+        "created": 1794455087876
+      },
+      "type": "idle",
+      "outcome": "succeeded"
+    }
+  ]
+}

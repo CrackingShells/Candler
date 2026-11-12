@@ -1,0 +1,3 @@
+{"model": "oc-steps", "tool_choice": null, "has_tools": false}
+{"model": "oc-steps", "tool_choice": null, "has_tools": true}
+{"model": "oc-steps", "tool_choice": {"type": "none"}, "has_tools": true}

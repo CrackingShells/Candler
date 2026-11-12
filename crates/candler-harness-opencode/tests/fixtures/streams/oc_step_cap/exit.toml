@@ -1,0 +1,6 @@
+# What the container reported for this case (this leaf's probe: --network bridge, a user-defined
+# network with the production gateway sidecar and the fake model, through the base-opencode image).
+command = "opencode run --standalone --format json --auto -m candler/oc-steps -- call the shell tool to echo hi"
+config_overlay = "agents.build.steps = 2 (opencode.json, no --agent flag: the default agent is build)"
+exit_status = 0
+note = "Settles D (budget.per_run.turns): with agents.build.steps = 2, the run makes exactly two model steps (the export holds exactly two assistant messages); the LAST one carries tool_choice.type = \"none\" on the wire and the model answers text only, ending the session `succeeded`. This re-recording (2026-11-12, second pass, to commit a redacted wire.jsonl for the O1/wire gate) also shows a third, tool-less HTTP request before the two tool-bearing ones, which a step of OpenCode's own trace never counts; the fact `agents.build.steps` proves is the tool-bearing count (2), not the raw HTTP count (3)."

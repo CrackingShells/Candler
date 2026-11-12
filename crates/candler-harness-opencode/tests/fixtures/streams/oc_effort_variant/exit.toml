@@ -1,0 +1,6 @@
+# What the container reported for this case (this leaf's probe: --network bridge, a user-defined
+# network with the production gateway sidecar and the fake model, through the base-opencode image).
+command = "opencode run --standalone --format json --auto -m candler/oc-effort#high -- call the shell tool to echo hi"
+config_overlay = "providers.candler.models.oc-effort.variants = [{id:\"high\", settings.thinking={type:\"adaptive\", display:\"summarized\"}, settings.effort=\"high\"}] (opencode.json; driver-authored, not from the models.dev catalog; this is the exact shape the driver's `effort_variant` writes, packages/core/src/variant.ts:325-339)"
+exit_status = 0
+note = "Settles C (model.effort): a driver-authored `variants` entry on the custom `candler/<model>` provider is honoured with no models.dev catalog lookup; the `#high` variant's `settings.thinking` reaches the request body's own `thinking` field verbatim. The variant's `effort` key is NOT itself forwarded to the wire (only `thinking` is); OpenCode consumes `effort` for its own routing. The prompt asks for a tool call, which `--auto` approves, so the session runs two steps (tool-calls, then stop) rather than one."

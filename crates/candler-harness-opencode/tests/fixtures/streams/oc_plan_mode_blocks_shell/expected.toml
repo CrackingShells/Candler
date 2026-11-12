@@ -1,0 +1,15 @@
+# Written by hand from stdout.jsonl and export.json of this case.
+session_id = "ses_e3224567cffeGC2NbFkyJWTjot"
+session_id_first_event = "step_start"
+export_outcome = "succeeded"
+export_agent = "plan"
+exit_status = 0
+event_kinds = ["step_start", "text", "tool_use", "step_finish", "step_start", "text", "step_finish"]
+step_finish_reasons = ["tool-calls", "stop"]
+tool_calls = [{ id = "toolu_fake_oc", tool = "shell", status = "error" }]
+tool_error_message = "No tool named \"shell\" is currently available. Please use a tool from the available tool list."
+# Unlike the Claude-Code-shaped plan-mode message plan.ts rewrites for a blocked edit/write/patch,
+# this error is not a Permission.BlockedError (the tool never reaches the permission check: a
+# deny rule that matches every resource of an action removes it from the model's tool list), so
+# plan.ts's own rewrite hook never fires for it. The *outcome* still matches Claude Code's plan
+# mode (no shell side effects); the wording of the refusal differs.

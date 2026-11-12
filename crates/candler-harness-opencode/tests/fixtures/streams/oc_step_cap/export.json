@@ -1,0 +1,146 @@
+{
+  "info": {
+    "id": "ses_e3201f01effe0BZIEmnMQQHPpc",
+    "projectID": "470c8549ef01a2a9d3c85b22965766cefc874134",
+    "model": {
+      "id": "oc-steps",
+      "providerID": "candler",
+      "variant": "default"
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 300,
+      "output": 60,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "outcome": "succeeded",
+    "time": {
+      "created": 1794457342290,
+      "updated": 1794457343319,
+      "busy": 1794457342514,
+      "idle": 1794457343322
+    },
+    "title": "I will run a command.",
+    "location": {
+      "directory": "/tmp"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_1cdfe11ae001W6W70y4s4MjOLg",
+      "time": {
+        "created": 1794457342529
+      },
+      "text": "call the shell tool to echo hi",
+      "files": [],
+      "type": "user"
+    },
+    {
+      "id": "msg_1cdfe125700151fIr6t624VNGb",
+      "time": {
+        "created": 1794457342558,
+        "streamed": 1794457343211,
+        "completed": 1794457343231
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "oc-steps",
+        "providerID": "candler",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "I will run a command."
+        },
+        {
+          "type": "tool",
+          "id": "toolu_fake_oc",
+          "name": "shell",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "true",
+              "description": "scripted tool call"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "(no output)"
+              }
+            ],
+            "metadata": {
+              "status": "completed",
+              "truncated": false,
+              "exit": 0
+            }
+          },
+          "time": {
+            "created": 1794457342601,
+            "ran": 1794457342746,
+            "completed": 1794457343228
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0,
+      "tokens": {
+        "input": 100,
+        "output": 20,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_1cdfe1508001HMeCMcPcz3P1Ek",
+      "time": {
+        "created": 1794457343250,
+        "streamed": 1794457343316,
+        "completed": 1794457343319
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "oc-steps",
+        "providerID": "candler",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "done: tools are disabled"
+        }
+      ],
+      "finish": "stop",
+      "rawFinish": "end_turn",
+      "cost": 0,
+      "tokens": {
+        "input": 100,
+        "output": 20,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_1cdfe155a0012I576u5Gp7IBES",
+      "time": {
+        "created": 1794457343322
+      },
+      "type": "idle",
+      "outcome": "succeeded"
+    }
+  ]
+}

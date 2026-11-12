@@ -71,6 +71,54 @@ model = "fake"
 stdout_sha256 = "a424c4f23943e99cb2af6b7850aa355a8a36967f62b6b4abc2070ffb8db320b2"
 export_sha256 = "9cba204e5219c7c10f13396c2c5b638dc68f687178a6107dcab63c3dff7ce667"
 
+# The four streams below (`oc_step_cap`, `oc_effort_variant`, `oc_permission_ask`,
+# `oc_plan_mode_blocks_shell`) were recorded on 2026-11-12 for the `opencode_settings` leaf, against
+# the same scratch fake model (`oc-*` model ids, extended with the `shell` tool and driven by the
+# request's own `tool_choice`; the committed `assets/docker/fakemodel/fakemodel.py` is untouched),
+# through a real production-shaped gateway sidecar (`assets/docker/gateway`, built from the
+# repository's own Dockerfile) on a user-defined Docker bridge network, rather than the earlier
+# `--network none` probes. Engine: docker 29.9.2, Docker Desktop on macOS 26.6.2, same host as
+# `[engine]` above. The base image is `assets/docker/base-opencode` built unmodified at v2.2.7. No
+# token was spent, no real model and no RiVault host was called.
+
+# oc_step_cap and oc_effort_variant were each re-recorded a second time on 2026-11-12, to commit a
+# `wire.jsonl` alongside `stdout.jsonl`/`export.json`: a redacted, per-request projection of the
+# fake model's own `records.jsonl` (model id, whether `tools` was offered, `tool_choice`, and for
+# the effort case `thinking`/whether `effort` itself reached the wire) -- no header, no secret, no
+# message body -- so the O1/wire gate (`cargo nextest run -p candler-harness-opencode --no-tests=fail
+# -E 'test(/^opencode_wire_/)'`) can assert the wire facts from a committed file rather than only
+# from this table's prose. Session ids changed accordingly; `oc_step_cap`'s re-recording also
+# surfaced a third, tool-less prefatory HTTP request that the committed `stdout.jsonl`'s own step
+# trace never counts (see its `exit.toml`/`expected.toml`).
+[stream.oc_step_cap]
+model = "fake"
+stdout_sha256 = "9c909dfb9e02b2ddcf32851734911242b0eaa47d112b7448f2703a7c9cd8fa11"
+export_sha256 = "7ecd73939b40a9fdcb3562a74a120805bb6597f831c373d19185897145ce755b"
+wire_sha256 = "0d6a56c13197b12878ca5d9b720e39489d4a57c54f2f955fea807760a954d9e6"
+
+# oc_effort_variant's first re-recording (below) also used a hand-invented `budget_tokens` shape to
+# prove the pass-through mechanism alone; this one uses the literal shape `prepare::effort_variant`
+# writes (`{"thinking": {"type": "adaptive", "display": "summarized"}, "effort": "<level>"}`, cited
+# from `packages/core/src/variant.ts:325-339`), so the fixture now proves the exact wire shape the
+# shipped driver produces, not just the mechanism. Same network, same images, same fake model
+# script; the recorded request also includes one scripted tool call (`--auto` approves it), so the
+# session runs two steps instead of one.
+[stream.oc_effort_variant]
+model = "fake"
+stdout_sha256 = "a248ffcb0aa37c268dd93b8b84128e7a2b3f197b227352d26f66a3f0461bfe69"
+export_sha256 = "4c19f8289c77fca7568940e9df0090d28ab88b0f8ad59a57491e07fe48fc20f5"
+wire_sha256 = "a031d85591f9f7fc3b24f85cd2b809ae3f694ecedad363c8bf10cc826ac11fdf"
+
+[stream.oc_permission_ask]
+model = "fake"
+stdout_sha256 = "370d14f5a399ba0b3d50ffabcf67fbcfd226d490184e67a8b004260239c6bd10"
+export_sha256 = "900e4f35668e9ef14bc6a98be9a8684f0eb546da8fe0ec2e99b2b089cd1973e6"
+
+[stream.oc_plan_mode_blocks_shell]
+model = "fake"
+stdout_sha256 = "a8133feb12202d4fa0bbc2a613860ec60add763248c16a697c0536951e978bd9"
+export_sha256 = "ff8d611617e774cc19f92b92f1872a7fcaf1c56d489bfe2aa22072a465a32f6c"
+
 # config/opencode.json is a file the driver renders for a cell with the model `claude-x` and two MCP
 # servers; it was run through `opencode debug config` in the base image (assets/docker/base-opencode,
 # --network none, hardened as above, CANDLER_GATEWAY_URL=http://gateway:8080/r/tag/run/key,
