@@ -56,8 +56,9 @@ fn words(value: &Value) -> Vec<String> {
         .collect()
 }
 
-/// A harness that shares nothing with Claude Code: its own program, version text, gateway names
-/// and state locations.
+/// A harness that shares nothing with Claude Code: its own program, version text, state locations
+/// and gateway names, which are the neutral pair an OpenCode-shaped driver declares (neither of
+/// them is an `ANTHROPIC_*` name).
 struct FakeHarness;
 
 impl FakeHarness {
@@ -102,11 +103,11 @@ impl HarnessDriver for FakeHarness {
 
     fn gateway(&self) -> Option<GatewayEnv> {
         Some(GatewayEnv::new(
-            String::from("FAKE_GATEWAY_URL"),
-            String::from("FAKE_GATEWAY_TOKEN"),
+            String::from("CANDLER_GATEWAY_URL"),
+            String::from("CANDLER_GATEWAY_TOKEN"),
             vec![
-                String::from("FAKE_GATEWAY_URL"),
-                String::from("FAKE_GATEWAY_TOKEN"),
+                String::from("CANDLER_GATEWAY_URL"),
+                String::from("CANDLER_GATEWAY_TOKEN"),
                 String::from("FAKE_GATEWAY_KEY"),
             ],
         ))
@@ -281,8 +282,11 @@ fn harness_env_second_driver_names_reach_the_argv() {
         let wanted = format!("{name}={value}");
         argv.windows(2).any(|w| w[0] == "-e" && w[1] == wanted)
     };
-    assert!(pair("FAKE_GATEWAY_URL", facts::BASE_URL), "{argv:?}");
-    assert!(pair("FAKE_GATEWAY_TOKEN", facts::DUMMY_TOKEN), "{argv:?}");
+    assert!(pair("CANDLER_GATEWAY_URL", facts::BASE_URL), "{argv:?}");
+    assert!(
+        pair("CANDLER_GATEWAY_TOKEN", facts::DUMMY_TOKEN),
+        "{argv:?}"
+    );
     assert!(pair("FAKE_STATE", "/home/agent/.fake/state"), "{argv:?}");
     assert!(pair("FAKE_DB", "/home/agent/.fake/db/fake.db"), "{argv:?}");
     assert!(
@@ -481,10 +485,10 @@ fn harness_census_live_handle_reports_the_inventory_before_finish() {
         .expect("the stream fixture");
     let reader = ClaudeCodeReader::new().expect("the reader");
     let stream: StreamName = "stdout".parse().expect("a stream name");
-    let (mut observer, handle) = live_observer(Box::new(reader), stream);
+    let (mut tap, handle) = live_observer(Box::new(reader), stream);
     for (index, line) in facts::lines_of(&path).iter().enumerate() {
         let frame = RawFrame::new(None, FrameData::from_bytes(line.as_bytes()));
-        observer.frame(u64::try_from(index).expect("an index"), &frame);
+        tap.frame(u64::try_from(index).expect("an index"), &frame);
     }
     let observed = handle.observed();
     let init = observed
