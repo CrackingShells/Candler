@@ -17,7 +17,7 @@ The driver traits can express everything both harnesses need, and the Claude Cod
 ## Status
 ```mermaid
 graph TD
-    driver_traits[Driver traits]:::planned
+    driver_traits[Driver traits]:::inprogress
     core[Core]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -29,7 +29,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `driver_traits.md` | 📄 Leaf Task | ⬜ Planned |
+| `driver_traits.md` | 📄 Leaf Task | 🔄 In Progress |
 | `core/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
