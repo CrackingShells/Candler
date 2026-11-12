@@ -527,6 +527,7 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
   | `prompt.template`, `prompt.values` | cell value |
   | `isolation.image` (the derived local image ID), `isolation.network`, `isolation.env_lock`, `isolation.limits.*` | cell value |
   | `budget.per_run.{wall_s, turns, max_cost_usd}` | cell value |
+| `runner.mode` (`headless` or `session`; no core default, so an absent value is headless and every existing cell keeps its digest), `runner.idle_s` (whole seconds or `none`; session mode only) | cell value |
   | `isolation.build.{dockerfile, context}` (its content enters `inputs[]`); `isolation.build.{requirements, lock}` (the lock they give enters the cell as `isolation.env_lock`); `isolation.build.prune` (part of the env image's key, so it reaches the cell through `isolation.image`) | setting |
   | `isolation.record_packages` (read from the env image, recorded in `measured[]`, never in the cell) | setting |
   | `request.harness`, `request.treatment`, `request.inputs`, `model.token_secret` | setting |
@@ -752,23 +753,78 @@ version and by the sha256 of the release archive of each architecture.
   permission prompts without `--auto`, resume, and the interrupt and a mid-tool SIGTERM against a
   real model: the recorded cases come from the scripted fake model.
 
-### Session runner (M4)
+### Session runner
 
-Headless runs end at the first final answer, which kills background tasks, so behaviour between
-turns (background-task notifications, monitor events, wake-ups) never happens in them. The session
-runner keeps a stream-json session's input open so a notification starts a further turn.
+A headless run (`claude --print <prompt>`) ends at the agent's first final answer, which kills
+background tasks, so behaviour between turns (a job finishing, its notification, a monitor event, a
+wake-up) never happens in it. **Session mode** is an opt-in way to run a cell: the prompt goes
+through stdin and stdin stays open, so a notification starts a further turn.
 
-- **End rule:** the session ends when it has been idle for at least Q seconds *and* the last Stop
-  payload lists no background task and no session cron, or when a per-run cap or the budget is
-  reached. A pending wake-up keeps the session open. Ending closes the input, then waits for
-  SessionEnd; `ended_by` is recorded.
-- **Controls:** positive control C1 (a task that must survive the end rule) and negative control C2
-  (a task that must end at idle) run in every session experiment.
-- **`init_tools`:** the tool list the harness reports at start is captured per run; when it differs
-  between arms of one stratum, that stratum is invalid (I7).
-- **Observation hooks** never deny or modify a tool call (I9).
-- **Per-model environment profiles** carry model-specific flags (for example a reasoning-effort
-  level a gateway model requires).
+- **Mode.** `runner.mode` is `headless` or `session`. It has no core default, so an absent value
+  runs headless and every cell keeps its digest; an explicit `headless` is a cell of its own.
+  `runner.idle_s` (whole seconds or `none`) is refused unless the mode is `session`; in session mode
+  a preflight step derives 60 s when the cell gives none. The rule is one function, applied to the
+  experiment-wide values and to each cell, so a session cell is the same cell whether `runner.mode`
+  is fixed or a factor level. A driver without `capabilities.session` is refused
+  (`experiment.session_refused`). The container runs with `docker run -i`.
+- **Close rule.** The core closes the input only when all three hold: the agent's latest turn has
+  ended, read from stdout (Claude Code's `result` event), which the agent cannot forge; the
+  driver's tracker reports that nothing pending could wake the agent (a background task, a monitor,
+  a cron, a wake-up) and has read it (`known`); and `runner.idle_s` seconds have passed since the
+  session became quiet. A new turn, a turn end, pending work or an unreadable state restarts the
+  wait. Idle is never counted mid-turn, and `none` never closes. The rule cuts no behaviour short:
+  closing while only background tasks are pending is safe, since Claude Code waits for them, and the
+  rule never closes with a wake-up or a cron pending, which Claude Code would drop. After the close
+  the core waits for the harness to exit; past the driver's stop grace it stops the harness with
+  the normal escalation (`session.close_forced`). A driver that closes by an action instead of end of
+  input is refused at run time. The turn cap ends the run when the session's turns exceed
+  `budget.per_run.turns`, counted by the core, since a harness's own turn cap ends one turn, not the
+  session; the wall and the budget end it as in a headless run.
+- **Claude Code.** The command keeps the headless arguments and adds `--input-format stream-json`
+  and `--settings`. The pending list comes from the Stop hook payload (`background_tasks`,
+  `session_crons`), which is the only source that lists wake-ups and crons; a stream
+  `background_tasks_changed` event lists background tasks only. A Stop payload is tied to its turn
+  by order and by `prompt_id`, so the state is known only when every turn that needs a Stop payload
+  has one. A turn that ends with no Stop payload (a turn cap error, an API error) leaves the state
+  unknown, and the session runs to its cap rather than closing.
+- **Hooks.** The driver installs observation hooks outside the workspace (a settings file in the
+  agent's home, loaded under `--setting-sources project,local`). The hook command appends the Stop
+  or SessionEnd payload with the container's clock to a log, prints nothing and always exits 0, so
+  it never blocks or decides (I9). The log is archived as the raw stream `hooks`, so the session
+  measures can be re-derived (I3). Hooks are never trusted for the turn end.
+- **Measured, never filtered.** The agent's own stopping is recorded as `measured[]` paths:
+  `session.idle_s`, `session.turns` (turns that ended), `session.yielded_at_ms` (from the runner's
+  preparation of the session to the end of the last turn), `session.pending_at_end` (a list of
+  `{kind, id}`; absent when it could not be read, never an empty list), `session.end` (`closed`,
+  `cap`, `budget`, `harness_exit` or `hooks_incomplete`) and `session.close_forced`; the control
+  record a run relied on is `session.control`. `run.num_turns` is the sum over the session's
+  results, `run.usage` the sum of their usage and `run.cost_usd` the harness's cumulative cost. A
+  session that reaches the wall with an ended turn whose Stop payload was never read is
+  `invalid(infrastructure)` with `session.end = hooks_incomplete`: the instrument failed, not the
+  agent. An agent that never stops runs to its cap, and that is a result. An end the experimenter
+  caused (budget stop, kill) is the core's and records no `session.end`.
+- **Controls validate the instrument, never the model.** Control C1 (the agent starts a background
+  job and must be woken by its notification: the session must wait) and control C2 (the agent
+  must stop: the session must close) run the real harness in the cell's base image, through the
+  production gateway sidecar, against a scripted fake model that speaks TLS and spends no tokens.
+  The fake model is embedded in the binary as an asset and built as `candler-fakemodel:src-<digest>`.
+  The check runs when a job opens, once and before any run, if any fresh cell is a session cell;
+  each cell's mode is known only after planning, because `runner.mode` can be a factor level, and a
+  job with no session cell never runs a control. Control runs go to a scratch store and never
+  reach `runs/`. The verdict is a pure function over the measured `session.*` values: the turns,
+  `session.end`, the close, and the close falling between `idle_s` and `idle_s + 1 s` after the
+  turn end. The controls prove the close rule at the control's own short `idle_s` only; the
+  run-loop guards cover the other values. The record is keyed by the base image's content digest
+  and a control digest (the fake model's files plus the control's parameters), so a changed script
+  or parameter re-runs the controls with no manual version. It is written once and never rewritten
+  (I11), and a failing verdict is not written. A failure refuses the job's session cells with a
+  refusal on the environment side that names the harness version and the failed control. Every
+  session run records `session.control` (the record's path and digest) as a resolved setting
+  outside the cell digest. A model's behaviour never refuses a run.
+- **Tool inventory.** The census (`census.tools`, `census.init_tools`) is captured per run; when
+  `census.init_tools` differs between arms of one stratum that no declared `tools.*` or `mcp.*`
+  factor explains, that stratum is refused (I7). Claude Code reports the list at each turn's start
+  (`init` is emitted again every turn), so the core takes the first init that lists tools.
 
 ## Plug-ins
 
@@ -1006,6 +1062,23 @@ and the analysis reads them. The build's identity comes from the first origin th
    `false`; anything else, or a name left unset, is unrecorded, and the verdict refuses it. The
    tag defaults to `v<version>`;
 4. otherwise the tag `v<version>` alone, with `commit` and `dirty` unrecorded.
+
+**Imported strata.** An arm is imported if and only if its manifest holds `import`. A stratum that
+mixes imported and live arms is refused, naming `import`. A stratum of imported arms swaps the
+gate on `measured[]` provenance for the import's own record, since the legacy folder recorded the
+build in `comparable.values` and no run measured it. The stratum is refused unless every arm
+records the digest of its import rules and the arms agree (`import.rules`; an import without
+rules is refused), and every arm records `provenance.eval_infra.commit` (a non-empty string),
+`provenance.eval_infra.dirty` and `provenance.sandbox_contract` in `comparable.values` with equal
+values. The verdict compares these three itself, so no declared factor pools arms of two legacy
+builds. A dirty legacy build does not refuse: arms that agree on commit, flag, contract and rules
+pool, on the assumption that one legacy launch is one checkout. Live strata keep the gate above.
+
+**Session and census measures.** A session run records the `session.*` values of §Session runner
+and `session.control`. A census whose source is not the harness's own init event also records
+`census.source` (`gateway` or `collected`); a record without it is the harness's own, and a verdict
+never compares an inventory with one of another source. `census.mcp_servers` is recorded only when
+the source sees servers.
 
 ### Normalised trace model (`normalised-trace/1`, on the `schemas@` line)
 
