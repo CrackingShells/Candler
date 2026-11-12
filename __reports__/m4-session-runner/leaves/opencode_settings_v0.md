@@ -143,3 +143,18 @@ Every fix is a row in an existing guard (`opencode_command_line_maps_or_refuses_
 ### Counts and gates
 
 Workspace nextest: 643 passed, 22 skipped. K1 (`conformance_`): 13 passed. O1 (`opencode_`): 13 passed. `opencode_command_`: 1. `opencode_wire_`: 1. Clippy `-D warnings` (workspace, all targets) and the LINUX target, rustdoc `-D warnings` and `cargo fmt --check` clean. Core untouched against 9366622. The Claude Code crate's `src` is unchanged against 9366622; its `tests/conformance.rs` differs by the leaf's earlier commit 7d4de2b (owned path). `crates/candler-harness/tests/public_surface.rs` is not an owned path and does not name `SettingRow`/`Disposition`; the coordinator may want it to, since it is the contract the API review diffs.
+
+## Fix round 2
+
+Commits: the effort-gate and `ultracode` fix with its rows and provenance, the public-surface commit (`test(runner): name m4's harness items in the public surface`), then this report.
+
+| Finding | Closed | Bite |
+|---|---|---|
+| M4 dated 3.x ids | yes | `version_of` now takes a major of at most two digits, so `claude-3-5-sonnet-20241022`, `claude-3-7-sonnet-20250219` and `claude-3-opus-20240229` fall to the version-first form (3.x, no effort) and are refused. Three refused rows added, plus `claude-opus-4-20250514` and `claude-sonnet-4-5-20250929` (kept refused). Bite: the width check loosened, the guard reports the 3.5 id as a command where a refusal was expected |
+| L5 `ultracode` | yes | Candler puts no constraint on `model.effort` values and the Claude Code driver passes any string as `--effort`; the CLI reference lists `ultracode` (`xhigh` plus its ultracode mode). So OpenCode refuses it as `setting_unsupported` with that reason (new table row `model.effort ultracode`, case added); the `*` row text now says "none of Claude Code's `--effort` levels". Red against the round-1 code: the case set and row set differ |
+| L6 haiku | yes | `claude-haiku-4-6` and `claude-haiku-5` rows (the old `claude-haiku-4-5` was refused as a manual model anyway). Removing the haiku exclusion turns the guard red |
+| L6 provenance | yes | `config_sha256` for each `oc_effort_*` |
+
+Public surface (`crates/candler-harness/tests/public_surface.rs`, used by name only, nothing asserted): the verifier's list was checked against a `pub` diff of `crates/candler-harness/src` from cf3de30 to HEAD (`cargo public-api` is not installed). Added: `Disposition`, `SettingRow` (constructors and fields), `DriverError::unsupported` and the `Unsupported` and `Record` variants (by pattern), `HarnessDriver::{settings_table, gateway, state_paths, census_stream, session, session_tracker, classify_end}`, `SkillTree`, the `spec` items of the list including `Action::Command`/`Action::Exec` and the `Observed`, `InitReport`, `PendingState`, `SessionSpec`, `HookSpec` and `PreparedFile` fields and variants, and the `conformance` items in a `#[cfg(feature = "conformance")]` block. Corrections to the list: `UnsafeSessionId` is a `CommandSpecError` variant, not a `DriverError` one (named as such). Stragglers beyond the list: `Action::Command`/`Exec`, the `Capabilities::session` field, `PreparedFile::root` as a field, `CommandSpecError::UnsafeSessionId`, `InitReportError` variants. No red-first for this file: it is a usage-only compile contract, and its bite is a compile error if an item is removed or renamed.
+
+Gates: workspace nextest (all features) 643 passed, 22 skipped; `conformance_` 13, `opencode_` 13, `opencode_command_` 1, `opencode_wire_` 1, `public_surface` 1; clippy `-D warnings` on the workspace (all targets, all features) and the linux target, rustdoc `-D warnings`, fmt clean; `candler-core` untouched against 9366622.
