@@ -10,7 +10,7 @@ pub mod sweeper;
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -97,6 +97,14 @@ impl EndFacts for HookFacts {
     fn final_inspect(&self) -> Option<ContainerOutcome> {
         self.hook.final_inspect()
     }
+}
+
+/// The host directory a run's agent container mounts as its home, under the run directory
+/// `run_dir`. The harness's state directories are made here too, so the mounted directory and
+/// the state paths are one place.
+#[must_use]
+pub fn agent_home(run_dir: &Path) -> PathBuf {
+    run_dir.join("home")
 }
 
 impl DockerIsolation {
@@ -284,7 +292,7 @@ impl Isolation for DockerIsolation {
         let run_dir = root
             .parent()
             .ok_or_else(|| plan_error("the workspace has no run directory"))?;
-        let home = run_dir.join("home");
+        let home = agent_home(run_dir);
         std::fs::create_dir_all(&home).map_err(|source| IsolationError::Plan {
             detail: format!("the home directory cannot be made: {source}"),
         })?;
@@ -292,7 +300,7 @@ impl Isolation for DockerIsolation {
             image: ImageRef {
                 // BORROW: the owned copy is made where it is needed
                 id: ImageId(image.to_owned()),
-                cc_version: None,
+                harness_version: None,
             },
             labels,
             mounts: vec![

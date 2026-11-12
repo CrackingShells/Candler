@@ -105,7 +105,7 @@ impl PreflightStep for HarnessIdentityStep {
             let image: String = read(&ctx, paths::ISOLATION_IMAGE)?;
             let image = ImageRef {
                 id: ImageId(image),
-                cc_version: None,
+                harness_version: None,
             };
             let version = images
                 .harness_version(&image)

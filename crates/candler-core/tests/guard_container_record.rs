@@ -87,7 +87,7 @@ fn plan_in(dir: &Path, job: &JobId) -> ContainerPlan {
     ContainerPlan {
         image: ImageRef {
             id: ImageId(IMAGE_ID.to_owned()), // BORROW: .to_owned() gives the image its own text
-            cc_version: None,
+            harness_version: None,
         },
         labels: Labels::new()
             .with("candler.job", job.as_str()) // BORROW: explicit .as_str()

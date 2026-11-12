@@ -22,7 +22,7 @@ fn plan() -> ContainerPlan {
     ContainerPlan {
         image: ImageRef {
             id: ImageId(String::from("sha256:abc")),
-            cc_version: None,
+            harness_version: None,
         },
         labels: Labels::new()
             .with("candler.job", "job")

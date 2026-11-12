@@ -291,7 +291,7 @@ async fn a2_package_read_pairs_each_name_with_its_distributions() {
     .expect("an answer");
     let image = ImageRef {
         id: ImageId(FAKE_ID.to_owned()), // BORROW: the reference owns the id
-        cc_version: None,
+        harness_version: None,
     };
 
     let read = rig

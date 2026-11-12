@@ -232,7 +232,7 @@ pub fn scene(dir: &Path) -> Scene {
     let plan = ContainerPlan {
         image: ImageRef {
             id: ImageId(String::from("sha256:abc")),
-            cc_version: None,
+            harness_version: None,
         },
         labels: Labels::new()
             .with("candler.job", "01900000-0000-7000-8000-000000000000")
@@ -450,7 +450,7 @@ impl VersionRig {
     pub async fn version(&self) -> Result<semver::Version, ImageError> {
         let image = ImageRef {
             id: ImageId(String::from(FAKE_ID)),
-            cc_version: None,
+            harness_version: None,
         };
         // ----- adapter: the call that reads the harness version -----
         self.service.harness_version(&image).await
@@ -490,7 +490,7 @@ impl ImageService for Fixed {
         Box::pin(async {
             Ok(ImageRef {
                 id: ImageId(format!("sha256:{}", "7".repeat(64))),
-                cc_version: None,
+                harness_version: None,
             })
         })
     }

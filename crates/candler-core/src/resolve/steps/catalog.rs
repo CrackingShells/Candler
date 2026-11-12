@@ -68,7 +68,7 @@ impl PreflightStep for CatalogStep {
                 .ok_or_else(|| failed(format!("`{}` has no image id", paths::ISOLATION_IMAGE)))?;
             let image = ImageRef {
                 id: ImageId(id.to_owned()), // BORROW: owned id for the image reference
-                cc_version: None,
+                harness_version: None,
             };
             let catalog = provider
                 .capture(&image, &Cell::new(&ctx.values))

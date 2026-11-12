@@ -101,7 +101,7 @@ async fn run_job(
             // BORROW: the image reference owns the id it names
             let image = ImageRef {
                 id: ImageId(id.clone()),
-                cc_version: None,
+                harness_version: None,
             };
             if let Some(readings) = host.packages(&rt, &image, &names).await {
                 packages.insert(id, readings);

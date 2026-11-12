@@ -382,7 +382,7 @@ impl DockerImageService {
         let image = ImageRef {
             id: info.id,
             // BORROW: .clone() keeps the label version to compare with the binary
-            cc_version: Some(label.clone()),
+            harness_version: Some(label.clone()),
         };
         if built {
             let binary = self.read_version(&image).await?;

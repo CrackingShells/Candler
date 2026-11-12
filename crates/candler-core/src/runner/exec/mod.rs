@@ -44,6 +44,7 @@ use super::evidence::tree::tree_json;
 use super::evidence::{Evidence, Inputs};
 use super::plan::RunPlan;
 use super::{RunControl, RunOutcome, RunStatus, Runtime};
+use crate::isolation::container::agent_home;
 use crate::isolation::container::mounts::{MountMode, MountRoots, MountSpec, mounts};
 use crate::isolation::model::ContainerPlan;
 use crate::isolation::{Isolation, IsolationError, RunOutputs};
@@ -460,7 +461,7 @@ async fn drive(
     apply_harness_env(
         &mut container,
         rt.driver.as_ref(),
-        &layout.run_dir(&plan.key).join("home"),
+        &agent_home(&layout.run_dir(&plan.key)),
     )?;
     mount_inputs(rt, &mut container, &workspace_dir, &cell.inputs)?;
 

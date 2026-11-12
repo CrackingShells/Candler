@@ -182,7 +182,7 @@ impl Rig {
             image: ImageRef {
                 // BORROW: `.to_owned()` makes the owned id the image reference holds
                 id: ImageId(image.to_owned()),
-                cc_version: None,
+                harness_version: None,
             },
             labels: Labels::new()
                 .with("candler.job", &self.job.to_string())

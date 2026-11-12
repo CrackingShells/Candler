@@ -115,7 +115,7 @@ pub struct ImageRef {
     /// The image id.
     pub id: ImageId,
     /// The version the harness's version probe reports inside the image, when it has been read.
-    pub cc_version: Option<semver::Version>,
+    pub harness_version: Option<semver::Version>,
 }
 
 /// A container as the guard and the sweeper see it: its id, labels and creation time.
