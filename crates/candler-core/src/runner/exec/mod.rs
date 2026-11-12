@@ -45,7 +45,7 @@ use super::evidence::census::census;
 use super::evidence::leak::input_leak;
 use super::evidence::provenance::provenance_values;
 use super::evidence::run::{RunFacts, run_values};
-use super::evidence::session::session_values;
+use super::evidence::session::{control_values, session_values};
 use super::evidence::tree::tree_json;
 use super::evidence::{Evidence, Inputs};
 use super::plan::RunPlan;
@@ -856,6 +856,9 @@ async fn drive(
             own_end,
             end.hooks_incomplete,
         )));
+        if let Some(control) = &cell.control {
+            measured.extend(control_values(control));
+        }
     }
 
     let integrity = end.invalid.map_or(Integrity::Valid, Integrity::invalid);

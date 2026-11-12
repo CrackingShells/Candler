@@ -21,6 +21,7 @@ use candler_core::jobs::model::JobCause;
 use candler_core::jobs::slots::Holder;
 use candler_core::resolve::steps::session::MODE_SESSION;
 use candler_core::runner::evidence::Inputs;
+use candler_core::runner::evidence::session::ControlRef;
 use candler_core::runner::exec::{CellRun, ExecError, exec_run};
 use candler_core::runner::plan::RunPlan;
 use candler_core::runner::{JobMeter, RunControl, RunOutcome};
@@ -476,6 +477,17 @@ pub async fn run(
     driver: Driver,
     cancel: Option<(JobCause, f64)>,
 ) -> Ran {
+    run_controlled(steps, values, driver, cancel, None).await
+}
+
+/// [`run`] for a cell that relies on the control record `control`.
+pub async fn run_controlled(
+    steps: &[Value],
+    values: &[(String, Value)],
+    driver: Driver,
+    cancel: Option<(JobCause, f64)>,
+    control: Option<ControlRef>,
+) -> Ran {
     let rig = Rig::new(0);
     let dir = rig.dir.path().join("stub");
     fs::create_dir_all(&dir).expect("a directory");
@@ -492,7 +504,8 @@ pub async fn run(
         script,
     });
     let cancel = cancel.map(|(cause, after)| (cause, after, trace_path.clone()));
-    let (result, manifest, run_dir, rig) = execute(rig, isolation, values, driver, cancel).await;
+    let (result, manifest, run_dir, rig) =
+        execute_controlled(rig, isolation, values, driver, cancel, control).await;
     let trace = fs::read_to_string(&trace_path)
         .unwrap_or_default()
         .lines()
@@ -527,6 +540,18 @@ pub async fn execute(
     driver: Driver,
     cancel: Option<(JobCause, f64, PathBuf)>,
 ) -> Executed {
+    execute_controlled(rig, isolation, values, driver, cancel, None).await
+}
+
+/// [`execute`] for a cell that relies on the control record `control`.
+pub async fn execute_controlled(
+    rig: Rig,
+    isolation: Arc<dyn Isolation>,
+    values: &[(String, Value)],
+    driver: Driver,
+    cancel: Option<(JobCause, f64, PathBuf)>,
+    control: Option<ControlRef>,
+) -> Executed {
     let comparable = comparable_of(values);
     let cell_digest: Digest = comparable.digest();
     let experiment: Digest = format!("sha256:{}", "e".repeat(64))
@@ -551,6 +576,10 @@ pub async fn execute(
         None,
         Inputs::default(),
     );
+    let cell = match control {
+        Some(control) => cell.with_control(control),
+        None => cell,
+    };
     let key = RunKey::new(cell_digest.clone(), 1, 1).expect("a run key");
     let mut runtime = rig.runtime();
     runtime.driver = Arc::new(driver);

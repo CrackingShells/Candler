@@ -47,6 +47,7 @@ fn orchestrate_error_path(error: &OrchestrateError) -> Option<String> {
         | OrchestrateError::Treatment
         | OrchestrateError::TokenSetting
         | OrchestrateError::Docker { .. }
+        | OrchestrateError::Controls { .. }
         | OrchestrateError::Job { .. } => None,
     }
 }
@@ -239,6 +240,12 @@ wrapper_table! {
         "The docker client cannot be reached when a job's session starts.",
         "-",
     ),
+    Controls { .. } => row(
+        "jobs.session_controls_failed",
+        Side::Environment,
+        "A session control (C1: the agent must wait for a background job; C2: the agent must stop once it has answered) did not pass for the harness version in the base image, or could not run, so session mode is refused for that harness version. No model's behaviour causes this.",
+        "-",
+    ),
     Job { .. } => row(
         "jobs.job_directory_unavailable",
         Side::Environment,
@@ -379,6 +386,7 @@ fn orchestrate_answer(error: &OrchestrateError) -> &dyn Refusal {
         | OrchestrateError::Treatment
         | OrchestrateError::TokenSetting
         | OrchestrateError::Docker { .. }
+        | OrchestrateError::Controls { .. }
         | OrchestrateError::Job { .. } => error,
     }
 }

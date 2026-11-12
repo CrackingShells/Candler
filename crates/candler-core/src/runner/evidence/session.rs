@@ -6,6 +6,7 @@
 //! recorded as an empty one.
 
 use candler_harness::spec::{PendingItem, PendingKind};
+use candler_schemas::primitives::Digest;
 use candler_schemas::values::MeasuredValue;
 use serde_json::{Map, Number, Value};
 
@@ -109,6 +110,30 @@ const fn kind_text(kind: PendingKind) -> &'static str {
         // EXPLICIT: a kind a newer harness crate adds is recorded as other, never dropped
         _ => "other",
     }
+}
+
+/// The record of the session controls a session run relied on: where it is below the store root,
+/// and the digest of its bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ControlRef {
+    /// The record's path relative to the store root, `/`-separated.
+    pub path: String,
+    /// The digest of the record's bytes.
+    pub digest: Digest,
+}
+
+/// The `session.control` value of a run that relied on `control`: `{path, digest}`.
+#[must_use]
+pub fn control_values(control: &ControlRef) -> Vec<MeasuredValue> {
+    let mut entry = Map::new();
+    entry.insert("path".to_owned(), Value::String(control.path.clone())); // BORROW: the entry owns its text
+    entry.insert(
+        "digest".to_owned(),
+        Value::String(control.digest.to_string()),
+    );
+    measured(STEP, "session.control", Value::Object(entry))
+        .into_iter()
+        .collect()
 }
 
 /// The `session.*` values of a run: `session.idle_s`, `session.turns`, `session.yielded_at_ms`,

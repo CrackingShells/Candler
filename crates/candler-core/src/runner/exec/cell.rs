@@ -10,6 +10,7 @@ use candler_schemas::values::SourceEntry;
 use crate::isolation::IsolationError;
 use crate::isolation::image::PackageReadings;
 use crate::runner::evidence::Inputs;
+use crate::runner::evidence::session::ControlRef;
 use crate::store::StoreError;
 use crate::supervise::SuperviseError;
 
@@ -38,6 +39,9 @@ pub struct CellRun {
     /// The evaluator-only inputs the cell declares, as `{kind, digest}`: the manifest lists them,
     /// and no run is given their content.
     pub evaluation_inputs: Vec<DigestRef>,
+    /// The record of the session controls the cell's runs rely on; none for a cell that is not a
+    /// session.
+    pub control: Option<ControlRef>,
 }
 
 impl CellRun {
@@ -62,7 +66,15 @@ impl CellRun {
             inputs,
             packages: PackageReadings::new(),
             evaluation_inputs: Vec::new(),
+            control: None,
         }
+    }
+
+    /// The record with the session controls its runs rely on.
+    #[must_use]
+    pub fn with_control(mut self, control: ControlRef) -> Self {
+        self.control = Some(control);
+        self
     }
 
     /// The record with the evaluator-only inputs of its experiment.

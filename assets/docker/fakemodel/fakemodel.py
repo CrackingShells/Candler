@@ -9,6 +9,9 @@ Environment:
     FAKE_DIR     where the certificates and the records go (default /tmp/fake).
     FAKE_OUT_TOKENS  output tokens each answer reports (default 20).
 
+The server exits when the file FAKE_DIR/done exists, so that whoever started it can end it
+with a `docker exec` and no destroy verb.
+
 At start it makes a certificate authority and a server certificate for FAKE_HOST under FAKE_DIR.
 The authority is FAKE_DIR/ca.pem: hand it to the gateway sidecar at /run/gw/ca.pem. Every request
 is appended to FAKE_DIR/records.jsonl (method, path, model, whether the credential was right,
@@ -224,8 +227,17 @@ class Handler(BaseHTTPRequestHandler):
     do_HEAD = handle_any
 
 
+def exit_on_done_file():
+    """Exits the process once FAKE_DIR/done exists."""
+    done = os.path.join(DIR, "done")
+    while not os.path.exists(done):
+        time.sleep(0.2)
+    os._exit(0)
+
+
 def main():
     make_certs()
+    threading.Thread(target=exit_on_done_file, daemon=True).start()
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(os.path.join(DIR, "cert.pem"), os.path.join(DIR, "key.pem"))
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)

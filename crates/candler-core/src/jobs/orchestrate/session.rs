@@ -16,6 +16,7 @@ use candler_schemas::primitives::{Digest, FieldPath, Marker, NameToken, SecretNa
 use candler_schemas::values::{ResolvedValue, SourceEntry, ValueSource};
 use futures::future::BoxFuture;
 
+use super::controls::{ControlContexts, ControlRunner, DockerControlRunner};
 use super::schedule::{Clock, wall_clock};
 use crate::experiment::paths::{ISOLATION_IMAGE, ISOLATION_RECORD_PACKAGES, RUNNER_IDLE_S};
 use crate::isolation::Isolation;
@@ -58,7 +59,7 @@ const TYPED_ROOTS: [&str; 5] = [
 /// The value that names the model endpoint.
 const MODEL_ENDPOINT: &str = "model.endpoint";
 /// The tag the gateway's sidecar image is looked up by.
-const SIDECAR_TAG: &str = "candler-gateway:latest";
+pub(super) const SIDECAR_TAG: &str = "candler-gateway:latest";
 /// The marker the gateway's docker commands carry.
 const GATEWAY_MARKER: &str = "gateway";
 /// How long a sweep of the job's containers may take.
@@ -94,6 +95,19 @@ pub enum OrchestrateError {
     Docker {
         /// What went wrong.
         detail: String,
+    },
+    /// The session controls of the harness version in the base image did not pass, or could not
+    /// run: session mode is refused for that harness version.
+    #[error(
+        "session mode is refused for {harness}: the control `{control}` did not pass: {reason}"
+    )]
+    Controls {
+        /// The harness and its version, as `<name> <version>`.
+        harness: String,
+        /// The control that failed (`c1` or `c2`), or `setup` when none could run.
+        control: String,
+        /// Why it failed.
+        reason: String,
     },
     /// The job's directory cannot be read.
     #[error("the job's directory cannot be read: {detail}")]
@@ -185,6 +199,16 @@ pub trait JobHost: Send + Sync {
         wall_clock()
     }
 
+    /// The runner of the session controls, or why this host has none: a job with a session cell
+    /// is then refused for that reason.
+    ///
+    /// # Errors
+    /// The reason the host cannot run session controls.
+    // TRAIT_OBJECT: the runner is docker, or a fake in tests
+    fn controls(&self) -> Result<Arc<dyn ControlRunner>, String> {
+        Err("this host has no runner for the session controls".to_owned()) // BORROW: the error owns its text
+    }
+
     /// The distribution and version of the import packages `names` inside the env image `image`,
     /// read once for the job. The default reads nothing.
     fn packages<'a>(
@@ -200,8 +224,34 @@ pub trait JobHost: Send + Sync {
 
 /// The host of a real job: the `docker` on `PATH` and a [`DockerGateway`] from the sidecar image
 /// docker holds under the tag `candler-gateway:latest`.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct DockerHost;
+#[derive(Debug, Clone)]
+pub struct DockerHost {
+    controls: Result<ControlContexts, String>,
+}
+
+impl Default for DockerHost {
+    fn default() -> Self {
+        Self::without_controls("this host has no runner for the session controls")
+    }
+}
+
+impl DockerHost {
+    /// The host that runs session controls from the build contexts `contexts`.
+    #[must_use]
+    pub fn with_controls(contexts: ControlContexts) -> Self {
+        Self {
+            controls: Ok(contexts),
+        }
+    }
+
+    /// The host that cannot run session controls, for the reason `why`.
+    #[must_use]
+    pub fn without_controls(why: &str) -> Self {
+        Self {
+            controls: Err(why.to_owned()), // BORROW: the host owns its reason
+        }
+    }
+}
 
 /// The text a resolution holds at `path`, among its values and its settings.
 fn text_at(resolution: &Resolution, path: &str) -> Option<String> {
@@ -272,7 +322,57 @@ fn upstream_of(endpoint: &str) -> Result<UpstreamConfig, GatewayError> {
     }
 }
 
+/// The job's gateway service over the sidecar image docker holds under [`SIDECAR_TAG`],
+/// forwarding to `upstream` with at most `max_parallel` calls at once; its docker commands carry
+/// `marker` and record under the job directory of `rt`.
+///
+/// # Errors
+/// [`OrchestrateError::Gateway`] when the sidecar image is missing or the job directory cannot
+/// be opened.
+pub(super) async fn sidecar_gateway(
+    rt: &Runtime,
+    upstream: UpstreamConfig,
+    max_parallel: u32,
+    marker: Marker,
+) -> Result<Arc<dyn Gateway>, OrchestrateError> {
+    let failed = |reason: String| OrchestrateError::Gateway { reason };
+    let info = rt
+        .docker
+        .image_inspect(SIDECAR_TAG)
+        .await
+        .map_err(|e| failed(e.to_string()))?
+        // BORROW: .to_owned() gives the error its own text
+        .ok_or_else(|| failed("sidecar_image_missing".to_owned()))?;
+    let image = ImageRef {
+        id: info.id,
+        harness_version: None,
+    };
+    let mut env: Vec<(String, String)> = ClientEnv::from_process().pairs().to_vec();
+    if let Some(path) = std::env::var_os("PATH") {
+        // BORROW: the child's environment owns its pair
+        env.push(("PATH".to_owned(), path.to_string_lossy().into_owned()));
+    }
+    let job_dir = JobDir::open(rt.store.layout(), &rt.job).map_err(|e| failed(e.to_string()))?;
+    let cli = GatewayCli::new(env, marker, job_dir.control_dir(), job_dir.children_dir());
+    let service = DockerGateway::new(
+        image,
+        upstream,
+        max_parallel,
+        cli,
+        Arc::clone(&rt.supervisor),
+    );
+    // TRAIT_OBJECT: the job starts its gateway through the service trait
+    let service: Arc<dyn Gateway> = Arc::new(service);
+    Ok(service)
+}
+
 impl JobHost for DockerHost {
+    fn controls(&self) -> Result<Arc<dyn ControlRunner>, String> {
+        let contexts = self.controls.clone()?; // BORROW: the runner owns its contexts
+        let runner: Arc<dyn ControlRunner> = Arc::new(DockerControlRunner::new(contexts));
+        Ok(runner)
+    }
+
     fn packages<'a>(
         &'a self,
         rt: &'a Runtime,
@@ -320,39 +420,11 @@ impl JobHost for DockerHost {
                 .ok_or_else(|| failed("model_endpoint_unset".to_owned()))?;
             // BORROW: .as_str() hands the endpoint to the parser
             let upstream = upstream_of(endpoint.as_str()).map_err(|e| failed(e.to_string()))?;
-            let info = rt
-                .docker
-                .image_inspect(SIDECAR_TAG)
-                .await
-                .map_err(|e| failed(e.to_string()))?
-                // BORROW: .to_owned() gives the error its own text
-                .ok_or_else(|| failed("sidecar_image_missing".to_owned()))?;
-            let image = ImageRef {
-                id: info.id,
-                harness_version: None,
-            };
-            let mut env: Vec<(String, String)> = ClientEnv::from_process().pairs().to_vec();
-            if let Some(path) = std::env::var_os("PATH") {
-                // BORROW: the child's environment owns its pair
-                env.push(("PATH".to_owned(), path.to_string_lossy().into_owned()));
-            }
-            let job_dir =
-                JobDir::open(rt.store.layout(), &rt.job).map_err(|e| failed(e.to_string()))?;
             let marker: Marker = GATEWAY_MARKER
                 .parse()
                 // BORROW: .to_owned() gives the error its own text
                 .map_err(|_| failed("marker_invalid".to_owned()))?;
-            let cli = GatewayCli::new(env, marker, job_dir.control_dir(), job_dir.children_dir());
-            let service = DockerGateway::new(
-                image,
-                upstream,
-                spec.budget.max_parallel,
-                cli,
-                Arc::clone(&rt.supervisor),
-            );
-            // TRAIT_OBJECT: the job starts its gateway through the service trait
-            let service: Arc<dyn Gateway> = Arc::new(service);
-            Ok(service)
+            sidecar_gateway(rt, upstream, spec.budget.max_parallel, marker).await
         })
     }
 }
@@ -510,6 +582,26 @@ impl JobSession {
         secrets: &dyn SecretSource,
     ) -> Result<Self, OrchestrateError> {
         let name = text_at(&spec.resolution, TOKEN_SECRET).ok_or(OrchestrateError::TokenSetting)?;
+        let service = host.gateway(rt, spec).await?;
+        Self::open_service(rt, &name, service, experiment, host, secrets).await
+    }
+
+    /// Opens the session over the gateway `service`, whose token is the secret `name`: the
+    /// part of [`JobSession::open`] that does not depend on the job's spec.
+    ///
+    /// # Errors
+    /// The errors of [`JobSession::open`] that follow the gateway's configuration.
+    pub(super) async fn open_service(
+        rt: &mut Runtime,
+        name: &str,
+        // TRAIT_OBJECT: the gateway is the docker sidecar, or a fake in tests
+        service: Arc<dyn Gateway>,
+        experiment: &Digest,
+        // TRAIT_OBJECT: the host is the process's own host, or a fake in tests
+        host: &dyn JobHost,
+        // TRAIT_OBJECT: the secrets are the environment's, or a fake in tests
+        secrets: &dyn SecretSource,
+    ) -> Result<Self, OrchestrateError> {
         let job_dir =
             JobDir::open(rt.store.layout(), &rt.job).map_err(|error| OrchestrateError::Job {
                 detail: error.to_string(),
@@ -533,7 +625,6 @@ impl JobSession {
             )
             .with_events(Arc::clone(&rt.sink)),
         );
-        let service = host.gateway(rt, spec).await?;
         let mut session = Self {
             guard: Arc::clone(&guard),
             sweeper: Arc::clone(&sweeper),
@@ -554,8 +645,7 @@ impl JobSession {
                     experiment,
                     recorder: &job_dir,
                     token: secrets,
-                    // BORROW: .as_str() hands the secret's name to the gateway
-                    secret: name.as_str(),
+                    secret: name,
                 },
             )
             .await;

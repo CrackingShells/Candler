@@ -984,6 +984,11 @@ side = "config"
 enum = "OrchestrateError"
 variant = "TokenSetting"
 
+[jobs."jobs.session_controls_failed"]
+side = "environment"
+enum = "OrchestrateError"
+variant = "Controls"
+
 [jobs."jobs.docker_unavailable"]
 side = "environment"
 enum = "OrchestrateError"
