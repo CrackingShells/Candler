@@ -7,7 +7,7 @@
 - [ ] [nl] OWNED: `crates/candler-core/tests/guard_layering_i1.rs`, `crates/candler-core/tests/support/mod.rs` (the segment scanner)
 **Success Gates**:
 - ⬜ [cmd] L1: the real tree holds no harness segment in the two scanned roots; plants are found (`claude_version` in a core module, `AnthropicKey` in a schemas type, `opencode-db` in a core string); the same plants in `candler-harness-claude-code/src`, `candler-harness-opencode/src` and `crates/candler/src` are not reported: `cargo nextest run -p candler-core --no-tests=fail -E 'binary(guard_layering_i1)'`
-- ⬜ [cmd] The domain deny-list still holds: no existing test of `guard_layering_i1.rs` is removed: `! git diff a26fe53 -- crates/candler-core/tests/guard_layering_i1.rs | grep -E '^-\s*fn '`
+- ⬜ [cmd] The domain deny-list still holds: no existing test of `guard_layering_i1.rs` is removed: `! git diff cf3de30 -- crates/candler-core/tests/guard_layering_i1.rs | grep -E '^-\s*fn '`
 - ⬜ [cmd] STD (`-p candler-core`), DIGEST and SUBJ pass
 - ⬜ [nl] The leaf report records the bites the verifier applied to the real tree (a `claude_version` constant in the core, an `ANTHROPIC_` string in the schemas), each turning the guard red
 - ⬜ [nl] The `harness_guard` verifier closes with no open finding: it applies the mutations and attacks the scope (widened to every crate: false red; narrowed to none: no bite)
