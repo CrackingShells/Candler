@@ -215,12 +215,16 @@ fn rows() -> Vec<Row> {
 /// Guards: M4 D1 — a cell opts into session mode by `runner.mode` alone: a cell that writes no
 /// runner value gets none (headless, as before), `runner.idle_s` is derived as 60 in session
 /// mode, `none` and whole seconds are kept, and a bad mode, an idle without a session, or a
-/// session on a driver without the capability is refused by naming the check.
+/// session on a driver without the capability is refused by naming the check. Both runner paths
+/// are known configuration paths.
 /// Oracle: the table above, written by hand from the leaf's rules.
 /// Bite: derive `runner.mode = headless` into every cell (the row with no runner value gets a
-/// mode), or drop the capability refusal.
+/// mode), drop the capability refusal, or drop `runner.mode` from the known paths.
 #[tokio::test]
 async fn session_resolve_table() {
+    for path in [paths::RUNNER_MODE, paths::RUNNER_IDLE_S] {
+        assert!(paths::is_known_path(&fp(path)), "{path} is a known path");
+    }
     let table = rows();
     assert!(table.len() >= 10, "the table is not empty");
     for row in table {
@@ -253,33 +257,6 @@ async fn session_resolve_table() {
             (expected, got) => panic!("{}: expected {expected:?}, got {:?}", row.name, got.is_ok()),
         }
     }
-}
-
-/// Guards: M4 D1 — `runner.mode` as a factor level builds one cell per level with the mode in
-/// the cell, and both paths belong to the configuration surface (the path classes know them in
-/// `[fixed]`, as a factor path and as a leaf of a table level).
-/// Oracle: the experiment text below and the leaf's rule that an absent mode is headless.
-/// Bite: drop `runner.mode` from the known paths, or default it into cells that do not write it.
-#[test]
-fn session_resolve_factor_levels_and_known_paths() {
-    for path in [paths::RUNNER_MODE, paths::RUNNER_IDLE_S] {
-        assert!(paths::is_known_path(&fp(path)), "{path} is a known path");
-    }
-    let text = "schema = \"experiment/1\"\nreplicates = 1\n\n[fixed]\n\"model.id\" = \"m\"\n\n\
-                [[factors]]\npath = \"runner.mode\"\nlevels = [\"headless\", \"session\"]\n\n\
-                [budget.per_run]\nwall_s = 60\n\n[harness]\nname = \"claude-code\"\n\n\
-                [treatment]\nname = \"t\"\n";
-    let file = ExperimentFile::from_toml_str(text).expect("an experiment");
-    let cells = file.cells();
-    let modes: Vec<Option<Value>> = cells
-        .iter()
-        .map(|cell| {
-            cell.iter()
-                .find(|value| value.path().as_str() == paths::RUNNER_MODE)
-                .and_then(|value| value.value().map(|json| json.as_value().clone()))
-        })
-        .collect();
-    assert_eq!(modes, [Some(json!("headless")), Some(json!("session"))]);
 }
 
 /// The experiment text with the factors `factors` (already TOML) and no `[fixed]` value.
@@ -606,7 +583,7 @@ fn harness_env_session_adds_input_flag_only_when_interactive() {
 
 use std::time::Duration;
 
-use candler_core::runner::exec::session::{CloseRule, HOOK_SETTLE, Idle};
+use candler_core::runner::exec::session::{CloseRule, Idle};
 use candler_harness::spec::{SessionRecord, SessionTracker};
 
 /// One record of a replay.
@@ -669,7 +646,7 @@ struct Replayed {
 /// Feeds `events` to the Claude Code tracker and a rule, as the runner does.
 fn replay(events: &[(Duration, Rec)], idle: Idle) -> Replayed {
     let mut tracker = candler_harness_claude_code::session::Tracker::default();
-    let mut rule = CloseRule::new(idle, HOOK_SETTLE);
+    let mut rule = CloseRule::new(idle);
     let mut quiet_when_due = true;
     for (at, record) in events {
         // EXPLICIT: an unreadable record leaves the tracker's state unknown, which the rule reads
@@ -689,202 +666,6 @@ fn replay(events: &[(Duration, Rec)], idle: Idle) -> Replayed {
     }
 }
 
-/// Guards: R01 §Session runner, M4 D2 — over the recorded sessions c1 and c2, with the times the
-/// host saw each line, the input closes `idle_s` after the turn's end (at least the hook settle),
-/// never while the turn runs, never while a background task is pending, never when the pending
-/// list was not read (no hook line), and never with `idle_s = none`.
-/// Oracle: `timings.toml` of the recorded sessions, by hand: c2's `result` at 1062.01 ms, c1's
-/// first `result` at 430.86 ms with one task listed by its Stop line, c1's second at 20532.47 ms.
-/// Bite: count the idle from the last record instead of the turn's end (see the stray-frame rows
-/// of `session_close_ignores_records_that_do_not_change_the_state`), or close with a task pending.
-#[test]
-fn session_close_replays_the_recorded_sessions() {
-    struct Row {
-        name: &'static str,
-        session: &'static str,
-        hooks: bool,
-        upto_line: Option<usize>,
-        idle: Idle,
-        due_ms: Option<f64>,
-    }
-    let rows = [
-        Row {
-            name: "c2, two seconds idle: due two seconds after the result",
-            session: "c2",
-            hooks: true,
-            upto_line: None,
-            idle: Idle::Seconds(2),
-            due_ms: Some(1062.01 + 2000.0),
-        },
-        Row {
-            name: "c2, zero idle: the hook settle holds the close back",
-            session: "c2",
-            hooks: true,
-            upto_line: None,
-            idle: Idle::Seconds(0),
-            due_ms: Some(1062.01 + 250.0),
-        },
-        Row {
-            name: "c2, none: never",
-            session: "c2",
-            hooks: true,
-            upto_line: None,
-            idle: Idle::Never,
-            due_ms: None,
-        },
-        Row {
-            name: "c2 without a hook line: the pending list is unread, never",
-            session: "c2",
-            hooks: false,
-            upto_line: None,
-            idle: Idle::Seconds(2),
-            due_ms: None,
-        },
-        Row {
-            name: "c1 after its first result: a task is pending",
-            session: "c1",
-            hooks: true,
-            upto_line: Some(8),
-            idle: Idle::Seconds(1),
-            due_ms: None,
-        },
-        Row {
-            name: "c1 once the notification arrived and before its turn's first event",
-            session: "c1",
-            hooks: true,
-            upto_line: Some(11),
-            idle: Idle::Seconds(1),
-            due_ms: None,
-        },
-        Row {
-            name: "c1 in the middle of its second turn",
-            session: "c1",
-            hooks: true,
-            upto_line: Some(13),
-            idle: Idle::Seconds(1),
-            due_ms: None,
-        },
-        Row {
-            name: "c1 whole, three seconds idle: due after the second result",
-            session: "c1",
-            hooks: true,
-            upto_line: None,
-            idle: Idle::Seconds(3),
-            due_ms: Some(20532.47 + 3000.0),
-        },
-    ];
-    for row in rows {
-        let mut events = recorded(row.session, row.hooks);
-        if let Some(line) = row.upto_line {
-            // the first `line` stdout records, and the hook lines seen by then
-            let stdout_at = recorded(row.session, false)[line - 1].0;
-            events.retain(|(at, _)| *at <= stdout_at);
-        }
-        assert!(!events.is_empty(), "{}: a replay has records", row.name);
-        let replayed = replay(&events, row.idle);
-        assert!(replayed.quiet_when_due, "{}: due only when quiet", row.name);
-        match (row.due_ms, replayed.due) {
-            (None, None) => {}
-            (Some(expected), Some(due)) => assert!(
-                same(due, ms(expected)),
-                "{}: due at {due:?}, expected {expected} ms",
-                row.name
-            ),
-            (expected, due) => panic!("{}: due {due:?}, expected {expected:?}", row.name),
-        }
-    }
-}
-
-/// Guards: M4 D2 — an event that does not change what the tracker reports never moves the close
-/// (a stray frame after the turn's end), a new turn takes the close away until it ends, a later
-/// turn end restarts the idle from that end, a wake-up listed by the Stop line and a hook line
-/// that cannot be read both keep the session open.
-/// Oracle: c2's lines with hand-written additions at the times in the table.
-/// Bite: count the idle from the last event (the stray-frame row due at the frame's time plus
-/// One row of the pure close table: a name, the timed records and the expected close in ms.
-type CloseRow = (&'static str, Vec<(Duration, Rec)>, Option<f64>);
-
-/// idle), or ignore the cron list of the Stop payload.
-#[test]
-fn session_close_ignores_records_that_do_not_change_the_state() {
-    let base = recorded("c2", true);
-    let stream = |at: f64, line: &str| (ms(at), Rec::Stream(line.to_owned()));
-    let idle = Idle::Seconds(2);
-    // The Stop line of c2 with a one-shot wake-up listed.
-    let hook_line = rig::fixture_lines("c2", "hooks.jsonl")[0].clone();
-    let with_wakeup = hook_line.replace(
-        "\"session_crons\":[]",
-        "\"session_crons\":[{\"id\":\"w1\",\"schedule\":\"+1m\",\"recurring\":false,\"prompt\":\"p\"}]",
-    );
-    assert_ne!(
-        with_wakeup, hook_line,
-        "the fixture's cron list is replaced"
-    );
-    let mut wake: Vec<(Duration, Rec)> = base
-        .iter()
-        .filter(|(_, rec)| !matches!(rec, Rec::Hook(_)))
-        .cloned() // BORROW: the row owns its records
-        .collect();
-    wake.push((ms(1018.81), Rec::Hook(with_wakeup)));
-    wake.sort_by_key(|(at, _)| *at);
-    let mut garbled: Vec<(Duration, Rec)> = base
-        .iter()
-        .filter(|(_, rec)| !matches!(rec, Rec::Hook(_)))
-        .cloned() // BORROW: the row owns its records
-        .collect();
-    garbled.push((ms(1018.81), Rec::Hook("{\"payload\": ".to_owned())));
-    garbled.sort_by_key(|(at, _)| *at);
-    let stray = r#"{"type":"system","subtype":"task_updated","session_id":"s"}"#;
-    let started =
-        r#"{"type":"assistant","session_id":"s","message":{"role":"assistant","content":[]}}"#;
-    let ended = r#"{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"hello","session_id":"s"}"#;
-    let second_stop = hook_line.replace("746d51f1-9ffb-45ce-8416-088580bcf6de", "second-turn");
-    let with = |extra: Vec<(Duration, Rec)>| {
-        let mut events = base.clone(); // BORROW: the row owns its records
-        events.extend(extra);
-        events.sort_by_key(|(at, _)| *at);
-        events
-    };
-    let rows: Vec<CloseRow> = vec![
-        ("no extra record", with(Vec::new()), Some(1062.01 + 2000.0)),
-        (
-            "a stray frame 600 ms after the turn's end",
-            with(vec![stream(1662.01, stray)]),
-            Some(1062.01 + 2000.0),
-        ),
-        (
-            "a new turn starts 600 ms after the end",
-            with(vec![stream(1662.01, started)]),
-            None,
-        ),
-        (
-            "a second turn ends 600 ms after the first, its Stop line 11 ms later",
-            with(vec![
-                stream(1662.01, started),
-                stream(1700.0, ended),
-                (ms(1711.0), Rec::Hook(second_stop)),
-            ]),
-            Some(1711.0 + 2000.0),
-        ),
-        ("a wake-up pending in the Stop line", wake, None),
-        ("a hook line that is not JSON", garbled, None),
-    ];
-    for (name, events, expected) in rows {
-        let replayed = replay(&events, idle);
-        assert!(replayed.quiet_when_due, "{name}: due only when quiet");
-        match (expected, replayed.due) {
-            (None, None) => {}
-            (Some(want), Some(due)) => {
-                assert!(
-                    same(due, ms(want)),
-                    "{name}: due at {due:?}, expected {want} ms"
-                );
-            }
-            (want, due) => panic!("{name}: due {due:?}, expected {want:?}"),
-        }
-    }
-}
-
 /// The stub's script for c2's single turn, then end of input, then exit 0.
 fn c2_script(after_result: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
     let mut steps = rig::replay_of("c2", &BTreeMap::new());
@@ -894,15 +675,22 @@ fn c2_script(after_result: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
     steps
 }
 
-/// Guards: R01 §Session runner, M4 D2 — the session never closes while a model turn is unsettled,
-/// and closes once every model turn is settled. A `Stop` payload settles a turn by order and
-/// `prompt_id`; a repeat of an id settles nothing new; a `result` that counts no turn (`num_turns`
-/// 0, one of several coalesced task notifications) needs no payload.
-/// Oracle: the records below, by hand, and the field shapes of the recorded sessions c1 and c2.
-/// Bite: count the `Stop` lines instead of tying each to its turn (the repeated line settles the
-/// second turn); or count every `result` as a turn (the coalesced shape never closes).
+/// Guards: R01 §Session runner, M4 D2 — over the close rule: the input closes `idle_s` after the
+/// turn's end of the recorded sessions c2 and c1 (not while c1's task is pending, and after its
+/// second turn), never with `idle_s = none`, and not later for a stray frame after the turn's
+/// end. The session never closes while a model turn is unsettled (a repeated `Stop` line settles
+/// nothing new; a `Stop` is tied to its turn by order and `prompt_id`), and closes once every
+/// model turn is settled (a `result` that counts no turn, `num_turns` 0, is one of several
+/// coalesced task notifications and needs no `Stop`).
+/// Oracle: `timings.toml` of the recorded sessions, by hand: c2's `result` at 1062.01 ms, c1's
+/// first `result` at 430.86 ms with one task listed by its `Stop` line, c1's second at 20532.47 ms;
+/// the synthetic records below.
+/// Bite: count the idle from the last record instead of the turn's end (the stray-frame row), close
+/// with a task pending (c1's first row), count the `Stop` lines instead of tying each to its turn
+/// (the repeated line settles the second turn), or count every `result` as a turn (the coalesced
+/// shape never closes).
 #[test]
-fn session_close_needs_a_stop_for_every_turn() {
+fn session_close_follows_the_turns() {
     type Events = Vec<(Duration, Rec)>;
     let stream = |text: &str| Rec::Stream(text.to_owned()); // BORROW: the row owns its records
     let stop = |id: &str| {
@@ -917,7 +705,46 @@ fn session_close_needs_a_stop_for_every_turn() {
         ))
     };
     let notification = || stream(r#"{"type":"system","subtype":"task_notification"}"#);
-    let rows: Vec<(&str, Events, Option<f64>)> = vec![
+    let mut c1_first = recorded("c1", true);
+    let first_result_at = recorded("c1", false)[7].0;
+    c1_first.retain(|(at, _)| *at <= first_result_at);
+    let mut stray = recorded("c2", true);
+    stray.push((
+        ms(1662.01),
+        stream(r#"{"type":"system","subtype":"task_updated","session_id":"s"}"#),
+    ));
+    stray.sort_by_key(|(at, _)| *at);
+    let rows: Vec<(&str, Events, Idle, Option<f64>)> = vec![
+        (
+            "c2: due idle_s after the turn's end",
+            recorded("c2", true),
+            Idle::Seconds(2),
+            Some(1062.01 + 2000.0),
+        ),
+        (
+            "c1 after its first result: a task is pending",
+            c1_first,
+            Idle::Seconds(1),
+            None,
+        ),
+        (
+            "c1 whole: due after the second result",
+            recorded("c1", true),
+            Idle::Seconds(3),
+            Some(20532.47 + 3000.0),
+        ),
+        (
+            "idle_s none: never",
+            recorded("c2", true),
+            Idle::Never,
+            None,
+        ),
+        (
+            "a stray frame 600 ms after the turn's end does not move the close",
+            stray,
+            Idle::Seconds(2),
+            Some(1062.01 + 2000.0),
+        ),
         (
             "the same Stop line twice, then a second result with no Stop line of its own: unknown",
             vec![
@@ -928,6 +755,7 @@ fn session_close_needs_a_stop_for_every_turn() {
                 (ms(2000.0), assistant()),
                 (ms(2100.0), result(1)),
             ],
+            Idle::Seconds(1),
             None,
         ),
         (
@@ -944,11 +772,12 @@ fn session_close_needs_a_stop_for_every_turn() {
                 (ms(550.0), result(1)),
                 (ms(561.0), stop("p2")),
             ],
+            Idle::Seconds(1),
             Some(561.0 + 1000.0),
         ),
     ];
-    for (name, events, due_ms) in rows {
-        let replayed = replay(&events, Idle::Seconds(1));
+    for (name, events, idle, due_ms) in rows {
+        let replayed = replay(&events, idle);
         match due_ms {
             None => assert_eq!(replayed.due, None, "{name}"),
             Some(expected) => {
@@ -1161,9 +990,12 @@ struct Expect {
 /// mid-session is the experimenter's end: the run is invalid, its `ended_by` is that stop and no
 /// `session.end` is recorded for the arm.
 /// Oracle: the scripts below, by hand; the init tools read from the fixture's init line with
-/// `serde_json`; the turn counts are the `num_turns` the script writes.
-/// Bite: record a closed session as a cap, charge a kill to the arm as a session end, or count the
-/// turn limit with `>=`.
+/// `serde_json`; the turn counts are the `num_turns` the script writes; the recorded session c1 by
+/// hand: results with usage 200+40 and 100+20 tokens, turns 2 and 1, total cost 0.0016 then 0.0024,
+/// and in session mode every `run.*` value is the session's total (usage and turns summed over
+/// the results, the cost the harness's cumulative value).
+/// Bite: record a closed session as a cap, charge a kill to the arm as a session end, count the
+/// turn limit with `>=`, or record the last result's usage as the session's.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn session_measures_by_how_the_session_ended() {
     let values = rig::cell_values(&[]);
@@ -1178,7 +1010,20 @@ async fn session_measures_by_how_the_session_ended() {
     exits_first.push(rig::exit(0));
     let mut ignores_eof = rig::replay_of("c2", &BTreeMap::new());
     ignores_eof.extend([rig::wait_eof(None), rig::sleep(30.0)]);
+    let idle_one = rig::cell_values(&[("runner.idle_s", j!(1))]);
     let rows: Vec<MeasureRow<'_>> = vec![
+        (
+            "c1 closed after its task: run values are session totals",
+            c1_script(),
+            &idle_one,
+            None,
+            Expect {
+                ended_by: j!({"kind": "completed"}),
+                end: Some("closed"),
+                forced: false,
+                valid: true,
+            },
+        ),
         (
             "closed",
             c2_script(Vec::new()),
@@ -1337,10 +1182,25 @@ async fn session_measures_by_how_the_session_ended() {
         );
         assert_eq!(
             ran.measured("census.init_tools"),
-            Some(init_tools("c2")),
+            Some(init_tools(if name.starts_with("c1") { "c1" } else { "c2" })),
             "{name}: census.init_tools"
         );
         match name {
+            "c1 closed after its task: run values are session totals" => {
+                let usage = ran.measured("run.usage").expect("run.usage");
+                assert_eq!(usage["input_tokens"], j!(300), "input tokens summed");
+                assert_eq!(usage["output_tokens"], j!(60), "output tokens summed");
+                assert_eq!(ran.measured("run.num_turns"), Some(j!(3)));
+                let cost = ran
+                    .measured("run.cost_usd")
+                    .and_then(|cost| cost.as_f64())
+                    .expect("a cost");
+                assert!(
+                    (cost - 0.0024).abs() < 1e-9,
+                    "the cost is the cumulative one: {cost}"
+                );
+                assert_eq!(ran.measured("session.turns"), Some(j!(2)));
+            }
             "closed" => {
                 assert_eq!(ran.measured("session.turns"), Some(j!(1)));
                 assert_eq!(ran.measured("session.pending_at_end"), Some(j!([])));
@@ -1374,69 +1234,6 @@ async fn session_measures_by_how_the_session_ended() {
             }
             _ => {}
         }
-    }
-}
-
-/// Guards: R01 §Session runner, M4 D3 — in session mode every `run.*` value is the session's
-/// total: `run.usage` sums the usage of every result (the harness reports each result's own),
-/// `run.num_turns` sums the turns, and `run.cost_usd` is the last result's (the harness reports
-/// the cost cumulatively).
-/// Oracle: the recorded session c1 by hand: results with usage 200+40 and 100+20 tokens, turns 2
-/// and 1, total cost 0.0016 then 0.0024.
-/// Bite: record the last result's usage as the session's.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn session_measures_run_values_are_session_totals() {
-    let values = rig::cell_values(&[("runner.idle_s", j!(1))]);
-    let ran = rig::run(&c1_script(), &values, rig::Driver::new(true), None).await;
-    let _ = ran.outcome();
-    let usage = ran.measured("run.usage").expect("run.usage");
-    assert_eq!(usage["input_tokens"], j!(300), "input tokens summed");
-    assert_eq!(usage["output_tokens"], j!(60), "output tokens summed");
-    assert_eq!(ran.measured("run.num_turns"), Some(j!(3)));
-    let cost = ran
-        .measured("run.cost_usd")
-        .and_then(|cost| cost.as_f64())
-        .expect("a cost");
-    assert!(
-        (cost - 0.0024).abs() < 1e-9,
-        "the cost is the cumulative one: {cost}"
-    );
-    assert_eq!(ran.measured("session.turns"), Some(j!(2)));
-}
-
-/// Guards: R01 §Session runner, M4 D3 — the turns of a session are counted from each `result`
-/// frame itself: a result that gives no `num_turns` adds none, and never repeats the count of an
-/// earlier result.
-/// Oracle: the frames below; 2 + 1 = 3 by hand, and the result with no count between them.
-/// Bite: read the count from the reader's latest totals (a stale count is added again).
-#[test]
-fn session_measures_turns_come_from_each_result() {
-    let watch = candler_core::runner::exec::session::SessionWatch::new(
-        Box::new(candler_harness_claude_code::session::Tracker::default()),
-        CloseRule::new(Idle::Never, HOOK_SETTLE),
-        None,
-        candler_core::runner::exec::session::monotonic_clock(),
-    );
-    let assistant = br#"{"type":"assistant","message":{"content":[]}}"#;
-    for (frame, expected) in [
-        (
-            &br#"{"type":"result","subtype":"success","num_turns":2}"#[..],
-            2,
-        ),
-        (&br#"{"type":"result","subtype":"success"}"#[..], 2),
-        (
-            &br#"{"type":"result","subtype":"success","num_turns":1}"#[..],
-            3,
-        ),
-    ] {
-        watch.feed_stream(assistant);
-        watch.feed_stream(frame);
-        assert_eq!(
-            watch.snapshot().2,
-            expected,
-            "after {}",
-            String::from_utf8_lossy(frame)
-        );
     }
 }
 

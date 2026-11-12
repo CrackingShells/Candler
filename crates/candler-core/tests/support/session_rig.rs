@@ -19,6 +19,7 @@ use candler_core::isolation::model::{
 use candler_core::isolation::{EndFacts, IsolatedRequest, Isolation, IsolationError, RunOutputs};
 use candler_core::jobs::model::JobCause;
 use candler_core::jobs::slots::Holder;
+use candler_core::resolve::steps::session::MODE_SESSION;
 use candler_core::runner::evidence::Inputs;
 use candler_core::runner::exec::{CellRun, ExecError, exec_run};
 use candler_core::runner::plan::RunPlan;
@@ -329,7 +330,7 @@ impl Isolation for StubIsolation {
             .expect("a wall");
         let interactive = cell
             .get(&"runner.mode".parse().expect("a path"))
-            .is_some_and(|value| value.as_value() == "session");
+            .is_some_and(|value| value.as_value() == MODE_SESSION);
         let run_dir = workspace.root().parent().expect("a run directory");
         let home = run_dir.join("home");
         fs::create_dir_all(&home).expect("a home");

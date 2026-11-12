@@ -40,11 +40,6 @@ use crate::supervise::now;
 use crate::supervise::spawn::Child;
 use crate::supervise::stop::StopHandle;
 
-/// How long a close waits after the turn's end, whatever `runner.idle_s` says: a hook line is
-/// written before the turn's `result` but can be visible on the host a few milliseconds after it,
-/// and a close decided before the line is read could miss a wake-up the line lists.
-pub const HOOK_SETTLE: Duration = Duration::from_millis(250);
-
 /// How often the runner reads the hook log and decides.
 const POLL: Duration = Duration::from_millis(50);
 
@@ -135,18 +130,16 @@ pub fn session_config(cell: &Cell<'_>) -> Result<Option<SessionConfig>, Isolatio
 #[derive(Debug, Clone)]
 pub struct CloseRule {
     idle: Idle,
-    settle: Duration,
     turns: u64,
     quiet_since: Option<Duration>,
 }
 
 impl CloseRule {
-    /// A rule that waits `idle` after the session becomes quiet, and at least `settle`.
+    /// A rule that waits `idle` after the session becomes quiet.
     #[must_use]
-    pub const fn new(idle: Idle, settle: Duration) -> Self {
+    pub const fn new(idle: Idle) -> Self {
         Self {
             idle,
-            settle,
             turns: 0,
             quiet_since: None,
         }
@@ -173,10 +166,7 @@ impl CloseRule {
         let since = self.quiet_since?;
         match self.idle {
             Idle::Never => None,
-            Idle::Seconds(seconds) => {
-                let wait = Duration::from_secs(seconds).max(self.settle);
-                Some(since.saturating_add(wait))
-            }
+            Idle::Seconds(seconds) => Some(since.saturating_add(Duration::from_secs(seconds))),
         }
     }
 
@@ -530,7 +520,7 @@ impl SessionRun {
             .ok();
             log = Some(HookLog::new(home.join(hooks.log.as_str()), writer)); // BORROW: explicit .as_str()
         }
-        let rule = CloseRule::new(config.idle, HOOK_SETTLE);
+        let rule = CloseRule::new(config.idle);
         Ok(Self {
             watch: SessionWatch::new(tracker, rule, config.turn_limit, clock),
             input: spec.input.clone(), // BORROW: the run owns its opening bytes

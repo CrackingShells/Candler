@@ -50,8 +50,8 @@ impl SessionEnd {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Idle {
-    /// This many whole seconds. Zero closes as soon as the agent is quiet and the runner's hook
-    /// settle (a quarter of a second) has passed: the input never closes sooner than the settle.
+    /// This many whole seconds. Zero closes as soon as the agent is quiet, which needs every ended
+    /// turn's `Stop` line to have been read.
     Seconds(u64),
     /// Never: only a cap, the budget or the harness's own exit ends the session.
     Never,
