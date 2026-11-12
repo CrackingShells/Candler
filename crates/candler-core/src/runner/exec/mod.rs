@@ -52,6 +52,7 @@ use super::plan::RunPlan;
 use super::{RunControl, RunOutcome, RunStatus, Runtime};
 use crate::isolation::container::agent_home;
 use crate::isolation::container::mounts::{MountMode, MountRoots, MountSpec, mounts};
+use crate::isolation::gateway::census_init;
 use crate::isolation::model::ContainerPlan;
 use crate::isolation::{Isolation, IsolationError, RunOutputs};
 use crate::jobs::model::JobCause;
@@ -672,30 +673,25 @@ async fn drive(
     }
     // The census of a harness with no init event, read from what the gateway relayed.
     let mut gateway_init = None;
-    // A census that cannot be read whole, or that its reader refuses, is a collect failure and
-    // never an absent census; a run whose requests carry no tools records no census value.
+    // A census that cannot be read or stored whole is a collect failure and never an absent
+    // census; a run whose requests carry no tools records no census value.
     if let (Some(name), Some(gateway)) = (rt.driver.census_stream(), &rt.gateway) {
-        let read = match gateway
+        let stored = match gateway
             .service
             .run_census(&gateway.handle, &plan.key, attempt_wall)
             .await
         {
-            Ok(bytes) => rt
-                .driver
-                .offline_reader(&name)
-                .map(|reader| read_stream(&frames, &name, &bytes, reader)),
+            Ok(bytes) => store_stream(&frames, &name, Framing::Lines, &bytes)
+                .ok()
+                .map(|file| (census_init(&bytes), file)),
             Err(_) => None,
         };
-        match read {
-            Some(Ok(read)) if read.trace.is_ok() => {
-                gateway_init = read.observed.init;
-                extra.push(read.file);
+        match stored {
+            Some((init, file)) => {
+                gateway_init = init;
+                extra.push(file);
             }
-            Some(Ok(read)) => {
-                extra.push(read.file);
-                collect_ok = false;
-            }
-            Some(Err(_)) | None => collect_ok = false,
+            None => collect_ok = false,
         }
     }
     // What the driver resolved from the cell.

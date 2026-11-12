@@ -11,11 +11,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use candler_core::isolation::container::DockerIsolation;
+use candler_core::isolation::container::sweeper::{ContainerSweeper, SweepError};
 use candler_core::isolation::docker::{DockerCli, DockerError};
 use candler_core::isolation::gateway::{
     Gateway, GatewayError, GatewaySignal, GatewayStart, GatewayStatus, census_of,
 };
-use candler_core::isolation::model::{GatewayHandle, ImageRef};
+use candler_core::isolation::model::{ContainerSweep, GatewayHandle, ImageRef, SweepScope};
 use candler_core::isolation::{Isolation, driver::DockerDriver};
 use candler_core::jobs::model::{JobCause, JobControl, JobSpec};
 use candler_core::jobs::orchestrate::orchestrate_with;
@@ -57,14 +58,16 @@ pub const LOG_TAG: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 /// name only.
 pub const LITERAL_CANARY: &str = "LITERAL-CANARY-5d1c";
 
-/// The directory of the recorded `OpenCode` streams.
-pub fn streams() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../candler-harness-opencode/tests/fixtures/streams")
-}
-
 /// The text of `file` of the recorded run `case`.
 pub fn recorded(case: &str, file: &str) -> String {
-    fs::read_to_string(streams().join(case).join(file)).expect("a recorded file")
+    let streams = "../candler-harness-opencode/tests/fixtures/streams";
+    fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(streams)
+            .join(case)
+            .join(file),
+    )
+    .expect("a recorded file")
 }
 
 /// The session id the hand-written `expected.toml` of `case` names.
@@ -335,8 +338,6 @@ impl Scenario {
 pub struct Ran {
     /// The world the run ran in.
     pub rig: Rig,
-    /// The run's key.
-    pub key: RunKey,
     /// The run's directory in the store.
     pub dir: PathBuf,
     /// The manifest of the sealed run.
@@ -517,12 +518,10 @@ pub fn run(scenario: &Scenario, during: impl FnOnce(&Rig, &JobControl) + Send) -
     let manifest: Value =
         serde_json::from_slice(&fs::read(dir.join("manifest.json")).expect("a manifest"))
             .expect("manifest JSON");
-    let docker = docker_calls(&rig);
     Ran {
         manifest,
-        docker,
+        docker: docker_calls(&rig),
         events: sink.events(),
-        key,
         dir,
         rig,
     }
@@ -531,18 +530,12 @@ pub fn run(scenario: &Scenario, during: impl FnOnce(&Rig, &JobControl) + Send) -
 /// A sweeper that destroys nothing, so a stop leaves the container to the guard of the run.
 struct NoSweep;
 
-impl candler_core::isolation::container::sweeper::ContainerSweeper for NoSweep {
+impl ContainerSweeper for NoSweep {
     fn sweep<'a>(
         &'a self,
-        _scope: &'a candler_core::isolation::model::SweepScope,
-    ) -> BoxFuture<
-        'a,
-        Result<
-            candler_core::isolation::model::ContainerSweep,
-            candler_core::isolation::container::sweeper::SweepError,
-        >,
-    > {
-        Box::pin(async { Ok(candler_core::isolation::model::ContainerSweep::default()) })
+        _scope: &'a SweepScope,
+    ) -> BoxFuture<'a, Result<ContainerSweep, SweepError>> {
+        Box::pin(async { Ok(ContainerSweep::default()) })
     }
 }
 

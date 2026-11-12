@@ -433,10 +433,6 @@ fn conformance_opencode_facts_shape() -> TestResult {
 // ---------------------------------------------------------------------------------------------
 
 /// A working driver with one thing changed.
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "INDEPENDENT: each flag breaks one thing of a working driver"
-)]
 struct Patched {
     inner: OpenShapedDriver,
     capabilities: Option<Capabilities>,
@@ -447,7 +443,6 @@ struct Patched {
     session: Option<SessionSpec>,
     extra_file: Option<PreparedFile>,
     host_collect: bool,
-    census_reader_missing: bool,
     state_override: Option<Vec<StatePath>>,
     gateway_override: Option<GatewayEnv>,
     settings_override: Option<Vec<SettingRow>>,
@@ -465,7 +460,6 @@ impl Patched {
             session: None,
             extra_file: None,
             host_collect: false,
-            census_reader_missing: false,
             state_override: None,
             gateway_override: None,
             settings_override: None,
@@ -593,9 +587,6 @@ impl HarnessDriver for Patched {
         // BORROW: explicit .as_str() instead of Deref coercion
         if self.eager_census && stream.as_str() == "model_requests" {
             return Some(Box::new(EagerCensus)); // TRAIT_OBJECT: the trait returns readers as objects
-        }
-        if self.census_reader_missing && stream.as_str() == "model_requests" {
-            return None;
         }
         self.inner.offline_reader(stream)
     }
@@ -889,12 +880,6 @@ fn conformance_refuses_a_broken_driver() -> TestResult {
         "all",
     )]);
     assert!(refusal(&no_construct, &cases)?.contains("names no construct"));
-
-    // A census capability with a census stream the driver cannot read is refused.
-    let mut broken = Patched::new();
-    broken.census_reader_missing = true;
-    let message = refusal(&broken, &cases)?;
-    assert!(message.contains("no offline reader"), "{message}");
 
     // An in-container script that finds a process with the full-command-line option of `pgrep`
     // or `pkill` is refused, in any option cluster; exact-name and `/proc` forms pass.

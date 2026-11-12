@@ -195,55 +195,17 @@ fn import(cwd: &Path, store: &Path, args: &[&str]) -> Output {
         .expect("the binary runs")
 }
 
-/// Guards: R01 §Harness drivers — an import reads the corpus with the reader of the harness its
-/// rules name, and refuses a harness with no registered reader, naming it.
-/// Oracle: the mini corpus fixture and its rules, whose harness is `claude-code` (stdout counts
-/// its runs); the same rules with another name.
-/// Bite: a reader chosen without the name: the unknown name would import the corpus.
-#[test]
-fn registry_ingest_selects_the_reader_by_name() {
-    let dir = tempfile::TempDir::new().expect("a directory");
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let corpus = root.join("../candler-core/tests/fixtures/mini-corpus");
-    let rules = root.join("tests/fixtures/cli/mini-corpus-rules.toml");
-    let text = fs::read_to_string(&rules).expect("the rules");
-    // BORROW: the argument owns its text
-    let given = |path: &PathBuf| path.to_str().expect("a UTF-8 path").to_owned();
-
-    let ok = import(
-        dir.path(),
-        &dir.path().join("store"),
-        &[&given(&corpus), "--rules", &given(&rules)],
-    );
-    assert!(ok.status.success(), "{ok:?}");
-    assert!(
-        String::from_utf8_lossy(&ok.stdout).contains("\"runs\""),
-        "{ok:?}"
-    );
-
-    let renamed = text.replace("name = \"claude-code\"", "name = \"nonesuch\"");
-    assert_ne!(renamed, text, "the rules name the harness");
-    let other = dir.path().join("other-rules.toml");
-    fs::write(&other, renamed).expect("the rules write");
-    let refused = import(
-        dir.path(),
-        &dir.path().join("store-two"),
-        &[&given(&corpus), "--rules", &given(&other)],
-    );
-    assert_eq!(refused.status.code(), Some(2), "{refused:?}");
-    let stderr = String::from_utf8_lossy(&refused.stderr);
-    assert!(stderr.contains("no reader for `nonesuch`"), "{stderr}");
-}
-
-/// Guards: R01 §Harness drivers — `candler ingest` reads each path with the reader of the harness
-/// that wrote the path's stream, named as its driver names itself: one call over a Claude Code
-/// stream and an `OpenCode` stream stores two runs, each recorded under its own harness name, and
-/// neither is read with the other's reader.
+/// Guards: R01 §Harness drivers — ingest reads each path with the reader of the harness that
+/// wrote it, named as its driver names itself: one `candler ingest` over a Claude Code stream and
+/// an `OpenCode` stream stores two runs, each under its own harness name and none read with the
+/// other's reader; `candler import` of rules that name a harness with no reader is refused,
+/// naming it.
 /// Oracle: the recorded `completed_o1` stdout of `opencode_facts` and a hand-written Claude Code
 /// stream; the harness names `claude-code` and `opencode` the drivers' `id()` give; the stored
-/// manifests' `comparable.harness.name`.
+/// manifests' `comparable.harness.name`; the mini corpus rules with another name.
 /// Bite: one reader chosen once for every path, or the recognised name taken from a literal: the
-/// second run is read as Claude Code, or both are named `claude-code`.
+/// second run is read as Claude Code, or both are named `claude-code`; a reader chosen without
+/// the name: the unknown name would import the corpus.
 #[test]
 fn registry_ingest_reads_each_path_with_its_own_harness() {
     let dir = tempfile::TempDir::new().expect("a directory");
@@ -325,4 +287,24 @@ fn registry_ingest_reads_each_path_with_its_own_harness() {
     assert_eq!(readers.len(), 2, "two runs: {readers:?}");
     assert!(readers[0].starts_with("claude-code"), "{readers:?}"); // INDEX: two readers, checked above
     assert_eq!(readers[1], "opencode-export@0.1.0", "{readers:?}"); // INDEX: two readers, checked above
+
+    let corpus = root.join("../candler-core/tests/fixtures/mini-corpus");
+    let rules = fs::read_to_string(root.join("tests/fixtures/cli/mini-corpus-rules.toml"))
+        .expect("the rules");
+    let renamed = rules.replace("name = \"claude-code\"", "name = \"nonesuch\"");
+    assert_ne!(renamed, rules, "the rules name the harness");
+    let other = dir.path().join("other-rules.toml");
+    fs::write(&other, renamed).expect("the rules write");
+    let refused = import(
+        dir.path(),
+        &dir.path().join("store-two"),
+        &[
+            corpus.to_str().expect("a UTF-8 path"),
+            "--rules",
+            other.to_str().expect("a UTF-8 path"),
+        ],
+    );
+    assert_eq!(refused.status.code(), Some(2), "{refused:?}");
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(stderr.contains("no reader for `nonesuch`"), "{stderr}");
 }

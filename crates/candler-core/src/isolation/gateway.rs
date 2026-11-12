@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use candler_harness::spec::{CensusSource, InitReport};
 use candler_schemas::container::{ContainerLabels, ContainerRecord, ContainerRole};
 use candler_schemas::primitives::{ContainerId, Digest, JobId, Marker, RunKey};
 use candler_schemas::process::ExitStatus;
@@ -1026,9 +1027,6 @@ fn signals_of(log: &str, run: &RunKey, tag: &str) -> Vec<GatewaySignal> {
     signals
 }
 
-/// The most tool names one request's census line may carry.
-const CENSUS_TOOL_LIMIT: usize = 1024;
-
 /// The census of the run `run` under its tag `tag`, from the sidecar's log: one line
 /// `{"seq":<n>,"tools":[...]}` for each census line of the gateway whose `run=` and `tag=` fields
 /// equal these. A census line is `census run=<key> tag=<tag> seq=<n> tools=<JSON array>`; the
@@ -1063,7 +1061,6 @@ pub fn census_of(log: &str, run: &RunKey, tag: &str) -> Vec<u8> {
         let Some(tools) = rest
             .strip_prefix("tools=")
             .and_then(|text| serde_json::from_str::<Vec<String>>(text).ok())
-            .filter(|names| names.len() <= CENSUS_TOOL_LIMIT)
         else {
             continue;
         };
@@ -1074,6 +1071,24 @@ pub fn census_of(log: &str, run: &RunKey, tag: &str) -> Vec<u8> {
         }
     }
     out
+}
+
+/// The tool inventory of a census stream: the names of the first request, by sequence number,
+/// that carries any, labelled as the gateway's. A request with no tools says nothing; a run none
+/// of whose requests carry tools has no inventory, never an empty one.
+#[must_use]
+pub fn census_init(stream: &[u8]) -> Option<InitReport> {
+    #[derive(serde::Deserialize)]
+    struct Request {
+        seq: u64,
+        tools: Vec<String>,
+    }
+    let first = stream
+        .split(|byte| *byte == b'\n')
+        .filter_map(|line| serde_json::from_slice::<Request>(line).ok())
+        .filter(|request| !request.tools.is_empty())
+        .min_by_key(|request| request.seq)?;
+    InitReport::new(serde_json::json!(first.tools), None, CensusSource::Gateway).ok()
 }
 
 /// 128 random bits as hex, from the operating system.

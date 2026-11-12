@@ -19,7 +19,6 @@ use candler_schemas::trace::{EndedBy, Session};
 use semver::{Comparator, Op, Prerelease, Version, VersionReq};
 use serde_json::{Map, Value};
 
-use crate::census::OpenCodeCensusReader;
 use crate::export::{OpenCodeExportReader, ended_by_of_observed, export_stream};
 use crate::live::OpenCodeLiveReader;
 use crate::prepare::{self, invalid, model_id, required_text, value_at};
@@ -310,10 +309,6 @@ impl HarnessDriver for OpenCodeDriver {
     fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {
         if export_stream().as_ref() == Some(stream) {
             let reader = OpenCodeExportReader::new().ok()?;
-            return Some(Box::new(reader)); // TRAIT_OBJECT: the core selects readers at runtime
-        }
-        if census_stream().as_ref() == Some(stream) {
-            let reader = OpenCodeCensusReader::new().ok()?;
             return Some(Box::new(reader)); // TRAIT_OBJECT: the core selects readers at runtime
         }
         None

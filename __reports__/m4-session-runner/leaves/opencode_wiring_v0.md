@@ -44,7 +44,6 @@ Every bite was run on a copy of the file, with the file restored from the copy a
 | `census_gateway_run_records_the_first_request_with_tools_or_nothing` | `census.source` dropped; census stream not stored |
 | `census_gateway_denied_shell_is_offered_in_no_request` | recorded log replaced by the one without the deny |
 | `census_gateway_verdict_never_takes_a_gateway_list_for_another_source` | `census.source` ignored by the verdict |
-| `census_gateway_inventory_is_the_first_request_with_tools` (opencode crate) | title request taken |
 | `registry_ingest_reads_each_path_with_its_own_harness` | name taken from a literal: both runs named `claude-code` |
 
 Not run (they were in the guard docs and I removed them from there; the verifier may try them): the pre-stop run as a host command or an HTTP call to loopback, the `{session_id}` placeholder filled from anything but the live view, and a wrong session id in the collect argv. Test functions matching no guard id: none. No `confirm_*` helper remains.
@@ -108,3 +107,7 @@ Not fixed: `run_signals` shares the whole-job `docker logs` read, so a job past 
 ## Cleanup
 
 The target dir `/private/tmp/claude-501/m4-target-opencode_wiring` is removed after this commit.
+
+## Consolidation
+
+The gateway census is parsed in core (`census_init`, next to `census_of`), which labels it `CensusSource::Gateway`; the OpenCode crate only declares `census_stream`. `OpenCodeCensusReader`, its driver branch, `CENSUS_READER`, its guard file, `CENSUS_TOOL_LIMIT` and the conformance check that a census stream has an offline reader are gone. The two registry ingest tests are one; the census guard lost the cases another one restated; `support/wiring.rs` lost what no test used. The census block of the run keeps the stored stream's framing and bytes, so no digest moves. `census_stream` stays on the trait: Claude Code returns none and OpenCode names the stream core stores.
