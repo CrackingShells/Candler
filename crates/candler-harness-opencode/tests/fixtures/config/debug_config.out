@@ -1,0 +1,48 @@
+[
+  {
+    "type": "document",
+    "path": "/home/agent/.xdg/config/opencode/opencode.json",
+    "info": {
+      "mcp": {
+        "servers": {
+          "loc": {
+            "type": "local",
+            "command": [
+              "uvx",
+              "srv"
+            ],
+            "environment": {
+              "K": "v"
+            },
+            "codemode": false
+          },
+          "rem": {
+            "type": "remote",
+            "url": "http://h/mcp",
+            "headers": {
+              "X": "***"
+            },
+            "codemode": true
+          }
+        }
+      },
+      "providers": {
+        "candler": {
+          "package": "aisdk:@ai-sdk/anthropic",
+          "settings": {
+            "apiKey": "***",
+            "baseURL": "http://gateway:8080/r/tag/run/key/v1"
+          },
+          "models": {
+            "claude-x": {}
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "directory",
+    "path": "/home/agent/.xdg/config/opencode"
+  }
+]
+{"type":"error","timestamp":1794450048312,"sessionID":"ses_e3271441effeyG57V0InozsJoM","error":{"type":"provider.no-route","message":"Model unavailable: candler/zzz"}}
