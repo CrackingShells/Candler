@@ -894,123 +894,57 @@ fn c2_script(after_result: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
     steps
 }
 
-/// Guards: R01 §Session runner, M4 D2 — the input never closes on a turn's pending list that was
-/// not read for that turn: in the order the host sees in production (a turn's `result` line
-/// before its `Stop` line) the state is unknown until the `Stop` line arrives, however late; a
-/// turn that ends with no `Stop` line (the turn limit) after a quiet turn leaves the state
-/// unknown, so the wake-up it scheduled is not dropped; a `Stop` line that lists a wake-up keeps
-/// the session open; a `Stop` line read before its `result` still counts for that turn; a
-/// `Stop` line counts once (its `prompt_id`), for the earliest ended turn without one, and only
-/// when its message is that turn's result text.
-/// Oracle: the records below, by hand; the times are the ones the rows say.
-/// Bite: count the `Stop` lines instead of tying each to its turn.
+/// Guards: R01 §Session runner, M4 D2 — the session never closes while a model turn is unsettled,
+/// and closes once every model turn is settled. A `Stop` payload settles a turn by order and
+/// `prompt_id`; a repeat of an id settles nothing new; a `result` that counts no turn (`num_turns`
+/// 0, one of several coalesced task notifications) needs no payload.
+/// Oracle: the records below, by hand, and the field shapes of the recorded sessions c1 and c2.
+/// Bite: count the `Stop` lines instead of tying each to its turn (the repeated line settles the
+/// second turn); or count every `result` as a turn (the coalesced shape never closes).
 #[test]
 fn session_close_needs_a_stop_for_every_turn() {
+    type Events = Vec<(Duration, Rec)>;
     let stream = |text: &str| Rec::Stream(text.to_owned()); // BORROW: the row owns its records
-    let stop = |id: &str, crons: &str| {
+    let stop = |id: &str| {
         Rec::Hook(format!(
-            r#"{{"written_ns":1,"payload":{{"prompt_id":"{id}","hook_event_name":"Stop","background_tasks":[],"session_crons":{crons}}}}}"#
+            r#"{{"written_ns":1,"payload":{{"prompt_id":"{id}","hook_event_name":"Stop","last_assistant_message":"hi","background_tasks":[],"session_crons":[]}}}}"#
         ))
     };
     let assistant = || stream(r#"{"type":"assistant","message":{"content":[]}}"#);
-    let result = || stream(r#"{"type":"result","subtype":"success","num_turns":1}"#);
-    let max_turns = || stream(r#"{"type":"result","subtype":"error_max_turns","num_turns":2}"#);
-    let tasks_changed =
-        || stream(r#"{"type":"system","subtype":"background_tasks_changed","tasks":[]}"#);
-    let quiet_turn = |from: f64| {
-        vec![
-            (ms(from), assistant()),
-            (ms(from + 10.0), result()),
-            (ms(from + 21.0), stop("p1", "[]")),
-        ]
+    let result = |turns: u64| {
+        stream(&format!(
+            r#"{{"type":"result","subtype":"success","is_error":false,"num_turns":{turns},"result":"hi"}}"#
+        ))
     };
-    let rows: Vec<CloseRow> = vec![
+    let notification = || stream(r#"{"type":"system","subtype":"task_notification"}"#);
+    let rows: Vec<(&str, Events, Option<f64>)> = vec![
         (
-            "the result is read and the Stop line is not yet: unknown",
-            vec![(ms(0.0), assistant()), (ms(10.0), result())],
-            None,
-        ),
-        (
-            "the Stop line arrives 11 ms after the result: due one second after it",
-            quiet_turn(0.0),
-            Some(21.0 + 1000.0),
-        ),
-        (
-            "the Stop line is read before its result: still that turn's",
+            "the same Stop line twice, then a second result with no Stop line of its own: unknown",
             vec![
                 (ms(0.0), assistant()),
-                (ms(5.0), stop("p1", "[]")),
-                (ms(10.0), result()),
-            ],
-            Some(10.0 + 1000.0),
-        ),
-        (
-            "a second turn ends with no Stop line: unknown, not the first turn's list",
-            {
-                let mut events = quiet_turn(0.0);
-                events.push((ms(2000.0), assistant()));
-                events.push((ms(2100.0), max_turns()));
-                events.push((ms(2110.0), tasks_changed()));
-                events
-            },
-            None,
-        ),
-        (
-            "a late Stop line of the second turn lists a wake-up: pending, not due",
-            {
-                let mut events = quiet_turn(0.0);
-                events.push((ms(2000.0), assistant()));
-                events.push((ms(2100.0), result()));
-                events.push((ms(2111.0), stop("p2", r#"[{"id":"w1","recurring":false}]"#)));
-                events
-            },
-            None,
-        ),
-        (
-            "the same Stop line twice, then a second result with no Stop line yet",
-            {
-                let mut events = quiet_turn(0.0);
-                events.push((ms(40.0), stop("p1", "[]")));
-                events.push((ms(2000.0), assistant()));
-                events.push((ms(2100.0), result()));
-                events
-            },
-            None,
-        ),
-        (
-            "a Stop line of the first turn read after the second result: the second has none",
-            vec![
-                (ms(0.0), assistant()),
-                (ms(10.0), result()),
-                (ms(1000.0), assistant()),
-                (ms(1010.0), result()),
-                (ms(1021.0), stop("p1", "[]")),
+                (ms(10.0), result(1)),
+                (ms(21.0), stop("p1")),
+                (ms(40.0), stop("p1")),
+                (ms(2000.0), assistant()),
+                (ms(2100.0), result(1)),
             ],
             None,
         ),
         (
-            "then the second turn's own Stop line arrives: both are covered",
+            "coalesced notifications: results that count no turn need no Stop line",
             vec![
                 (ms(0.0), assistant()),
-                (ms(10.0), result()),
-                (ms(1000.0), assistant()),
-                (ms(1010.0), result()),
-                (ms(1021.0), stop("p1", "[]")),
-                (ms(1032.0), stop("p2", "[]")),
+                (ms(10.0), result(1)),
+                (ms(21.0), stop("p1")),
+                (ms(500.0), notification()),
+                (ms(510.0), result(0)),
+                (ms(520.0), notification()),
+                (ms(530.0), result(0)),
+                (ms(540.0), assistant()),
+                (ms(550.0), result(1)),
+                (ms(561.0), stop("p2")),
             ],
-            Some(1032.0 + 1000.0),
-        ),
-        (
-            "a Stop line whose message is not the turn's result text covers no turn",
-            vec![
-                (ms(0.0), assistant()),
-                (
-                    ms(10.0),
-                    stream(r#"{"type":"result","subtype":"success","result":"done"}"#),
-                ),
-                (ms(21.0), stop("p1", "[]")),
-            ],
-            None,
+            Some(561.0 + 1000.0),
         ),
     ];
     for (name, events, due_ms) in rows {

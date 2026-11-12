@@ -15,14 +15,18 @@
 //! its cap. A `result` line may be read before its turn's `Stop` line, and the state is unknown
 //! in between.
 //!
-//! A `Stop` payload is tied to its turn by what the recorded sessions show it carries: a
-//! `prompt_id` that differs from turn to turn, and a `last_assistant_message` equal to the text
-//! of that turn's `result` line. A payload whose `prompt_id` was already read is a duplicate and
-//! counts for nothing. Otherwise it counts for the earliest ended turn that has none, and only
-//! when its message equals that turn's `result` text; a payload read before its turn's `result`
-//! waits for the turn that ends next, under the same test. The stream carries no `prompt_id`, so
-//! the text is the only link between the two records, and a turn whose `Stop` payload cannot be
-//! linked stays uncovered: the state is then unknown, which keeps the input open.
+//! A `Stop` payload is tied to its turn by order and by its `prompt_id`, which the recorded
+//! sessions show differs from turn to turn. A payload with a `prompt_id` not read before covers
+//! the earliest ended turn that needs one; a later payload with the same `prompt_id` (a
+//! continuation, `stop_hook_active`) covers nothing new and replaces the pending lists, so the
+//! latest list stands; a payload with no `prompt_id` leaves the state unknown. A `result` that
+//! counts no turn (`num_turns` 0: one of several task notifications that coalesce into one turn,
+//! of which only the last has a `Stop` payload) needs none, and neither does an error result
+//! (`is_error`: an API error fires `StopFailure`, whose documented fields hold no pending lists),
+//! but an error result leaves the state unknown until a later turn is covered. A payload read
+//! before its turn's `result` waits for the turn that ends next. The text of the turn's `result`
+//! and the payload's `last_assistant_message` take no part: the documentation promises no
+//! equality between them.
 
 use std::str::FromStr as _;
 
@@ -162,11 +166,9 @@ pub fn spec(cell: &candler_harness::spec::Cell<'_>) -> Result<SessionSpec, Drive
     Ok(SessionSpec::new(command, input, SessionClose::Eof).with_hooks(hooks()?))
 }
 
-/// A turn that has ended.
+/// A turn that has ended and needs a `Stop` payload.
 #[derive(Debug)]
 struct EndedTurn {
-    /// The text of its `result` line.
-    text: String,
     /// Whether a `Stop` payload was linked to it.
     covered: bool,
 }
@@ -177,11 +179,13 @@ struct EndedTurn {
 pub struct Tracker {
     /// The turns that have ended.
     turns: u64,
-    /// The turns that have ended, each with the text of its `result` line and whether a `Stop`
-    /// payload was linked to it. The state is known only when every one is covered.
+    /// The turns that have ended that need a `Stop` payload, each with whether one was linked to it. The state is known only when every one is covered.
     ended: Vec<EndedTurn>,
-    /// The message of a `Stop` payload read while no ended turn waited for one.
-    ahead: Option<String>,
+    /// How many `Stop` payloads were read while no ended turn waited for one.
+    ahead: usize,
+    /// The number of turns that needed a `Stop` payload when the latest error result ended; the
+    /// state stays unknown until a turn at or after that index is covered.
+    error_at: Option<usize>,
     /// The keys of the `Stop` payloads read: the `prompt_id`, or the payload's own text.
     seen: Vec<String>,
     /// Whether the latest turn has ended and no later one has started.
@@ -226,9 +230,18 @@ impl Tracker {
             ("result", _) => {
                 self.turns = self.turns.saturating_add(1);
                 self.turn_ended = true;
-                let text = text_of(&object, "result").to_owned(); // BORROW: the turn owns its text
-                let covered = self.ahead.take().is_some_and(|message| message == text);
-                self.ended.push(EndedTurn { text, covered });
+                let errored = object.get("is_error").and_then(Value::as_bool) == Some(true);
+                let counts_none = object.get("num_turns").and_then(Value::as_u64) == Some(0);
+                if errored {
+                    self.error_at = Some(self.ended.len());
+                } else if !counts_none {
+                    let covered = self.ahead > 0;
+                    self.ahead = self.ahead.saturating_sub(1);
+                    if covered {
+                        self.cleared_by(self.ended.len());
+                    }
+                    self.ended.push(EndedTurn { covered });
+                }
             }
             ("assistant" | "user", _) | ("system", "init" | "task_notification") => {
                 self.turn_ended = false;
@@ -264,16 +277,22 @@ impl Tracker {
         }
         let key = match payload.get("prompt_id").and_then(Value::as_str) {
             Some(id) if !id.is_empty() => id.to_owned(), // BORROW: the tracker owns its keys
-            _ => Value::Object(payload.clone()).to_string(), // BORROW: the tracker owns its keys
+            _ => {
+                self.unread();
+                return Err(record("a Stop payload has no prompt_id"));
+            }
         };
-        if self.seen.contains(&key) {
-            return Ok(());
-        }
-        self.seen.push(key);
-        let message = text_of(payload, "last_assistant_message");
-        match self.ended.iter_mut().find(|turn| !turn.covered) {
-            Some(turn) => turn.covered = turn.text == message,
-            None => self.ahead = Some(message.to_owned()), // BORROW: the tracker owns the message
+        if !self.seen.contains(&key) {
+            self.seen.push(key);
+            let waiting = self.ended.iter().position(|turn| !turn.covered);
+            if let Some(index) = waiting {
+                if let Some(turn) = self.ended.get_mut(index) {
+                    turn.covered = true;
+                }
+                self.cleared_by(index);
+            } else {
+                self.ahead = self.ahead.saturating_add(1);
+            }
         }
         let readable = |key: &str| payload.get(key).is_some_and(Value::is_array);
         let tasks = pending_items(list_of(payload, "background_tasks"), "id", |_| {
@@ -310,6 +329,14 @@ impl Tracker {
             Err(record(
                 "a Stop payload lists pending work that cannot be read",
             ))
+        }
+    }
+
+    /// Notes that the turn at `index` was covered: an error result before it no longer holds the
+    /// state unknown.
+    fn cleared_by(&mut self, index: usize) {
+        if self.error_at.is_some_and(|at| index >= at) {
+            self.error_at = None;
         }
     }
 
@@ -363,7 +390,10 @@ impl SessionTracker for Tracker {
         PendingState::new(
             self.turns,
             self.turn_ended,
-            self.tasks_known && self.timers_known && self.ended.iter().all(|turn| turn.covered),
+            self.tasks_known
+                && self.timers_known
+                && self.error_at.is_none()
+                && self.ended.iter().all(|turn| turn.covered),
             pending,
         )
     }
