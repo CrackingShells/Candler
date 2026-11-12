@@ -4,7 +4,8 @@
 **Pre-conditions**:
 - [ ] [cmd] The leaf's worktree is its own checkout: `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints the worktree path
 - [ ] [cmd] The scope exists: `grep -q '"adapter-opencode"' cog.toml`
-- [ ] [nl] Eliott gave his go for the download (file, source and size stated) before Step 1, and his go and model for at most 3 RiVault runs before Step 2, after a RiVault health check
+- [x] [nl] Eliott gave his go for the download before Step 1 (2026-11-12): `opencode-linux-arm64.tar.gz` of the GitHub release `anomalyco/opencode` v2.2.7, 120,326,654 bytes, sha256 `c1682057f0815cb2abdd6e00305f1146ebaf1c167f0335cdb74ddc80008120e7`; that file only
+- [ ] [nl] Eliott gave his go and model for at most 3 RiVault runs before the real-model runs of Step 2, after a RiVault health check
 - [ ] [nl] OWNED: `crates/candler-harness-opencode/{Cargo.toml,src/lib.rs,tests/fixtures/**}`, `Cargo.lock` (the new member only), `__reports__/m4-session-runner/leaves/opencode_facts_v0.md`
 **Success Gates**:
 - ⬜ [cmd] The stub crate is a workspace member and builds: `cargo metadata --format-version 1 --no-deps | jq -e '.packages[] | select(.name=="candler-harness-opencode")' >/dev/null && cargo build -p candler-harness-opencode`
@@ -19,7 +20,7 @@
 ## Step 1: Install V2 in a hardened image and read it
 **Goal**: The binary, its version and its offline surface are known without spending a token.
 **Implementation Logic**:
-1. Find where OpenCode V2 is distributed (GitHub releases of `anomalyco/opencode`, tag `v2.1.x`; npm `opencode-ai` is still on 1.x). Pin the latest 2.1.x by version and sha256. Ask Eliott for the download with the file, source and size.
+1. Install the pinned file: `opencode-linux-arm64.tar.gz` of the GitHub release `anomalyco/opencode` v2.2.7 (the latest V2 on 2026-11-12; npm `opencode-ai` is still on 1.x), checked against its sha256 in the Dockerfile. Any other file needs a new go from Eliott.
 2. Build a scratch image (probe Dockerfile, not committed) from the same Debian base as `assets/docker/base`, installing only OpenCode. Never install it on the host.
 3. Run it under Candler's container hardening (read-only root, `noexec` tmpfs `/tmp`, `--cap-drop ALL`, `no-new-privileges`, a non-root uid, an internal network) and record:
    - the binary name and `--version`;
@@ -38,8 +39,8 @@
 ## Step 2: Record runs, stops and failures
 **Goal**: The event schema, the exit codes, the stop behaviour and the export are recorded from real runs.
 **Implementation Logic**:
-1. Failure classes first, which spend no token: an unknown model, a refused key (the gateway's dummy token against RiVault), an unreachable endpoint. Record stdout, stderr and the exit status of each.
-2. After Eliott's go and model, at most 3 runs, each with a tool call (`--standalone --format json`, a small workspace task):
+1. Failure classes first, which spend no token and reach no RiVault host: an unknown model and a refused key, both against the fake model (`assets/docker/fakemodel`) through the gateway sidecar, and an unreachable endpoint. Record stdout, stderr and the exit status of each.
+2. Three runs, each with a tool call (`--standalone --format json`, a small workspace task), first against a scratch copy of the fake model scripted for OpenCode's tools (no token), then, after Eliott's go and model, at most 3 on RiVault that confirm the shape:
    - a run that completes, then its `session export`;
    - a run stopped by SIGTERM mid-tool (then SIGINT if TERM is ignored), recording the exit status and whether the server child died;
    - a run interrupted from inside the container through `POST /api/session/{id}/interrupt`, recording the port, the response and the exit status.
