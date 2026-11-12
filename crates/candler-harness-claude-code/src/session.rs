@@ -9,8 +9,11 @@
 //! renamed key, an entry with no id, a line about the list that does not parse) makes the state
 //! unknown and keeps the last readable list: pending work that cannot be read is never "nothing".
 //! The state is known only when both the task list and the wake-up and cron list were read, and
-//! only a `Stop` payload lists the second: a turn that ends with no `Stop` line leaves the state
-//! unknown and the session runs to its cap.
+//! only a `Stop` payload lists the second, so it is known only once every ended turn has its own
+//! `Stop` payload: a turn that ends with no `Stop` line leaves the state unknown from then on
+//! (an earlier turn's list says nothing about what this turn scheduled) and the session runs to
+//! its cap. A `result` line may be read before its turn's `Stop` line, and the state is unknown
+//! in between.
 
 use std::str::FromStr as _;
 
@@ -35,15 +38,16 @@ const SETTINGS: &str = ".candler/settings.json";
 /// The file the hooks append to, relative to the agent's home.
 const HOOK_LOG: &str = ".candler/hooks.jsonl";
 /// The name of the raw stream that archives the hook log.
-const HOOK_STREAM: &str = "hooks.jsonl";
+const HOOK_STREAM: &str = "hooks";
 /// The hook events the driver installs.
 const HOOK_EVENTS: [&str; 2] = ["Stop", "SessionEnd"];
 
 /// The hook command: appends the payload, with the container's clock, as one JSON line to the log.
-/// It prints nothing, never fails and never decides, so it cannot block or steer the agent.
+/// It prints nothing on stdout or stderr, whatever the log does, never fails and never decides, so
+/// it cannot block or steer the agent.
 fn hook_command() -> String {
     format!(
-        "p=$(cat); printf '{{\"written_ns\":%s,\"payload\":%s}}\\n' \"$(date +%s%N)\" \"$p\" >> \"$HOME/{HOOK_LOG}\" || true; exit 0"
+        "p=$(cat); {{ printf '{{\"written_ns\":%s,\"payload\":%s}}\\n' \"$(date +%s%N)\" \"$p\" >> \"$HOME/{HOOK_LOG}\"; }} 2>/dev/null || true; exit 0"
     )
 }
 
@@ -155,6 +159,8 @@ pub fn spec(cell: &candler_harness::spec::Cell<'_>) -> Result<SessionSpec, Drive
 pub struct Tracker {
     /// The turns that have ended.
     turns: u64,
+    /// The `Stop` payloads read. The state is known only once there are as many as ended turns.
+    stops: u64,
     /// Whether the latest turn has ended and no later one has started.
     turn_ended: bool,
     /// Whether the background tasks were read: from a `background_tasks_changed` line or a `Stop`
@@ -244,6 +250,7 @@ impl Tracker {
             }
         })
         .filter(|_| readable("session_crons"));
+        self.stops = self.stops.saturating_add(1);
         let complete = tasks.is_some() && timers.is_some();
         match tasks {
             Some(tasks) => {
@@ -318,7 +325,7 @@ impl SessionTracker for Tracker {
         PendingState::new(
             self.turns,
             self.turn_ended,
-            self.tasks_known && self.timers_known,
+            self.tasks_known && self.timers_known && self.stops >= self.turns,
             pending,
         )
     }
