@@ -799,6 +799,26 @@ side = "environment"
 enum = "DriverError"
 variant = "Record"
 
+[harness."harness.inventory_malformed"]
+side = "environment"
+enum = "InitReportError"
+variant = "ToolsNotNames"
+
+[harness."harness.inventory_empty_name"]
+side = "environment"
+enum = "InitReportError"
+variant = "EmptyToolName"
+
+[harness."harness.server_list_malformed"]
+side = "environment"
+enum = "InitReportError"
+variant = "ServersNotList"
+
+[harness."harness.inventory_unrecorded"]
+side = "environment"
+enum = "InitReportError"
+variant = "NoTools"
+
 [cli]
 
 [cli."config.no_store"]
@@ -1514,6 +1534,10 @@ reason = "frames and traces are written by Candler's own capture, so a failure t
 [internal."candler_harness::spec::CommandSpecError"]
 enum = "CommandSpecError"
 reason = "the command builder is used by drivers, so its invariants are the driver's to keep, never an input of the author"
+
+[internal."candler_harness::conformance::Failure"]
+enum = "Failure"
+reason = "a failed check of the shared driver suite is a driver author's test result, raised only under the conformance feature, never a refusal of an input"
 
 [internal."candler_harness_claude_code::ClaudeCodeError"]
 enum = "ClaudeCodeError"

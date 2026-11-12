@@ -95,6 +95,10 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `evaluation.suite_changed` | The suite file of an evaluate job changed between the launcher reading it and the supervisor running the job, so the job refuses to grade with another suite. | - | suite |
 | `evaluation.suite_unreadable` | The suite file the caller named does not exist or cannot be read. | - | config |
 | `evaluation.workspace_unusable` | The workspace directory is relative, not valid UTF-8, inside the store or above it. | - | config |
+| `harness.inventory_empty_name` | The tool inventory a harness or the gateway observed holds an empty tool name. | - | environment |
+| `harness.inventory_malformed` | The tool inventory a harness or the gateway observed is not a list of names. | - | environment |
+| `harness.inventory_unrecorded` | A gateway or collected census source saw no tool, so the inventory is unrecorded rather than empty. | - | environment |
+| `harness.server_list_malformed` | The MCP server list a harness observed is not a list. | - | environment |
 | `harness.session_record_unreadable` | A session record that the harness wrote, such as a hook payload or a stream event, cannot be read by the driver's tracker. | - | environment |
 | `harness.version_unreadable` | The output of the harness version probe names no version. | - | environment |
 | `import.file_unreadable` | A file or directory of the legacy results folder cannot be read. | - | environment |
