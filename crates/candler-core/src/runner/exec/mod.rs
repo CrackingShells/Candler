@@ -17,7 +17,8 @@ use std::time::Duration;
 
 use candler_harness::driver::HarnessDriver;
 use candler_harness::spec::{
-    Cell, CommandSpec, Framing, Observed, PreparedFile, ProcessExit, StateKind, Workspace,
+    Cell, CommandSpec, Framing, Observed, PreparedFile, ProcessExit, RunTotals, StateKind,
+    Workspace,
 };
 use candler_schemas::container::ContainerRole;
 use candler_schemas::execution::{EventPayload, Integrity, InvalidReason, RunManifest, RunTree};
@@ -645,12 +646,20 @@ async fn drive(
         .with_input_leak(leaked)
         .with_attempt(plan.attempt);
     let end = classify_end(&input);
-    measured.extend(run_values(&RunFacts {
-        ended_by: &end.ended_by,
+    // A run whose trace could not be read has no totals, as it has no events.
+    let no_totals = RunTotals::default();
+    let totals = if reader_failed || evidence.sessions.is_empty() {
+        &no_totals
+    } else {
+        &observed.totals
+    };
+    measured.extend(run_values(&RunFacts::new(
+        &end.ended_by,
         client_exit,
         duration_ms,
-        events: &evidence.events,
-    }));
+        &evidence.events,
+        totals,
+    )));
     measured.extend(provenance_values(&rt.eval_infra, &cell.packages));
 
     let integrity = end.invalid.map_or(Integrity::Valid, Integrity::invalid);

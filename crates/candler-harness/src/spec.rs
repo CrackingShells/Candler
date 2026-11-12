@@ -634,6 +634,35 @@ impl ProcessExit {
     }
 }
 
+/// What the harness's own closing report says the run spent, as the harness wrote each value. A
+/// value the harness did not report is `None`: unrecorded, never zero.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct RunTotals {
+    /// The token usage of the run.
+    pub usage: Option<serde_json::Value>,
+    /// The cost of the run in US dollars.
+    pub cost_usd: Option<serde_json::Value>,
+    /// The number of turns of the run.
+    pub num_turns: Option<serde_json::Value>,
+}
+
+impl RunTotals {
+    /// Totals that hold what a harness reported; each is `None` when it was not reported.
+    #[must_use]
+    pub const fn new(
+        usage: Option<serde_json::Value>,
+        cost_usd: Option<serde_json::Value>,
+        num_turns: Option<serde_json::Value>,
+    ) -> Self {
+        Self {
+            usage,
+            cost_usd,
+            num_turns,
+        }
+    }
+}
+
 /// What a reader has seen so far in a harness's output.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[non_exhaustive]
@@ -645,6 +674,8 @@ pub struct Observed {
     pub init: Option<InitReport>,
     /// The last word of the stream on how the run ended, when it has one.
     pub end: Option<ObservedEnd>,
+    /// What the stream's closing report says the run spent; the default reports none.
+    pub totals: RunTotals,
 }
 
 impl Observed {
@@ -655,6 +686,7 @@ impl Observed {
             session_ids,
             init: None,
             end: None,
+            totals: RunTotals::new(None, None, None),
         }
     }
 
@@ -669,6 +701,13 @@ impl Observed {
     #[must_use]
     pub fn with_end(mut self, end: ObservedEnd) -> Self {
         self.end = Some(end);
+        self
+    }
+
+    /// The same view with the totals the stream's closing report gave.
+    #[must_use]
+    pub fn with_totals(mut self, totals: RunTotals) -> Self {
+        self.totals = totals;
         self
     }
 

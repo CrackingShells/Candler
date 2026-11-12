@@ -1,8 +1,9 @@
-//! What the run's own end measured: how it ended, its exit, its length, what the result frame
-//! says it spent and the tools it called.
+//! What the run's own end measured: how it ended, its exit, its length, what the harness reports
+//! it spent and the tools it called.
 
 use std::collections::BTreeMap;
 
+use candler_harness::spec::RunTotals;
 use candler_schemas::trace::{EndedBy, EventKind, SessionEvent};
 use candler_schemas::values::MeasuredValue;
 use serde_json::{Map, Number, Value};
@@ -24,15 +25,28 @@ pub struct RunFacts<'a> {
     pub duration_ms: u64,
     /// The events of the trace, in feed order.
     pub events: &'a [SessionEvent],
+    /// What the live reader reports the run spent.
+    pub totals: &'a RunTotals,
 }
 
-/// The last result line of the trace: the keys of the last event that is a `result` frame.
-fn result_frame(events: &[SessionEvent]) -> Option<&Map<String, Value>> {
-    events
-        .iter()
-        .rev()
-        .map(|entry| &entry.event.ext)
-        .find(|ext| ext.get("type").and_then(Value::as_str) == Some("result"))
+impl<'a> RunFacts<'a> {
+    /// The facts of a finished attempt.
+    #[must_use]
+    pub const fn new(
+        ended_by: &'a EndedBy,
+        client_exit: Option<i32>,
+        duration_ms: u64,
+        events: &'a [SessionEvent],
+        totals: &'a RunTotals,
+    ) -> Self {
+        Self {
+            ended_by,
+            client_exit,
+            duration_ms,
+            events,
+            totals,
+        }
+    }
 }
 
 /// The tools the stream called, by name, with the number of calls of each.
@@ -54,12 +68,10 @@ fn tool_calls(events: &[SessionEvent]) -> Map<String, Value> {
 
 /// The `run.*` values of an attempt: `run.ended_by`, `run.exit`, `run.duration_ms`, `run.usage`,
 /// `run.cost_usd`, `run.num_turns` and `run.tool_calls`. A value the run did not give is left
-/// out: a signalled client has no exit, and a run with no result frame has no usage, cost or turn
-/// count.
+/// out: a signalled client has no exit, and a run whose harness reported no totals has no usage,
+/// cost or turn count.
 #[must_use]
 pub fn run_values(facts: &RunFacts<'_>) -> Vec<MeasuredValue> {
-    let frame = result_frame(facts.events);
-    let from_frame = |key: &str| frame.and_then(|line| line.get(key)).cloned();
     let entries = [
         ("run.ended_by", serde_json::to_value(facts.ended_by).ok()),
         (
@@ -72,9 +84,9 @@ pub fn run_values(facts: &RunFacts<'_>) -> Vec<MeasuredValue> {
             "run.duration_ms",
             Some(Value::Number(Number::from(facts.duration_ms))),
         ),
-        ("run.usage", from_frame("usage")),
-        ("run.cost_usd", from_frame("total_cost_usd")),
-        ("run.num_turns", from_frame("num_turns")),
+        ("run.usage", facts.totals.usage.clone()), // BORROW: the value owns its copy
+        ("run.cost_usd", facts.totals.cost_usd.clone()), // BORROW: the value owns its copy
+        ("run.num_turns", facts.totals.num_turns.clone()), // BORROW: the value owns its copy
         (
             "run.tool_calls",
             Some(Value::Object(tool_calls(facts.events))),

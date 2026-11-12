@@ -33,6 +33,7 @@ use candler_core::resolve::preflight::{
 use candler_core::resolve::steps::identity::HarnessIdentityStep;
 use candler_core::resolve::steps::image::ImageIdStep;
 use candler_core::runner::evidence::census::census;
+use candler_core::runner::evidence::run::{RunFacts, run_values};
 use candler_core::runner::exec::apply_harness_env;
 use candler_core::runner::plan::{Force, PlanMode, plan_runs};
 use candler_core::supervise::{EventSink, Supervisor};
@@ -44,6 +45,7 @@ use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_schemas::execution::{EventPayload, ExperimentFile};
 use candler_schemas::primitives::{Digest, FieldPath, JobId, RunKey};
 use candler_schemas::raw::{FrameData, RawFrame, RawRef};
+use candler_schemas::trace::EndedBy;
 use candler_schemas::values::{JsonValue, ResolvedValue};
 use flate2::read::MultiGzDecoder;
 use futures::future::BoxFuture;
@@ -151,6 +153,43 @@ pub fn census_value(lines: &[String]) -> Value {
             value.path().to_string(),
             value.value().as_value().clone(), // BORROW: the map owns its values
         );
+    }
+    Value::Object(map)
+}
+
+/// The `run.usage`, `run.cost_usd` and `run.num_turns` values of the stream `lines`, by path, or
+/// `null` when the core records no run. A value the stream's closing report lacks is absent.
+pub fn run_totals_value(lines: &[String]) -> Value {
+    let mut reader = ClaudeCodeReader::new().expect("the reader");
+    for (index, line) in lines.iter().enumerate() {
+        if reader
+            .feed(FrameIn::new(raw_ref(index), None, &frame_of(line)))
+            .is_err()
+        {
+            return Value::Null;
+        }
+    }
+    // ----- adapter: the call the core offers for the run values -----
+    let observed = reader.observed();
+    let Ok(sessions) = Box::new(reader).finish() else {
+        return Value::Null;
+    };
+    if sessions.is_empty() {
+        return Value::Null;
+    }
+    let values = run_values(&RunFacts::new(
+        &EndedBy::Completed,
+        Some(0),
+        0,
+        &[],
+        &observed.totals,
+    ));
+    let mut map = serde_json::Map::new();
+    for value in values {
+        let path = value.path().to_string();
+        if ["run.usage", "run.cost_usd", "run.num_turns"].contains(&path.as_str()) {
+            map.insert(path, value.value().as_value().clone()); // BORROW: the map owns its values
+        }
     }
     Value::Object(map)
 }

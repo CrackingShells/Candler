@@ -379,15 +379,19 @@ fn harness_env_a_read_only_home_is_refused() {
 // H3: the census.
 // ---------------------------------------------------------------------------------------------
 
-/// Guards: R01 §Run manifest (`census.*`) — the three census values of every recorded Claude Code
-/// stream are the ones cf3de30 recorded, byte for byte.
-/// Oracle: `census.json`, recorded at cf3de30 from the same streams.
+/// Guards: R01 §Run manifest (`census.*`, `run.usage`, `run.cost_usd`, `run.num_turns`) — the three
+/// census values and the three run totals of every recorded Claude Code stream are the ones
+/// cf3de30 recorded, byte for byte.
+/// Oracle: `census.json` and `run_totals.json`, recorded at cf3de30 from the same streams.
 /// Bite: the census read by event key in the core with a reordered key, a list of tool names
-/// that is not sorted and deduplicated for `census.init_tools`, or a stream recorded as empty.
+/// that is not sorted and deduplicated for `census.init_tools`, or a stream recorded as empty; the
+/// reader's totals taken from the first `result` line instead of the last, or left empty.
 #[test]
 fn harness_census_equals_cf3de30_on_every_fixture() {
     let baseline = recorded("census.json");
     let baseline = baseline.as_object().expect("an object");
+    let totals = recorded("run_totals.json");
+    let totals = totals.as_object().expect("an object");
     let streams = facts::stream_paths();
     assert!(streams.len() >= 8, "the fixtures are found: {streams:?}");
     let mut recorded_some = 0;
@@ -397,6 +401,11 @@ fn harness_census_equals_cf3de30_on_every_fixture() {
             .get(name)
             .unwrap_or_else(|| panic!("no baseline for {name}"));
         assert_eq!(&actual, expected, "census of {name}");
+        let actual_totals = facts::run_totals_value(&facts::lines_of(path));
+        let expected_totals = totals
+            .get(name)
+            .unwrap_or_else(|| panic!("no run totals baseline for {name}"));
+        assert_eq!(&actual_totals, expected_totals, "run totals of {name}");
         if !actual.is_null() {
             recorded_some += 1;
         }
@@ -405,6 +414,11 @@ fn harness_census_equals_cf3de30_on_every_fixture() {
         baseline.len(),
         streams.len(),
         "every baseline entry has a fixture"
+    );
+    assert_eq!(
+        totals.len(),
+        streams.len(),
+        "every run totals entry has a fixture"
     );
     assert!(recorded_some >= 6, "the check is not over empty values");
 }
