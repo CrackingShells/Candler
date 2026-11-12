@@ -59,7 +59,7 @@ pub const CLOSE_TOLERANCE_MS: u64 = 1000;
 pub const C1_JOB_MS: u64 = 20_000;
 
 /// The name the fake model's certificate is for.
-const FAKE_HOST: &str = "fake-anthropic.test";
+const FAKE_HOST: &str = "fake-model.test";
 
 /// The port the fake model serves on.
 const FAKE_PORT: u16 = 8443;
