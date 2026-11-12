@@ -104,6 +104,12 @@ const FAMILIES: [&str; 5] = ["opus", "sonnet", "haiku", "fable", "mythos"];
 const ULTRACODE: &str = "Claude Code honours `ultracode` (`xhigh` effort with its ultracode mode on) \
      and OpenCode has no equivalent of that mode, so it is refused rather than run as `xhigh`";
 
+/// Why a level outside the variants this driver writes is refused: the cell value is opaque, and the
+/// Claude Code driver hands any level to `claude --effort` unchanged.
+const EFFORT_LEVEL: &str = "this driver writes an `OpenCode` variant only for the levels low, medium, \
+     high, xhigh and max; Claude Code receives any other level unchanged, so it is refused rather \
+     than mapped to a nearby one";
+
 /// Why an effort the model cannot take is refused.
 const EFFORT_MODEL: &str = "`OpenCode` gives a model a reasoning effort only for a Claude opus, \
      sonnet, fable or mythos of version 4.6 or later (older models get a token budget, which is \
@@ -162,11 +168,7 @@ pub(crate) fn table() -> Vec<SettingRow> {
         ));
     }
     rows.push(SettingRow::refused(MODEL_EFFORT, "<model>", EFFORT_MODEL));
-    rows.push(SettingRow::refused(
-        MODEL_EFFORT,
-        "*",
-        "a level that is none of Claude Code's `--effort` levels is not a value",
-    ));
+    rows.push(SettingRow::refused(MODEL_EFFORT, "*", EFFORT_LEVEL));
     rows.push(SettingRow::refused(MODEL_EFFORT, "ultracode", ULTRACODE));
     for path in [TOOLS_ALLOWED, TOOLS_DISALLOWED] {
         let allowed = path == TOOLS_ALLOWED;
@@ -548,10 +550,7 @@ fn effort_variant(
         return Err(unsupported(MODEL_EFFORT, version, ULTRACODE));
     }
     if !EFFORT_LEVELS.contains(&level) {
-        return Err(invalid(
-            MODEL_EFFORT,
-            format!("`{level}` is not one of {}", EFFORT_LEVELS.join(", ")),
-        ));
+        return Err(unsupported(MODEL_EFFORT, version, EFFORT_LEVEL));
     }
     let accepted = claude_info(model_id(cell)?).is_some_and(|info| {
         info.takes_effort() && (level != "xhigh" || info.major > 4 || info.minor >= 7)

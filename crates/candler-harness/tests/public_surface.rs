@@ -182,12 +182,16 @@ fn session_runner_specs(
     let _: bool = command.uses_session_id();
     let _: CommandSpec = command.with_session_id(&id)?;
     let action = Action::exec(command.clone()); // BORROW: .clone() copies the command
+    let _: bool = matches!(&action, Action::Exec(_));
     let _: bool = action.uses_session_id();
     let _: Option<Action> = action.resolve(Some(&id));
     let _: Action = action.with_session_id(&id)?;
     let _ = Action::Command(command.clone()); // BORROW: .clone() copies the command
     let stream: StreamName = "census".parse()?;
-    let _ = CollectSpec::exec(command.clone(), stream.clone()); // BORROW: .clone() copies the command and the name
+    let collect = CollectSpec::exec(command.clone(), stream.clone()); // BORROW: .clone() copies the command and the name
+    if let CollectSpec::Exec { spec, name, .. } = &collect {
+        let _: (&CommandSpec, &StreamName) = (spec, name);
+    }
     let capabilities = Capabilities::builder().session(true).build();
     let _: bool = capabilities.session;
 

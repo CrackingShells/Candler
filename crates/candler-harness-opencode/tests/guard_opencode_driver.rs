@@ -119,8 +119,6 @@ enum Expect {
         pointer: &'static str,
         needle: &'static str,
     },
-    /// The cell is refused as an invalid value.
-    Invalid,
 }
 
 /// One case: the table row it answers, the cell values it sets, and what follows.
@@ -245,7 +243,7 @@ fn table_cases() -> Vec<Case> {
             "model.effort",
             "*",
             vec![("model.effort", json!("extreme")), opus.clone()], // BORROW: .clone() copies the value
-            Expect::Invalid,
+            refuses("/fixed/model.effort", "low, medium, high, xhigh and max"),
         ),
     ];
     // `ultracode` is a Claude Code level the Claude Code driver passes through; OpenCode refuses it.
@@ -487,13 +485,6 @@ fn opencode_command_line_maps_or_refuses_every_setting() -> Res<()> {
                 for want in [pointer, needle, &"OpenCode", &"2.2.7"] {
                     assert!(message.contains(want), "{label}: `{want}` in `{message}`");
                 }
-                assert!(prepared_config(&c.extra).is_err(), "{label}: prepare too");
-            }
-            Expect::Invalid => {
-                let error = command_of(&c.extra)?
-                    .err()
-                    .ok_or_else(|| format!("{label}: expected a refusal"))?;
-                assert!(matches!(error, DriverError::InvalidValue { .. }), "{label}");
                 assert!(prepared_config(&c.extra).is_err(), "{label}: prepare too");
             }
         }
