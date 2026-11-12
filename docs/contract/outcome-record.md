@@ -10,7 +10,7 @@ The result of one evaluator for one expectation of one run: an evaluator reports
 Wire tag: none.
 
 <!-- versions -->
-Wire line: `schemas@0.6.0`.
+Wire line: `schemas@0.7.0`.
 <!-- /versions -->
 <!-- /generated:version -->
 

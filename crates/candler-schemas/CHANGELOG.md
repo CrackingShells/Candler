@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/CrackingShells/Candler/compare/schemas@0.6.0...schemas@0.7.0) - 2026-11-12
+
+### Documentation
+
+- *(schemas)* name the item at fault in a suite json refusal
+- *(schemas)* correct two refusal rows of the outcome and experiment
+
+### Features
+
+- *(schemas)* [**breaking**] add the refusal record and refuse unknown keys
+
 ## [0.6.0](https://github.com/CrackingShells/Candler/compare/schemas@0.5.0...schemas@0.6.0) - 2026-11-11
 
 ### Features

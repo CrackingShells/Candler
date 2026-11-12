@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/CrackingShells/Candler/compare/v0.6.1...v0.7.0) - 2026-11-12
+
+### Documentation
+
+- *(evaluation)* state the shape of an equivalence file in its refusal
+
+### Features
+
+- *(jobs)* record the refusal a failed evaluate job ended with
+- *(evaluation)* give an evaluate job the caller's environment
+- *(jobs)* code the refusal of a suite changed after the job started
+- *(cli)* code the refusals of import and ingest
+- *(cli)* code the refusals of jobs and evaluation
+- *(importer)* ingest raw claude code trace directories
+- *(cli)* carry the code of an analyze refusal to the caller
+- *(analysis)* choose one evaluator version and compare the pairs
+- *(cli)* show the suite of an evaluate job in ps
+- *(cli)* show the experiment or the suite of each job in ps
+- *(cli)* add resolve to print every value and its source
+- *(jobs)* supervise an evaluation as a job
+- *(evaluation)* take evaluator slots and report committed outcomes
+- *(evaluation)* add the evaluator slot pool and plug-in discovery
+- *(cli)* code the refusals of the core and the harnesses
+- *(analysis)* tally outcomes into arm rates with their counts
+- *(stats)* add Wilson, Newcombe, Fisher and Holm methods
+
+### Fixes
+
+- *(cli)* code the early refusals of evaluate and print a job as written
+- *(jobs)* recover a lost evaluate job without a docker client
+- *(jobs)* see a job that ends at once as started
+- *(importer)* take a results folder by its root markers
+- *(cli)* map job-open failures by kind and align wrapper answers
+- *(cli)* print only a code with the side its registry row gives
+- *(cli)* keep the wrapper's side for a value check and name the cause
+- *(cli)* answer a wrapped refusal with the side of its cause
+- *(importer)* refuse a results folder given without rules
+- *(analysis)* tally arms per stratum and read factors from manifests
+- *(cli)* [**breaking**] refuse a field path that no path class knows
+
 ## [0.6.1](https://github.com/CrackingShells/Candler/compare/v0.6.0...v0.6.1) - 2026-11-11
 
 ### Fixes

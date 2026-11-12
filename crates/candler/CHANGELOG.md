@@ -7,6 +7,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/CrackingShells/Candler/compare/v0.6.1...v0.7.0) - 2026-11-12
+
+### Documentation
+
+- *(cli)* say that a missing store root is not raised
+- *(contributing)* name the variants, the cli codes and tried notes
+- *(contributing)* list the refusals of each contract page
+- *(contributing)* generate the contract pages for six surfaces
+- *(evaluation)* state the shape of an equivalence file in its refusal
+
+### Features
+
+- *(cli)* state why each option is not derived
+- *(cli)* infer the evaluator and take a bare version
+- *(cli)* embed the image assets and cache them by digest
+- *(cli)* print the refusal a failed evaluate job recorded
+- *(evaluation)* give an evaluate job the caller's environment
+- *(cli)* end evaluate at once on a second Ctrl-C
+- *(cli)* [**breaking**] start evaluate as a job and follow it to its report
+- *(cli)* supervise an evaluate job from the hidden verb
+- *(cli)* code the refusals of import and ingest
+- *(cli)* code the refusals of jobs and evaluation
+- *(cli)* add inspect to show a run with its evidence
+- *(cli)* ingest raw trace directories and results folders
+- *(cli)* carry the code of an analyze refusal to the caller
+- *(cli)* add analyze with JSON and CSV output
+- *(cli)* show the suite of an evaluate job in ps
+- *(cli)* show the experiment or the suite of each job in ps
+- *(cli)* default watch to json lines and add a live view
+- *(cli)* add ls to list the experiments of a project
+- *(cli)* add resolve to print every value and its source
+- *(cli)* print a refusal as refusal/1 under --error-format json
+- *(jobs)* record the refusal a failed evaluate job ended with
+- *(jobs)* code the refusal of a suite changed after the job started
+- *(importer)* ingest raw claude code trace directories
+- *(analysis)* choose one evaluator version and compare the pairs
+- *(jobs)* supervise an evaluation as a job
+- *(evaluation)* take evaluator slots and report committed outcomes
+- *(evaluation)* add the evaluator slot pool and plug-in discovery
+- *(cli)* code the refusals of the core and the harnesses
+- *(analysis)* tally outcomes into arm rates with their counts
+- *(stats)* add Wilson, Newcombe, Fisher and Holm methods
+
+### Fixes
+
+- *(cli)* code the rules-file refusals of ingest
+- *(cli)* register the cause carriers of kill and ps
+- *(cli)* carry the failing job's error without new error enums
+- *(cli)* code the refusals a caller causes in each verb
+- *(cli)* code the early refusals of evaluate and print a job as written
+- *(jobs)* recover a lost evaluate job without a docker client
+- *(cli)* reap the supervisor and follow a job that ends at once
+- *(cli)* code the rules file that does not parse
+- *(cli)* keep the codes of the rules and equivalence refusals
+- *(importer)* take a results folder by its root markers
+- *(cli)* map job-open failures by kind and align wrapper answers
+- *(cli)* print only a code with the side its registry row gives
+- *(cli)* keep the wrapper's side for a value check and name the cause
+- *(importer)* refuse a results folder given without rules
+- *(analysis)* tally arms per stratum and read factors from manifests
+- *(cli)* [**breaking**] refuse a field path that no path class knows
+- *(cli)* refuse a factor over a setting before any image work
+- *(cli)* [**breaking**] refuse a --set key under request that no setting names
+- *(jobs)* see a job that ends at once as started
+- *(cli)* answer a wrapped refusal with the side of its cause
+
+### Refactoring
+
+- *(cli)* embed the assets by a path relative to the source
+- *(cli)* rename the import command file to ingest
+- *(cli)* build the evaluate request from the new engine fields
+
+### Style
+
+- *(cli)* write the analyze option stamps in lower case
+
 ## [0.6.1](https://github.com/CrackingShells/Candler/compare/v0.6.0...v0.6.1) - 2026-11-11
 
 ### Fixes
