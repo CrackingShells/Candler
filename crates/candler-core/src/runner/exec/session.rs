@@ -686,8 +686,10 @@ impl SessionOutcome {
         if self.capped { Some(Cap::Turns) } else { None }
     }
 
-    /// Whether a turn ended whose `Stop` hook line was never read, or the pending state could not
-    /// be read at the end: the hook channel failed to say what was pending.
+    /// Whether a turn ended and the pending state is not known at the end: a turn's `Stop` hook
+    /// line was never read (or an error turn was not followed by a covered one), or a list could
+    /// not be read. The value names the instrument, not the cause: the hook channel did not say
+    /// what was pending, whatever the reason.
     #[must_use]
     pub fn hooks_incomplete(&self) -> bool {
         let state = self.watch.snapshot().0;
