@@ -486,6 +486,46 @@ pub async fn run(
         serde_json::to_vec(&json!({"trace": trace_path, "steps": steps})).expect("a script"),
     )
     .expect("a script file");
+    let isolation: Arc<dyn Isolation> = Arc::new(StubIsolation {
+        dir: dir.clone(),
+        script,
+    });
+    let cancel = cancel.map(|(cause, after)| (cause, after, trace_path.clone()));
+    let (result, manifest, run_dir, rig) = execute(rig, isolation, values, driver, cancel).await;
+    let trace = fs::read_to_string(&trace_path)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.splitn(3, ' ');
+            let at = parts.next()?.parse::<f64>().ok()?;
+            Some((
+                at,
+                parts.next()?.to_owned(),
+                parts.next().unwrap_or_default().to_owned(),
+            ))
+        })
+        .collect();
+    Ran {
+        result,
+        manifest,
+        run_dir,
+        trace,
+        _rig: rig,
+    }
+}
+
+/// What `execute` leaves: the run's result, its sealed manifest and directory, and the world.
+pub type Executed = (Result<RunOutcome, ExecError>, Value, PathBuf, Rig);
+
+/// Runs one session cell of `values` on `isolation` in the world `rig`. `cancel` sends its cause
+/// once the file at its third part holds ` opened `, after its second part in seconds.
+pub async fn execute(
+    rig: Rig,
+    isolation: Arc<dyn Isolation>,
+    values: &[(String, Value)],
+    driver: Driver,
+    cancel: Option<(JobCause, f64, PathBuf)>,
+) -> Executed {
     let comparable = comparable_of(values);
     let cell_digest: Digest = comparable.digest();
     let experiment: Digest = format!("sha256:{}", "e".repeat(64))
@@ -513,10 +553,7 @@ pub async fn run(
     let key = RunKey::new(cell_digest.clone(), 1, 1).expect("a run key");
     let mut runtime = rig.runtime();
     runtime.driver = Arc::new(driver);
-    runtime.isolation = Some(Arc::new(StubIsolation {
-        dir: dir.clone(),
-        script,
-    }));
+    runtime.isolation = Some(isolation);
     runtime.cells = BTreeMap::from([(cell_digest.clone(), Arc::new(cell))]);
     let plan = RunPlan {
         key: key.clone(),
@@ -535,8 +572,7 @@ pub async fn run(
         cancel: rx,
         meter: Arc::new(JobMeter::new()),
     };
-    let canceller = cancel.map(|(cause, after)| {
-        let trace = trace_path.clone();
+    let canceller = cancel.map(|(cause, after, trace)| {
         tokio::spawn(async move {
             let began = std::time::Instant::now();
             while !fs::read_to_string(&trace).is_ok_and(|text| text.contains(" opened ")) {
@@ -560,25 +596,7 @@ pub async fn run(
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or(Value::Null);
-    let trace = fs::read_to_string(&trace_path)
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|line| {
-            let mut parts = line.splitn(3, ' ');
-            let at = parts.next()?.parse::<f64>().ok()?;
-            Some((
-                at,
-                parts.next()?.to_owned(),
-                parts.next().unwrap_or_default().to_owned(),
-            ))
-        })
-        .collect();
     drop(slot);
-    Ran {
-        result,
-        manifest,
-        run_dir,
-        trace,
-        _rig: rig,
-    }
+    drop(runtime);
+    (result, manifest, run_dir, rig)
 }
