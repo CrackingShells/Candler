@@ -16,10 +16,10 @@ Session mode is refused for a harness version whose controls fail, the core cann
 ## Status
 ```mermaid
 graph TD
-    session_controls[Session controls]:::planned
-    harness_guard[Harness guard]:::planned
-    contract_docs[Contract docs]:::planned
-    design_record[Design record]:::planned
+    session_controls[Session controls]:::inprogress
+    harness_guard[Harness guard]:::inprogress
+    contract_docs[Contract docs]:::inprogress
+    design_record[Design record]:::inprogress
     revalidation[Revalidation]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -31,10 +31,10 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `session_controls.md` | 📄 Leaf Task | ⬜ Planned |
-| `harness_guard.md` | 📄 Leaf Task | ⬜ Planned |
-| `contract_docs.md` | 📄 Leaf Task | ⬜ Planned |
-| `design_record.md` | 📄 Leaf Task | ⬜ Planned |
+| `session_controls.md` | 📄 Leaf Task | 🔄 In Progress |
+| `harness_guard.md` | 📄 Leaf Task | 🔄 In Progress |
+| `contract_docs.md` | 📄 Leaf Task | 🔄 In Progress |
+| `design_record.md` | 📄 Leaf Task | 🔄 In Progress |
 | `revalidation/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
