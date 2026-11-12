@@ -11,7 +11,11 @@ use candler_schemas::primitives::Digest;
 use super::CliError;
 
 /// Every file of `assets/docker`, by its path below that directory, in path order.
-pub(crate) const ASSETS: [(&str, &[u8]); 13] = [
+pub(crate) const ASSETS: [(&str, &[u8]); 14] = [
+    (
+        "base-opencode/Dockerfile",
+        include_bytes!("../../../../assets/docker/base-opencode/Dockerfile"),
+    ),
     (
         "base/.dockerignore",
         include_bytes!("../../../../assets/docker/base/.dockerignore"),

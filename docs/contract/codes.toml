@@ -1543,6 +1543,10 @@ reason = "a failed check of the shared driver suite is a driver author's test re
 enum = "ClaudeCodeError"
 reason = "the reader identity is a constant of the harness, so an invalid one is the harness's fault"
 
+[internal."candler_harness_opencode::OpenCodeError"]
+enum = "OpenCodeError"
+reason = "the reader identity is a constant of the harness, so an invalid one is the harness's fault"
+
 [internal."candler_core::analysis::error::StatsError"]
 enum = "StatsError"
 reason = "its inputs are counts the store holds, so no variant is an author's to fix"
