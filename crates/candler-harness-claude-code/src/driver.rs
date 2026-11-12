@@ -45,8 +45,10 @@ const GATEWAY_BASE_URL: &str = "ANTHROPIC_BASE_URL";
 const GATEWAY_AUTH_TOKEN: &str = "ANTHROPIC_AUTH_TOKEN";
 /// Every variable the core owns for this harness.
 const GATEWAY_RESERVED: [&str; 3] = [GATEWAY_BASE_URL, GATEWAY_AUTH_TOKEN, "ANTHROPIC_API_KEY"];
-/// How long the core waits after the stop signal before it escalates.
-const STOP_GRACE: Duration = Duration::from_secs(15);
+/// How long the core waits after the stop signal before it escalates: the five seconds the core
+/// gave every harness before it applied a driver's own stop (`DEFAULT_GRACE` of
+/// `supervise/spawn.rs` at 40ef2fe).
+const STOP_GRACE: Duration = Duration::from_secs(5);
 
 /// The error for a value of the cell that cannot be used.
 pub(crate) fn invalid(path: &str, detail: String) -> DriverError {

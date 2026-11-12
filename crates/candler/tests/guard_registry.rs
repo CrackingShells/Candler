@@ -125,10 +125,12 @@ fn registry_unknown_harness_is_refused_naming_it() {
             stderr.contains(&format!("`{refused}`")),
             "{case}: the name is in the refusal: {stderr}"
         );
-        assert!(
-            stderr.contains("claude-code"),
-            "{case}: the registered names are listed: {stderr}"
-        );
+        for registered in ["claude-code", "opencode"] {
+            assert!(
+                stderr.contains(registered),
+                "{case}: the registered name {registered} is listed: {stderr}"
+            );
+        }
         assert_eq!(world.calls(), "", "{case}: no docker call precedes it");
     }
 }
@@ -193,40 +195,114 @@ fn import(cwd: &Path, store: &Path, args: &[&str]) -> Output {
         .expect("the binary runs")
 }
 
-/// Guards: R01 §Harness drivers — an import reads the corpus with the reader of the harness its
-/// rules name, and refuses a harness with no registered reader, naming it.
-/// Oracle: the mini corpus fixture and its rules, whose harness is `claude-code` (stdout counts
-/// its runs); the same rules with another name.
-/// Bite: a reader chosen without the name: the unknown name would import the corpus.
+/// Guards: R01 §Harness drivers — ingest reads each path with the reader of the harness that
+/// wrote it, named as its driver names itself: one `candler ingest` over a Claude Code stream and
+/// an `OpenCode` stream stores two runs, each under its own harness name and none read with the
+/// other's reader; `candler import` of rules that name a harness with no reader is refused,
+/// naming it.
+/// Oracle: the recorded `completed_o1` stdout of `opencode_facts` and a hand-written Claude Code
+/// stream; the harness names `claude-code` and `opencode` the drivers' `id()` give; the stored
+/// manifests' `comparable.harness.name`; the mini corpus rules with another name.
+/// Bite: one reader chosen once for every path, or the recognised name taken from a literal: the
+/// second run is read as Claude Code, or both are named `claude-code`; a reader chosen without
+/// the name: the unknown name would import the corpus.
 #[test]
-fn registry_ingest_selects_the_reader_by_name() {
+fn registry_ingest_reads_each_path_with_its_own_harness() {
     let dir = tempfile::TempDir::new().expect("a directory");
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let opencode = fs::read(
+        root.join("../candler-harness-opencode/tests/fixtures/streams/completed_o1/stdout.jsonl"),
+    )
+    .expect("the recorded stream");
+    let claude = concat!(
+        r#"{"type":"system","subtype":"init","session_id":"S","model":"m","claude_code_version":"2.1.220"}"#,
+        "\n",
+        r#"{"type":"result","subtype":"success","is_error":false,"session_id":"S"}"#,
+        "\n"
+    );
+    let first = dir.path().join("claude");
+    let second = dir.path().join("opencode");
+    for folder in [&first, &second] {
+        fs::create_dir_all(folder).expect("a folder");
+    }
+    fs::write(first.join("stdout.jsonl"), claude).expect("a stream");
+    fs::write(second.join("stdout.jsonl"), opencode).expect("a stream");
+    // The run's collected export, beside its stream: ingest reads it as the run did.
+    fs::copy(
+        root.join("../candler-harness-opencode/tests/fixtures/streams/completed_o1/export.json"),
+        second.join("export.json"),
+    )
+    .expect("the recorded export");
+
+    let store = dir.path().join("store");
+    let out = Command::new(env!("CARGO_BIN_EXE_candler"))
+        .current_dir(dir.path())
+        .env_remove("CANDLER_STORE")
+        .env("HOME", dir.path())
+        .env("XDG_CONFIG_HOME", dir.path().join("config"))
+        .env("XDG_STATE_HOME", dir.path().join("state"))
+        .arg("--store")
+        .arg(&store)
+        .args(["ingest", "claude", "opencode"])
+        .output()
+        .expect("the binary runs");
+    assert!(out.status.success(), "{out:?}");
+
+    let mut names = Vec::new();
+    let mut readers = Vec::new();
+    for entry in fs::read_dir(store.join("runs")).expect("runs lists") {
+        let path = entry.expect("an entry").path();
+        if path
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with('.'))
+        {
+            continue;
+        }
+        let text = fs::read_to_string(path.join("manifest.json")).expect("a manifest");
+        let manifest: serde_json::Value = serde_json::from_str(&text).expect("JSON");
+        assert_eq!(
+            manifest["integrity"]["kind"], "valid",
+            "the run is supported by its harness's reader: {manifest}"
+        );
+        let trace = fs::read_to_string(path.join("trace.jsonl")).expect("a trace");
+        let header: serde_json::Value =
+            serde_json::from_str(trace.lines().next().expect("a header")).expect("header JSON");
+        readers.push(
+            header["reader"]
+                .as_str()
+                .unwrap_or_else(|| panic!("a reader: {header}"))
+                .to_owned(), // BORROW: the list owns the names
+        );
+        names.push(
+            manifest["comparable"]["harness"]["name"]
+                .as_str()
+                .unwrap_or_else(|| panic!("a harness name: {manifest}"))
+                .to_owned(), // BORROW: the list owns the names
+        );
+    }
+    names.sort();
+    assert_eq!(names, ["claude-code", "opencode"]);
+    // Each path is read by its own harness's reader, and the export wins as it does at run time.
+    readers.sort();
+    assert_eq!(readers.len(), 2, "two runs: {readers:?}");
+    assert!(readers[0].starts_with("claude-code"), "{readers:?}"); // INDEX: two readers, checked above
+    assert_eq!(readers[1], "opencode-export@0.1.0", "{readers:?}"); // INDEX: two readers, checked above
+
     let corpus = root.join("../candler-core/tests/fixtures/mini-corpus");
-    let rules = root.join("tests/fixtures/cli/mini-corpus-rules.toml");
-    let text = fs::read_to_string(&rules).expect("the rules");
-    // BORROW: the argument owns its text
-    let given = |path: &PathBuf| path.to_str().expect("a UTF-8 path").to_owned();
-
-    let ok = import(
-        dir.path(),
-        &dir.path().join("store"),
-        &[&given(&corpus), "--rules", &given(&rules)],
-    );
-    assert!(ok.status.success(), "{ok:?}");
-    assert!(
-        String::from_utf8_lossy(&ok.stdout).contains("\"runs\""),
-        "{ok:?}"
-    );
-
-    let renamed = text.replace("name = \"claude-code\"", "name = \"nonesuch\"");
-    assert_ne!(renamed, text, "the rules name the harness");
+    let rules = fs::read_to_string(root.join("tests/fixtures/cli/mini-corpus-rules.toml"))
+        .expect("the rules");
+    let renamed = rules.replace("name = \"claude-code\"", "name = \"nonesuch\"");
+    assert_ne!(renamed, rules, "the rules name the harness");
     let other = dir.path().join("other-rules.toml");
     fs::write(&other, renamed).expect("the rules write");
     let refused = import(
         dir.path(),
         &dir.path().join("store-two"),
-        &[&given(&corpus), "--rules", &given(&other)],
+        &[
+            corpus.to_str().expect("a UTF-8 path"),
+            "--rules",
+            other.to_str().expect("a UTF-8 path"),
+        ],
     );
     assert_eq!(refused.status.code(), Some(2), "{refused:?}");
     let stderr = String::from_utf8_lossy(&refused.stderr);

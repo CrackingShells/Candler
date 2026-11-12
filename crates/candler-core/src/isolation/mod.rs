@@ -17,7 +17,7 @@ pub mod testing;
 
 use std::sync::Arc;
 
-use candler_harness::spec::{Cell, CommandSpec, Workspace};
+use candler_harness::spec::{Cell, CommandSpec, Observed, Workspace};
 use candler_schemas::primitives::{ContainerId, Marker, RunKey};
 use futures::future::BoxFuture;
 
@@ -50,21 +50,47 @@ pub enum IsolationError {
     },
 }
 
-/// Where the run's standard output and standard error go.
-#[derive(Debug)]
+/// What the run's live reader has seen so far, read when a stop needs it.
+// TRAIT_OBJECT: the view is a closure over the run's live reader
+pub type ObservedView = Arc<dyn Fn() -> Observed + Send + Sync>;
+
+/// Where the run's standard output and standard error go, and what the run's live reader sees.
 #[non_exhaustive]
 pub struct RunOutputs {
     /// The standard output of the run's client.
     pub stdout: OutputSpec,
     /// The standard error of the run's client.
     pub stderr: OutputSpec,
+    /// What the live reader has seen, for a stop action that needs the observed session id.
+    pub observer: Option<ObservedView>,
+}
+
+impl std::fmt::Debug for RunOutputs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RunOutputs")
+            .field("stdout", &self.stdout)
+            .field("stderr", &self.stderr)
+            .field("observer", &self.observer.is_some())
+            .finish()
+    }
 }
 
 impl RunOutputs {
-    /// The two outputs of a run.
+    /// The two outputs of a run, with no live view.
     #[must_use]
     pub const fn new(stdout: OutputSpec, stderr: OutputSpec) -> Self {
-        Self { stdout, stderr }
+        Self {
+            stdout,
+            stderr,
+            observer: None,
+        }
+    }
+
+    /// The same outputs with the view of what the live reader has seen.
+    #[must_use]
+    pub fn with_observer(mut self, observer: ObservedView) -> Self {
+        self.observer = Some(observer);
+        self
     }
 }
 
@@ -133,6 +159,28 @@ pub trait Isolation: Send + Sync {
         exit: &'a Exit,
         key: &'a RunKey,
     ) -> BoxFuture<'a, Result<ContainerOutcome, IsolationError>>;
+
+    /// Runs `command` in a throwaway container over the run's mounts, environment and user and
+    /// returns what it printed on standard output. The agent's container may have exited: what
+    /// the harness keeps lives in the run's mounts. The container has no network and carries
+    /// neither the gateway's address nor its token. An isolation without containers refuses.
+    ///
+    /// # Errors
+    /// [`IsolationError::Plan`] when the command cannot be wrapped over the plan,
+    /// [`IsolationError::Docker`] when docker fails, and [`IsolationError::Unavailable`] for an
+    /// isolation that runs none.
+    fn collect_exec<'a>(
+        &'a self,
+        plan: &'a ContainerPlan,
+        command: &'a CommandSpec,
+    ) -> BoxFuture<'a, Result<Vec<u8>, IsolationError>> {
+        let _ = (plan, command);
+        Box::pin(async {
+            Err(IsolationError::Unavailable {
+                detail: String::from("collect_exec"),
+            })
+        })
+    }
 
     /// Records the run's container once its id is known, to the job's `children/`, so that every
     /// destroy path finds the container recorded. It may be called many times; the container is

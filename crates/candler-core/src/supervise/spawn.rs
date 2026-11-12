@@ -186,6 +186,13 @@ impl SpawnRequest {
         self
     }
 
+    /// The same request that is stopped as `stop` says.
+    #[must_use]
+    pub fn with_stop(mut self, stop: StopSpec) -> Self {
+        self.stop = stop;
+        self
+    }
+
     /// How long the child gets between the stop signal and the group's termination.
     pub(crate) const fn grace(&self) -> Duration {
         self.stop.grace

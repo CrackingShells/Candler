@@ -1,6 +1,8 @@
 //! The two seams to docker. [`DockerDriver`] reads and runs; [`DestroyDriver`] removes and is
 //! held only by the container guard, so that nothing else can destroy a container.
 
+use std::time::Duration;
+
 use futures::future::BoxFuture;
 
 use super::docker::DockerError;
@@ -62,6 +64,26 @@ pub trait DockerDriver: Send + Sync {
         &'a self,
         request: &'a BuildRequest,
     ) -> BoxFuture<'a, Result<ImageInfo, DockerError>>;
+
+    /// Runs `docker <args>` for at most `deadline` and returns what it printed on standard
+    /// output. The arguments are a container call that destroys nothing: a `docker exec` in a
+    /// container, or a `docker run --rm` of a control container.
+    ///
+    /// # Errors
+    /// [`DockerError::Unavailable`] for a driver that runs no such call, and [`DockerError`]
+    /// when docker fails or the call outlives `deadline`.
+    fn capture(
+        &self,
+        args: Vec<String>,
+        deadline: Duration,
+    ) -> BoxFuture<'_, Result<Vec<u8>, DockerError>> {
+        let _ = (args, deadline);
+        Box::pin(async {
+            Err(DockerError::Unavailable {
+                detail: String::from("capture"),
+            })
+        })
+    }
 }
 
 /// The destroy half of docker: stop, remove, remove a network. Only the guard holds one.

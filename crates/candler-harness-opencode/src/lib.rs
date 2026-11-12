@@ -38,6 +38,9 @@ pub const LIVE_READER: &str = "opencode-ndjson@0.1.0";
 /// The reader of the session export, as the trace header names it.
 pub const EXPORT_READER: &str = "opencode-export@0.1.0";
 
+/// The stream name under which the gateway's census is stored.
+pub const CENSUS_STREAM: &str = "gateway_census";
+
 /// The name of the harness.
 pub const HARNESS: &str = "opencode";
 

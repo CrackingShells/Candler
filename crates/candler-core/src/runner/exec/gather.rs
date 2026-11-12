@@ -1,16 +1,25 @@
 //! What the core reads off a finished attempt: the files it produced, what the trace says it
 //! spent, and what the reader made of its output.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::Path;
 
-use candler_harness::spec::CollectSpec;
+use candler_harness::reader::{FrameIn, ReaderError, TraceReader};
+use candler_harness::spec::{
+    CollectSpec, CommandSpec, EnvValue, FileRoot, Framing, Observed, PreparedFile,
+};
 use candler_schemas::outcome::Finite;
-use candler_schemas::trace::{EventKind, SessionEvent, SessionId, UsageScope};
+use candler_schemas::raw::{Clock, RawRef, StreamName};
+use candler_schemas::trace::{EventKind, Session, SessionEvent, SessionId, UsageScope};
 use regex::Regex;
+use serde_json::{Value, json};
 
 use super::ends::TraceFacts;
+use crate::frames::{FrameReader, FrameWriter, RawFileInfo};
+use crate::isolation::model::ContainerPlan;
+use crate::isolation::{Isolation, IsolationError};
 use crate::runner::Usage;
 use crate::runner::evidence::{Inputs, OutputDigest};
 use crate::store::blob::digest_of_file;
@@ -112,6 +121,167 @@ pub const fn read_facts(ended_by: candler_schemas::trace::EndedBy, spent: &Spent
         ended_by,
         tokens: spent.facts_tokens(),
     }
+}
+
+/// What one collect command printed, under the stream name its spec gives.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct Collected {
+    /// The stream the output is archived as.
+    pub name: StreamName,
+    /// The standard output of the command, or why it could not be had.
+    pub output: Result<Vec<u8>, IsolationError>,
+}
+
+/// Runs each command the driver's collect specs name, inside the run's isolation, in order, and
+/// returns what each printed. A failure is that command's own result, never raised: the others
+/// still run. Specs that name files, or a command for the host, pick nothing here.
+pub async fn collect_commands(
+    isolation: &dyn Isolation, // TRAIT_OBJECT: the isolation is docker, or a fake in tests
+    plan: &ContainerPlan,
+    specs: &[CollectSpec],
+) -> Vec<Collected> {
+    let mut found = Vec::new();
+    for spec in specs {
+        if let CollectSpec::Exec { spec, name, .. } = spec {
+            found.push(Collected {
+                name: name.clone(), // BORROW: the result owns the stream name
+                output: isolation.collect_exec(plan, spec).await,
+            });
+        }
+    }
+    found
+}
+
+/// A stream stored as a raw file and read by a reader.
+#[non_exhaustive]
+pub struct StreamRead {
+    /// The raw file the bytes were stored as.
+    pub file: RawFileInfo,
+    /// What the reader saw of the stored frames.
+    pub observed: Observed,
+    /// The identity the reader names in a trace header.
+    pub reader: candler_schemas::primitives::NameVersion,
+    /// The sessions and events the reader made of the stream.
+    pub trace: Result<(Vec<Session>, Vec<SessionEvent>), ReaderError>,
+}
+
+/// Frames `bytes` as the stream `name` into `dir` the way `framing` says, and returns the file.
+///
+/// # Errors
+/// The I/O error of writing the frame file.
+pub fn store_stream(
+    dir: &Path,
+    name: &StreamName,
+    framing: Framing,
+    bytes: &[u8],
+) -> io::Result<RawFileInfo> {
+    let mut writer = FrameWriter::create(dir, name.clone(), framing, Clock::Unrecorded, None)?; // BORROW: the writer owns the stream name
+    writer.write(bytes, None)?;
+    writer.finish()
+}
+
+/// Stores `bytes` as the stream `name` in `dir`, then reads the stored frames, and only those,
+/// with `reader`: what the reader makes is a function of the raw file.
+///
+/// # Errors
+/// The I/O error of storing or reading back the frame file. A frame the reader cannot read is the
+/// reader's own result in [`StreamRead::trace`].
+pub fn read_stream(
+    dir: &Path,
+    name: &StreamName,
+    bytes: &[u8],
+    mut reader: Box<dyn TraceReader>, // TRAIT_OBJECT: the reader is the driver's
+) -> io::Result<StreamRead> {
+    let file = store_stream(dir, name, reader.framing(), bytes)?;
+    let frames = FrameReader::open(&file.path).map_err(io::Error::other)?;
+    let identity = reader.id();
+    let mut events: Vec<SessionEvent> = Vec::new();
+    let mut failure: Option<ReaderError> = None;
+    for (index, frame) in frames.enumerate() {
+        let frame = frame.map_err(io::Error::other)?;
+        let at = RawRef::new(name.clone(), u64::try_from(index).unwrap_or(u64::MAX)); // BORROW: the reference owns the stream name
+        match reader.feed(FrameIn::new(at, None, &frame)) {
+            Ok(mut made) => events.append(&mut made),
+            Err(error) => {
+                failure = Some(error);
+                break;
+            }
+        }
+    }
+    let observed = reader.observed();
+    let trace = match failure {
+        Some(error) => Err(error),
+        None => reader.finish().map(|sessions| (sessions, events)),
+    };
+    Ok(StreamRead {
+        file,
+        observed,
+        reader: identity,
+        trace,
+    })
+}
+
+/// The name a prepared file's root is recorded under.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "a root this core does not know is the workspace, as the writer takes it"
+)]
+const fn root_label(root: FileRoot) -> &'static str {
+    match root {
+        FileRoot::Home => "home",
+        _ => "workspace",
+    }
+}
+
+/// The record of what the driver resolved from the cell: the harness argv and the names of the
+/// variables its overlay sets, and each prepared file with its contents (as text when it is
+/// text) and the digest of its bytes. It holds no value of a variable and no secret: a secret in
+/// the overlay is a name, and a driver's file refers to secrets by the name of a variable.
+#[must_use]
+pub fn resolved_record(
+    command: &CommandSpec,
+    files: &[PreparedFile],
+    digests: &BTreeMap<String, Digest>,
+) -> Vec<u8> {
+    let env: Vec<Value> = command
+        .env_overlay()
+        .iter()
+        .map(|entry| {
+            #[expect(
+                clippy::wildcard_enum_match_arm,
+                reason = "a value that is not a literal is a secret reference, or one no kind names"
+            )]
+            let kind = match &entry.value {
+                EnvValue::Literal(_) => "literal",
+                _ => "secret",
+            };
+            json!({"name": entry.name, "kind": kind})
+        })
+        .collect();
+    let files: Vec<Value> = files
+        .iter()
+        .map(|file| {
+            let digest = digests.get(file.path.as_str()).map(ToString::to_string); // BORROW: explicit .as_str()
+            json!({
+                "path": file.path.as_str(), // BORROW: explicit .as_str()
+                "root": root_label(file.root),
+                "executable": file.executable,
+                "sha256": digest,
+                "text": std::str::from_utf8(&file.contents).ok(),
+            })
+        })
+        .collect();
+    let record = json!({
+        "argv": command.argv(),
+        "cwd": command.cwd().map(ToString::to_string),
+        "env": env,
+        "files": files,
+    });
+    // EXPLICIT: a JSON value always serialises
+    let mut bytes = serde_json::to_vec(&record).unwrap_or_default();
+    bytes.push(b'\n');
+    bytes
 }
 
 /// The regular expression a glob stands for: `**/` is any directories, `**` anything, `*` anything

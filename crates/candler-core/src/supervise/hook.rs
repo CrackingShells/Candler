@@ -9,6 +9,9 @@
 //! A supervisor never holds a hook of its own, so a control call spawned through
 //! `Supervisor::run_captured` carries none and nothing recurses.
 
+use std::time::Duration;
+
+use candler_harness::spec::CommandSpec;
 use futures::future::BoxFuture;
 
 use candler_schemas::primitives::{Marker, RunKey};
@@ -65,6 +68,26 @@ pub trait StopHook: Send + Sync {
         // EXPLICIT: the default hook has nothing to do before the stop
         let _ = ctx;
         Box::pin(async { Ok(()) })
+    }
+
+    /// Runs a harness's `Action::Exec` pre-stop `spec` inside the child's isolation, for at most
+    /// `grace`, and says what came of it in a short phrase. The default has no isolation to run
+    /// it in and refuses.
+    ///
+    /// # Errors
+    /// [`HookError`] when the command could not be run; the ladder continues.
+    fn exec<'a>(
+        &'a self,
+        ctx: &'a StopHookCtx,
+        spec: &'a CommandSpec,
+        grace: Duration,
+    ) -> BoxFuture<'a, Result<String, HookError>> {
+        let _ = (ctx, spec, grace);
+        Box::pin(async {
+            Err(HookError::Refused {
+                detail: String::from("no isolation to run the command in"),
+            })
+        })
     }
 
     /// Runs after the process sweep, when the ladder ended the child, and says what it destroyed,

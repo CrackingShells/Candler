@@ -44,6 +44,7 @@ libproc.workspace = true
 [dev-dependencies]
 candler-core = { path = ".", features = ["test-support"] }
 candler-harness-claude-code.workspace = true
+candler-harness-opencode.workspace = true
 proptest.workspace = true
 rand_chacha.workspace = true
 tempfile.workspace = true

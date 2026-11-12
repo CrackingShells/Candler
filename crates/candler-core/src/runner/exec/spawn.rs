@@ -115,6 +115,20 @@ impl LiveHandle {
             .map_or_else(Observed::default, |reader| reader.observed())
     }
 
+    /// A view of what the live reader has seen, for a stop action that fills the session id from
+    /// the ids the reader observed. The view stays valid after the handle finishes and then shows
+    /// nothing.
+    #[must_use]
+    pub fn view(&self) -> crate::isolation::ObservedView {
+        let shared = Arc::clone(&self.shared); // BORROW: the view shares the reader's state
+        Arc::new(move || {
+            let live = shared.lock().unwrap_or_else(PoisonError::into_inner);
+            live.reader
+                .as_ref()
+                .map_or_else(Observed::default, |reader| reader.observed())
+        })
+    }
+
     /// Ends the stream and returns what the reader made of it.
     ///
     /// # Errors

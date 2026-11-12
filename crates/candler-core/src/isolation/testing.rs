@@ -17,6 +17,9 @@ use super::model::{
 };
 use crate::jobs::view::{ChildEntry, JobView, JobViewError};
 
+/// A capture answer: the needle of the call it answers and what it gives.
+type Canned = (String, Result<Vec<u8>, DockerError>);
+
 /// Locks `mutex`, going on with the data of a holder that panicked.
 fn held<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
@@ -29,6 +32,7 @@ pub struct RecordingDocker {
     inspects: Mutex<BTreeMap<String, Inspect>>,
     listed: Mutex<Vec<ContainerRef>>,
     images: Mutex<BTreeMap<String, ImageInfo>>,
+    captures: Mutex<Vec<Canned>>,
 }
 
 impl RecordingDocker {
@@ -56,6 +60,14 @@ impl RecordingDocker {
     #[must_use]
     pub fn with_image(self, reference: &str, info: ImageInfo) -> Self {
         held(&self.images).insert(reference.to_owned(), info);
+        self
+    }
+
+    /// Answers a `capture` whose arguments, joined by spaces, contain `needle` with `answer`. The
+    /// first rule that matches answers; a capture that matches none fails.
+    #[must_use]
+    pub fn with_capture(self, needle: &str, answer: Result<Vec<u8>, DockerError>) -> Self {
+        held(&self.captures).push((needle.to_owned(), answer)); // BORROW: the rule owns its needle
         self
     }
 
@@ -123,6 +135,27 @@ impl DockerDriver for RecordingDocker {
         self.record(format!("image inspect {reference}"));
         let info = held(&self.images).get(reference).cloned();
         Box::pin(async move { Ok(info) })
+    }
+
+    fn capture(
+        &self,
+        args: Vec<String>,
+        deadline: std::time::Duration,
+    ) -> BoxFuture<'_, Result<Vec<u8>, DockerError>> {
+        let line = args.join(" ");
+        self.record(format!("capture {line}"));
+        let _ = deadline;
+        let answer = held(&self.captures)
+            .iter()
+            .find(|(needle, _)| line.contains(needle.as_str())) // BORROW: explicit .as_str()
+            .map(|(_, answer)| answer.clone()); // BORROW: .clone() gives the call its own answer
+        Box::pin(async move {
+            answer.unwrap_or_else(|| {
+                Err(DockerError::Failed {
+                    detail: format!("no scripted answer for: {line}"),
+                })
+            })
+        })
     }
 
     fn build<'a>(
@@ -266,6 +299,14 @@ impl<D: DockerDriver> DockerDriver for AllowlistDriver<D> {
         request: &'a BuildRequest,
     ) -> BoxFuture<'a, Result<ImageInfo, DockerError>> {
         self.inner.build(request)
+    }
+
+    fn capture(
+        &self,
+        args: Vec<String>,
+        deadline: std::time::Duration,
+    ) -> BoxFuture<'_, Result<Vec<u8>, DockerError>> {
+        self.inner.capture(args, deadline)
     }
 }
 

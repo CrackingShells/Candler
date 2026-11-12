@@ -13,6 +13,7 @@ repository = "https://github.com/CrackingShells/Candler"
 candler-core = { path = "crates/candler-core" }
 candler-harness = { path = "crates/candler-harness" }
 candler-harness-claude-code = { path = "crates/candler-harness-claude-code" }
+candler-harness-opencode = { path = "crates/candler-harness-opencode" }
 candler-schemas = { path = "crates/candler-schemas" }
 
 base64 = "0.23"

@@ -712,8 +712,9 @@ type CensusRow = (
 
 /// Guards: R01 §Run manifest (`census.*`) — an inventory records what its source saw: from a
 /// source that sees no servers, `census.tools` and `census.init_tools` only, never an empty server
-/// list; from the harness's own init, the three values in the order of the baseline with the
-/// server list out of `census.init_tools`; from no inventory, nothing, and no empty list.
+/// list, and the source that saw them; from the harness's own init, the three values in the order
+/// of the baseline with the server list out of `census.init_tools` and no source; from no
+/// inventory, nothing, and no empty list.
 /// Oracle: the sorted, deduplicated tool names and the order and shape of `census.json`
 /// (recorded at cf3de30), with the lists written here by hand.
 /// Bite: `census.mcp_servers` recorded as an empty list, `census.init_tools` left unsorted,
@@ -733,6 +734,7 @@ fn harness_census_records_what_the_source_saw() {
             Some(vec![
                 (String::from("census.tools"), json!(["b", "a", "b"])),
                 (String::from("census.init_tools"), json!(["a", "b"])),
+                (String::from("census.source"), json!("gateway")),
             ]),
         ),
         (

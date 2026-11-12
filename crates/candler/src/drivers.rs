@@ -15,7 +15,12 @@ use candler_harness::skills::SkillTree;
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_harness_claude_code::skills::ClaudeSkills;
 use candler_harness_claude_code::{ClaudeCodeError, ClaudeCodeReader, detect};
+use candler_harness_opencode::driver::OpenCodeDriver;
+use candler_harness_opencode::live::OpenCodeLiveReader;
+use candler_harness_opencode::skills::OpenCodeSkills;
+use candler_harness_opencode::{OpenCodeError, SUPPORTED as OPENCODE_SUPPORTED};
 use candler_schemas::primitives::Name;
+use candler_schemas::raw::StreamName;
 use serde_json::Value;
 
 use crate::commands::CliError;
@@ -28,18 +33,22 @@ pub enum BuildError {
     /// The driver could not be built.
     #[error(transparent)]
     Driver(#[from] DriverError),
-    /// The reader could not be built.
+    /// The reader of Claude Code could not be built.
     #[error(transparent)]
     Reader(#[from] ClaudeCodeError),
+    /// The driver or a reader of `OpenCode` could not be built.
+    #[error(transparent)]
+    OpenCode(#[from] OpenCodeError),
 }
 
 /// Builds a new reader of one harness's output.
 // TRAIT_OBJECT: a reader is chosen by the harness's name at runtime
 pub type ReaderBuilder = fn() -> Result<Box<dyn TraceReader>, BuildError>;
 
-/// Recognises the start of a raw stream of one harness: the harness, the version the stream names
-/// and whether the harness's reader supports it, or `None` when the stream is not the harness's.
-pub type Detector = fn(&[u8]) -> Option<Recognised>;
+/// Recognises the start of a raw stream of one harness: the version the stream names and whether
+/// the harness's reader supports it, or `None` when the stream is not the harness's. The name of
+/// the harness is the registry's, the one its driver gives.
+pub type Detector = fn(&[u8]) -> Option<(semver::Version, bool)>;
 
 /// What the binary holds of one harness: its driver, its skill layout, the directory under
 /// `assets/docker` that builds its base image, the builder of its reader and the recogniser of
@@ -54,6 +63,8 @@ pub struct DriverEntry {
     pub skills: Arc<dyn SkillTree>,
     /// The directory under `assets/docker` that holds the build context of the base image.
     pub base_context: &'static str,
+    /// The streams the harness collects after a run, each read offline by its driver's reader.
+    pub offline_streams: &'static [&'static str],
     /// Builds a reader of the harness's output.
     pub reader: ReaderBuilder,
     /// Recognises a raw stream of the harness from its first line.
@@ -65,9 +76,6 @@ pub struct Registry {
     entries: BTreeMap<String, DriverEntry>,
 }
 
-/// The name Claude Code's raw streams are recognised under.
-const CLAUDE_CODE: &str = "claude-code";
-
 /// A reader of Claude Code's stream-json output.
 fn claude_code_reader() -> Result<Box<dyn TraceReader>, BuildError> {
     // TRAIT_OBJECT: the reader is handed out as the trait it implements
@@ -75,7 +83,7 @@ fn claude_code_reader() -> Result<Box<dyn TraceReader>, BuildError> {
 }
 
 /// Recognises a Claude Code stream: its first non-blank line is an init line that names a version.
-fn claude_code_detect(sample: &[u8]) -> Option<Recognised> {
+fn claude_code_detect(sample: &[u8]) -> Option<(semver::Version, bool)> {
     let line = sample
         .split(|byte| *byte == b'\n')
         .find(|line| !line.iter().all(u8::is_ascii_whitespace))?;
@@ -84,11 +92,25 @@ fn claude_code_detect(sample: &[u8]) -> Option<Recognised> {
     };
     let version = detect::init_version(&map)?;
     let supported = detect::supports(&version);
-    Some(Recognised::new(
-        Name::from_str(CLAUDE_CODE).ok()?,
-        version,
-        supported,
-    ))
+    Some((version, supported))
+}
+
+/// A reader of `OpenCode`'s live NDJSON.
+fn opencode_reader() -> Result<Box<dyn TraceReader>, BuildError> {
+    // TRAIT_OBJECT: the reader is handed out as the trait it implements
+    Ok(Box::new(OpenCodeLiveReader::new()?))
+}
+
+/// Recognises an `OpenCode` stream: its first non-blank line is an event of a kind the reader
+/// knows that names a session. No stream names the version that wrote it, so the version is the
+/// one the reader is written against, which the driver accepts.
+fn opencode_detect(sample: &[u8]) -> Option<(semver::Version, bool)> {
+    let reader = OpenCodeLiveReader::new().ok()?;
+    let (format, _) = candler_harness::reader::TraceReader::detect(&reader, sample)?;
+    let version = format.as_version().clone(); // BORROW: .clone() copies the version
+    let supported = semver::VersionReq::parse(OPENCODE_SUPPORTED)
+        .is_ok_and(|requirement| requirement.matches(&version));
+    Some((version, supported))
 }
 
 impl Registry {
@@ -107,8 +129,21 @@ impl Registry {
                 driver: Arc::new(driver),
                 skills: Arc::new(ClaudeSkills),
                 base_context: "base",
+                offline_streams: &[],
                 reader: claude_code_reader,
                 detect: claude_code_detect,
+            },
+        );
+        let opencode = OpenCodeDriver::new()?;
+        entries.insert(
+            opencode.id().to_string(),
+            DriverEntry {
+                driver: Arc::new(opencode),
+                skills: Arc::new(OpenCodeSkills),
+                base_context: "base-opencode",
+                offline_streams: &[candler_harness_opencode::EXPORT_STREAM],
+                reader: opencode_reader,
+                detect: opencode_detect,
             },
         );
         Ok(Self { entries })
@@ -120,12 +155,37 @@ impl Registry {
         self.entries.keys().cloned().collect() // BORROW: the names are owned by the caller
     }
 
-    /// What the first harness that recognises `sample`, the start of a raw stream, says of it.
+    /// The streams the harness `name` collects after a run, each with the offline reader its
+    /// driver gives it. A harness that is not registered, or that collects none, gives none.
+    // TRAIT_OBJECT: the readers are the drivers', chosen by the harness's name at runtime
+    #[must_use]
+    pub fn offline(&self, name: &str) -> Vec<(StreamName, Box<dyn TraceReader>)> {
+        let Some(entry) = self.entries.get(name) else {
+            return Vec::new();
+        };
+        entry
+            .offline_streams
+            .iter()
+            .filter_map(|stream| {
+                let stream: StreamName = stream.parse().ok()?;
+                let reader = entry.driver.offline_reader(&stream)?;
+                Some((stream, reader))
+            })
+            .collect()
+    }
+
+    /// What the first harness that recognises `sample`, the start of a raw stream, says of it. The
+    /// harness is named as its driver names itself.
     #[must_use]
     pub fn recognise(&self, sample: &[u8]) -> Option<Recognised> {
-        self.entries
-            .values()
-            .find_map(|entry| (entry.detect)(sample))
+        self.entries.iter().find_map(|(name, entry)| {
+            let (version, supported) = (entry.detect)(sample)?;
+            Some(Recognised::new(
+                Name::from_str(name).ok()?,
+                version,
+                supported,
+            ))
+        })
     }
 
     /// The entry of the harness `name`.

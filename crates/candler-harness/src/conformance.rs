@@ -709,15 +709,6 @@ fn check_capabilities(
         }
     }
     if caps.census {
-        if let Some(stream) = driver.census_stream()
-            && driver.offline_reader(&stream).is_none()
-        {
-            return Err(driver_failure(
-                "census",
-                "the census capability is declared and the census stream has no offline reader"
-                    .to_owned(), // BORROW: .to_owned() makes the owned text
-            ));
-        }
         let from_stream = driver.census_stream().is_some();
         let from_init = cases.iter().any(|case| case.init.is_some());
         if !from_stream && !from_init {
