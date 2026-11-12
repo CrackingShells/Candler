@@ -46,6 +46,7 @@ fn plan() -> ContainerPlan {
         expiry: Duration::from_secs(10),
         project_root: PathBuf::from("/p"),
         store_root: PathBuf::from("/s"),
+        interactive: false,
     }
 }
 

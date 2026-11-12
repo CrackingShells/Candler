@@ -22,6 +22,9 @@ use candler_schemas::primitives::FieldPath;
 use candler_schemas::values::{JsonValue, ValueSource};
 use serde_json::{Value, json};
 
+#[path = "support/harness_facts.rs"]
+mod facts;
+mod support;
 
 fn fp(text: &str) -> FieldPath {
     text.parse().expect("a field path")
@@ -319,5 +322,83 @@ fn session_profiles_table_levels_reach_each_cells_argv() {
             );
             assert_eq!(after(argv, "--effort"), effort, "{kind} {model}: --effort");
         }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The input flag of a session's container.
+// ---------------------------------------------------------------------------------------------
+
+/// Guards: M4 D1, R01 §Session runner — a session's container keeps its standard input open
+/// (`docker run -i`, a stdin pipe on the request) and a headless one does not: with the plan not
+/// interactive the argv is the one cf3de30 recorded, and with it interactive the argv is that
+/// argv with `-i` right after `run` and nothing else changed.
+/// Oracle: `argv.json`, recorded at cf3de30, and the flag inserted by hand.
+/// Bite: `-i` missing from an interactive plan (the container would read end of input at once),
+/// or `-i` added to a headless one (a headless cell's argv would move).
+#[test]
+fn harness_env_session_adds_input_flag_only_when_interactive() {
+    let dir = tempfile::tempdir().expect("a directory");
+    let scene = facts::scene(dir.path());
+    let driver = ClaudeCodeDriver::new().expect("the driver");
+    let baseline: Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/harness_baseline/argv.json"),
+        )
+        .expect("the baseline"),
+    )
+    .expect("baseline JSON");
+    let recorded: Vec<String> = baseline["headless_run"]
+        .as_array()
+        .expect("an argv")
+        .iter()
+        .map(|word| word.as_str().expect("a word").to_owned())
+        .collect();
+    assert_eq!(
+        &recorded[..2],
+        ["docker", "run"],
+        "the recorded argv starts at run"
+    );
+    let mut with_flag = recorded.clone();
+    with_flag.insert(2, "-i".to_owned());
+    for (interactive, expected, stdin) in [(false, recorded, "Null"), (true, with_flag, "Pipe")] {
+        let mut plan = scene.plan.clone();
+        plan.interactive = interactive;
+        let argv =
+            facts::plan_argv_over(&scene, plan.clone(), &driver, &facts::reference_command())
+                .expect("an argv");
+        assert_eq!(argv, expected, "interactive = {interactive}");
+        // the request the core spawns: stdin is a pipe exactly when the plan is interactive
+        let mut over = plan;
+        candler_core::runner::exec::apply_harness_env(&mut over, &driver, &scene.home)
+            .expect("the driver's variables");
+        let dir = tempfile::tempdir().expect("a directory");
+        let outputs = candler_core::isolation::RunOutputs::new(
+            candler_core::supervise::spawn::OutputSpec::framed(
+                dir.path().to_path_buf(),
+                "stdout".parse().expect("a stream"),
+                candler_harness::spec::Framing::Lines,
+            ),
+            candler_core::supervise::spawn::OutputSpec::framed(
+                dir.path().to_path_buf(),
+                "stderr".parse().expect("a stream"),
+                candler_harness::spec::Framing::Lines,
+            ),
+        );
+        let request = candler_core::isolation::container::run::build_run_request(
+            &over,
+            &facts::reference_command(),
+            "m4-session".parse().expect("a marker"),
+            &scene.key,
+            &"http://gateway:8080/run/ref".parse().expect("a url"),
+            facts::DUMMY_TOKEN,
+            None,
+            outputs,
+        )
+        .expect("a request");
+        assert!(
+            format!("{request:?}").contains(&format!("stdin: {stdin}")),
+            "interactive = {interactive}: the request's stdin is {stdin}"
+        );
     }
 }

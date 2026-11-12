@@ -20,7 +20,7 @@ use crate::isolation::RunOutputs;
 use crate::isolation::layout::{CONTAINER_ENV, EXPIRY_MARGIN, LABEL_JOB, LABEL_ROLE, LABEL_RUN};
 use crate::isolation::model::{ContainerPlan, ImageId, Limits, UserSpec};
 use crate::supervise::hook::StopHook;
-use crate::supervise::spawn::SpawnRequest;
+use crate::supervise::spawn::{SpawnRequest, StdinSpec};
 
 /// The size of the tmpfs mounted at `/tmp`, in mebibytes.
 const TMPFS_MIB: u32 = 256;
@@ -159,8 +159,9 @@ fn label<'a>(plan: &'a ContainerPlan, key: &'static str) -> Result<&'a str, RunA
 /// The `docker run` argv of an agent container, from `docker` to the end of the command. The
 /// command is run as given: [`build_run_request`] wraps it in the expiry first.
 ///
-/// The order is fixed: hardening, labels, environment, mounts, the image id, the command. There
-/// is no `--rm`, so the supervisor can still read the exit and the guard destroys the container.
+/// The order is fixed: `-i` when the plan is interactive, hardening, labels, environment, mounts,
+/// the image id, the command. There is no `--rm`, so the supervisor can still read the exit and
+/// the guard destroys the container.
 ///
 /// # Errors
 /// [`RunArgvError`] when the plan lacks the job, run or role label, when the overlay is refused
@@ -170,6 +171,9 @@ pub fn run_argv(plan: &ContainerPlan, cmd: &CommandSpec) -> Result<Vec<String>, 
     label(plan, LABEL_RUN)?;
     label(plan, LABEL_ROLE)?;
     let mut argv = vec![String::from("docker"), String::from("run")];
+    if plan.interactive {
+        argv.push(String::from("-i"));
+    }
     hardening(&plan.limits, &mut argv);
     // BORROW: the owned copy is made where it is needed
     argv.extend([String::from("--network"), plan.network.as_str().to_owned()]);
@@ -374,6 +378,9 @@ pub fn build_run_request(
         .stderr(outputs.stderr)
         .deadline(plan.expiry)
         .record_dir(record_dir);
+    if plan.interactive {
+        builder = builder.stdin(StdinSpec::Pipe);
+    }
     if let Some(attached) = hook {
         builder = builder.stop_hook(attached);
     }

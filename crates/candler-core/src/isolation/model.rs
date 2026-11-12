@@ -359,6 +359,9 @@ pub struct ContainerPlan {
     pub project_root: PathBuf,
     /// The store root; a mount source may sit under it.
     pub store_root: PathBuf,
+    /// Whether the container keeps its standard input open (`docker run -i`): a session runs so,
+    /// a headless run does not.
+    pub interactive: bool,
 }
 
 /// What a run's container left behind: its final inspect, and what destroying it did.
