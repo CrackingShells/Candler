@@ -157,28 +157,4 @@ impl StoreLayout {
             .join(experiment.hex())
             .join("lock")
     }
-
-    /// The directory of the index files.
-    #[must_use]
-    pub fn index_dir(&self) -> PathBuf {
-        self.root.join("index")
-    }
-
-    /// The index of sealed runs.
-    #[must_use]
-    pub fn index_runs(&self) -> PathBuf {
-        self.index_dir().join("runs.jsonl")
-    }
-
-    /// The index of finished outcome files.
-    #[must_use]
-    pub fn index_outcomes(&self) -> PathBuf {
-        self.index_dir().join("outcomes.jsonl")
-    }
-
-    /// The lock that serialises writers of the index.
-    #[must_use]
-    pub fn index_lock(&self) -> PathBuf {
-        self.index_dir().join("lock")
-    }
 }

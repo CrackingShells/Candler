@@ -1,8 +1,8 @@
 #![cfg(test)]
 //! Guards for the seams of one run: a fake harness is spawned under the supervisor, its output is
-//! framed, stored with the run writer, read back by the trace reader, graded by the outcome writer
-//! and indexed. Expected paths, names and lines are literals written from R01 §Run store and the
-//! first vector of `cell_digest.toml`; none comes from the store's own layout.
+//! framed, stored with the run writer, read back by the trace reader and graded by the outcome
+//! writer. Expected paths, names and lines are literals written from R01 §Run store and the first
+//! vector of `cell_digest.toml`; none comes from the store's own layout.
 
 mod support;
 
@@ -189,7 +189,7 @@ struct Seamed {
 }
 
 /// Runs the whole pipeline once into a new store: spawn the fake harness with the canary in its
-/// environment, store its raw streams, normalise the trace, grade by hand, index.
+/// environment, store its raw streams, normalise the trace, grade by hand.
 async fn pipeline() -> Seamed {
     let dir = tempfile::tempdir().expect("a temp dir");
     let root = dir.path().join("store");
@@ -286,7 +286,6 @@ async fn pipeline() -> Seamed {
     outcomes.append(&outcome(&key, "A1")).expect("a record");
     outcomes.append(&outcome(&key, "A2")).expect("a record");
     outcomes.commit().expect("a committed file");
-    store.rebuild_index().expect("an index");
 
     Seamed {
         _dir: dir,
@@ -402,9 +401,9 @@ async fn a_secret_in_the_environment_reaches_no_file() {
 }
 
 /// Guards: Cond 6 — the run's manifest carries the comparable of the first vector of
-/// `cell_digest.toml`, and the run, its outcome file and the index lines sit at the paths R01 §Run
-/// store gives for that digest. Oracle: the vector file written by `gen_vectors.py` with
-/// `rfc8785`, and the literal paths and lines below, written by hand from R01.
+/// `cell_digest.toml`, and the run and its outcome file sit at the paths R01 §Run store gives for
+/// that digest. Oracle: the vector file written by `gen_vectors.py` with `rfc8785`, and the
+/// literal paths below, written by hand from R01.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_run_sits_at_the_paths_of_its_cell_digest() {
     let seamed = pipeline().await;
@@ -422,11 +421,9 @@ async fn the_run_sits_at_the_paths_of_its_cell_digest() {
     assert_eq!(seamed.key.to_string(), RUN_DIR);
 
     let mut files = walk(seamed.root.as_path()); // BORROW: explicit .as_path()
-    files.retain(|file| !file.starts_with("jobs/") && file != "index/lock");
+    files.retain(|file| !file.starts_with("jobs/"));
     let outcome = format!("outcomes/{RUN_DIR}/{EVALUATOR}/{REQUEST}.jsonl");
     let wanted_files = [
-        "index/outcomes.jsonl".to_owned(), // BORROW: .to_owned() makes the owned path
-        "index/runs.jsonl".to_owned(),     // BORROW: .to_owned() makes the owned path
         outcome,
         format!("runs/{RUN_DIR}/manifest.json"),
         format!("runs/{RUN_DIR}/raw/stderr.jsonl.gz"),
@@ -436,18 +433,4 @@ async fn the_run_sits_at_the_paths_of_its_cell_digest() {
         "store.json".to_owned(), // BORROW: .to_owned() makes the owned path
     ];
     assert_eq!(files, wanted_files);
-
-    // One JSON object per line; the order of its keys is not part of the layout.
-    let index = |name: &str| -> Vec<Value> {
-        fs::read_to_string(seamed.root.join("index").join(name))
-            .expect("an index file")
-            .lines()
-            .map(|line| serde_json::from_str(line).expect("a JSON line"))
-            .collect()
-    };
-    assert_eq!(index("runs.jsonl"), [json!({"run": RUN_DIR})]);
-    assert_eq!(
-        index("outcomes.jsonl"),
-        [json!({"run": RUN_DIR, "evaluator": EVALUATOR, "request": REQUEST})]
-    );
 }

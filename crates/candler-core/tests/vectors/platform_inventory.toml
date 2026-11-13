@@ -88,13 +88,8 @@ uses = ["`PermissionsExt::from_mode` to make a stored blob read-only (0444)"]
 windows = "ACLs, or no mode bits: the read-only attribute stands in for 0444"
 
 [[file]]
-path = "crates/candler-core/src/store/index.rs"
-uses = ["`flock` on the index"]
-windows = "`LockFileEx` on the file, released when the holder dies"
-
-[[file]]
 path = "crates/candler-core/src/store/sync.rs"
-uses = ["`fsync` and `fdatasync`"]
+uses = ["`fsync`"]
 windows = "`FlushFileBuffers` on the file handle"
 
 [[file]]

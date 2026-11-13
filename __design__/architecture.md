@@ -967,15 +967,12 @@ erDiagram
 | `jobs/<job id>/` | `job.json`, `events.jsonl`, `children/`, `lock` |
 | `experiments/<digest>/lock` | One supervisor per experiment |
 
-An index can always be rebuilt from these files. Stored paths are relative to the run root (I17).
+Every reader lists these directories; the store keeps no index. Stored paths are relative to the run root (I17).
 
 - **Marker.** `store.json` `{schema: candler-store/1}` at the root; a directory without it is not
   opened as a store. The default root is `<project root>/.candler/store`; outside any project it is
   `$XDG_STATE_HOME/candler/store`, else `~/.local/state/candler/store`, beside the slot files, so a
   command finds the same store from any working directory.
-- **Index.** `index/runs.jsonl` and `index/outcomes.jsonl` are a cache, internal to the core:
-  appended under `index/lock`, rewritten atomically by `rebuild_index`, and read tolerating a torn
-  last line.
 - **Blobs** are written to a temporary file, verified against their digest, renamed, and made
   read-only (0444). A blob that exists is never rewritten.
 - **Outcome files** are written as `.partial`, fsynced, and renamed when the request ends. Readers

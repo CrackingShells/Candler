@@ -876,21 +876,6 @@ fn ingest_found(ctx: &Context<'_>, found: &[Found]) -> Result<(u64, u64), RawIng
     Ok((created, existing))
 }
 
-/// Whether the index lists exactly the sealed runs of the store, in key order.
-fn index_is_current(store: &Store) -> Result<bool, RawIngestError> {
-    let sealed: Vec<RunKey> = store
-        .runs()
-        .map_err(|e| store_error("the store", &e))?
-        .into_iter()
-        .filter(|entry| entry.done)
-        .map(|entry| entry.key)
-        .collect();
-    Ok(store
-        .indexed_runs()
-        .map_err(|e| store_error("the store", &e))?
-        == sealed)
-}
-
 /// Ingests the raw trace streams under `path` into `store`: one sealed run per stream.
 ///
 /// Streams are taken in the order of their sha256, so any set of streams gives the same keys on a
@@ -954,11 +939,6 @@ pub fn ingest_raw_with(
     let cleaned = remove_tree(scratch.as_path()); // BORROW: explicit .as_path()
     let (created, existing) = counts?;
     cleaned?;
-    if !index_is_current(store)? {
-        store
-            .rebuild_index()
-            .map_err(|e| store_error("the store", &e))?;
-    }
     Ok(RawReport {
         created,
         existing,

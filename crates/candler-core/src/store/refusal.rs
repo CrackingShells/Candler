@@ -23,7 +23,6 @@ fn store_error_path(error: &StoreError) -> Option<String> {
         | StoreError::StreamExists { .. }
         | StoreError::OutcomeExists { .. }
         | StoreError::RecordMismatch { .. }
-        | StoreError::IndexCorrupt { .. }
         | StoreError::Parse { .. }
         | StoreError::Format(..) => None,
     }
@@ -85,12 +84,6 @@ wrapper_table! {
         "A record does not belong to the request its outcome writer was opened for.",
         "-",
     ),
-    IndexCorrupt { .. } => row(
-        "candler.internal",
-        Side::Candler,
-        "A line of the store index other than the last does not parse; `rebuild_index` repairs it.",
-        "-",
-    ),
     Parse { .. } => row(
         "candler.internal",
         Side::Candler,
@@ -123,7 +116,6 @@ fn store_answer(error: &StoreError) -> &dyn Refusal {
         | StoreError::StreamExists { .. }
         | StoreError::OutcomeExists { .. }
         | StoreError::RecordMismatch { .. }
-        | StoreError::IndexCorrupt { .. }
         | StoreError::Parse { .. }
         | StoreError::Format(..) => error,
     }
