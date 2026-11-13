@@ -1,0 +1,54 @@
+# The pull request title becomes the merge commit's subject, so it follows
+# CONTRIBUTING's convention. A workflow of its own, so that changing the title
+# re-runs this check alone and never cancels or masks the gates of ci.yml.
+name: pr-title
+
+on:
+  pull_request:
+    types: [opened, edited, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-title-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  title:
+    name: Pull request title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out cog.toml
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install cocogitto 7.0.0
+        uses: cocogitto/cocogitto-action@v4.2.0
+        with:
+          install-only: true
+      - name: Give cog the author identity cog verify reads
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Check the pull request title as the merge subject
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -eu
+          printf '%s\n' "$PR_TITLE" > "$RUNNER_TEMP/merge-subject"
+          grep -Eq '^merge\([a-z0-9-]+\): ' "$RUNNER_TEMP/merge-subject" || {
+            echo "::error::the title becomes the merge commit's subject: merge(<scope>): <what lands and why>"
+            exit 1
+          }
+          # GitHub appends " (#<number>)" to the title, and the result must fit in 72.
+          suffix=" (#${PR_NUMBER})"
+          limit=$((72 - ${#suffix}))
+          length=$(printf '%s' "$PR_TITLE" | LC_ALL=C.UTF-8 wc -m | tr -d ' ')
+          [ "$length" -le "$limit" ] || {
+            echo "::error::the title has $length characters; with GitHub's \"$suffix\" the merge subject must fit in 72, so at most $limit"
+            exit 1
+          }
+          cog verify --file "$RUNNER_TEMP/merge-subject"

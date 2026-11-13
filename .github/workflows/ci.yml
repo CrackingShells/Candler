@@ -6,9 +6,9 @@ on:
   push:
     branches:
       - main
+  # The pull request title is checked by pr-title.yml, which also runs when
+  # the title changes; a title change does not re-run these jobs.
   pull_request:
-    # edited: a new title is a new merge subject, so it is checked again.
-    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
@@ -22,9 +22,60 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Decides whether the Rust gates run. A pull request that only touches
+  # documents skips them; a push to main always runs them. A skipped required
+  # check reports success.
+  changes:
+    name: Changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ github.event_name == 'push' || steps.filter.outputs.code }}
+    steps:
+      - name: List what the pull request changes, through the API
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            code:
+              - '**'
+              - '!**/*.md'
+              - '!__reports__/**'
+              - '!__roadmap__/**'
+              - '!__design__/**'
+
+  format:
+    name: Format
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # Only rustfmt, on the channel rust-toolchain.toml pins; RUSTUP_TOOLCHAIN
+      # takes precedence over the file, so its clippy is not installed.
+      - name: Install rustfmt on the pinned channel
+        run: |
+          set -eu
+          channel=$(sed -n 's/^channel *= *"\(.*\)"$/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$channel" --profile minimal --component rustfmt
+          echo "RUSTUP_TOOLCHAIN=$channel" >> "$GITHUB_ENV"
+      - name: Format
+        run: cargo fmt --check
+
   gates:
     name: Gates
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Check out the repository
         uses: actions/checkout@v7
@@ -32,6 +83,11 @@ jobs:
           persist-credentials: false
       - name: Install the toolchain pinned in rust-toolchain.toml
         run: rustup toolchain install
+      - name: Cache the cargo registry and build outputs
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Pull requests read main's cache and save none of their own.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
         with:
@@ -39,13 +95,10 @@ jobs:
       - name: Install uv, which the evaluation guards run
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          enable-cache: false
-      - name: Format
-        run: cargo fmt --check
+          enable-cache: true
       - name: Lint
         run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: Build
-        run: cargo build --workspace
+      # nextest builds the test binaries and the binaries they run.
       - name: Test
         run: cargo nextest run --workspace --no-fail-fast
       - name: Document
@@ -56,6 +109,7 @@ jobs:
   helper:
     name: Python helper
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     defaults:
       run:
         working-directory: python/candler-evaluator
@@ -67,7 +121,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          enable-cache: false
+          enable-cache: true
       - name: Test
         run: uv run --frozen pytest -q
       - name: Lint
@@ -87,6 +141,7 @@ jobs:
   commits:
     name: Commit messages
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Check out the full history
         uses: actions/checkout@v7
@@ -101,27 +156,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-      - name: Check the pull request title as the merge subject
-        if: github.event_name == 'pull_request'
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -eu
-          printf '%s\n' "$PR_TITLE" > "$RUNNER_TEMP/merge-subject"
-          grep -Eq '^merge\([a-z0-9-]+\): ' "$RUNNER_TEMP/merge-subject" || {
-            echo "::error::the title becomes the merge commit's subject: merge(<scope>): <what lands and why>"
-            exit 1
-          }
-          # GitHub appends " (#<number>)" to the title, and the result must fit in 72.
-          suffix=" (#${PR_NUMBER})"
-          limit=$((72 - ${#suffix}))
-          length=$(printf '%s' "$PR_TITLE" | LC_ALL=C.UTF-8 wc -m | tr -d ' ')
-          [ "$length" -le "$limit" ] || {
-            echo "::error::the title has $length characters; with GitHub's \"$suffix\" the merge subject must fit in 72, so at most $limit"
-            exit 1
-          }
-          cog verify --file "$RUNNER_TEMP/merge-subject"
       - name: Check the pushed range
         env:
           EVENT: ${{ github.event_name }}
@@ -188,6 +222,7 @@ jobs:
     needs: [gates, commits]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
       pull-requests: read

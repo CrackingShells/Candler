@@ -25,7 +25,6 @@ HTTP call a driver describes. The traits are specified in
 | File | Pins |
 |---|---|
 | `tests/guard_two_shapes.rs` | two fake harnesses of opposite shapes (a Claude Code-shaped line stream with a live reader, an OpenCode-shaped exported document without one) drive both traits |
-| `tests/public_surface.rs` | the public items other crates consume, used from outside; usage only |
 
 ```sh
 cargo nextest run -p candler-harness

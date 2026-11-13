@@ -43,7 +43,6 @@ Each file under `tests/` pins one module or seam.
 | `guard_oracle_mini.rs`, `guard_oracle_aggregates.rs` | the independent oracle over the mini-corpus and over the golden corpus (the second is ignored) |
 | `guard_layering_i1.rs` | the instrument's domain stays out of the core, the harness crate and the schemas |
 | `guard_assert_clean.rs` | the scan helper the scan guards share |
-| `public_surface.rs` | the public items other crates consume, used from outside; usage only |
 
 `tests/support/` holds the shared helpers, `tests/oracle/` the oracle and its vectors, and
 `tests/fixtures/` the data ([fixtures/README.md](tests/fixtures/README.md)).
