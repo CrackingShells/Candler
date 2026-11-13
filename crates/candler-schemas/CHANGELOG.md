@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/CrackingShells/Candler/compare/schemas@0.7.1...schemas@0.8.0) - 2026-11-13
+
+### Features
+
+- *(schemas)* build a digest from bytes, a reader or a hasher
+
 ## [0.7.1](https://github.com/CrackingShells/Candler/compare/schemas@0.7.0...schemas@0.7.1) - 2026-11-13
 
 ### Refactoring

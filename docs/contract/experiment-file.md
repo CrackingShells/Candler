@@ -10,7 +10,7 @@ The experiment file an experimenter writes to fix the values, factors, replicate
 Wire tag: `experiment/1`.
 
 <!-- versions -->
-Wire line: `schemas@0.7.1`.
+Wire line: `schemas@0.8.0`.
 <!-- /versions -->
 <!-- /generated:version -->
 
