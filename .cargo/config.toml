@@ -1,0 +1,4 @@
+# Every checkout, the main one and each worktree, builds without incremental artifacts: they cost
+# several GB per worktree, and sccache cannot cache incremental builds.
+[build]
+incremental = false
