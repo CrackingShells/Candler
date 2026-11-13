@@ -8,17 +8,19 @@ use std::time::Duration;
 
 use candler_harness::driver::{DriverError, HarnessDriver};
 use candler_harness::reader::TraceReader;
+use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
     BudgetCaps, Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId, Observed,
     Prepared, ProcessExit, SessionSpec, SessionTracker, StopSignal, StopSpec, Workspace,
 };
-use candler_schemas::primitives::{FieldPath, Name};
+use candler_schemas::name;
+use candler_schemas::primitives::FieldPath;
 use candler_schemas::raw::StreamName;
 use candler_schemas::trace::{EndedBy, Session};
-use semver::{Comparator, Op, Prerelease, Version, VersionReq};
+use semver::{Version, VersionReq};
 use serde_json::{Map, Value};
 
-use crate::{ClaudeCodeReader, SUPPORTED, discovery, prepare, session};
+use crate::{ClaudeCodeReader, detect, discovery, prepare, session};
 
 /// The cell path of the model id.
 pub(crate) const MODEL_ID: &str = "model.id";
@@ -35,8 +37,6 @@ pub(crate) const BUDGET_TURNS: &str = "budget.per_run.turns";
 /// The cell path of the per-run cost cap.
 pub(crate) const BUDGET_COST: &str = "budget.per_run.max_cost_usd";
 
-/// The name of the harness.
-const HARNESS_NAME: &str = "claude-code";
 /// The program the driver runs.
 pub(crate) const PROGRAM: &str = "claude";
 /// The variable that carries the gateway's address.
@@ -155,19 +155,6 @@ pub fn render_prompt(
     Ok(out)
 }
 
-/// A requirement no version satisfies, the fail-closed answer should [`SUPPORTED`] not parse.
-fn nothing() -> VersionReq {
-    VersionReq {
-        comparators: vec![Comparator {
-            op: Op::Less,
-            major: 0,
-            minor: Some(0),
-            patch: Some(0),
-            pre: Prerelease::EMPTY,
-        }],
-    }
-}
-
 /// The turn or cost cap of the cell as flag text, when the cell sets it.
 pub(crate) fn cap_text(
     cell: &Cell<'_>,
@@ -202,22 +189,19 @@ pub struct ClaudeCodeDriver {
 
 impl ClaudeCodeDriver {
     /// A driver, with its harness id and version probe built once.
-    ///
-    /// # Errors
-    /// Returns [`DriverError::HarnessName`] if the harness name is not a valid name, and
-    /// [`DriverError::Command`] if the version probe does not build. Neither can happen for
-    /// the constants this driver uses.
-    pub fn new() -> Result<Self, DriverError> {
-        let name = Name::from_str(HARNESS_NAME).map_err(|error| DriverError::HarnessName {
-            detail: error.to_string(), // BORROW: .to_string() gives owned text
-        })?;
-        let probe = CommandSpec::builder()
-            .argv(vec![PROGRAM.to_owned(), "--version".to_owned()]) // BORROW: .to_owned() makes owned arguments
-            .build()?;
-        Ok(Self {
-            id: HarnessId::new(name),
-            probe,
-        })
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            id: HarnessId::new(name!("claude-code")),
+            // BORROW: .to_owned() makes owned arguments
+            probe: CommandSpec::new(PROGRAM.to_owned(), vec!["--version".to_owned()]),
+        }
+    }
+}
+
+impl Default for ClaudeCodeDriver {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -227,7 +211,19 @@ impl HarnessDriver for ClaudeCodeDriver {
     }
 
     fn supported(&self) -> VersionReq {
-        VersionReq::parse(SUPPORTED).unwrap_or_else(|_| nothing())
+        crate::supported()
+    }
+
+    fn skills(&self) -> SkillTree {
+        SkillTree::new(".claude/skills", ".claude/skills")
+    }
+
+    fn base_context(&self) -> &'static str {
+        "base"
+    }
+
+    fn detect(&self, sample: &[u8]) -> Option<Version> {
+        detect::sample_version(sample)
     }
 
     fn version_probe(&self) -> CommandSpec {
@@ -344,8 +340,7 @@ impl HarnessDriver for ClaudeCodeDriver {
     }
 
     fn live_reader(&self) -> Option<Box<dyn TraceReader>> {
-        let reader = ClaudeCodeReader::new().ok()?;
-        Some(Box::new(reader)) // TRAIT_OBJECT: the core selects readers at runtime
+        Some(Box::new(ClaudeCodeReader::new())) // TRAIT_OBJECT: the core selects readers at runtime
     }
 
     fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {

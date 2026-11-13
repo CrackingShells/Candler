@@ -1536,11 +1536,6 @@ enum = "SweepError"
 variant = "Unavailable"
 reason = "an unwired sweeper port is a fault of the binary, not an input of the author"
 
-[internal."candler_harness::driver::DriverError::HarnessName"]
-enum = "DriverError"
-variant = "HarnessName"
-reason = "the harness name is a constant of the driver, so an invalid one is the driver's fault"
-
 [internal."candler_core::runner::evidence::tree::EvidenceError"]
 enum = "EvidenceError"
 reason = "the outputs of a run are collected by Candler, so a tree it cannot form is Candler's fault"
@@ -1564,14 +1559,6 @@ reason = "the command builder is used by drivers, so its invariants are the driv
 [internal."candler_harness::conformance::Failure"]
 enum = "Failure"
 reason = "a failed check of the shared driver suite is a driver author's test result, raised only under the conformance feature, never a refusal of an input"
-
-[internal."candler_harness_claude_code::ClaudeCodeError"]
-enum = "ClaudeCodeError"
-reason = "the reader identity is a constant of the harness, so an invalid one is the harness's fault"
-
-[internal."candler_harness_opencode::OpenCodeError"]
-enum = "OpenCodeError"
-reason = "the reader identity is a constant of the harness, so an invalid one is the harness's fault"
 
 [internal."candler_core::analysis::error::StatsError"]
 enum = "StatsError"

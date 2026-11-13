@@ -31,7 +31,7 @@ use tokio::sync::watch;
 
 use crate::support;
 
-use support::job_orchestrate::{EmptyTree, QuietDriver, Rig, Silent};
+use support::job_orchestrate::{QuietDriver, Rig, Silent};
 use support::job_runtime::{
     ENV_JOB, ENV_STORE, ENV_WORK, HeldChild, all_gone, job_spec, killed_body, read_log, services,
     stub_docker, term_child, wait_for,
@@ -375,7 +375,6 @@ fn reap_child() {
         gateway: None,
         job: own.clone(), // BORROW: the runtime owns its job id
         driver: Arc::new(QuietDriver),
-        skills: Arc::new(EmptyTree),
         cells: BTreeMap::new(),
         eval_infra: EvalInfra::default(),
     };

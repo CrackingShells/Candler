@@ -14,7 +14,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use candler_harness::driver::HarnessDriver;
-use candler_harness::skills::SkillTree;
 use candler_schemas::execution::InvalidReason;
 use candler_schemas::primitives::{JobId, RunKey};
 use candler_schemas::trace::EndedBy;
@@ -59,9 +58,6 @@ pub struct Runtime {
     // TRAIT_OBJECT: the driver is the harness's, or a recording fake in tests
     /// What the runner needs from the harness, as data.
     pub driver: Arc<dyn HarnessDriver>,
-    // TRAIT_OBJECT: the tree is read through the harness's archive reader, or a fake in tests
-    /// Where a treatment's skill tree comes from.
-    pub skills: Arc<dyn SkillTree>,
     /// What each cell of the job is, by its digest.
     pub cells: BTreeMap<CellId, Arc<CellRun>>,
     /// The build of the evaluation infrastructure that runs the job.

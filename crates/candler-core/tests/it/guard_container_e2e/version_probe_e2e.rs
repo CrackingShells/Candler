@@ -62,14 +62,14 @@ async fn opencode_probe_reads_each_real_base_image_version() {
         Row {
             dir: "base-opencode",
             tag: "candler-test-version-probe:opencode",
-            driver: Arc::new(OpenCodeDriver::new().expect("the driver builds from constants")),
+            driver: Arc::new(OpenCodeDriver::new()),
             binary: "opencode",
             want: "2.2.7",
         },
         Row {
             dir: "base",
             tag: "candler-test-version-probe:claude-code",
-            driver: Arc::new(ClaudeCodeDriver::new().expect("the driver builds from constants")),
+            driver: Arc::new(ClaudeCodeDriver::new()),
             binary: "claude",
             want: "2.1.311",
         },

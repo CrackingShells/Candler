@@ -551,6 +551,18 @@ fn sha(bytes: &[u8]) -> String {
 struct Collecting(support::job_orchestrate::QuietDriver);
 
 impl HarnessDriver for Collecting {
+    fn skills(&self) -> candler_harness::skills::SkillTree {
+        candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
+    }
+
+    fn base_context(&self) -> &'static str {
+        "base"
+    }
+
+    fn detect(&self, _sample: &[u8]) -> Option<semver::Version> {
+        None
+    }
+
     fn id(&self) -> HarnessId {
         self.0.id()
     }

@@ -208,7 +208,7 @@ impl World {
                 env_context,
                 store_root: store_root.clone(), // BORROW: .clone() keeps the root for the probe
             },
-            Arc::new(ClaudeCodeDriver::new().expect("the driver builds from constants")),
+            Arc::new(ClaudeCodeDriver::new()),
         );
         Self {
             service,

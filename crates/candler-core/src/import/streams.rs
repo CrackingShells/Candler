@@ -15,9 +15,10 @@ use super::legacy::TOKEN_COUNTERS;
 use super::read::{JsonFile, LegacyRun, SourceFile};
 use crate::frames::{FrameWriter, RawFileInfo};
 
-/// Makes a fresh trace reader for one stream; the caller of the import supplies it.
+/// Makes a fresh trace reader for one stream of the harness named by the argument, or `None` when
+/// that harness has no reader; the caller of the import supplies it.
 // TRAIT_OBJECT: the caller of the import supplies readers of unknown concrete type
-pub type ReaderFactory = dyn Fn() -> Box<dyn TraceReader> + Send + Sync;
+pub type ReaderFactory = dyn Fn(&str) -> Option<Box<dyn TraceReader>> + Send + Sync;
 
 /// A run whose stream could not be normalised, with the reader's explanation.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]

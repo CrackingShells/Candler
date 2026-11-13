@@ -17,7 +17,8 @@ use candler_schemas::trace::{
 };
 use serde_json::{Map, Value};
 
-use crate::{EXPORT_READER, OpenCodeError, VALIDATED, session_source};
+use crate::{VALIDATED, session_source};
+use candler_schemas::name;
 
 /// The tools `OpenCode` offers the model by itself, as `opencode_facts` listed them.
 const BUILTIN_TOOLS: [&str; 12] = [
@@ -300,22 +301,20 @@ pub struct OpenCodeExportReader {
     read: Option<(Session, SessionId)>,
 }
 
+impl Default for OpenCodeExportReader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OpenCodeExportReader {
     /// A reader of the export.
-    ///
-    /// # Errors
-    /// Returns [`OpenCodeError::Identity`] if the reader identity is not a valid name.
-    pub fn new() -> Result<Self, OpenCodeError> {
-        let identity =
-            EXPORT_READER
-                .parse::<NameVersion>()
-                .map_err(|error| OpenCodeError::Identity {
-                    detail: error.to_string(), // BORROW: .to_string() gives owned text
-                })?;
-        Ok(Self {
-            identity,
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            identity: NameVersion::of(&name!("opencode-export"), semver::Version::new(0, 1, 0)),
             read: None,
-        })
+        }
     }
 
     fn read(

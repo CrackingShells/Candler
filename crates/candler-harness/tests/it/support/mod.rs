@@ -235,6 +235,18 @@ impl TraceReader for LinesReader {
 pub struct LinesDriver;
 
 impl HarnessDriver for LinesDriver {
+    fn skills(&self) -> candler_harness::skills::SkillTree {
+        candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
+    }
+
+    fn base_context(&self) -> &'static str {
+        "base"
+    }
+
+    fn detect(&self, _sample: &[u8]) -> Option<semver::Version> {
+        None
+    }
+
     fn id(&self) -> HarnessId {
         HarnessId::new("claude-code".parse().unwrap_or_else(|_| unreachable!()))
     }
@@ -457,6 +469,18 @@ impl TraceReader for DocumentReader {
 pub struct DocumentDriver;
 
 impl HarnessDriver for DocumentDriver {
+    fn skills(&self) -> candler_harness::skills::SkillTree {
+        candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
+    }
+
+    fn base_context(&self) -> &'static str {
+        "base"
+    }
+
+    fn detect(&self, _sample: &[u8]) -> Option<semver::Version> {
+        None
+    }
+
     fn id(&self) -> HarnessId {
         HarnessId::new("opencode".parse().unwrap_or_else(|_| unreachable!()))
     }
@@ -787,6 +811,18 @@ session.interrupt --param sessionID={session_id}";
 pub struct OpenShapedDriver(pub DocumentDriver);
 
 impl HarnessDriver for OpenShapedDriver {
+    fn skills(&self) -> candler_harness::skills::SkillTree {
+        candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
+    }
+
+    fn base_context(&self) -> &'static str {
+        "base"
+    }
+
+    fn detect(&self, _sample: &[u8]) -> Option<semver::Version> {
+        None
+    }
+
     fn id(&self) -> HarnessId {
         self.0.id()
     }

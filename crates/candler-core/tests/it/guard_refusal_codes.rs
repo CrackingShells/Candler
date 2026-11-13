@@ -287,9 +287,7 @@ fn internal_rows(table: &toml::Table) -> Vec<(String, Option<String>)> {
 
 /// The catalogue of the core, the harness crates and the schemas.
 fn catalogue() -> Vec<CatalogRow> {
-    let mut rows = candler_core::refusal::catalog();
-    rows.extend(candler_harness_claude_code::refusal::catalog());
-    rows
+    candler_core::refusal::catalog()
 }
 
 /// Guards: R1 — every error type of the workspace is coded, or listed as Candler's own in

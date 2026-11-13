@@ -11,7 +11,6 @@ use std::str::FromStr as _;
 use candler_harness::driver::HarnessDriver;
 use candler_harness::spec::{Cell, CollectSpec, EnvValue, Observed, StopSignal, Workspace};
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
-use candler_harness_claude_code::prepare::{skill_archive_command, skill_files};
 use candler_schemas::execution::{GitCommit, TreatmentRef};
 use candler_schemas::primitives::{FieldPath, Name};
 use candler_schemas::values::{JsonValue, ResolvedValue};
@@ -107,7 +106,7 @@ fn b21_reference_command_line() -> Res<()> {
         Ok(argv)
     };
     let root = Path::new("/work/run");
-    let driver = ClaudeCodeDriver::new().expect("the driver builds from constants");
+    let driver = ClaudeCodeDriver::new();
     let reference = values("bypassPermissions")?;
     let command = driver.command(&Cell::new(&reference), &Workspace::new(root))?;
     // BORROW: `.as_slice()` views the expected arguments as a slice
@@ -236,11 +235,12 @@ fn b22_skill_tree_is_the_tag() -> Res<()> {
     // BORROW: `.to_owned()` makes the owned tag the treatment holds
     treatment.tag = Some("v1".to_owned());
     treatment.commit = Some(GitCommit::from_str(sha.trim())?);
-    let command = skill_archive_command(&treatment, &repo)?;
+    let skills = ClaudeCodeDriver::new().skills();
+    let command = skills.archive_command(&treatment, &repo)?;
     let (program, args) = command.argv().split_first().ok_or("empty argv")?;
     let archive = Command::new(program).args(args).output()?;
     assert!(archive.status.success());
-    let files = skill_files(&treatment, &archive.stdout)?;
+    let files = skills.files(&treatment, &archive.stdout)?;
 
     let listing = String::from_utf8(git(
         &repo,
@@ -280,7 +280,7 @@ fn b22_skill_tree_is_the_tag() -> Res<()> {
         (".claude/skills/s/notes.txt", "notes\n"),
     ];
     let [first, second] = inside;
-    let accepted = skill_files(&treatment, &tar_of(&inside))?;
+    let accepted = skills.files(&treatment, &tar_of(&inside))?;
     assert_eq!(accepted.len(), 2);
     for outside in [
         "README.md",
@@ -288,16 +288,16 @@ fn b22_skill_tree_is_the_tag() -> Res<()> {
         ".claude/skills/s",
     ] {
         let crafted = tar_of(&[first, (outside, "outside\n"), second]);
-        assert!(skill_files(&treatment, &crafted).is_err(), "{outside}");
+        assert!(skills.files(&treatment, &crafted).is_err(), "{outside}");
     }
     // The subtree without its `SKILL.md` is refused.
-    assert!(skill_files(&treatment, &tar_of(&[second])).is_err());
+    assert!(skills.files(&treatment, &tar_of(&[second])).is_err());
     // A treatment name that is not one plain path segment is refused.
     for name in ["..", "a/b", "s:t"] {
         let mut other = treatment.clone();
         other.name = Name::from_str(name)?;
-        assert!(skill_archive_command(&other, &repo).is_err(), "{name}");
-        assert!(skill_files(&other, &tar_of(&inside)).is_err(), "{name}");
+        assert!(skills.archive_command(&other, &repo).is_err(), "{name}");
+        assert!(skills.files(&other, &tar_of(&inside)).is_err(), "{name}");
     }
     Ok(())
 }
@@ -361,9 +361,7 @@ fn b23_output_discovery_exclusions() -> Res<()> {
     let mut paths = Vec::new();
     walk(&root, &root, &mut paths)?;
     paths.sort();
-    let specs = ClaudeCodeDriver::new()
-        .expect("the driver builds from constants")
-        .collect(&Workspace::new(&root), &Observed::default());
+    let specs = ClaudeCodeDriver::new().collect(&Workspace::new(&root), &Observed::default());
     let globs: Vec<&str> = specs
         .iter()
         .filter_map(|spec| {
@@ -402,10 +400,9 @@ fn b23_output_discovery_exclusions() -> Res<()> {
 /// Oracle: `DEFAULT_GRACE`, `Duration::from_secs(5)`, of `supervise/spawn.rs` at 40ef2fe.
 /// Bite: `STOP_GRACE` of the driver back to 15 seconds.
 #[test]
-fn b24_stop_is_term_with_the_grace_the_core_applied_before() -> Res<()> {
-    let stop = ClaudeCodeDriver::new()?.stop();
+fn b24_stop_is_term_with_the_grace_the_core_applied_before() {
+    let stop = ClaudeCodeDriver::new().stop();
     assert_eq!(stop.signal, StopSignal::Term);
     assert_eq!(stop.pre_stop, None);
     assert_eq!(stop.grace, std::time::Duration::from_secs(5));
-    Ok(())
 }

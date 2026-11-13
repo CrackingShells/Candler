@@ -773,10 +773,7 @@ fn env_key(lock_hex: &str, prune: &[String], base_tag: &str, env_sources: &str) 
 /// and neither `.` nor `..`.
 #[must_use]
 pub fn prune_name_ok(name: &str) -> bool {
-    !matches!(name, "" | "." | "..")
-        && name
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+    candler_schemas::primitives::plain_segment(name)
 }
 
 /// What a layer image is built from.

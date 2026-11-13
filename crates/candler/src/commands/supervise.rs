@@ -137,12 +137,11 @@ fn harness_of(spec: &JobSpec) -> Result<String, CliError> {
 /// The build contexts the session controls of the job's harness need, or why they cannot be had.
 fn control_contexts(rt: &Runtime, spec: &JobSpec) -> Result<ControlContexts, String> {
     let name = harness_of(spec).map_err(|e| e.to_string())?;
-    let entry = Registry::builtin()
-        .map_err(|e| e.to_string())?
-        .entry(&name)
+    let driver = Registry::builtin()
+        .driver(&name)
         .map_err(|e| e.to_string())?;
     let assets =
-        asset_paths(rt.store.layout().root(), entry.base_context).map_err(|e| e.to_string())?;
+        asset_paths(rt.store.layout().root(), driver.base_context()).map_err(|e| e.to_string())?;
     Ok(ControlContexts {
         base: assets.images.base_context,
         fakemodel: assets.fakemodel,
@@ -169,16 +168,13 @@ fn orchestrate_here(
 /// Runs a run job through the orchestration, with the driver and skill layout of the harness its
 /// cells name.
 async fn run_job(store: Store, job: JobId, spec: JobSpec) -> Result<Exit, CliError> {
-    let harness = Registry::builtin()
-        .map_err(failed)?
-        .entry(&harness_of(&spec)?)?;
+    let driver = Registry::builtin().driver(&harness_of(&spec)?)?;
     let entry = JobEntry {
         store,
         job,
         spec,
         services: JobServices {
-            driver: harness.driver,
-            skills: harness.skills,
+            driver,
             eval_infra: eval_infra(),
         },
     };

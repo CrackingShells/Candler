@@ -31,6 +31,10 @@ Core line: `v0.8.2`; the `candler-harness` crate has the same version.
 | `HarnessDriver::gateway` | `(&self) -> Option<GatewayEnv>` | optional | `None` |
 | `HarnessDriver::state_paths` | `(&self) -> Vec<StatePath>` | optional | `Vec::new()` |
 | `HarnessDriver::census_stream` | `(&self) -> Option<StreamName>` | optional | `None` |
+| `HarnessDriver::skills` | `(&self) -> SkillTree` | required | - |
+| `HarnessDriver::base_context` | `(&self) -> &'static str` | required | - |
+| `HarnessDriver::offline_streams` | `(&self) -> Vec<StreamName>` | optional | `Vec::new()` |
+| `HarnessDriver::detect` | `(&self, sample: &[u8]) -> Option<semver::Version>` | required | - |
 | `HarnessDriver::session` | `(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Option<SessionSpec>, DriverError>` | optional | `Ok(None)` |
 | `HarnessDriver::session_tracker` | `(&self) -> Option<Box<dyn SessionTracker>>` | optional | `None` |
 | `HarnessDriver::stop` | `(&self) -> StopSpec` | required | - |
@@ -50,13 +54,6 @@ Core line: `v0.8.2`; the `candler-harness` crate has the same version.
 | `TraceReader::feed` | `(&mut self, frame: FrameIn<'_>) -> Result<Vec<SessionEvent>, ReaderError>` | required | - |
 | `TraceReader::observed` | `(&self) -> Observed` | required | - |
 | `TraceReader::finish` | `(self: Box<Self>) -> Result<Vec<Session>, ReaderError>` | required | - |
-
-### `SkillTree`
-
-| Path | Signature | Class | Default |
-|---|---|---|---|
-| `SkillTree::archive_command` | `(&self, treatment: &TreatmentRef, source: &Path) -> Result<CommandSpec, DriverError>` | required | - |
-| `SkillTree::files` | `(&self, treatment: &TreatmentRef, archive: &[u8]) -> Result<Vec<PreparedFile>, DriverError>` | required | - |
 
 <!-- /generated:fields -->
 

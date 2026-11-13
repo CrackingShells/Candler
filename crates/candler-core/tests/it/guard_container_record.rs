@@ -273,6 +273,7 @@ async fn record_container_writes_nothing_without_a_container() {
 fn facts() -> Facts {
     Facts {
         secrets: Vec::new(),
+        commit: support::job_orchestrate::skill_repo().1.clone(), // BORROW: the facts own the commit text
         ..Facts::base()
     }
 }

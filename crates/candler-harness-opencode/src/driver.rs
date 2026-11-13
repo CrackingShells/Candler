@@ -9,20 +9,22 @@ use std::time::Duration;
 
 use candler_harness::driver::{DriverError, HarnessDriver, SettingRow};
 use candler_harness::reader::TraceReader;
+use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
     Action, Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId, Observed,
     Prepared, ProcessExit, StateKind, StatePath, StopSignal, StopSpec, Workspace,
 };
-use candler_schemas::primitives::{Name, RelPath};
+use candler_schemas::name;
+use candler_schemas::primitives::{RelPath, plain_segment};
 use candler_schemas::raw::StreamName;
 use candler_schemas::trace::{EndedBy, Session};
-use semver::{Comparator, Op, Prerelease, Version, VersionReq};
+use semver::{Version, VersionReq};
 use serde_json::{Map, Value};
 
 use crate::export::{OpenCodeExportReader, ended_by_of_observed, export_stream};
 use crate::live::OpenCodeLiveReader;
 use crate::prepare::{self, invalid, model_id, required_text, value_at};
-use crate::{CENSUS_STREAM, EXPORT_READER, HARNESS, SUPPORTED, VALIDATED};
+use crate::{CENSUS_STREAM, EXPORT_READER, VALIDATED};
 
 const PROGRAM: &str = "opencode";
 const PROMPT_TEMPLATE: &str = "prompt.template";
@@ -47,18 +49,6 @@ const STOP_GRACE: Duration = Duration::from_secs(10);
 
 /// The in-container interrupt, run as `python3 -I -c <script> {session_id}`.
 const STOP_SCRIPT: &str = include_str!("stop.py");
-
-fn nothing() -> VersionReq {
-    VersionReq {
-        comparators: vec![Comparator {
-            op: Op::Less,
-            major: 0,
-            minor: Some(0),
-            patch: Some(0),
-            pre: Prerelease::EMPTY,
-        }],
-    }
-}
 
 fn is_key(text: &str) -> bool {
     let mut chars = text.chars();
@@ -140,23 +130,20 @@ pub struct OpenCodeDriver {
     probe: CommandSpec,
 }
 
+impl Default for OpenCodeDriver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OpenCodeDriver {
     /// A driver.
-    ///
-    /// # Errors
-    /// Returns [`DriverError::HarnessName`] if the harness name is not a valid name, and
-    /// [`DriverError::Command`] if the probe cannot be built.
-    pub fn new() -> Result<Self, DriverError> {
-        let name = Name::from_str(HARNESS).map_err(|error| DriverError::HarnessName {
-            detail: error.to_string(), // BORROW: .to_string() gives owned text
-        })?;
-        let probe = CommandSpec::builder()
-            .argv(argv(&[PROGRAM, "--version"]))
-            .build()?;
-        Ok(Self {
-            id: HarnessId::new(name),
-            probe,
-        })
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            id: HarnessId::new(name!("opencode")),
+            probe: CommandSpec::new(PROGRAM.to_owned(), argv(&["--version"])), // BORROW: .to_owned() makes the owned program
+        }
     }
 
     fn state_subpath(env: &str) -> &'static str {
@@ -173,7 +160,26 @@ impl HarnessDriver for OpenCodeDriver {
     }
 
     fn supported(&self) -> VersionReq {
-        VersionReq::parse(SUPPORTED).unwrap_or_else(|_| nothing())
+        crate::supported()
+    }
+
+    fn skills(&self) -> SkillTree {
+        // A treatment's skills live in `.claude/skills` of its repository; `OpenCode` reads them
+        // from `.opencode/skills`.
+        SkillTree::new(".claude/skills", ".opencode/skills")
+    }
+
+    fn base_context(&self) -> &'static str {
+        "base-opencode"
+    }
+
+    fn offline_streams(&self) -> Vec<StreamName> {
+        export_stream().into_iter().collect()
+    }
+
+    fn detect(&self, sample: &[u8]) -> Option<Version> {
+        let (format, _) = TraceReader::detect(&OpenCodeLiveReader::new(), sample)?;
+        Some(format.as_version().clone()) // BORROW: .clone() copies the version
     }
 
     fn version_probe(&self) -> CommandSpec {
@@ -302,8 +308,7 @@ impl HarnessDriver for OpenCodeDriver {
     }
 
     fn live_reader(&self) -> Option<Box<dyn TraceReader>> {
-        let reader = OpenCodeLiveReader::new().ok()?;
-        Some(Box::new(reader)) // TRAIT_OBJECT: the core selects readers at runtime
+        Some(Box::new(OpenCodeLiveReader::new())) // TRAIT_OBJECT: the core selects readers at runtime
     }
 
     fn census_stream(&self) -> Option<StreamName> {
@@ -312,8 +317,7 @@ impl HarnessDriver for OpenCodeDriver {
 
     fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {
         if export_stream().as_ref() == Some(stream) {
-            let reader = OpenCodeExportReader::new().ok()?;
-            return Some(Box::new(reader)); // TRAIT_OBJECT: the core selects readers at runtime
+            return Some(Box::new(OpenCodeExportReader::new())); // TRAIT_OBJECT: the core selects readers at runtime
         }
         None
     }
@@ -347,12 +351,7 @@ impl HarnessDriver for OpenCodeDriver {
         // The export needs `--standalone` and the run's own database and XDG variables, which only
         // a command inside the isolation has. One export, for the first root session the stream
         // named; an id that could pass as an option is not exported.
-        let plain = |id: &str| {
-            !id.starts_with('-')
-                && id
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
-        };
+        let plain = |id: &str| !id.starts_with('-') && plain_segment(id);
         let Some(id) = observed
             .session_ids
             .iter()

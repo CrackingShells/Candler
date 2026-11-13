@@ -509,6 +509,18 @@ impl TraceReader for EagerCensus {
 }
 
 impl HarnessDriver for Patched {
+    fn skills(&self) -> candler_harness::skills::SkillTree {
+        candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
+    }
+
+    fn base_context(&self) -> &'static str {
+        "base"
+    }
+
+    fn detect(&self, _sample: &[u8]) -> Option<semver::Version> {
+        None
+    }
+
     fn id(&self) -> candler_harness::spec::HarnessId {
         self.inner.id()
     }
@@ -971,6 +983,18 @@ fn conformance_refuses_a_broken_driver() -> TestResult {
 struct Silent(LinesDriver);
 
 impl HarnessDriver for Silent {
+    fn skills(&self) -> candler_harness::skills::SkillTree {
+        candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
+    }
+
+    fn base_context(&self) -> &'static str {
+        "base"
+    }
+
+    fn detect(&self, _sample: &[u8]) -> Option<semver::Version> {
+        None
+    }
+
     fn id(&self) -> candler_harness::spec::HarnessId {
         self.0.id()
     }
@@ -1059,6 +1083,18 @@ fn conformance_session_surface_on_a_fake() -> TestResult {
     }
     struct Sessioned(Patched);
     impl HarnessDriver for Sessioned {
+        fn skills(&self) -> candler_harness::skills::SkillTree {
+            candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
+        }
+
+        fn base_context(&self) -> &'static str {
+            "base"
+        }
+
+        fn detect(&self, _sample: &[u8]) -> Option<semver::Version> {
+            None
+        }
+
         fn id(&self) -> candler_harness::spec::HarnessId {
             self.0.id()
         }

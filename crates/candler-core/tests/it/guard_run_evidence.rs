@@ -87,7 +87,7 @@ fn stream_lines() -> Vec<String> {
 
 /// The census of `lines` read through the Claude Code reader: the inventory the reader observed.
 fn census_of(lines: &[String]) -> Vec<MeasuredValue> {
-    let mut reader = ClaudeCodeReader::new().expect("the reader");
+    let mut reader = ClaudeCodeReader::new();
     for (index, line) in lines.iter().enumerate() {
         let frame = RawFrame::new(None, FrameData::from_bytes(line.as_bytes()));
         let at = u64::try_from(index).expect("a frame index");

@@ -112,6 +112,18 @@ pub const CONFIG_TEXT: &str =
     r#"{"providers":{"candler":{"settings":{"apiKey":"{env:CANDLER_GATEWAY_TOKEN}"}}}}"#;
 
 impl HarnessDriver for WiringDriver {
+    fn skills(&self) -> candler_harness::skills::SkillTree {
+        candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
+    }
+
+    fn base_context(&self) -> &'static str {
+        "base"
+    }
+
+    fn detect(&self, _sample: &[u8]) -> Option<semver::Version> {
+        None
+    }
+
     fn id(&self) -> HarnessId {
         self.0.id()
     }
@@ -407,6 +419,7 @@ pub fn agent_cid() -> ContainerId {
 fn facts() -> Facts {
     Facts {
         secrets: Vec::new(),
+        commit: crate::support::job_orchestrate::skill_repo().1.clone(), // BORROW: the facts own the commit text
         ..Facts::base()
     }
 }
@@ -500,7 +513,7 @@ pub fn run(scenario: &Scenario, during: impl FnOnce(&Rig, &JobControl) + Send) -
     // TRAIT_OBJECT: the job takes its sink as a trait object
     let events: Arc<dyn EventSink> = sink.clone(); // BORROW: the test reads the sink after the job
     let mut runtime = rig.runtime_with_sink(events);
-    runtime.driver = Arc::new(WiringDriver(OpenCodeDriver::new().expect("the driver")));
+    runtime.driver = Arc::new(WiringDriver(OpenCodeDriver::new()));
     let tokio = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()

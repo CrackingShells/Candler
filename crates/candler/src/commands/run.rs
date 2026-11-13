@@ -165,24 +165,15 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
         request_settings(&file, experiment_dir.as_path(), &fields, &cwd)?,
         &declared,
     )?;
-    let entry = Registry::builtin()
-        .map_err(failed)?
-        .entry(&requested_harness(&input)?)?;
-    let services = foreground(Arc::clone(&config), &root, &entry)?;
+    let driver = Registry::builtin().driver(&requested_harness(&input)?)?;
+    let services = foreground(Arc::clone(&config), &root, &driver)?;
     ensure_sidecar(&services.cli, services.gateway_context).await?;
     let resolution = services
         .resolver
         .resolve(input)
         .await
         .map_err(CliError::refused_by)?;
-    let spec = plan_job(
-        &store,
-        &file,
-        resolution,
-        force,
-        declared,
-        Arc::clone(&entry.driver),
-    )?;
+    let spec = plan_job(&store, &file, resolution, force, declared, driver)?;
     start(&store, &file, &spec, &root).await
 }
 

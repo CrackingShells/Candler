@@ -272,7 +272,7 @@ async fn pipeline() -> Seamed {
     let stored = store
         .raw_path(&key, &stream("stdout"))
         .expect("a stored stdout");
-    let reader = ClaudeCodeReader::new().expect("the reader");
+    let reader = ClaudeCodeReader::new();
     let info = RawFileInfo::new(stored, stdout.digest.clone(), stdout.frames); // BORROW: .clone() copies the digest
     // TRAIT_OBJECT: normalise takes its reader as a trait object
     let trace = normalise(Box::new(reader), &info).expect("a trace");
@@ -360,7 +360,7 @@ async fn a_stored_stream_replays_to_the_stored_trace() {
         .store
         .read_trace(&seamed.key)
         .expect("a stored trace");
-    let fresh = ClaudeCodeReader::new().expect("the reader");
+    let fresh = ClaudeCodeReader::new();
     assert_eq!(stored.header().reader, fresh.id());
     let info = RawFileInfo::new(
         path.clone(),              // BORROW: .clone() keeps the path

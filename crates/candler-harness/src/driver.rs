@@ -10,6 +10,7 @@ use candler_schemas::refusal::pointer_of;
 use candler_schemas::trace::{EndedBy, Session};
 
 use crate::reader::TraceReader;
+use crate::skills::SkillTree;
 use crate::spec::{
     Capabilities, Cell, CollectSpec, CommandSpec, CommandSpecError, GatewayEnv, HarnessId,
     Observed, Prepared, ProcessExit, SessionSpec, SessionTracker, StatePath, StopSpec, Workspace,
@@ -49,12 +50,6 @@ pub enum DriverError {
     #[error("version output cannot be read: {detail}")]
     VersionOutput {
         /// What is wrong with the output.
-        detail: String,
-    },
-    /// A harness name that is not a valid name.
-    #[error("harness name cannot be used: {detail}")]
-    HarnessName {
-        /// What is wrong with the name.
         detail: String,
     },
     /// A command the driver could not build.
@@ -242,6 +237,24 @@ pub trait HarnessDriver: Send + Sync {
     fn census_stream(&self) -> Option<StreamName> {
         None
     }
+
+    /// Where a treatment's skill tree comes from and where the harness reads it.
+    fn skills(&self) -> SkillTree;
+
+    /// The directory under `assets/docker` that holds the build context of the harness's base
+    /// image.
+    fn base_context(&self) -> &'static str;
+
+    /// The streams the harness collects after a run, each read offline by
+    /// [`HarnessDriver::offline_reader`]. The default is none.
+    fn offline_streams(&self) -> Vec<StreamName> {
+        Vec::new()
+    }
+
+    /// The harness version the start of a raw stream names, or `None` when the stream is not the
+    /// harness's. A version outside [`HarnessDriver::supported`] is still the harness's: the core
+    /// alone decides whether it is supported.
+    fn detect(&self, sample: &[u8]) -> Option<semver::Version>;
 
     /// How the harness runs the cell as a session, or `None` for a harness that runs none.
     ///

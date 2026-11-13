@@ -34,6 +34,7 @@ use tokio::sync::watch;
 fn facts() -> Facts {
     Facts {
         secrets: Vec::new(),
+        commit: support::job_orchestrate::skill_repo().1.clone(), // BORROW: the facts own the commit text
         ..Facts::base()
     }
 }
