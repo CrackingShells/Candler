@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use candler_schemas::container::{CONTAINER_RECORD_SCHEMA, ContainerRecord};
 use candler_schemas::execution::{JobRecord, JobState, SupervisorIdentity};
-use candler_schemas::primitives::JobId;
+use candler_schemas::primitives::{ContainerId, JobId};
 use candler_schemas::process::{CHILD_RECORD_SCHEMA, ChildRecord};
 use serde_json::Value;
 
@@ -278,15 +278,20 @@ impl JobDir {
     /// # Errors
     /// [`JobError::Io`] when the write fails.
     pub fn write_child(&self, rec: &ContainerRecord) -> Result<(), JobError> {
-        let cid = rec.cid().as_str(); // BORROW: explicit .as_str() instead of Deref coercion
-        let short = cid.get(..12).unwrap_or(cid);
-        let path = self.children_dir().join(format!("container-{short}.json"));
+        let path = self.container_path(rec.cid());
         let mut bytes = serde_json::to_vec(rec).map_err(|e| JobError::Parse {
             path: path.clone(), // BORROW: the error owns the path
             detail: e.to_string(),
         })?;
         bytes.push(b'\n');
         write_atomic(&path, &bytes)
+    }
+
+    /// The path of the record of the container `cid`: `children/container-<cid12>.json`.
+    fn container_path(&self, cid: &ContainerId) -> PathBuf {
+        let cid = cid.as_str(); // BORROW: explicit .as_str() instead of Deref coercion
+        let short = cid.get(..12).unwrap_or(cid);
+        self.children_dir().join(format!("container-{short}.json"))
     }
 
     /// The `*.json` files of `control/`, as records; one that cannot be read is listed apart.
@@ -299,12 +304,14 @@ impl JobDir {
                 unreadable.push(path);
                 continue;
             }
-            match fs::read(&path)
-                .ok()
-                .and_then(|bytes| serde_json::from_slice::<ChildRecord>(&bytes).ok())
-            {
-                Some(record) => records.push(record),
-                None => unreadable.push(path),
+            match fs::read(&path) {
+                // A record removed after the listing is no record.
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Ok(bytes) => match serde_json::from_slice::<ChildRecord>(&bytes) {
+                    Ok(record) => records.push(record),
+                    Err(_) => unreadable.push(path),
+                },
+                Err(_) => unreadable.push(path),
             }
         }
         Ok((records, unreadable))
@@ -321,14 +328,22 @@ fn sorted_files(dir: &Path) -> io::Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
-/// Reads one file of `children/` as an entry; whatever goes wrong becomes `Unreadable`.
-fn read_entry(path: PathBuf) -> ChildEntry {
+/// Reads one file of `children/` as an entry, or `None` when the file is gone: `Child::wait`
+/// removes the record of a child it has ended. Whatever else goes wrong becomes `Unreadable`.
+fn read_entry(path: PathBuf) -> Option<ChildEntry> {
     let unreadable = |path: PathBuf, error: String| ChildEntry::Unreadable { path, error };
     let bytes = match fs::read(&path) {
         Ok(bytes) => bytes,
-        Err(error) => return unreadable(path, error.to_string()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return None,
+        Err(error) => return Some(unreadable(path, error.to_string())),
     };
-    let value: Value = match serde_json::from_slice(&bytes) {
+    Some(parse_entry(path, &bytes))
+}
+
+/// Parses the bytes of the record at `path` as an entry; what is not a record is `Unreadable`.
+fn parse_entry(path: PathBuf, bytes: &[u8]) -> ChildEntry {
+    let unreadable = |path: PathBuf, error: String| ChildEntry::Unreadable { path, error };
+    let value: Value = match serde_json::from_slice(bytes) {
         Ok(value) => value,
         Err(error) => return unreadable(path, error.to_string()),
     };
@@ -369,8 +384,19 @@ impl JobView for JobDir {
         Ok(paths
             .into_iter()
             .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
-            .map(read_entry)
+            .filter_map(read_entry)
             .collect())
+    }
+
+    fn container(&self, cid: &ContainerId) -> Result<Option<ContainerRecord>, JobViewError> {
+        // A missing or unreadable file is no record.
+        Ok(match read_entry(self.container_path(cid)) {
+            Some(ChildEntry::Container(record)) if record.cid() == cid => Some(record),
+            Some(
+                ChildEntry::Container(_) | ChildEntry::Process(_) | ChildEntry::Unreadable { .. },
+            )
+            | None => None,
+        })
     }
 
     fn is_lost(&self, job: &JobId) -> Result<bool, JobViewError> {

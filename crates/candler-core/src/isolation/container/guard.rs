@@ -32,7 +32,7 @@ use crate::isolation::model::{ContainerRef, Inspect, Labels, NetworkName, SweepS
 use crate::jobs::dir::JobDir;
 use crate::jobs::lock::JobLock;
 use crate::jobs::lost::find_end;
-use crate::jobs::view::{ChildEntry, JobView};
+use crate::jobs::view::JobView;
 use crate::supervise::EventSink;
 
 /// Why the guard refused to destroy a container.
@@ -443,15 +443,12 @@ impl ContainerGuard {
         if matches!(scope, SweepScope::Lost(_)) {
             return Ok(false);
         }
-        let entries = self.view.children().map_err(|error| GuardError::View {
-            detail: error.to_string(),
-        })?;
-        let record = entries.iter().find_map(|entry| match entry {
-            ChildEntry::Container(record) if *record.cid() == inspect.id => Some(record),
-            ChildEntry::Container(_) | ChildEntry::Process(_) | ChildEntry::Unreadable { .. } => {
-                None
-            }
-        });
+        let record = self
+            .view
+            .container(&inspect.id)
+            .map_err(|error| GuardError::View {
+                detail: error.to_string(),
+            })?;
         let Some(record) = record else {
             return match scope {
                 SweepScope::Run(_) => Ok(false),

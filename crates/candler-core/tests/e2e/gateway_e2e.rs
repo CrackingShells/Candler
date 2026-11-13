@@ -782,7 +782,7 @@ exec sleep 600
     let logs = world
         .gw
         .logs()
-        .read(handle)
+        .read_since(handle, std::time::UNIX_EPOCH)
         .await
         .expect("the gateway logs");
     let inspects: Vec<(String, String)> = rig
@@ -797,7 +797,7 @@ exec sleep 600
     // A refused key is the gateway's own answer, not a signal of the upstream.
     let signals = world
         .gw
-        .run_signals(handle, &run)
+        .run_signals(handle, &run, std::time::UNIX_EPOCH)
         .await
         .expect("the signals");
     assert!(
@@ -1081,13 +1081,13 @@ exec sleep 600
     // The failed calls are signals of their own run, and of no other.
     let own = world
         .gw
-        .run_signals(handle, &run_key(1))
+        .run_signals(handle, &run_key(1), std::time::UNIX_EPOCH)
         .await
         .expect("the signals");
     assert_eq!(own.len(), 2, "the run's own signals: {own:?}");
     let other = world
         .gw
-        .run_signals(handle, &run_key(2))
+        .run_signals(handle, &run_key(2), std::time::UNIX_EPOCH)
         .await
         .expect("the signals");
     assert_eq!(other.len(), 0, "another run's signals: {other:?}");

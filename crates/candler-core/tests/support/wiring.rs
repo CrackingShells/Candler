@@ -237,6 +237,7 @@ impl Gateway for CensusGateway {
         &'a self,
         _handle: &'a GatewayHandle,
         _run: &'a RunKey,
+        _since: std::time::SystemTime,
     ) -> BoxFuture<'a, Result<Vec<GatewaySignal>, GatewayError>> {
         Box::pin(async { Ok(Vec::new()) })
     }

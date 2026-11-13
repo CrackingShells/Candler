@@ -1191,40 +1191,48 @@ async fn e1_selection_keys_and_pending_pick_the_runs_they_name() {
     assert_eq!(report.outcome_files, Vec::<PathBuf>::new());
 }
 
+/// Keeps the marker of the record of every process the supervisor spawns.
+#[derive(Default)]
+struct Spawned {
+    markers: Mutex<Vec<String>>,
+}
+
+impl EventSink for Spawned {
+    fn emit(&self, _run: Option<&RunKey>, payload: EventPayload) {
+        if let EventPayload::ProcessSpawned { record, .. } = payload {
+            let marker = record.marker().to_string();
+            self.markers.lock().expect("a lock").push(marker);
+        }
+    }
+}
+
 /// Guards: E3 (the marker) — every evaluator process of an evaluation carries a marker of its own,
 /// `evaluation-<id>`, never the constant `candler-evaluation`: `ProcMarkerSweeper` kills by an
 /// exact marker, so a shared one would let one job's sweep end another job's evaluators. Oracle:
-/// the `marker` of each child record in the record directory the call was given.
+/// the `marker` of the child record each `process.spawned` carries.
 /// Bite: the constant marker back (two requests share it).
 #[tokio::test]
 async fn e3_each_request_carries_its_own_marker() {
     let rig = rig_of("plugin_pool.toml").await;
     let suite = rig.suite_file("suite_pool_ok.toml", &[]);
-    let records = rig.suites.join("child-records");
-    let mut request = rig.request(
+    let request = rig.request(
         std::slice::from_ref(&rig.plugin),
         suite,
         RunSelection::Glob("*-r{6,12}-a1".to_owned()),
         rig.pool(2),
         Some(Duration::from_secs(120)),
     );
-    request.record_dir = Some(records.clone()); // BORROW: the test reads the directory afterwards
+    let spawned = Arc::new(Spawned::default());
+    // TRAIT_OBJECT: the supervisor takes its sink as a trait object
+    // BORROW: .clone() shares the markers between the supervisor and the test
+    let sink: Arc<dyn EventSink> = spawned.clone();
     let (_keep, cancel) = watch::channel(false);
-    let report = evaluate(request, Arc::clone(&rig.supervisor), cancel)
+    let report = evaluate(request, Arc::new(Supervisor::new(sink)), cancel)
         .await
         .expect("the engine grades the runs");
     assert_eq!(report.request_ids.len(), 2, "two requests");
 
-    let mut markers: Vec<String> = fs::read_dir(&records)
-        .expect("the record directory")
-        .map(|entry| entry.expect("an entry").path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
-        .map(|path| {
-            let record: Value =
-                serde_json::from_slice(&fs::read(&path).expect("a record")).expect("JSON");
-            record["marker"].as_str().expect("a marker").to_owned()
-        })
-        .collect();
+    let mut markers = spawned.markers.lock().expect("a lock").clone();
     markers.sort();
     // One describe and one process per request.
     assert_eq!(markers.len(), 3, "{markers:?}");

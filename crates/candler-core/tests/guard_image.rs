@@ -67,13 +67,25 @@ fn write_script(path: &Path, text: &str) {
 /// The tag of the base image built from `assets/docker/base`, as docker holds it.
 const BASE_SUFFIX: &str = "src-319fda768a95";
 
+/// The env tag's part for the sources of `assets/docker/env`: the first 12 hex digits of the
+/// sha256 of each file's name, a NUL, its bytes and a NUL, in name order, computed with `shasum`.
+const ENV_SUFFIX: &str = "env-e7ca5eaba54a";
+
+/// The directory `assets/docker/<name>` of the repository.
+fn assets(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../assets/docker")
+        .join(name)
+}
+
 impl Rig {
     fn new() -> Self {
-        Self::over(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/docker/base"))
+        Self::over(&assets("base"), &assets("env"))
     }
 
-    /// A world whose base image is built from the context `base`.
-    fn over(base: &Path) -> Self {
+    /// A world whose base image is built from the context `base` and whose env layer from the
+    /// sources in `env`.
+    fn over(base: &Path, env_sources: &Path) -> Self {
         let dir = tempfile::tempdir().expect("a directory");
         let canned = dir.path().join("canned");
         let bin = dir.path().join("bin");
@@ -112,7 +124,6 @@ impl Rig {
             env.clone(),     // BORROW: .clone() gives the service its own environment
             records,
         );
-        let sources = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/docker");
         let store_root = dir.path().join("store");
         let service = Arc::new(DockerImageService::new(
             Arc::clone(&supervisor),
@@ -120,7 +131,7 @@ impl Rig {
             env,
             ImageAssets {
                 base_context: base.to_path_buf(),
-                env_context: sources.join("env"),
+                env_context: env_sources.to_path_buf(),
                 store_root: store_root.clone(), // BORROW: .clone() keeps the root for the probe
             },
             Arc::new(ClaudeCodeDriver::new().expect("the driver builds from constants")),
@@ -218,7 +229,7 @@ fn pruning(setting: &BuildSetting, names: &[&str]) -> BuildSetting {
 async fn b05_one_build_per_digest() {
     let rig = Rig::new();
     let (digest, setting, hex) = lock("numpy==2.0.0\n");
-    let tag = format!("candler-env:{hex}-{BASE_SUFFIX}");
+    let tag = format!("candler-env:{hex}-{BASE_SUFFIX}-{ENV_SUFFIX}");
 
     let (first, second) = tokio::join!(
         rig.service.ensure(&digest, &setting),
@@ -243,7 +254,7 @@ async fn b05_one_build_per_digest() {
 
     // Positive control: another lock digest is another tag and builds again.
     let (other_digest, other_setting, other_hex) = lock("numpy==2.0.1\n");
-    let other_tag = format!("candler-env:{other_hex}-{BASE_SUFFIX}");
+    let other_tag = format!("candler-env:{other_hex}-{BASE_SUFFIX}-{ENV_SUFFIX}");
     rig.service
         .ensure(&other_digest, &other_setting)
         .await
@@ -257,7 +268,8 @@ async fn b05_one_build_per_digest() {
 /// images, one lock with one list, in any order, gives one, and one lock on two bases gives two.
 /// Oracle: the tags below are the sha256 of the lock's hex digest followed by a NUL and each
 /// sorted prune name, computed with `shasum`, not with Candler, then `-` and the base's tag
-/// suffix as docker holds it; the PATH-fake docker's argv log counts the builds of each tag.
+/// suffix as docker holds it, then `-` and the env sources' part; the PATH-fake docker's argv
+/// log counts the builds of each tag.
 /// Bite: key the env tag on the lock digest (and prune list) alone.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a1_prune_is_part_of_the_env_key() {
@@ -268,7 +280,7 @@ async fn a1_prune_is_part_of_the_env_key() {
     let rig = Rig::new();
     let (digest, plain, hex) = lock("numpy==2.0.0\n");
     assert_eq!(hex, LOCK, "the oracle's lock is the lock under test");
-    let tag = |key: &str| format!("candler-env:{key}-{BASE_SUFFIX}");
+    let tag = |key: &str| format!("candler-env:{key}-{BASE_SUFFIX}-{ENV_SUFFIX}");
 
     for names in [
         &["a.py"][..],
@@ -301,7 +313,7 @@ async fn a1_prune_is_part_of_the_env_key() {
     // Another base on the same lock is another tag: its sources are another directory.
     let other_base = tempfile::tempdir().expect("a directory");
     std::fs::write(other_base.path().join("Dockerfile"), "FROM scratch\n").expect("a source");
-    let other = Rig::over(other_base.path());
+    let other = Rig::over(other_base.path(), &assets("env"));
     other
         .service
         .ensure(&digest, &plain)
@@ -316,9 +328,52 @@ async fn a1_prune_is_part_of_the_env_key() {
     );
     assert!(
         built[0].starts_with(&format!("candler-env:{LOCK}-src-"))
-            && !built[0].ends_with(BASE_SUFFIX),
+            && !built[0].contains(BASE_SUFFIX),
         "the env tag carries the other base's tag: {}",
         built[0]
+    );
+}
+
+/// Guards: A1 — the env image is keyed on the env sources too: one lock on one base builds a
+/// second env image once the env Dockerfile is edited, so an edit never reuses a stale image.
+/// Oracle: the PATH-fake docker's argv log of the env tags built, over a copy of
+/// `assets/docker/env` whose Dockerfile gains one comment line; before the edit the copy keys
+/// as the original does.
+/// Bite: leave the env sources out of `env_key`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_env_dockerfile_edit_keys_another_env_image() {
+    let env = tempfile::tempdir().expect("a directory");
+    for name in ["Dockerfile", ".dockerignore"] {
+        std::fs::copy(assets("env").join(name), env.path().join(name)).expect("a copy");
+    }
+    let rig = Rig::over(&assets("base"), env.path());
+    let (digest, setting, hex) = lock("numpy==2.0.0\n");
+    rig.service
+        .ensure(&digest, &setting)
+        .await
+        .expect("an image");
+    let before = format!("candler-env:{hex}-{BASE_SUFFIX}-{ENV_SUFFIX}");
+    assert_eq!(
+        rig.env_tags_built(),
+        [before.as_str()],
+        "the copy keys as the original"
+    );
+
+    let dockerfile = env.path().join("Dockerfile");
+    let mut text = std::fs::read_to_string(&dockerfile).expect("the Dockerfile");
+    text.push_str("# edited\n");
+    std::fs::write(&dockerfile, text).expect("the edit");
+    rig.service
+        .ensure(&digest, &setting)
+        .await
+        .expect("an image");
+    let built = rig.env_tags_built();
+    assert_eq!(built.len(), 2, "the edit built again: {built:?}");
+    assert_ne!(built[1], before, "the edited sources reused the stale tag");
+    assert!(
+        built[1].starts_with(&format!("candler-env:{hex}-{BASE_SUFFIX}-env-")),
+        "only the env part moved: {}",
+        built[1]
     );
 }
 

@@ -288,6 +288,8 @@ pub(crate) struct Climb {
     pub(crate) strays: Vec<StrayProcess>,
     /// The first failure to report a step; the ladder went on regardless.
     pub(crate) error: Option<SuperviseError>,
+    /// Whether the sweep failed or timed out, so that what it was after may still run.
+    pub(crate) unswept: bool,
 }
 
 impl Climb {
@@ -662,11 +664,17 @@ impl Ladder<'_> {
             let sweeping = tokio::task::spawn_blocking(move || sweeper.sweep(&marker));
             match timeout(self.stop.grace, sweeping).await {
                 Ok(Ok(found)) => (format!("swept {} process(es)", found.len()), found),
-                Ok(Err(_)) => ("sweeper failed".to_owned(), Vec::new()), // BORROW: .to_owned() makes the owned outcome from a literal
-                Err(_) => (
-                    "sweeper timed out; what it found is unknown".to_owned(), // BORROW: .to_owned() makes the owned outcome from a literal
-                    Vec::new(),
-                ),
+                Ok(Err(_)) => {
+                    climb.unswept = true;
+                    ("sweeper failed".to_owned(), Vec::new()) // BORROW: .to_owned() makes the owned outcome from a literal
+                }
+                Err(_) => {
+                    climb.unswept = true;
+                    (
+                        "sweeper timed out; what it found is unknown".to_owned(), // BORROW: .to_owned() makes the owned outcome from a literal
+                        Vec::new(),
+                    )
+                }
             }
         } else {
             ("no sweeper".to_owned(), Vec::new()) // BORROW: .to_owned() makes the owned outcome from a literal
@@ -745,6 +753,8 @@ impl Child {
 
     /// Waits until the child exits, reaches its deadline or is asked to stop, then ends it and
     /// what it left in its group, and returns how it ended. `process.exited` is the last event.
+    /// When the group is empty and the sweep finished, the child's record is removed: nothing is
+    /// left for a recovery to reap by it.
     ///
     /// Output is drained for at most the grace after the process ends, so a descendant that holds
     /// a pipe open cannot hold the wait.
@@ -844,6 +854,12 @@ impl Child {
             // again. A group that still has members stays, so that `stop` and `kill_all` can end
             // it.
             self.context.guard.forget(self.record.pid());
+            if !climb.unswept {
+                // The group is empty and no sweep was left unfinished, so a recovery has nothing
+                // to reap by this record. A record that stays behind costs that recovery a sweep
+                // that finds nothing, so a failed removal is not an error.
+                let _ = std::fs::remove_file(&self.record_file);
+            }
         }
         match EventPayload::process_exited(
             self.record.pid(),

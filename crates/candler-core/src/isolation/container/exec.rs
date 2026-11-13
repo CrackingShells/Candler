@@ -65,7 +65,7 @@ pub fn collect_args(
         detail: source.to_string(),
     })?;
     let mut args = vec![String::from("run"), String::from("--rm")];
-    hardening(&plan.limits, &mut args);
+    hardening(&plan.limits, false, &mut args);
     args.extend([String::from("--network"), String::from("none")]);
     if let UserSpec::Host { uid, gid } = &plan.user {
         args.extend([String::from("--user"), format!("{uid}:{gid}")]);

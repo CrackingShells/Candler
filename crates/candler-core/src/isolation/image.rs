@@ -201,11 +201,7 @@ impl DockerImageService {
     /// The base image: built once per digest of its sources, under the lock of its tag.
     async fn ensure_base(&self) -> Result<BaseImage, ImageError> {
         // BORROW: .clone() moves the context into the blocking task
-        let context = self.assets.base_context.clone();
-        let tag = tokio::task::spawn_blocking(move || base_tag(&context))
-            .await
-            .map_err(|error| build_failed(&format!("the digest task ended: {error}")))?
-            .map_err(|error| build_failed(&format!("cannot read the base sources: {error}")))?;
+        let tag = off_thread(base_tag, self.assets.base_context.clone(), "base").await?;
         let _guard = self.lock_tag(&tag).await?;
         let found = self
             .docker
@@ -367,7 +363,9 @@ impl DockerImageService {
             ));
         }
         let base = self.ensure_base().await?;
-        let key = env_key(&hex, &setting.prune, &base.tag);
+        // BORROW: .clone() moves the context into the blocking task
+        let sources = off_thread(env_digest, self.assets.env_context.clone(), "env").await?;
+        let key = env_key(&hex, &setting.prune, &base.tag, &sources);
         let labels = Labels::new().with(LOCK_LABEL, &hex);
         let env_tag = format!("{ENV_REPO}:{key}");
         let (mut info, mut built) = self
@@ -751,15 +749,16 @@ impl Layer<'_> {
 
 /// The key of an env image: the lock's hex digest, or the sha256 of it followed by a NUL and each
 /// distinct prune name in order when something is pruned, then `-` and the base image's tag
-/// without its repository (`src-<digits of the base sources' digest>`). The base tag follows the
-/// base's content, so two bases on one lock give two env images.
-fn env_key(lock_hex: &str, prune: &[String], base_tag: &str) -> String {
+/// without its repository (`src-<digits of the base sources' digest>`), then `-env-` and
+/// `env_sources`, the digits of the digest of the [`ENV_SOURCES`]. Both follow their content, so
+/// two bases, or two edits of the env sources, on one lock give two env images.
+fn env_key(lock_hex: &str, prune: &[String], base_tag: &str, env_sources: &str) -> String {
     let base = base_tag.rsplit_once(':').map_or(base_tag, |(_, tag)| tag);
     let mut names: Vec<&str> = prune.iter().map(String::as_str).collect();
     names.sort_unstable();
     names.dedup();
     if names.is_empty() {
-        return format!("{lock_hex}-{base}");
+        return format!("{lock_hex}-{base}-env-{env_sources}");
     }
     let mut hasher = sha2::Sha256::new();
     hasher.update(lock_hex.as_bytes());
@@ -767,7 +766,7 @@ fn env_key(lock_hex: &str, prune: &[String], base_tag: &str) -> String {
         hasher.update([0_u8]);
         hasher.update(name.as_bytes());
     }
-    format!("{}-{base}", hex_of(&hasher.finalize()))
+    format!("{}-{base}-env-{env_sources}", hex_of(&hasher.finalize()))
 }
 
 /// Whether `name` is a file name the env build may delete: letters, digits, `.`, `_` and `-`,
@@ -837,14 +836,42 @@ fn tree_digest(dir: &Path) -> Result<String, std::io::Error> {
     let mut files = Vec::new();
     collect_files(dir, dir, &mut files)?;
     files.sort();
+    files_digest(dir, &files)
+}
+
+/// The digest of the files `files` under `dir`, in the order given: each path, a NUL, its bytes
+/// and a NUL.
+fn files_digest<P: AsRef<Path>>(dir: &Path, files: &[P]) -> Result<String, std::io::Error> {
     let mut hasher = sha2::Sha256::new();
-    for relative in &files {
-        hasher.update(relative.to_string_lossy().as_bytes());
+    for relative in files {
+        hasher.update(relative.as_ref().to_string_lossy().as_bytes());
         hasher.update([0_u8]);
         hasher.update(std::fs::read(dir.join(relative))?);
         hasher.update([0_u8]);
     }
     Ok(hex_of(&hasher.finalize()))
+}
+
+/// The first digits of the digest of the files of [`ENV_SOURCES`] under `dir`, in name order:
+/// the files the env build stages, and no other.
+fn env_digest(dir: &Path) -> Result<String, std::io::Error> {
+    let mut names = ENV_SOURCES;
+    names.sort_unstable();
+    let mut hex = files_digest(dir, &names)?;
+    hex.truncate(SOURCE_DIGITS);
+    Ok(hex)
+}
+
+/// Runs `digest` over `dir` on a blocking thread; `what` names the sources in an error.
+async fn off_thread(
+    digest: fn(&Path) -> Result<String, std::io::Error>,
+    dir: PathBuf,
+    what: &'static str,
+) -> Result<String, ImageError> {
+    tokio::task::spawn_blocking(move || digest(&dir))
+        .await
+        .map_err(|error| build_failed(&format!("the digest task ended: {error}")))?
+        .map_err(|error| build_failed(&format!("cannot read the {what} sources: {error}")))
 }
 
 /// The first digits of the digest of the sources under `dir`.

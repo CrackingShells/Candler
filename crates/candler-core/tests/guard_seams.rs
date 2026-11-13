@@ -184,7 +184,6 @@ struct Seamed {
     store: Store,
     key: RunKey,
     job_dir: PathBuf,
-    records: PathBuf,
     /// The `Debug` of the request that was spawned.
     request_debug: String,
 }
@@ -295,7 +294,6 @@ async fn pipeline() -> Seamed {
         store,
         key,
         job_dir,
-        records,
         request_debug,
     }
 }
@@ -380,15 +378,15 @@ async fn a_stored_stream_replays_to_the_stored_trace() {
 }
 
 /// Guards: I19 — a canary passed in the fake harness's environment is found nowhere under the
-/// store, the job directory, the record directory or the event log, and not in the `Debug` of the
-/// request. Oracle: `tests/support::assert_clean`, which fails when it reads no file, and the
-/// event log read back as text.
+/// store, the job directory (the record directory is its `children/`) or the event log (whose
+/// `process.spawned` carries each record), and not in the `Debug` of the request. Oracle:
+/// `tests/support::assert_clean`, which fails when it reads no file, and the event log read back
+/// as text.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_secret_in_the_environment_reaches_no_file() {
     let seamed = pipeline().await;
     support::assert_clean(seamed.root.as_path(), CANARY); // BORROW: explicit .as_path()
     support::assert_clean(seamed.job_dir.as_path(), CANARY); // BORROW: explicit .as_path()
-    support::assert_clean(seamed.records.as_path(), CANARY); // BORROW: explicit .as_path()
     let log = fs::read_to_string(seamed.job_dir.join("events.jsonl")).expect("the event log");
     assert!(log.lines().count() > 1, "the event log holds no events");
     assert!(!log.contains(CANARY), "the event log holds the canary");
