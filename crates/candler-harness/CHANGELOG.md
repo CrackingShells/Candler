@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/CrackingShells/Candler/compare/v0.7.0...v0.8.0) - 2026-11-13
+
+### Documentation
+
+- *(runner)* say what a collect command sees
+
+### Features
+
+- *(runner)* declare the settings table a driver answers
+- *(runner)* refuse a setting a harness cannot honour, naming its path
+- *(runner)* code the census inventory refusals
+- *(runner)* code the session-record and session-id refusals
+- *(runner)* let a driver supply gateway, state, census and session
+
+### Fixes
+
+- *(runner)* refuse an unsupported setting when the cells are planned
+- *(adapter-opencode)* refuse an unknown effort level as unsupported
+
+### Refactoring
+
+- *(runner)* consolidate opencode_wiring
+- *(runner)* take the run totals from the driver's live reader
+- *(runner)* [**breaking**] frame streams with the reader's own framing type
+
 ## [0.7.0](https://github.com/CrackingShells/Candler/compare/v0.6.1...v0.7.0) - 2026-11-12
 
 ### Features

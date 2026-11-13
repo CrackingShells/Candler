@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/CrackingShells/Candler/compare/v0.7.0...v0.8.0) - 2026-11-13
+
+### Documentation
+
+- *(runner)* say what a collect command sees
+- *(runner)* say hooks_incomplete names the instrument
+
+### Features
+
+- *(runner)* refuse session mode on a harness whose controls fail
+- *(runner)* collect a harness's export and read it offline
+- *(runner)* close a session only once the agent has yielded
+- *(isolation)* keep a session's stdin open
+- *(experiment)* opt a cell into session mode
+- *(cli)* [**breaking**] select the harness driver by the experiment's name
+- *(manifest)* give imported strata a verdict on their recorded build
+
+### Fixes
+
+- *(isolation)* give the version probe the home a run gives the harness
+- *(isolation)* key the env image by its base as well as its lock
+- *(runner)* refuse an unsupported setting when the cells are planned
+- *(runner)* name the fake model's host without a harness name
+- *(runner)* read a run's census and export the way the run did
+- *(adapter-claude-code)* cover Stop lines by order and prompt id
+- *(runner)* charge a lost Stop line to the instrument
+- *(runner)* record session totals and a silent hook channel
+- *(experiment)* settle the session rule for every cell
+- *(isolation)* [**breaking**] retire the claude-named version refusal code
+
+### Refactoring
+
+- *(isolation)* let a caller find or build the base image
+- *(runner)* consolidate opencode_wiring
+- *(runner)* consolidate session_runner
+- *(runner)* name the session mode, mark dropped errors
+- *(isolation)* harness-neutral version field, one agent home
+- *(runner)* take the run totals from the driver's live reader
+- *(isolation)* take the gateway, state and census from the driver
+- *(isolation)* read the harness version through its driver
+- *(runner)* frame raw imports with the reader's framing type
+- *(runner)* [**breaking**] frame streams with the reader's own framing type
+
 ## [0.7.0](https://github.com/CrackingShells/Candler/compare/v0.6.1...v0.7.0) - 2026-11-12
 
 ### Documentation

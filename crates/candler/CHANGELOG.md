@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/CrackingShells/Candler/compare/v0.7.0...v0.8.0) - 2026-11-13
+
+### Documentation
+
+- *(runner)* add the harness capability page
+- *(runner)* add the driver-traits contract page
+- *(runner)* say what a collect command sees
+- *(runner)* say hooks_incomplete names the instrument
+- *(adapter-opencode)* quote the harness name in the crate doc
+
+### Features
+
+- *(runner)* refuse session mode on a harness whose controls fail
+- *(adapter-opencode)* register the driver in the binary
+- *(experiment)* opt a cell into session mode
+- *(cli)* [**breaking**] select the harness driver by the experiment's name
+- *(runner)* collect a harness's export and read it offline
+- *(runner)* close a session only once the agent has yielded
+- *(isolation)* keep a session's stdin open
+- *(manifest)* give imported strata a verdict on their recorded build
+- *(runner)* declare the settings table a driver answers
+- *(runner)* refuse a setting a harness cannot honour, naming its path
+- *(runner)* code the census inventory refusals
+- *(runner)* code the session-record and session-id refusals
+- *(runner)* let a driver supply gateway, state, census and session
+- *(adapter-claude-code)* add session mode and the new driver facts
+- *(adapter-opencode)* map the settings opencode can honour
+- *(adapter-opencode)* refuse unsupported settings with their path
+- *(adapter-opencode)* drive opencode v2 through the shared traits
+
+### Fixes
+
+- *(runner)* refuse an unsupported setting when the cells are planned
+- *(runner)* read a run's census and export the way the run did
+- *(experiment)* settle the session rule for every cell
+- *(isolation)* [**breaking**] retire the claude-named version refusal code
+- *(isolation)* give the version probe the home a run gives the harness
+- *(isolation)* key the env image by its base as well as its lock
+- *(runner)* name the fake model's host without a harness name
+- *(adapter-claude-code)* cover Stop lines by order and prompt id
+- *(runner)* charge a lost Stop line to the instrument
+- *(runner)* record session totals and a silent hook channel
+- *(adapter-opencode)* refuse an unknown effort level as unsupported
+- *(adapter-claude-code)* tie each Stop line to its turn
+- *(adapter-claude-code)* need a Stop line for every turn
+- *(adapter-opencode)* refuse dated 3.x ids, haiku and ultracode effort
+- *(adapter-opencode)* map only what OpenCode honours like Claude Code
+
+### Refactoring
+
+- *(runner)* consolidate opencode_wiring
+- *(cli)* recognise raw trace streams through the registry
+- *(isolation)* read the harness version through its driver
+- *(isolation)* let a caller find or build the base image
+- *(runner)* consolidate session_runner
+- *(runner)* name the session mode, mark dropped errors
+- *(isolation)* harness-neutral version field, one agent home
+- *(runner)* take the run totals from the driver's live reader
+- *(isolation)* take the gateway, state and census from the driver
+- *(runner)* frame raw imports with the reader's framing type
+- *(runner)* [**breaking**] frame streams with the reader's own framing type
+
 ## [0.7.0](https://github.com/CrackingShells/Candler/compare/v0.6.1...v0.7.0) - 2026-11-12
 
 ### Documentation

@@ -8,7 +8,7 @@ What a run can expect of each registered harness: what the harness does itself, 
 
 <!-- generated:version -->
 <!-- versions -->
-Core line: `v0.7.0`; the `candler-harness` crate has the same version.
+Core line: `v0.8.0`; the `candler-harness` crate has the same version.
 <!-- /versions -->
 <!-- /generated:version -->
 

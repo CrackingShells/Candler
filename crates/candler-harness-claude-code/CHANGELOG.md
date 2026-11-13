@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/CrackingShells/Candler/compare/v0.7.0...v0.8.0) - 2026-11-13
+
+### Features
+
+- *(runner)* collect a harness's export and read it offline
+- *(adapter-claude-code)* add session mode and the new driver facts
+
+### Fixes
+
+- *(adapter-claude-code)* cover Stop lines by order and prompt id
+- *(adapter-claude-code)* tie each Stop line to its turn
+- *(adapter-claude-code)* need a Stop line for every turn
+
+### Refactoring
+
+- *(runner)* take the run totals from the driver's live reader
+
 ## [0.7.0](https://github.com/CrackingShells/Candler/compare/v0.6.1...v0.7.0) - 2026-11-12
 
 ### Features
