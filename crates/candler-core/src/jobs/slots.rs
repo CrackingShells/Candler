@@ -3,11 +3,15 @@
 //! A slot is a pair of files under the slots directory: `<n>.lock`, the target of an exclusive
 //! `flock`, and `<n>.json`, who holds it. The kernel releases the lock when the holder dies, so a
 //! free lock with a leftover `.json` is a crashed holder: reported as stale, never as held.
+//!
+//! Within one process, a semaphore with one permit per slot queues the waiters in order, so only
+//! a permit holder touches the files; the `flock` is what bounds the holders across processes.
 
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures::future::BoxFuture;
@@ -16,10 +20,11 @@ use rustix::io::Errno;
 use serde::de::value::MapAccessDeserializer;
 use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use super::dir::write_atomic;
 
-/// How often [`Slots::acquire`] tries again.
+/// How often [`Slots::acquire`] tries the files again while other processes hold every slot.
 const POLL: Duration = Duration::from_millis(50);
 
 /// The directory of the evaluator slot pool under the user state directory `state`: a directory of
@@ -124,6 +129,8 @@ pub struct Slot {
     json: PathBuf,
     // The descriptor holds the lock; dropping it releases it.
     _lock: File,
+    // This process's permit, released after the lock.
+    _permit: OwnedSemaphorePermit,
 }
 
 impl Drop for Slot {
@@ -150,6 +157,8 @@ pub struct SlotInfo {
 pub struct Slots {
     dir: PathBuf,
     count: u32,
+    // One permit per slot, shared by every clone in this process.
+    permits: Arc<Semaphore>,
 }
 
 /// Tries the exclusive lock on `file` without waiting; `false` when another descriptor holds it.
@@ -180,6 +189,10 @@ impl Slots {
         Ok(Self {
             dir: dir.to_path_buf(),
             count,
+            permits: Arc::new(Semaphore::new(
+                usize::try_from(count)
+                    .map_or(Semaphore::MAX_PERMITS, |n| n.min(Semaphore::MAX_PERMITS)),
+            )),
         })
     }
 
@@ -189,15 +202,26 @@ impl Slots {
         self.count
     }
 
-    /// Waits for a free slot and takes it, trying every 50 ms.
+    /// Waits for a free slot and takes it. Waiters of this process queue in order for a permit;
+    /// a permit holder then tries the files, every 50 ms while other processes hold every slot,
+    /// on a blocking thread.
     ///
     /// # Errors
     /// [`SlotError`] when the slots cannot be read.
     pub fn acquire<'a>(&'a self, holder: &'a Holder) -> BoxFuture<'a, Result<Slot, SlotError>> {
         Box::pin(async move {
+            let mut permit = Arc::clone(&self.permits)
+                .acquire_owned()
+                .await
+                .map_err(|e| self.wait_error(e))?;
             loop {
-                if let Some(slot) = self.try_acquire(holder)? {
-                    return Ok(slot);
+                let (slots, who) = (self.clone(), holder.clone()); // BORROW: the blocking thread owns its copies
+                let tried = tokio::task::spawn_blocking(move || slots.lock_free(&who, permit))
+                    .await
+                    .map_err(|e| self.wait_error(e))??;
+                match tried {
+                    Ok(slot) => return Ok(slot),
+                    Err(back) => permit = back,
                 }
                 tokio::time::sleep(POLL).await;
             }
@@ -209,37 +233,65 @@ impl Slots {
     /// # Errors
     /// [`SlotError`] when the slots cannot be read.
     pub fn try_acquire(&self, holder: &Holder) -> Result<Option<Slot>, SlotError> {
+        let Ok(permit) = Arc::clone(&self.permits).try_acquire_owned() else {
+            return Ok(None);
+        };
+        Ok(self.lock_free(holder, permit)?.ok())
+    }
+
+    /// Locks the first free slot file for the holder of `permit`; when another process holds
+    /// every file, the permit comes back.
+    fn lock_free(
+        &self,
+        holder: &Holder,
+        permit: OwnedSemaphorePermit,
+    ) -> Result<Result<Slot, OwnedSemaphorePermit>, SlotError> {
         for n in 0..self.count {
             let path = lock_path(&self.dir, n);
             let file = open_lock(&path)?;
             if !try_lock(&file, &path)? {
                 continue;
             }
-            let json = json_path(&self.dir, n);
-            let body = HolderFile {
-                job: holder.job.clone(), // BORROW: the file owns its text
-                run: holder.run.clone(), // BORROW: the file owns its text
-                pid: std::process::id(),
-                since: jiff::Timestamp::now().to_string(),
-            };
-            let mut bytes = serde_json::to_vec(&body).map_err(|e| SlotError::Io {
-                op: "write a slot holder",
-                path: json.clone(), // BORROW: the error owns the path
-                detail: e.to_string(),
-            })?;
-            bytes.push(b'\n');
-            write_atomic(&json, &bytes).map_err(|e| SlotError::Io {
-                op: "write a slot holder",
-                path: json.clone(), // BORROW: the error owns the path
-                detail: e.to_string(),
-            })?;
-            return Ok(Some(Slot {
+            return Ok(Ok(Slot {
                 index: n,
-                json,
+                json: self.write_holder(n, holder)?,
                 _lock: file,
+                _permit: permit,
             }));
         }
-        Ok(None)
+        Ok(Err(permit))
+    }
+
+    /// Writes `<n>.json` naming `holder`, and returns its path.
+    fn write_holder(&self, n: u32, holder: &Holder) -> Result<PathBuf, SlotError> {
+        let json = json_path(&self.dir, n);
+        let body = HolderFile {
+            job: holder.job.clone(), // BORROW: the file owns its text
+            run: holder.run.clone(), // BORROW: the file owns its text
+            pid: std::process::id(),
+            since: jiff::Timestamp::now().to_string(),
+        };
+        let mut bytes = serde_json::to_vec(&body).map_err(|e| SlotError::Io {
+            op: "write a slot holder",
+            path: json.clone(), // BORROW: the error owns the path
+            detail: e.to_string(),
+        })?;
+        bytes.push(b'\n');
+        write_atomic(&json, &bytes).map_err(|e| SlotError::Io {
+            op: "write a slot holder",
+            path: json.clone(), // BORROW: the error owns the path
+            detail: e.to_string(),
+        })?;
+        Ok(json)
+    }
+
+    /// The error of a wait that could not go on: a closed semaphore or a lost blocking thread.
+    fn wait_error(&self, error: impl fmt::Display) -> SlotError {
+        SlotError::Io {
+            op: "wait for a slot",
+            path: self.dir.clone(), // BORROW: the error owns the path
+            detail: error.to_string(),
+        }
     }
 
     /// Every slot, with who holds it. A free lock with a leftover holder file is stale.
