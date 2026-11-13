@@ -68,7 +68,7 @@ jobs:
             opencode_probe_reads_each_real_base_image_version \
             x1_env_image_prunes_the_named_file_and_reads_the_pin \
             x1_env_image_without_requirements_has_only_seed_packages; do
-            if ! grep -Eq "PASS \[.*\] [a-z-]+::it guard_(container|cli)_e2e::([a-z0-9_]+::)*${name}\$" "$RUNNER_TEMP/e2e.txt"; then
+            if ! grep -Eq "PASS \[ *[0-9.]+s\] +\( *[0-9]+/[0-9]+\) [a-z-]+::it guard_(container|cli)_e2e::([a-z0-9_]+::)*${name}\$" "$RUNNER_TEMP/e2e.txt"; then
               echo "::error::guard ${name} did not run and pass"
               missing=1
             fi
