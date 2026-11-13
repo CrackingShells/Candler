@@ -1,0 +1,57 @@
+//! The integration tests of this crate, one binary: one module per former test file.
+#![cfg(test)]
+
+mod oracle;
+mod support;
+
+mod guard_analysis_report;
+mod guard_assert_clean;
+mod guard_census_gateway;
+mod guard_comparability;
+mod guard_container_e2e;
+mod guard_container_guard;
+mod guard_container_record;
+mod guard_container_run;
+mod guard_controls;
+mod guard_declared_inputs;
+mod guard_detach;
+mod guard_diff;
+mod guard_engine;
+mod guard_evaluate_job;
+mod guard_frames;
+mod guard_golden;
+mod guard_harness_facts;
+mod guard_image;
+mod guard_import_mini;
+mod guard_job_orchestrate;
+mod guard_job_runtime;
+mod guard_job_spec_file;
+mod guard_job_store;
+mod guard_layering_i1;
+mod guard_layering_i22;
+mod guard_legacy_mapping;
+mod guard_oracle_aggregates;
+mod guard_oracle_mini;
+mod guard_platform_seam;
+mod guard_proc_stat;
+mod guard_protocol_client;
+mod guard_refusal_codes;
+mod guard_registry;
+mod guard_resolve;
+mod guard_resolve_surface;
+mod guard_run_context;
+mod guard_run_evidence;
+mod guard_run_exec;
+mod guard_run_plan;
+mod guard_seams;
+mod guard_secrets_step;
+mod guard_selection;
+mod guard_session;
+mod guard_settings_out_of_cell;
+mod guard_signal;
+mod guard_spec_file;
+mod guard_stats;
+mod guard_store;
+mod guard_supervise;
+mod guard_treatment_source;
+mod guard_wiring;
