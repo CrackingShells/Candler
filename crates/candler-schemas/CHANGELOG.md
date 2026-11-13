@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0](https://github.com/CrackingShells/Candler/compare/schemas@0.8.0...schemas@0.9.0) - 2026-11-13
+
+### Features
+
+- *(schemas)* name literals checked at compile time, one segment test
+
 ## [0.8.0](https://github.com/CrackingShells/Candler/compare/schemas@0.7.1...schemas@0.8.0) - 2026-11-13
 
 ### Features

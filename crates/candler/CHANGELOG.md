@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3](https://github.com/CrackingShells/Candler/compare/v0.8.2...v0.8.3) - 2026-11-13
+
+### Documentation
+
+- *(contributing)* name tests by module path in the bless commands
+
+### Refactoring
+
+- *(library)* let the harness trait own what the CLI held
+
 ## [0.8.2](https://github.com/CrackingShells/Candler/compare/v0.8.1...v0.8.2) - 2026-11-13
 
 ### Fixes
