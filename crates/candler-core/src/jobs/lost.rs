@@ -36,16 +36,17 @@ pub enum JobLiveness {
     Lost,
 }
 
-/// The reason of the first `job.ended` in the log of `dir`, if the log has one.
+/// The reason of the `job.ended` in the log of `dir`, if the log has one. The log is read from
+/// its end back: `job.ended` is the last event a supervisor or a recovery writes, followed at most
+/// by what `candler kill` logs while it reaps that supervisor, so an ended job costs a few lines.
 pub(crate) fn find_end(dir: &JobDir) -> Result<Option<JobEnd>, JobError> {
-    let events = JobEvents::open(dir)?;
-    let tail = events.tail(TailPos(0))?;
-    for envelope in tail.events.iter().rev() {
+    JobEvents::open(dir)?.rfind(|envelope| {
         if let EventPayload::JobEnded { reason, .. } = envelope.event() {
-            return Ok(Some(*reason));
+            Some(*reason)
+        } else {
+            None
         }
-    }
-    Ok(None)
+    })
 }
 
 /// Whether the log of `dir` has a `job.started`: a supervisor took the job's lock and began.

@@ -85,7 +85,9 @@ impl JobEvents {
             path: self.path.clone(), // BORROW: the error owns the path
             detail: e.to_string(),
         })?;
-        let (end, last) = last_complete_line(&mut file, &self.path)?;
+        let (end, last) = rev_lines(&mut file, &self.path, |offset, line| {
+            parse_line(line, &self.path, offset).map(Some)
+        })?;
         let len = file
             .metadata()
             .map_err(io_error("stat the event log", &self.path))?
@@ -94,13 +96,7 @@ impl JobEvents {
             file.set_len(end)
                 .map_err(io_error("cut a torn line", &self.path))?;
         }
-        let seq = match last {
-            Some((offset, line)) => {
-                let envelope = parse_line(&line, &self.path, offset)?;
-                envelope.seq().saturating_add(1)
-            }
-            None => 0,
-        };
+        let seq = last.map_or(0, |envelope| envelope.seq().saturating_add(1));
         let at = Timestamp::from_str(&jiff::Timestamp::now().to_string()).map_err(|e| {
             JobError::Parse {
                 path: self.path.clone(), // BORROW: the error owns the path
@@ -171,6 +167,24 @@ impl JobEvents {
             next: TailPos(offset),
         })
     }
+
+    /// The first `Some` that `pick` gives for the complete lines of the log, read from the last
+    /// one back, so that a fact near the end costs a few lines, not the whole log.
+    ///
+    /// # Errors
+    /// [`JobError::Corrupt`] naming the offset of a line read that is not an event,
+    /// [`JobError::Io`] when the log cannot be read.
+    pub(crate) fn rfind<T>(
+        &self,
+        mut pick: impl FnMut(&Envelope) -> Option<T>,
+    ) -> Result<Option<T>, JobError> {
+        let mut file =
+            File::open(&self.path).map_err(io_error("open the event log", &self.path))?;
+        let (_, found) = rev_lines(&mut file, &self.path, |offset, line| {
+            parse_line(line, &self.path, offset).map(|envelope| pick(&envelope))
+        })?;
+        Ok(found)
+    }
 }
 
 impl EventSink for JobEvents {
@@ -193,41 +207,52 @@ fn parse_line(line: &[u8], path: &std::path::Path, offset: u64) -> Result<Envelo
     })
 }
 
-/// The offset just past the last newline of a log, and its last complete line with its offset.
-type LastLine = (u64, Option<(u64, Vec<u8>)>);
-
-/// The offset just past the last newline of `file`, and the last complete line with its offset.
-fn last_complete_line(file: &mut File, path: &std::path::Path) -> Result<LastLine, JobError> {
+/// Walks the complete lines of `file` from the last one back, each with its offset, until
+/// `visit` returns `Some`; returns the offset just past the last newline and what `visit` found.
+/// A torn last line is never visited. One chunk is read at a time, and only the part of a line
+/// that straddles two chunks is carried over.
+fn rev_lines<T>(
+    file: &mut File,
+    path: &std::path::Path,
+    mut visit: impl FnMut(u64, &[u8]) -> Result<Option<T>, JobError>,
+) -> Result<(u64, Option<T>), JobError> {
     let len = file
         .metadata()
         .map_err(io_error("stat the event log", path))?
         .len();
-    let mut window = CHUNK;
+    // `buf` holds the bytes from `pos` that are not yet visited, so at most one partial line.
+    let mut pos = len;
+    let mut buf = Vec::new();
+    let mut end = None;
     loop {
-        let start = len.saturating_sub(window);
+        while let Some(nl) = buf.iter().rposition(|b| *b == b'\n') {
+            let at = pos + wide(nl) + 1;
+            if let Some(end) = end {
+                if let Some(found) = visit(at, buf.get(nl + 1..).unwrap_or_default())? {
+                    return Ok((end, Some(found)));
+                }
+            } else {
+                // The first newline from the back ends the log; what follows it is torn.
+                end = Some(at);
+            }
+            buf.truncate(nl);
+        }
+        if pos == 0 {
+            let Some(end) = end else {
+                return Ok((0, None));
+            };
+            return Ok((end, visit(0, &buf)?));
+        }
+        let start = pos.saturating_sub(CHUNK);
         file.seek(SeekFrom::Start(start))
             .map_err(io_error("seek in the event log", path))?;
-        let mut buf = Vec::with_capacity(usize::try_from(len - start).unwrap_or(0));
-        Read::take(&mut *file, len - start)
-            .read_to_end(&mut buf)
+        let mut chunk = Vec::with_capacity(usize::try_from(pos - start).unwrap_or(0));
+        Read::take(&mut *file, pos - start)
+            .read_to_end(&mut chunk)
             .map_err(io_error("read the event log", path))?;
-        let Some(last_nl) = buf.iter().rposition(|b| *b == b'\n') else {
-            if start == 0 {
-                return Ok((0, None));
-            }
-            window = window.saturating_mul(2);
-            continue;
-        };
-        let end = start + wide(last_nl) + 1;
-        let body = buf.get(..last_nl).unwrap_or_default();
-        match body.iter().rposition(|b| *b == b'\n') {
-            Some(prev) => {
-                let line = body.get(prev + 1..).unwrap_or_default().to_vec();
-                return Ok((end, Some((start + wide(prev) + 1, line))));
-            }
-            None if start == 0 => return Ok((end, Some((0, body.to_vec())))),
-            None => window = window.saturating_mul(2),
-        }
+        chunk.extend_from_slice(&buf);
+        buf = chunk;
+        pos = start;
     }
 }
 
