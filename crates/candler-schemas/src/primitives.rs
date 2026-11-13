@@ -619,6 +619,41 @@ impl FromStr for InstrumentDigest {
 }
 
 impl Digest {
+    /// The digest of `bytes`: `sha256:` and the hex of their SHA-256.
+    #[must_use]
+    pub fn of_bytes(bytes: &[u8]) -> Self {
+        use sha2::Digest as _;
+        Self::from(sha2::Sha256::new_with_prefix(bytes))
+    }
+
+    /// The digest of everything `reader` yields, read in 64 KiB chunks; an interrupted read is
+    /// retried.
+    ///
+    /// # Errors
+    /// Returns the I/O error of a read.
+    pub fn of_reader<R: std::io::Read>(mut reader: R) -> std::io::Result<Self> {
+        use sha2::Digest as _;
+        let mut hasher = sha2::Sha256::new();
+        let mut buffer = vec![0_u8; 64 * 1024];
+        loop {
+            // BORROW: explicit .as_mut_slice()
+            let read = match reader.read(buffer.as_mut_slice()) {
+                Ok(read) => read,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(error),
+            };
+            let Some(chunk) = buffer.get(..read) else {
+                return Err(std::io::Error::other(
+                    "a read returned more than the buffer",
+                ));
+            };
+            if chunk.is_empty() {
+                return Ok(Self::from(hasher));
+            }
+            hasher.update(chunk);
+        }
+    }
+
     /// The digest of the RFC 8785 canonical text of `value`: `sha256:` and the hex of the SHA-256 of
     /// the UTF-8 bytes.
     ///
@@ -628,16 +663,22 @@ impl Digest {
     pub fn of_canonical(
         value: &serde_json::Value,
     ) -> Result<Self, crate::canonical::CanonicalError> {
-        use sha2::Digest as _;
         let text = crate::canonical::to_jcs(value)?;
-        let mut hex = String::with_capacity(64);
-        for byte in sha2::Sha256::digest(text.as_bytes()) {
-            hex.extend(char::from_digit(u32::from(byte >> 4), 16));
-            hex.extend(char::from_digit(u32::from(byte & 0xf), 16));
+        Ok(Self::of_bytes(text.as_bytes()))
+    }
+}
+
+impl From<sha2::Sha256> for Digest {
+    /// Finishes `hasher`: `sha256:` and the hex of what it was fed.
+    fn from(hasher: sha2::Sha256) -> Self {
+        use sha2::Digest as _;
+        let mut text = String::with_capacity(DIGEST_PREFIX.len() + 64);
+        text.push_str(DIGEST_PREFIX);
+        for byte in hasher.finalize() {
+            text.extend(char::from_digit(u32::from(byte >> 4), 16));
+            text.extend(char::from_digit(u32::from(byte & 0xf), 16));
         }
-        Ok(Self {
-            text: format!("{DIGEST_PREFIX}{hex}"),
-        })
+        Self { text }
     }
 }
 
