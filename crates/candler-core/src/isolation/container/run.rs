@@ -85,15 +85,19 @@ pub enum RunArgvError {
     },
 }
 
-/// The hardening every container carries, then its limits.
-pub(super) fn hardening(limits: &Limits, argv: &mut Vec<String>) {
+/// The hardening every container carries, then its limits. With `env_volume`, the env is an
+/// anonymous volume docker fills from the image, so the agent's installs land in a per-run copy
+/// while `/` stays read-only; a control or collect container installs nothing and reads the env
+/// from the image as it is, so docker copies nothing for it.
+pub(super) fn hardening(limits: &Limits, env_volume: bool, argv: &mut Vec<String>) {
     argv.extend(["--init", "--read-only"].map(str::to_owned));
     argv.push(String::from("--tmpfs"));
     argv.push(format!("/tmp:rw,noexec,nosuid,size={TMPFS_MIB}m"));
-    // The one mount without a host source: an anonymous volume docker fills from the image, so the
-    // agent's installs land in a per-run copy while `/` stays read-only.
-    argv.push(String::from("--mount"));
-    argv.push(format!("type=volume,dst={CONTAINER_ENV}"));
+    if env_volume {
+        // The one mount without a host source.
+        argv.push(String::from("--mount"));
+        argv.push(format!("type=volume,dst={CONTAINER_ENV}"));
+    }
     argv.extend(["--cap-drop", "ALL", "--security-opt", "no-new-privileges"].map(str::to_owned));
     argv.extend([
         String::from("--pids-limit"),
@@ -174,7 +178,7 @@ pub fn run_argv(plan: &ContainerPlan, cmd: &CommandSpec) -> Result<Vec<String>, 
     if plan.interactive {
         argv.push(String::from("-i"));
     }
-    hardening(&plan.limits, &mut argv);
+    hardening(&plan.limits, true, &mut argv);
     // BORROW: the owned copy is made where it is needed
     argv.extend([String::from("--network"), plan.network.as_str().to_owned()]);
     if let Some(egress) = &plan.egress {
@@ -246,7 +250,7 @@ pub fn control_argv(
         String::from("run"),
         String::from("--rm"),
     ];
-    hardening(limits, &mut argv);
+    hardening(limits, false, &mut argv);
     argv.extend([String::from("--network"), String::from("none")]);
     argv.push(String::from("--label"));
     argv.push(format!("{LABEL_ROLE}={CONTROL_ROLE}"));
