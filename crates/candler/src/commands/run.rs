@@ -33,14 +33,17 @@ use candler_core::resolve::config::{Config, ConfigEnv};
 use candler_core::resolve::layers::{FileValues, Resolution, ResolveInput};
 use candler_core::runner::plan::{Force, PlanCtx, PlanMode, experiment_of, plan_runs};
 use candler_core::store::Store;
+use candler_harness::driver::HarnessDriver;
 use candler_schemas::execution::{ExperimentFile, JobRecord, JobState};
 use candler_schemas::primitives::FieldPath;
 
 use super::preflight::{
     check_factors, failed, foreground, json_of, path_of, refuse_plan, refused, request_settings,
+    requested_harness,
 };
 use super::refusal::CliRefusal;
 use super::{CliError, Exit, common};
+use crate::drivers::Registry;
 
 /// The environment variable that tells the supervisor which store the launcher used. The
 /// supervisor is started with a cleared environment, and the launcher found the store from its
@@ -85,17 +88,10 @@ fn parse_field(text: &str) -> Result<(FieldPath, String), String> {
     Ok((path, value.to_owned())) // BORROW: the argument owns its value
 }
 
-/// Makes sure the gateway's sidecar image is there: looks it up by its tag, and builds it from
-/// the gateway's assets, through the supervised docker client, only when it is absent.
+/// Builds the gateway's sidecar image from the gateway's assets, through the supervised docker
+/// client. Docker's layer cache makes the build a lookup when the context is unchanged, so an
+/// image another build left under the tag is never the one a job uses.
 async fn ensure_sidecar(cli: &DockerCli, context: PathBuf) -> Result<(), CliError> {
-    if cli
-        .image_inspect(SIDECAR_TAG)
-        .await
-        .map_err(failed)?
-        .is_some()
-    {
-        return Ok(());
-    }
     let request = BuildRequest {
         context,
         tag: SIDECAR_TAG.to_owned(), // BORROW: the request owns its tag
@@ -169,14 +165,24 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
         request_settings(&file, experiment_dir.as_path(), &fields, &cwd)?,
         &declared,
     )?;
-    let services = foreground(Arc::clone(&config), &root)?;
+    let entry = Registry::builtin()
+        .map_err(failed)?
+        .entry(&requested_harness(&input)?)?;
+    let services = foreground(Arc::clone(&config), &root, &entry)?;
     ensure_sidecar(&services.cli, services.gateway_context).await?;
     let resolution = services
         .resolver
         .resolve(input)
         .await
         .map_err(CliError::refused_by)?;
-    let spec = plan_job(&store, &file, resolution, force, declared)?;
+    let spec = plan_job(
+        &store,
+        &file,
+        resolution,
+        force,
+        declared,
+        Arc::clone(&entry.driver),
+    )?;
     start(&store, &file, &spec, &root).await
 }
 
@@ -206,12 +212,15 @@ fn plan_job(
     resolution: Resolution,
     force: bool,
     declared: ResolvedInputs,
+    // TRAIT_OBJECT: the registry selects the driver at runtime
+    driver: Arc<dyn HarnessDriver>,
 ) -> Result<JobSpec, CliError> {
     let experiment = experiment_of(file, &resolution).map_err(failed)?;
     let ctx = PlanCtx {
         store: store.clone(), // BORROW: the context owns its handle on the store
         experiment_lock: store.layout().experiment_lock(&experiment),
         secrets_present: EnvSecrets::new(file.secrets()).present(),
+        driver: Some(driver),
     };
     let mode = if force { Force::Yes } else { Force::No };
     let outcome = plan_runs(&ctx, file, &resolution, mode, PlanMode::Check)

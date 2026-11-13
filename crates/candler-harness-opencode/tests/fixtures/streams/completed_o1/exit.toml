@@ -1,0 +1,8 @@
+# What the container reported for this case (the hardened container of the probe, internal network).
+command = "timeout --preserve-status -s TERM -k 10 60 opencode run --standalone --format json --auto -m fake/o1 <prompt>"
+exit_status = 0
+elapsed_ms = 788
+# Processes left in the container after the command returned (the server child, the tool and
+# its children included): none.
+processes_left = 0
+note = "The model ran one shell call, then answered; the process ended by itself."

@@ -1,0 +1,8 @@
+# What the container reported for this case (the hardened container of the probe, internal network).
+command = "timeout --preserve-status -s TERM -k 10 100 opencode run --standalone --format json --auto -m dead/o1 <prompt>"
+exit_status = 1
+elapsed_ms = 84658
+# Processes left in the container after the command returned (the server child, the tool and
+# its children included): none.
+processes_left = 0
+note = "The base URL names a closed port (connection refused); OpenCode retried 10 times, then failed."

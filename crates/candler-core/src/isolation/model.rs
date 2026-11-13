@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use candler_harness::spec::{GatewayEnv, StatePath};
 use candler_schemas::container::SweepScope as WireScope;
 use candler_schemas::primitives::{ContainerId, JobId, RunKey, Timestamp};
 use url::Url;
@@ -108,13 +109,13 @@ impl ImageInfo {
     }
 }
 
-/// An image a run may start containers from, and the Claude Code version inside it.
+/// An image a run may start containers from, and the version of the harness inside it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageRef {
     /// The image id.
     pub id: ImageId,
-    /// The version the image's `claude --version` reports, when it has been read.
-    pub cc_version: Option<semver::Version>,
+    /// The version the harness's version probe reports inside the image, when it has been read.
+    pub harness_version: Option<semver::Version>,
 }
 
 /// A container as the guard and the sweeper see it: its id, labels and creation time.
@@ -331,6 +332,11 @@ pub struct ContainerPlan {
     pub mounts: Vec<MountSpec>,
     /// The environment, by name.
     pub env: Vec<(String, String)>,
+    /// The names of the variables that carry the gateway's address and token to the agent, which
+    /// the harness driver gives; `None` until the run takes them from its driver.
+    pub gateway: Option<GatewayEnv>,
+    /// The places the harness keeps state inside the home; each one is writable in the container.
+    pub state: Vec<StatePath>,
     /// The network: the job's internal network, where the gateway answers.
     pub network: NetworkName,
     /// A second network the container joins, the job's egress network, when the cell asks for
@@ -353,6 +359,9 @@ pub struct ContainerPlan {
     pub project_root: PathBuf,
     /// The store root; a mount source may sit under it.
     pub store_root: PathBuf,
+    /// Whether the container keeps its standard input open (`docker run -i`): a session runs so,
+    /// a headless run does not.
+    pub interactive: bool,
 }
 
 /// What a run's container left behind: its final inspect, and what destroying it did.

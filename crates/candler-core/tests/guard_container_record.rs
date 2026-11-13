@@ -87,13 +87,15 @@ fn plan_in(dir: &Path, job: &JobId) -> ContainerPlan {
     ContainerPlan {
         image: ImageRef {
             id: ImageId(IMAGE_ID.to_owned()), // BORROW: .to_owned() gives the image its own text
-            cc_version: None,
+            harness_version: None,
         },
         labels: Labels::new()
             .with("candler.job", job.as_str()) // BORROW: explicit .as_str()
             .with("candler.role", "agent"),
         mounts: Vec::new(),
         env: Vec::new(),
+        gateway: Some(support::job_orchestrate::quiet_gateway()),
+        state: Vec::new(),
         network: NetworkName::for_job(job),
         egress: None,
         limits: Limits {
@@ -108,6 +110,7 @@ fn plan_in(dir: &Path, job: &JobId) -> ContainerPlan {
         expiry: Duration::from_secs(10),
         project_root: dir.to_path_buf(),
         store_root: dir.to_path_buf(),
+        interactive: false,
     }
 }
 
@@ -384,6 +387,7 @@ fn job_close_destroys_an_agent_whose_run_rm_failed_as_recorded() {
         cid: id.clone(), // BORROW: the agent owns its id
         sleep_s: 1,
         sweeper: None,
+        stdout: String::new(),
     });
     let sink = Arc::new(Recorder::default());
 
@@ -496,6 +500,7 @@ fn stopped_run_has_its_agent_recorded_before_the_hook_sweeps() {
         cid: id.clone(), // BORROW: the agent owns its id
         sleep_s: 30,
         sweeper: Some(hook_sweeper),
+        stdout: String::new(),
     });
     let sink = Arc::new(Recorder::default());
 
@@ -524,5 +529,106 @@ fn stopped_run_has_its_agent_recorded_before_the_hook_sweeps() {
     assert!(
         seen.iter().all(|&exists| exists),
         "the record was missing at a sweep: {seen:?}"
+    );
+}
+
+/// The stream the fake agent prints: an init that lists two tools and one MCP server, a user line
+/// and a result that reports two turns, a cost and a usage.
+fn agent_stream() -> String {
+    let session = "33333333-3333-4333-8333-333333333333";
+    [
+        json!({"type": "system", "subtype": "init", "model": "m", "claude_code_version": "2.1.230",
+               "tools": ["Bash", "Agent"], "mcp_servers": [{"name": "s", "status": "connected"}],
+               "session_id": session}),
+        json!({"type": "user", "parent_tool_use_id": null,
+               "message": {"role": "user", "content": [{"type": "text", "text": "go"}]},
+               "session_id": session, "timestamp": "2026-01-02T03:04:01.000Z"}),
+        json!({"type": "result", "subtype": "success", "is_error": false, "num_turns": 2,
+               "duration_ms": 10, "total_cost_usd": 0.25,
+               "usage": {"input_tokens": 7, "output_tokens": 3,
+                         "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0},
+               "session_id": session}),
+    ]
+    .iter()
+    .fold(String::new(), |mut text, line| {
+        text.push_str(&line.to_string());
+        text.push('\n');
+        text
+    })
+}
+
+/// Guards: R01 §Run manifest (`run.ended_by`, `run.usage`, `run.cost_usd`, `run.num_turns`,
+/// `census.*`) — a run records the end the driver classifies from what its live reader observed
+/// (not the exit-only classification), the inventory the reader reported, and the totals the
+/// reader took from the harness's closing report.
+/// Oracle: the stream the fake agent prints, written here by hand, and a driver whose observed end
+/// (`agent_error`) differs from its exit classification (`completed`).
+/// Bite: `drive` calling `classify_exit` in place of `classify_end`, the census call given `None`
+/// in place of the observed inventory, or the totals taken from an empty view.
+#[test]
+fn harness_census_and_end_come_from_the_drivers_live_reader() {
+    let facts = facts();
+    let key = planned_key(&facts);
+    let id = cid(0xabc);
+    let rig = Rig::new(0);
+    script_agent(&rig, &id, &key);
+    let host = rig.host_with_agent(FakeAgent {
+        cid: id.clone(), // BORROW: the agent owns its id
+        sleep_s: 0,
+        sweeper: None,
+        stdout: agent_stream(),
+    });
+    let job = spec(&["m1"], &facts, 3600, 1);
+    let (cancel, _keep) = watch::channel::<Option<JobCause>>(None);
+    let ctl = JobControl {
+        cancel: Arc::new(cancel),
+    };
+    // TRAIT_OBJECT: the job takes its sink as a trait object
+    let events: Arc<dyn EventSink> = Arc::new(Recorder::default());
+    let mut runtime = rig.runtime_with_sink(events);
+    runtime.driver = Arc::new(support::job_orchestrate::ObservingDriver(
+        support::job_orchestrate::QuietDriver,
+    ));
+    let outcome = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .expect("a runtime")
+        .block_on(orchestrate_with(runtime, job, ctl, host));
+    assert_eq!(outcome.runs.len(), 1, "the run ended");
+
+    let run = rig.store.layout().root().join("runs").join(key.to_string());
+    assert!(run.join("run.done").is_file(), "the run is sealed");
+    let manifest: Value =
+        serde_json::from_slice(&fs::read(run.join("manifest.json")).expect("a manifest"))
+            .expect("manifest JSON");
+    let measured = |path: &str| -> Option<Value> {
+        manifest["measured"]
+            .as_array()
+            .expect("a measured list")
+            .iter()
+            .find(|entry| entry["path"] == path)
+            .map(|entry| entry["value"].clone()) // BORROW: the answer owns its value
+    };
+    assert_eq!(
+        measured("run.ended_by"),
+        Some(json!({"kind": "agent_error"})),
+        "the end is the driver's observed end"
+    );
+    assert_eq!(measured("census.tools"), Some(json!(["Bash", "Agent"])));
+    assert_eq!(
+        measured("census.init_tools"),
+        Some(json!(["Agent", "Bash"]))
+    );
+    assert_eq!(
+        measured("census.mcp_servers"),
+        Some(json!([{"name": "s", "status": "connected"}]))
+    );
+    assert_eq!(measured("run.num_turns"), Some(json!(2)));
+    assert_eq!(measured("run.cost_usd"), Some(json!(0.25)));
+    assert_eq!(
+        measured("run.usage"),
+        Some(json!({"input_tokens": 7, "output_tokens": 3,
+                    "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}))
     );
 }

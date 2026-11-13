@@ -1,0 +1,7 @@
+# Written by hand from stdout.jsonl, exit.toml and export.json of this case.
+session_id = "ses_e32c54fa8ffeReS3d3QypZ4WwP"      # first stdout line carries it; the export's info.id is the same
+session_id_first_event = "step_start"
+export_outcome = "failed"             # info.outcome, and the outcome of the closing 'idle' message
+exit_status = 1
+event_kinds = ["step_start", "error"]
+terminal_event = { type = "error", error_type = "provider.auth", status = 401, message = "not the job's token" }

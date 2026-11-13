@@ -497,11 +497,13 @@ async fn b10_guard_refusals() {
     let plan = ContainerPlan {
         image: ImageRef {
             id: ImageId(String::from("sha256:aa")),
-            cc_version: None,
+            harness_version: None,
         },
         labels: Labels::new().with("candler.job", current.as_str()), // BORROW: explicit .as_str()
         mounts: Vec::new(),
         env: Vec::new(),
+        gateway: None,
+        state: Vec::new(),
         network: NetworkName::for_job(&current),
         egress: None,
         limits: Limits {
@@ -516,6 +518,7 @@ async fn b10_guard_refusals() {
         expiry: Duration::from_secs(10),
         project_root: work.path().to_path_buf(),
         store_root: work.path().to_path_buf(),
+        interactive: false,
     };
     std::fs::write(&plan.cidfile, id.as_str()).expect("a cidfile"); // BORROW: explicit .as_str()
     let exit = Exit::new(

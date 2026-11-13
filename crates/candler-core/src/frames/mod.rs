@@ -6,8 +6,8 @@
 //! and renamed to `<stream>.jsonl.gz` by [`FrameWriter::finish`]. [`frame_bytes`] frames a
 //! finished stream after the fact. [`FrameReader`] reads a plain or gzipped file.
 //!
-//! Under [`FrameMode::Lines`] a frame is one line of the stream with its `\n` kept, and a trailing
-//! line without `\n` is its own frame. Under [`FrameMode::Whole`] the stream is one frame. An
+//! Under [`Framing::Lines`] a frame is one line of the stream with its `\n` kept, and a trailing
+//! line without `\n` is its own frame. Under [`Framing::Document`] the stream is one frame. An
 //! empty stream has no frame in either mode. The data of the frames, concatenated, is the stream
 //! byte for byte.
 
@@ -29,28 +29,6 @@ use crate::store::sync::{sync_dir, sync_file};
 
 /// The two bytes that open a gzip member.
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
-
-/// How a stream is cut into frames.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[expect(
-    clippy::exhaustive_enums,
-    reason = "EXHAUSTIVE: a raw frame file holds a stream as one frame per line or as one frame, and a third framing is a new frame-file format that changes this enum and `Framing` together"
-)]
-pub enum FrameMode {
-    /// One frame per line, its `\n` kept.
-    Lines,
-    /// One frame holding the whole stream.
-    Whole,
-}
-
-impl From<Framing> for FrameMode {
-    fn from(framing: Framing) -> Self {
-        match framing {
-            Framing::Lines => Self::Lines,
-            Framing::Document => Self::Whole,
-        }
-    }
-}
 
 /// Why a raw frame file could not be read.
 #[derive(Debug, thiserror::Error)]
@@ -169,10 +147,10 @@ impl Write for HashingWriter {
 pub struct FrameWriter {
     dir: PathBuf,
     stream: StreamName,
-    mode: FrameMode,
+    mode: Framing,
     tmp_path: PathBuf,
     file: File,
-    /// Bytes of a line not yet complete (`Lines`), or of the whole stream so far (`Whole`).
+    /// Bytes of a line not yet complete (`Lines`), or of the whole stream so far (`Document`).
     pending: Vec<u8>,
     /// How many leading bytes of `pending` are known to hold no `\n`.
     scanned: usize,
@@ -191,7 +169,7 @@ impl FrameWriter {
     pub fn create(
         dir: &Path,
         stream: StreamName,
-        mode: FrameMode,
+        mode: Framing,
         clock: Clock,
         source: Option<Digest>,
     ) -> io::Result<Self> {
@@ -240,7 +218,7 @@ impl FrameWriter {
         }
         self.pending.extend_from_slice(bytes);
         let mut completed = Vec::new();
-        if self.mode == FrameMode::Whole {
+        if self.mode == Framing::Document {
             return Ok(completed);
         }
         let mut start = 0_usize;
@@ -264,7 +242,7 @@ impl FrameWriter {
         Ok(completed)
     }
 
-    /// Emits the trailing partial line (`Lines`) or the whole stream (`Whole`) as a frame and
+    /// Emits the trailing partial line (`Lines`) or the whole stream (`Document`) as a frame and
     /// closes the writer to further bytes. It returns the frame, or `None` when nothing is
     /// pending or the tail was already flushed.
     ///
@@ -331,7 +309,7 @@ impl FrameWriter {
 #[must_use]
 pub fn frame_bytes(
     stream: StreamName,
-    mode: FrameMode,
+    mode: Framing,
     bytes: &[u8],
     source: Digest,
 ) -> Vec<RawRecord> {
@@ -339,9 +317,9 @@ pub fn frame_bytes(
     let mut records = vec![RawRecord::Header(header)];
     let frame = |piece: &[u8]| RawRecord::Frame(RawFrame::new(None, FrameData::from_bytes(piece)));
     match mode {
-        FrameMode::Lines => records.extend(bytes.split_inclusive(|b| *b == b'\n').map(frame)),
-        FrameMode::Whole if bytes.is_empty() => {}
-        FrameMode::Whole => records.push(frame(bytes)),
+        Framing::Lines => records.extend(bytes.split_inclusive(|b| *b == b'\n').map(frame)),
+        Framing::Document if bytes.is_empty() => {}
+        Framing::Document => records.push(frame(bytes)),
     }
     records
 }

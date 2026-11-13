@@ -1,0 +1,6 @@
+# What the container reported for this case (this leaf's probe: --network bridge, a user-defined
+# network with the production gateway sidecar and the fake model, through the base-opencode image).
+command = "opencode run --standalone --format json -m candler/oc-steps -- <prompt>"   # no --auto
+config_overlay = "permissions = [{action:\"shell\", resource:\"*\", effect:\"ask\"}] (opencode.json, top level)"
+exit_status = 0
+note = "Settles B (default/acceptEdits reference): without --auto, a tool call whose rule is `ask` is rejected and fed back to the model as a tool error carrying `permission.rejected` and the message `PERMISSION_REJECTED_FEEDBACK`; the model continues and the run completes. This is the same shape as Claude Code headless's reference (an unanswered permission prompt is denied and the denial goes back to the model as a tool error)."

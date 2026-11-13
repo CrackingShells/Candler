@@ -6,12 +6,13 @@
 
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::raw::StreamName;
+use candler_schemas::refusal::pointer_of;
 use candler_schemas::trace::{EndedBy, Session};
 
 use crate::reader::TraceReader;
 use crate::spec::{
-    Capabilities, Cell, CollectSpec, CommandSpec, CommandSpecError, HarnessId, Observed, Prepared,
-    ProcessExit, StopSpec, Workspace,
+    Capabilities, Cell, CollectSpec, CommandSpec, CommandSpecError, GatewayEnv, HarnessId,
+    Observed, Prepared, ProcessExit, SessionSpec, SessionTracker, StatePath, StopSpec, Workspace,
 };
 
 /// Why a driver could not answer.
@@ -32,6 +33,18 @@ pub enum DriverError {
         /// What is wrong with it.
         detail: String,
     },
+    /// A setting the harness has no way to honour, refused rather than dropped.
+    #[error("{harness} {version} cannot honour {path}: {detail}")]
+    Unsupported {
+        /// The pointer into the experiment file of the setting.
+        path: String,
+        /// The harness's name, as its users write it.
+        harness: String,
+        /// The harness version the driver was validated against.
+        version: semver::Version,
+        /// Why the harness cannot honour it, and what it accepts instead.
+        detail: String,
+    },
     /// The output of the version probe, which names no version.
     #[error("version output cannot be read: {detail}")]
     VersionOutput {
@@ -47,6 +60,98 @@ pub enum DriverError {
     /// A command the driver could not build.
     #[error(transparent)]
     Command(#[from] CommandSpecError),
+    /// A record of a session that a tracker cannot read.
+    #[error("session record cannot be read: {detail}")]
+    Record {
+        /// What is wrong with the record.
+        detail: String,
+    },
+}
+
+impl DriverError {
+    /// The refusal of `setting`, which the harness `harness` at `version` cannot honour for the
+    /// reason `detail`.
+    ///
+    /// The pointer is the setting's place in the experiment file: a `budget` field sits under
+    /// `/budget`, and any other setting is a key of `[fixed]`, written as its dotted path.
+    #[must_use]
+    pub fn unsupported(
+        setting: &FieldPath,
+        harness: &str,
+        version: &semver::Version,
+        detail: &str,
+    ) -> Self {
+        let text = setting.to_string(); // BORROW: .to_string() gives owned text
+        let path = if setting.segments().next() == Some("budget") {
+            pointer_of(setting.segments())
+        } else {
+            pointer_of(["fixed", text.as_str()])
+        };
+        Self::Unsupported {
+            path,
+            harness: harness.to_owned(), // BORROW: .to_owned() makes the owned text
+            version: version.clone(),    // BORROW: .clone() copies the version
+            detail: detail.to_owned(),   // BORROW: .to_owned() makes the owned text
+        }
+    }
+}
+
+/// Whether a driver honours one cell setting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Disposition {
+    /// The harness has a construct with the setting's meaning, and the driver writes it.
+    Mapped,
+    /// The harness has no construct with the setting's meaning; the driver refuses the setting
+    /// with [`DriverError::Unsupported`].
+    Refused,
+}
+
+/// One row of a driver's settings table: a cell setting (or one value or name of it), whether the
+/// driver honours it, and in either case the harness construct or the reason, in a few words.
+///
+/// The table is data a capability page can read; the driver builds its command and its files from
+/// the same rows, so a row and what the driver does cannot differ.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct SettingRow {
+    /// The cell path, such as `permission_mode` or `tools.allowed`.
+    pub setting: String,
+    /// The value or name the row is about (`bypassPermissions`, `Bash`, `high`), or `*` when the
+    /// row covers the whole setting.
+    pub value: String,
+    /// Whether the driver honours the setting.
+    pub disposition: Disposition,
+    /// The harness construct a mapped row writes (empty for a refused row).
+    pub construct: String,
+    /// How a mapped row maps, or why a refused row is refused.
+    pub detail: String,
+}
+
+impl SettingRow {
+    /// A row the driver honours, writing `construct`.
+    #[must_use]
+    pub fn mapped(setting: &str, value: &str, construct: &str, detail: &str) -> Self {
+        Self {
+            setting: setting.to_owned(), // BORROW: .to_owned() makes the owned text the row keeps
+            value: value.to_owned(),     // BORROW: .to_owned() makes the owned text the row keeps
+            disposition: Disposition::Mapped,
+            construct: construct.to_owned(), // BORROW: .to_owned() makes the owned text the row keeps
+            detail: detail.to_owned(), // BORROW: .to_owned() makes the owned text the row keeps
+        }
+    }
+
+    /// A row the driver refuses, for `why`.
+    #[must_use]
+    pub fn refused(setting: &str, value: &str, why: &str) -> Self {
+        Self {
+            setting: setting.to_owned(), // BORROW: .to_owned() makes the owned text the row keeps
+            value: value.to_owned(),     // BORROW: .to_owned() makes the owned text the row keeps
+            disposition: Disposition::Refused,
+            construct: String::new(),
+            detail: why.to_owned(), // BORROW: .to_owned() makes the owned text the row keeps
+        }
+    }
 }
 
 /// What the runner needs from one harness, returned as data for the core to act on.
@@ -88,6 +193,78 @@ pub trait HarnessDriver: Send + Sync {
         workspace: &Workspace<'_>,
     ) -> Result<CommandSpec, DriverError>;
 
+    /// The settings table: one row per cell setting, value or name the driver knows, mapped or
+    /// refused. A driver that declares nothing keeps the default, an empty table, and answers
+    /// each setting in `command` and `prepare` as it always did.
+    ///
+    /// No two rows name the same `(setting, value)`, a refused row says why, and a mapped row
+    /// says what it writes.
+    fn settings_table(&self) -> Vec<SettingRow> {
+        Vec::new()
+    }
+
+    /// Refuses a cell that sets something the driver cannot honour, with the error `prepare` and
+    /// `command` give for it, so the core can refuse the cell before any job starts. The default
+    /// accepts every cell.
+    ///
+    /// # Errors
+    /// [`DriverError`] for the first setting of the cell the driver cannot honour.
+    fn check_settings(&self, cell: &Cell<'_>) -> Result<(), DriverError> {
+        let _ = cell;
+        Ok(())
+    }
+
+    /// The names of the variables through which the core hands the gateway to the agent, or
+    /// `None` for a driver that names none. The core sets the values; a driver whose
+    /// configuration needs the address or the token writes a reference to the variable's name
+    /// into it (`prepare`), so no value passes through the driver. A driver the core runs against
+    /// the gateway names its variables: there is no default set of names.
+    fn gateway(&self) -> Option<GatewayEnv> {
+        None
+    }
+
+    /// The places the harness keeps state inside the agent's home. The core creates each one per
+    /// run and sets its variable, so a run never reads or leaves another run's state. A harness
+    /// with no state of its own beyond the home keeps the default, an empty list.
+    ///
+    /// No two paths are the same path, and a [`crate::spec::StateKind::File`] is never another
+    /// path's parent. A file inside a directory the driver also lists is fine: the core creates
+    /// parents, and no state path is mounted on its own.
+    fn state_paths(&self) -> Vec<StatePath> {
+        Vec::new()
+    }
+
+    /// The raw stream the gateway's census is stored under when the harness has no init event, or
+    /// `None` when the census comes from the live reader's init report. The core reads the tool
+    /// names the gateway saw in the model requests and reports them as the inventory, labelled
+    /// [`crate::spec::CensusSource::Gateway`]; a run none of whose requests carry tools leaves it
+    /// unrecorded, never an empty set.
+    fn census_stream(&self) -> Option<StreamName> {
+        None
+    }
+
+    /// How the harness runs the cell as a session, or `None` for a harness that runs none.
+    ///
+    /// # Errors
+    /// Returns [`DriverError::MissingValue`] if the cell lacks a value the driver needs.
+    /// Returns [`DriverError::InvalidValue`] if a value cannot be used.
+    /// Returns [`DriverError::Command`] if the command cannot be built.
+    fn session(
+        &self,
+        cell: &Cell<'_>,
+        workspace: &Workspace<'_>,
+    ) -> Result<Option<SessionSpec>, DriverError> {
+        let _ = (cell, workspace);
+        Ok(None)
+    }
+
+    /// A tracker that follows a session from its stream frames and hook records, or `None` for a
+    /// harness that runs none.
+    fn session_tracker(&self) -> Option<Box<dyn SessionTracker>> {
+        // TRAIT_OBJECT: the core selects drivers and trackers at runtime
+        None
+    }
+
     /// How the core stops the harness.
     fn stop(&self) -> StopSpec;
 
@@ -105,6 +282,20 @@ pub trait HarnessDriver: Send + Sync {
     /// status alone: an exit 0 with an error result is an agent error. A run the experimenter
     /// stopped (job budget, `candler kill`) is classified by the core, whatever this returns.
     fn classify_exit(&self, exit: &ProcessExit, sessions: &[Session]) -> EndedBy;
+
+    /// How the run ended, from the exit, the parsed sessions and the live reader's last word.
+    /// The core calls this one. The default is [`HarnessDriver::classify_exit`], which ignores
+    /// `observed`. A harness whose exit status covers several endings overrides it: only the
+    /// stream's last error event or the export tells them apart.
+    fn classify_end(
+        &self,
+        exit: &ProcessExit,
+        sessions: &[Session],
+        observed: &Observed,
+    ) -> EndedBy {
+        let _ = observed;
+        self.classify_exit(exit, sessions)
+    }
 
     /// What the core collects after the run. `observed` is what the live reader reported, so the
     /// ids a collect command needs come from the live reader's `observed()`.

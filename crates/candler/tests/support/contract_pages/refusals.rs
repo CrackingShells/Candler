@@ -192,6 +192,36 @@ pub fn helper_entries() -> Result<Vec<Entry>, String> {
         .collect()
 }
 
+/// The retired codes of the registry: a code that a release carried and that no refusal emits any
+/// more, each listed as retired with the code that replaces it.
+pub fn retired_entries() -> Result<Vec<Entry>, String> {
+    let path = repo_root().join("docs/contract/codes.toml");
+    let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let table: toml::Table = text.parse().map_err(|e| format!("codes.toml: {e}"))?;
+    let mut found = Vec::new();
+    for (section, body) in &table {
+        if section == "internal" || section == "helper" {
+            continue;
+        }
+        for (code, row) in body.as_table().into_iter().flatten() {
+            let Some(replacement) = row.get("retired").and_then(toml::Value::as_str) else {
+                continue;
+            };
+            let side = row
+                .get("side")
+                .and_then(toml::Value::as_str)
+                .ok_or_else(|| format!("[{section}.\"{code}\"] has no `side`"))?;
+            found.push(Entry {
+                code: code.clone(),
+                side: side.to_owned(),
+                when: format!("Retired, no refusal emits it: replaced by `{replacement}`."),
+                at: "-".to_owned(),
+            });
+        }
+    }
+    Ok(found)
+}
+
 /// Every row the pages draw on, sorted by code. A code of a side other than Candler's is an
 /// author's; a code of Candler's own is not listed, except the helper's, whose Candler-side rows
 /// say what a malformed request from Candler does.
@@ -206,6 +236,7 @@ pub fn all_entries() -> Result<Vec<Entry>, String> {
         }
     }
     rows.extend(helper_entries()?);
+    rows.extend(retired_entries()?);
     rows.sort_by(|a, b| a.code.cmp(&b.code));
     Ok(rows)
 }
@@ -215,6 +246,7 @@ pub fn known_codes() -> Result<BTreeSet<String>, String> {
     let mut known: BTreeSet<String> = catalogue_entries().into_iter().map(|e| e.code).collect();
     known.extend(binary_entries()?.into_iter().map(|e| e.code));
     known.extend(helper_entries()?.into_iter().map(|e| e.code));
+    known.extend(retired_entries()?.into_iter().map(|e| e.code));
     Ok(known)
 }
 
@@ -247,6 +279,14 @@ fn table(rows: &[&Entry]) -> String {
     out
 }
 
+/// The generated refusals block of `rows`.
+pub fn refusals_block(rows: &[&Entry]) -> String {
+    format!(
+        "<!-- generated:refusals -->\n{}<!-- /generated:refusals -->",
+        table(rows)
+    )
+}
+
 /// The generated Refusals of the page `file`: the rows whose surface the table gives to it.
 pub fn page_refusals(file: &str) -> Result<String, String> {
     let rows = all_entries()?;
@@ -254,10 +294,28 @@ pub fn page_refusals(file: &str) -> Result<String, String> {
         .iter()
         .filter(|row| matches!(home_of(row.surface()), Some(Home::Page(name)) if name == file))
         .collect();
-    Ok(format!(
-        "<!-- generated:refusals -->\n{}<!-- /generated:refusals -->",
-        table(&mine)
-    ))
+    Ok(refusals_block(&mine))
+}
+
+/// The rows of the catalogue that the error types `enums` give, sorted by code: a variant that
+/// delegates has no code of its own, and Candler's own codes are no author's.
+pub fn entries_of_enums(enums: &[&str]) -> Vec<Entry> {
+    let mut by_code: BTreeMap<String, Entry> = BTreeMap::new();
+    for row in catalog() {
+        if enums.contains(&row.enum_name)
+            && !row.delegates
+            && !row.code.is_empty()
+            && row.side != Side::Candler
+        {
+            by_code.entry(row.code.to_owned()).or_insert_with(|| Entry {
+                code: row.code.to_owned(),
+                side: row.side.as_str().to_owned(),
+                when: row.when.to_owned(),
+                at: row.at.to_owned(),
+            });
+        }
+    }
+    by_code.into_values().collect()
 }
 
 /// The generated list of the index: the rows whose surface names no page.

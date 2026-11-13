@@ -47,7 +47,7 @@ A scope names the topic of the commit, never the action or a layer (`core`, `mis
 |---|---|
 | Operation API | `api`, `resolve`, `jobs`, `budgets` |
 | Execution | `experiment`, `orchestrator`, `runner`, `isolation`, `injection`, `census`, `catalog` |
-| Ingestion | `trace-model`, `adapter-claude-code` (one `adapter-<harness>` per harness), `importer` |
+| Ingestion | `trace-model`, `adapter-claude-code`, `adapter-opencode` (one `adapter-<harness>` per harness), `importer` |
 | Storage | `run-store`, `manifest`, `outcome-store` |
 | Evaluation | `evaluation`, `outcome-algebra`, `evaluator-protocol`, `registry`, `evaluator-helper` (the Python package in `python/candler-evaluator`) |
 | Analysis | `analysis`, `stats` |

@@ -15,6 +15,10 @@ use candler_schemas::raw::StreamName;
 use candler_schemas::trace::SessionId;
 use candler_schemas::values::{JsonValue, ResolvedValue};
 
+/// The placeholder a command or call of a stop or close action holds where the id of the root
+/// session goes; the core fills it from the live reader's [`Observed`].
+pub const SESSION_ID_PLACEHOLDER: &str = "{session_id}";
+
 /// Why a command could not be built.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
@@ -34,6 +38,26 @@ pub enum CommandSpecError {
         /// The name of the variable.
         name: String,
     },
+    /// A session id that cannot be written into a command: it is empty or holds a character
+    /// outside `A-Z`, `a-z`, `0-9`, `.`, `_` and `-`, so it could change what a shell script reads.
+    #[error("session id {id:?} cannot be written into a command")]
+    UnsafeSessionId {
+        /// The id that was refused.
+        id: String,
+    },
+}
+
+/// Whether `id` is plain enough to stand in a command line or a script.
+fn plain_session_id(id: &str) -> bool {
+    !id.is_empty()
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
+
+/// `text` with the session placeholder replaced by `id`.
+fn fill_session_id(text: &str, id: &str) -> String {
+    text.replace(SESSION_ID_PLACEHOLDER, id)
 }
 
 /// The value of an environment variable: a literal, or the name of a secret the core resolves when it spawns the process.
@@ -128,6 +152,59 @@ impl CommandSpec {
     #[must_use]
     pub const fn cwd<'a>(&'a self) -> Option<&'a RelPath> {
         self.cwd.as_ref()
+    }
+
+    /// Whether an argument or a literal variable holds [`SESSION_ID_PLACEHOLDER`].
+    #[must_use]
+    pub fn uses_session_id(&self) -> bool {
+        self.argv
+            .iter()
+            .any(|arg| arg.contains(SESSION_ID_PLACEHOLDER))
+            || self.env_overlay.iter().any(|entry| match &entry.value {
+                EnvValue::Literal(text) => text.contains(SESSION_ID_PLACEHOLDER),
+                EnvValue::Secret(_) => false,
+            })
+    }
+
+    /// The command with [`SESSION_ID_PLACEHOLDER`] replaced by `id` in every argument and
+    /// literal variable.
+    ///
+    /// # Errors
+    /// Returns [`CommandSpecError::UnsafeSessionId`] if `id` is empty or holds a character
+    /// outside `A-Z`, `a-z`, `0-9`, `.`, `_` and `-`.
+    pub fn with_session_id(&self, id: &SessionId) -> Result<Self, CommandSpecError> {
+        // BORROW: explicit .as_str() instead of Deref coercion
+        let id = id.as_str();
+        if !plain_session_id(id) {
+            return Err(CommandSpecError::UnsafeSessionId {
+                // BORROW: .to_owned() keeps the refused id in the error
+                id: id.to_owned(),
+            });
+        }
+        Ok(Self {
+            argv: self
+                .argv
+                .iter()
+                // BORROW: explicit .as_str() instead of Deref coercion
+                .map(|arg| fill_session_id(arg.as_str(), id))
+                .collect(),
+            env_overlay: self
+                .env_overlay
+                .iter()
+                .map(|entry| match &entry.value {
+                    EnvValue::Literal(text) => EnvEntry::literal(
+                        // BORROW: .clone() copies the name into the new entry
+                        entry.name.clone(),
+                        // BORROW: explicit .as_str() instead of Deref coercion
+                        fill_session_id(text.as_str(), id),
+                    ),
+                    // BORROW: .clone() copies the entry unchanged
+                    EnvValue::Secret(_) => entry.clone(),
+                })
+                .collect(),
+            // BORROW: .clone() copies the working directory
+            cwd: self.cwd.clone(),
+        })
     }
 }
 
@@ -232,12 +309,17 @@ pub enum HttpMethod {
     Delete,
 }
 
-/// An action the core runs before it signals a process: a command, or an HTTP call.
+/// An action the core runs before it signals a process: a command on the host, a command inside
+/// the agent's isolation, or an HTTP call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Action {
-    /// A command the core runs.
+    /// A command the core runs on the host.
     Command(CommandSpec),
+    /// A command the core runs inside the agent's isolation, with the agent's user, environment
+    /// and mounts. It may hold [`SESSION_ID_PLACEHOLDER`]. The command, not the core, finds
+    /// whatever the harness hides from the host, such as a loopback port or a password.
+    Exec(CommandSpec),
     /// An HTTP call the core makes; whether the URL is loopback is the supervisor's check.
     #[non_exhaustive]
     Http {
@@ -255,6 +337,68 @@ impl Action {
     #[must_use]
     pub const fn http(method: HttpMethod, url: String, body: Option<String>) -> Self {
         Self::Http { method, url, body }
+    }
+
+    /// A command to run inside the agent's isolation.
+    #[must_use]
+    pub const fn exec(spec: CommandSpec) -> Self {
+        Self::Exec(spec)
+    }
+
+    /// Whether the action holds [`SESSION_ID_PLACEHOLDER`].
+    #[must_use]
+    pub fn uses_session_id(&self) -> bool {
+        match self {
+            Self::Command(spec) | Self::Exec(spec) => spec.uses_session_id(),
+            Self::Http { url, body, .. } => {
+                url.contains(SESSION_ID_PLACEHOLDER)
+                    || body
+                        .as_ref()
+                        .is_some_and(|text| text.contains(SESSION_ID_PLACEHOLDER))
+            }
+        }
+    }
+
+    /// The action the core can run now: the action itself when it holds no placeholder, the action
+    /// with the placeholder filled when `id` is a plain id, and `None` when it needs an id the core
+    /// does not have or cannot write into it. The core then falls back to the signal.
+    #[must_use]
+    pub fn resolve(&self, id: Option<&SessionId>) -> Option<Self> {
+        if !self.uses_session_id() {
+            return Some(self.clone()); // BORROW: .clone() copies the action
+        }
+        self.with_session_id(id?).ok()
+    }
+
+    /// The action with [`SESSION_ID_PLACEHOLDER`] replaced by `id`.
+    ///
+    /// # Errors
+    /// Returns [`CommandSpecError::UnsafeSessionId`] if `id` is empty or holds a character
+    /// outside `A-Z`, `a-z`, `0-9`, `.`, `_` and `-`.
+    pub fn with_session_id(&self, id: &SessionId) -> Result<Self, CommandSpecError> {
+        match self {
+            Self::Command(spec) => spec.with_session_id(id).map(Self::Command),
+            Self::Exec(spec) => spec.with_session_id(id).map(Self::Exec),
+            Self::Http { method, url, body } => {
+                // BORROW: explicit .as_str() instead of Deref coercion
+                let text = id.as_str();
+                if !plain_session_id(text) {
+                    return Err(CommandSpecError::UnsafeSessionId {
+                        // BORROW: .to_owned() keeps the refused id in the error
+                        id: text.to_owned(),
+                    });
+                }
+                Ok(Self::Http {
+                    method: *method,
+                    // BORROW: explicit .as_str() instead of Deref coercion
+                    url: fill_session_id(url.as_str(), text),
+                    body: body
+                        .as_ref()
+                        // BORROW: explicit .as_str() instead of Deref coercion
+                        .map(|body| fill_session_id(body.as_str(), text)),
+                })
+            }
+        }
     }
 }
 
@@ -292,10 +436,25 @@ pub enum CollectSpec {
         /// The glob.
         glob: String,
     },
-    /// The standard output of a command, archived as the stream `name`.
+    /// The standard output of a command the core runs on the host, archived as the stream `name`.
     #[non_exhaustive]
     Command {
         /// The command the core runs.
+        spec: CommandSpec,
+        /// The name of the stream that archives the output.
+        name: StreamName,
+    },
+    /// The standard output of a command the core runs inside the agent's isolation, archived as
+    /// the stream `name`. The command inherits the run's environment: the variables of the
+    /// driver's [`StatePath`]s hold the values the run used, which the core supplies. A harness
+    /// that keeps its sessions in per-run state reads them through this form.
+    ///
+    /// The command runs in a fresh container with no network, sees the agent's state and the state
+    /// variables of `state_paths()` but none of the gateway's variables, and its output is
+    /// archived raw.
+    #[non_exhaustive]
+    Exec {
+        /// The command the core runs inside the isolation.
         spec: CommandSpec,
         /// The name of the stream that archives the output.
         name: StreamName,
@@ -313,6 +472,13 @@ impl CollectSpec {
     #[must_use]
     pub const fn command(spec: CommandSpec, name: StreamName) -> Self {
         Self::Command { spec, name }
+    }
+
+    /// The output of `spec`, run inside the agent's isolation with the run's state environment,
+    /// archived as the stream `name`.
+    #[must_use]
+    pub const fn exec(spec: CommandSpec, name: StreamName) -> Self {
+        Self::Exec { spec, name }
     }
 }
 
@@ -354,6 +520,10 @@ pub struct Capabilities {
     pub census: bool,
     /// Execution lives in a server outside the child process.
     pub execution_outside_child: bool,
+    /// The harness runs a session: its prompt goes through stdin, stdin stays open and a
+    /// background job's notification can start a further turn. A driver that sets it also
+    /// returns a [`SessionSpec`] and a [`SessionTracker`].
+    pub session: bool,
 }
 
 impl Capabilities {
@@ -414,6 +584,13 @@ impl CapabilitiesBuilder {
         self
     }
 
+    /// Sets `session`.
+    #[must_use]
+    pub const fn session(mut self, on: bool) -> Self {
+        self.caps.session = on;
+        self
+    }
+
     /// The capabilities set so far.
     #[must_use]
     pub const fn build(self) -> Capabilities {
@@ -458,19 +635,409 @@ impl ProcessExit {
     }
 }
 
+/// What the harness's own closing report says the run spent, as the harness wrote each value. A
+/// value the harness did not report is `None`: unrecorded, never zero.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct RunTotals {
+    /// The token usage of the run.
+    pub usage: Option<serde_json::Value>,
+    /// The cost of the run in US dollars.
+    pub cost_usd: Option<serde_json::Value>,
+    /// The number of turns of the run.
+    pub num_turns: Option<serde_json::Value>,
+}
+
+impl RunTotals {
+    /// Totals that hold what a harness reported; each is `None` when it was not reported.
+    #[must_use]
+    pub const fn new(
+        usage: Option<serde_json::Value>,
+        cost_usd: Option<serde_json::Value>,
+        num_turns: Option<serde_json::Value>,
+    ) -> Self {
+        Self {
+            usage,
+            cost_usd,
+            num_turns,
+        }
+    }
+}
+
 /// What a reader has seen so far in a harness's output.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub struct Observed {
     /// The ids of the sessions seen, in the order they appeared.
     pub session_ids: Vec<SessionId>,
+    /// The tools and MCP servers the agent had, when the stream shows them; `None` while the
+    /// reader has seen nothing that names them, which is not an empty inventory.
+    pub init: Option<InitReport>,
+    /// The last word of the stream on how the run ended, when it has one.
+    pub end: Option<ObservedEnd>,
+    /// What the stream's closing report says the run spent; the default reports none.
+    pub totals: RunTotals,
 }
 
 impl Observed {
-    /// What was observed.
+    /// What was observed: the session ids, no inventory and no end.
     #[must_use]
     pub const fn new(session_ids: Vec<SessionId>) -> Self {
-        Self { session_ids }
+        Self {
+            session_ids,
+            init: None,
+            end: None,
+            totals: RunTotals::new(None, None, None),
+        }
+    }
+
+    /// The same view with the inventory the stream showed.
+    #[must_use]
+    pub fn with_init(mut self, init: InitReport) -> Self {
+        self.init = Some(init);
+        self
+    }
+
+    /// The same view with the last word of the stream on how the run ended.
+    #[must_use]
+    pub fn with_end(mut self, end: ObservedEnd) -> Self {
+        self.end = Some(end);
+        self
+    }
+
+    /// The same view with the totals the stream's closing report gave.
+    #[must_use]
+    pub fn with_totals(mut self, totals: RunTotals) -> Self {
+        self.totals = totals;
+        self
+    }
+
+    /// The id of the root session: the first one seen.
+    #[must_use]
+    pub fn root_session_id<'a>(&'a self) -> Option<&'a SessionId> {
+        self.session_ids.first()
+    }
+}
+
+/// Where an inventory of tools came from. Two inventories from different sources are never the
+/// same observation, and neither equals an unrecorded one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum CensusSource {
+    /// The harness reported it, in an init event of its own stream.
+    Harness,
+    /// The gateway saw it, in the tool names of the model requests it relayed.
+    Gateway,
+    /// A command the harness runs inside the isolation listed it, and the core archived the
+    /// output.
+    Collected,
+}
+
+/// Why an inventory could not be built.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum InitReportError {
+    /// A tool list that is not a list of names.
+    #[error("the tool list is not a list of names")]
+    ToolsNotNames,
+    /// A tool list that holds an empty name.
+    #[error("the tool list holds an empty name")]
+    EmptyToolName,
+    /// A server list that is not a list.
+    #[error("the server list is not a list")]
+    ServersNotList,
+    /// An empty tool list from a source other than the harness's own init event. Such a source
+    /// that saw no tool has seen nothing: the census is unrecorded, not empty.
+    #[error("a collected or gateway source saw no tool, which is an unrecorded inventory")]
+    NoTools,
+}
+
+/// The tools and MCP servers an agent had at its start, as the raw JSON the census reads, and the
+/// source that observed them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct InitReport {
+    /// The tool names, a JSON list of strings.
+    pub tools: serde_json::Value,
+    /// The MCP servers, a JSON list, or `None` when the source cannot see servers: that is
+    /// unrecorded, not an empty list.
+    pub mcp_servers: Option<serde_json::Value>,
+    /// Who observed the inventory.
+    pub source: CensusSource,
+}
+
+impl InitReport {
+    /// An inventory.
+    ///
+    /// # Errors
+    /// Returns [`InitReportError::ToolsNotNames`] if `tools` is not a list of strings.
+    /// Returns [`InitReportError::ServersNotList`] if `mcp_servers` is given and is not a list.
+    /// Returns [`InitReportError::EmptyToolName`] if a tool name is empty.
+    /// Returns [`InitReportError::NoTools`] if `source` is not [`CensusSource::Harness`] and
+    /// `tools` is empty.
+    pub fn new(
+        tools: serde_json::Value,
+        mcp_servers: Option<serde_json::Value>,
+        source: CensusSource,
+    ) -> Result<Self, InitReportError> {
+        let names = tools
+            .as_array()
+            .is_some_and(|list| list.iter().all(serde_json::Value::is_string));
+        if !names {
+            return Err(InitReportError::ToolsNotNames);
+        }
+        if tools
+            .as_array()
+            .is_some_and(|list| list.iter().any(|tool| tool.as_str() == Some("")))
+        {
+            return Err(InitReportError::EmptyToolName);
+        }
+        if source != CensusSource::Harness && tools.as_array().is_some_and(Vec::is_empty) {
+            return Err(InitReportError::NoTools);
+        }
+        if mcp_servers
+            .as_ref()
+            .is_some_and(|servers| !servers.is_array())
+        {
+            return Err(InitReportError::ServersNotList);
+        }
+        Ok(Self {
+            tools,
+            mcp_servers,
+            source,
+        })
+    }
+}
+
+/// What the stream itself said about the end of the run, which the exit status alone cannot say:
+/// a harness that exits 1 for a failure, an interrupt through its API and an abort alike is told
+/// apart by its last error event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ObservedEnd {
+    /// The stream ended with no error.
+    Finished,
+    /// The last error event, with the harness's own name for its kind.
+    Error {
+        /// The harness's name for the error.
+        kind: String,
+    },
+    /// The stream says the session was aborted or interrupted from outside.
+    Aborted,
+}
+
+/// The names of the variables through which the core hands the gateway to the agent. The core
+/// sets the values; the driver's configuration refers to the names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct GatewayEnv {
+    /// The variable that carries the gateway's address.
+    pub base_url: String,
+    /// The variable that carries the token the agent presents.
+    pub auth_token: String,
+    /// Every name the core owns, which a driver's own environment may not set. It holds
+    /// `base_url` and `auth_token`.
+    pub reserved: Vec<String>,
+}
+
+impl GatewayEnv {
+    /// A gateway environment.
+    #[must_use]
+    pub const fn new(base_url: String, auth_token: String, reserved: Vec<String>) -> Self {
+        Self {
+            base_url,
+            auth_token,
+            reserved,
+        }
+    }
+}
+
+/// What a state path names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum StateKind {
+    /// A directory the core creates.
+    Dir,
+    /// A file the harness creates; the core creates its parent directory.
+    File,
+}
+
+/// A place a harness keeps state, inside the agent's home: the core creates it, sets `env` to its
+/// absolute path inside the container, and keeps it per run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct StatePath {
+    /// The variable the core sets to the path.
+    pub env: String,
+    /// Whether the path is a directory or a file.
+    pub kind: StateKind,
+    /// The path relative to the agent's home.
+    pub subpath: RelPath,
+}
+
+impl StatePath {
+    /// A state path.
+    #[must_use]
+    pub const fn new(env: String, kind: StateKind, subpath: RelPath) -> Self {
+        Self { env, kind, subpath }
+    }
+}
+
+/// What can wake an agent that has ended its turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum PendingKind {
+    /// A background task.
+    Task,
+    /// A monitor.
+    Monitor,
+    /// A cron.
+    Cron,
+    /// A one-shot wake-up.
+    WakeUp,
+}
+
+/// One thing pending that could wake the agent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PendingItem {
+    /// What it is.
+    pub kind: PendingKind,
+    /// The harness's id for it.
+    pub id: String,
+}
+
+impl PendingItem {
+    /// A pending item.
+    #[must_use]
+    pub const fn new(kind: PendingKind, id: String) -> Self {
+        Self { kind, id }
+    }
+}
+
+/// Where a session stands: how many turns have ended, whether the latest has, and what is pending.
+///
+/// An empty `pending` means nothing is pending only when `known` is true. The core must not close
+/// a session while `known` is false. A harness whose stream does not show every kind of pending
+/// work (Claude Code's stream lists background tasks, never wake-ups or crons) leaves `known`
+/// false until its other source has been read, so a turn that ends with no such record keeps
+/// `known` false and the session runs to its cap instead of closing.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct PendingState {
+    /// The number of turns that have ended.
+    pub turns: u64,
+    /// Whether the latest turn has ended and no later one has started.
+    pub turn_ended: bool,
+    /// Whether `pending` was read from the harness: false until a readable source has been seen,
+    /// and again after any list or entry that could not be read (`pending` then keeps the last
+    /// readable list). Pending work that cannot be read is never "nothing".
+    pub known: bool,
+    /// What is pending and could wake the agent.
+    pub pending: Vec<PendingItem>,
+}
+
+impl PendingState {
+    /// A state.
+    #[must_use]
+    pub const fn new(turns: u64, turn_ended: bool, known: bool, pending: Vec<PendingItem>) -> Self {
+        Self {
+            turns,
+            turn_ended,
+            known,
+            pending,
+        }
+    }
+}
+
+/// One record a session tracker reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SessionRecord<'a> {
+    /// One frame of the harness's live output.
+    Stream(&'a [u8]),
+    /// One line of the hook log.
+    Hook(&'a [u8]),
+}
+
+/// Follows a session from its stream frames and hook records. It holds no clock; the core decides
+/// when to close.
+pub trait SessionTracker: Send {
+    /// Reads one record.
+    ///
+    /// # Errors
+    /// Returns [`crate::driver::DriverError::Record`] if the record cannot be read.
+    fn feed(&mut self, record: SessionRecord<'_>) -> Result<(), crate::driver::DriverError>;
+
+    /// Where the session stands after the records read so far.
+    fn state(&self) -> PendingState;
+}
+
+/// How the core ends a session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SessionClose {
+    /// The core closes the child's stdin.
+    Eof,
+    /// The core runs an action, which may hold [`SESSION_ID_PLACEHOLDER`].
+    Action(Action),
+}
+
+/// Where the observation hooks write and how the driver installs them. The hooks only observe:
+/// they never block, decide or print.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct HookSpec {
+    /// The files that install the hooks, rooted at the agent's home ([`FileRoot::Home`]), outside
+    /// the workspace.
+    pub files: Vec<PreparedFile>,
+    /// The file the hooks append to, relative to the agent's home.
+    pub log: RelPath,
+    /// The raw stream that archives the log.
+    pub stream: StreamName,
+}
+
+impl HookSpec {
+    /// A hook spec.
+    #[must_use]
+    pub const fn new(files: Vec<PreparedFile>, log: RelPath, stream: StreamName) -> Self {
+        Self { files, log, stream }
+    }
+}
+
+/// How a harness runs a session: the command, the bytes that open it, how to close it and the
+/// hooks that observe it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct SessionSpec {
+    /// The command that runs the cell as a session; the core keeps its stdin open.
+    pub command: CommandSpec,
+    /// The bytes the core writes to the child's stdin first; empty when the harness takes its
+    /// prompt another way.
+    pub input: Vec<u8>,
+    /// How the core ends the session.
+    pub close: SessionClose,
+    /// The hooks that observe the session, if the driver installs any.
+    pub hooks: Option<HookSpec>,
+}
+
+impl SessionSpec {
+    /// A session spec without hooks.
+    #[must_use]
+    pub const fn new(command: CommandSpec, input: Vec<u8>, close: SessionClose) -> Self {
+        Self {
+            command,
+            input,
+            close,
+            hooks: None,
+        }
+    }
+
+    /// The same spec with observation hooks.
+    #[must_use]
+    pub fn with_hooks(mut self, hooks: HookSpec) -> Self {
+        self.hooks = Some(hooks);
+        self
     }
 }
 
@@ -478,7 +1045,7 @@ impl Observed {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[expect(
     clippy::exhaustive_enums,
-    reason = "EXHAUSTIVE: a raw frame file holds a stream as one frame per line or as one frame, and a third framing is a new frame-file format that changes this enum and `FrameMode` together"
+    reason = "EXHAUSTIVE: a raw frame file holds a stream as one frame per line or as one frame, and a third framing is a new frame-file format that changes this enum and the frame writer together"
 )]
 pub enum Framing {
     /// One frame per line of the stream.
@@ -547,12 +1114,26 @@ pub enum Confidence {
     Likely,
 }
 
-/// A file the driver asks the core to write into the workspace.
+/// What a [`PreparedFile`]'s path is relative to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
+pub enum FileRoot {
+    /// The workspace.
+    #[default]
+    Workspace,
+    /// The agent's home directory, outside the workspace: where a harness reads its own
+    /// configuration and skills.
+    Home,
+}
+
+/// A file the driver asks the core to write, into the workspace or the agent's home.
 #[derive(Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PreparedFile {
-    /// The path relative to the workspace.
+    /// The path relative to the file's root.
     pub path: RelPath,
+    /// What the path is relative to.
+    pub root: FileRoot,
     /// The bytes of the file.
     pub contents: Vec<u8>,
     /// Whether the file is executable.
@@ -560,11 +1141,23 @@ pub struct PreparedFile {
 }
 
 impl PreparedFile {
-    /// A file to write.
+    /// A file to write into the workspace.
     #[must_use]
     pub const fn new(path: RelPath, contents: Vec<u8>, executable: bool) -> Self {
         Self {
             path,
+            root: FileRoot::Workspace,
+            contents,
+            executable,
+        }
+    }
+
+    /// A file to write into the agent's home.
+    #[must_use]
+    pub const fn in_home(path: RelPath, contents: Vec<u8>, executable: bool) -> Self {
+        Self {
+            path,
+            root: FileRoot::Home,
             contents,
             executable,
         }
@@ -575,6 +1168,7 @@ impl fmt::Debug for PreparedFile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PreparedFile")
             .field("path", &self.path)
+            .field("root", &self.root)
             .field("bytes", &self.contents.len())
             .field("executable", &self.executable)
             .finish()

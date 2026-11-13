@@ -13,6 +13,7 @@ compile_error!(
 );
 
 mod commands;
+mod drivers;
 
 use std::path::PathBuf;
 use std::process::ExitCode;

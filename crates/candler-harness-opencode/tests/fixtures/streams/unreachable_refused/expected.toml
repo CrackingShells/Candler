@@ -1,0 +1,8 @@
+# Written by hand from stdout.jsonl, exit.toml and export.json of this case.
+session_id = "ses_e32c54c07ffeh2kV277gw4edcE"      # first stdout line carries it; the export's info.id is the same
+session_id_first_event = "step_start"
+export_outcome = "failed"             # info.outcome, and the outcome of the closing 'idle' message
+exit_status = 1
+event_kinds = ["step_start", "retry", "error"]
+retry_events = 10          # attempts 2 to 11, nextRetryAt grows from 2.2 s to 12 s
+terminal_event = { type = "error", error_type = "provider.transport", message = "ECONNREFUSED: Unable to connect. Is the computer able to access the url?" }

@@ -1,0 +1,24 @@
+# M4 live confirmation, OpenCode experiment: one cell on RiVault/Reasoning-Small through the
+# gateway, one small workspace task with one tool call. No turn or cost cap: the driver refuses
+# them. Every value is in the file. The secret is named by its variable only.
+schema = "experiment/1"
+replicates = 1
+secrets = ["RIVAULT_LLM_INFERENCE"]
+
+[fixed]
+permission_mode = "bypassPermissions"
+"model.id" = "RiVault/Reasoning-Small"
+"model.endpoint" = "https://api.class2.llm.ai.r-ccs.riken.jp"
+"model.token_secret" = "RIVAULT_LLM_INFERENCE"
+"prompt.template" = "Use the shell tool once to run: echo oc-live > /work/oc_out.txt. Then reply with the single word done. This is a non-interactive run: proceed without asking for confirmation."
+
+[budget.per_run]
+wall_s = 600
+
+[harness]
+name = "opencode"
+
+[treatment]
+name = "live-probe"
+tag = "v1"
+source = "/private/tmp/claude-501/m4-live/treatment"

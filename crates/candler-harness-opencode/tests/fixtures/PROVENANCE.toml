@@ -1,0 +1,188 @@
+# The OpenCode binary every recorded run in this directory came from.
+
+[harness]
+name = "opencode"
+version = "2.2.7"
+source = "https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-linux-arm64.tar.gz"
+size_bytes = 120326654
+sha256 = "c1682057f0815cb2abdd6e00305f1146ebaf1c167f0335cdb74ddc80008120e7"   # the release archive
+binary = "opencode"                       # the only file in the archive, installed at /opt/opencode/opencode
+binary_sha256 = "c577783eacf7d1e66661fc7fd904b7646761497b687ff8f8f82ebe4f2f3ea425"
+architecture = "linux/arm64"
+
+# Every stream under streams/ was recorded on 2026-11-12 against the fake model (a scratch copy of
+# assets/docker/fakemodel/fakemodel.py with scripts for OpenCode's tools, kept outside the
+# repository) through the production gateway sidecar. No token was spent, no real model and no
+# RiVault host was called: "model" below is always the fake.
+
+[engine]
+docker = "29.9.2"
+host = "Docker Desktop on macOS 26.6.2, kernel 7.0.14-linuxkit, arm64"
+
+[invocation]
+container = "--init --read-only, /tmp tmpfs noexec, --cap-drop ALL, no-new-privileges, pids 512, memory 4g, cpus 2, uid 10001, an --internal network (no route out); /home/agent (HOME, XDG_*, OPENCODE_DB) and /work bind-mounted"
+base = "python:3.12-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df (the base of assets/docker/base) plus /opt/opencode/opencode"
+gateway = "assets/docker/gateway, upstream fake-anthropic.test:8443, the fake's CA at /run/gw/ca.pem; the agent held only a placeholder key"
+provider = "opencode.json: provider.fake, npm @ai-sdk/anthropic, options.baseURL = {env:OC_BASE_URL}, options.apiKey = {env:OC_API_KEY}"
+fake_model_scripts = "o1: a prompt gets one shell call (echo to /work/o1.txt), its result gets 'done'. o2: the shell call sleeps 90 s. nomodel1: 404 not_found_error."
+
+[stream.completed_o1]
+model = "fake"
+stdout_sha256 = "725c09d309d898e545b2b9b62c9492d4a48a2592511b429458809c887543975e"
+export_sha256 = "6a88bc44a79b3a3a5ecd07e9108ffceefbb8afd66e97a756ab4eba64a9b64b98"
+
+[stream.interrupt_api]
+model = "fake"
+stdout_sha256 = "43af73b48177a059a86377b1302cb97e691216decba9fec3a1e3303d7030e099"
+export_sha256 = "215e1d0aa3750e5978435ceefead11c98607a0af8c5714c135ab77fc55896f6e"
+
+[stream.refused_key]
+model = "fake"
+stdout_sha256 = "9882251baa1db6212c8b9e6ecd2eeb48dc566e08eb21546ba6effc6672ea35f6"
+export_sha256 = "7547aedc4742e40764623c970599e58ad359ed887f18183df213ede4ed461273"
+
+[stream.sigint_mid_tool]
+model = "fake"
+stdout_sha256 = "d4c020361ea5e6e3b46b0d7460dacdf9f8cbf374a3e7205c39ad8c324e8cc503"
+export_sha256 = "875b29364fbbe0db7a38bc41eee3965d5a602d876957f7c44a0cf137bdeb26bf"
+
+[stream.sigterm_mid_tool]
+model = "fake"
+stdout_sha256 = "0dedef1ea5e1b6e4486b3f2a5460ab34a3d895961dfd2229c17467cb75d7e730"
+export_sha256 = "90df6a7b48a98f629ec96dc32612a201bfd89400aed47bd7d03ab73d2c8939da"
+
+[stream.unknown_model_local]
+model = "fake"
+stdout_sha256 = "e82cfaad51cb0052b0a814b702b6ee75952f9f05707cbf07e08aa20cb9a57845"
+export_sha256 = "e48ee17c48418d504c2e81f3ecb2d24057730ec2290070c631bdb31df1fac56c"
+
+[stream.unknown_model_remote]
+model = "fake"
+stdout_sha256 = "e54f9edf1ab6e1001c8a90593ca18fc5ed748294beb0f657b03a3e26c811e48f"
+export_sha256 = "b8965063794aa7a763b3c31aaef200f9146ca7c359d70875dc46d0693f8111c2"
+
+[stream.unreachable_dns]
+model = "fake"
+stdout_sha256 = "17b87a8a4ea56eee438589bf7328115dc559fcf101889c74e82d7c29489eed17"
+export_sha256 = "982cc0ff7404a9f86deee0bfd626bbc1ce8f42dd9b5378fb73a95222a1d1b8be"
+
+[stream.unreachable_refused]
+model = "fake"
+stdout_sha256 = "a424c4f23943e99cb2af6b7850aa355a8a36967f62b6b4abc2070ffb8db320b2"
+export_sha256 = "9cba204e5219c7c10f13396c2c5b638dc68f687178a6107dcab63c3dff7ce667"
+
+# The streams below (`oc_step_cap`, `oc_permission_ask`; `oc_effort_*` and the removal of
+# `oc_effort_variant` and `oc_plan_mode_blocks_shell` are in fix round 1) were recorded on 2026-11-12 for the `opencode_settings` leaf, against
+# the same scratch fake model (`oc-*` model ids, extended with the `shell` tool and driven by the
+# request's own `tool_choice`; the committed `assets/docker/fakemodel/fakemodel.py` is untouched),
+# through a real production-shaped gateway sidecar (`assets/docker/gateway`, built from the
+# repository's own Dockerfile) on a user-defined Docker bridge network, rather than the earlier
+# `--network none` probes. Engine: docker 29.9.2, Docker Desktop on macOS 26.6.2, same host as
+# `[engine]` above. The base image is `assets/docker/base-opencode` built unmodified at v2.2.7. No
+# token was spent, no real model and no RiVault host was called.
+
+# oc_step_cap was re-recorded a second time on 2026-11-12, to commit a
+# `wire.jsonl` alongside `stdout.jsonl`/`export.json`: a redacted, per-request projection of the
+# fake model's own `records.jsonl` (model id, whether `tools` was offered, `tool_choice`, and for
+# the effort case `thinking`/whether `effort` itself reached the wire) -- no header, no secret, no
+# message body -- so the O1/wire gate (`cargo nextest run -p candler-harness-opencode --no-tests=fail
+# -E 'test(/^opencode_wire_/)'`) can assert the wire facts from a committed file rather than only
+# from this table's prose. Session ids changed accordingly; `oc_step_cap`'s re-recording also
+# surfaced a third, tool-less prefatory HTTP request that the committed `stdout.jsonl`'s own step
+# trace never counts (see its `exit.toml`/`expected.toml`).
+# Since fix round 1 `oc_step_cap` is no longer a mapping's proof but the evidence for REFUSING
+# `budget.per_run.turns`: the last request is tool-less with an injected prompt and the run ends
+# `succeeded`, not Claude Code's `error_max_turns`. Its extra tool-less request is the hidden
+# `title` agent's. `oc_permission_ask` is the evidence that OpenCode without `--auto` rejects a
+# pending ask.
+[stream.oc_step_cap]
+model = "fake"
+stdout_sha256 = "9c909dfb9e02b2ddcf32851734911242b0eaa47d112b7448f2703a7c9cd8fa11"
+export_sha256 = "7ecd73939b40a9fdcb3562a74a120805bb6597f831c373d19185897145ce755b"
+wire_sha256 = "0d6a56c13197b12878ca5d9b720e39489d4a57c54f2f955fea807760a954d9e6"
+
+# Fix round 1 (2026-11-12): `oc_effort_<level>` replace `oc_effort_variant`, one session per level the
+# driver maps, each recorded with the literal `variants` entry `prepare::effort_variant` writes
+# (its `config.json`), for the model id `oc-claude-opus-4-7` (the fake's name for the recorded
+# family) and read back through `wire.jsonl`, which now records `thinking` and `output_config` of
+# every request. The first request of a session has no `tools`: it is the hidden `title` agent's
+# (`plugin/agent.ts:102-108`, v2.2.7). Same network, images and fake-model script as above.
+[stream.oc_effort_low]
+model = "fake"
+stdout_sha256 = "54b1468530b320456215b1a38b83dd4e70d036873d3e5fc1970247efaab8c67d"
+export_sha256 = "0680a47ac101c09c00ac52922d496c837022253e4336bad3d17c85b5e228a4c4"
+wire_sha256 = "a9fa0a172a4788e51c371e01a0671e4727a8f2101e60211e42b3680cd311bf78"
+config_sha256 = "507fecda6eb0553d853c449654c9c9c53af79f0c754a43b241732b075846e81d"
+
+[stream.oc_effort_medium]
+model = "fake"
+stdout_sha256 = "fab4a2e4762351ccac5646301b226c9875786864368af2a864b538fbfc31591c"
+export_sha256 = "b994ef7c86e82e7a63d9c0fbf62da3e26fb5a41155b1812110bae8c8a1bc5343"
+wire_sha256 = "bf23ffd65925f413f1c4637c393f537d28f9350d3c1c4954b1ed6ec4c8f53ebc"
+config_sha256 = "6498a753d8b4f4bef1cfd14276bcfc2453bc8e5f2e3dbff6ff0918e2bfd5aae0"
+
+[stream.oc_effort_high]
+model = "fake"
+stdout_sha256 = "3580adaf531894a6727276ad4963b0b9f32bf13d14c7e30fae0468011d3cd5d6"
+export_sha256 = "5d702c1a4df161ddd4f0a847c899b2e3c360a457e37a12b45026112247e39ac2"
+wire_sha256 = "3985c2ea01cca68542be2d310fbe8cb434da39f30e0d4a916d2fce1bdb08cb3c"
+config_sha256 = "0964d7d314f56fa908049fe692f16754d909c6463c8b97a8cf8a3784f920c599"
+
+[stream.oc_effort_xhigh]
+model = "fake"
+stdout_sha256 = "e7eba63f8cf3e5d2b037e51ec8f7f76475b0b019337c04d56f8a6aa98869109e"
+export_sha256 = "d6efbc9284e7f0aa683f45610fa3e85f5148c4b57476d80b068ab34de4346c38"
+wire_sha256 = "a93549b4913d73d33bddb2166bbed5e5329acd3719db6a3f2bbbccc642781205"
+config_sha256 = "9277bade4d18b798166e87280c7a40bb9fa3a40259caf1c3f96594dc3b5e8af4"
+
+[stream.oc_effort_max]
+model = "fake"
+stdout_sha256 = "dbefd861a57684c44304e8aeea81efd22d05ec197babe97f98484193c4f74651"
+export_sha256 = "729baf198276b73f02d76c36b2d32da8ba86843ba67edd3a6834b92e309fd8cc"
+wire_sha256 = "91ed90c2343eedd8725f78a88c829074bc0f4424f0ef56c23726e7f6379f69fc"
+config_sha256 = "3f5619974a23ec5400d3aee5f2bd409bbb123e7f39d3ccf6175eab27be38e5ac"
+
+[stream.oc_permission_ask]
+model = "fake"
+stdout_sha256 = "370d14f5a399ba0b3d50ffabcf67fbcfd226d490184e67a8b004260239c6bd10"
+export_sha256 = "900e4f35668e9ef14bc6a98be9a8684f0eb546da8fe0ec2e99b2b089cd1973e6"
+
+# config/opencode.json is a file the driver renders for a cell with the model `claude-x` and two MCP
+# servers; it was run through `opencode debug config` in the base image (assets/docker/base-opencode,
+# --network none, hardened as above, CANDLER_GATEWAY_URL=http://gateway:8080/r/tag/run/key,
+# CANDLER_GATEWAY_TOKEN set), and `opencode run -m candler/zzz` loaded it without error. The
+# recorded output is config/debug_config.out: `{env:CANDLER_GATEWAY_URL}/v1` expanded inline to
+# `http://gateway:8080/r/tag/run/key/v1`, secrets shown as `***`. No model was called.
+[config.opencode_json]
+recorded = "2026-11-12"
+checked_with = "opencode debug config, opencode v2.2.7, linux/arm64"
+
+# The gateway census of a run that denies the shell tool (`opencode_wiring`, 2026-11-12). Recorded
+# against the committed `assets/docker/fakemodel/fakemodel.py` (unmodified: it answers a model id
+# it has no script for with a short text), through the production gateway sidecar
+# (`assets/docker/gateway`, built from the repository's own Dockerfile, `--internal` bridge
+# network), with `assets/docker/base-opencode` built unmodified at v2.2.7. The cell was
+# `bypassPermissions` (`--auto`) with `tools.disallowed: ["Bash"]`, which the driver writes as the
+# permission row `{shell, *, deny}`; the agent ran `opencode run --standalone --format json --auto`
+# with the configuration `census_deny_shell_config.json`. The log is the sidecar's stdout as it
+# was (the access lines and the census lines); its two census lines are the two requests of the
+# run: the hidden title agent's, with no tools, then the run's own with eleven tool names, `shell`
+# among none of them. Compare `census_log.txt`, recorded without the deny, which lists twelve.
+# No token was spent and no real model was called. Docker 29.9.2, Docker Desktop on macOS.
+[gateway_census.deny_shell]
+log = "crates/candler-core/tests/fixtures/gateway/census_log_deny_shell.txt"
+log_sha256 = "fae2f18f82fb3138871253fd84c900d402b909d72f2488619b000d882efa8833"
+config = "crates/candler-core/tests/fixtures/gateway/census_deny_shell_config.json"
+config_sha256 = "1be70a693a780ee38c1bdd288bb8db0c759354fe2f4cf914181608097466c5aa"
+run = "3333333333333333333333333333333333333333333333333333333333333333-r1-a1"
+
+# `census_log.txt` (`opencode_wiring`, 2026-11-12) is synthetic. It was written by the production
+# gateway sidecar image on hand-built request bodies sent to it with `wget` on a scratch network,
+# not by an OpenCode run and not through the fake model: tool-less and twelve-tool requests
+# with descriptions, schemas, message text and a system prompt that held canary words, for two run
+# keys, to show what the census line keeps. The twelve names are those of a recorded OpenCode
+# request (`completed_o1`). Contrast `[gateway_census.deny_shell]`, which is a real run's log.
+[gateway_census.synthetic]
+log = "crates/candler-core/tests/fixtures/gateway/census_log.txt"
+log_sha256 = "55ac88272a5bd76ed130f13d8e872586bda81c048215d8226a58d5084f834a36"
+synthetic = true

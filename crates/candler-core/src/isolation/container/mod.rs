@@ -1,6 +1,7 @@
 //! The container half of isolation: mounts, the run command, expiry, the stop hook, the guard and
 //! the label sweeper, and the [`DockerIsolation`] that ties them together.
 
+pub mod exec;
 pub mod expiry;
 pub mod guard;
 pub mod mounts;
@@ -10,7 +11,7 @@ pub mod sweeper;
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -30,7 +31,8 @@ use self::sweeper::ContainerSweeper;
 use super::driver::DockerDriver;
 use super::gateway::ChildRecorder;
 use super::layout::{
-    CONTAINER_HOME, CONTAINER_WORKDIR, LABEL_EXPERIMENT, LABEL_JOB, LABEL_ROLE, LABEL_RUN,
+    CONTAINER_HOME, CONTAINER_WORKDIR, EXPIRY_MARGIN, LABEL_EXPERIMENT, LABEL_JOB, LABEL_ROLE,
+    LABEL_RUN,
 };
 use super::model::{
     ContainerOutcome, ContainerPlan, ContainerRef, ContainerSweep, GatewayHandle, ImageId,
@@ -40,6 +42,9 @@ use super::{EndFacts, IsolatedRequest, Isolation, IsolationError, RunOutputs};
 use crate::experiment::paths;
 use crate::supervise::hook::StopHook;
 use crate::supervise::stop::Exit;
+
+/// How long a collect command may run in its throwaway container.
+const COLLECT_WALL: Duration = Duration::from_secs(120);
 
 /// The process limit of a container whose cell sets none.
 const DEFAULT_PIDS: u32 = 512;
@@ -97,6 +102,14 @@ impl EndFacts for HookFacts {
     fn final_inspect(&self) -> Option<ContainerOutcome> {
         self.hook.final_inspect()
     }
+}
+
+/// The host directory a run's agent container mounts as its home, under the run directory
+/// `run_dir`. The harness's state directories are made here too, so the mounted directory and
+/// the state paths are one place.
+#[must_use]
+pub fn agent_home(run_dir: &Path) -> PathBuf {
+    run_dir.join("home")
 }
 
 impl DockerIsolation {
@@ -284,7 +297,7 @@ impl Isolation for DockerIsolation {
         let run_dir = root
             .parent()
             .ok_or_else(|| plan_error("the workspace has no run directory"))?;
-        let home = run_dir.join("home");
+        let home = agent_home(run_dir);
         std::fs::create_dir_all(&home).map_err(|source| IsolationError::Plan {
             detail: format!("the home directory cannot be made: {source}"),
         })?;
@@ -292,7 +305,7 @@ impl Isolation for DockerIsolation {
             image: ImageRef {
                 // BORROW: the owned copy is made where it is needed
                 id: ImageId(image.to_owned()),
-                cc_version: None,
+                harness_version: None,
             },
             labels,
             mounts: vec![
@@ -314,6 +327,8 @@ impl Isolation for DockerIsolation {
                 (String::from("VIRTUAL_ENV"), String::from(AGENT_VENV)),
                 (String::from("LANG"), String::from(AGENT_LANG)),
             ],
+            gateway: None,
+            state: Vec::new(),
             network,
             egress,
             limits: cell_limits(cell)?,
@@ -329,6 +344,8 @@ impl Isolation for DockerIsolation {
             project_root: dirs.project_root.clone(),
             // BORROW: the roots are copied out of the directories
             store_root: dirs.store_root.clone(),
+            interactive: cell_value(cell, paths::RUNNER_MODE)?.and_then(serde_json::Value::as_str)
+                == Some(crate::resolve::steps::session::MODE_SESSION),
         };
         plan.mounts = mounts(&plan, &MountRoots::from_plan(&plan)).map_err(|source| {
             IsolationError::Plan {
@@ -361,7 +378,11 @@ impl Isolation for DockerIsolation {
             .ok_or_else(|| IsolationError::Plan {
                 detail: format!("the plan carries no valid `{LABEL_JOB}` label"),
             })?;
-        let hook = Arc::new(ContainerStopHook::new(self.guard(), sweeper, job));
+        let mut stop_hook = ContainerStopHook::new(self.guard(), sweeper, job);
+        if let Some(view) = outputs.observer.as_ref() {
+            stop_hook = stop_hook.with_observer(Arc::clone(view)); // BORROW: the hook shares the run's live view
+        }
+        let hook = Arc::new(stop_hook);
         // TRAIT_OBJECT: the request carries its hook as the supervisor's trait
         let attached: Arc<dyn StopHook> = Arc::<ContainerStopHook>::clone(&hook);
         let request = build_run_request(
@@ -439,6 +460,26 @@ impl Isolation for DockerIsolation {
                 Err(GuardError::Docker { .. } | GuardError::View { .. }) => sweep.unknown = true,
             }
             Ok(ContainerOutcome { inspect, sweep })
+        })
+    }
+
+    fn collect_exec<'a>(
+        &'a self,
+        plan: &'a ContainerPlan,
+        command: &'a CommandSpec,
+    ) -> BoxFuture<'a, Result<Vec<u8>, IsolationError>> {
+        Box::pin(async move {
+            let args = exec::collect_args(plan, command, COLLECT_WALL).map_err(|source| {
+                IsolationError::Plan {
+                    detail: source.to_string(),
+                }
+            })?;
+            self.docker
+                .capture(args, COLLECT_WALL + EXPIRY_MARGIN)
+                .await
+                .map_err(|source| IsolationError::Docker {
+                    detail: source.to_string(),
+                })
         })
     }
 

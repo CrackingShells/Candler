@@ -3,8 +3,9 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
+use candler_harness::spec::{CensusSource, InitReport};
 use candler_schemas::container::{ContainerLabels, ContainerRecord, ContainerRole};
 use candler_schemas::primitives::{ContainerId, Digest, JobId, Marker, RunKey};
 use candler_schemas::process::ExitStatus;
@@ -202,6 +203,24 @@ pub trait Gateway: Send + Sync {
         handle: &'a GatewayHandle,
         run: &'a RunKey,
     ) -> BoxFuture<'a, Result<Vec<GatewaySignal>, GatewayError>>;
+
+    /// The model requests the gateway relayed for the run `run`, one JSON line each:
+    /// `{"seq":<n>,"tools":["<name>",...]}`, the tool names of the request and nothing else of
+    /// it, in the order the requests began. A gateway that records none answers no bytes. Only
+    /// what the gateway wrote since `since`, the start of the run's attempt, is read; a log cut
+    /// short is an error, never an empty census.
+    ///
+    /// # Errors
+    /// [`GatewayError`] when the gateway cannot be asked or its log is cut short.
+    fn run_census<'a>(
+        &'a self,
+        handle: &'a GatewayHandle,
+        run: &'a RunKey,
+        since: SystemTime,
+    ) -> BoxFuture<'a, Result<Vec<u8>, GatewayError>> {
+        let _ = (handle, run, since);
+        Box::pin(async { Ok(Vec::new()) })
+    }
 }
 
 /// The name the agent's container resolves the gateway by on the job's network.
@@ -829,6 +848,19 @@ impl Gateway for DockerGateway {
             Ok(signals_of(log.as_str(), run, handle.run_tag(run).as_str()))
         })
     }
+
+    fn run_census<'a>(
+        &'a self,
+        handle: &'a GatewayHandle,
+        run: &'a RunKey,
+        since: SystemTime,
+    ) -> BoxFuture<'a, Result<Vec<u8>, GatewayError>> {
+        Box::pin(async move {
+            let log = self.logs().read_since(handle, since).await?;
+            // BORROW: explicit .as_str() instead of Deref coercion
+            Ok(census_of(log.as_str(), run, handle.run_tag(run).as_str()))
+        })
+    }
 }
 
 /// Reads the sidecar's logs: the access log (method, path, status, model, run; never the
@@ -840,6 +872,41 @@ pub struct GatewayLogs {
 }
 
 impl GatewayLogs {
+    /// The sidecar's output since `since`, so that a long job's log is not read again for every
+    /// run.
+    ///
+    /// # Errors
+    /// [`GatewayError::Start`] when `docker logs` fails, and [`GatewayError::Unavailable`] when
+    /// the output reaches the client's capture limit and so may be cut short.
+    pub fn read_since<'a>(
+        &'a self,
+        handle: &'a GatewayHandle,
+        since: SystemTime,
+    ) -> BoxFuture<'a, Result<String, GatewayError>> {
+        Box::pin(async move {
+            // A margin of two seconds covers the option's whole-second resolution.
+            let secs = since
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_secs().saturating_sub(2));
+            let args = vec![
+                String::from("logs"),
+                String::from("--since"),
+                secs.to_string(),
+                handle.container.cid.to_string(),
+            ];
+            let out = self.cli.run(&self.sup, args, StdinSpec::Null).await?;
+            if !out.succeeded() {
+                return Err(out.failure("docker logs"));
+            }
+            if out.stdout.len() >= crate::isolation::docker::OUTPUT_LIMIT {
+                return Err(GatewayError::Unavailable {
+                    detail: String::from("the gateway log is cut short at the capture limit"),
+                });
+            }
+            Ok(format!("{}\n{}", out.stdout, out.stderr))
+        })
+    }
+
     /// The sidecar's standard output, then its standard error, as text.
     ///
     /// # Errors
@@ -958,6 +1025,70 @@ fn signals_of(log: &str, run: &RunKey, tag: &str) -> Vec<GatewaySignal> {
         }
     }
     signals
+}
+
+/// The census of the run `run` under its tag `tag`, from the sidecar's log: one line
+/// `{"seq":<n>,"tools":[...]}` for each census line of the gateway whose `run=` and `tag=` fields
+/// equal these. A census line is `census run=<key> tag=<tag> seq=<n> tools=<JSON array>`; the
+/// array is the last field and must be a list of strings, so what an agent writes in a tool name
+/// cannot become a field. Only the sequence number and the names are kept: whatever else a line
+/// carries is dropped, and a line that is not exactly that shape is dropped whole.
+#[must_use]
+pub fn census_of(log: &str, run: &RunKey, tag: &str) -> Vec<u8> {
+    let wanted_run = format!("run={run}");
+    let wanted_tag = format!("tag={tag}");
+    let mut out = Vec::new();
+    for line in log.lines() {
+        let mut parts = line.splitn(5, ' ');
+        let (Some("census"), Some(found_run), Some(found_tag), Some(found_seq), Some(rest)) = (
+            parts.next(),
+            parts.next(),
+            parts.next(),
+            parts.next(),
+            parts.next(),
+        ) else {
+            continue;
+        };
+        if found_run != wanted_run || found_tag != wanted_tag {
+            continue;
+        }
+        let Some(seq) = found_seq
+            .strip_prefix("seq=")
+            .and_then(|text| text.parse::<u64>().ok())
+        else {
+            continue;
+        };
+        let Some(tools) = rest
+            .strip_prefix("tools=")
+            .and_then(|text| serde_json::from_str::<Vec<String>>(text).ok())
+        else {
+            continue;
+        };
+        if let Ok(mut record) = serde_json::to_vec(&serde_json::json!({"seq": seq, "tools": tools}))
+        {
+            record.push(b'\n');
+            out.extend(record);
+        }
+    }
+    out
+}
+
+/// The tool inventory of a census stream: the names of the first request, by sequence number,
+/// that carries any, labelled as the gateway's. A request with no tools says nothing; a run none
+/// of whose requests carry tools has no inventory, never an empty one.
+#[must_use]
+pub fn census_init(stream: &[u8]) -> Option<InitReport> {
+    #[derive(serde::Deserialize)]
+    struct Request {
+        seq: u64,
+        tools: Vec<String>,
+    }
+    let first = stream
+        .split(|byte| *byte == b'\n')
+        .filter_map(|line| serde_json::from_slice::<Request>(line).ok())
+        .filter(|request| !request.tools.is_empty())
+        .min_by_key(|request| request.seq)?;
+    InitReport::new(serde_json::json!(first.tools), None, CensusSource::Gateway).ok()
 }
 
 /// 128 random bits as hex, from the operating system.

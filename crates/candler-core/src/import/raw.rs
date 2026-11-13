@@ -13,6 +13,7 @@ use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 use std::str::FromStr as _;
 
+use candler_harness::spec::Framing;
 use candler_schemas::execution::{
     Comparable, HarnessIdentity, ImportRecord, ImportSource, Integrity, InvalidReason, RunManifest,
     RunTree, TreatmentRef, experiment_digest,
@@ -21,12 +22,15 @@ use candler_schemas::primitives::{Digest, FieldPath, Name, NameToken, RelPath, R
 use candler_schemas::raw::{Clock, StreamName};
 use candler_schemas::refusal::Side;
 use candler_schemas::refusal_table;
+use candler_schemas::trace::TraceFile;
 use candler_schemas::values::{SourceEntry, ValueSource};
 use flate2::read::MultiGzDecoder;
 use sha2::{Digest as _, Sha256};
 
+use candler_harness::reader::TraceReader;
+
 use super::streams::ReaderFactory;
-use crate::frames::{FrameMode, FrameWriter, RawFileInfo};
+use crate::frames::{FrameWriter, RawFileInfo};
 use crate::store::run::{Existing, RunWriter};
 use crate::store::{Store, StoreError};
 use crate::trace::{NormaliseError, normalise};
@@ -181,6 +185,12 @@ impl Recognised {
 /// Recognises the start of a stream (at most 64 KiB of its decompressed text); the caller of the ingest supplies it.
 // TRAIT_OBJECT: the caller of the ingest supplies a recogniser of unknown concrete type
 pub type Recogniser = dyn Fn(&[u8]) -> Option<Recognised> + Send + Sync;
+
+/// The streams a harness collects after a run and the readers that read them offline, as the
+/// pairs the harness declares, for the harness named by the argument. A harness that collects
+/// none gives none.
+// TRAIT_OBJECT: the readers are the harness's, chosen by its name at runtime
+pub type OfflineReaders = dyn Fn(&str) -> Vec<(StreamName, Box<dyn TraceReader>)> + Send + Sync;
 
 /// A stream found under the ingested path.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -571,7 +581,7 @@ fn frame_stream(found: &Found, dir: &Path) -> Result<RawFileInfo, RawIngestError
     let mut writer = FrameWriter::create(
         dir,
         stream,
-        FrameMode::Lines,
+        Framing::Lines,
         Clock::Unrecorded,
         // BORROW: .clone() gives the header its own copy of the file's digest
         Some(found.digest.clone()),
@@ -587,8 +597,91 @@ fn frame_stream(found: &Found, dir: &Path) -> Result<RawFileInfo, RawIngestError
 struct Context<'a> {
     store: &'a Store,
     readers: &'a ReaderFactory,
+    offline: &'a OfflineReaders,
     scratch: &'a Path,
     format: &'a NameToken,
+}
+
+/// The file beside `found` that holds the collected stream `name`: `<name>.json` or
+/// `<name>.jsonl`, plain or gzipped.
+fn sibling_of(found: &Found, name: &StreamName) -> Option<PathBuf> {
+    let dir = found.path.parent()?;
+    ["json", "jsonl", "json.gz", "jsonl.gz"]
+        .iter()
+        .map(|extension| dir.join(format!("{name}.{extension}")))
+        .find(|path| path.is_file())
+}
+
+/// What reading the collected streams beside `found` gave: the raw files stored with the run and
+/// the trace of the first reader that made sessions, or the reason a stream could not be read.
+struct Collected {
+    raws: Vec<(StreamName, RawFileInfo)>,
+    trace: Option<Result<TraceFile, NormaliseError>>,
+}
+
+/// Reads each collected stream the harness of `found` declares and that lies beside the stream:
+/// the file is framed as `name`, stored with the run, and read by the harness's offline reader. A
+/// reader that yields sessions makes the run's trace, as it does at run time; a stream it cannot
+/// read makes the run invalid.
+fn read_collected(
+    ctx: &Context<'_>,
+    found: &Found,
+    dir: &Path,
+) -> Result<Collected, RawIngestError> {
+    let mut collected = Collected {
+        raws: Vec::new(),
+        trace: None,
+    };
+    for (name, reader) in (ctx.offline)(found.recognised.harness.as_str()) {
+        // BORROW: explicit .as_str()
+        let Some(path) = sibling_of(found, &name) else {
+            continue;
+        };
+        let frames_error = |detail: String| RawIngestError::Frames {
+            stream: name.to_string(),
+            detail,
+        };
+        let bytes = fs::read(path.as_path()).map_err(|e| unreadable(&path, &e))?; // BORROW: explicit .as_path()
+        let mut hasher = Sha256::new();
+        hasher.update(bytes.as_slice()); // BORROW: explicit .as_slice()
+        let digest = digest_of_hash(hasher).map_err(|e| frames_error(e.to_string()))?;
+        let plain = if path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("gz"))
+        {
+            let mut plain = Vec::new();
+            MultiGzDecoder::new(bytes.as_slice()) // BORROW: explicit .as_slice()
+                .read_to_end(&mut plain)
+                .map_err(|e| frames_error(e.to_string()))?;
+            plain
+        } else {
+            bytes
+        };
+        let mut writer = FrameWriter::create(
+            dir,
+            name.clone(), // BORROW: the writer owns the stream name
+            reader.framing(),
+            Clock::Unrecorded,
+            Some(digest),
+        )
+        .map_err(|e| frames_error(e.to_string()))?;
+        writer
+            .write(plain.as_slice(), None) // BORROW: explicit .as_slice()
+            .map_err(|e| frames_error(e.to_string()))?;
+        let info = writer.finish().map_err(|e| frames_error(e.to_string()))?;
+        let read = normalise(reader, &info);
+        collected.raws.push((name, info));
+        match read {
+            Ok(trace) if trace.sessions().is_empty() => {}
+            Ok(trace) => {
+                if collected.trace.is_none() {
+                    collected.trace = Some(Ok(trace));
+                }
+            }
+            Err(error) => collected.trace = Some(Err(error)),
+        }
+    }
+    Ok(collected)
 }
 
 /// Writes the run `key` of `found`, replacing an unsealed one, and seals it last.
@@ -605,6 +698,14 @@ fn write_run(
     let frames_dir = ctx.scratch.join(label.as_str()); // BORROW: explicit .as_str()
     remove_tree(frames_dir.as_path())?; // BORROW: explicit .as_path()
     let framed = frame_stream(found, frames_dir.as_path())?; // BORROW: explicit .as_path()
+    let collected = if found.recognised.supported {
+        read_collected(ctx, found, frames_dir.as_path())? // BORROW: explicit .as_path()
+    } else {
+        Collected {
+            raws: Vec::new(),
+            trace: None,
+        }
+    };
     let supported = found.recognised.supported;
     let first = if supported {
         Integrity::Valid
@@ -634,6 +735,11 @@ fn write_run(
     writer
         .raw(&stream, framed.path.as_path(), &framed.digest)
         .map_err(fail)?;
+    for (name, info) in &collected.raws {
+        writer
+            .raw(name, info.path.as_path(), &info.digest) // BORROW: explicit .as_path()
+            .map_err(fail)?;
+    }
     if supported {
         let stored = store
             .raw_path(key, &stream)
@@ -643,7 +749,11 @@ fn write_run(
             })?;
         // BORROW: .clone() copies the digest
         let info = RawFileInfo::new(stored, framed.digest.clone(), framed.frames);
-        match normalise((ctx.readers)(), &info) {
+        let read = match collected.trace {
+            Some(read) => read,
+            None => normalise((ctx.readers)(), &info),
+        };
+        match read {
             Ok(trace) => writer.trace(&trace).map_err(fail)?,
             Err(error) => {
                 let reason = match error {
@@ -801,6 +911,22 @@ pub fn ingest_raw(
     recognise: &Recogniser,
     readers: &ReaderFactory,
 ) -> Result<RawReport, RawIngestError> {
+    ingest_raw_with(store, path, recognise, readers, &|_| Vec::new())
+}
+
+/// [`ingest_raw`] for a harness that collects streams after a run: each stream the harness
+/// declares that lies beside a recognised stream (`export.json` beside `stdout.jsonl`) is read
+/// offline by its reader, and the trace is the one a run of the harness makes.
+///
+/// # Errors
+/// The errors of [`ingest_raw`].
+pub fn ingest_raw_with(
+    store: &Store,
+    path: &Path,
+    recognise: &Recogniser,
+    readers: &ReaderFactory,
+    offline: &OfflineReaders,
+) -> Result<RawReport, RawIngestError> {
     if is_results_folder(path) {
         return Err(RawIngestError::RulesRequired {
             path: path.display().to_string(),
@@ -820,6 +946,7 @@ pub fn ingest_raw(
     let ctx = Context {
         store,
         readers,
+        offline,
         scratch: scratch.as_path(), // BORROW: explicit .as_path()
         format: &format,
     };

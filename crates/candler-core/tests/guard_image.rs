@@ -20,6 +20,7 @@ use candler_core::resolve::layers::{FileValues, ResolveInput};
 use candler_core::resolve::preflight::Resolver;
 use candler_core::resolve::steps::image::ImageIdStep;
 use candler_core::supervise::{EventSink, Supervisor};
+use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_schemas::execution::EventPayload;
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::primitives::RunKey;
@@ -63,8 +64,16 @@ fn write_script(path: &Path, text: &str) {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("a mode");
 }
 
+/// The tag of the base image built from `assets/docker/base`, as docker holds it.
+const BASE_SUFFIX: &str = "src-319fda768a95";
+
 impl Rig {
     fn new() -> Self {
+        Self::over(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/docker/base"))
+    }
+
+    /// A world whose base image is built from the context `base`.
+    fn over(base: &Path) -> Self {
         let dir = tempfile::tempdir().expect("a directory");
         let canned = dir.path().join("canned");
         let bin = dir.path().join("bin");
@@ -110,10 +119,11 @@ impl Rig {
             cli,
             env,
             ImageAssets {
-                base_context: sources.join("base"),
+                base_context: base.to_path_buf(),
                 env_context: sources.join("env"),
                 store_root: store_root.clone(), // BORROW: .clone() keeps the root for the probe
             },
+            Arc::new(ClaudeCodeDriver::new().expect("the driver builds from constants")),
         ));
         Self {
             service,
@@ -135,6 +145,23 @@ impl Rig {
             self.store_root.clone(), // BORROW: .clone() gives the probe its own path
             names.iter().map(|name| (*name).to_owned()).collect(), // BORROW: owned names
         )
+    }
+
+    /// The tags of the env images the fake built, in order.
+    fn env_tags_built(&self) -> Vec<String> {
+        let text = std::fs::read_to_string(&self.log).unwrap_or_default();
+        text.lines()
+            .filter_map(|line| serde_json::from_str::<Vec<String>>(line).ok())
+            .filter(|argv| argv.first().is_some_and(|verb| verb == "build"))
+            .flat_map(|argv| {
+                argv.windows(2)
+                    // INDEX: `windows(2)` yields pairs of two
+                    .filter(|pair| pair[0] == "-t" && pair[1].starts_with("candler-env:"))
+                    // INDEX: `windows(2)` yields pairs of two
+                    .map(|pair| pair[1].clone()) // BORROW: owned tag
+                    .collect::<Vec<_>>()
+            })
+            .collect()
     }
 
     /// How many `docker build` calls the fake logged for `tag`.
@@ -191,7 +218,7 @@ fn pruning(setting: &BuildSetting, names: &[&str]) -> BuildSetting {
 async fn b05_one_build_per_digest() {
     let rig = Rig::new();
     let (digest, setting, hex) = lock("numpy==2.0.0\n");
-    let tag = format!("candler-env:{hex}");
+    let tag = format!("candler-env:{hex}-{BASE_SUFFIX}");
 
     let (first, second) = tokio::join!(
         rig.service.ensure(&digest, &setting),
@@ -216,7 +243,7 @@ async fn b05_one_build_per_digest() {
 
     // Positive control: another lock digest is another tag and builds again.
     let (other_digest, other_setting, other_hex) = lock("numpy==2.0.1\n");
-    let other_tag = format!("candler-env:{other_hex}");
+    let other_tag = format!("candler-env:{other_hex}-{BASE_SUFFIX}");
     rig.service
         .ensure(&other_digest, &other_setting)
         .await
@@ -225,13 +252,13 @@ async fn b05_one_build_per_digest() {
     assert_eq!(rig.builds_of(&tag), 1);
 }
 
-/// Guards: A1 (R01 §Agent environment and secrets) — the env image is keyed on the lock and on the
-/// files the experiment prunes: one lock with two prune lists gives two images, and one lock with
-/// one list, in any order, gives one.
+/// Guards: A1 (R01 §Agent environment and secrets) — the env image is keyed on the lock, on the
+/// files the experiment prunes and on its base image: one lock with two prune lists gives two
+/// images, one lock with one list, in any order, gives one, and one lock on two bases gives two.
 /// Oracle: the tags below are the sha256 of the lock's hex digest followed by a NUL and each
-/// sorted prune name, computed with `shasum`, not with Candler; the PATH-fake docker's argv log
-/// counts the builds of each tag.
-/// Bite: key the env tag on the lock digest alone.
+/// sorted prune name, computed with `shasum`, not with Candler, then `-` and the base's tag
+/// suffix as docker holds it; the PATH-fake docker's argv log counts the builds of each tag.
+/// Bite: key the env tag on the lock digest (and prune list) alone.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a1_prune_is_part_of_the_env_key() {
     const LOCK: &str = "face025c59f708edef23a8040f867bc583a365a5aa87fcae3047c8e1a4b0f8a5";
@@ -241,7 +268,7 @@ async fn a1_prune_is_part_of_the_env_key() {
     let rig = Rig::new();
     let (digest, plain, hex) = lock("numpy==2.0.0\n");
     assert_eq!(hex, LOCK, "the oracle's lock is the lock under test");
-    let tag = |key: &str| format!("candler-env:{key}");
+    let tag = |key: &str| format!("candler-env:{key}-{BASE_SUFFIX}");
 
     for names in [
         &["a.py"][..],
@@ -270,6 +297,29 @@ async fn a1_prune_is_part_of_the_env_key() {
     // Positive control: nothing pruned keeps the lock's own tag.
     rig.service.ensure(&digest, &plain).await.expect("an image");
     assert_eq!(rig.builds_of(&tag(LOCK)), 1);
+
+    // Another base on the same lock is another tag: its sources are another directory.
+    let other_base = tempfile::tempdir().expect("a directory");
+    std::fs::write(other_base.path().join("Dockerfile"), "FROM scratch\n").expect("a source");
+    let other = Rig::over(other_base.path());
+    other
+        .service
+        .ensure(&digest, &plain)
+        .await
+        .expect("an image");
+    let built = other.env_tags_built();
+    assert_eq!(built.len(), 1, "one build on the other base");
+    assert_ne!(
+        built[0],
+        tag(LOCK),
+        "two bases on one lock took one env tag"
+    );
+    assert!(
+        built[0].starts_with(&format!("candler-env:{LOCK}-src-"))
+            && !built[0].ends_with(BASE_SUFFIX),
+        "the env tag carries the other base's tag: {}",
+        built[0]
+    );
 }
 
 /// Guards: A2 (R01 §Run manifest) — a read of named packages returns, for each name, the
@@ -289,7 +339,7 @@ async fn a2_package_read_pairs_each_name_with_its_distributions() {
     .expect("an answer");
     let image = ImageRef {
         id: ImageId(FAKE_ID.to_owned()), // BORROW: the reference owns the id
-        cc_version: None,
+        harness_version: None,
     };
 
     let read = rig

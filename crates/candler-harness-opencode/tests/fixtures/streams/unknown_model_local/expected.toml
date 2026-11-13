@@ -1,0 +1,8 @@
+# Written by hand from stdout.jsonl, exit.toml and export.json of this case.
+session_id = "ses_e32c577b9ffeoJgn99GZuaL4R2"      # first stdout line carries it; the export's info.id is the same
+session_id_first_event = "error"
+export_outcome = "failed"             # info.outcome, and the outcome of the closing 'idle' message
+exit_status = 1
+event_kinds = ["error"]
+terminal_event = { type = "error", error_type = "provider.no-route", message = "Model unavailable: fake/zzz-not-configured" }
+assistant_message_in_export = false     # the request never started

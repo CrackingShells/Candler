@@ -1,0 +1,9 @@
+# Written by hand from stdout.jsonl, exit.toml and export.json of this case.
+session_id = "ses_e32c17b4fffe2bjBVM2E3xAaLZ"      # first stdout line carries it; the export's info.id is the same
+session_id_first_event = "step_start"
+export_outcome = "interrupted"             # info.outcome, and the outcome of the closing 'idle' message
+exit_status = 1
+event_kinds = ["step_start", "text", "tool_use", "step_finish", "error"]
+step_finish_reasons = ["error"]
+tool_calls = [{ id = "toolu_fake_oc", tool = "shell", status = "error" }]     # error = "Tool execution interrupted"
+terminal_event = { type = "error", error_type = "aborted", message = "Session interrupted: user" }

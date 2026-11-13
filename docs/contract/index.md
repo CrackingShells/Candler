@@ -1,6 +1,6 @@
 # Contract pages
 
-One page per surface an author writes or a plug-in speaks. Each page holds the sections Surface, Version, Fields, Refusals and Notes, in that order. Version and Fields are generated from the committed schema files in `crates/candler-schemas/schema/`.
+One page per surface an author writes or a plug-in speaks. Each page holds the sections Surface, Version, Fields, Refusals and Notes, in that order. Version and Fields are generated from the committed schema files in `crates/candler-schemas/schema/`; the two harness pages are generated from the driver traits and the registered drivers.
 
 ## Pages
 
@@ -12,9 +12,8 @@ One page per surface an author writes or a plug-in speaks. Each page holds the s
 | [outcome-record.md](outcome-record.md) | Outcome record | evaluator plug-in; Candler fills the rest | none |
 | [experiment-file.md](experiment-file.md) | Experiment file | experimenter | `experiment/1` |
 | [evaluator-helper.md](evaluator-helper.md) | Evaluator helper | evaluator kind author | none |
-| [driver-traits.md](driver-traits.md) | Driver traits | driver author, by hand | none |
-
-`driver-traits.md` is written by hand and is not generated.
+| [driver-traits.md](driver-traits.md) | Driver traits | driver author | none |
+| [harness-capabilities.md](harness-capabilities.md) | Harness capabilities | experimenter, reading | none |
 
 ## Field classes
 
@@ -95,6 +94,11 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `evaluation.suite_changed` | The suite file of an evaluate job changed between the launcher reading it and the supervisor running the job, so the job refuses to grade with another suite. | - | suite |
 | `evaluation.suite_unreadable` | The suite file the caller named does not exist or cannot be read. | - | config |
 | `evaluation.workspace_unusable` | The workspace directory is relative, not valid UTF-8, inside the store or above it. | - | config |
+| `harness.inventory_empty_name` | The tool inventory a harness or the gateway observed holds an empty tool name. | - | environment |
+| `harness.inventory_malformed` | The tool inventory a harness or the gateway observed is not a list of names. | - | environment |
+| `harness.inventory_unrecorded` | A gateway or collected census source saw no tool, so the inventory is unrecorded rather than empty. | - | environment |
+| `harness.server_list_malformed` | The MCP server list a harness observed is not a list. | - | environment |
+| `harness.session_record_unreadable` | A session record that the harness wrote, such as a hook payload or a stream event, cannot be read by the driver's tracker. | - | environment |
 | `harness.version_unreadable` | The output of the harness version probe names no version. | - | environment |
 | `import.file_unreadable` | A file or directory of the legacy results folder cannot be read. | - | environment |
 | `import.grading_repeated` | A grading file of a run is in two evaluation directories. | - | environment |
@@ -112,7 +116,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `import.unreadable_path` | The path given to `ingest` cannot be read. | - | environment |
 | `import.value_invalid` | A value found in the legacy results folder has the wrong form for what it names, such as a run name that is not a run key. | - | environment |
 | `import.verdict_unknown` | A verdict in the legacy results folder is not `clean`, `incomplete` or `contaminated`. | - | environment |
-| `isolation.claude_version_unreadable` | The version output of Claude Code in the image names no version. | - | environment |
+| `isolation.claude_version_unreadable` | Retired, no refusal emits it: replaced by `isolation.harness_version_unreadable`. | - | environment |
 | `isolation.docker_failed` | Docker exited with an error. | - | environment |
 | `isolation.docker_resource_missing` | Docker has no such container, network or image. | - | environment |
 | `isolation.docker_step_failed` | Docker failed while the run was being placed in a container. | - | environment |
@@ -130,8 +134,9 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `isolation.gateway_upstream_error` | The upstream answered with an error status other than 401 and 429. | - | environment |
 | `isolation.guard_docker_failed` | Docker failed under the container guard; nothing was destroyed after that call. | - | environment |
 | `isolation.guard_job_unreadable` | The job directory could not be read, so the guard could not tell what is recorded. | - | environment |
+| `isolation.harness_version_unreadable` | The version output of the harness in the image names no version. | - | environment |
 | `isolation.image_build_failed` | An image build failed. | - | environment |
-| `isolation.image_label_mismatch` | The binary in the image and the image's label name different Claude Code versions. | - | environment |
+| `isolation.image_label_mismatch` | The binary in the image and the image's label name different versions of the harness. | - | environment |
 | `isolation.image_lock_mismatch` | The lock bytes do not have the digest the caller named. | - | environment |
 | `isolation.image_service_unavailable` | The image service is not available. | - | environment |
 | `isolation.mount_docker_socket` | A mount source names the docker socket or sits under a run directory. | - | config |
@@ -156,6 +161,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `jobs.job_not_found` | No directory of the store holds the job whose id was given. | - | config |
 | `jobs.job_unreadable` | The files of a job's directory cannot be read. | - | environment |
 | `jobs.recovery_store_failed` | The store could not be read or written while a lost job was recovered. | - | environment |
+| `jobs.session_controls_failed` | A session control (C1: the agent must wait for a background job; C2: the agent must stop once it has answered) did not pass for the harness version in the base image, or could not run, so session mode is refused for that harness version. No model's behaviour causes this. | - | environment |
 | `jobs.slot_io_failed` | A file system call on the slots directory failed, such as opening or locking a slot file. | - | environment |
 | `jobs.supervisor_did_not_start` | The detached supervisor did not take the job's lock by the deadline, or exited first; its log says why. | - | environment |
 | `jobs.supervisor_spawn_failed` | The supervisor process could not be started or given the job's spec. | - | environment |
@@ -169,8 +175,8 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `runner.catalog_command_failed` | The command that prints the tool catalog exited non-zero or was ended by a signal. | - | environment |
 | `runner.catalog_timeout` | The command that prints the tool catalog overran its time. | - | environment |
 | `runner.catalog_unreadable` | The output of the catalog command is not a tool catalog. | - | environment |
-| `runner.census_malformed` | The init frame lacks a list the census needs, or the list holds an entry of the wrong kind. | - | environment |
-| `runner.census_no_init` | The first session of a run has no init frame, so Claude Code did not run usably. | - | environment |
+| `runner.census_malformed` | The tool inventory lacks a list the census needs, or the list holds an entry of the wrong kind. | - | environment |
+| `runner.census_no_init` | The harness reported no tool inventory, so it did not run usably. | - | environment |
 | `runner.experiment_locked` | Another supervisor holds the experiment, or a job that owns an unfinished attempt is alive. | - | environment |
 | `runner.fact_changed` | A fact re-checked now differs from the stored cell and the plan was not forced; `--force` accepts the difference. | - | environment |
 | `runner.stored_cell_unknown` | A past experiment has stored cells that no cell of this experiment answers, so it cannot be replayed. | - | experiment |

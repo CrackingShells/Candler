@@ -5,6 +5,7 @@
 //! cap is crossed, and destroys what it made through the container guard on every path.
 
 pub mod caps;
+pub mod controls;
 pub mod schedule;
 pub mod session;
 pub mod teardown;
@@ -17,7 +18,8 @@ use futures::future::BoxFuture;
 
 use self::schedule::Scheduler;
 use self::session::{
-    DockerHost, EnvSecrets, JobHost, JobSession, cells_of, image_of, record_packages,
+    DockerHost, EnvSecrets, JobHost, JobSession, OrchestrateError, cells_of, image_of,
+    record_packages,
 };
 use crate::isolation::model::{ImageId, ImageRef, SweepScope};
 use crate::jobs::model::{JobControl, JobOutcome, JobSpec};
@@ -26,7 +28,7 @@ use crate::runner::{JobMeter, Runtime};
 
 /// Runs the runs of `spec` under `rt` on the machine's docker and says how the job ended.
 pub fn orchestrate(rt: Runtime, spec: JobSpec, ctl: JobControl) -> BoxFuture<'static, JobOutcome> {
-    orchestrate_with(rt, spec, ctl, Arc::new(DockerHost))
+    orchestrate_with(rt, spec, ctl, Arc::new(DockerHost::default()))
 }
 
 /// Runs the runs of `spec` under `rt` on `host` and says how the job ended.
@@ -58,6 +60,48 @@ fn refused(what: &str, error: &impl std::fmt::Display) -> JobOutcome {
     failed()
 }
 
+/// Runs the session controls once when a cell of the job is a session, and gives each session
+/// cell the record it relies on. A job without a session cell never reads or runs a control.
+///
+/// # Errors
+/// [`OrchestrateError::Controls`] when the controls do not pass or cannot run.
+pub async fn gate_controls(
+    rt: &mut Runtime,
+    spec: &JobSpec,
+    // TRAIT_OBJECT: the host is the process's own host, or a fake in tests
+    host: &dyn JobHost,
+    ctl: &JobControl,
+) -> Result<(), OrchestrateError> {
+    if !rt
+        .cells
+        .values()
+        .any(|cell| controls::is_session(&cell.comparable))
+    {
+        return Ok(());
+    }
+    let runner = host
+        .controls()
+        .map_err(|reason| OrchestrateError::Controls {
+            harness: "the harness".to_owned(), // BORROW: the error owns its text
+            control: "setup".to_owned(),       // BORROW: the error owns its text
+            reason,
+        })?;
+    let control = controls::ensure(rt, spec, &*runner, ctl).await?;
+    let cells = std::mem::take(&mut rt.cells);
+    rt.cells = cells
+        .into_iter()
+        .map(|(id, cell)| {
+            if controls::is_session(&cell.comparable) {
+                // BORROW: the session cell is rebuilt with the record it relies on
+                (id, Arc::new((*cell).clone().with_control(control.clone())))
+            } else {
+                (id, cell)
+            }
+        })
+        .collect();
+    Ok(())
+}
+
 /// Plans, opens the session, runs the plans and closes the session.
 async fn run_job(
     mut rt: Runtime,
@@ -75,6 +119,7 @@ async fn run_job(
         store: rt.store.clone(), // BORROW: the context owns its handle on the store
         experiment_lock: rt.store.layout().experiment_lock(&fresh),
         secrets_present: secrets.present(),
+        driver: Some(Arc::clone(&rt.driver)),
     };
     let force = if spec.force { Force::Yes } else { Force::No };
     let outcome = match plan_runs(
@@ -101,7 +146,7 @@ async fn run_job(
             // BORROW: the image reference owns the id it names
             let image = ImageRef {
                 id: ImageId(id.clone()),
-                cc_version: None,
+                harness_version: None,
             };
             if let Some(readings) = host.packages(&rt, &image, &names).await {
                 packages.insert(id, readings);
@@ -113,6 +158,9 @@ async fn run_job(
         Err(error) => return refused("the cells cannot be built", &error),
     };
     rt.cells = cells;
+    if let Err(error) = gate_controls(&mut rt, &spec, &*host, &ctl).await {
+        return refused("session mode is refused", &error);
+    }
     let session =
         match JobSession::open(&mut rt, &spec, &outcome.experiment, &*host, &secrets).await {
             Ok(session) => session,

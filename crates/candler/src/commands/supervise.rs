@@ -8,27 +8,25 @@
 
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use candler_core::jobs::dir::JobDir;
-use candler_core::jobs::model::{JobBody, JobSpec, JobSpecFile};
-use candler_core::jobs::orchestrate::orchestrate;
+use candler_core::jobs::model::{JobBody, JobControl, JobOutcome, JobSpec, JobSpecFile};
+use candler_core::jobs::orchestrate::controls::ControlContexts;
+use candler_core::jobs::orchestrate::orchestrate_with;
+use candler_core::jobs::orchestrate::session::DockerHost;
 use candler_core::jobs::runtime::evaluate::{EvaluateEntry, supervise_evaluate};
 use candler_core::jobs::runtime::launch::{own_identity, spec_digest};
 use candler_core::jobs::runtime::session::read_spec;
 use candler_core::jobs::runtime::{JobEntry, JobServices, RuntimeError, supervise_entry};
+use candler_core::runner::Runtime;
 use candler_core::runner::evidence::provenance::EvalInfra;
-use candler_core::runner::exec::SkillTree;
 use candler_core::store::Store;
-use candler_harness::driver::{DriverError, HarnessDriver};
-use candler_harness::spec::{CommandSpec, PreparedFile};
-use candler_harness_claude_code::driver::ClaudeCodeDriver;
-use candler_harness_claude_code::prepare::{skill_archive_command, skill_files};
-use candler_schemas::execution::TreatmentRef;
 use candler_schemas::primitives::JobId;
 
+use super::preflight::asset_paths;
 use super::run::STORE_ENV;
 use super::{CliError, Exit, common};
+use crate::drivers::Registry;
 
 /// The build identity's reader, shared with `build.rs` and its guard. The build side of the file
 /// is not used here.
@@ -59,27 +57,6 @@ fn eval_infra() -> EvalInfra {
         commits_ahead: recorded.commits_ahead,
         commit: recorded.commit,
         dirty: recorded.dirty,
-    }
-}
-
-/// The skill tree of Claude Code: the harness's crate reads the archive of a treatment.
-struct ClaudeSkills;
-
-impl SkillTree for ClaudeSkills {
-    fn archive_command(
-        &self,
-        treatment: &TreatmentRef,
-        source: &Path,
-    ) -> Result<CommandSpec, DriverError> {
-        skill_archive_command(treatment, source)
-    }
-
-    fn files(
-        &self,
-        treatment: &TreatmentRef,
-        archive: &[u8],
-    ) -> Result<Vec<PreparedFile>, DriverError> {
-        skill_files(treatment, archive)
     }
 }
 
@@ -144,23 +121,68 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     }
 }
 
-/// Runs a run job through the orchestration, with the Claude Code driver.
+/// The name of the harness of the job's cells: the `harness` value of its resolution.
+fn harness_of(spec: &JobSpec) -> Result<String, CliError> {
+    spec.resolution
+        .values
+        .iter()
+        .find(|value| value.path().as_str() == "harness") // BORROW: explicit .as_str()
+        .and_then(|value| value.value())
+        .and_then(|value| value.as_value().get("name"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned) // BORROW: the caller owns the name
+        .ok_or_else(|| CliError::refused("the job's resolution names no harness"))
+}
+
+/// The build contexts the session controls of the job's harness need, or why they cannot be had.
+fn control_contexts(rt: &Runtime, spec: &JobSpec) -> Result<ControlContexts, String> {
+    let name = harness_of(spec).map_err(|e| e.to_string())?;
+    let entry = Registry::builtin()
+        .map_err(|e| e.to_string())?
+        .entry(&name)
+        .map_err(|e| e.to_string())?;
+    let assets =
+        asset_paths(rt.store.layout().root(), entry.base_context).map_err(|e| e.to_string())?;
+    Ok(ControlContexts {
+        base: assets.images.base_context,
+        fakemodel: assets.fakemodel,
+    })
+}
+
+/// The orchestration of a run job on this machine's docker, with the build contexts the session
+/// controls need. A machine whose contexts cannot be had gets a host without controls, which
+/// refuses a job that has a session cell and says why.
+fn orchestrate_here(
+    rt: Runtime,
+    spec: JobSpec,
+    ctl: JobControl,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = JobOutcome> + Send>> {
+    // TRAIT_OBJECT: the job body is a boxed future, as `JobBody` declares
+    let contexts = control_contexts(&rt, &spec);
+    let host = match contexts {
+        Ok(contexts) => DockerHost::with_controls(contexts),
+        Err(why) => DockerHost::without_controls(&why),
+    };
+    orchestrate_with(rt, spec, ctl, std::sync::Arc::new(host))
+}
+
+/// Runs a run job through the orchestration, with the driver and skill layout of the harness its
+/// cells name.
 async fn run_job(store: Store, job: JobId, spec: JobSpec) -> Result<Exit, CliError> {
-    // TRAIT_OBJECT: the driver is the harness's, handed to the job as the trait it implements
-    let driver: Arc<dyn HarnessDriver> = Arc::new(ClaudeCodeDriver::new().map_err(failed)?);
-    // TRAIT_OBJECT: the skill tree is the harness's, handed to the job as the trait it implements
-    let skills: Arc<dyn SkillTree> = Arc::new(ClaudeSkills);
+    let harness = Registry::builtin()
+        .map_err(failed)?
+        .entry(&harness_of(&spec)?)?;
     let entry = JobEntry {
         store,
         job,
         spec,
         services: JobServices {
-            driver,
-            skills,
+            driver: harness.driver,
+            skills: harness.skills,
             eval_infra: eval_infra(),
         },
     };
-    let body: JobBody = orchestrate;
+    let body: JobBody = orchestrate_here;
     supervise_entry(entry, body).await.map_err(failed)?;
     Ok(Exit::Success)
 }

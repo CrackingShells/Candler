@@ -4,6 +4,7 @@ use std::io::Read as _;
 use std::path::Path;
 
 use candler_harness::reader::TraceReader;
+use candler_harness::spec::Framing;
 use candler_schemas::primitives::RunKey;
 use candler_schemas::raw::{Clock, StreamName};
 use candler_schemas::trace::{EventKind, TraceFile, UsageScope};
@@ -12,7 +13,7 @@ use flate2::read::MultiGzDecoder;
 use super::ImportError;
 use super::legacy::TOKEN_COUNTERS;
 use super::read::{JsonFile, LegacyRun, SourceFile};
-use crate::frames::{FrameMode, FrameWriter, RawFileInfo};
+use crate::frames::{FrameWriter, RawFileInfo};
 
 /// Makes a fresh trace reader for one stream; the caller of the import supplies it.
 // TRAIT_OBJECT: the caller of the import supplies readers of unknown concrete type
@@ -92,7 +93,7 @@ fn frame_one(
         .map_err(|e| io_error(file, &e))?;
     // BORROW: .clone() gives the header its own copy of the legacy file's digest
     let source = Some(file.sha256.clone());
-    let mut writer = FrameWriter::create(dir, name, FrameMode::Lines, Clock::Unrecorded, source)
+    let mut writer = FrameWriter::create(dir, name, Framing::Lines, Clock::Unrecorded, source)
         .map_err(|e| io_error(file, &e))?;
     writer.write(bytes, None).map_err(|e| io_error(file, &e))?;
     writer.finish().map_err(|e| io_error(file, &e))

@@ -87,22 +87,18 @@ fn stream_lines() -> Vec<String> {
         .collect()
 }
 
-/// The census of `lines` read through the Claude Code reader.
+/// The census of `lines` read through the Claude Code reader: the inventory the reader observed.
 fn census_of(lines: &[String]) -> Vec<MeasuredValue> {
     let mut reader = ClaudeCodeReader::new().expect("the reader");
-    let mut events = Vec::new();
     for (index, line) in lines.iter().enumerate() {
         let frame = RawFrame::new(None, FrameData::from_bytes(line.as_bytes()));
         let at = u64::try_from(index).expect("a frame index");
         let raw_ref = RawRef::new("agent_stream.jsonl".parse().expect("a stream name"), at);
-        events.extend(
-            reader
-                .feed(FrameIn::new(raw_ref, None, &frame))
-                .expect("the frame reads"),
-        );
+        reader
+            .feed(FrameIn::new(raw_ref, None, &frame))
+            .expect("the frame reads");
     }
-    let sessions = Box::new(reader).finish().expect("sessions");
-    census(sessions.as_slice(), events.as_slice()).expect("a census") // BORROW: explicit .as_slice()
+    census(reader.observed().init.as_ref()).expect("a census")
 }
 
 fn value_at(values: &[MeasuredValue], path: &str) -> Value {

@@ -77,15 +77,18 @@ Wire line: `schemas@0.7.0`.
 | `experiment.path_overlap` | Two paths set by the fixed values and the factors are the same, or one lies below the other. | - | experiment |
 | `experiment.reserved_root_misused` | A value at a reserved root is not the root alone, or has no value. | - | experiment |
 | `experiment.reserved_value_malformed` | The value of a reserved root is not the shape the root takes. | - | experiment |
+| `experiment.session_refused` | A cell's session settings are refused: `runner.mode` is not `headless` or `session`, `runner.idle_s` is not whole seconds or `none`, `runner.idle_s` is set on a cell that is not a session, or the harness's driver cannot run a session. | - | experiment |
 | `experiment.setting_absolute_path` | A setting holds an absolute path where a path relative to the project is required. | - | experiment |
 | `experiment.setting_as_factor` | A factor varies a setting, which no cell can vary; the setting belongs in `[fixed]`. | The `factors` array of the experiment file; a verb that has read the file narrows it to the `path` of the factor. | experiment |
 | `experiment.setting_missing` | A setting the harness needs has no value in the cell. | - | experiment |
 | `experiment.setting_under_reserved_root` | A setting is written below a reserved root, which takes one value. | - | experiment |
+| `experiment.setting_unsupported` | The experiment sets a setting that the harness has no way to honour, such as a turn cap for a harness with no turn limit; the run is refused rather than the setting dropped. | The setting in the experiment file: a field under `/budget`, or the key of `[fixed]` that holds it, such as `/fixed/model.effort`. | experiment |
 | `experiment.setting_value_invalid` | A setting holds a value that has the wrong form for what it names, such as a name with a space. | - | experiment |
 | `experiment.setting_wrong_type` | A setting holds a JSON value of a type its path does not take. | - | experiment |
 | `experiment.table_empty` | A table among the fixed values or the levels holds no value, so it fills no path. | - | experiment |
 | `experiment.toml_invalid` | The experiment file is not valid TOML. | - | experiment |
 | `experiment.unknown_field` | The experiment file holds a key its type does not have, such as a misspelt option. | The unknown key itself. | experiment |
+| `experiment.unknown_harness` | `request.harness`, written as `name` under `[harness]` or given to `--set`, names a harness that is not registered in this binary; the refusal lists the registered names. | - | experiment |
 | `experiment.unknown_path` | A dotted path under `[fixed]`, in a factor or in `--set` is none that the experiment surface has, such as a misspelt `model.idd`. | The key under `/fixed`, the `path` of the factor, or the key of the level's table that holds the path; none for `--set`. | experiment |
 | `experiment.unknown_request_key` | `--set` names a key under `request` that is none of the request settings, such as a misspelt `request.harnes`. | - | experiment |
 | `experiment.value_invalid` | A value of an experiment record has the wrong form for what it names, such as a name with a space. | - | experiment |
@@ -105,7 +108,7 @@ Wire line: `schemas@0.7.0`.
 
 ## Notes
 
-- The document has no `free` fields. An unknown key outside `[fixed]` and the `levels` of a factor is `experiment.unknown_field`; a key under `[fixed]` or in a level table that is no setting path is `experiment.unknown_path`. [checked: v@0.6.0]
-- A TOML date or time among the values is refused with `experiment.value_unrepresentable`. [checked: v@0.6.0]
-- A name, secret name or `schema` marker of the wrong form, a factor with no level, a `replicates`, `wall_s` or cost cap of 0, an absolute `inputs[].at`, a repeated input kind, an integer out of range and overlapping paths print `experiment.document_invalid`, never `format.*`. [checked: v@0.6.0]
-- `canonical.integer_out_of_range` and `values.null` print only for a value given with `--set`. [checked: v@0.6.0]
+- The document has no `free` fields. An unknown key outside `[fixed]` and the `levels` of a factor is `experiment.unknown_field`; a key under `[fixed]` or in a level table that is no setting path is `experiment.unknown_path`. [checked: v@0.7.0]
+- A TOML date or time among the values is refused with `experiment.value_unrepresentable`. [checked: v@0.7.0]
+- A name, secret name or `schema` marker of the wrong form, a factor with no level, a `replicates`, `wall_s` or cost cap of 0, an absolute `inputs[].at`, a repeated input kind, an integer out of range and overlapping paths print `experiment.document_invalid`, never `format.*`. [checked: v@0.7.0]
+- `canonical.integer_out_of_range` and `values.null` print only for a value given with `--set`. [checked: v@0.7.0]

@@ -1,5 +1,5 @@
-//! The container assets the binary carries: the build contexts of the base, env, gateway and
-//! test-agent images, embedded at compile time and written once, under a directory named by their
+//! The container assets the binary carries: the build contexts of the base, env, fake-model,
+//! gateway and test-agent images, embedded at compile time and written once, under a directory named by their
 //! digest, below the store root. The binary runs from any directory, and the image tags, which
 //! follow the content of a context, do not move with the path it is written to.
 
@@ -11,7 +11,11 @@ use candler_schemas::primitives::Digest;
 use super::CliError;
 
 /// Every file of `assets/docker`, by its path below that directory, in path order.
-pub(crate) const ASSETS: [(&str, &[u8]); 11] = [
+pub(crate) const ASSETS: [(&str, &[u8]); 14] = [
+    (
+        "base-opencode/Dockerfile",
+        include_bytes!("../../../../assets/docker/base-opencode/Dockerfile"),
+    ),
     (
         "base/.dockerignore",
         include_bytes!("../../../../assets/docker/base/.dockerignore"),
@@ -27,6 +31,14 @@ pub(crate) const ASSETS: [(&str, &[u8]); 11] = [
     (
         "env/Dockerfile",
         include_bytes!("../../../../assets/docker/env/Dockerfile"),
+    ),
+    (
+        "fakemodel/Dockerfile",
+        include_bytes!("../../../../assets/docker/fakemodel/Dockerfile"),
+    ),
+    (
+        "fakemodel/fakemodel.py",
+        include_bytes!("../../../../assets/docker/fakemodel/fakemodel.py"),
     ),
     (
         "gateway/.dockerignore",

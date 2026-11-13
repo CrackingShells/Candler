@@ -1,0 +1,146 @@
+{
+  "info": {
+    "id": "ses_e32c3735effeWwyJD6JU8Pywnx",
+    "projectID": "bc7447dce6aa45fd13129230dddc6abeb62cb974",
+    "model": {
+      "id": "o1",
+      "providerID": "fake",
+      "variant": "default"
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 300,
+      "output": 60,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "outcome": "succeeded",
+    "time": {
+      "created": 1794444660066,
+      "updated": 1794444660390,
+      "busy": 1794444660226,
+      "idle": 1794444660392
+    },
+    "title": "done: the tool finished.",
+    "location": {
+      "directory": "/work"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_1cd3c8d6d001KBxxEZ6sgLHwri",
+      "time": {
+        "created": 1794444660244
+      },
+      "text": "Run the scripted command.",
+      "files": [],
+      "type": "user"
+    },
+    {
+      "id": "msg_1cd3c8e27001RnhlEqrcKAlomW",
+      "time": {
+        "created": 1794444660271,
+        "streamed": 1794444660324,
+        "completed": 1794444660333
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "o1",
+        "providerID": "fake",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "I will run a command."
+        },
+        {
+          "type": "tool",
+          "id": "toolu_fake_oc",
+          "name": "shell",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "echo hello-from-tool > /work/o1.txt && cat /work/o1.txt",
+              "description": "scripted tool call"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "hello-from-tool\n"
+              }
+            ],
+            "metadata": {
+              "status": "completed",
+              "truncated": false,
+              "exit": 0
+            }
+          },
+          "time": {
+            "created": 1794444660297,
+            "ran": 1794444660319,
+            "completed": 1794444660332
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0,
+      "tokens": {
+        "input": 100,
+        "output": 20,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_1cd3c8e72001i5yThIjgPP02T3",
+      "time": {
+        "created": 1794444660340,
+        "streamed": 1794444660389,
+        "completed": 1794444660390
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "o1",
+        "providerID": "fake",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "done: the tool finished."
+        }
+      ],
+      "finish": "stop",
+      "rawFinish": "end_turn",
+      "cost": 0,
+      "tokens": {
+        "input": 100,
+        "output": 20,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_1cd3c8ea8002dLQ356DM9P1duK",
+      "time": {
+        "created": 1794444660392
+      },
+      "type": "idle",
+      "outcome": "succeeded"
+    }
+  ]
+}

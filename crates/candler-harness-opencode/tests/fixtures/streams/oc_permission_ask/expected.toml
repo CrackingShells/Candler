@@ -1,0 +1,10 @@
+# Written by hand from stdout.jsonl and export.json of this case.
+session_id = "ses_e3225b072ffeBB0GsQVhe9bCtU"
+session_id_first_event = "step_start"
+export_outcome = "succeeded"
+exit_status = 0
+event_kinds = ["step_start", "text", "tool_use", "step_finish", "step_start", "text", "step_finish"]
+step_finish_reasons = ["tool-calls", "stop"]
+tool_calls = [{ id = "toolu_fake_oc", tool = "shell", status = "error" }]
+tool_error_type = "permission.rejected"
+tool_error_message = "This non-interactive run cannot ask the user for permission, so the request was rejected. Continue without this action."

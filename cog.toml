@@ -8,7 +8,7 @@ scopes = [
     # Execution
     "experiment", "orchestrator", "runner", "isolation", "injection", "census", "catalog",
     # Ingestion
-    "trace-model", "adapter-claude-code", "importer",
+    "trace-model", "adapter-claude-code", "adapter-opencode", "importer",
     # Storage
     "run-store", "manifest", "outcome-store",
     # Evaluation

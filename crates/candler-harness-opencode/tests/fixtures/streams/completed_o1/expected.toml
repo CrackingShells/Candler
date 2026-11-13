@@ -1,0 +1,9 @@
+# Written by hand from stdout.jsonl, exit.toml and export.json of this case.
+session_id = "ses_e32c3735effeWwyJD6JU8Pywnx"      # first stdout line carries it; the export's info.id is the same
+session_id_first_event = "step_start"
+export_outcome = "succeeded"             # info.outcome, and the outcome of the closing 'idle' message
+exit_status = 0
+event_kinds = ["step_start", "text", "tool_use", "step_finish", "step_start", "text", "step_finish"]
+step_finish_reasons = ["tool-calls", "stop"]
+tool_calls = [{ id = "toolu_fake_oc", tool = "shell", status = "completed" }]
+tool_use_event_arrives = "after the call completed (state.status = completed)"

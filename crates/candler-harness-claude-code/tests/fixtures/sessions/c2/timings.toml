@@ -1,0 +1,33 @@
+# Host-side timings of one recorded session, in milliseconds since the host spawned `docker run`.
+# Host clock (time_ns at each read); hook and job times are the container's clock minus clock_skew_ms.
+[run]
+clock_skew_ms = -0.829   # container clock minus host clock, from a ping-pong over the bind mount
+stdin_prompt_ms = 1.72
+stdin_close_ms = 3068.38
+exit_ms = 3218.27
+exit_code = 0
+
+[[stdout]]
+line = 1
+t_ms = 874.95
+kind = "system/init"
+
+[[stdout]]
+line = 2
+t_ms = 1003.57
+kind = "assistant"
+
+[[stdout]]
+line = 3
+t_ms = 1062.01
+kind = "result/success"
+
+[[hook]]
+event = "Stop"
+written_ms = 1015.14
+seen_ms = 1018.81
+
+[[hook]]
+event = "SessionEnd"
+written_ms = 3087.94
+seen_ms = 3089.32

@@ -236,6 +236,8 @@ struct CodeRow {
     side: String,
     enum_name: String,
     variant: String,
+    /// The code that replaces this one, on a retired row.
+    retired: Option<String>,
 }
 
 /// The rows of every section that holds codes.
@@ -253,6 +255,9 @@ fn code_rows(table: &toml::Table) -> Vec<CodeRow> {
                 side: field("side"),
                 enum_name: field("enum"),
                 variant: field("variant"),
+                retired: row
+                    .get("retired")
+                    .map(|code| code.as_str().unwrap().to_owned()),
             });
         }
     }
@@ -438,10 +443,14 @@ fn r1_every_error_enum_is_coded_or_internal() {
 /// no code, every row of this leaf's sections is in the catalogue, codes are unique and have the
 /// form `^[a-z]+(\.[a-z_]+)+$`, and each row says when it arises and what its path points at.
 ///
+/// A retired row names a live replacement for the same variant and side, only live rows must
+/// be raised by a variant, and no refusal table emits a retired code.
+///
 /// Oracle: `docs/contract/codes.toml`, which is read and never generated from the code.
 ///
 /// Bite: a code of the catalogue that `codes.toml` lacks; a variant whose side differs from its
-/// row; a row of `codes.toml` that no variant raises.
+/// row; a row of `codes.toml` that no variant raises; the variant of a retired code pointed back
+/// at it.
 #[test]
 fn r1_every_variant_code_equals_its_row() {
     let table = codes();
@@ -458,9 +467,29 @@ fn r1_every_variant_code_equals_its_row() {
         "a code is written twice in codes.toml"
     );
 
+    let live: Vec<&CodeRow> = rows.iter().filter(|row| row.retired.is_none()).collect();
+    for row in rows.iter().filter(|row| row.retired.is_some()) {
+        let replacement = row.retired.as_deref().unwrap_or_default();
+        let named = live.iter().find(|live| live.code == replacement);
+        assert!(
+            named.is_some_and(|live| live.enum_name == row.enum_name
+                && live.variant == row.variant
+                && live.side == row.side),
+            "{} is retired for `{replacement}`, which is no live row of the same variant and side",
+            row.code
+        );
+    }
+
     let mut raised: BTreeSet<&str> = BTreeSet::new();
     for row in &catalogue {
         let who = format!("{}::{}", row.enum_name, row.variant);
+        assert!(
+            by_code
+                .get(row.code)
+                .is_none_or(|registered| registered.retired.is_none()),
+            "{who}: code {} is retired and a refusal still emits it",
+            row.code
+        );
         assert!(
             !row.when.is_empty() && row.when.ends_with('.') && !row.when.contains('\n'),
             "{who}: `when` is one sentence"
@@ -517,7 +546,7 @@ fn r1_every_variant_code_equals_its_row() {
         );
     }
 
-    for row in &rows {
+    for row in live {
         if CATALOGUED_SECTIONS.contains(&row.section.as_str()) {
             assert!(
                 raised.contains(row.code.as_str()),
@@ -711,6 +740,12 @@ fn wrapped_cases() -> Vec<Wrapped> {
         ),
         case(
             "ResolveError",
+            "Session",
+            Box::new(ResolveError::Session(session_refusal())),
+            "experiment.session_refused",
+        ),
+        case(
+            "ResolveError",
             "Format",
             Box::new(ResolveError::Format(format())),
             "resolve.value_invalid",
@@ -787,6 +822,23 @@ fn wrapped_cases() -> Vec<Wrapped> {
             "Command",
             Box::new(DriverError::Command(CommandSpecError::EmptyArgv)),
             "candler.internal",
+        ),
+        case(
+            "PlanError",
+            "Session",
+            Box::new(PlanError::Session(session_refusal())),
+            "experiment.session_refused",
+        ),
+        case(
+            "PlanError",
+            "Driver",
+            Box::new(PlanError::Driver(DriverError::Unsupported {
+                path: "/budget/per_run/turns".to_owned(),
+                harness: "h".to_owned(),
+                version: semver::Version::new(1, 0, 0),
+                detail: "d".to_owned(),
+            })),
+            "experiment.setting_unsupported",
         ),
         case(
             "PlanError",
@@ -957,6 +1009,14 @@ fn wrapped_cases() -> Vec<Wrapped> {
             "import.value_invalid",
         ),
     ]
+}
+
+/// A refusal of a cell's session settings.
+fn session_refusal() -> candler_core::resolve::steps::session::SessionRefusal {
+    candler_core::resolve::steps::session::SessionRefusal::Refused {
+        check: "mode_valid@1".to_owned(),
+        detail: "runner.mode is 1".to_owned(),
+    }
 }
 
 /// Every `(code, side)` pair `codes.toml` registers, with the fallback code and the side

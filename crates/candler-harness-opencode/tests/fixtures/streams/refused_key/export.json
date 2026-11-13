@@ -1,0 +1,82 @@
+{
+  "info": {
+    "id": "ses_e32c54fa8ffeReS3d3QypZ4WwP",
+    "projectID": "bc7447dce6aa45fd13129230dddc6abeb62cb974",
+    "model": {
+      "id": "o1",
+      "providerID": "fake",
+      "variant": "default"
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "outcome": "failed",
+    "time": {
+      "created": 1794444538138,
+      "updated": 1794444538294,
+      "busy": 1794444538254,
+      "idle": 1794444538296
+    },
+    "location": {
+      "directory": "/work"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_1cd3ab124001tIqFrk1pilC1WD",
+      "time": {
+        "created": 1794444538261
+      },
+      "text": "hello",
+      "files": [],
+      "type": "user"
+    },
+    {
+      "id": "msg_1cd3ab19e001CAWwq2eIxPTWf5",
+      "time": {
+        "created": 1794444538273,
+        "completed": 1794444538294
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "o1",
+        "providerID": "fake",
+        "variant": "default"
+      },
+      "content": [],
+      "finish": "error",
+      "error": {
+        "type": "provider.auth",
+        "message": "not the job's token",
+        "status": 401,
+        "response": {
+          "body": "{\"error\":\"not the job's token\"}"
+        }
+      }
+    },
+    {
+      "id": "msg_1cd3ab1b8001CvqAQ6DPkPNNuK",
+      "time": {
+        "created": 1794444538296
+      },
+      "type": "idle",
+      "outcome": "failed",
+      "error": {
+        "type": "provider.auth",
+        "message": "not the job's token",
+        "status": 401,
+        "response": {
+          "body": "{\"error\":\"not the job's token\"}"
+        }
+      }
+    }
+  ]
+}

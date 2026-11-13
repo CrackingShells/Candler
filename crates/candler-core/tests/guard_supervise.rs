@@ -10,7 +10,6 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use candler_core::frames::FrameMode;
 use candler_core::supervise::http::is_loopback;
 use candler_core::supervise::platform::{Liveness, liveness, process_start};
 use candler_core::supervise::reap::ReapRefusal;
@@ -18,6 +17,7 @@ use candler_core::supervise::signal::Signaller;
 use candler_core::supervise::spawn::{OutputSpec, SpawnRequest, SpawnRequestBuilder, StdinSpec};
 use candler_core::supervise::stop::{Ended, StraySweeper};
 use candler_core::supervise::{EventSink, Supervisor};
+use candler_harness::spec::Framing;
 use candler_harness::spec::{Action, CommandSpec, HttpMethod, StopSignal, StopSpec};
 use candler_schemas::execution::{Envelope, EventPayload, StrayProcess};
 use candler_schemas::primitives::{Digest, JobId, Marker, RunKey, Timestamp};
@@ -541,7 +541,7 @@ async fn a_grandchild_holding_the_pipe_does_not_hold_wait() {
                 .stdout(OutputSpec::framed(
                     raw.path().to_path_buf(),
                     "stdout".parse::<StreamName>().expect("a stream name"),
-                    FrameMode::Lines,
+                    Framing::Lines,
                 ))
                 .deadline(Duration::from_millis(1500))
                 .stop(stop_spec(None, 500))
@@ -1485,7 +1485,7 @@ async fn a_failed_spawn_leaves_no_frame_file() {
         OutputSpec::framed(
             raw.path().to_path_buf(),
             "stdout".parse::<StreamName>().expect("a stream name"),
-            FrameMode::Lines,
+            Framing::Lines,
         )
     };
     let names = || -> Vec<String> {

@@ -1,0 +1,23 @@
+[package]
+name = "candler-harness-opencode"
+description = "Candler harness for OpenCode"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+candler-harness.workspace = true
+candler-schemas.workspace = true
+jiff.workspace = true
+semver.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+candler-harness = { workspace = true, features = ["conformance"] }
+
+[lints]
+workspace = true

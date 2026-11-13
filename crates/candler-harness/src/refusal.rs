@@ -9,7 +9,7 @@ use std::error::Error;
 
 use crate::driver::DriverError;
 use crate::reader::ReaderError;
-use crate::spec::CommandSpecError;
+use crate::spec::{CommandSpecError, InitReportError};
 use candler_schemas::refusal::{CatalogRow, Catalogued, Refusal, Side};
 use candler_schemas::refusal_table;
 
@@ -22,10 +22,12 @@ fn no_path<E>(_error: &E) -> Option<String> {
 fn driver_error_path(error: &DriverError) -> Option<String> {
     match error {
         DriverError::Command(inner) => Refusal::path(inner),
+        DriverError::Unsupported { path, .. } => Some(path.clone()), // BORROW: the path owns its text
         DriverError::MissingValue { .. }
         | DriverError::InvalidValue { .. }
         | DriverError::VersionOutput { .. }
-        | DriverError::HarnessName { .. } => None,
+        | DriverError::HarnessName { .. }
+        | DriverError::Record { .. } => None,
     }
 }
 
@@ -43,6 +45,12 @@ refusal_table! {
         "A cell value cannot be used by the harness driver.",
         "-",
     ),
+    Unsupported { .. } => row(
+        "experiment.setting_unsupported",
+        Side::Experiment,
+        "The experiment sets a setting that the harness has no way to honour, such as a turn cap for a harness with no turn limit; the run is refused rather than the setting dropped.",
+        "The setting in the experiment file: a field under `/budget`, or the key of `[fixed]` that holds it, such as `/fixed/model.effort`.",
+    ),
     VersionOutput { .. } => row(
         "harness.version_unreadable",
         Side::Environment,
@@ -56,6 +64,12 @@ refusal_table! {
         "-",
     ),
     Command (inner) => delegate(inner, Side::Candler),
+    Record { .. } => row(
+        "harness.session_record_unreadable",
+        Side::Environment,
+        "A session record that the harness wrote, such as a hook payload or a stream event, cannot be read by the driver's tracker.",
+        "-",
+    ),
 }
 
 refusal_table! {
@@ -100,15 +114,50 @@ refusal_table! {
         "A command sets one environment variable twice.",
         "-",
     ),
+    UnsafeSessionId { .. } => row(
+        "candler.internal",
+        Side::Candler,
+        "A session id holds a character that cannot be written into a command, so the pre-stop is skipped.",
+        "-",
+    ),
+}
+
+refusal_table! {
+    InitReportError, path = no_path;
+    ToolsNotNames { .. } => row(
+        "harness.inventory_malformed",
+        Side::Environment,
+        "The tool inventory a harness or the gateway observed is not a list of names.",
+        "-",
+    ),
+    EmptyToolName { .. } => row(
+        "harness.inventory_empty_name",
+        Side::Environment,
+        "The tool inventory a harness or the gateway observed holds an empty tool name.",
+        "-",
+    ),
+    ServersNotList { .. } => row(
+        "harness.server_list_malformed",
+        Side::Environment,
+        "The MCP server list a harness observed is not a list.",
+        "-",
+    ),
+    NoTools { .. } => row(
+        "harness.inventory_unrecorded",
+        Side::Environment,
+        "A gateway or collected census source saw no tool, so the inventory is unrecorded rather than empty.",
+        "-",
+    ),
 }
 
 /// The rows of every coded error of this module, in the order of the types.
 #[must_use]
 pub fn catalog() -> Vec<CatalogRow> {
-    let tables: [&'static [CatalogRow]; 3] = [
+    let tables: [&'static [CatalogRow]; 4] = [
         <DriverError as Catalogued>::rows(),
         <ReaderError as Catalogued>::rows(),
         <CommandSpecError as Catalogued>::rows(),
+        <InitReportError as Catalogued>::rows(),
     ];
     tables
         .iter()
@@ -131,6 +180,11 @@ pub fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal> {
             error
                 .downcast_ref::<ReaderError>()
                 .map(as_refusal)
-                .or_else(|| error.downcast_ref::<CommandSpecError>().map(as_refusal))
+                .or_else(|| {
+                    error
+                        .downcast_ref::<CommandSpecError>()
+                        .map(as_refusal)
+                        .or_else(|| error.downcast_ref::<InitReportError>().map(as_refusal))
+                })
         })
 }

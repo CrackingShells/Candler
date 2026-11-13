@@ -1,0 +1,27 @@
+{
+  "providers": {
+    "candler": {
+      "package": "aisdk:@ai-sdk/anthropic",
+      "settings": {
+        "baseURL": "{env:CANDLER_GATEWAY_URL}/v1",
+        "apiKey": "{env:CANDLER_GATEWAY_TOKEN}"
+      },
+      "models": {
+        "oc-claude-opus-4-7": {
+          "variants": [
+            {
+              "id": "high",
+              "settings": {
+                "thinking": {
+                  "type": "adaptive",
+                  "display": "summarized"
+                },
+                "effort": "high"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

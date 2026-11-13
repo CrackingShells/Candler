@@ -1,0 +1,30 @@
+{
+  "providers": {
+    "candler": {
+      "models": {
+        "claude-x": {}
+      },
+      "package": "aisdk:@ai-sdk/anthropic",
+      "settings": {
+        "apiKey": "{env:CANDLER_GATEWAY_TOKEN}",
+        "baseURL": "{env:CANDLER_GATEWAY_URL}/v1"
+      }
+    }
+  },
+  "mcp": {
+    "servers": {
+      "loc": {
+        "type": "local",
+        "command": ["uvx", "srv"],
+        "environment": { "K": "v" },
+        "codemode": false
+      },
+      "rem": {
+        "type": "remote",
+        "url": "http://h/mcp",
+        "headers": { "X": "y" },
+        "codemode": true
+      }
+    }
+  }
+}

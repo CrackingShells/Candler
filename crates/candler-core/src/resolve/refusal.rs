@@ -10,6 +10,7 @@ use std::error::Error;
 use crate::refusal::wrapper_table;
 use crate::resolve::config::ConfigError;
 use crate::resolve::preflight::{PreflightError, ResolveError};
+use crate::resolve::steps::session::SessionRefusal;
 use candler_schemas::refusal::{CatalogRow, Catalogued, Refusal, Side, pointer_of};
 use candler_schemas::refusal_table;
 
@@ -34,6 +35,7 @@ fn config_error_path(error: &ConfigError) -> Option<String> {
 fn resolve_error_path(error: &ResolveError) -> Option<String> {
     match error {
         ResolveError::Value(inner) => Refusal::path(inner),
+        ResolveError::Session(inner) => Refusal::path(inner),
         ResolveError::NonUtf8Path { .. }
         | ResolveError::DuplicateStep { .. }
         | ResolveError::DerivedTwice { .. }
@@ -92,6 +94,16 @@ refusal_table! {
     ),
 }
 
+refusal_table! {
+    SessionRefusal, path = no_path;
+    Refused { .. } => row(
+        "experiment.session_refused",
+        Side::Experiment,
+        "A cell's session settings are refused: `runner.mode` is not `headless` or `session`, `runner.idle_s` is not whole seconds or `none`, `runner.idle_s` is set on a cell that is not a session, or the harness's driver cannot run a session.",
+        "-",
+    ),
+}
+
 wrapper_table! {
     ResolveError, path = resolve_error_path;
     NonUtf8Path { .. } => row(
@@ -114,6 +126,7 @@ wrapper_table! {
         "Two preflight steps derive the same path.",
         "-",
     ),
+    Session (inner) => delegate(inner, Side::Experiment),
     Preflight { .. } => row(
         "resolve.preflight_failed",
         Side::Environment,
@@ -125,9 +138,10 @@ wrapper_table! {
 /// The rows of every coded error of this module, in the order of the types.
 #[must_use]
 pub(crate) fn catalog() -> Vec<CatalogRow> {
-    let tables: [&'static [CatalogRow]; 3] = [
+    let tables: [&'static [CatalogRow]; 4] = [
         <ConfigError as Catalogued>::rows(),
         <PreflightError as Catalogued>::rows(),
+        <SessionRefusal as Catalogued>::rows(),
         <ResolveError as Catalogued>::rows(),
     ];
     tables
@@ -150,6 +164,7 @@ fn resolve_answer(error: &ResolveError) -> &dyn Refusal {
         | ResolveError::DuplicateStep { .. }
         | ResolveError::DerivedTwice { .. }
         | ResolveError::Preflight { .. }
+        | ResolveError::Session(..)
         | ResolveError::Format(..) => error,
     }
 }

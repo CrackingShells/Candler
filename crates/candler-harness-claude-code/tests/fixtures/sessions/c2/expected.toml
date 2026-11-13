@@ -1,0 +1,24 @@
+# Written by hand from reading stdout.jsonl and hooks.jsonl: what the recorded c2 session shows.
+# c2 is the must-stop control: one answer, nothing pending. The host closes stdin 2 s after the
+# `result` event.
+
+[session]
+model = "c2"
+claude_code_version = "2.1.311"
+turns = 1
+inits = 1
+exit_code = 0
+session_end_reason = "other"
+
+[[turn]]
+started_by = "stdin_prompt"
+events = ["system/init", "assistant", "result/success"]
+result_num_turns = 1
+result_total_cost_usd = 0.0008
+result_origin = "absent"
+stop_background_tasks = 0
+stop_session_crons = 0
+
+[hooks]
+events = ["Stop", "SessionEnd"]
+stop_hook_active = false

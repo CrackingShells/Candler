@@ -25,6 +25,8 @@ fn no_path<E>(_error: &E) -> Option<String> {
 fn plan_error_path(error: &PlanError) -> Option<String> {
     match error {
         PlanError::Cell { source } => Refusal::path(source),
+        PlanError::Session(inner) => Refusal::path(inner),
+        PlanError::Driver(inner) => Refusal::path(inner),
         PlanError::SettingAsFactor { .. } => Some(pointer_of(["factors"])),
         PlanError::NameCollision { .. }
         | PlanError::ExperimentLocked
@@ -86,6 +88,8 @@ wrapper_table! {
         "The highest attempt number of a replicate is the largest value, so no next attempt exists.",
         "-",
     ),
+    Session (inner) => delegate(inner, Side::Experiment),
+    Driver (inner) => delegate(inner, Side::Experiment),
     SettingAsFactor { .. } => row(
         "experiment.setting_as_factor",
         Side::Experiment,
@@ -161,13 +165,13 @@ refusal_table! {
     NoInit { .. } => row(
         "runner.census_no_init",
         Side::Environment,
-        "The first session of a run has no init frame, so Claude Code did not run usably.",
+        "The harness reported no tool inventory, so it did not run usably.",
         "-",
     ),
     Malformed { .. } => row(
         "runner.census_malformed",
         Side::Environment,
-        "The init frame lacks a list the census needs, or the list holds an entry of the wrong kind.",
+        "The tool inventory lacks a list the census needs, or the list holds an entry of the wrong kind.",
         "-",
     ),
     Value { .. } => row(
@@ -232,6 +236,7 @@ fn exec_answer(error: &ExecError) -> &dyn Refusal {
 fn plan_answer(error: &PlanError) -> &dyn Refusal {
     match error {
         PlanError::Cell { source } => crate::refusal::through(source, error),
+        PlanError::Driver(inner) => crate::refusal::through(inner, error),
         PlanError::NameCollision { .. }
         | PlanError::ExperimentLocked
         | PlanError::Changed(..)
@@ -239,6 +244,7 @@ fn plan_answer(error: &PlanError) -> &dyn Refusal {
         | PlanError::StoredCellAmbiguous { .. }
         | PlanError::AttemptOverflow { .. }
         | PlanError::SettingAsFactor { .. }
+        | PlanError::Session(..)
         | PlanError::Store { .. }
         | PlanError::Lock { .. } => error,
     }

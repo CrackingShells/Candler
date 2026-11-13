@@ -1,0 +1,2 @@
+{"type":"step_start","timestamp":1794444669873,"sessionID":"ses_e32c34da9ffemIrjC81M9RynUL","part":{"id":"prt_1cd3cb3b1001rK0BEnbEesEQkO","sessionID":"ses_e32c34da9ffemIrjC81M9RynUL","messageID":"msg_1cd3cb3a90011UFjpvYxRB3f4C","type":"step-start"}}
+{"type":"text","timestamp":1794444669877,"sessionID":"ses_e32c34da9ffemIrjC81M9RynUL","part":{"id":"prt_1cd3cb3b3001k8i6rVLnkNNe39","sessionID":"ses_e32c34da9ffemIrjC81M9RynUL","messageID":"msg_1cd3cb3a90011UFjpvYxRB3f4C","type":"text","text":"I will run a command.","time":{"start":1794444669875,"end":1794444669877}}}

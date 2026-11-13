@@ -61,6 +61,14 @@ pub struct EndInput {
     input_leak: bool,
     /// The attempt number, from 1.
     attempt: u32,
+    /// Whether the session runner itself stopped the harness: past the grace after it closed the
+    /// input, or at a cap of the cell.
+    session_stop: bool,
+    /// The cap the session runner ended the run at, when it did.
+    session_cap: Option<Cap>,
+    /// Whether a session ended with a turn whose `Stop` hook line was never read: its pending
+    /// state was not known, so the hook channel cannot be told from an agent that never stops.
+    session_hooks_incomplete: bool,
 }
 
 impl EndInput {
@@ -78,6 +86,9 @@ impl EndInput {
             collect_ok: true,
             input_leak: false,
             attempt: 1,
+            session_stop: false,
+            session_cap: None,
+            session_hooks_incomplete: false,
         }
     }
 
@@ -150,6 +161,28 @@ impl EndInput {
         self.attempt = attempt;
         self
     }
+
+    /// Sets whether the session runner stopped the harness itself. That is the arm's own end, not
+    /// the experimenter's: the run is judged as one the harness ended.
+    #[must_use]
+    pub const fn with_session_stop(mut self, stopped: bool) -> Self {
+        self.session_stop = stopped;
+        self
+    }
+
+    /// Sets whether the session ended with a turn whose `Stop` hook line was never read.
+    #[must_use]
+    pub const fn with_session_hooks_incomplete(mut self, incomplete: bool) -> Self {
+        self.session_hooks_incomplete = incomplete;
+        self
+    }
+
+    /// Sets the cap the session runner ended the run at. It implies a stop by the runner.
+    #[must_use]
+    pub const fn with_session_cap(mut self, cap: Option<Cap>) -> Self {
+        self.session_cap = cap;
+        self
+    }
 }
 
 impl Default for EndInput {
@@ -180,6 +213,8 @@ pub struct End {
     pub ended_by: EndedBy,
     /// Whether the run is tried again.
     pub retry: Retry,
+    /// Whether the run is invalid because a session's hook channel did not give the `Stop` line of every ended turn.
+    pub hooks_incomplete: bool,
 }
 
 impl End {
@@ -189,6 +224,7 @@ impl End {
             invalid: None,
             ended_by,
             retry,
+            hooks_incomplete: false,
         }
     }
 
@@ -198,6 +234,7 @@ impl End {
             invalid: Some(reason),
             ended_by,
             retry,
+            hooks_incomplete: false,
         }
     }
 }
@@ -226,6 +263,9 @@ fn qualify(input: &EndInput) -> EndedBy {
     if expired {
         return EndedBy::cap(Cap::Wall);
     }
+    if let Some(cap) = input.session_cap {
+        return EndedBy::cap(cap);
+    }
     match &input.trace {
         TraceFacts::Read { ended_by, .. } => match ended_by {
             EndedBy::Completed | EndedBy::AgentError { .. } | EndedBy::Cap { .. } => {
@@ -248,10 +288,13 @@ fn qualify(input: &EndInput) -> EndedBy {
 ///
 /// 1. our own stop; 2. the daemon's facts; 3. out of memory; 4. a kill by the kernel; 5. a gateway
 ///    signal; 6. an unreadable output; 7. a trace that blames the gateway; 8. a failed collection;
-///    9. an input leak; 10. how the session ended.
+///    9. an input leak; 10. how the session ended. A stop by the session runner (a cap of the
+///    cell, or the grace past a closed input) is the arm's own end: it counts as ours for rules
+///    2 to 4 and ends the run at the cap it names.
 #[must_use]
 pub fn classify_end(input: &EndInput) -> End {
-    let ours = input.stop.is_some() || input.deadline;
+    let ours =
+        input.stop.is_some() || input.deadline || input.session_stop || input.session_cap.is_some();
     match input.stop {
         Some(JobCause::BudgetStop) => {
             return End::invalid(InvalidReason::BudgetStop, EndedBy::BudgetStop, Retry::None);
@@ -318,6 +361,13 @@ pub fn classify_end(input: &EndInput) -> End {
     let ended_by = qualify(input);
     if ended_by == EndedBy::Unknown && !ours {
         return infra(Retry::None);
+    }
+    // A session that hit the wall with an ended turn whose `Stop` line was never read is an
+    // instrument failure, not an agent that never stopped.
+    if input.session_hooks_incomplete && ended_by == EndedBy::cap(Cap::Wall) {
+        let mut end = infra(Retry::None);
+        end.hooks_incomplete = true;
+        return end;
     }
     let retry = if matches!(ended_by, EndedBy::AgentError { .. }) {
         Retry::Never

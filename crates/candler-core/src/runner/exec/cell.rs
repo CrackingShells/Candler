@@ -1,19 +1,16 @@
-//! What `exec_run` is given about a cell, where a treatment's skill tree comes from, and why a
-//! run cannot be executed.
+//! What `exec_run` is given about a cell, and why a run cannot be executed.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use candler_harness::driver::DriverError;
-use candler_harness::spec::{CommandSpec, PreparedFile};
-use candler_schemas::execution::{
-    Comparable, DigestRef, ExecutionError, SecretPresence, TreatmentRef,
-};
+use candler_schemas::execution::{Comparable, DigestRef, ExecutionError, SecretPresence};
 use candler_schemas::primitives::{Digest, FieldPath};
 use candler_schemas::values::SourceEntry;
 
 use crate::isolation::IsolationError;
 use crate::isolation::image::PackageReadings;
 use crate::runner::evidence::Inputs;
+use crate::runner::evidence::session::ControlRef;
 use crate::store::StoreError;
 use crate::supervise::SuperviseError;
 
@@ -42,6 +39,9 @@ pub struct CellRun {
     /// The evaluator-only inputs the cell declares, as `{kind, digest}`: the manifest lists them,
     /// and no run is given their content.
     pub evaluation_inputs: Vec<DigestRef>,
+    /// The record of the session controls the cell's runs rely on; none for a cell that is not a
+    /// session.
+    pub control: Option<ControlRef>,
 }
 
 impl CellRun {
@@ -66,7 +66,15 @@ impl CellRun {
             inputs,
             packages: PackageReadings::new(),
             evaluation_inputs: Vec::new(),
+            control: None,
         }
+    }
+
+    /// The record with the session controls its runs rely on.
+    #[must_use]
+    pub fn with_control(mut self, control: ControlRef) -> Self {
+        self.control = Some(control);
+        self
     }
 
     /// The record with the evaluator-only inputs of its experiment.
@@ -82,31 +90,6 @@ impl CellRun {
         self.packages = packages;
         self
     }
-}
-
-/// Where a treatment's skill tree comes from: the command that archives it, and the files the
-/// archive holds. The harness driver's crate supplies the real one.
-pub trait SkillTree: Send + Sync {
-    /// The command that archives the tree `treatment` pins from `source`.
-    ///
-    /// # Errors
-    /// [`DriverError`] when the treatment pins no tree or the command cannot be built.
-    fn archive_command(
-        &self,
-        treatment: &TreatmentRef,
-        source: &Path,
-    ) -> Result<CommandSpec, DriverError>;
-
-    /// The files of `archive`, the output of the archive command for `treatment`.
-    ///
-    /// # Errors
-    /// [`DriverError`] when the archive cannot be read or holds an entry outside the treatment's
-    /// skill tree.
-    fn files(
-        &self,
-        treatment: &TreatmentRef,
-        archive: &[u8],
-    ) -> Result<Vec<PreparedFile>, DriverError>;
 }
 
 /// Why a run could not be executed. It never means the run was deleted: either no run directory

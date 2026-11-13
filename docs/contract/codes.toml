@@ -13,8 +13,13 @@
 #                     # or candler (never for an author's error)
 #   enum = "..."      # the Rust error enum that raises it
 #   variant = "..."   # the variant of that enum
+#   retired = "..."   # only on a retired code: the code that replaces it
 #
 # A section with no row is written as its bare header.
+#
+# A code that a release carried is never removed. It may be retired: its row stays, with the
+# appended `retired` key naming the code that replaces it. No refusal emits a retired code, and
+# a retired row is not the code of its variant: the replacement is.
 
 [schemas]
 
@@ -480,6 +485,11 @@ side = "environment"
 enum = "ResolveError"
 variant = "Preflight"
 
+[resolve."experiment.session_refused"]
+side = "experiment"
+enum = "SessionRefusal"
+variant = "Refused"
+
 [experiment]
 
 [experiment."experiment.setting_value_invalid"]
@@ -670,6 +680,12 @@ variant = "VersionMismatch"
 side = "environment"
 enum = "ImageError"
 variant = "VersionUnreadable"
+retired = "isolation.harness_version_unreadable"
+
+[isolation."isolation.harness_version_unreadable"]
+side = "environment"
+enum = "ImageError"
+variant = "VersionUnreadable"
 
 [isolation."isolation.guard_docker_failed"]
 side = "environment"
@@ -794,6 +810,36 @@ side = "environment"
 enum = "DriverError"
 variant = "VersionOutput"
 
+[harness."harness.session_record_unreadable"]
+side = "environment"
+enum = "DriverError"
+variant = "Record"
+
+[harness."harness.inventory_malformed"]
+side = "environment"
+enum = "InitReportError"
+variant = "ToolsNotNames"
+
+[harness."harness.inventory_empty_name"]
+side = "environment"
+enum = "InitReportError"
+variant = "EmptyToolName"
+
+[harness."harness.server_list_malformed"]
+side = "environment"
+enum = "InitReportError"
+variant = "ServersNotList"
+
+[harness."harness.inventory_unrecorded"]
+side = "environment"
+enum = "InitReportError"
+variant = "NoTools"
+
+[harness."experiment.setting_unsupported"]
+side = "experiment"
+enum = "DriverError"
+variant = "Unsupported"
+
 [cli]
 
 [cli."config.no_store"]
@@ -810,6 +856,11 @@ variant = "RetiredSetting"
 side = "experiment"
 enum = "CliRefusal"
 variant = "UnknownRequestKey"
+
+[cli."experiment.unknown_harness"]
+side = "experiment"
+enum = "CliRefusal"
+variant = "UnknownHarness"
 
 [cli."experiment.unknown_path"]
 side = "experiment"
@@ -932,6 +983,11 @@ variant = "Treatment"
 side = "config"
 enum = "OrchestrateError"
 variant = "TokenSetting"
+
+[jobs."jobs.session_controls_failed"]
+side = "environment"
+enum = "OrchestrateError"
+variant = "Controls"
 
 [jobs."jobs.docker_unavailable"]
 side = "environment"
@@ -1510,8 +1566,16 @@ reason = "frames and traces are written by Candler's own capture, so a failure t
 enum = "CommandSpecError"
 reason = "the command builder is used by drivers, so its invariants are the driver's to keep, never an input of the author"
 
+[internal."candler_harness::conformance::Failure"]
+enum = "Failure"
+reason = "a failed check of the shared driver suite is a driver author's test result, raised only under the conformance feature, never a refusal of an input"
+
 [internal."candler_harness_claude_code::ClaudeCodeError"]
 enum = "ClaudeCodeError"
+reason = "the reader identity is a constant of the harness, so an invalid one is the harness's fault"
+
+[internal."candler_harness_opencode::OpenCodeError"]
+enum = "OpenCodeError"
 reason = "the reader identity is a constant of the harness, so an invalid one is the harness's fault"
 
 [internal."candler_core::analysis::error::StatsError"]
@@ -1556,6 +1620,10 @@ reason = "the envelope of a verb's failure; the record's code is that of the ref
 enum = "CliError"
 variant = "Runtime"
 reason = "the process could not run the verb at all, which is a fault of the machine and not of an input"
+
+[internal."candler::drivers::BuildError"]
+enum = "BuildError"
+reason = "a shipped driver or reader that cannot be built is a fault of the binary's own constants, not an input of the author"
 
 [internal."candler::commands::evaluate::JobRefusal"]
 enum = "JobRefusal"

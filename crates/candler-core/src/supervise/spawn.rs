@@ -12,7 +12,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
-use candler_harness::spec::{StopSignal, StopSpec};
+use candler_harness::spec::{Framing, StopSignal, StopSpec};
 use candler_schemas::execution::EventPayload;
 use candler_schemas::primitives::{Marker, RunKey};
 use candler_schemas::process::{ChildRecord, ProcessStart};
@@ -31,7 +31,6 @@ use super::record::write_record;
 use super::signal::Guard;
 use super::stop::StraySweeper;
 use super::{EventSink, SuperviseError, Supervisor, now};
-use crate::frames::FrameMode;
 
 /// The environment variable that carries the marker of a run to its children.
 const MARKER_VARIABLE: &str = "CANDLER_RUN";
@@ -80,7 +79,7 @@ pub enum OutputSpec {
         /// The stream the file archives.
         stream: StreamName,
         /// How the stream is cut into frames.
-        mode: FrameMode,
+        mode: Framing,
         /// Told about each frame once it is flushed.
         // TRAIT_OBJECT: the observer is supplied by the caller of the supervisor
         observer: Option<Box<dyn FrameObserver>>,
@@ -96,7 +95,7 @@ pub enum OutputSpec {
 impl OutputSpec {
     /// A raw frame file `<dir>/<stream>.jsonl.gz` with no observer.
     #[must_use]
-    pub const fn framed(dir: PathBuf, stream: StreamName, mode: FrameMode) -> Self {
+    pub const fn framed(dir: PathBuf, stream: StreamName, mode: Framing) -> Self {
         Self::Framed {
             dir,
             stream,
@@ -184,6 +183,13 @@ impl SpawnRequest {
     pub(crate) fn piped(mut self) -> Self {
         self.stdout = OutputSpec::Pipe;
         self.stderr = OutputSpec::Pipe;
+        self
+    }
+
+    /// The same request that is stopped as `stop` says.
+    #[must_use]
+    pub fn with_stop(mut self, stop: StopSpec) -> Self {
+        self.stop = stop;
         self
     }
 

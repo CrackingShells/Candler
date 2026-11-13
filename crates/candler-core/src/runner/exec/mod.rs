@@ -5,6 +5,7 @@ pub mod collect;
 pub mod ends;
 pub mod gather;
 pub mod seal;
+pub mod session;
 pub mod spawn;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -15,7 +16,12 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr as _;
 use std::time::Duration;
 
-use candler_harness::spec::{Cell, CommandSpec, Observed, PreparedFile, ProcessExit, Workspace};
+use crate::frames::RawFileInfo;
+use candler_harness::driver::HarnessDriver;
+use candler_harness::spec::{
+    Cell, CommandSpec, FileRoot, Framing, Observed, PreparedFile, ProcessExit, RunTotals,
+    StateKind, Workspace,
+};
 use candler_schemas::container::ContainerRole;
 use candler_schemas::execution::{EventPayload, Integrity, InvalidReason, RunManifest, RunTree};
 use candler_schemas::primitives::{ContainerId, Digest, Marker, RunKey};
@@ -26,22 +32,28 @@ use futures::future::BoxFuture;
 use tokio::sync::watch;
 use tokio::time::MissedTickBehavior;
 
-pub use self::cell::{CellRun, ExecError, SkillTree};
+pub use self::cell::{CellRun, ExecError};
 use self::collect::finish_attempt;
 use self::ends::{EndInput, TraceFacts, classify_end};
-use self::gather::{collect_outputs, spent};
+use self::gather::{
+    collect_commands, collect_outputs, read_stream, resolved_record, spent, store_stream,
+};
 use self::seal::{RawStreamFile, seal_run};
-use self::spawn::{Started, live_observer, require_isolation, start_attempt};
+use self::session::{SessionHandle, SessionRun, monotonic_clock, session_config};
+use self::spawn::{Started, live_observer_with, require_isolation, start_attempt};
 use super::evidence::census::census;
 use super::evidence::leak::input_leak;
 use super::evidence::provenance::provenance_values;
 use super::evidence::run::{RunFacts, run_values};
+use super::evidence::session::{control_values, session_values};
 use super::evidence::tree::tree_json;
 use super::evidence::{Evidence, Inputs};
 use super::plan::RunPlan;
 use super::{RunControl, RunOutcome, RunStatus, Runtime};
-use crate::frames::FrameMode;
+use crate::isolation::container::agent_home;
 use crate::isolation::container::mounts::{MountMode, MountRoots, MountSpec, mounts};
+use crate::isolation::gateway::census_init;
+use crate::isolation::layout;
 use crate::isolation::model::ContainerPlan;
 use crate::isolation::{Isolation, IsolationError, RunOutputs};
 use crate::jobs::model::JobCause;
@@ -247,6 +259,46 @@ async fn skill_files(
     Ok(rt.skills.files(treatment, &captured.stdout)?)
 }
 
+/// Gives `container` the gateway variable names and the state paths of `driver`: the state paths
+/// are made under `home` on the host, and each one's variable names its place in the container.
+///
+/// # Errors
+/// [`IsolationError::Plan`] when the driver names no gateway variables, when a state variable is
+/// one the plan already sets, or when a state path cannot be made.
+pub fn apply_harness_env(
+    container: &mut ContainerPlan,
+    driver: &dyn HarnessDriver, // TRAIT_OBJECT: the driver is the binary's choice, or a fake in tests
+    home: &Path,
+) -> Result<(), IsolationError> {
+    let gateway = driver.gateway().ok_or_else(|| IsolationError::Plan {
+        detail: format!(
+            "the harness driver {} names no gateway variables",
+            driver.id()
+        ),
+    })?;
+    let state = driver.state_paths();
+    for path in &state {
+        if container.env.iter().any(|(name, _)| *name == path.env) {
+            return Err(IsolationError::Plan {
+                detail: format!("the state variable {} is already set", path.env),
+            });
+        }
+        let here = home.join(path.subpath.as_str()); // BORROW: explicit .as_str()
+        let made = if path.kind == StateKind::File {
+            here.parent().map_or(Ok(()), fs::create_dir_all)
+        } else {
+            fs::create_dir_all(&here)
+        };
+        made.map_err(|e| local("cannot make a state path", &e))?;
+    }
+    container
+        .env
+        .extend(layout::state_env(&state, container.home.as_str())); // BORROW: explicit .as_str()
+    container.gateway = Some(gateway);
+    container.state = state;
+    Ok(())
+}
+
 /// Waits for `child`, and stops it when the job's cancel carries a cause.
 async fn wait_or_cancel(
     child: crate::supervise::spawn::Child,
@@ -389,13 +441,40 @@ async fn drive(
             .into());
         }
     }
+    let home_dir = agent_home(&layout.run_dir(&plan.key));
     for file in skills.iter().chain(&prepared.files) {
-        let digest = write_file(&workspace_dir, file)
-            .map_err(|e| local("cannot write a workspace file", &e))?;
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "a root this core does not know is the workspace, where the agent's tools work"
+        )]
+        let root = match file.root {
+            FileRoot::Home => home_dir.as_path(), // BORROW: explicit .as_path()
+            _ => workspace_dir.as_path(),         // BORROW: explicit .as_path()
+        };
+        let digest =
+            write_file(root, file).map_err(|e| local("cannot write a workspace file", &e))?;
         written.insert(file.path.as_str().to_owned(), digest); // BORROW: the map owns its paths
     }
 
-    let mut command = rt.driver.command(&view, &workspace)?;
+    let session = match session_config(&view)? {
+        None => None,
+        Some(config) => {
+            let spec =
+                rt.driver
+                    .session(&view, &workspace)?
+                    .ok_or_else(|| IsolationError::Plan {
+                        detail: format!(
+                            "the harness driver {} cannot run a session",
+                            rt.driver.id()
+                        ),
+                    })?;
+            Some((config, spec))
+        }
+    };
+    let mut command = match &session {
+        Some((_, spec)) => spec.command.clone(), // BORROW: the run owns its command
+        None => rt.driver.command(&view, &workspace)?,
+    };
     if !prepared.env_overlay.is_empty() {
         let mut builder = CommandSpec::builder().argv(command.argv().to_vec()); // BORROW: the new command owns its arguments
         for entry in prepared.env_overlay.iter().chain(command.env_overlay()) {
@@ -408,32 +487,85 @@ async fn drive(
             .build()
             .map_err(candler_harness::driver::DriverError::from)?;
     }
+    // What the driver resolved from the cell, kept with the run: the argv, the variable names the
+    // overlay sets and each prepared file.
+    let resolved = resolved_record(&command, &prepared.files, &written);
     let mut container = isolation.plan(&view, &workspace)?;
+    apply_harness_env(
+        &mut container,
+        rt.driver.as_ref(),
+        &agent_home(&layout.run_dir(&plan.key)),
+    )?;
     mount_inputs(rt, &mut container, &workspace_dir, &cell.inputs)?;
 
     let out_stream = stream("stdout")?;
     let err_stream = stream("stderr")?;
     let mut reader_id = None;
     let mut handle = None;
-    let mut stdout = OutputSpec::framed(frames.clone(), out_stream.clone(), FrameMode::Lines); // BORROW: the spec owns its directory and stream
-    if let Some(reader) = rt.driver.live_reader() {
+    let reader = rt.driver.live_reader();
+    let framing = reader
+        .as_ref()
+        .map_or(Framing::Lines, |reader| reader.framing());
+    let session_run = match session {
+        None => None,
+        Some(_) if reader.is_none() => {
+            return Err(IsolationError::Plan {
+                detail: format!(
+                    "the harness driver {} runs a session and reads no live output",
+                    rt.driver.id()
+                ),
+            }
+            .into());
+        }
+        Some((config, spec)) => Some(SessionRun::prepare(
+            rt.driver.as_ref(),
+            &spec,
+            &agent_home(&layout.run_dir(&plan.key)),
+            &frames,
+            config,
+            monotonic_clock(),
+        )?),
+    };
+    let watch = session_run.as_ref().map(SessionRun::watch);
+    let mut stdout = OutputSpec::framed(frames.clone(), out_stream.clone(), framing); // BORROW: the spec owns its directory and stream
+    if let Some(reader) = reader {
         reader_id = Some(reader.id());
-        let (observer, live) = live_observer(reader, out_stream);
+        let (observer, live) = live_observer_with(reader, out_stream, watch);
         stdout = stdout.with_observer(Box::new(observer));
         handle = Some(live);
     }
-    let stderr = OutputSpec::framed(frames, err_stream, FrameMode::Lines);
-    let isolated = isolation.run_request(
+    let stderr = OutputSpec::framed(frames.clone(), err_stream, Framing::Lines); // BORROW: the spec owns its directory
+    let mut outputs = RunOutputs::new(stdout, stderr);
+    if let Some(live) = &handle {
+        outputs = outputs.with_observer(live.view());
+    }
+    let mut isolated = isolation.run_request(
         &container,
         command,
         Marker::for_run(&plan.key),
         plan.key.clone(), // BORROW: the request owns its key
-        RunOutputs::new(stdout, stderr),
+        outputs,
     )?;
+    // The harness says how its run is stopped; the name differs from the destroy driver's.
+    let harness = rt.driver.as_ref();
+    isolated.request = isolated.request.with_stop(harness.stop());
 
     rt.sink.emit(Some(&plan.key), EventPayload::run_started());
     let attempt_began = std::time::Instant::now();
-    let Started { child, end_facts } = start_attempt(rt, isolated)?;
+    let attempt_wall = std::time::SystemTime::now();
+    let Started {
+        mut child,
+        end_facts,
+    } = start_attempt(rt, isolated)?;
+    let session_handle: Option<SessionHandle> = match session_run.map(|run| run.start(&mut child)) {
+        None => None,
+        Some(Ok(handle)) => Some(handle),
+        Some(Err(error)) => {
+            // EXPLICIT: the child is stopped and left to its own record; the refusal is what the run reports
+            let _ = child.stop().await;
+            return Err(error.into());
+        }
+    };
     // The agent's container is recorded as soon as its cidfile names it, while the client runs.
     let (mut polled, mut recorded) = (false, false);
     let (waited, cause) = {
@@ -451,6 +583,7 @@ async fn drive(
             }
         }
     };
+    let session_outcome = session_handle.map(SessionHandle::finish);
     if !recorded {
         // EXPLICIT: a failed record leaves the container to the label sweep
         let cid = isolation
@@ -462,6 +595,11 @@ async fn drive(
     }
     let exit = waited?;
     let duration_ms = u64::try_from(attempt_began.elapsed().as_millis()).unwrap_or(u64::MAX);
+    // What the live reader saw, read before the container goes: a collect command needs the ids.
+    let live_view = handle.as_ref().map(spawn::LiveHandle::observed);
+    let observed_now = live_view.clone().unwrap_or_default(); // BORROW: the view is read again after the finish
+    let specs = rt.driver.collect(&workspace, &observed_now);
+    let collected = collect_commands(isolation.as_ref(), &container, &specs).await;
     let finished = finish_attempt(
         isolation.as_ref(),
         &container,
@@ -474,6 +612,7 @@ async fn drive(
 
     // What the reader made of the output.
     let mut reader_failed = false;
+    let mut live_failed = false;
     let (mut sessions, mut events) = (Vec::new(), Vec::new());
     if let Some(live) = handle {
         match live.finish() {
@@ -481,11 +620,84 @@ async fn drive(
                 sessions = trace.sessions;
                 events = trace.events;
             }
-            Err(_) => reader_failed = true,
+            Err(_) => live_failed = true,
         }
     }
-    let raw_refs: Vec<RawFileRef> = exit
-        .raw
+    // The streams the run's commands printed, stored as raw files and read offline. A reader that
+    // yields sessions makes them the trace; the live reader's are used otherwise.
+    let mut extra: Vec<RawFileInfo> = Vec::new();
+    let mut collect_ok = finished.collect_ok;
+    let mut offline: Option<candler_schemas::primitives::NameVersion> = None;
+    let mut offline_sessions = Vec::new();
+    let mut offline_events = Vec::new();
+    for item in collected {
+        let Ok(bytes) = item.output else {
+            collect_ok = false;
+            continue;
+        };
+        match rt.driver.offline_reader(&item.name) {
+            Some(reader) => {
+                let Ok(read) = read_stream(&frames, &item.name, &bytes, reader) else {
+                    collect_ok = false;
+                    continue;
+                };
+                extra.push(read.file);
+                match read.trace {
+                    Ok((mut found, mut made)) => {
+                        if !found.is_empty() && offline.is_none() {
+                            offline = Some(read.reader);
+                        }
+                        offline_sessions.append(&mut found);
+                        offline_events.append(&mut made);
+                    }
+                    Err(_) => reader_failed = true,
+                }
+            }
+            None => match store_stream(&frames, &item.name, Framing::Document, &bytes) {
+                Ok(file) => extra.push(file),
+                Err(_) => collect_ok = false,
+            },
+        }
+    }
+    if let Some(identity) = offline {
+        reader_id = Some(identity);
+        sessions = offline_sessions;
+        events = offline_events;
+    } else {
+        // EXPLICIT: with no offline sessions the live reader's failure is the run's
+        reader_failed = reader_failed || live_failed;
+    }
+    // The census of a harness with no init event, read from what the gateway relayed.
+    let mut gateway_init = None;
+    // A census that cannot be read or stored whole is a collect failure and never an absent
+    // census; a run whose requests carry no tools records no census value.
+    if let (Some(name), Some(gateway)) = (rt.driver.census_stream(), &rt.gateway) {
+        let stored = match gateway
+            .service
+            .run_census(&gateway.handle, &plan.key, attempt_wall)
+            .await
+        {
+            Ok(bytes) => store_stream(&frames, &name, Framing::Lines, &bytes)
+                .ok()
+                .map(|file| (census_init(&bytes), file)),
+            Err(_) => None,
+        };
+        match stored {
+            Some((init, file)) => {
+                gateway_init = init;
+                extra.push(file);
+            }
+            None => collect_ok = false,
+        }
+    }
+    // What the driver resolved from the cell.
+    match stream("resolved").map(|name| store_stream(&frames, &name, Framing::Document, &resolved))
+    {
+        Ok(Ok(file)) => extra.push(file),
+        Ok(Err(_)) | Err(_) => collect_ok = false,
+    }
+    let raw_infos: Vec<RawFileInfo> = exit.raw.iter().cloned().chain(extra).collect(); // BORROW: the run's files are listed once for the header and the seal
+    let raw_refs: Vec<RawFileRef> = raw_infos
         .iter()
         .filter_map(|info| {
             stream_of(&info.path).map(|name| RawFileRef::new(name, info.digest.clone())) // BORROW: the header owns the digest
@@ -513,19 +725,23 @@ async fn drive(
         })?
     };
     let used = spent(&events);
+    // What the live reader saw: the session ids, the inventory and the stream's last word.
+    // BORROW: the view owns its ids
+    let observed = live_view
+        .unwrap_or_else(|| Observed::new(sessions.iter().map(|s| s.id().clone()).collect()));
     let facts = if reader_failed {
         TraceFacts::ReaderError
     } else if sessions.is_empty() {
         TraceFacts::Silent
     } else {
         let process = ProcessExit::new(exit.status, exit.ended.into(), exit.stderr_tail.clone()); // BORROW: the exit keeps its tail
-        gather::read_facts(rt.driver.classify_exit(&process, &sessions), &used)
+        gather::read_facts(
+            rt.driver.classify_end(&process, &sessions, &observed),
+            &used,
+        )
     };
 
     // What the run left in its workspace.
-    let mut collect_ok = finished.collect_ok;
-    let observed = Observed::new(sessions.iter().map(|s| s.id().clone()).collect()); // BORROW: the view owns its ids
-    let specs = rt.driver.collect(&workspace, &observed);
     let outputs = if let Ok(mut found) = collect_outputs(&workspace_dir, &specs, &cell.inputs) {
         found.retain(|out| written.get(&out.path) != Some(&out.digest));
         found
@@ -549,7 +765,11 @@ async fn drive(
         Ok(tree) => evidence.tree = tree,
         Err(_) => collect_ok = false,
     }
-    let mut measured = census(&evidence.sessions, &evidence.events).unwrap_or_default();
+    let mut measured = if evidence.sessions.is_empty() {
+        Vec::new()
+    } else {
+        census(observed.init.as_ref().or(gateway_init.as_ref())).unwrap_or_default()
+    };
 
     let gateway_failed = match &rt.gateway {
         Some(gateway) => gateway
@@ -575,15 +795,67 @@ async fn drive(
         .with_trace(facts)
         .with_collect_ok(collect_ok)
         .with_input_leak(leaked)
-        .with_attempt(plan.attempt);
+        .with_attempt(plan.attempt)
+        .with_session_stop(
+            session_outcome
+                .as_ref()
+                .is_some_and(|outcome| outcome.forced || outcome.capped),
+        )
+        .with_session_cap(
+            session_outcome
+                .as_ref()
+                .and_then(session::SessionOutcome::cap),
+        )
+        .with_session_hooks_incomplete(
+            session_outcome
+                .as_ref()
+                .is_some_and(session::SessionOutcome::hooks_incomplete),
+        );
     let end = classify_end(&input);
-    measured.extend(run_values(&RunFacts {
-        ended_by: &end.ended_by,
+    // A run whose trace could not be read has no totals, as it has no events.
+    let no_totals = RunTotals::default();
+    // A session's turns and usage are the sums over its results'; the harness's own totals are
+    // the last turn's (the cost it reports is already cumulative).
+    let outcome_usage = session_outcome
+        .as_ref()
+        .and_then(session::SessionOutcome::usage_counted);
+    let session_totals = session_outcome
+        .as_ref()
+        .map(session::SessionOutcome::turns_counted)
+        .filter(|counted| *counted > 0)
+        .map(|counted| {
+            RunTotals::new(
+                outcome_usage
+                    .clone()
+                    .or_else(|| observed.totals.usage.clone()), // BORROW: the session totals own their copy
+                observed.totals.cost_usd.clone(), // BORROW: the session totals own their copy
+                Some(serde_json::Value::from(counted)),
+            )
+        });
+    let totals = if reader_failed || evidence.sessions.is_empty() {
+        &no_totals
+    } else {
+        session_totals.as_ref().unwrap_or(&observed.totals)
+    };
+    measured.extend(run_values(&RunFacts::new(
+        &end.ended_by,
         client_exit,
         duration_ms,
-        events: &evidence.events,
-    }));
+        &evidence.events,
+        totals,
+    )));
     measured.extend(provenance_values(&rt.eval_infra, &cell.packages));
+    if let Some(outcome) = &session_outcome {
+        let own_end = end.invalid.is_none();
+        measured.extend(session_values(&outcome.measures(
+            &end.ended_by,
+            own_end,
+            end.hooks_incomplete,
+        )));
+        if let Some(control) = &cell.control {
+            measured.extend(control_values(control));
+        }
+    }
 
     let integrity = end.invalid.map_or(Integrity::Valid, Integrity::invalid);
     let last = manifest_of(
@@ -595,14 +867,23 @@ async fn drive(
         started_at,
         Some(now()?),
     )?;
-    let raw_files: Vec<RawStreamFile> = exit
-        .raw
+    let mut raw_files: Vec<RawStreamFile> = raw_infos
         .iter()
         .filter_map(|info| {
             stream_of(&info.path)
                 .map(|name| RawStreamFile::new(name, info.path.clone(), info.digest.clone())) // BORROW: the file list owns its path and digest
         })
         .collect();
+    if let Some((stream, info)) = session_outcome
+        .as_ref()
+        .and_then(|outcome| outcome.hook_stream.as_ref())
+    {
+        raw_files.push(RawStreamFile::new(
+            stream.clone(),      // BORROW: the file list owns its stream name
+            info.path.clone(),   // BORROW: the file list owns its path
+            info.digest.clone(), // BORROW: the file list owns its digest
+        ));
+    }
     seal_run(writer, &last, &evidence.tree, &raw_files, &trace)?;
     // EXPLICIT: the scratch directory holds only what the seal moved or no longer needs
     let _ = fs::remove_dir_all(&scratch);

@@ -245,11 +245,15 @@ dependencies = [
  "candler-core",
  "candler-harness",
  "candler-harness-claude-code",
+ "candler-harness-opencode",
  "candler-schemas",
  "clap",
+ "proc-macro2",
  "regex",
+ "semver",
  "serde",
  "serde_json",
+ "syn 2.0.119",
  "tempfile",
  "thiserror",
  "tokio",
@@ -263,6 +267,7 @@ dependencies = [
  "candler-core",
  "candler-harness",
  "candler-harness-claude-code",
+ "candler-harness-opencode",
  "candler-schemas",
  "flate2",
  "futures",
@@ -313,6 +318,18 @@ dependencies = [
  "sha2",
  "thiserror",
  "toml",
+]
+
+[[package]]
+name = "candler-harness-opencode"
+version = "0.7.0"
+dependencies = [
+ "candler-harness",
+ "candler-schemas",
+ "jiff",
+ "semver",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]

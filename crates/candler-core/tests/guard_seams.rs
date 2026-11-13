@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use candler_core::frames::{FrameMode, FrameReader, RawFileInfo};
+use candler_core::frames::{FrameReader, RawFileInfo};
 use candler_core::store::Store;
 use candler_core::store::outcome::OutcomeWriter;
 use candler_core::store::run::{Existing, RunWriter};
@@ -21,6 +21,7 @@ use candler_core::supervise::spawn::{OutputSpec, SpawnRequest};
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_core::trace::normalise;
 use candler_harness::reader::TraceReader;
+use candler_harness::spec::Framing;
 use candler_harness::spec::{StopSignal, StopSpec};
 use candler_harness_claude_code::ClaudeCodeReader;
 use candler_schemas::execution::{Envelope, EventPayload, RunManifest};
@@ -220,12 +221,12 @@ async fn pipeline() -> Seamed {
         .stdout(OutputSpec::framed(
             frames.clone(), // BORROW: .clone() keeps the path for the test
             stream("stdout"),
-            FrameMode::Lines,
+            Framing::Lines,
         ))
         .stderr(OutputSpec::framed(
             frames.clone(), // BORROW: .clone() keeps the path for the test
             stream("stderr"),
-            FrameMode::Lines,
+            Framing::Lines,
         ))
         .run(key.clone()) // BORROW: .clone() keeps the run key
         .stop(StopSpec::new(

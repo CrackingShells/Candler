@@ -3,9 +3,11 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use candler_harness::reader::{FrameIn, ReaderError, TraceReader};
+use candler_harness::spec::Observed;
 use candler_schemas::raw::{RawFrame, RawRef, StreamName};
 use candler_schemas::trace::{Session, SessionEvent};
 
+use super::session::SessionWatch;
 use crate::isolation::{EndFacts, IsolatedRequest, Isolation, IsolationError};
 use crate::runner::Runtime;
 use crate::supervise::SuperviseError;
@@ -28,6 +30,8 @@ pub struct LiveObserver {
     stream: StreamName,
     /// The state shared with the handle.
     shared: Arc<Mutex<Live>>,
+    /// The session's watch, which sees each frame after the reader has.
+    session: Option<Arc<SessionWatch>>,
 }
 
 /// The sessions and events a live reader produced.
@@ -53,6 +57,18 @@ pub fn live_observer(
     reader: Box<dyn TraceReader>,
     stream: StreamName,
 ) -> (LiveObserver, LiveHandle) {
+    live_observer_with(reader, stream, None)
+}
+
+/// A live observer for `reader` on `stream` that also tells `session`, when there is one, about
+/// each frame, and the handle that finishes it.
+#[must_use]
+// TRAIT_OBJECT: the reader is the harness driver's
+pub fn live_observer_with(
+    reader: Box<dyn TraceReader>,
+    stream: StreamName,
+    session: Option<Arc<SessionWatch>>,
+) -> (LiveObserver, LiveHandle) {
     let shared = Arc::new(Mutex::new(Live {
         reader: Some(reader),
         events: Vec::new(),
@@ -62,6 +78,7 @@ pub fn live_observer(
         LiveObserver {
             stream,
             shared: Arc::clone(&shared),
+            session,
         },
         LiveHandle { shared },
     )
@@ -70,21 +87,48 @@ pub fn live_observer(
 impl FrameObserver for LiveObserver {
     fn frame(&mut self, index: u64, frame: &RawFrame) {
         let mut live = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
-        if live.error.is_some() {
-            return;
+        if live.error.is_none()
+            && let Some(reader) = live.reader.as_mut()
+        {
+            let raw_ref = RawRef::new(self.stream.clone(), index); // BORROW: the reference owns its stream name
+            match reader.feed(FrameIn::new(raw_ref, None, frame)) {
+                Ok(mut events) => live.events.append(&mut events),
+                Err(error) => live.error = Some(error),
+            }
         }
-        let Some(reader) = live.reader.as_mut() else {
-            return;
-        };
-        let raw_ref = RawRef::new(self.stream.clone(), index); // BORROW: the reference owns its stream name
-        match reader.feed(FrameIn::new(raw_ref, None, frame)) {
-            Ok(mut events) => live.events.append(&mut events),
-            Err(error) => live.error = Some(error),
+        if let Some(session) = &self.session {
+            // The session follows the stream even when the reader failed: closing does not
+            // depend on the trace.
+            session.feed_stream(&frame.data.to_bytes());
         }
     }
 }
 
 impl LiveHandle {
+    /// What the live reader has seen so far: the ids of the sessions and the inventory its stream
+    /// showed. Empty once the handle has finished.
+    #[must_use]
+    pub fn observed(&self) -> Observed {
+        let live = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
+        live.reader
+            .as_ref()
+            .map_or_else(Observed::default, |reader| reader.observed())
+    }
+
+    /// A view of what the live reader has seen, for a stop action that fills the session id from
+    /// the ids the reader observed. The view stays valid after the handle finishes and then shows
+    /// nothing.
+    #[must_use]
+    pub fn view(&self) -> crate::isolation::ObservedView {
+        let shared = Arc::clone(&self.shared); // BORROW: the view shares the reader's state
+        Arc::new(move || {
+            let live = shared.lock().unwrap_or_else(PoisonError::into_inner);
+            live.reader
+                .as_ref()
+                .map_or_else(Observed::default, |reader| reader.observed())
+        })
+    }
+
     /// Ends the stream and returns what the reader made of it.
     ///
     /// # Errors

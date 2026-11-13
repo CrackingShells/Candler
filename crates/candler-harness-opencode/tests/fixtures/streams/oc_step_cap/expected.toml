@@ -1,0 +1,24 @@
+# Written by hand from stdout.jsonl, export.json and wire.jsonl of this case (wire.jsonl is a
+# redacted projection of the fake model's own records.jsonl: model id, `tool_choice` and whether
+# `tools` was present, in request order; no header, no secret and no message body).
+session_id = "ses_e3201f01effe0BZIEmnMQQHPpc"      # first stdout line carries it; the export's info.id is the same
+session_id_first_event = "step_start"
+export_outcome = "succeeded"
+exit_status = 0
+event_kinds = ["step_start", "text", "tool_use", "step_finish", "step_start", "text", "step_finish"]
+step_finish_reasons = ["tool-calls", "stop"]
+assistant_message_count = 2           # agents.build.steps = 2: exactly two assistant turns, never a third
+tool_calls = [{ id = "toolu_fake_oc", tool = "shell", status = "completed" }]
+
+# wire.jsonl: three HTTP requests reached the fake model, not two. The first carries no `tools`
+# at all (the hidden `title` agent's request, before the agentic loop's first tool-bearing step -- not one of
+# the two capped steps); the second and third both carry `tools`, which is the N = 2 the cap
+# counts, and only the THIRD (the last of the two tool-bearing requests) carries
+# `tool_choice.type = "none"`, which is what forces the model to answer text only and end the
+# session `succeeded` with no fourth request. "Two tool-bearing requests, none with tools after
+# the second" is the fact `agents.build.steps = 2` proves; the prefatory request is not itself a
+# step `OpenCode`'s own trace counts (the exported event stream shows exactly two step_start/
+# step_finish pairs, matching `assistant_message_count`).
+wire_request_count = 3
+wire_tool_bearing_request_count = 2
+wire_final_tool_bearing_tool_choice = { type = "none" }

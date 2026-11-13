@@ -125,8 +125,8 @@ All names below were free on 2026-10-28.
 |---|---|---|
 | `candler-schemas` | Every wire type as a serde struct; generated JSON Schema files committed beside them | `schemas@x.y.z` |
 | `candler-core` | API, resolution, job and process supervisors, orchestrator, store, evaluation engine, outcome algebra, analysis (`statrs`) | core `vx.y.z` |
-| `candler-harness` | The public `HarnessDriver` and `TraceReader` traits | core |
-| `candler-harness-claude-code`, `candler-harness-opencode` | Shipped drivers and readers | core |
+| `candler-harness` | The public `HarnessDriver`, `TraceReader`, `SessionTracker` and `SkillTree` traits, the settings table types, and the shared driver fixture suite (feature `conformance`) | core |
+| `candler-harness-claude-code`, `candler-harness-opencode` | Shipped drivers, readers and skill trees, one crate per harness | core |
 | `candler` | The binary: CLI, and later the MCP server as a subcommand | core |
 
 **Python helper for plug-in authors** (`python/candler-evaluator` in this repo, outside the cargo
@@ -283,8 +283,9 @@ field path is dotted: `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`.
   - `isolation.build.prune` lists file names the env build deletes after the install, each
     `^[A-Za-z0-9._-]+$` and neither `.` nor `..`. It is part of the env image's key: with nothing
     pruned the key is the lock's digest, otherwise the sha256 of the lock's hex digest followed by
-    a NUL byte and each distinct name, sorted. The image's own id enters the cell as
-    `isolation.image`.
+    a NUL byte and each distinct name, sorted. The env image's tag joins that key and the base
+    image's content tag (`<key>-src-<12 hex>`), so each base has its own env image for one lock.
+    The image's own id enters the cell as `isolation.image`.
   - `isolation.record_packages` lists import package names, each `^[a-z_][a-z0-9_]*$`. Each run
     reads the distribution and version of each from its env image and records them under
     `provenance.packages` (§Run manifest).
@@ -298,7 +299,7 @@ field path is dotted: `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`.
 | `candler ps` | Lists jobs with id, experiment, state, progress |
 | `candler kill <id> \| --all` | Stops jobs; asks for confirmation unless `--yes` / `-y` |
 | `candler watch <id> [--json \| --live]` | Follows a job's events: `--json` (default) prints event records, `--live` draws progress |
-| `candler ingest <path>...` | Turns raw Claude Code trace directories (one run per stream) into runs; with `--rules <file>`, imports a legacy results folder under the import rules the TOML file states. It runs to completion in the caller, repeats to the same store and is safe to interrupt; `candler import` stays as a hidden alias for a results folder |
+| `candler ingest <path>...` | Turns raw harness trace directories (one run per stream; the registry's drivers recognise the stream and supply the reader) into runs; with `--rules <file>`, imports a legacy results folder under the import rules the TOML file states. It runs to completion in the caller, repeats to the same store and is safe to interrupt; `candler import` stays as a hidden alias for a results folder |
 | `candler resolve <experiment \| suite>` | Prints every resolved value with its source and runs the preflight; starts no job |
 | `candler inspect <run dir \| key prefix \| job id>` | Shows the run, or the job's runs, with outcomes, evidence, provenance and integrity, deriving the store from a run directory |
 | `candler analyze [--evaluator <name@version \| version>] [--experiment <file>] [--format json\|csv]` | Reports rates, Wilson intervals and pairwise tests (§Analysis statistics). It finds the experiment file by the digest the runs' manifests name, under `<project root>/experiments/`; `--experiment` names it when it lives elsewhere |
@@ -527,6 +528,7 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
   | `prompt.template`, `prompt.values` | cell value |
   | `isolation.image` (the derived local image ID), `isolation.network`, `isolation.env_lock`, `isolation.limits.*` | cell value |
   | `budget.per_run.{wall_s, turns, max_cost_usd}` | cell value |
+  | `runner.mode` (`headless` or `session`; no core default, so an absent value is headless and every existing cell keeps its digest), `runner.idle_s` (whole seconds or `none`; session mode only) | cell value |
   | `isolation.build.{dockerfile, context}` (its content enters `inputs[]`); `isolation.build.{requirements, lock}` (the lock they give enters the cell as `isolation.env_lock`); `isolation.build.prune` (part of the env image's key, so it reaches the cell through `isolation.image`) | setting |
   | `isolation.record_packages` (read from the env image, recorded in `measured[]`, never in the cell) | setting |
   | `request.harness`, `request.treatment`, `request.inputs`, `model.token_secret` | setting |
@@ -578,75 +580,255 @@ I3, so event times are reproducible even where the harness emits none.
 
 ### Traits (signatures only)
 
+Every item added for the second harness (`settings_table`, `check_settings`, `gateway`,
+`state_paths`, `census_stream`, `session`, `session_tracker`, `classify_end`) has a default body, so a driver
+implements only what its harness has.
+
 - `HarnessDriver`
   - `id() -> HarnessId`; `supported() -> VersionReq`
-  - `version_probe() -> CommandSpec`; `parse_version(output) -> Version`
-  - `capabilities() -> Capabilities { graceful_stop, live_events, budgets{turns, cost}, in_harness_guard, census, execution_outside_child }`
-  - `prepare(cell, workspace) -> { files[], env_overlay }`
+  - `version_probe() -> CommandSpec`; `parse_version(output) -> Version`; the core runs the probe
+    in a control container of the base image
+  - `capabilities() -> Capabilities { graceful_stop, live_events, budgets{turns, cost}, in_harness_guard, census, execution_outside_child, session }`
+  - `prepare(cell, workspace) -> Prepared { files[], env_overlay }`, where a file is rooted in the
+    workspace or in the agent's home (`FileRoot`)
   - `command(cell, workspace) -> CommandSpec { argv, env_overlay, cwd }`
-  - `stop() -> StopSpec { pre_stop: Option<Action>, signal, grace }`, with `Action = Command(CommandSpec) | Http { method, url, body }`
+  - `settings_table() -> SettingRow[]`: one row per cell setting, value or name the driver knows,
+    `Mapped` (with the harness construct it writes) or `Refused` (with the reason). The driver
+    builds its command and files from the same rows. A setting the harness cannot honour is
+    refused with `experiment.setting_unsupported`, naming the setting's pointer, never dropped
+  - `check_settings(cell) -> Result<(), DriverError>`: the same refusal `prepare` and `command`
+    give, which the core asks for each planned cell, so the cell is refused before a job starts
+  - `gateway() -> Option<GatewayEnv { base_url, auth_token, reserved[] }>`: the names of the two
+    variables through which the core hands the gateway to the agent. The core sets the values; a
+    harness configured by file refers to the names (`prepare`), so no value passes through the
+    driver. No default names exist: a driver that names none is refused at run time
+  - `state_paths() -> StatePath { env, kind: Dir | File, subpath }[]`: the places the harness
+    keeps state under the agent's home. The core makes each per run and sets its variable
+  - `census_stream() -> Option<StreamName>`: the raw stream the gateway's census is stored under,
+    for a harness with no init event. The core reads the gateway census itself
+  - `session(cell, workspace) -> Option<SessionSpec { command, input, close, hooks }>` and
+    `session_tracker() -> Option<Box<dyn SessionTracker>>`
+  - `stop() -> StopSpec { pre_stop: Option<Action>, signal, grace }`, with
+    `Action = Command(CommandSpec) | Exec(CommandSpec) | Http { method, url, body }`. `Exec` runs
+    inside the agent's container, with the agent's user, environment and mounts, and may hold the
+    placeholder `{session_id}`, which the core fills from the live reader's observed root session
+    id (an id outside `[A-Za-z0-9._-]`, or none yet, skips the action and the signal follows)
   - `live_reader() -> Option<Box<dyn TraceReader>>`; `offline_reader(stream) -> Option<Box<dyn TraceReader>>`
     for a stream the core collected (an export)
   - `classify_exit(exit {status, ended, tail}, sessions) -> EndedBy`, `ended` saying whether the
-    process exited, hit its deadline or was stopped
-  - `collect(workspace, observed) -> CollectSpec[]`, with `CollectSpec = File(glob) | Command(CommandSpec, name)`
+    process exited, hit its deadline or was stopped; `classify_end(exit, sessions, observed)`,
+    which the core calls, defaults to `classify_exit` and lets a harness whose exit status covers
+    several endings read the live reader's last word or the export
+  - `collect(workspace, observed) -> CollectSpec[]`, with
+    `CollectSpec = File(glob) | Command(CommandSpec, name) | Exec(CommandSpec, name)`. The core
+    runs `Exec` after the agent exited, in a throwaway container over the run's mounts and state
+    variables (`candler.role=control`, no network, no gateway name), and archives its stdout as
+    the stream `name`
 - `TraceReader`
   - `id() -> name@version`, written into the trace header; the version is bumped whenever the
     reader's output changes
-  - `framing() -> Lines | Document`
+  - `framing() -> Lines | Document`; the runner frames the raw stream by it
   - `detect(sample) -> Option<(FormatVersion, Confidence)>`
-  - `feed(frame {raw_ref, at?, record}) -> Event[]` (one line, or the whole document); the core
+  - `feed(FrameIn {raw_ref, at?, frame}) -> Event[]` (one line, or the whole document); the core
     supplies the frame's place and its wall time from the raw header's clock
-  - `observed() -> Observed { session_ids[] }`
+  - `observed() -> Observed { session_ids[], init?, end?, totals? }`: the ids, the init report
+    (the tool inventory, labelled by its source: `Harness`, `Gateway` or `Collected`; never an
+    empty one), the stream's last word (`Finished`, `Error{kind}` or `Aborted`) and the run
+    totals (usage, cost, turns) when the harness reports them
   - `finish() -> Result<Session[], ReaderError>` (root first; children linked by `parent_session`)
+- `SessionTracker`: `feed(record: Stream(frame) | Hook(line))` and
+  `state() -> PendingState { turns, turn_ended, known, pending[] }`. It holds no clock; the core
+  decides when to close. `known` is false until the harness's pending work has been read, and
+  again after anything unreadable: unread pending work is never "nothing"
+- `SkillTree` (one implementation per driver crate): `archive_command(treatment, source)` and
+  `files(treatment, archive)`. Claude Code lays a treatment's skills out under
+  `.claude/skills/<name>`, OpenCode under `.opencode/skills/<name>`
 
 Drivers return data and never act on processes; the core runs every command and HTTP call they
 describe. The reader is synchronous, so the core owns all async I/O and drivers stay usable as
 `dyn` trait objects. A reader can exist without a driver. Missing capabilities are refused at
 `resolve`.
 
+**What the core owns and what a driver supplies.** The core names no harness. A driver supplies
+the version probe and its parse, the gateway variable names, the state paths, the census source,
+the skill layout, the session surface, the stop and collect actions and the exit classification.
+The core supplies the values of the gateway and state variables, the hardening, the stop
+escalation, the raw archive, the census read at the gateway, the session close rule and every
+process.
+
+**The registry.** The binary holds the drivers in one table (`crates/candler/src/drivers.rs`),
+keyed by the name a driver gives. Each entry holds the driver, its skill tree, the directory
+under `assets/docker` that builds its base image, the streams it collects for offline reading, its
+reader and the recogniser of its raw streams. `request.harness` selects the entry before any
+image or resolver is built, and an unknown name is refused (`experiment.unknown_harness`), never
+run as another harness. `comparable.harness.driver` is `None` for live cells. The label
+`candler.cc_version` on a base image holds the harness version, whatever the harness.
+
+**The shared fixture suite.** `candler-harness`, under the feature `conformance`, holds one suite
+that every driver crate runs over its recorded streams. It checks that gateway names, state paths,
+actions and written files are well formed (no secret in argv, every `{env:NAME}` a written file
+refers to is declared, no `pgrep -f`), that a declared capability has what it needs (a session has
+a spec, a census has a source), and that an export, where there is one, decides the end.
+
 The core feeds the child's stdout to `live_reader()` whenever the driver returns one, and the ids
 that `collect` receives are that reader's `observed()`. A driver whose harness writes its events
-elsewhere (OpenCode v2) may still return a Lines reader over stdout that emits no events and only
-reports the session ids it sees; `live_events` then means only that events arrive before the exit.
-The export it collects goes to `offline_reader`. A run the experimenter stopped (job budget,
-`candler kill`) is classified by the core, whatever `classify_exit` returns (I20).
+elsewhere (OpenCode v2) returns a Lines reader over stdout that emits no events and only reports
+the session ids it sees and its last word; `live_events` is then false. The export it collects
+goes to `offline_reader`, and the sessions read from the export are authoritative for the trace
+and the end. A run the experimenter stopped (job budget, `candler kill`) is classified by the
+core, whatever `classify_end` returns (I20).
 
 Drivers are compiled in, one crate each, selected by the experiment at runtime. A third-party
 driver is a crate against `candler-harness`, contributed upstream or built in. The trait is part of
 the 1.0 freeze.
 
 **Model levels.** An experiment's model level maps, per harness, to a model id plus the provider and
-endpoint configuration the driver writes in `prepare`.
+endpoint configuration the driver writes in `prepare`. A level may be a table under `model.*`
+(for example a reasoning-effort flag a gateway model requires); each cell's table reaches its
+driver's command line.
 
-### OpenCode v2 (second driver, M4)
+### OpenCode v2 (second driver)
 
-From its documentation (2026-10-28): sessions run in a shared background server unless `run
---standalone`; interruption is an API call; sessions live in SQLite and are exported with
-`opencode session export <id>`; MCP "code mode" is on by default and bundles several MCP calls into
-one tool call. So the driver forces `--standalone`, declares `execution_outside_child`, stops with
-an HTTP pre-stop action, collects through the export command with the observed session id, isolates
-`HOME`, XDG and `OPENCODE_DB` through its overlay, and treats code mode as an explicit experiment
-factor (changing it changes the treatment, I7). Not yet confirmed: the JSON event schema, exit
-codes, signal behaviour, budget options and the binary name; the driver work checks them first.
+The driver is written against OpenCode 2.2.7 and accepts exactly that version: `opencode
+--version` prints `opencode v2.2.7`, and `parse_version` refuses any other. The binary is one file,
+`opencode`, installed only inside a Candler image (`assets/docker/base-opencode`), pinned by
+version and by the sha256 of the release archive of each architecture.
 
-### Session runner (M4)
+- **Command.** `opencode run --standalone --format json --auto -m candler/<model>[#<effort>] -- <prompt>`.
+  `--standalone` keeps the session out of a shared background server (without it a run also writes
+  a service file with a password). `--auto` is the only permission behaviour, so `bypassPermissions`
+  is the one mode accepted. `--` keeps a prompt that starts with `-` a message. `run` has no
+  turn, cost or port option.
+- **Provider.** `prepare` writes `opencode.json` under `$XDG_CONFIG_HOME/opencode` in the agent's
+  home. The provider `candler` (package `@ai-sdk/anthropic`) takes its base URL and key from
+  `{env:CANDLER_GATEWAY_URL}/v1` and `{env:CANDLER_GATEWAY_TOKEN}`, which the core sets, so the
+  token never enters a file. Each MCP server is written in the V2 shape `mcp.servers.<name>` with
+  `codemode` always explicit: MCP code mode is on by default in OpenCode and bundles a server's
+  tools into one `execute` tool, so an absent cell value is written as on, and `codemode` is a cell
+  value under `mcp.*`, a treatment factor (I7). A server shape the driver cannot translate is
+  refused.
+- **State.** `XDG_DATA_HOME`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_STATE_HOME` are
+  directories under the agent's home and `OPENCODE_DB` is the file `.xdg/data/oc.db` (SQLite in WAL
+  mode); `/tmp/opencode` needs only the noexec tmpfs. OpenCode also reads skills from
+  `$HOME/.claude/skills`, so the home is per run.
+- **Events.** The live NDJSON has six event kinds (`step_start`, `text`, `tool_use`,
+  `step_finish`, `retry`, `error`), every one carrying `sessionID`, the first on the first stdout
+  line. A `tool_use` event comes only after the call completed, so tool calls come from the export,
+  not the stream. The live reader emits no event: it reports the session id and the last word
+  (`error` event type).
+- **Export.** `opencode session export --standalone <id>` prints JSON on stdout (`info` with an
+  `outcome` of `succeeded`, `interrupted` or `failed`, and `messages`), after any ending, signals
+  included. The driver collects it with `CollectSpec::Exec` for the first session id the live reader reports, as the
+  stream `export`, framed `Document` and read by `offline_reader`. The export is authoritative for
+  the trace and the end; a child session is linked to its parent.
+- **Exit codes and signals.** Exit 0 is `succeeded`. Exit 1 covers three endings (a provider or
+  agent error, an interrupt through the API, a failure), told apart only by the last `error` event's
+  `type` or the export's `outcome`. SIGTERM ends the run in under 100 ms with exit 143 and SIGINT
+  with exit 130, killing the server child and the running tool; no escalation is needed. The
+  driver classifies from the export: `provider.auth`, `provider.invalid-request` and
+  `provider.transport` are gateway errors (R01 §Ends), `provider.no-route` is an agent error, and
+  an interrupt or signal is `unknown`, since the core's stop or cap explains it. An exit with no
+  trace is never completed. A transport failure retries for about 85 s, so the wall cap ends it.
+- **Stop.** The execution runs in a `serve --stdio --port 0` child, so a signal to the client
+  alone does not stop the tool. The pre-stop is an `Exec` of `python3 -I -c <script>
+  {session_id}`: the script finds the server child by its whole argument vector and its parent
+  (`opencode run`), reads its loopback port from `/proc/net/tcp` and its random password from its
+  environment, and calls `session.interrupt` through `opencode api`. The run then exits 1 with
+  `aborted`. SIGTERM follows, with a 10 s grace. A stop before the first stdout line has no session
+  id, and the signal alone runs.
+- **Budgets.** There is no cost cap, and `agents.<id>.steps` is not a turn cap (it ends the run
+  `succeeded` with a tool-less last request), so `budgets` is false and
+  `budget.per_run.{turns, max_cost_usd}` are refused. The same session id also appears in one
+  tool-less title request per session, so `info.tokens` counts one more request than the stream.
+- **Settings.** The driver's settings table maps what OpenCode can honour and refuses the rest:
+  `permission_mode` `bypassPermissions` is `--auto` and every other mode is refused;
+  `model.effort` (`low` to `max`, on a Claude opus, sonnet, fable or mythos of 4.6 or later) is a
+  config-declared model variant (`xhigh` from 4.7); `tools.allowed` and `tools.disallowed` are
+  `permissions` rows per tool name (`Write` and `Edit` are the one action `edit`, so they are listed together or refused; MCP names are
+  `<server>_<tool>`), the deny rows last. A name with no OpenCode action is refused.
+- **Census.** No event, command or export lists OpenCode's tools. The tool names in the request the
+  agent sends to the model are the inventory, so the gateway sidecar records the names of each
+  request, and the core takes the first request that carries tools (`census_stream`,
+  `census.source = gateway`). Servers are not seen, so `census.mcp_servers` is unrecorded for this
+  source, and a run whose requests carry no tools records no inventory. The verdict never takes a
+  gateway inventory for a harness's own.
+- **Capabilities.** `graceful_stop`, `census` and `execution_outside_child`. Not `session`.
+- **Not exercised.** Reasoning events (`--thinking`), a code-mode `execute` call in a recorded run,
+  permission prompts without `--auto`, resume, and the interrupt and a mid-tool SIGTERM against a
+  real model: the recorded cases come from the scripted fake model.
 
-Headless runs end at the first final answer, which kills background tasks, so behaviour between
-turns (background-task notifications, monitor events, wake-ups) never happens in them. The session
-runner keeps a stream-json session's input open so a notification starts a further turn.
+### Session runner
 
-- **End rule:** the session ends when it has been idle for at least Q seconds *and* the last Stop
-  payload lists no background task and no session cron, or when a per-run cap or the budget is
-  reached. A pending wake-up keeps the session open. Ending closes the input, then waits for
-  SessionEnd; `ended_by` is recorded.
-- **Controls:** positive control C1 (a task that must survive the end rule) and negative control C2
-  (a task that must end at idle) run in every session experiment.
-- **`init_tools`:** the tool list the harness reports at start is captured per run; when it differs
-  between arms of one stratum, that stratum is invalid (I7).
-- **Observation hooks** never deny or modify a tool call (I9).
-- **Per-model environment profiles** carry model-specific flags (for example a reasoning-effort
-  level a gateway model requires).
+A headless run (`claude --print <prompt>`) ends at the agent's first final answer, which kills
+background tasks, so behaviour between turns (a job finishing, its notification, a monitor event, a
+wake-up) never happens in it. **Session mode** is an opt-in way to run a cell: the prompt goes
+through stdin and stdin stays open, so a notification starts a further turn.
+
+- **Mode.** `runner.mode` is `headless` or `session`. It has no core default, so an absent value
+  runs headless and every cell keeps its digest; an explicit `headless` is a cell of its own.
+  `runner.idle_s` (whole seconds or `none`) is refused unless the mode is `session`; in session mode
+  a preflight step derives 60 s when the cell gives none. The rule is one function, applied to the
+  experiment-wide values and to each cell, so a session cell is the same cell whether `runner.mode`
+  is fixed or a factor level. A driver without `capabilities.session` is refused
+  (`experiment.session_refused`). The container runs with `docker run -i`.
+- **Close rule.** The core closes the input only when all three hold: the agent's latest turn has
+  ended, read from stdout (Claude Code's `result` event), which the agent cannot forge; the
+  driver's tracker reports that nothing pending could wake the agent (a background task, a monitor,
+  a cron, a wake-up) and has read it (`known`); and `runner.idle_s` seconds have passed since the
+  session became quiet. A new turn, a turn end, pending work or an unreadable state restarts the
+  wait. Idle is never counted mid-turn, and `none` never closes. The rule cuts no behaviour short: it
+  never closes while anything is pending, so no notification, wake-up or cron is dropped. After the close
+  the core waits for the harness to exit; past the driver's stop grace it stops the harness with
+  the normal escalation (`session.close_forced`). A driver that closes by an action instead of end of
+  input is refused at run time. The turn cap ends the run when the session's turns exceed
+  `budget.per_run.turns`, counted by the core, since a harness's own turn cap ends one turn, not the
+  session; the wall and the budget end it as in a headless run.
+- **Claude Code.** The command keeps the headless arguments and adds `--input-format stream-json`
+  and `--settings`. The pending list comes from the Stop hook payload (`background_tasks`,
+  `session_crons`), which is the only source that lists wake-ups and crons; a stream
+  `background_tasks_changed` event lists background tasks only. A Stop payload is tied to its turn
+  by order and by `prompt_id`, so the state is known only when every turn that needs a Stop payload
+  has one. A turn that ends with no Stop payload (a turn cap error, an API error) leaves the state
+  unknown, and the session runs to its cap rather than closing.
+- **Hooks.** The driver installs observation hooks outside the workspace (a settings file in the
+  agent's home, loaded under `--setting-sources project,local`). The hook command appends the Stop
+  or SessionEnd payload with the container's clock to a log, prints nothing and always exits 0, so
+  it never blocks or decides (I9). The log is archived as the raw stream `hooks`, so the session
+  measures can be re-derived (I3). Hooks are never trusted for the turn end.
+- **Measured, never filtered.** The agent's own stopping is recorded as `measured[]` paths:
+  `session.idle_s`, `session.turns` (turns that ended), `session.yielded_at_ms` (from the runner's
+  preparation of the session to the end of the last turn), `session.pending_at_end` (a list of
+  `{kind, id}`; absent when it could not be read, never an empty list), `session.end` (`closed`,
+  `cap`, `budget`, `harness_exit` or `hooks_incomplete`) and `session.close_forced`; the control
+  record a run relied on is `session.control`. `run.num_turns` is the sum over the session's
+  results, `run.usage` the sum of their usage and `run.cost_usd` the harness's cumulative cost. A
+  session that reaches the wall with an ended turn whose Stop payload was never read is
+  `invalid(infrastructure)` with `session.end = hooks_incomplete`: the instrument failed, not the
+  agent. An agent that never stops runs to its cap, and that is a result. An end the experimenter
+  caused (budget stop, kill) is the core's and records no `session.end`.
+- **Controls validate the instrument, never the model.** Control C1 (the agent starts a background
+  job and must be woken by its notification: the session must wait) and control C2 (the agent
+  must stop: the session must close) run the real harness in the cell's base image, through the
+  production gateway sidecar, against a scripted fake model that speaks TLS and spends no tokens.
+  The fake model is embedded in the binary as an asset and built as `candler-fakemodel:src-<digest>`.
+  The check runs when a job opens, once and before any run, if any fresh cell is a session cell;
+  each cell's mode is known only after planning, because `runner.mode` can be a factor level, and a
+  job with no session cell never runs a control. Control runs go to a scratch store and never
+  reach `runs/`. The verdict is a pure function over the control run's own manifest: the turns,
+  `session.end`, `ended_by`, the recorded `idle_s`, C1 still waiting when its job ends, and the
+  harness exiting between `idle_s` and `idle_s + 1 s` after the turn end. The controls prove the close rule at the control's own short `idle_s` only; the
+  run-loop guards cover the other values. The record is keyed by the digest of the base image's
+  build sources and a control digest (the fake model's files, the control's parameters and
+  Candler's version, which holds the verdict and the close rule), so a changed script, parameter
+  or release re-runs the controls with no manual version. It is written once and never rewritten
+  (I11), and a failing verdict is not written. A failure refuses the whole job before any run with
+  `jobs.session_controls_failed` (environment side), naming the harness version and the failed
+  control. Every session run records `session.control` (the record's path and digest) in
+  `measured[]`, outside the cell digest. A model's behaviour never refuses a run.
+- **Tool inventory.** The census (`census.tools`, `census.init_tools`) is captured per run; when
+  `census.init_tools` differs between arms of one stratum that no declared `tools.*` or `mcp.*`
+  factor explains, that stratum is refused (I7). Claude Code reports the list at each turn's start
+  (`init` is emitted again every turn), so the core takes the first init that lists tools.
 
 ## Plug-ins
 
@@ -884,6 +1066,23 @@ and the analysis reads them. The build's identity comes from the first origin th
    `false`; anything else, or a name left unset, is unrecorded, and the verdict refuses it. The
    tag defaults to `v<version>`;
 4. otherwise the tag `v<version>` alone, with `commit` and `dirty` unrecorded.
+
+**Imported strata.** An arm is imported if and only if its manifest holds `import`. A stratum that
+mixes imported and live arms is refused, naming `import`. A stratum of imported arms swaps the
+gate on `measured[]` provenance for the import's own record, since the legacy folder recorded the
+build in `comparable.values` and no run measured it. The stratum is refused unless every arm
+records the digest of its import rules and the arms agree (`import.rules`; an import without
+rules is refused), and every arm records `provenance.eval_infra.commit` (a non-empty string),
+`provenance.eval_infra.dirty` and `provenance.sandbox_contract` in `comparable.values` with equal
+values. The verdict compares these three itself, so no declared factor pools arms of two legacy
+builds. A dirty legacy build does not refuse: arms that agree on commit, flag, contract and rules
+pool, on the assumption that one legacy launch is one checkout. Live strata keep the gate above.
+
+**Session and census measures.** A session run records the `session.*` values of §Session runner
+and `session.control`. A census whose source is not the harness's own init event also records
+`census.source` (`gateway` or `collected`); a record without it is the harness's own, and a verdict
+never compares an inventory with one of another source. `census.mcp_servers` is recorded only when
+the source sees servers.
 
 ### Normalised trace model (`normalised-trace/1`, on the `schemas@` line)
 
@@ -1291,13 +1490,13 @@ by the original artifact commit `36290ab`, and is imported under `measured`. At 
 | Risk | Mitigation |
 |---|---|
 | The trace model drops signal (side-chains, denials, hook payloads, bundled MCP calls) | `ext`, `raw_ref`, `wrapped_calls`; a fixture corpus per harness format version |
-| The driver trait ends up shaped like Claude Code | OpenCode v2 before the freeze; its known differences are already in the trait |
+| The driver trait ends up shaped like Claude Code | OpenCode v2 runs on the same traits before the freeze; the core names no harness and a shared fixture suite runs every driver |
 | Detached descendants or orphans survive (Claude Code starts its shells in new sessions) | Marker sweep after every group kill; child records; Linux child subreaper; reaping from records by `ps`, `kill` and `run`; a test kills a supervisor mid-run and checks no marked process survives. A Linux parent-death signal is not in place: the execution milestone decides between an isolated `unsafe` module and the subreaper plus marker sweep alone |
 | `fork` after imports is unsafe on macOS when threads or system frameworks are loaded | The helper refuses to fork when more than one thread exists and falls back to one process per item; tested on macOS in M2a |
 | Parity mismatches are instrument drift | Instrument digests and dirty flags; the pinned reference; the triage order |
 | The legacy importer reconstructs inputs wrongly | Importer fixtures; triage step 2 |
 | Harness churn (formats, flags, auto-updates) | Supported ranges; unknown formats `invalid`; resume refuses a changed harness version |
-| Unconfirmed OpenCode v2 facts | Checked first in M4; the driver declares what it cannot do |
+| OpenCode behaviour outside the recorded runs | The driver accepts one validated version, declares what it cannot do and refuses the settings it cannot honour; the unexercised cases are listed in §OpenCode v2 |
 | First Rust project | Grit conventions and their reviewer; small crates; schemas and protocol first |
 | The lean CLI regrows flags | Every new option must say why it cannot be derived or live in the experiment file |
 | An agent driving the MCP surface spends without bound or reads ground truth | Mandatory budgets (I13); read/mutate split; I8 at the surface |
