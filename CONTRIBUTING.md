@@ -105,11 +105,11 @@ A change that makes any record valid before invalid is never a plain `fix(schema
 
 ## Branches and integration
 
-- `main` is always releasable and changes only through pull requests. Work happens on a topic branch named `<type>/<topic>`, for example `feat/outcome-record`.
+- `main` is always releasable and changes only through pull requests. Work happens on a topic branch named `<type>/<topic>`, for example `feat/outcome-record`, usually in its own worktree: `python3 scripts/worktree.py add <path> <branch>` creates it from `origin/main` and sets it up.
 - Push the branch and open a pull request against `main`. Its title becomes the merge commit's subject, `merge(<scope>): <what lands and why>`, so the merge itself records the reason. GitHub appends ` (#<number>)` to it, and the title with that suffix fits in 72 characters. Its body becomes the merge commit's body; an agent-authored one ends with the `Co-Authored-By:` trailer.
 - CI runs the gates and the commit check on the pull request. Before merging, rebase the branch onto `main` (`git rebase origin/main`, then `git push --force-with-lease`).
 - Merge with a merge commit; the repository refuses squash and rebase merges. The merge is a push to `main`, which runs CI again and then the release (see [Enforcement](#enforcement)).
-- GitHub deletes the merged branch. Remove the local branch and its worktree, then pull `main`, which may also carry the release job's `chore(release)` commit.
+- GitHub deletes the merged branch. Remove the worktree and its local branch with `python3 scripts/worktree.py remove <path>`, which refuses a branch `main` does not contain yet, then pull `main`, which may also carry the release job's `chore(release)` commit.
 
 ## Tools
 
@@ -125,17 +125,17 @@ A change that makes any record valid before invalid is never a plain `fix(schema
 ```
 brew install cocogitto cargo-nextest uv
 cargo install --locked release-plz@0.4.3   # Homebrew has no release-plz formula
-cog install-hook --all               # once per clone, from the main checkout
+python3 scripts/worktree.py sync    # in any checkout, and again after cog.toml changes
 ```
 
-Git does not copy hooks on clone, so `cog install-hook --all` is the per-clone step, and it is run again whenever the hook in `cog.toml` changes, since the installed hook is a copy. It writes into the repository's `.git/hooks/`, which every worktree shares, and fails when run inside a linked worktree.
+Git does not copy hooks on clone, and the installed hook is a copy of the script in `cog.toml`. `scripts/worktree.py sync` rewrites it from `main`'s `cog.toml` whenever the two differ, into the repository's `.git/hooks/`, which every worktree shares. It also refuses the settings that would break a checkout's build or bypass the hook (see its header). Incremental compilation is off in every checkout through the tracked `.cargo/config.toml`.
 
 ## Enforcement
 
 | Check | Runs | Rejects |
 |---|---|---|
-| `commit-msg` hook | On every local commit, once `cog install-hook --all` has been run | A subject without a `type(scope):` prefix, a subject over 72 characters, then, through `cog verify`, a type or scope outside the tables above |
-| `cog check <base>..<head>` | In CI (`.github/workflows/ci.yml`), on the range each pull request or push to `main` adds (run it by hand as `cog check main..HEAD`) | The same, for every commit in the range |
+| `commit-msg` hook | On every local commit, in every worktree, kept current by `scripts/worktree.py sync` | A subject without a `type(scope):` prefix, a subject over 72 characters, then, through `cog verify`, a type or scope outside the tables above |
+| `cog check <base>..<head>` | In CI (`.github/workflows/ci.yml`), on the range each pull request or push to `main` adds (run it by hand as `cog check main..HEAD`) | The same for every commit in the range, except the subject length, which only the hook checks |
 | Schemas release check | In CI, on the same range as `cog check`, merge commits aside | A release-triggering commit that touches `crates/candler-schemas/` without scope `schemas`, or that also touches another crate under `crates/` |
 | Pull request title | In CI, on every pull request, as the subject of the merge commit it becomes | A title that is not `merge(<scope>): …` with a scope from the tables above, or that does not fit in 72 characters with GitHub's ` (#<number>)` |
 | `release-plz` | In CI (`.github/workflows/ci.yml`), on a push to `main` once the gates and the commit check pass: `release-plz update` commits the new versions and changelogs as `chore(release): … [skip ci]`, then `release-plz release` tags each new version and creates its GitHub release | Nothing; a push with no release-triggering commit releases nothing, and nothing goes to crates.io |
