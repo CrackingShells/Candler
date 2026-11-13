@@ -176,7 +176,7 @@ Every version number of a page sits inside a `<!-- versions -->` block. After a 
 After a schema file or a manifest changes, regenerate the pages and commit them with the change:
 
 ```
-CANDLER_BLESS_CONTRACT=1 cargo nextest run -p candler -E 'binary(contract_pages)'
+CANDLER_BLESS_CONTRACT=1 cargo nextest run -p candler -E 'test(/^contract_pages::/)'
 ```
 
 `docs/contract/codes.toml` is append-only: a released code is never renamed or removed.

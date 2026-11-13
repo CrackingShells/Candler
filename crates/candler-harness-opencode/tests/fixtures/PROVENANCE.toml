@@ -86,7 +86,7 @@ export_sha256 = "9cba204e5219c7c10f13396c2c5b638dc68f687178a6107dcab63c3dff7ce66
 # fake model's own `records.jsonl` (model id, whether `tools` was offered, `tool_choice`, and for
 # the effort case `thinking`/whether `effort` itself reached the wire) -- no header, no secret, no
 # message body -- so the O1/wire gate (`cargo nextest run -p candler-harness-opencode --no-tests=fail
-# -E 'test(/^opencode_wire_/)'`) can assert the wire facts from a committed file rather than only
+# -E 'test(/opencode_wire_/)'`) can assert the wire facts from a committed file rather than only
 # from this table's prose. Session ids changed accordingly; `oc_step_cap`'s re-recording also
 # surfaced a third, tool-less prefatory HTTP request that the committed `stdout.jsonl`'s own step
 # trace never counts (see its `exit.toml`/`expected.toml`).

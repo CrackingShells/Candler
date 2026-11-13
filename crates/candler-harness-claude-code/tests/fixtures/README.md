@@ -25,5 +25,5 @@ gzip -dc streams/<name>/agent_stream.jsonl.gz | jq -nrR -f usage_totals.jq > str
 ```
 
 `digests.toml` is a ratchet over the trace file of each stream, blessed with
-`CANDLER_BLESS_DIGESTS=1 cargo nextest run -p candler-harness-claude-code -E 'binary(guard_reader)'`.
+`CANDLER_BLESS_DIGESTS=1 cargo nextest run -p candler-harness-claude-code -E 'test(/^guard_reader::/)'`.
 It refuses to rewrite an existing line unless the reader version changed.

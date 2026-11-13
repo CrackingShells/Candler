@@ -58,7 +58,7 @@ The golden guards read the corpus named by `CANDLER_GOLDEN_CORPUS` and write the
 
 ```sh
 CANDLER_GOLDEN_CORPUS=<corpus> CANDLER_GOLDEN_REPORT=<file> \
-  cargo nextest run -p candler-core --run-ignored only -E 'binary(guard_golden)'
+  cargo nextest run -p candler-core --run-ignored only -E 'test(/^guard_golden::/)'
 ```
 
 `guard_supervise` and `guard_seams` spawn processes. Run `guard_signal` first and only spawn when it
