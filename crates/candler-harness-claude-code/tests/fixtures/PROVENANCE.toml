@@ -184,7 +184,7 @@ synthetic = true
 [[files]]
 path = "README.md"
 source = "hand-written"
-sha256 = "08ad28866c3b0f31916c4d26f38cf3e712e4f3350c89e0f5ab4a66bde3424ee5"
+sha256 = "9e7c203050c48514b7e92382cc885e3b3179d3dd39ff2e36e5b7d89dd3f87bfc"
 synthetic = false
 
 [[files]]

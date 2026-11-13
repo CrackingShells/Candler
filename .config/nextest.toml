@@ -4,6 +4,6 @@
 container-e2e = { max-threads = 1 }
 
 [[profile.default.overrides]]
-filter = "binary(guard_container_e2e) | binary(guard_cli_e2e)"
+filter = "test(/^guard_container_e2e::/) | test(/^guard_cli_e2e::/)"
 test-group = "container-e2e"
 slow-timeout = { period = "60s", terminate-after = 3 }
