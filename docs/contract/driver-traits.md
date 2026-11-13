@@ -8,7 +8,7 @@ The traits a harness driver crate implements: `HarnessDriver` describes how to p
 
 <!-- generated:version -->
 <!-- versions -->
-Core line: `v0.8.3`; the `candler-harness` crate has the same version.
+Core line: `v0.8.4`; the `candler-harness` crate has the same version.
 <!-- /versions -->
 <!-- /generated:version -->
 

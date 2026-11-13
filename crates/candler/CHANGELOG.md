@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.4](https://github.com/CrackingShells/Candler/compare/v0.8.3...v0.8.4) - 2026-11-13
+
+### Refactoring
+
+- *(isolation)* take the base image's harness version from a driver
+- *(library)* read cells through one set of paths and accessors
+- *(library)* build the OpenCode interrupt with no error to drop
+
 ## [0.8.3](https://github.com/CrackingShells/Candler/compare/v0.8.2...v0.8.3) - 2026-11-13
 
 ### Documentation
