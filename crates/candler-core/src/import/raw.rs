@@ -7,7 +7,6 @@
 //! stream the store already holds is never written again.
 
 use std::collections::BTreeMap;
-use std::fmt::Write as _;
 use std::fs::{self, File};
 use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
@@ -25,7 +24,6 @@ use candler_schemas::refusal_table;
 use candler_schemas::trace::TraceFile;
 use candler_schemas::values::{SourceEntry, ValueSource};
 use flate2::read::MultiGzDecoder;
-use sha2::{Digest as _, Sha256};
 
 use candler_harness::reader::TraceReader;
 
@@ -299,29 +297,6 @@ fn is_gzip(name: &str) -> bool {
     extension_is(name, "gz")
 }
 
-/// The digest of a finished hash.
-fn digest_of_hash(hasher: Sha256) -> Result<Digest, io::Error> {
-    let mut hex = String::with_capacity(64);
-    for byte in hasher.finalize() {
-        write!(hex, "{byte:02x}").map_err(io::Error::other)?;
-    }
-    Digest::from_hex(hex.as_str()).map_err(io::Error::other) // BORROW: explicit .as_str()
-}
-
-/// The sha256 of the file at `path`, read in a stream.
-fn digest_of_path(path: &Path) -> Result<Digest, io::Error> {
-    let mut file = File::open(path)?;
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0_u8; 64 * 1024];
-    loop {
-        let read = file.read(buffer.as_mut_slice())?; // BORROW: explicit .as_mut_slice()
-        if read == 0 {
-            return digest_of_hash(hasher);
-        }
-        hasher.update(buffer.get(..read).unwrap_or_default());
-    }
-}
-
 /// The first [`SAMPLE_BYTES`] of the text of the file at `path`, decompressed when it is a `.gz`.
 fn head_of(path: &Path, name: &str) -> Result<Vec<u8>, io::Error> {
     let file = File::open(path)?;
@@ -441,7 +416,7 @@ pub fn find_streams(path: &Path, recognise: &Recogniser) -> Result<Streams, RawI
             });
             continue;
         };
-        let Ok(digest) = digest_of_path(file.as_path()) else {
+        let Ok(digest) = File::open(file.as_path()).and_then(Digest::of_reader) else {
             // BORROW: explicit .as_path()
             skipped.push(Skipped {
                 path: shown,
@@ -560,9 +535,7 @@ fn frame_stream(found: &Found, dir: &Path) -> Result<RawFileInfo, RawIngestError
         detail,
     };
     let bytes = fs::read(found.path.as_path()).map_err(|e| unreadable(&found.path, &e))?; // BORROW: explicit .as_path()
-    let mut hasher = Sha256::new();
-    hasher.update(bytes.as_slice()); // BORROW: explicit .as_slice()
-    let digest = digest_of_hash(hasher).map_err(|e| frames_error(e.to_string()))?;
+    let digest = Digest::of_bytes(bytes.as_slice()); // BORROW: explicit .as_slice()
     if digest != found.digest {
         return Err(frames_error(String::from(
             "the file changed while it was ingested",
@@ -642,9 +615,7 @@ fn read_collected(
             detail,
         };
         let bytes = fs::read(path.as_path()).map_err(|e| unreadable(&path, &e))?; // BORROW: explicit .as_path()
-        let mut hasher = Sha256::new();
-        hasher.update(bytes.as_slice()); // BORROW: explicit .as_slice()
-        let digest = digest_of_hash(hasher).map_err(|e| frames_error(e.to_string()))?;
+        let digest = Digest::of_bytes(bytes.as_slice()); // BORROW: explicit .as_slice()
         let plain = if path
             .extension()
             .is_some_and(|e| e.eq_ignore_ascii_case("gz"))

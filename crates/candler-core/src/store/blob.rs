@@ -1,13 +1,11 @@
 //! Write-once blobs: content stored under its own digest.
 
 use std::fs::{self, File, OpenOptions, Permissions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use candler_schemas::primitives::Digest;
-use sha2::Digest as _;
-use sha2::Sha256;
 
 use super::sync::sync_file;
 use super::{Store, StoreError, io_error, sync_dir, temp_sibling, write_new_synced};
@@ -15,30 +13,10 @@ use super::{Store, StoreError, io_error, sync_dir, temp_sibling, write_new_synce
 /// The read-only mode of a stored blob.
 const BLOB_MODE: u32 = 0o444;
 
-/// The digest a finished hasher holds.
-fn finish(hasher: Sha256) -> Result<Digest, StoreError> {
-    let mut hex = String::with_capacity(64);
-    for byte in hasher.finalize() {
-        hex.extend(char::from_digit(u32::from(byte >> 4), 16));
-        hex.extend(char::from_digit(u32::from(byte & 0xf), 16));
-    }
-    Ok(Digest::from_hex(&hex)?)
-}
-
 /// The digest of the bytes of the file at `path`, read in a stream.
 pub(crate) fn digest_of_file(path: &Path) -> Result<Digest, StoreError> {
-    let mut file = File::open(path).map_err(io_error("open a file to hash", path))?;
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0_u8; 64 * 1024];
-    loop {
-        let read = file
-            .read(&mut buffer)
-            .map_err(io_error("read a file to hash", path))?;
-        if read == 0 {
-            return finish(hasher);
-        }
-        hasher.update(buffer.get(..read).unwrap_or_default());
-    }
+    let file = File::open(path).map_err(io_error("open a file to hash", path))?;
+    Digest::of_reader(file).map_err(io_error("read a file to hash", path))
 }
 
 /// Refuses a digest that is not the expected one.
@@ -66,9 +44,7 @@ impl Store {
     /// Returns [`StoreError::DigestMismatch`] when `expected` is given and is not the digest of
     /// `bytes`, and [`StoreError::Io`] when a write fails.
     pub fn put_blob(&self, bytes: &[u8], expected: Option<&Digest>) -> Result<Digest, StoreError> {
-        let mut hasher = Sha256::new();
-        hasher.update(bytes);
-        let digest = finish(hasher)?;
+        let digest = Digest::of_bytes(bytes);
         check_expected(expected, &digest)?;
         let target = self.blob_path(&digest);
         if target.exists() {

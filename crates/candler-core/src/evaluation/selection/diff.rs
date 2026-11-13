@@ -5,9 +5,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use candler_schemas::outcome::OutcomeRecord;
-use candler_schemas::primitives::{ExpectationId, FormatError, RunKey};
+use candler_schemas::primitives::{Digest, ExpectationId, FormatError, RunKey};
 use serde::{Deserialize, Serialize, Serializer};
-use sha2::{Digest as _, Sha256};
 
 use super::fields::FourFields;
 use super::select::Selection;
@@ -180,16 +179,6 @@ pub struct Equivalence {
     names: Vec<String>,
 }
 
-/// The lowercase hex of `bytes`.
-fn hex(bytes: impl IntoIterator<Item = u8>) -> String {
-    let mut text = String::new();
-    for byte in bytes {
-        text.extend(char::from_digit(u32::from(byte >> 4), 16));
-        text.extend(char::from_digit(u32::from(byte & 0xf), 16));
-    }
-    text
-}
-
 impl Equivalence {
     /// Reads an equivalence file.
     ///
@@ -244,7 +233,7 @@ impl Equivalence {
         Ok(Self {
             rules,
             rows,
-            sha256: hex(Sha256::digest(bytes)),
+            sha256: Digest::of_bytes(bytes).hex().to_owned(), // BORROW: the file keeps its own hex
             names,
         })
     }
