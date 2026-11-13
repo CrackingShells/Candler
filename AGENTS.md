@@ -3,6 +3,39 @@
 Candler is a Rust workspace (`crates/`). These rules apply to every `.rs` file and every
 document an agent writes here. Humans follow them too.
 
+## Sustainable, scalable, efficient
+
+Everything produced or run here passes three tests. That covers the code, its tests and CI, every
+script and document, and the work itself: each build, test run, model call and agent run. Nothing
+runs in a silo. All of it shares the hardware, the quotas and the energy with other software and
+other people.
+
+- **Sustainable:** a small RSS, CPU and GPU footprint, and with it disk, tokens and energy. What is
+  created has an owner that removes it.
+- **Scalable:** code design patterns, known algorithms, easy-to-use scripts, DRY. One owner per
+  invariant, and one source per fact.
+- **Efficient:** the smallest wall time. Think about how to be fast by default and how to use what
+  the hardware offers, in the spirit of Casey Muratori's Better Software manifesto. Don't
+  over-optimise.
+
+Before writing, running, reviewing or dispatching anything, answer:
+1. What does it cost the shared machine and its energy?
+2. Is it built from known patterns, algorithms and scripts, with nothing duplicated?
+3. Is it fast by default here?
+
+A review checks these three alongside correctness.
+
+Cheap is not a reason to pay. A cost that looks negligible still counts: a free model call, an
+extra agent, a rerun, one more check. Such flaws compound across the whole environment, and taking
+the trouble to find the sustainable, scalable and efficient way is part of the work.
+
+These fail the tests:
+- band-aids;
+- defensive checks against the repository's own code;
+- the same validation at a second layer;
+- a special case kept for a fixture;
+- a test added per incident instead of a fix at the root.
+
 ## Rust: Grit
 
 The Rust conventions are [Grit](https://github.com/PCfVW/Amphigraphic-Strict/tree/master/Grit).
