@@ -12,6 +12,7 @@ use candler_schemas::process::ExitStatus;
 use futures::future::BoxFuture;
 use url::Url;
 
+use super::docker::OUTPUT_LIMIT;
 use super::driver::DockerDriver;
 use super::layout::{LABEL_EXPERIMENT, LABEL_JOB, LABEL_ROLE, LABEL_RUN};
 use super::model::{ContainerRef, GatewayHandle, ImageRef, Labels, NetworkName};
@@ -194,14 +195,16 @@ pub trait Gateway: Send + Sync {
     /// Asks the gateway whether it can serve.
     fn probe<'a>(&'a self, handle: &'a GatewayHandle) -> BoxFuture<'a, GatewayStatus>;
 
-    /// What the gateway saw of the run `run`'s calls.
+    /// What the gateway saw of the run `run`'s calls, read from what it wrote since `since`, the
+    /// start of the run's attempt.
     ///
     /// # Errors
-    /// [`GatewayError`] when the gateway cannot be asked.
+    /// [`GatewayError`] when the gateway cannot be asked or its log is cut short.
     fn run_signals<'a>(
         &'a self,
         handle: &'a GatewayHandle,
         run: &'a RunKey,
+        since: SystemTime,
     ) -> BoxFuture<'a, Result<Vec<GatewaySignal>, GatewayError>>;
 
     /// The model requests the gateway relayed for the run `run`, one JSON line each:
@@ -231,9 +234,6 @@ const GATEWAY_PORT: u16 = 8080;
 
 /// The value of `candler.role` and of `candler.run` on the sidecar.
 const GATEWAY_ROLE: &str = "gateway";
-
-/// How much of a docker command's output is kept.
-const CAPTURE_LIMIT: usize = 4 * 1024 * 1024;
 
 /// How long one docker command may run.
 const COMMAND_DEADLINE: Duration = Duration::from_secs(90);
@@ -324,7 +324,7 @@ impl DockerCli {
     ) -> Result<Output, GatewayError> {
         let request = self.request(args, stdin)?;
         let captured = sup
-            .run_captured(request, CAPTURE_LIMIT)
+            .run_captured(request, OUTPUT_LIMIT)
             .await
             .map_err(|error| GatewayError::Start {
                 detail: error.to_string(),
@@ -841,9 +841,10 @@ impl Gateway for DockerGateway {
         &'a self,
         handle: &'a GatewayHandle,
         run: &'a RunKey,
+        since: SystemTime,
     ) -> BoxFuture<'a, Result<Vec<GatewaySignal>, GatewayError>> {
         Box::pin(async move {
-            let log = self.logs().read(handle).await?;
+            let log = self.logs().read_since(handle, since).await?;
             // BORROW: explicit .as_str() instead of Deref coercion
             Ok(signals_of(log.as_str(), run, handle.run_tag(run).as_str()))
         })
@@ -898,28 +899,10 @@ impl GatewayLogs {
             if !out.succeeded() {
                 return Err(out.failure("docker logs"));
             }
-            if out.stdout.len() >= crate::isolation::docker::OUTPUT_LIMIT {
+            if out.stdout.len() >= OUTPUT_LIMIT {
                 return Err(GatewayError::Unavailable {
                     detail: String::from("the gateway log is cut short at the capture limit"),
                 });
-            }
-            Ok(format!("{}\n{}", out.stdout, out.stderr))
-        })
-    }
-
-    /// The sidecar's standard output, then its standard error, as text.
-    ///
-    /// # Errors
-    /// [`GatewayError::Start`] when `docker logs` fails.
-    pub fn read<'a>(
-        &'a self,
-        handle: &'a GatewayHandle,
-    ) -> BoxFuture<'a, Result<String, GatewayError>> {
-        Box::pin(async move {
-            let args = vec![String::from("logs"), handle.container.cid.to_string()];
-            let out = self.cli.run(&self.sup, args, StdinSpec::Null).await?;
-            if !out.succeeded() {
-                return Err(out.failure("docker logs"));
             }
             Ok(format!("{}\n{}", out.stdout, out.stderr))
         })

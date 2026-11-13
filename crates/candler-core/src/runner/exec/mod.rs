@@ -774,7 +774,7 @@ async fn drive(
     let gateway_failed = match &rt.gateway {
         Some(gateway) => gateway
             .service
-            .run_signals(&gateway.handle, &plan.key)
+            .run_signals(&gateway.handle, &plan.key, attempt_wall)
             .await
             .is_ok_and(|signals| !signals.is_empty()),
         None => false,
