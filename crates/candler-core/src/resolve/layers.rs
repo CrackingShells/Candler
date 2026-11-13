@@ -16,36 +16,12 @@ use serde_json::Value;
 
 use super::config::Config;
 use super::preflight::{ResolveError, StepReport};
-
-/// The path of the store root.
-const STORE_ROOT: &str = "store.root";
-/// The path of the plug-in directories.
-const PLUGINS_DIRS: &str = "plugins.dirs";
-/// The path of the slot count.
-const SLOTS_COUNT: &str = "slots.count";
-/// The path of the evaluator slot count.
-const SLOTS_EVALUATORS: &str = crate::experiment::paths::SLOTS_EVALUATORS;
-
-/// The setting that names the harness a request asks for.
-const REQUEST_HARNESS: &str = "request.harness";
-/// The setting that names the treatment a request asks for.
-const REQUEST_TREATMENT: &str = "request.treatment";
-/// The setting that carries the agent's declared inputs as `{kind, digest}`.
-const REQUEST_INPUTS: &str = "request.inputs";
-/// The setting that names the Dockerfile of the experiment's image layer.
-const ISOLATION_BUILD_DOCKERFILE: &str = "isolation.build.dockerfile";
-/// The setting that names the build context directory.
-const ISOLATION_BUILD_CONTEXT: &str = "isolation.build.context";
-/// The setting that names a ready env lock file.
-const ISOLATION_BUILD_LOCK: &str = "isolation.build.lock";
-/// The setting that lists the requirement sources of the env lock.
-const ISOLATION_BUILD_REQUIREMENTS: &str = "isolation.build.requirements";
-/// The setting that lists the import packages each run records from its env image.
-const ISOLATION_RECORD_PACKAGES: &str = "isolation.record_packages";
-/// The prefix of a requirement source that is read from the treatment's repository, not a path.
-const TREATMENT_SOURCE_PREFIX: &str = "treatment:";
-/// The setting that names the secret the gateway presents to the model endpoint.
-const MODEL_TOKEN_SECRET: &str = "model.token_secret";
+use crate::experiment::paths::{
+    ISOLATION_BUILD_CONTEXT, ISOLATION_BUILD_DOCKERFILE, ISOLATION_BUILD_LOCK,
+    ISOLATION_BUILD_REQUIREMENTS, ISOLATION_RECORD_PACKAGES, MODEL_TOKEN_SECRET, PLUGINS_DIRS,
+    REQUEST_HARNESS, REQUEST_INPUTS, REQUEST_TREATMENT, SLOTS_COUNT, SLOTS_EVALUATORS, STORE_ROOT,
+    TREATMENT_SOURCE_PREFIX,
+};
 
 /// Reports whether `path` is an operational setting, by its path alone: a configuration key
 /// (`store.root`, `plugins.dirs`, `slots.count`, `slots.evaluators`), a job cap (every `budget.*` path except

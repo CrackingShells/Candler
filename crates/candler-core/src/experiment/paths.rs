@@ -73,6 +73,10 @@ pub const ISOLATION_BUILD_CONTEXT: &str = "isolation.build.context";
 /// experiment file or `treatment:<path inside the skill>`.
 pub const ISOLATION_BUILD_REQUIREMENTS: &str = "isolation.build.requirements";
 
+/// The prefix of a requirement source read from the treatment's repository rather than a path:
+/// `treatment:<path inside the skill>`.
+pub const TREATMENT_SOURCE_PREFIX: &str = "treatment:";
+
 /// A setting: the names of the files deleted from the env after the install, each matching
 /// `^[A-Za-z0-9._-]+$`.
 pub const ISOLATION_BUILD_PRUNE: &str = "isolation.build.prune";
@@ -103,6 +107,12 @@ pub const RUNNER_IDLE_S: &str = "runner.idle_s";
 
 /// A typed root, derived: the harness identity.
 pub const HARNESS: &str = "harness";
+
+/// The path of the harness version below [`HARNESS`], a fact a replayed cell re-checks.
+pub const HARNESS_VERSION: &str = "harness.version";
+
+/// The path a replayed cell's secrets deviation is reported at: the names of the secrets present.
+pub const SECRETS: &str = "secrets";
 
 /// A typed root, derived: the treatment `{name, tag, commit}`.
 pub const TREATMENT: &str = "treatment";

@@ -23,7 +23,9 @@ use rustix::fs::{FlockOperation, flock};
 use rustix::io::Errno;
 use serde_json::Value;
 
-use crate::experiment::paths::{self, HARNESS, ISOLATION_IMAGE, TREATMENT};
+use crate::experiment::paths::{
+    self, HARNESS, HARNESS_VERSION, ISOLATION_IMAGE, SECRETS, TREATMENT,
+};
 use crate::jobs::dir::JobDir;
 use crate::jobs::lock::{JobLock, LockState};
 use crate::resolve::layers::{Resolution, is_setting};
@@ -32,11 +34,6 @@ use crate::store::Store;
 
 /// The digest of a cell.
 pub type CellId = Digest;
-
-/// The path of the harness version, a re-checked fact.
-const HARNESS_VERSION: &str = "harness.version";
-/// The path of the secrets, a re-checked fact.
-const SECRETS: &str = "secrets";
 
 /// What planning reads.
 #[derive(Clone)]

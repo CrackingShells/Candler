@@ -30,9 +30,6 @@ use crate::isolation::image::{
 use crate::resolve::preflight::{PreflightError, PreflightStep, ResolveContext, StepReport};
 use crate::supervise::Supervisor;
 
-/// The prefix of a requirement source that lives in the treatment's repository.
-const TREATMENT_PREFIX: &str = "treatment:";
-
 /// What the experiment's own image layer is built from: the Dockerfile and the files of its
 /// context.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -378,7 +375,7 @@ async fn source_of(
     supervisor: &Supervisor,
     entry: &str,
 ) -> Result<LockSource, PreflightError> {
-    let (path, bytes) = if let Some(inside) = entry.strip_prefix(TREATMENT_PREFIX) {
+    let (path, bytes) = if let Some(inside) = entry.strip_prefix(paths::TREATMENT_SOURCE_PREFIX) {
         let treatment: TreatmentRef = read_value(ctx, paths::TREATMENT)?;
         let commit = treatment.commit.ok_or_else(|| {
             failed(format!(
