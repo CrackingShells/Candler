@@ -32,14 +32,10 @@ pub const DRIVER_PAGE: HarnessPage = HarnessPage {
 /// The pages of the harness surface, in the order of the index.
 pub const HARNESS_PAGES: [&HarnessPage; 2] = [&DRIVER_PAGE, &CAPABILITY_PAGE];
 
-const DRIVER_SURFACE: &str = "The traits a harness driver crate implements: `HarnessDriver` describes how to prepare, launch, stop and collect one harness as data, `TraceReader` turns its output into sessions, and `SkillTree` places a treatment's skills; the core calls them and runs what they describe.";
+const DRIVER_SURFACE: &str = "The traits a harness driver crate implements: `HarnessDriver` describes how to prepare, launch, stop and collect one harness as data, and `TraceReader` turns its output into sessions; the core calls them and runs what they describe.";
 
 /// The traits of the page, with the file of `candler-harness/src` that defines each.
-const TRAITS: [(&str, &str); 3] = [
-    ("HarnessDriver", "driver.rs"),
-    ("TraceReader", "reader.rs"),
-    ("SkillTree", "skills.rs"),
-];
+const TRAITS: [(&str, &str); 2] = [("HarnessDriver", "driver.rs"), ("TraceReader", "reader.rs")];
 
 /// The error types whose refusals a driver can cause: its own, and the command builder's.
 const DRIVER_ERRORS: [&str; 2] = ["DriverError", "CommandSpecError"];

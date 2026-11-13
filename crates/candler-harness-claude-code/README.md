@@ -9,8 +9,7 @@ stream-json output of Claude Code: it reads the frames of one
 
 | Item | Holds |
 |---|---|
-| `ClaudeCodeReader` | The reader. `ClaudeCodeReader::new()` returns `Result<_, ClaudeCodeError>`; the type has no `Default`. It frames by line. |
-| `ClaudeCodeError` | Why a reader cannot be built: its identity is not a valid `name@version`. |
+| `ClaudeCodeReader` | The reader. `ClaudeCodeReader::new()` cannot fail. It frames by line. |
 | `READER` | The reader identity as text, `claude-code-stream-json@<version>`. The version changes whenever the reader's output does. |
 | `SUPPORTED` | The Claude Code versions the reader supports, as a SemVer requirement. |
 | `detect` | A public module: `detect::detect` recognises a supported stream from its first line and returns its format version and a confidence. |

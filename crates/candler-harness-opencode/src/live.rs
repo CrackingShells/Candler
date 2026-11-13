@@ -14,7 +14,9 @@ use candler_schemas::trace::{EndedBy, Session, SessionEvent, SessionId};
 use serde_json::Value;
 
 use crate::export::ended_by_of_observed;
-use crate::{LIVE_READER, OpenCodeError, VALIDATED, session_source};
+use crate::{VALIDATED, session_source};
+use candler_schemas::name;
+use semver::Version;
 
 /// Reads the live NDJSON for session ids and the last word.
 #[non_exhaustive]
@@ -26,21 +28,19 @@ pub struct OpenCodeLiveReader {
 
 impl OpenCodeLiveReader {
     /// A reader of the live NDJSON.
-    ///
-    /// # Errors
-    /// Returns [`OpenCodeError::Identity`] if the reader identity is not a valid name.
-    pub fn new() -> Result<Self, OpenCodeError> {
-        let identity =
-            LIVE_READER
-                .parse::<NameVersion>()
-                .map_err(|error| OpenCodeError::Identity {
-                    detail: error.to_string(), // BORROW: .to_string() gives owned text
-                })?;
-        Ok(Self {
-            identity,
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            identity: NameVersion::of(&name!("opencode-ndjson"), Version::new(0, 1, 0)),
             seen: Vec::new(),
             end: None,
-        })
+        }
+    }
+}
+
+impl Default for OpenCodeLiveReader {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

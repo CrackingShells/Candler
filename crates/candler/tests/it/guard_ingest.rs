@@ -59,7 +59,7 @@ fn recognise(sample: &[u8]) -> Option<Recognised> {
         return None;
     };
     let version = detect::init_version(&map)?;
-    let supported = detect::supports(&version);
+    let supported = candler_harness_claude_code::supported().matches(&version);
     Some(Recognised::new(
         "claude-code".parse().ok()?,
         version,
@@ -69,10 +69,9 @@ fn recognise(sample: &[u8]) -> Option<Recognised> {
 
 /// A factory of Claude Code readers.
 fn readers() -> Box<ReaderFactory> {
-    Box::new(|| {
-        let reader: Box<dyn TraceReader> =
-            Box::new(ClaudeCodeReader::new().expect("the reader builds"));
-        reader
+    Box::new(|_harness| {
+        let reader: Box<dyn TraceReader> = Box::new(ClaudeCodeReader::new());
+        Some(reader)
     })
 }
 

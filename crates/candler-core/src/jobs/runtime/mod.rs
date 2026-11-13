@@ -13,7 +13,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use candler_harness::driver::HarnessDriver;
-use candler_harness::skills::SkillTree;
 use candler_schemas::primitives::JobId;
 use futures::future::BoxFuture;
 
@@ -49,9 +48,6 @@ pub struct JobServices {
     // TRAIT_OBJECT: the harness's driver, or a recording fake in tests
     /// What the runner needs from the harness, as data.
     pub driver: Arc<dyn HarnessDriver>,
-    // TRAIT_OBJECT: the harness's archive reader, or a fake in tests
-    /// Where a treatment's skill tree comes from.
-    pub skills: Arc<dyn SkillTree>,
     /// Which build of the evaluation infrastructure runs the job.
     pub eval_infra: EvalInfra,
 }

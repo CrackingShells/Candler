@@ -7,8 +7,9 @@
 use std::fmt::Write;
 use std::path::Path;
 use std::str::FromStr as _;
+use std::sync::Arc;
 
-use candler_harness::driver::Disposition;
+use candler_harness::driver::{Disposition, HarnessDriver};
 use candler_harness::spec::{Action, StopSignal, StopSpec};
 use candler_schemas::execution::{GitCommit, TreatmentRef};
 use candler_schemas::primitives::Name;
@@ -16,7 +17,7 @@ use candler_schemas::primitives::Name;
 use super::harness::{HarnessPage, assemble, cell, version_section};
 use super::refusals::{Entry, catalogue_entries};
 use super::versions::Versions;
-use crate::drivers::{DriverEntry, Registry};
+use crate::drivers::Registry;
 
 /// The page of the capabilities of the registered drivers.
 pub const CAPABILITY_PAGE: HarnessPage = HarnessPage {
@@ -33,8 +34,8 @@ const CAPABILITY_CODES: [&str; 2] = [
     "experiment.setting_unsupported",
 ];
 
-/// A cell of the capability table, from one driver's entry.
-type Mapping = fn(&str, &DriverEntry, &Registry) -> Result<String, String>;
+/// A cell of the capability table, from one driver.
+type Mapping = fn(&str, &Arc<dyn HarnessDriver>, &Registry) -> Result<String, String>;
 
 /// The rows of the capability table: the row's name and the one mapping that words its cells.
 const ROWS: [(&str, Mapping); 8] = [
@@ -48,19 +49,15 @@ const ROWS: [(&str, Mapping); 8] = [
     ("skills layout", skills_layout),
 ];
 
-fn gateway_route(_: &str, entry: &DriverEntry, _: &Registry) -> Result<String, String> {
-    let env = entry
-        .driver
+fn gateway_route(_: &str, driver: &Arc<dyn HarnessDriver>, _: &Registry) -> Result<String, String> {
+    let env = driver
         .gateway()
         .ok_or("a registered driver names its gateway variables")?;
     Ok(format!("Candler: gateway, address in `{}`", env.base_url))
 }
 
-fn census_source(_: &str, entry: &DriverEntry, _: &Registry) -> Result<String, String> {
-    match (
-        entry.driver.capabilities().census,
-        entry.driver.census_stream(),
-    ) {
+fn census_source(_: &str, driver: &Arc<dyn HarnessDriver>, _: &Registry) -> Result<String, String> {
+    match (driver.capabilities().census, driver.census_stream()) {
         (true, Some(_)) => Ok("Candler: gateway, first request with tools".to_owned()),
         (true, None) => Ok("yes".to_owned()),
         (false, _) => Err("a registered driver without a census has no cell wording".to_owned()),
@@ -71,8 +68,8 @@ fn census_source(_: &str, entry: &DriverEntry, _: &Registry) -> Result<String, S
     clippy::unnecessary_wraps,
     reason = "every row of the table has the one mapping type"
 )]
-fn session_mode(_: &str, entry: &DriverEntry, _: &Registry) -> Result<String, String> {
-    Ok(if entry.driver.capabilities().session {
+fn session_mode(_: &str, driver: &Arc<dyn HarnessDriver>, _: &Registry) -> Result<String, String> {
+    Ok(if driver.capabilities().session {
         "yes".to_owned()
     } else {
         "no (refused)".to_owned()
@@ -80,12 +77,11 @@ fn session_mode(_: &str, entry: &DriverEntry, _: &Registry) -> Result<String, St
 }
 
 /// A cap the harness enforces is `yes`; one it lacks must be a refused row of its settings table.
-fn cap(entry: &DriverEntry, enforced: bool, setting: &str) -> Result<String, String> {
+fn cap(driver: &Arc<dyn HarnessDriver>, enforced: bool, setting: &str) -> Result<String, String> {
     if enforced {
         return Ok("yes".to_owned());
     }
-    let refused = entry
-        .driver
+    let refused = driver
         .settings_table()
         .iter()
         .any(|row| row.setting == setting && row.disposition == Disposition::Refused);
@@ -98,18 +94,18 @@ fn cap(entry: &DriverEntry, enforced: bool, setting: &str) -> Result<String, Str
     }
 }
 
-fn turn_cap(_: &str, entry: &DriverEntry, _: &Registry) -> Result<String, String> {
+fn turn_cap(_: &str, driver: &Arc<dyn HarnessDriver>, _: &Registry) -> Result<String, String> {
     cap(
-        entry,
-        entry.driver.capabilities().budgets.turns,
+        driver,
+        driver.capabilities().budgets.turns,
         "budget.per_run.turns",
     )
 }
 
-fn cost_cap(_: &str, entry: &DriverEntry, _: &Registry) -> Result<String, String> {
+fn cost_cap(_: &str, driver: &Arc<dyn HarnessDriver>, _: &Registry) -> Result<String, String> {
     cap(
-        entry,
-        entry.driver.capabilities().budgets.cost,
+        driver,
+        driver.capabilities().budgets.cost,
         "budget.per_run.max_cost_usd",
     )
 }
@@ -123,10 +119,10 @@ fn signal(spec: &StopSpec) -> Result<&'static str, String> {
     }
 }
 
-fn stop(_: &str, entry: &DriverEntry, _: &Registry) -> Result<String, String> {
-    let spec = entry.driver.stop();
+fn stop(_: &str, driver: &Arc<dyn HarnessDriver>, _: &Registry) -> Result<String, String> {
+    let spec = driver.stop();
     let signal = signal(&spec)?;
-    match (&spec.pre_stop, entry.driver.capabilities().graceful_stop) {
+    match (&spec.pre_stop, driver.capabilities().graceful_stop) {
         (None, true) => Ok("yes".to_owned()),
         (Some(Action::Exec(_)), _) => Ok(format!(
             "Candler: interrupt command in the container, then {signal}"
@@ -143,13 +139,13 @@ fn stop(_: &str, entry: &DriverEntry, _: &Registry) -> Result<String, String> {
 
 fn authoritative_trace(
     name: &str,
-    entry: &DriverEntry,
+    driver: &Arc<dyn HarnessDriver>,
     registry: &Registry,
 ) -> Result<String, String> {
     if let Some((stream, _)) = registry.offline(name).first() {
         return Ok(format!("Candler: collects `{stream}` after the run"));
     }
-    if entry.driver.live_reader().is_some() && entry.driver.capabilities().live_events {
+    if driver.live_reader().is_some() && driver.capabilities().live_events {
         return Ok("yes".to_owned());
     }
     Err("a registered driver's trace has no cell wording".to_owned())
@@ -183,10 +179,10 @@ fn tar_of(path: &str) -> Vec<u8> {
     out
 }
 
-fn skills_layout(_: &str, entry: &DriverEntry, _: &Registry) -> Result<String, String> {
+fn skills_layout(_: &str, driver: &Arc<dyn HarnessDriver>, _: &Registry) -> Result<String, String> {
     let treatment = probe_treatment()?;
-    let archive = entry
-        .skills
+    let skills = driver.skills();
+    let archive = skills
         .archive_command(&treatment, Path::new("/probe"))
         .map_err(|e| e.to_string())?;
     let subtree = archive
@@ -194,8 +190,7 @@ fn skills_layout(_: &str, entry: &DriverEntry, _: &Registry) -> Result<String, S
         .last()
         .ok_or("the archive command has no pathspec")?
         .clone();
-    let files = entry
-        .skills
+    let files = skills
         .files(&treatment, &tar_of(&format!("{subtree}/SKILL.md")))
         .map_err(|e| e.to_string())?;
     let first = files
@@ -230,11 +225,11 @@ fn capability_fields(registry: &Registry) -> Result<String, String> {
     for (label, mapping) in ROWS {
         let _ = write!(out, "| {label} |");
         for name in &names {
-            let entry = registry
-                .entry(name)
-                .map_err(|_| format!("no entry for `{name}`"))?;
-            let text =
-                mapping(name, &entry, registry).map_err(|e| format!("{label} of `{name}`: {e}"))?;
+            let driver = registry
+                .driver(name)
+                .map_err(|_| format!("no driver for `{name}`"))?;
+            let text = mapping(name, &driver, registry)
+                .map_err(|e| format!("{label} of `{name}`: {e}"))?;
             let _ = write!(out, " {} |", cell(&text));
         }
         out.push('\n');

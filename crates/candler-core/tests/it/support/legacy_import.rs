@@ -47,14 +47,14 @@ pub fn cell_of(replicate: u32) -> &'static str {
 }
 
 /// A new reader of Claude Code streams.
-///
-/// # Panics
-///
-/// Panics when the reader's identity is not valid, which the shipped one always is.
 #[must_use]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the import's `ReaderFactory` returns an option"
+)]
 // TRAIT_OBJECT: the import's factory type returns boxed readers
-pub fn reader() -> Box<dyn TraceReader> {
-    Box::new(ClaudeCodeReader::new().unwrap_or_else(|e| panic!("the reader builds: {e}")))
+pub fn reader(_harness: &str) -> Option<Box<dyn TraceReader>> {
+    Some(Box::new(ClaudeCodeReader::new()))
 }
 
 /// Imports `folder` into `store` with the rules of the mini-corpus and the Claude Code reader.

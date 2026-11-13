@@ -261,6 +261,8 @@ fn check_sealed(store: &Store, mapped: &MappedRun, run: &LegacyRun) -> Result<()
 struct Context<'a> {
     store: &'a Store,
     readers: &'a ReaderFactory,
+    /// The harness whose reader reads every stream of the folder.
+    harness: &'a str,
     scratch: &'a Path,
 }
 
@@ -367,7 +369,11 @@ fn import_run(
         }
         writer = Some(w);
     }
-    match normalise((ctx.readers)(), &info) {
+    let read = match (ctx.readers)(ctx.harness) {
+        Some(reader) => normalise(reader, &info).map_err(|error| error.to_string()),
+        None => Err(format!("no reader for the harness `{}`", ctx.harness)),
+    };
+    match read {
         Ok(trace) => {
             report
                 .usage_diffs
@@ -379,7 +385,7 @@ fn import_run(
         Err(error) => report.trace_failures.push(TraceFailure::new(
             // BORROW: .clone() gives the failure its own key
             key.clone(),
-            error.to_string(),
+            error,
         )),
     }
     if let Some(w) = writer {
@@ -507,6 +513,7 @@ fn import_runs(
     let ctx = Context {
         store,
         readers,
+        harness: rules.harness.name.as_str(), // BORROW: explicit .as_str()
         scratch,
     };
     let mut report = ImportReport::new();

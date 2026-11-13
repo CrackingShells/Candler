@@ -16,14 +16,12 @@ use candler_harness::conformance::{
     Case, ExpectedSession, ReaderSource, RecordBytes, Setup, TrackStep, run,
 };
 use candler_harness::driver::HarnessDriver;
-use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
     Cell, CensusSource, FileRoot, GatewayEnv, InitReport, PendingItem, PendingKind, PendingState,
     ProcessEnd, ProcessExit, Workspace,
 };
 use candler_harness::spec::{SessionClose, SessionRecord};
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
-use candler_harness_claude_code::skills::ClaudeSkills;
 use candler_schemas::execution::{GitCommit, TreatmentRef};
 use candler_schemas::primitives::{FieldPath, ReasonCode};
 use candler_schemas::process::ExitStatus;
@@ -284,7 +282,7 @@ fn cases() -> Res<Vec<Case>> {
 /// raw lines read with `serde_json`.
 #[test]
 fn conformance_claude_code_fixtures() -> Res<()> {
-    let driver = ClaudeCodeDriver::new()?;
+    let driver = ClaudeCodeDriver::new();
     let values = values()?;
     let cell = Cell::new(&values);
     let workspace = Workspace::new(Path::new("."));
@@ -304,7 +302,7 @@ fn conformance_claude_code_fixtures() -> Res<()> {
 /// `fixtures/sessions/PROVENANCE.toml`, recorded by `session_facts`, and the hand-written prompt.
 #[test]
 fn conformance_claude_session_spec() -> Res<()> {
-    let driver = ClaudeCodeDriver::new()?;
+    let driver = ClaudeCodeDriver::new();
     let values = values()?;
     let workspace = Workspace::new(Path::new("."));
     let Some(spec) = driver.session(&Cell::new(&values), &workspace)? else {
@@ -371,7 +369,7 @@ fn conformance_claude_session_spec() -> Res<()> {
 #[test]
 fn conformance_claude_hook_command_observes_without_deciding() -> Res<()> {
     use std::process::{Command, Stdio};
-    let driver = ClaudeCodeDriver::new()?;
+    let driver = ClaudeCodeDriver::new();
     let values = values()?;
     let workspace = Workspace::new(Path::new("."));
     let Some(spec) = driver.session(&Cell::new(&values), &workspace)? else {
@@ -465,7 +463,7 @@ fn conformance_claude_skills_layout() -> Res<()> {
     let commit = String::from_utf8(git(&["rev-parse", "HEAD"])?)?;
     let mut treatment = TreatmentRef::new("demo".parse()?);
     treatment.commit = Some(GitCommit::from_str(commit.trim())?);
-    let skills: &dyn SkillTree = &ClaudeSkills; // TRAIT_OBJECT: the core holds skill trees as objects
+    let skills = ClaudeCodeDriver::new().skills();
     let command = skills.archive_command(&treatment, &repo)?;
     let archive = Command::new(command.argv().first().ok_or("no program")?)
         .args(command.argv().iter().skip(1))
@@ -495,7 +493,7 @@ fn conformance_claude_tracker_and_pending_work() -> Res<()> {
     type Tracker = Box<dyn candler_harness::spec::SessionTracker>; // TRAIT_OBJECT: the core holds trackers as objects
 
     // (1) A turn that ends with no Stop line.
-    let driver = ClaudeCodeDriver::new()?;
+    let driver = ClaudeCodeDriver::new();
     let mut tracker = driver.session_tracker().ok_or("no tracker")?;
     let lines = [
         r#"{"type":"system","subtype":"init","session_id":"s"}"#,
@@ -624,8 +622,8 @@ fn conformance_claude_tracker_and_pending_work() -> Res<()> {
 /// `RESERVED_NAMES`, `BASE_URL_NAME` and `AUTH_TOKEN_NAME` of the core's `run.rs` at a26fe53,
 /// copied by hand.
 #[test]
-fn conformance_claude_gateway_names_are_the_cores_names() -> Res<()> {
-    let driver = ClaudeCodeDriver::new()?;
+fn conformance_claude_gateway_names_are_the_cores_names() {
+    let driver = ClaudeCodeDriver::new();
     assert_eq!(
         driver.gateway(),
         Some(GatewayEnv::new(
@@ -639,7 +637,6 @@ fn conformance_claude_gateway_names_are_the_cores_names() -> Res<()> {
         ))
     );
     assert_eq!(driver.state_paths(), Vec::new());
-    Ok(())
 }
 
 /// Guards: R01 §Session runner — the session command keeps every element of the headless command
@@ -647,7 +644,7 @@ fn conformance_claude_gateway_names_are_the_cores_names() -> Res<()> {
 /// `command()` of the same cell, whose line `guard_claude_code_driver` pins to a26fe53's.
 #[test]
 fn conformance_claude_session_command_keeps_the_headless_arguments() -> Res<()> {
-    let driver = ClaudeCodeDriver::new()?;
+    let driver = ClaudeCodeDriver::new();
     let mut values = values()?;
     for (path, value) in [
         ("model.effort", json!("high")),

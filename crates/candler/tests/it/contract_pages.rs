@@ -86,13 +86,13 @@ fn d1_regenerating_the_pages_changes_nothing() {
             .expect("the page is rendered");
         settle(page.file, &generated);
     }
-    let registry = drivers::Registry::builtin().expect("the drivers are built");
+    let registry = drivers::Registry::builtin();
     let traits = render_driver_traits(&versions, existing("driver-traits.md").as_deref())
         .expect("the driver traits page is rendered");
     settle("driver-traits.md", &traits);
     let capabilities = render_capabilities(
         &versions,
-        &registry,
+        registry,
         existing("harness-capabilities.md").as_deref(),
     )
     .expect("the capability page is rendered");

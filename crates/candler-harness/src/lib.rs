@@ -7,7 +7,7 @@
 //!
 //! - [`spec`] holds the data a driver returns to the core.
 //! - [`driver`] holds [`driver::HarnessDriver`] and its error.
-//! - [`skills`] holds [`skills::SkillTree`], the per-harness skill layout.
+//! - [`skills`] holds [`skills::SkillTree`], where a harness reads its skills.
 //! - [`reader`] holds [`reader::TraceReader`], its frame input and its error.
 
 #![deny(clippy::allow_attributes)]

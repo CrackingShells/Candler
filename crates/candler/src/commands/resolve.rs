@@ -243,10 +243,8 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let root = common::store_root("resolve", store).await?;
     let config = Arc::new(Config::load(&cwd, &ConfigEnv::from_process()).map_err(failed_here)?);
     let input = request_settings(&file, experiment_dir.as_path(), &fields, &cwd)?;
-    let entry = Registry::builtin()
-        .map_err(failed_here)?
-        .entry(&requested_harness(&input)?)?;
-    let services = foreground(Arc::clone(&config), &root, &entry)?;
+    let driver = Registry::builtin().driver(&requested_harness(&input)?)?;
+    let services = foreground(Arc::clone(&config), &root, &driver)?;
     let supervisor = {
         // TRAIT_OBJECT: the check belongs to no job and reports no event
         let sink: Arc<dyn EventSink> = Arc::new(Silent);

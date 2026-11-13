@@ -27,7 +27,7 @@ use candler_schemas::values::JsonValue;
 use super::CliError;
 use super::assets;
 use super::refusal::{CliRefusal, FieldLocation, REQUEST_KEYS};
-use crate::drivers::DriverEntry;
+use candler_harness::driver::HarnessDriver;
 
 /// The path of the setting `[treatment] source` replaces; `--set` refuses it by name.
 const RETIRED_TREATMENT_SOURCE: &str = concat!("request.", "treatment_source");
@@ -336,7 +336,7 @@ pub(crate) fn requested_harness(input: &ResolveInput) -> Result<String, CliError
 }
 
 /// Builds the docker client, the image service and the catalog provider over one supervisor, and
-/// composes the resolver on them. The harness is the registry's `entry`: its driver reads the
+/// composes the resolver on them. The harness is the registry's `driver`: it reads the
 /// image's version and says which versions are supported, and its base context builds the base
 /// image.
 ///
@@ -346,9 +346,9 @@ pub(crate) fn requested_harness(input: &ResolveInput) -> Result<String, CliError
 pub(crate) fn foreground(
     config: Arc<Config>,
     root: &Path,
-    entry: &DriverEntry,
+    driver: &Arc<dyn HarnessDriver>,
 ) -> Result<Foreground, CliError> {
-    let assets = asset_paths(root, entry.base_context)?;
+    let assets = asset_paths(root, driver.base_context())?;
     let control = layout::control_dir(root);
     std::fs::create_dir_all(&control).map_err(failed)?;
     // TRAIT_OBJECT: the foreground checks belong to no job and report no event
@@ -356,7 +356,7 @@ pub(crate) fn foreground(
     let supervisor = Arc::new(Supervisor::new(sink));
     let env = ClientEnv::from_process();
     let cli = DockerCli::new(Arc::clone(&supervisor), env.clone(), control).map_err(failed)?; // BORROW: the client owns its env
-    let driver = Arc::clone(&entry.driver);
+    let driver = Arc::clone(driver);
     let images = DockerImageService::new(
         Arc::clone(&supervisor),
         cli.clone(), // BORROW: the service owns its client
