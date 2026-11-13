@@ -40,6 +40,9 @@ jobs:
         if: github.event_name == 'pull_request'
         uses: dorny/paths-filter@v4
         with:
+          # A file is code when it matches every pattern, so the `!`
+          # patterns exclude; with the default `some`, `**` matches all.
+          predicate-quantifier: every
           filters: |
             code:
               - '**'
