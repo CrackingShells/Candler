@@ -234,17 +234,12 @@ impl HarnessDriver for OpenCodeDriver {
     fn stop(&self) -> StopSpec {
         // The interrupt first: it ends the session in the server child with its tool, which a
         // signal to the client does not reach. Then TERM, which `OpenCode` honours (exit 143).
-        let script = CommandSpec::builder()
-            .argv(vec![
-                "python3".to_owned(), // BORROW: .to_owned() makes owned arguments
-                "-I".to_owned(),
-                "-c".to_owned(),
-                STOP_SCRIPT.to_owned(),
-                SESSION_ID.to_owned(),
-            ])
-            .build();
-        let pre_stop = script.ok().map(Action::exec);
-        StopSpec::new(pre_stop, StopSignal::Term, STOP_GRACE)
+        let script = CommandSpec::new(
+            "python3".to_owned(), // BORROW: .to_owned() makes the owned program
+            // BORROW: str::to_owned makes the owned arguments
+            Vec::from(["-I", "-c", STOP_SCRIPT, SESSION_ID].map(str::to_owned)),
+        );
+        StopSpec::new(Some(Action::exec(script)), StopSignal::Term, STOP_GRACE)
     }
 
     fn live_reader(&self) -> Option<Box<dyn TraceReader>> {
