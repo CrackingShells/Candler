@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1](https://github.com/CrackingShells/Candler/compare/v0.8.0...v0.8.1) - 2026-11-13
+
+### Fixes
+
+- *(isolation)* key the env image on the env Dockerfile too
+- *(jobs)* take a lost job's lock off the async worker
+- *(isolation)* read a run's gateway signals from its own attempt
+
+### Performance
+
+- *(runner)* read the boot id once per process
+- *(jobs)* queue slot waiters on a semaphore, not on the files
+- *(isolation)* give only the agent container a copy of the env
+- *(runner)* remove a child's record once its wait ends it
+- *(jobs)* read a job's end from the back of its event log
+
 ## [0.8.0](https://github.com/CrackingShells/Candler/compare/v0.7.0...v0.8.0) - 2026-11-13
 
 ### Documentation
