@@ -12,8 +12,9 @@ use candler_schemas::trace::{EndedBy, Session};
 use crate::reader::TraceReader;
 use crate::skills::SkillTree;
 use crate::spec::{
-    Capabilities, Cell, CollectSpec, CommandSpec, CommandSpecError, GatewayEnv, HarnessId,
-    Observed, Prepared, ProcessExit, SessionSpec, SessionTracker, StatePath, StopSpec, Workspace,
+    BaseImage, Capabilities, Cell, CollectSpec, CommandSpec, CommandSpecError, GatewayEnv,
+    HarnessId, Observed, Prepared, ProcessExit, SessionSpec, SessionTracker, StatePath, StopSpec,
+    Workspace,
 };
 
 /// Why a driver could not answer.
@@ -241,9 +242,9 @@ pub trait HarnessDriver: Send + Sync {
     /// Where a treatment's skill tree comes from and where the harness reads it.
     fn skills(&self) -> SkillTree;
 
-    /// The directory under `assets/docker` that holds the build context of the harness's base
-    /// image.
-    fn base_context(&self) -> &'static str;
+    /// The build context of the harness's base image and the build arguments that pin its
+    /// version.
+    fn base_image(&self) -> BaseImage;
 
     /// The streams the harness collects after a run, each read offline by
     /// [`HarnessDriver::offline_reader`]. The default is none.

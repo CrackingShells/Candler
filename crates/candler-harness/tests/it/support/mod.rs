@@ -239,8 +239,8 @@ impl HarnessDriver for LinesDriver {
         candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
     }
 
-    fn base_context(&self) -> &'static str {
-        "base"
+    fn base_image(&self) -> candler_harness::spec::BaseImage {
+        candler_harness::spec::BaseImage::new("base", Vec::new())
     }
 
     fn detect(&self, _sample: &[u8]) -> Option<semver::Version> {
@@ -473,8 +473,8 @@ impl HarnessDriver for DocumentDriver {
         candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
     }
 
-    fn base_context(&self) -> &'static str {
-        "base"
+    fn base_image(&self) -> candler_harness::spec::BaseImage {
+        candler_harness::spec::BaseImage::new("base", Vec::new())
     }
 
     fn detect(&self, _sample: &[u8]) -> Option<semver::Version> {
@@ -815,8 +815,8 @@ impl HarnessDriver for OpenShapedDriver {
         candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
     }
 
-    fn base_context(&self) -> &'static str {
-        "base"
+    fn base_image(&self) -> candler_harness::spec::BaseImage {
+        candler_harness::spec::BaseImage::new("base", Vec::new())
     }
 
     fn detect(&self, _sample: &[u8]) -> Option<semver::Version> {

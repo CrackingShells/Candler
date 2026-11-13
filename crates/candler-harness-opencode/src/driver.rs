@@ -11,8 +11,8 @@ use candler_harness::driver::{DriverError, HarnessDriver, SettingRow};
 use candler_harness::reader::TraceReader;
 use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
-    Action, Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId, Observed,
-    Prepared, ProcessExit, StateKind, StatePath, StopSignal, StopSpec, Workspace,
+    Action, BaseImage, Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId,
+    Observed, Prepared, ProcessExit, StateKind, StatePath, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::name;
 use candler_schemas::primitives::{RelPath, plain_segment};
@@ -111,8 +111,12 @@ impl HarnessDriver for OpenCodeDriver {
         SkillTree::new(".claude/skills", ".opencode/skills")
     }
 
-    fn base_context(&self) -> &'static str {
-        "base-opencode"
+    fn base_image(&self) -> BaseImage {
+        // BORROW: .to_owned() and .to_string() make the owned argument
+        BaseImage::new(
+            "base-opencode",
+            vec![("OC_VERSION".to_owned(), VALIDATED.to_string())],
+        )
     }
 
     fn offline_streams(&self) -> Vec<StreamName> {

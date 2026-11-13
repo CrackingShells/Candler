@@ -63,8 +63,11 @@ fn write_script(path: &Path, text: &str) {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("a mode");
 }
 
-/// The tag of the base image built from `assets/docker/base`, as docker holds it.
-const BASE_SUFFIX: &str = "src-319fda768a95";
+/// The tag of the base image built from `assets/docker/base` with `CC_VERSION=2.1.311`, as docker
+/// holds it: the first 12 hex digits of the sha256 of the sources' digest (each file's name, a
+/// NUL, its bytes and a NUL, in name order), a NUL, then `CC_VERSION`, a NUL, `2.1.311` and a
+/// NUL, computed with `shasum`.
+const BASE_SUFFIX: &str = "src-12bee9345901";
 
 /// The env tag's part for the sources of `assets/docker/env`: the first 12 hex digits of the
 /// sha256 of each file's name, a NUL, its bytes and a NUL, in name order, computed with `shasum`.

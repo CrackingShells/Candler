@@ -406,3 +406,21 @@ fn b24_stop_is_term_with_the_grace_the_core_applied_before() {
     assert_eq!(stop.pre_stop, None);
     assert_eq!(stop.grace, std::time::Duration::from_secs(5));
 }
+
+/// Guards: the base image installs a Claude Code the driver supports, and its build argument names
+/// that version.
+/// Oracle: `CC_VERSION=2.1.311`, the version `fixtures/sessions/PROVENANCE.toml` recorded.
+/// Bite: pin a version outside `supported()`, or pass no `CC_VERSION`.
+#[test]
+fn pinned_version_is_supported_and_built() {
+    let driver = ClaudeCodeDriver::new();
+    assert!(
+        driver
+            .supported()
+            .matches(&candler_harness_claude_code::PINNED)
+    );
+    assert_eq!(
+        driver.base_image().build_args,
+        vec![("CC_VERSION".to_owned(), "2.1.311".to_owned())]
+    );
+}

@@ -48,6 +48,9 @@ pub fn supported() -> semver::VersionReq {
     }
 }
 
+/// The Claude Code version the base image installs, which [`supported`] accepts.
+pub const PINNED: semver::Version = semver::Version::new(2, 1, 311);
+
 /// The name of the harness that produced the streams the reader reads.
 const HARNESS: &str = "claude-code";
 

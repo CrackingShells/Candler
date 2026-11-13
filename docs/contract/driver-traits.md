@@ -32,7 +32,7 @@ Core line: `v0.8.3`; the `candler-harness` crate has the same version.
 | `HarnessDriver::state_paths` | `(&self) -> Vec<StatePath>` | optional | `Vec::new()` |
 | `HarnessDriver::census_stream` | `(&self) -> Option<StreamName>` | optional | `None` |
 | `HarnessDriver::skills` | `(&self) -> SkillTree` | required | - |
-| `HarnessDriver::base_context` | `(&self) -> &'static str` | required | - |
+| `HarnessDriver::base_image` | `(&self) -> BaseImage` | required | - |
 | `HarnessDriver::offline_streams` | `(&self) -> Vec<StreamName>` | optional | `Vec::new()` |
 | `HarnessDriver::detect` | `(&self, sample: &[u8]) -> Option<semver::Version>` | required | - |
 | `HarnessDriver::session` | `(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Option<SessionSpec>, DriverError>` | optional | `Ok(None)` |

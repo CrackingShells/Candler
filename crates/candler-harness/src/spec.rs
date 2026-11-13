@@ -1211,6 +1211,28 @@ impl Prepared {
     }
 }
 
+/// How the core builds a harness's base image.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct BaseImage {
+    /// The directory under `assets/docker` that holds the build context.
+    pub context: &'static str,
+    /// The build arguments, each `(name, value)`: the harness version the image installs. The
+    /// Dockerfile gives them no default, so a build without them fails.
+    pub build_args: Vec<(String, String)>,
+}
+
+impl BaseImage {
+    /// A base image built from `assets/docker/<context>` with `build_args`.
+    #[must_use]
+    pub const fn new(context: &'static str, build_args: Vec<(String, String)>) -> Self {
+        Self {
+            context,
+            build_args,
+        }
+    }
+}
+
 /// The resolved values of one cell, read by field path.
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]

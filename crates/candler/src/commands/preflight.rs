@@ -348,7 +348,7 @@ pub(crate) fn foreground(
     root: &Path,
     driver: &Arc<dyn HarnessDriver>,
 ) -> Result<Foreground, CliError> {
-    let assets = asset_paths(root, driver.base_context())?;
+    let assets = asset_paths(root, driver.base_image().context)?;
     let control = layout::control_dir(root);
     std::fs::create_dir_all(&control).map_err(failed)?;
     // TRAIT_OBJECT: the foreground checks belong to no job and report no event

@@ -10,8 +10,8 @@ use candler_harness::driver::{DriverError, HarnessDriver};
 use candler_harness::reader::TraceReader;
 use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
-    BudgetCaps, Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId, Observed,
-    Prepared, ProcessExit, SessionSpec, SessionTracker, StopSignal, StopSpec, Workspace,
+    BaseImage, BudgetCaps, Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId,
+    Observed, Prepared, ProcessExit, SessionSpec, SessionTracker, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::execution::paths;
 use candler_schemas::name;
@@ -172,8 +172,12 @@ impl HarnessDriver for ClaudeCodeDriver {
         SkillTree::new(".claude/skills", ".claude/skills")
     }
 
-    fn base_context(&self) -> &'static str {
-        "base"
+    fn base_image(&self) -> BaseImage {
+        // BORROW: .to_owned() and .to_string() make the owned argument
+        BaseImage::new(
+            "base",
+            vec![("CC_VERSION".to_owned(), crate::PINNED.to_string())],
+        )
     }
 
     fn detect(&self, sample: &[u8]) -> Option<Version> {

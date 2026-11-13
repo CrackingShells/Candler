@@ -474,6 +474,8 @@ pub async fn ensure(
 pub struct ControlContexts {
     /// The build context of the base image the cells run on.
     pub base: PathBuf,
+    /// The build arguments of the base image, as the harness driver gives them.
+    pub base_build_args: Vec<(String, String)>,
     /// The build context of the fake model's image.
     pub fakemodel: PathBuf,
 }
@@ -559,8 +561,8 @@ async fn fake_image(
 impl ControlRunner for DockerControlRunner {
     fn identify<'a>(&'a self, rt: &'a Runtime) -> BoxFuture<'a, Result<Identity, String>> {
         Box::pin(async move {
-            let tag =
-                base_tag(&self.contexts.base).map_err(|e| format!("the base sources: {e}"))?;
+            let tag = base_tag(&self.contexts.base, &self.contexts.base_build_args)
+                .map_err(|e| format!("the base sources: {e}"))?;
             let base = rt
                 .docker
                 .image_inspect(&tag)
