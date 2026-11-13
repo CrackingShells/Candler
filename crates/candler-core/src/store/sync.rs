@@ -20,19 +20,6 @@ pub(crate) fn sync_file(file: &File) -> io::Result<()> {
     fsync(file).map_err(io::Error::from)
 }
 
-/// Flushes the data of `file`, and the metadata needed to read it back, with `fdatasync(2)`; on
-/// Apple systems, which have no `fdatasync`, with `fsync(2)`.
-///
-/// # Errors
-/// Returns the I/O error of the call.
-pub(crate) fn sync_data(file: &File) -> io::Result<()> {
-    #[cfg(target_vendor = "apple")]
-    let synced = fsync(file);
-    #[cfg(not(target_vendor = "apple"))]
-    let synced = rustix::fs::fdatasync(file);
-    synced.map_err(io::Error::from)
-}
-
 /// Flushes the entries of the directory `dir`, so that a rename or a new name in it survives a
 /// crash.
 ///

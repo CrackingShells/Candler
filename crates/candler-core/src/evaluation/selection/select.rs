@@ -67,6 +67,24 @@ impl Selection {
         self.current.values()
     }
 
+    /// The outcome of each `(evaluator, run, expectation)`: of its current records, which differ
+    /// only in their context and suite entry digests, the one with the latest request id. These
+    /// are the records a rate counts, one per run and expectation, in key order.
+    pub fn outcomes<'a>(&'a self) -> impl Iterator<Item = &'a OutcomeRecord> {
+        // The key orders by evaluator, run and expectation first, so the records of one outcome
+        // are adjacent.
+        let mut records = self.current.values().peekable();
+        std::iter::from_fn(move || {
+            let mut latest = records.next()?;
+            while let Some(next) = records.next_if(|next| same_outcome(latest, next)) {
+                if next.request_id() > latest.request_id() {
+                    latest = next;
+                }
+            }
+            Some(latest)
+        })
+    }
+
     /// The current record under `key`, if there is one.
     #[must_use]
     pub fn get<'a>(&'a self, key: &I4Key) -> Option<&'a OutcomeRecord> {
@@ -127,6 +145,11 @@ impl Selection {
             }
         }
     }
+}
+
+/// Reports whether `a` and `b` are records of one evaluator, run and expectation.
+fn same_outcome(a: &OutcomeRecord, b: &OutcomeRecord) -> bool {
+    a.evaluator() == b.evaluator() && a.run() == b.run() && a.expectation_id() == b.expectation_id()
 }
 
 /// Selects the current record under each I4 key and flags every change under one key.

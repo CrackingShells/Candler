@@ -1446,11 +1446,6 @@ enum = "StoreError"
 variant = "RecordMismatch"
 reason = "a record for another request is a fault of the writer, not an input of the author"
 
-[internal."candler_core::store::StoreError::IndexCorrupt"]
-enum = "StoreError"
-variant = "IndexCorrupt"
-reason = "an index Candler wrote and cannot read back is Candler's fault, and it repairs itself"
-
 [internal."candler_core::store::StoreError::Parse"]
 enum = "StoreError"
 variant = "Parse"

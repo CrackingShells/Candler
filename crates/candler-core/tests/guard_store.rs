@@ -1,6 +1,6 @@
 #![cfg(test)]
-//! Guards for the run store: what a stopped writer leaves, the index, append-only files, a copied
-//! store and the frozen layout. Every check of stored files reads them with `std::fs` and
+//! Guards for the run store: what a stopped writer leaves, append-only files, a copied store and
+//! the frozen layout. Every check of stored files reads them with `std::fs` and
 //! `serde_json`, never through the store's own readers alone.
 
 mod support;
@@ -346,145 +346,12 @@ fn a_run_stopped_after_step_k_leaves_complete_files_and_can_be_retried_or_sealed
     }
 }
 
-/// The `run` field of every line of the index file at `path`, read with `serde_json` alone.
-fn index_lines(path: &Path) -> Vec<Value> {
-    let text = fs::read_to_string(path).expect("read an index file");
-    text.lines()
-        .map(|line| serde_json::from_str(line).expect("a complete index line"))
-        .collect()
-}
-
-/// The sealed runs and finished outcome files on disk, as a test-side directory scan sees them:
-/// run keys, and `run evaluator request` triples.
-fn scan_store(root: &Path) -> (BTreeSet<String>, BTreeSet<String>) {
-    let mut runs = BTreeSet::new();
-    for entry in fs::read_dir(root.join("runs")).expect("list the runs") {
-        let entry = entry.expect("an entry");
-        let name = entry.file_name().to_string_lossy().into_owned(); // BORROW: .into_owned() makes the owned name
-        if !name.starts_with('.') && entry.path().join("run.done").is_file() {
-            runs.insert(name);
-        }
-    }
-    let mut outcomes = BTreeSet::new();
-    for (path, _) in files_of(&root.join("outcomes")) {
-        if let Some(stem) = path.strip_suffix(".jsonl") {
-            outcomes.insert(stem.replace('/', " "));
-        }
-    }
-    (runs, outcomes)
-}
-
 /// Writes one outcome file of `run` with `n` as its request number.
 fn put_outcome(store: &Store, run: &RunKey, n: u64) {
     let id = request(n);
     let mut writer = OutcomeWriter::create(store, run, &evaluator(), &id).expect("create");
     writer.append(&record(run, &id)).expect("append");
     writer.commit().expect("commit");
-}
-
-/// The index lines as the scan lists them.
-fn indexed_as_scan(store: &Store) -> (BTreeSet<String>, BTreeSet<String>) {
-    let runs = store
-        .indexed_runs()
-        .expect("the indexed runs")
-        .iter()
-        .map(ToString::to_string)
-        .collect();
-    let outcomes = store
-        .indexed_outcomes()
-        .expect("the indexed outcomes")
-        .iter()
-        .map(|f| format!("{} {} {}", f.run, f.evaluator, f.request))
-        .collect();
-    (runs, outcomes)
-}
-
-/// Guards: Cond 6 — after `rebuild_index` the index files list exactly the sealed runs and the
-/// finished outcome files that a directory scan finds, whether the index was appended or rebuilt
-/// from nothing; four threads appending 25 outcome files each leave 100 parseable index lines;
-/// an index whose last line is cut by hand reads every complete line. Oracle: a test-side
-/// `std::fs` directory scan and `serde_json` parse of the index lines.
-#[test]
-fn the_index_equals_a_directory_scan_survives_threads_and_reads_through_a_cut_line() {
-    let scratch = TempDir::new().expect("a store directory");
-    let root = scratch.path();
-    let store = Store::init(root).expect("init");
-
-    // Two sealed runs, one unsealed run, three outcome files and one partial file.
-    for attempt in 1..=2 {
-        let run = manifest(attempt);
-        drive(&store, &run, Existing::Refuse, 3)
-            .done()
-            .expect("seal");
-    }
-    drive(&store, &manifest(3), Existing::Refuse, 0);
-    let key = manifest(1).run().clone(); // BORROW: the key outlives the manifest
-    for n in 1..=3 {
-        put_outcome(&store, &key, n);
-    }
-    let dangling = OutcomeWriter::create(&store, &key, &evaluator(), &request(99)).expect("create");
-    drop(dangling);
-
-    // The appended index already equals the scan; so does an index rebuilt from nothing.
-    let (scan_runs, scan_outcomes) = scan_store(root);
-    assert_eq!((scan_runs.len(), scan_outcomes.len()), (2, 3));
-    assert_eq!(
-        indexed_as_scan(&store),
-        (scan_runs.clone(), scan_outcomes.clone()) // BORROW: the scans are compared again below
-    ); // BORROW: the scan is compared twice
-    fs::remove_dir_all(root.join("index")).expect("drop the index");
-    assert_eq!(indexed_as_scan(&store), (BTreeSet::new(), BTreeSet::new()));
-    store.rebuild_index().expect("rebuild");
-    assert_eq!(indexed_as_scan(&store), (scan_runs.clone(), scan_outcomes)); // BORROW: the run scan is read again below
-    let on_disk: BTreeSet<String> = index_lines(&root.join("index/runs.jsonl"))
-        .iter()
-        .filter_map(|line| line["run"].as_str().map(str::to_owned)) // BORROW: .to_owned() makes the owned key text
-        .collect();
-    assert_eq!(on_disk, scan_runs);
-    assert_eq!(index_lines(&root.join("index/outcomes.jsonl")).len(), 3);
-
-    // Four threads, 25 outcome files each.
-    let busy = TempDir::new().expect("a store directory");
-    let shared = Store::init(busy.path()).expect("init");
-    let run = manifest(1).run().clone(); // BORROW: each thread borrows the key
-    std::thread::scope(|scope| {
-        for thread in 0..4_u64 {
-            let (shared, run) = (&shared, &run);
-            scope.spawn(move || {
-                for n in 0..25_u64 {
-                    put_outcome(shared, run, 1000 + thread * 100 + n);
-                }
-            });
-        }
-    });
-    let lines = index_lines(&busy.path().join("index/outcomes.jsonl"));
-    assert_eq!(lines.len(), 100);
-    assert_eq!(shared.indexed_outcomes().expect("read").len(), 100);
-    let distinct: BTreeSet<String> = lines
-        .iter()
-        .filter_map(|line| line["request"].as_str().map(str::to_owned)) // BORROW: .to_owned() makes the owned request text
-        .collect();
-    assert_eq!(distinct.len(), 100);
-
-    // A last line cut by hand: every complete line is read, and the next append is not glued to it.
-    let path = root.join("index/runs.jsonl");
-    let whole = fs::read(&path).expect("read");
-    fs::write(
-        &path,
-        whole.get(..whole.len() - 6).expect("cut the last line"),
-    )
-    .expect("write");
-    let complete = indexed_as_scan(&store).0;
-    assert_eq!(complete.len(), 1, "the one complete line is read");
-    assert!(complete.is_subset(&scan_runs));
-    drive(&store, &manifest(4), Existing::Refuse, 0)
-        .done()
-        .expect("seal");
-    assert_eq!(
-        index_lines(&path).len(),
-        2,
-        "the torn line is replaced, not extended"
-    );
 }
 
 /// Guards: I11 — a blob is stored read-only (mode 0444) and never rewritten, a blob offered with a
@@ -587,7 +454,7 @@ fn a_copied_store_reads_byte_equal() {
     let copy = scratch.path().join("copy");
     copy_tree(&original, &copy);
     assert_eq!(files_of(&original), files_of(&copy));
-    assert!(files_of(&copy).len() >= 10, "the walk saw the whole store");
+    assert!(files_of(&copy).len() >= 9, "the walk saw the whole store");
 
     let moved = Store::open(&copy).expect("open the copy");
     assert_eq!(
@@ -603,10 +470,6 @@ fn a_copied_store_reads_byte_equal() {
         store.read_trace(&key).expect("read")
     );
     assert_eq!(moved.runs().expect("list"), store.runs().expect("list"));
-    assert_eq!(
-        moved.indexed_runs().expect("read"),
-        store.indexed_runs().expect("read")
-    );
     let files = moved.outcome_files(&key).expect("list");
     assert_eq!(files.len(), 2);
     assert_eq!(files, store.outcome_files(&key).expect("list"));
@@ -616,15 +479,13 @@ fn a_copied_store_reads_byte_equal() {
             store.read_outcomes(file).expect("read")
         );
     }
-    assert_eq!(moved.indexed_outcomes().expect("read"), files);
     let root = original.to_string_lossy().into_owned(); // BORROW: .into_owned() makes the owned root text
     support::assert_clean(&copy, &root);
 }
 
-/// Guards: Cond 6 — the files and directories of one run with two outcome files, and of the index
-/// they leave, are exactly the layout of R01 §Run store: no other name, no empty directory. Oracle:
-/// the literal list written from the §Run store table and its Index, Blobs, Outcome files and Runs
-/// notes.
+/// Guards: Cond 6 — the files and directories of one run with two outcome files are exactly the
+/// layout of R01 §Run store: no other name, no empty directory. Oracle: the literal list written
+/// from the §Run store table and its Blobs, Outcome files and Runs notes.
 #[test]
 fn the_layout_of_a_run_with_two_outcome_files_is_the_frozen_path_set() {
     let scratch = TempDir::new().expect("a store directory");
@@ -641,9 +502,6 @@ fn the_layout_of_a_run_with_two_outcome_files_is_the_frozen_path_set() {
     let (one, two) = (request(1), request(2));
     let literal_files = [
         "store.json".to_owned(), // BORROW: .to_owned() makes the owned path text
-        "index/lock".to_owned(), // BORROW: .to_owned() makes the owned path text
-        "index/outcomes.jsonl".to_owned(), // BORROW: .to_owned() makes the owned path text
-        "index/runs.jsonl".to_owned(), // BORROW: .to_owned() makes the owned path text
         format!("outcomes/{cell}-r1-a1/htn-creator-eval@0.4.2/{one}.jsonl"),
         format!("outcomes/{cell}-r1-a1/htn-creator-eval@0.4.2/{two}.jsonl"),
         format!("runs/{cell}-r1-a1/manifest.json"),
@@ -653,7 +511,6 @@ fn the_layout_of_a_run_with_two_outcome_files_is_the_frozen_path_set() {
         format!("runs/{cell}-r1-a1/tree.json"),
     ];
     let literal_dirs = [
-        "index".to_owned(),    // BORROW: .to_owned() makes the owned path text
         "outcomes".to_owned(), // BORROW: .to_owned() makes the owned path text
         format!("outcomes/{cell}-r1-a1"),
         format!("outcomes/{cell}-r1-a1/htn-creator-eval@0.4.2"),

@@ -121,8 +121,7 @@ impl OutcomeWriter {
     ///
     /// # Errors
     /// Returns [`StoreError::OutcomeExists`] when the final file exists, and [`StoreError::Io`]
-    /// when a sync or the publication fails, or when the index line cannot be appended; in the
-    /// last case the file is published and `rebuild_index` repairs the index.
+    /// when a sync or the publication fails.
     pub fn commit(self) -> Result<(), StoreError> {
         let layout = self.store.layout();
         let last = layout.outcome(
@@ -144,10 +143,10 @@ impl OutcomeWriter {
         }
         fs::remove_file(&self.partial)
             .map_err(io_error("remove a published partial file", &self.partial))?;
-        if let Some(dir) = last.parent() {
-            sync_dir(dir)?;
+        match last.parent() {
+            Some(dir) => sync_dir(dir),
+            None => Ok(()),
         }
-        self.store.index_outcome(&self.target)
     }
 }
 

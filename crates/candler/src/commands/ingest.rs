@@ -7,7 +7,6 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use candler_core::import::assemble::import;
-use candler_core::import::digest_of;
 use candler_core::import::raw::{RawIngestError, ingest_raw_with};
 use candler_core::import::rules::{
     HarnessRule, ImportRules, MarkerCode, MarkerRule, SnapshotRule, TreatmentRule,
@@ -15,7 +14,7 @@ use candler_core::import::rules::{
 use candler_core::import::streams::ReaderFactory;
 use candler_core::store::Store;
 use candler_harness::reader::TraceReader;
-use candler_schemas::primitives::{FieldPath, FormatError, Name, NameToken, ReasonCode};
+use candler_schemas::primitives::{Digest, FieldPath, FormatError, Name, NameToken, ReasonCode};
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -117,7 +116,7 @@ fn rules_from(path: &Path) -> Result<(ImportRules, String), CliError> {
         ))
     })?;
     // The digest is of the file's bytes, whatever they parse to: it goes into every import record.
-    let digest = digest_of(bytes.as_slice()).map_err(|e| CliError::failed("import", e))?; // BORROW: explicit .as_slice()
+    let digest = Digest::of_bytes(bytes.as_slice()); // BORROW: explicit .as_slice()
     let text = String::from_utf8(bytes).map_err(|e| {
         invalid(format!(
             "the rules file {} is not UTF-8: {e}",

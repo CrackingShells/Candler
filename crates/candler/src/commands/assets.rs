@@ -5,7 +5,6 @@
 
 use std::path::{Path, PathBuf};
 
-use candler_core::import::digest_of;
 use candler_schemas::primitives::Digest;
 
 use super::CliError;
@@ -78,19 +77,16 @@ const DOCKER_DIR: &str = "docker";
 
 /// The digest of the embedded assets: the digest of the lines `<path>\0<digest of the bytes>\n`
 /// in path order.
-///
-/// # Errors
-/// [`CliError::Failed`] when a digest cannot be formed, which a SHA-256 never does.
-pub(crate) fn digest() -> Result<Digest, CliError> {
+pub(crate) fn digest() -> Digest {
     let mut lines: Vec<u8> = Vec::new();
     for (path, bytes) in ASSETS {
-        let each = digest_of(bytes).map_err(|e| CliError::failed("run", e))?;
+        let each = Digest::of_bytes(bytes);
         lines.extend_from_slice(path.as_bytes());
         lines.push(0);
         lines.extend_from_slice(each.hex().as_bytes());
         lines.push(b'\n');
     }
-    digest_of(lines.as_slice()).map_err(|e| CliError::failed("run", e)) // BORROW: explicit .as_slice()
+    Digest::of_bytes(lines.as_slice()) // BORROW: explicit .as_slice()
 }
 
 /// The failure of writing the assets at `at`.
@@ -126,7 +122,7 @@ fn write_all(dir: &Path) -> Result<(), CliError> {
 /// [`CliError::Failed`] when a directory or a file cannot be written.
 pub(crate) fn materialise(store_root: &Path) -> Result<PathBuf, CliError> {
     let cache = store_root.join(CACHE_DIR);
-    let dir = cache.join(digest()?.hex());
+    let dir = cache.join(digest().hex());
     if dir.join(DOCKER_DIR).is_dir() {
         return Ok(dir);
     }

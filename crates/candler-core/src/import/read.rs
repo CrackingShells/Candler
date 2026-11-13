@@ -216,18 +216,12 @@ impl LegacyFolder {
     }
 }
 
-/// The digest of `bytes`: `sha256:` and the hex of the SHA-256 of the bytes.
+/// The digest of `bytes`, [`Digest::of_bytes`], in the `Result` the job controls chain it in.
 ///
 /// # Errors
-/// Returns [`ImportError::Format`] if the hex digits do not form a digest, which they always do.
+/// Never: the `Result` is the shape its callers expect.
 pub fn digest_of(bytes: &[u8]) -> Result<Digest, ImportError> {
-    use sha2::Digest as _;
-    let mut hex = String::with_capacity(64);
-    for byte in sha2::Sha256::digest(bytes) {
-        hex.extend(char::from_digit(u32::from(byte >> 4), 16));
-        hex.extend(char::from_digit(u32::from(byte & 0xf), 16));
-    }
-    Ok(Digest::from_hex(&hex)?)
+    Ok(Digest::of_bytes(bytes))
 }
 
 /// A directory entry that is a file or a directory.
@@ -453,7 +447,7 @@ impl Reader<'_> {
         Ok(SourceFile {
             path: rel_path(rel)?,
             // BORROW: explicit .as_slice() instead of Deref coercion
-            sha256: digest_of(bytes.as_slice())?,
+            sha256: Digest::of_bytes(bytes.as_slice()),
             bytes,
             executable,
         })

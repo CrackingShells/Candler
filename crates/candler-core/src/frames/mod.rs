@@ -112,16 +112,6 @@ fn emit(
     Ok((index, frame))
 }
 
-/// Lowercase hex of `bytes`.
-fn hex(bytes: impl IntoIterator<Item = u8>) -> String {
-    let mut text = String::new();
-    for byte in bytes {
-        text.extend(char::from_digit(u32::from(byte >> 4), 16));
-        text.extend(char::from_digit(u32::from(byte & 0xf), 16));
-    }
-    text
-}
-
 /// A writer that hashes what passes through it.
 struct HashingWriter {
     file: File,
@@ -295,8 +285,7 @@ impl FrameWriter {
         io::copy(&mut File::open(&self.tmp_path)?, &mut encoder)?;
         let HashingWriter { file, hasher } = encoder.finish()?;
         sync_file(&file)?;
-        let digest = Digest::from_hex(hex(hasher.finalize()).as_str()) // BORROW: explicit .as_str()
-            .map_err(io::Error::other)?;
+        let digest = Digest::from(hasher);
         fs::rename(&gz_tmp, &gz_path)?;
         sync_dir(&self.dir)?;
         fs::remove_file(&self.tmp_path)?;

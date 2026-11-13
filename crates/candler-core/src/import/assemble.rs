@@ -531,11 +531,6 @@ fn import_runs(
             .saturating_add(u64::try_from(records.len()).unwrap_or(u64::MAX));
         report.invalid_runs.extend(invalid_run(run)?);
     }
-    if !index_is_current(store)? {
-        store
-            .rebuild_index()
-            .map_err(|e| store_error("the store", &e))?;
-    }
     report.skipped = legacy
         .skipped
         .iter()
@@ -551,50 +546,4 @@ fn import_runs(
         .collect();
     report.sort();
     Ok(report)
-}
-
-/// Whether the index files list the sealed runs and the finished outcome files of the store, in
-/// the order `rebuild_index` writes them, and end on a whole line. A store that holds only what an
-/// earlier import wrote then keeps its index files as they are.
-fn index_is_current(store: &Store) -> Result<bool, ImportError> {
-    let entries = store.runs().map_err(|e| store_error("the store", &e))?;
-    let sealed: Vec<RunKey> = entries
-        .iter()
-        .filter(|entry| entry.done)
-        // BORROW: .clone() copies the key into the list
-        .map(|entry| entry.key.clone())
-        .collect();
-    let mut by_name: Vec<&RunKey> = entries.iter().map(|entry| &entry.key).collect();
-    by_name.sort_by_key(ToString::to_string);
-    let mut files = Vec::new();
-    for key in by_name {
-        files.extend(
-            store
-                .outcome_files(key)
-                .map_err(|e| store_error("the store", &e))?,
-        );
-    }
-    let layout = store.layout();
-    Ok(store
-        .indexed_runs()
-        .map_err(|e| store_error("the store", &e))?
-        == sealed
-        && store
-            .indexed_outcomes()
-            .map_err(|e| store_error("the store", &e))?
-            == files
-        // BORROW: explicit .as_path()
-        && ends_on_a_line(layout.index_runs().as_path())?
-        // BORROW: explicit .as_path()
-        && ends_on_a_line(layout.index_outcomes().as_path())?)
-}
-
-/// Whether the file at `path` is missing, empty or ends with a line feed.
-fn ends_on_a_line(path: &Path) -> Result<bool, ImportError> {
-    match fs::read(path) {
-        Ok(bytes) => Ok(bytes.last().is_none_or(|last| *last == b'\n')),
-        // EXPLICIT: an absent index file ends on no partial line
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(true),
-        Err(e) => Err(io_error(path, &e)),
-    }
 }

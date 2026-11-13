@@ -58,6 +58,7 @@ use crate::isolation::model::ContainerPlan;
 use crate::isolation::{Isolation, IsolationError, RunOutputs};
 use crate::jobs::model::JobCause;
 use crate::jobs::slots::Slot;
+use crate::store::StoreError;
 use crate::store::blob::digest_of_file;
 use crate::store::run::{Existing, RunWriter};
 use crate::supervise::SuperviseError;
@@ -712,19 +713,18 @@ async fn drive(
         )?,
     };
     let header = TraceHeader::new(reader_name, raw_refs);
-    // BORROW: the header and the parts are cloned because the failure arm below still reads them
-    let trace = if let Ok(trace) = TraceFile::new(header.clone(), sessions.clone(), events.clone())
-    {
+    // Records the trace rules refuse are a reader error, and the run keeps an empty trace.
+    // BORROW: the header is cloned because the failure arm builds the empty trace from it
+    let trace = if let Ok(trace) = TraceFile::new(header.clone(), sessions, events) {
         trace
     } else {
         reader_failed = true;
-        sessions.clear();
-        events.clear();
         TraceFile::new(header, Vec::new(), Vec::new()).map_err(|error| IsolationError::Plan {
             detail: format!("the trace cannot be built: {error}"),
         })?
     };
-    let used = spent(&events);
+    let (sessions, events) = (trace.sessions(), trace.events());
+    let used = spent(events);
     // What the live reader saw: the session ids, the inventory and the stream's last word.
     // BORROW: the view owns its ids
     let observed = live_view
@@ -735,10 +735,7 @@ async fn drive(
         TraceFacts::Silent
     } else {
         let process = ProcessExit::new(exit.status, exit.ended.into(), exit.stderr_tail.clone()); // BORROW: the exit keeps its tail
-        gather::read_facts(
-            rt.driver.classify_end(&process, &sessions, &observed),
-            &used,
-        )
+        gather::read_facts(rt.driver.classify_end(&process, sessions, &observed), &used)
     };
 
     // What the run left in its workspace.
@@ -750,8 +747,6 @@ async fn drive(
         Vec::new()
     };
     let mut evidence = Evidence {
-        sessions: sessions.clone(), // BORROW: the trace keeps its own copy
-        events: events.clone(),     // BORROW: the trace keeps its own copy
         outputs,
         tree: RunTree::builder()
             .build()
@@ -765,7 +760,7 @@ async fn drive(
         Ok(tree) => evidence.tree = tree,
         Err(_) => collect_ok = false,
     }
-    let mut measured = if evidence.sessions.is_empty() {
+    let mut measured = if sessions.is_empty() {
         Vec::new()
     } else {
         census(observed.init.as_ref().or(gateway_init.as_ref())).unwrap_or_default()
@@ -832,7 +827,7 @@ async fn drive(
                 Some(serde_json::Value::from(counted)),
             )
         });
-    let totals = if reader_failed || evidence.sessions.is_empty() {
+    let totals = if reader_failed || sessions.is_empty() {
         &no_totals
     } else {
         session_totals.as_ref().unwrap_or(&observed.totals)
@@ -841,7 +836,7 @@ async fn drive(
         &end.ended_by,
         client_exit,
         duration_ms,
-        &evidence.events,
+        events,
         totals,
     )));
     measured.extend(provenance_values(&rt.eval_infra, &cell.packages));
@@ -884,7 +879,15 @@ async fn drive(
             info.digest.clone(), // BORROW: the file list owns its digest
         ));
     }
-    seal_run(writer, &last, &evidence.tree, &raw_files, &trace)?;
+    // The seal syncs every file and directory it writes, so it runs off the async workers.
+    let tree = evidence.tree;
+    tokio::task::spawn_blocking(move || seal_run(writer, &last, &tree, &raw_files, &trace))
+        .await
+        .map_err(|error| StoreError::Io {
+            op: "seal a run",
+            path: rt.store.layout().run_dir(&plan.key),
+            source: io::Error::other(error),
+        })??;
     // EXPLICIT: the scratch directory holds only what the seal moved or no longer needs
     let _ = fs::remove_dir_all(&scratch);
 

@@ -7,13 +7,12 @@
 //! into a store blob through it.
 
 use std::ffi::OsString;
-use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use candler_schemas::evaluation::PluginEnvironment;
-use candler_schemas::primitives::{Marker, NameToken};
+use candler_schemas::primitives::{Digest, Marker, NameToken};
 use candler_schemas::process::ExitStatus;
 use futures::future::BoxFuture;
 use sha2::{Digest as _, Sha256};
@@ -65,15 +64,9 @@ impl EnvironmentKey {
                     })?;
             hasher.update(bytes);
         }
-        let hex = hasher
-            .finalize()
-            .iter()
-            .fold(String::with_capacity(64), |mut hex, byte| {
-                // A write to a `String` cannot fail.
-                let _ = write!(hex, "{byte:02x}");
-                hex
-            });
-        Ok(Self { hex })
+        Ok(Self {
+            hex: Digest::from(hasher).hex().to_owned(), // BORROW: the key owns its hex
+        })
     }
 
     /// The 64 hex digits.

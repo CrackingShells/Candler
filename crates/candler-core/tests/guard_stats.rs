@@ -13,7 +13,7 @@ use candler_core::analysis::newcombe::newcombe_difference;
 use candler_core::analysis::tally::{ArmTally, Omitted, RunFacts, tally};
 use candler_core::analysis::wilson::{Counts, wilson};
 use candler_core::analysis::{ALPHA, z_two_sided};
-use candler_core::evaluation::selection::rates::{CellKey, rates};
+use candler_core::evaluation::selection::rates::{CellKey, Rates, rates};
 use candler_core::evaluation::selection::select::select;
 use candler_schemas::execution::{Integrity, InvalidReason};
 use candler_schemas::outcome::{
@@ -441,6 +441,38 @@ fn t3_blocked_counts_as_a_failure() {
     assert_eq!(counts_of(a, "E1"), (2, 4));
     let rate = a.rate(Role::Gate);
     assert_eq!((rate.num(), rate.den()), (2, 4));
+}
+
+/// Guards: a run's expectation counts once per evaluator, by its latest record, when a regrade
+/// gave it another context digest or another suite entry digest: a blocked outcome under the
+/// empty context then a pass under the real one is 1/1, and a fail under one suite entry then a
+/// pass under its edited params is 1/1, in `n`, `k`, the gate rate and `rates`.
+/// Oracle: R01's rate rule, hand counts.
+/// Bite: every current record under its I4 key counted, which gives 2/4.
+#[test]
+fn t3_regraded_outcomes_count_once() {
+    let records = vec![
+        built(
+            gate(1, 'a', 1, "E1", Status::Blocked)
+                .cause(reason("missing_input"))
+                .context_digest(digest('e')),
+        ),
+        built(gate(2, 'a', 1, "E1", Status::Pass)),
+        built(gate(3, 'a', 2, "E1", Status::Fail).suite_entry_digest(digest('f'))),
+        built(gate(4, 'a', 2, "E1", Status::Pass)),
+    ];
+    let runs: Vec<RunFacts> = (1..=2).map(|r| valid('a', r)).collect();
+    let selection = select(records);
+    let arms = tally(&selection, &evaluator(), &runs).expect("a tally");
+    let a = arm(&arms, 'a');
+    assert_eq!(counts_of(a, "E1"), (2, 2));
+    let rate = a.rate(Role::Gate);
+    assert_eq!((rate.num(), rate.den()), (2, 2));
+    let sums = rates(&selection, &evaluator());
+    assert_eq!(
+        sums.get(&CellKey::new(digest('a'))).map(Rates::gate),
+        Some((2, 2))
+    );
 }
 
 /// Guards: `not_measured` and `not_applicable` are out of `n` and counted with their causes

@@ -8,9 +8,8 @@
 //! keys the env image with the lock.
 
 use std::collections::BTreeMap;
-use std::fmt::Write as _;
 use std::fs;
-use std::io::{self, Read};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -21,7 +20,6 @@ use candler_schemas::primitives::{Digest, FieldPath, FormatError, Name, NameToke
 use candler_schemas::values::JsonValue;
 use futures::future::BoxFuture;
 use serde_json::{Map, Value, json};
-use sha2::{Digest as _, Sha256};
 
 use super::identity::show_file;
 use crate::experiment::paths;
@@ -31,9 +29,6 @@ use crate::isolation::image::{
 };
 use crate::resolve::preflight::{PreflightError, PreflightStep, ResolveContext, StepReport};
 use crate::supervise::Supervisor;
-
-/// The prefix of a requirement source that lives in the treatment's repository.
-const TREATMENT_PREFIX: &str = "treatment:";
 
 /// What the experiment's own image layer is built from: the Dockerfile and the files of its
 /// context.
@@ -85,40 +80,14 @@ pub fn build_input_digest(inputs: &BuildInputs) -> Result<Digest, CanonicalError
     Digest::of_canonical(&inputs.to_json())
 }
 
-fn digest_of_hash(hasher: Sha256) -> Result<Digest, io::Error> {
-    let mut hex = String::new();
-    for byte in hasher.finalize() {
-        write!(hex, "{byte:02x}").map_err(io::Error::other)?;
-    }
-    Digest::from_hex(&hex).map_err(|e| io::Error::other(e.to_string()))
-}
-
-fn digest_of(bytes: &[u8]) -> Result<Digest, io::Error> {
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    digest_of_hash(hasher)
-}
-
 /// `error` with the path it failed on in its text.
 fn at(path: &Path, error: &io::Error) -> io::Error {
     io::Error::new(error.kind(), format!("{}: {error}", path.display()))
 }
 
 fn digest_file(path: &Path) -> Result<Digest, io::Error> {
-    let mut file = fs::File::open(path).map_err(|e| at(path, &e))?;
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0_u8; 64 * 1024];
-    loop {
-        let read = file.read(&mut buffer).map_err(|e| at(path, &e))?;
-        let Some(chunk) = buffer.get(..read) else {
-            return Err(io::Error::other("a read returned more than the buffer"));
-        };
-        if chunk.is_empty() {
-            break;
-        }
-        hasher.update(chunk);
-    }
-    digest_of_hash(hasher)
+    let file = fs::File::open(path).map_err(|e| at(path, &e))?;
+    Digest::of_reader(file).map_err(|e| at(path, &e))
 }
 
 /// Lists the files below `dir`, keyed by their path below the context root.
@@ -138,7 +107,7 @@ fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Digest>) -> Result<
         if kind.is_symlink() {
             let target = fs::read_link(entry.path()).map_err(|e| at(&entry.path(), &e))?;
             let text = format!("symlink:{}", target.to_string_lossy());
-            out.insert(key, digest_of(text.as_bytes())?);
+            out.insert(key, Digest::of_bytes(text.as_bytes()));
         } else if kind.is_dir() {
             walk(&entry.path(), &key, out)?;
         } else {
@@ -232,7 +201,7 @@ impl PreflightStep for ImageIdStep {
             let prune = prune_of(&ctx)?;
             check_record_packages(&ctx)?;
             let lock = lock_bytes(&ctx, &images, &supervisor).await?;
-            let lock_digest = digest_of(&lock).map_err(|e| failed(e.to_string()))?;
+            let lock_digest = Digest::of_bytes(&lock);
             let extension = extension_of(&ctx)?;
             let inputs = match &extension {
                 Some(layer) => {
@@ -406,7 +375,7 @@ async fn source_of(
     supervisor: &Supervisor,
     entry: &str,
 ) -> Result<LockSource, PreflightError> {
-    let (path, bytes) = if let Some(inside) = entry.strip_prefix(TREATMENT_PREFIX) {
+    let (path, bytes) = if let Some(inside) = entry.strip_prefix(paths::TREATMENT_SOURCE_PREFIX) {
         let treatment: TreatmentRef = read_value(ctx, paths::TREATMENT)?;
         let commit = treatment.commit.ok_or_else(|| {
             failed(format!(

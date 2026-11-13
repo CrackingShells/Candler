@@ -15,7 +15,7 @@ from `candler-schemas`. Layering is [R01 §Workspace](../../__design__/architect
 | `supervise` | `Supervisor` and `EventSink`. `spawn` starts a child in its own process group, `record` writes its child record, `output` pumps its streams into frame files, `stop` runs the escalation ladder, `reap` ends a group known only by its record, `platform` reads process start times. Unix only. |
 | `frames` | `FrameWriter`, `FrameReader` and `frame_bytes`: `raw-frames/1` files, written as `<stream>.jsonl.tmp` and finished as `<stream>.jsonl.gz`. |
 | `trace` | `normalise`: feeds the frames of a stored stream to a `TraceReader` and returns the sessions. |
-| `store` | `Store` with `layout` (every path), `blob` (write-once content), `run` (a run written step by step and sealed by `run.done`), `outcome` (outcome files, never replaced) and `index` (a rebuildable cache). Unix only. |
+| `store` | `Store` with `layout` (every path), `blob` (write-once content), `run` (a run written step by step and sealed by `run.done`) and `outcome` (outcome files, never replaced). Unix only. |
 | `import` | `assemble::import` writes a legacy results folder into a store. `read` types the folder, `manifest` maps runs to run manifests, `grading` maps rows to outcome records, `assets` and `streams` import files and traces, `rules` carries the caller's domain names, `report` states every difference. |
 
 ## Feature
@@ -35,8 +35,8 @@ Each file under `tests/` pins one module or seam.
 | `guard_signal.rs` | the signal guard; it never spawns a process |
 | `guard_supervise.rs` | records, liveness, events, stops and reaping; it spawns |
 | `guard_frames.rs` | the framing property and the literal frame cases |
-| `guard_store.rs` | what a stopped writer leaves, the index, append-only files, the frozen layout |
-| `guard_seams.rs` | one run from spawn to the store index through a fake harness; it spawns |
+| `guard_store.rs` | what a stopped writer leaves, append-only files, the frozen layout |
+| `guard_seams.rs` | one run from spawn to its stored outcomes through a fake harness; it spawns |
 | `guard_legacy_mapping.rs` | legacy runs to run manifests and outcome records, over the mini-corpus |
 | `guard_import_mini.rs` | the import into a store, over the mini-corpus |
 | `guard_golden.rs` | the import of the 240-run golden corpus; both tests are `#[ignore]` |

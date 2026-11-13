@@ -12,7 +12,6 @@ pub mod tree;
 
 use candler_schemas::execution::RunTree;
 use candler_schemas::primitives::Digest;
-use candler_schemas::trace::{Session, SessionEvent};
 
 /// The tree of a run as the manifest records it.
 pub type TreeJson = RunTree;
@@ -45,10 +44,6 @@ pub struct Inputs {
 /// What a run left behind.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Evidence {
-    /// The sessions the trace holds.
-    pub sessions: Vec<Session>,
-    /// The events of the trace, in feed order; the census reads the init frame from them.
-    pub events: Vec<SessionEvent>,
     /// The files the run produced.
     pub outputs: Vec<OutputDigest>,
     /// The tree of the run.

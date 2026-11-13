@@ -410,8 +410,8 @@ fn an_import_that_stopped_is_completed_by_the_next() {
         "after an unreadable artifact",
     );
 
-    // The outcome file of the third run is a truncated partial: the file is gone, the index
-    // still names it, and half of its bytes sit under the partial name.
+    // The outcome file of the third run is a truncated partial: the file is gone and half of its
+    // bytes sit under the partial name.
     let dir = tempfile::tempdir().expect("a temporary directory");
     let store = Store::init(dir.path()).expect("the store initialises");
     import_with_reader(&corpus, &store).expect("the first import");
@@ -445,12 +445,6 @@ fn an_import_that_stopped_is_completed_by_the_next() {
             .expect("the outcome files list")
             .len(),
         0
-    );
-    assert!(
-        store
-            .indexed_outcomes()
-            .expect("the index reads")
-            .contains(&file)
     );
     import_with_reader(&corpus, &store).expect("the next import completes");
     assert_same_store(&snapshot(dir.path()), &clean, "after a truncated partial");

@@ -228,11 +228,9 @@ impl RunWriter {
     /// changes afterwards.
     ///
     /// # Errors
-    /// Returns [`StoreError::Io`] when the seal cannot be written or the index line cannot be
-    /// appended; in the second case the run is sealed and `rebuild_index` repairs the index.
+    /// Returns [`StoreError::Io`] when the seal cannot be written.
     pub fn done(self) -> Result<(), StoreError> {
-        seal(self.store.layout(), &self.key)?;
-        self.store.index_run(&self.key)
+        seal(self.store.layout(), &self.key)
     }
 
     fn sync_run_dir(&self) -> Result<(), StoreError> {
@@ -311,7 +309,6 @@ impl Store {
             })?;
         write_atomic(&path, &json_bytes(&path, &manifest)?)?;
         seal(layout, key)?;
-        self.index_run(key)?;
         Ok(manifest)
     }
 

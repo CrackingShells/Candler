@@ -163,7 +163,7 @@ impl ExpectationTally {
         wilson(self.counts()?).map_err(|_| Omitted::Unavailable)
     }
 
-    /// Counts one current record of a valid run.
+    /// Counts the outcome of a valid run.
     fn count(&mut self, record: &OutcomeRecord) -> Result<(), StatsError> {
         match record.status() {
             Status::Pass | Status::Fail | Status::Blocked => {
@@ -261,7 +261,9 @@ fn reason_name(reason: InvalidReason) -> Result<String, StatsError> {
     }
 }
 
-/// Tallies the current records of `evaluator` per arm (the cell of the run key).
+/// Tallies the outcomes of `evaluator` ([`Selection::outcomes`]) per arm (the cell of the run
+/// key): one record per run and expectation, whatever context or suite entry digests it was
+/// graded under.
 ///
 /// Every listed run is counted once by run key, whatever its records: a valid run in
 /// `valid_runs`, an invalid one in `invalid` under its reason, except that a run the experimenter
@@ -269,7 +271,7 @@ fn reason_name(reason: InvalidReason) -> Result<String, StatsError> {
 /// counts once, by its last listing. The records of an invalid run are in neither `k` nor `n`.
 ///
 /// # Errors
-/// Returns [`StatsError::RunNotListed`] for a current record of `evaluator` whose run is not in
+/// Returns [`StatsError::RunNotListed`] for an outcome of `evaluator` whose run is not in
 /// `runs`, and [`StatsError::Unreadable`] for a stored value of a shape this version cannot read.
 pub fn tally(
     selection: &Selection,
@@ -304,7 +306,7 @@ pub fn tally(
         }
     }
     for record in selection
-        .current()
+        .outcomes()
         .filter(|record| record.evaluator() == evaluator)
     {
         let Some(integrity) = facts.get(record.run()) else {
