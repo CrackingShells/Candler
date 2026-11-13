@@ -31,6 +31,8 @@ use crate::refusal::read_value;
 use crate::trace::EndedBy;
 use crate::values::{JsonValue, MeasuredValue, ResolvedValue, SourceEntry, ValuesError};
 
+pub mod paths;
+
 /// The version marker of an experiment file, written in its `schema` field.
 pub const EXPERIMENT_SCHEMA: &str = "experiment/1";
 
@@ -486,11 +488,14 @@ impl Budget {
             }
             Some(_) | None => Ok(()),
         };
-        count("budget.per_run.wall_s", u64::from(self.per_run.wall_s))?;
+        count(paths::BUDGET_PER_RUN_WALL_S, u64::from(self.per_run.wall_s))?;
         if let Some(turns) = self.per_run.turns {
-            count("budget.per_run.turns", u64::from(turns))?;
+            count(paths::BUDGET_PER_RUN_TURNS, u64::from(turns))?;
         }
-        cost("budget.per_run.max_cost_usd", self.per_run.max_cost_usd)?;
+        cost(
+            paths::BUDGET_PER_RUN_MAX_COST_USD,
+            self.per_run.max_cost_usd,
+        )?;
         if let Some(runs) = self.max_runs {
             count("budget.max_runs", u64::from(runs))?;
         }
@@ -647,7 +652,7 @@ impl From<TreatmentRef> for TreatmentSpec {
 }
 
 /// The paths whose values are tables kept whole: everything written at or below one reaches a cell as one object at that path, where any other table flattens into one value per leaf.
-pub const TABLE_VALUED_PATHS: [&str; 1] = ["prompt.values"];
+pub const TABLE_VALUED_PATHS: [&str; 1] = [paths::PROMPT_VALUES];
 
 /// The table-valued path that `path` is or lies below, if any.
 fn table_root(path: &FieldPath) -> Option<&'static str> {
