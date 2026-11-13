@@ -23,14 +23,14 @@ use rustix::fs::{FlockOperation, flock};
 use rustix::io::Errno;
 use serde_json::Value;
 
-use crate::experiment::paths::{
-    self, HARNESS, HARNESS_VERSION, ISOLATION_IMAGE, SECRETS, TREATMENT,
-};
 use crate::jobs::dir::JobDir;
 use crate::jobs::lock::{JobLock, LockState};
 use crate::resolve::layers::{Resolution, is_setting};
 use crate::resolve::steps::session::{self, SessionRefusal};
 use crate::store::Store;
+use candler_schemas::execution::paths::{
+    self, HARNESS, HARNESS_VERSION, ISOLATION_IMAGE, SECRETS, TREATMENT,
+};
 
 /// The digest of a cell.
 pub type CellId = Digest;

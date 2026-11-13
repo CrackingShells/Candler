@@ -19,16 +19,13 @@ use candler_schemas::primitives::{RelPath, plain_segment};
 use candler_schemas::raw::StreamName;
 use candler_schemas::trace::{EndedBy, Session};
 use semver::{Version, VersionReq};
-use serde_json::{Map, Value};
 
 use crate::export::{OpenCodeExportReader, ended_by_of_observed, export_stream};
 use crate::live::OpenCodeLiveReader;
-use crate::prepare::{self, invalid, model_id, required_text, value_at};
+use crate::prepare::{self, model_id};
 use crate::{CENSUS_STREAM, EXPORT_READER, VALIDATED};
 
 const PROGRAM: &str = "opencode";
-const PROMPT_TEMPLATE: &str = "prompt.template";
-const PROMPT_VALUES: &str = "prompt.values";
 
 /// The variable that holds the gateway's address; the configuration refers to it.
 const GATEWAY_BASE_URL: &str = "CANDLER_GATEWAY_URL";
@@ -49,61 +46,6 @@ const STOP_GRACE: Duration = Duration::from_secs(10);
 
 /// The in-container interrupt, run as `python3 -I -c <script> {session_id}`.
 const STOP_SCRIPT: &str = include_str!("stop.py");
-
-fn is_key(text: &str) -> bool {
-    let mut chars = text.chars();
-    chars
-        .next()
-        .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-}
-
-fn scalar_text(value: &Value) -> Option<String> {
-    match value {
-        Value::String(text) => Some(text.clone()), // BORROW: .clone() copies the text out of the cell
-        Value::Number(number) => Some(number.to_string()), // BORROW: .to_string() gives owned text
-        Value::Bool(flag) => Some(flag.to_string()), // BORROW: .to_string() gives owned text
-        Value::Null | Value::Array(_) | Value::Object(_) => None,
-    }
-}
-
-/// The prompt: `template` with each `{key}` replaced by its scalar value.
-fn render_prompt(
-    template: &str,
-    values: Option<&Map<String, Value>>,
-) -> Result<String, DriverError> {
-    let mut out = String::with_capacity(template.len());
-    let mut rest = template;
-    while let Some(open) = rest.find('{') {
-        let (before, from_open) = rest.split_at(open);
-        out.push_str(before);
-        let after_open = from_open.get(1..).unwrap_or_default();
-        match after_open.split_once('}') {
-            Some((key, tail)) if is_key(key) => {
-                let value = values.and_then(|map| map.get(key)).ok_or_else(|| {
-                    invalid(
-                        PROMPT_VALUES,
-                        format!("the template names `{key}` and no value is given"),
-                    )
-                })?;
-                let text = scalar_text(value).ok_or_else(|| {
-                    invalid(
-                        PROMPT_VALUES,
-                        format!("the value of `{key}` is not a scalar"),
-                    )
-                })?;
-                out.push_str(text.as_str()); // BORROW: explicit .as_str()
-                rest = tail;
-            }
-            Some(_) | None => {
-                out.push('{');
-                rest = after_open;
-            }
-        }
-    }
-    out.push_str(rest);
-    Ok(out)
-}
 
 fn argv(items: &[&str]) -> Vec<String> {
     items.iter().map(|item| (*item).to_owned()).collect() // BORROW: .to_owned() makes owned arguments
@@ -268,13 +210,7 @@ impl HarnessDriver for OpenCodeDriver {
         let _ = workspace;
         let settings = prepare::settings(cell, &VALIDATED)?;
         let model = model_id(cell)?;
-        let template = required_text(cell, PROMPT_TEMPLATE)?;
-        let values = match value_at(cell, PROMPT_VALUES)? {
-            None => None,
-            Some(Value::Object(map)) => Some(map),
-            Some(_) => return Err(invalid(PROMPT_VALUES, "is not an object".to_owned())), // BORROW: .to_owned() makes the owned text
-        };
-        let prompt = render_prompt(template, values)?;
+        let prompt = cell.prompt()?;
         let mut line = argv(&[PROGRAM, "run", "--standalone", "--format", "json"]);
         // `bypassPermissions` is the only mode accepted, and it is `--auto`.
         line.push("--auto".to_owned()); // BORROW: .to_owned() makes the owned argument

@@ -16,7 +16,8 @@ use serde_json::Value;
 
 use super::config::Config;
 use super::preflight::{ResolveError, StepReport};
-use crate::experiment::paths::{
+use candler_schemas::execution::paths;
+use candler_schemas::execution::paths::{
     ISOLATION_BUILD_CONTEXT, ISOLATION_BUILD_DOCKERFILE, ISOLATION_BUILD_LOCK,
     ISOLATION_BUILD_REQUIREMENTS, ISOLATION_RECORD_PACKAGES, MODEL_TOKEN_SECRET, PLUGINS_DIRS,
     REQUEST_HARNESS, REQUEST_INPUTS, REQUEST_TREATMENT, SLOTS_COUNT, SLOTS_EVALUATORS, STORE_ROOT,
@@ -54,6 +55,68 @@ pub fn is_setting(path: &FieldPath) -> bool {
                 | MODEL_TOKEN_SECRET
         ),
     }
+}
+
+/// Reports whether `path` belongs to the configuration surface: a path named above, an operational
+/// setting ([`is_setting`]), a typed root or a path below one
+/// (which another check refuses on its own terms), a path below `mcp` or `prompt.values`, whose
+/// children are free, or an ancestor of any of these.
+#[must_use]
+pub fn is_known_path(path: &candler_schemas::primitives::FieldPath) -> bool {
+    const LEAVES: [&str; 33] = [
+        paths::MODEL_ID,
+        paths::MODEL_ENDPOINT,
+        paths::MODEL_EFFORT,
+        paths::MODEL_TOKEN_SECRET,
+        paths::TOOLS_ALLOWED,
+        paths::TOOLS_DISALLOWED,
+        paths::PERMISSION_MODE,
+        paths::REQUEST_HARNESS,
+        paths::REQUEST_TREATMENT,
+        paths::REQUEST_INPUTS,
+        paths::PROMPT_TEMPLATE,
+        paths::ISOLATION_IMAGE,
+        paths::ISOLATION_NETWORK,
+        paths::ISOLATION_ENV_LOCK,
+        paths::ISOLATION_LIMITS_PIDS,
+        paths::ISOLATION_LIMITS_MEMORY,
+        paths::ISOLATION_LIMITS_CPUS,
+        paths::ISOLATION_BUILD_DOCKERFILE,
+        paths::ISOLATION_BUILD_CONTEXT,
+        paths::ISOLATION_BUILD_REQUIREMENTS,
+        paths::ISOLATION_BUILD_PRUNE,
+        paths::ISOLATION_BUILD_LOCK,
+        paths::ISOLATION_RECORD_PACKAGES,
+        paths::BUDGET_PER_RUN_WALL_S,
+        paths::BUDGET_PER_RUN_TURNS,
+        paths::BUDGET_PER_RUN_MAX_COST_USD,
+        paths::RUNNER_MODE,
+        paths::RUNNER_IDLE_S,
+        paths::STORE_ROOT,
+        paths::PLUGINS_DIRS,
+        paths::SLOTS_COUNT,
+        paths::ISOLATION_LIMITS,
+        paths::PROMPT_VALUES,
+    ];
+    const SUBTREES: [&str; 7] = [
+        paths::MCP,
+        paths::PROMPT_VALUES,
+        paths::HARNESS,
+        paths::TREATMENT,
+        paths::INPUTS,
+        paths::SNAPSHOTS,
+        paths::ENVIRONMENTS,
+    ];
+    let known = |text: &str| text.parse::<candler_schemas::primitives::FieldPath>().ok();
+    is_setting(path)
+        || LEAVES
+            .iter()
+            .filter_map(|text| known(text))
+            .any(|leaf| leaf.starts_with(path))
+        || SUBTREES
+            .iter()
+            .filter_map(|text| known(text))
+            .any(|root| path.starts_with(&root) || root.starts_with(path))
 }
 
 /// The values an experiment file sets.

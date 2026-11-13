@@ -39,9 +39,9 @@ use super::model::{
     ImageRef, Inspect, LabelSel, Limits, Refusal, SweepScope, UserSpec,
 };
 use super::{EndFacts, IsolatedRequest, Isolation, IsolationError, RunOutputs};
-use crate::experiment::paths;
 use crate::supervise::hook::StopHook;
 use crate::supervise::stop::Exit;
+use candler_schemas::execution::paths;
 
 /// How long a collect command may run in its throwaway container.
 const COLLECT_WALL: Duration = Duration::from_secs(120);

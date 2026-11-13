@@ -1,5 +1,5 @@
 # field_paths.toml: the configuration-surface field paths and their class (B19 oracle, plan D5).
-# Hand-transcribed, never generated and never imported from `experiment::paths`:
+# Hand-transcribed, never generated and never imported from `candler_schemas::execution::paths`:
 #   __reports__/m2b-execution-parity/00-architecture_v0.md section 11 (normative), with the
 #   rulings R21 (request.harness, request.treatment),
 #   D9 (model.token_secret) and D17 (model.effort) from m2b-arch-review-rulings.md.

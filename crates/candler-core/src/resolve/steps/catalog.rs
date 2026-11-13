@@ -12,10 +12,10 @@ use candler_schemas::primitives::{FieldPath, FormatError, Name, NameToken};
 use candler_schemas::values::JsonValue;
 use futures::future::BoxFuture;
 
-use crate::experiment::paths;
 use crate::isolation::model::{ImageId, ImageRef};
 use crate::resolve::preflight::{PreflightError, PreflightStep, ResolveContext, StepReport};
 use crate::runner::evidence::catalog::{CatalogProvider, catalog_digest};
+use candler_schemas::execution::paths;
 
 fn failed(detail: String) -> PreflightError {
     PreflightError::Failed { detail }

@@ -791,7 +791,7 @@ fn e2_slots_evaluators_is_a_setting_not_a_cell_value() {
 /// Bite: drop the path from `is_setting`; it is then unknown.
 #[test]
 fn e2_slots_evaluators_is_a_known_path() {
-    use candler_core::experiment::paths::is_known_path;
+    use candler_core::resolve::layers::is_known_path;
     assert!(is_known_path(&fp("slots.evaluators")));
     assert!(!is_known_path(&fp("slots.evaluator")));
 }

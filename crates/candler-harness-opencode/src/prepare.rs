@@ -12,39 +12,18 @@ use std::str::FromStr as _;
 
 use candler_harness::driver::{DriverError, SettingRow};
 use candler_harness::spec::{Cell, PreparedFile};
+use candler_schemas::execution::paths::{
+    BUDGET_PER_RUN_MAX_COST_USD, BUDGET_PER_RUN_TURNS, MCP, MODEL_EFFORT, MODEL_ID,
+    PERMISSION_MODE, TOOLS_ALLOWED, TOOLS_DISALLOWED,
+};
 use candler_schemas::primitives::{FieldPath, RelPath};
 use serde_json::{Map, Value, json};
 
 /// The provider's id in the configuration and in `-m <provider>/<model>`.
 pub(crate) const PROVIDER: &str = "candler";
 
-const MODEL_ID: &str = "model.id";
-const MCP: &str = "mcp";
-/// The cell path of the permission mode.
-pub(crate) const PERMISSION_MODE: &str = "permission_mode";
 /// The one permission mode `--auto` implements.
 const ACCEPTED_MODE: &str = "bypassPermissions";
-/// The cell path of the reasoning effort.
-const MODEL_EFFORT: &str = "model.effort";
-/// The cell path of the per-run turn cap.
-const BUDGET_TURNS: &str = "budget.per_run.turns";
-/// The cell path of the per-run cost cap.
-const BUDGET_COST: &str = "budget.per_run.max_cost_usd";
-/// The cell path of the allowed-tools list.
-const TOOLS_ALLOWED: &str = "tools.allowed";
-/// The cell path of the disallowed-tools list. Each name becomes a `{action, *, deny}` row, and
-/// `OpenCode` v2.2.7 leaves a tool whose last matching row is a deny on `*` out of the tools it
-/// sends the model (`packages/core/src/tool.ts:260`, `whollyDisabled`, `tool.ts:386-389`), as
-/// Claude Code's `--disallowedTools` does; `--auto` only answers asks with once and adds no row
-/// (`packages/cli/src/run/noninteractive.ts:108`), so it never overrides the deny. No request of a
-/// `bypassPermissions` run with `Bash` disallowed lists `shell` (`candler-core` guard
-/// `census_gateway_denied_shell_is_offered_in_no_request`). The `execute` code-mode tool the
-/// request still lists cannot run a shell: its programs call only the tools of its catalog, which
-/// holds the tools registered for code mode that survive the same deny filter (`tool.ts:260-268`;
-/// the shell tool registers `codemode: false`, `tool/plugin/shell.ts:182`), and an interpreter
-/// with no process or filesystem access (`packages/codemode/README.md`) plus `fetch`; so the deny
-/// of `Bash` needs no deny of `execute`.
-const TOOLS_DISALLOWED: &str = "tools.disallowed";
 
 /// The baseline every `OpenCode` agent starts from (`packages/schema/src/agent.ts`, v2.2.7): the
 /// ruleset `{*, *, allow}` plus an ask on `.env` reads. The configuration's top-level `permissions`
@@ -165,11 +144,15 @@ pub(crate) fn table() -> Vec<SettingRow> {
     }
     rows.push(SettingRow::refused(PERMISSION_MODE, "*", OTHER_MODE));
     rows.push(SettingRow::refused(
-        BUDGET_COST,
+        BUDGET_PER_RUN_MAX_COST_USD,
         "*",
         "OpenCode has no cost cap",
     ));
-    rows.push(SettingRow::refused(BUDGET_TURNS, "*", TURNS_REFUSAL));
+    rows.push(SettingRow::refused(
+        BUDGET_PER_RUN_TURNS,
+        "*",
+        TURNS_REFUSAL,
+    ));
     for level in EFFORT_LEVELS {
         rows.push(SettingRow::mapped(
             MODEL_EFFORT,
@@ -241,15 +224,6 @@ pub(crate) fn invalid(path: &str, detail: String) -> DriverError {
     }
 }
 
-pub(crate) fn missing(path: &str) -> DriverError {
-    match FieldPath::from_str(path) {
-        Ok(path) => DriverError::MissingValue { path },
-        Err(error) => DriverError::VersionOutput {
-            detail: error.to_string(), // BORROW: .to_string() gives owned text
-        },
-    }
-}
-
 /// How the harness is named in a refusal, as its users write it.
 const DISPLAY_NAME: &str = "OpenCode";
 
@@ -271,19 +245,9 @@ pub(crate) fn value_at<'c>(cell: &Cell<'c>, path: &str) -> Result<Option<&'c Val
         .map(candler_schemas::values::JsonValue::as_value))
 }
 
-/// The text at `path`, which the cell must have.
-pub(crate) fn required_text<'c>(cell: &Cell<'c>, path: &str) -> Result<&'c str, DriverError> {
-    match value_at(cell, path)? {
-        None => Err(missing(path)),
-        Some(value) => value
-            .as_str()
-            .ok_or_else(|| invalid(path, "is not text".to_owned())), // BORROW: .to_owned() makes the owned text
-    }
-}
-
 /// The model the cell names, as `OpenCode` takes it after the provider and a slash.
 pub(crate) fn model_id<'c>(cell: &Cell<'c>) -> Result<&'c str, DriverError> {
-    let model = required_text(cell, MODEL_ID)?;
+    let model = cell.model()?;
     if model.is_empty() || model.contains('#') {
         return Err(invalid(
             MODEL_ID,
@@ -435,6 +399,19 @@ fn opencode_action(name: &str) -> Option<String> {
 /// `effect`. A name with no `OpenCode` action refuses the whole list, naming the first such name,
 /// rather than silently dropping it; so does a deny list that holds `Edit` or `Write` without the
 /// other, since both are the one `edit` action.
+///
+/// In `tools.disallowed`, each name becomes a `{action, *, deny}` row, and
+/// `OpenCode` v2.2.7 leaves a tool whose last matching row is a deny on `*` out of the tools it
+/// sends the model (`packages/core/src/tool.ts:260`, `whollyDisabled`, `tool.ts:386-389`), as
+/// Claude Code's `--disallowedTools` does; `--auto` only answers asks with once and adds no row
+/// (`packages/cli/src/run/noninteractive.ts:108`), so it never overrides the deny. No request of a
+/// `bypassPermissions` run with `Bash` disallowed lists `shell` (`candler-core` guard
+/// `census_gateway_denied_shell_is_offered_in_no_request`). The `execute` code-mode tool the
+/// request still lists cannot run a shell: its programs call only the tools of its catalog, which
+/// holds the tools registered for code mode that survive the same deny filter (`tool.ts:260-268`;
+/// the shell tool registers `codemode: false`, `tool/plugin/shell.ts:182`), and an interpreter
+/// with no process or filesystem access (`packages/codemode/README.md`) plus `fetch`; so the deny
+/// of `Bash` needs no deny of `execute`.
 fn tool_permission_rows(
     cell: &Cell<'_>,
     path: &str,
@@ -597,7 +574,7 @@ pub(crate) fn settings(
     cell: &Cell<'_>,
     version: &semver::Version,
 ) -> Result<Settings, DriverError> {
-    let mode = required_text(cell, PERMISSION_MODE)?;
+    let mode = cell.permission_mode()?;
     if mode != ACCEPTED_MODE {
         let why = MODE_REFUSALS
             .iter()
@@ -605,15 +582,15 @@ pub(crate) fn settings(
             .map_or(OTHER_MODE, |(_, why)| *why);
         return Err(unsupported(PERMISSION_MODE, version, why));
     }
-    if value_at(cell, BUDGET_COST)?.is_some() {
+    if value_at(cell, BUDGET_PER_RUN_MAX_COST_USD)?.is_some() {
         return Err(unsupported(
-            BUDGET_COST,
+            BUDGET_PER_RUN_MAX_COST_USD,
             version,
             "OpenCode has no cost cap",
         ));
     }
-    if value_at(cell, BUDGET_TURNS)?.is_some() {
-        return Err(unsupported(BUDGET_TURNS, version, TURNS_REFUSAL));
+    if value_at(cell, BUDGET_PER_RUN_TURNS)?.is_some() {
+        return Err(unsupported(BUDGET_PER_RUN_TURNS, version, TURNS_REFUSAL));
     }
     let variant = effort_variant(cell, version)?;
     let mut permissions = tool_permission_rows(cell, TOOLS_ALLOWED, "allow", version)?;

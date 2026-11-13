@@ -7,17 +7,11 @@ use std::str::FromStr as _;
 
 use candler_harness::driver::DriverError;
 use candler_harness::spec::{Cell, PreparedFile};
+use candler_schemas::execution::paths::{MCP, TOOLS_ALLOWED, TOOLS_DISALLOWED};
 use candler_schemas::primitives::RelPath;
 use serde_json::{Map, Value, json};
 
 use crate::driver::{invalid, value_at};
-
-/// The cell path of the allowed tools.
-const TOOLS_ALLOWED: &str = "tools.allowed";
-/// The cell path of the disallowed tools.
-const TOOLS_DISALLOWED: &str = "tools.disallowed";
-/// The cell path of the MCP servers.
-const MCP: &str = "mcp";
 
 /// The names a list of the cell holds, or none when the cell sets no list.
 fn names(cell: &Cell<'_>, path: &str) -> Result<Vec<String>, DriverError> {

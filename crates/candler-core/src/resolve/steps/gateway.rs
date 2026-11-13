@@ -15,12 +15,12 @@ use candler_schemas::primitives::{FieldPath, FormatError, Marker, NameToken};
 use candler_schemas::process::ExitStatus;
 use futures::future::BoxFuture;
 
-use crate::experiment::paths;
 use crate::resolve::preflight::{
     CheckResult, PreflightError, PreflightStep, ResolveContext, ResolveError, Resolver, StepReport,
 };
 use crate::supervise::Supervisor;
 use crate::supervise::spawn::{SpawnRequest, StdinSpec};
+use candler_schemas::execution::paths;
 
 /// How long the request gets, connection and answer together.
 const TIMEOUT: Duration = Duration::from_secs(8);

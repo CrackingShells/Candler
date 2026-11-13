@@ -16,12 +16,12 @@ use candler_schemas::process::ExitStatus;
 use candler_schemas::values::JsonValue;
 use futures::future::BoxFuture;
 
-use crate::experiment::paths;
 use crate::isolation::image::ImageService;
 use crate::isolation::model::{ImageId, ImageRef};
 use crate::resolve::preflight::{PreflightError, PreflightStep, ResolveContext, StepReport};
 use crate::supervise::Supervisor;
 use crate::supervise::spawn::SpawnRequest;
+use candler_schemas::execution::paths;
 
 /// The most bytes read from `git`.
 const GIT_OUTPUT_LIMIT: usize = 4096;

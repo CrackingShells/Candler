@@ -18,7 +18,6 @@ use futures::future::BoxFuture;
 
 use super::controls::{ControlContexts, ControlRunner, DockerControlRunner};
 use super::schedule::{Clock, wall_clock};
-use crate::experiment::paths::{ISOLATION_IMAGE, ISOLATION_RECORD_PACKAGES, RUNNER_IDLE_S};
 use crate::isolation::Isolation;
 use crate::isolation::container::guard::ContainerGuard;
 use crate::isolation::container::sweeper::LabelSweeper;
@@ -43,21 +42,14 @@ use crate::runner::exec::CellRun;
 use crate::runner::plan::{CellId, PlanError, PlanOutcome};
 use crate::runner::{JobGateway, Runtime};
 use crate::supervise::{EventSink, Supervisor};
+use candler_schemas::execution::paths::{
+    ENVIRONMENTS, HARNESS, INPUTS, ISOLATION_IMAGE, ISOLATION_RECORD_PACKAGES, MODEL_ENDPOINT,
+    MODEL_TOKEN_SECRET, REQUEST_TREATMENT, RUNNER_IDLE_S, SNAPSHOTS, TREATMENT,
+};
 
-/// The setting that names the secret the gateway presents to the model endpoint.
-const TOKEN_SECRET: &str = "model.token_secret";
-/// The setting that holds the treatment the experiment names.
-const REQUEST_TREATMENT: &str = "request.treatment";
 /// The roots of a cell that hold typed records; their sources are not value paths.
-const TYPED_ROOTS: [&str; 5] = [
-    "harness",
-    "treatment",
-    "snapshots",
-    "inputs",
-    "environments",
-];
-/// The value that names the model endpoint.
-const MODEL_ENDPOINT: &str = "model.endpoint";
+const TYPED_ROOTS: [&str; 5] = [HARNESS, TREATMENT, SNAPSHOTS, INPUTS, ENVIRONMENTS];
+
 /// The tag the gateway's sidecar image is looked up by.
 pub(super) const SIDECAR_TAG: &str = "candler-gateway:latest";
 /// The marker the gateway's docker commands carry.
@@ -581,7 +573,8 @@ impl JobSession {
         // TRAIT_OBJECT: the secrets are the environment's, or a fake in tests
         secrets: &dyn SecretSource,
     ) -> Result<Self, OrchestrateError> {
-        let name = text_at(&spec.resolution, TOKEN_SECRET).ok_or(OrchestrateError::TokenSetting)?;
+        let name =
+            text_at(&spec.resolution, MODEL_TOKEN_SECRET).ok_or(OrchestrateError::TokenSetting)?;
         let service = host.gateway(rt, spec).await?;
         Self::open_service(rt, &name, service, experiment, host, secrets).await
     }
