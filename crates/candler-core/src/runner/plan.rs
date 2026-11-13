@@ -14,7 +14,7 @@ use candler_harness::driver::{DriverError, HarnessDriver};
 use candler_harness::spec::Cell;
 
 use candler_schemas::execution::{
-    Comparable, Deviation, ExecutionError, ExperimentFile, Factor, Integrity, Level,
+    Comparable, Deviation, ExecutionError, ExperimentFile, Factor, Integrity, Level, RunManifest,
     SecretPresence, experiment_digest,
 };
 use candler_schemas::primitives::{Digest, FieldPath, JobId, RunKey, SecretName};
@@ -457,61 +457,76 @@ struct Stored {
     experiment: Digest,
 }
 
-/// The stored cells of the store, grouped by the experiment that wrote them. Each cell's record
-/// is read from its last attempt, and its secrets are the names marked present in any attempt.
-fn stored_groups(store: &Store) -> Result<Vec<Vec<Stored>>, PlanError> {
-    let mut by_cell: BTreeMap<Digest, Vec<RunKey>> = BTreeMap::new();
+/// What one replicate of a cell holds in the store.
+#[derive(Default)]
+struct Slot {
+    /// The highest attempt present, sealed or not.
+    highest: u32,
+    /// The last sealed attempt, in key order, whose integrity is valid.
+    valid: Option<RunKey>,
+}
+
+/// What a plan needs of the store, from one listing that reads each manifest once.
+struct Ledger {
+    /// The stored cells, grouped by the experiment that wrote them.
+    groups: Vec<Vec<Stored>>,
+    /// Every replicate of every stored cell, by cell and replicate.
+    slots: BTreeMap<Digest, BTreeMap<u32, Slot>>,
+    /// The unfinished attempts, each with the job its manifest names.
+    open: Vec<(RunKey, Option<JobId>)>,
+}
+
+/// Reads the store once. Each stored cell's record is read from its last attempt, and its secrets
+/// are the names marked present in any attempt.
+fn read_ledger(store: &Store) -> Result<Ledger, PlanError> {
+    let mut by_cell: BTreeMap<Digest, Vec<(RunKey, bool)>> = BTreeMap::new();
     for entry in store.runs().map_err(store_error)? {
         by_cell
             .entry(entry.key.cell().clone()) // BORROW: the map owns the cell digest
             .or_default()
-            .push(entry.key);
+            .push((entry.key, entry.done));
     }
     let mut groups: BTreeMap<Digest, Vec<Stored>> = BTreeMap::new();
-    for keys in by_cell.values() {
+    let mut slots: BTreeMap<Digest, BTreeMap<u32, Slot>> = BTreeMap::new();
+    let mut open = Vec::new();
+    for (cell, keys) in by_cell {
+        let replicates = slots.entry(cell).or_default();
         let mut secrets: Vec<SecretPresence> = Vec::new();
-        let mut last: Option<(&RunKey, RunManifestView)> = None;
-        for key in keys {
-            let manifest = store.read_manifest(key).map_err(store_error)?;
+        let mut last: Option<((u32, u32), RunManifest)> = None;
+        for (key, done) in keys {
+            let manifest = store.read_manifest(&key).map_err(store_error)?;
             for secret in manifest.secrets().iter().filter(|secret| secret.present) {
                 if !secrets.iter().any(|seen| seen.name == secret.name) {
                     secrets.push(secret.clone()); // BORROW: the cell owns the names it saw
                 }
             }
+            let slot = replicates.entry(key.replicate()).or_default();
+            slot.highest = slot.highest.max(key.attempt());
+            if !done {
+                open.push((key.clone(), manifest.job().cloned())); // BORROW: the ledger owns the key and the job
+            } else if matches!(manifest.integrity(), Integrity::Valid) {
+                slot.valid = Some(key.clone()); // BORROW: the slot owns the sealed key
+            }
             let order = (key.replicate(), key.attempt());
-            if last
-                .as_ref()
-                .is_none_or(|(held, _)| order >= (held.replicate(), held.attempt()))
-            {
-                last = Some((
-                    key,
-                    RunManifestView {
-                        // BORROW: .clone() gives the plan its own copy of the stored cell
-                        comparable: manifest.comparable().clone(),
-                        // BORROW: .clone() copies the experiment digest
-                        experiment: manifest.experiment().clone(),
-                    },
-                ));
+            if last.as_ref().is_none_or(|(held, _)| order >= *held) {
+                last = Some((order, manifest));
             }
         }
-        if let Some((_, view)) = last {
-            groups
-                .entry(view.experiment.clone()) // BORROW: the map and the cell both keep the digest
-                .or_default()
-                .push(Stored {
-                    comparable: view.comparable,
-                    secrets,
-                    experiment: view.experiment,
-                });
+        if let Some((_, manifest)) = last {
+            let experiment = manifest.experiment().clone(); // BORROW: the map and the cell both keep the digest
+            groups.entry(experiment.clone()).or_default().push(Stored {
+                // BORROW: .clone() gives the plan its own copy of the stored cell
+                comparable: manifest.comparable().clone(),
+                secrets,
+                experiment,
+            });
         }
     }
-    Ok(groups.into_values().collect())
-}
-
-/// The parts of the last manifest of a cell that the plan keeps.
-struct RunManifestView {
-    comparable: Comparable,
-    experiment: Digest,
+    Ok(Ledger {
+        groups: groups.into_values().collect(),
+        slots,
+        open,
+    })
 }
 
 /// Reports whether a stored cell answers a fresh cell: they agree on every path but the facts.
@@ -826,23 +841,23 @@ fn job_is_live(store: &Store, job: &JobId) -> Result<bool, PlanError> {
 
 /// Seals every unfinished attempt of `cells` as `invalid(interrupted)`; nothing is removed or
 /// moved, and a job that still holds its lock refuses the plan before anything is sealed.
-fn seal_open(store: &Store, cells: &BTreeSet<Digest>) -> Result<(), PlanError> {
-    let open: Vec<RunKey> = store
-        .runs()
-        .map_err(store_error)?
-        .into_iter()
-        .filter(|entry| !entry.done && cells.contains(entry.key.cell()))
-        .map(|entry| entry.key)
+fn seal_open(
+    store: &Store,
+    open: &[(RunKey, Option<JobId>)],
+    cells: &BTreeSet<Digest>,
+) -> Result<(), PlanError> {
+    let open: Vec<&(RunKey, Option<JobId>)> = open
+        .iter()
+        .filter(|(key, _)| cells.contains(key.cell()))
         .collect();
-    for key in &open {
-        let manifest = store.read_manifest(key).map_err(store_error)?;
-        if let Some(job) = manifest.job()
+    for (_, job) in &open {
+        if let Some(job) = job
             && job_is_live(store, job)?
         {
             return Err(PlanError::ExperimentLocked);
         }
     }
-    for key in &open {
+    for (key, _) in open {
         store.seal_interrupted(key).map_err(store_error)?;
     }
     Ok(())
@@ -875,9 +890,9 @@ pub fn plan_runs(
         }
     };
     let cells = fresh_cells(file, resolution, ctx.driver.as_deref())?;
-    let groups = stored_groups(&ctx.store)?;
+    let ledger = read_ledger(&ctx.store)?;
     // BORROW: explicit .as_slice() instead of Deref coercion
-    let matched = match_stored(cells.as_slice(), groups.as_slice())?;
+    let matched = match_stored(cells.as_slice(), ledger.groups.as_slice())?;
 
     let experiment = matched.iter().flatten().next().map_or_else(
         || {
@@ -895,12 +910,16 @@ pub fn plan_runs(
         experiment_digest(all.as_slice())
     };
     let mut lock = lock;
+    let mut relisted = None;
     if experiment != fresh_experiment {
         let path = ctx.store.layout().experiment_lock(&experiment);
         match mode {
             PlanMode::Hold => {
                 let group = lock_file(path.as_path())?;
                 lock = lock.map(|held| held.with_group(group));
+                // A job of the group may have sealed runs before its lock was taken here, so the
+                // runs are read again under it.
+                relisted = Some(read_ledger(&ctx.store)?);
             }
             PlanMode::Check => probe_lock(path.as_path())?,
         }
@@ -944,42 +963,32 @@ pub fn plan_runs(
         return Err(PlanError::Changed(changed));
     }
 
+    let runs = relisted.as_ref().unwrap_or(&ledger);
     if mode == PlanMode::Hold {
-        seal_open(&ctx.store, &digests)?;
+        // BORROW: explicit .as_slice() instead of Deref coercion
+        seal_open(&ctx.store, runs.open.as_slice(), &digests)?;
     }
 
-    let entries = ctx.store.runs().map_err(store_error)?;
+    // Sealing an unfinished attempt makes it neither valid nor absent, so the ledger read before
+    // sealing still decides every replicate.
     let mut plans = Vec::new();
     let mut sealed = Vec::new();
     for (digest, pinned, deviations) in per_cell {
         for replicate in 1..=file.replicates() {
-            let mut valid: Option<RunKey> = None;
-            for entry in entries.iter().filter(|entry| {
-                entry.done && entry.key.cell() == &digest && entry.key.replicate() == replicate
-            }) {
-                let manifest = ctx.store.read_manifest(&entry.key).map_err(store_error)?;
-                if matches!(manifest.integrity(), Integrity::Valid) {
-                    valid = Some(entry.key.clone()); // BORROW: the outcome owns the sealed key
-                }
-            }
-            if let Some(key) = valid {
-                sealed.push(key);
+            let slot = runs
+                .slots
+                .get(&digest)
+                .and_then(|replicates| replicates.get(&replicate));
+            if let Some(key) = slot.and_then(|slot| slot.valid.as_ref()) {
+                sealed.push(key.clone()); // BORROW: the outcome owns the sealed key
                 continue;
             }
-            let attempt = ctx
-                .store
-                .next_attempt(&digest, replicate)
-                .map_err(store_error)?;
-            if entries.iter().any(|entry| {
-                entry.key.cell() == &digest
-                    && entry.key.replicate() == replicate
-                    && entry.key.attempt() == attempt
-            }) {
+            let Some(attempt) = slot.map_or(0, |slot| slot.highest).checked_add(1) else {
                 return Err(PlanError::AttemptOverflow {
                     cell: digest.to_string(),
                     replicate,
                 });
-            }
+            };
             let key = RunKey::new(digest.clone(), replicate, attempt) // BORROW: the key owns its cell
                 .map_err(store_error)?;
             plans.push(RunPlan {
