@@ -311,8 +311,9 @@ pub fn reference_values() -> Vec<ResolvedValue> {
 pub fn reference_command() -> CommandSpec {
     let values = reference_values();
     ClaudeCodeDriver::new()
-        .command(&Cell::new(&values), &Workspace::new(Path::new("/work/run")))
-        .expect("a command")
+        .plan(&Cell::new(&values), &Workspace::new(Path::new("/work/run")))
+        .expect("a plan")
+        .command
 }
 
 /// `argv` with the scene's root written as `<root>` and the client binary as `docker`.

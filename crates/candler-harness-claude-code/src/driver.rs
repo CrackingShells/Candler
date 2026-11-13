@@ -6,12 +6,12 @@
 use std::str::FromStr as _;
 use std::time::Duration;
 
-use candler_harness::driver::{DriverError, HarnessDriver};
+use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
     BaseImage, BudgetCaps, Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId,
-    Observed, Prepared, ProcessExit, SessionSpec, SessionTracker, StopSignal, StopSpec, Workspace,
+    Observed, Prepared, ProcessExit, SessionTracker, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::execution::paths;
 use candler_schemas::name;
@@ -217,34 +217,20 @@ impl HarnessDriver for ClaudeCodeDriver {
         ))
     }
 
-    fn session(
-        &self,
-        cell: &Cell<'_>,
-        workspace: &Workspace<'_>,
-    ) -> Result<Option<SessionSpec>, DriverError> {
-        let _ = workspace;
-        session::spec(cell).map(Some)
-    }
-
     fn session_tracker(&self) -> Option<Box<dyn SessionTracker>> {
         Some(Box::new(session::Tracker::default())) // TRAIT_OBJECT: the core selects trackers at runtime
     }
 
-    fn prepare(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Prepared, DriverError> {
+    fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
         let _ = workspace;
         let mut files = vec![prepare::render_settings(cell)?];
         files.extend(prepare::render_mcp(cell)?);
-        Ok(Prepared::new(files, Vec::new()))
-    }
-
-    fn command(
-        &self,
-        cell: &Cell<'_>,
-        workspace: &Workspace<'_>,
-    ) -> Result<CommandSpec, DriverError> {
-        let _ = workspace;
         let argv = argv(cell, Launch::Headless(cell.prompt()?))?;
-        Ok(CommandSpec::builder().argv(argv).build()?)
+        Ok(Plan::new(
+            Prepared::new(files, Vec::new()),
+            CommandSpec::builder().argv(argv).build()?,
+        )
+        .with_session(session::spec(cell)?))
     }
 
     fn stop(&self) -> StopSpec {

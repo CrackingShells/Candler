@@ -1,7 +1,6 @@
 //! The configuration file the driver asks the core to write into the agent's home, and the one
-//! settings table [`settings`] reads and both [`crate::driver::OpenCodeDriver::command`] and
-//! [`render_config`] build from: the two trait methods are called independently by the core, so
-//! the mapping of each setting lives here once, not twice.
+//! reading of the cell's settings, [`settings`], that the plan's command line and
+//! [`render_config`] both build from, so the mapping of each setting lives here once.
 //!
 //! The provider names the variables through which the core hands the gateway to the agent, as
 //! `{env:NAME}` references that `OpenCode` expands when it loads the file, so no address and no
@@ -552,9 +551,9 @@ fn effort_variant(
     )))
 }
 
-/// What the cell's settings resolve to: the pieces [`crate::driver`] and [`render_config`] need,
-/// read once so the two trait methods, which the core calls independently, agree. The command line
-/// is always the `--auto` one, since `bypassPermissions` is the only mode accepted.
+/// What the cell's settings resolve to: the pieces the command line and [`render_config`] need,
+/// read once per plan. The command line is always the `--auto` one, since `bypassPermissions` is
+/// the only mode accepted.
 pub(crate) struct Settings {
     /// Rows added to the configuration's top-level `permissions`: the allow rows, then the deny
     /// rows, so the last matching row is a deny.
@@ -606,21 +605,20 @@ pub(crate) fn settings(
     })
 }
 
-/// The `opencode.json` of the run: the provider, the model, its effort variant, the
-/// permission rows and the MCP servers. `config_dir` is the home-relative directory that
-/// `XDG_CONFIG_HOME` names.
+/// The `opencode.json` of the run: the provider, the model, the effort variant and the
+/// permission rows of `settings`, and the MCP servers. `config_dir` is the home-relative directory
+/// that `XDG_CONFIG_HOME` names.
 ///
 /// # Errors
-/// Returns [`DriverError::Unsupported`] for a setting [`settings`] refuses, and
-/// [`DriverError::InvalidValue`]/[`DriverError::MissingValue`] for the model and the `mcp` value.
+/// Returns [`DriverError::InvalidValue`]/[`DriverError::MissingValue`] for the model and the `mcp`
+/// value.
 pub(crate) fn render_config(
     cell: &Cell<'_>,
+    settings: Settings,
     config_dir: &str,
     base_url_var: &str,
     token_var: &str,
-    version: &semver::Version,
 ) -> Result<PreparedFile, DriverError> {
-    let settings = settings(cell, version)?;
     let model = model_id(cell)?;
     let mut models = Map::new();
     let model_entry = settings.variant.map_or_else(

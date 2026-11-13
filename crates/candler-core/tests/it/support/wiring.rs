@@ -22,7 +22,7 @@ use candler_core::jobs::orchestrate::schedule::Clock;
 use candler_core::jobs::orchestrate::session::{JobHost, OrchestrateError};
 use candler_core::runner::Runtime;
 use candler_core::supervise::{EventSink, Supervisor};
-use candler_harness::driver::{DriverError, HarnessDriver};
+use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
     Capabilities, Cell, CollectSpec, CommandSpec, EnvEntry, GatewayEnv, HarnessId, Observed,
@@ -144,38 +144,29 @@ impl HarnessDriver for WiringDriver {
         self.0.capabilities()
     }
 
-    fn prepare(
-        &self,
-        _cell: &Cell<'_>,
-        _workspace: &Workspace<'_>,
-    ) -> Result<Prepared, DriverError> {
+    fn plan(&self, _cell: &Cell<'_>, _workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
         let path = CONFIG_PATH.parse().expect("a path");
-        Ok(Prepared::new(
-            vec![PreparedFile::in_home(
-                path,
-                CONFIG_TEXT.as_bytes().to_vec(),
-                false,
-            )],
-            vec![EnvEntry::literal(
-                String::from("OC_LITERAL"),
-                String::from(LITERAL_CANARY),
-            )],
+        Ok(Plan::new(
+            Prepared::new(
+                vec![PreparedFile::in_home(
+                    path,
+                    CONFIG_TEXT.as_bytes().to_vec(),
+                    false,
+                )],
+                vec![EnvEntry::literal(
+                    String::from("OC_LITERAL"),
+                    String::from(LITERAL_CANARY),
+                )],
+            ),
+            CommandSpec::builder()
+                .argv(vec![
+                    String::from("opencode"),
+                    String::from("run"),
+                    String::from("--"),
+                    String::from("the prompt"),
+                ])
+                .build()?,
         ))
-    }
-
-    fn command(
-        &self,
-        _cell: &Cell<'_>,
-        _workspace: &Workspace<'_>,
-    ) -> Result<CommandSpec, DriverError> {
-        Ok(CommandSpec::builder()
-            .argv(vec![
-                String::from("opencode"),
-                String::from("run"),
-                String::from("--"),
-                String::from("the prompt"),
-            ])
-            .build()?)
     }
 
     fn gateway(&self) -> Option<GatewayEnv> {

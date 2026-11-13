@@ -7,7 +7,7 @@
 use std::str::FromStr as _;
 use std::time::Duration;
 
-use candler_harness::driver::{DriverError, HarnessDriver, SettingRow};
+use candler_harness::driver::{DriverError, HarnessDriver, Plan, SettingRow};
 use candler_harness::reader::TraceReader;
 use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
@@ -194,41 +194,31 @@ impl HarnessDriver for OpenCodeDriver {
         prepare::settings(cell, &VALIDATED).map(|_| ())
     }
 
-    fn prepare(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Prepared, DriverError> {
-        let _ = workspace;
-        let file = prepare::render_config(
-            cell,
-            Self::state_subpath("XDG_CONFIG_HOME"),
-            GATEWAY_BASE_URL,
-            GATEWAY_AUTH_TOKEN,
-            &VALIDATED,
-        )?;
-        Ok(Prepared::new(vec![file], Vec::new()))
-    }
-
-    fn command(
-        &self,
-        cell: &Cell<'_>,
-        workspace: &Workspace<'_>,
-    ) -> Result<CommandSpec, DriverError> {
+    fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
         let _ = workspace;
         let settings = prepare::settings(cell, &VALIDATED)?;
         let model = model_id(cell)?;
-        let prompt = cell.prompt()?;
-        let mut line = argv(&[PROGRAM, "run", "--standalone", "--format", "json"]);
-        // `bypassPermissions` is the only mode accepted, and it is `--auto`.
-        line.push("--auto".to_owned()); // BORROW: .to_owned() makes the owned argument
-        line.push("-m".to_owned()); // BORROW: .to_owned() makes the owned argument
-        let variant = settings.variant.map(|(id, _)| id);
-        let model_arg = match &variant {
-            Some(id) => format!("{}/{model}#{id}", prepare::PROVIDER),
+        let model_arg = match &settings.variant {
+            Some((id, _)) => format!("{}/{model}#{id}", prepare::PROVIDER),
             None => format!("{}/{model}", prepare::PROVIDER),
         };
+        let file = prepare::render_config(
+            cell,
+            settings,
+            Self::state_subpath("XDG_CONFIG_HOME"),
+            GATEWAY_BASE_URL,
+            GATEWAY_AUTH_TOKEN,
+        )?;
+        let mut line = argv(&[PROGRAM, "run", "--standalone", "--format", "json"]);
+        line.push("--auto".to_owned()); // BORROW: .to_owned() makes the owned argument
+        line.push("-m".to_owned()); // BORROW: .to_owned() makes the owned argument
         line.push(model_arg);
-        // `--` ends the options, so a prompt that starts with `-` stays a message.
         line.push("--".to_owned()); // BORROW: .to_owned() makes the owned argument
-        line.push(prompt);
-        Ok(CommandSpec::builder().argv(line).build()?)
+        line.push(cell.prompt()?);
+        Ok(Plan::new(
+            Prepared::new(vec![file], Vec::new()),
+            CommandSpec::builder().argv(line).build()?,
+        ))
     }
 
     fn stop(&self) -> StopSpec {

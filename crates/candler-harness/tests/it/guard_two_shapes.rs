@@ -220,13 +220,13 @@ fn document_shaped_harness_drives_both_traits() -> TestResult {
         JsonValue::new(Value::String(String::from("fix it")))?,
     )];
     let workspace = Workspace::new(Path::new("."));
-    let command = driver.command(&Cell::new(&values), &workspace)?;
+    let command = driver.plan(&Cell::new(&values), &workspace)?.command;
     assert_eq!(
         command.argv(),
         ["opencode", "run", "--standalone", "fix it"]
     );
     assert!(matches!(
-        driver.command(&Cell::new(&[]), &workspace),
+        driver.plan(&Cell::new(&[]), &workspace),
         Err(DriverError::MissingValue { .. })
     ));
 

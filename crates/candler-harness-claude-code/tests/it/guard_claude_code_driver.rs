@@ -108,7 +108,9 @@ fn b21_reference_command_line() -> Res<()> {
     let root = Path::new("/work/run");
     let driver = ClaudeCodeDriver::new();
     let reference = values("bypassPermissions")?;
-    let command = driver.command(&Cell::new(&reference), &Workspace::new(root))?;
+    let command = driver
+        .plan(&Cell::new(&reference), &Workspace::new(root))?
+        .command;
     // BORROW: `.as_slice()` views the expected arguments as a slice
     assert_eq!(command.argv(), expected("bypassPermissions")?.as_slice());
     // Provenance: reference_flags.txt, "NOT passed: --bare, --allowedTools, --max-budget-usd".
@@ -129,7 +131,9 @@ fn b21_reference_command_line() -> Res<()> {
     }
     // Positive control: the permission mode follows the cell.
     let plan = values("plan")?;
-    let command = driver.command(&Cell::new(&plan), &Workspace::new(root))?;
+    let command = driver
+        .plan(&Cell::new(&plan), &Workspace::new(root))?
+        .command;
     // BORROW: `.as_slice()` views the expected arguments as a slice
     assert_eq!(command.argv(), expected("plan")?.as_slice());
     Ok(())

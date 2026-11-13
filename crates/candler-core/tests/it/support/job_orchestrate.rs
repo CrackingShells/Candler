@@ -37,7 +37,7 @@ use candler_core::supervise::hook::StopHook;
 use candler_core::supervise::spawn::SpawnRequest;
 use candler_core::supervise::stop::Exit;
 use candler_core::supervise::{EventSink, Supervisor};
-use candler_harness::driver::{DriverError, HarnessDriver};
+use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
     BudgetCaps, Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId, Observed,
@@ -408,22 +408,13 @@ impl HarnessDriver for QuietDriver {
         Some(quiet_gateway())
     }
 
-    fn prepare(
-        &self,
-        _cell: &Cell<'_>,
-        _workspace: &Workspace<'_>,
-    ) -> Result<Prepared, DriverError> {
-        Ok(Prepared::default())
-    }
-
-    fn command(
-        &self,
-        _cell: &Cell<'_>,
-        _workspace: &Workspace<'_>,
-    ) -> Result<CommandSpec, DriverError> {
-        Ok(CommandSpec::builder()
-            .argv(vec![String::from("agent")])
-            .build()?)
+    fn plan(&self, _cell: &Cell<'_>, _workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
+        Ok(Plan::new(
+            Prepared::default(),
+            CommandSpec::builder()
+                .argv(vec![String::from("agent")])
+                .build()?,
+        ))
     }
 
     fn stop(&self) -> StopSpec {
@@ -491,16 +482,8 @@ impl HarnessDriver for ObservingDriver {
         self.0.gateway()
     }
 
-    fn prepare(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Prepared, DriverError> {
-        self.0.prepare(cell, workspace)
-    }
-
-    fn command(
-        &self,
-        cell: &Cell<'_>,
-        workspace: &Workspace<'_>,
-    ) -> Result<CommandSpec, DriverError> {
-        self.0.command(cell, workspace)
+    fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
+        self.0.plan(cell, workspace)
     }
 
     fn stop(&self) -> StopSpec {

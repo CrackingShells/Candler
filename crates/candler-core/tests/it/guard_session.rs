@@ -516,11 +516,9 @@ fn session_profiles_table_levels_reach_each_cells_argv() {
     ];
     for (values, (model, effort)) in cells.iter().zip(expected) {
         let cell = Cell::new(values);
-        let headless = driver.command(&cell, &workspace).expect("a command");
-        let session = driver
-            .session(&cell, &workspace)
-            .expect("a session")
-            .expect("a session spec");
+        let plan = driver.plan(&cell, &workspace).expect("a plan");
+        let headless = plan.command;
+        let session = plan.session.expect("a session spec");
         for (kind, argv) in [
             ("headless", headless.argv()),
             ("session", session.command.argv()),
@@ -1292,11 +1290,12 @@ fn hook_commands() -> Vec<(String, String)> {
         .collect();
     let driver = ClaudeCodeDriver::new();
     let spec = driver
-        .session(
+        .plan(
             &Cell::new(&resolved),
             &Workspace::new(Path::new("/work/run")),
         )
-        .expect("a session")
+        .expect("a plan")
+        .session
         .expect("a session spec");
     let hooks = spec.hooks.expect("the driver installs hooks");
     assert_eq!(hooks.files.len(), 1, "one settings file");
