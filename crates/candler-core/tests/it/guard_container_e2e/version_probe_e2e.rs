@@ -86,7 +86,16 @@ async fn opencode_probe_reads_each_real_base_image_version() {
         let context = assets.join(dir);
         let context = context.to_str().expect("a UTF-8 path");
         let existing = docker(&["image", "inspect", "--format", "{{.Id}}", tag]);
-        let id = docker(&["build", "--quiet", "-t", tag, context]);
+        let build_args: Vec<String> = driver
+            .base_image()
+            .build_args
+            .iter()
+            .flat_map(|(name, value)| ["--build-arg".to_owned(), format!("{name}={value}")])
+            .collect();
+        let mut build = vec!["build", "--quiet", "-t", tag];
+        build.extend(build_args.iter().map(String::as_str));
+        build.push(context);
+        let id = docker(&build);
         assert!(
             id.starts_with("sha256:"),
             "{dir}: the build printed an id: {id}"
