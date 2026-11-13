@@ -40,8 +40,6 @@ fn digest(text: &str) -> Digest {
 
 fn evidence(path: &str, sha: &str) -> Evidence {
     Evidence {
-        sessions: Vec::new(),
-        events: Vec::new(),
         outputs: vec![OutputDigest {
             path: path.to_owned(), // BORROW: the evidence owns its path
             digest: digest(sha),

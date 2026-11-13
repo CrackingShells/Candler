@@ -1098,8 +1098,6 @@ fn declared_input_empty_match_is_no_leak_and_a_real_copy_is() {
     use candler_core::runner::evidence::{Evidence, InputDigest, Inputs, OutputDigest};
     const EMPTY: &str = "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
     let evidence = |sha: &str| Evidence {
-        sessions: Vec::new(),
-        events: Vec::new(),
         outputs: vec![OutputDigest {
             path: "copy.txt".to_owned(),
             digest: sha.parse().expect("a digest"),
