@@ -125,10 +125,10 @@ A change that makes any record valid before invalid is never a plain `fix(schema
 ```
 brew install cocogitto cargo-nextest uv
 cargo install --locked release-plz@0.4.3   # Homebrew has no release-plz formula
-python3 scripts/worktree.py sync    # in any checkout, and again after cog.toml changes
+python3 scripts/worktree.py sync    # in any checkout; a Claude Code session runs it on start
 ```
 
-Git does not copy hooks on clone, and the installed hook is a copy of the script in `cog.toml`. `scripts/worktree.py sync` rewrites it from `main`'s `cog.toml` whenever the two differ, into the repository's `.git/hooks/`, which every worktree shares. It also refuses the settings that would break a checkout's build or bypass the hook (see its header). Incremental compilation is off in every checkout through the tracked `.cargo/config.toml`.
+Git does not copy hooks on clone, and the installed hook is a copy of the script in `cog.toml`. `scripts/worktree.py sync` rewrites it from `main`'s `cog.toml` whenever the two differ, into the repository's `.git/hooks/`, which every worktree shares. It also refuses the settings that would break a checkout's build or bypass the hook (see its header). Incremental compilation is off in every checkout through the tracked `.cargo/config.toml`. The tracked `.claude/settings.json` runs `sync --quiet` when a Claude Code session starts, so an agent's checkout is set up before its first commit and any problem lands in its context.
 
 ## Enforcement
 
