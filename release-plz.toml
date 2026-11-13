@@ -43,8 +43,8 @@ git_tag_name = "v{{ version }}"
 [[package]]
 name = "candler-harness-opencode"
 version_group = "core"
-# No v<version> tag holds this crate before v0.8.0, so it takes no baseline
-# tag yet; its changes are in candler's changelog.
+git_tag_name = "v{{ version }}"
+# Its changes are in candler's changelog.
 changelog_update = false
 
 # Schema line: schemas@<version>.
