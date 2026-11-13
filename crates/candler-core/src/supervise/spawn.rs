@@ -474,6 +474,8 @@ pub(crate) struct Context {
 #[non_exhaustive]
 pub struct Child {
     pub(crate) record: ChildRecord,
+    /// Where the record is on disk, until the wait proves nothing of the child is left.
+    pub(crate) record_file: PathBuf,
     pub(crate) process: tokio::process::Child,
     pub(crate) pumps: Pumps,
     pub(crate) stdin_task: Option<JoinHandle<()>>,
@@ -697,14 +699,14 @@ impl Supervisor {
             });
         let written = started.and_then(|record| {
             write_record(&record_dir, &record)
-                .map(|_| record)
+                .map(|path| (record, path))
                 .map_err(|source| SuperviseError::Io {
                     context: "cannot write the child record",
                     source,
                 })
         });
-        let record = match written {
-            Ok(record) => record,
+        let (record, record_file) = match written {
+            Ok(written) => written,
             Err(error) => {
                 // The group may already be gone, which is what the kill is after; a refused
                 // group is not signalled.
@@ -753,6 +755,7 @@ impl Supervisor {
         };
         Ok(Child {
             record,
+            record_file,
             process,
             pumps: Pumps {
                 cutoff,

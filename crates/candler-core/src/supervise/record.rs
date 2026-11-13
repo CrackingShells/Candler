@@ -1,5 +1,5 @@
 //! The child record on disk: one `<pid>.json` file per child, written so that a reader sees the
-//! whole record or none of it.
+//! whole record or none of it, and removed by `Child::wait` once nothing of the child is left.
 
 use std::fs::{self, File};
 use std::io::{self, Write};

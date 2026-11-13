@@ -234,6 +234,29 @@ async fn record_on_disk_equals_what_the_os_reports() {
     supervisor.kill_all();
 }
 
+/// Guards: a child's record lasts until its wait finds the group empty, so a waited child leaves
+/// no `<pid>.json` for a recovery to reap. Oracle: the record directory, read before and after the
+/// wait. Bite: drop the removal from `Child::wait`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_waited_child_leaves_no_record() {
+    let records = tempfile::tempdir().expect("a temp dir");
+    let (supervisor, _events) = supervisor();
+    let child = supervisor
+        .spawn(
+            request(&["true"], records.path())
+                .build()
+                .expect("a request"),
+        )
+        .expect("a child");
+    let _cleanup = KillAll(&supervisor);
+    let path = records
+        .path()
+        .join(format!("{}.json", child.record().pid()));
+    assert!(path.is_file(), "the record is on disk once spawn returns");
+    child.wait().await.expect("an exit");
+    assert!(!path.exists(), "the record outlived its child");
+}
+
 /// Guards: I15 and PID reuse — a record whose start differs by one tick (or microsecond), whose start is unavailable, or whose pid names another live process reads `Gone` while the child runs; the true record reads `Alive` and then `Gone` once the child is dead. Oracle: hand-forged records built from the true one, and the OS for the child's life.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_forged_record_does_not_read_alive() {
@@ -513,6 +536,8 @@ async fn a_secret_in_the_environment_is_written_nowhere() {
     let child = supervisor.spawn(built).expect("a child");
     let _cleanup = KillAll(&supervisor);
     writeln!(debug, "{child:?}\n{:?}", child.record()).expect("a write");
+    // The record is read while it is on disk: the wait removes it.
+    support::assert_clean(records.path(), CANARY);
     let exit = child.stop().await.expect("an exit");
     writeln!(debug, "{exit:?}\n{echoed:?}").expect("a write");
 
@@ -524,7 +549,6 @@ async fn a_secret_in_the_environment_is_written_nowhere() {
         .join("\n");
     fs::write(scratch.path().join("events.jsonl"), events).expect("written");
     fs::write(scratch.path().join("debug.txt"), debug).expect("written");
-    support::assert_clean(records.path(), CANARY);
     support::assert_clean(scratch.path(), CANARY);
 }
 

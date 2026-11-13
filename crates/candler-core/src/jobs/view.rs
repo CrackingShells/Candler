@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use candler_schemas::container::ContainerRecord;
-use candler_schemas::primitives::JobId;
+use candler_schemas::primitives::{ContainerId, JobId};
 use candler_schemas::process::ChildRecord;
 
 /// One record in the job directory.
@@ -51,6 +51,19 @@ pub trait JobView: Send + Sync {
     /// # Errors
     /// [`JobViewError::Read`] when the directory cannot be read.
     fn children(&self) -> Result<Vec<ChildEntry>, JobViewError>;
+
+    /// The record of the container `cid`, if the job has a readable one.
+    ///
+    /// # Errors
+    /// [`JobViewError::Read`] when the directory cannot be read.
+    fn container(&self, cid: &ContainerId) -> Result<Option<ContainerRecord>, JobViewError> {
+        Ok(self.children()?.into_iter().find_map(|entry| match entry {
+            ChildEntry::Container(record) if record.cid() == cid => Some(record),
+            ChildEntry::Container(_) | ChildEntry::Process(_) | ChildEntry::Unreadable { .. } => {
+                None
+            }
+        }))
+    }
 
     /// Whether `job` is a job whose supervisor was lost.
     ///
