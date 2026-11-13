@@ -76,18 +76,18 @@ impl Rates {
     }
 }
 
-/// The rates per cell of one evaluator version over its current records.
+/// The rates per cell of one evaluator version over its outcomes ([`Selection::outcomes`]).
 ///
 /// Per cell, the numerators and denominators of the effective weights are summed over the records
 /// whose own role is `gate` (into the gate pair) or `quality` (into the quality pair) and whose
 /// status is `pass`, `fail` or `blocked`; a `blocked` weighs with numerator 0. `not_measured` and
 /// `not_applicable` records add nothing, and neither does a 0/0 `pass`, whose weight is 0/0. A cell
-/// with any current record of the evaluator has an entry, with zero sums when nothing counts.
+/// with any outcome of the evaluator has an entry, with zero sums when nothing counts.
 #[must_use]
 pub fn rates(selection: &Selection, evaluator: &NameVersion) -> BTreeMap<CellKey, Rates> {
     let mut cells: BTreeMap<CellKey, Rates> = BTreeMap::new();
     for record in selection
-        .current()
+        .outcomes()
         .filter(|record| record.evaluator() == evaluator)
     {
         // BORROW: the key owns the cell digest
