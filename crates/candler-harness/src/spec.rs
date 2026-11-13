@@ -128,6 +128,19 @@ pub struct CommandSpec {
 }
 
 impl CommandSpec {
+    /// The command that runs `program` with the arguments `rest`, adding no variable and setting no directory.
+    /// It cannot fail: the argument vector holds at least the program.
+    #[must_use]
+    pub fn new(program: String, rest: Vec<String>) -> Self {
+        let mut words = vec![program];
+        words.extend(rest);
+        Self {
+            argv: words,
+            env_overlay: Vec::new(),
+            cwd: None,
+        }
+    }
+
     /// Starts a builder; `argv` must be set before it builds.
     #[must_use]
     pub fn builder() -> CommandSpecBuilder {

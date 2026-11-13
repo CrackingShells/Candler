@@ -9,7 +9,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use candler_core::isolation::container::DockerIsolation;
@@ -39,12 +39,11 @@ use candler_core::supervise::stop::Exit;
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_harness::driver::{DriverError, HarnessDriver};
 use candler_harness::reader::TraceReader;
-use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
     BudgetCaps, Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId, Observed,
-    Prepared, PreparedFile, ProcessExit, StopSignal, StopSpec, Workspace,
+    Prepared, ProcessExit, StopSignal, StopSpec, Workspace,
 };
-use candler_schemas::execution::{Budget, EventPayload, ExperimentFile, JobState, TreatmentRef};
+use candler_schemas::execution::{Budget, EventPayload, ExperimentFile, JobState};
 use candler_schemas::primitives::{ContainerId, JobId, Marker, RunKey};
 use candler_schemas::raw::StreamName;
 use candler_schemas::trace::{EndedBy, Session};
@@ -367,6 +366,18 @@ pub fn quiet_gateway() -> GatewayEnv {
 pub struct QuietDriver;
 
 impl HarnessDriver for QuietDriver {
+    fn skills(&self) -> candler_harness::skills::SkillTree {
+        candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
+    }
+
+    fn base_context(&self) -> &'static str {
+        "base"
+    }
+
+    fn detect(&self, _sample: &[u8]) -> Option<semver::Version> {
+        None
+    }
+
     fn id(&self) -> HarnessId {
         HarnessId::new("claude-code".parse().expect("a harness name"))
     }
@@ -444,6 +455,18 @@ impl HarnessDriver for QuietDriver {
 pub struct ObservingDriver(pub QuietDriver);
 
 impl HarnessDriver for ObservingDriver {
+    fn skills(&self) -> candler_harness::skills::SkillTree {
+        candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
+    }
+
+    fn base_context(&self) -> &'static str {
+        "base"
+    }
+
+    fn detect(&self, _sample: &[u8]) -> Option<semver::Version> {
+        None
+    }
+
     fn id(&self) -> HarnessId {
         self.0.id()
     }
@@ -486,8 +509,9 @@ impl HarnessDriver for ObservingDriver {
 
     // TRAIT_OBJECT: the host hands out its trace reader as a trait object
     fn live_reader(&self) -> Option<Box<dyn TraceReader>> {
-        let reader = candler_harness_claude_code::ClaudeCodeReader::new().ok()?;
-        Some(Box::new(reader))
+        Some(Box::new(
+            candler_harness_claude_code::ClaudeCodeReader::new(),
+        ))
     }
 
     // TRAIT_OBJECT: the host hands out its trace reader as a trait object
@@ -510,33 +534,6 @@ impl HarnessDriver for ObservingDriver {
 
     fn collect(&self, workspace: &Workspace<'_>, observed: &Observed) -> Vec<CollectSpec> {
         self.0.collect(workspace, observed)
-    }
-}
-
-/// A skill tree that archives with a command that prints nothing and holds no file.
-pub struct EmptyTree;
-
-impl SkillTree for EmptyTree {
-    fn archive_command(
-        &self,
-        _treatment: &TreatmentRef,
-        _source: &Path,
-    ) -> Result<CommandSpec, DriverError> {
-        Ok(CommandSpec::builder()
-            .argv(vec![
-                String::from("/bin/sh"),
-                String::from("-c"),
-                String::from(":"),
-            ])
-            .build()?)
-    }
-
-    fn files(
-        &self,
-        _treatment: &TreatmentRef,
-        _archive: &[u8],
-    ) -> Result<Vec<PreparedFile>, DriverError> {
-        Ok(Vec::new())
     }
 }
 
@@ -682,7 +679,6 @@ impl Rig {
             gateway: None,
             job: self.job.clone(),
             driver: Arc::new(QuietDriver),
-            skills: Arc::new(EmptyTree),
             cells: BTreeMap::new(),
             eval_infra: EvalInfra::default(),
         }
@@ -699,14 +695,60 @@ impl Rig {
     }
 }
 
+/// A git repository that holds the skill `htn` in one commit, and that commit. The repository is
+/// the same for every process of the run, so racing processes agree on the commit; it lies in the
+/// build's scratch directory.
+pub fn skill_repo() -> &'static (PathBuf, String) {
+    static REPO: OnceLock<(PathBuf, String)> = OnceLock::new();
+    REPO.get_or_init(|| {
+        let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("job_skill_repo");
+        let own = root.with_extension(std::process::id().to_string());
+        let git = |dir: &Path, args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(["-c", "commit.gpgsign=false", "-C"])
+                .arg(dir)
+                .args(args)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@t")
+                .env("GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@t")
+                .env("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")
+                .output()
+                .expect("git runs");
+            assert!(out.status.success(), "git {args:?} failed");
+            String::from_utf8(out.stdout).expect("git prints text")
+        };
+        if !root.join(".git").exists() {
+            let _ = fs::remove_dir_all(&own);
+            fs::create_dir_all(own.join(".claude/skills/htn")).expect("the skill directory");
+            fs::write(own.join(".claude/skills/htn/SKILL.md"), "skill\n").expect("the skill");
+            git(&own, &["init", "-q"]);
+            git(&own, &["add", "."]);
+            git(&own, &["commit", "-q", "-m", "skill"]);
+            if fs::rename(&own, &root).is_err() {
+                // Another process won the race, and its repository is the same one.
+                let _ = fs::remove_dir_all(&own);
+            }
+        }
+        let commit = git(&root, &["rev-parse", "HEAD"]).trim().to_owned(); // BORROW: .to_owned() makes the owned text
+        (root, commit)
+    })
+}
+
 /// The spec of a job over the experiment of `models` and the facts `facts`, under `wall_s`
 /// seconds of job wall clock and `parallel` runs at once.
 pub fn spec(models: &[&str], facts: &Facts, wall_s: u32, parallel: u32) -> JobSpec {
     let experiment: ExperimentFile = super::run_plan::experiment(models, 1);
-    let mut resolved = serde_json::to_value(resolution(facts)).expect("resolution JSON");
+    let (repo, commit) = skill_repo();
+    let facts = Facts {
+        commit: commit.clone(), // BORROW: the facts own the commit text
+        ..facts.clone()
+    };
+    let mut resolved = serde_json::to_value(resolution(&facts)).expect("resolution JSON");
     resolved["settings"] = json!([
         {"path": "model.token_secret", "value": "TEST_SECRET"},
-        {"path": "request.treatment", "value": {"name": "htn", "source": "/nonexistent/treatment"}},
+        {"path": "request.treatment", "value": {"name": "htn", "source": repo.display().to_string()}},
     ]);
     // Provenance: a resolution holds a source for each value and each setting it resolved, here
     // the experiment file; a factor path, which the cells set, has none.

@@ -126,7 +126,7 @@ fn raw_ref(index: usize) -> RawRef {
 
 /// The three census values of the stream `lines`, by path, or `null` when the core records none.
 pub fn census_value(lines: &[String]) -> Value {
-    let mut reader = ClaudeCodeReader::new().expect("the reader");
+    let mut reader = ClaudeCodeReader::new();
     for (index, line) in lines.iter().enumerate() {
         if reader
             .feed(FrameIn::new(raw_ref(index), None, &frame_of(line)))
@@ -159,7 +159,7 @@ pub fn census_value(lines: &[String]) -> Value {
 /// The `run.usage`, `run.cost_usd` and `run.num_turns` values of the stream `lines`, by path, or
 /// `null` when the core records no run. A value the stream's closing report lacks is absent.
 pub fn run_totals_value(lines: &[String]) -> Value {
-    let mut reader = ClaudeCodeReader::new().expect("the reader");
+    let mut reader = ClaudeCodeReader::new();
     for (index, line) in lines.iter().enumerate() {
         if reader
             .feed(FrameIn::new(raw_ref(index), None, &frame_of(line)))
@@ -311,7 +311,6 @@ pub fn reference_values() -> Vec<ResolvedValue> {
 pub fn reference_command() -> CommandSpec {
     let values = reference_values();
     ClaudeCodeDriver::new()
-        .expect("the driver")
         .command(&Cell::new(&values), &Workspace::new(Path::new("/work/run")))
         .expect("a command")
 }
@@ -552,7 +551,7 @@ pub async fn comparables(file: &ExperimentFile, dir: &Path) -> Vec<Value> {
     // TRAIT_OBJECT: the image service is a fixed fake
     let images: Arc<dyn ImageService> = Arc::new(Fixed);
     let image = ImageIdStep::new(Arc::clone(&images), supervisor).expect("a step");
-    let supported = ClaudeCodeDriver::new().expect("the driver").supported();
+    let supported = ClaudeCodeDriver::new().supported();
     let harness = HarnessIdentityStep::new(images, supported).expect("a step");
     let mut values: Vec<(FieldPath, JsonValue)> = file
         .fixed()

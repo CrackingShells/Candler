@@ -90,6 +90,18 @@ impl FakeHarness {
 }
 
 impl HarnessDriver for FakeHarness {
+    fn skills(&self) -> candler_harness::skills::SkillTree {
+        candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
+    }
+
+    fn base_context(&self) -> &'static str {
+        "base"
+    }
+
+    fn detect(&self, _sample: &[u8]) -> Option<semver::Version> {
+        None
+    }
+
     fn id(&self) -> HarnessId {
         HarnessId::new(Self::ID.parse().expect("a harness name"))
     }
@@ -244,7 +256,7 @@ enum VersionWant {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn harness_version_comes_from_the_drivers_probe_and_parse() {
     let baseline = recorded("argv.json");
-    let claude: Arc<dyn HarnessDriver> = Arc::new(ClaudeCodeDriver::new().expect("the driver"));
+    let claude: Arc<dyn HarnessDriver> = Arc::new(ClaudeCodeDriver::new());
     let rows: Vec<(&str, Arc<dyn HarnessDriver>, &str, VersionWant)> = vec![
         (
             "Claude Code's probe equals cf3de30's",
@@ -361,7 +373,7 @@ async fn harness_version_comes_from_the_drivers_probe_and_parse() {
 fn harness_env_claude_code_argv_equals_cf3de30() {
     let dir = tempfile::tempdir().expect("a directory");
     let scene = facts::scene(dir.path());
-    let driver = ClaudeCodeDriver::new().expect("the driver");
+    let driver = ClaudeCodeDriver::new();
     let argv = facts::agent_argv(&scene, &driver, &facts::reference_command()).expect("an argv");
     let baseline = recorded("argv.json");
     assert_eq!(argv, words(&baseline["headless_run"]));
@@ -580,7 +592,7 @@ enum Mounted {
 /// over the home alone, or the home check dropped.
 #[test]
 fn harness_env_state_paths_are_in_writable_mounts() {
-    let claude = ClaudeCodeDriver::new().expect("the driver");
+    let claude = ClaudeCodeDriver::new();
     // (case, driver is Claude Code, mount, expected)
     let rows = [
         (
@@ -772,7 +784,7 @@ fn harness_census_live_handle_reports_the_inventory_before_finish() {
         .into_iter()
         .find(|(name, _)| name == "streams/synthetic_mcp")
         .expect("the stream fixture");
-    let reader = ClaudeCodeReader::new().expect("the reader");
+    let reader = ClaudeCodeReader::new();
     let stream: StreamName = "stdout".parse().expect("a stream name");
     let (mut tap, handle) = live_observer(Box::new(reader), stream);
     for (index, line) in facts::lines_of(&path).iter().enumerate() {

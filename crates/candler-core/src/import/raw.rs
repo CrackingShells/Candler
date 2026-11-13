@@ -572,7 +572,6 @@ struct Context<'a> {
     readers: &'a ReaderFactory,
     offline: &'a OfflineReaders,
     scratch: &'a Path,
-    format: &'a NameToken,
 }
 
 /// The file beside `found` that holds the collected stream `name`: `<name>.json` or
@@ -678,12 +677,26 @@ fn write_run(
         }
     };
     let supported = found.recognised.supported;
+    let harness = found.recognised.harness.as_str(); // BORROW: explicit .as_str()
+    let reader = (ctx.readers)(harness).ok_or_else(|| RawIngestError::Manifest {
+        stream: found.rel.to_string(),
+        detail: format!("no reader for the harness `{harness}`"),
+    })?;
+    let format =
+        reader
+            .id()
+            .to_string()
+            .parse::<NameToken>()
+            .map_err(|e| RawIngestError::Manifest {
+                stream: found.rel.to_string(),
+                detail: e.to_string(),
+            })?;
     let first = if supported {
         Integrity::Valid
     } else {
         Integrity::invalid(InvalidReason::FormatUnknown)
     };
-    let manifest = manifest_of(found, key, comparable, ctx.format, first)?;
+    let manifest = manifest_of(found, key, comparable, &format, first)?;
     let mut writer = RunWriter::create(store, &manifest, Existing::ReplaceUnfinished)
         .map_err(|e| store_error(label.as_str(), &e))?; // BORROW: explicit .as_str()
     discard_replaced(store, key)?;
@@ -722,7 +735,7 @@ fn write_run(
         let info = RawFileInfo::new(stored, framed.digest.clone(), framed.frames);
         let read = match collected.trace {
             Some(read) => read,
-            None => normalise((ctx.readers)(), &info),
+            None => normalise(reader, &info),
         };
         match read {
             Ok(trace) => writer.trace(&trace).map_err(fail)?,
@@ -735,13 +748,8 @@ fn write_run(
                     | NormaliseError::Finish { .. }
                     | NormaliseError::Trace { .. } => InvalidReason::ReaderError,
                 };
-                let invalid = manifest_of(
-                    found,
-                    key,
-                    comparable,
-                    ctx.format,
-                    Integrity::invalid(reason),
-                )?;
+                let invalid =
+                    manifest_of(found, key, comparable, &format, Integrity::invalid(reason))?;
                 writer.manifest(&invalid).map_err(fail)?;
             }
         }
@@ -889,14 +897,6 @@ pub fn ingest_raw_with(
         });
     }
     let streams = find_streams(path, recognise)?;
-    let format = readers()
-        .id()
-        .to_string()
-        .parse::<NameToken>()
-        .map_err(|e| RawIngestError::Manifest {
-            stream: path.display().to_string(),
-            detail: e.to_string(),
-        })?;
     let scratch = store.layout().root().join(SCRATCH);
     remove_tree(scratch.as_path())?; // BORROW: explicit .as_path()
     let ctx = Context {
@@ -904,7 +904,6 @@ pub fn ingest_raw_with(
         readers,
         offline,
         scratch: scratch.as_path(), // BORROW: explicit .as_path()
-        format: &format,
     };
     let counts = ingest_found(&ctx, streams.found.as_slice()); // BORROW: explicit .as_slice()
     let cleaned = remove_tree(scratch.as_path()); // BORROW: explicit .as_path()

@@ -28,13 +28,8 @@ mod kill_live {
     use candler_core::runner::evidence::provenance::EvalInfra;
     use candler_core::store::Store;
     use candler_core::supervise::platform::process_start;
-    use candler_harness::driver::DriverError;
-    use candler_harness::skills::SkillTree;
-    use candler_harness::spec::{CommandSpec, PreparedFile};
     use candler_harness_claude_code::driver::ClaudeCodeDriver;
-    use candler_schemas::execution::{
-        EventPayload, ExperimentFile, JobEnd, JobRecord, TreatmentRef,
-    };
+    use candler_schemas::execution::{EventPayload, ExperimentFile, JobEnd, JobRecord};
     use candler_schemas::primitives::JobId;
     use candler_schemas::process::ProcessStart;
 
@@ -77,30 +72,6 @@ esac
 echo "REFUSED $*" >> "$log"
 exit 1
 "#;
-
-    /// A skill tree the supervisor never asks for anything.
-    struct NoSkills;
-
-    impl SkillTree for NoSkills {
-        fn archive_command(
-            &self,
-            _treatment: &TreatmentRef,
-            _source: &Path,
-        ) -> Result<CommandSpec, DriverError> {
-            Err(DriverError::VersionOutput {
-                // BORROW: the error owns its detail
-                detail: "the guard reads no skill tree".to_owned(),
-            })
-        }
-
-        fn files(
-            &self,
-            _treatment: &TreatmentRef,
-            _archive: &[u8],
-        ) -> Result<Vec<PreparedFile>, DriverError> {
-            Ok(Vec::new())
-        }
-    }
 
     /// A spec of no runs.
     fn spec() -> JobSpec {
@@ -182,11 +153,8 @@ exit 1
             spec: spec(),
             services: JobServices {
                 // TRAIT_OBJECT: the driver is the harness's real one, which the body never calls
-                driver: Arc::new(
-                    ClaudeCodeDriver::new().expect("the driver builds from constants"),
-                ),
+                driver: Arc::new(ClaudeCodeDriver::new()),
                 // TRAIT_OBJECT: the tree is a stub that holds no file
-                skills: Arc::new(NoSkills),
                 eval_infra: EvalInfra::default(),
             },
         };

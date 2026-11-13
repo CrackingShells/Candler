@@ -1093,6 +1093,68 @@ impl FromStr for Name {
     }
 }
 
+/// Reports whether `text` is a [`Name`] written in ASCII: non-empty, with no `@` and no white space.
+///
+/// It is the check of [`name!`](crate::name), which runs it at compile time.
+#[must_use]
+pub const fn is_ascii_name(text: &str) -> bool {
+    let mut rest = text.as_bytes();
+    if rest.is_empty() {
+        return false;
+    }
+    while let [byte, tail @ ..] = rest {
+        // 9 to 13 and 32 are the ASCII characters that are white space
+        if !byte.is_ascii() || matches!(*byte, b'@' | 9..=13 | b' ') {
+            return false;
+        }
+        rest = tail;
+    }
+    true
+}
+
+impl Name {
+    /// The name `text`, which [`name!`](crate::name) has checked at compile time. Use the macro,
+    /// not this function.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn from_checked_literal(text: &'static str) -> Self {
+        Self { text: text.into() }
+    }
+}
+
+/// A [`Name`] from a literal, which the compiler rejects when it is empty or holds `@`, white
+/// space or a byte outside ASCII. The value cannot fail at run time.
+#[macro_export]
+macro_rules! name {
+    ($text:literal) => {{
+        const { assert!($crate::primitives::is_ascii_name($text)) };
+        $crate::primitives::Name::from_checked_literal($text)
+    }};
+}
+
+impl NameVersion {
+    /// The reference of `name` at `version`, `name@version`. A [`Name`] holds no `@`, so the text
+    /// splits back into the two.
+    #[must_use]
+    pub fn of(name: &Name, version: semver::Version) -> Self {
+        Self {
+            text: format!("{name}@{version}"),
+            name: name.as_str().to_owned(), // BORROW: .to_owned() makes the owned name
+            version,
+        }
+    }
+}
+
+/// Reports whether `text` is one plain path segment: letters, digits, `.`, `_` and `-`, and neither
+/// empty nor `.` nor `..`.
+#[must_use]
+pub fn plain_segment(text: &str) -> bool {
+    !matches!(text, "" | "." | "..")
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
+
 text_type!(SecretName {
     description: "An environment-variable name: an uppercase ASCII letter or `_`, then uppercase letters, digits or `_`.",
     pattern: SECRET_NAME_PATTERN,

@@ -13,12 +13,10 @@ use std::str::FromStr as _;
 
 use candler_harness::driver::{Disposition, DriverError, HarnessDriver};
 use candler_harness::reader::FrameIn;
-use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
     Action, Cell, CollectSpec, Observed, ProcessEnd, ProcessExit, StateKind, StopSignal, Workspace,
 };
 use candler_harness_opencode::driver::OpenCodeDriver;
-use candler_harness_opencode::skills::OpenCodeSkills;
 use candler_schemas::execution::{GitCommit, TreatmentRef};
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::process::ExitStatus;
@@ -68,7 +66,7 @@ fn values(extra: &[(&str, Value)]) -> Res<Vec<ResolvedValue>> {
 /// The command of a cell, or the driver's refusal.
 fn command_of(extra: &[(&str, Value)]) -> Res<Result<Vec<String>, DriverError>> {
     let values = values(extra)?;
-    let driver = OpenCodeDriver::new()?;
+    let driver = OpenCodeDriver::new();
     let workspace = Workspace::new(Path::new("."));
     Ok(driver
         .command(&Cell::new(&values), &workspace)
@@ -81,7 +79,7 @@ fn strings(items: &[&str]) -> Vec<String> {
 
 fn prepared_config(extra: &[(&str, Value)]) -> Res<(candler_harness::spec::PreparedFile, Value)> {
     let values = values(extra)?;
-    let driver = OpenCodeDriver::new()?;
+    let driver = OpenCodeDriver::new();
     let workspace = Workspace::new(Path::new("."));
     let prepared = driver.prepare(&Cell::new(&values), &workspace)?;
     let file = prepared
@@ -416,7 +414,7 @@ fn opencode_command_line_maps_or_refuses_every_setting() -> Res<()> {
     assert_eq!(dashed.last().map(String::as_str), Some("--hello it"));
 
     let cases = table_cases();
-    let driver = OpenCodeDriver::new()?;
+    let driver = OpenCodeDriver::new();
     let rows = driver.settings_table();
     let declared: BTreeSet<(String, String)> = rows
         .iter()
@@ -523,7 +521,7 @@ fn opencode_prepare_writes_the_provider_mcp_codemode_and_gateway_names() -> Res<
     assert_eq!(parsed, recorded);
 
     // The gateway names are the ones the config refers to.
-    let gateway = OpenCodeDriver::new()?.gateway().ok_or("no gateway names")?;
+    let gateway = OpenCodeDriver::new().gateway().ok_or("no gateway names")?;
     let config = String::from_utf8(std::fs::read(
         fixtures().join("config").join("opencode.json"),
     )?)?;
@@ -586,8 +584,8 @@ fn opencode_prepare_writes_the_provider_mcp_codemode_and_gateway_names() -> Res<
 /// Oracle: `opencode debug paths` with `HOME`, `XDG_*` and `OPENCODE_DB` set, as printed by the
 /// real binary in the base image (data, config, cache, state, `db` = the file).
 #[test]
-fn opencode_state_paths_are_the_recorded_layout() -> Res<()> {
-    let got: Vec<(String, StateKind, String)> = OpenCodeDriver::new()?
+fn opencode_state_paths_are_the_recorded_layout() {
+    let got: Vec<(String, StateKind, String)> = OpenCodeDriver::new()
         .state_paths()
         .into_iter()
         .map(|p| (p.env, p.kind, p.subpath.as_str().to_owned())) // BORROW: .to_owned() makes owned text
@@ -602,7 +600,6 @@ fn opencode_state_paths_are_the_recorded_layout() -> Res<()> {
     .map(|(e, k, p)| (e.to_owned(), k, p.to_owned())) // BORROW: .to_owned() makes owned text
     .to_vec();
     assert_eq!(got, want);
-    Ok(())
 }
 
 fn sample_id() -> Res<SessionId> {
@@ -615,7 +612,7 @@ fn sample_id() -> Res<SessionId> {
 /// on stdout, and needs the run's `OPENCODE_DB`).
 #[test]
 fn opencode_collect_exports_the_root_session_inside() -> Res<()> {
-    let driver = OpenCodeDriver::new()?;
+    let driver = OpenCodeDriver::new();
     let workspace = Workspace::new(Path::new("."));
     let root = sample_id()?;
     let child: SessionId = "ses_e32c17b4fffe2bjBVM2E3xAaLZ/call1".parse()?;
@@ -650,7 +647,7 @@ fn opencode_collect_exports_the_root_session_inside() -> Res<()> {
 /// `unknown_model_local` (first line, `expected.toml`) and the hand-listed classes.
 #[test]
 fn opencode_live_reader_reports_id_and_last_word() -> Res<()> {
-    let driver = OpenCodeDriver::new()?;
+    let driver = OpenCodeDriver::new();
     let stdout: StreamName = "stdout".parse()?;
     let feed_all = |case: &str| -> Res<(Observed, Vec<Session>, usize)> {
         let mut reader = driver.live_reader().ok_or("no live reader")?;
@@ -695,7 +692,7 @@ fn opencode_live_reader_reports_id_and_last_word() -> Res<()> {
 
 /// What the export reader makes of `bytes`: its events and sessions.
 fn read_export(bytes: &[u8]) -> Res<(Vec<SessionEvent>, Vec<Session>)> {
-    let driver = OpenCodeDriver::new()?;
+    let driver = OpenCodeDriver::new();
     let export: StreamName = "export".parse()?;
     let mut reader = driver.offline_reader(&export).ok_or("no export reader")?;
     let frame = RawFrame::new(None, FrameData::from_bytes(bytes));
@@ -875,7 +872,7 @@ fn opencode_export_reader_covers_trace_errors_cache_cost_and_child_sessions() ->
 /// Oracle: `opencode --version` printed `opencode v2.2.7` in the base image.
 #[test]
 fn opencode_version_is_parsed_from_the_probe() -> Res<()> {
-    let driver = OpenCodeDriver::new()?;
+    let driver = OpenCodeDriver::new();
     assert_eq!(
         driver.version_probe().argv(),
         strings(&["opencode", "--version"])
@@ -919,7 +916,7 @@ fn opencode_version_is_parsed_from_the_probe() -> Res<()> {
 /// stream is the census source).
 #[test]
 fn opencode_capabilities_declare_no_session_and_outside_execution() -> Res<()> {
-    let driver = OpenCodeDriver::new()?;
+    let driver = OpenCodeDriver::new();
     let caps = driver.capabilities();
     assert!(!caps.session && caps.census && !caps.in_harness_guard);
     assert!(!caps.budgets.turns && !caps.budgets.cost);
@@ -987,7 +984,7 @@ fn opencode_skills_land_in_the_project_skill_directory() -> Res<()> {
     let commit = String::from_utf8(git(&repo, &["rev-parse", "HEAD"])?)?;
     let mut treatment = TreatmentRef::new("demo".parse()?);
     treatment.commit = Some(GitCommit::from_str(commit.trim())?);
-    let skills: &dyn SkillTree = &OpenCodeSkills; // TRAIT_OBJECT: the core holds skill trees as objects
+    let skills = OpenCodeDriver::new().skills();
     let command = skills.archive_command(&treatment, &repo)?;
     let archive = Command::new(command.argv().first().ok_or("no program")?)
         .args(command.argv().iter().skip(1))
@@ -1031,7 +1028,7 @@ fn opencode_skills_land_in_the_project_skill_directory() -> Res<()> {
 fn opencode_real_binary_is_interrupted_by_the_stop_script() -> Res<()> {
     use std::process::Stdio;
     let image = std::env::var("CANDLER_OPENCODE_IMAGE")?;
-    let driver = OpenCodeDriver::new()?;
+    let driver = OpenCodeDriver::new();
     let values = values(&[])?;
     let cell = Cell::new(&values);
     let workspace = Workspace::new(Path::new("."));
@@ -1165,7 +1162,7 @@ fn live_and_export(
     live_case: &str,
     export_case: &str,
 ) -> Res<(Vec<Session>, Vec<Session>, Observed)> {
-    let driver = OpenCodeDriver::new()?;
+    let driver = OpenCodeDriver::new();
     let stdout: StreamName = "stdout".parse()?;
     let mut live = driver.live_reader().ok_or("no live reader")?;
     for (index, line) in stream_file(live_case, "stdout.jsonl")?
@@ -1194,7 +1191,7 @@ fn live_and_export(
 /// (0 completed, 130 and 143 signals) read by hand.
 #[test]
 fn opencode_end_is_the_export_whatever_the_order_or_unknown_with_no_trace() -> Res<()> {
-    let driver = OpenCodeDriver::new()?;
+    let driver = OpenCodeDriver::new();
     let exit = ProcessExit::new(ExitStatus::Code { code: 1 }, ProcessEnd::Exited, Vec::new());
     for (live_case, export_case, want) in [
         ("completed_o1", "interrupt_api", EndedBy::Unknown),
@@ -1247,7 +1244,7 @@ fn opencode_end_is_the_export_whatever_the_order_or_unknown_with_no_trace() -> R
 /// three outcomes `opencode_facts` row 5 and 11 list.
 #[test]
 fn opencode_detect_recognises_only_what_it_reads() -> Res<()> {
-    let driver = OpenCodeDriver::new()?;
+    let driver = OpenCodeDriver::new();
     let live = driver.live_reader().ok_or("no live reader")?;
     let export_stream: StreamName = "export".parse()?;
     let export = driver
@@ -1274,10 +1271,7 @@ fn opencode_detect_recognises_only_what_it_reads() -> Res<()> {
 /// The stop script's predicate, run under `python3 -I` on sample command lines. `None` when the host
 /// has no `python3`.
 fn predicate(cases: &[(Vec<&str>, Vec<&str>)]) -> Res<Option<Vec<bool>>> {
-    let stop = OpenCodeDriver::new()?
-        .stop()
-        .pre_stop
-        .ok_or("no pre-stop")?;
+    let stop = OpenCodeDriver::new().stop().pre_stop.ok_or("no pre-stop")?;
     let Action::Exec(spec) = stop else {
         return Err("not an Exec".into());
     };
@@ -1315,7 +1309,7 @@ print(json.dumps([bool(names["is_server"](argv, parent)) for argv, parent in cas
 /// base image (`opencode run ...` and `/usr/local/bin/opencode serve --stdio --port 0`), hand-listed.
 #[test]
 fn opencode_stop_terms_after_the_interrupt_and_matches_only_the_server_child() -> Res<()> {
-    let stop = OpenCodeDriver::new()?.stop();
+    let stop = OpenCodeDriver::new().stop();
     assert_eq!(stop.signal, StopSignal::Term);
     let action = stop.pre_stop.ok_or("no pre-stop")?;
     assert!(

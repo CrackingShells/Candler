@@ -293,9 +293,9 @@ async fn planned(
         experiment_lock: lock,
         secrets_present: BTreeSet::new(),
         driver: Some(if capable {
-            Arc::new(ClaudeCodeDriver::new().expect("the Claude Code driver"))
+            Arc::new(ClaudeCodeDriver::new())
         } else {
-            Arc::new(OpenCodeDriver::new().expect("the OpenCode driver"))
+            Arc::new(OpenCodeDriver::new())
         }),
     };
     let outcome = plan_runs(&ctx, file, &resolution, Force::No, PlanMode::Check)?;
@@ -504,7 +504,7 @@ fn session_profiles_table_levels_reach_each_cells_argv() {
     let file = ExperimentFile::from_toml_str(text).expect("an experiment");
     let cells = file.cells();
     assert_eq!(cells.len(), 3, "one cell per level");
-    let driver = ClaudeCodeDriver::new().expect("the driver");
+    let driver = ClaudeCodeDriver::new();
     let workspace = Workspace::new(Path::new("/work/run"));
     let expected = [
         ("fast", Some("low")),
@@ -547,7 +547,7 @@ fn session_profiles_table_levels_reach_each_cells_argv() {
 fn harness_env_session_adds_input_flag_only_when_interactive() {
     let dir = tempfile::tempdir().expect("a directory");
     let scene = facts::scene(dir.path());
-    let driver = ClaudeCodeDriver::new().expect("the driver");
+    let driver = ClaudeCodeDriver::new();
     let baseline: Value = serde_json::from_str(
         &std::fs::read_to_string(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/harness_baseline/argv.json"),
@@ -1287,7 +1287,7 @@ fn hook_commands() -> Vec<(String, String)> {
         .into_iter()
         .map(|(path, value)| candler_schemas::values::ResolvedValue::recorded(fp(path), js(value)))
         .collect();
-    let driver = ClaudeCodeDriver::new().expect("the driver");
+    let driver = ClaudeCodeDriver::new();
     let spec = driver
         .session(
             &Cell::new(&resolved),

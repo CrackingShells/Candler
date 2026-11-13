@@ -201,7 +201,7 @@ impl Driver {
     /// The driver with a grace of one second past a closed input.
     pub fn new(hooks: bool) -> Self {
         Self {
-            inner: ClaudeCodeDriver::new().expect("the driver"),
+            inner: ClaudeCodeDriver::new(),
             grace: Duration::from_secs(1),
             hooks,
         }
@@ -209,6 +209,18 @@ impl Driver {
 }
 
 impl HarnessDriver for Driver {
+    fn skills(&self) -> candler_harness::skills::SkillTree {
+        candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
+    }
+
+    fn base_context(&self) -> &'static str {
+        "base"
+    }
+
+    fn detect(&self, _sample: &[u8]) -> Option<semver::Version> {
+        None
+    }
+
     fn id(&self) -> HarnessId {
         self.inner.id()
     }

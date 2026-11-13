@@ -16,11 +16,9 @@ use candler_core::supervise::platform::process_start;
 use candler_core::supervise::signal::Signaller;
 use candler_core::supervise::spawn::SpawnRequest;
 use candler_core::supervise::{EventSink, Supervisor};
-use candler_harness::driver::DriverError;
-use candler_harness::skills::SkillTree;
-use candler_harness::spec::{CommandSpec, PreparedFile, StopSignal, StopSpec};
+use candler_harness::spec::{StopSignal, StopSpec};
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
-use candler_schemas::execution::{EventPayload, JobEnd, TreatmentRef};
+use candler_schemas::execution::{EventPayload, JobEnd};
 use candler_schemas::primitives::{Marker, RunKey};
 use candler_schemas::process::ProcessStart;
 use futures::future::BoxFuture;
@@ -66,37 +64,11 @@ impl EventSink for Recorder {
     }
 }
 
-/// A skill tree the guards never ask for anything.
-pub struct NoSkills;
-
-impl SkillTree for NoSkills {
-    fn archive_command(
-        &self,
-        _treatment: &TreatmentRef,
-        _source: &Path,
-    ) -> Result<CommandSpec, DriverError> {
-        Err(DriverError::VersionOutput {
-            // BORROW: the error owns its detail
-            detail: "the guards read no skill tree".to_owned(),
-        })
-    }
-
-    fn files(
-        &self,
-        _treatment: &TreatmentRef,
-        _archive: &[u8],
-    ) -> Result<Vec<PreparedFile>, DriverError> {
-        Ok(Vec::new())
-    }
-}
-
 /// What the harness gives every run, as stubs the guards never call.
 pub fn services() -> JobServices {
     JobServices {
         // TRAIT_OBJECT: the driver is the harness's real one, which a guard never calls
-        driver: Arc::new(ClaudeCodeDriver::new().expect("the driver builds from constants")),
-        // TRAIT_OBJECT: the tree is a stub that holds no file
-        skills: Arc::new(NoSkills),
+        driver: Arc::new(ClaudeCodeDriver::new()),
         eval_infra: EvalInfra::default(),
     }
 }

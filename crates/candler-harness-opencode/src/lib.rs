@@ -9,7 +9,6 @@
 //!   paths, the in-container interrupt, the export collect and how a run ended.
 //! - [`live::OpenCodeLiveReader`] reads the NDJSON on stdout for the session id and the last word.
 //! - [`export::OpenCodeExportReader`] reads the export, which is the authoritative trace.
-//! - [`skills::OpenCodeSkills`] places a treatment's skill tree where `OpenCode` reads it.
 
 #![deny(clippy::allow_attributes)]
 
@@ -17,7 +16,6 @@ pub mod driver;
 pub mod export;
 pub mod live;
 mod prepare;
-pub mod skills;
 
 use candler_harness::reader::ReaderError;
 use candler_schemas::primitives::Name;
@@ -47,16 +45,19 @@ pub const HARNESS: &str = "opencode";
 /// The stream name under which the export is collected.
 pub const EXPORT_STREAM: &str = "export";
 
-/// Why a reader or the driver could not be built.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[non_exhaustive]
-pub enum OpenCodeError {
-    /// A reader identity or harness name that is not a valid name.
-    #[error("the identity is not a valid name ({detail})")]
-    Identity {
-        /// What is wrong with it.
-        detail: String,
-    },
+/// The `OpenCode` version the driver supports as a requirement: [`SUPPORTED`] written out, so no
+/// text has to parse.
+#[must_use]
+pub fn supported() -> semver::VersionReq {
+    semver::VersionReq {
+        comparators: vec![semver::Comparator {
+            op: semver::Op::Exact,
+            major: VALIDATED.major,
+            minor: Some(VALIDATED.minor),
+            patch: Some(VALIDATED.patch),
+            pre: semver::Prerelease::EMPTY,
+        }],
+    }
 }
 
 /// The source every session of this crate carries.

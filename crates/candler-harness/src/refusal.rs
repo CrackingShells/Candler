@@ -26,7 +26,6 @@ fn driver_error_path(error: &DriverError) -> Option<String> {
         DriverError::MissingValue { .. }
         | DriverError::InvalidValue { .. }
         | DriverError::VersionOutput { .. }
-        | DriverError::HarnessName { .. }
         | DriverError::Record { .. } => None,
     }
 }
@@ -55,12 +54,6 @@ refusal_table! {
         "harness.version_unreadable",
         Side::Environment,
         "The output of the harness version probe names no version.",
-        "-",
-    ),
-    HarnessName { .. } => row(
-        "candler.internal",
-        Side::Candler,
-        "A harness name is not a valid name.",
         "-",
     ),
     Command (inner) => delegate(inner, Side::Candler),

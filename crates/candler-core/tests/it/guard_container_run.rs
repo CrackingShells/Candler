@@ -30,7 +30,7 @@ fn plan() -> ContainerPlan {
             .with("candler.role", "agent"),
         mounts: Vec::new(),
         env: vec![(String::from("HOME"), String::from("/home/agent"))],
-        gateway: ClaudeCodeDriver::new().expect("the driver").gateway(),
+        gateway: ClaudeCodeDriver::new().gateway(),
         state: Vec::new(),
         network: NetworkName::for_job(&job),
         egress: None,

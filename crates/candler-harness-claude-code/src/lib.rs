@@ -11,14 +11,13 @@ pub mod discovery;
 pub mod driver;
 mod parse;
 pub mod prepare;
-pub mod refusal;
 pub mod session;
 mod sessions;
-pub mod skills;
 mod usage;
 
 use candler_harness::reader::{FrameIn, ReaderError, TraceReader};
 use candler_harness::spec::{Confidence, FormatVersion, Framing, InitReport, Observed, RunTotals};
+use candler_schemas::name;
 use candler_schemas::primitives::{Name, NameVersion, Timestamp};
 use candler_schemas::raw::RawRef;
 use candler_schemas::trace::{Session, SessionEvent, SessionSource, UsageScope};
@@ -30,23 +29,33 @@ use crate::sessions::Registry;
 /// The Claude Code versions the reader supports, as a `SemVer` requirement: `>=2.1.220, <2.2.0`.
 pub const SUPPORTED: &str = ">=2.1.220, <2.2.0";
 
+/// The Claude Code versions the reader supports, as a requirement: [`SUPPORTED`] written out, so
+/// no text has to parse.
+#[must_use]
+pub fn supported() -> semver::VersionReq {
+    let at = |op, minor, patch| semver::Comparator {
+        op,
+        major: 2,
+        minor: Some(minor),
+        patch: Some(patch),
+        pre: semver::Prerelease::EMPTY,
+    };
+    semver::VersionReq {
+        comparators: vec![
+            at(semver::Op::GreaterEq, 1, 220),
+            at(semver::Op::Less, 2, 0),
+        ],
+    }
+}
+
 /// The name of the harness that produced the streams the reader reads.
 const HARNESS: &str = "claude-code";
 
 /// The identity of this reader as text, `claude-code-stream-json@<reader version>`; the version changes whenever the reader's output does.
 pub const READER: &str = "claude-code-stream-json@0.2.0";
 
-/// Why a [`ClaudeCodeReader`] could not be built.
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum ClaudeCodeError {
-    /// The reader identity [`READER`] is not a valid `name@version`.
-    #[error("the reader identity is not a valid name@version ({detail})")]
-    InvalidReaderIdentity {
-        /// What is wrong with the identity.
-        detail: String,
-    },
-}
+/// The version of [`READER`].
+const READER_VERSION: semver::Version = semver::Version::new(0, 2, 0);
 
 /// A frame that arrived before any session was known.
 struct Held {
@@ -75,26 +84,24 @@ pub struct ClaudeCodeReader {
     pending: Vec<Held>,
 }
 
+impl Default for ClaudeCodeReader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ClaudeCodeReader {
     /// A reader that has seen no frame.
-    ///
-    /// # Errors
-    /// Returns [`ClaudeCodeError::InvalidReaderIdentity`] when [`READER`] is not a valid `name@version`; the shipped value always is.
-    pub fn new() -> Result<Self, ClaudeCodeError> {
-        let identity = READER.parse::<NameVersion>().map_err(|error| {
-            ClaudeCodeError::InvalidReaderIdentity {
-                // BORROW: .to_string() makes the owned text the error keeps
-                detail: error.to_string(),
-            }
-        })?;
-        Ok(Self {
-            identity,
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            identity: NameVersion::of(&name!("claude-code-stream-json"), READER_VERSION),
             registry: Registry::default(),
             harness_version: None,
             init: None,
             totals: RunTotals::default(),
             pending: Vec::new(),
-        })
+        }
     }
 
     /// The events of one frame whose session is known.

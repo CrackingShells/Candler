@@ -332,12 +332,12 @@ fn interrupted(corpus: &Path, fail_at: usize) -> (tempfile::TempDir, Store, bool
     let store = Store::init(dir.path()).expect("the store initialises");
     let calls = Arc::new(AtomicUsize::new(0));
     // TRAIT_OBJECT: the import's factory type returns boxed readers
-    let readers = move || -> Box<dyn TraceReader> {
+    let readers = move |harness: &str| -> Option<Box<dyn TraceReader>> {
         assert!(
             calls.fetch_add(1, Ordering::SeqCst) != fail_at,
             "an injected fault while the stream {fail_at} is read"
         );
-        reader()
+        reader(harness)
     };
     let outcome = catch_unwind(AssertUnwindSafe(|| {
         import(corpus, &legacy_rules::rules(), &readers, &store)

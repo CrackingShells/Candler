@@ -229,7 +229,7 @@ async fn skill_files(
         .ok_or_else(|| IsolationError::Plan {
             detail: "the treatment is pinned to a commit and names no source".to_owned(), // BORROW: owned text
         })?;
-    let command = rt.skills.archive_command(treatment, source)?;
+    let command = rt.driver.skills().archive_command(treatment, source)?;
     let record = scratch.join("archive");
     fs::create_dir_all(&record).map_err(|e| local("cannot make the archive directory", &e))?;
     let marker = Marker::from_str("skill-archive").map_err(|error| IsolationError::Plan {
@@ -257,7 +257,7 @@ async fn skill_files(
         }
         .into());
     }
-    Ok(rt.skills.files(treatment, &captured.stdout)?)
+    Ok(rt.driver.skills().files(treatment, &captured.stdout)?)
 }
 
 /// Gives `container` the gateway variable names and the state paths of `driver`: the state paths

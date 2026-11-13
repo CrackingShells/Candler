@@ -25,7 +25,7 @@ use serde_json::{Value, json};
 
 use crate::support::gateway as gateway_support;
 
-use crate::support::job_orchestrate::{EmptyTree, Rig, spec};
+use crate::support::job_orchestrate::{Rig, spec};
 use crate::support::run_plan::Facts;
 use gateway_support::{GATEWAY_CONTEXT, docker};
 
@@ -68,7 +68,7 @@ async fn base_image(context: &str) -> ImageRef {
             env_context: tmp.path().join("env"),
             store_root: tmp.path().join("store"),
         },
-        Arc::new(ClaudeCodeDriver::new().expect("the driver")),
+        Arc::new(ClaudeCodeDriver::new()),
     );
     service.base().await.expect("the agent base image builds")
 }
@@ -140,8 +140,7 @@ async fn controls_e2e_pinned_harness_passes() {
         isolation: None,
         gateway: None,
         job: rig.job.clone(),
-        driver: Arc::new(ClaudeCodeDriver::new().expect("the driver")),
-        skills: Arc::new(EmptyTree),
+        driver: Arc::new(ClaudeCodeDriver::new()),
         cells: std::collections::BTreeMap::new(),
         eval_infra: EvalInfra::default(),
     };

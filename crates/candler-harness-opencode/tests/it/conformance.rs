@@ -275,7 +275,7 @@ fn conformance_opencode_recorded_runs() -> Res<()> {
     let cell = Cell::new(&values);
     let workspace = Workspace::new(Path::new("."));
     let canaries = [CANARY.to_owned()]; // BORROW: .to_owned() makes the owned canary
-    let driver = OpenCodeDriver::new()?;
+    let driver = OpenCodeDriver::new();
     run(
         &driver,
         &Setup::new(&cell, &workspace, &canaries),
