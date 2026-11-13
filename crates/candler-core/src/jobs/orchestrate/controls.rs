@@ -386,7 +386,7 @@ fn reference(root: &Path, path: &Path, bytes: &[u8]) -> Result<ControlRef, Orche
 #[must_use]
 pub fn is_session(comparable: &Comparable) -> bool {
     comparable.values().iter().any(|value| {
-        value.path().as_str() == crate::experiment::paths::RUNNER_MODE // BORROW: compares the path
+        value.path().as_str() == candler_schemas::execution::paths::RUNNER_MODE // BORROW: compares the path
             && value
                 .value()
                 .is_some_and(|value| value.as_value() == "session")
@@ -411,7 +411,7 @@ pub async fn ensure(
         .resolution
         .values
         .iter()
-        .find(|value| value.path().as_str() == crate::experiment::paths::HARNESS) // BORROW: compares the path
+        .find(|value| value.path().as_str() == candler_schemas::execution::paths::HARNESS) // BORROW: compares the path
         .and_then(|value| value.value())
         .map(|value| value.as_value().clone()) // BORROW: the controls own the harness value
         .ok_or_else(|| setup(&"the resolution names no harness"))?;
@@ -474,6 +474,8 @@ pub async fn ensure(
 pub struct ControlContexts {
     /// The build context of the base image the cells run on.
     pub base: PathBuf,
+    /// The build arguments of the base image, as the harness driver gives them.
+    pub base_build_args: Vec<(String, String)>,
     /// The build context of the fake model's image.
     pub fakemodel: PathBuf,
 }
@@ -559,8 +561,8 @@ async fn fake_image(
 impl ControlRunner for DockerControlRunner {
     fn identify<'a>(&'a self, rt: &'a Runtime) -> BoxFuture<'a, Result<Identity, String>> {
         Box::pin(async move {
-            let tag =
-                base_tag(&self.contexts.base).map_err(|e| format!("the base sources: {e}"))?;
+            let tag = base_tag(&self.contexts.base, &self.contexts.base_build_args)
+                .map_err(|e| format!("the base sources: {e}"))?;
             let base = rt
                 .docker
                 .image_inspect(&tag)

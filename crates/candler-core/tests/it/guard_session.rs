@@ -10,7 +10,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Arc;
 
-use candler_core::experiment::paths;
 use candler_core::jobs::model::JobSpec;
 use candler_core::jobs::orchestrate::session::cells_of;
 use candler_core::resolve::config::{Config, UserConfig};
@@ -23,6 +22,7 @@ use candler_harness::spec::{Cell, Workspace};
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_harness_opencode::driver::OpenCodeDriver;
 use candler_schemas::execution::ExperimentFile;
+use candler_schemas::execution::paths;
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::refusal::{Refusal, Side};
 use candler_schemas::values::{JsonValue, ResolvedValue, ValueSource};
@@ -222,7 +222,10 @@ fn rows() -> Vec<Row> {
 #[tokio::test]
 async fn session_resolve_table() {
     for path in [paths::RUNNER_MODE, paths::RUNNER_IDLE_S] {
-        assert!(paths::is_known_path(&fp(path)), "{path} is a known path");
+        assert!(
+            candler_core::resolve::layers::is_known_path(&fp(path)),
+            "{path} is a known path"
+        );
     }
     let table = rows();
     assert!(table.len() >= 10, "the table is not empty");

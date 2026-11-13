@@ -39,10 +39,7 @@ use candler_schemas::primitives::RelPath;
 use candler_schemas::raw::StreamName;
 use serde_json::{Map, Value, json};
 
-use crate::driver::{
-    BUDGET_COST, BUDGET_TURNS, MODEL_EFFORT, MODEL_ID, PERMISSION_MODE, PROGRAM, PROMPT_TEMPLATE,
-    PROMPT_VALUES, cap_text, invalid, render_prompt, required_text, value_at,
-};
+use crate::driver::{Launch, argv, invalid};
 
 /// The home directory the core gives every agent container.
 const AGENT_HOME: &str = "/home/agent";
@@ -99,61 +96,14 @@ fn hooks() -> Result<HookSpec, DriverError> {
     ))
 }
 
-/// The prompt of the cell, with its values filled in.
-fn prompt(cell: &candler_harness::spec::Cell<'_>) -> Result<String, DriverError> {
-    let template = required_text(cell, PROMPT_TEMPLATE)?;
-    let values = match value_at(cell, PROMPT_VALUES)? {
-        None => None,
-        Some(Value::Object(map)) => Some(map),
-        Some(
-            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_),
-        ) => {
-            return Err(invalid(PROMPT_VALUES, "is not an object".to_owned())); // BORROW: .to_owned() makes the owned text
-        }
-    };
-    render_prompt(template, values)
-}
-
 /// The session of a cell: stdin open, the prompt as the first message, closed by end of input, with
 /// the observation hooks installed from a settings file outside the workspace.
 ///
 /// # Errors
 /// [`DriverError`] when a value of the cell is missing or cannot be used.
 pub fn spec(cell: &candler_harness::spec::Cell<'_>) -> Result<SessionSpec, DriverError> {
-    let model = required_text(cell, MODEL_ID)?;
-    let mode = required_text(cell, PERMISSION_MODE)?;
-    let prompt = prompt(cell)?;
-    // BORROW: .to_owned() makes each owned argument the command keeps
-    let mut argv = vec![
-        PROGRAM.to_owned(),
-        "--print".to_owned(),
-        "--input-format".to_owned(),
-        "stream-json".to_owned(),
-        "--output-format".to_owned(),
-        "stream-json".to_owned(),
-        "--verbose".to_owned(),
-        "--model".to_owned(),
-        model.to_owned(),
-        "--setting-sources".to_owned(),
-        "project,local".to_owned(),
-        "--permission-mode".to_owned(),
-        mode.to_owned(),
-    ];
-    if let Some(effort) = value_at(cell, MODEL_EFFORT)? {
-        let Value::String(effort) = effort else {
-            return Err(invalid(MODEL_EFFORT, "is not text".to_owned())); // BORROW: .to_owned() makes the owned text
-        };
-        argv.push("--effort".to_owned()); // BORROW: .to_owned() makes the owned argument
-        argv.push(effort.clone()); // BORROW: .clone() copies the text out of the cell
-    }
-    if let Some(turns) = cap_text(cell, BUDGET_TURNS, true)? {
-        argv.push("--max-turns".to_owned()); // BORROW: .to_owned() makes the owned argument
-        argv.push(turns);
-    }
-    if let Some(cost) = cap_text(cell, BUDGET_COST, false)? {
-        argv.push("--max-budget-usd".to_owned()); // BORROW: .to_owned() makes the owned argument
-        argv.push(cost);
-    }
+    let prompt = cell.prompt()?;
+    let mut argv = argv(cell, Launch::Session)?;
     argv.push("--settings".to_owned()); // BORROW: .to_owned() makes the owned argument
     argv.push(format!("{AGENT_HOME}/{SETTINGS}"));
     let command = CommandSpec::builder().argv(argv).build()?;

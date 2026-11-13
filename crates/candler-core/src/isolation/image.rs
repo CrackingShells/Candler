@@ -201,7 +201,9 @@ impl DockerImageService {
     /// The base image: built once per digest of its sources, under the lock of its tag.
     async fn ensure_base(&self) -> Result<BaseImage, ImageError> {
         // BORROW: .clone() moves the context into the blocking task
-        let tag = off_thread(base_tag, self.assets.base_context.clone(), "base").await?;
+        let sources = off_thread(tree_digest, self.assets.base_context.clone(), "base").await?;
+        let build_args = self.harness.base_image().build_args;
+        let tag = base_tag_of(sources.as_str(), &build_args); // BORROW: explicit .as_str()
         let _guard = self.lock_tag(&tag).await?;
         let found = self
             .docker
@@ -216,7 +218,7 @@ impl DockerImageService {
                 context: self.assets.base_context.clone(),
                 // BORROW: .clone() keeps the tag for the pin
                 tag: tag.clone(),
-                build_args: Vec::new(),
+                build_args,
                 labels: Labels::new(),
             };
             self.docker
@@ -871,20 +873,31 @@ async fn off_thread(
         .map_err(|error| build_failed(&format!("cannot read the {what} sources: {error}")))
 }
 
-/// The first digits of the digest of the sources under `dir`.
-fn source_digest(dir: &Path) -> Result<String, std::io::Error> {
-    let mut hex = tree_digest(dir)?;
-    hex.truncate(SOURCE_DIGITS);
-    Ok(hex)
-}
-
-/// The tag of the base image built from the context `dir`: `candler-base:src-<digits of the
-/// digest of its sources>`. The tag follows the content, so it names the image the sources make.
+/// The tag of the base image built from the context `dir` with `build_args`. The tag follows the
+/// content and the arguments, so it names the image they make.
 ///
 /// # Errors
 /// [`std::io::Error`] when a file of the context cannot be read.
-pub fn base_tag(dir: &Path) -> Result<String, std::io::Error> {
-    Ok(format!("{BASE_REPO}:src-{}", source_digest(dir)?))
+pub fn base_tag(dir: &Path, build_args: &[(String, String)]) -> Result<String, std::io::Error> {
+    Ok(base_tag_of(tree_digest(dir)?.as_str(), build_args)) // BORROW: explicit .as_str()
+}
+
+/// The base tag of sources whose digest is `sources`, built with `build_args`:
+/// `candler-base:src-<digits>`, the first digits of the sha256 of `sources` and a NUL, then each
+/// argument's name, a NUL, its value and a NUL.
+fn base_tag_of(sources: &str, build_args: &[(String, String)]) -> String {
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(sources.as_bytes());
+    hasher.update([0_u8]);
+    for (name, value) in build_args {
+        hasher.update(name.as_bytes());
+        hasher.update([0_u8]);
+        hasher.update(value.as_bytes());
+        hasher.update([0_u8]);
+    }
+    let mut hex = hex_of(&hasher.finalize());
+    hex.truncate(SOURCE_DIGITS);
+    format!("{BASE_REPO}:src-{hex}")
 }
 
 /// The hex digest of every file under the build context `dir`.

@@ -4,8 +4,9 @@
 # inside the digest-pinned image.
 FROM python:3.12-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df
 ARG TARGETARCH
-# The version and its checksums go together: change both or neither.
-ARG CC_VERSION=2.1.311
+# The driver passes the version (`PINNED` of candler-harness-claude-code) and the checksums below
+# are its binaries': change both or neither. With no default, a build without it fails.
+ARG CC_VERSION
 RUN useradd -m -u 10001 -d /home/agent agent
 COPY --from=ghcr.io/astral-sh/uv:0.9@sha256:538e0b39736e7feae937a65983e49d2ab75e1559d35041f9878b7b7e51de91e4 /uv /uvx /usr/local/bin/
 # One layer holds the binary: no chmod or mv after this line, either would copy 290 MB again.

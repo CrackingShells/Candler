@@ -140,10 +140,11 @@ fn control_contexts(rt: &Runtime, spec: &JobSpec) -> Result<ControlContexts, Str
     let driver = Registry::builtin()
         .driver(&name)
         .map_err(|e| e.to_string())?;
-    let assets =
-        asset_paths(rt.store.layout().root(), driver.base_context()).map_err(|e| e.to_string())?;
+    let base = driver.base_image();
+    let assets = asset_paths(rt.store.layout().root(), base.context).map_err(|e| e.to_string())?;
     Ok(ControlContexts {
         base: assets.images.base_context,
+        base_build_args: base.build_args,
         fakemodel: assets.fakemodel,
     })
 }

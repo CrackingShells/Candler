@@ -9,11 +9,16 @@ use std::fmt;
 use std::path::Path;
 use std::time::Duration;
 
+use candler_schemas::execution::paths;
+use candler_schemas::field_path;
 use candler_schemas::primitives::{FieldPath, Name, RelPath, SecretName};
 use candler_schemas::process::ExitStatus;
 use candler_schemas::raw::StreamName;
 use candler_schemas::trace::SessionId;
 use candler_schemas::values::{JsonValue, ResolvedValue};
+use serde_json::{Map, Value};
+
+use crate::driver::DriverError;
 
 /// The placeholder a command or call of a stop or close action holds where the id of the root
 /// session goes; the core fills it from the live reader's [`Observed`].
@@ -1206,6 +1211,28 @@ impl Prepared {
     }
 }
 
+/// How the core builds a harness's base image.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct BaseImage {
+    /// The directory under `assets/docker` that holds the build context.
+    pub context: &'static str,
+    /// The build arguments, each `(name, value)`: the harness version the image installs. The
+    /// Dockerfile gives them no default, so a build without them fails.
+    pub build_args: Vec<(String, String)>,
+}
+
+impl BaseImage {
+    /// A base image built from `assets/docker/<context>` with `build_args`.
+    #[must_use]
+    pub const fn new(context: &'static str, build_args: Vec<(String, String)>) -> Self {
+        Self {
+            context,
+            build_args,
+        }
+    }
+}
+
 /// The resolved values of one cell, read by field path.
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
@@ -1228,6 +1255,151 @@ impl<'a> Cell<'a> {
             .find(|resolved| resolved.path() == path)
             .and_then(ResolvedValue::value)
     }
+
+    /// The JSON value at `path`, if the cell has one.
+    #[must_use]
+    pub fn value(&self, path: &FieldPath) -> Option<&'a Value> {
+        self.get(path).map(JsonValue::as_value)
+    }
+
+    /// The text at `path`, if the cell has a value there.
+    ///
+    /// # Errors
+    /// [`DriverError::InvalidValue`] when the value is not text.
+    pub fn text(&self, path: &FieldPath) -> Result<Option<&'a str>, DriverError> {
+        self.value(path)
+            .map(|value| {
+                value.as_str().ok_or_else(|| DriverError::InvalidValue {
+                    path: path.clone(),               // BORROW: .clone() gives the error its own path
+                    detail: "is not text".to_owned(), // BORROW: .to_owned() makes the owned text
+                })
+            })
+            .transpose()
+    }
+
+    /// The text at `path`, which the cell must have.
+    ///
+    /// # Errors
+    /// [`DriverError::MissingValue`] when the cell has no value there, and
+    /// [`DriverError::InvalidValue`] when the value is not text.
+    pub fn required_text(&self, path: &FieldPath) -> Result<&'a str, DriverError> {
+        self.text(path)?.ok_or_else(|| DriverError::MissingValue {
+            path: path.clone(), // BORROW: .clone() gives the error its own path
+        })
+    }
+
+    /// The model id, which the cell must have.
+    ///
+    /// # Errors
+    /// [`DriverError`] as [`Cell::required_text`] returns it.
+    pub fn model(&self) -> Result<&'a str, DriverError> {
+        self.required_text(&field_path!(paths::MODEL_ID))
+    }
+
+    /// The permission mode, which the cell must have.
+    ///
+    /// # Errors
+    /// [`DriverError`] as [`Cell::required_text`] returns it.
+    pub fn permission_mode(&self) -> Result<&'a str, DriverError> {
+        self.required_text(&field_path!(paths::PERMISSION_MODE))
+    }
+
+    /// The reasoning effort, if the cell sets one.
+    ///
+    /// # Errors
+    /// [`DriverError::InvalidValue`] when the value is not text.
+    pub fn effort(&self) -> Result<Option<&'a str>, DriverError> {
+        self.text(&field_path!(paths::MODEL_EFFORT))
+    }
+
+    /// The prompt: the cell's template, filled by [`render_prompt`] from its values.
+    ///
+    /// # Errors
+    /// [`DriverError::MissingValue`] when the cell has no template, and
+    /// [`DriverError::InvalidValue`] when the template is not text, the values are not an object,
+    /// or [`render_prompt`] refuses them.
+    pub fn prompt(&self) -> Result<String, DriverError> {
+        let template = self.required_text(&field_path!(paths::PROMPT_TEMPLATE))?;
+        let values_path = field_path!(paths::PROMPT_VALUES);
+        let values = match self.value(&values_path) {
+            None => None,
+            Some(Value::Object(map)) => Some(map),
+            Some(
+                Value::Null
+                | Value::Bool(_)
+                | Value::Number(_)
+                | Value::String(_)
+                | Value::Array(_),
+            ) => {
+                return Err(DriverError::InvalidValue {
+                    path: values_path,
+                    detail: "is not an object".to_owned(), // BORROW: .to_owned() makes the owned text
+                });
+            }
+        };
+        render_prompt(template, values)
+    }
+}
+
+/// Whether `text` is the name of a prompt placeholder: an ASCII letter or `_`, then ASCII letters,
+/// digits or `_`.
+fn is_key(text: &str) -> bool {
+    let mut chars = text.chars();
+    chars
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// The scalar `value` as text, or `None` when it is not a scalar.
+fn scalar_text(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => Some(text.clone()), // BORROW: .clone() copies the text out of the cell
+        Value::Number(number) => Some(number.to_string()), // BORROW: .to_string() gives owned text
+        Value::Bool(flag) => Some(flag.to_string()), // BORROW: .to_string() gives owned text
+        Value::Null | Value::Array(_) | Value::Object(_) => None,
+    }
+}
+
+/// The prompt: `template` with each `{key}` replaced by the scalar value of `values.<key>`.
+///
+/// A brace pair that does not hold a plain key stays as written.
+///
+/// # Errors
+/// [`DriverError::InvalidValue`] at `prompt.values` when a key has no value or its value is not a
+/// scalar.
+pub fn render_prompt(
+    template: &str,
+    values: Option<&Map<String, Value>>,
+) -> Result<String, DriverError> {
+    let invalid = |detail: String| DriverError::InvalidValue {
+        path: field_path!(paths::PROMPT_VALUES),
+        detail,
+    };
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(open) = rest.find('{') {
+        let (before, from_open) = rest.split_at(open);
+        out.push_str(before);
+        let after_open = from_open.get(1..).unwrap_or_default();
+        match after_open.split_once('}') {
+            Some((key, tail)) if is_key(key) => {
+                let value = values.and_then(|map| map.get(key)).ok_or_else(|| {
+                    invalid(format!("the template names `{key}` and no value is given"))
+                })?;
+                let text = scalar_text(value)
+                    .ok_or_else(|| invalid(format!("the value of `{key}` is not a scalar")))?;
+                out.push_str(text.as_str()); // BORROW: explicit .as_str()
+                rest = tail;
+            }
+            Some(_) | None => {
+                out.push('{');
+                rest = after_open;
+            }
+        }
+    }
+    out.push_str(rest);
+    Ok(out)
 }
 
 /// The directory a run works in.

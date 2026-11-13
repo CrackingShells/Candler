@@ -11,7 +11,7 @@ use candler_schemas::primitives::{FieldPath, FormatError};
 use candler_schemas::values::{JsonValue, ResolvedValue};
 use serde_json::{Map, Value};
 
-use super::paths;
+use candler_schemas::execution::paths;
 
 /// The roots that preflight steps derive into typed fields; no value sits below one.
 const RESERVED_ROOTS: [&str; 5] = [

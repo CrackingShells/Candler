@@ -1202,11 +1202,28 @@ impl FromStr for BootId {
     }
 }
 
-/// Reports whether `segment` is a lowercase letter followed by lowercase letters, digits or `_`.
-fn is_field_segment(segment: &str) -> bool {
-    let mut bytes = segment.bytes();
-    bytes.next().is_some_and(|b| b.is_ascii_lowercase())
-        && bytes.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+/// Reports whether `text` is a [`FieldPath`]: segments joined by `.`, each a lowercase letter
+/// followed by lowercase letters, digits or `_`.
+///
+/// It is the check of [`FieldPath::from_str`] and of [`field_path!`](crate::field_path), which
+/// runs it at compile time.
+#[must_use]
+pub const fn is_field_path(text: &str) -> bool {
+    let mut rest = text.as_bytes();
+    let mut segment_start = true;
+    while let [byte, tail @ ..] = rest {
+        let fits = if segment_start {
+            byte.is_ascii_lowercase()
+        } else {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(*byte, b'_' | b'.')
+        };
+        if !fits {
+            return false;
+        }
+        segment_start = *byte == b'.';
+        rest = tail;
+    }
+    !segment_start
 }
 
 text_type!(FieldPath {
@@ -1242,11 +1259,31 @@ impl FieldPath {
     }
 }
 
+impl FieldPath {
+    /// The path `text`, which [`field_path!`](crate::field_path) has checked at compile time. Use
+    /// the macro, not this function.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn from_checked_literal(text: &'static str) -> Self {
+        Self { text: text.into() }
+    }
+}
+
+/// A [`FieldPath`] from a constant text, which the compiler rejects when it is not a field path.
+/// The value cannot fail at run time.
+#[macro_export]
+macro_rules! field_path {
+    ($text:expr) => {{
+        const { assert!($crate::primitives::is_field_path($text)) };
+        $crate::primitives::FieldPath::from_checked_literal($text)
+    }};
+}
+
 impl FromStr for FieldPath {
     type Err = FormatError;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
-        if text.split('.').all(is_field_segment) {
+        if is_field_path(text) {
             Ok(Self { text: text.into() })
         } else {
             Err(FormatError::FieldPath {

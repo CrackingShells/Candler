@@ -370,8 +370,8 @@ impl HarnessDriver for QuietDriver {
         candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
     }
 
-    fn base_context(&self) -> &'static str {
-        "base"
+    fn base_image(&self) -> candler_harness::spec::BaseImage {
+        candler_harness::spec::BaseImage::new("base", Vec::new())
     }
 
     fn detect(&self, _sample: &[u8]) -> Option<semver::Version> {
@@ -459,8 +459,8 @@ impl HarnessDriver for ObservingDriver {
         candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
     }
 
-    fn base_context(&self) -> &'static str {
-        "base"
+    fn base_image(&self) -> candler_harness::spec::BaseImage {
+        candler_harness::spec::BaseImage::new("base", Vec::new())
     }
 
     fn detect(&self, _sample: &[u8]) -> Option<semver::Version> {

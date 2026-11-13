@@ -22,13 +22,13 @@ use futures::future::BoxFuture;
 use serde_json::{Map, Value, json};
 
 use super::identity::show_file;
-use crate::experiment::paths;
 use crate::isolation::image::{
     BuildSetting, Extension, ImageService, LockDigest, LockRequest, LockSource, package_name_ok,
     prune_name_ok,
 };
 use crate::resolve::preflight::{PreflightError, PreflightStep, ResolveContext, StepReport};
 use crate::supervise::Supervisor;
+use candler_schemas::execution::paths;
 
 /// What the experiment's own image layer is built from: the Dockerfile and the files of its
 /// context.

@@ -16,10 +16,10 @@ use candler_schemas::values::JsonValue;
 use futures::future::BoxFuture;
 use serde_json::{Number, Value};
 
-use crate::experiment::paths;
 use crate::resolve::preflight::{
     CheckResult, PreflightError, PreflightStep, ResolveContext, StepReport,
 };
+use candler_schemas::execution::paths;
 
 /// The seconds a session stays open after the agent yields, when the cell gives none.
 pub const DEFAULT_IDLE_S: u64 = 60;

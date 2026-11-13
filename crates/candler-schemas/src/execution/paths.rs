@@ -1,6 +1,7 @@
-//! The field paths of the configuration surface, as text. A path is a cell value (hashed and
-//! compared), a setting (dropped from the comparable record) or a typed root (reserved, filled by
-//! derived steps). `FieldPath::from_str` turns each into a path.
+//! The field paths of a cell, as text. A path is a cell value (hashed and compared), a setting
+//! (dropped from the comparable record) or a typed root (reserved, filled by derived steps).
+//! [`field_path!`](crate::field_path) turns each into a [`FieldPath`](crate::primitives::FieldPath)
+//! checked at compile time.
 
 /// A cell value: the model id.
 pub const MODEL_ID: &str = "model.id";
@@ -138,64 +139,52 @@ pub const SLOTS_COUNT: &str = "slots.count";
 /// A setting: how many evaluator processes run at once on the machine.
 pub const SLOTS_EVALUATORS: &str = "slots.evaluators";
 
-/// Reports whether `path` belongs to the configuration surface: a path named above, an operational
-/// setting ([`is_setting`](crate::resolve::layers::is_setting)), a typed root or a path below one
-/// (which another check refuses on its own terms), a path below `mcp` or `prompt.values`, whose
-/// children are free, or an ancestor of any of these.
-#[must_use]
-pub fn is_known_path(path: &candler_schemas::primitives::FieldPath) -> bool {
-    const LEAVES: [&str; 33] = [
-        MODEL_ID,
-        MODEL_ENDPOINT,
-        MODEL_EFFORT,
-        MODEL_TOKEN_SECRET,
-        TOOLS_ALLOWED,
-        TOOLS_DISALLOWED,
-        PERMISSION_MODE,
-        REQUEST_HARNESS,
-        REQUEST_TREATMENT,
-        REQUEST_INPUTS,
-        PROMPT_TEMPLATE,
-        ISOLATION_IMAGE,
-        ISOLATION_NETWORK,
-        ISOLATION_ENV_LOCK,
-        ISOLATION_LIMITS_PIDS,
-        ISOLATION_LIMITS_MEMORY,
-        ISOLATION_LIMITS_CPUS,
-        ISOLATION_BUILD_DOCKERFILE,
-        ISOLATION_BUILD_CONTEXT,
-        ISOLATION_BUILD_REQUIREMENTS,
-        ISOLATION_BUILD_PRUNE,
-        ISOLATION_BUILD_LOCK,
-        ISOLATION_RECORD_PACKAGES,
-        BUDGET_PER_RUN_WALL_S,
-        BUDGET_PER_RUN_TURNS,
-        BUDGET_PER_RUN_MAX_COST_USD,
-        RUNNER_MODE,
-        RUNNER_IDLE_S,
-        STORE_ROOT,
-        PLUGINS_DIRS,
-        SLOTS_COUNT,
-        ISOLATION_LIMITS,
-        PROMPT_VALUES,
-    ];
-    const SUBTREES: [&str; 7] = [
-        MCP,
-        PROMPT_VALUES,
-        HARNESS,
-        TREATMENT,
-        INPUTS,
-        SNAPSHOTS,
-        ENVIRONMENTS,
-    ];
-    let known = |text: &str| text.parse::<candler_schemas::primitives::FieldPath>().ok();
-    crate::resolve::layers::is_setting(path)
-        || LEAVES
-            .iter()
-            .filter_map(|text| known(text))
-            .any(|leaf| leaf.starts_with(path))
-        || SUBTREES
-            .iter()
-            .filter_map(|text| known(text))
-            .any(|root| path.starts_with(&root) || root.starts_with(path))
-}
+/// Every path above is a field path; the compiler checks it.
+const _: () = {
+    assert!(crate::primitives::is_field_path(MODEL_ID));
+    assert!(crate::primitives::is_field_path(MODEL_ENDPOINT));
+    assert!(crate::primitives::is_field_path(MODEL_EFFORT));
+    assert!(crate::primitives::is_field_path(MODEL_TOKEN_SECRET));
+    assert!(crate::primitives::is_field_path(TOOLS_ALLOWED));
+    assert!(crate::primitives::is_field_path(TOOLS_DISALLOWED));
+    assert!(crate::primitives::is_field_path(MCP));
+    assert!(crate::primitives::is_field_path(PERMISSION_MODE));
+    assert!(crate::primitives::is_field_path(REQUEST_HARNESS));
+    assert!(crate::primitives::is_field_path(REQUEST_TREATMENT));
+    assert!(crate::primitives::is_field_path(REQUEST_INPUTS));
+    assert!(crate::primitives::is_field_path(PROMPT_TEMPLATE));
+    assert!(crate::primitives::is_field_path(PROMPT_VALUES));
+    assert!(crate::primitives::is_field_path(ISOLATION_IMAGE));
+    assert!(crate::primitives::is_field_path(ISOLATION_NETWORK));
+    assert!(crate::primitives::is_field_path(ISOLATION_ENV_LOCK));
+    assert!(crate::primitives::is_field_path(ISOLATION_LIMITS));
+    assert!(crate::primitives::is_field_path(ISOLATION_LIMITS_PIDS));
+    assert!(crate::primitives::is_field_path(ISOLATION_LIMITS_MEMORY));
+    assert!(crate::primitives::is_field_path(ISOLATION_LIMITS_CPUS));
+    assert!(crate::primitives::is_field_path(ISOLATION_BUILD_DOCKERFILE));
+    assert!(crate::primitives::is_field_path(ISOLATION_BUILD_CONTEXT));
+    assert!(crate::primitives::is_field_path(
+        ISOLATION_BUILD_REQUIREMENTS
+    ));
+    assert!(crate::primitives::is_field_path(ISOLATION_BUILD_PRUNE));
+    assert!(crate::primitives::is_field_path(ISOLATION_RECORD_PACKAGES));
+    assert!(crate::primitives::is_field_path(ISOLATION_BUILD_LOCK));
+    assert!(crate::primitives::is_field_path(BUDGET_PER_RUN_WALL_S));
+    assert!(crate::primitives::is_field_path(BUDGET_PER_RUN_TURNS));
+    assert!(crate::primitives::is_field_path(
+        BUDGET_PER_RUN_MAX_COST_USD
+    ));
+    assert!(crate::primitives::is_field_path(RUNNER_MODE));
+    assert!(crate::primitives::is_field_path(RUNNER_IDLE_S));
+    assert!(crate::primitives::is_field_path(HARNESS));
+    assert!(crate::primitives::is_field_path(HARNESS_VERSION));
+    assert!(crate::primitives::is_field_path(SECRETS));
+    assert!(crate::primitives::is_field_path(TREATMENT));
+    assert!(crate::primitives::is_field_path(INPUTS));
+    assert!(crate::primitives::is_field_path(SNAPSHOTS));
+    assert!(crate::primitives::is_field_path(ENVIRONMENTS));
+    assert!(crate::primitives::is_field_path(STORE_ROOT));
+    assert!(crate::primitives::is_field_path(PLUGINS_DIRS));
+    assert!(crate::primitives::is_field_path(SLOTS_COUNT));
+    assert!(crate::primitives::is_field_path(SLOTS_EVALUATORS));
+};

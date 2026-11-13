@@ -20,7 +20,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use candler_core::experiment::inputs::{ResolvedInputs, resolve_inputs};
-use candler_core::experiment::paths;
 use candler_core::isolation::docker::DockerCli;
 use candler_core::isolation::driver::DockerDriver as _;
 use candler_core::isolation::model::{BuildRequest, Labels};
@@ -34,6 +33,7 @@ use candler_core::resolve::layers::{FileValues, Resolution, ResolveInput};
 use candler_core::runner::plan::{Force, PlanCtx, PlanMode, experiment_of, plan_runs};
 use candler_core::store::Store;
 use candler_harness::driver::HarnessDriver;
+use candler_schemas::execution::paths;
 use candler_schemas::execution::{ExperimentFile, JobRecord, JobState};
 use candler_schemas::primitives::FieldPath;
 

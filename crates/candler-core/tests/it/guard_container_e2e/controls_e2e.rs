@@ -9,6 +9,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use candler_harness::driver::HarnessDriver as _;
+
 use candler_core::isolation::docker::{ClientEnv, DockerCli};
 use candler_core::isolation::image::{DockerImageService, ImageAssets, context_digest};
 use candler_core::isolation::model::ImageRef;
@@ -107,8 +109,11 @@ async fn controls_e2e_pinned_harness_passes() {
     );
     let fake_made = image_id(&fake_tag).is_none();
 
-    let base_tag = candler_core::isolation::image::base_tag(std::path::Path::new(base_context))
-        .expect("a tag");
+    let base_tag = candler_core::isolation::image::base_tag(
+        std::path::Path::new(base_context),
+        &ClaudeCodeDriver::new().base_image().build_args,
+    )
+    .expect("a tag");
     let base_made = image_id(&base_tag).is_none();
     let base = base_image(base_context).await;
     let version = docker(&[
@@ -160,6 +165,7 @@ async fn controls_e2e_pinned_harness_passes() {
 
     let runner = DockerControlRunner::new(ControlContexts {
         base: base_context.into(),
+        base_build_args: ClaudeCodeDriver::new().base_image().build_args,
         fakemodel: fake_context.into(),
     });
     let ctl = JobControl {

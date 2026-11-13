@@ -32,13 +32,13 @@ use tokio::time::MissedTickBehavior;
 
 pub use crate::runner::evidence::session::{Idle, SessionEnd, SessionMeasures};
 
-use crate::experiment::paths;
 use crate::frames::{FrameWriter, RawFileInfo};
 use crate::isolation::IsolationError;
 use crate::resolve::steps::session::{DEFAULT_IDLE_S, MODE_SESSION, settle};
 use crate::supervise::now;
 use crate::supervise::spawn::Child;
 use crate::supervise::stop::StopHandle;
+use candler_schemas::execution::paths;
 
 /// How often the runner reads the hook log and decides.
 const POLL: Duration = Duration::from_millis(50);

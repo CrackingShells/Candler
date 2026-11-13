@@ -8,7 +8,7 @@
 
 use std::error::Error;
 
-use candler_core::experiment::paths;
+use candler_schemas::execution::paths;
 use candler_schemas::refusal::{Refusal, RefusalCode, RefusalRecord, Side, pointer_of};
 use candler_schemas::refusal_table;
 

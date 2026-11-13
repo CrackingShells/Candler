@@ -8,7 +8,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use candler_core::experiment::paths;
 use candler_core::isolation::docker::{ClientEnv, DockerCli};
 use candler_core::isolation::image::{DockerImageService, ImageAssets};
 use candler_core::isolation::layout;
@@ -19,6 +18,7 @@ use candler_core::resolve::steps::{M2bServices, register_m2b_steps};
 use candler_core::runner::evidence::catalog::{CatalogCommand, CommandCatalogProvider};
 use candler_core::runner::plan::{PlanError, experiment_of};
 use candler_core::supervise::{EventSink, Supervisor};
+use candler_schemas::execution::paths;
 use candler_schemas::execution::{EventPayload, ExperimentFile, Level};
 use candler_schemas::primitives::{FieldPath, RunKey};
 use candler_schemas::refusal::pointer_of;
@@ -177,7 +177,7 @@ fn check_request_key(path: &FieldPath) -> Result<(), CliError> {
 
 /// Refuses a path that no path class of the surface knows, naming it and where it was written.
 fn check_known(path: &FieldPath, location: FieldLocation) -> Result<(), CliError> {
-    if paths::is_known_path(path) {
+    if candler_core::resolve::layers::is_known_path(path) {
         return Ok(());
     }
     Err(CliError::refused_by(CliRefusal::UnknownFieldPath {
@@ -348,7 +348,7 @@ pub(crate) fn foreground(
     root: &Path,
     driver: &Arc<dyn HarnessDriver>,
 ) -> Result<Foreground, CliError> {
-    let assets = asset_paths(root, driver.base_context())?;
+    let assets = asset_paths(root, driver.base_image().context)?;
     let control = layout::control_dir(root);
     std::fs::create_dir_all(&control).map_err(failed)?;
     // TRAIT_OBJECT: the foreground checks belong to no job and report no event
