@@ -18,7 +18,7 @@ use candler_core::isolation::image::ImageError;
 use candler_core::runner::evidence::census::{CensusError, census};
 use candler_core::runner::exec::spawn::live_observer;
 use candler_core::supervise::spawn::FrameObserver as _;
-use candler_harness::driver::{DriverError, HarnessDriver};
+use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
     BudgetCaps, Capabilities, Cell, CensusSource, CollectSpec, CommandSpec, EnvEntry, GatewayEnv,
@@ -178,22 +178,13 @@ impl HarnessDriver for FakeHarness {
         ]
     }
 
-    fn prepare(
-        &self,
-        _cell: &Cell<'_>,
-        _workspace: &Workspace<'_>,
-    ) -> Result<Prepared, DriverError> {
-        Ok(Prepared::default())
-    }
-
-    fn command(
-        &self,
-        _cell: &Cell<'_>,
-        _workspace: &Workspace<'_>,
-    ) -> Result<CommandSpec, DriverError> {
-        Ok(CommandSpec::builder()
-            .argv(vec![String::from("fakeharness"), String::from("go")])
-            .build()?)
+    fn plan(&self, _cell: &Cell<'_>, _workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
+        Ok(Plan::new(
+            Prepared::default(),
+            CommandSpec::builder()
+                .argv(vec![String::from("fakeharness"), String::from("go")])
+                .build()?,
+        ))
     }
 
     fn stop(&self) -> StopSpec {

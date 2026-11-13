@@ -25,11 +25,11 @@ use candler_core::runner::plan::RunPlan;
 use candler_core::runner::{JobMeter, RunControl, RunOutcome};
 use candler_core::supervise::spawn::{SpawnRequest, StdinSpec};
 use candler_core::supervise::stop::Exit;
-use candler_harness::driver::{DriverError, HarnessDriver};
+use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
-    Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId, Observed, Prepared,
-    ProcessExit, SessionSpec, SessionTracker, StatePath, StopSpec, Workspace,
+    Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId, Observed, ProcessExit,
+    SessionTracker, StatePath, StopSpec, Workspace,
 };
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_schemas::execution::Comparable;
@@ -236,34 +236,20 @@ impl HarnessDriver for Driver {
     fn capabilities(&self) -> Capabilities {
         self.inner.capabilities()
     }
-    fn prepare(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Prepared, DriverError> {
-        self.inner.prepare(cell, workspace)
-    }
-    fn command(
-        &self,
-        cell: &Cell<'_>,
-        workspace: &Workspace<'_>,
-    ) -> Result<CommandSpec, DriverError> {
-        self.inner.command(cell, workspace)
+    fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
+        let mut plan = self.inner.plan(cell, workspace)?;
+        if !self.hooks
+            && let Some(found) = plan.session.as_mut()
+        {
+            found.hooks = None;
+        }
+        Ok(plan)
     }
     fn gateway(&self) -> Option<GatewayEnv> {
         self.inner.gateway()
     }
     fn state_paths(&self) -> Vec<StatePath> {
         self.inner.state_paths()
-    }
-    fn session(
-        &self,
-        cell: &Cell<'_>,
-        workspace: &Workspace<'_>,
-    ) -> Result<Option<SessionSpec>, DriverError> {
-        let mut spec = self.inner.session(cell, workspace)?;
-        if !self.hooks
-            && let Some(found) = spec.as_mut()
-        {
-            found.hooks = None;
-        }
-        Ok(spec)
     }
     fn session_tracker(&self) -> Option<Box<dyn SessionTracker>> {
         self.inner.session_tracker()

@@ -367,11 +367,11 @@ use candler_core::jobs::orchestrate::schedule::Clock;
 use candler_core::jobs::orchestrate::session::{JobHost, OrchestrateError};
 use candler_core::runner::Runtime;
 use candler_core::supervise::stop::Exit;
-use candler_harness::driver::{DriverError, HarnessDriver};
+use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
-    Capabilities, Cell, CollectSpec, CommandSpec, HarnessId, Observed, Prepared, ProcessExit,
-    StopSpec, Workspace,
+    Capabilities, Cell, CollectSpec, CommandSpec, HarnessId, Observed, ProcessExit, StopSpec,
+    Workspace,
 };
 use candler_schemas::primitives::{ContainerId, Marker, Timestamp};
 use candler_schemas::raw::StreamName;
@@ -584,15 +584,8 @@ impl HarnessDriver for Collecting {
     fn state_paths(&self) -> Vec<candler_harness::spec::StatePath> {
         self.0.state_paths()
     }
-    fn prepare(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Prepared, DriverError> {
-        self.0.prepare(cell, workspace)
-    }
-    fn command(
-        &self,
-        cell: &Cell<'_>,
-        workspace: &Workspace<'_>,
-    ) -> Result<CommandSpec, DriverError> {
-        self.0.command(cell, workspace)
+    fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
+        self.0.plan(cell, workspace)
     }
     fn stop(&self) -> StopSpec {
         self.0.stop()

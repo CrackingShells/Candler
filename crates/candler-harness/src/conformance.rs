@@ -12,7 +12,7 @@ use std::fmt;
 use candler_schemas::raw::{FrameData, RawFrame, RawRef, StreamName};
 use candler_schemas::trace::{EndedBy, Session, SessionId};
 
-use crate::driver::{Disposition, DriverError, HarnessDriver};
+use crate::driver::{Disposition, DriverError, HarnessDriver, Plan};
 use crate::reader::{FrameIn, TraceReader};
 use crate::spec::{
     Action, Cell, CensusSource, CollectSpec, CommandSpec, EnvValue, FileRoot, Framing, HttpMethod,
@@ -649,12 +649,13 @@ fn check_settings_table(
 /// Checks the capability rules and the session surface.
 fn check_capabilities(
     driver: &dyn HarnessDriver, // TRAIT_OBJECT: the suite checks any driver
+    plan: &Plan,
     setup: &Setup<'_>,
     cases: &[Case],
     owned: &[String],
 ) -> Result<(), Failure> {
     let caps = driver.capabilities();
-    let spec = driven("session", driver.session(setup.cell, setup.workspace))?;
+    let spec = &plan.session;
     if caps.session && spec.is_none() {
         return Err(driver_failure(
             "session",
@@ -673,7 +674,7 @@ fn check_capabilities(
             "the driver returns a session spec without the session capability".to_owned(), // BORROW: .to_owned() makes the owned text
         ));
     }
-    if let Some(spec) = &spec {
+    if let Some(spec) = spec {
         check_command("session", &spec.command, setup, owned)?;
         for canary in setup.canaries {
             // BORROW: explicit .as_str() instead of Deref coercion
@@ -773,13 +774,13 @@ fn check_file_references(
 /// Checks the commands and files the driver builds from the cell.
 fn check_builds(
     driver: &dyn HarnessDriver, // TRAIT_OBJECT: the suite checks any driver
+    plan: &Plan,
     setup: &Setup<'_>,
     owned: &[String],
 ) -> Result<(), Failure> {
-    let command = driven("command", driver.command(setup.cell, setup.workspace))?;
-    check_command("command", &command, setup, owned)?;
+    check_command("command", &plan.command, setup, owned)?;
     check_command("version_probe", &driver.version_probe(), setup, owned)?;
-    let prepared = driven("prepare", driver.prepare(setup.cell, setup.workspace))?;
+    let prepared = &plan.prepared;
     for entry in &prepared.env_overlay {
         if owned.contains(&entry.name) {
             return Err(driver_failure(
@@ -1149,8 +1150,9 @@ pub fn run(
     let owned = owned_names(driver);
     check_names(driver)?;
     check_settings_table(driver)?;
-    check_capabilities(driver, setup, cases, &owned)?;
-    check_builds(driver, setup, &owned)?;
+    let plan = driven("plan", driver.plan(setup.cell, setup.workspace))?;
+    check_capabilities(driver, &plan, setup, cases, &owned)?;
+    check_builds(driver, &plan, setup, &owned)?;
     for case in cases {
         check_case(driver, setup, case, &owned)?;
     }

@@ -305,7 +305,7 @@ fn conformance_claude_session_spec() -> Res<()> {
     let driver = ClaudeCodeDriver::new();
     let values = values()?;
     let workspace = Workspace::new(Path::new("."));
-    let Some(spec) = driver.session(&Cell::new(&values), &workspace)? else {
+    let Some(spec) = driver.plan(&Cell::new(&values), &workspace)?.session else {
         return Err("the driver returns no session spec".into());
     };
     assert_eq!(
@@ -372,7 +372,7 @@ fn conformance_claude_hook_command_observes_without_deciding() -> Res<()> {
     let driver = ClaudeCodeDriver::new();
     let values = values()?;
     let workspace = Workspace::new(Path::new("."));
-    let Some(spec) = driver.session(&Cell::new(&values), &workspace)? else {
+    let Some(spec) = driver.plan(&Cell::new(&values), &workspace)?.session else {
         return Err("the driver returns no session spec".into());
     };
     let hooks = spec.hooks.ok_or("the session has no hooks")?;
@@ -658,8 +658,9 @@ fn conformance_claude_session_command_keeps_the_headless_arguments() -> Res<()> 
     }
     let cell = Cell::new(&values);
     let workspace = Workspace::new(Path::new("."));
-    let headless = driver.command(&cell, &workspace)?;
-    let session = driver.session(&cell, &workspace)?.ok_or("no session")?;
+    let plan = driver.plan(&cell, &workspace)?;
+    let headless = plan.command;
+    let session = plan.session.ok_or("no session")?;
     let mut headless_args: Vec<&str> = headless.argv().iter().map(String::as_str).collect();
     let print = headless_args
         .iter()

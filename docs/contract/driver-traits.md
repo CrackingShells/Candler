@@ -24,8 +24,7 @@ Core line: `v0.8.4`; the `candler-harness` crate has the same version.
 | `HarnessDriver::version_probe` | `(&self) -> CommandSpec` | required | - |
 | `HarnessDriver::parse_version` | `(&self, output: &[u8]) -> Result<semver::Version, DriverError>` | required | - |
 | `HarnessDriver::capabilities` | `(&self) -> Capabilities` | required | - |
-| `HarnessDriver::prepare` | `(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Prepared, DriverError>` | required | - |
-| `HarnessDriver::command` | `(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<CommandSpec, DriverError>` | required | - |
+| `HarnessDriver::plan` | `(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError>` | required | - |
 | `HarnessDriver::settings_table` | `(&self) -> Vec<SettingRow>` | optional | `Vec::new()` |
 | `HarnessDriver::check_settings` | `(&self, cell: &Cell<'_>) -> Result<(), DriverError>` | optional | `Ok(())` |
 | `HarnessDriver::gateway` | `(&self) -> Option<GatewayEnv>` | optional | `None` |
@@ -35,7 +34,6 @@ Core line: `v0.8.4`; the `candler-harness` crate has the same version.
 | `HarnessDriver::base_image` | `(&self) -> BaseImage` | required | - |
 | `HarnessDriver::offline_streams` | `(&self) -> Vec<StreamName>` | optional | `Vec::new()` |
 | `HarnessDriver::detect` | `(&self, sample: &[u8]) -> Option<semver::Version>` | required | - |
-| `HarnessDriver::session` | `(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Option<SessionSpec>, DriverError>` | optional | `Ok(None)` |
 | `HarnessDriver::session_tracker` | `(&self) -> Option<Box<dyn SessionTracker>>` | optional | `None` |
 | `HarnessDriver::stop` | `(&self) -> StopSpec` | required | - |
 | `HarnessDriver::live_reader` | `(&self) -> Option<Box<dyn TraceReader>>` | required | - |
@@ -74,4 +72,4 @@ Core line: `v0.8.4`; the `candler-harness` crate has the same version.
 - Drivers never act on a process: they return commands, specs and readers, and the core runs them. [checked: v@0.7.0]
 - A reader is synchronous and holds no clock; the core supplies each frame's place and wall time. [checked: v@0.7.0]
 - `census_stream()` names the raw stream the gateway's census is stored under; the core reads the gateway census itself and reports it as the inventory. [checked: v@0.7.0]
-- A driver that sets `Capabilities::session` also returns `session` and `session_tracker`. [checked: v@0.7.0]
+- A driver that sets `Capabilities::session` also gives its `plan` a `session` and returns a `session_tracker`. [checked: v@0.7.0]

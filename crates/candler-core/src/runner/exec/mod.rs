@@ -17,7 +17,7 @@ use std::str::FromStr as _;
 use std::time::Duration;
 
 use crate::frames::RawFileInfo;
-use candler_harness::driver::HarnessDriver;
+use candler_harness::driver::{HarnessDriver, Plan};
 use candler_harness::spec::{
     Cell, CommandSpec, FileRoot, Framing, Observed, PreparedFile, ProcessExit, RunTotals,
     StateKind, Workspace,
@@ -426,7 +426,12 @@ async fn drive(
 
     let view = Cell::new(comparable.values());
     let workspace = Workspace::new(&workspace_dir);
-    let prepared = rt.driver.prepare(&view, &workspace)?;
+    let Plan {
+        prepared,
+        command: headless,
+        session: session_spec,
+        ..
+    } = rt.driver.plan(&view, &workspace)?;
     let skills = skill_files(rt, cell, comparable, &scratch).await?;
     let rendered: BTreeSet<&str> = prepared.files.iter().map(|f| f.path.as_str()).collect(); // BORROW: explicit .as_str()
     let mut written: BTreeMap<String, Digest> = BTreeMap::new();
@@ -460,21 +465,15 @@ async fn drive(
     let session = match session_config(&view)? {
         None => None,
         Some(config) => {
-            let spec =
-                rt.driver
-                    .session(&view, &workspace)?
-                    .ok_or_else(|| IsolationError::Plan {
-                        detail: format!(
-                            "the harness driver {} cannot run a session",
-                            rt.driver.id()
-                        ),
-                    })?;
+            let spec = session_spec.ok_or_else(|| IsolationError::Plan {
+                detail: format!("the harness driver {} cannot run a session", rt.driver.id()),
+            })?;
             Some((config, spec))
         }
     };
     let mut command = match &session {
         Some((_, spec)) => spec.command.clone(), // BORROW: the run owns its command
-        None => rt.driver.command(&view, &workspace)?,
+        None => headless,
     };
     if !prepared.env_overlay.is_empty() {
         let mut builder = CommandSpec::builder().argv(command.argv().to_vec()); // BORROW: the new command owns its arguments

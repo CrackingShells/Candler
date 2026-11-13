@@ -69,8 +69,8 @@ fn command_of(extra: &[(&str, Value)]) -> Res<Result<Vec<String>, DriverError>> 
     let driver = OpenCodeDriver::new();
     let workspace = Workspace::new(Path::new("."));
     Ok(driver
-        .command(&Cell::new(&values), &workspace)
-        .map(|spec| spec.argv().to_vec()))
+        .plan(&Cell::new(&values), &workspace)
+        .map(|plan| plan.command.argv().to_vec()))
 }
 
 fn strings(items: &[&str]) -> Vec<String> {
@@ -81,7 +81,7 @@ fn prepared_config(extra: &[(&str, Value)]) -> Res<(candler_harness::spec::Prepa
     let values = values(extra)?;
     let driver = OpenCodeDriver::new();
     let workspace = Workspace::new(Path::new("."));
-    let prepared = driver.prepare(&Cell::new(&values), &workspace)?;
+    let prepared = driver.plan(&Cell::new(&values), &workspace)?.prepared;
     let file = prepared
         .files
         .into_iter()
@@ -376,7 +376,7 @@ fn table_cases() -> Vec<Case> {
 /// are one set. Every row of `settings_table()` has a case below and every case answers a row
 /// (dropping either side turns this red), a mapped row's case maps and a refused row's is refused,
 /// at the setting's pointer in the experiment file, in a message naming the setting, the harness
-/// and its version, and the same refusal comes from `prepare` as from `command`. Mapped: the run is
+/// and its version. Mapped: the run is
 /// `run --standalone --format json --auto -m <provider>/<model>` with the rendered prompt after
 /// `--` (a prompt that starts with `-` stays a message), and no `--agent`; an effort suffixes the
 /// model with `#<level>` and writes the `variants` entry; each tool name is one permission row at
@@ -483,7 +483,6 @@ fn opencode_command_line_maps_or_refuses_every_setting() -> Res<()> {
                 for want in [pointer, needle, &"OpenCode", &"2.2.7"] {
                     assert!(message.contains(want), "{label}: `{want}` in `{message}`");
                 }
-                assert!(prepared_config(&c.extra).is_err(), "{label}: prepare too");
             }
         }
     }
@@ -924,7 +923,12 @@ fn opencode_capabilities_declare_no_session_and_outside_execution() -> Res<()> {
     assert!(!caps.live_events, "the live reader emits no event");
     let values = values(&[])?;
     let workspace = Workspace::new(Path::new("."));
-    assert!(driver.session(&Cell::new(&values), &workspace)?.is_none());
+    assert!(
+        driver
+            .plan(&Cell::new(&values), &workspace)?
+            .session
+            .is_none()
+    );
     assert!(driver.session_tracker().is_none());
     assert_eq!(
         driver.census_stream().map(|name| name.to_string()),
@@ -1032,8 +1036,9 @@ fn opencode_real_binary_is_interrupted_by_the_stop_script() -> Res<()> {
     let values = values(&[])?;
     let cell = Cell::new(&values);
     let workspace = Workspace::new(Path::new("."));
-    let run = driver.command(&cell, &workspace)?;
-    let prepared = driver.prepare(&cell, &workspace)?;
+    let plan = driver.plan(&cell, &workspace)?;
+    let run = plan.command;
+    let prepared = plan.prepared;
     let config = String::from_utf8(prepared.files.first().ok_or("no config")?.contents.clone())?;
     let Some(Action::Exec(stop)) = driver.stop().pre_stop else {
         return Err("no pre-stop".into());

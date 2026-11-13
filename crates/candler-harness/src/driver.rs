@@ -150,6 +150,40 @@ impl SettingRow {
     }
 }
 
+/// What a driver does for one cell in one workspace, built once so every part reads the same
+/// settings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Plan {
+    /// The files and the environment the driver adds before the launch.
+    pub prepared: Prepared,
+    /// The headless command that runs the cell.
+    pub command: CommandSpec,
+    /// How the harness runs the cell as a session, or `None` for a harness that runs none.
+    pub session: Option<SessionSpec>,
+}
+
+impl Plan {
+    /// A plan that prepares `prepared` and runs `command` headless, with no session.
+    #[must_use]
+    pub const fn new(prepared: Prepared, command: CommandSpec) -> Self {
+        Self {
+            prepared,
+            command,
+            session: None,
+        }
+    }
+
+    /// This plan with `session` as the session that runs the cell, in place of any it held.
+    #[must_use]
+    pub fn with_session(self, session: SessionSpec) -> Self {
+        Self {
+            session: Some(session),
+            ..self
+        }
+    }
+}
+
 /// What the runner needs from one harness, returned as data for the core to act on.
 pub trait HarnessDriver: Send + Sync {
     /// The harness's name and version token.
@@ -170,28 +204,20 @@ pub trait HarnessDriver: Send + Sync {
     /// What the harness can do.
     fn capabilities(&self) -> Capabilities;
 
-    /// The files and the environment the driver adds before the launch.
+    /// What the driver does for `cell` in `workspace`: the files and the environment it adds
+    /// before the launch, the headless command, and the session, if the harness runs one. The core
+    /// asks once per run and reads every part from the one plan.
     ///
     /// # Errors
     /// Returns [`DriverError::MissingValue`] if the cell lacks a value the driver needs.
     /// Returns [`DriverError::InvalidValue`] if a value cannot be used.
-    fn prepare(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Prepared, DriverError>;
-
-    /// The headless command that runs the cell.
-    ///
-    /// # Errors
-    /// Returns [`DriverError::MissingValue`] if the cell lacks a value the driver needs.
-    /// Returns [`DriverError::InvalidValue`] if a value cannot be used.
-    /// Returns [`DriverError::Command`] if the command cannot be built.
-    fn command(
-        &self,
-        cell: &Cell<'_>,
-        workspace: &Workspace<'_>,
-    ) -> Result<CommandSpec, DriverError>;
+    /// Returns [`DriverError::Unsupported`] for a setting the harness cannot honour.
+    /// Returns [`DriverError::Command`] if a command cannot be built.
+    fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError>;
 
     /// The settings table: one row per cell setting, value or name the driver knows, mapped or
     /// refused. A driver that declares nothing keeps the default, an empty table, and answers
-    /// each setting in `command` and `prepare` as it always did.
+    /// each setting in [`HarnessDriver::plan`].
     ///
     /// No two rows name the same `(setting, value)`, a refused row says why, and a mapped row
     /// says what it writes.
@@ -199,9 +225,9 @@ pub trait HarnessDriver: Send + Sync {
         Vec::new()
     }
 
-    /// Refuses a cell that sets something the driver cannot honour, with the error `prepare` and
-    /// `command` give for it, so the core can refuse the cell before any job starts. The default
-    /// accepts every cell.
+    /// Refuses a cell that sets something the driver cannot honour, with the error
+    /// [`HarnessDriver::plan`] gives for it, so the core can refuse the cell before any job
+    /// starts. The default accepts every cell.
     ///
     /// # Errors
     /// [`DriverError`] for the first setting of the cell the driver cannot honour.
@@ -256,21 +282,6 @@ pub trait HarnessDriver: Send + Sync {
     /// harness's. A version outside [`HarnessDriver::supported`] is still the harness's: the core
     /// alone decides whether it is supported.
     fn detect(&self, sample: &[u8]) -> Option<semver::Version>;
-
-    /// How the harness runs the cell as a session, or `None` for a harness that runs none.
-    ///
-    /// # Errors
-    /// Returns [`DriverError::MissingValue`] if the cell lacks a value the driver needs.
-    /// Returns [`DriverError::InvalidValue`] if a value cannot be used.
-    /// Returns [`DriverError::Command`] if the command cannot be built.
-    fn session(
-        &self,
-        cell: &Cell<'_>,
-        workspace: &Workspace<'_>,
-    ) -> Result<Option<SessionSpec>, DriverError> {
-        let _ = (cell, workspace);
-        Ok(None)
-    }
 
     /// A tracker that follows a session from its stream frames and hook records, or `None` for a
     /// harness that runs none.

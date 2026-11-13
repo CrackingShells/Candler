@@ -11,7 +11,7 @@
 
 use std::time::Duration;
 
-use candler_harness::driver::{DriverError, HarnessDriver};
+use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::{FrameIn, ReaderError, TraceReader};
 use candler_harness::spec::{
     Action, BudgetCaps, Capabilities, Cell, CensusSource, CollectSpec, CommandSpec, Confidence,
@@ -296,27 +296,18 @@ impl HarnessDriver for LinesDriver {
         ))
     }
 
-    fn prepare(
-        &self,
-        _cell: &Cell<'_>,
-        _workspace: &Workspace<'_>,
-    ) -> Result<Prepared, DriverError> {
-        Ok(Prepared::default())
-    }
-
-    fn command(
-        &self,
-        _cell: &Cell<'_>,
-        _workspace: &Workspace<'_>,
-    ) -> Result<CommandSpec, DriverError> {
-        Ok(CommandSpec::builder()
-            .argv(vec![
-                String::from("claude"),
-                String::from("-p"),
-                String::from("--output-format"),
-                String::from("stream-json"),
-            ])
-            .build()?)
+    fn plan(&self, _cell: &Cell<'_>, _workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
+        Ok(Plan::new(
+            Prepared::default(),
+            CommandSpec::builder()
+                .argv(vec![
+                    String::from("claude"),
+                    String::from("-p"),
+                    String::from("--output-format"),
+                    String::from("stream-json"),
+                ])
+                .build()?,
+        ))
     }
 
     fn stop(&self) -> StopSpec {
@@ -525,19 +516,7 @@ impl HarnessDriver for DocumentDriver {
         ))
     }
 
-    fn prepare(
-        &self,
-        _cell: &Cell<'_>,
-        _workspace: &Workspace<'_>,
-    ) -> Result<Prepared, DriverError> {
-        Ok(Prepared::default())
-    }
-
-    fn command(
-        &self,
-        cell: &Cell<'_>,
-        _workspace: &Workspace<'_>,
-    ) -> Result<CommandSpec, DriverError> {
+    fn plan(&self, cell: &Cell<'_>, _workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
         let path: FieldPath = "task.prompt"
             .parse()
             .map_err(|_| DriverError::VersionOutput {
@@ -553,14 +532,17 @@ impl HarnessDriver for DocumentDriver {
                 path,
                 detail: String::from("not a string"),
             })?;
-        Ok(CommandSpec::builder()
-            .argv(vec![
-                String::from("opencode"),
-                String::from("run"),
-                String::from("--standalone"),
-                prompt,
-            ])
-            .build()?)
+        Ok(Plan::new(
+            Prepared::default(),
+            CommandSpec::builder()
+                .argv(vec![
+                    String::from("opencode"),
+                    String::from("run"),
+                    String::from("--standalone"),
+                    prompt,
+                ])
+                .build()?,
+        ))
     }
 
     fn stop(&self) -> StopSpec {
@@ -877,15 +859,13 @@ impl HarnessDriver for OpenShapedDriver {
         "model_requests".parse().ok()
     }
 
-    fn prepare(
-        &self,
-        _cell: &Cell<'_>,
-        _workspace: &Workspace<'_>,
-    ) -> Result<Prepared, DriverError> {
+    fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
+        let mut plan = self.0.plan(cell, workspace)?;
         // The provider's address and key are references to the variables the core sets; no value
         // passes through the driver.
         let Some(gateway) = self.gateway() else {
-            return Ok(Prepared::default());
+            plan.prepared = Prepared::default();
+            return Ok(plan);
         };
         let config = serde_json::json!({
             "provider": { "fake": {
@@ -902,22 +882,15 @@ impl HarnessDriver for OpenShapedDriver {
                 detail: String::from("bad path"),
             }
         })?;
-        Ok(Prepared::new(
+        plan.prepared = Prepared::new(
             vec![PreparedFile::in_home(
                 path,
                 config.to_string().into_bytes(),
                 false,
             )],
             Vec::new(),
-        ))
-    }
-
-    fn command(
-        &self,
-        cell: &Cell<'_>,
-        workspace: &Workspace<'_>,
-    ) -> Result<CommandSpec, DriverError> {
-        self.0.command(cell, workspace)
+        );
+        Ok(plan)
     }
 
     fn stop(&self) -> StopSpec {

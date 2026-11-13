@@ -15,13 +15,13 @@ use std::time::Duration;
 use candler_harness::conformance::{
     Case, ExpectedSession, ReaderSource, RecordBytes, Setup, TrackStep, run,
 };
-use candler_harness::driver::{DriverError, HarnessDriver, SettingRow};
+use candler_harness::driver::{DriverError, HarnessDriver, Plan, SettingRow};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
     Action, Capabilities, Cell, CensusSource, CollectSpec, CommandSpec, EnvEntry, GatewayEnv,
-    InitReport, Observed, ObservedEnd, PendingItem, PendingKind, PendingState, Prepared,
-    PreparedFile, ProcessEnd, ProcessExit, SessionClose, SessionSpec, SessionTracker, StateKind,
-    StatePath, StopSignal, StopSpec, Workspace,
+    InitReport, Observed, ObservedEnd, PendingItem, PendingKind, PendingState, PreparedFile,
+    ProcessEnd, ProcessExit, SessionClose, SessionSpec, SessionTracker, StateKind, StatePath,
+    StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::process::ExitStatus;
@@ -559,35 +559,21 @@ impl HarnessDriver for Patched {
             self.inner.census_stream()
         }
     }
-    fn session(
-        &self,
-        _cell: &Cell<'_>,
-        _workspace: &Workspace<'_>,
-    ) -> Result<Option<SessionSpec>, DriverError> {
-        Ok(self.session.clone())
+    fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
+        let mut plan = self.inner.plan(cell, workspace)?;
+        plan.session = self.session.clone(); // BORROW: .clone() copies the spec
+        if let Some(file) = &self.extra_file {
+            plan.prepared.files.push(file.clone()); // BORROW: .clone() copies the file
+        }
+        if let Some(extra) = &self.extra_arg {
+            let mut argv = plan.command.argv().to_vec();
+            argv.push(extra.clone()); // BORROW: .clone() copies the argument
+            plan.command = CommandSpec::builder().argv(argv).build()?;
+        }
+        Ok(plan)
     }
     fn session_tracker(&self) -> Option<Box<dyn SessionTracker>> {
         None
-    }
-    fn prepare(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Prepared, DriverError> {
-        let mut prepared = self.inner.prepare(cell, workspace)?;
-        if let Some(file) = &self.extra_file {
-            prepared.files.push(file.clone()); // BORROW: .clone() copies the file
-        }
-        Ok(prepared)
-    }
-    fn command(
-        &self,
-        cell: &Cell<'_>,
-        workspace: &Workspace<'_>,
-    ) -> Result<CommandSpec, DriverError> {
-        let command = self.inner.command(cell, workspace)?;
-        let Some(extra) = &self.extra_arg else {
-            return Ok(command);
-        };
-        let mut argv = command.argv().to_vec();
-        argv.push(extra.clone()); // BORROW: .clone() copies the argument
-        Ok(CommandSpec::builder().argv(argv).build()?)
     }
     fn stop(&self) -> StopSpec {
         self.stop.clone().unwrap_or_else(|| self.inner.stop())
@@ -1010,15 +996,8 @@ impl HarnessDriver for Silent {
     fn capabilities(&self) -> Capabilities {
         self.0.capabilities()
     }
-    fn prepare(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Prepared, DriverError> {
-        self.0.prepare(cell, workspace)
-    }
-    fn command(
-        &self,
-        cell: &Cell<'_>,
-        workspace: &Workspace<'_>,
-    ) -> Result<CommandSpec, DriverError> {
-        self.0.command(cell, workspace)
+    fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
+        self.0.plan(cell, workspace)
     }
     fn stop(&self) -> StopSpec {
         self.0.stop()
@@ -1125,12 +1104,8 @@ fn conformance_session_surface_on_a_fake() -> TestResult {
         fn census_stream(&self) -> Option<StreamName> {
             self.0.census_stream()
         }
-        fn session(
-            &self,
-            cell: &Cell<'_>,
-            workspace: &Workspace<'_>,
-        ) -> Result<Option<SessionSpec>, DriverError> {
-            let command = self.0.command(cell, workspace)?;
+        fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
+            let plan = self.0.plan(cell, workspace)?;
             let close = CommandSpec::builder()
                 .argv(vec![
                     String::from("opencode"),
@@ -1139,7 +1114,8 @@ fn conformance_session_surface_on_a_fake() -> TestResult {
                     String::from("sessionID={session_id}"),
                 ])
                 .build()?;
-            Ok(Some(SessionSpec::new(
+            let command = plan.command.clone(); // BORROW: the session runs the headless command
+            Ok(plan.with_session(SessionSpec::new(
                 command,
                 b"fix it\n".to_vec(),
                 SessionClose::Action(Action::exec(close)),
@@ -1151,20 +1127,6 @@ fn conformance_session_surface_on_a_fake() -> TestResult {
                 pending: Vec::new(),
                 ended: false,
             })) // TRAIT_OBJECT: the trait returns trackers as objects
-        }
-        fn prepare(
-            &self,
-            cell: &Cell<'_>,
-            workspace: &Workspace<'_>,
-        ) -> Result<Prepared, DriverError> {
-            self.0.prepare(cell, workspace)
-        }
-        fn command(
-            &self,
-            cell: &Cell<'_>,
-            workspace: &Workspace<'_>,
-        ) -> Result<CommandSpec, DriverError> {
-            self.0.command(cell, workspace)
         }
         fn stop(&self) -> StopSpec {
             self.0.stop()
