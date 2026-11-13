@@ -208,7 +208,16 @@ async fn recover_lost(
     sweep: &dyn ContainerSweeper,
     dir: &JobDir,
 ) -> Result<RecoverReport, RecoverError> {
-    let lock = match JobLock::acquire(dir) {
+    // `JobLock::acquire` sleeps between its tries, so it runs on a blocking thread, not a worker.
+    let locking = dir.clone(); // BORROW: the blocking thread owns its directory
+    let acquired = tokio::task::spawn_blocking(move || JobLock::acquire(&locking))
+        .await
+        .map_err(|error| JobError::Io {
+            op: "take the job lock",
+            path: dir.path().to_path_buf(),
+            detail: error.to_string(),
+        })?;
+    let lock = match acquired {
         Ok(lock) => lock,
         Err(JobError::Held) => return Ok(RecoverReport::not_lost()),
         Err(error) => return Err(error.into()),
