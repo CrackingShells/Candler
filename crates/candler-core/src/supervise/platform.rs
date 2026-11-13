@@ -69,13 +69,27 @@ pub(crate) fn alive(pid: u32, start: &ProcessStart) -> bool {
 
 #[cfg(target_os = "linux")]
 fn read_start(pid: u32) -> Option<ProcessStart> {
-    use candler_schemas::primitives::BootId;
     let bytes = std::fs::read(format!("/proc/{pid}/stat")).ok()?;
     let text = String::from_utf8_lossy(&bytes);
     let ticks = parse_proc_stat(&text).ok()?;
-    let boot = std::fs::read_to_string("/proc/sys/kernel/random/boot_id").ok()?;
-    let boot_id = boot.trim().parse::<BootId>().ok()?;
-    Some(ProcessStart::linux(boot_id, ticks))
+    Some(ProcessStart::linux(boot_id()?, ticks))
+}
+
+/// The id of this boot, kept from its first successful read: it holds for the life of the
+/// process. A failed read is not kept, so the next start tries again.
+#[cfg(target_os = "linux")]
+fn boot_id() -> Option<candler_schemas::primitives::BootId> {
+    use candler_schemas::primitives::BootId;
+    static BOOT_ID: std::sync::OnceLock<BootId> = std::sync::OnceLock::new();
+    if let Some(id) = BOOT_ID.get() {
+        return Some(id.clone()); // BORROW: each start owns its boot id
+    }
+    let id: BootId = std::fs::read_to_string("/proc/sys/kernel/random/boot_id")
+        .ok()?
+        .trim()
+        .parse()
+        .ok()?;
+    Some(BOOT_ID.get_or_init(|| id).clone()) // BORROW: each start owns its boot id
 }
 
 #[cfg(target_os = "macos")]
