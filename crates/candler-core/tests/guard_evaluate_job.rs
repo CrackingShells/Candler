@@ -403,9 +403,11 @@ async fn e3_a_lost_evaluate_job_is_recovered_and_its_evaluator_is_reaped() {
             tracked.push((pid, process_start(pid)));
         }
     }
+    // A record lives as long as its child, so the in-flight evaluator has one; the records of
+    // the children that already ended are gone.
     assert!(
-        tracked.len() >= 3,
-        "the engine's records are in the job's children: {tracked:?}"
+        tracked.len() >= 2,
+        "the in-flight evaluator's record is in the job's children: {tracked:?}"
     );
 
     // The supervisor is lost: it is killed through the handle the test holds.
