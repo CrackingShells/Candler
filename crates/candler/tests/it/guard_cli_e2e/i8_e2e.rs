@@ -9,8 +9,8 @@
 //! environment (values and agent inputs only).
 //!
 //! Checkpoints: one inspect of the agent container's config and its image history before anything
-//! runs in it; the testagent's seeker, piped to `docker exec -i -u 10001 <id> sh -s`, at the start,
-//! mid-turn and near the end of the run, before the container is destroyed (it reports the files,
+//! runs in it; the testagent's seeker, piped to `docker exec -i --privileged -u 0 <id> sh -s`,
+//! at the start, mid-turn and near the end of the run, before the container is destroyed (it reports the files,
 //! `/proc/*/environ` including `/proc/1/environ`, and the mounts); `candler ps`, `show` and
 //! `inspect` while the run is live; and, once it ended, the fake model's request log (what
 //! the gateway forwarded), the run and job directories, and every container the job made.
@@ -128,8 +128,8 @@ fn assert_absent(what: &str, text: &str) {
     }
 }
 
-/// The seeker of the testagent run in the agent container as the agent's user, reading its
-/// script from stdin; the canary is the pattern it is given, never baked into an image.
+/// The seeker of the testagent run in the agent container as root with every capability, so it
+/// reads `/proc/1/environ` whoever owns it, reading its script from stdin; the canary is the pattern it is given, never baked into an image.
 fn seek(real: &Path, agent: &str, phase: &str, pattern: &str) -> String {
     let script = fs::read(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -138,7 +138,17 @@ fn seek(real: &Path, agent: &str, phase: &str, pattern: &str) -> String {
     .expect("the testagent script");
     let mut child = Command::new(real)
         .args([
-            "exec", "-i", "-u", "10001", agent, "sh", "-s", "seeker", pattern, phase,
+            "exec",
+            "-i",
+            "--privileged",
+            "-u",
+            "0",
+            agent,
+            "sh",
+            "-s",
+            "seeker",
+            pattern,
+            phase,
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
