@@ -333,10 +333,13 @@ async fn resolve(fixed: &[(&str, Value)]) -> Result<Resolution, ResolveError> {
 }
 
 /// Guards: R06 D3 — a wrong allowlist is refused when the experiment resolves, before any job
-/// starts, with the code of the refusal and the entry in the message; the step derives nothing, so
-/// a valid or absent value resolves as written.
-/// Oracle: the codes of D3, and the written value read back unchanged.
-/// Bite: the step left unregistered or its refusal routed as `resolve.preflight_failed`.
+/// starts, with the code of the refusal and the entry in the message; a well-formed list is
+/// refused too, as unsupported, because no run enforces one; the step derives nothing, so an
+/// empty or absent value resolves as written.
+/// Oracle: the codes of D3 and of the unsupported refusal, and the written value read back
+/// unchanged.
+/// Bite: the step left unregistered or its refusal routed as `resolve.preflight_failed`; the
+/// unsupported refusal removed (the well-formed list resolves).
 #[tokio::test]
 async fn egress_refused_at_resolve() {
     match resolve(&[(
@@ -374,10 +377,24 @@ async fn egress_refused_at_resolve() {
         }
         other => panic!("bridge: {:?}", other.map(|_| ())),
     }
-    let written = json!(["PyPI.org:443"]);
+    match resolve(&[(paths::ISOLATION_EGRESS, json!(["PyPI.org:443"]))]).await {
+        Err(ResolveError::Egress(refusal @ EgressRefusal::Unsupported { .. })) => {
+            assert_eq!(
+                Refusal::code(&refusal).as_str(),
+                "isolation.egress_unsupported"
+            );
+            assert!(
+                refusal.detail().contains("pypi.org:443"),
+                "{}",
+                refusal.detail()
+            );
+        }
+        other => panic!("a well-formed list: {:?}", other.map(|_| ())),
+    }
+    let written = json!([]);
     let resolution = resolve(&[(paths::ISOLATION_EGRESS, written.clone())])
         .await
-        .expect("resolves");
+        .expect("an empty list resolves");
     let held = resolution
         .values
         .iter()
@@ -392,6 +409,7 @@ async fn egress_refused_at_resolve() {
             .all(|entry| !matches!(entry.source(), ValueSource::Derived { .. })),
         "no derived source"
     );
+    assert!(resolve(&[]).await.is_ok(), "an absent value resolves");
 }
 
 fn experiment_with(factors: &str) -> ExperimentFile {
@@ -465,18 +483,13 @@ fn egress_of(values: &[(String, Value)]) -> Option<Value> {
 /// The digest of the cell of the plain experiment (no egress value).
 const BASE_DIGEST: &str = "sha256:ea0e539ae84ca8476df9f8f73b3dbbb90ef2c7f173a4f636fb5e752b785254cf";
 
-/// Guards: R06 D3 — `isolation.egress` is part of the cell: a cell with no egress value keeps its
-/// digest; a set value enters the cell as its canonical list; two
-/// experiments that write the same set in another order and case are one cell; a factor level
-/// that sets a list is canonicalised per cell.
-/// An empty list behaves as an absent value (no allowlist, no proxy), so it digests as one.
-/// Oracle: the digest e7aa7bb computes for this cell, pinned as a literal; the canonical list
-/// worked by hand.
-/// Bite: the path classed as a setting (the value never enters the cell); the written list kept as
-/// is (two spellings, two digests); the empty list kept as `Some([])` (it digests apart from
-/// absent).
+/// Guards: R06 D3 — a cell with no egress value keeps its digest, and an empty list is an absent
+/// value (no allowlist, no proxy), so it digests as one.
+/// Oracle: the digest e7aa7bb computes for this cell, pinned as a literal.
+/// Bite: the empty list kept as `Some([])` (it digests apart from absent); a value written into
+/// every cell (the plain digest moves).
 #[tokio::test]
-async fn egress_enters_the_cell() {
+async fn egress_unset_leaves_the_cell() {
     let file = experiment_with("");
     let plain = planned(&file, &[]).await.expect("plans");
     assert_eq!(plain.len(), 1);
@@ -490,54 +503,16 @@ async fn egress_enters_the_cell() {
         empty, plain,
         "an empty list is an absent value, digest and values"
     );
-
-    let a = planned(
-        &file,
-        &[(
-            paths::ISOLATION_EGRESS,
-            json!(["pypi.org:443", "files.pythonhosted.org:443"]),
-        )],
-    )
-    .await
-    .expect("plans");
-    assert_ne!(a[0].0, plain[0].0, "a set value is part of the cell");
-    assert_eq!(
-        egress_of(&a[0].1),
-        Some(json!(["files.pythonhosted.org:443", "pypi.org:443"])),
-        "the cell shows the canonical list"
-    );
-    let b = planned(
-        &file,
-        &[(
-            paths::ISOLATION_EGRESS,
-            json!(["PYPI.org:443", "files.pythonhosted.org:443", "pypi.org:443"]),
-        )],
-    )
-    .await
-    .expect("plans");
-    assert_eq!(a, b, "another order, case and repetition is the same cell");
-
-    let by_factor = planned(
-        &experiment_with(
-            "[[factors]]\npath = \"isolation.egress\"\n\
-             levels = [[\"Files.pythonhosted.org:443\", \"pypi.org:443\"]]\n",
-        ),
-        &[],
-    )
-    .await
-    .expect("plans");
-    assert_eq!(by_factor.len(), 1);
-    assert_eq!(
-        by_factor[0].0, a[0].0,
-        "a factor level is the fixed twin once canonical"
-    );
 }
 
 /// Guards: R06 D3 — a cell whose effective values pair an allowlist with `bridge` is refused when
 /// the cells are planned, with `isolation.egress_with_bridge`, even when only a factor level sets
-/// the list; a factor level with a bad entry is `isolation.egress_invalid`.
-/// Oracle: the codes of D3; the fixed `bridge` resolves alone because no list is written there.
-/// Bite: the per-cell call dropped from the plan (the cell plans with both).
+/// the list; a factor level with a bad entry is `isolation.egress_invalid`; a well-formed list,
+/// fixed or set by a factor level, is `isolation.egress_unsupported`.
+/// Oracle: the codes of D3 and of the unsupported refusal; the fixed `bridge` resolves alone
+/// because no list is written there.
+/// Bite: the per-cell call dropped from the plan (the cell plans with both); the unsupported
+/// refusal removed (a well-formed list plans).
 #[tokio::test]
 async fn egress_refused_per_cell() {
     let factor = |level: &str| {
@@ -574,4 +549,15 @@ async fn egress_refused_per_cell() {
         .is_ok(),
         "an empty list with bridge plans"
     );
+    // A well-formed list a factor level sets is unsupported (a fixed list never reaches the plan:
+    // the experiment-wide step refuses it first).
+    match planned(&factor("[\"pypi.org:443\"]"), &[]).await {
+        Err(PlanError::Egress(refusal @ EgressRefusal::Unsupported { .. })) => {
+            assert_eq!(
+                Refusal::code(&refusal).as_str(),
+                "isolation.egress_unsupported"
+            );
+        }
+        other => panic!("a factor level: {:?}", other.map(|cells| cells.len())),
+    }
 }

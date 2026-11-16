@@ -442,7 +442,10 @@ fn fresh_cells(
                 plugin_egress(resolution.preflight.as_slice()),
                 at(paths::ISOLATION_EGRESS),
             ); // BORROW: explicit .as_slice()
-            egress::settle(united.as_ref(), at(paths::ISOLATION_NETWORK))?
+            egress::refuse_until_proxy(egress::settle(
+                united.as_ref(),
+                at(paths::ISOLATION_NETWORK),
+            )?)?
         };
         values.retain(|held| *held.path() != egress_path);
         if let Some(entries) = canonical {

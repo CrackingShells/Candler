@@ -122,6 +122,12 @@ refusal_table! {
         "A cell sets `isolation.egress` and `isolation.network = bridge`, which reaches the whole internet.",
         "-",
     ),
+    Unsupported { .. } => row(
+        "isolation.egress_unsupported",
+        Side::Experiment,
+        "`isolation.egress` is set, by the experiment or by a plug-in environment, and no run enforces an egress allowlist yet.",
+        "-",
+    ),
 }
 
 refusal_table! {
