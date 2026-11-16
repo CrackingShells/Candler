@@ -76,7 +76,7 @@ graph TD
     guard_reuse[Guard reuse]:::done
     egress_proxy[Egress proxy]:::done
     ground_truth_refusal[Ground-truth refusal]:::done
-    proven[Proven]:::planned
+    proven[Proven]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -90,7 +90,7 @@ graph TD
 | `guard_reuse.md` | 📄 Leaf Task | ✅ Done |
 | `egress_proxy.md` | 📄 Leaf Task | ✅ Done |
 | `ground_truth_refusal.md` | 📄 Leaf Task | ✅ Done |
-| `proven/` | 📁 Directory | ⬜ Planned |
+| `proven/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

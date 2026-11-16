@@ -7,14 +7,14 @@
 - [ ] [cmd] L0 is merged: `git log --format=%s | grep -q '^merge(isolation): land ground_truth_refusal'`
 - [ ] [nl] OWNED: `__design__/architecture.md` only. It writes B2 and B3 from the plan and reads the names, codes and paths from the L0 tip. The level's integration review checks its text against the L1 tip. M5a already recorded `docker create`, the client, the roles and the `isolation.egress` setting; verify each section first and change only what is not yet true
 **Success Gates**:
-- ⬜ [cmd] The new code is in the code table and in R01: `grep -q isolation.ground_truth_exposed docs/contract/codes.toml && grep -q isolation.ground_truth_exposed __design__/architecture.md`
-- ⬜ [cmd] The refusal is out of the design: `! grep -q egress_unsupported __design__/architecture.md`
-- ⬜ [cmd] M5b is out of "Decided and scheduled": `! sed -n '/^## Future features/,/^### Execution and isolation/p' __design__/architecture.md | grep -q 'M5b builds'`
-- ⬜ [cmd] The residuals are listed: `sed -n '/^## Future features/,/^### Experiments and analysis/p' __design__/architecture.md | grep -qi 'domain fronting' && sed -n '/^## Future features/,/^### Experiments and analysis/p' __design__/architecture.md | grep -qi 'TLS interception'`
-- ⬜ [cmd] The sidecar entry names its second consumer, MCP servers: `sed -n '/^### Execution and isolation/,/^### Experiments and analysis/p' __design__/architecture.md | grep 'Plug-in sidecar services' | grep -qi 'MCP'`
-- ⬜ [cmd] R01 names the destroy rule and the proxy: `sed -n '/^### Process supervision/,/^### Agent environment/p' __design__/architecture.md | grep -qi 'one inspect\|inspect_many' && sed -n '/^### Agent environment and secrets/,/^### Plug-in manifest/p' __design__/architecture.md | grep -qi 'proxy'`
-- ⬜ [cmd] SUBJ passes (README, standard gates)
-- ⬜ [nl] A spec-verifier (Sonnet, cheap) read the changed sections against the L1 tip and found no contradiction
+- ✅ [cmd] The new code is in the code table and in R01: `grep -q isolation.ground_truth_exposed docs/contract/codes.toml && grep -q isolation.ground_truth_exposed __design__/architecture.md`
+- ✅ [cmd] The refusal is out of the design: `! grep -q egress_unsupported __design__/architecture.md`
+- ✅ [cmd] M5b is out of "Decided and scheduled": `! sed -n '/^## Future features/,/^### Execution and isolation/p' __design__/architecture.md | grep -q 'M5b builds'`
+- ✅ [cmd] The residuals are listed: `sed -n '/^## Future features/,/^### Experiments and analysis/p' __design__/architecture.md | grep -qi 'domain fronting' && sed -n '/^## Future features/,/^### Experiments and analysis/p' __design__/architecture.md | grep -qi 'TLS interception'`
+- ✅ [cmd] The sidecar entry names its second consumer, MCP servers: `sed -n '/^### Execution and isolation/,/^### Experiments and analysis/p' __design__/architecture.md | grep 'Plug-in sidecar services' | grep -qi 'MCP'`
+- ✅ [cmd] R01 names the destroy rule and the proxy: `sed -n '/^### Process supervision/,/^### Agent environment/p' __design__/architecture.md | grep -qi 'one inspect\|inspect_many' && sed -n '/^### Agent environment and secrets/,/^### Plug-in manifest/p' __design__/architecture.md | grep -qi 'proxy'`
+- ✅ [cmd] SUBJ passes (README, standard gates)
+- ✅ [nl] A spec-verifier (Sonnet, cheap) read the changed sections against the L1 tip and found no contradiction
 **References**: [R03 B2, B3, the plan's decisions](/Users/hacker/Library/Application%20Support/Claude/side-session-notes/local_7f577b41-1698-4eeb-9de3-4ee9460ae606/m5b-approved-plan.md); [R04 the R01 change table](/Users/hacker/Library/Application%20Support/Claude/side-session-notes/local_7f577b41-1698-4eeb-9de3-4ee9460ae606/m5-approved-plan.md); [R01](../../../__design__/architecture.md); [AGENTS.md §Source files say what is](../../../AGENTS.md) — R01 holds the reasons; [moved leaf](../../m5-container-isolation/client/seams/egress/proof/design_record.md) — source text
 
 ## Step 1: Record the milestone in R01
