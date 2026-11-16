@@ -1,0 +1,24 @@
+schema = "plugin-manifest/1"
+name = "agent-env"
+version = "1.0.0"
+command = ["run"]
+
+[protocol]
+major = 1
+minor = 0
+
+[environment]
+kind = "uv"
+project = "env"
+lock = "env/uv.lock"
+
+[agent_environments.tiny.values]
+"isolation.build.dockerfile" = "docker/Dockerfile"
+"isolation.build.context" = "docker/context"
+"mcp.servers.tools.command" = "python"
+"mcp.servers.tools.args" = ["/work/env/server.py"]
+
+[[agent_environments.tiny.inputs]]
+kind = "mcp_server"
+path = "agent"
+at = "env"
