@@ -29,7 +29,7 @@ are in the `candler_core` reports of mcp-python-ingestion (`__reports__/candler_
 - **Validation.** Golden-regrade parity on the 240-run corpus (the 8,880 Tier A–C rows of its
   10,320; Tier D uncompared); execution
   parity with today's `run` on a smoke matrix; a second harness (OpenCode v2) and a second plug-in
-  (`waiting-on-processes`) before the contract freezes at 1.0.
+  (`waiting-on-processes`) that has exercised the contract, in a dogfoodable 0.x.
 
 ## Current State
 
@@ -679,8 +679,8 @@ and the end. A run the experimenter stopped (job budget, `candler kill`) is clas
 core, whatever `classify_end` returns (I20).
 
 Drivers are compiled in, one crate each, selected by the experiment at runtime. A third-party
-driver is a crate against `candler-harness`, contributed upstream or built in. The trait is part of
-the 1.0 freeze.
+driver is a crate against `candler-harness`, contributed upstream or built in. The trait can still change while
+Candler is `0.y.z`; §Future features lists the stability review.
 
 **Model levels.** An experiment's model level maps, per harness, to a model id plus the provider and
 endpoint configuration the driver writes in `prepare`. A level may be a table under `model.*`
@@ -1284,7 +1284,7 @@ request files under the new evaluator version; `diff` compares versions.
   with the run's stop hook attached, and the handle that reports the end facts);
   `collect_and_destroy(plan, workspace, exit, run key) -> ContainerOutcome` (the final inspect,
   then the destroy through the guard). A long-lived handle (`create`, `exec`, `inject`, a
-  whole-container `census`, `destroy`) is M5's, beside this one.
+  whole-container `census`, `destroy`) is listed in §Future features, beside this one.
 - `LegacyImporter.import(results_folder) -> runs[]`
 
 ### Invariants
@@ -1487,7 +1487,7 @@ by the original artifact commit `36290ab`, and is imported under `measured`. At 
 | Risk | Mitigation |
 |---|---|
 | The trace model drops signal (side-chains, denials, hook payloads, bundled MCP calls) | `ext`, `raw_ref`, `wrapped_calls`; a fixture corpus per harness format version |
-| The driver trait ends up shaped like Claude Code | OpenCode v2 runs on the same traits before the freeze; the core names no harness and a shared fixture suite runs every driver |
+| The driver trait ends up shaped like Claude Code | OpenCode v2 runs on the same traits; the core names no harness and a shared fixture suite runs every driver |
 | Detached descendants or orphans survive (Claude Code starts its shells in new sessions) | Marker sweep after every group kill; child records; Linux child subreaper; reaping from records by `ps`, `kill` and `run`; a test kills a supervisor mid-run and checks no marked process survives. A Linux parent-death signal is not in place: the execution milestone decides between an isolated `unsafe` module and the subreaper plus marker sweep alone |
 | `fork` after imports is unsafe on macOS when threads or system frameworks are loaded | The helper refuses to fork when more than one thread exists and falls back to one process per item; tested on macOS in M2a |
 | Parity mismatches are instrument drift | Instrument digests and dirty flags; the pinned reference; the triage order |
@@ -1498,16 +1498,68 @@ by the original artifact commit `36290ab`, and is imported under `measured`. At 
 | The lean CLI regrows flags | Every new option must say why it cannot be derived or live in the experiment file |
 | An agent driving the MCP surface spends without bound or reads ground truth | Mandatory budgets (I13); read/mutate split; I8 at the surface |
 
-## Deliberately open
+## Future features
 
-Decided during development: pairing keys, execution order and a declared blocking factor (M6; start
-times are recorded from M2b); a `without_skill` fixture for the parity suite; reporting
-`instrument_error` and `deadline` counts per arm; event kinds beyond the first set; the slot count
-default; a macOS orphan watchdog; long-lived workers; the MCP tool shapes; the store root default;
-`snapshots[]` and `inputs[]` needs (unimplemented, refused by the registry). The container backend
-is decided (M2b): Docker through its CLI, one `docker run` per run; `Isolation` turns a plan into a
-spawn request, then collects and destroys. The long-lived handle's `exec`, `inject` and
-whole-container `census` are M5's, as are a host backend and an egress allowlist.
+What is not built, and what would make us build it. An item is built when its trigger is met by
+evidence, not by a date, and no milestone builds one on spec: a milestone needs an item's trigger
+first. Candler stays at `0.y.z` through a long dogfooding period, so no item here waits on a freeze.
+Decided and scheduled work is not listed: M5 builds the egress allowlist, plug-in agent
+environments, the guard for I8 and one Docker client with one control-container builder (the
+interlude's A5, with A1 and A8); M6a builds the paired tests and settles the pairing keys, the
+execution order and the blocking factor (recorded in §Analysis statistics); M7 builds the MCP tool
+shapes and the agent skills; M8 builds the second plug-in and adds its gaps to this list. The
+container backend is decided (M2b): Docker through its CLI, one `docker run` per run; `Isolation`
+turns a plan into a spawn request, then collects and destroys.
+
+### Execution and isolation
+
+| Item | What it is | Why it might be needed | Trigger |
+|:--|:--|:--|:--|
+| Plug-in sidecar services | A service the plug-in starts beside the agent container, such as a server stub the agent talks to | An eval's hidden state cannot sit in the workspace or the plug-in's own process | An eval whose hidden state can't live outside the agent container |
+| Pre-destroy collection from the agent container | A hook that copies named files or process facts out of the container before `destroy` | The in-workspace process record may miss what ran in the container | M8's in-workspace process record proves insufficient |
+| Whole-container census and the long-lived handle | `create`, `exec`, `inject` and a whole-container `census` on one container handle | A process the agent starts outside the workspace tree, visible only from inside the container | M8's gap report names a stray that the in-workspace record missed |
+| macOS host backend | An `Isolation` that runs the agent on the host, as its own stratum | Behaviour that differs between BSD and GNU tools | An eval comparing BSD and GNU behaviour |
+| Environment kinds | A declared kind for the agent environment, with the Python venv as the first kind | Agents whose environment is not a Python venv | A second agent environment that isn't Python |
+| Outcome injection | The core acts inside a running container at a time the agent does not see | A hidden event the eval must deliver mid-run | An eval that must act inside the container at a hidden time |
+| `isolation.image` content identity | A comparable identity for the image a cell ran in; with it, collection of orphaned env images | Two runs on rebuilt images cannot be told apart or compared | Eliott's decision on comparable identity |
+| Native Windows port | The binary on Windows without WSL2, from the committed platform inventory | A user who cannot run WSL2 | A named user or lab that needs it |
+| macOS orphan watchdog | A macOS-side reaper for orphans that outlive the core | Orphans on a Mac that Linux's subreaper would have caught | An orphan that survives a marker sweep on macOS |
+| SIGCHLD-driven reaping (A3) | Reap children on signal instead of by polling | Less polling, faster exit facts | A measured reap delay or a missed exit |
+| Long-lived workers | A worker that serves many runs | Start-up cost per run | A measured start-up cost that dominates a run |
+| Signals error versus census | One ruling for `runner/exec/mod.rs:777`, which reads a signals error as "gateway did not fail" while the census reads it as "not collected" | The two readings can disagree on the same fact | The next change to either reader |
+| Parallel container e2e (D4) | Run the container end-to-end tests in parallel | Shorter CI | A per-test analysis of sweep scope shows no overlap |
+
+### Experiments and analysis
+
+| Item | What it is | Why it might be needed | Trigger |
+|:--|:--|:--|:--|
+| `without_skill` parity fixture | A parity fixture with the skill removed | Checks the skill-comparison path against golden | An eval that compares with and without a skill |
+| `deadline` counts per arm | `analyze` reports `deadline` ends per arm beside `instrument_error` | A deadline that falls unevenly on arms looks like a treatment effect | A comparison where the arms' deadline counts differ |
+| Event kinds beyond the first set | New kinds in the event log | A harness fact the first set cannot carry | A driver or surface that needs one |
+| Slot count and store root defaults | Better defaults for both | The first values were chosen before real use | Dogfooding shows a default that users override |
+| `snapshots[]` and `inputs[]` | Needs the registry refuses today (unimplemented) | An eval that declares them | The first eval that declares one |
+| Two counts and a regrade gap | `show` without `--rates` and `inspect` count every current record, and `--pending` does not regrade a run after its suite entry's params change | One count per fact | A user-visible mismatch in a report |
+| One sealing step for importers (B4) | An importer whose trace reader fails seals the run invalid, as raw ingest does | One integrity rule for every import | Eliott's ruling; no external user depends on today's behaviour |
+| One `Comparable` diff (B10) | One diff for the stratum verdict | Fewer copies | A change to the shape of recorded deviations |
+| fsync budget and streaming import (B6, B8) | A bounded fsync cost and an import that streams | Crash guards cost time, and a large import peaks in memory | A measured cost or memory peak that hurts |
+| Static tool catalog, `as_bytes`, schemas for CLI outputs, refusal codes, shared outcome vectors (C5, C9, C10–C12) | Small consistency work | Fewer drifting copies | The next change that touches one of them |
+| Remaining digest copies | Jobs and isolation still hand-roll digests (`controls.rs`, `runtime/session.rs`, `runtime/launch.rs`, `image.rs`); with `Digest::of_bytes` in use, `import::digest_of` and its re-export go too | One digest constructor | The next change to one of them |
+| Dead public API | `supervise::platform::parse_proc_stat` has no user outside its module | Less surface | The next change to the module |
+
+### Tests, CI and the harness trait
+
+| Item | What it is | Why it might be needed | Trigger |
+|:--|:--|:--|:--|
+| Shared test-support crate (D5) | One crate for test helpers used by several crates | The helpers are copied across crates | A third crate that needs the same helper |
+| One Python environment per test run, timing tests (D6, D7) | One shared environment, and the flaky timing tests root-caused | Time and flakiness | A flaky run in CI |
+| Clippy rules instead of source scanners, one `scripts/check.py`, test roles (D9–D11) | Policy changes for the suite | One place for the checks | The next change to the suite's layout |
+| Rest of the harness trait work (C4) | The parts of C4 that C1 did not need | A third harness | A third harness |
+
+### Stability
+
+| Item | What it is | Why it might be needed | Trigger |
+|:--|:--|:--|:--|
+| Stability review toward 1.0 | A review of the wire schemas, harness traits and evaluator protocol for what is stable | A `1.0.0` that stands behind its contracts | Enough dogfooding to know what is stable |
 
 ## Implementation
 
