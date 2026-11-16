@@ -881,6 +881,21 @@ impl DockerDriver for DockerCli {
         sel: &'a LabelSel,
     ) -> BoxFuture<'a, Result<Vec<ContainerRef>, DockerError>> {
         Box::pin(async move {
+            let found = self.ps_inspect_by_label(sel).await?;
+            Ok(found
+                .into_iter()
+                .map(|inspected| {
+                    ContainerRef::new(inspected.id, inspected.labels, inspected.created)
+                })
+                .collect())
+        })
+    }
+
+    fn ps_inspect_by_label<'a>(
+        &'a self,
+        sel: &'a LabelSel,
+    ) -> BoxFuture<'a, Result<Vec<Inspect>, DockerError>> {
+        Box::pin(async move {
             if !sel.key.starts_with("candler.") || sel.value.is_empty() {
                 return Err(DockerError::Failed {
                     // BORROW: the error owns its text
@@ -896,16 +911,29 @@ impl DockerDriver for DockerCli {
             // one inspect for the whole list; a container removed since the list is skipped
             for answer in self.inspect_many(&ids).await {
                 match answer {
-                    Ok(inspected) => found.push(ContainerRef::new(
-                        inspected.id,
-                        inspected.labels,
-                        inspected.created,
-                    )),
+                    Ok(inspected) => found.push(inspected),
                     Err(DockerError::NotFound { .. }) => {}
                     Err(error) => return Err(error),
                 }
             }
             Ok(found)
+        })
+    }
+
+    fn networks_of_job<'a>(
+        &'a self,
+        job: &'a candler_schemas::primitives::JobId,
+    ) -> BoxFuture<'a, Result<Vec<NetworkName>, DockerError>> {
+        Box::pin(async move {
+            let mut args = to_args(&["network", "ls", "--no-trunc", "--format", "{{.Name}}"]);
+            args.push("--filter".to_owned()); // BORROW: .to_owned() gives the argument its own text
+            args.push(format!("label=candler.job={job}"));
+            let text = self.runner.run(args, CALL_DEADLINE).await?;
+            Ok(text
+                .lines()
+                .map(str::trim)
+                .filter_map(|line| NetworkName::listed(job, line))
+                .collect())
         })
     }
 

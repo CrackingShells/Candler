@@ -32,6 +32,8 @@ pub struct ContainerStopHook {
     job: JobId,
     observer: Option<ObservedView>,
     outcome: Mutex<Option<ContainerOutcome>>,
+    // the one stop of the agent: its verdict is what every later asker is told
+    stopped: tokio::sync::OnceCell<Option<String>>,
 }
 
 impl ContainerStopHook {
@@ -46,6 +48,7 @@ impl ContainerStopHook {
             job,
             observer: None,
             outcome: Mutex::new(None),
+            stopped: tokio::sync::OnceCell::new(),
         }
     }
 
@@ -105,6 +108,25 @@ impl ContainerStopHook {
     /// # Errors
     /// [`HookError`] when docker cannot list or stop the container, or the guard refuses it.
     pub async fn stop_agent(&self, key: &RunKey) -> Result<(), HookError> {
+        // A cancel and the deadline's ladder both ask: the first one stops, the other is told its answer.
+        let verdict = self
+            .stopped
+            .get_or_init(|| async {
+                match self.stop_once(key).await {
+                    Ok(()) => None,
+                    Err(HookError::Failed { detail }) => Some(detail),
+                    Err(other) => Some(format!("{other:?}")),
+                }
+            })
+            .await;
+        verdict.as_ref().map_or(Ok(()), |detail| {
+            Err(HookError::Failed {
+                detail: detail.clone(), // BORROW: .clone() gives the error its own text
+            })
+        })
+    }
+
+    async fn stop_once(&self, key: &RunKey) -> Result<(), HookError> {
         let scope = SweepScope::Run(key.clone()); // BORROW: .clone() gives the scope its own key
         let mut first = None;
         for container in self.of_run(key, true).await? {
@@ -180,21 +202,45 @@ impl StopHook for ContainerStopHook {
                 return Ok(ContainerSweep::default());
             };
             let scope = SweepScope::Run(key.clone()); // BORROW: .clone() gives the scope its own key
+            // one fresh list of the run: its inspects give the last inspect and the sweep's targets
+            let selector = LabelSel {
+                key: LABEL_RUN.to_owned(), // BORROW: .to_owned() gives the selector its own text
+                value: key.to_string(),
+            };
+            let job = self.job.to_string();
             let mut last = None;
-            if let Ok(agents) = self.of_run(key, true).await
-                && let Some(agent) = agents.first()
-            {
-                // BORROW: .as_str() hands the id to docker
-                last = self.guard.reader().inspect(agent.cid.as_str()).await.ok();
-            }
-            let sweep = self.sweeper.sweep(&scope).await.unwrap_or(ContainerSweep {
+            let swept = match self.guard.reader().ps_inspect_by_label(&selector).await {
+                Ok(inspects) => {
+                    let mine: Vec<_> = inspects
+                        .into_iter()
+                        // BORROW: .as_str() compares the label
+                        .filter(|inspect| inspect.labels.get(LABEL_JOB) == Some(job.as_str()))
+                        .collect();
+                    last = mine
+                        .iter()
+                        .find(|inspect| inspect.labels.get(LABEL_ROLE) == Some("agent"))
+                        .cloned(); // BORROW: .clone() copies the inspect out of the list
+                    let listed: Vec<ContainerRef> = mine
+                        .into_iter()
+                        .map(|inspect| {
+                            ContainerRef::new(inspect.id, inspect.labels, inspect.created)
+                        })
+                        .collect();
+                    self.sweeper.sweep_listed(&scope, listed).await
+                }
+                Err(_) => self.sweeper.sweep(&scope).await,
+            };
+            let sweep = swept.unwrap_or(ContainerSweep {
                 unknown: true,
                 ..ContainerSweep::default()
             });
-            *self.outcome.lock().unwrap_or_else(PoisonError::into_inner) = Some(ContainerOutcome {
-                inspect: last,
-                sweep: sweep.clone(), // BORROW: .clone() keeps the sweep for the ladder
-            });
+            self.outcome
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get_or_insert(ContainerOutcome {
+                    inspect: last,
+                    sweep: sweep.clone(), // BORROW: .clone() keeps the sweep for the ladder
+                });
             Ok(sweep)
         })
     }

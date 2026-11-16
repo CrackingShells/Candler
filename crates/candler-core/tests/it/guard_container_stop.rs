@@ -5,6 +5,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use candler_core::isolation::EndFacts;
+use candler_core::isolation::container::guard::ContainerGuard;
+use candler_core::isolation::container::stop::ContainerStopHook;
+use candler_core::isolation::container::sweeper::LabelSweeper;
+use candler_core::isolation::driver::{DestroyDriver, DockerDriver};
+use candler_core::isolation::testing::{FakeJobView, RecordingDestroyer, RecordingDocker};
 use candler_core::isolation::model::ContainerOutcome;
 use candler_core::runner::exec::spawn::RunStopper;
 use candler_core::supervise::hook::{HookError, StopHook, StopHookCtx};
@@ -218,4 +223,40 @@ async fn stop_asks_the_daemon_and_falls_back_to_the_client() {
             );
         }
     }
+}
+
+/// Guards: R03 B6 — a cancel and the deadline's ladder that race ask the container hook to stop
+/// the agent twice; the daemon is asked once, and both askers get the first one's answer.
+/// Oracle: the destroy driver's log of the REAL `ContainerStopHook` over a recording docker: one
+/// `stop` of the agent's id, and one outcome stored by the destroy that follows.
+/// Bite: `ContainerStopHook::stop_agent` without its once-only cell: the log holds two `stop` lines.
+#[tokio::test]
+async fn a_cancel_racing_the_deadline_stops_once() {
+    use crate::support::container_stop::{cid, container_ref, inspect, job, labels, run_key};
+    let current = job(1);
+    let key = run_key(3);
+    let id = cid(0xabc);
+    let agent = inspect(&id, labels(&current, "agent", Some(&key)));
+    let docker = Arc::new(
+        RecordingDocker::new()
+            .with_listed(vec![container_ref(&agent)])
+            .with_inspect(id.as_str(), agent), // BORROW: explicit .as_str()
+    );
+    let destroyer = Arc::new(RecordingDestroyer::new());
+    let read: Arc<dyn DockerDriver> = docker.clone(); // BORROW: .clone() shares the fake; TRAIT_OBJECT: the guard holds a trait object
+    let kill: Arc<dyn DestroyDriver> = destroyer.clone(); // BORROW: .clone() shares the fake; TRAIT_OBJECT: the guard holds a trait object
+    let view = FakeJobView::new(current.clone()).shared(); // BORROW: .clone() gives the view its own job
+    let guard = Arc::new(ContainerGuard::new(kill, Arc::clone(&read), Arc::clone(&view)));
+    let sweeper = Arc::new(LabelSweeper::new(read, Arc::clone(&guard), view, Duration::from_secs(30)));
+    let hook = ContainerStopHook::new(guard, sweeper, current);
+    let ctx = StopHookCtx::new(Some(key.clone()), "m".parse().expect("a marker"), Ended::Deadline); // BORROW: .clone() gives the context its own key
+    let (cancel, ladder) = tokio::join!(hook.stop_agent(&key), hook.pre_stop(&ctx));
+    assert!(cancel.is_ok() && ladder.is_ok(), "both askers are told the stop worked");
+    assert_eq!(
+        destroyer.calls(),
+        [format!("stop {}", id.as_str())], // BORROW: explicit .as_str()
+        "the daemon is asked to stop the agent once"
+    );
+    hook.destroy(&ctx).await.expect("a destroy");
+    assert!(hook.final_inspect().is_some(), "one outcome is stored");
 }

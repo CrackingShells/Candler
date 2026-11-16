@@ -19,8 +19,9 @@
 //! `-f`. `rm` is `rm -v`, which removes only the container's own anonymous volumes. The guard is
 //! the only holder of a [`DestroyDriver`].
 
+use std::collections::BTreeMap;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use candler_schemas::container::{ContainerFound, ContainerRole};
 use candler_schemas::execution::EventPayload;
@@ -155,6 +156,8 @@ pub struct ContainerGuard {
     view: Arc<dyn JobView>,
     // TRAIT_OBJECT: the sink is the job's event log, or none
     events: Option<Arc<dyn EventSink>>,
+    // the facts of each container a decision has inspected, by full id, until it is removed
+    facts: Mutex<BTreeMap<String, Inspect>>,
 }
 
 impl ContainerGuard {
@@ -171,6 +174,7 @@ impl ContainerGuard {
             docker,
             view,
             events: None,
+            facts: Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -259,6 +263,18 @@ impl ContainerGuard {
         Box::pin(self.destroy_many_with(containers, scope, None))
     }
 
+    /// Destroys each of `containers` like [`ContainerGuard::destroy_many`], but a container this
+    /// guard has already inspected is checked against those facts and not inspected again: a
+    /// container's id, labels and creation time never change. Containers not yet seen share one
+    /// inspect.
+    pub fn destroy_many_reusing<'a>(
+        &'a self,
+        containers: &'a [ContainerRef],
+        scope: &'a SweepScope,
+    ) -> BoxFuture<'a, Vec<Result<Destroyed, GuardError>>> {
+        Box::pin(self.destroy_many_inner(containers, scope, None, true))
+    }
+
     /// Destroys `container` of the lost job `proof` is for, by the same rule as
     /// [`ContainerGuard::destroy`] within [`SweepScope::Lost`]. The job must have no
     /// `job.ended` at each check.
@@ -297,7 +313,20 @@ impl ContainerGuard {
         scope: &SweepScope,
         proof: Option<&LostProof>,
     ) -> Vec<Result<Destroyed, GuardError>> {
-        let verified = self.verify_many(containers, scope, proof).await;
+        self.destroy_many_inner(containers, scope, proof, false)
+            .await
+    }
+
+    async fn destroy_many_inner(
+        &self,
+        containers: &[ContainerRef],
+        scope: &SweepScope,
+        proof: Option<&LostProof>,
+        reuse: bool,
+    ) -> Vec<Result<Destroyed, GuardError>> {
+        let verified = self
+            .verify_many_inner(containers, scope, proof, reuse)
+            .await;
         let mut answers = Vec::with_capacity(containers.len());
         for (container, verdict) in containers.iter().zip(verified) {
             answers.push(match verdict {
@@ -335,6 +364,10 @@ impl ContainerGuard {
             Err(DockerError::NotFound { .. }) => return Ok(gone),
             Err(error) => return Err(docker_failed(&error)),
         }
+        self.facts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(container.cid.as_str()); // BORROW: .as_str() names the id
         self.report(&container.cid, verified.role, verified.recorded, scope);
         Ok(Destroyed {
             recorded: verified.recorded,
@@ -432,11 +465,39 @@ impl ContainerGuard {
         scope: &SweepScope,
         proof: Option<&LostProof>,
     ) -> Vec<Result<Option<Verified>, GuardError>> {
+        self.verify_many_inner(containers, scope, proof, false)
+            .await
+    }
+
+    /// [`ContainerGuard::verify_many`], reading the facts of a container this guard has already
+    /// inspected from its memory when `reuse` is set; the others are inspected in one call.
+    async fn verify_many_inner(
+        &self,
+        containers: &[ContainerRef],
+        scope: &SweepScope,
+        proof: Option<&LostProof>,
+        reuse: bool,
+    ) -> Vec<Result<Option<Verified>, GuardError>> {
+        let known: Vec<Option<Inspect>> = containers
+            .iter()
+            .map(|container| {
+                if reuse {
+                    self.facts
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .get(container.cid.as_str()) // BORROW: .as_str() names the id
+                        .cloned() // BORROW: .clone() copies the facts out of the lock
+                } else {
+                    None
+                }
+            })
+            .collect();
         // BORROW: `.as_str()` borrows the text of the container id; .to_owned() gives the call its own ids
         let asked: Vec<String> = containers
             .iter()
-            .filter(|container| container.cid.as_str().len() == 64)
-            .map(|container| container.cid.as_str().to_owned())
+            .zip(&known)
+            .filter(|(container, hit)| hit.is_none() && container.cid.as_str().len() == 64)
+            .map(|(container, _)| container.cid.as_str().to_owned())
             .collect();
         let mut answers = if asked.is_empty() {
             Vec::new()
@@ -446,10 +507,14 @@ impl ContainerGuard {
         .into_iter();
         containers
             .iter()
-            .map(|container| {
+            .zip(known)
+            .map(|(container, hit)| {
                 // BORROW: `.as_str()` borrows the text of the container id
                 if container.cid.as_str().len() != 64 {
                     return Err(GuardError::Refused(GuardRefusal::NotFullId));
+                }
+                if let Some(inspect) = hit {
+                    return self.apply_rule(container, &inspect, scope, proof).map(Some);
                 }
                 let answer = answers.next().unwrap_or_else(|| {
                     Err(DockerError::Failed {
@@ -457,7 +522,13 @@ impl ContainerGuard {
                     })
                 });
                 match answer {
-                    Ok(inspect) => self.apply_rule(container, &inspect, scope, proof).map(Some),
+                    Ok(inspect) => {
+                        self.facts
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .insert(container.cid.as_str().to_owned(), inspect.clone()); // BORROW: the memory owns its copy
+                        self.apply_rule(container, &inspect, scope, proof).map(Some)
+                    }
                     Err(DockerError::NotFound { .. }) => Ok(None),
                     Err(error) => Err(docker_failed(&error)),
                 }

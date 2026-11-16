@@ -71,6 +71,46 @@ pub trait DockerDriver: Send + Sync {
         sel: &'a LabelSel,
     ) -> BoxFuture<'a, Result<Vec<ContainerRef>, DockerError>>;
 
+    /// Lists the containers that carry the label `sel`, with their inspect facts. The default
+    /// lists, then inspects them all in one call; docker does both in two calls.
+    ///
+    /// # Errors
+    /// [`DockerError`] when docker fails.
+    fn ps_inspect_by_label<'a>(
+        &'a self,
+        sel: &'a LabelSel,
+    ) -> BoxFuture<'a, Result<Vec<Inspect>, DockerError>> {
+        Box::pin(async move {
+            let listed = self.ps_by_label(sel).await?;
+            let ids: Vec<String> = listed
+                .iter()
+                .map(|container| container.cid.as_str().to_owned()) // BORROW: .to_owned() gives the call its own ids
+                .collect();
+            let mut found = Vec::new();
+            for answer in self.inspect_many(&ids).await {
+                match answer {
+                    Ok(inspected) => found.push(inspected),
+                    Err(DockerError::NotFound { .. }) => {}
+                    Err(error) => return Err(error),
+                }
+            }
+            Ok(found)
+        })
+    }
+
+    /// Lists the networks of `job`, its internal, egress and allow networks, by the job label
+    /// (one `docker network ls`). A driver that does not list answers none.
+    ///
+    /// # Errors
+    /// [`DockerError`] when docker fails.
+    fn networks_of_job<'a>(
+        &'a self,
+        job: &'a candler_schemas::primitives::JobId,
+    ) -> BoxFuture<'a, Result<Vec<NetworkName>, DockerError>> {
+        let _ = job;
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
     /// Creates a network.
     ///
     /// # Errors
