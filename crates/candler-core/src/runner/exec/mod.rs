@@ -579,6 +579,7 @@ async fn drive(
         Some(Err(error)) => {
             // EXPLICIT: the child is stopped and left to its own record; the refusal is what the run reports
             let _ = child.stop().await;
+            destroy_unstarted(isolation.as_ref(), &container, &workspace, &plan.key).await;
             return Err(error.into());
         }
     };

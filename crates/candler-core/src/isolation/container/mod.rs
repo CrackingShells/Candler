@@ -413,33 +413,51 @@ impl Isolation for DockerIsolation {
                 .map_err(|source| IsolationError::Docker {
                     detail: source.to_string(),
                 })?;
-            self.record_agent(plan, &key, &cid).await?;
-            self.created
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .insert(key.to_string(), cid.clone()); // BORROW: the map keeps its own id
-            let mut stop_hook = ContainerStopHook::new(self.guard(), sweeper, job);
-            if let Some(view) = outputs.observer.as_ref() {
-                stop_hook = stop_hook.with_observer(Arc::clone(view)); // BORROW: the hook shares the run's live view
+            let ready = async {
+                self.record_agent(plan, &key, &cid).await?;
+                self.created
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .insert(key.to_string(), cid.clone()); // BORROW: the map keeps its own id
+                let mut stop_hook = ContainerStopHook::new(self.guard(), sweeper, job);
+                if let Some(view) = outputs.observer.as_ref() {
+                    stop_hook = stop_hook.with_observer(Arc::clone(view)); // BORROW: the hook shares the run's live view
+                }
+                let hook = Arc::new(stop_hook);
+                // TRAIT_OBJECT: the request carries its hook as the supervisor's trait
+                let attached: Arc<dyn StopHook> = Arc::<ContainerStopHook>::clone(&hook);
+                let request = build_start_request(
+                    self.docker.as_ref(),
+                    plan,
+                    &cid,
+                    marker,
+                    &key,
+                    Some(attached),
+                    outputs,
+                )
+                .map_err(|source| IsolationError::Plan {
+                    detail: source.to_string(),
+                })?;
+                // TRAIT_OBJECT: the caller reads the facts without the docker type
+                let end_facts: Arc<dyn EndFacts> = Arc::new(HookFacts { hook });
+                Ok::<_, IsolationError>(
+                    IsolatedRequest::new(request, end_facts).with_container(cid.clone()), // BORROW: the failure arm destroys the id
+                )
             }
-            let hook = Arc::new(stop_hook);
-            // TRAIT_OBJECT: the request carries its hook as the supervisor's trait
-            let attached: Arc<dyn StopHook> = Arc::<ContainerStopHook>::clone(&hook);
-            let request = build_start_request(
-                self.docker.as_ref(),
-                plan,
-                &cid,
-                marker,
-                &key,
-                Some(attached),
-                outputs,
-            )
-            .map_err(|source| IsolationError::Plan {
-                detail: source.to_string(),
-            })?;
-            // TRAIT_OBJECT: the caller reads the facts without the docker type
-            let end_facts: Arc<dyn EndFacts> = Arc::new(HookFacts { hook });
-            Ok(IsolatedRequest::new(request, end_facts).with_container(cid))
+            .await;
+            match ready {
+                Ok(request) => Ok(request),
+                Err(error) => {
+                    // The container was created and never ran: destroy it by the id create returned,
+                    // and report the original error whatever the destroy did.
+                    self.created
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .remove(&key.to_string());
+                    let _ = self.destroy_cid(plan, &key, &cid).await; // EXPLICIT: a refusal or failure of the destroy stays in the guard's record and the job-close sweep
+                    Err(error)
+                }
+            }
         })
     }
 
@@ -468,33 +486,7 @@ impl Isolation for DockerIsolation {
                     },
                 });
             };
-            let reader = self.guard.reader();
-            // BORROW: .as_str() hands the id to docker
-            let inspect = reader.inspect(cid.as_str()).await.ok();
-            let target = match &inspect {
-                Some(taken) => Some(ContainerRef::new(
-                    taken.id.clone(),      // BORROW: the reference owns the id
-                    taken.labels.clone(),  // BORROW: the reference owns the labels
-                    taken.created.clone(), // BORROW: the reference owns the time
-                )),
-                None => self.listed_agent(plan, &cid).await,
-            };
-            let mut sweep = ContainerSweep::default();
-            let Some(target) = target else {
-                sweep.unknown = true;
-                return Ok(ContainerOutcome { inspect, sweep });
-            };
-            let scope = SweepScope::Run(key.clone()); // BORROW: the scope owns its key
-            match self.guard.destroy(&target, &scope).await {
-                Ok(destroyed) if !destroyed.absent => sweep.destroyed.push(target),
-                Ok(_) => {}
-                Err(GuardError::Refused(why)) => sweep.refused.push(Refusal {
-                    container: target.cid,
-                    reason: why.code().to_owned(), // BORROW: owned reason code
-                }),
-                Err(GuardError::Docker { .. } | GuardError::View { .. }) => sweep.unknown = true,
-            }
-            Ok(ContainerOutcome { inspect, sweep })
+            Ok(self.destroy_cid(plan, key, &cid).await)
         })
     }
 
@@ -520,6 +512,44 @@ impl Isolation for DockerIsolation {
 }
 
 impl DockerIsolation {
+    /// Destroys the container `cid` the run `key` created, through the guard in the run's scope:
+    /// one verification, then `stop` and `rm`. A refusal or a failure is in the outcome, never an
+    /// error.
+    async fn destroy_cid(
+        &self,
+        plan: &ContainerPlan,
+        key: &RunKey,
+        cid: &ContainerId,
+    ) -> ContainerOutcome {
+        let reader = self.guard.reader();
+        // BORROW: .as_str() hands the id to docker
+        let inspect = reader.inspect(cid.as_str()).await.ok();
+        let target = match &inspect {
+            Some(taken) => Some(ContainerRef::new(
+                taken.id.clone(),      // BORROW: the reference owns the id
+                taken.labels.clone(),  // BORROW: the reference owns the labels
+                taken.created.clone(), // BORROW: the reference owns the time
+            )),
+            None => self.listed_agent(plan, cid).await,
+        };
+        let mut sweep = ContainerSweep::default();
+        let Some(target) = target else {
+            sweep.unknown = true;
+            return ContainerOutcome { inspect, sweep };
+        };
+        let scope = SweepScope::Run(key.clone()); // BORROW: the scope owns its key
+        match self.guard.destroy(&target, &scope).await {
+            Ok(destroyed) if !destroyed.absent => sweep.destroyed.push(target),
+            Ok(_) => {}
+            Err(GuardError::Refused(why)) => sweep.refused.push(Refusal {
+                container: target.cid,
+                reason: why.code().to_owned(), // BORROW: owned reason code
+            }),
+            Err(GuardError::Docker { .. } | GuardError::View { .. }) => sweep.unknown = true,
+        }
+        ContainerOutcome { inspect, sweep }
+    }
+
     /// Writes the `container-record/1` of the agent container `cid`, from its own inspect.
     async fn record_agent(
         &self,

@@ -59,4 +59,5 @@ mod guard_stats;
 mod guard_store;
 mod guard_supervise;
 mod guard_treatment_source;
+mod guard_unstarted_destroy;
 mod guard_wiring;
