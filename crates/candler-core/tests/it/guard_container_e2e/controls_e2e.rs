@@ -29,7 +29,8 @@ use crate::support::gateway as gateway_support;
 
 use crate::support::job_orchestrate::{Rig, spec};
 use crate::support::run_plan::Facts;
-use gateway_support::{GATEWAY_CONTEXT, docker};
+use crate::support::test_image::{SIDECAR_CONTEXT, TestImage};
+use gateway_support::docker;
 
 /// The sidecar's tag, as the binary builds it.
 const SIDECAR_TAG: &str = "candler-gateway:latest";
@@ -42,7 +43,7 @@ impl EventSink for NullSink {
 }
 
 /// The id of the image `reference`, when docker holds it.
-fn image_id(reference: &str) -> Option<String> {
+pub(super) fn image_id(reference: &str) -> Option<String> {
     let found = docker(&["image", "inspect", "--format", "{{.Id}}", reference]);
     found.ok().then(|| found.out.trim().to_owned())
 }
@@ -96,10 +97,8 @@ async fn controls_e2e_pinned_harness_passes() {
     let base_context = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/docker/base");
     let fake_context = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/docker/fakemodel");
     let containers = listed(&["ps", "-aq"]);
-    let sidecar_made = image_id(SIDECAR_TAG).is_none();
-    if sidecar_made {
-        docker(&["build", "--quiet", "-t", SIDECAR_TAG, GATEWAY_CONTEXT]).must("docker build");
-    }
+    // The production gateway reads the sidecar under its own tag.
+    let sidecar = TestImage::tagged(SIDECAR_CONTEXT, SIDECAR_TAG);
     let fake_tag = format!(
         "candler-fakemodel:src-{}",
         context_digest(std::path::Path::new(fake_context))
@@ -177,9 +176,7 @@ async fn controls_e2e_pinned_harness_passes() {
     if fake_made && let Some(id) = image_id(&fake_tag) {
         docker(&["image", "rm", &id]).must("removing the fake model's image");
     }
-    if sidecar_made && let Some(id) = image_id(SIDECAR_TAG) {
-        docker(&["image", "rm", &id]).must("removing the sidecar image");
-    }
+    drop(sidecar);
     if base_made {
         docker(&["image", "rm", &base.id.0]).must("removing the agent base image");
     }

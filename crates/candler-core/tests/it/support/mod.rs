@@ -19,6 +19,7 @@ pub mod run_exec;
 pub mod run_plan;
 pub mod session_rig;
 pub mod supervision_gates;
+pub mod test_image;
 pub mod wiring;
 
 use std::fs;

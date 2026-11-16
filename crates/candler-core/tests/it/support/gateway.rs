@@ -6,19 +6,12 @@ use std::process::{Command, Stdio};
 
 use candler_schemas::primitives::JobId;
 
-/// The directory of the sidecar image's build context.
-pub const GATEWAY_CONTEXT: &str =
-    concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/docker/gateway");
-
 /// The upstream fake, written into the fake's own directory at test time.
 pub const FAKE_SCRIPT: &str = include_str!("../../fixtures/gateway/tls_upstream.py");
 
 /// The pinned Python image the fake runs in (3.12, slim-bookworm), by digest.
 pub const PYTHON_IMAGE: &str =
     "python@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df";
-
-/// The test agent image: busybox with `nc`, `wget` and `sh`.
-pub const AGENT_IMAGE: &str = "candler-testagent:test";
 
 /// The host name the fake's certificate is valid for and the sidecar forwards to.
 pub const UPSTREAM_HOST: &str = "upstream.test";

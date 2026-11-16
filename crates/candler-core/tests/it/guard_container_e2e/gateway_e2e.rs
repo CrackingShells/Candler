@@ -21,9 +21,7 @@ use candler_core::isolation::gateway::{
     ChildRecorder, DockerGateway, Gateway, GatewaySignal, GatewayStart, SecretError, SecretSource,
     SecretValue, UpstreamConfig, assert_clean,
 };
-use candler_core::isolation::model::{
-    GatewayHandle, ImageId, ImageRef, LabelSel, NetworkName, SweepScope,
-};
+use candler_core::isolation::model::{GatewayHandle, LabelSel, NetworkName, SweepScope};
 use candler_core::isolation::testing::{AllowlistDriver, FakeJobView};
 use candler_core::jobs::view::ChildEntry;
 use candler_core::supervise::{EventSink, Supervisor};
@@ -33,11 +31,11 @@ use candler_schemas::primitives::{Digest, JobId, RunKey};
 
 // The helpers the supervision gates share.
 use crate::support::gateway as gateway_support;
+use crate::support::test_image::{SIDECAR_CONTEXT, TESTAGENT_CONTEXT, TestImage};
 
 use gateway_support::{
-    AGENT_IMAGE, CELL_HEX, EXPERIMENT, FAKE_SCRIPT, GATEWAY_CONTEXT, PYTHON_IMAGE, Ran,
-    SECRET_NAME, UPSTREAM_HOST, UPSTREAM_PORT, canary, docker, make_ca, make_server_cert,
-    random_job, run,
+    CELL_HEX, EXPERIMENT, FAKE_SCRIPT, PYTHON_IMAGE, Ran, SECRET_NAME, UPSTREAM_HOST,
+    UPSTREAM_PORT, canary, docker, make_ca, make_server_cert, random_job, run,
 };
 
 /// `docker exec <cid> <args>`.
@@ -50,45 +48,6 @@ fn exec(cid: &str, args: &[&str]) -> Ran {
 // ---------------------------------------------------------------------------------------------
 // One test's world.
 // ---------------------------------------------------------------------------------------------
-
-/// The sidecar image, built from the repository's build context, tagged `candler-gateway:test`
-/// and read back by id.
-fn sidecar_image() -> ImageRef {
-    static BUILD: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _held = BUILD
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    docker(&[
-        "build",
-        "--quiet",
-        "--label",
-        "candler.test=gateway",
-        "-t",
-        "candler-gateway:test",
-        GATEWAY_CONTEXT,
-    ])
-    .must("docker build of the gateway image");
-    let id = docker(&[
-        "image",
-        "inspect",
-        "--format",
-        "{{.Id}}",
-        "candler-gateway:test",
-    ])
-    .must("docker image inspect");
-    ImageRef {
-        id: ImageId(String::from(id.trim())),
-        harness_version: None,
-    }
-}
-
-/// The test agent image must exist; the tests never pull a tag.
-fn require_agent_image() {
-    assert!(
-        docker(&["image", "inspect", AGENT_IMAGE]).ok(),
-        "build it: docker build --label candler.test=gateway -t {AGENT_IMAGE} assets/docker/testagent"
-    );
-}
 
 /// The Python image, by digest: pulled when absent.
 fn require_python_image() {
@@ -126,11 +85,16 @@ struct Rig {
     destroyer: Arc<AllowlistDriver<DockerDestroyer>>,
     /// What the gateway's `start` recorded: the job directory's children.
     recorder: Recorder,
+    /// The test agent's image, removed after the rig's teardown when this test built it.
+    agent: TestImage,
+    /// The sidecar's image, removed after the rig's teardown when this test built it.
+    sidecar: TestImage,
 }
 
 impl Rig {
     fn new() -> Self {
-        require_agent_image();
+        let agent = TestImage::new(TESTAGENT_CONTEXT);
+        let sidecar = TestImage::new(SIDECAR_CONTEXT);
         require_python_image();
         let dir = tempfile::tempdir().expect("a temporary directory");
         std::fs::create_dir_all(dir.path().join("control")).expect("a control directory");
@@ -152,6 +116,8 @@ impl Rig {
             cli: Arc::new(cli),
             destroyer,
             recorder: Recorder::default(),
+            agent,
+            sidecar,
         }
     }
 
@@ -394,7 +360,7 @@ fn gateway(rig: &Rig, ca: &[u8], max_parallel: u32) -> DockerGateway {
         .build()
         .expect("an upstream");
     DockerGateway::new(
-        sidecar_image(),
+        rig.sidecar.reference(),
         upstream,
         max_parallel,
         DockerClient::clone(&rig.cli),
@@ -518,7 +484,7 @@ fn start_agent(rig: &Rig, handle: &GatewayHandle, run: &RunKey, spec: &AgentSpec
             "/workspace",
             "--entrypoint",
             "sh",
-            AGENT_IMAGE,
+            rig.agent.id(),
             "-c",
             spec.script,
         ]
@@ -959,7 +925,7 @@ async fn b18_internal_network_no_route() {
         "host.docker.internal:host-gateway",
         "--entrypoint",
         "sh",
-        AGENT_IMAGE,
+        rig.agent.id(),
         "-c",
         &control_script,
     ])

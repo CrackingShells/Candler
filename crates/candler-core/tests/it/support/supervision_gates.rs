@@ -20,8 +20,8 @@ use candler_schemas::process::ProcessStart;
 use futures::future::BoxFuture;
 
 use super::gateway::{
-    AGENT_IMAGE, CELL_HEX, EXPERIMENT, FAKE_SCRIPT, GATEWAY_CONTEXT, PYTHON_IMAGE, SECRET_NAME,
-    UPSTREAM_HOST, UPSTREAM_PORT, docker, make_ca, make_server_cert,
+    CELL_HEX, EXPERIMENT, FAKE_SCRIPT, PYTHON_IMAGE, SECRET_NAME, UPSTREAM_HOST, UPSTREAM_PORT,
+    docker, make_ca, make_server_cert,
 };
 
 /// The job the re-executed supervisor serves.
@@ -32,6 +32,8 @@ pub const ENV_STORE: &str = "CANDLER_TEST_GATES_STORE";
 pub const ENV_WORK: &str = "CANDLER_TEST_GATES_WORK";
 /// The id of the gateway's sidecar image.
 pub const ENV_SIDECAR: &str = "CANDLER_TEST_GATES_SIDECAR";
+/// The id of the test agent's image.
+pub const ENV_AGENT: &str = "CANDLER_TEST_GATES_AGENT";
 /// The token the gateway presents upstream: the canary of the test.
 pub const ENV_TOKEN: &str = "CANDLER_TEST_GATES_TOKEN";
 
@@ -47,39 +49,11 @@ pub fn daemon_up() -> bool {
     docker(&["info", "--format", "{{.ServerVersion}}"]).ok()
 }
 
-/// The images the test needs must exist; it never pulls a tag, and pulls the pinned python image
-/// by digest when it is absent.
-pub fn require_images() {
-    assert!(
-        docker(&["image", "inspect", AGENT_IMAGE]).ok(),
-        "build it: docker build --label candler.test=supervision_gates -t {AGENT_IMAGE} assets/docker/testagent"
-    );
+/// The pinned python image is pulled by digest when it is absent.
+pub fn require_python_image() {
     if !docker(&["image", "inspect", PYTHON_IMAGE]).ok() {
         docker(&["pull", "--quiet", PYTHON_IMAGE]).must("docker pull of the pinned python image");
     }
-}
-
-/// The id of the sidecar image, built from the repository's build context.
-pub fn sidecar_image_id() -> String {
-    docker(&[
-        "build",
-        "--quiet",
-        "--label",
-        TEST_LABEL,
-        "-t",
-        "candler-gateway:test",
-        GATEWAY_CONTEXT,
-    ])
-    .must("docker build of the gateway image");
-    let id = docker(&[
-        "image",
-        "inspect",
-        "--format",
-        "{{.Id}}",
-        "candler-gateway:test",
-    ])
-    .must("docker image inspect");
-    String::from(id.trim())
 }
 
 /// The ids of every container, running or not, that carries the label of `job`.
@@ -254,7 +228,7 @@ pub fn gates_body(
             "--network",
             // BORROW: explicit .as_str() instead of Deref coercion
             handle.network.as_str(),
-            AGENT_IMAGE,
+            &var(ENV_AGENT),
             "sleep-forever",
         ]
         .into_iter()

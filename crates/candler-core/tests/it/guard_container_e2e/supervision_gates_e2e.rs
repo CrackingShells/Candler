@@ -38,10 +38,11 @@ use support::gateway::{canary, client_env, random_job};
 use support::job_runtime::{job_spec, services};
 use support::job_store::job_record;
 use support::supervision_gates::{
-    ENV_JOB, ENV_SIDECAR, ENV_STORE, ENV_TOKEN, ENV_WORK, TEST_LABEL, daemon_up, gates_body,
-    label_of, labelled, make_certs, marked, network_exists, require_images, run_fake, run_key,
-    running, sidecar_image_id,
+    ENV_AGENT, ENV_JOB, ENV_SIDECAR, ENV_STORE, ENV_TOKEN, ENV_WORK, TEST_LABEL, daemon_up,
+    gates_body, label_of, labelled, make_certs, marked, network_exists, require_python_image,
+    run_fake, run_key, running,
 };
+use support::test_image::{SIDECAR_CONTEXT, TESTAGENT_CONTEXT, TestImage};
 
 /// How long the supervisor child may take to start the gateway and the agent.
 const READY_LIMIT: Duration = Duration::from_secs(120);
@@ -244,8 +245,9 @@ fn wait_ready(child: &mut Child, work: &Path, logs: &Path) -> u32 {
 #[ignore = "needs Docker; run with --run-ignored only"]
 async fn b36_supervisor_sigkill_nothing_left() {
     assert!(daemon_up(), "docker is not running: docker desktop start");
-    require_images();
-    let sidecar = sidecar_image_id();
+    require_python_image();
+    let agent = TestImage::new(TESTAGENT_CONTEXT);
+    let sidecar = TestImage::new(SIDECAR_CONTEXT);
 
     let tmp = tempfile::tempdir().expect("a temporary directory");
     let work = tmp.path().join("work");
@@ -286,7 +288,8 @@ async fn b36_supervisor_sigkill_nothing_left() {
         .env(ENV_JOB, job.to_string())
         .env(ENV_STORE, &root)
         .env(ENV_WORK, &work)
-        .env(ENV_SIDECAR, &sidecar)
+        .env(ENV_SIDECAR, sidecar.id())
+        .env(ENV_AGENT, agent.id())
         .env(ENV_TOKEN, &token)
         .env("XDG_STATE_HOME", tmp.path().join("state"))
         .stdin(Stdio::null())

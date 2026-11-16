@@ -507,10 +507,7 @@ impl DockerImageService {
                 "the version probe sets an environment or a directory, which a control container cannot honour",
             ));
         }
-        // Like a run, the probe gives the harness a home and the state variables its driver
-        // declares, set by the same function.
-        let mut env = vec![(String::from("HOME"), String::from(PROBE_HOME))];
-        env.extend(layout::state_env(&self.harness.state_paths(), PROBE_HOME));
+        let env = probe_env(self.harness.as_ref());
         let spec = probe_spec(image, &env, probe.argv());
         let stdout = control_output(&self.control_client(records), &spec).await?;
         self.harness
@@ -962,6 +959,15 @@ fn unreadable(detail: &str) -> ImageError {
         // BORROW: .to_owned() keeps the description in the error
         detail: detail.to_owned(),
     }
+}
+
+/// The environment of a probe container: a home the read-only root leaves writable, and the state
+/// variables the harness's driver declares, set by the function a run sets them with.
+#[must_use]
+pub fn probe_env(harness: &dyn HarnessDriver) -> Vec<(String, String)> {
+    let mut env = vec![(String::from("HOME"), String::from(PROBE_HOME))];
+    env.extend(layout::state_env(&harness.state_paths(), PROBE_HOME));
+    env
 }
 
 /// The control container that prints the version: it has no network, no capabilities and a
