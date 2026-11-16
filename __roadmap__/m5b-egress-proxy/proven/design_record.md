@@ -23,7 +23,7 @@
 1. §Process supervision: the destroy rule of D7 (verify once per decision; identity facts are immutable; run-label listing); B2 (a container created but never run is destroyed by its creator, by id, through the guard in the run scope).
 2. §Agent environment and secrets: the `isolation.egress` bullet no longer says "until the egress proxy exists". It states: one proxy per distinct allowlist; the per-port and SNI rule; names resolved at connect time; loopback and link-local refused; no TLS interception; bridge versus allowlist.
 3. §Contracts & Invariants: I8 names its guards (`guard_ground_truth_refusal::refuses_*`, `i8_canary_never_reaches_the_agent`) and its refusal.
-4. §Error model and §Refusals: `isolation.ground_truth_exposed` is added and `isolation.egress_unsupported` is shown as retired, never removed.
+4. §Error model and §Refusals: `isolation.ground_truth_exposed` is added and `isolation.egress_unsupported` leaves R01's text; its row stays in `codes.toml`, lifted, which is where the registry keeps it.
 5. §Risks & Mitigations: an egress-bypass row (B3's attack rows are its mitigation evidence).
 6. §Future features:
    - remove M5b from "Decided and scheduled work";
