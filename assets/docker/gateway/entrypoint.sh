@@ -4,6 +4,18 @@
 # The supervisor writes the file through auth.tmp and mv, so nginx never reads a partial file.
 set -eu
 
+# The egress proxy holds no credential and waits for none: Candler renders its servers from the
+# allowlist and passes them in GW_EGRESS_SERVERS.
+if [ "${GW_MODE:-gateway}" = egress ]; then
+  : "${GW_EGRESS_SERVERS:?}"
+  GW_RESOLVER=$(awk '/^nameserver/ { print $2; exit }' /etc/resolv.conf)
+  : "${GW_RESOLVER:?}"
+  export GW_RESOLVER GW_EGRESS_SERVERS
+  envsubst '${GW_RESOLVER} ${GW_EGRESS_SERVERS}' \
+    < /etc/gw/egress.conf.template > /tmp/nginx.conf
+  exec nginx -c /tmp/nginx.conf -g 'daemon off;'
+fi
+
 waited=0
 while [ ! -s /run/gw/auth.conf ]; do
   waited=$((waited + 1))

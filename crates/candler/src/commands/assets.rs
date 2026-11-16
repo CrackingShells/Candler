@@ -10,7 +10,7 @@ use candler_schemas::primitives::Digest;
 use super::CliError;
 
 /// Every file of `assets/docker`, by its path below that directory, in path order.
-pub(crate) const ASSETS: [(&str, &[u8]); 14] = [
+pub(crate) const ASSETS: [(&str, &[u8]); 16] = [
     (
         "base-opencode/Dockerfile",
         include_bytes!("../../../../assets/docker/base-opencode/Dockerfile"),
@@ -46,6 +46,14 @@ pub(crate) const ASSETS: [(&str, &[u8]); 14] = [
     (
         "gateway/Dockerfile",
         include_bytes!("../../../../assets/docker/gateway/Dockerfile"),
+    ),
+    (
+        "gateway/egress.conf.template",
+        include_bytes!("../../../../assets/docker/gateway/egress.conf.template"),
+    ),
+    (
+        "gateway/egress.js",
+        include_bytes!("../../../../assets/docker/gateway/egress.js"),
     ),
     (
         "gateway/entrypoint.sh",
