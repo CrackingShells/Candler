@@ -8,6 +8,7 @@ Level L2, after `client/`. It holds three leaves:
   proven by a live MCP server inside a real container.
 `egress/` needs `container_create`'s create with two networks and `plugin_environment`'s
 appended egress.
+**Amendment A8:** `guard_reuse` moved to M5b and `egress/` with it; M5a's seams are `container_create` and `plugin_environment`. They stay listed here with their statuses.
 
 ## Reference Documents
 - [R01 Architecture](../../../../__design__/architecture.md) — §Process supervision (Destroying containers), §Plug-in manifest

@@ -2,14 +2,14 @@
 
 **Goal**: A second, unrelated plug-in, `waiting-on-processes`, is built in its own repository against the core as it stands and delivers a gap report. M8 adds no core feature.
 **Pre-conditions**:
-- [ ] `../m7_mcp_server.md` is `done`, and M5 and M6a before it
+- [ ] `../m7_mcp_server.md` is `done`, and M5a, M5b and M6a before it
 - [ ] Reminder `candler-M8` read (plug-in parts, deterministic grading)
 - [ ] R05's test definition read: `00-test_definition_v0.md` beside the R05 design
 **Success Gates**:
 - ⬜ The `waiting-on-processes` plug-in grades its fixtures as correct, false success or stray process, deterministically (I5)
 - ⬜ The plug-in lives in its own repository and builds against the core's published interfaces, with no change to `candler-core`, `candler-harness` or `candler-schemas` made for it
 - ⬜ A gap report lists every point where the plug-in needed something the core lacks, each entered as a "Future features" item in `__design__/architecture.md` with its trigger; a blocking gap is named as such and proposed as a core milestone of its own
-**References**: [R01 §Plug-ins, §Future features, §Contracts & Invariants (I5)](../../../../../../../../../../__design__/architecture.md) — the contract the plug-in builds against and where its gaps are listed
+**References**: [R01 §Plug-ins, §Future features, §Contracts & Invariants (I5)](../../../../../../../../../../../__design__/architecture.md) — the contract the plug-in builds against and where its gaps are listed
 
 ## Step 1: Plan the milestone
 

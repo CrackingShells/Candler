@@ -1,5 +1,7 @@
 # Guard reuse
 
+**Moved to M5b** by amendment A8 (`__reports__/candler-v1-review/04-findings_amendment_a8_v0.md`): not part of M5a; kept as the source of M5b's plan.
+
 **Goal**: The destroy guard verifies the containers of a destroy decision with one multi-id inspect, re-uses the facts for that decision, and lists a run's containers by the run label (A1). A stopped run in a job of 9 containers costs at most 8 docker calls, down from 37, and no refusal rule widens.
 **Pre-conditions**:
 - [ ] [cmd] The leaf's worktree is its own checkout: `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints the worktree path

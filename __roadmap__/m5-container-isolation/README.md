@@ -19,6 +19,7 @@ Depth is ordering:
   (`design_record`).
 The coordinator runs P0, the digest checks at each level merge, and one live smoke after L3. No
 leaf does these.
+Split by amendment A8 of `candler-v1` (source `__reports__/candler-v1-review/04-findings_amendment_a8_v0.md`): this campaign is M5a. `client/seams/guard_reuse.md` and `client/seams/egress/` (`egress_proxy`, `ground_truth_refusal`, `proof/`) moved to M5b; they are kept here, with their statuses, as the source of M5b's plan and are not part of M5a's gates. M5a adds the refusal `isolation.egress_unsupported` for a set `isolation.egress` until M5b's proxy lands.
 
 ## Reference Documents
 - [R01 Architecture](../../__design__/architecture.md) — §Process supervision, §Agent environment and secrets, §Plug-in manifest, §Contracts & Invariants (I8, I14, I22), §Future features

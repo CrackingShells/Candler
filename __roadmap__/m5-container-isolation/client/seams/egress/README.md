@@ -1,6 +1,7 @@
 # Egress
 
 ## Context
+Moved to M5b by amendment A8 (`__reports__/candler-v1-review/04-findings_amendment_a8_v0.md`): this level, its two leaves and `proof/` are not part of M5a; kept as the source of M5b's plan.
 Level L3, after `seams/`. It holds two leaves:
 - `egress_proxy`: the allowlist enforced by a per-allowlist egress proxy, attacked by an
   adversarial real-image e2e;
