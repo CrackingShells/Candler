@@ -186,7 +186,7 @@ fn selected_fragment(config: &Config, input: &ResolveInput) -> Result<Option<Fra
         resolved.values.as_slice(),   // BORROW: explicit .as_slice()
         resolved.settings.as_slice(), // BORROW: explicit .as_slice()
     )
-    .ok()
+    .ok() // EXPLICIT: an unreadable selection is refused by the resolver's plug-in environment step
     .flatten())
 }
 

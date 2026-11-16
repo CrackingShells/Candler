@@ -253,7 +253,7 @@ impl PreflightStep for ImageIdStep {
 fn fragment_of(ctx: &ResolveContext) -> Option<Fragment> {
     // BORROW: explicit .as_slice()
     Fragment::from_values(ctx.values.as_slice(), ctx.settings.as_slice())
-        .ok()
+        .ok() // EXPLICIT: an unreadable environment is refused by the plug-in environment step, not here
         .flatten()
 }
 
