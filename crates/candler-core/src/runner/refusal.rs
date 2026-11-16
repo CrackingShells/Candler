@@ -26,6 +26,7 @@ fn plan_error_path(error: &PlanError) -> Option<String> {
     match error {
         PlanError::Cell { source } => Refusal::path(source),
         PlanError::Session(inner) => Refusal::path(inner),
+        PlanError::Egress(inner) => Refusal::path(inner),
         PlanError::Driver(inner) => Refusal::path(inner),
         PlanError::SettingAsFactor { .. } => Some(pointer_of(["factors"])),
         PlanError::NameCollision { .. }
@@ -89,6 +90,7 @@ wrapper_table! {
         "-",
     ),
     Session (inner) => delegate(inner, Side::Experiment),
+    Egress (inner) => delegate(inner, Side::Experiment),
     Driver (inner) => delegate(inner, Side::Experiment),
     SettingAsFactor { .. } => row(
         "experiment.setting_as_factor",
@@ -245,6 +247,7 @@ fn plan_answer(error: &PlanError) -> &dyn Refusal {
         | PlanError::AttemptOverflow { .. }
         | PlanError::SettingAsFactor { .. }
         | PlanError::Session(..)
+        | PlanError::Egress(..)
         | PlanError::Store { .. }
         | PlanError::Lock { .. } => error,
     }

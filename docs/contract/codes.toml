@@ -1899,3 +1899,13 @@ at = "-"
 side = "suite"
 when = "A suite entry has a deadline_ms above 2**53 - 1, which Candler passes on and the helper refuses with error -32602."
 at = "-"
+
+[resolve."isolation.egress_invalid"]
+side = "experiment"
+enum = "EgressRefusal"
+variant = "Invalid"
+
+[resolve."isolation.egress_with_bridge"]
+side = "experiment"
+enum = "EgressRefusal"
+variant = "WithBridge"
