@@ -34,7 +34,8 @@
 2. The rows of `egress_allowlist_holds_on_a_real_daemon`, each judged in the target's log, never by the client's error.
    Must succeed:
    1. the listed host:port, plain when one host owns the port, and with SNI on a shared port;
-   2. a model call through the gateway against the fake model.
+   2. a model call through the gateway against the fake model;
+   2b. a listed host that has no Docker alias on any network the proxy joins, so the proxy reaches it only through its own upstream resolution (the rig's resolver container answers the name). No target in the rig carries an alias equal to a listed name on the proxy's networks: such an alias masks the self-resolution defect found at L0.
 
    Must fail:
    3. another port of the listed host;

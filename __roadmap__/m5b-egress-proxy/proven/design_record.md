@@ -21,7 +21,7 @@
 **Goal**: Each section the plan names says what is now true, in the present tense, without history.
 **Implementation Logic**:
 1. §Process supervision: the destroy rule of D7 (verify once per decision; identity facts are immutable; run-label listing); B2 (a container created but never run is destroyed by its creator, by id, through the guard in the run scope).
-2. §Agent environment and secrets: the `isolation.egress` bullet no longer says "until the egress proxy exists". It states: one proxy per distinct allowlist; the per-port and SNI rule; names resolved at connect time; loopback and link-local refused; no TLS interception; bridge versus allowlist.
+2. §Agent environment and secrets: the `isolation.egress` bullet no longer says "until the egress proxy exists". It states: one proxy per distinct allowlist; the per-port and SNI rule; names resolved at connect time; loopback and link-local refused; no TLS interception; bridge versus allowlist. Each allowlisted agent reaches a listed name through `--add-host <name>:<proxy allow IP>`, sorted, and the proxy carries no alias equal to a listed name (an alias would resolve to the proxy itself through Docker's embedded resolver). The proxy's IP is read once after start and is run-time only: it is in the argv and the record, never in a cell value or digest. The proxy is never restarted inside a job, and egress cells fail if it dies. The loopback and link-local refusal closes the session before any client byte is forwarded, but the TCP connect to that address still happens: state that residual.
 3. §Contracts & Invariants: I8 names its guards (`guard_ground_truth_refusal::refuses_*`, `i8_canary_never_reaches_the_agent`) and its refusal.
 4. §Error model and §Refusals: `isolation.ground_truth_exposed` is added and `isolation.egress_unsupported` leaves R01's text; its row stays in `codes.toml`, lifted, which is where the registry keeps it.
 5. §Risks & Mitigations: an egress-bypass row (B3's attack rows are its mitigation evidence).
@@ -30,7 +30,10 @@
    - the "Plug-in sidecar services" entry gains its second consumer: MCP servers that reach real systems with a secret (HTN's rikyu servers), run on the runner side as the model gateway holds its key, never in the agent container;
    - add a URL-path allowlist through TLS interception (trigger: an eval that must allow part of a host);
    - add domain fronting (a residual; trigger: a listed host behind a shared CDN front);
-   - add detection of a transformed copy of ground truth (trigger: a leak that digests missed).
+   - add detection of a transformed copy of ground truth (trigger: a leak that digests missed);
+   - add ground truth reached through a symlink, and a single context walk shared by D9 and the build (triggers in `__reports__/m5b-egress-proxy/leaves/ground_truth_refusal_v0.md`);
+   - add a fixed `--ip` for the egress proxy (trigger: a proxy that must restart inside a job);
+   - add a proxy readiness probe after start, and server-first protocols on a shared SNI port, which `ssl_preread` stalls (trigger: an eval whose listed service speaks first, or whose first connect races the proxy's start).
 **Deliverables**: `__design__/architecture.md`: §Process supervision, §Agent environment and secrets, §Contracts & Invariants, §Error model, §Refusals, §Risks & Mitigations, §Future features
 **Consistency Checks**: `grep -q isolation.ground_truth_exposed __design__/architecture.md && ! grep -q egress_unsupported __design__/architecture.md` (expected: PASS)
 **Commit**: `docs(design): record the egress proxy and the ground-truth guard`
