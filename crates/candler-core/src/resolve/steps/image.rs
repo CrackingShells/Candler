@@ -17,11 +17,12 @@ use std::sync::Arc;
 use candler_schemas::canonical::CanonicalError;
 use candler_schemas::execution::{DigestRef, TreatmentRef, TreatmentSpec};
 use candler_schemas::primitives::{Digest, FieldPath, FormatError, Name, NameToken};
-use candler_schemas::values::JsonValue;
+use candler_schemas::values::{JsonValue, ValueSource};
 use futures::future::BoxFuture;
 use serde_json::{Map, Value, json};
 
 use super::identity::show_file;
+use super::plugin_environment::{Fragment, STEP_BASE};
 use crate::isolation::image::{
     BuildSetting, Extension, ImageService, LockDigest, LockRequest, LockSource, package_name_ok,
     prune_name_ok,
@@ -198,9 +199,10 @@ impl PreflightStep for ImageIdStep {
         // BORROW: `.clone()` moves the step name into the future
         let step = self.name.clone();
         Box::pin(async move {
-            let prune = prune_of(&ctx)?;
+            let fragment = fragment_of(&ctx);
+            let prune = prune_of(&ctx, fragment.as_ref())?;
             check_record_packages(&ctx)?;
-            let lock = lock_bytes(&ctx, &images, &supervisor).await?;
+            let lock = lock_bytes(&ctx, fragment.as_ref(), &images, &supervisor).await?;
             let lock_digest = Digest::of_bytes(&lock);
             let extension = extension_of(&ctx)?;
             let inputs = match &extension {
@@ -246,8 +248,40 @@ impl PreflightStep for ImageIdStep {
     }
 }
 
-/// The entries of `isolation.build.prune`: file names, none when the setting is absent.
-fn prune_of(ctx: &ResolveContext) -> Result<Vec<String>, PreflightError> {
+/// The plug-in environment the experiment selects, if any. An environment that cannot be read is
+/// the plug-in environment step's to refuse, with its own code; this step goes on without it.
+fn fragment_of(ctx: &ResolveContext) -> Option<Fragment> {
+    // BORROW: explicit .as_slice()
+    Fragment::from_values(ctx.values.as_slice(), ctx.settings.as_slice())
+        .ok()
+        .flatten()
+}
+
+/// `first` and then `then`, each entry once, at its first place.
+fn appended(first: Vec<String>, then: Vec<String>) -> Vec<String> {
+    let mut all: Vec<String> = Vec::with_capacity(first.len() + then.len());
+    for entry in first.into_iter().chain(then) {
+        if !all.contains(&entry) {
+            all.push(entry);
+        }
+    }
+    all
+}
+
+/// The entries of `isolation.build.prune`: file names, the plug-in environment's first, none
+/// when neither sets the setting.
+fn prune_of(
+    ctx: &ResolveContext,
+    fragment: Option<&Fragment>,
+) -> Result<Vec<String>, PreflightError> {
+    let own = fragment
+        .map(|f| f.list(paths::ISOLATION_BUILD_PRUNE))
+        .unwrap_or_default();
+    Ok(appended(own, written_prune(ctx)?))
+}
+
+/// The entries of `isolation.build.prune` the resolved values hold.
+fn written_prune(ctx: &ResolveContext) -> Result<Vec<String>, PreflightError> {
     let Some(found) = ctx.get(&path_of(paths::ISOLATION_BUILD_PRUNE)?) else {
         return Ok(Vec::new());
     };
@@ -309,6 +343,12 @@ fn extension_of(ctx: &ResolveContext) -> Result<Option<Extension>, PreflightErro
     let dockerfile = text_at(ctx, paths::ISOLATION_BUILD_DOCKERFILE)?;
     let context = text_at(ctx, paths::ISOLATION_BUILD_CONTEXT)?;
     match (dockerfile, context) {
+        (Some(_), Some(_)) if pair_split(ctx)? => Err(failed(format!(
+            "`{}` and `{}` must be set together, by one layer: the plug-in environment sets one \
+             and the experiment the other",
+            paths::ISOLATION_BUILD_DOCKERFILE,
+            paths::ISOLATION_BUILD_CONTEXT
+        ))),
         (Some(dockerfile), Some(context)) => Ok(Some(Extension {
             dockerfile: ctx.config.cwd.join(dockerfile),
             context: ctx.config.cwd.join(context),
@@ -322,10 +362,27 @@ fn extension_of(ctx: &ResolveContext) -> Result<Option<Extension>, PreflightErro
     }
 }
 
+/// Whether exactly one of the Dockerfile and its context comes from the plug-in environment.
+fn pair_split(ctx: &ResolveContext) -> Result<bool, PreflightError> {
+    let from_plugin = |text: &str| -> Result<bool, PreflightError> {
+        let path = path_of(text)?;
+        Ok(ctx.sources.iter().any(|entry| {
+            *entry.path() == path
+                && matches!(
+                    entry.source(),
+                    ValueSource::Derived { step, .. } if step.name() == STEP_BASE
+                )
+        }))
+    };
+    Ok(from_plugin(paths::ISOLATION_BUILD_DOCKERFILE)?
+        != from_plugin(paths::ISOLATION_BUILD_CONTEXT)?)
+}
+
 /// The env lock: the `isolation.build.lock` file verbatim when it is set, else the lock the image
 /// service compiles from `isolation.build.requirements`.
 async fn lock_bytes(
     ctx: &ResolveContext,
+    fragment: Option<&Fragment>,
     images: &Arc<dyn ImageService>,
     supervisor: &Supervisor,
 ) -> Result<Vec<u8>, PreflightError> {
@@ -335,9 +392,19 @@ async fn lock_bytes(
             .await
             .map_err(|e| failed(format!("the lock {} cannot be read: {e}", path.display())));
     }
-    let mut sources = Vec::new();
-    for entry in requirements(ctx)? {
-        sources.push(source_of(ctx, supervisor, &entry).await?);
+    let own = fragment
+        .map(|f| f.list(paths::ISOLATION_BUILD_REQUIREMENTS))
+        .unwrap_or_default();
+    let mut sources: Vec<LockSource> = Vec::new();
+    for entry in appended(own, requirements(ctx)?) {
+        let source = source_of(ctx, supervisor, &entry).await?;
+        if fragment.is_some() && sources.iter().any(|held| held.name == source.name) {
+            return Err(failed(format!(
+                "two requirement sources are named `{}`: the compiler reads each under its file name",
+                source.name
+            )));
+        }
+        sources.push(source);
     }
     images
         .lock(&LockRequest { sources })

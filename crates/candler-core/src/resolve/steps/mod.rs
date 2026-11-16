@@ -6,6 +6,7 @@ pub mod egress;
 pub mod gateway;
 pub mod identity;
 pub mod image;
+pub mod plugin_environment;
 pub mod secrets;
 pub mod session;
 
@@ -15,6 +16,7 @@ use self::catalog::CatalogStep;
 use self::egress::EgressStep;
 use self::identity::{HarnessIdentityStep, TreatmentIdentityStep};
 use self::image::ImageIdStep;
+use self::plugin_environment::PluginEnvironmentStep;
 use self::session::SessionModeStep;
 use super::preflight::{ResolveError, Resolver};
 use crate::isolation::image::ImageService;
@@ -38,7 +40,8 @@ pub struct M2bServices {
 }
 
 /// Registers the preflight steps on `resolver`, in the order their values depend on one another:
-/// the treatment first (its pinned commit is where requirement sources are read), then the image,
+/// the treatment first (its pinned commit is where requirement sources are read), then the plug-in
+/// environment (it supplies the image step's values), then the image,
 /// then the harness (it reads the image), then the catalog, then the session mode, then the egress
 /// allowlist.
 ///
@@ -61,9 +64,11 @@ pub fn register_m2b_steps(
     let treatment = TreatmentIdentityStep::new(Arc::clone(&services.supervisor))?;
     let catalog = CatalogStep::new(Arc::clone(&services.catalog))?;
     let session = SessionModeStep::new(services.session_capable)?;
+    let plugin_environment = PluginEnvironmentStep::new()?;
     let egress = EgressStep::new()?;
     resolver
         .register(Box::new(treatment))? // TRAIT_OBJECT: steps of different types are registered side by side
+        .register(Box::new(plugin_environment))? // TRAIT_OBJECT: steps of different types are registered side by side
         .register(Box::new(image))? // TRAIT_OBJECT: steps of different types are registered side by side
         .register(Box::new(harness))? // TRAIT_OBJECT: steps of different types are registered side by side
         .register(Box::new(catalog))? // TRAIT_OBJECT: steps of different types are registered side by side

@@ -27,6 +27,7 @@ use crate::jobs::dir::JobDir;
 use crate::jobs::lock::{JobLock, LockState};
 use crate::resolve::layers::{Resolution, is_setting};
 use crate::resolve::steps::egress::{self, EgressRefusal};
+use crate::resolve::steps::plugin_environment::{plugin_egress, unite_egress};
 use crate::resolve::steps::session::{self, SessionRefusal};
 use crate::store::Store;
 use candler_schemas::execution::paths::{
@@ -437,7 +438,11 @@ fn fresh_cells(
                     .and_then(ResolvedValue::value)
                     .map(JsonValue::as_value)
             };
-            egress::settle(at(paths::ISOLATION_EGRESS), at(paths::ISOLATION_NETWORK))?
+            let united = unite_egress(
+                plugin_egress(resolution.preflight.as_slice()),
+                at(paths::ISOLATION_EGRESS),
+            ); // BORROW: explicit .as_slice()
+            egress::settle(united.as_ref(), at(paths::ISOLATION_NETWORK))?
         };
         values.retain(|held| *held.path() != egress_path);
         if let Some(entries) = canonical {

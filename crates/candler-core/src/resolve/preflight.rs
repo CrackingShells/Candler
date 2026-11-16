@@ -196,6 +196,9 @@ pub enum ResolveError {
     /// A cell's egress allowlist is refused by the egress step, and no other step failed.
     #[error(transparent)]
     Egress(#[from] crate::resolve::steps::egress::EgressRefusal),
+    /// The plug-in environment an experiment selects does not exist, and no other step failed.
+    #[error(transparent)]
+    PluginEnvironment(#[from] crate::resolve::steps::plugin_environment::PluginEnvironmentRefusal),
     /// At least one step failed; every step ran.
     #[error(
         "preflight failed: {} failed step report(s), {} step error(s){}",
@@ -348,7 +351,7 @@ impl Resolver {
     }
 }
 
-/// The refusal of `reports` when the session step or the egress step is the only step that failed
+/// The refusal of `reports` when the session, egress or plug-in environment step is the only step that failed
 /// and one of its checks says why.
 fn step_refusal(reports: &[StepReport]) -> Option<ResolveError> {
     let [report] = reports else {
@@ -369,6 +372,12 @@ fn step_refusal(reports: &[StepReport]) -> Option<ResolveError> {
             failed.explanation.as_str(), // BORROW: explicit .as_str()
         )
         .map(ResolveError::Egress)
+    } else if step == crate::resolve::steps::plugin_environment::STEP_NAME {
+        crate::resolve::steps::plugin_environment::PluginEnvironmentRefusal::from_check(
+            failed.name.as_str(),        // BORROW: explicit .as_str()
+            failed.explanation.as_str(), // BORROW: explicit .as_str()
+        )
+        .map(ResolveError::PluginEnvironment)
     } else {
         None
     }
