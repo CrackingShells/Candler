@@ -5,19 +5,19 @@
 //! overlay. A secret in the overlay, and the names the driver reserves for the model endpoint and
 //! credentials, are refused rather than overridden.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use candler_harness::spec::{CommandSpec, EnvEntry, EnvValue};
-use candler_schemas::primitives::{Marker, RunKey};
+use candler_schemas::primitives::{ContainerId, Marker, RunKey};
 use url::Url;
 
 use super::expiry::{ceil_secs, wrap_expiry};
 use super::mounts::{MountError, MountRoots, mounts};
 use crate::isolation::RunOutputs;
 use crate::isolation::control::ControlSpec;
-use crate::isolation::docker::{AttachedRun, PROGRAM, attached_request};
+use crate::isolation::docker::{AttachedRun, PROGRAM};
+use crate::isolation::driver::DockerDriver;
 use crate::isolation::hardening::{HardLimits, Role, hardening};
 use crate::isolation::layout::{EXPIRY_MARGIN, LABEL_JOB, LABEL_ROLE, LABEL_RUN};
 use crate::isolation::model::{ContainerPlan, ImageId, Limits, UserSpec};
@@ -58,9 +58,6 @@ pub enum RunArgvError {
         /// The label key.
         key: &'static str,
     },
-    /// The plan's cidfile has no directory.
-    #[error("the cidfile has no parent directory")]
-    BadCidfile,
     /// A mount was refused.
     #[error(transparent)]
     Mount(#[from] MountError),
@@ -139,8 +136,8 @@ fn label<'a>(plan: &'a ContainerPlan, key: &'static str) -> Result<&'a str, RunA
         .ok_or(RunArgvError::MissingLabel { key })
 }
 
-/// The `docker run` argv of an agent container, from `docker` to the end of the command. The
-/// command is run as given: [`build_run_request`] wraps it in the expiry first.
+/// The `docker create` argv of an agent container, from `docker` to the end of the command. The
+/// command is run as given: [`agent_argv`] wraps it in the expiry first.
 ///
 /// The order is fixed: `-i` when the plan is interactive, hardening, labels, environment, mounts,
 /// the image id, the command. There is no `--rm`, so the supervisor can still read the exit and
@@ -149,11 +146,11 @@ fn label<'a>(plan: &'a ContainerPlan, key: &'static str) -> Result<&'a str, RunA
 /// # Errors
 /// [`RunArgvError`] when the plan lacks the job, run or role label, when the overlay is refused
 /// (see [`env_args`]) or repeats a name the plan sets, or when a mount cannot be written.
-pub fn run_argv(plan: &ContainerPlan, cmd: &CommandSpec) -> Result<Vec<String>, RunArgvError> {
+pub fn create_argv(plan: &ContainerPlan, cmd: &CommandSpec) -> Result<Vec<String>, RunArgvError> {
     label(plan, LABEL_JOB)?;
     label(plan, LABEL_RUN)?;
     label(plan, LABEL_ROLE)?;
-    let mut argv = vec![String::from(PROGRAM), String::from("run")];
+    let mut argv = vec![String::from(PROGRAM), String::from("create")];
     if plan.interactive {
         argv.push(String::from("-i"));
     }
@@ -169,8 +166,6 @@ pub fn run_argv(plan: &ContainerPlan, cmd: &CommandSpec) -> Result<Vec<String>, 
     if let UserSpec::Host { uid, gid } = &plan.user {
         argv.extend([String::from("--user"), format!("{uid}:{gid}")]);
     }
-    argv.push(String::from("--cidfile"));
-    argv.push(plan.cidfile.to_string_lossy().into_owned());
     let workdir = cmd.cwd().map_or_else(
         // BORROW: the plan's workdir is copied into the argv
         || plan.workdir.clone(),
@@ -236,7 +231,7 @@ fn reserved_names<'a>(plan: &'a ContainerPlan) -> &'a [String] {
         .map_or(&[], |gateway| gateway.reserved.as_slice())
 }
 
-/// The `docker run` argv of the agent container that runs `cmd` for the run `key`: the mounts
+/// The `docker create` argv of the agent container that runs `cmd` for the run `key`: the mounts
 /// checked against the plan's roots, the labels of the run, the gateway's address and dummy token
 /// set by the wrapper under the variable names the plan's gateway gives, and the command under an
 /// expiry of the wall plus the margin. The program is `docker`.
@@ -281,47 +276,55 @@ pub fn agent_argv(
     let wrapped = wrap_expiry(cmd, secs).map_err(|source| RunArgvError::Command {
         detail: source.to_string(),
     })?;
-    run_argv(&planned, &wrapped)
+    create_argv(&planned, &wrapped)
 }
 
-/// The request that runs `cmd` in the plan's container: the argv of [`agent_argv`], the docker
-/// client's own environment, and the supervisor's deadline at the wall. The request carries no
-/// stop hook; the isolation attaches one per request.
+/// The `docker start` argv that attaches to the created container `cid`: `-a`, and `-i` when the
+/// plan is interactive, which is when the container was created with `-i` as well.
+#[must_use]
+pub fn start_argv(plan: &ContainerPlan, cid: &ContainerId) -> Vec<String> {
+    let mut argv = vec![
+        String::from(PROGRAM),
+        String::from("start"),
+        String::from("-a"),
+    ];
+    if plan.interactive {
+        argv.push(String::from("-i"));
+    }
+    argv.push(cid.as_str().to_owned()); // BORROW: the argv owns the id
+    argv
+}
+
+/// The supervised request that starts the created container `cid` and stays attached to it until
+/// it exits, over the docker binary `docker` runs: `docker start -a`, with `-i` when the plan is
+/// interactive, the client's own environment, and the supervisor's deadline at the wall. The
+/// request carries `hook` as its stop hook.
 ///
 /// # Errors
-/// [`RunArgvError`] when a mount, the overlay, the gateway variables or the request is refused.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "each argument is one fact of the request and none belongs with another"
-)]
-pub fn build_run_request(
+/// [`RunArgvError::Request`] when the request is refused.
+pub fn build_start_request(
+    docker: &dyn DockerDriver, // TRAIT_OBJECT: the driver is docker, or a fake binary in tests
     plan: &ContainerPlan,
-    cmd: &CommandSpec,
+    cid: &ContainerId,
     marker: Marker,
     key: &RunKey,
-    base_url: &Url,
-    dummy_token: &str,
     hook: Option<Arc<dyn StopHook>>,
     outputs: RunOutputs,
 ) -> Result<SpawnRequest, RunArgvError> {
-    let argv = agent_argv(plan, cmd, key, base_url, dummy_token)?;
-    let record_dir: PathBuf = plan
-        .cidfile
-        .parent()
-        .map(PathBuf::from)
-        .ok_or(RunArgvError::BadCidfile)?;
-    attached_request(AttachedRun {
-        argv,
-        marker,
-        key: key.clone(), // BORROW: .clone() gives the request its own run key
-        stdout: outputs.stdout,
-        stderr: outputs.stderr,
-        deadline: plan.expiry,
-        record_dir,
-        interactive: plan.interactive,
-        hook,
-    })
-    .map_err(|source| RunArgvError::Request {
-        detail: source.to_string(),
-    })
+    let argv = start_argv(plan, cid);
+    docker
+        .attach(AttachedRun {
+            argv,
+            marker,
+            key: key.clone(), // BORROW: .clone() gives the request its own run key
+            stdout: outputs.stdout,
+            stderr: outputs.stderr,
+            deadline: plan.expiry,
+            record_dir: plan.record_dir.clone(), // BORROW: the request owns its directory
+            interactive: plan.interactive,
+            hook,
+        })
+        .map_err(|source| RunArgvError::Request {
+            detail: source.to_string(),
+        })
 }

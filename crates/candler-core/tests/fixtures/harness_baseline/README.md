@@ -4,7 +4,8 @@ What the core produced for a Claude Code run at commit cf3de30 (`v0.7.0`), recor
 never re-recorded. The guards in `tests/guard_harness_facts.rs` compare the current core with
 these files byte for byte; a difference is a defect of the change under test.
 
-- `argv.json`: `headless_run`, the `docker run` argv of a reference cell (every flag of the
+- `argv.json`: `headless_run`, the `docker create` argv of a reference cell, `headless_start` and
+  `interactive_start`, the `docker start` argv that attaches to the created container (`<id>`), (every flag of the
   headless command line set; the scene's root is written `<root>`), and
   `control_version_probe`, the argv of the control container that reads the harness version,
   with the `version` it printed. Recorded at cf3de30; the probe's `--tmpfs /tmp` pair and

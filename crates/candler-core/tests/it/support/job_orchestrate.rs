@@ -13,7 +13,6 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use candler_core::isolation::container::DockerIsolation;
-use candler_core::isolation::container::stop::ContainerStopHook;
 use candler_core::isolation::container::sweeper::ContainerSweeper;
 use candler_core::isolation::docker::{ClientEnv, DockerCli, DockerError};
 use candler_core::isolation::driver::DockerDriver;
@@ -33,7 +32,6 @@ use candler_core::jobs::slots::Slots;
 use candler_core::runner::Runtime;
 use candler_core::runner::evidence::provenance::EvalInfra;
 use candler_core::store::Store;
-use candler_core::supervise::hook::StopHook;
 use candler_core::supervise::spawn::SpawnRequest;
 use candler_core::supervise::stop::Exit;
 use candler_core::supervise::{EventSink, Supervisor};
@@ -121,11 +119,11 @@ impl EndFacts for NoContainer {
     }
 }
 
-/// An agent that writes a cidfile: the run is a first-party shell that writes `cid` to the plan's
-/// cidfile, then sleeps `sleep_s` seconds. The container it names exists only in the scripted
+/// An agent container the fake client creates: its `create` prints `cid`, and its `start -a`
+/// prints `stdout` and exits after `sleep_s` seconds. The container exists only in the scripted
 /// answers of the fake client.
 pub struct FakeAgent {
-    /// The id the run's cidfile holds.
+    /// The id the fake client's `create` prints.
     pub cid: ContainerId,
     /// How long the run lives, in seconds.
     pub sleep_s: u32,
@@ -137,8 +135,8 @@ pub struct FakeAgent {
 }
 
 /// The isolation of a job over the fake client: the real plan, a run that is the fake client's
-/// `run` verb, and a destroy with nothing to destroy. With a [`FakeAgent`] the run writes a
-/// cidfile and the real isolation records and destroys the container it names.
+/// `run` verb, and a destroy with nothing to destroy. With a [`FakeAgent`] the real isolation
+/// creates, records, attaches to and destroys the container the fake client names.
 pub struct Placed {
     inner: DockerIsolation,
     docker: PathBuf,
@@ -154,82 +152,39 @@ impl Isolation for Placed {
         self.inner.plan(cell, workspace)
     }
 
-    fn run_request(
-        &self,
-        plan: &ContainerPlan,
-        _command: CommandSpec,
+    fn run_request<'a>(
+        &'a self,
+        plan: &'a ContainerPlan,
+        command: CommandSpec,
         marker: Marker,
         key: RunKey,
         outputs: RunOutputs,
-    ) -> Result<IsolatedRequest, IsolationError> {
-        let record_dir = plan
-            .cidfile
-            .parent()
-            .map(Path::to_path_buf)
-            .ok_or_else(|| IsolationError::Plan {
-                detail: String::from("the cidfile has no directory"),
-            })?;
-        let observer = outputs.observer.clone(); // BORROW: the hook shares the live view
+    ) -> BoxFuture<'a, Result<IsolatedRequest, IsolationError>> {
+        if self.agent.is_some() {
+            // The real create, record and attach, through the fake client's `create`, `inspect`
+            // and `start` answers.
+            return self.inner.run_request(plan, command, marker, key, outputs);
+        }
         let path = std::env::var("PATH").unwrap_or_default();
-        let argv = match &self.agent {
-            Some(agent) => vec![
-                String::from("/bin/sh"),
-                String::from("-c"),
-                String::from("printf %s \"$1\" > \"$2\"; printf %s \"$4\"; exec sleep \"$3\""),
-                String::from("agent"),
-                agent.cid.as_str().to_owned(),
-                plan.cidfile.to_string_lossy().into_owned(),
-                agent.sleep_s.to_string(),
-                agent.stdout.clone(), // BORROW: the argv owns the text
-            ],
-            None => vec![
+        let made = SpawnRequest::builder()
+            .argv(vec![
                 self.docker.to_string_lossy().into_owned(),
                 String::from("run"),
                 key.to_string(),
-            ],
-        };
-        let mut builder = SpawnRequest::builder()
-            .argv(argv)
+            ])
             .env(vec![(String::from("PATH"), path)])
             .marker(marker)
             .run(key)
             .stdout(outputs.stdout)
             .stderr(outputs.stderr)
             .deadline(plan.expiry)
-            .record_dir(record_dir);
-        // TRAIT_OBJECT: the facts come from the hook the request carries, or from none
-        let mut facts: Arc<dyn EndFacts> = Arc::new(NoContainer);
-        if let Some(sweeper) = self.agent.as_ref().and_then(|agent| agent.sweeper.as_ref()) {
-            let job = plan
-                .labels
-                .get("candler.job")
-                .and_then(|text| text.parse().ok())
-                .ok_or_else(|| IsolationError::Plan {
-                    detail: String::from("the plan carries no job label"),
-                })?;
-            let mut stop_hook =
-                ContainerStopHook::new(self.inner.guard(), Arc::clone(sweeper), job);
-            if let Some(view) = observer {
-                stop_hook = stop_hook.with_observer(view);
-            }
-            let hook = Arc::new(stop_hook);
-            // TRAIT_OBJECT: the request carries its hook as the supervisor's trait
-            let attached: Arc<dyn StopHook> = hook.clone(); // BORROW: the facts share the hook
-            builder = builder.stop_hook(attached);
-            facts = hook;
-        }
-        let request = builder.build().map_err(|error| IsolationError::Plan {
-            detail: error.to_string(),
-        })?;
-        Ok(IsolatedRequest::new(request, facts))
-    }
-
-    fn record_container<'a>(
-        &'a self,
-        plan: &'a ContainerPlan,
-        key: &'a RunKey,
-    ) -> BoxFuture<'a, Result<Option<ContainerId>, IsolationError>> {
-        self.inner.record_container(plan, key)
+            .record_dir(plan.record_dir.clone())
+            .build()
+            .map(|request| IsolatedRequest::new(request, Arc::new(NoContainer)))
+            .map_err(|error| IsolationError::Plan {
+                detail: error.to_string(),
+            });
+        Box::pin(async move { made })
     }
 
     fn collect_exec<'a>(
@@ -345,8 +300,12 @@ impl JobHost for FakeHost {
 
     // TRAIT_OBJECT: the host hands the runs an isolation as a trait object
     fn isolation(&self, isolation: DockerIsolation) -> Arc<dyn Isolation> {
+        let inner = match self.agent.as_ref().and_then(|agent| agent.sweeper.as_ref()) {
+            Some(sweeper) => isolation.with_sweeper(Arc::clone(sweeper)), // BORROW: the isolation shares the sweeper
+            None => isolation,
+        };
         Arc::new(Placed {
-            inner: isolation,
+            inner,
             docker: self.docker.clone(),
             agent: self.agent.clone(), // BORROW: the isolation shares the agent
         })
@@ -606,6 +565,12 @@ impl Rig {
     /// The host of the job over this world, whose runs are `agent`.
     #[must_use]
     pub fn host_with_agent(&self, agent: FakeAgent) -> Arc<FakeHost> {
+        let canned = self.canned();
+        fs::write(canned.join("create.out"), agent.cid.as_str()).expect("a create answer");
+        fs::write(canned.join("start.early"), &agent.stdout).expect("a start answer");
+        if agent.sleep_s > 0 {
+            fs::write(canned.join("start.delay"), agent.sleep_s.to_string()).expect("a delay");
+        }
         Arc::new(FakeHost {
             reads: None,
             docker: self.docker.clone(),

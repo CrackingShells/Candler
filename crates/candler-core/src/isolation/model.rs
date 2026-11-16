@@ -345,8 +345,8 @@ pub struct ContainerPlan {
     pub egress: Option<NetworkName>,
     /// The resource limits.
     pub limits: Limits,
-    /// The file docker writes the container id to.
-    pub cidfile: PathBuf,
+    /// The job's `children/` directory, where the docker client's process record is written.
+    pub record_dir: PathBuf,
     /// The user.
     pub user: UserSpec,
     /// The working directory inside the container.

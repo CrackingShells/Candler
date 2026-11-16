@@ -14,6 +14,8 @@ mod container_stop_e2e;
 mod control_e2e;
 #[path = "guard_container_e2e/controls_e2e.rs"]
 mod controls_e2e_runs;
+#[path = "guard_container_e2e/create_e2e.rs"]
+mod create_e2e;
 #[path = "guard_container_e2e/env_image_e2e.rs"]
 mod env_image_e2e;
 #[path = "guard_container_e2e/gateway_e2e.rs"]

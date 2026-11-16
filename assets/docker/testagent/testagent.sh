@@ -1,6 +1,7 @@
 #!/bin/sh
 # Candler M2b test agent. Mode is the first argument:
-#   stream | probe | ignore-term | sleep-forever
+#   stream | probe | ignore-term | sleep-forever | exit3 | stream-bytes | echo-stdin | term-echo
+# `timeout <args>` runs `timeout` on <args>, so the run's expiry wrapper reaches the mode.
 # Oracle fixture: it reports facts, it never judges them.
 mode="${1:-}"
 
@@ -20,6 +21,27 @@ try_write() {
 }
 
 case "$mode" in
+timeout)
+  shift
+  exec timeout "$@"
+  ;;
+exit3)
+  printf 'frame-1\n'
+  printf '\000\377tail-without-newline'
+  printf 'err-1\n' >&2
+  exit 3
+  ;;
+stream-bytes)
+  printf '{"n":1}\n{"n":2}\n\000\377\001no-newline'
+  ;;
+echo-stdin)
+  while IFS= read -r line; do printf 'echo:%s\n' "$line"; done
+  ;;
+term-echo)
+  trap 'echo got-term; exit 0' TERM
+  echo ready
+  while :; do sleep 1; done
+  ;;
 stream)
   # Shape of a real Claude Code stream-json (streams/multi_init): an init frame, then a result frame.
   printf '%s\n' '{"type":"system","subtype":"init","cwd":"/workspace","session_id":"00000000-0000-4000-8000-000000000001","tools":["Bash","Edit","Read","Write"],"mcp_servers":[],"model":"test-model","permissionMode":"bypassPermissions","apiKeySource":"none","claude_code_version":"0.0.0","output_style":"default","skills":[],"plugins":[],"uuid":"00000000-0000-4000-8000-000000000002"}'

@@ -29,7 +29,7 @@
   ],
   "headless_run": [
     "docker",
-    "run",
+    "create",
     "--init",
     "--read-only",
     "--tmpfs",
@@ -50,8 +50,6 @@
     "candler-019000000000-net",
     "--user",
     "1000:1000",
-    "--cidfile",
-    "<root>/agent.cid",
     "--workdir",
     "/work",
     "--label",
@@ -103,6 +101,19 @@
     "30",
     "--max-budget-usd",
     "1.0"
+  ],
+  "headless_start": [
+    "docker",
+    "start",
+    "-a",
+    "<id>"
+  ],
+  "interactive_start": [
+    "docker",
+    "start",
+    "-a",
+    "-i",
+    "<id>"
   ],
   "version": "2.1.311"
 }

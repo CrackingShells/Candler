@@ -9,7 +9,7 @@ use std::time::Duration;
 use candler_core::isolation::container::exec::collect_spec;
 use candler_core::isolation::container::mounts::{MountMode, MountSpec};
 use candler_core::isolation::container::run::{
-    RunArgvError, build_run_request, catalog_spec, run_argv,
+    RunArgvError, build_start_request, catalog_spec, create_argv,
 };
 use candler_core::isolation::control::ControlSpec;
 use candler_core::isolation::docker::{Call, ClientEnv, DockerCli};
@@ -52,7 +52,7 @@ fn plan() -> ContainerPlan {
             memory: String::from("1g"),
             cpus: 1.0,
         },
-        cidfile: PathBuf::from("/c/a.cid"),
+        record_dir: PathBuf::from("/c"),
         user: UserSpec::Engine,
         workdir: String::from("/work"),
         home: String::from("/home/agent"),
@@ -81,7 +81,7 @@ fn b07_secret_and_auth_overlay_refused() {
         String::from("CANARY_SECRET"),
         SecretName::from_str("CANARY_SECRET").expect("a secret name"),
     );
-    let refused = run_argv(&plan(), &command(vec![secret]));
+    let refused = create_argv(&plan(), &command(vec![secret]));
     assert!(
         matches!(refused, Err(RunArgvError::SecretRefused { .. })),
         "a secret: {refused:?}"
@@ -93,7 +93,7 @@ fn b07_secret_and_auth_overlay_refused() {
         "ANTHROPIC_API_KEY",
     ] {
         let entry = EnvEntry::literal(String::from(name), String::from(CANARY));
-        let refused = run_argv(&plan(), &command(vec![entry]));
+        let refused = create_argv(&plan(), &command(vec![entry]));
         match refused {
             Err(error @ RunArgvError::ReservedName { .. }) => {
                 assert!(
@@ -107,7 +107,7 @@ fn b07_secret_and_auth_overlay_refused() {
 
     // The positive control: a refusal-everywhere stub fails here.
     let plain = EnvEntry::literal(String::from("PLAIN_NAME"), String::from("plain-value"));
-    let argv = run_argv(&plan(), &command(vec![plain])).expect("a plain entry is allowed");
+    let argv = create_argv(&plan(), &command(vec![plain])).expect("a plain entry is allowed");
     assert!(
         argv.windows(2)
             .any(|pair| pair == ["-e", "PLAIN_NAME=plain-value"]),
@@ -422,13 +422,14 @@ async fn client_env_is_the_allowlist_on_every_spawn() {
         };
         candler_core::isolation::RunOutputs::new(framed("stdout"), framed("stderr"))
     };
-    let request = build_run_request(
+    let request = build_start_request(
+        &candler_core::isolation::testing::RecordingDocker::new(),
         &plan_under(work.path()),
-        &command(Vec::new()),
+        &"abababababababababababababababababababababababababababababababab"
+            .parse()
+            .expect("a container id"),
         "client-env".parse().expect("a marker"),
         &RunKey::new(Digest::from_hex(&"c".repeat(64)).expect("a digest"), 1, 1).expect("a key"),
-        &"http://gateway:8080/run/ref".parse().expect("a url"),
-        "dummy-token",
         None,
         outputs,
     )

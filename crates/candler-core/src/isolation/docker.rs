@@ -180,19 +180,29 @@ pub struct AttachedRun {
 /// # Errors
 /// [`SuperviseError`] when the request is refused.
 pub fn attached_request(run: AttachedRun) -> Result<SpawnRequest, SuperviseError> {
+    let binary = std::env::var_os("PATH")
+        .as_ref()
+        .and_then(find_docker)
+        .map_or_else(
+            || PROGRAM.to_owned(), // BORROW: the argv owns its text
+            |path| path.to_string_lossy().into_owned(),
+        );
+    attached_with(run, binary, &ClientEnv::from_process())
+}
+
+/// The supervised request of `run` over the docker binary `binary` and the environment `env`.
+fn attached_with(
+    run: AttachedRun,
+    binary: String,
+    env: &ClientEnv,
+) -> Result<SpawnRequest, SuperviseError> {
     let mut argv = run.argv;
     if let Some(first) = argv.first_mut() {
-        *first = std::env::var_os("PATH")
-            .as_ref()
-            .and_then(find_docker)
-            .map_or_else(
-                || PROGRAM.to_owned(), // BORROW: the argv owns its text
-                |path| path.to_string_lossy().into_owned(),
-            );
+        *first = binary;
     }
     let mut builder = SpawnRequest::builder()
         .argv(argv)
-        .env(ClientEnv::from_process().pairs().to_vec()) // BORROW: .to_vec() gives the request its own pairs
+        .env(env.pairs().to_vec()) // BORROW: .to_vec() gives the request its own pairs
         .marker(run.marker)
         .run(run.key)
         .stdout(run.stdout)
@@ -778,6 +788,14 @@ fn inspect_many_answer(
 }
 
 impl DockerDriver for DockerCli {
+    fn attach(&self, run: AttachedRun) -> Result<SpawnRequest, SuperviseError> {
+        attached_with(
+            run,
+            self.runner.binary.to_string_lossy().into_owned(),
+            &self.runner.env,
+        )
+    }
+
     fn capture(
         &self,
         args: Vec<String>,

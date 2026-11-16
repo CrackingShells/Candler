@@ -189,7 +189,7 @@ async fn control_each_kind_runs_on_the_real_base() {
         network: NetworkName::for_job(&job),
         egress: None,
         limits,
-        cidfile: project.join("agent.cid"),
+        record_dir: project.clone(),
         user: UserSpec::Engine,
         workdir: String::from("/work"),
         home: String::from("/home/agent"),
