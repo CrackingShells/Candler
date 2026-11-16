@@ -16,8 +16,7 @@ Runs can be isolated in containers, and agents can drive Candler through MCP.
 ```mermaid
 graph TD
     m5_container_isolation[M5 Container isolation]:::planned
-    m7_mcp_server[M7 MCP server]:::planned
-    freeze[Freeze]:::planned
+    stats[Paired statistics]:::amendment
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -29,8 +28,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `m5_container_isolation.md` | 📄 Leaf Task | ⬜ Planned |
-| `m7_mcp_server.md` | 📄 Leaf Task | ⬜ Planned |
-| `freeze/` | 📁 Directory | ⬜ Planned |
+| `stats/` | 📁 Directory | 🔵 Amendment |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
