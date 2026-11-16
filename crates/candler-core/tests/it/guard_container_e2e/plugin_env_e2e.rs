@@ -40,8 +40,8 @@ use candler_core::supervise::spawn::OutputSpec;
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_harness::spec::{CommandSpec, Framing, Workspace};
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
-use candler_schemas::execution::EventPayload;
-use candler_schemas::primitives::{Digest, JobId, RunKey};
+use candler_schemas::execution::{EventPayload, ExperimentInput, InputAudience};
+use candler_schemas::primitives::{Digest, JobId, Name, RunKey};
 use candler_schemas::process::ExitStatus;
 use candler_schemas::raw::FrameData;
 use serde_json::{Value, json};
@@ -225,7 +225,8 @@ fn render_mcp(fragment: &Fragment) -> Value {
 /// (the harness base, the env layer, the environment's own Dockerfile and context) runs the
 /// environment's MCP server from the environment's inputs, and the agent's process lists
 /// exactly the server's tools from inside the container, while an evaluator-only file of the
-/// same plug-in is in the container neither by name nor by bytes. Everything the test built is
+/// same plug-in, declared as an evaluator-only input of the experiment, is in the container
+/// neither by name nor by bytes. Everything the test built is
 /// removed by id.
 /// Oracle: the tools the fixture's `agent/server.py` declares, written by hand below (names,
 /// the `add` schema, and the dependency's tag that only the wheel built into the extension
@@ -233,7 +234,8 @@ fn render_mcp(fragment: &Fragment) -> Value {
 /// `docker inspect` of every id after the removal.
 /// Bite: the extension left out of the build (the server fails on its import), the plug-in's
 /// inputs not mounted (the client is not there), or the resolved `mcp.*` values dropped from the
-/// file the client reads (no server to launch).
+/// file the client reads (no server to launch), or the evaluator-only input declared for the agent
+/// (`InputAudience::Agent`: it is mounted, and the client finds the canary by name and bytes).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "needs a Docker daemon, the harness base image and PyPI for the env venv"]
 async fn plugin_environment_serves_live_mcp_tools() {
@@ -374,11 +376,28 @@ async fn plugin_environment_serves_live_mcp_tools() {
     // The environment's inputs, resolved against the plug-in directory into a store under HOME
     // and mounted read-only at their workspace paths, the way a run mounts them.
     let store = Store::init(&root.join("store")).expect("a store");
+    // The experiment's own evaluator-only input is the plug-in's `evaluator` directory: a plug-in
+    // fragment declares agent inputs only, so the audience is the experiment's to set.
+    let evaluator_only = [ExperimentInput::new(
+        "evaluator_only".parse::<Name>().expect("a name"),
+        String::from("evaluator"),
+        None,
+        InputAudience::Evaluators,
+    )
+    .expect("an evaluator input")];
     let resolved = resolve_input_groups(
         &store,
-        &[(fragment.inputs.as_slice(), fragment.dir.as_path())], // BORROW: explicit .as_slice()
+        &[
+            (fragment.inputs.as_slice(), fragment.dir.as_path()), // BORROW: explicit .as_slice()
+            (evaluator_only.as_slice(), fragment.dir.as_path()),  // BORROW: explicit .as_slice()
+        ],
     )
     .expect("the environment's inputs resolve");
+    assert_eq!(
+        resolved.evaluators.len(),
+        1,
+        "the evaluator-only input is declared and resolved"
+    );
     let work = root.join("work");
     let mut mounts: Vec<MountSpec> = ["work", "home"]
         .map(|sub| MountSpec {

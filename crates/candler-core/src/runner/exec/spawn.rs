@@ -194,7 +194,8 @@ impl RunStopper {
     /// Begins the stop in a task of its own and returns at once.
     pub fn request(&self) {
         let stopper = self.clone(); // BORROW: .clone() gives the task its own handles
-        tokio::spawn(async move { stopper.stop().await });
+        // EXPLICIT: the stop task is detached; its effect is the stop, and the run's wait reports the end
+        drop(tokio::spawn(async move { stopper.stop().await }));
     }
 
     /// Stops the agent container through the daemon, then lets the client leave by itself for

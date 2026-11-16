@@ -24,7 +24,7 @@ use candler_harness::spec::{
 };
 use candler_schemas::container::ContainerRole;
 use candler_schemas::execution::{EventPayload, Integrity, InvalidReason, RunManifest, RunTree};
-use candler_schemas::primitives::{ContainerId, Digest, Marker};
+use candler_schemas::primitives::{ContainerId, Digest, Marker, RunKey};
 use candler_schemas::process::ExitStatus;
 use candler_schemas::raw::StreamName;
 use candler_schemas::trace::{RawFileRef, TraceFile, TraceHeader};
@@ -54,7 +54,7 @@ use crate::isolation::container::mounts::{MountMode, MountRoots, MountSpec, moun
 use crate::isolation::gateway::census_init;
 use crate::isolation::layout;
 use crate::isolation::model::ContainerPlan;
-use crate::isolation::{IsolationError, RunOutputs};
+use crate::isolation::{Isolation, IsolationError, RunOutputs};
 use crate::jobs::model::JobCause;
 use crate::jobs::slots::Slot;
 use crate::store::StoreError;
@@ -330,6 +330,29 @@ async fn wait_or_cancel(
     }
 }
 
+/// Destroys the agent container of a run whose client could not be started or waited for, which
+/// was created and recorded before the client was spawned.
+// TRAIT_OBJECT: the isolation is held as a trait object by the runtime
+async fn destroy_unstarted(
+    isolation: &dyn Isolation,
+    plan: &ContainerPlan,
+    workspace: &Workspace<'_>,
+    key: &RunKey,
+) {
+    let exit = Exit::new(
+        ExitStatus::Code { code: 125 },
+        Ended::Stopped,
+        Vec::new(),
+        true,
+        Vec::new(),
+        Vec::new(),
+    );
+    // EXPLICIT: a refusal or failure of the destroy stays in the guard's record and the job-close sweep; the run reports the client's error
+    let _ = isolation
+        .collect_and_destroy(plan, workspace, &exit, key)
+        .await;
+}
+
 /// The stream a raw file archives, from its name `<stream>.jsonl.gz`.
 fn stream_of(path: &Path) -> Option<StreamName> {
     let name = path.file_name()?.to_str()?;
@@ -535,7 +558,13 @@ async fn drive(
     let Started {
         mut child,
         end_facts,
-    } = start_attempt(rt, isolated)?;
+    } = match start_attempt(rt, isolated) {
+        Ok(started) => started,
+        Err(error) => {
+            destroy_unstarted(isolation.as_ref(), &container, &workspace, &plan.key).await;
+            return Err(error.into());
+        }
+    };
     let run_stop = spawn::RunStopper::new(
         child.stop_handle(),
         Arc::clone(&end_facts), // BORROW: the stopper shares the run's facts
@@ -555,7 +584,13 @@ async fn drive(
     };
     let (waited, cause) = wait_or_cancel(child, ctl.cancel.clone(), &run_stop).await; // BORROW: the wait owns a receiver
     let session_outcome = session_handle.map(SessionHandle::finish);
-    let exit = waited?;
+    let exit = match waited {
+        Ok(exit) => exit,
+        Err(error) => {
+            destroy_unstarted(isolation.as_ref(), &container, &workspace, &plan.key).await;
+            return Err(error.into());
+        }
+    };
     let duration_ms = u64::try_from(attempt_began.elapsed().as_millis()).unwrap_or(u64::MAX);
     // What the live reader saw, read before the container goes: a collect command needs the ids.
     let live_view = handle.as_ref().map(spawn::LiveHandle::observed);

@@ -184,8 +184,8 @@ pub fn attached_request(run: AttachedRun) -> Result<SpawnRequest, SuperviseError
         .as_ref()
         .and_then(find_docker)
         .map_or_else(
-            || PROGRAM.to_owned(), // BORROW: the argv owns its text
-            |path| path.to_string_lossy().into_owned(),
+            || PROGRAM.to_owned(),                      // BORROW: the argv owns its text
+            |path| path.to_string_lossy().into_owned(), // BORROW: the argv owns its text
         );
     attached_with(run, binary, &ClientEnv::from_process())
 }
@@ -791,7 +791,7 @@ impl DockerDriver for DockerCli {
     fn attach(&self, run: AttachedRun) -> Result<SpawnRequest, SuperviseError> {
         attached_with(
             run,
-            self.runner.binary.to_string_lossy().into_owned(),
+            self.runner.binary.to_string_lossy().into_owned(), // BORROW: the argv owns its text
             &self.runner.env,
         )
     }
