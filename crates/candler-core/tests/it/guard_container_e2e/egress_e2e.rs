@@ -304,6 +304,118 @@ fn wait_for(what: &str, mut check: impl FnMut() -> bool) {
     }
 }
 
+/// A host listener that counts the bytes any peer sends it.
+struct HostListener {
+    label: &'static str,
+    port: u16,
+    bytes: Arc<AtomicUsize>,
+}
+
+impl HostListener {
+    /// Binds `addr` and counts in a thread; `None` when the host cannot bind it.
+    fn bind(addr: &'static str) -> Option<Self> {
+        let listener = TcpListener::bind(addr).ok()?;
+        let port = listener.local_addr().ok()?.port();
+        let bytes = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::clone(&bytes);
+        std::thread::spawn(move || {
+            while let Ok((mut conn, _)) = listener.accept() {
+                let seen = Arc::clone(&seen);
+                std::thread::spawn(move || {
+                    let mut buf = [0u8; 4096];
+                    while let Ok(n @ 1..) = std::io::Read::read(&mut conn, &mut buf) {
+                        seen.fetch_add(n, Ordering::SeqCst);
+                    }
+                });
+            }
+        });
+        Some(Self {
+            label: addr,
+            port,
+            bytes,
+        })
+    }
+}
+
+/// The address a bridge gateway has on docker network `net`: the first address of its subnet.
+/// A network created without a host address reports no gateway, so the address is derived from
+/// the subnet, where a bridge that kept its host address would hold it.
+fn bridge_gateway(net: &str) -> String {
+    let subnet = must(
+        &[
+            "network",
+            "inspect",
+            "-f",
+            "{{(index .IPAM.Config 0).Subnet}}",
+            net,
+        ],
+        "the subnet",
+    );
+    let base = subnet.split('/').next().expect("an address");
+    let (head, _) = base.rsplit_once('.').expect("an IPv4 subnet");
+    format!("{head}.1")
+}
+
+/// The host's link-local IPv6 address on the bridge of docker network `net`, when it has one.
+/// Only a Linux host has the bridge as an interface.
+fn host_link_local(net: &str) -> Option<String> {
+    let id = must(
+        &["network", "inspect", "-f", "{{.Id}}", net],
+        "a network id",
+    );
+    let bridge = format!("br-{}", id.get(..12)?);
+    let out = Command::new("ip")
+        .args(["-6", "-o", "addr", "show", "dev", &bridge, "scope", "link"])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let addr = text
+        .split_whitespace()
+        .skip_while(|w| *w != "inet6")
+        .nth(1)?;
+    Some(addr.split('/').next()?.to_owned())
+}
+
+/// Row 8: from `agent`, tries every host address it could name against every host listener; each
+/// listener must receive no byte.
+fn probe_host(
+    cell: &str,
+    agent: &str,
+    gateways: &[&str],
+    link_local: Option<&str>,
+    listeners: &[HostListener],
+    log: &std::cell::RefCell<Vec<String>>,
+    failures: &std::cell::RefCell<Vec<String>>,
+) {
+    let mut targets: Vec<String> = gateways.iter().map(|g| (*g).to_owned()).collect();
+    targets.push("host.docker.internal".to_owned());
+    if let Some(ll) = link_local {
+        targets.extend(["eth0", "eth1"].map(|nic| format!("{ll}%{nic}")));
+    }
+    let before: Vec<usize> = listeners
+        .iter()
+        .map(|l| l.bytes.load(Ordering::SeqCst))
+        .collect();
+    for target in &targets {
+        for listener in listeners {
+            attempt(agent, target, listener.port, PLAIN);
+        }
+    }
+    for (listener, before) in listeners.iter().zip(before) {
+        let got = listener.bytes.load(Ordering::SeqCst) - before;
+        log.borrow_mut().push(format!(
+            "row 8 [{cell}] listener {} received {got} bytes; targets {targets:?}",
+            listener.label
+        ));
+        if got > 0 {
+            failures.borrow_mut().push(format!(
+                "row 8 [{cell}]: the host listener {} received {got} bytes",
+                listener.label
+            ));
+        }
+    }
+}
+
 /// Guards: R01 §Agent environment and secrets, the egress allowlist — an agent whose cell lists
 /// hosts reaches those host:port pairs and the model gateway, and nothing else: no other port,
 /// host, literal address, external name, host gateway, name that resolves to loopback or
@@ -553,6 +665,9 @@ async fn egress_allowlist_holds_on_a_real_daemon() {
             "network",
             "create",
             "--internal",
+            "-o",
+            "com.docker.network.bridge.inhibit_ipv4=true",
+            "--ipv6=false",
             "--label",
             &format!("candler.job={job}"),
             "--label",
@@ -614,24 +729,11 @@ async fn egress_allowlist_holds_on_a_real_daemon() {
     must(&["start", &proxy], "starting the proxy");
     let proxy_ip = ip_on(&proxy, allow.as_str());
 
-    // A listener on the host, for the host-gateway row.
-    let listener = TcpListener::bind("0.0.0.0:0").expect("a host listener");
-    let host_port = listener.local_addr().expect("an address").port();
-    let host_bytes = Arc::new(AtomicUsize::new(0));
-    {
-        let seen = Arc::clone(&host_bytes);
-        std::thread::spawn(move || {
-            while let Ok((mut conn, _)) = listener.accept() {
-                let seen = Arc::clone(&seen);
-                std::thread::spawn(move || {
-                    let mut buf = [0u8; 4096];
-                    while let Ok(n @ 1..) = std::io::Read::read(&mut conn, &mut buf) {
-                        seen.fetch_add(n, Ordering::SeqCst);
-                    }
-                });
-            }
-        });
-    }
+    // Listeners on the host, for row 8: every address family the host could answer on.
+    let listeners: Vec<HostListener> = ["0.0.0.0:0", "[::]:0"]
+        .into_iter()
+        .filter_map(HostListener::bind)
+        .collect();
 
     // The agent: the job's internal network, its allow network, one --add-host per listed name.
     let base_url = handle.run_base_url(&run).to_string();
@@ -694,16 +796,8 @@ async fn egress_allowlist_holds_on_a_real_daemon() {
         );
     }
     must(&["start", &agent], "starting the agent");
-    let host_gw = must(
-        &[
-            "network",
-            "inspect",
-            "-f",
-            "{{(index .IPAM.Config 0).Gateway}}",
-            allow.as_str(),
-        ],
-        "the allow gateway",
-    );
+    let job_gw = bridge_gateway(&job_net);
+    let host_gw = bridge_gateway(allow.as_str());
 
     let sinks = [&allowed, &ta, &tb, &denied, &local, &low];
     let snap = || sinks.map(|c| rx(c));
@@ -785,19 +879,53 @@ async fn egress_allowlist_holds_on_a_real_daemon() {
             attempt(&agent, name, 8080, PLAIN);
         }
     });
-    let before_host = host_bytes.load(Ordering::SeqCst);
-    row("8 host gateway and host.docker.internal", &[], &|| {
-        attempt(&agent, "host.docker.internal", host_port, PLAIN);
-        attempt(&agent, &host_gw, host_port, PLAIN);
+    let host_ll = host_link_local(&job_net);
+    log.borrow_mut().push(match &host_ll {
+        Some(ll) => format!("row 8 host link-local on the job bridge: {ll}"),
+        None => {
+            "row 8 the host has no link-local IPv6 on the job bridge: target skipped".to_owned()
+        }
     });
-    let host_delta = host_bytes.load(Ordering::SeqCst) - before_host;
-    log.borrow_mut()
-        .push(format!("row 8 host listener received {host_delta} bytes"));
-    if host_delta > 0 {
-        failures.borrow_mut().push(format!(
-            "row 8: the host listener received {host_delta} bytes"
-        ));
-    }
+    probe_host(
+        "agent on the job and allow networks",
+        &agent,
+        &[&job_gw, &host_gw],
+        host_ll.as_deref(),
+        &listeners,
+        &log,
+        &failures,
+    );
+    // The no-egress shape: an agent on the job's internal network only.
+    let bare = must(
+        &[
+            "create",
+            "--label",
+            &rig,
+            "--init",
+            "--network",
+            &job_net,
+            "--user",
+            "1000:1000",
+            "--add-host",
+            "host.docker.internal:host-gateway",
+            "--entrypoint",
+            "sleep",
+            agent_image.id(),
+            "3600",
+        ],
+        "creating the no-egress agent",
+    );
+    made.containers.push(bare.clone());
+    must(&["start", &bare], "starting the no-egress agent");
+    probe_host(
+        "no-egress agent on the job network only",
+        &bare,
+        &[&job_gw],
+        host_ll.as_deref(),
+        &listeners,
+        &log,
+        &failures,
+    );
     row("9 wrong or missing SNI on a shared port", &[], &|| {
         attempt(&agent, "a.test", 9443, &hello(Some("denied.test")));
         attempt(&agent, "b.test", 9443, &hello(None));

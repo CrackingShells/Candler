@@ -548,6 +548,16 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
   (`isolation.network`) when the agent needs the internet: its container then joins the egress
   network as well (two `--network` flags on one `docker run`, Docker Engine 25 or newer).
   A cell that lists hosts in `isolation.egress` reaches only those, through an egress proxy (below).
+  An internal network does not shut the host out by itself. Docker's `--internal` isolation sits
+  in the FORWARD chain, while traffic to an address the host owns on a bridge, its gateway, goes
+  through INPUT: a host listener bound on every address was reachable from an agent on an
+  internal network on a Linux daemon. Every internal network (the job network and each allow
+  network) is therefore created with `-o com.docker.network.bridge.inhibit_ipv4=true` and
+  `--ipv6=false`, so the bridge carries no host address to reach, and no agent has a host gateway.
+  The host reaches the sidecar and the proxy through `docker exec` and `docker inspect` only. The
+  egress guard's row 8 binds a listener on `0.0.0.0` and on `::` and tries the bridge gateways,
+  `host.docker.internal` and the host's link-local IPv6 address on the bridge, from an agent with
+  an allowlist and from an agent on the job network alone; each listener must receive no byte.
 - **The configuration surface.** Each path is a cell value (hashed and compared), a setting
   (dropped from `Comparable`) or a typed root (filled by derived steps, never by the file):
 

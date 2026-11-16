@@ -562,10 +562,19 @@ fn image_inspect_args(reference: &str) -> Vec<String> {
 }
 
 /// The arguments of `docker network create`.
+///
+/// An internal network also gets no host address: `--internal` cuts forwarding, but traffic to an
+/// address the host owns on the bridge reaches the host through its INPUT path, so the bridge
+/// takes no IPv4 gateway address and IPv6 is off.
 fn network_create_args(name: &NetworkName, internal: bool, labels: &Labels) -> Vec<String> {
     let mut args = to_args(&["network", "create"]);
     if internal {
         args.push("--internal".to_owned()); // BORROW: .to_owned() gives the argument its own text
+        args.extend(to_args(&[
+            "-o",
+            "com.docker.network.bridge.inhibit_ipv4=true",
+            "--ipv6=false",
+        ]));
     }
     for (key, value) in labels.iter() {
         args.push("--label".to_owned()); // BORROW: .to_owned() gives the argument its own text
@@ -1041,5 +1050,48 @@ impl DestroyDriver for DockerDestroyer {
             let args = to_args(&["network", "rm", name.as_str()]);
             self.runner.run(args, CALL_DEADLINE).await.map(|_| ())
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use candler_schemas::primitives::JobId;
+
+    use super::*;
+
+    fn job_network() -> NetworkName {
+        let job: JobId = "00000000-0000-7000-8000-000000000000"
+            .parse()
+            .expect("a job id");
+        NetworkName::for_job(&job)
+    }
+
+    /// Guards: an internal network gives the host no address on its bridge, over IPv4 or IPv6.
+    /// Oracle: the argv of `docker network create` for an internal network names both options.
+    #[test]
+    fn internal_network_gets_no_host_address() {
+        let args = network_create_args(&job_network(), true, &Labels::new());
+        let has = |flag: &str| args.iter().any(|arg| arg == flag);
+        assert!(has("--internal"), "{args:?}");
+        assert!(has("--ipv6=false"), "{args:?}");
+        assert!(
+            args.windows(2)
+                .any(|pair| pair[0] == "-o"
+                    && pair[1] == "com.docker.network.bridge.inhibit_ipv4=true"),
+            "{args:?}"
+        );
+    }
+
+    /// Guards: the egress network keeps its host address, which the proxy's upstream needs.
+    /// Oracle: the argv of a non-internal network carries neither option.
+    #[test]
+    fn egress_network_keeps_its_defaults() {
+        let args = network_create_args(&job_network(), false, &Labels::new());
+        assert!(
+            !args
+                .iter()
+                .any(|arg| arg.contains("inhibit_ipv4") || arg.contains("ipv6")),
+            "{args:?}"
+        );
     }
 }
