@@ -219,6 +219,7 @@ pub trait JobHost: Send + Sync {
 #[derive(Debug, Clone)]
 pub struct DockerHost {
     controls: Result<ControlContexts, String>,
+    upstream_ca: Option<Vec<u8>>,
 }
 
 impl Default for DockerHost {
@@ -233,6 +234,7 @@ impl DockerHost {
     pub fn with_controls(contexts: ControlContexts) -> Self {
         Self {
             controls: Ok(contexts),
+            upstream_ca: None,
         }
     }
 
@@ -241,7 +243,16 @@ impl DockerHost {
     pub fn without_controls(why: &str) -> Self {
         Self {
             controls: Err(why.to_owned()), // BORROW: the host owns its reason
+            upstream_ca: None,
         }
+    }
+
+    /// The host whose gateway trusts the certificates of the PEM `ca` for the model upstream, in
+    /// place of the system bundle; `None` keeps the system bundle.
+    #[must_use]
+    pub fn with_upstream_ca(mut self, ca: Option<Vec<u8>>) -> Self {
+        self.upstream_ca = ca;
+        self
     }
 }
 
@@ -299,7 +310,7 @@ pub fn record_packages(resolution: &Resolution) -> Vec<String> {
 }
 
 /// The upstream a `model.endpoint` URL names.
-fn upstream_of(endpoint: &str) -> Result<UpstreamConfig, GatewayError> {
+fn upstream_of(endpoint: &str, ca: Option<&[u8]>) -> Result<UpstreamConfig, GatewayError> {
     let url = url::Url::parse(endpoint).map_err(|error| GatewayError::Config {
         detail: error.to_string(),
     })?;
@@ -308,6 +319,10 @@ fn upstream_of(endpoint: &str) -> Result<UpstreamConfig, GatewayError> {
         detail: "the model endpoint names no host".to_owned(),
     })?;
     let builder = UpstreamConfig::builder().host(host);
+    let builder = match ca {
+        Some(pem) => builder.ca_pem(pem.to_vec()),
+        None => builder,
+    };
     match url.port() {
         Some(port) => builder.port(port).build(),
         None => builder.build(),
@@ -412,7 +427,8 @@ impl JobHost for DockerHost {
                 // BORROW: .to_owned() gives the error its own text
                 .ok_or_else(|| failed("model_endpoint_unset".to_owned()))?;
             // BORROW: .as_str() hands the endpoint to the parser
-            let upstream = upstream_of(endpoint.as_str()).map_err(|e| failed(e.to_string()))?;
+            let upstream = upstream_of(endpoint.as_str(), self.upstream_ca.as_deref())
+                .map_err(|e| failed(e.to_string()))?;
             let marker: Marker = GATEWAY_MARKER
                 .parse()
                 // BORROW: .to_owned() gives the error its own text
@@ -765,5 +781,23 @@ impl JobSession {
         rt.isolation = Some(host.isolation(isolation));
         rt.gateway = Some(JobGateway { service, handle });
         Ok(session)
+    }
+}
+
+#[cfg(test)]
+mod upstream_ca_tests {
+    use super::upstream_of;
+
+    /// Guards: the gateway trusts the configured CA for the model upstream — unset leaves the
+    /// system bundle, set hands the PEM bytes down. Oracle: the bytes written below.
+    /// Bite: drop the `ca_pem` call in `upstream_of`; the set case turns red.
+    #[test]
+    fn the_configured_ca_reaches_the_upstream_and_unset_leaves_the_system_bundle() {
+        let none = upstream_of("https://model.example:8443/v1", None).expect("an upstream");
+        assert_eq!(none.ca_pem(), None, "unset keeps the system bundle");
+        let pem = b"-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n";
+        let set = upstream_of("https://model.example:8443/v1", Some(pem.as_slice()))
+            .expect("an upstream");
+        assert_eq!(set.ca_pem(), Some(pem.as_slice()));
     }
 }

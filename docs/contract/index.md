@@ -75,6 +75,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `config.run_directory_invalid` | The directory given to `inspect` holds a `manifest.json` but is not named by a run key, or is not below the `runs` directory of a store. | - | config |
 | `config.toml_invalid` | A configuration file is not valid TOML. | - | config |
 | `config.unknown_key` | A configuration file holds a key that no table defines, such as a misspelt setting. | The unknown key in the configuration file named in the message. | config |
+| `config.upstream_ca_invalid` | `gateway.upstream_ca` names a file that cannot be read or holds no PEM certificate. | The `gateway.upstream_ca` key in the user configuration file named in the message. | config |
 | `config.wrong_type` | A configuration key holds a value of the wrong type. | The key in the configuration file named in the message. | config |
 | `evaluation.artifact_glob_invalid` | An artifact glob in the needs of a kind is not a glob. | - | plugin |
 | `evaluation.blob_corrupt` | A blob of the store does not have the digest the store records for it. | - | environment |

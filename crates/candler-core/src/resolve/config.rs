@@ -17,7 +17,10 @@ const PROJECT_FILE: &str = "candler.toml";
 const PROJECT_TABLES: [(&str, &[&str]); 2] = [("store", &["root"]), ("plugins", &["dirs"])];
 
 /// The tables of a user configuration and the keys each defines.
-const USER_TABLES: [(&str, &[&str]); 1] = [("slots", &["count", "evaluators"])];
+const USER_TABLES: [(&str, &[&str]); 2] = [
+    ("slots", &["count", "evaluators"]),
+    ("gateway", &["upstream_ca"]),
+];
 
 /// Why a configuration could not be loaded.
 #[derive(Debug, thiserror::Error)]
@@ -70,6 +73,16 @@ pub enum ConfigError {
     RelativeCwd {
         /// The working directory.
         cwd: PathBuf,
+    },
+    /// `gateway.upstream_ca` names a file that cannot be read or holds no PEM certificate.
+    #[error("{}: `{key}`: {detail}", file.display())]
+    UpstreamCa {
+        /// The configuration file.
+        file: PathBuf,
+        /// The dotted key.
+        key: String,
+        /// What is wrong with the named file.
+        detail: String,
     },
 }
 
@@ -219,6 +232,10 @@ pub struct UserConfig {
     pub slots_count: Option<u32>,
     /// `slots.evaluators`: how many evaluator processes run at once on the machine.
     pub slots_evaluators: Option<u32>,
+    /// `gateway.upstream_ca`: the bytes of the PEM file whose certificates the gateway trusts for
+    /// the model upstream, in place of the system bundle. It applies to the model upstream only;
+    /// a relative path is taken from the directory of the configuration file. `None` when unset.
+    pub gateway_upstream_ca: Option<Vec<u8>>,
 }
 
 impl UserConfig {
@@ -245,12 +262,58 @@ impl UserConfig {
         let slots_count = slots_key(file.as_path(), &table, "count")?;
         // BORROW: `.as_path()` views the owned file as a `&Path`
         let slots_evaluators = slots_key(file.as_path(), &table, "evaluators")?;
+        // BORROW: `.as_path()` views the owned file as a `&Path`
+        let gateway_upstream_ca = upstream_ca_key(file.as_path(), &table)?;
         Ok(Self {
             file: Some(file),
             slots_count,
             slots_evaluators,
+            gateway_upstream_ca,
         })
     }
+}
+
+/// The key `gateway.upstream_ca` of a user configuration: the bytes of a PEM file that holds at
+/// least one certificate.
+fn upstream_ca_key(file: &Path, table: &Table) -> Result<Option<Vec<u8>>, ConfigError> {
+    const KEY: &str = "gateway.upstream_ca";
+    let Some(value) = table
+        .get("gateway")
+        .and_then(Value::as_table)
+        .and_then(|gateway| gateway.get("upstream_ca"))
+    else {
+        return Ok(None);
+    };
+    let Some(text) = value.as_str() else {
+        return Err(ConfigError::WrongType {
+            // BORROW: `.to_owned()` makes the owned file and key the error carries
+            file: file.to_owned(),
+            key: KEY.to_owned(),
+            expected: "a path to a PEM file",
+        });
+    };
+    let refuse = |detail: String| ConfigError::UpstreamCa {
+        // BORROW: `.to_owned()` makes the owned file and key the error carries
+        file: file.to_owned(),
+        key: KEY.to_owned(),
+        detail,
+    };
+    let path = file
+        .parent()
+        .map_or_else(|| PathBuf::from(text), |dir| dir.join(text));
+    let bytes = fs::read(path.as_path())
+        .map_err(|e| refuse(format!("{}: cannot read the file: {e}", path.display())))?;
+    let holds_certificate = std::str::from_utf8(bytes.as_slice()).is_ok_and(|pem| {
+        pem.split_once("-----BEGIN CERTIFICATE-----")
+            .is_some_and(|(_, rest)| rest.contains("-----END CERTIFICATE-----"))
+    });
+    if !holds_certificate {
+        return Err(refuse(format!(
+            "{}: the file holds no PEM certificate",
+            path.display()
+        )));
+    }
+    Ok(Some(bytes))
 }
 
 /// The key `slots.<name>` of a user configuration, a non-negative integer that fits in 32 bits.

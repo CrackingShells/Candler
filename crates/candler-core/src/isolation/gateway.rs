@@ -383,6 +383,13 @@ impl UpstreamConfig {
         UpstreamConfigBuilder::default()
     }
 
+    /// The PEM certificate authority the upstream must chain to; `None` means the sidecar image's
+    /// system bundle.
+    #[must_use]
+    pub fn ca_pem(&self) -> Option<&[u8]> {
+        self.ca_pem.as_deref()
+    }
+
     fn authority(&self) -> String {
         if self.port == 443 {
             // BORROW: .clone() keeps the host in the configuration

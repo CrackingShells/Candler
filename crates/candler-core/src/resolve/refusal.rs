@@ -27,7 +27,8 @@ fn config_error_path(error: &ConfigError) -> Option<String> {
     match error {
         ConfigError::UnknownKey { key, .. }
         | ConfigError::MachineWideKey { key, .. }
-        | ConfigError::WrongType { key, .. } => Some(pointer_of(key.split('.'))),
+        | ConfigError::WrongType { key, .. }
+        | ConfigError::UpstreamCa { key, .. } => Some(pointer_of(key.split('.'))),
         ConfigError::Read { .. } | ConfigError::Parse { .. } | ConfigError::RelativeCwd { .. } => {
             None
         }
@@ -87,6 +88,12 @@ refusal_table! {
         Side::Config,
         "The working directory is not an absolute path, so no ancestor can be searched for a configuration.",
         "-",
+    ),
+    UpstreamCa { .. } => row(
+        "config.upstream_ca_invalid",
+        Side::Config,
+        "`gateway.upstream_ca` names a file that cannot be read or holds no PEM certificate.",
+        "The `gateway.upstream_ca` key in the user configuration file named in the message.",
     ),
 }
 

@@ -475,6 +475,11 @@ side = "config"
 enum = "ConfigError"
 variant = "RelativeCwd"
 
+[resolve."config.upstream_ca_invalid"]
+side = "config"
+enum = "ConfigError"
+variant = "UpstreamCa"
+
 [resolve."resolve.preflight_step_failed"]
 side = "environment"
 enum = "PreflightError"
