@@ -7,7 +7,7 @@ Depth 6. M5b, split from M5 by amendment A8 of `../README.md`: it follows M5a (`
 An agent's container reaches only its listed hosts and the model gateway, a real container is shown never to hold ground truth, and the destroy guard re-uses its verification.
 
 ## Pre-conditions
-- [ ] `../m5_container_isolation.md` (M5a) is `done`
+- [x] `../m5_container_isolation.md` (M5a) is `done` (PR #36, 3e654ef)
 - [x] A plan for M5b, with step-sized leaves and a budget, is approved by Eliott (2026-11-16: `__roadmap__/m5b-egress-proxy/`, cap $52; build started on his go)
 
 ## Success Gates
