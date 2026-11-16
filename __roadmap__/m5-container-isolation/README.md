@@ -36,12 +36,12 @@ An agent's container reaches only its listed hosts and the model gateway. A plug
 
 ## Pre-conditions
 - [x] [nl] Eliott approved the plan (2026-11-16, round 3; all subagents on Sonnet; cap $60)
-- [ ] [cmd] The milestone branch starts at `main`: `git merge-base --is-ancestor 18142ec feat/m5-container-isolation`
-- [ ] [cmd] The golden corpus is in place: `test -d /Users/hacker/Documents/tmp/candler-m1-golden/campaign/20260806-cont-train`
-- [ ] [cmd] Docker Engine is 25 or newer: `test "$(docker version --format '{{.Server.Version}}' | cut -d. -f1)" -ge 25`
-- [ ] [cmd] P0 on 18142ec: SPAWN, STD, DIGEST, GOLDEN and the container e2e pass. The coordinator records the counts in this line.
-- [ ] [cmd] P3: the gateway base has the stream SNI module: `docker run --rm --entrypoint nginx "$(sed -n 's/^FROM //p' assets/docker/gateway/Dockerfile | head -1)" -V 2>&1 | grep -q ssl_preread`
-- [ ] [cmd] P1: whether an `--internal` network resolves external names here, from `docker network create --internal <tmp>` and `docker run --rm --network <tmp> <base> getent hosts example.com`, network removed by name after. The exit status is recorded here and decides D2's `--dns`; CI's answer comes from the first push.
+- [x] [cmd] The milestone branch starts at `main`: `git merge-base --is-ancestor 18142ec feat/m5-container-isolation`
+- [x] [cmd] The golden corpus is in place: `test -d /Users/hacker/Documents/tmp/candler-m1-golden/campaign/20260806-cont-train`
+- [x] [cmd] Docker Engine is 25 or newer (29.9.2, 2026-11-16): `test "$(docker version --format '{{.Server.Version}}' | cut -d. -f1)" -ge 25`
+- [x] [cmd] P0 on 000f8f1 (18142ec plus the roadmap, 2026-11-16): fmt, clippy, SPAWN 9/9, nextest 655/655 (24 skipped), doc, LINUX, DIGEST 9 + 45, DRIFT 2/2, GOLDEN 2 + 1, E2E 13/13; every gate filter selects tests
+- [x] [cmd] P3 (PASS: `--with-stream_ssl_preread_module`): the gateway base has the stream SNI module: `docker run --rm --entrypoint nginx "$(sed -n 's/^FROM //p' assets/docker/gateway/Dockerfile | head -1)" -V 2>&1 | grep -q ssl_preread`
+- [x] [cmd] P1 (here: SERVFAIL, exit 1, so no external name resolves; `--dns` not needed locally): whether an `--internal` network resolves external names here, from `docker network create --internal <tmp>` and `docker run --rm --network <tmp> <base> getent hosts example.com`, network removed by name after. The exit status is recorded here and decides D2's `--dns`; CI's answer comes from the first push.
 
 ## Success Gates
 - ⬜ [cmd] G1 egress: `egress_proxy`'s adversarial e2e passes locally and in CI's `container-e2e` job: a listed host and port is reachable, everything else fails, and the model gateway still works
@@ -113,7 +113,7 @@ An agent's container reaches only its listed hosts and the model gateway. A plug
   - a changed recorded data shape;
   - a change to `docs/contract/codes.toml` other than appending.
 - **Shared names** (one owner each; a leaf that needs to change one reports it instead):
-  - **`wire_shapes`:** the paths `isolation.egress` (cell value) and `isolation.build.plugin` (setting), `PluginManifest.agent_environments`, the container-record role `egress`, the allowed fragment paths, and the code `schemas.plugin_manifest.environment_path_unsupported`;
+  - **`wire_shapes`:** the paths `isolation.egress` (cell value) and `isolation.build.plugin` (setting), `PluginManifest.agent_environments`, the container-record role `egress`, the allowed fragment paths, and the code `plugin.environment_path_unsupported` (the `<surface>.<reason>` form; an unknown key inside an environment is `plugin.unknown_field`);
   - **`docker_client`:** `DockerDriver::{inspect_many, create}`, `isolation::hardening::{hardening, Role}`, `isolation::control::ControlSpec`, and the shared test-image support function;
   - **`egress_setting`:** `isolation.egress_invalid` and `isolation.egress_with_bridge`;
   - **`plugin_environment`:** the preflight step `plugin_environment` and `isolation.plugin_environment_missing`;
@@ -134,7 +134,7 @@ An agent's container reaches only its listed hosts and the model gateway. A plug
 ## Status
 ```mermaid
 graph TD
-    wire_shapes[Wire shapes]:::planned
+    wire_shapes[Wire shapes]:::done
     client[Client]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -146,7 +146,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `wire_shapes.md` | 📄 Leaf Task | ⬜ Planned |
+| `wire_shapes.md` | 📄 Leaf Task | ✅ Done |
 | `client/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log

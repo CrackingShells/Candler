@@ -17,7 +17,7 @@
 **Implementation Logic**:
 1. Verify first: read `ValueSource` (`crates/candler-schemas/src/values.rs`) and the preflight code that writes `Derived`. Can a step record a value as `Derived {step: "plugin_environment@<token>", from: "<plugin>/<env>"}` truthfully? Answer in the report. Only if it cannot, add one `ValueSource` variant in this same commit, and report why.
 2. Guards first, seen red.
-   - `agent_environments_*` in `guard_wire_shapes`: every committed manifest vector still reads; one vector has the map set; an unknown key inside an environment and a value path outside the allowed set are each refused with `schemas.plugin_manifest.environment_path_unsupported`.
+   - `agent_environments_*` in `guard_wire_shapes`: every committed manifest vector still reads; one vector has the map set; an unknown key inside an environment and a value path outside the allowed set are each refused, the key with `plugin.unknown_field` and the path with `plugin.environment_path_unsupported`.
    - `container_role_egress_*` in `guard_execution_wire`: a `container-record/1` with role `egress` round-trips, and every committed record vector still reads.
    - Oracles: the committed vectors and the allowed set as written in R06 D4.
 3. `PluginManifest` gains `agent_environments: BTreeMap<Name, AgentEnvironment>` (optional, absent when empty, `deny_unknown_fields`).
