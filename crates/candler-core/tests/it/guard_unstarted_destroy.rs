@@ -199,3 +199,91 @@ async fn unstarted_destroy() {
         );
     }
 }
+
+/// An isolation over the session rig's stub whose plan declares no interactive client, so the
+/// child has no stdin pipe and a session cannot start on it; it records each destroy by run key.
+struct NoStdin {
+    inner: support::session_rig::StubIsolation,
+    destroyed: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+impl Isolation for NoStdin {
+    fn plan(
+        &self,
+        cell: &candler_harness::spec::Cell<'_>,
+        workspace: &candler_harness::spec::Workspace<'_>,
+    ) -> Result<ContainerPlan, IsolationError> {
+        let mut plan = self.inner.plan(cell, workspace)?;
+        plan.interactive = false;
+        Ok(plan)
+    }
+
+    fn run_request<'a>(
+        &'a self,
+        plan: &'a ContainerPlan,
+        command: CommandSpec,
+        marker: candler_schemas::primitives::Marker,
+        key: candler_schemas::primitives::RunKey,
+        outputs: RunOutputs,
+    ) -> BoxFuture<'a, Result<candler_core::isolation::IsolatedRequest, IsolationError>> {
+        self.inner.run_request(plan, command, marker, key, outputs)
+    }
+
+    fn collect_and_destroy<'a>(
+        &'a self,
+        plan: &'a ContainerPlan,
+        workspace: &'a candler_harness::spec::Workspace<'a>,
+        exit: &'a candler_core::supervise::stop::Exit,
+        key: &'a candler_schemas::primitives::RunKey,
+    ) -> BoxFuture<'a, Result<candler_core::isolation::model::ContainerOutcome, IsolationError>>
+    {
+        self.destroyed
+            .lock()
+            .expect("the destroy log")
+            .push(key.to_string());
+        self.inner.collect_and_destroy(plan, workspace, exit, key)
+    }
+}
+
+/// Guards: R03 B2 — a run whose container was created and whose session cannot start (the child
+/// has no stdin pipe) destroys that container once, by the run's key, and reports the session's
+/// own error.
+/// Oracle: the destroy log of the isolation the run was given: exactly one entry, the run's key.
+/// Bite: the `destroy_unstarted` call dropped from the session-start error arm of `drive`; the
+/// log is empty.
+#[tokio::test]
+async fn unstarted_destroy_session_start() {
+    let rig = support::job_orchestrate::Rig::new(0);
+    let dir = rig.dir.path().join("stub");
+    fs::create_dir_all(&dir).expect("a directory");
+    fs::write(dir.join("stub.py"), "import time\ntime.sleep(30)\n").expect("a stub");
+    let script = dir.join("script.json");
+    fs::write(&script, b"{}").expect("a script");
+    let destroyed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let isolation = Arc::new(NoStdin {
+        inner: support::session_rig::StubIsolation { dir, script },
+        destroyed: Arc::clone(&destroyed),
+    });
+    let values = support::session_rig::cell_values(&[]);
+    let (result, _manifest, run_dir, _rig) = support::session_rig::execute_controlled(
+        rig,
+        isolation,
+        &values,
+        support::session_rig::Driver::new(true),
+        None,
+        None,
+    )
+    .await;
+    let err = result.map(|_| ()).expect_err("the session cannot start");
+    assert!(err.to_string().contains("no stdin pipe"), "{err}");
+    let key = run_dir
+        .file_name()
+        .expect("a run key")
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(
+        *destroyed.lock().expect("the destroy log"),
+        [key],
+        "the created container is destroyed once, by the run's key"
+    );
+}
