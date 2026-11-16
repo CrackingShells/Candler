@@ -34,3 +34,7 @@ The options were a lean cap (A), a split (B) and a stop after the two running le
 
 No node is deleted and no status changes. The relative links of the M6a, M7 and M8 leaves are
 corrected for the extra level.
+
+Amendment A7 (on main, #35) gives M6a treatment arms in the same subtree. Its log row in
+candler-v1's README sits before A8's, and every node path in it, and in the moved leaves, names
+`isolation/m5b/stats/`. The A7 report keeps the paths it was written with.

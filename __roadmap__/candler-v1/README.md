@@ -54,6 +54,7 @@ graph TD
 | ID | Date | Source | Nodes Added | Rationale |
 |:---|:-----|:-------|:------------|:----------|
 | A6 | 2026-11-16 | `__reports__/candler-v1-review/02-findings_amendment_a6_v0.md` | [ ] | Eliott's 2026-11-16 review: no 1.0 freeze in this campaign, the goal becomes a dogfoodable 0.x, and the order M5, M6a, M7, M8 is strict; the nodes are added in `contracts/parity/alignment/surfaces/isolation/` |
+| A7 | 2026-11-16 | `__reports__/candler-v1-review/03-findings_amendment_a7_v0.md` | [ ] | A skill-version comparison cannot be expressed today (treatment is a setting); M6a gains treatment arms in `contracts/parity/alignment/surfaces/isolation/m5b/stats/` |
 | A8 | 2026-11-16 | `__reports__/candler-v1-review/04-findings_amendment_a8_v0.md` | [ "m5b" ] | M5 is split into M5a (the leaf `m5_container_isolation.md`) and M5b (new `m5b/` in `contracts/parity/alignment/surfaces/isolation/`, wrapping `stats/`), after the M5 budget cap was reached; order M5a, M5b, M6a, M7, M8, one directory level each |
 
 ## Progress

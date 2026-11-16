@@ -35,6 +35,6 @@ Build the plug-in in its own repository. Land the gap report and the "Future fea
 **Goal**: The campaign is complete.
 **Implementation Logic**:
 Write a knowledge-transfer report under `__reports__/m8-second-plugin/`. Mark this leaf `done` with `dirtree-rdm update`, and check the campaign README's Success Gates. Propose the reminder reconciliation to Eliott: `candler-M8` complete, and a new core milestone for each blocking gap. Apply only on his yes, through `sw_write.py`.
-**Deliverables**: `__reports__/m8-second-plugin/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/alignment/surfaces/isolation/stats/mcp/plugin/README.md`
-**Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/alignment/surfaces/isolation/stats/mcp/plugin/` (expected: PASS)
+**Deliverables**: `__reports__/m8-second-plugin/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/alignment/surfaces/isolation/m5b/stats/mcp/plugin/README.md`
+**Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/alignment/surfaces/isolation/m5b/stats/mcp/plugin/` (expected: PASS)
 **Commit**: `reports(repo): close the m8-second-plugin milestone`

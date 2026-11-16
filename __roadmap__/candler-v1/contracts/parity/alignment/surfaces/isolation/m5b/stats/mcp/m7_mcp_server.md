@@ -36,6 +36,6 @@ Execute the campaign on `feat/m7-mcp-server`, then land it on `main` with one `-
 **Goal**: The milestone is recorded.
 **Implementation Logic**:
 Write a knowledge-transfer report under `__reports__/m7-mcp-server/`. Mark this leaf `done` with `dirtree-rdm update`. Propose the reminder reconciliation to Eliott: `candler-M7` complete. Apply only on his yes, through `sw_write.py`.
-**Deliverables**: `__reports__/m7-mcp-server/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/alignment/surfaces/isolation/stats/mcp/README.md`
-**Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/alignment/surfaces/isolation/stats/mcp/` (expected: PASS)
+**Deliverables**: `__reports__/m7-mcp-server/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/alignment/surfaces/isolation/m5b/stats/mcp/README.md`
+**Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/alignment/surfaces/isolation/m5b/stats/mcp/` (expected: PASS)
 **Commit**: `reports(mcp): close the m7-mcp-server milestone`
