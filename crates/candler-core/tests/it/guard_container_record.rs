@@ -36,9 +36,10 @@ use candler_core::supervise::stop::{Ended, Exit};
 use candler_harness::spec::Workspace;
 use candler_harness::spec::{CommandSpec, Framing};
 use candler_schemas::container::{ContainerFound, ContainerRole};
-use candler_schemas::execution::{EventPayload, JobState};
+use candler_schemas::execution::{EventPayload, InvalidReason, JobState};
 use candler_schemas::primitives::{ContainerId, JobId, RunKey, Timestamp};
 use candler_schemas::process::ExitStatus;
+use candler_schemas::trace::EndedBy;
 use futures::future::BoxFuture;
 use serde_json::{Value, json};
 use support::container_stop::{cid, container_ref, digest, inspect, job, labels, run_key};
@@ -802,4 +803,52 @@ fn harness_census_and_end_come_from_the_drivers_live_reader() {
         Some(json!({"input_tokens": 7, "output_tokens": 3,
                     "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}))
     );
+}
+
+/// Guards: R01 §Process supervision — a stop that was requested classifies the run as a stop
+/// (`budget_stop` for a cap, `killed` for a cancel) even when the attached client returns by
+/// itself with the container's exit code before the supervisor's ladder ends it.
+/// Oracle: the end the job's own stop causes name (`JobCause::BudgetStop` is `budget_stop`,
+/// `JobCause::Killed` is `killed`), and a fake client that exits 0 by itself two seconds after the
+/// cancel, inside the five seconds the harness gives the client to leave: the rows are written
+/// from the docs of the two causes, not from `classify_end`.
+/// Bite: count only `Ended::Stopped` as a stop in `drive` (the stop given to `classify_end` is
+/// dropped when the client exited by itself), so the run is not a stop.
+#[test]
+fn stop_that_races_the_clients_own_exit_is_still_a_stop() {
+    let rows = [
+        (
+            JobCause::BudgetStop,
+            InvalidReason::BudgetStop,
+            EndedBy::BudgetStop,
+        ),
+        (JobCause::Killed, InvalidReason::Killed, EndedBy::Killed),
+    ];
+    for (cause, reason, ended_by) in rows {
+        let facts = facts();
+        let key = planned_key(&facts);
+        let id = cid(0xabc);
+        let rig = Rig::new(0);
+        script_agent(&rig, &id, &key);
+        let children = children_dir(&rig);
+        let host = rig.host_with_agent(FakeAgent {
+            cid: id.clone(), // BORROW: the agent owns its id
+            sleep_s: 2,
+            sweeper: None,
+            stdout: String::new(),
+        });
+        let sink = Arc::new(Recorder::default());
+        let outcome = run_job(&rig, host, sink, |ctl| {
+            let record = children.join(record_name(&id));
+            let began = Instant::now();
+            while !record.is_file() && began.elapsed() < Duration::from_secs(10) {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            let _ = ctl.cancel.send(Some(cause));
+        });
+        assert_eq!(outcome.runs.len(), 1, "{cause:?}: the run ended");
+        let run = &outcome.runs[0]; // INDEX: the length was asserted
+        assert_eq!(run.invalid, Some(reason), "{cause:?}: the reason");
+        assert_eq!(run.ended_by, ended_by, "{cause:?}: the end");
+    }
 }
