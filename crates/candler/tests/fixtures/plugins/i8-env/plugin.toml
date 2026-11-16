@@ -1,0 +1,21 @@
+schema = "plugin-manifest/1"
+name = "i8-env"
+version = "1.0.0"
+command = ["run"]
+
+[protocol]
+major = 1
+minor = 0
+
+[environment]
+kind = "uv"
+project = "env"
+lock = "env/uv.lock"
+
+# Values and agent inputs only, so the agent base serves: no Dockerfile, no build context.
+[agent_environments.plain.values]
+
+[[agent_environments.plain.inputs]]
+kind = "notes"
+path = "agent"
+at = "notes"
