@@ -14,7 +14,6 @@ use std::io::{self, Write as _};
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::str::FromStr as _;
-use std::time::Duration;
 
 use crate::frames::RawFileInfo;
 use candler_harness::driver::{HarnessDriver, Plan};
@@ -24,13 +23,12 @@ use candler_harness::spec::{
 };
 use candler_schemas::container::ContainerRole;
 use candler_schemas::execution::{EventPayload, Integrity, InvalidReason, RunManifest, RunTree};
-use candler_schemas::primitives::{ContainerId, Digest, Marker, RunKey};
+use candler_schemas::primitives::{ContainerId, Digest, Marker};
 use candler_schemas::process::ExitStatus;
 use candler_schemas::raw::StreamName;
 use candler_schemas::trace::{RawFileRef, TraceFile, TraceHeader};
 use futures::future::BoxFuture;
 use tokio::sync::watch;
-use tokio::time::MissedTickBehavior;
 
 pub use self::cell::{CellRun, ExecError};
 use self::collect::finish_attempt;
@@ -55,7 +53,7 @@ use crate::isolation::container::mounts::{MountMode, MountRoots, MountSpec, moun
 use crate::isolation::gateway::census_init;
 use crate::isolation::layout;
 use crate::isolation::model::ContainerPlan;
-use crate::isolation::{Isolation, IsolationError, RunOutputs};
+use crate::isolation::{IsolationError, RunOutputs};
 use crate::jobs::model::JobCause;
 use crate::jobs::slots::Slot;
 use crate::store::StoreError;
@@ -353,30 +351,6 @@ fn micro_usd(usd: f64) -> u64 {
     }
 }
 
-/// How often the run asks the isolation to record its container while the client runs.
-const RECORD_POLL: Duration = Duration::from_millis(100);
-
-/// Asks `isolation` every [`RECORD_POLL`] to record the run's container, and resolves with its id
-/// once it is recorded. A refused or failed record ends the polling without an id: the label
-/// sweep still bounds the container.
-async fn record_when_known(
-    isolation: &dyn Isolation, // TRAIT_OBJECT: the isolation is docker, or a fake in tests
-    container: &ContainerPlan,
-    key: &RunKey,
-) -> Option<ContainerId> {
-    let mut tick = tokio::time::interval(RECORD_POLL);
-    tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    loop {
-        tick.tick().await;
-        match isolation.record_container(container, key).await {
-            Ok(Some(cid)) => return Some(cid),
-            Ok(None) => {}
-            // EXPLICIT: a refused or failed record is not retried; the label sweep bounds the container
-            Err(_error) => return None,
-        }
-    }
-}
-
 /// Emits the creation of the run's agent container, now that its record is written.
 fn announce_agent(rt: &Runtime, plan: &RunPlan, cid: Option<ContainerId>) {
     if let Some(cid) = cid {
@@ -539,13 +513,17 @@ async fn drive(
     if let Some(live) = &handle {
         outputs = outputs.with_observer(live.view());
     }
-    let mut isolated = isolation.run_request(
-        &container,
-        command,
-        Marker::for_run(&plan.key),
-        plan.key.clone(), // BORROW: the request owns its key
-        outputs,
-    )?;
+    let mut isolated = isolation
+        .run_request(
+            &container,
+            command,
+            Marker::for_run(&plan.key),
+            plan.key.clone(), // BORROW: the request owns its key
+            outputs,
+        )
+        .await?;
+    // The container exists and is recorded before the client that attaches to it is spawned.
+    announce_agent(rt, plan, isolated.container.clone()); // BORROW: the request keeps the id
     // The harness says how its run is stopped; the name differs from the destroy driver's.
     let harness = rt.driver.as_ref();
     isolated.request = isolated.request.with_stop(harness.stop());
@@ -566,33 +544,8 @@ async fn drive(
             return Err(error.into());
         }
     };
-    // The agent's container is recorded as soon as its cidfile names it, while the client runs.
-    let (mut polled, mut recorded) = (false, false);
-    let (waited, cause) = {
-        let wait = wait_or_cancel(child, ctl.cancel.clone()); // BORROW: the wait owns a receiver
-        let poll = record_when_known(isolation.as_ref(), &container, &plan.key);
-        tokio::pin!(wait, poll);
-        loop {
-            tokio::select! {
-                result = &mut wait => break result,
-                cid = &mut poll, if !polled => {
-                    polled = true;
-                    recorded = cid.is_some();
-                    announce_agent(rt, plan, cid);
-                }
-            }
-        }
-    };
+    let (waited, cause) = wait_or_cancel(child, ctl.cancel.clone()).await; // BORROW: the wait owns a receiver
     let session_outcome = session_handle.map(SessionHandle::finish);
-    if !recorded {
-        // EXPLICIT: a failed record leaves the container to the label sweep
-        let cid = isolation
-            .record_container(&container, &plan.key)
-            .await
-            .ok()
-            .flatten();
-        announce_agent(rt, plan, cid);
-    }
     let exit = waited?;
     let duration_ms = u64::try_from(attempt_began.elapsed().as_millis()).unwrap_or(u64::MAX);
     // What the live reader saw, read before the container goes: a collect command needs the ids.

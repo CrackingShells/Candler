@@ -189,7 +189,6 @@ fn container_calls(world: &World) -> Vec<String> {
             line.starts_with("create ")
                 || line.starts_with("start ")
                 || line.starts_with("network create")
-                || line.contains("--cidfile")
         })
         .map(str::to_owned)
         .collect()

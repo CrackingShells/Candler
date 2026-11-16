@@ -354,7 +354,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use candler_core::isolation::container::DockerIsolation;
-use candler_core::isolation::container::run::run_argv;
+use candler_core::isolation::container::run::create_argv;
 use candler_core::isolation::docker::{DockerCli, DockerError};
 use candler_core::isolation::gateway::Gateway;
 use candler_core::isolation::model::{
@@ -407,14 +407,14 @@ impl Isolation for Recording {
         self.inner.plan(cell, workspace)
     }
 
-    fn run_request(
-        &self,
-        plan: &ContainerPlan,
+    fn run_request<'a>(
+        &'a self,
+        plan: &'a ContainerPlan,
         command: CommandSpec,
         marker: Marker,
         key: RunKey,
         outputs: RunOutputs,
-    ) -> Result<IsolatedRequest, IsolationError> {
+    ) -> BoxFuture<'a, Result<IsolatedRequest, IsolationError>> {
         // The run's labels are added by the isolation that starts it; the argv is built from a
         // plan that carries them.
         let mut labelled = plan.clone();
@@ -424,7 +424,7 @@ impl Isolation for Recording {
             .with("candler.job", "job")
             .with("candler.run", "run")
             .with("candler.role", "agent");
-        let argv = run_argv(&labelled, &command).expect("the real run argv");
+        let argv = create_argv(&labelled, &command).expect("the real run argv");
         let host_workspace = plan
             .mounts
             .iter()
@@ -488,15 +488,6 @@ impl Isolation for Recording {
                 ..ContainerOutcome::default()
             })
         })
-    }
-
-    fn record_container<'a>(
-        &'a self,
-        plan: &'a ContainerPlan,
-        key: &'a RunKey,
-    ) -> BoxFuture<'a, Result<Option<candler_schemas::primitives::ContainerId>, IsolationError>>
-    {
-        self.inner.record_container(plan, key)
     }
 }
 

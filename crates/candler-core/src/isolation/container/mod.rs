@@ -9,8 +9,7 @@ pub mod run;
 pub mod stop;
 pub mod sweeper;
 
-use std::collections::BTreeSet;
-use std::fmt::Write as _;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -21,11 +20,10 @@ use candler_schemas::container::{ContainerLabels, ContainerRecord, ContainerRole
 use candler_schemas::primitives::{ContainerId, Digest, FieldPath, JobId, Marker, RunKey};
 use candler_schemas::values::JsonValue;
 use futures::future::BoxFuture;
-use sha2::{Digest as _, Sha256};
 
 use self::guard::{ContainerGuard, GuardError};
 use self::mounts::{MountMode, MountRoots, MountSpec, mounts};
-use self::run::build_run_request;
+use self::run::{agent_argv, build_start_request};
 use self::stop::ContainerStopHook;
 use self::sweeper::ContainerSweeper;
 use super::driver::DockerDriver;
@@ -68,8 +66,7 @@ const AGENT_LANG: &str = "C.UTF-8";
 /// absolute path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DockerDirs {
-    /// The job's `children/` directory, where the container's cidfile and the docker client's
-    /// record are written.
+    /// The job's `children/` directory, where the docker client's record is written.
     pub children: PathBuf,
     /// The project root a mount source may sit under.
     pub project_root: PathBuf,
@@ -88,7 +85,8 @@ pub struct DockerIsolation {
     sweeper: Option<Arc<dyn ContainerSweeper>>,
     // TRAIT_OBJECT: the recorder is the job directory, or a fake in tests
     recorder: Option<Arc<dyn ChildRecorder>>,
-    recorded: Mutex<BTreeSet<ContainerId>>,
+    /// The agent container of each run that has one, by the run's key.
+    created: Mutex<BTreeMap<String, ContainerId>>,
     dirs: Option<DockerDirs>,
 }
 
@@ -127,7 +125,7 @@ impl DockerIsolation {
             guard,
             sweeper: None,
             recorder: None,
-            recorded: Mutex::new(BTreeSet::new()),
+            created: Mutex::new(BTreeMap::new()),
             dirs: None,
         }
     }
@@ -190,18 +188,6 @@ fn plan_error(detail: &str) -> IsolationError {
         // BORROW: .to_owned() keeps the description in the error
         detail: detail.to_owned(),
     }
-}
-
-/// The hex of the first eight bytes of the digest of `text`.
-fn short_digest(text: &[u8]) -> String {
-    Sha256::digest(text)
-        .iter()
-        .take(8)
-        .fold(String::new(), |mut hex, byte| {
-            // INFALLIBLE: writing to a String cannot fail
-            let _ = write!(hex, "{byte:02x}");
-            hex
-        })
 }
 
 /// The user the container runs as: the host user on a Linux engine, the image's own elsewhere.
@@ -332,10 +318,7 @@ impl Isolation for DockerIsolation {
             network,
             egress,
             limits: cell_limits(cell)?,
-            cidfile: dirs.children.join(format!(
-                "agent-{}.cid",
-                short_digest(root.as_os_str().as_encoded_bytes())
-            )),
+            record_dir: dirs.children.clone(), // BORROW: the plan owns its directory
             user: container_user(),
             workdir: String::from(CONTAINER_WORKDIR),
             home: String::from(CONTAINER_HOME),
@@ -355,52 +338,68 @@ impl Isolation for DockerIsolation {
         Ok(plan)
     }
 
-    fn run_request(
-        &self,
-        plan: &ContainerPlan,
+    fn run_request<'a>(
+        &'a self,
+        plan: &'a ContainerPlan,
         command: CommandSpec,
         marker: Marker,
         key: RunKey,
         outputs: RunOutputs,
-    ) -> Result<IsolatedRequest, IsolationError> {
-        let base_url = self.gateway.run_base_url(&key);
-        let sweeper =
-            self.sweeper
-                .as_ref()
-                .map(Arc::clone)
-                .ok_or_else(|| IsolationError::Unavailable {
+    ) -> BoxFuture<'a, Result<IsolatedRequest, IsolationError>> {
+        Box::pin(async move {
+            let base_url = self.gateway.run_base_url(&key);
+            let sweeper = self.sweeper.as_ref().map(Arc::clone).ok_or_else(|| {
+                IsolationError::Unavailable {
                     detail: String::from("DockerIsolation::with_sweeper"),
-                })?;
-        let job: JobId = plan
-            .labels
-            .get(LABEL_JOB)
-            .and_then(|text| text.parse().ok())
-            .ok_or_else(|| IsolationError::Plan {
-                detail: format!("the plan carries no valid `{LABEL_JOB}` label"),
+                }
             })?;
-        let mut stop_hook = ContainerStopHook::new(self.guard(), sweeper, job);
-        if let Some(view) = outputs.observer.as_ref() {
-            stop_hook = stop_hook.with_observer(Arc::clone(view)); // BORROW: the hook shares the run's live view
-        }
-        let hook = Arc::new(stop_hook);
-        // TRAIT_OBJECT: the request carries its hook as the supervisor's trait
-        let attached: Arc<dyn StopHook> = Arc::<ContainerStopHook>::clone(&hook);
-        let request = build_run_request(
-            plan,
-            &command,
-            marker,
-            &key,
-            &base_url,
-            &self.gateway.dummy_token,
-            Some(attached),
-            outputs,
-        )
-        .map_err(|source| IsolationError::Plan {
-            detail: source.to_string(),
-        })?;
-        // TRAIT_OBJECT: the caller reads the facts without the docker type
-        let end_facts: Arc<dyn EndFacts> = Arc::new(HookFacts { hook });
-        Ok(IsolatedRequest::new(request, end_facts))
+            let job: JobId = plan
+                .labels
+                .get(LABEL_JOB)
+                .and_then(|text| text.parse().ok())
+                .ok_or_else(|| IsolationError::Plan {
+                    detail: format!("the plan carries no valid `{LABEL_JOB}` label"),
+                })?;
+            let argv = agent_argv(plan, &command, &key, &base_url, &self.gateway.dummy_token)
+                .map_err(|source| IsolationError::Plan {
+                    detail: source.to_string(),
+                })?;
+            // The first two words are `docker create`; the driver supplies them.
+            let cid = self
+                .docker
+                .create(argv.into_iter().skip(2).collect())
+                .await
+                .map_err(|source| IsolationError::Docker {
+                    detail: source.to_string(),
+                })?;
+            self.record_agent(plan, &key, &cid).await?;
+            self.created
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(key.to_string(), cid.clone()); // BORROW: the map keeps its own id
+            let mut stop_hook = ContainerStopHook::new(self.guard(), sweeper, job);
+            if let Some(view) = outputs.observer.as_ref() {
+                stop_hook = stop_hook.with_observer(Arc::clone(view)); // BORROW: the hook shares the run's live view
+            }
+            let hook = Arc::new(stop_hook);
+            // TRAIT_OBJECT: the request carries its hook as the supervisor's trait
+            let attached: Arc<dyn StopHook> = Arc::<ContainerStopHook>::clone(&hook);
+            let request = build_start_request(
+                self.docker.as_ref(),
+                plan,
+                &cid,
+                marker,
+                &key,
+                Some(attached),
+                outputs,
+            )
+            .map_err(|source| IsolationError::Plan {
+                detail: source.to_string(),
+            })?;
+            // TRAIT_OBJECT: the caller reads the facts without the docker type
+            let end_facts: Arc<dyn EndFacts> = Arc::new(HookFacts { hook });
+            Ok(IsolatedRequest::new(request, end_facts).with_container(cid))
+        })
     }
 
     fn collect_and_destroy<'a>(
@@ -412,11 +411,14 @@ impl Isolation for DockerIsolation {
     ) -> BoxFuture<'a, Result<ContainerOutcome, IsolationError>> {
         let _ = (workspace, exit);
         Box::pin(async move {
-            let cid = std::fs::read_to_string(&plan.cidfile)
-                .ok()
-                .and_then(|text| ContainerId::from_str(text.trim()).ok());
+            let cid = self
+                .created
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get(&key.to_string())
+                .cloned();
             let Some(cid) = cid else {
-                // The client wrote no cidfile: no container of this run is known to destroy.
+                // No container was created for this run: nothing is known to destroy.
                 return Ok(ContainerOutcome {
                     inspect: None,
                     sweep: ContainerSweep {
@@ -441,14 +443,6 @@ impl Isolation for DockerIsolation {
                 sweep.unknown = true;
                 return Ok(ContainerOutcome { inspect, sweep });
             };
-            // The plan's job label is what the container must carry; the run is the caller's.
-            if target.labels.get(LABEL_JOB) != plan.labels.get(LABEL_JOB) {
-                sweep.refused.push(Refusal {
-                    container: target.cid,
-                    reason: String::from("job_mismatch"),
-                });
-                return Ok(ContainerOutcome { inspect, sweep });
-            }
             let scope = SweepScope::Run(key.clone()); // BORROW: the scope owns its key
             match self.guard.destroy(&target, &scope).await {
                 Ok(destroyed) if !destroyed.absent => sweep.destroyed.push(target),
@@ -482,53 +476,37 @@ impl Isolation for DockerIsolation {
                 })
         })
     }
-
-    fn record_container<'a>(
-        &'a self,
-        plan: &'a ContainerPlan,
-        key: &'a RunKey,
-    ) -> BoxFuture<'a, Result<Option<ContainerId>, IsolationError>> {
-        Box::pin(async move {
-            let recorder = self
-                .recorder
-                .as_ref()
-                .ok_or_else(|| IsolationError::Unavailable {
-                    detail: String::from("no recorder is attached to the isolation"),
-                })?;
-            let Some(cid) = std::fs::read_to_string(&plan.cidfile)
-                .ok()
-                .and_then(|text| ContainerId::from_str(text.trim()).ok())
-            else {
-                return Ok(None);
-            };
-            if self
-                .recorded
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .contains(&cid)
-            {
-                return Ok(Some(cid));
-            }
-            // BORROW: .as_str() hands the id to docker
-            let Ok(inspect) = self.guard.reader().inspect(cid.as_str()).await else {
-                return Ok(None);
-            };
-            let record = Self::agent_record(plan, key, &inspect)?;
-            recorder
-                .record_child(&record)
-                .map_err(|error| IsolationError::Unavailable {
-                    detail: format!("the container record cannot be written: {error}"),
-                })?;
-            self.recorded
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .insert(cid.clone()); // BORROW: the set keeps its own id
-            Ok(Some(cid))
-        })
-    }
 }
 
 impl DockerIsolation {
+    /// Writes the `container-record/1` of the agent container `cid`, from its own inspect.
+    async fn record_agent(
+        &self,
+        plan: &ContainerPlan,
+        key: &RunKey,
+        cid: &ContainerId,
+    ) -> Result<(), IsolationError> {
+        let recorder = self
+            .recorder
+            .as_ref()
+            .ok_or_else(|| IsolationError::Unavailable {
+                detail: String::from("no recorder is attached to the isolation"),
+            })?;
+        let inspect = self
+            .guard
+            .reader()
+            .inspect(cid.as_str()) // BORROW: .as_str() hands the id to docker
+            .await
+            .map_err(|source| IsolationError::Docker {
+                detail: source.to_string(),
+            })?;
+        let record = Self::agent_record(plan, key, &inspect)?;
+        recorder
+            .record_child(&record)
+            .map_err(|error| IsolationError::Unavailable {
+                detail: format!("the container record cannot be written: {error}"),
+            })
+    }
     /// The `container-record/1` of the agent container `inspect` describes, for the run `key` of
     /// the plan's job.
     fn agent_record(

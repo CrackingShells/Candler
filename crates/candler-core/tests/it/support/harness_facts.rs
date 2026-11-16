@@ -267,7 +267,7 @@ pub fn scene(dir: &Path) -> Scene {
             memory: String::from("4g"),
             cpus: 2.0,
         },
-        cidfile: root.join("agent.cid"),
+        record_dir: root.clone(),
         user: UserSpec::Host {
             uid: 1000,
             gid: 1000,

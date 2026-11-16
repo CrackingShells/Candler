@@ -370,6 +370,36 @@ fn harness_env_claude_code_argv_equals_cf3de30() {
     assert_eq!(argv, words(&baseline["headless_run"]));
 }
 
+/// Guards: R01 §Process supervision — the supervised client attaches to the created container
+/// with `docker start -a <id>`, and a session's container, made with `create -i`, is attached
+/// with `-i` as well; the headless start has no `-i`.
+/// Oracle: `argv.json` (`headless_start`, `interactive_start`), written by hand from the
+/// Engine's measured relay of standard input.
+/// Bite: `-i` dropped from the interactive start, or added to the headless one.
+#[test]
+fn harness_env_start_argv_equals_baseline() {
+    let dir = tempfile::tempdir().expect("a directory");
+    let scene = facts::scene(dir.path());
+    let id = "ab".repeat(32);
+    let cid: candler_schemas::primitives::ContainerId = id.parse().expect("a container id");
+    let baseline = recorded("argv.json");
+    for (interactive, key) in [(false, "headless_start"), (true, "interactive_start")] {
+        let mut plan = scene.plan.clone();
+        plan.interactive = interactive;
+        let argv: Vec<String> = candler_core::isolation::container::run::start_argv(&plan, &cid)
+            .into_iter()
+            .map(|word| {
+                if word == id {
+                    String::from("<id>")
+                } else {
+                    word
+                }
+            })
+            .collect();
+        assert_eq!(argv, words(&baseline[key]), "{key}");
+    }
+}
+
 /// The command of the fake harness with `overlay` as its plain environment.
 fn fake_command(overlay: Vec<EnvEntry>) -> CommandSpec {
     let mut builder =

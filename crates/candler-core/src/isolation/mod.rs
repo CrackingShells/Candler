@@ -110,6 +110,8 @@ pub struct IsolatedRequest {
     // TRAIT_OBJECT: the facts come from the hook the request carries; the caller needs no docker type
     /// What the run's end left behind, read after the wait.
     pub end_facts: Arc<dyn EndFacts>,
+    /// The container the request attaches to, when the isolation made one.
+    pub container: Option<ContainerId>,
 }
 
 impl IsolatedRequest {
@@ -117,7 +119,18 @@ impl IsolatedRequest {
     #[must_use]
     pub fn new(request: SpawnRequest, end_facts: Arc<dyn EndFacts>) -> Self {
         // TRAIT_OBJECT: the facts come from the hook the request carries
-        Self { request, end_facts }
+        Self {
+            request,
+            end_facts,
+            container: None,
+        }
+    }
+
+    /// The same request attached to the container `cid`.
+    #[must_use]
+    pub fn with_container(mut self, cid: ContainerId) -> Self {
+        self.container = Some(cid);
+        self
     }
 }
 
@@ -133,20 +146,23 @@ pub trait Isolation: Send + Sync {
         workspace: &Workspace<'_>,
     ) -> Result<ContainerPlan, IsolationError>;
 
-    /// Wraps the harness's command into the request that starts the container and runs it. The
-    /// request carries a fresh stop hook that is the run's own, and writes its output where
-    /// `outputs` says.
+    /// Creates the run's container, records it, and wraps the harness's command into the request
+    /// that attaches to it. The container exists and is recorded before the request is returned;
+    /// a failed create returns an error and starts nothing. The request carries a fresh stop hook
+    /// that is the run's own, and writes its output where `outputs` says.
     ///
     /// # Errors
-    /// [`IsolationError::Plan`] when the command cannot be wrapped.
-    fn run_request(
-        &self,
-        plan: &ContainerPlan,
+    /// [`IsolationError::Plan`] when the command cannot be wrapped,
+    /// [`IsolationError::Docker`] when docker cannot create the container, and
+    /// [`IsolationError::Unavailable`] when the record cannot be written.
+    fn run_request<'a>(
+        &'a self,
+        plan: &'a ContainerPlan,
         command: CommandSpec,
         marker: Marker,
         key: RunKey,
         outputs: RunOutputs,
-    ) -> Result<IsolatedRequest, IsolationError>;
+    ) -> BoxFuture<'a, Result<IsolatedRequest, IsolationError>>;
 
     /// Inspects the run's container after the child's exit, then destroys it through the guard.
     /// The destroy is scoped to the run `key`, never to the run the container's own label names,
@@ -182,26 +198,5 @@ pub trait Isolation: Send + Sync {
                 detail: String::from("collect_exec"),
             })
         })
-    }
-
-    /// Records the run's container once its id is known, to the job's `children/`, so that every
-    /// destroy path finds the container recorded. It may be called many times; the container is
-    /// recorded once, and each call returns the recorded id. An isolation without containers
-    /// records nothing.
-    ///
-    /// It returns `Ok(None)` while the container is not yet known or not yet inspectable.
-    ///
-    /// # Errors
-    /// [`IsolationError::Plan`] when the container's labels or image id are not those of the
-    /// plan's job and the run `key`, a missing or malformed label included,
-    /// [`IsolationError::Unavailable`] when no recorder is attached, or the isolation cannot
-    /// write the record or read the clock.
-    fn record_container<'a>(
-        &'a self,
-        plan: &'a ContainerPlan,
-        key: &'a RunKey,
-    ) -> BoxFuture<'a, Result<Option<ContainerId>, IsolationError>> {
-        let _ = (plan, key);
-        Box::pin(async { Ok(None) })
     }
 }

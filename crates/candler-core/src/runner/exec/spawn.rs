@@ -178,7 +178,9 @@ pub fn require_isolation(rt: &Runtime) -> Result<&Arc<dyn Isolation>, IsolationE
 /// # Errors
 /// Returns the supervisor's error when the program cannot start.
 pub fn start_attempt(rt: &Runtime, isolated: IsolatedRequest) -> Result<Started, SuperviseError> {
-    let IsolatedRequest { request, end_facts } = isolated;
+    let IsolatedRequest {
+        request, end_facts, ..
+    } = isolated;
     let child = rt.supervisor.spawn(request)?;
     Ok(Started { child, end_facts })
 }

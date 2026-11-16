@@ -45,7 +45,6 @@ fn run_argv_error_path(error: &RunArgvError) -> Option<String> {
         | RunArgvError::DuplicateName { .. }
         | RunArgvError::BadEnvName { .. }
         | RunArgvError::MissingLabel { .. }
-        | RunArgvError::BadCidfile
         | RunArgvError::Command { .. }
         | RunArgvError::Request { .. } => None,
     }
@@ -309,12 +308,6 @@ wrapper_table! {
         "The plan lacks a label the container guard decides by.",
         "-",
     ),
-    BadCidfile { .. } => row(
-        "candler.internal",
-        Side::Candler,
-        "The plan's cidfile has no directory.",
-        "-",
-    ),
     Mount (inner) => delegate(inner, Side::Config),
     Command { .. } => row(
         "candler.internal",
@@ -395,7 +388,6 @@ fn run_argv_answer(error: &RunArgvError) -> &dyn Refusal {
         | RunArgvError::DuplicateName { .. }
         | RunArgvError::BadEnvName { .. }
         | RunArgvError::MissingLabel { .. }
-        | RunArgvError::BadCidfile
         | RunArgvError::Command { .. }
         | RunArgvError::Request { .. } => error,
     }

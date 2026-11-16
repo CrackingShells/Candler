@@ -6,10 +6,12 @@ use std::time::Duration;
 use candler_schemas::primitives::ContainerId;
 use futures::future::BoxFuture;
 
-use super::docker::DockerError;
+use super::docker::{AttachedRun, DockerError, attached_request};
 use super::model::{
     BuildRequest, ContainerRef, ImageInfo, Inspect, LabelSel, Labels, NetworkInfo, NetworkName,
 };
+use crate::supervise::SuperviseError;
+use crate::supervise::spawn::SpawnRequest;
 
 /// The read and run half of docker.
 pub trait DockerDriver: Send + Sync {
@@ -34,6 +36,15 @@ pub trait DockerDriver: Send + Sync {
             }
             answers
         })
+    }
+
+    /// The supervised request that runs the client `run` describes, led by the docker binary this
+    /// driver runs. The default finds `docker` on this process's `PATH`.
+    ///
+    /// # Errors
+    /// [`SuperviseError`] when the request is refused.
+    fn attach(&self, run: AttachedRun) -> Result<SpawnRequest, SuperviseError> {
+        attached_request(run)
     }
 
     /// Creates a container with `docker create <args>` and returns its id. The container is

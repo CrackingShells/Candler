@@ -538,9 +538,9 @@ fn session_profiles_table_levels_reach_each_cells_argv() {
 // ---------------------------------------------------------------------------------------------
 
 /// Guards: M4 D1, R01 §Session runner — a session's container keeps its standard input open
-/// (`docker run -i`, a stdin pipe on the request) and a headless one does not: with the plan not
+/// (`docker create -i`, a stdin pipe on the request) and a headless one does not: with the plan not
 /// interactive the argv is the one cf3de30 recorded, and with it interactive the argv is that
-/// argv with `-i` right after `run` and nothing else changed.
+/// argv with `-i` right after `create` and nothing else changed.
 /// Oracle: `argv.json`, recorded at cf3de30, and the flag inserted by hand.
 /// Bite: `-i` missing from an interactive plan (the container would read end of input at once),
 /// or `-i` added to a headless one (a headless cell's argv would move).
@@ -564,8 +564,8 @@ fn harness_env_session_adds_input_flag_only_when_interactive() {
         .collect();
     assert_eq!(
         &recorded[..2],
-        ["docker", "run"],
-        "the recorded argv starts at run"
+        ["docker", "create"],
+        "the recorded argv starts at create"
     );
     let mut with_flag = recorded.clone();
     with_flag.insert(2, "-i".to_owned());
@@ -593,13 +593,14 @@ fn harness_env_session_adds_input_flag_only_when_interactive() {
                 candler_harness::spec::Framing::Lines,
             ),
         );
-        let request = candler_core::isolation::container::run::build_run_request(
+        let request = candler_core::isolation::container::run::build_start_request(
+            &candler_core::isolation::testing::RecordingDocker::new(),
             &over,
-            &facts::reference_command(),
+            &"abababababababababababababababababababababababababababababababab"
+                .parse()
+                .expect("a container id"),
             "m4-session".parse().expect("a marker"),
             &scene.key,
-            &"http://gateway:8080/run/ref".parse().expect("a url"),
-            facts::DUMMY_TOKEN,
             None,
             outputs,
         )
