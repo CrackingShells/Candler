@@ -22,6 +22,7 @@ mod guard_engine;
 mod guard_evaluate_job;
 mod guard_frames;
 mod guard_golden;
+mod guard_ground_truth_refusal;
 mod guard_harness_facts;
 mod guard_image;
 mod guard_import_mini;

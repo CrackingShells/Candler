@@ -760,6 +760,16 @@ fn wrapped_cases() -> Vec<Wrapped> {
         ),
         case(
             "ResolveError",
+            "GroundTruth",
+            Box::new(ResolveError::GroundTruth(
+                candler_core::resolve::steps::ground_truth::GroundTruthRefusal::Exposed {
+                    detail: "an evaluator-only input is in the build context".to_owned(),
+                },
+            )),
+            "isolation.ground_truth_exposed",
+        ),
+        case(
+            "ResolveError",
             "Format",
             Box::new(ResolveError::Format(format())),
             "resolve.value_invalid",

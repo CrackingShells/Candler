@@ -61,6 +61,7 @@ mod guard_cli_run;
 mod guard_cli_surface;
 mod guard_eval_infra;
 mod guard_golden_parity;
+mod guard_ground_truth_cli;
 mod guard_ingest;
 mod guard_input_seam;
 mod guard_inspect;

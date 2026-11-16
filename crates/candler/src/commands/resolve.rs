@@ -244,7 +244,13 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let config = Arc::new(Config::load(&cwd, &ConfigEnv::from_process()).map_err(failed_here)?);
     let input = request_settings(&file, experiment_dir.as_path(), &fields, &cwd)?;
     let driver = Registry::builtin().driver(&requested_harness(&input)?)?;
-    let services = foreground(Arc::clone(&config), &root, &driver)?;
+    // `resolve` declares no input, so there is no ground truth to check
+    let services = foreground(
+        Arc::clone(&config),
+        &root,
+        &driver,
+        candler_core::resolve::steps::ground_truth::GroundTruth::default(),
+    )?;
     let supervisor = {
         // TRAIT_OBJECT: the check belongs to no job and reports no event
         let sink: Arc<dyn EventSink> = Arc::new(Silent);
