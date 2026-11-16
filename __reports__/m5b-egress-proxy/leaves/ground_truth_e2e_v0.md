@@ -1,0 +1,26 @@
+# ground_truth_e2e leaf report (v0) - PARTIAL
+
+Findings. Step 1 done; step 2 (the e2e `i8_canary_never_reaches_the_agent`) not built, for the reasons under Findings.
+
+1. Commits: c39e76cb `test(isolation): add a canary seeker mode to the testagent`.
+2. Gates: step 1 check PASS (`sh -n` clean, `seeker` in script header). Step 2 gate, SPAWN, STD, LINUX, E2E, SUBJ: not run (no step 2 code; machine load average 76 at start, brief limit 12).
+3. Guards: none written. Seeker verified once by hand in a busybox:1.37.0 container (script mounted, no image built): a canary file under a ro mount, and a canary env var, were reported at start and end as `seeker:<phase>:file:`, `environ:<pid>:`, `mount:` lines, then `done`.
+4. Probes: none owned.
+5. Claims checked (colgrep):
+   - "testagent base serves the plug-in environment": the binary has no setting or seam that runs the testagent image as the agent. `assets.rs` only embeds its build context. The base image is the Claude Code image (python:3.12-slim + CC_VERSION, user 10001); the testagent is busybox. `candler run` launches the harness's `claude` argv in the env image over that base.
+   - The cli rig (`support/cli_run.rs`) is a PATH-fake docker with no real container. The only real-daemon cli e2e (`guard_cli_e2e.rs`) uses a forwarding shim and starts testagent containers by hand, not through `candler run`.
+6. Findings:
+   - SPEC DEFECT (blocking step 2): the leaf asks for a seeker inside the agent container of a real `candler run`, but the agent there is the real Claude Code binary, not the testagent. Options need a ruling: (a) a fixture env Dockerfile (`isolation.build.dockerfile` is a request setting) that puts a `claude` stand-in script, built on the cached `candler-base`, in the image, which would also need the harness's version probe and stream-json shape satisfied; or (b) the fake model scripts a Bash tool call that runs the seeker inside real Claude Code, which needs the fakemodel, gateway and env images built (Claude Code 2.1.304 image cached as youzuoqi/claude-code). Both are src-free but large; neither fits 45 calls under the colgrep-only reading rule.
+   - The seeker prints on stdout. Under (a) that reaches the trace as frames only if the stand-in wraps it in stream-json.
+   - No `src/` file or other out-of-OWNED path edited. No behaviour change.
+7. Docker: images 14 / containers 3 / networks 5 before, identical after (only a `--rm` busybox run; busybox:1.37.0 was already present). No images pulled or built. Container ids before and after: a74248eec16c a8f731202eb1 d4bc746de8bb. Scratch `~/m5b-seek` removed; the target dir `/private/tmp/claude-501/m5b-target-ground_truth_e2e` holds only a commit message file. e2e name reserved: `guard_cli_e2e::i8_e2e::i8_canary_never_reaches_the_agent` (not built).
+
+## Addendum (second agent): ruling and the new blocker - still PARTIAL
+8. Ruling received (coordination, binding): route (c), a real `candler run` (real Claude Code, fake model, real gateway), inspect before start, exec of the seeker as user 10001 live and at the end, gateway/raw-frame/collect checks after, slow fake reply held live, bites in `mount_inputs`, the env, and the build context (`isolation.ground_truth_exposed`). Leaf text edited accordingly (checkpoint line; B7 premise noted).
+9. SPEC DEFECT (blocking, found by colgrep, 40-call budget used for the probe, nothing built): the fake model cannot be the upstream of a real `candler run`.
+   - `crates/candler-core/src/jobs/orchestrate/session.rs` `upstream_of(endpoint)` builds the gateway upstream from host and port only. `UpstreamConfig::ca_pem` (`isolation/gateway.rs`, "Without it the sidecar uses the image's system bundle") is never set on that path; `DockerGateway::inject` writes `/run/gw/ca.pem` only when a CA is set.
+   - `assets/docker/fakemodel/fakemodel.py` serves TLS under a CA it generates at start (`ca.pem`, 2-day, "hand it to the gateway sidecar at /run/gw/ca.pem"). The gateway therefore rejects it in a real run. The fake model is wired only through `DockerControlRunner` (`jobs/orchestrate/controls.rs`), the session controls, which do not carry the experiment's inputs or plug-in.
+   - No setting, env var or seam supplies a CA to a real run, and the sidecar image is rebuilt from embedded assets under `candler-gateway:latest`, so baking a CA into it is not a test-side option. Needs a ruling: (i) a `src/` seam (a CA setting for `model.endpoint`), which is outside OWNED and a new behaviour; (ii) a plain-http upstream mode in the fake model, which the gateway's TLS-only client also cannot use; (iii) route (a) of finding 6, a `claude` stand-in on `candler-base`; or (iv) the coordinator's live smoke carries the I8 checkpoints with the real model.
+10. Not done, so not claimed: the e2e `i8_canary_never_reaches_the_agent`, its `#[path]` line, the fixture, the three bites, the slow-reply fixture setting. Gates (leaf e2e, SPAWN, STD, LINUX, E2E, SUBJ) not run. No `src/` edit.
+11. Docker: no daemon work this session. Images (14) and networks unchanged; no container, image or network created.
+12. Colgrep evidence: `search` over `crates/candler{,-core}` (index already built, reused): `asset_paths`/`control_contexts` (fakemodel context is for the controls), `DockerControlRunner`, `upstream_of`, `UpstreamConfig`, `DockerGateway::inject`.
