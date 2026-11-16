@@ -160,21 +160,25 @@ fn orchestrate_here(
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = JobOutcome> + Send>> {
     // TRAIT_OBJECT: the job body is a boxed future, as `JobBody` declares
     let contexts = control_contexts(&rt, &spec);
-    let host = match contexts {
-        Ok(contexts) => DockerHost::with_controls(contexts),
-        Err(why) => DockerHost::without_controls(&why),
-    };
     // The user configuration was read and checked when the job was started; the supervisor reads
-    // the same file from the same environment.
-    let ca = UserConfig::load(&ConfigEnv::from_process())
-        .ok()
-        .and_then(|user| user.gateway_upstream_ca);
-    orchestrate_with(
-        rt,
-        spec,
-        ctl,
-        std::sync::Arc::new(host.with_upstream_ca(ca)),
-    )
+    // the same file from the same environment. A read that fails now is not a reason to run with
+    // the system bundle: the job refuses and says why.
+    let ca =
+        upstream_ca_of(UserConfig::load(&ConfigEnv::from_process()).map(|u| u.gateway_upstream_ca));
+    let host = match (contexts, ca) {
+        (_, Err(why)) => DockerHost::without_controls(&why),
+        (Ok(contexts), Ok(ca)) => DockerHost::with_controls(contexts).with_upstream_ca(ca),
+        (Err(why), Ok(ca)) => DockerHost::without_controls(&why).with_upstream_ca(ca),
+    };
+    orchestrate_with(rt, spec, ctl, std::sync::Arc::new(host))
+}
+
+/// The upstream CA the supervisor's read of the user configuration holds, or the reason the read
+/// failed, worded for the job's refusal.
+fn upstream_ca_of<E: std::fmt::Display>(
+    read: Result<Option<Vec<u8>>, E>,
+) -> Result<Option<Vec<u8>>, String> {
+    read.map_err(|why| format!("the supervisor cannot read the user configuration: {why}"))
 }
 
 /// Runs a run job through the orchestration, with the driver and skill layout of the harness its
@@ -193,4 +197,26 @@ async fn run_job(store: Store, job: JobId, spec: JobSpec) -> Result<Exit, CliErr
     let body: JobBody = orchestrate_here;
     supervise_entry(entry, body).await.map_err(failed)?;
     Ok(Exit::Success)
+}
+
+#[cfg(test)]
+mod upstream_ca_read_tests {
+    use super::upstream_ca_of;
+
+    /// Guards: a failed second read of the user configuration is an error the job reports, never a
+    /// silent run on the system bundle.
+    ///
+    /// Oracle: the failure text and the bytes of a good read, as given.
+    ///
+    /// Bite: the failure turned into `Ok(None)` (red at the first assertion).
+    #[test]
+    fn a_failed_read_is_reported_and_a_good_one_passes_the_bytes() {
+        let refused = upstream_ca_of::<&str>(Err("the file is gone"));
+        assert!(refused.is_err_and(|why| why.contains("the file is gone")));
+        assert_eq!(
+            upstream_ca_of::<&str>(Ok(Some(b"pem".to_vec()))),
+            Ok(Some(b"pem".to_vec()))
+        );
+        assert_eq!(upstream_ca_of::<&str>(Ok(None)), Ok(None));
+    }
 }

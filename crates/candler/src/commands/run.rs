@@ -54,9 +54,10 @@ pub const STORE_ENV: &str = "CANDLER_STORE_ROOT";
 
 /// The variables of the launcher the supervisor is given, besides the secrets the experiment
 /// declares and [`STORE_ENV`].
-const ENV_ALLOWLIST: [&str; 5] = [
+const ENV_ALLOWLIST: [&str; 6] = [
     "PATH",
     "HOME",
+    "XDG_CONFIG_HOME",
     "XDG_STATE_HOME",
     "DOCKER_HOST",
     "DOCKER_CONTEXT",
@@ -290,4 +291,23 @@ async fn start(
         .map_err(failed)?;
     writeln!(std::io::stdout(), "{id}").map_err(failed)?;
     Ok(Exit::Success)
+}
+
+#[cfg(test)]
+mod allowlist_tests {
+    use super::ENV_ALLOWLIST;
+
+    /// Guards: the supervisor reads the machine configuration (the model upstream's CA) from the
+    /// same directory as the launcher, so the allowlist carries the variable that names it.
+    ///
+    /// Oracle: the variable `ConfigEnv::from_process` reads for the configuration directory.
+    ///
+    /// Bite: `XDG_CONFIG_HOME` removed from the allowlist (red here).
+    #[test]
+    fn the_supervisor_is_given_the_launchers_config_home() {
+        assert!(
+            ENV_ALLOWLIST.contains(&"XDG_CONFIG_HOME"),
+            "the supervisor would read another configuration than the launcher's"
+        );
+    }
 }
