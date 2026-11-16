@@ -283,6 +283,17 @@ fn plan_resolved(
     })
 }
 
+/// The `isolation.egress` the only planned cell holds.
+fn egress_in(planned: &Planned) -> Option<Value> {
+    planned.cells.first().and_then(|cell| {
+        cell.values()
+            .iter()
+            .find(|value| value.path().as_str() == "isolation.egress")
+            .and_then(|value| value.value())
+            .map(|value| value.as_value().clone())
+    })
+}
+
 /// The value the resolution holds at `path`, among values and settings.
 fn value<'a>(resolution: &'a Resolution, path: &str) -> Option<&'a Value> {
     resolution
@@ -558,11 +569,12 @@ fn layer_paths_stay_in_the_plugin_directory() {
 }
 
 /// Guards: R06 D4, N3 — prune appends the plug-in's entries first and drops repeats; a plug-in's
-/// egress, alone or beside the experiment's own, is refused per cell as unsupported, while an
+/// egress, alone or beside the experiment's own, plans per cell as the canonical union, while an
 /// entry that is no host or meets bridge keeps its own code.
-/// Oracle: the prune list worked by hand (`a.py b.py c.py`), and the codes of the egress rule.
-/// Bite: the per-cell refusal removed (`refuse_until_proxy` passing a list through): the plug-in
-/// rows plan.
+/// Oracle: the prune list worked by hand (`a.py b.py c.py`), the unions worked by hand
+/// (`a.com b.com` and `a.com b.com c.com`), and the codes of the egress rule.
+/// Bite: the plug-in's egress dropped from the merge (the cell holds no list or only the
+/// experiment's).
 #[tokio::test]
 async fn layer_lists_append() {
     let rig = Rig::new(
@@ -574,22 +586,25 @@ async fn layer_lists_append() {
     );
     let refusal =
         |planned: Result<Planned, PlanError>| planned.err().expect("refused").code().to_string();
-    let alone = refusal(plan(&rig, &file_with("\"isolation.build.plugin\" = \"p/web\"")).await);
+    let alone = plan(&rig, &file_with("\"isolation.build.plugin\" = \"p/web\""))
+        .await
+        .expect("the plug-in's list alone plans");
     assert_eq!(
-        alone, "isolation.egress_unsupported",
+        egress_in(&alone),
+        Some(json!(["a.com:443", "b.com:443"])),
         "the plug-in's list alone"
     );
-    let beside = refusal(
-        plan(
-            &rig,
-            &file_with(
-                "\"isolation.build.plugin\" = \"p/web\"\n\"isolation.egress\" = [\"a.com:443\", \"c.com:443\"]\n",
-            ),
-        )
-        .await,
-    );
+    let beside = plan(
+        &rig,
+        &file_with(
+            "\"isolation.build.plugin\" = \"p/web\"\n\"isolation.egress\" = [\"a.com:443\", \"c.com:443\"]\n",
+        ),
+    )
+    .await
+    .expect("beside the experiment's list plans");
     assert_eq!(
-        beside, "isolation.egress_unsupported",
+        egress_in(&beside),
+        Some(json!(["a.com:443", "b.com:443", "c.com:443"])),
         "beside the experiment's list"
     );
 
@@ -642,11 +657,10 @@ async fn layer_lists_append() {
 
 /// Guards: R06 D4, N3 — the per-cell egress merge reads the plug-in step's passing report and
 /// nothing else: another step's derived egress and a failed report do not enter, and a job
-/// re-planned from its stored resolution refuses the plug-in's egress as the first plan does.
-/// Oracle: reports built by hand (names, checks and values), and the refusal code of the first
-/// plan.
+/// re-planned from its stored resolution holds the plug-in's egress as the first plan does.
+/// Oracle: reports built by hand (names, checks and values), and the list of the first plan.
 /// Bite: the merge reading every report's `isolation.egress`, or the stored resolution losing the
-/// reports (the stored row plans instead of refusing).
+/// reports (the stored cell holds no list).
 #[tokio::test]
 async fn layer_egress_merge_reads_the_plugin_report_only() {
     let report = |step: &str, egress: Value, passed: bool| {
@@ -695,12 +709,10 @@ async fn layer_egress_merge_reads_the_plugin_report_only() {
         serde_json::from_slice(&serde_json::to_vec(&resolution).expect("JSON"))
             .expect("reads back");
     for (label, held) in [("fresh", resolution), ("stored", stored)] {
-        let refused = plan_resolved(&file, held, Arc::clone(&asked))
-            .err()
-            .expect("refused");
+        let planned = plan_resolved(&file, held, Arc::clone(&asked)).expect("plans");
         assert_eq!(
-            refused.code().to_string(),
-            "isolation.egress_unsupported",
+            egress_in(&planned),
+            Some(json!(["pypi.org:443"])),
             "{label}"
         );
     }

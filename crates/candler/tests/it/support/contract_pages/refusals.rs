@@ -193,7 +193,8 @@ pub fn helper_entries() -> Result<Vec<Entry>, String> {
 }
 
 /// The retired codes of the registry: a code that a release carried and that no refusal emits any
-/// more, each listed as retired with the code that replaces it.
+/// more, each listed as retired with the code that replaces it, or as lifted with the sentence
+/// that says what now holds. A row with both keys, or an empty one, is an error.
 pub fn retired_entries() -> Result<Vec<Entry>, String> {
     let path = repo_root().join("docs/contract/codes.toml");
     let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -204,8 +205,28 @@ pub fn retired_entries() -> Result<Vec<Entry>, String> {
             continue;
         }
         for (code, row) in body.as_table().into_iter().flatten() {
-            let Some(replacement) = row.get("retired").and_then(toml::Value::as_str) else {
-                continue;
+            let retired = row.get("retired").and_then(toml::Value::as_str);
+            let lifted = row.get("lifted").and_then(toml::Value::as_str);
+            if row.get("retired").is_some() && row.get("lifted").is_some() {
+                return Err(format!(
+                    "[{section}.\"{code}\"] carries both `retired` and `lifted`"
+                ));
+            }
+            if [retired, lifted]
+                .into_iter()
+                .flatten()
+                .any(|text| text.trim().is_empty())
+            {
+                return Err(format!(
+                    "[{section}.\"{code}\"] has an empty `retired` or `lifted`"
+                ));
+            }
+            let when = match (retired, lifted) {
+                (Some(replacement), _) => {
+                    format!("Retired, no refusal emits it: replaced by `{replacement}`.")
+                }
+                (None, Some(sentence)) => format!("Lifted, no refusal emits it: {sentence}"),
+                (None, None) => continue,
             };
             let side = row
                 .get("side")
@@ -214,7 +235,7 @@ pub fn retired_entries() -> Result<Vec<Entry>, String> {
             found.push(Entry {
                 code: code.clone(),
                 side: side.to_owned(),
-                when: format!("Retired, no refusal emits it: replaced by `{replacement}`."),
+                when,
                 at: "-".to_owned(),
             });
         }

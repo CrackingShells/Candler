@@ -238,6 +238,8 @@ struct CodeRow {
     variant: String,
     /// The code that replaces this one, on a retired row.
     retired: Option<String>,
+    /// What now holds, on a lifted row.
+    lifted: Option<String>,
 }
 
 /// The rows of every section that holds codes.
@@ -258,6 +260,9 @@ fn code_rows(table: &toml::Table) -> Vec<CodeRow> {
                 retired: row
                     .get("retired")
                     .map(|code| code.as_str().unwrap().to_owned()),
+                lifted: row
+                    .get("lifted")
+                    .map(|text| text.as_str().unwrap().to_owned()),
             });
         }
     }
@@ -465,7 +470,24 @@ fn r1_every_variant_code_equals_its_row() {
         "a code is written twice in codes.toml"
     );
 
-    let live: Vec<&CodeRow> = rows.iter().filter(|row| row.retired.is_none()).collect();
+    for row in &rows {
+        assert!(
+            row.retired.is_none() || row.lifted.is_none(),
+            "{} carries both `retired` and `lifted`",
+            row.code
+        );
+        assert!(
+            row.lifted
+                .as_deref()
+                .is_none_or(|text| !text.trim().is_empty()),
+            "{} has an empty `lifted`",
+            row.code
+        );
+    }
+    let live: Vec<&CodeRow> = rows
+        .iter()
+        .filter(|row| row.retired.is_none() && row.lifted.is_none())
+        .collect();
     for row in rows.iter().filter(|row| row.retired.is_some()) {
         let replacement = row.retired.as_deref().unwrap_or_default();
         let named = live.iter().find(|live| live.code == replacement);
@@ -482,10 +504,10 @@ fn r1_every_variant_code_equals_its_row() {
     for row in &catalogue {
         let who = format!("{}::{}", row.enum_name, row.variant);
         assert!(
-            by_code
-                .get(row.code)
-                .is_none_or(|registered| registered.retired.is_none()),
-            "{who}: code {} is retired and a refusal still emits it",
+            by_code.get(row.code).is_none_or(
+                |registered| registered.retired.is_none() && registered.lifted.is_none()
+            ),
+            "{who}: code {} is retired or lifted and a refusal still emits it",
             row.code
         );
         assert!(

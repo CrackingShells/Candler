@@ -66,3 +66,44 @@ Fixed:
 Residuals, accepted: S5 (row 8 is meaningful on Linux CI only), S6 (no second allow network), R1 to R6 as in the verifier's notes. `multi.test` relies on nginx rotating its resolved addresses, hence eight attempts; the bite is red in the run above.
 
 Gates: rig clean 15.2 s wall (18.4 s test), `egress_proxy_never_resolves_a_listed_host_to_itself` green; the gateway and egress guards 19 of 19; Docker before and after: images and containers equal, no network of the rig left (the one network id that changed is the daemon's default `bridge`, not the rig's).
+
+## Step 4 (lift the refusal, restore the egress rows)
+
+Commit `feat(isolation): enforce isolation.egress and lift its refusal`.
+
+Lifted and deleted:
+- `isolation.egress_unsupported` is no longer emitted. `CHECK_UNSUPPORTED`, `refuse_until_proxy` and `EgressRefusal::Unsupported` are gone from `resolve/steps/egress.rs` (with the module doc's "Nothing enforces an allowlist yet" paragraph); its row is gone from `resolve/refusal.rs`. The experiment-wide step now runs `settle` alone.
+- One caller outside the leaf's named files: `runner/plan.rs` (the per-cell call) wrapped `settle` in `refuse_until_proxy`; the wrapper is removed there, nothing else changed. The leaf says it touches no other `src/` file; the deletion cannot compile without this edit.
+- `docs/contract/codes.toml`: the `[resolve."isolation.egress_unsupported"]` row keeps `side`, `enum`, `variant` and gains `lifted = "`isolation.egress` is accepted and enforced by the egress proxy."`; the header documents `lifted` beside `retired`.
+- `contract_pages/refusals.rs`: `retired_entries` reads either key; a lifted row renders `Lifted, no refusal emits it: <sentence>`; a row with both keys, or an empty value, is an error. `docs/contract/index.md` re-blessed with `CANDLER_BLESS_CONTRACT=1` (one line changed, the code's description).
+- One file the leaf does not name: `tests/it/guard_refusal_codes.rs` (R1) demanded that every live row of `codes.toml` is raised by a variant, so the lifted row failed it. It now reads `lifted`, excludes a lifted row from the live rows, fails when a refusal still emits a retired or lifted code, and fails on a row with both keys or an empty value.
+
+Restored rows (all in `guard_egress_setting.rs` and `guard_plugin_environment.rs`): `egress_refused_at_resolve` is `egress_checked_at_resolve` (a bad list refused, a well-formed list resolves, held as written); `egress_refused_per_cell` is `egress_checked_per_cell` (a factor level's list plans as the canonical list `["a.org:443","pypi.org:443"]`, same digest for the unsorted and the sorted spelling, digest pinned as `LISTED_DIGEST`, another list another digest); `layer_lists_append` asserts the plug-in's list alone (`a.com b.com`) and beside the experiment's (`a.com b.com c.com`) as cell values; `layer_egress_merge_reads_the_plugin_report_only` asserts the fresh and the stored resolution hold `["pypi.org:443"]`. Oracle caveat: the canonical lists are hand-written; `LISTED_DIGEST` was read from the first green run and pinned, so the independent oracle for the digest is the equality of spellings and the inequality with `BASE_DIGEST` and with another list.
+
+Bites, each seen red once and restored from a copy (md5 equal before and after):
+
+| Bite | Red line (tail) |
+|---|---|
+| index.md not re-blessed | `FAIL candler::it contract_pages::d1_regenerating_the_pages_changes_nothing` (7 run: 6 passed, 1 failed) |
+| entries left unsorted (`sort_by_cached_key` removed) | `FAIL candler-core::it guard_egress_setting::egress_checked_per_cell` |
+| refusal re-inserted in `settle` (any entry refused) | `FAIL candler-core::it guard_egress_setting::egress_checked_at_resolve`; the same bite also reddened `guard_plugin_environment::layer_lists_append` and `layer_egress_merge_reads_the_plugin_report_only` in an earlier run |
+| a refusal row emits `isolation.egress_unsupported` again ("no longer emitted") | `FAIL candler-core::it guard_refusal_codes::r1_every_variant_code_equals_its_row` |
+| row with both `retired` and `lifted`, core | `FAIL ... guard_refusal_codes::r1_every_variant_code_equals_its_row` |
+| row with both keys, pages | `FAIL candler::it contract_pages::d1_regenerating_the_pages_changes_nothing` and `d3_every_code_on_a_page_is_in_the_catalog` |
+| empty `lifted`, pages | `FAIL candler::it contract_pages::d3_every_author_code_has_a_page` and `d1_...` |
+
+Gates (exit code and summary line) follow.
+
+| Gate | Exit | Summary |
+|---|---|---|
+| `cargo fmt --all --check` | 0 | clean |
+| clippy `-p candler-core -p candler --all-targets -D warnings` | 0 | Finished |
+| LINUX clippy `x86_64-unknown-linux-gnu --workspace --tests` | 0 | Finished |
+| STD nextest `-p candler-core -p candler` | 0 | 446 run, 446 passed, 29 skipped |
+| `contract_pages` | 0 | 7 passed |
+| Step 4 consistency (egress and plug-in guards) | 0 | 13 passed |
+| `guard_harness_facts` (DIGEST, GOLDEN unchanged) | 0 | 10 passed |
+| no `egress_unsupported` under `crates/*/src`; row has `lifted` | 0 | ok |
+| `cog check a416b7af..HEAD` | 0 | No errored commits |
+
+SUBJ was read as `cog check` (the README's gate list was not opened). The real-daemon rig was not run here; no Docker was touched.
