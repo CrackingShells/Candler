@@ -348,6 +348,7 @@ impl Isolation for StubIsolation {
             state: Vec::new(),
             network: NetworkName::for_job(&job),
             egress: None,
+            add_hosts: Vec::new(),
             limits: Limits {
                 pids_limit: 64,
                 memory: String::from("1g"),

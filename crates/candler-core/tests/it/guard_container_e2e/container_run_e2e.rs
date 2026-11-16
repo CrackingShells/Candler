@@ -195,6 +195,7 @@ impl Rig {
             // BORROW: the spec owns its network name
             network: self.network.clone(),
             egress: None,
+            add_hosts: Vec::new(),
             limits: Limits {
                 pids_limit: 128,
                 memory: String::from("256m"),

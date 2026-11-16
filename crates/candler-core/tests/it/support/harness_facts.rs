@@ -262,6 +262,7 @@ pub fn scene(dir: &Path) -> Scene {
         state: Vec::new(),
         network: NetworkName::for_job(&job),
         egress: None,
+        add_hosts: Vec::new(),
         limits: Limits {
             pids_limit: 512,
             memory: String::from("4g"),

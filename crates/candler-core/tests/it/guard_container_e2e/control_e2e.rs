@@ -188,6 +188,7 @@ async fn control_each_kind_runs_on_the_real_base() {
         state: Vec::new(),
         network: NetworkName::for_job(&job),
         egress: None,
+        add_hosts: Vec::new(),
         limits,
         record_dir: project.clone(),
         user: UserSpec::Engine,

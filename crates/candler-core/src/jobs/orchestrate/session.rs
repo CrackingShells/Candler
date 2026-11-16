@@ -26,8 +26,8 @@ use crate::isolation::docker::{ClientEnv, DockerCli, DockerError};
 use crate::isolation::driver::DockerDriver;
 use crate::isolation::gateway::ChildRecorder;
 use crate::isolation::gateway::{
-    DockerGateway, Gateway, GatewayError, GatewayStart, GatewayStatus, SecretError, SecretSource,
-    SecretValue, UpstreamConfig,
+    DockerGateway, EgressProxy, EgressStart, Gateway, GatewayError, GatewayStart, GatewayStatus,
+    SecretError, SecretSource, SecretValue, UpstreamConfig,
 };
 use crate::isolation::image::{PackageProbe, PackageReadings};
 use crate::isolation::model::{ContainerRef, ImageRef, NetworkName, SweepScope};
@@ -35,6 +35,7 @@ use crate::jobs::dir::JobDir;
 use crate::jobs::model::JobSpec;
 use crate::jobs::view::JobView;
 use crate::resolve::layers::Resolution;
+use crate::resolve::steps::egress::{HostPort, settle};
 use crate::resolve::steps::session;
 use crate::runner::evidence::Inputs;
 use crate::runner::exec::CellRun;
@@ -42,8 +43,8 @@ use crate::runner::plan::{CellId, PlanError, PlanOutcome};
 use crate::runner::{JobGateway, Runtime};
 use crate::supervise::{EventSink, Supervisor};
 use candler_schemas::execution::paths::{
-    ENVIRONMENTS, HARNESS, INPUTS, ISOLATION_IMAGE, ISOLATION_RECORD_PACKAGES, MODEL_ENDPOINT,
-    MODEL_TOKEN_SECRET, REQUEST_TREATMENT, RUNNER_IDLE_S, SNAPSHOTS, TREATMENT,
+    ENVIRONMENTS, HARNESS, INPUTS, ISOLATION_EGRESS, ISOLATION_IMAGE, ISOLATION_RECORD_PACKAGES,
+    MODEL_ENDPOINT, MODEL_TOKEN_SECRET, REQUEST_TREATMENT, RUNNER_IDLE_S, SNAPSHOTS, TREATMENT,
 };
 
 /// The roots of a cell that hold typed records; their sources are not value paths.
@@ -427,8 +428,9 @@ pub struct JobSession {
     pub(super) sweeper: Arc<LabelSweeper>,
     // TRAIT_OBJECT: the sink is the job's event log, or a recorder in tests
     pub(super) events: Arc<dyn EventSink>,
-    pub(super) networks: [NetworkName; 2],
+    pub(super) networks: Vec<NetworkName>,
     pub(super) gateway: Option<ContainerRef>,
+    pub(super) proxies: Vec<ContainerRef>,
 }
 
 /// The sources a cell's manifest carries: one for each value of the cell, and the ones of the
@@ -553,7 +555,66 @@ pub fn cells_of(
     Ok(cells)
 }
 
+/// The distinct allowlists of a job's cells, each once, in canonical order. A cell without an
+/// allowlist contributes none.
+#[must_use]
+pub fn allowlists_of(cells: &BTreeMap<CellId, Arc<CellRun>>) -> Vec<Vec<HostPort>> {
+    let lists: BTreeSet<Vec<HostPort>> = cells
+        .values()
+        .filter_map(|cell| {
+            cell.comparable
+                .values()
+                .iter()
+                // BORROW: .as_str() compares the path with the one asked for
+                .find(|value| value.path().as_str() == ISOLATION_EGRESS)
+                .and_then(ResolvedValue::value)
+                .and_then(|value| settle(Some(value.as_value()), None).ok().flatten())
+        })
+        .collect();
+    lists.into_iter().collect()
+}
+
 impl JobSession {
+    /// Starts one egress proxy for each distinct allowlist of the job's cells, once, after the
+    /// gateway. Each proxy and its allow network are the session's to end.
+    async fn start_proxies(
+        &mut self,
+        rt: &Runtime,
+        // TRAIT_OBJECT: the gateway is the docker sidecar, or a fake in tests
+        service: &Arc<dyn Gateway>,
+        experiment: &Digest,
+        recorder: &JobDir,
+    ) -> Result<Vec<EgressProxy>, OrchestrateError> {
+        let docker: &dyn DockerDriver = &*rt.docker; // TRAIT_OBJECT: the driver is docker, or a recording fake in tests
+        let mut started = Vec::new();
+        for list in allowlists_of(&rt.cells) {
+            // the network exists from the moment the proxy's start begins, so it is listed first
+            self.networks.push(NetworkName::allow_for(&rt.job, &list));
+            let proxy = service
+                .start_egress(
+                    &rt.supervisor,
+                    docker,
+                    EgressStart {
+                        job: &rt.job,
+                        experiment,
+                        recorder,
+                        allowlist: &list,
+                    },
+                )
+                .await
+                .map_err(|error| OrchestrateError::Gateway {
+                    reason: error.to_string(),
+                })?;
+            rt.sink.emit(
+                None,
+                EventPayload::container_created(proxy.container.cid.clone(), ContainerRole::Egress), // BORROW: the event owns the id
+            );
+            self.proxies.push(proxy.container.clone()); // BORROW: the session keeps the container
+            started.push(proxy);
+        }
+        Ok(started)
+    }
+
     /// Opens the session: builds the guard and the sweeper, starts the gateway on the job's own
     /// networks, asks it once whether it serves, then sets the runtime's isolation and gateway.
     /// A failure after a network may exist destroys what exists, through the guard, first.
@@ -622,11 +683,12 @@ impl JobSession {
             guard: Arc::clone(&guard),
             sweeper: Arc::clone(&sweeper),
             events: Arc::clone(&rt.sink),
-            networks: [
+            networks: vec![
                 NetworkName::for_job(&rt.job),
                 NetworkName::egress_for_job(&rt.job),
             ],
             gateway: None,
+            proxies: Vec::new(),
         };
         let docker: &dyn DockerDriver = &*rt.docker; // TRAIT_OBJECT: the driver is docker, or a recording fake in tests
         let started = service
@@ -674,6 +736,16 @@ impl JobSession {
                 return Err(OrchestrateError::Gateway { reason });
             }
         }
+        let proxies = match session
+            .start_proxies(rt, &service, experiment, &job_dir)
+            .await
+        {
+            Ok(proxies) => proxies,
+            Err(error) => {
+                session.close(&SweepScope::CurrentJob).await;
+                return Err(error);
+            }
+        };
         let store_root = rt.store.layout().root().to_path_buf();
         // TRAIT_OBJECT: the isolation records through the job directory as a trait object
         let recorder: Arc<dyn ChildRecorder> = Arc::new(job_dir.clone()); // BORROW: the recorder owns its directory handle
@@ -682,6 +754,7 @@ impl JobSession {
             Arc::clone(&rt.docker),
             guard,
         )
+        .with_egress_proxies(&proxies)
         .with_sweeper(sweeper)
         .with_recorder(recorder)
         .with_dirs(DockerDirs {

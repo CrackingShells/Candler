@@ -65,6 +65,44 @@ impl NetworkName {
         Self(format!("candler-{}-egress", Self::short(job)))
     }
 
+    /// The allow network of `job` for the allowlist `list`:
+    /// `candler-<first 12 hex digits of the job id>-allow-<first 8 hex digits of the list's
+    /// digest>`. It is internal, holds one egress proxy and the agents whose cells carry that
+    /// allowlist, and no other. The digest is the sha256 of the canonical entries, one per line.
+    #[must_use]
+    pub fn allow_for(job: &JobId, list: &[crate::resolve::steps::egress::HostPort]) -> Self {
+        use sha2::{Digest as _, Sha256};
+        use std::fmt::Write as _;
+
+        let mut hasher = Sha256::new();
+        for entry in list {
+            hasher.update(entry.to_string().as_bytes());
+            hasher.update(b"\n");
+        }
+        let mut short = String::new();
+        for byte in hasher.finalize().iter().take(4) {
+            // EXPLICIT: writing to a String cannot fail
+            let _ = write!(short, "{byte:02x}");
+        }
+        Self(format!("candler-{}-allow-{short}", Self::short(job)))
+    }
+
+    /// Whether this is one of the networks of `job`: its internal, egress or an allow network.
+    #[must_use]
+    pub fn belongs_to(&self, job: &JobId) -> bool {
+        let prefix = format!("candler-{}-", Self::short(job));
+        self.0.strip_prefix(prefix.as_str()).is_some_and(|rest| {
+            rest == "net"
+                || rest == "egress"
+                || rest.strip_prefix("allow-").is_some_and(|digest| {
+                    digest.len() == 8
+                        && digest
+                            .bytes()
+                            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+                })
+        })
+    }
+
     /// The first 12 hex digits of the job id.
     fn short(job: &JobId) -> String {
         job.as_str()
@@ -339,10 +377,13 @@ pub struct ContainerPlan {
     pub state: Vec<StatePath>,
     /// The network: the job's internal network, where the gateway answers.
     pub network: NetworkName,
-    /// A second network the container joins, the job's egress network, when the cell asks for
-    /// `isolation.network = bridge`. Docker Engine 25 or newer takes both `--network` flags on
+    /// A second network the container joins: the job's egress network when the cell asks for
+    /// `isolation.network = bridge`, or the allow network of its egress allowlist. Docker Engine 25 or newer takes both `--network` flags on
     /// one `docker run`, as long as both networks are user-defined.
     pub egress: Option<NetworkName>,
+    /// `--add-host <name>:<ip>` entries, sorted by name: the listed hosts of an allowlisted agent,
+    /// each pointing at its egress proxy. The address is a fact of this run, never a cell value.
+    pub add_hosts: Vec<(String, String)>,
     /// The resource limits.
     pub limits: Limits,
     /// The job's `children/` directory, where the docker client's process record is written.
@@ -428,6 +469,34 @@ impl GatewayHandle {
             dummy_token,
             secret,
         })
+    }
+
+    /// The networks an agent of a cell joins: the job's internal network, and a second one that
+    /// depends on the cell. An allowlisted agent gets its own allow network and never the job's
+    /// egress network; `isolation.network = bridge` gets the egress network; any other cell gets
+    /// none.
+    ///
+    /// # Errors
+    /// The text of the refusal when `network` is neither `internal` nor `bridge`.
+    pub fn agent_networks(
+        &self,
+        job: &JobId,
+        allowlist: Option<&[crate::resolve::steps::egress::HostPort]>,
+        network: Option<&str>,
+    ) -> Result<(NetworkName, Option<NetworkName>), String> {
+        match network {
+            None | Some("internal") => Ok((
+                self.network.clone(), // BORROW: the plan owns its network
+                allowlist.map(|list| NetworkName::allow_for(job, list)),
+            )),
+            Some("bridge") => Ok((
+                self.network.clone(),      // BORROW: the plan owns its network
+                Some(self.egress.clone()), // BORROW: the plan owns its network
+            )),
+            Some(_) => Err(String::from(
+                "isolation.network is neither internal nor bridge",
+            )),
+        }
     }
 
     /// The tag of one run: the first 32 hex characters of sha256 over the job's secret, a zero
