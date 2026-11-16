@@ -442,6 +442,7 @@ async fn plugin_environment_serves_live_mcp_tools() {
         state: Vec::new(),
         network: network.clone(), // BORROW: the plan owns its network name
         egress: None,
+        add_hosts: Vec::new(),
         limits: Limits {
             pids_limit: 256,
             memory: String::from("512m"),

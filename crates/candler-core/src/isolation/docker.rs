@@ -369,12 +369,22 @@ fn not_a_full_id(id: &str) -> DockerError {
 }
 
 /// Whether `text` is the name of a job's network: `candler-<12 hex digits>-net` or
-/// `candler-<12 hex digits>-egress`.
+/// `candler-<12 hex digits>-egress`, or `candler-<12 hex digits>-allow-<8 hex digits>`.
 fn is_job_network(text: &str) -> bool {
     text.strip_prefix("candler-")
         .and_then(|rest| {
             rest.strip_suffix("-net")
                 .or_else(|| rest.strip_suffix("-egress"))
+                .or_else(|| {
+                    rest.split_once("-allow-")
+                        .filter(|(_, digest)| {
+                            digest.len() == 8
+                                && digest
+                                    .bytes()
+                                    .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+                        })
+                        .map(|(short, _)| short)
+                })
         })
         .is_some_and(|short| {
             short.len() == 12

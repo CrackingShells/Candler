@@ -191,6 +191,7 @@ impl World {
             state: Vec::new(),
             network: network.clone(), // BORROW: the plan owns its network name
             egress: None,
+            add_hosts: Vec::new(),
             limits: Limits {
                 pids_limit: 128,
                 memory: String::from("256m"),

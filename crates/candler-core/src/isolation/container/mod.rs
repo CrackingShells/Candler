@@ -88,6 +88,8 @@ pub struct DockerIsolation {
     /// The agent container of each run that has one, by the run's key.
     created: Mutex<BTreeMap<String, ContainerId>>,
     dirs: Option<DockerDirs>,
+    /// The address of each egress proxy on its allow network, for the agents' `--add-host`.
+    proxies: std::collections::HashMap<super::model::NetworkName, String>,
 }
 
 /// The end facts of a request, read from its own hook.
@@ -131,6 +133,7 @@ impl DockerIsolation {
             recorder: None,
             created: Mutex::new(BTreeMap::new()),
             dirs: None,
+            proxies: std::collections::HashMap::new(),
         }
     }
 
@@ -147,6 +150,16 @@ impl DockerIsolation {
     pub fn with_recorder(mut self, recorder: Arc<dyn ChildRecorder>) -> Self {
         // TRAIT_OBJECT: the recorder is chosen by the job runtime and by tests
         self.recorder = Some(recorder);
+        self
+    }
+
+    /// The same isolation whose allowlisted agents reach their hosts through `proxies`.
+    #[must_use]
+    pub fn with_egress_proxies(mut self, proxies: &[super::gateway::EgressProxy]) -> Self {
+        for proxy in proxies {
+            // BORROW: the isolation owns the network name and the address
+            self.proxies.insert(proxy.network.clone(), proxy.ip.clone());
+        }
         self
     }
 
@@ -253,21 +266,44 @@ impl Isolation for DockerIsolation {
         let image = cell_value(cell, paths::ISOLATION_IMAGE)?
             .and_then(serde_json::Value::as_str)
             .ok_or_else(|| plan_error("isolation.image is missing"))?;
-        let (network, egress) =
-            match cell_value(cell, paths::ISOLATION_NETWORK)?.and_then(serde_json::Value::as_str) {
-                // BORROW: the owned copy is made where it is needed
-                None | Some("internal") => (self.gateway.network.clone(), None),
-                // BORROW: the owned copy is made where it is needed
-                Some("bridge") => (
-                    self.gateway.network.clone(),
-                    Some(self.gateway.egress.clone()),
-                ),
-                Some(_) => {
-                    return Err(plan_error(
-                        "isolation.network is neither internal nor bridge",
-                    ));
-                }
-            };
+        let allowlist = match cell_value(cell, paths::ISOLATION_EGRESS)? {
+            None => None,
+            Some(value) => crate::resolve::steps::egress::settle(Some(value), None)
+                .map_err(|error| plan_error(error.detail()))?,
+        };
+        let job_id = self
+            .gateway
+            .container
+            .labels
+            .get(LABEL_JOB)
+            .and_then(|text| text.parse::<candler_schemas::primitives::JobId>().ok())
+            .ok_or_else(|| plan_error("the gateway container carries no job label"))?;
+        let (network, egress) = self
+            .gateway
+            .agent_networks(
+                &job_id,
+                allowlist.as_deref(),
+                cell_value(cell, paths::ISOLATION_NETWORK)?.and_then(serde_json::Value::as_str),
+            )
+            .map_err(|detail| plan_error(&detail))?;
+        let add_hosts = match (&allowlist, &egress) {
+            (Some(list), Some(allow))
+                if network.as_str() == self.gateway.network.as_str()
+                    && *allow != self.gateway.egress =>
+            {
+                let ip = self.proxies.get(allow).ok_or_else(|| {
+                    plan_error("the job started no egress proxy for the cell's allowlist")
+                })?;
+                let mut hosts: Vec<&str> = list.iter().map(|entry| entry.host.as_str()).collect();
+                hosts.sort_unstable();
+                hosts.dedup();
+                hosts
+                    .into_iter()
+                    .map(|host| (host.to_owned(), ip.clone())) // BORROW: the plan owns its entries
+                    .collect()
+            }
+            _ => Vec::new(),
+        };
         let wall = cell_value(cell, paths::BUDGET_PER_RUN_WALL_S)?
             .and_then(serde_json::Value::as_u64)
             .ok_or_else(|| plan_error("budget.per_run.wall_s is missing"))?;
@@ -321,6 +357,7 @@ impl Isolation for DockerIsolation {
             state: Vec::new(),
             network,
             egress,
+            add_hosts,
             limits: cell_limits(cell)?,
             record_dir: dirs.children.clone(), // BORROW: the plan owns its directory
             user: container_user(),

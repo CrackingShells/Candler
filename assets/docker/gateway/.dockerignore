@@ -2,3 +2,5 @@
 !entrypoint.sh
 !nginx.conf.template
 !gw.js
+!egress.conf.template
+!egress.js
