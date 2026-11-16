@@ -16,7 +16,7 @@ use candler_core::isolation::container::guard::{
     ContainerGuard, Destroyed, GuardError, GuardRefusal, LostProof,
 };
 use candler_core::isolation::container::sweeper::{LabelSweeper, UnreadableRecord};
-use candler_core::isolation::docker::DockerError;
+use candler_core::isolation::docker::{ClientEnv, DockerCli, DockerError};
 use candler_core::isolation::driver::{DestroyDriver, DockerDriver};
 use candler_core::isolation::model::{
     ContainerPlan, ContainerRef, GatewayHandle, ImageId, ImageRef, Limits, SweepScope, UserSpec,
@@ -910,4 +910,131 @@ async fn b15_unreadable_child_reported() {
             assert!(destroyer.calls().is_empty(), "{label}");
         }
     }
+}
+
+/// A sink that keeps no event.
+struct Quiet;
+
+impl EventSink for Quiet {
+    fn emit(&self, _run: Option<&RunKey>, _payload: EventPayload) {}
+}
+
+/// Guards: R01 §Process supervision (one docker client) — several containers are read in one
+/// docker call: an id docker does not have is `NotFound` for that id alone, the others keep their
+/// facts in the order asked, an id that is not a full id is refused without a call, and the
+/// recording fake answers the same way in one recorded call.
+/// Oracle: the output of `docker container inspect --format '{{json .}}' A MISSING B C` on Docker
+/// Engine 29.9.2, recorded in `tests/fixtures/docker_inspect_many` (stdout of three containers,
+/// stderr naming the fourth, exit 1), and the one call a fake binary logs.
+/// Bite: a client that spawns once per id, one that maps the exit 1 to a failure of every id, one
+/// that answers the found containers in the order of docker's lines against the wrong ids, or an
+/// unknown id the fake answers as `Failed`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn inspect_many_maps_each_id() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("docker_inspect_many");
+    let stdout = std::fs::read_to_string(fixtures.join("three_ids_one_missing.stdout"))
+        .expect("the recorded stdout");
+    let found: Vec<String> = stdout
+        .lines()
+        .map(|line| {
+            let value: serde_json::Value = serde_json::from_str(line).expect("one JSON object");
+            value["Id"].as_str().expect("an Id").to_owned()
+        })
+        .collect();
+    assert_eq!(found.len(), 3, "the fixture holds three containers");
+    let missing = "f".repeat(64);
+
+    let work = tempfile::tempdir().expect("a temp dir");
+    let log = work.path().join("spawns.log");
+    let script = work.path().join("docker");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\necho \"$*\" >> '{log}'\ncat '{out}'\ncat '{err}' >&2\nexit 1\n",
+            log = log.display(),
+            out = fixtures.join("three_ids_one_missing.stdout").display(),
+            err = fixtures.join("three_ids_one_missing.stderr").display(),
+        ),
+    )
+    .expect("a fake docker");
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("executable");
+    let records = work.path().join("records");
+    std::fs::create_dir_all(&records).expect("a record dir");
+    let sink: Arc<dyn EventSink> = Arc::new(Quiet);
+    let cli = DockerCli::with_binary(
+        Arc::new(Supervisor::new(sink)),
+        script,
+        ClientEnv::default(),
+        records,
+    );
+
+    let asked: Vec<String> = vec![
+        found[0].clone(), // BORROW: .clone() gives the request its own ids
+        missing.clone(),  // BORROW: .clone() gives the request its own ids
+        found[1].clone(), // BORROW: .clone() gives the request its own ids
+        found[2].clone(), // BORROW: .clone() gives the request its own ids
+        String::from("not-an-id"),
+    ];
+    let answers = cli.inspect_many(&asked).await;
+    assert_eq!(answers.len(), asked.len(), "one answer per id asked");
+    for (position, id) in [(0, &found[0]), (2, &found[1]), (3, &found[2])] {
+        let inspected = answers[position].as_ref().expect("a found container");
+        assert_eq!(
+            inspected.id.as_str(),
+            id.as_str(),
+            "answer {position} is its own id"
+        );
+    }
+    assert!(
+        matches!(&answers[1], Err(DockerError::NotFound { detail }) if detail.contains(&missing)),
+        "the missing id alone is NotFound: {:?}",
+        answers[1]
+    );
+    assert!(
+        matches!(&answers[4], Err(DockerError::NotAFullId { .. })),
+        "a short id is refused: {:?}",
+        answers[4]
+    );
+    let spawns = std::fs::read_to_string(&log).expect("the spawn log");
+    assert_eq!(
+        spawns.lines().count(),
+        1,
+        "one docker process for all the ids: {spawns}"
+    );
+    let line = spawns.lines().next().expect("one line");
+    assert!(line.starts_with("container inspect "), "the verb: {line}");
+    assert!(
+        !line.contains("not-an-id"),
+        "the short id never reaches docker: {line}"
+    );
+    for id in [&found[0], &missing, &found[1], &found[2]] {
+        assert!(line.contains(id.as_str()), "{id} is asked: {line}");
+    }
+
+    let fake = RecordingDocker::new().with_inspect(
+        &found[0],
+        inspect(
+            &ContainerId::from_str(&found[0]).expect("a full id"),
+            Labels::new(),
+        ),
+    );
+    let two = vec![found[0].clone(), missing.clone()]; // BORROW: .clone() gives the request its own ids
+    let fake_answers = fake.inspect_many(&two).await;
+    assert!(fake_answers[0].is_ok(), "the known id is answered");
+    assert!(
+        matches!(fake_answers[1], Err(DockerError::NotFound { .. })),
+        "the unknown id is NotFound: {:?}",
+        fake_answers[1]
+    );
+    assert_eq!(
+        fake.calls().len(),
+        1,
+        "one recorded call: {:?}",
+        fake.calls()
+    );
 }

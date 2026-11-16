@@ -7,7 +7,7 @@
 //! [`DockerCli`] reads and runs. [`DockerDestroyer`] stops and removes; only the container guard
 //! holds one. A destroy verb takes the full 64-digit id of a container, never a name or a prefix.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -27,7 +27,7 @@ use super::model::{
 use crate::supervise::Supervisor;
 use crate::supervise::signal::control_marker;
 use crate::supervise::spawn::SpawnRequest;
-use crate::supervise::stop::Ended;
+use crate::supervise::stop::{Captured, Ended};
 
 /// The variables a docker client child may see: where the daemon is, which context names it, and
 /// the home directory that holds the client's own configuration.
@@ -166,6 +166,28 @@ impl Runner {
         deadline: Duration,
         limit: usize,
     ) -> Result<Vec<u8>, DockerError> {
+        let captured = self.captured(rest, deadline, limit).await?;
+        let stderr = detail_of(&captured.stderr);
+        match captured.exit.status {
+            ExitStatus::Code { code: 0 } => Ok(captured.stdout),
+            ExitStatus::Code { .. } | ExitStatus::Signal { .. } => {
+                if is_not_found(&stderr) {
+                    Err(DockerError::NotFound { detail: stderr })
+                } else {
+                    Err(DockerError::Failed { detail: stderr })
+                }
+            }
+        }
+    }
+
+    /// Runs `docker <args>` and returns how it ended with what it printed, at most `limit` bytes
+    /// of each stream.
+    async fn captured(
+        &self,
+        rest: Vec<String>,
+        deadline: Duration,
+        limit: usize,
+    ) -> Result<Captured, DockerError> {
         let marker = control_marker();
         let mut argv = Vec::with_capacity(rest.len() + 1);
         // BORROW: .to_string_lossy().into_owned() gives the request the binary path as text
@@ -188,18 +210,8 @@ impl Runner {
             .map_err(|error| DockerError::Failed {
                 detail: format!("the docker client could not run: {error}"),
             })?;
-        let stderr = detail_of(&captured.stderr);
         match captured.exit.ended {
-            Ended::Exited => match captured.exit.status {
-                ExitStatus::Code { code: 0 } => Ok(captured.stdout),
-                ExitStatus::Code { .. } | ExitStatus::Signal { .. } => {
-                    if is_not_found(&stderr) {
-                        Err(DockerError::NotFound { detail: stderr })
-                    } else {
-                        Err(DockerError::Failed { detail: stderr })
-                    }
-                }
-            },
+            Ended::Exited => Ok(captured),
             Ended::Deadline | Ended::Stopped => Err(DockerError::Failed {
                 // BORROW: the error owns its text
                 detail: "the supervisor ended the docker client before it finished".to_owned(),
@@ -223,6 +235,13 @@ fn is_not_found(stderr: &str) -> bool {
 /// Whether `text` is 64 lowercase hex digits.
 fn is_full_id(text: &str) -> bool {
     text.len() == 64 && text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// The error for an id that is not a full container id.
+fn not_a_full_id(id: &str) -> DockerError {
+    DockerError::NotAFullId {
+        detail: id.chars().take(DETAIL_LIMIT).collect(),
+    }
 }
 
 /// Whether `text` is the name of a job's network: `candler-<12 hex digits>-net` or
@@ -324,6 +343,29 @@ impl DockerCli {
 /// The arguments of `docker container inspect` for one full id.
 fn inspect_args(id: &str) -> Vec<String> {
     to_args(&["container", "inspect", "--format", "{{json .}}", id])
+}
+
+/// The arguments of one `docker container inspect` for several full ids.
+fn inspect_many_args(ids: &[&str]) -> Vec<String> {
+    let mut args = to_args(&["container", "inspect", "--format", "{{json .}}"]);
+    args.extend(ids.iter().map(|id| (*id).to_owned())); // BORROW: .to_owned() gives the argument its own text
+    args
+}
+
+/// The arguments of `docker create`, whose own arguments are `rest`.
+fn create_args(rest: Vec<String>) -> Vec<String> {
+    let mut args = to_args(&["create"]);
+    args.extend(rest);
+    args
+}
+
+/// The ids that docker's error lines say no container has.
+fn missing_ids(stderr: &str) -> BTreeSet<&str> {
+    stderr
+        .lines()
+        .filter_map(|line| line.rsplit_once("No such container: "))
+        .map(|(_, id)| id.trim())
+        .collect()
 }
 
 /// The arguments that list every container, running or not, that carries `key=value`.
@@ -545,6 +587,48 @@ fn parse_ids(text: &str) -> Result<Vec<String>, DockerError> {
         .collect()
 }
 
+/// The answer of one `docker container inspect` of `ids`, one result per id in the order asked.
+///
+/// Docker prints the containers it found, in the order asked, one JSON object per line, and names
+/// each container it did not find on a line of its error output; it exits 1 when any is missing.
+fn inspect_many_answer(
+    ids: &[&str],
+    stdout: &[u8],
+    stderr: &[u8],
+    exited_zero: bool,
+) -> Vec<Result<Inspect, DockerError>> {
+    let found: BTreeMap<String, Inspect> = String::from_utf8_lossy(stdout)
+        .lines()
+        .filter_map(|line| parse_inspect(line).ok())
+        // BORROW: .to_owned() gives the key its own text
+        .map(|inspected| (inspected.id.as_str().to_owned(), inspected))
+        .collect();
+    let error_text = String::from_utf8_lossy(stderr);
+    // BORROW: explicit .as_ref() reads the text as a str
+    let gone = missing_ids(error_text.as_ref());
+    let detail = detail_of(stderr);
+    ids.iter()
+        .map(|id| {
+            if let Some(inspected) = found.get(*id) {
+                Ok(inspected.clone()) // BORROW: .clone() gives each id its own answer
+            } else if gone.contains(id) {
+                Err(DockerError::NotFound {
+                    detail: format!("No such container: {id}"),
+                })
+            } else if exited_zero {
+                Err(unreadable(
+                    "container inspect",
+                    "docker printed no answer for an id it was asked",
+                ))
+            } else {
+                Err(DockerError::Failed {
+                    detail: detail.clone(), // BORROW: .clone() gives each id its own text
+                })
+            }
+        })
+        .collect()
+}
+
 impl DockerDriver for DockerCli {
     fn capture(
         &self,
@@ -557,9 +641,7 @@ impl DockerDriver for DockerCli {
     fn inspect<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Inspect, DockerError>> {
         Box::pin(async move {
             if !is_full_id(id) {
-                return Err(DockerError::NotAFullId {
-                    detail: id.chars().take(DETAIL_LIMIT).collect(),
-                });
+                return Err(not_a_full_id(id));
             }
             let text = self.runner.run(inspect_args(id), CALL_DEADLINE).await?;
             let inspected = parse_inspect(&text)?;
@@ -571,6 +653,50 @@ impl DockerDriver for DockerCli {
                 ));
             }
             Ok(inspected)
+        })
+    }
+
+    fn inspect_many<'a>(
+        &'a self,
+        ids: &'a [String],
+    ) -> BoxFuture<'a, Vec<Result<Inspect, DockerError>>> {
+        Box::pin(async move {
+            // BORROW: explicit .as_str() reads each id as text
+            let asked: Vec<&str> = ids.iter().map(String::as_str).collect();
+            let valid: Vec<&str> = asked.iter().copied().filter(|id| is_full_id(id)).collect();
+            if valid.is_empty() {
+                return asked.iter().map(|id| Err(not_a_full_id(id))).collect();
+            }
+            let captured = match self
+                .runner
+                .captured(inspect_many_args(&valid), CALL_DEADLINE, OUTPUT_LIMIT)
+                .await
+            {
+                Ok(captured) => captured,
+                Err(error) => return asked.iter().map(|_| Err(error.clone())).collect(),
+            };
+            let exited_zero = matches!(captured.exit.status, ExitStatus::Code { code: 0 });
+            let mut answers =
+                inspect_many_answer(&valid, &captured.stdout, &captured.stderr, exited_zero)
+                    .into_iter();
+            asked
+                .iter()
+                .map(|id| {
+                    if is_full_id(id) {
+                        answers.next().unwrap_or_else(|| Err(not_a_full_id(id)))
+                    } else {
+                        Err(not_a_full_id(id))
+                    }
+                })
+                .collect()
+        })
+    }
+
+    fn create(&self, args: Vec<String>) -> BoxFuture<'_, Result<ContainerId, DockerError>> {
+        Box::pin(async move {
+            let printed = self.runner.run(create_args(args), CALL_DEADLINE).await?;
+            ContainerId::from_str(printed.trim())
+                .map_err(|error| unreadable("container create", error))
         })
     }
 

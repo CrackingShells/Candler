@@ -4,10 +4,10 @@
 //!
 //! A fake never starts a process and never reaches docker.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use candler_schemas::primitives::JobId;
+use candler_schemas::primitives::{ContainerId, JobId};
 use futures::future::BoxFuture;
 
 use super::docker::DockerError;
@@ -33,6 +33,7 @@ pub struct RecordingDocker {
     listed: Mutex<Vec<ContainerRef>>,
     images: Mutex<BTreeMap<String, ImageInfo>>,
     captures: Mutex<Vec<Canned>>,
+    created: Mutex<VecDeque<Result<ContainerId, DockerError>>>,
 }
 
 impl RecordingDocker {
@@ -71,6 +72,14 @@ impl RecordingDocker {
         self
     }
 
+    /// Answers the next `create` with `answer`; the answers are given in the order queued, and a
+    /// `create` after the last fails.
+    #[must_use]
+    pub fn with_created(self, answer: Result<ContainerId, DockerError>) -> Self {
+        held(&self.created).push_back(answer);
+        self
+    }
+
     /// The calls so far, one line each, in order.
     #[must_use]
     pub fn calls(&self) -> Vec<String> {
@@ -91,6 +100,37 @@ impl DockerDriver for RecordingDocker {
                 detail: format!("no such container: {id}"),
             })
         })
+    }
+
+    fn inspect_many<'a>(
+        &'a self,
+        ids: &'a [String],
+    ) -> BoxFuture<'a, Vec<Result<Inspect, DockerError>>> {
+        self.record(format!("inspect_many {}", ids.join(" ")));
+        let known = held(&self.inspects);
+        let answers: Vec<Result<Inspect, DockerError>> = ids
+            .iter()
+            .map(|id| {
+                known
+                    .get(id.as_str())
+                    .cloned()
+                    .ok_or_else(|| DockerError::NotFound {
+                        detail: format!("No such container: {id}"),
+                    })
+            })
+            .collect();
+        drop(known);
+        Box::pin(async move { answers })
+    }
+
+    fn create(&self, args: Vec<String>) -> BoxFuture<'_, Result<ContainerId, DockerError>> {
+        self.record(format!("create {}", args.join(" ")));
+        let answer = held(&self.created).pop_front().unwrap_or_else(|| {
+            Err(DockerError::Failed {
+                detail: format!("no scripted answer for create: {}", args.join(" ")),
+            })
+        });
+        Box::pin(async move { answer })
     }
 
     fn ps_by_label<'a>(
@@ -261,6 +301,21 @@ impl<D> AllowlistDriver<D> {
 impl<D: DockerDriver> DockerDriver for AllowlistDriver<D> {
     fn inspect<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Inspect, DockerError>> {
         self.inner.inspect(id)
+    }
+
+    fn inspect_many<'a>(
+        &'a self,
+        ids: &'a [String],
+    ) -> BoxFuture<'a, Vec<Result<Inspect, DockerError>>> {
+        self.inner.inspect_many(ids)
+    }
+
+    fn create(&self, args: Vec<String>) -> BoxFuture<'_, Result<ContainerId, DockerError>> {
+        Box::pin(async move {
+            let created = self.inner.create(args).await?;
+            self.allow_container(created.as_str());
+            Ok(created)
+        })
     }
 
     fn ps_by_label<'a>(
