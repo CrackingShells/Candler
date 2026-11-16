@@ -54,6 +54,20 @@ pub trait ContainerSweeper: Send + Sync {
         scope: &'a SweepScope,
     ) -> BoxFuture<'a, Result<ContainerSweep, SweepError>>;
 
+    /// Destroys what the guard allows in `scope` among `listed`, the containers of the scope the
+    /// caller has just listed, and says what it did. The default lists again.
+    ///
+    /// # Errors
+    /// [`SweepError::List`] when the containers cannot be listed.
+    fn sweep_listed<'a>(
+        &'a self,
+        scope: &'a SweepScope,
+        listed: Vec<ContainerRef>,
+    ) -> BoxFuture<'a, Result<ContainerSweep, SweepError>> {
+        let _ = listed;
+        self.sweep(scope)
+    }
+
     /// Destroys what the guard allows of the lost job `proof` is for. A sweeper that cannot show
     /// the proof to its guard is unavailable.
     ///
@@ -136,7 +150,20 @@ impl LabelSweeper {
     /// # Errors
     /// [`SweepError::List`] when docker cannot list the job's containers.
     pub async fn sweep_report(&self, scope: &SweepScope) -> Result<SweepReport, SweepError> {
-        self.sweep_with(scope, None).await
+        self.sweep_with(scope, None, None).await
+    }
+
+    /// Sweeps `scope` among `listed`, the containers the caller listed just now, without listing
+    /// again, and reports like [`LabelSweeper::sweep_report`].
+    ///
+    /// # Errors
+    /// [`SweepError::List`] when a record's container cannot be inspected as a list.
+    pub async fn sweep_listed_report(
+        &self,
+        scope: &SweepScope,
+        listed: Vec<ContainerRef>,
+    ) -> Result<SweepReport, SweepError> {
+        self.sweep_with(scope, None, Some(listed)).await
     }
 
     /// Sweeps the lost job `proof` is for, and reports like [`LabelSweeper::sweep_report`].
@@ -145,19 +172,20 @@ impl LabelSweeper {
     /// [`SweepError::List`] when docker cannot list the job's containers.
     pub async fn sweep_lost_report(&self, proof: &LostProof) -> Result<SweepReport, SweepError> {
         let scope = SweepScope::Lost(proof.job().clone()); // BORROW: .clone() gives the scope its own job
-        self.sweep_with(&scope, Some(proof)).await
+        self.sweep_with(&scope, Some(proof), None).await
     }
 
     async fn sweep_with(
         &self,
         scope: &SweepScope,
         proof: Option<&LostProof>,
+        listed: Option<Vec<ContainerRef>>,
     ) -> Result<SweepReport, SweepError> {
         let mut report = SweepReport::default();
         let mut failure = None;
         let timed = tokio::time::timeout(
             self.limit,
-            self.collect(scope, proof, &mut report, &mut failure),
+            self.collect(scope, proof, listed, &mut report, &mut failure),
         )
         .await;
         if let Some(error) = failure {
@@ -185,6 +213,7 @@ impl LabelSweeper {
         &self,
         scope: &SweepScope,
         proof: Option<&LostProof>,
+        listed: Option<Vec<ContainerRef>>,
         report: &mut SweepReport,
         failure: &mut Option<SweepError>,
     ) {
@@ -201,14 +230,18 @@ impl LabelSweeper {
                 value: job.to_string(),
             },
         };
-        let mut found = match self.docker.ps_by_label(&selector).await {
-            Ok(found) => found,
-            Err(error) => {
-                *failure = Some(SweepError::List {
-                    detail: error.to_string(),
-                });
-                return;
-            }
+        let reuse = listed.is_some();
+        let mut found = match listed {
+            Some(found) => found,
+            None => match self.docker.ps_by_label(&selector).await {
+                Ok(found) => found,
+                Err(error) => {
+                    *failure = Some(SweepError::List {
+                        detail: error.to_string(),
+                    });
+                    return;
+                }
+            },
         };
         let wanted = job.to_string();
         // BORROW: .as_str() compares the label with the job
@@ -241,16 +274,29 @@ impl LabelSweeper {
         found.sort_by_key(|container| container.labels.get(LABEL_ROLE) != Some("agent"));
         let answers = match proof {
             Some(held) => self.guard.destroy_lost_many(&found, held).await,
+            None if reuse => self.guard.destroy_many_reusing(&found, scope).await,
             None => self.guard.destroy_many(&found, scope).await,
         };
         for (container, done) in found.iter().zip(answers) {
             Self::file(container, done, report);
         }
         if let SweepScope::Lost(lost) = scope {
-            for network in [
+            let mut networks = vec![
                 NetworkName::for_job(lost),
                 NetworkName::egress_for_job(lost),
-            ] {
+            ];
+            // the allow networks are found by the job label: a lost job has no records
+            match self.docker.networks_of_job(lost).await {
+                Ok(named) => {
+                    for network in named {
+                        if !networks.contains(&network) {
+                            networks.push(network);
+                        }
+                    }
+                }
+                Err(_) => report.sweep.unknown = true,
+            }
+            for network in networks {
                 let gone = match proof {
                     Some(held) => self.guard.destroy_network_lost(&network, held).await,
                     None => self.guard.destroy_network(&network, scope).await,
@@ -348,6 +394,18 @@ impl ContainerSweeper for LabelSweeper {
         scope: &'a SweepScope,
     ) -> BoxFuture<'a, Result<ContainerSweep, SweepError>> {
         Box::pin(async move { self.sweep_report(scope).await.map(|report| report.sweep) })
+    }
+
+    fn sweep_listed<'a>(
+        &'a self,
+        scope: &'a SweepScope,
+        listed: Vec<ContainerRef>,
+    ) -> BoxFuture<'a, Result<ContainerSweep, SweepError>> {
+        Box::pin(async move {
+            self.sweep_listed_report(scope, listed)
+                .await
+                .map(|report| report.sweep)
+        })
     }
 
     fn sweep_lost<'a>(

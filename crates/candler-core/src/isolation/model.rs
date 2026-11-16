@@ -103,6 +103,14 @@ impl NetworkName {
         })
     }
 
+    /// The network `name` as a listing of docker shows it, when it is one of the networks of
+    /// `job`; `None` for any other name.
+    #[must_use]
+    pub fn listed(job: &JobId, name: &str) -> Option<Self> {
+        let found = Self(name.to_owned()); // BORROW: .to_owned() gives the name its own text
+        found.belongs_to(job).then_some(found)
+    }
+
     /// The first 12 hex digits of the job id.
     fn short(job: &JobId) -> String {
         job.as_str()

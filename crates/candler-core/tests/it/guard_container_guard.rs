@@ -1186,7 +1186,8 @@ fn nine(fake: &Fakery, run: &RunKey, own: u32) {
 /// L = 2 (one `ls`, one `inspect_many` of what it printed); a verification is 1 `inspect_many`;
 /// a target costs a stop and an rm (2). One run (N = 1 agent) in a job of 9: sweep = L + 1 + 2 =
 /// 5. Normal exit = the hook's list L (2), the agent's last inspect (1) and the sweep (5) = 8.
-/// Ladder stop = the pre-stop (list 2, verify 1, stop 1 = 4) and the normal exit (8) = 12.
+/// Ladder stop = the pre-stop (list 2, verify 1, stop 1 = 4) and the destroy hook, which lists once
+/// (2) and reuses the pre-stop's verification of the id it already verified (stop 1, rm 1) = 8.
 /// Exec pre-stop = list 2 and one inspect = 3. A run of N = 7 (7 of the 9): sweep = 2 + 1 + 14 = 17.
 /// Bite: `inspect_many` spawning one docker process per id, or `ps_by_label` inspecting per id.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1197,7 +1198,7 @@ async fn spawn_budget_paths() {
     let rows: [(&str, u32, usize); 5] = [
         ("sweep", 1, 5),
         ("normal exit", 1, 8),
-        ("ladder stop", 1, 12),
+        ("ladder stop", 1, 8),
         ("exec pre-stop", 1, 3),
         ("sweep of 7", 7, 17),
     ];
@@ -1331,5 +1332,97 @@ async fn b10_allow_networks_follow_the_job_rule() {
             format!("network rm {}", own.as_str()), // BORROW: explicit .as_str()
             format!("network rm {}", theirs.as_str()), // BORROW: explicit .as_str()
         ]
+    );
+}
+
+/// Guards: R01 §Process supervision (G3) — the destroy hook lists afresh, so a container created
+/// between the pre-stop and the destroy is found, verified by one inspect and destroyed.
+/// Oracle: derived by hand: pre-stop 4, fresh list 2, one `inspect_many` of the new id 1, then a
+/// stop and an rm of each of the 2 agents (4) = 11 at most; both agents are gone and the other 8
+/// containers remain.
+/// Bite: the destroy reusing the pre-stop's list, which does not name the new container: it stays
+/// behind and the first assertion fails.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn spawn_budget_container_created_between_hooks() {
+    let current = job(1);
+    let run = run_key(1);
+    let fake = Fakery::new(&current);
+    nine(&fake, &run, 1);
+    let hook = fake.hook();
+    let ctx = StopHookCtx::new(
+        Some(run.clone()),
+        "m".parse().expect("a marker"),
+        Ended::Stopped,
+    ); // BORROW: .clone() gives the context its own key
+    hook.pre_stop(&ctx).await.expect("a pre-stop");
+    fake.add(0x70, "agent", Some(&run));
+    let swept = hook.destroy(&ctx).await.expect("a destroy");
+    assert_eq!(swept.destroyed.len(), 2, "both agents are destroyed");
+    assert_eq!(fake.remaining(), 8, "only the run's containers are gone");
+    let spawned = fake.spawns();
+    assert!(spawned <= 11, "{spawned} spawns, at most 11");
+}
+
+/// Guards: a lost job's allow networks are destroyed by the lost sweep: one `network ls` by the job
+/// label names them, and the guard removes them under the proof like the job's other networks.
+/// Oracle: the log of the scripted docker, derived by hand: one container list, one `network ls`,
+/// and for each of the 3 networks (internal, egress, allow) one inspect and one `network rm`.
+/// Bite: the `network ls` dropped from `LabelSweeper::collect`: the allow network is never removed.
+#[tokio::test]
+async fn spawn_budget_lost_sweep_allow_networks() {
+    let root = tempfile::tempdir().expect("a temp dir");
+    let current = job(1);
+    let lost = job(5);
+    let (_dir, _lock, proof) = locked(root.path(), &lost);
+    let allowlist = settle(Some(&serde_json::json!(["a.test:443"])), None)
+        .expect("a list")
+        .expect("not empty");
+    let allow = NetworkName::allow_for(&lost, &allowlist);
+    let names = vec![
+        NetworkName::for_job(&lost),
+        NetworkName::egress_for_job(&lost),
+        allow.clone(), // BORROW: .clone() gives the list its own name
+    ];
+    let log = Log::new();
+    let mut docker = ScriptedDocker::new(&log).job_networks(names.clone()); // BORROW: .clone() gives the fake its own list
+    for name in &names {
+        let info = NetworkInfo {
+            name: name.clone(), // BORROW: .clone() gives the answer its own name
+            internal: true,
+            labels: Labels::new().with("candler.job", lost.as_str()), // BORROW: explicit .as_str()
+        };
+        docker = docker.network(name, info);
+    }
+    let read: Arc<dyn DockerDriver> = Arc::new(docker);
+    let kill: Arc<dyn DestroyDriver> = Arc::new(LoggingDestroyer::new(
+        &log,
+        Arc::new(RecordingDestroyer::new()),
+    ));
+    let view = FakeJobView::new(current).shared();
+    let guard = Arc::new(ContainerGuard::new(
+        kill,
+        Arc::clone(&read),
+        Arc::clone(&view),
+    ));
+    let sweeper = LabelSweeper::new(read, guard, view, Duration::from_secs(30));
+    let report = sweeper.sweep_lost_report(&proof).await.expect("a sweep");
+    assert!(!report.sweep.unknown, "the sweep is complete");
+    let lines = log.lines();
+    assert!(
+        lines.contains(&format!("network rm {}", allow.as_str())), // BORROW: explicit .as_str()
+        "the allow network is removed: {lines:?}"
+    );
+    let counted = lines
+        .iter()
+        .filter(|line| {
+            line.starts_with("ps ")
+                || line.starts_with("network ls")
+                || line.starts_with("network inspect")
+                || line.starts_with("network rm")
+        })
+        .count();
+    assert_eq!(
+        counted, 8,
+        "one list, one network ls, 3 inspects, 3 rms: {lines:?}"
     );
 }

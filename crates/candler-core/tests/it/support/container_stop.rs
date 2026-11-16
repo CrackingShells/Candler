@@ -129,6 +129,7 @@ pub struct ScriptedDocker {
     script: Mutex<BTreeMap<String, Vec<Inspect>>>,
     listed: Vec<ContainerRef>,
     networks: BTreeMap<String, NetworkInfo>,
+    job_networks: Vec<NetworkName>,
 }
 
 impl ScriptedDocker {
@@ -139,7 +140,15 @@ impl ScriptedDocker {
             script: Mutex::new(BTreeMap::new()),
             listed: Vec::new(),
             networks: BTreeMap::new(),
+            job_networks: Vec::new(),
         }
+    }
+
+    /// What `networks_of_job` lists: the networks docker shows under the job label.
+    #[must_use]
+    pub fn job_networks(mut self, names: Vec<NetworkName>) -> Self {
+        self.job_networks = names;
+        self
     }
 
     /// The inspect answers for `id`, in order.
@@ -182,6 +191,15 @@ impl DockerDriver for ScriptedDocker {
     ) -> BoxFuture<'a, Result<Vec<ContainerRef>, DockerError>> {
         self.log.push(format!("ps {}={}", sel.key, sel.value));
         let listed = self.listed.clone(); // BORROW: .clone() copies the listing for the future
+        Box::pin(async move { Ok(listed) })
+    }
+
+    fn networks_of_job<'a>(
+        &'a self,
+        job: &'a JobId,
+    ) -> BoxFuture<'a, Result<Vec<NetworkName>, DockerError>> {
+        self.log.push(format!("network ls {job}"));
+        let listed = self.job_networks.clone(); // BORROW: .clone() copies the listing for the future
         Box::pin(async move { Ok(listed) })
     }
 
