@@ -11,5 +11,7 @@ stream {
   # The upstream names resolve at connect time, so no address is pinned at start.
   resolver ${GW_RESOLVER} valid=1s ipv6=off;
   resolver_timeout 3s;
+  # A session never retries another address: the filter judges the one address nginx used.
+  proxy_next_upstream off;
 ${GW_EGRESS_SERVERS}
 }
