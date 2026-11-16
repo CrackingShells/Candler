@@ -18,8 +18,8 @@ use candler_core::isolation::container::guard::ContainerGuard;
 use candler_core::isolation::docker::{ClientEnv, DockerCli as DockerClient, DockerDestroyer};
 use candler_core::isolation::driver::{DestroyDriver, DockerDriver};
 use candler_core::isolation::gateway::{
-    ChildRecorder, DockerCli, DockerGateway, Gateway, GatewaySignal, GatewayStart, SecretError,
-    SecretSource, SecretValue, UpstreamConfig, assert_clean,
+    ChildRecorder, DockerGateway, Gateway, GatewaySignal, GatewayStart, SecretError, SecretSource,
+    SecretValue, UpstreamConfig, assert_clean,
 };
 use candler_core::isolation::model::{
     GatewayHandle, ImageId, ImageRef, LabelSel, NetworkName, SweepScope,
@@ -36,8 +36,8 @@ use crate::support::gateway as gateway_support;
 
 use gateway_support::{
     AGENT_IMAGE, CELL_HEX, EXPERIMENT, FAKE_SCRIPT, GATEWAY_CONTEXT, PYTHON_IMAGE, Ran,
-    SECRET_NAME, UPSTREAM_HOST, UPSTREAM_PORT, canary, client_env, docker, make_ca,
-    make_server_cert, random_job, run,
+    SECRET_NAME, UPSTREAM_HOST, UPSTREAM_PORT, canary, docker, make_ca, make_server_cert,
+    random_job, run,
 };
 
 /// `docker exec <cid> <args>`.
@@ -387,12 +387,6 @@ fn field(record: &serde_json::Value, key: &str) -> String {
 
 /// A gateway to the fake: `ca` is the authority it trusts, `max_parallel` its cap.
 fn gateway(rig: &Rig, ca: &[u8], max_parallel: u32) -> DockerGateway {
-    let cli = DockerCli::new(
-        client_env(),
-        "gateway".parse().expect("a marker"),
-        rig.work_dir("records"),
-        rig.work_dir("cids"),
-    );
     let upstream = UpstreamConfig::builder()
         .host(UPSTREAM_HOST)
         .port(UPSTREAM_PORT)
@@ -403,7 +397,8 @@ fn gateway(rig: &Rig, ca: &[u8], max_parallel: u32) -> DockerGateway {
         sidecar_image(),
         upstream,
         max_parallel,
-        cli,
+        DockerClient::clone(&rig.cli),
+        "gateway".parse().expect("a marker"),
         Arc::clone(&rig.sup),
     )
 }

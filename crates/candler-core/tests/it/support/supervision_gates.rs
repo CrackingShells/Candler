@@ -3,11 +3,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use candler_core::isolation::docker::ClientEnv;
+use candler_core::isolation::docker::{ClientEnv, DockerCli};
 use candler_core::isolation::driver::DockerDriver;
 use candler_core::isolation::gateway::{
-    DockerCli as GatewayCli, DockerGateway, Gateway, GatewayStart, GatewayStatus, SecretError,
-    SecretSource, SecretValue, UpstreamConfig,
+    DockerGateway, Gateway, GatewayStart, GatewayStatus, SecretError, SecretSource, SecretValue,
+    UpstreamConfig,
 };
 use candler_core::isolation::model::{ImageId, ImageRef, NetworkName};
 use candler_core::jobs::dir::JobDir;
@@ -199,18 +199,13 @@ pub fn gates_body(
         let var = |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("{name} is unset"));
         let work = PathBuf::from(var(ENV_WORK));
         let dir = JobDir::open(rt.store.layout(), &rt.job).expect("the job directory");
-        let mut env: Vec<(String, String)> = ClientEnv::from_process().pairs().to_vec();
-        if let Some(path) = std::env::var_os("PATH") {
-            // BORROW: the child's environment owns its pair
-            env.push(("PATH".to_owned(), path.to_string_lossy().into_owned()));
-        }
         let marker: Marker = "gateway".parse().expect("a marker");
-        let cli = GatewayCli::new(
-            env.clone(), // BORROW: the gateway's client owns its environment
-            marker,
+        let cli = DockerCli::new(
+            Arc::clone(&rt.supervisor),
+            ClientEnv::from_process(),
             dir.control_dir(),
-            dir.children_dir(),
-        );
+        )
+        .expect("a docker client");
         let upstream = UpstreamConfig::builder()
             .host(UPSTREAM_HOST)
             .port(UPSTREAM_PORT)
@@ -221,7 +216,8 @@ pub fn gates_body(
             id: ImageId(var(ENV_SIDECAR)),
             harness_version: None,
         };
-        let service = DockerGateway::new(image, upstream, 2, cli, Arc::clone(&rt.supervisor));
+        let service =
+            DockerGateway::new(image, upstream, 2, cli, marker, Arc::clone(&rt.supervisor));
         let experiment: Digest = EXPERIMENT.parse().expect("a digest");
         let docker: &dyn DockerDriver = &*rt.docker; // TRAIT_OBJECT: the driver is docker
         let handle = service
@@ -265,6 +261,12 @@ pub fn gates_body(
         // BORROW: .to_owned() builds the owned argv
         .map(str::to_owned)
         .collect();
+        // The agent's client is a bare `docker`, which its own environment's PATH finds.
+        let mut env: Vec<(String, String)> = ClientEnv::from_process().pairs().to_vec();
+        if let Some(path) = std::env::var_os("PATH") {
+            // BORROW: the child's environment owns its pair
+            env.push(("PATH".to_owned(), path.to_string_lossy().into_owned()));
+        }
         let request = SpawnRequest::builder()
             .argv(argv)
             .env(env)

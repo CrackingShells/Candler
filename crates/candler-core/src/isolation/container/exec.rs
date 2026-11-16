@@ -13,12 +13,11 @@ use candler_schemas::primitives::ContainerId;
 
 use super::expiry::{ceil_secs, wrap_expiry};
 use super::mounts::{MountRoots, mounts};
-use super::run::{RunArgvError, check_name, env_args, hardening};
-use crate::isolation::layout::{CONTAINER_WORKDIR, LABEL_ROLE};
+use super::run::{RunArgvError, check_name, env_args, env_pairs};
+use crate::isolation::control::ControlSpec;
+use crate::isolation::hardening::HardLimits;
+use crate::isolation::layout::CONTAINER_WORKDIR;
 use crate::isolation::model::{ContainerPlan, UserSpec};
-
-/// The role label of the throwaway container.
-const CONTROL_ROLE: &str = "control";
 
 /// The working directory of `cmd` inside the container.
 fn workdir_of(base: &str, cmd: &CommandSpec) -> String {
@@ -48,39 +47,26 @@ pub fn exec_args(cid: &ContainerId, cmd: &CommandSpec) -> Result<Vec<String>, Ru
     Ok(args)
 }
 
-/// The arguments of the `docker run --rm` that run `cmd` in a throwaway container of the plan's
-/// image, over the plan's mounts, environment and user, after `docker`. The container has no
-/// network, the plan's hardening and limits, the label `candler.role=control` and no job label,
-/// so no sweep meets it and the guard never destroys it. The command runs under an expiry of
-/// `wall`.
+/// The control container that runs `cmd` in a throwaway container of the plan's image, over the
+/// plan's mounts, environment and user. The container has no network, the plan's limits, the label
+/// `candler.role=control` and no job label, so no sweep meets it and the guard never destroys it.
+/// The command runs under an expiry of `wall`.
 ///
 /// # Errors
 /// [`RunArgvError`] when a mount is refused, the overlay holds a secret, or a name is misread.
-pub fn collect_args(
+pub fn collect_spec(
     plan: &ContainerPlan,
     cmd: &CommandSpec,
     wall: Duration,
-) -> Result<Vec<String>, RunArgvError> {
+) -> Result<ControlSpec, RunArgvError> {
     let wrapped = wrap_expiry(cmd, ceil_secs(wall)).map_err(|source| RunArgvError::Command {
         detail: source.to_string(),
     })?;
-    let mut args = vec![String::from("run"), String::from("--rm")];
-    hardening(&plan.limits, false, &mut args);
-    args.extend([String::from("--network"), String::from("none")]);
-    if let UserSpec::Host { uid, gid } = &plan.user {
-        args.extend([String::from("--user"), format!("{uid}:{gid}")]);
-    }
-    args.extend([
-        String::from("--workdir"),
-        workdir_of(plan.workdir.as_str(), cmd), // BORROW: explicit .as_str()
-    ]);
-    args.push(String::from("--label"));
-    args.push(format!("{LABEL_ROLE}={CONTROL_ROLE}"));
+    let mut env = Vec::with_capacity(plan.env.len());
     for (name, value) in &plan.env {
         // BORROW: explicit .as_str() instead of Deref coercion
         check_name(name.as_str())?;
-        args.push(String::from("-e"));
-        args.push(format!("{name}={value}"));
+        env.push(format!("{name}={value}"));
     }
     for entry in wrapped.env_overlay() {
         if plan.env.iter().any(|(name, _)| *name == entry.name) {
@@ -91,12 +77,16 @@ pub fn collect_args(
         // BORROW: explicit .as_str() instead of Deref coercion
         check_name(entry.name.as_str())?;
     }
-    args.extend(env_args(wrapped.env_overlay(), &[])?);
-    for mount in mounts(plan, &MountRoots::from_plan(plan))? {
-        args.push(String::from("--mount"));
-        args.push(mount.to_arg()?);
+    env.extend(env_pairs(wrapped.env_overlay(), &[])?);
+    let mut spec = ControlSpec::new(&plan.image.id.0, HardLimits::sized(&plan.limits))
+        .workdir(workdir_of(plan.workdir.as_str(), cmd)) // BORROW: explicit .as_str()
+        .env(env)
+        .command(wrapped.argv().to_vec()); // BORROW: the spec owns its words
+    if let UserSpec::Host { uid, gid } = &plan.user {
+        spec = spec.user(*uid, *gid);
     }
-    args.push(plan.image.id.0.clone()); // BORROW: the argument owns the image id
-    args.extend(wrapped.argv().iter().cloned()); // BORROW: the argv owns its arguments
-    Ok(args)
+    for mount in mounts(plan, &MountRoots::from_plan(plan))? {
+        spec = spec.mount(mount.to_arg()?);
+    }
+    Ok(spec)
 }

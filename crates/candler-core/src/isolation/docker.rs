@@ -14,20 +14,22 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use candler_schemas::primitives::{ContainerId, Timestamp};
+use candler_schemas::primitives::{ContainerId, Marker, RunKey, Timestamp};
 use candler_schemas::process::ExitStatus;
 use futures::future::BoxFuture;
 use serde::Deserialize;
 
+use super::control::ControlSpec;
 use super::driver::{DestroyDriver, DockerDriver};
 use super::model::{
     BuildRequest, ContainerRef, ImageId, ImageInfo, Inspect, InspectState, LabelSel, Labels,
     LayerDigest, NetworkInfo, NetworkName,
 };
-use crate::supervise::Supervisor;
+use crate::supervise::hook::StopHook;
 use crate::supervise::signal::control_marker;
-use crate::supervise::spawn::SpawnRequest;
+use crate::supervise::spawn::{OutputSpec, SpawnRequest, StdinSpec};
 use crate::supervise::stop::{Captured, Ended};
+use crate::supervise::{SuperviseError, Supervisor};
 
 /// The variables a docker client child may see: where the daemon is, which context names it, and
 /// the home directory that holds the client's own configuration.
@@ -139,8 +141,71 @@ impl ClientEnv {
 /// Finds `docker` in the directories of `path`, as an absolute path.
 fn find_docker(path: &OsString) -> Option<PathBuf> {
     std::env::split_paths(path)
-        .map(|dir| dir.join("docker"))
+        .map(|dir| dir.join(PROGRAM))
         .find(|candidate| candidate.is_absolute() && candidate.is_file())
+}
+
+/// The name of the docker program, which the first word of every docker argv is until the client
+/// replaces it with the binary it found.
+pub const PROGRAM: &str = "docker";
+
+/// What a run's supervised docker client needs besides its argv.
+#[non_exhaustive]
+pub struct AttachedRun {
+    /// The argv, led by [`PROGRAM`].
+    pub argv: Vec<String>,
+    /// The marker of the run's process.
+    pub marker: Marker,
+    /// The run the client belongs to.
+    pub key: RunKey,
+    /// Where the client's standard output goes.
+    pub stdout: OutputSpec,
+    /// Where the client's standard error goes.
+    pub stderr: OutputSpec,
+    /// The deadline the supervisor holds the client to.
+    pub deadline: Duration,
+    /// The directory of the client's process record.
+    pub record_dir: PathBuf,
+    /// Whether the client reads standard input from a pipe.
+    pub interactive: bool,
+    /// What stops the run's container when the supervisor stops the client.
+    // TRAIT_OBJECT: the isolation attaches its own hook per request
+    pub hook: Option<Arc<dyn StopHook>>,
+}
+
+/// The supervised request of a run's `docker run`, attached to the container until it exits: the
+/// first docker on this process's `PATH` (else the bare name) in place of the first word, and
+/// only the variables [`ClientEnv`] allows.
+///
+/// # Errors
+/// [`SuperviseError`] when the request is refused.
+pub fn attached_request(run: AttachedRun) -> Result<SpawnRequest, SuperviseError> {
+    let mut argv = run.argv;
+    if let Some(first) = argv.first_mut() {
+        *first = std::env::var_os("PATH")
+            .as_ref()
+            .and_then(find_docker)
+            .map_or_else(
+                || PROGRAM.to_owned(), // BORROW: the argv owns its text
+                |path| path.to_string_lossy().into_owned(),
+            );
+    }
+    let mut builder = SpawnRequest::builder()
+        .argv(argv)
+        .env(ClientEnv::from_process().pairs().to_vec()) // BORROW: .to_vec() gives the request its own pairs
+        .marker(run.marker)
+        .run(run.key)
+        .stdout(run.stdout)
+        .stderr(run.stderr)
+        .deadline(run.deadline)
+        .record_dir(run.record_dir);
+    if run.interactive {
+        builder = builder.stdin(StdinSpec::Pipe);
+    }
+    if let Some(attached) = run.hook {
+        builder = builder.stop_hook(attached);
+    }
+    builder.build()
 }
 
 /// Runs docker clients one call at a time through the supervisor.
@@ -181,35 +246,16 @@ impl Runner {
     }
 
     /// Runs `docker <args>` and returns how it ended with what it printed, at most `limit` bytes
-    /// of each stream.
+    /// of each stream. A client the supervisor ended before it finished is an error.
     async fn captured(
         &self,
         rest: Vec<String>,
         deadline: Duration,
         limit: usize,
     ) -> Result<Captured, DockerError> {
-        let marker = control_marker();
-        let mut argv = Vec::with_capacity(rest.len() + 1);
-        // BORROW: .to_string_lossy().into_owned() gives the request the binary path as text
-        argv.push(self.binary.to_string_lossy().into_owned());
-        argv.extend(rest);
-        let request = SpawnRequest::builder()
-            .argv(argv)
-            .env(self.env.pairs().to_vec()) // BORROW: .to_vec() gives the request its own pairs
-            .marker(marker)
-            .record_dir(self.record_dir.clone()) // BORROW: .clone() gives the request its own path
-            .deadline(deadline)
-            .build()
-            .map_err(|error| DockerError::Failed {
-                detail: error.to_string(),
-            })?;
         let captured = self
-            .supervisor
-            .run_captured(request, limit)
-            .await
-            .map_err(|error| DockerError::Failed {
-                detail: format!("the docker client could not run: {error}"),
-            })?;
+            .spawned(&self.supervisor, rest, Call::new(deadline, limit))
+            .await?;
         match captured.exit.ended {
             Ended::Exited => Ok(captured),
             Ended::Deadline | Ended::Stopped => Err(DockerError::Failed {
@@ -217,6 +263,74 @@ impl Runner {
                 detail: "the supervisor ended the docker client before it finished".to_owned(),
             }),
         }
+    }
+
+    /// Runs `docker <args>` through `sup` as `call` says and returns how it ended, whichever way.
+    async fn spawned(
+        &self,
+        sup: &Supervisor,
+        rest: Vec<String>,
+        call: Call,
+    ) -> Result<Captured, DockerError> {
+        let mut argv = Vec::with_capacity(rest.len() + 1);
+        // BORROW: .to_string_lossy().into_owned() gives the request the binary path as text
+        argv.push(self.binary.to_string_lossy().into_owned());
+        argv.extend(rest);
+        let request = SpawnRequest::builder()
+            .argv(argv)
+            .env(self.env.pairs().to_vec()) // BORROW: .to_vec() gives the request its own pairs
+            .marker(call.marker.unwrap_or_else(control_marker))
+            .record_dir(self.record_dir.clone()) // BORROW: .clone() gives the request its own path
+            .stdin(call.stdin)
+            .deadline(call.deadline)
+            .build()
+            .map_err(|error| DockerError::Failed {
+                detail: error.to_string(),
+            })?;
+        sup.run_captured(request, call.limit)
+            .await
+            .map_err(|error| DockerError::Failed {
+                detail: format!("the docker client could not run: {error}"),
+            })
+    }
+}
+
+/// How one docker call is run: its deadline, how much of its output is kept, what it reads on
+/// standard input and which marker its process carries.
+#[derive(Debug, Clone)]
+pub struct Call {
+    deadline: Duration,
+    limit: usize,
+    stdin: StdinSpec,
+    marker: Option<Marker>,
+}
+
+impl Call {
+    /// A call that reads nothing, carries a marker of its own, ends at `deadline` and keeps at
+    /// most `limit` bytes of each output stream.
+    #[must_use]
+    pub const fn new(deadline: Duration, limit: usize) -> Self {
+        Self {
+            deadline,
+            limit,
+            stdin: StdinSpec::Null,
+            marker: None,
+        }
+    }
+
+    /// The same call reading `stdin`.
+    #[must_use]
+    pub fn stdin(mut self, stdin: StdinSpec) -> Self {
+        self.stdin = stdin;
+        self
+    }
+
+    /// The same call whose process carries `marker`, so that one sweep ends every call that
+    /// shares it.
+    #[must_use]
+    pub fn marker(mut self, marker: Marker) -> Self {
+        self.marker = Some(marker);
+        self
     }
 }
 
@@ -320,6 +434,40 @@ impl DockerCli {
     pub fn binary<'a>(&'a self) -> &'a Path {
         // BORROW: explicit .as_path() instead of Deref coercion
         self.runner.binary.as_path()
+    }
+
+    /// Runs `docker <args>` through `sup` as `call` says, and returns how it ended with what it
+    /// printed, whatever the exit.
+    ///
+    /// # Errors
+    /// [`DockerError::Failed`] when the client cannot be built or run.
+    pub async fn call(
+        &self,
+        sup: &Supervisor,
+        args: Vec<String>,
+        call: Call,
+    ) -> Result<Captured, DockerError> {
+        self.runner.spawned(sup, args, call).await
+    }
+
+    /// Runs the control container `spec` and returns how it ended with what it printed, whatever
+    /// the exit; [`outcome`](super::control::outcome) reads it.
+    ///
+    /// # Errors
+    /// [`DockerError::Failed`] when the client cannot be built or run.
+    pub async fn control(
+        &self,
+        spec: &ControlSpec,
+        deadline: Duration,
+        limit: usize,
+    ) -> Result<Captured, DockerError> {
+        self.runner
+            .spawned(
+                &self.runner.supervisor,
+                spec.args(),
+                Call::new(deadline, limit),
+            )
+            .await
     }
 
     /// The destroy half over the same client; only the guard is given it.

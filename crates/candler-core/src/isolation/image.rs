@@ -14,15 +14,13 @@ use futures::future::BoxFuture;
 use rustix::fs::{FlockOperation, flock};
 use sha2::Digest as _;
 
+use super::control::{ControlNetwork, ControlSpec, outcome};
 use super::docker::{ClientEnv, DockerCli, DockerError};
 use super::driver::DockerDriver;
+use super::hardening::HardLimits;
 use super::layout;
 use super::model::{BuildRequest, ImageId, ImageInfo, ImageRef, Labels, LayerDigest};
 use crate::supervise::Supervisor;
-use crate::supervise::signal::control_marker;
-use crate::supervise::spawn::SpawnRequest;
-use crate::supervise::stop::Ended;
-use candler_schemas::process::ExitStatus;
 
 /// The seconds the entrypoint `timeout` gives the harness's version probe inside the control
 /// container.
@@ -67,9 +65,6 @@ const LOCK_DEADLINE: Duration = Duration::from_secs(360);
 
 /// The most bytes of the compile's output that are read.
 const LOCK_OUTPUT_LIMIT: usize = 4 * 1024 * 1024;
-
-/// The most bytes of the compile's error output that an error carries.
-const STDERR_TAIL: usize = 2048;
 
 /// The build argument of the env Dockerfile that names its base.
 const BASE_ARG: &str = "BASE";
@@ -478,36 +473,27 @@ impl DockerImageService {
         sources: &Path,
         names: &[String],
     ) -> Result<Vec<u8>, ImageError> {
-        let marker = control_marker();
-        let spawn = SpawnRequest::builder()
-            .argv(compile_argv(&self.binary, image, sources, names))
-            // BORROW: .to_vec() gives the request its own pairs
-            .env(self.env.pairs().to_vec())
-            .marker(marker)
-            // BORROW: .to_path_buf() keeps the record dir in the request
-            .record_dir(records.to_path_buf())
-            .deadline(LOCK_DEADLINE)
-            .build()
-            .map_err(|error| build_failed(&format!("the compile cannot be built: {error}")))?;
-        let captured = self
-            .sup
-            .run_captured(spawn, LOCK_OUTPUT_LIMIT)
+        let cli = self.control_client(records);
+        let captured = cli
+            .control(
+                &compile_spec(image, sources, names),
+                LOCK_DEADLINE,
+                LOCK_OUTPUT_LIMIT,
+            )
             .await
             .map_err(|error| build_failed(&format!("the compile cannot run: {error}")))?;
-        if !matches!(captured.exit.ended, Ended::Exited) {
-            return Err(build_failed("the compile did not end on its own"));
-        }
-        match captured.exit.status {
-            ExitStatus::Code { code: 0 } => Ok(captured.stdout),
-            ExitStatus::Code { code: 124 } => Err(build_failed("the compile timed out")),
-            ExitStatus::Code { code } => Err(build_failed(&format!(
-                "the compile exited with status {code}: {}",
-                tail_of(&captured.stderr)
-            ))),
-            ExitStatus::Signal { signal } => Err(build_failed(&format!(
-                "a signal ({signal}) ended the compile"
-            ))),
-        }
+        outcome(captured)
+            .map_err(|error| build_failed(&format!("the compile: {}", detail_of(&error))))
+    }
+
+    /// A docker client for the control call whose record dir is `records`.
+    fn control_client(&self, records: &Path) -> DockerCli {
+        DockerCli::with_binary(
+            Arc::clone(&self.sup),
+            self.binary.clone(),   // BORROW: the client owns its binary path
+            self.env.clone(),      // BORROW: the client owns its environment
+            records.to_path_buf(), // BORROW: the client owns its record dir
+        )
     }
 
     async fn probe(
@@ -525,50 +511,21 @@ impl DockerImageService {
         // declares, set by the same function.
         let mut env = vec![(String::from("HOME"), String::from(PROBE_HOME))];
         env.extend(layout::state_env(&self.harness.state_paths(), PROBE_HOME));
-        let argv = control_argv(&self.binary, image, &env, probe.argv());
-        let stdout = control_output(&self.sup, &self.env, records, argv).await?;
+        let spec = probe_spec(image, &env, probe.argv());
+        let stdout = control_output(&self.control_client(records), &spec).await?;
         self.harness
             .parse_version(&stdout)
             .map_err(|error| unreadable(&error.to_string()))
     }
 }
 
-/// Runs the control container `argv` under the record dir `records` and returns what it printed.
-async fn control_output(
-    sup: &Supervisor,
-    env: &ClientEnv,
-    records: &std::path::Path,
-    argv: Vec<String>,
-) -> Result<Vec<u8>, ImageError> {
-    let marker = control_marker();
-    let request = SpawnRequest::builder()
-        .argv(argv)
-        // BORROW: .to_vec() gives the request its own pairs
-        .env(env.pairs().to_vec())
-        .marker(marker)
-        // BORROW: .to_path_buf() keeps the record dir in the request
-        .record_dir(records.to_path_buf())
-        .deadline(CONTROL_DEADLINE)
-        .build()
-        .map_err(|error| unreadable(&format!("the probe cannot be built: {error}")))?;
-    let captured = sup
-        .run_captured(request, PROBE_OUTPUT_LIMIT)
+/// Runs the control container `spec` through `cli` and returns what it printed.
+async fn control_output(cli: &DockerCli, spec: &ControlSpec) -> Result<Vec<u8>, ImageError> {
+    let captured = cli
+        .control(spec, CONTROL_DEADLINE, PROBE_OUTPUT_LIMIT)
         .await
         .map_err(|error| unreadable(&format!("the probe cannot run: {error}")))?;
-    let exited = matches!(captured.exit.ended, Ended::Exited);
-    if !exited {
-        return Err(unreadable("the probe did not end on its own"));
-    }
-    match captured.exit.status {
-        ExitStatus::Code { code: 0 } => Ok(captured.stdout),
-        ExitStatus::Code { code: 124 } => Err(unreadable("the probe timed out")),
-        ExitStatus::Code { code } => {
-            Err(unreadable(&format!("the probe exited with status {code}")))
-        }
-        ExitStatus::Signal { signal } => {
-            Err(unreadable(&format!("a signal ({signal}) ended the probe")))
-        }
-    }
+    outcome(captured).map_err(|error| unreadable(&format!("the probe: {}", detail_of(&error))))
 }
 
 /// What an env image holds of one import package: the distribution that provides it and its
@@ -645,14 +602,19 @@ impl PackageProbe {
         tokio::fs::create_dir_all(&records)
             .await
             .map_err(|source| unreadable(&format!("cannot create the record dir: {source}")))?;
-        let argv = control_argv_with(
-            &self.binary,
+        let cli = DockerCli::with_binary(
+            Arc::clone(&self.sup),
+            self.binary.clone(), // BORROW: the client owns its binary path
+            self.env.clone(),    // BORROW: the client owns its environment
+            records.clone(),     // BORROW: the client owns its record dir
+        );
+        // BORROW: the script text is passed to the container as one argument
+        let spec = timeout_spec(
             image,
             &[],
-            // BORROW: the script text is passed to the container as one argument
             &[PROBE_SECONDS, "python", "-c", script.as_str()],
         );
-        let outcome = control_output(&self.sup, &self.env, &records, argv).await;
+        let outcome = control_output(&cli, &spec).await;
         // The record dir is this call's own and holds only this call's record.
         let _ = tokio::fs::remove_dir_all(&records).await;
         let text = String::from_utf8(outcome?)
@@ -806,6 +768,15 @@ fn build_failed(detail: &str) -> ImageError {
     }
 }
 
+/// What a failed control container's error says, without docker's own prefix.
+fn detail_of(error: &DockerError) -> String {
+    if let DockerError::Failed { detail } = error {
+        detail.clone() // BORROW: the message owns its text
+    } else {
+        error.to_string()
+    }
+}
+
 fn docker_failed(error: &DockerError) -> ImageError {
     build_failed(&error.to_string())
 }
@@ -940,67 +911,32 @@ fn source_name_ok(name: &str) -> bool {
     !name.is_empty() && !name.starts_with(['-', '.']) && !name.contains(['/', '\\', '\0'])
 }
 
-/// The last bytes of `bytes` as text.
-fn tail_of(bytes: &[u8]) -> String {
-    let start = bytes.len().saturating_sub(STDERR_TAIL);
-    String::from_utf8_lossy(bytes.get(start..).unwrap_or_default())
-        .trim()
-        // BORROW: .to_owned() keeps the text in the error
-        .to_owned()
-}
-
-/// The argv of the compile container: it removes itself, has a writable `/tmp` only, reaches the
-/// package index over the default bridge network, and mounts the sources read-only.
-fn compile_argv(program: &Path, image: &ImageId, sources: &Path, names: &[String]) -> Vec<String> {
-    let mut argv: Vec<String> = [
-        "run",
-        "--rm",
-        "--init",
-        "--read-only",
-        "--tmpfs",
-        "/tmp",
-        "--cap-drop",
-        "ALL",
-        "--security-opt",
-        "no-new-privileges",
-        "--pids-limit",
-        "256",
-        "--memory",
-        "2g",
-        "--network",
-        "bridge",
-        "--env",
-        "UV_NO_CACHE=1",
-        "--label",
-        "candler.role=control",
-        "--mount",
-    ]
-    .iter()
-    // BORROW: `.to_owned()` makes each word an owned argument
-    .map(|word| (*word).to_owned())
-    .collect();
-    // BORROW: .to_string_lossy().into_owned() gives the argv the binary path as text
-    argv.insert(0, program.to_string_lossy().into_owned());
-    argv.push(format!(
-        "type=bind,src={},dst={SOURCE_MOUNT},readonly",
-        sources.display()
-    ));
-    argv.extend(
-        ["--entrypoint", "timeout"]
-            .iter()
-            // BORROW: `.to_owned()` makes each word an owned argument
-            .map(|word| (*word).to_owned()),
-    );
-    // BORROW: .clone() keeps the id in the argv
-    argv.push(image.0.clone());
-    argv.extend(
-        [COMPILE_SECONDS, "sh", "-c", COMPILE_SCRIPT, "sh"]
-            .iter()
-            // BORROW: `.to_owned()` makes each word an owned argument
-            .map(|word| (*word).to_owned()),
-    );
-    argv.extend(names.iter().map(|name| format!("{SOURCE_MOUNT}/{name}")));
-    argv
+/// The compile container: it removes itself, has a writable `/tmp` only, reaches the package
+/// index over the default bridge network, and mounts the sources read-only.
+#[must_use]
+pub fn compile_spec(image: &ImageId, sources: &Path, names: &[String]) -> ControlSpec {
+    let limits = HardLimits {
+        pids_limit: 256,
+        memory: String::from("2g"),
+        cpus: None,
+        tmpfs: vec![String::from("/tmp")],
+        env_volume: false,
+    };
+    let mut command: Vec<String> = [COMPILE_SECONDS, "sh", "-c", COMPILE_SCRIPT, "sh"]
+        .iter()
+        // BORROW: `.to_owned()` makes each word an owned argument
+        .map(|word| (*word).to_owned())
+        .collect();
+    command.extend(names.iter().map(|name| format!("{SOURCE_MOUNT}/{name}")));
+    ControlSpec::new(&image.0, limits)
+        .network(ControlNetwork::Bridge)
+        .entrypoint("timeout")
+        .env(vec![String::from("UV_NO_CACHE=1")])
+        .mount(format!(
+            "type=bind,src={},dst={SOURCE_MOUNT},readonly",
+            sources.display()
+        ))
+        .command(command)
 }
 
 /// The compile, for the platform the image runs on.
@@ -1028,69 +964,37 @@ fn unreadable(detail: &str) -> ImageError {
     }
 }
 
-/// The argv of the control container that prints the version: it removes itself, has no
-/// network, no capabilities and a read-only root with a tmpfs at `/tmp`, it carries `env`, and its
-/// entrypoint is a coreutils `timeout` over the probe `command`.
-fn control_argv(
-    program: &Path,
-    image: &ImageRef,
-    env: &[(String, String)],
-    command: &[String],
-) -> Vec<String> {
+/// The control container that prints the version: it has no network, no capabilities and a
+/// read-only root with a tmpfs at `/tmp`, it carries `env`, and its entrypoint is a coreutils
+/// `timeout` over the probe `command`.
+#[must_use]
+pub fn probe_spec(image: &ImageRef, env: &[(String, String)], command: &[String]) -> ControlSpec {
     let mut tail: Vec<&str> = vec![PROBE_SECONDS];
     // BORROW: explicit .as_str() lends each word of the probe
     tail.extend(command.iter().map(String::as_str));
-    control_argv_with(program, image, env, &tail)
+    timeout_spec(image, env, &tail)
 }
 
-/// The argv of a control container of `image` that runs `tail` under `timeout`, with `env` set and
-/// a tmpfs at `/tmp`.
-fn control_argv_with(
-    program: &Path,
-    image: &ImageRef,
-    env: &[(String, String)],
-    tail: &[&str],
-) -> Vec<String> {
-    let mut argv: Vec<String> = [
-        "run",
-        "--rm",
-        "--init",
-        "--network",
-        "none",
-        "--read-only",
-        "--tmpfs",
-        PROBE_TMPFS,
-        "--cap-drop",
-        "ALL",
-        "--security-opt",
-        "no-new-privileges",
-        "--pids-limit",
-        "64",
-        "--memory",
-        "256m",
-        "--label",
-        "candler.role=control",
-        "--entrypoint",
-        "timeout",
-    ]
-    .iter()
-    // BORROW: `.to_owned()` makes each word an owned argument
-    .map(|word| (*word).to_owned())
-    .collect();
-    for (name, value) in env {
-        argv.push(String::from("-e"));
-        argv.push(format!("{name}={value}"));
-    }
-    // BORROW: .clone() keeps the id in the argv
-    argv.push(image.id.0.clone());
-    argv.extend(
-        tail.iter()
-            // BORROW: `.to_owned()` makes each word an owned argument
-            .map(|word| (*word).to_owned()),
-    );
-    // BORROW: .to_string_lossy().into_owned() gives the argv the binary path as text
-    argv.insert(0, program.to_string_lossy().into_owned());
-    argv
+/// A control container of `image` that runs `tail` under `timeout`, with `env` set and a tmpfs at
+/// `/tmp`.
+#[must_use]
+pub fn timeout_spec(image: &ImageRef, env: &[(String, String)], tail: &[&str]) -> ControlSpec {
+    let limits = HardLimits {
+        pids_limit: 64,
+        memory: String::from("256m"),
+        cpus: None,
+        tmpfs: vec![String::from(PROBE_TMPFS)],
+        env_volume: false,
+    };
+    ControlSpec::new(&image.id.0, limits)
+        .entrypoint("timeout")
+        .env(
+            env.iter()
+                .map(|(name, value)| format!("{name}={value}"))
+                .collect(),
+        )
+        // BORROW: `.to_owned()` makes each word an owned argument
+        .command(tail.iter().map(|word| (*word).to_owned()).collect())
 }
 
 /// The digest of the image lock the build starts from: the bare sha256 hex of the lock bytes.

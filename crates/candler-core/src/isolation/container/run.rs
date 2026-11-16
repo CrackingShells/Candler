@@ -5,7 +5,6 @@
 //! overlay. A secret in the overlay, and the names the driver reserves for the model endpoint and
 //! credentials, are refused rather than overridden.
 
-use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,19 +16,13 @@ use url::Url;
 use super::expiry::{ceil_secs, wrap_expiry};
 use super::mounts::{MountError, MountRoots, mounts};
 use crate::isolation::RunOutputs;
-use crate::isolation::layout::{CONTAINER_ENV, EXPIRY_MARGIN, LABEL_JOB, LABEL_ROLE, LABEL_RUN};
+use crate::isolation::control::ControlSpec;
+use crate::isolation::docker::{AttachedRun, PROGRAM, attached_request};
+use crate::isolation::hardening::{HardLimits, Role, hardening};
+use crate::isolation::layout::{EXPIRY_MARGIN, LABEL_JOB, LABEL_ROLE, LABEL_RUN};
 use crate::isolation::model::{ContainerPlan, ImageId, Limits, UserSpec};
 use crate::supervise::hook::StopHook;
-use crate::supervise::spawn::{SpawnRequest, StdinSpec};
-
-/// The size of the tmpfs mounted at `/tmp`, in mebibytes.
-const TMPFS_MIB: u32 = 256;
-
-/// The docker client's own variables, the only ones it inherits.
-const CLIENT_ENV: [&str; 3] = ["DOCKER_HOST", "DOCKER_CONTEXT", "HOME"];
-
-/// The role label of a control container.
-const CONTROL_ROLE: &str = "control";
+use crate::supervise::spawn::SpawnRequest;
 
 /// Why an argv or a request could not be built.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -85,39 +78,14 @@ pub enum RunArgvError {
     },
 }
 
-/// The hardening every container carries, then its limits. With `env_volume`, the env is an
-/// anonymous volume docker fills from the image, so the agent's installs land in a per-run copy
-/// while `/` stays read-only; a control or collect container installs nothing and reads the env
-/// from the image as it is, so docker copies nothing for it.
-pub(super) fn hardening(limits: &Limits, env_volume: bool, argv: &mut Vec<String>) {
-    argv.extend(["--init", "--read-only"].map(str::to_owned));
-    argv.push(String::from("--tmpfs"));
-    argv.push(format!("/tmp:rw,noexec,nosuid,size={TMPFS_MIB}m"));
-    if env_volume {
-        // The one mount without a host source.
-        argv.push(String::from("--mount"));
-        argv.push(format!("type=volume,dst={CONTAINER_ENV}"));
-    }
-    argv.extend(["--cap-drop", "ALL", "--security-opt", "no-new-privileges"].map(str::to_owned));
-    argv.extend([
-        String::from("--pids-limit"),
-        limits.pids_limit.to_string(),
-        String::from("--memory"),
-        // BORROW: the limit is copied into the argv
-        limits.memory.clone(),
-        String::from("--cpus"),
-        limits.cpus.to_string(),
-    ]);
-}
-
-/// The `-e NAME=value` pairs of the harness's overlay. `reserved` lists the names the wrapper
+/// The `NAME=value` entries of the harness's overlay. `reserved` lists the names the wrapper
 /// owns, which the overlay may not set.
 ///
 /// # Errors
 /// [`RunArgvError::SecretRefused`] for a secret, [`RunArgvError::ReservedName`] for a name the
-/// wrapper owns, [`RunArgvError::BadEnvName`] for a name docker would misread.
-pub fn env_args(overlay: &[EnvEntry], reserved: &[String]) -> Result<Vec<String>, RunArgvError> {
-    let mut argv = Vec::with_capacity(overlay.len() * 2);
+/// wrapper owns.
+pub fn env_pairs(overlay: &[EnvEntry], reserved: &[String]) -> Result<Vec<String>, RunArgvError> {
+    let mut pairs = Vec::with_capacity(overlay.len());
     for entry in overlay {
         // BORROW: explicit .as_str() instead of Deref coercion
         let name = entry.name.as_str();
@@ -128,8 +96,7 @@ pub fn env_args(overlay: &[EnvEntry], reserved: &[String]) -> Result<Vec<String>
                     name: name.to_owned(),
                 });
             }
-            argv.push(String::from("-e"));
-            argv.push(format!("{name}={value}"));
+            pairs.push(format!("{name}={value}"));
             continue;
         }
         // EXPLICIT: a secret and any value kind not read above both refuse, until a new kind is read
@@ -138,7 +105,19 @@ pub fn env_args(overlay: &[EnvEntry], reserved: &[String]) -> Result<Vec<String>
             name: name.to_owned(),
         });
     }
-    Ok(argv)
+    Ok(pairs)
+}
+
+/// The `-e NAME=value` pairs of the harness's overlay, as arguments. See [`env_pairs`].
+///
+/// # Errors
+/// [`RunArgvError::SecretRefused`] for a secret, [`RunArgvError::ReservedName`] for a name the
+/// wrapper owns.
+pub fn env_args(overlay: &[EnvEntry], reserved: &[String]) -> Result<Vec<String>, RunArgvError> {
+    Ok(env_pairs(overlay, reserved)?
+        .into_iter()
+        .flat_map(|pair| [String::from("-e"), pair])
+        .collect())
 }
 
 /// Checks an environment name docker could take.
@@ -174,11 +153,11 @@ pub fn run_argv(plan: &ContainerPlan, cmd: &CommandSpec) -> Result<Vec<String>, 
     label(plan, LABEL_JOB)?;
     label(plan, LABEL_RUN)?;
     label(plan, LABEL_ROLE)?;
-    let mut argv = vec![String::from("docker"), String::from("run")];
+    let mut argv = vec![String::from(PROGRAM), String::from("run")];
     if plan.interactive {
         argv.push(String::from("-i"));
     }
-    hardening(&plan.limits, true, &mut argv);
+    argv.extend(hardening(&HardLimits::agent(&plan.limits)));
     // BORROW: the owned copy is made where it is needed
     argv.extend([String::from("--network"), plan.network.as_str().to_owned()]);
     if let Some(egress) = &plan.egress {
@@ -229,62 +208,24 @@ pub fn run_argv(plan: &ContainerPlan, cmd: &CommandSpec) -> Result<Vec<String>, 
     Ok(argv)
 }
 
-/// The `docker run` argv of a control container, such as a version readout or a catalog capture:
-/// `--rm`, the label `candler.role=control` and no `candler.job` (so no sweep meets it), no
-/// network, the same hardening, and the command under its own expiry of `wall`. The guard never
-/// destroys it.
+/// The control container of the catalog capture: the image, the same hardening over `limits`, no
+/// network, and the command under its own expiry of `wall`.
 ///
 /// # Errors
 /// [`RunArgvError`] when the overlay is refused or the command cannot be wrapped.
-pub fn control_argv(
+pub fn catalog_spec(
     image: &ImageId,
     limits: &Limits,
     wall: Duration,
     cmd: &CommandSpec,
-) -> Result<Vec<String>, RunArgvError> {
+) -> Result<ControlSpec, RunArgvError> {
     let wrapped = wrap_expiry(cmd, ceil_secs(wall)).map_err(|source| RunArgvError::Command {
         detail: source.to_string(),
     })?;
-    let mut argv = vec![
-        String::from("docker"),
-        String::from("run"),
-        String::from("--rm"),
-    ];
-    hardening(limits, false, &mut argv);
-    argv.extend([String::from("--network"), String::from("none")]);
-    argv.push(String::from("--label"));
-    argv.push(format!("{LABEL_ROLE}={CONTROL_ROLE}"));
     // A control container has no gateway: it reserves no name.
-    argv.extend(env_args(wrapped.env_overlay(), &[])?);
-    // BORROW: the owned copy is made where it is needed
-    argv.push(image.0.clone());
-    argv.extend(wrapped.argv().iter().cloned());
-    Ok(argv)
-}
-
-/// The docker client binary: the first `docker` on the host's `PATH`, else the bare name.
-fn docker_binary() -> String {
-    let found = std::env::var_os("PATH").and_then(|path| {
-        std::env::split_paths(&path)
-            .map(|dir| dir.join("docker"))
-            .find(|candidate| candidate.is_file())
-    });
-    found.map_or_else(
-        || String::from("docker"),
-        |path| path.to_string_lossy().into_owned(),
-    )
-}
-
-/// The docker client's own environment: only its allowlist, from the host's.
-fn client_env() -> Vec<(String, String)> {
-    CLIENT_ENV
-        .iter()
-        .filter_map(|name| {
-            let value: OsString = std::env::var_os(name)?;
-            // BORROW: the owned copy is made where it is needed
-            Some(((*name).to_owned(), value.to_string_lossy().into_owned()))
-        })
-        .collect()
+    Ok(ControlSpec::new(&image.0, HardLimits::sized(limits))
+        .env(env_pairs(wrapped.env_overlay(), &[])?)
+        .command(wrapped.argv().to_vec())) // BORROW: the spec owns its words
 }
 
 /// The names the plan reserves for the wrapper: the driver's gateway variables, none when the
@@ -327,7 +268,7 @@ pub fn agent_argv(
     planned.labels = planned
         .labels
         .with(LABEL_RUN, &key.to_string())
-        .with(LABEL_ROLE, "agent");
+        .with(LABEL_ROLE, Role::Agent.label());
     planned
         .env
         // BORROW: the owned copy is made where it is needed
@@ -363,32 +304,24 @@ pub fn build_run_request(
     hook: Option<Arc<dyn StopHook>>,
     outputs: RunOutputs,
 ) -> Result<SpawnRequest, RunArgvError> {
-    let mut argv = agent_argv(plan, cmd, key, base_url, dummy_token)?;
-    if let Some(first) = argv.first_mut() {
-        *first = docker_binary();
-    }
+    let argv = agent_argv(plan, cmd, key, base_url, dummy_token)?;
     let record_dir: PathBuf = plan
         .cidfile
         .parent()
         .map(PathBuf::from)
         .ok_or(RunArgvError::BadCidfile)?;
-    let mut builder = SpawnRequest::builder()
-        .argv(argv)
-        .env(client_env())
-        .marker(marker)
-        // BORROW: .clone() gives the request its own run key
-        .run(key.clone())
-        .stdout(outputs.stdout)
-        .stderr(outputs.stderr)
-        .deadline(plan.expiry)
-        .record_dir(record_dir);
-    if plan.interactive {
-        builder = builder.stdin(StdinSpec::Pipe);
-    }
-    if let Some(attached) = hook {
-        builder = builder.stop_hook(attached);
-    }
-    builder.build().map_err(|source| RunArgvError::Request {
+    attached_request(AttachedRun {
+        argv,
+        marker,
+        key: key.clone(), // BORROW: .clone() gives the request its own run key
+        stdout: outputs.stdout,
+        stderr: outputs.stderr,
+        deadline: plan.expiry,
+        record_dir,
+        interactive: plan.interactive,
+        hook,
+    })
+    .map_err(|source| RunArgvError::Request {
         detail: source.to_string(),
     })
 }
