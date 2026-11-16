@@ -63,6 +63,8 @@ jobs:
             b36_supervisor_sigkill_nothing_left b37_untrusted_upstream_gets_no_credential \
             b40_kill_all_destroys_lost_jobs_containers \
             agent_create_then_attach \
+            destroy_verifies_by_one_inspect \
+            egress_proxy_never_resolves_a_listed_host_to_itself \
             controls_e2e_pinned_harness_passes \
             control_each_kind_runs_on_the_real_base \
             opencode_probe_reads_each_real_base_image_version \
