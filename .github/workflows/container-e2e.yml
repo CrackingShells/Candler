@@ -30,7 +30,10 @@ jobs:
   e2e:
     name: Container e2e (Linux)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # One thread, so the guards run in series: the i8 guard alone takes about 110 s (107 to 112 s
+    # measured, on a warm Mac) because the fake model holds its answer for 100 s, and a cold runner
+    # also builds the base, the gateway and the fake model's image first. 20 minutes was tight.
+    timeout-minutes: 30
     steps:
       - name: Check out the repository
         uses: actions/checkout@v7

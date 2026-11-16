@@ -806,3 +806,7 @@ mod shim_refusals {
         assert_eq!(calls(&real_log), ["ps -a", "ps -a"]);
     }
 }
+
+/// The ground-truth e2e: a real `candler run` of the real agent, seen from inside its container.
+#[path = "guard_cli_e2e/i8_e2e.rs"]
+mod i8_e2e;
