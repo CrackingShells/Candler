@@ -417,12 +417,15 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
   the supervised child, and that client's stdout is the stream. `-i` is on both `create` and
   `start` when a session feeds stdin. There is no cidfile and nothing polls for the id.
 - **Stopping a container.** Killing the client does not stop the container, so a run in a
-  container carries a **stop hook**, attached per spawn request. A stop is `docker stop --time
+  container carries a **stop hook**, attached per spawn request. A stop is `docker container stop -t
   <grace> <id>`, sent to the daemon; while the daemon is reachable the attached client is never
   signalled, so it relays what the agent prints after TERM and exits with the container's own
   exit code. The supervisor's own ladder on the client (signal, terminate, kill) is only the
   fallback for a lost daemon. An agent that ends by itself gets no stop, and the full grace is
-  spent only when the agent ignores TERM. The hook re-verifies the container before it stops it;
+  spent only when the agent ignores TERM. A cap or a cancel that was requested classifies the run
+  as a stop (`BudgetStop`, `Killed`) even when the agent exits by itself in the race, because the
+  attached client returns the container's exit code and validity is keyed on the observed event
+  and not on how the client ended; a deadline is unaffected. The hook re-verifies the container before it stops it;
   its destroy step runs only when the escalation ended the child. A run that exits by itself is
   inspected, collected, then destroyed. Agent and gateway containers never use `--rm`, so the
   exit facts survive for the inspect.
