@@ -2,14 +2,14 @@
 
 **Goal**: `analyze` compares paired arms with McNemar, CMH, bootstrap and fixed-sequence tests alongside M3's Wilson intervals and Holm adjustment, and reports each arm's `instrument_error` count.
 **Pre-conditions**:
-- [ ] `../m5_container_isolation.md` is `done`, and M2a before it (the tree also waits for M5; the reminder needs only M2a)
+- [ ] `../README.md`'s M5b is `done` (the leaf `../../m5_container_isolation.md`, M5a, before it), and M2a (the tree also waits for M5a and M5b; the reminder needs only M2a)
 - [ ] Reminder `candler-M6` read (statistics list, pairing model)
 **Success Gates**:
 - ⬜ McNemar, CMH, bootstrap and fixed-sequence tests run on declared pairing keys, and each equals a second engine's table on the existing HTN golden runs
 - ⬜ The pairing keys, the execution order and the declared blocking factor are decided and recorded in `__design__/architecture.md` §Analysis statistics
 - ⬜ `analyze` reports `instrument_error` per arm, with the arm's counts of the other invalid causes unchanged
 - ⬜ Every cell digest of M1's golden import and M2a's parity fixtures is unchanged
-**References**: [R01 §Analysis statistics, §Contracts & Invariants (I5)](../../../../../../../../__design__/architecture.md) — today's defaults (rate, Wilson, Fisher with Newcombe, Holm) and the grading rule; [R04 Golden reference](../../../../../../README.md) — listed in the campaign README; the runs the gates test on
+**References**: [R01 §Analysis statistics, §Contracts & Invariants (I5)](../../../../../../../../../__design__/architecture.md) — today's defaults (rate, Wilson, Fisher with Newcombe, Holm) and the grading rule; [R04 Golden reference](../../../../../../../README.md) — listed in the campaign README; the runs the gates test on
 
 ## Step 1: Plan the milestone
 

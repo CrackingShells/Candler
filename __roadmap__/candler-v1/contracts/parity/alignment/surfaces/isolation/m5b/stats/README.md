@@ -1,13 +1,13 @@
 # Paired statistics
 
 ## Context
-Depth 6. Paired statistics (M6a), split from the old M6, one level below M5 and above M7. It needs only M2a and M3's statistics; the tree also makes it wait for M5. Its gates run on the existing HTN golden runs. Added by amendment A6 of `../README.md`.
+Depth 7. Paired statistics (M6a), split from the old M6, one level below M5b and above M7. It needs only M2a and M3's statistics; the tree also makes it wait for M5a and M5b. Its gates run on the existing HTN golden runs. Added by amendment A6 of `../../README.md`; amendment A8 moved it one level down, under `m5b/`.
 
 ## Goal
 `analyze` compares paired arms with the paired tests, and the pairing model is decided and recorded in the design.
 
 ## Pre-conditions
-- [ ] `../m5_container_isolation.md` is `done`
+- [ ] `../../m5_container_isolation.md` (M5a) is `done` and `../README.md`'s M5b leaves are `done`
 
 ## Success Gates
 - ⬜ `m6a_paired_stats.md` and `mcp/` are `done`

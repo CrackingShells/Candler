@@ -1,7 +1,7 @@
 # MCP server
 
 ## Context
-Depth 7. The MCP server (M7) and the agent skills that let agents use it, one level below M6a and above the second plug-in. M7 needs only M3; the tree also makes it wait for M5 and M6a. Moved here by amendment A6 of `../../README.md`.
+Depth 8. The MCP server (M7) and the agent skills that let agents use it, one level below M6a and above the second plug-in. M7 needs only M3; the tree also makes it wait for M5a, M5b and M6a. Moved here by amendment A6 of `../../../README.md`.
 
 ## Goal
 Agents drive Candler through MCP, and skills teach them to author plug-ins, drive runs and compute evals with it.
