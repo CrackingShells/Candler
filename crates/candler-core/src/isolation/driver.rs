@@ -3,12 +3,15 @@
 
 use std::time::Duration;
 
+use candler_schemas::primitives::ContainerId;
 use futures::future::BoxFuture;
 
-use super::docker::DockerError;
+use super::docker::{AttachedRun, DockerError, attached_request};
 use super::model::{
     BuildRequest, ContainerRef, ImageInfo, Inspect, LabelSel, Labels, NetworkInfo, NetworkName,
 };
+use crate::supervise::SuperviseError;
+use crate::supervise::spawn::SpawnRequest;
 
 /// The read and run half of docker.
 pub trait DockerDriver: Send + Sync {
@@ -17,6 +20,47 @@ pub trait DockerDriver: Send + Sync {
     /// # Errors
     /// [`DockerError`] when docker fails or the container is unknown.
     fn inspect<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Inspect, DockerError>>;
+
+    /// Inspects several containers in one docker call. The answers come in the order of `ids`; a
+    /// container docker does not have answers [`DockerError::NotFound`] for its id alone, and the
+    /// others keep their facts.
+    fn inspect_many<'a>(
+        &'a self,
+        ids: &'a [String],
+    ) -> BoxFuture<'a, Vec<Result<Inspect, DockerError>>> {
+        Box::pin(async move {
+            let mut answers = Vec::with_capacity(ids.len());
+            for id in ids {
+                // BORROW: explicit .as_str() lends the id to the single call
+                answers.push(self.inspect(id.as_str()).await);
+            }
+            answers
+        })
+    }
+
+    /// The supervised request that runs the client `run` describes, led by the docker binary this
+    /// driver runs. The default finds `docker` on this process's `PATH`.
+    ///
+    /// # Errors
+    /// [`SuperviseError`] when the request is refused.
+    fn attach(&self, run: AttachedRun) -> Result<SpawnRequest, SuperviseError> {
+        attached_request(run)
+    }
+
+    /// Creates a container with `docker create <args>` and returns its id. The container is
+    /// created and not started.
+    ///
+    /// # Errors
+    /// [`DockerError::Unavailable`] for a driver that creates nothing, and [`DockerError`] when
+    /// docker fails or prints no container id.
+    fn create(&self, args: Vec<String>) -> BoxFuture<'_, Result<ContainerId, DockerError>> {
+        let _ = args;
+        Box::pin(async {
+            Err(DockerError::Unavailable {
+                detail: String::from("create"),
+            })
+        })
+    }
 
     /// Lists the containers that carry the label `sel`.
     ///

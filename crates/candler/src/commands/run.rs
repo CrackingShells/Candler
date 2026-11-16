@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use candler_core::experiment::inputs::{ResolvedInputs, resolve_inputs};
+use candler_core::experiment::inputs::{ResolvedInputs, resolve_input_groups};
 use candler_core::isolation::docker::DockerCli;
 use candler_core::isolation::driver::DockerDriver as _;
 use candler_core::isolation::model::{BuildRequest, Labels};
@@ -29,7 +29,8 @@ use candler_core::jobs::orchestrate::session::EnvSecrets;
 use candler_core::jobs::runtime::detach::{DetachArgs, detach};
 use candler_core::jobs::runtime::launch::{mint_job_id, own_identity, spec_digest};
 use candler_core::resolve::config::{Config, ConfigEnv};
-use candler_core::resolve::layers::{FileValues, Resolution, ResolveInput};
+use candler_core::resolve::layers::{FileValues, Layered, Resolution, ResolveInput};
+use candler_core::resolve::steps::plugin_environment::Fragment;
 use candler_core::runner::plan::{Force, PlanCtx, PlanMode, experiment_of, plan_runs};
 use candler_core::store::Store;
 use candler_harness::driver::HarnessDriver;
@@ -159,12 +160,10 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let root = common::store_root("run", store).await?;
     let store = Store::init(&root).map_err(failed)?;
     let config = Arc::new(Config::load(&cwd, &ConfigEnv::from_process()).map_err(failed)?);
-    let declared = resolve_inputs(&store, file.inputs(), experiment_dir.as_path())
-        .map_err(CliError::refused_by)?;
-    let input = with_declared_inputs(
-        request_settings(&file, experiment_dir.as_path(), &fields, &cwd)?,
-        &declared,
-    )?;
+    let settings = request_settings(&file, experiment_dir.as_path(), &fields, &cwd)?;
+    let fragment = selected_fragment(&config, &settings)?;
+    let declared = declare_inputs(&store, &file, experiment_dir.as_path(), fragment.as_ref())?;
+    let input = with_declared_inputs(settings, &declared)?;
     let driver = Registry::builtin().driver(&requested_harness(&input)?)?;
     let services = foreground(Arc::clone(&config), &root, &driver)?;
     ensure_sidecar(&services.cli, services.gateway_context).await?;
@@ -175,6 +174,35 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
         .map_err(CliError::refused_by)?;
     let spec = plan_job(&store, &file, resolution, force, declared, driver)?;
     start(&store, &file, &spec, &root).await
+}
+
+/// The plug-in environment the request selects, read before the inputs are resolved. A selection
+/// that cannot be read is left to the resolver's plug-in environment step, which refuses it with
+/// its code before any job is written.
+fn selected_fragment(config: &Config, input: &ResolveInput) -> Result<Option<Fragment>, CliError> {
+    let layered = Layered::new(config, input.clone()).map_err(failed)?; // BORROW: the layering owns its input
+    let resolved = layered.resolve();
+    Ok(Fragment::from_values(
+        resolved.values.as_slice(),   // BORROW: explicit .as_slice()
+        resolved.settings.as_slice(), // BORROW: explicit .as_slice()
+    )
+    .ok() // EXPLICIT: an unreadable selection is refused by the resolver's plug-in environment step
+    .flatten())
+}
+
+/// The inputs of the experiment, and those of the plug-in environment it selects, which resolve
+/// against the plug-in's directory.
+fn declare_inputs(
+    store: &Store,
+    file: &ExperimentFile,
+    experiment_dir: &Path,
+    fragment: Option<&Fragment>,
+) -> Result<ResolvedInputs, CliError> {
+    let own = [(file.inputs(), experiment_dir)];
+    let plugin = fragment.map(|held| (held.inputs.as_slice(), held.dir.as_path())); // BORROW: explicit views
+    let groups: Vec<(&[_], &Path)> = own.into_iter().chain(plugin).collect();
+    resolve_input_groups(store, groups.as_slice()) // BORROW: explicit .as_slice()
+        .map_err(CliError::refused_by)
 }
 
 /// The input with the agent's declared inputs as the setting `request.inputs`, which the image

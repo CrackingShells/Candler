@@ -1,14 +1,14 @@
 //! The real-Docker guards of the container run: what the kernel says about the agent container.
 //!
 //! Every container and network a test makes carries `candler.job=<test id>` and
-//! `candler.test=container_run`. The test reads the id from its own cidfile, checks that the
+//! `candler.test=container_run`. The test reads the id `docker create` prints, checks that the
 //! container's labels name the test, and only then allows it in the [`AllowlistDriver`]; the
 //! driver refuses any other id. Every destroy goes through the [`ContainerGuard`]; nothing here
 //! removes a container by name or prefix.
 #![cfg(test)]
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -17,7 +17,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use candler_core::isolation::container::expiry::wrap_expiry;
 use candler_core::isolation::container::guard::{ContainerGuard, Destroyed, GuardError};
 use candler_core::isolation::container::mounts::{MountMode, MountSpec};
-use candler_core::isolation::container::run::run_argv;
+use candler_core::isolation::container::run::create_argv;
 use candler_core::isolation::docker::{ClientEnv, DockerCli, DockerDestroyer};
 use candler_core::isolation::driver::{DestroyDriver, DockerDriver};
 use candler_core::isolation::model::{
@@ -34,8 +34,7 @@ use candler_schemas::primitives::{Digest, JobId, RunKey};
 use candler_schemas::process::ExitStatus;
 use serde_json::Value;
 
-/// The testagent image, built from `assets/docker/testagent`.
-const TESTAGENT: &str = "candler-testagent:test";
+use crate::support::test_image::{TESTAGENT_CONTEXT, TestImage};
 
 /// A debian-slim python image on the real coreutils `timeout`, pulled by its index digest.
 const DEBIAN_SLIM: &str =
@@ -201,7 +200,7 @@ impl Rig {
                 memory: String::from("256m"),
                 cpus: 1.0,
             },
-            cidfile: self.base.join("cids").join(format!("{:x}.cid", unique())),
+            record_dir: self.base.join("cids"),
             user: UserSpec::Engine,
             workdir: String::from("/work"),
             home: String::from("/home/agent"),
@@ -214,18 +213,21 @@ impl Rig {
         }
     }
 
-    /// Runs `argv` (a docker argv from `run_argv`) to its end, under the deadline `deadline`.
-    async fn run(
-        &self,
-        mut argv: Vec<String>,
-        deadline: Duration,
-        plan: &ContainerPlan,
-    ) -> Captured {
-        let cids = plan.cidfile.parent().expect("a cidfile directory");
-        std::fs::create_dir_all(cids).expect("the cidfile directory");
-        if let Some(first) = argv.first_mut() {
-            *first = String::from("docker");
-        }
+    /// Creates the container `argv` (a docker argv from `create_argv`) names, and runs `docker
+    /// start -a` on it to its end, under the deadline `deadline`.
+    async fn run(&self, argv: Vec<String>, deadline: Duration, _plan: &ContainerPlan) -> Captured {
+        let made = docker(&argv.iter().skip(1).map(String::as_str).collect::<Vec<_>>());
+        assert!(
+            made.status.success(),
+            "docker create: {}",
+            String::from_utf8_lossy(&made.stderr)
+        );
+        // BORROW: `.to_owned()` makes the owned id the test keeps
+        let id = String::from_utf8_lossy(&made.stdout).trim().to_owned();
+        self.adopt(&id);
+        let argv = ["docker", "start", "-a", id.as_str()]
+            .map(String::from)
+            .to_vec();
         let env: Vec<(String, String)> = CLIENT_ENV
             .iter()
             // BORROW: `.to_owned()` makes the owned variable name the environment holds
@@ -246,24 +248,16 @@ impl Rig {
             .build()
             .expect("a request");
         let sink: Arc<dyn EventSink> = Arc::new(Silent);
-        let captured = Supervisor::new(sink)
+        Supervisor::new(sink)
             .run_captured(request, 64 * 1024)
             .await
-            .expect("docker run ends");
-        self.adopt(&plan.cidfile);
-        captured
+            .expect("docker run ends")
     }
 
-    /// Reads the container id from the cidfile, checks that its labels name this test and allows
-    /// it in the driver. Returns the id.
-    fn adopt(&self, cidfile: &Path) -> String {
-        let id = std::fs::read_to_string(cidfile)
-            .expect("docker wrote the cidfile")
-            .trim()
-            // BORROW: `.to_owned()` makes the owned id the test keeps
-            .to_owned();
-        assert!(!id.is_empty(), "the cidfile is empty");
-        let labels = docker(&["inspect", "--format", "{{json .Config.Labels}}", &id]);
+    /// Checks that the labels of the container `id` name this test and allows it in the driver.
+    fn adopt(&self, id: &str) {
+        assert!(!id.is_empty(), "docker printed no id");
+        let labels = docker(&["inspect", "--format", "{{json .Config.Labels}}", id]);
         assert!(labels.status.success(), "the container is inspectable");
         let labels: BTreeMap<String, String> =
             serde_json::from_slice(&labels.stdout).expect("a label map");
@@ -278,10 +272,9 @@ impl Rig {
             labels.get("candler.test").map(String::as_str),
             Some("container_run")
         );
-        self.driver.allow_container(&id);
+        self.driver.allow_container(id);
         // BORROW: the list owns its id
-        self.created.lock().expect("a lock").push(id.clone());
-        id
+        self.created.lock().expect("a lock").push(id.to_owned());
     }
 
     /// The `docker inspect` of an id, as JSON, or `None` when docker no longer knows it.
@@ -384,9 +377,9 @@ const fn container_user() -> UserSpec {
 /// read-only mount fails with EROFS.
 /// Bite: drop `--cap-drop ALL`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "needs a Docker daemon and the candler-testagent:test image"]
+#[ignore = "needs a Docker daemon"]
 async fn b06_kernel_facts() {
-    ensure_image(TESTAGENT);
+    let agent = TestImage::new(TESTAGENT_CONTEXT);
     let rig = Rig::new();
     let workspace = rig.dir("workspace");
     let home = rig.dir("home");
@@ -419,11 +412,11 @@ async fn b06_kernel_facts() {
             sentinel.to_string_lossy().into_owned(),
         ),
     ];
-    let mut plan = rig.plan(TESTAGENT, mounts, env);
+    let mut plan = rig.plan(agent.id(), mounts, env);
     plan.user = container_user();
     let wrapped = wrap_expiry(&command(&["/usr/local/bin/testagent", "probe"]), 60)
         .expect("a wrapped command");
-    let argv = without_entrypoint(run_argv(&plan, &wrapped).expect("an argv"), TESTAGENT);
+    let argv = without_entrypoint(create_argv(&plan, &wrapped).expect("an argv"), agent.id());
     let captured = rig.run(argv, Duration::from_secs(40), &plan).await;
     assert_eq!(
         captured.exit.status,
@@ -483,7 +476,7 @@ async fn b08_self_expiry() {
     plan.expiry = Duration::from_secs(2);
     // The test margin is a literal 2 s, not the production margin, so the inner limit is 4 s.
     let wrapped = wrap_expiry(&command(&["sleep", "300"]), 4).expect("a wrapped command");
-    let argv = run_argv(&plan, &wrapped).expect("an argv");
+    let argv = create_argv(&plan, &wrapped).expect("an argv");
     // The supervisor's deadline is deliberately longer than the inner limit.
     let began = std::time::Instant::now();
     let captured = rig.run(argv, Duration::from_secs(60), &plan).await;
@@ -544,7 +537,7 @@ async fn b09_host_uid_sealable() {
         60,
     )
     .expect("a wrapped command");
-    let argv = run_argv(&plan, &wrapped).expect("an argv");
+    let argv = create_argv(&plan, &wrapped).expect("an argv");
     let captured = rig.run(argv, Duration::from_secs(40), &plan).await;
     assert_eq!(
         captured.exit.status,

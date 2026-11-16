@@ -10,17 +10,13 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use candler_core::isolation::Isolation as _;
-use candler_core::isolation::container::DockerIsolation;
 use candler_core::isolation::container::guard::{
     ContainerGuard, Destroyed, GuardError, GuardRefusal, LostProof,
 };
 use candler_core::isolation::container::sweeper::{LabelSweeper, UnreadableRecord};
-use candler_core::isolation::docker::DockerError;
+use candler_core::isolation::docker::{ClientEnv, DockerCli, DockerError};
 use candler_core::isolation::driver::{DestroyDriver, DockerDriver};
-use candler_core::isolation::model::{
-    ContainerPlan, ContainerRef, GatewayHandle, ImageId, ImageRef, Limits, SweepScope, UserSpec,
-};
+use candler_core::isolation::model::{ContainerRef, SweepScope};
 use candler_core::isolation::model::{Labels, NetworkInfo, NetworkName};
 use candler_core::isolation::testing::{FakeJobView, RecordingDestroyer, RecordingDocker};
 use candler_core::jobs::dir::JobDir;
@@ -30,14 +26,11 @@ use candler_core::jobs::view::ChildEntry;
 use candler_core::supervise::hook::{HookError, StopHook, StopHookCtx};
 use candler_core::supervise::signal::Signaller;
 use candler_core::supervise::spawn::SpawnRequest;
-use candler_core::supervise::stop::{Ended, Exit};
 use candler_core::supervise::{EventSink, Supervisor};
-use candler_harness::spec::Workspace;
 use candler_harness::spec::{StopSignal, StopSpec};
 use candler_schemas::container::ContainerRole;
 use candler_schemas::execution::{EventPayload, JobEnd, StopStep};
 use candler_schemas::primitives::{ContainerId, JobId, RunKey};
-use candler_schemas::process::ExitStatus;
 use futures::future::BoxFuture;
 use rustix::io::Errno;
 use rustix::process::{Pid, Signal};
@@ -139,15 +132,12 @@ async fn assert_refused(
 /// Guards: B10 — the guard refuses by name, pattern, "all", empty, unlabelled, other job, other
 /// run, label mismatch, control role, unrecorded, a lost job without the proof of its held lock,
 /// a job that has ended and the networks of another job, with no stop, rm or network rm recorded.
-/// `collect_and_destroy` scopes its destroy to the run its caller names: a cidfile that names a
-/// container of another run of the job gives no stop and no rm, and the run's own container does.
 /// Oracle: the recording destroy driver's call list is empty for each refused case, and the
 /// positive control's list is exactly `stop` then `rm` of the recorded id after two inspects
 /// (the verb order of the design's I22 text).
 /// Bite: skip the `job == current job` comparison in `ContainerGuard::check_job`; or drop the
 /// `check_job` call before `rm` in `ContainerGuard::destroy_with`; or replace the
-/// `check_job` call in `ContainerGuard::destroy_network_with` by `false && ..`; or derive the
-/// scope of `DockerIsolation::collect_and_destroy` from the target's own `candler.run` label.
+/// `check_job` call in `ContainerGuard::destroy_network_with` by `false && ..`.
 #[tokio::test]
 async fn b10_guard_refusals() {
     // A name, a pattern, "all" and the empty string are not container ids at all.
@@ -489,106 +479,6 @@ async fn b10_guard_refusals() {
         docker.calls(),
         vec![format!("inspect {full}"), format!("inspect {full}")]
     );
-
-    // collect_and_destroy: the scope is the caller's run, never the target's own label. A cidfile
-    // that names a container of another run of the same job destroys nothing; the run's own
-    // container is destroyed.
-    let work = tempfile::tempdir().expect("a temp dir");
-    let plan = ContainerPlan {
-        image: ImageRef {
-            id: ImageId(String::from("sha256:aa")),
-            harness_version: None,
-        },
-        labels: Labels::new().with("candler.job", current.as_str()), // BORROW: explicit .as_str()
-        mounts: Vec::new(),
-        env: Vec::new(),
-        gateway: None,
-        state: Vec::new(),
-        network: NetworkName::for_job(&current),
-        egress: None,
-        limits: Limits {
-            pids_limit: 64,
-            memory: String::from("1g"),
-            cpus: 1.0,
-        },
-        cidfile: work.path().join("agent.cid"),
-        user: UserSpec::Engine,
-        workdir: String::from("/work"),
-        home: String::from("/home/agent"),
-        expiry: Duration::from_secs(10),
-        project_root: work.path().to_path_buf(),
-        store_root: work.path().to_path_buf(),
-        interactive: false,
-    };
-    std::fs::write(&plan.cidfile, id.as_str()).expect("a cidfile"); // BORROW: explicit .as_str()
-    let exit = Exit::new(
-        ExitStatus::Code { code: 0 },
-        Ended::Exited,
-        Vec::new(),
-        true,
-        Vec::new(),
-        Vec::new(),
-    );
-    let workspace = Workspace::new(work.path());
-    let gateway = GatewayHandle::new(
-        container_ref(&inspect(&cid(0xfff), labels(&current, "gateway", None))),
-        "http://127.0.0.1:1".parse().expect("a url"),
-        NetworkName::for_job(&current),
-        NetworkName::egress_for_job(&current),
-        String::from("dummy"),
-    )
-    .expect("a handle");
-    for (case, label_run, own) in [
-        ("another run's container", &other_run, false),
-        ("the run's own", &run, true),
-    ] {
-        let target = inspect(&id, labels(&current, "agent", Some(label_run)));
-        let (guard, docker, destroyer) = rig(
-            view().with_children(vec![ChildEntry::Container(record(
-                &id,
-                &current,
-                label_run,
-                ContainerRole::Agent,
-            ))]),
-            vec![target],
-        );
-        let read: Arc<dyn DockerDriver> = docker; // TRAIT_OBJECT: the isolation reads through the driver trait, a scripted fake here
-        let isolation = DockerIsolation::new(gateway.clone(), read, Arc::new(guard)); // BORROW: .clone() gives each isolation its own handle
-        let outcome = isolation
-            .collect_and_destroy(&plan, &workspace, &exit, &run)
-            .await
-            .expect("an outcome");
-        if own {
-            assert_eq!(
-                destroyer.calls(),
-                vec![format!("stop {full}"), format!("rm {full}")],
-                "{case}"
-            );
-            assert_eq!(outcome.sweep.destroyed.len(), 1, "{case}");
-        } else {
-            assert!(
-                destroyer.calls().is_empty(),
-                "{case}: {:?}",
-                destroyer.calls()
-            );
-            assert!(outcome.sweep.destroyed.is_empty(), "{case}");
-            assert_eq!(outcome.sweep.refused.len(), 1, "{case}");
-        }
-    }
-
-    // A container of another job, named by the cidfile, is refused as a mismatch of the job.
-    let foreign_target = inspect(&id, labels(&other, "agent", Some(&run)));
-    let (guard, docker, destroyer) = rig(view(), vec![foreign_target]);
-    let read: Arc<dyn DockerDriver> = docker; // TRAIT_OBJECT: the isolation reads through the driver trait, a scripted fake here
-    let isolation = DockerIsolation::new(gateway, read, Arc::new(guard));
-    let outcome = isolation
-        .collect_and_destroy(&plan, &workspace, &exit, &run)
-        .await
-        .expect("an outcome");
-    assert!(destroyer.calls().is_empty(), "{:?}", destroyer.calls());
-    assert_eq!(outcome.sweep.refused.len(), 1);
-    // INDEX: the length is asserted to be 1 on the line above
-    assert_eq!(outcome.sweep.refused[0].reason, "job_mismatch");
 }
 
 /// Guards: B11 — every destroy verb is preceded by an inspect of the same id, and a second
@@ -910,4 +800,131 @@ async fn b15_unreadable_child_reported() {
             assert!(destroyer.calls().is_empty(), "{label}");
         }
     }
+}
+
+/// A sink that keeps no event.
+struct Quiet;
+
+impl EventSink for Quiet {
+    fn emit(&self, _run: Option<&RunKey>, _payload: EventPayload) {}
+}
+
+/// Guards: R01 §Process supervision (one docker client) — several containers are read in one
+/// docker call: an id docker does not have is `NotFound` for that id alone, the others keep their
+/// facts in the order asked, an id that is not a full id is refused without a call, and the
+/// recording fake answers the same way in one recorded call.
+/// Oracle: the output of `docker container inspect --format '{{json .}}' A MISSING B C` on Docker
+/// Engine 29.9.2, recorded in `tests/fixtures/docker_inspect_many` (stdout of three containers,
+/// stderr naming the fourth, exit 1), and the one call a fake binary logs.
+/// Bite: a client that spawns once per id, one that maps the exit 1 to a failure of every id, one
+/// that answers the found containers in the order of docker's lines against the wrong ids, or an
+/// unknown id the fake answers as `Failed`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn inspect_many_maps_each_id() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("docker_inspect_many");
+    let stdout = std::fs::read_to_string(fixtures.join("three_ids_one_missing.stdout"))
+        .expect("the recorded stdout");
+    let found: Vec<String> = stdout
+        .lines()
+        .map(|line| {
+            let value: serde_json::Value = serde_json::from_str(line).expect("one JSON object");
+            value["Id"].as_str().expect("an Id").to_owned()
+        })
+        .collect();
+    assert_eq!(found.len(), 3, "the fixture holds three containers");
+    let missing = "f".repeat(64);
+
+    let work = tempfile::tempdir().expect("a temp dir");
+    let log = work.path().join("spawns.log");
+    let script = work.path().join("docker");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\necho \"$*\" >> '{log}'\ncat '{out}'\ncat '{err}' >&2\nexit 1\n",
+            log = log.display(),
+            out = fixtures.join("three_ids_one_missing.stdout").display(),
+            err = fixtures.join("three_ids_one_missing.stderr").display(),
+        ),
+    )
+    .expect("a fake docker");
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("executable");
+    let records = work.path().join("records");
+    std::fs::create_dir_all(&records).expect("a record dir");
+    let sink: Arc<dyn EventSink> = Arc::new(Quiet);
+    let cli = DockerCli::with_binary(
+        Arc::new(Supervisor::new(sink)),
+        script,
+        ClientEnv::default(),
+        records,
+    );
+
+    let asked: Vec<String> = vec![
+        found[0].clone(), // BORROW: .clone() gives the request its own ids
+        missing.clone(),  // BORROW: .clone() gives the request its own ids
+        found[1].clone(), // BORROW: .clone() gives the request its own ids
+        found[2].clone(), // BORROW: .clone() gives the request its own ids
+        String::from("not-an-id"),
+    ];
+    let answers = cli.inspect_many(&asked).await;
+    assert_eq!(answers.len(), asked.len(), "one answer per id asked");
+    for (position, id) in [(0, &found[0]), (2, &found[1]), (3, &found[2])] {
+        let inspected = answers[position].as_ref().expect("a found container");
+        assert_eq!(
+            inspected.id.as_str(),
+            id.as_str(),
+            "answer {position} is its own id"
+        );
+    }
+    assert!(
+        matches!(&answers[1], Err(DockerError::NotFound { detail }) if detail.contains(&missing)),
+        "the missing id alone is NotFound: {:?}",
+        answers[1]
+    );
+    assert!(
+        matches!(&answers[4], Err(DockerError::NotAFullId { .. })),
+        "a short id is refused: {:?}",
+        answers[4]
+    );
+    let spawns = std::fs::read_to_string(&log).expect("the spawn log");
+    assert_eq!(
+        spawns.lines().count(),
+        1,
+        "one docker process for all the ids: {spawns}"
+    );
+    let line = spawns.lines().next().expect("one line");
+    assert!(line.starts_with("container inspect "), "the verb: {line}");
+    assert!(
+        !line.contains("not-an-id"),
+        "the short id never reaches docker: {line}"
+    );
+    for id in [&found[0], &missing, &found[1], &found[2]] {
+        assert!(line.contains(id.as_str()), "{id} is asked: {line}");
+    }
+
+    let fake = RecordingDocker::new().with_inspect(
+        &found[0],
+        inspect(
+            &ContainerId::from_str(&found[0]).expect("a full id"),
+            Labels::new(),
+        ),
+    );
+    let two = vec![found[0].clone(), missing.clone()]; // BORROW: .clone() gives the request its own ids
+    let fake_answers = fake.inspect_many(&two).await;
+    assert!(fake_answers[0].is_ok(), "the known id is answered");
+    assert!(
+        matches!(fake_answers[1], Err(DockerError::NotFound { .. })),
+        "the unknown id is NotFound: {:?}",
+        fake_answers[1]
+    );
+    assert_eq!(
+        fake.calls().len(),
+        1,
+        "one recorded call: {:?}",
+        fake.calls()
+    );
 }

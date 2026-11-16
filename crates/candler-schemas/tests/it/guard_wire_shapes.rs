@@ -6,8 +6,10 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use candler_schemas::catalog::{CatalogSnapshot, SCHEMA_TAG};
+use candler_schemas::evaluation::PluginManifest;
 use candler_schemas::primitives::NameToken;
 use candler_schemas::process::{ExitStatus, ProcessStart};
+use candler_schemas::refusal::Refusal;
 use candler_schemas::values::ValueSource;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
@@ -222,4 +224,150 @@ fn derived_source_carries_an_optional_location() {
         read::<ValueSource>(r#"{"kind":"derived","step":"probe@1","from":null}"#).is_err(),
         "a null location"
     );
+}
+
+const MANIFEST_HEAD: &str = r#"schema = "plugin-manifest/1"
+name = "rubric"
+version = "0.4.2"
+command = ["python", "run.py"]
+protocol = { major = 1, minor = 0 }
+environment = { kind = "none" }
+"#;
+
+fn manifest_with(
+    tail: &str,
+) -> Result<PluginManifest, candler_schemas::evaluation::EvaluationError> {
+    PluginManifest::from_toml_str(format!("{MANIFEST_HEAD}{tail}").as_str())
+}
+
+/// Guards: R01 §Plug-in manifest — a manifest written before agent environments existed still reads and writes no `agent_environments`; with the map set, each environment keeps its values and its agent-only inputs. Oracle: the manifest texts written by hand, and the manifests the core's committed fixtures hold.
+/// Bite: `agent_environments` made a required field, or written as `{}` when empty.
+#[test]
+fn agent_environments_are_optional_and_read_when_set() {
+    let bare = manifest_with("").expect("a manifest without the map");
+    assert!(bare.agent_environments().is_empty());
+    let written = serde_json::to_value(&bare).expect("JSON");
+    assert!(
+        written.get("agent_environments").is_none(),
+        "an empty map is omitted: {written}"
+    );
+
+    for fixture in [
+        "engine/plugin.toml",
+        "engine/plugin_bare.toml",
+        "engine/plugin_pool.toml",
+        "engine/plugin_second.toml",
+        "registry/plugin/plugin.toml",
+    ] {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../candler-core/tests/fixtures")
+            .join(fixture);
+        let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let manifest = PluginManifest::from_toml_str(text.as_str())
+            .unwrap_or_else(|e| panic!("{fixture} is refused: {e}"));
+        assert!(manifest.agent_environments().is_empty(), "{fixture}");
+    }
+
+    let set = manifest_with(
+        r#"
+[agent_environments.web.values]
+"isolation.egress" = ["pypi.org:443"]
+"isolation.build.dockerfile" = "docker/Dockerfile"
+"mcp.servers.tools.command" = "tools"
+
+[[agent_environments.web.inputs]]
+kind = "tool_source"
+path = "tools"
+at = "tools"
+"#,
+    )
+    .expect("a manifest with an environment");
+    let wire = serde_json::to_value(&set).expect("JSON");
+    assert_eq!(
+        wire["agent_environments"],
+        json!({"web": {
+            "values": {
+                "isolation.egress": ["pypi.org:443"],
+                "isolation.build.dockerfile": "docker/Dockerfile",
+                "mcp.servers.tools.command": "tools",
+            },
+            "inputs": [{"kind": "tool_source", "path": "tools", "at": "tools"}],
+        }})
+    );
+    let back: PluginManifest = serde_json::from_value(wire).expect("the written form reads");
+    assert_eq!(back, set);
+}
+
+/// Guards: R01 §Plug-in manifest — an environment is a closed table, an agent input carries no audience (it is agent-only by construction), and an input obeys the experiment's rules for `at` and the reserved kind. Oracle: the table written by hand.
+/// Bite: `deny_unknown_fields` removed from the environment or from the input.
+#[test]
+fn agent_environments_refuse_unknown_keys_and_audiences() {
+    for (name, tail) in [
+        (
+            "an unknown key in an environment",
+            "\n[agent_environments.web]\nvalues = {}\ninputs = []\nextra = 1\n",
+        ),
+        (
+            "an audience on an input",
+            "\n[agent_environments.web]\nvalues = {}\n[[agent_environments.web.inputs]]\nkind = \"k\"\npath = \"p\"\naudience = \"evaluators\"\n",
+        ),
+        (
+            "an input mounted outside the workspace",
+            "\n[agent_environments.web]\nvalues = {}\n[[agent_environments.web.inputs]]\nkind = \"k\"\npath = \"p\"\nat = \"../x\"\n",
+        ),
+        (
+            "an input of the reserved kind",
+            "\n[agent_environments.web]\nvalues = {}\n[[agent_environments.web.inputs]]\nkind = \"build_inputs\"\npath = \"p\"\n",
+        ),
+    ] {
+        assert!(manifest_with(tail).is_err(), "{name} is accepted");
+    }
+    let unknown =
+        manifest_with("\n[agent_environments.web]\nvalues = {}\ninputs = []\nextra = 1\n")
+            .expect_err("unknown key");
+    assert_eq!(unknown.code().as_str(), "plugin.unknown_field");
+}
+
+/// Guards: R01 §Plug-in manifest — an environment may set only `isolation.build.*`, `isolation.egress` and `mcp.*`; any other path is refused at read with `plugin.environment_path_unsupported`, naming the path. Oracle: the allowed set as R06 D4 writes it (prefixes `isolation.build.` and `mcp.`, path `isolation.egress`), worked as a table; segments, not text prefixes, decide (`mcp` alone, `mcpx.a` and `isolation.egressx` are outside).
+/// Bite: the allowed set widened to a text prefix (`mcp`), or the check removed.
+#[test]
+fn agent_environments_refuse_a_value_path_outside_the_allowed_set() {
+    let table = |path: &str| format!("\n[agent_environments.web.values]\n\"{path}\" = \"x\"\n");
+    for path in [
+        "isolation.build.dockerfile",
+        "isolation.build.requirements",
+        "isolation.build.plugin",
+        "isolation.egress",
+        "mcp.servers.a.command",
+        "mcp.servers",
+    ] {
+        manifest_with(table(path).as_str())
+            .unwrap_or_else(|error| panic!("`{path}` is refused: {error}"));
+    }
+    for path in [
+        "model.id",
+        "isolation.network",
+        "isolation.image",
+        "isolation.limits.pids",
+        "isolation.build",
+        "isolation.egressx",
+        "isolation.egress.extra",
+        "mcp",
+        "mcpx.a",
+        "tools.allowed",
+        "budget.per_run.turns",
+        "request.inputs",
+    ] {
+        let error =
+            manifest_with(table(path).as_str()).expect_err(&format!("`{path}` is accepted"));
+        assert_eq!(
+            error.code().as_str(),
+            "plugin.environment_path_unsupported",
+            "`{path}`"
+        );
+        assert!(
+            error.to_string().contains(path),
+            "the message names `{path}`: {error}"
+        );
+    }
 }

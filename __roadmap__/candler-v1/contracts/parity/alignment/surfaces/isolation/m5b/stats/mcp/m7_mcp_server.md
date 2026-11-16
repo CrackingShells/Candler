@@ -2,7 +2,7 @@
 
 **Goal**: Agents can design and drive experiments through an MCP server over the same operation API the CLI uses.
 **Pre-conditions**:
-- [ ] `../m6a_paired_stats.md` is `done` (the reminder needs only M3; the tree also waits for M4, M5 and M6a)
+- [ ] `../m6a_paired_stats.md` is `done` (the reminder needs only M3; the tree also waits for M4, M5a, M5b and M6a)
 - [ ] Reminder `candler-M7` read
 **Success Gates**:
 - ⬜ The read-only operations (`resolve`, `jobs`, `events`, `show`, `inspect`, `analyze`, `diff`) are exposed, and results come back as ids plus compact summaries
@@ -10,7 +10,7 @@
 - ⬜ No tool exposes a live run's ground truth (I8)
 - ⬜ The MCP server and the CLI return the same results for the same operation
 - ⬜ A set of agent skills lets an agent use the MCP server to author plug-ins, drive runs and compute evals; each skill is exercised by an agent that completes its task through the server alone, and they land before M8
-**References**: [R01 §Operation API, §Budget, §Contracts & Invariants (I8, I13)](../../../../../../../../../__design__/architecture.md) — operations, budgets, surface rules
+**References**: [R01 §Operation API, §Budget, §Contracts & Invariants (I8, I13)](../../../../../../../../../../__design__/architecture.md) — operations, budgets, surface rules
 
 ## Step 1: Plan the milestone
 
@@ -36,6 +36,6 @@ Execute the campaign on `feat/m7-mcp-server`, then land it on `main` with one `-
 **Goal**: The milestone is recorded.
 **Implementation Logic**:
 Write a knowledge-transfer report under `__reports__/m7-mcp-server/`. Mark this leaf `done` with `dirtree-rdm update`. Propose the reminder reconciliation to Eliott: `candler-M7` complete. Apply only on his yes, through `sw_write.py`.
-**Deliverables**: `__reports__/m7-mcp-server/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/alignment/surfaces/isolation/stats/mcp/README.md`
-**Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/alignment/surfaces/isolation/stats/mcp/` (expected: PASS)
+**Deliverables**: `__reports__/m7-mcp-server/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/alignment/surfaces/isolation/m5b/stats/mcp/README.md`
+**Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/alignment/surfaces/isolation/m5b/stats/mcp/` (expected: PASS)
 **Commit**: `reports(mcp): close the m7-mcp-server milestone`

@@ -1,6 +1,7 @@
 #![cfg(test)]
-//! Guards for the record of a run's agent container: the isolation writes it from the run's
-//! cidfile through the job's recorder, and every destroy path then finds the container recorded.
+//! Guards for the record of a run's agent container: the isolation creates the container and
+//! writes its record through the job's recorder before the start is spawned, and every destroy
+//! path then finds the container recorded.
 //! The docker half is the recording fake of `test-support`; no test reaches docker.
 
 use crate::support;
@@ -13,22 +14,35 @@ use std::time::{Duration, Instant};
 
 use candler_core::isolation::container::DockerIsolation;
 use candler_core::isolation::container::guard::ContainerGuard;
+use candler_core::isolation::container::mounts::{MountMode, MountSpec};
+use candler_core::isolation::container::sweeper::LabelSweeper;
 use candler_core::isolation::container::sweeper::{ContainerSweeper, SweepError};
-use candler_core::isolation::driver::DockerDriver;
+use candler_core::isolation::docker::{DockerCli, DockerError};
+use candler_core::isolation::driver::{DestroyDriver, DockerDriver};
 use candler_core::isolation::gateway::ChildRecorder;
+use candler_core::isolation::gateway::Gateway;
 use candler_core::isolation::model::{
-    ContainerPlan, ContainerSweep, GatewayHandle, ImageId, ImageRef, Inspect, InspectState, Labels,
-    Limits, NetworkName, SweepScope, UserSpec,
+    ContainerOutcome, ContainerPlan, ContainerSweep, GatewayHandle, ImageId, ImageRef, Inspect,
+    InspectState, Labels, Limits, NetworkName, SweepScope, UserSpec,
 };
 use candler_core::isolation::testing::{RecordingDestroyer, RecordingDocker};
-use candler_core::isolation::{Isolation as _, IsolationError};
+use candler_core::isolation::{IsolatedRequest, Isolation, IsolationError, RunOutputs};
 use candler_core::jobs::dir::JobDir;
-use candler_core::jobs::model::{JobCause, JobControl, JobOutcome};
+use candler_core::jobs::model::{JobCause, JobControl, JobOutcome, JobSpec};
 use candler_core::jobs::orchestrate::orchestrate_with;
-use candler_core::supervise::EventSink;
+use candler_core::jobs::orchestrate::schedule::Clock;
+use candler_core::jobs::orchestrate::session::{JobHost, OrchestrateError};
+use candler_core::jobs::view::JobView;
+use candler_core::runner::Runtime;
+use candler_core::supervise::spawn::{OutputSpec, SpawnRequest};
+use candler_core::supervise::stop::{Ended, Exit};
+use candler_core::supervise::{EventSink, Supervisor};
+use candler_harness::spec::{Cell, CommandSpec, Framing, Workspace};
 use candler_schemas::container::{ContainerFound, ContainerRole};
-use candler_schemas::execution::{EventPayload, JobState};
-use candler_schemas::primitives::{ContainerId, JobId, RunKey, Timestamp};
+use candler_schemas::execution::{EventPayload, InvalidReason, JobState};
+use candler_schemas::primitives::{ContainerId, JobId, Marker, RunKey, Timestamp};
+use candler_schemas::process::ExitStatus;
+use candler_schemas::trace::EndedBy;
 use futures::future::BoxFuture;
 use serde_json::{Value, json};
 use support::container_stop::{cid, container_ref, digest, inspect, job, labels, run_key};
@@ -82,7 +96,7 @@ fn agent_inspect(id: &ContainerId, labels: Labels) -> Inspect {
     answer
 }
 
-/// The plan of a run of `job`, with its cidfile under `dir`.
+/// The plan of a run of `job`, whose client record directory is `dir`.
 fn plan_in(dir: &Path, job: &JobId) -> ContainerPlan {
     ContainerPlan {
         image: ImageRef {
@@ -92,7 +106,11 @@ fn plan_in(dir: &Path, job: &JobId) -> ContainerPlan {
         labels: Labels::new()
             .with("candler.job", job.as_str()) // BORROW: explicit .as_str()
             .with("candler.role", "agent"),
-        mounts: Vec::new(),
+        mounts: vec![MountSpec {
+            source: dir.join("home"),
+            target: String::from("/home/agent"),
+            mode: MountMode::ReadWrite,
+        }],
         env: Vec::new(),
         gateway: Some(support::job_orchestrate::quiet_gateway()),
         state: Vec::new(),
@@ -103,7 +121,7 @@ fn plan_in(dir: &Path, job: &JobId) -> ContainerPlan {
             memory: String::from("1g"),
             cpus: 1.0,
         },
-        cidfile: dir.join("agent.cid"),
+        record_dir: dir.to_path_buf(),
         user: UserSpec::Engine,
         workdir: String::from("/work"),
         home: String::from("/home/agent"),
@@ -114,11 +132,15 @@ fn plan_in(dir: &Path, job: &JobId) -> ContainerPlan {
     }
 }
 
-/// An isolation over the recording `docker` that records through `dir`.
-fn isolation_over(docker: RecordingDocker, dir: &JobDir, job: &JobId) -> DockerIsolation {
-    let read: Arc<dyn DockerDriver> = Arc::new(docker); // TRAIT_OBJECT: the isolation reads through the driver trait, a recording fake here
+/// An isolation over the recording `read` driver that records through `dir`.
+fn isolation_with(
+    read: Arc<dyn DockerDriver>,
+    destroyer: Arc<RecordingDestroyer>,
+    dir: &JobDir,
+    job: &JobId,
+) -> DockerIsolation {
     let guard = ContainerGuard::new(
-        Arc::new(RecordingDestroyer::new()),
+        destroyer,
         Arc::clone(&read),
         Arc::new(dir.clone()), // BORROW: the guard's view owns its directory handle
     );
@@ -131,7 +153,9 @@ fn isolation_over(docker: RecordingDocker, dir: &JobDir, job: &JobId) -> DockerI
     )
     .expect("a handle");
     let recorder: Arc<dyn ChildRecorder> = Arc::new(dir.clone()); // BORROW: the recorder owns its directory handle; TRAIT_OBJECT: the isolation takes the recorder as a trait object
-    DockerIsolation::new(gateway, read, Arc::new(guard)).with_recorder(recorder)
+    DockerIsolation::new(gateway, read, Arc::new(guard))
+        .with_recorder(recorder)
+        .with_sweeper(Arc::new(NoSweep))
 }
 
 /// The files of `children/` of `dir`, by name.
@@ -139,32 +163,95 @@ fn children_of(dir: &JobDir) -> BTreeSet<String> {
     children_of_dir(&dir.children_dir())
 }
 
-/// Guards: R01 §Process supervision — the agent's container is recorded in the job's `children/`
-/// as a `container-record/1` from its own inspect: its role, creation time, image and labels.
-/// Oracle: the scripted inspect's values as literals, and the `container-record/1` schema file's
-/// member names and version marker.
-/// Bite: set the role of the built record to `ContainerRole::Gateway` in
-/// `DockerIsolation::agent_record`.
+/// A sweeper that destroys nothing.
+struct NoSweep;
+
+impl ContainerSweeper for NoSweep {
+    fn sweep<'a>(
+        &'a self,
+        _scope: &'a SweepScope,
+    ) -> BoxFuture<'a, Result<ContainerSweep, SweepError>> {
+        Box::pin(async { Ok(ContainerSweep::default()) })
+    }
+}
+
+/// The outputs of a request that is never spawned.
+fn outputs_in(dir: &Path) -> RunOutputs {
+    let framed = |stream: &str| {
+        OutputSpec::framed(
+            dir.to_path_buf(),
+            stream.parse().expect("a stream"),
+            Framing::Lines,
+        )
+    };
+    RunOutputs::new(framed("stdout"), framed("stderr"))
+}
+
+/// The command the run's container would run.
+fn agent_command() -> CommandSpec {
+    CommandSpec::builder()
+        .argv(vec![String::from("agent")])
+        .build()
+        .expect("a command")
+}
+
+/// Asks `isolation` for the run `key`'s request over the plan.
+async fn request_for(
+    isolation: &DockerIsolation,
+    plan: &ContainerPlan,
+    key: &RunKey,
+    dir: &Path,
+) -> Result<IsolatedRequest, IsolationError> {
+    fs::create_dir_all(dir.join("home")).expect("a home");
+    isolation
+        .run_request(
+            plan,
+            agent_command(),
+            "create-test".parse().expect("a marker"),
+            key.clone(), // BORROW: the request owns its key
+            outputs_in(dir),
+        )
+        .await
+}
+
+/// Guards: R01 §Process supervision — the agent's container is created, then recorded in the
+/// job's `children/` as a `container-record/1` from its own inspect (role, creation time, image,
+/// labels), and only then is the request that starts it returned; the client attaches to the
+/// container the create named. The create is the only docker call before the inspect.
+/// Oracle: the order of the recording fake's calls, the scripted inspect's values as literals,
+/// and the `container-record/1` schema file's member names and version marker.
+/// Bite: the record written after the request is returned (the write removed from
+/// `DockerIsolation::run_request`), or the role of the built record set to
+/// `ContainerRole::Gateway` in `DockerIsolation::agent_record`.
 #[tokio::test]
-async fn record_container_writes_the_agents_record() {
+async fn create_records_before_start() {
     let current = job(1);
     let key = run_key(3);
     let id = cid(0xabc);
     let (_keep, dir) = job_dir(&current);
     let work = tempfile::tempdir().expect("a temp dir");
     let plan = plan_in(work.path(), &current);
-    fs::write(&plan.cidfile, format!("{}\n", id.as_str())).expect("a cidfile"); // BORROW: explicit .as_str()
-    let docker = RecordingDocker::new().with_inspect(
-        id.as_str(), // BORROW: explicit .as_str()
-        agent_inspect(&id, agent_labels(&current, &key)),
+    let docker = Arc::new(
+        RecordingDocker::new()
+            .with_created(Ok(id.clone())) // BORROW: the fake owns its answer
+            .with_inspect(
+                id.as_str(), // BORROW: explicit .as_str()
+                agent_inspect(&id, agent_labels(&current, &key)),
+            ),
     );
-    let isolation = isolation_over(docker, &dir, &current);
+    let read: Arc<dyn DockerDriver> = docker.clone(); // BORROW: the test reads the calls; TRAIT_OBJECT: the isolation takes the driver as a trait object
+    let isolation = isolation_with(read, Arc::new(RecordingDestroyer::new()), &dir, &current);
 
-    let recorded = isolation
-        .record_container(&plan, &key)
+    let isolated = request_for(&isolation, &plan, &key, work.path())
         .await
-        .expect("a record");
-    assert_eq!(recorded, Some(id.clone())); // BORROW: .clone() keeps the id for the path
+        .expect("a request");
+    assert_eq!(isolated.container, Some(id.clone())); // BORROW: .clone() keeps the id for the path
+
+    let calls = docker.calls();
+    assert_eq!(calls.len(), 2, "{calls:?}");
+    assert!(calls[0].starts_with("create "), "{calls:?}");
+    assert!(!calls[0].starts_with("create run "), "{calls:?}");
+    assert_eq!(calls[1], format!("inspect {}", id.as_str())); // BORROW: explicit .as_str()
 
     let path = dir.children_dir().join(record_name(&id));
     let written: Value =
@@ -194,79 +281,166 @@ async fn record_container_writes_the_agents_record() {
     assert_eq!(children_of(&dir).len(), 1);
 }
 
-/// Guards: R01 §Process supervision — recording is idempotent: a second call leaves the record
-/// file byte-identical and returns the same id.
-/// Oracle: the file's bytes before and after the second call; the spawn time is read from the
-/// clock at each build, so a second write would differ.
-/// Bite: drop the `recorded` set check at the top of `DockerIsolation::record_container`.
+/// Guards: R01 §Process supervision — a create docker refuses starts nothing and leaves no
+/// record: the call fails, no inspect follows, `children/` stays empty; a container of another
+/// job or run is refused before anything is recorded or started.
+/// Oracle: the fake's call list, the children directory's listing and the error variants.
+/// Bite: the record written before the create's answer is read, or the job/run label check of
+/// `DockerIsolation::agent_record` removed.
 #[tokio::test]
-async fn record_container_twice_leaves_one_identical_file() {
+async fn create_failure_spawns_nothing() {
     let current = job(1);
     let key = run_key(3);
     let id = cid(0xabc);
-    let (_keep, dir) = job_dir(&current);
     let work = tempfile::tempdir().expect("a temp dir");
     let plan = plan_in(work.path(), &current);
-    fs::write(&plan.cidfile, id.as_str()).expect("a cidfile"); // BORROW: explicit .as_str()
-    let docker = RecordingDocker::new().with_inspect(
-        id.as_str(), // BORROW: explicit .as_str()
-        agent_inspect(&id, agent_labels(&current, &key)),
+
+    let (_keep, dir) = job_dir(&current);
+    let docker = Arc::new(
+        RecordingDocker::new().with_created(Err(DockerError::Failed {
+            detail: String::from("no such image"),
+        })),
     );
-    let isolation = isolation_over(docker, &dir, &current);
-    let path = dir.children_dir().join(record_name(&id));
-
-    let first = isolation.record_container(&plan, &key).await;
-    let before = fs::read(&path).expect("the record file");
-    std::thread::sleep(Duration::from_millis(20));
-    let second = isolation.record_container(&plan, &key).await;
-    let after = fs::read(&path).expect("the record file");
-
-    assert_eq!(first, Ok(Some(id.clone()))); // BORROW: .clone() compares with the id
-    assert_eq!(second, first);
-    assert_eq!(after, before, "the second call rewrote the record");
-    assert_eq!(children_of(&dir).len(), 1);
-}
-
-/// Guards: R01 §Process supervision — a cidfile that is absent, or that docker cannot inspect
-/// yet, records nothing and answers `Ok(None)`; a container of another job or run is refused.
-/// Oracle: the children directory's listing, and the error variant.
-/// Bite: return `Ok(Some(cid))` before the inspect in `DockerIsolation::record_container`.
-#[tokio::test]
-async fn record_container_writes_nothing_without_a_container() {
-    let current = job(1);
-    let key = run_key(3);
-    let id = cid(0xabc);
-    let (_keep, dir) = job_dir(&current);
-    let work = tempfile::tempdir().expect("a temp dir");
-    let plan = plan_in(work.path(), &current);
-
-    // No cidfile: the client has not written it.
-    let isolation = isolation_over(RecordingDocker::new(), &dir, &current);
-    assert_eq!(isolation.record_container(&plan, &key).await, Ok(None));
+    let read: Arc<dyn DockerDriver> = docker.clone(); // BORROW: the test reads the calls; TRAIT_OBJECT: the isolation takes the driver as a trait object
+    let isolation = isolation_with(read, Arc::new(RecordingDestroyer::new()), &dir, &current);
+    let outcome = request_for(&isolation, &plan, &key, work.path()).await;
+    assert!(
+        matches!(outcome, Err(IsolationError::Docker { .. })),
+        "{:?}",
+        outcome.map(|_| ())
+    );
+    assert_eq!(docker.calls().len(), 1, "{:?}", docker.calls());
     assert!(children_of(&dir).is_empty());
 
-    // A cidfile whose container docker cannot inspect.
-    fs::write(&plan.cidfile, id.as_str()).expect("a cidfile"); // BORROW: explicit .as_str()
-    assert_eq!(isolation.record_container(&plan, &key).await, Ok(None));
-    assert!(children_of(&dir).is_empty());
-
-    // A container of another job, and of another run, is refused and recorded nowhere.
     for (case, labels) in [
         ("another job", agent_labels(&job(2), &key)),
         ("another run", agent_labels(&current, &run_key(4))),
     ] {
-        let docker = RecordingDocker::new().with_inspect(
-            id.as_str(), // BORROW: explicit .as_str()
-            agent_inspect(&id, labels),
-        );
-        let refusing = isolation_over(docker, &dir, &current);
-        let outcome = refusing.record_container(&plan, &key).await;
+        let (_keep, dir) = job_dir(&current);
+        let docker = RecordingDocker::new()
+            .with_created(Ok(id.clone())) // BORROW: the fake owns its answer
+            .with_inspect(
+                id.as_str(), // BORROW: explicit .as_str()
+                agent_inspect(&id, labels),
+            );
+        let read: Arc<dyn DockerDriver> = Arc::new(docker); // TRAIT_OBJECT: the isolation takes the driver as a trait object
+        let isolation = isolation_with(read, Arc::new(RecordingDestroyer::new()), &dir, &current);
+        let outcome = request_for(&isolation, &plan, &key, work.path()).await;
         assert!(
             matches!(outcome, Err(IsolationError::Plan { .. })),
-            "{case}: {outcome:?}"
+            "{case}: {:?}",
+            outcome.map(|_| ())
         );
         assert!(children_of(&dir).is_empty(), "{case}");
     }
+}
+
+/// Guards: R01 §Process supervision — a supervisor that dies between the create and the start
+/// leaves a recorded container, which the job's sweep finds by its record alone (docker lists no
+/// container by label) and destroys.
+/// Oracle: the destroy driver's calls (`stop`, `rm` of the id) after the request was made and
+/// dropped unspawned.
+/// Bite: the record not written by `DockerIsolation::run_request` (the container is then
+/// unrecorded and the guard refuses it).
+#[tokio::test]
+async fn create_then_crash_is_reaped() {
+    let current = job(1);
+    let key = run_key(3);
+    let id = cid(0xabc);
+    let (_keep, dir) = job_dir(&current);
+    let work = tempfile::tempdir().expect("a temp dir");
+    let plan = plan_in(work.path(), &current);
+    let answer = agent_inspect(&id, agent_labels(&current, &key));
+    let docker = RecordingDocker::new()
+        .with_created(Ok(id.clone())) // BORROW: the fake owns its answer
+        .with_inspect(id.as_str(), answer); // BORROW: explicit .as_str()
+    let read: Arc<dyn DockerDriver> = Arc::new(docker); // TRAIT_OBJECT: the isolation takes the driver as a trait object
+    let isolation = isolation_with(
+        Arc::clone(&read), // BORROW: the sweep reads through the same driver
+        Arc::new(RecordingDestroyer::new()),
+        &dir,
+        &current,
+    );
+    let request = request_for(&isolation, &plan, &key, work.path()).await;
+    // The supervisor dies here: the request is never spawned.
+    drop(request);
+
+    let destroyer = Arc::new(RecordingDestroyer::new());
+    let kill: Arc<dyn DestroyDriver> = destroyer.clone(); // BORROW: the test reads the calls; TRAIT_OBJECT: the guard holds a trait object
+    let view: Arc<dyn JobView> = Arc::new(dir.clone()); // BORROW: the view owns its directory handle; TRAIT_OBJECT: the guard reads records through a trait object
+    let guard = Arc::new(ContainerGuard::new(
+        kill,
+        Arc::clone(&read),
+        Arc::clone(&view),
+    )); // BORROW: the sweeper shares the driver and view
+    let sweeper = LabelSweeper::new(read, guard, view, Duration::from_secs(5));
+    let swept = sweeper
+        .sweep(&SweepScope::CurrentJob)
+        .await
+        .expect("a sweep");
+
+    let full = id.as_str(); // BORROW: explicit .as_str()
+    assert_eq!(
+        destroyer.calls(),
+        [format!("stop {full}"), format!("rm {full}")]
+    );
+    assert_eq!(swept.destroyed.len(), 1, "{swept:?}");
+}
+
+/// Guards: R01 §Process supervision — the collect after a run destroys the container the run's
+/// create named, by the run's own key, through the guard: `stop` then `rm` of the recorded id; a
+/// run that created nothing destroys nothing and reports an unknown container.
+/// Oracle: the recording destroy driver's call list.
+/// Bite: `DockerIsolation::collect_and_destroy` reading the id from anything but the run's own
+/// created container (or the scope taken from the container's own run label).
+#[tokio::test]
+async fn create_collect_destroys_the_runs_own_container() {
+    let current = job(1);
+    let key = run_key(3);
+    let id = cid(0xabc);
+    let (_keep, dir) = job_dir(&current);
+    let work = tempfile::tempdir().expect("a temp dir");
+    let plan = plan_in(work.path(), &current);
+    let read: Arc<dyn DockerDriver> = Arc::new(
+        RecordingDocker::new()
+            .with_created(Ok(id.clone())) // BORROW: the fake owns its answer
+            .with_inspect(
+                id.as_str(), // BORROW: explicit .as_str()
+                agent_inspect(&id, agent_labels(&current, &key)),
+            ),
+    ); // TRAIT_OBJECT: the isolation takes the driver as a trait object
+    let destroyer = Arc::new(RecordingDestroyer::new());
+    let isolation = isolation_with(read, Arc::clone(&destroyer), &dir, &current); // BORROW: the test reads the calls
+    let exit = Exit::new(
+        ExitStatus::Code { code: 0 },
+        Ended::Exited,
+        Vec::new(),
+        true,
+        Vec::new(),
+        Vec::new(),
+    );
+    let workspace = Workspace::new(work.path());
+
+    let nothing = isolation
+        .collect_and_destroy(&plan, &workspace, &exit, &key)
+        .await
+        .expect("an outcome");
+    assert!(nothing.sweep.unknown && nothing.sweep.destroyed.is_empty());
+    assert_eq!(destroyer.calls(), Vec::<String>::new());
+
+    request_for(&isolation, &plan, &key, work.path())
+        .await
+        .expect("a request");
+    let outcome = isolation
+        .collect_and_destroy(&plan, &workspace, &exit, &key)
+        .await
+        .expect("an outcome");
+    let full = id.as_str(); // BORROW: explicit .as_str()
+    assert_eq!(
+        destroyer.calls(),
+        [format!("stop {full}"), format!("rm {full}")]
+    );
+    assert_eq!(outcome.sweep.destroyed.len(), 1);
 }
 
 /// The facts of the one-cell experiment of the job guards: no secret is declared.
@@ -337,7 +511,7 @@ fn record_name(id: &ContainerId) -> String {
 /// `sink`; `during` runs on another thread with the job's control while the job runs.
 fn run_job(
     rig: &Rig,
-    host: Arc<FakeHost>,
+    host: Arc<dyn JobHost>, // TRAIT_OBJECT: a test host is any host over the fake client
     sink: Arc<Recorder>,
     during: impl FnOnce(&JobControl) + Send,
 ) -> JobOutcome {
@@ -375,7 +549,7 @@ fn rm_calls(rig: &Rig) -> usize {
 /// sweep refuses it as unrecorded.
 /// Oracle: the one-shot refusal the script consumed, the fake client's log of `container rm`
 /// calls, and the `container.destroyed` event's `found`.
-/// Bite: remove the poll in `drive` and the try after the wait, so no record is written.
+/// Bite: remove the record write from `DockerIsolation::run_request`, so no record is written.
 #[test]
 fn job_close_destroys_an_agent_whose_run_rm_failed_as_recorded() {
     let facts = facts();
@@ -483,7 +657,7 @@ impl ContainerSweeper for CheckingSweeper {
 /// live, and is there when the stop hook's destroy step sweeps a run ended by its stop handle.
 /// Oracle: the record file's presence, awaited before the stop and read from inside a recording
 /// sweeper's `sweep` call.
-/// Bite: remove the poll in `drive`, keeping the try after the wait.
+/// Bite: move the record write after the request is returned, so no record exists while the run is live.
 #[test]
 fn stopped_run_has_its_agent_recorded_before_the_hook_sweeps() {
     let facts = facts();
@@ -631,5 +805,194 @@ fn harness_census_and_end_come_from_the_drivers_live_reader() {
         measured("run.usage"),
         Some(json!({"input_tokens": 7, "output_tokens": 3,
                     "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}))
+    );
+}
+
+/// Guards: R01 §Process supervision — a stop that was requested classifies the run as a stop
+/// (`budget_stop` for a cap, `killed` for a cancel) even when the attached client returns by
+/// itself with the container's exit code before the supervisor's ladder ends it.
+/// Oracle: the end the job's own stop causes name (`JobCause::BudgetStop` is `budget_stop`,
+/// `JobCause::Killed` is `killed`), and a fake client that exits 0 by itself two seconds after the
+/// cancel, inside the five seconds the harness gives the client to leave: the rows are written
+/// from the docs of the two causes, not from `classify_end`.
+/// Bite: count only `Ended::Stopped` as a stop in `drive` (the stop given to `classify_end` is
+/// dropped when the client exited by itself), so the run is not a stop.
+#[test]
+fn stop_that_races_the_clients_own_exit_is_still_a_stop() {
+    let rows = [
+        (
+            JobCause::BudgetStop,
+            InvalidReason::BudgetStop,
+            EndedBy::BudgetStop,
+        ),
+        (JobCause::Killed, InvalidReason::Killed, EndedBy::Killed),
+    ];
+    for (cause, reason, ended_by) in rows {
+        let facts = facts();
+        let key = planned_key(&facts);
+        let id = cid(0xabc);
+        let rig = Rig::new(0);
+        script_agent(&rig, &id, &key);
+        let children = children_dir(&rig);
+        let host = rig.host_with_agent(FakeAgent {
+            cid: id.clone(), // BORROW: the agent owns its id
+            sleep_s: 2,
+            sweeper: None,
+            stdout: String::new(),
+        });
+        let sink = Arc::new(Recorder::default());
+        let outcome = run_job(&rig, host, sink, |ctl| {
+            let record = children.join(record_name(&id));
+            let began = Instant::now();
+            while !record.is_file() && began.elapsed() < Duration::from_secs(10) {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            let _ = ctl.cancel.send(Some(cause));
+        });
+        assert_eq!(outcome.runs.len(), 1, "{cause:?}: the run ended");
+        let run = &outcome.runs[0]; // INDEX: the length was asserted
+        assert_eq!(run.invalid, Some(reason), "{cause:?}: the reason");
+        assert_eq!(run.ended_by, ended_by, "{cause:?}: the end");
+    }
+}
+
+/// A job host over the fake client whose isolation creates and records the agent container, then
+/// hands the run a client program that does not exist, so the spawn fails.
+struct UnstartableHost(Arc<FakeHost>);
+
+/// The isolation of [`UnstartableHost`].
+struct Unstartable {
+    inner: Arc<dyn Isolation>, // TRAIT_OBJECT: the host's own isolation is a trait object
+}
+
+impl Isolation for Unstartable {
+    fn plan(
+        &self,
+        cell: &Cell<'_>,
+        workspace: &Workspace<'_>,
+    ) -> Result<ContainerPlan, IsolationError> {
+        self.inner.plan(cell, workspace)
+    }
+
+    fn run_request<'a>(
+        &'a self,
+        plan: &'a ContainerPlan,
+        command: CommandSpec,
+        marker: Marker,
+        key: RunKey,
+        outputs: RunOutputs,
+    ) -> BoxFuture<'a, Result<IsolatedRequest, IsolationError>> {
+        Box::pin(async move {
+            let made = self
+                .inner
+                .run_request(plan, command, marker.clone(), key.clone(), outputs) // BORROW: the replacement carries them too
+                .await?;
+            let framed = |stream: &str| {
+                OutputSpec::framed(
+                    plan.record_dir.clone(), // BORROW: the spec owns its directory
+                    stream.parse().expect("a stream name"),
+                    Framing::Lines,
+                )
+            };
+            let request = SpawnRequest::builder()
+                .argv(vec![String::from("/nonexistent/candler-fixb/docker")])
+                .marker(marker)
+                .run(key)
+                .stdout(framed("stdout"))
+                .stderr(framed("stderr"))
+                .record_dir(plan.record_dir.clone()) // BORROW: the request owns its directory
+                .build()
+                .expect("a request");
+            let mut broken = IsolatedRequest::new(request, made.end_facts);
+            if let Some(cid) = made.container {
+                broken = broken.with_container(cid);
+            }
+            Ok(broken)
+        })
+    }
+
+    fn collect_exec<'a>(
+        &'a self,
+        plan: &'a ContainerPlan,
+        command: &'a CommandSpec,
+    ) -> BoxFuture<'a, Result<Vec<u8>, IsolationError>> {
+        self.inner.collect_exec(plan, command)
+    }
+
+    fn collect_and_destroy<'a>(
+        &'a self,
+        plan: &'a ContainerPlan,
+        workspace: &'a Workspace<'a>,
+        exit: &'a Exit,
+        key: &'a RunKey,
+    ) -> BoxFuture<'a, Result<ContainerOutcome, IsolationError>> {
+        self.inner.collect_and_destroy(plan, workspace, exit, key)
+    }
+}
+
+impl JobHost for UnstartableHost {
+    fn docker_cli(
+        &self,
+        supervisor: Arc<Supervisor>,
+        record_dir: PathBuf,
+    ) -> Result<DockerCli, DockerError> {
+        self.0.docker_cli(supervisor, record_dir)
+    }
+
+    fn gateway<'a>(
+        &'a self,
+        rt: &'a Runtime,
+        spec: &'a JobSpec,
+        // TRAIT_OBJECT: the gateway is a fake, as the session takes it from the host
+    ) -> BoxFuture<'a, Result<Arc<dyn Gateway>, OrchestrateError>> {
+        self.0.gateway(rt, spec)
+    }
+
+    // TRAIT_OBJECT: the host hands the runs an isolation as a trait object
+    fn isolation(&self, isolation: DockerIsolation) -> Arc<dyn Isolation> {
+        Arc::new(Unstartable {
+            inner: self.0.isolation(isolation),
+        })
+    }
+
+    fn clock(&self) -> Clock {
+        self.0.clock()
+    }
+}
+
+/// Guards: R01 §Process supervision — an agent container that was created and recorded is
+/// destroyed by its own run when the docker client cannot be started, and not left to the
+/// job-close sweep alone.
+/// Oracle: the fake client's log of `container rm` calls, counted by hand: the run's own destroy
+/// and then the job-close sweep's, which the fake's static listing and record still offer (two),
+/// against the sweep's alone (one).
+/// Bite: remove the destroy on the spawn-failure path of `drive`, so only the job-close sweep
+/// reaches the client (one `rm`).
+#[test]
+fn agent_container_is_destroyed_when_its_client_cannot_start() {
+    let facts = facts();
+    let key = planned_key(&facts);
+    let id = cid(0xabc);
+    let rig = Rig::new(0);
+    script_agent(&rig, &id, &key);
+    let host = rig.host_with_agent(FakeAgent {
+        cid: id.clone(), // BORROW: the agent owns its id
+        sleep_s: 0,
+        sweeper: None,
+        stdout: String::new(),
+    });
+    let sink = Arc::new(Recorder::default());
+    let outcome = run_job(
+        &rig,
+        Arc::new(UnstartableHost(host)),
+        Arc::clone(&sink),
+        |_ctl| {},
+    ); // BORROW: the test reads the sink after the job
+    let _ = outcome;
+
+    assert_eq!(
+        rm_calls(&rig),
+        2,
+        "the run's own destroy and the job-close sweep's both reached the client"
     );
 }

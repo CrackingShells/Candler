@@ -25,7 +25,6 @@ use crate::isolation::container::{DockerDirs, DockerIsolation};
 use crate::isolation::docker::{ClientEnv, DockerCli, DockerError};
 use crate::isolation::driver::DockerDriver;
 use crate::isolation::gateway::ChildRecorder;
-use crate::isolation::gateway::DockerCli as GatewayCli;
 use crate::isolation::gateway::{
     DockerGateway, Gateway, GatewayError, GatewayStart, GatewayStatus, SecretError, SecretSource,
     SecretValue, UpstreamConfig,
@@ -339,18 +338,19 @@ pub(super) async fn sidecar_gateway(
         id: info.id,
         harness_version: None,
     };
-    let mut env: Vec<(String, String)> = ClientEnv::from_process().pairs().to_vec();
-    if let Some(path) = std::env::var_os("PATH") {
-        // BORROW: the child's environment owns its pair
-        env.push(("PATH".to_owned(), path.to_string_lossy().into_owned()));
-    }
     let job_dir = JobDir::open(rt.store.layout(), &rt.job).map_err(|e| failed(e.to_string()))?;
-    let cli = GatewayCli::new(env, marker, job_dir.control_dir(), job_dir.children_dir());
+    let cli = DockerCli::new(
+        Arc::clone(&rt.supervisor),
+        ClientEnv::from_process(),
+        job_dir.control_dir(),
+    )
+    .map_err(|e| failed(e.to_string()))?;
     let service = DockerGateway::new(
         image,
         upstream,
         max_parallel,
         cli,
+        marker,
         Arc::clone(&rt.supervisor),
     );
     // TRAIT_OBJECT: the job starts its gateway through the service trait

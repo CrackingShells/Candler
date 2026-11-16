@@ -287,6 +287,7 @@ async fn recover_lost(
         let role = match container.labels.get(LABEL_ROLE) {
             Some("agent") => ContainerRole::Agent,
             Some("gateway") => ContainerRole::Gateway,
+            Some("egress") => ContainerRole::Egress,
             Some(_) | None => {
                 report.role_unknown.push(container.cid.clone()); // BORROW: the report owns its ids
                 continue;

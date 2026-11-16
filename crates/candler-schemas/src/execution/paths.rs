@@ -64,6 +64,12 @@ pub const ISOLATION_LIMITS_MEMORY: &str = "isolation.limits.memory";
 /// A cell value: the cpu limit.
 pub const ISOLATION_LIMITS_CPUS: &str = "isolation.limits.cpus";
 
+/// A cell value: the hosts and ports the agent may reach, as `host:port` strings.
+pub const ISOLATION_EGRESS: &str = "isolation.egress";
+
+/// A setting: the plug-in environment the build takes its values from, as `<plugin>/<environment>`.
+pub const ISOLATION_BUILD_PLUGIN: &str = "isolation.build.plugin";
+
 /// A setting: the Dockerfile to build the image from.
 pub const ISOLATION_BUILD_DOCKERFILE: &str = "isolation.build.dockerfile";
 
@@ -161,6 +167,8 @@ const _: () = {
     assert!(crate::primitives::is_field_path(ISOLATION_LIMITS_PIDS));
     assert!(crate::primitives::is_field_path(ISOLATION_LIMITS_MEMORY));
     assert!(crate::primitives::is_field_path(ISOLATION_LIMITS_CPUS));
+    assert!(crate::primitives::is_field_path(ISOLATION_EGRESS));
+    assert!(crate::primitives::is_field_path(ISOLATION_BUILD_PLUGIN));
     assert!(crate::primitives::is_field_path(ISOLATION_BUILD_DOCKERFILE));
     assert!(crate::primitives::is_field_path(ISOLATION_BUILD_CONTEXT));
     assert!(crate::primitives::is_field_path(

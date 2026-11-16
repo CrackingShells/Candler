@@ -530,6 +530,7 @@ fn role_of(labels: &Labels) -> Result<ContainerRole, GuardRefusal> {
     match labels.get(LABEL_ROLE) {
         Some("agent") => Ok(ContainerRole::Agent),
         Some("gateway") => Ok(ContainerRole::Gateway),
+        Some("egress") => Ok(ContainerRole::Egress),
         Some("control") => Err(GuardRefusal::Control),
         Some(_) | None => Err(GuardRefusal::Unlabelled),
     }

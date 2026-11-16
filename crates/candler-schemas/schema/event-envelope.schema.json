@@ -150,7 +150,7 @@
       "type": "string"
     },
     "ContainerRole": {
-      "description": "The part a container plays in a run: `agent` or `gateway`.",
+      "description": "The part a container plays in a run: `agent`, `gateway` or `egress`.",
       "oneOf": [
         {
           "const": "agent",
@@ -160,6 +160,11 @@
         {
           "const": "gateway",
           "description": "The container is the gateway the agent reaches its provider through.",
+          "type": "string"
+        },
+        {
+          "const": "egress",
+          "description": "The container is the egress proxy the agent reaches its allowed hosts through.",
           "type": "string"
         }
       ]

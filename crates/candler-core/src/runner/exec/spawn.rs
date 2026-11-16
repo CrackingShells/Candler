@@ -1,9 +1,13 @@
 //! Starting one attempt of a run in its container, with a reader that watches the output live.
 
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
+
+use tokio::time::sleep;
 
 use candler_harness::reader::{FrameIn, ReaderError, TraceReader};
 use candler_harness::spec::Observed;
+use candler_schemas::primitives::RunKey;
 use candler_schemas::raw::{RawFrame, RawRef, StreamName};
 use candler_schemas::trace::{Session, SessionEvent};
 
@@ -12,6 +16,7 @@ use crate::isolation::{EndFacts, IsolatedRequest, Isolation, IsolationError};
 use crate::runner::Runtime;
 use crate::supervise::SuperviseError;
 use crate::supervise::spawn::{Child, FrameObserver};
+use crate::supervise::stop::StopHandle;
 
 /// What the live reader holds while the run writes.
 struct Live {
@@ -159,6 +164,50 @@ pub struct Started {
     pub end_facts: Arc<dyn EndFacts>,
 }
 
+/// How a run is stopped while its container lives: the daemon stops the agent, and the attached
+/// client, which nothing signals, relays the agent's last output and exits with the container's
+/// code. The client is ended by the supervisor's ladder only when the daemon could not be asked or
+/// the client outlives the container by `relay`.
+#[derive(Clone)]
+pub struct RunStopper {
+    handle: StopHandle,
+    // TRAIT_OBJECT: the facts come from the hook the request carries
+    facts: Arc<dyn EndFacts>,
+    key: RunKey,
+    relay: Duration,
+}
+
+impl RunStopper {
+    /// The stopper of the run `key` whose client `handle` stops, giving the client `relay` to
+    /// leave once the daemon has stopped the container.
+    #[must_use]
+    pub fn new(handle: StopHandle, facts: Arc<dyn EndFacts>, key: RunKey, relay: Duration) -> Self {
+        // TRAIT_OBJECT: the facts come from the hook the request carries
+        Self {
+            handle,
+            facts,
+            key,
+            relay,
+        }
+    }
+
+    /// Begins the stop in a task of its own and returns at once.
+    pub fn request(&self) {
+        let stopper = self.clone(); // BORROW: .clone() gives the task its own handles
+        // EXPLICIT: the stop task is detached; its effect is the stop, and the run's wait reports the end
+        drop(tokio::spawn(async move { stopper.stop().await }));
+    }
+
+    /// Stops the agent container through the daemon, then lets the client leave by itself for
+    /// `relay`; the ladder ends the client when the daemon failed or the client is still there.
+    pub async fn stop(&self) {
+        if self.facts.stop_agent(&self.key).await.is_ok() {
+            sleep(self.relay).await;
+        }
+        self.handle.request();
+    }
+}
+
 /// The isolation of the runtime.
 ///
 /// # Errors
@@ -178,7 +227,9 @@ pub fn require_isolation(rt: &Runtime) -> Result<&Arc<dyn Isolation>, IsolationE
 /// # Errors
 /// Returns the supervisor's error when the program cannot start.
 pub fn start_attempt(rt: &Runtime, isolated: IsolatedRequest) -> Result<Started, SuperviseError> {
-    let IsolatedRequest { request, end_facts } = isolated;
+    let IsolatedRequest {
+        request, end_facts, ..
+    } = isolated;
     let child = rt.supervisor.spawn(request)?;
     Ok(Started { child, end_facts })
 }

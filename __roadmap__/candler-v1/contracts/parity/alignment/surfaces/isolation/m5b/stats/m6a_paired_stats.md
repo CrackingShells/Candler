@@ -2,7 +2,7 @@
 
 **Goal**: `analyze` compares paired arms with McNemar, CMH, bootstrap and fixed-sequence tests alongside M3's Wilson intervals and Holm adjustment, and reports each arm's `instrument_error` count. An arm can be a treatment: one experiment declares the treatment as a factor, and each cell resolves its own treatment, env lock and image (amendment A7).
 **Pre-conditions**:
-- [ ] `../m5_container_isolation.md` is `done`, and M2a before it (the tree also waits for M5; the reminder needs only M2a)
+- [ ] `../README.md`'s M5b is `done` (the leaf `../../m5_container_isolation.md`, M5a, before it), and M2a (the tree also waits for M5a and M5b; the reminder needs only M2a)
 - [ ] Reminder `candler-M6` read (statistics list, pairing model)
 **Success Gates**:
 - ⬜ McNemar, CMH, bootstrap and fixed-sequence tests run on declared pairing keys, and each equals a second engine's table on the existing HTN golden runs
@@ -12,7 +12,7 @@
 - ⬜ `analyze` runs the paired tests between two treatment arms of one experiment, and a one-treatment experiment keeps the analysis it has today
 - ⬜ A treatment factor never moves a setting into a cell: every path `is_setting` names stays out of the cell digest (I7)
 - ⬜ Every cell digest of M1's golden import and M2a's parity fixtures is unchanged
-**References**: [R01 §Analysis statistics, §Contracts & Invariants (I5)](../../../../../../../../__design__/architecture.md) — today's defaults (rate, Wilson, Fisher with Newcombe, Holm) and the grading rule; [R04 Golden reference](../../../../../../README.md) — listed in the campaign README; the runs the gates test on
+**References**: [R01 §Analysis statistics, §Contracts & Invariants (I5)](../../../../../../../../../__design__/architecture.md) — today's defaults (rate, Wilson, Fisher with Newcombe, Holm) and the grading rule; [R04 Golden reference](../../../../../../../README.md) — listed in the campaign README; the runs the gates test on
 
 ## Step 1: Plan the milestone
 
@@ -37,6 +37,6 @@ Execute the campaign on `feat/m6a-paired-stats`, then land it on `main` with one
 **Goal**: The milestone is recorded.
 **Implementation Logic**:
 Write a knowledge-transfer report under `__reports__/m6a-paired-stats/`. Mark this leaf `done` with `dirtree-rdm update`. Propose the reminder reconciliation to Eliott: `candler-M6` complete. Apply only on his yes, through `sw_write.py`.
-**Deliverables**: `__reports__/m6a-paired-stats/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/alignment/surfaces/isolation/stats/README.md`
-**Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/alignment/surfaces/isolation/stats/` (expected: PASS)
+**Deliverables**: `__reports__/m6a-paired-stats/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/alignment/surfaces/isolation/m5b/stats/README.md`
+**Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/alignment/surfaces/isolation/m5b/stats/` (expected: PASS)
 **Commit**: `reports(stats): close the m6a-paired-stats milestone`

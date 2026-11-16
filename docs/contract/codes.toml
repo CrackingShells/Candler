@@ -433,6 +433,11 @@ side = "plugin"
 enum = "EvaluationError"
 variant = "ManifestUnknownField"
 
+[schemas."plugin.environment_path_unsupported"]
+side = "plugin"
+enum = "EvaluationError"
+variant = "EnvironmentPathUnsupported"
+
 [resolve]
 
 [resolve."resolve.value_invalid"]
@@ -1894,3 +1899,27 @@ at = "-"
 side = "suite"
 when = "A suite entry has a deadline_ms above 2**53 - 1, which Candler passes on and the helper refuses with error -32602."
 at = "-"
+
+[resolve."isolation.egress_invalid"]
+side = "experiment"
+enum = "EgressRefusal"
+variant = "Invalid"
+
+[resolve."isolation.egress_with_bridge"]
+side = "experiment"
+enum = "EgressRefusal"
+variant = "WithBridge"
+
+[resolve."isolation.plugin_environment_missing"]
+side = "experiment"
+enum = "PluginEnvironmentRefusal"
+variant = "Missing"
+
+[internal."candler_core::resolve::steps::plugin_environment::FragmentError"]
+enum = "FragmentError"
+reason = "a plug-in environment that cannot be read reaches the author as the step's coded refusal or a failed preflight step, so the loader's own error is never a wire error"
+
+[resolve."isolation.egress_unsupported"]
+side = "experiment"
+enum = "EgressRefusal"
+variant = "Unsupported"

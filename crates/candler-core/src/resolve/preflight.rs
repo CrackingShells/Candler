@@ -193,6 +193,12 @@ pub enum ResolveError {
     /// A cell's session settings are refused by the session step, and no other step failed.
     #[error(transparent)]
     Session(#[from] crate::resolve::steps::session::SessionRefusal),
+    /// A cell's egress allowlist is refused by the egress step, and no other step failed.
+    #[error(transparent)]
+    Egress(#[from] crate::resolve::steps::egress::EgressRefusal),
+    /// The plug-in environment an experiment selects does not exist, and no other step failed.
+    #[error(transparent)]
+    PluginEnvironment(#[from] crate::resolve::steps::plugin_environment::PluginEnvironmentRefusal),
     /// At least one step failed; every step ran.
     #[error(
         "preflight failed: {} failed step report(s), {} step error(s){}",
@@ -332,7 +338,7 @@ impl Resolver {
             }
         }
         if errors.is_empty()
-            && let Some(refusal) = session_refusal(&reports)
+            && let Some(refusal) = step_refusal(&reports)
         {
             return Err(refusal);
         }
@@ -345,23 +351,34 @@ impl Resolver {
     }
 }
 
-/// The session refusal of `reports` when the session step is the only step that failed and one
-/// of its checks says why.
-fn session_refusal(reports: &[StepReport]) -> Option<ResolveError> {
+/// The refusal of `reports` when the session, egress or plug-in environment step is the only step that failed
+/// and one of its checks says why.
+fn step_refusal(reports: &[StepReport]) -> Option<ResolveError> {
     let [report] = reports else {
         return None;
     };
-    if report.step.to_string() != crate::resolve::steps::session::STEP_NAME {
-        return None;
+    let failed = report.checks.iter().find(|result| !result.passed)?;
+    let step = report.step.to_string();
+    if step == crate::resolve::steps::session::STEP_NAME {
+        Some(ResolveError::Session(
+            crate::resolve::steps::session::SessionRefusal::Refused {
+                check: failed.name.to_string(), // BORROW: the refusal owns the check name
+                detail: failed.explanation.clone(), // BORROW: the refusal owns the explanation
+            },
+        ))
+    } else if step == crate::resolve::steps::egress::STEP_NAME {
+        crate::resolve::steps::egress::EgressRefusal::from_check(
+            failed.name.as_str(),        // BORROW: explicit .as_str()
+            failed.explanation.as_str(), // BORROW: explicit .as_str()
+        )
+        .map(ResolveError::Egress)
+    } else if step == crate::resolve::steps::plugin_environment::STEP_NAME {
+        crate::resolve::steps::plugin_environment::PluginEnvironmentRefusal::from_check(
+            failed.name.as_str(),        // BORROW: explicit .as_str()
+            failed.explanation.as_str(), // BORROW: explicit .as_str()
+        )
+        .map(ResolveError::PluginEnvironment)
+    } else {
+        None
     }
-    report
-        .checks
-        .iter()
-        .find(|result| !result.passed)
-        .map(|result| {
-            ResolveError::Session(crate::resolve::steps::session::SessionRefusal::Refused {
-                check: result.name.to_string(), // BORROW: the refusal owns the check name
-                detail: result.explanation.clone(), // BORROW: the refusal owns the explanation
-            })
-        })
 }

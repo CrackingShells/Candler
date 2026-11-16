@@ -121,6 +121,9 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `isolation.docker_resource_missing` | Docker has no such container, network or image. | - | environment |
 | `isolation.docker_step_failed` | Docker failed while the run was being placed in a container. | - | environment |
 | `isolation.docker_unavailable` | The docker client cannot be reached or does not offer the call. | - | environment |
+| `isolation.egress_invalid` | `isolation.egress` is not a list of `host:port` strings, or an entry is an IP literal, holds a wildcard, a scheme or a path, has no port or a port outside 1 to 65535, or is not an RFC 1123 hostname with at least one dot. | - | experiment |
+| `isolation.egress_unsupported` | `isolation.egress` is set, by the experiment or by a plug-in environment, and no run enforces an egress allowlist yet. | - | experiment |
+| `isolation.egress_with_bridge` | A cell sets `isolation.egress` and `isolation.network = bridge`, which reaches the whole internet. | - | experiment |
 | `isolation.env_name_invalid` | An environment name is empty or holds `=` or a NUL byte. | - | config |
 | `isolation.env_name_repeated` | The environment sets one name twice. | - | config |
 | `isolation.env_name_reserved` | The environment overlay sets a name that the wrapper owns. | - | config |
@@ -144,6 +147,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `isolation.mount_path_unsupported` | A mount path holds a comma, a newline or text that is not UTF-8, which cannot be written as a `--mount` option; a project directory with a comma in its name does it. | - | config |
 | `isolation.mount_symlink_escape` | A mount source is a symlink that leaves the project root and the store. | - | config |
 | `isolation.mount_unresolvable` | A mount source cannot be resolved on the host. | - | config |
+| `isolation.plugin_environment_missing` | `isolation.build.plugin` selects an agent environment that the plug-in does not offer. | - | experiment |
 | `isolation.secret_missing` | A secret the experiment declares is not set in the environment. | - | environment |
 | `isolation.secret_unsupported_character` | A secret holds a character that the gateway's configuration cannot carry. | - | environment |
 | `isolation.step_unavailable` | The container runtime has no isolation for the step, so the run cannot be placed. | - | environment |

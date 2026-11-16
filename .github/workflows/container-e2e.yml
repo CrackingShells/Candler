@@ -44,8 +44,6 @@ jobs:
           tool: cargo-nextest
       - name: Report the engine
         run: docker version && docker info --format '{{.Driver}} {{.DriverStatus}}'
-      - name: Build the testagent image
-        run: docker build --label candler.test=1 -t candler-testagent:test assets/docker/testagent
       - name: Run the container guards
         run: |
           set -o pipefail
@@ -64,8 +62,11 @@ jobs:
             b13_client_killed_container_gone b17_canary_absent b18_internal_network_no_route \
             b36_supervisor_sigkill_nothing_left b37_untrusted_upstream_gets_no_credential \
             b40_kill_all_destroys_lost_jobs_containers \
+            agent_create_then_attach \
             controls_e2e_pinned_harness_passes \
+            control_each_kind_runs_on_the_real_base \
             opencode_probe_reads_each_real_base_image_version \
+            plugin_environment_serves_live_mcp_tools \
             x1_env_image_prunes_the_named_file_and_reads_the_pin \
             x1_env_image_without_requirements_has_only_seed_packages; do
             if ! grep -Eq "PASS \[ *[0-9.]+s\] +\( *[0-9]+/[0-9]+\) [a-z-]+::it guard_(container|cli)_e2e::([a-z0-9_]+::)*${name}\$" "$RUNNER_TEMP/e2e.txt"; then

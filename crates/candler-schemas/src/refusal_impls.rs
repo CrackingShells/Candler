@@ -205,6 +205,9 @@ fn evaluation_path(error: &EvaluationError) -> Option<String> {
         | EvaluationError::SuiteUnknownField { path, .. }
         | EvaluationError::ManifestUnknownField { path, .. }
         | EvaluationError::Json { path, .. } => non_root(path.as_str()),
+        EvaluationError::EnvironmentPathUnsupported { environment, path } => {
+            Some(format!("/agent_environments/{environment}/values/{path}"))
+        }
         EvaluationError::Canonical(inner) => Refusal::path(inner),
         EvaluationError::MissingField { .. }
         | EvaluationError::ManifestCommandEmpty
@@ -259,6 +262,12 @@ refusal_table! {
         Side::Plugin,
         "The `command` of a plug-in manifest has no member, so there is nothing to start.",
         "-",
+    ),
+    EnvironmentPathUnsupported { .. } => row(
+        "plugin.environment_path_unsupported",
+        Side::Plugin,
+        "An agent environment of a plug-in manifest sets a path other than `isolation.egress` or one below `isolation.build.` or `mcp.`.",
+        "The key of the path in the `values` of the environment.",
     ),
     EmptyList { .. } => row(
         "suite.list_empty",

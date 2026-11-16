@@ -258,6 +258,12 @@ fn rows(dir: &Path) -> Vec<Row> {
             value: json!(["numpy"]),
         },
         Row {
+            label: "build_plugin",
+            toml: "\"isolation.build.plugin\" = \"p/web\"",
+            path: "isolation.build.plugin",
+            value: json!("p/web"),
+        },
+        Row {
             label: "token_secret",
             toml: "\"model.token_secret\" = \"MODEL_TOKEN\"",
             path: "model.token_secret",

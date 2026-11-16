@@ -41,7 +41,7 @@ schema_tag! {
     SchemaTag = CONTAINER_RECORD_SCHEMA
 }
 
-/// The part a container plays in a run: `agent` or `gateway`.
+/// The part a container plays in a run: `agent`, `gateway` or `egress`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
@@ -50,6 +50,8 @@ pub enum ContainerRole {
     Agent,
     /// The container is the gateway the agent reaches its provider through.
     Gateway,
+    /// The container is the egress proxy the agent reaches its allowed hosts through.
+    Egress,
 }
 
 /// How a container was found when it was destroyed: `recorded` or `labelled`.

@@ -10,6 +10,8 @@ use std::error::Error;
 use crate::refusal::wrapper_table;
 use crate::resolve::config::ConfigError;
 use crate::resolve::preflight::{PreflightError, ResolveError};
+use crate::resolve::steps::egress::EgressRefusal;
+use crate::resolve::steps::plugin_environment::PluginEnvironmentRefusal;
 use crate::resolve::steps::session::SessionRefusal;
 use candler_schemas::refusal::{CatalogRow, Catalogued, Refusal, Side, pointer_of};
 use candler_schemas::refusal_table;
@@ -36,6 +38,8 @@ fn resolve_error_path(error: &ResolveError) -> Option<String> {
     match error {
         ResolveError::Value(inner) => Refusal::path(inner),
         ResolveError::Session(inner) => Refusal::path(inner),
+        ResolveError::Egress(inner) => Refusal::path(inner),
+        ResolveError::PluginEnvironment(inner) => Refusal::path(inner),
         ResolveError::NonUtf8Path { .. }
         | ResolveError::DuplicateStep { .. }
         | ResolveError::DerivedTwice { .. }
@@ -104,6 +108,38 @@ refusal_table! {
     ),
 }
 
+refusal_table! {
+    EgressRefusal, path = no_path;
+    Invalid { .. } => row(
+        "isolation.egress_invalid",
+        Side::Experiment,
+        "`isolation.egress` is not a list of `host:port` strings, or an entry is an IP literal, holds a wildcard, a scheme or a path, has no port or a port outside 1 to 65535, or is not an RFC 1123 hostname with at least one dot.",
+        "-",
+    ),
+    WithBridge { .. } => row(
+        "isolation.egress_with_bridge",
+        Side::Experiment,
+        "A cell sets `isolation.egress` and `isolation.network = bridge`, which reaches the whole internet.",
+        "-",
+    ),
+    Unsupported { .. } => row(
+        "isolation.egress_unsupported",
+        Side::Experiment,
+        "`isolation.egress` is set, by the experiment or by a plug-in environment, and no run enforces an egress allowlist yet.",
+        "-",
+    ),
+}
+
+refusal_table! {
+    PluginEnvironmentRefusal, path = no_path;
+    Missing { .. } => row(
+        "isolation.plugin_environment_missing",
+        Side::Experiment,
+        "`isolation.build.plugin` selects an agent environment that the plug-in does not offer.",
+        "-",
+    ),
+}
+
 wrapper_table! {
     ResolveError, path = resolve_error_path;
     NonUtf8Path { .. } => row(
@@ -127,6 +163,8 @@ wrapper_table! {
         "-",
     ),
     Session (inner) => delegate(inner, Side::Experiment),
+    Egress (inner) => delegate(inner, Side::Experiment),
+    PluginEnvironment (inner) => delegate(inner, Side::Experiment),
     Preflight { .. } => row(
         "resolve.preflight_failed",
         Side::Environment,
@@ -138,10 +176,12 @@ wrapper_table! {
 /// The rows of every coded error of this module, in the order of the types.
 #[must_use]
 pub(crate) fn catalog() -> Vec<CatalogRow> {
-    let tables: [&'static [CatalogRow]; 4] = [
+    let tables: [&'static [CatalogRow]; 6] = [
         <ConfigError as Catalogued>::rows(),
         <PreflightError as Catalogued>::rows(),
         <SessionRefusal as Catalogued>::rows(),
+        <EgressRefusal as Catalogued>::rows(),
+        <PluginEnvironmentRefusal as Catalogued>::rows(),
         <ResolveError as Catalogued>::rows(),
     ];
     tables
@@ -165,6 +205,8 @@ fn resolve_answer(error: &ResolveError) -> &dyn Refusal {
         | ResolveError::DerivedTwice { .. }
         | ResolveError::Preflight { .. }
         | ResolveError::Session(..)
+        | ResolveError::Egress(..)
+        | ResolveError::PluginEnvironment(..)
         | ResolveError::Format(..) => error,
     }
 }

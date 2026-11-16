@@ -37,19 +37,10 @@ json_labels() {
     done
     printf '}'
 }
-cidfile_of() {
-    want=0
-    for a in "$@"; do
-        if [ "$want" = 1 ]; then printf '%s' "$a"; return; fi
-        if [ "$a" = "--cidfile" ]; then want=1; fi
-    done
-}
 new_container() {
     id=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
     labels_of "$@" > "$st/c/$id.labels"
     echo running > "$st/c/$id.state"
-    cf=$(cidfile_of "$@")
-    [ -n "$cf" ] && printf '%s' "$id" > "$cf"
     printf '%s' "$id" >> "$here/handed.log"; printf '\n' >> "$here/handed.log"
     NEW="$id"
 }
@@ -127,7 +118,16 @@ container)
         ;;
     esac
     ;;
-start | restart | kill)
+start)
+    case " $* " in
+    *" -a "*)
+        sleep 1
+        echo exited > "$st/c/$(last "$@").state"
+        ;;
+    *) echo running > "$st/c/$(last "$@").state" ;;
+    esac
+    ;;
+restart | kill)
     echo running > "$st/c/$(last "$@").state"
     ;;
 stop)
@@ -145,12 +145,7 @@ exec)
     ;;
 logs) ;;
 run)
-    cf=$(cidfile_of "$@")
-    if [ -n "$cf" ]; then
-        new_container "$@"
-        sleep 1
-        echo exited > "$st/c/$NEW.state"
-    elif case " $* " in *" --version "*) true;; *) false;; esac; then
+    if case " $* " in *" --version "*) true;; *) false;; esac; then
         echo "2.1.311 (Claude Code)"
     else
         printf '{"schema":"tool-catalog-snapshot/1","captured_at":"2024-01-01T00:00:00Z","provider":"candler-image@1","servers":[]}'

@@ -744,6 +744,22 @@ fn wrapped_cases() -> Vec<Wrapped> {
         ),
         case(
             "ResolveError",
+            "Egress",
+            Box::new(ResolveError::Egress(egress_refusal())),
+            "isolation.egress_invalid",
+        ),
+        case(
+            "ResolveError",
+            "PluginEnvironment",
+            Box::new(ResolveError::PluginEnvironment(
+                candler_core::resolve::steps::plugin_environment::PluginEnvironmentRefusal::Missing {
+                    detail: "plug-in `p` has no agent environment `e`".to_owned(),
+                },
+            )),
+            "isolation.plugin_environment_missing",
+        ),
+        case(
+            "ResolveError",
             "Format",
             Box::new(ResolveError::Format(format())),
             "resolve.value_invalid",
@@ -826,6 +842,12 @@ fn wrapped_cases() -> Vec<Wrapped> {
             "Session",
             Box::new(PlanError::Session(session_refusal())),
             "experiment.session_refused",
+        ),
+        case(
+            "PlanError",
+            "Egress",
+            Box::new(PlanError::Egress(egress_refusal())),
+            "isolation.egress_invalid",
         ),
         case(
             "PlanError",
@@ -1007,6 +1029,13 @@ fn wrapped_cases() -> Vec<Wrapped> {
             "import.value_invalid",
         ),
     ]
+}
+
+/// A refusal of a cell's egress allowlist.
+fn egress_refusal() -> candler_core::resolve::steps::egress::EgressRefusal {
+    candler_core::resolve::steps::egress::EgressRefusal::Invalid {
+        detail: "isolation.egress entry `a` is refused".to_owned(),
+    }
 }
 
 /// A refusal of a cell's session settings.

@@ -353,7 +353,7 @@ impl Isolation for StubIsolation {
                 memory: String::from("1g"),
                 cpus: 1.0,
             },
-            cidfile: self.dir.join("agent.cid"),
+            record_dir: self.dir.clone(),
             user: UserSpec::Engine,
             workdir: String::from("/work"),
             home: home.to_string_lossy().into_owned(),
@@ -364,14 +364,14 @@ impl Isolation for StubIsolation {
         })
     }
 
-    fn run_request(
-        &self,
-        plan: &ContainerPlan,
+    fn run_request<'a>(
+        &'a self,
+        plan: &'a ContainerPlan,
         _command: CommandSpec,
         marker: Marker,
         key: RunKey,
         outputs: RunOutputs,
-    ) -> Result<IsolatedRequest, IsolationError> {
+    ) -> BoxFuture<'a, Result<IsolatedRequest, IsolationError>> {
         let path = std::env::var("PATH").unwrap_or_default();
         let hook_log = Path::new(&plan.home).join(".candler/hooks.jsonl");
         let mut builder = SpawnRequest::builder()
@@ -396,10 +396,13 @@ impl Isolation for StubIsolation {
         if plan.interactive {
             builder = builder.stdin(StdinSpec::Pipe);
         }
-        let request = builder.build().map_err(|error| IsolationError::Plan {
-            detail: error.to_string(),
-        })?;
-        Ok(IsolatedRequest::new(request, Arc::new(Exited)))
+        let made = builder
+            .build()
+            .map(|request| IsolatedRequest::new(request, Arc::new(Exited)))
+            .map_err(|error| IsolationError::Plan {
+                detail: error.to_string(),
+            });
+        Box::pin(async move { made })
     }
 
     fn collect_and_destroy<'a>(

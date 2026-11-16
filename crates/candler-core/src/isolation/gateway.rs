@@ -1,7 +1,6 @@
 //! The gateway container the agent reaches its provider through. The agent holds a dummy token;
 //! the gateway holds the real one and forwards the calls.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -12,12 +11,13 @@ use candler_schemas::process::ExitStatus;
 use futures::future::BoxFuture;
 use url::Url;
 
-use super::docker::OUTPUT_LIMIT;
+use super::docker::{Call, DockerCli, OUTPUT_LIMIT};
 use super::driver::DockerDriver;
+use super::hardening::{HardLimits, Role, hardening};
 use super::layout::{LABEL_EXPERIMENT, LABEL_JOB, LABEL_ROLE, LABEL_RUN};
 use super::model::{ContainerRef, GatewayHandle, ImageRef, Labels, NetworkName};
 use crate::supervise::Supervisor;
-use crate::supervise::spawn::{SpawnRequest, StdinSpec};
+use crate::supervise::spawn::StdinSpec;
 
 /// Why a secret could not be read.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -233,7 +233,7 @@ const GATEWAY_ALIAS: &str = "gateway";
 const GATEWAY_PORT: u16 = 8080;
 
 /// The value of `candler.role` and of `candler.run` on the sidecar.
-const GATEWAY_ROLE: &str = "gateway";
+const GATEWAY_ROLE: &str = Role::Gateway.label();
 
 /// How long one docker command may run.
 const COMMAND_DEADLINE: Duration = Duration::from_secs(90);
@@ -254,67 +254,15 @@ const AUTH_FILE: &str = "auth.conf";
 /// The file that holds the certificate authority the upstream's certificate must chain to.
 const CA_FILE: &str = "ca.pem";
 
-/// How a docker command is run: through the supervisor, with the docker client's own
-/// environment, and never with the secret.
-#[derive(Debug, Clone)]
-pub struct DockerCli {
-    program: String,
-    env: Vec<(String, String)>,
+/// How the gateway runs a docker command: through the one docker client, every child carrying the
+/// gateway's marker, and never with the secret in its arguments.
+#[derive(Clone)]
+struct Runner {
+    cli: DockerCli,
     marker: Marker,
-    record_dir: PathBuf,
-    cid_dir: PathBuf,
 }
 
-impl DockerCli {
-    /// A runner of the `docker` program with `env` as the docker client's whole environment,
-    /// `marker` on every child, process records in `record_dir` and container id files in
-    /// `cid_dir`.
-    #[must_use]
-    pub fn new(
-        env: Vec<(String, String)>,
-        marker: Marker,
-        record_dir: PathBuf,
-        cid_dir: PathBuf,
-    ) -> Self {
-        Self {
-            // BORROW: .to_owned() keeps the program name
-            program: String::from("docker"),
-            env,
-            marker,
-            record_dir,
-            cid_dir,
-        }
-    }
-
-    /// The same runner with another docker program.
-    #[must_use]
-    pub fn program(mut self, program: &str) -> Self {
-        // BORROW: .to_owned() keeps the program name
-        program.clone_into(&mut self.program);
-        self
-    }
-
-    fn request(&self, args: Vec<String>, stdin: StdinSpec) -> Result<SpawnRequest, GatewayError> {
-        let mut command = Vec::with_capacity(args.len().saturating_add(1));
-        // BORROW: .clone() keeps the runner's program for later commands
-        command.push(self.program.clone());
-        command.extend(args);
-        SpawnRequest::builder()
-            .argv(command)
-            // BORROW: .clone() keeps the runner's environment for later commands
-            .env(self.env.clone())
-            // BORROW: .clone() keeps the runner's marker for later commands
-            .marker(self.marker.clone())
-            // BORROW: .clone() keeps the runner's record directory for later commands
-            .record_dir(self.record_dir.clone())
-            .stdin(stdin)
-            .deadline(COMMAND_DEADLINE)
-            .build()
-            .map_err(|error| GatewayError::Start {
-                detail: error.to_string(),
-            })
-    }
-
+impl Runner {
     /// Runs `docker <args>` with `stdin` and returns its exit code, standard output and error.
     async fn run(
         &self,
@@ -322,13 +270,16 @@ impl DockerCli {
         args: Vec<String>,
         stdin: StdinSpec,
     ) -> Result<Output, GatewayError> {
-        let request = self.request(args, stdin)?;
-        let captured = sup
-            .run_captured(request, OUTPUT_LIMIT)
-            .await
-            .map_err(|error| GatewayError::Start {
-                detail: error.to_string(),
-            })?;
+        let call = Call::new(COMMAND_DEADLINE, OUTPUT_LIMIT)
+            .stdin(stdin)
+            .marker(self.marker.clone()); // BORROW: .clone() gives every call the gateway's marker
+        let captured =
+            self.cli
+                .call(sup, args, call)
+                .await
+                .map_err(|error| GatewayError::Start {
+                    detail: error.to_string(),
+                })?;
         let code = match captured.exit.status {
             ExitStatus::Code { code } => Some(code),
             ExitStatus::Signal { .. } => None,
@@ -453,26 +404,28 @@ pub struct DockerGateway {
     image: ImageRef,
     upstream: UpstreamConfig,
     max_parallel: u32,
-    cli: DockerCli,
+    runner: Runner,
     sup: Arc<Supervisor>,
 }
 
 impl DockerGateway {
     /// A gateway from the sidecar image `image`, forwarding to `upstream`, with at most
-    /// `max_parallel` calls at once. `sup` runs every docker command after `start`.
+    /// `max_parallel` calls at once. Every docker command runs through `cli`, its process carrying
+    /// `marker`; `sup` runs every command after `start`.
     #[must_use]
     pub const fn new(
         image: ImageRef,
         upstream: UpstreamConfig,
         max_parallel: u32,
         cli: DockerCli,
+        marker: Marker,
         sup: Arc<Supervisor>,
     ) -> Self {
         Self {
             image,
             upstream,
             max_parallel,
-            cli,
+            runner: Runner { cli, marker },
             sup,
         }
     }
@@ -482,7 +435,7 @@ impl DockerGateway {
     pub fn logs(&self) -> GatewayLogs {
         GatewayLogs {
             // BORROW: .clone() shares the runner
-            cli: self.cli.clone(),
+            runner: self.runner.clone(),
             // BORROW: .clone() shares the supervisor
             sup: Arc::clone(&self.sup),
         }
@@ -531,7 +484,7 @@ impl DockerGateway {
             // BORROW: .to_owned() builds the owned argv
             .map(str::to_owned)
             .collect();
-        let out = self.cli.run(sup, args, StdinSpec::Bytes(bytes)).await?;
+        let out = self.runner.run(sup, args, StdinSpec::Bytes(bytes)).await?;
         if out.succeeded() {
             Ok(())
         } else {
@@ -567,7 +520,7 @@ impl DockerGateway {
         // BORROW: .to_owned() builds the owned argv
         .map(str::to_owned)
         .collect();
-        let Ok(out) = self.cli.run(sup, args, StdinSpec::Null).await else {
+        let Ok(out) = self.runner.run(sup, args, StdinSpec::Null).await else {
             return Err(NotReadyCause::NoAnswer);
         };
         if out.succeeded() {
@@ -604,49 +557,33 @@ impl DockerGateway {
         Err(GatewayError::NotReady { cause })
     }
 
-    /// The arguments of `docker create` for the sidecar.
-    fn create_args(
-        &self,
-        request: &GatewayStart<'_>,
-        net: &NetworkName,
-        cidfile: &str,
-    ) -> Vec<String> {
-        let labels = sidecar_labels(request);
-        let mut args: Vec<String> = ["create", "--init", "--read-only"]
-            .into_iter()
-            // BORROW: .to_owned() builds the owned argv
-            .map(str::to_owned)
-            .collect();
-        for (key, value) in labels.iter() {
-            args.push(String::from("--label"));
-            args.push(format!("{key}={value}"));
-        }
+    /// The arguments of `docker create` for the sidecar, after `create`.
+    fn create_args(&self, request: &GatewayStart<'_>, net: &NetworkName) -> Vec<String> {
         let tmpfs = |path: &str, mode: &str, size: &str| {
             format!("{path}:rw,mode={mode},uid=101,gid=101,size={size},noexec,nosuid")
         };
-        let rest = [
+        let limits = HardLimits {
+            pids_limit: 128,
+            memory: String::from("256m"),
+            cpus: None,
+            tmpfs: vec![
+                tmpfs("/run/gw", "0700", "64k"),
+                tmpfs("/tmp", "1777", "8m"),
+                tmpfs("/var/cache/nginx", "0700", "64m"),
+            ],
+            env_volume: false,
+        };
+        let mut args = hardening(&limits);
+        for (key, value) in sidecar_labels(request).iter() {
+            args.push(String::from("--label"));
+            args.push(format!("{key}={value}"));
+        }
+        args.extend([
             String::from("--network"),
             // BORROW: explicit .as_str() instead of Deref coercion
             net.as_str().to_owned(),
             String::from("--network-alias"),
             String::from(GATEWAY_ALIAS),
-            String::from("--tmpfs"),
-            tmpfs("/run/gw", "0700", "64k"),
-            String::from("--tmpfs"),
-            tmpfs("/tmp", "1777", "8m"),
-            String::from("--tmpfs"),
-            tmpfs("/var/cache/nginx", "0700", "64m"),
-            String::from("--cap-drop"),
-            String::from("ALL"),
-            String::from("--security-opt"),
-            String::from("no-new-privileges"),
-            String::from("--pids-limit"),
-            String::from("128"),
-            String::from("--memory"),
-            String::from("256m"),
-            String::from("--cidfile"),
-            // BORROW: explicit .to_owned() instead of Deref coercion
-            cidfile.to_owned(),
             String::from("-e"),
             format!("GW_UPSTREAM_HOST={}", self.upstream.host),
             String::from("-e"),
@@ -655,8 +592,7 @@ impl DockerGateway {
             format!("GW_MAX_PARALLEL={}", self.max_parallel),
             // BORROW: .clone() keeps the image id in the gateway
             self.image.id.0.clone(),
-        ];
-        args.extend(rest);
+        ]);
         args
     }
 
@@ -732,20 +668,13 @@ impl DockerGateway {
             });
         }
 
-        // BORROW: explicit .as_str() instead of Deref coercion
-        let cidfile = self.cli.cid_dir.join(format!("{}.cid", net.as_str()));
-        let cidfile_text = cidfile.to_string_lossy().into_owned();
-        // BORROW: explicit .as_str() instead of Deref coercion
-        let args = self.create_args(&request, &net, cidfile_text.as_str());
-        let created = self.cli.run(sup, args, StdinSpec::Null).await?;
-        if !created.succeeded() {
-            return Err(created.failure("docker create"));
-        }
-        // BORROW: explicit .to_owned() instead of Deref coercion
-        let cid_text = created.stdout.trim().to_owned();
-        let cid: ContainerId = cid_text.parse().map_err(|_| GatewayError::Start {
-            detail: String::from("docker create printed no container id"),
-        })?;
+        let cid = docker
+            .create(self.create_args(&request, &net))
+            .await
+            .map_err(|error| GatewayError::Start {
+                detail: format!("docker create failed: {error}"),
+            })?;
+        let cid_text = cid.to_string();
 
         // The sidecar is recorded before it joins a network, starts or holds the token, so a
         // teardown of the job finds it whatever happens next.
@@ -770,7 +699,7 @@ impl DockerGateway {
             // BORROW: .clone() keeps the id for the next steps
             vec![String::from("start"), cid_text.clone()],
         ] {
-            let out = self.cli.run(sup, step, StdinSpec::Null).await?;
+            let out = self.runner.run(sup, step, StdinSpec::Null).await?;
             if !out.succeeded() {
                 return Err(out.failure("docker network connect or start"));
             }
@@ -866,9 +795,9 @@ impl Gateway for DockerGateway {
 
 /// Reads the sidecar's logs: the access log (method, path, status, model, run; never the
 /// `Authorization` header or a prompt) and nginx's error log.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct GatewayLogs {
-    cli: DockerCli,
+    runner: Runner,
     sup: Arc<Supervisor>,
 }
 
@@ -895,7 +824,7 @@ impl GatewayLogs {
                 secs.to_string(),
                 handle.container.cid.to_string(),
             ];
-            let out = self.cli.run(&self.sup, args, StdinSpec::Null).await?;
+            let out = self.runner.run(&self.sup, args, StdinSpec::Null).await?;
             if !out.succeeded() {
                 return Err(out.failure("docker logs"));
             }

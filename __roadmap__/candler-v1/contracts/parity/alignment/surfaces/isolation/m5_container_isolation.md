@@ -1,4 +1,6 @@
-# M5 Container isolation
+# M5a Container isolation
+
+Split by amendment A8: this leaf is M5a. Its campaign `__roadmap__/m5-container-isolation/` lands the Docker client, `docker create`, plug-in environments and the `isolation.egress` cell value (refused with `isolation.egress_unsupported` until M5b's proxy lands). The egress allowlist gate, the I8 guard gate and guard reuse (A1) below move to M5b (`m5b/`), whose own plan decides them; this leaf is `done` when M5a lands, and M5b's gates stay open until its leaves are `done`.
 
 **Goal**: Runs can execute in a disposable container whose network is closed to everything but an allowlist and the model gateway, with the plug-in's agent environment provisioned by the core and the Docker plumbing built once.
 **Pre-conditions**:

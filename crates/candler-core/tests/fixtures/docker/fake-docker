@@ -6,6 +6,7 @@
 #
 #   FAKE_DOCKER_LOG   file; one JSON array of argv per call is appended (a single write).
 #   FAKE_DOCKER_DIR   canned answers: <verb>.out (stdout), <verb>.code (exit code, default 0),
+#                     <verb>.early (stdout printed before the delay),
 #                     <verb>.delay (seconds to sleep first). <verb> is argv[1], or "<argv1>-<argv2>"
 #                     for the grouped commands image, network and container (image-inspect).
 # State (D20): `build -t <tag>` creates $FAKE_DOCKER_DIR/built-<tag> (tag with / and : as _).
@@ -25,6 +26,7 @@ case "$verb" in
   image|network|container) [ -n "${2:-}" ] && verb="$1-$2" ;;
 esac
 
+[ -f "$FAKE_DOCKER_DIR/$verb.early" ] && cat "$FAKE_DOCKER_DIR/$verb.early"
 [ -f "$FAKE_DOCKER_DIR/$verb.delay" ] && sleep "$(cat "$FAKE_DOCKER_DIR/$verb.delay")"
 
 code=0
