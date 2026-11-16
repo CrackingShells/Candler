@@ -33,7 +33,7 @@
 1. Verify first how the cli e2e rig runs (`guard_cli_e2e.rs`, `support/cli_run.rs`): which harness stub, which model, whether the real gateway runs. Use the fake model and the real gateway if the rig can, and report what it could not use.
 2. The experiment has two inputs carrying canary bytes and a canary file name: an evaluator-only input; and a plug-in environment (values and agent inputs only, so the testagent base serves) whose agent inputs hold an ordinary file.
 3. Checkpoints:
-   - inside: the seeker's three reports (start, first turn, end);
+   - inspect before start (one inspect of env, mounts and labels, plus the image history; a created container cannot be exec'd), then `docker exec -i -u 10001 <agent id> sh -s` with the seeker live and at the end, before the destroy (B7's premise, a testagent as the agent, is withdrawn: the agent is real Claude Code);
    - from the host, after create and before start: the container's inspect (mounts, env, labels) and the image history;
    - while the run is live: `candler ps`, `show` and `inspect`;
    - after the run: gateway logs, the raw frames and the collect container's mounts.
