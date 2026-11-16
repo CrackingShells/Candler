@@ -333,15 +333,14 @@ async fn resolve(fixed: &[(&str, Value)]) -> Result<Resolution, ResolveError> {
 }
 
 /// Guards: R06 D3 — a wrong allowlist is refused when the experiment resolves, before any job
-/// starts, with the code of the refusal and the entry in the message; a well-formed list is
-/// refused too, as unsupported, because no run enforces one; the step derives nothing, so an
-/// empty or absent value resolves as written.
-/// Oracle: the codes of D3 and of the unsupported refusal, and the written value read back
-/// unchanged.
-/// Bite: the step left unregistered or its refusal routed as `resolve.preflight_failed`; the
-/// unsupported refusal removed (the well-formed list resolves).
+/// starts, with the code of the refusal and the entry in the message; a well-formed list
+/// resolves, held as written (canonical form is the cell's, at planning); the step derives
+/// nothing, so an empty or absent value resolves as written.
+/// Oracle: the codes of D3, and the written value read back unchanged.
+/// Bite: the step left unregistered or its refusal routed as `resolve.preflight_failed`; a
+/// refusal of every list re-inserted (the well-formed list is refused).
 #[tokio::test]
-async fn egress_refused_at_resolve() {
+async fn egress_checked_at_resolve() {
     match resolve(&[(
         paths::ISOLATION_EGRESS,
         json!(["pypi.org:443", "10.0.0.1:80"]),
@@ -377,20 +376,21 @@ async fn egress_refused_at_resolve() {
         }
         other => panic!("bridge: {:?}", other.map(|_| ())),
     }
-    match resolve(&[(paths::ISOLATION_EGRESS, json!(["PyPI.org:443"]))]).await {
-        Err(ResolveError::Egress(refusal @ EgressRefusal::Unsupported { .. })) => {
-            assert_eq!(
-                Refusal::code(&refusal).as_str(),
-                "isolation.egress_unsupported"
-            );
-            assert!(
-                refusal.detail().contains("pypi.org:443"),
-                "{}",
-                refusal.detail()
-            );
-        }
-        other => panic!("a well-formed list: {:?}", other.map(|_| ())),
-    }
+    let written = json!(["PyPI.org:443"]);
+    let resolution = resolve(&[(paths::ISOLATION_EGRESS, written.clone())])
+        .await
+        .expect("a well-formed list resolves");
+    let held = resolution
+        .values
+        .iter()
+        .find(|value| value.path().as_str() == paths::ISOLATION_EGRESS)
+        .and_then(ResolvedValue::value)
+        .map(|value| value.as_value().clone());
+    assert_eq!(
+        held,
+        Some(written),
+        "the step settles it and derives nothing"
+    );
     let written = json!([]);
     let resolution = resolve(&[(paths::ISOLATION_EGRESS, written.clone())])
         .await
@@ -480,6 +480,10 @@ fn egress_of(values: &[(String, Value)]) -> Option<Value> {
         .map(|(_, value)| value.clone())
 }
 
+/// The digest of the cell whose egress is `["a.org:443", "pypi.org:443"]`.
+const LISTED_DIGEST: &str =
+    "sha256:9a1cd9a1ee0c360c0dde88f8b50418136d40a56c301bd0a6a39110787ec5a33f";
+
 /// The digest of the cell of the plain experiment (no egress value).
 const BASE_DIGEST: &str = "sha256:ea0e539ae84ca8476df9f8f73b3dbbb90ef2c7f173a4f636fb5e752b785254cf";
 
@@ -507,14 +511,14 @@ async fn egress_unset_leaves_the_cell() {
 
 /// Guards: R06 D3 — a cell whose effective values pair an allowlist with `bridge` is refused when
 /// the cells are planned, with `isolation.egress_with_bridge`, even when only a factor level sets
-/// the list; a factor level with a bad entry is `isolation.egress_invalid`; a well-formed list,
-/// fixed or set by a factor level, is `isolation.egress_unsupported`.
-/// Oracle: the codes of D3 and of the unsupported refusal; the fixed `bridge` resolves alone
-/// because no list is written there.
-/// Bite: the per-cell call dropped from the plan (the cell plans with both); the unsupported
-/// refusal removed (a well-formed list plans).
+/// the list; a factor level with a bad entry is `isolation.egress_invalid`; a well-formed list a
+/// factor level sets is accepted and parses, canonicalises and digests as a cell value.
+/// Oracle: the codes of D3; the canonical lists written by hand; the digest of the canonical list
+/// pinned as a literal; the fixed `bridge` resolves alone because no list is written there.
+/// Bite: the per-cell call dropped from the plan (the cell plans with both); entries left unsorted
+/// (the unsorted and the sorted spelling digest apart).
 #[tokio::test]
-async fn egress_refused_per_cell() {
+async fn egress_checked_per_cell() {
     let factor = |level: &str| {
         experiment_with(&format!(
             "[[factors]]\npath = \"isolation.egress\"\nlevels = [{level}]\n"
@@ -549,15 +553,28 @@ async fn egress_refused_per_cell() {
         .is_ok(),
         "an empty list with bridge plans"
     );
-    // A well-formed list a factor level sets is unsupported (a fixed list never reaches the plan:
-    // the experiment-wide step refuses it first).
-    match planned(&factor("[\"pypi.org:443\"]"), &[]).await {
-        Err(PlanError::Egress(refusal @ EgressRefusal::Unsupported { .. })) => {
-            assert_eq!(
-                Refusal::code(&refusal).as_str(),
-                "isolation.egress_unsupported"
-            );
-        }
-        other => panic!("a factor level: {:?}", other.map(|cells| cells.len())),
-    }
+    // A well-formed list a factor level sets plans, as the canonical list: lowercase, sorted, no
+    // repeats. Unsorted or repeated entries must not change the digest.
+    let unsorted = planned(
+        &factor("[\"PyPI.org:443\", \"a.org:443\", \"pypi.org:443\"]"),
+        &[],
+    )
+    .await
+    .expect("a well-formed list plans");
+    assert_eq!(unsorted.len(), 1);
+    assert_eq!(
+        egress_of(&unsorted[0].1),
+        Some(json!(["a.org:443", "pypi.org:443"])),
+        "the cell holds the canonical list"
+    );
+    let sorted = planned(&factor("[\"a.org:443\", \"pypi.org:443\"]"), &[])
+        .await
+        .expect("plans");
+    assert_eq!(unsorted[0].0, sorted[0].0, "the same list is the same cell");
+    assert_eq!(sorted[0].0, LISTED_DIGEST);
+    assert_ne!(LISTED_DIGEST, BASE_DIGEST, "a list moves the digest");
+    let other = planned(&factor("[\"a.org:443\", \"b.org:443\"]"), &[])
+        .await
+        .expect("plans");
+    assert_ne!(other[0].0, sorted[0].0, "another list is another cell");
 }

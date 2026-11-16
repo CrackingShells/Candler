@@ -14,12 +14,19 @@
 #   enum = "..."      # the Rust error enum that raises it
 #   variant = "..."   # the variant of that enum
 #   retired = "..."   # only on a retired code: the code that replaces it
+#   lifted = "..."    # only on a lifted code: the sentence that says what now holds
 #
 # A section with no row is written as its bare header.
 #
 # A code that a release carried is never removed. It may be retired: its row stays, with the
 # appended `retired` key naming the code that replaces it. No refusal emits a retired code, and
 # a retired row is not the code of its variant: the replacement is.
+#
+# A refusal may instead be lifted: the setting it refused is accepted, so no refusal emits its
+# code. Its row stays, with `side`, `enum` and `variant` as historical text and the appended
+# `lifted` key saying what now holds. No refusal emits a lifted code, a lifted row is not the
+# code of its variant, and that variant may no longer exist. A row carries at most one of
+# `retired` and `lifted`, and neither is empty.
 
 [schemas]
 
@@ -1933,3 +1940,4 @@ reason = "a plug-in environment that cannot be read reaches the author as the st
 side = "experiment"
 enum = "EgressRefusal"
 variant = "Unsupported"
+lifted = "`isolation.egress` is accepted and enforced by the egress proxy."
