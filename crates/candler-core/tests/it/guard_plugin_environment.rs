@@ -14,6 +14,7 @@ use std::os::unix::fs::symlink;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use candler_core::experiment::inputs::resolve_input_groups;
 use candler_core::isolation::image::{
     BuildSetting, ImageError, ImageService, LockDigest, LockRequest,
 };
@@ -25,12 +26,15 @@ use candler_core::resolve::preflight::{
 };
 use candler_core::resolve::steps::image::ImageIdStep;
 use candler_core::resolve::steps::plugin_environment::{
-    Fragment, FragmentError, PluginEnvironmentStep,
+    Fragment, FragmentError, PluginEnvironmentStep, plugin_egress, unite_egress,
 };
 use candler_core::runner::plan::{Force, PlanError, PlanMode, plan_runs};
+use candler_core::store::Store;
 use candler_core::supervise::{EventSink, Supervisor};
-use candler_schemas::execution::{Comparable, EventPayload, ExperimentFile};
-use candler_schemas::primitives::{FieldPath, NameToken, RunKey};
+use candler_schemas::execution::{
+    Comparable, EventPayload, ExperimentFile, ExperimentInput, InputAudience,
+};
+use candler_schemas::primitives::{FieldPath, Name, NameToken, RunKey};
 use candler_schemas::refusal::Refusal;
 use candler_schemas::values::{JsonValue, ValueSource};
 use futures::future::BoxFuture;
@@ -298,6 +302,14 @@ fn source<'a>(resolution: &'a Resolution, path: &str) -> Option<&'a ValueSource>
         .map(candler_schemas::values::SourceEntry::source)
 }
 
+fn cell_value(cell: &Comparable, path: &str) -> Option<Value> {
+    cell.values()
+        .iter()
+        .find(|v| v.path().as_str() == path)
+        .and_then(|v| v.value())
+        .map(|v| v.as_value().clone()) // BORROW: the caller owns the value
+}
+
 const WEB: &str = r#"
 [agent_environments.web.values]
 "isolation.build.requirements" = ["req.txt"]
@@ -357,6 +369,52 @@ async fn equivalent_values_and_lock() {
     assert_eq!(
         selected.asked.lock().expect("record").prunes,
         by_hand.asked.lock().expect("record").prunes
+    );
+}
+
+/// Guards: R06 D4, N3 — an appended requirements list gives the lock of the same list written out
+/// by hand: the plug-in's sources first, then the experiment's, a `treatment:` entry included, a
+/// source the experiment repeats kept once at its first place.
+/// Oracle: the hand-written list through the existing path; the lock is the sources in order, so
+/// a list in another order or without the plug-in's entry gives another lock.
+/// Bite: the plug-in's requirements replaced by the experiment's instead of appended.
+#[tokio::test]
+async fn equivalent_appended_requirements() {
+    let rig = Rig::new(WEB);
+    let plug = rig.plug();
+    let treatment = ".claude/skills/htn/SKILL.md";
+    let selected = plan(
+        &rig,
+        &file_with(&format!(
+            "\"isolation.build.plugin\" = \"p/web\"\n\
+             \"isolation.build.requirements\" = [\"extra.txt\", \"treatment:{treatment}\", \"{plug}/req.txt\"]\n",
+            plug = plug.display()
+        )),
+    )
+    .await
+    .expect("plans");
+    let by_hand = plan(
+        &rig,
+        &file_with(&format!(
+            "\"isolation.build.requirements\" = [\"{plug}/req.txt\", \"extra.txt\", \"treatment:{treatment}\"]\n",
+            plug = plug.display()
+        )),
+    )
+    .await
+    .expect("plans");
+    let names: Vec<String> = selected.asked.lock().expect("record").sources[0]
+        .iter()
+        .map(|(name, _)| name.clone()) // BORROW: the test owns the names
+        .collect();
+    assert_eq!(names, ["req.txt", "extra.txt", "SKILL.md"]);
+    assert_eq!(
+        value(&selected.resolution, "isolation.env_lock"),
+        value(&by_hand.resolution, "isolation.env_lock"),
+        "the same lock as the hand-written list"
+    );
+    assert_eq!(
+        selected.asked.lock().expect("record").sources,
+        by_hand.asked.lock().expect("record").sources
     );
 }
 
@@ -507,4 +565,276 @@ fn layer_paths_stay_in_the_plugin_directory() {
             "treatment:x.txt".to_owned()
         ]
     );
+}
+
+/// Guards: R06 D4, N3 — prune and egress append the plug-in's entries first and drop repeats; an
+/// egress the experiment writes is united with the plug-in's in the cell, canonical, so the cell
+/// is the cell of the hand-written union.
+/// Oracle: the lists worked by hand (prune `a.py b.py c.py`; egress sorted `a.com b.com c.com`),
+/// and the cell of the experiment that writes the union.
+/// Bite: the plug-in's egress dropped when the experiment writes its own (no union per cell).
+#[tokio::test]
+async fn layer_lists_append() {
+    let rig = Rig::new(
+        r#"
+[agent_environments.web.values]
+"isolation.build.prune" = ["a.py", "b.py"]
+"isolation.egress" = ["b.com:443", "a.com:443"]
+"#,
+    );
+    let selected = plan(
+        &rig,
+        &file_with(
+            "\"isolation.build.plugin\" = \"p/web\"\n\"isolation.build.prune\" = [\"b.py\", \"c.py\"]\n\
+             \"isolation.egress\" = [\"a.com:443\", \"c.com:443\"]\n",
+        ),
+    )
+    .await
+    .expect("plans");
+    assert_eq!(
+        selected.asked.lock().expect("record").prunes,
+        [vec![
+            "a.py".to_owned(),
+            "b.py".to_owned(),
+            "c.py".to_owned()
+        ]]
+    );
+    assert_eq!(
+        cell_value(&selected.cells[0], "isolation.egress"),
+        Some(json!(["a.com:443", "b.com:443", "c.com:443"]))
+    );
+    let by_hand = plan(
+        &rig,
+        &file_with("\"isolation.egress\" = [\"c.com:443\", \"b.com:443\", \"a.com:443\"]\n"),
+    )
+    .await
+    .expect("plans");
+    assert_eq!(selected.cells[0].digest(), by_hand.cells[0].digest());
+
+    // Without an experiment list the plug-in's is the cell's, as the first plan has it.
+    let alone = plan(&rig, &file_with("\"isolation.build.plugin\" = \"p/web\""))
+        .await
+        .expect("plans");
+    assert_eq!(
+        cell_value(&alone.cells[0], "isolation.egress"),
+        Some(json!(["a.com:443", "b.com:443"]))
+    );
+    // A plug-in entry that is no host, or meets bridge, is refused per cell even when the
+    // experiment writes its own list.
+    let bad =
+        Rig::new("[agent_environments.web.values]\n\"isolation.egress\" = [\"10.0.0.1:80\"]\n");
+    let refused = plan(
+        &bad,
+        &file_with(
+            "\"isolation.build.plugin\" = \"p/web\"\n\"isolation.egress\" = [\"a.com:443\"]\n",
+        ),
+    )
+    .await
+    .err()
+    .expect("refused");
+    assert_eq!(refused.code().to_string(), "isolation.egress_invalid");
+    let refused = plan(
+        &rig,
+        &file_with(
+            "\"isolation.build.plugin\" = \"p/web\"\n\"isolation.egress\" = [\"a.com:443\"]\n\"isolation.network\" = \"bridge\"\n",
+        ),
+    )
+    .await
+    .err()
+    .expect("refused");
+    assert_eq!(refused.code().to_string(), "isolation.egress_with_bridge");
+}
+
+/// Guards: R06 D4, N3 — the per-cell egress merge reads the plug-in step's passing report and
+/// nothing else: another step's derived egress and a failed report do not enter, and a job
+/// re-planned from its stored resolution computes the merged list of the first plan.
+/// Oracle: reports built by hand (names, checks and values), and the first plan's cell.
+/// Bite: the merge reading every report's `isolation.egress`, or the stored resolution losing the
+/// reports.
+#[tokio::test]
+async fn layer_egress_merge_reads_the_plugin_report_only() {
+    let report = |step: &str, egress: Value, passed: bool| {
+        let name: NameToken = step.parse().expect("a name@token");
+        let mut report = StepReport::new(name).derive(fp("isolation.egress"), js(egress));
+        if !passed {
+            report = report.check(candler_core::resolve::preflight::CheckResult::new(
+                "failed@1".parse().expect("a name@token"),
+                false,
+                "no".to_owned(),
+            ));
+        }
+        report
+    };
+    let reports = [
+        report("other@1", json!(["other.com:443"]), true),
+        report("plugin_environment@1", json!(["lost.com:443"]), false),
+    ];
+    assert_eq!(plugin_egress(&reports), None, "no passing plug-in report");
+    let reports = [
+        report("other@1", json!(["other.com:443"]), true),
+        report("plugin_environment@1", json!(["mine.com:443"]), true),
+    ];
+    assert_eq!(plugin_egress(&reports), Some(&json!(["mine.com:443"])));
+    assert_eq!(
+        unite_egress(
+            plugin_egress(&reports),
+            Some(&json!(["own.com:443", "mine.com:443"]))
+        ),
+        Some(json!(["mine.com:443", "own.com:443", "mine.com:443"])),
+        "the plug-in's entries first"
+    );
+    assert_eq!(unite_egress(None, Some(&json!("odd"))), Some(json!("odd")));
+    assert_eq!(
+        unite_egress(Some(&json!("odd")), Some(&json!(["a.com:443"]))),
+        Some(json!("odd")),
+        "a value that is no list reaches the rule that refuses it"
+    );
+
+    let rig = Rig::new(WEB);
+    let file = file_with(
+        "\"isolation.build.plugin\" = \"p/web\"\n\"isolation.egress\" = [\"own.com:443\"]\n",
+    );
+    let (resolution, asked) = resolve(&rig, &file).await.expect("resolves");
+    let stored: Resolution =
+        serde_json::from_slice(&serde_json::to_vec(&resolution).expect("JSON"))
+            .expect("reads back");
+    let first = plan_resolved(&file, resolution, Arc::clone(&asked)).expect("plans");
+    let again = plan_resolved(&file, stored, asked).expect("plans");
+    assert_eq!(
+        cell_value(&first.cells[0], "isolation.egress"),
+        Some(json!(["own.com:443", "pypi.org:443"])),
+        "the cell holds the merged and settled list"
+    );
+    assert_eq!(first.cells[0].digest(), again.cells[0].digest());
+}
+
+/// Guards: R06 D4 — the `dockerfile`/`context` pair comes from one layer: a plug-in that sets
+/// one half is refused by the must-be-set-together rule, and so is a pair split between the
+/// plug-in and the experiment; a pair from the plug-in, or from the experiment, resolves.
+/// Oracle: D4's rule, one row per way the pair is set.
+/// Bite: the layer check dropped, so the split pair builds from two directories.
+#[tokio::test]
+async fn layer_pair_from_two_layers() {
+    let half =
+        "[agent_environments.e.values]\n\"isolation.build.dockerfile\" = \"docker/Dockerfile\"\n";
+    let both = "[agent_environments.e.values]\n\"isolation.build.dockerfile\" = \"docker/Dockerfile\"\n\"isolation.build.context\" = \"docker/ctx\"\n";
+    let rows: [(&str, &str, &str, bool); 5] = [
+        ("plug-in half", half, "", false),
+        ("plug-in pair", both, "", true),
+        (
+            "split",
+            both,
+            "\"isolation.build.context\" = \"ctx\"\n",
+            false,
+        ),
+        (
+            "experiment pair over plug-in pair",
+            both,
+            "\"isolation.build.dockerfile\" = \"Dockerfile\"\n\"isolation.build.context\" = \"ctx\"\n",
+            true,
+        ),
+        (
+            "experiment half",
+            half,
+            "\"isolation.build.context\" = \"ctx\"\n",
+            false,
+        ),
+    ];
+    for (label, environments, own, resolves) in rows {
+        let rig = Rig::new(environments);
+        let outcome = resolve(
+            &rig,
+            &file_with(&format!("\"isolation.build.plugin\" = \"p/e\"\n{own}")),
+        )
+        .await;
+        match (outcome, resolves) {
+            (Ok(_), true) => {}
+            (Err(error), false) => assert!(
+                error.to_string().contains("must be set together"),
+                "{label}: {error}"
+            ),
+            (Ok(_), false) => panic!("{label}: resolved"),
+            (Err(error), true) => panic!("{label}: refused: {error}"),
+        }
+    }
+}
+
+/// Guards: R06 D4 — the environment's inputs resolve against the plug-in directory into the same
+/// mounts as the same inputs written by hand in the experiment, at their `at`; a mount-point
+/// collision with an experiment input, and a kind declared twice, are refused by the existing rules.
+/// Oracle: the hand-written inputs through the existing resolution, and its refusal texts.
+/// Bite: the plug-in's inputs resolved against the experiment's directory.
+#[test]
+fn layer_inputs_mount() {
+    let rig = Rig::new(
+        "[[agent_environments.e.inputs]]\nkind = \"tools\"\npath = \"docker/ctx\"\nat = \"tools\"\n",
+    );
+    let fragment = Fragment::load(&[rig.plug()], "p/e").expect("loads");
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let store = Store::init(&dir.path().join("store")).expect("a store");
+    let input = |kind: &str, path: &str, at: Option<&str>| {
+        ExperimentInput::new(
+            kind.parse::<Name>().expect("a name"),
+            path.to_owned(),
+            at.map(str::to_owned),
+            InputAudience::Agent,
+        )
+        .expect("an input")
+    };
+    let own = [input("notes", "ctx", Some("notes"))];
+    let exp = rig.exp();
+    let merged = resolve_input_groups(
+        &store,
+        &[
+            (&own, exp.as_path()),
+            (fragment.inputs.as_slice(), fragment.dir.as_path()),
+        ],
+    )
+    .expect("resolves");
+    let by_hand_inputs = [
+        input("notes", "exp/ctx", Some("notes")),
+        input("tools", "plug/docker/ctx", Some("tools")),
+    ];
+    let root = rig.root();
+    let by_hand =
+        resolve_input_groups(&store, &[(&by_hand_inputs, root.as_path())]).expect("resolves");
+    let mut mounts: Vec<_> = merged
+        .mounts
+        .iter()
+        .map(|m| (m.path.clone(), m.digest.clone()))
+        .collect();
+    mounts.sort();
+    let mut expected: Vec<_> = by_hand
+        .mounts
+        .iter()
+        .map(|m| (m.path.clone(), m.digest.clone()))
+        .collect();
+    expected.sort();
+    assert_eq!(mounts, expected, "the same mounts");
+    assert_eq!(mounts[1].0, "tools/data");
+    assert_eq!(merged.agent, by_hand.agent);
+
+    let clash = [input("notes", "ctx", Some("tools"))];
+    let error = resolve_input_groups(
+        &store,
+        &[
+            (&clash, exp.as_path()),
+            (fragment.inputs.as_slice(), fragment.dir.as_path()),
+        ],
+    )
+    .expect_err("a mount point shared");
+    assert!(
+        error.to_string().contains("is mounted where input"),
+        "{error}"
+    );
+    let twice = [input("tools", "ctx", Some("elsewhere"))];
+    let error = resolve_input_groups(
+        &store,
+        &[
+            (&twice, exp.as_path()),
+            (fragment.inputs.as_slice(), fragment.dir.as_path()),
+        ],
+    )
+    .expect_err("a kind declared twice");
+    assert!(error.to_string().contains("is declared twice"), "{error}");
 }

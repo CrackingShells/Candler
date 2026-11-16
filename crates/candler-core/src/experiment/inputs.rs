@@ -82,13 +82,30 @@ pub fn resolve_inputs(
     inputs: &[ExperimentInput],
     experiment_dir: &Path,
 ) -> Result<ResolvedInputs, InputError> {
+    resolve_input_groups(store, &[(inputs, experiment_dir)])
+}
+
+/// Hashes and stores the inputs of several groups, each found relative to its own directory: the
+/// experiment's, then a plug-in environment's. The rules of [`resolve_inputs`] hold across the
+/// groups: a kind is declared once, and no two agent files share a workspace path.
+///
+/// # Errors
+/// As [`resolve_inputs`].
+pub fn resolve_input_groups(
+    store: &Store,
+    groups: &[(&[ExperimentInput], &Path)],
+) -> Result<ResolvedInputs, InputError> {
+    let all: Vec<(&ExperimentInput, &Path)> = groups
+        .iter()
+        .flat_map(|(inputs, dir)| inputs.iter().map(move |input| (input, *dir)))
+        .collect();
     let mut resolved = ResolvedInputs::default();
     let mut targets: Vec<(String, String)> = Vec::new();
-    for (index, input) in inputs.iter().enumerate() {
-        if inputs
+    for (index, (input, experiment_dir)) in all.iter().enumerate() {
+        if all
             .iter()
             .take(index)
-            .any(|earlier| earlier.kind() == input.kind())
+            .any(|(earlier, _)| earlier.kind() == input.kind())
         {
             return Err(refused(input, input.path(), "is declared twice"));
         }
@@ -126,7 +143,8 @@ pub fn resolve_inputs(
             }
         }
     }
-    check_targets(inputs, &mut targets)?;
+    let declared: Vec<&ExperimentInput> = all.iter().map(|(input, _)| *input).collect();
+    check_targets(declared.as_slice(), &mut targets)?; // BORROW: explicit .as_slice()
     resolved.agent.sort();
     resolved.evaluators.sort();
     Ok(resolved)
@@ -166,7 +184,7 @@ fn at_prefix(at: Option<&str>) -> String {
 
 /// Refuses two agent files mounted at one workspace path, or one under the path of another.
 fn check_targets(
-    inputs: &[ExperimentInput],
+    inputs: &[&ExperimentInput],
     targets: &mut [(String, String)],
 ) -> Result<(), InputError> {
     targets.sort();

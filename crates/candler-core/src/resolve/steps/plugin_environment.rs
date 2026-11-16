@@ -9,6 +9,10 @@
 //! derives `request.inputs`: the image step owns that root, and the plug-in's inputs reach it
 //! through the experiment's declared inputs.
 //!
+//! A derived value ranks below the experiment file, so a list the experiment also writes would
+//! hide the plug-in's. The steps that read a list therefore take the fragment's entries first
+//! ([`Fragment::list`]), and planning unites the step's `isolation.egress` with each cell's
+//! ([`plugin_egress`], [`unite_egress`]).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -337,6 +341,32 @@ fn inside(root: &Path, written: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err("leads out of the plug-in's directory through a symbolic link".to_owned())
+    }
+}
+
+/// The raw `isolation.egress` the plug-in step derived, from the reports of a resolution; `None`
+/// when no plug-in environment is selected or it sets none. Only the plug-in step's report is
+/// read, and only when it passed: no other step's value gets in.
+#[must_use]
+pub fn plugin_egress<'a>(preflight: &'a [StepReport]) -> Option<&'a Value> {
+    preflight
+        .iter()
+        .filter(|report| report.step.name() == STEP_BASE && report.passed())
+        .flat_map(|report| report.derived.iter())
+        .find(|(path, _)| path.as_str() == paths::ISOLATION_EGRESS)
+        .map(|(_, value)| value.as_value())
+}
+
+/// The allowlist of a cell with the plug-in's entries first, as a value `settle` reads. A value
+/// that is no list is passed on, so the rule refuses it.
+#[must_use]
+pub fn unite_egress(plugin: Option<&Value>, cell: Option<&Value>) -> Option<Value> {
+    match (plugin, cell) {
+        (None, other) | (other, None) => other.cloned(), // BORROW: the cell owns its value
+        (Some(Value::Array(first)), Some(Value::Array(second))) => {
+            Some(Value::Array(first.iter().chain(second).cloned().collect())) // BORROW: the cell owns its entries
+        }
+        (Some(odd), Some(Value::Array(_))) | (Some(_), Some(odd)) => Some(odd.clone()), // BORROW: the cell owns its value
     }
 }
 
