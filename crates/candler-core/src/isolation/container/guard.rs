@@ -1,7 +1,9 @@
 //! The container guard: the one place that destroys a container or a network.
 //!
 //! A container is destroyed only when the rule below passes on a fresh `docker inspect` of its
-//! full id, and the rule is applied again to a second inspect before the last verb:
+//! full id. A decision over several containers inspects them all in one call, and the facts of
+//! that inspect serve the decision's `stop` and `rm`: a container's id, labels and creation time
+//! never change, so one verification holds until the container is removed:
 //!
 //! 1. the id is 64 lowercase hex digits and is what docker answers to, with the labels and the
 //!    creation time the caller claims;
@@ -13,7 +15,7 @@
 //! 6. for the current job, the container must have a record: a labelled container no record names
 //!    is refused as [`GuardRefusal::Unrecorded`].
 //!
-//! The verbs are `inspect`, check, `stop`, `inspect`, check, `rm`, always by id and never with
+//! The verbs are `inspect`, check, `stop`, check the job again, `rm`, always by id and never with
 //! `-f`. `rm` is `rm -v`, which removes only the container's own anonymous volumes. The guard is
 //! the only holder of a [`DestroyDriver`].
 
@@ -138,7 +140,6 @@ impl LostProof {
 
 /// A container that passed the rule.
 struct Verified {
-    inspect: Inspect,
     job: JobId,
     role: ContainerRole,
     recorded: bool,
@@ -230,14 +231,32 @@ impl ContainerGuard {
         })
     }
 
-    /// Destroys `container` when the guard allows it within `scope`: inspect, check, stop,
-    /// inspect, check that the id and labels are the same, check the job again, remove.
+    /// Destroys `container` when the guard allows it within `scope`: inspect, check, stop, check
+    /// the job again, remove.
     pub fn destroy<'a>(
         &'a self,
         container: &'a ContainerRef,
         scope: &'a SweepScope,
     ) -> BoxFuture<'a, Result<Destroyed, GuardError>> {
-        Box::pin(self.destroy_with(container, scope, None))
+        Box::pin(async move {
+            let mut answers = self
+                .destroy_many_with(std::slice::from_ref(container), scope, None)
+                .await;
+            answers.pop().unwrap_or(Err(GuardError::Docker {
+                detail: String::from("no answer for the container"),
+            }))
+        })
+    }
+
+    /// Destroys each of `containers` the guard allows within `scope`, with one inspect of all of
+    /// them. The answers come in the order of `containers`; a container that docker no longer
+    /// has is reported absent and nothing is done to it.
+    pub fn destroy_many<'a>(
+        &'a self,
+        containers: &'a [ContainerRef],
+        scope: &'a SweepScope,
+    ) -> BoxFuture<'a, Vec<Result<Destroyed, GuardError>>> {
+        Box::pin(self.destroy_many_with(containers, scope, None))
     }
 
     /// Destroys `container` of the lost job `proof` is for, by the same rule as
@@ -249,38 +268,64 @@ impl ContainerGuard {
         proof: &'a LostProof,
     ) -> BoxFuture<'a, Result<Destroyed, GuardError>> {
         Box::pin(async move {
-            let scope = SweepScope::Lost(proof.job().clone()); // BORROW: .clone() gives the scope its own job
-            self.destroy_with(container, &scope, Some(proof)).await
+            let mut answers = self
+                .destroy_lost_many(std::slice::from_ref(container), proof)
+                .await;
+            answers.pop().unwrap_or(Err(GuardError::Docker {
+                detail: String::from("no answer for the container"),
+            }))
         })
     }
 
-    async fn destroy_with(
+    /// Destroys each of `containers` of the lost job `proof` is for, like
+    /// [`ContainerGuard::destroy_many`].
+    pub fn destroy_lost_many<'a>(
+        &'a self,
+        containers: &'a [ContainerRef],
+        proof: &'a LostProof,
+    ) -> BoxFuture<'a, Vec<Result<Destroyed, GuardError>>> {
+        Box::pin(async move {
+            let scope = SweepScope::Lost(proof.job().clone()); // BORROW: .clone() gives the scope its own job
+            self.destroy_many_with(containers, &scope, Some(proof))
+                .await
+        })
+    }
+
+    async fn destroy_many_with(
+        &self,
+        containers: &[ContainerRef],
+        scope: &SweepScope,
+        proof: Option<&LostProof>,
+    ) -> Vec<Result<Destroyed, GuardError>> {
+        let verified = self.verify_many(containers, scope, proof).await;
+        let mut answers = Vec::with_capacity(containers.len());
+        for (container, verdict) in containers.iter().zip(verified) {
+            answers.push(match verdict {
+                Ok(Some(facts)) => self.destroy_verified(container, &facts, scope, proof).await,
+                Ok(None) => Ok(Destroyed {
+                    recorded: false,
+                    absent: true,
+                }),
+                Err(error) => Err(error),
+            });
+        }
+        answers
+    }
+
+    /// Stops and removes a container whose facts passed the rule in this decision.
+    async fn destroy_verified(
         &self,
         container: &ContainerRef,
+        verified: &Verified,
         scope: &SweepScope,
         proof: Option<&LostProof>,
     ) -> Result<Destroyed, GuardError> {
-        let Some(verified) = self.verify(container, scope, proof).await? else {
-            return Ok(Destroyed {
-                recorded: false,
-                absent: true,
-            });
-        };
         let gone = Destroyed {
             recorded: verified.recorded,
             absent: true,
         };
         if !self.stop_by_id(&container.cid).await? {
             return Ok(gone);
-        }
-        // BORROW: .as_str() hands the id to docker
-        let again = match self.docker.inspect(container.cid.as_str()).await {
-            Ok(again) => again,
-            Err(DockerError::NotFound { .. }) => return Ok(gone),
-            Err(error) => return Err(docker_failed(&error)),
-        };
-        if !same_container(&verified.inspect, &again) {
-            return Err(GuardError::Refused(GuardRefusal::Mismatch));
         }
         // the job may have recovered while the container was stopping
         self.check_job(&verified.job, scope, proof)?;
@@ -370,17 +415,66 @@ impl ContainerGuard {
         scope: &SweepScope,
         proof: Option<&LostProof>,
     ) -> Result<Option<Verified>, GuardError> {
-        // BORROW: `.as_str()` borrows the text of the container id
-        if container.cid.as_str().len() != 64 {
-            return Err(GuardError::Refused(GuardRefusal::NotFullId));
+        self.verify_many(std::slice::from_ref(container), scope, proof)
+            .await
+            .pop()
+            .unwrap_or(Err(GuardError::Docker {
+                detail: String::from("no answer for the container"),
+            }))
+    }
+
+    /// Inspects `containers` in one docker call and applies the rule to each answer, in the
+    /// order of `containers`. A container whose id is not a full id is refused and not asked
+    /// for; one docker no longer has answers `None`. Each answer is matched to its container by
+    /// the full id, never by a prefix.
+    async fn verify_many(
+        &self,
+        containers: &[ContainerRef],
+        scope: &SweepScope,
+        proof: Option<&LostProof>,
+    ) -> Vec<Result<Option<Verified>, GuardError>> {
+        // BORROW: `.as_str()` borrows the text of the container id; .to_owned() gives the call its own ids
+        let asked: Vec<String> = containers
+            .iter()
+            .filter(|container| container.cid.as_str().len() == 64)
+            .map(|container| container.cid.as_str().to_owned())
+            .collect();
+        let mut answers = if asked.is_empty() {
+            Vec::new()
+        } else {
+            self.docker.inspect_many(&asked).await
         }
-        // BORROW: .as_str() hands the id to docker
-        let inspect = match self.docker.inspect(container.cid.as_str()).await {
-            Ok(inspect) => inspect,
-            Err(DockerError::NotFound { .. }) => return Ok(None),
-            Err(error) => return Err(docker_failed(&error)),
-        };
-        if inspect.id != container.cid || !claims_hold(container, &inspect) {
+        .into_iter();
+        containers
+            .iter()
+            .map(|container| {
+                // BORROW: `.as_str()` borrows the text of the container id
+                if container.cid.as_str().len() != 64 {
+                    return Err(GuardError::Refused(GuardRefusal::NotFullId));
+                }
+                let answer = answers.next().unwrap_or_else(|| {
+                    Err(DockerError::Failed {
+                        detail: String::from("docker answered fewer containers than asked"),
+                    })
+                });
+                match answer {
+                    Ok(inspect) => self.apply_rule(container, &inspect, scope, proof).map(Some),
+                    Err(DockerError::NotFound { .. }) => Ok(None),
+                    Err(error) => Err(docker_failed(&error)),
+                }
+            })
+            .collect()
+    }
+
+    /// Applies the rule to one inspect.
+    fn apply_rule(
+        &self,
+        container: &ContainerRef,
+        inspect: &Inspect,
+        scope: &SweepScope,
+        proof: Option<&LostProof>,
+    ) -> Result<Verified, GuardError> {
+        if inspect.id != container.cid || !claims_hold(container, inspect) {
             return Err(GuardError::Refused(GuardRefusal::Mismatch));
         }
         let job = inspect
@@ -391,13 +485,12 @@ impl ContainerGuard {
         let role = role_of(&inspect.labels).map_err(GuardError::Refused)?;
         self.check_job(&job, scope, proof)?;
         check_run(&inspect.labels, scope)?;
-        let recorded = self.check_record(&inspect, &job, role, scope)?;
-        Ok(Some(Verified {
-            inspect,
+        let recorded = self.check_record(inspect, &job, role, scope)?;
+        Ok(Verified {
             job,
             role,
             recorded,
-        }))
+        })
     }
 
     /// Checks that `job` is the job `scope` reaches. A lost job is reached only with the proof of
@@ -515,14 +608,6 @@ fn claims_hold(claimed: &ContainerRef, inspect: &Inspect) -> bool {
             .labels
             .iter()
             .all(|(key, value)| inspect.labels.get(key) == Some(value))
-}
-
-/// Whether the second inspect is of the same container as the first: the same id, creation time
-/// and labels.
-fn same_container(first: &Inspect, second: &Inspect) -> bool {
-    first.id == second.id
-        && first.created.instant() == second.created.instant()
-        && first.labels == second.labels
 }
 
 /// The role a container's labels give it. A control container is never destroyed.

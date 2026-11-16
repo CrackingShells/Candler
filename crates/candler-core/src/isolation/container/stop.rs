@@ -66,8 +66,8 @@ impl ContainerStopHook {
     /// The containers of `key` in this job that docker lists, agents only when `agents` is set.
     async fn of_run(&self, key: &RunKey, agents: bool) -> Result<Vec<ContainerRef>, HookError> {
         let selector = LabelSel {
-            key: LABEL_JOB.to_owned(), // BORROW: .to_owned() gives the selector its own text
-            value: self.job.to_string(),
+            key: LABEL_RUN.to_owned(), // BORROW: .to_owned() gives the selector its own text
+            value: key.to_string(),
         };
         let listed = self
             .guard
@@ -77,10 +77,10 @@ impl ContainerStopHook {
             .map_err(|error| HookError::Failed {
                 detail: error.to_string(),
             })?;
-        let run = key.to_string();
+        let job = self.job.to_string();
         Ok(listed
             .into_iter()
-            .filter(|container| container.labels.get(LABEL_RUN) == Some(run.as_str())) // BORROW: .as_str() compares the label
+            .filter(|container| container.labels.get(LABEL_JOB) == Some(job.as_str())) // BORROW: .as_str() compares the label
             .filter(|container| !agents || container.labels.get(LABEL_ROLE) == Some("agent"))
             .collect())
     }
