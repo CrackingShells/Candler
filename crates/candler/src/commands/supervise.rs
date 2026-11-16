@@ -18,6 +18,7 @@ use candler_core::jobs::runtime::evaluate::{EvaluateEntry, supervise_evaluate};
 use candler_core::jobs::runtime::launch::{own_identity, spec_digest};
 use candler_core::jobs::runtime::session::read_spec;
 use candler_core::jobs::runtime::{JobEntry, JobServices, RuntimeError, supervise_entry};
+use candler_core::resolve::config::{ConfigEnv, UserConfig};
 use candler_core::runner::Runtime;
 use candler_core::runner::evidence::provenance::EvalInfra;
 use candler_core::store::Store;
@@ -163,7 +164,17 @@ fn orchestrate_here(
         Ok(contexts) => DockerHost::with_controls(contexts),
         Err(why) => DockerHost::without_controls(&why),
     };
-    orchestrate_with(rt, spec, ctl, std::sync::Arc::new(host))
+    // The user configuration was read and checked when the job was started; the supervisor reads
+    // the same file from the same environment.
+    let ca = UserConfig::load(&ConfigEnv::from_process())
+        .ok()
+        .and_then(|user| user.gateway_upstream_ca);
+    orchestrate_with(
+        rt,
+        spec,
+        ctl,
+        std::sync::Arc::new(host.with_upstream_ca(ca)),
+    )
 }
 
 /// Runs a run job through the orchestration, with the driver and skill layout of the harness its
