@@ -202,10 +202,12 @@ its step; `resolve` itself knows none.
 | File | Where | Keys |
 |---|---|---|
 | Project config | `candler.toml` in the project root, the nearest ancestor of the working directory holding one | `store.root` (default `<project root>/.candler/store`; with no project, `$XDG_STATE_HOME/candler/store`, else `~/.local/state/candler/store`), `plugins.dirs[]`, the directories `evaluate` finds plug-ins in |
-| User config | `$XDG_CONFIG_HOME/candler/config.toml`, else `~/.config/candler/config.toml` | `slots.count`, `slots.evaluators` |
+| User config | `$XDG_CONFIG_HOME/candler/config.toml`, else `~/.config/candler/config.toml` | `slots.count`, `slots.evaluators`, `gateway.upstream_ca` (a PEM file of the CAs the gateway sidecar trusts for the model upstream; its bytes reach only the sidecar, never the cell digest, argv, the job record or the agent) |
 
-Unknown keys are refused, naming the file and key. A machine-wide setting (`slots.count`, `slots.evaluators`) is
-refused in a project config. A relative path written in a config file resolves against that file's
+Unknown keys are refused, naming the file and key. A machine-wide setting (`slots.count`, `slots.evaluators`, `gateway.upstream_ca`) is
+refused in a project config; a `gateway.upstream_ca` that cannot be read as PEM is refused with
+`config.upstream_ca_invalid`. The supervisor is given the launcher's `XDG_CONFIG_HOME`, so it reads
+the same user config. A relative path written in a config file resolves against that file's
 directory; a relative path given as an argument resolves against the caller's working directory
 (I14).
 
