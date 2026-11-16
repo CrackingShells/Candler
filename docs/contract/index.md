@@ -135,6 +135,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `isolation.gateway_unauthorized` | The upstream refused the credential with status 401. | - | environment |
 | `isolation.gateway_unavailable` | The gateway the run needs is not available. | - | environment |
 | `isolation.gateway_upstream_error` | The upstream answered with an error status other than 401 and 429. | - | environment |
+| `isolation.ground_truth_exposed` | The bytes of an evaluator-only input are also in what the agent receives: the Dockerfile or the build context of the experiment or of a plug-in environment, an agent input of the experiment or of a plug-in environment, or the treatment's skill tree. A renamed copy is found; an empty file, and a compressed or transformed copy, are not. | - | experiment |
 | `isolation.guard_docker_failed` | Docker failed under the container guard; nothing was destroyed after that call. | - | environment |
 | `isolation.guard_job_unreadable` | The job directory could not be read, so the guard could not tell what is recorded. | - | environment |
 | `isolation.harness_version_unreadable` | The version output of the harness in the image names no version. | - | environment |

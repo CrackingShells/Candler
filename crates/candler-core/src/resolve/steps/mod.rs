@@ -4,6 +4,7 @@
 pub mod catalog;
 pub mod egress;
 pub mod gateway;
+pub mod ground_truth;
 pub mod identity;
 pub mod image;
 pub mod plugin_environment;
@@ -74,4 +75,16 @@ pub fn register_m2b_steps(
         .register(Box::new(catalog))? // TRAIT_OBJECT: steps of different types are registered side by side
         .register(Box::new(session))? // TRAIT_OBJECT: steps of different types are registered side by side
         .register(Box::new(egress)) // TRAIT_OBJECT: steps of different types are registered side by side
+}
+
+/// Registers the ground-truth step on `resolver`, after the steps of [`register_m2b_steps`]: it
+/// reads the treatment the identity step derived.
+///
+/// # Errors
+/// [`ResolveError`] when the step name is already registered.
+pub fn register_ground_truth(
+    resolver: Resolver,
+    step: ground_truth::GroundTruthStep,
+) -> Result<Resolver, ResolveError> {
+    resolver.register(Box::new(step)) // TRAIT_OBJECT: steps of different types are registered side by side
 }
