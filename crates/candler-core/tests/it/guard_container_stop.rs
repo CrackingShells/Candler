@@ -9,8 +9,8 @@ use candler_core::isolation::container::guard::ContainerGuard;
 use candler_core::isolation::container::stop::ContainerStopHook;
 use candler_core::isolation::container::sweeper::LabelSweeper;
 use candler_core::isolation::driver::{DestroyDriver, DockerDriver};
-use candler_core::isolation::testing::{FakeJobView, RecordingDestroyer, RecordingDocker};
 use candler_core::isolation::model::ContainerOutcome;
+use candler_core::isolation::testing::{FakeJobView, RecordingDestroyer, RecordingDocker};
 use candler_core::runner::exec::spawn::RunStopper;
 use candler_core::supervise::hook::{HookError, StopHook, StopHookCtx};
 use candler_core::supervise::signal::Signaller;
@@ -246,12 +246,28 @@ async fn a_cancel_racing_the_deadline_stops_once() {
     let read: Arc<dyn DockerDriver> = docker.clone(); // BORROW: .clone() shares the fake; TRAIT_OBJECT: the guard holds a trait object
     let kill: Arc<dyn DestroyDriver> = destroyer.clone(); // BORROW: .clone() shares the fake; TRAIT_OBJECT: the guard holds a trait object
     let view = FakeJobView::new(current.clone()).shared(); // BORROW: .clone() gives the view its own job
-    let guard = Arc::new(ContainerGuard::new(kill, Arc::clone(&read), Arc::clone(&view)));
-    let sweeper = Arc::new(LabelSweeper::new(read, Arc::clone(&guard), view, Duration::from_secs(30)));
+    let guard = Arc::new(ContainerGuard::new(
+        kill,
+        Arc::clone(&read),
+        Arc::clone(&view),
+    ));
+    let sweeper = Arc::new(LabelSweeper::new(
+        read,
+        Arc::clone(&guard),
+        view,
+        Duration::from_secs(30),
+    ));
     let hook = ContainerStopHook::new(guard, sweeper, current);
-    let ctx = StopHookCtx::new(Some(key.clone()), "m".parse().expect("a marker"), Ended::Deadline); // BORROW: .clone() gives the context its own key
+    let ctx = StopHookCtx::new(
+        Some(key.clone()),
+        "m".parse().expect("a marker"),
+        Ended::Deadline,
+    ); // BORROW: .clone() gives the context its own key
     let (cancel, ladder) = tokio::join!(hook.stop_agent(&key), hook.pre_stop(&ctx));
-    assert!(cancel.is_ok() && ladder.is_ok(), "both askers are told the stop worked");
+    assert!(
+        cancel.is_ok() && ladder.is_ok(),
+        "both askers are told the stop worked"
+    );
     assert_eq!(
         destroyer.calls(),
         [format!("stop {}", id.as_str())], // BORROW: explicit .as_str()

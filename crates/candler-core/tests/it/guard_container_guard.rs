@@ -1349,7 +1349,11 @@ async fn spawn_budget_container_created_between_hooks() {
     let fake = Fakery::new(&current);
     nine(&fake, &run, 1);
     let hook = fake.hook();
-    let ctx = StopHookCtx::new(Some(run.clone()), "m".parse().expect("a marker"), Ended::Stopped); // BORROW: .clone() gives the context its own key
+    let ctx = StopHookCtx::new(
+        Some(run.clone()),
+        "m".parse().expect("a marker"),
+        Ended::Stopped,
+    ); // BORROW: .clone() gives the context its own key
     hook.pre_stop(&ctx).await.expect("a pre-stop");
     fake.add(0x70, "agent", Some(&run));
     let swept = hook.destroy(&ctx).await.expect("a destroy");
@@ -1395,7 +1399,11 @@ async fn spawn_budget_lost_sweep_allow_networks() {
         Arc::new(RecordingDestroyer::new()),
     ));
     let view = FakeJobView::new(current).shared();
-    let guard = Arc::new(ContainerGuard::new(kill, Arc::clone(&read), Arc::clone(&view)));
+    let guard = Arc::new(ContainerGuard::new(
+        kill,
+        Arc::clone(&read),
+        Arc::clone(&view),
+    ));
     let sweeper = LabelSweeper::new(read, guard, view, Duration::from_secs(30));
     let report = sweeper.sweep_lost_report(&proof).await.expect("a sweep");
     assert!(!report.sweep.unknown, "the sweep is complete");
@@ -1413,5 +1421,8 @@ async fn spawn_budget_lost_sweep_allow_networks() {
                 || line.starts_with("network rm")
         })
         .count();
-    assert_eq!(counted, 8, "one list, one network ls, 3 inspects, 3 rms: {lines:?}");
+    assert_eq!(
+        counted, 8,
+        "one list, one network ls, 3 inspects, 3 rms: {lines:?}"
+    );
 }
