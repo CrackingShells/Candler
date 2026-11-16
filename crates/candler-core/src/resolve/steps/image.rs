@@ -362,20 +362,33 @@ fn extension_of(ctx: &ResolveContext) -> Result<Option<Extension>, PreflightErro
     }
 }
 
+/// Whether the plug-in environment derived the value at `text`.
+fn from_plugin(ctx: &ResolveContext, text: &str) -> Result<bool, PreflightError> {
+    let path = path_of(text)?;
+    Ok(ctx.sources.iter().any(|entry| {
+        *entry.path() == path
+            && matches!(
+                entry.source(),
+                ValueSource::Derived { step, .. } if step.name() == STEP_BASE
+            )
+    }))
+}
+
 /// Whether exactly one of the Dockerfile and its context comes from the plug-in environment.
 fn pair_split(ctx: &ResolveContext) -> Result<bool, PreflightError> {
-    let from_plugin = |text: &str| -> Result<bool, PreflightError> {
-        let path = path_of(text)?;
-        Ok(ctx.sources.iter().any(|entry| {
-            *entry.path() == path
-                && matches!(
-                    entry.source(),
-                    ValueSource::Derived { step, .. } if step.name() == STEP_BASE
-                )
-        }))
-    };
-    Ok(from_plugin(paths::ISOLATION_BUILD_DOCKERFILE)?
-        != from_plugin(paths::ISOLATION_BUILD_CONTEXT)?)
+    Ok(from_plugin(ctx, paths::ISOLATION_BUILD_DOCKERFILE)?
+        != from_plugin(ctx, paths::ISOLATION_BUILD_CONTEXT)?)
+}
+
+/// Whether the lock comes from one layer, the plug-in environment or the experiment, and a
+/// requirements list from the other: the lock would silently beat the list.
+fn lock_split(ctx: &ResolveContext, fragment: Option<&Fragment>) -> Result<bool, PreflightError> {
+    let plugin_lock = from_plugin(ctx, paths::ISOLATION_BUILD_LOCK)?;
+    let plugin_list =
+        fragment.is_some_and(|held| !held.list(paths::ISOLATION_BUILD_REQUIREMENTS).is_empty());
+    let own_list =
+        !requirements(ctx)?.is_empty() && !from_plugin(ctx, paths::ISOLATION_BUILD_REQUIREMENTS)?;
+    Ok(if plugin_lock { own_list } else { plugin_list })
 }
 
 /// The env lock: the `isolation.build.lock` file verbatim when it is set, else the lock the image
@@ -387,6 +400,14 @@ async fn lock_bytes(
     supervisor: &Supervisor,
 ) -> Result<Vec<u8>, PreflightError> {
     if let Some(file) = text_at(ctx, paths::ISOLATION_BUILD_LOCK)? {
+        if lock_split(ctx, fragment)? {
+            return Err(failed(format!(
+                "`{}` and `{}` must be set together, by one layer: the plug-in environment sets \
+                 one and the experiment the other, and the lock would beat the list",
+                paths::ISOLATION_BUILD_LOCK,
+                paths::ISOLATION_BUILD_REQUIREMENTS
+            )));
+        }
         let path = ctx.config.cwd.join(file);
         return tokio::fs::read(&path)
             .await

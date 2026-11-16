@@ -710,15 +710,21 @@ async fn layer_egress_merge_reads_the_plugin_report_only() {
 
 /// Guards: R06 D4 — the `dockerfile`/`context` pair comes from one layer: a plug-in that sets
 /// one half is refused by the must-be-set-together rule, and so is a pair split between the
-/// plug-in and the experiment; a pair from the plug-in, or from the experiment, resolves.
+/// plug-in and the experiment; a pair from the plug-in, or from the experiment, resolves. The
+/// same holds for the lock and the requirements list: one layer sets both, or the lock that would
+/// silently beat the list is refused.
 /// Oracle: D4's rule, one row per way the pair is set.
-/// Bite: the layer check dropped, so the split pair builds from two directories.
+/// Bite: the layer check dropped, so the split pair builds from two directories; the lock check
+/// dropped, so a plug-in lock beats the experiment's list (and the reverse) without a word.
 #[tokio::test]
 async fn layer_pair_from_two_layers() {
     let half =
         "[agent_environments.e.values]\n\"isolation.build.dockerfile\" = \"docker/Dockerfile\"\n";
     let both = "[agent_environments.e.values]\n\"isolation.build.dockerfile\" = \"docker/Dockerfile\"\n\"isolation.build.context\" = \"docker/ctx\"\n";
-    let rows: [(&str, &str, &str, bool); 5] = [
+    let lock = "[agent_environments.e.values]\n\"isolation.build.lock\" = \"req.txt\"\n";
+    let list = "[agent_environments.e.values]\n\"isolation.build.requirements\" = [\"req.txt\"]\n";
+    let lock_and_list = "[agent_environments.e.values]\n\"isolation.build.lock\" = \"req.txt\"\n\"isolation.build.requirements\" = [\"req.txt\"]\n";
+    let rows: [(&str, &str, &str, bool); 10] = [
         ("plug-in half", half, "", false),
         ("plug-in pair", both, "", true),
         (
@@ -739,6 +745,26 @@ async fn layer_pair_from_two_layers() {
             "\"isolation.build.context\" = \"ctx\"\n",
             false,
         ),
+        (
+            "plug-in lock, experiment list",
+            lock,
+            "\"isolation.build.requirements\" = [\"extra.txt\"]\n",
+            false,
+        ),
+        (
+            "experiment lock, plug-in list",
+            list,
+            "\"isolation.build.lock\" = \"extra.txt\"\n",
+            false,
+        ),
+        ("plug-in lock and list", lock_and_list, "", true),
+        (
+            "experiment lock and list",
+            "[agent_environments.e.values]\n",
+            "\"isolation.build.lock\" = \"extra.txt\"\n\"isolation.build.requirements\" = [\"extra.txt\"]\n",
+            true,
+        ),
+        ("plug-in lock alone", lock, "", true),
     ];
     for (label, environments, own, resolves) in rows {
         let rig = Rig::new(environments);
