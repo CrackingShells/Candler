@@ -20,6 +20,8 @@ mod create_e2e;
 mod env_image_e2e;
 #[path = "guard_container_e2e/gateway_e2e.rs"]
 mod gateway_e2e;
+#[path = "guard_container_e2e/plugin_env_e2e.rs"]
+mod plugin_env_e2e;
 #[path = "guard_container_e2e/supervision_gates_e2e.rs"]
 mod supervision_gates_e2e;
 #[cfg(test)]
