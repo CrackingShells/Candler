@@ -15,7 +15,7 @@ use candler_schemas::execution::EventPayload;
 use candler_schemas::primitives::{ContainerId, JobId, Marker, ReasonCode};
 use futures::future::BoxFuture;
 
-use super::guard::{ContainerGuard, GuardError, LostProof};
+use super::guard::{ContainerGuard, Destroyed, GuardError, LostProof};
 use crate::isolation::docker::DockerError;
 use crate::isolation::driver::DockerDriver;
 use crate::isolation::layout::{LABEL_JOB, LABEL_ROLE, LABEL_RUN};
@@ -190,9 +190,16 @@ impl LabelSweeper {
     ) {
         let job = self.job_of(scope);
         let recorded = self.recorded(scope, job, report);
-        let selector = LabelSel {
-            key: LABEL_JOB.to_owned(), // BORROW: .to_owned() gives the selector its own text
-            value: job.to_string(),
+        // a run's containers are listed by the run label, and the job is checked on what comes back
+        let selector = match scope {
+            SweepScope::Run(key) => LabelSel {
+                key: LABEL_RUN.to_owned(), // BORROW: .to_owned() gives the selector its own text
+                value: key.to_string(),
+            },
+            SweepScope::CurrentJob | SweepScope::Lost(_) => LabelSel {
+                key: LABEL_JOB.to_owned(), // BORROW: .to_owned() gives the selector its own text
+                value: job.to_string(),
+            },
         };
         let mut found = match self.docker.ps_by_label(&selector).await {
             Ok(found) => found,
@@ -203,36 +210,41 @@ impl LabelSweeper {
                 return;
             }
         };
-        if let SweepScope::Run(key) = scope {
-            let wanted = key.to_string();
-            // BORROW: .as_str() compares the label with the run
-            found.retain(|container| container.labels.get(LABEL_RUN) == Some(wanted.as_str()));
-        }
-        for cid in recorded {
-            if found.iter().any(|container| container.cid == cid) {
-                continue;
-            }
-            // BORROW: .as_str() hands the id to docker
-            match self.docker.inspect(cid.as_str()).await {
-                Ok(inspected) => found.push(ContainerRef::new(
-                    inspected.id,
-                    inspected.labels,
-                    inspected.created,
-                )),
-                Err(DockerError::NotFound { .. }) => {}
-                Err(
-                    DockerError::Unavailable { .. }
-                    | DockerError::Failed { .. }
-                    | DockerError::Unreadable { .. }
-                    | DockerError::NotAFullId { .. }
-                    | DockerError::NotAJobNetwork { .. },
-                ) => report.sweep.unknown = true,
+        let wanted = job.to_string();
+        // BORROW: .as_str() compares the label with the job
+        found.retain(|container| container.labels.get(LABEL_JOB) == Some(wanted.as_str()));
+        let missing: Vec<String> = recorded
+            .into_iter()
+            .filter(|cid| !found.iter().any(|container| container.cid == *cid))
+            .map(|cid| cid.as_str().to_owned()) // BORROW: .as_str() and .to_owned() give the call its own ids
+            .collect();
+        if !missing.is_empty() {
+            for answer in self.docker.inspect_many(&missing).await {
+                match answer {
+                    Ok(inspected) => found.push(ContainerRef::new(
+                        inspected.id,
+                        inspected.labels,
+                        inspected.created,
+                    )),
+                    Err(DockerError::NotFound { .. }) => {}
+                    Err(
+                        DockerError::Unavailable { .. }
+                        | DockerError::Failed { .. }
+                        | DockerError::Unreadable { .. }
+                        | DockerError::NotAFullId { .. }
+                        | DockerError::NotAJobNetwork { .. },
+                    ) => report.sweep.unknown = true,
+                }
             }
         }
         // agents go before the gateway they talk to
         found.sort_by_key(|container| container.labels.get(LABEL_ROLE) != Some("agent"));
-        for container in &found {
-            self.destroy_one(container, scope, proof, report).await;
+        let answers = match proof {
+            Some(held) => self.guard.destroy_lost_many(&found, held).await,
+            None => self.guard.destroy_many(&found, scope).await,
+        };
+        for (container, done) in found.iter().zip(answers) {
+            Self::file(container, done, report);
         }
         if let SweepScope::Lost(lost) = scope {
             for network in [
@@ -289,18 +301,12 @@ impl LabelSweeper {
         ids
     }
 
-    /// Hands one container to the guard and files the answer in `report`.
-    async fn destroy_one(
-        &self,
+    /// Files the guard's answer for one container in `report`.
+    fn file(
         container: &ContainerRef,
-        scope: &SweepScope,
-        proof: Option<&LostProof>,
+        done: Result<Destroyed, GuardError>,
         report: &mut SweepReport,
     ) {
-        let done = match proof {
-            Some(held) => self.guard.destroy_lost(container, held).await,
-            None => self.guard.destroy(container, scope).await,
-        };
         match done {
             Ok(done) if !done.absent => {
                 // BORROW: .clone() gives the report its own copy of the container

@@ -878,10 +878,14 @@ impl DockerDriver for DockerCli {
                 });
             }
             let listed = self.runner.run(ps_args(sel), CALL_DEADLINE).await?;
+            let ids = parse_ids(&listed)?;
             let mut found = Vec::new();
-            for id in parse_ids(&listed)? {
-                // BORROW: .as_str() hands the id to inspect
-                match self.inspect(id.as_str()).await {
+            if ids.is_empty() {
+                return Ok(found);
+            }
+            // one inspect for the whole list; a container removed since the list is skipped
+            for answer in self.inspect_many(&ids).await {
+                match answer {
                     Ok(inspected) => found.push(ContainerRef::new(
                         inspected.id,
                         inspected.labels,
