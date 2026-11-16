@@ -24,6 +24,7 @@ use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::events::JobEvents;
 use candler_core::jobs::lock::JobLock;
 use candler_core::jobs::view::ChildEntry;
+use candler_core::resolve::steps::egress::settle;
 use candler_core::supervise::hook::{HookError, StopHook, StopHookCtx};
 use candler_core::supervise::signal::Signaller;
 use candler_core::supervise::spawn::SpawnRequest;
@@ -1262,4 +1263,73 @@ async fn spawn_budget_paths() {
             );
         }
     }
+}
+
+/// Guards: a job's allow networks go through the guard by the job rule of its other networks —
+/// the current job's own allow network is removed, another job's is refused, and a lost job's is
+/// removed under the proof of its held lock.
+/// Oracle: the destroy log's `network rm` lines, one per network the rule lets go.
+/// Bite: compare the name with only `NetworkName::for_job` and `NetworkName::egress_for_job` in
+/// `ContainerGuard::destroy_network_with`, as before the allow networks: the current job's own
+/// allow network is refused as a mismatch and stays behind after every egress job.
+#[tokio::test]
+async fn b10_allow_networks_follow_the_job_rule() {
+    let root = tempfile::tempdir().expect("a temp dir");
+    let current = job(1);
+    let fifth = job(5);
+    let (_dir5, _lock5, proof5) = locked(root.path(), &fifth);
+    let allowlist = settle(Some(&serde_json::json!(["a.test:443"])), None)
+        .expect("a list")
+        .expect("not empty");
+    let net_of = |job: &JobId| {
+        let name = NetworkName::allow_for(job, &allowlist);
+        let info = NetworkInfo {
+            name: name.clone(), // BORROW: .clone() gives the answer its own name
+            internal: true,
+            labels: Labels::new().with("candler.job", job.as_str()), // BORROW: explicit .as_str() instead of Deref coercion
+        };
+        (name, info)
+    };
+    let (own, own_info) = net_of(&current);
+    let (theirs, theirs_info) = net_of(&fifth);
+    let log = Log::new();
+    let destroyer = Arc::new(RecordingDestroyer::new());
+    let docker = ScriptedDocker::new(&log)
+        .network(&own, own_info)
+        .network(&theirs, theirs_info);
+    let kill: Arc<dyn DestroyDriver> = Arc::new(LoggingDestroyer::new(&log, destroyer));
+    let guard = ContainerGuard::new(
+        kill,
+        Arc::new(docker),
+        FakeJobView::new(current.clone()).shared(), // BORROW: .clone() gives the view its own job
+    );
+    assert_eq!(
+        guard
+            .destroy_network(&theirs, &SweepScope::CurrentJob)
+            .await,
+        Err(GuardError::Refused(GuardRefusal::OtherJob)),
+        "another job's allow network"
+    );
+    assert_eq!(
+        guard.destroy_network(&own, &SweepScope::CurrentJob).await,
+        Ok(()),
+        "the current job's own allow network"
+    );
+    assert_eq!(
+        guard.destroy_network_lost(&theirs, &proof5).await,
+        Ok(()),
+        "a lost job's allow network under its proof"
+    );
+    let removed: Vec<String> = log
+        .lines()
+        .into_iter()
+        .filter(|line| line.starts_with("network rm"))
+        .collect();
+    assert_eq!(
+        removed,
+        [
+            format!("network rm {}", own.as_str()), // BORROW: explicit .as_str()
+            format!("network rm {}", theirs.as_str()), // BORROW: explicit .as_str()
+        ]
+    );
 }

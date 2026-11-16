@@ -385,9 +385,8 @@ impl ContainerGuard {
             .get(LABEL_JOB)
             .and_then(|text| JobId::from_str(text).ok())
             .ok_or(GuardError::Refused(GuardRefusal::Unlabelled))?;
-        let ours =
-            NetworkName::for_job(&job) == *name || NetworkName::egress_for_job(&job) == *name;
-        if !ours || info.name != *name {
+        // the job's internal, egress and allow networks, and no other job's
+        if !name.belongs_to(&job) || info.name != *name {
             return Err(GuardError::Refused(GuardRefusal::Mismatch));
         }
         self.check_job(&job, scope, proof)?;

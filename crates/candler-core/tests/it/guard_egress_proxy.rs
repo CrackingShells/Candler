@@ -24,7 +24,8 @@ fn list(entries: &[&str]) -> Vec<HostPort> {
 }
 
 /// Guards: the allow network is the allowlist's own, per job — agents with equal allowlists meet
-/// on one network, two allowlists never share one, and no allow network is the egress network.
+/// on one network, two allowlists never share one, no allow network is the egress network, and
+/// `NetworkName::belongs_to` takes every network of the job and none of another job's.
 /// Oracle: the name rule `candler-<job12>-allow-<digest8>` and the sha256 of `a.test:443\n`,
 /// computed with `shasum -a 256` by hand: 754fac9b.
 #[test]
@@ -40,6 +41,18 @@ fn plan_allow_network_names_follow_the_allowlist() {
     assert_ne!(a, NetworkName::egress_for_job(&j));
     assert!(a.belongs_to(&j));
     assert!(!a.belongs_to(&job("9999")));
+    // every network of the job is its own, and none of another job's is
+    let other = job("9999");
+    for own in [NetworkName::for_job(&j), NetworkName::egress_for_job(&j)] {
+        assert!(own.belongs_to(&j), "{own:?}");
+    }
+    for theirs in [
+        NetworkName::for_job(&other),
+        NetworkName::egress_for_job(&other),
+        NetworkName::allow_for(&other, &list(&["a.test:443"])),
+    ] {
+        assert!(!theirs.belongs_to(&j), "{theirs:?}");
+    }
 }
 
 /// Guards: D2 — one host on a port gets everything, plain or with its own SNI.
