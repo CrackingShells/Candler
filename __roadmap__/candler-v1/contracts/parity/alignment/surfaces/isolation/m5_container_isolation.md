@@ -1,28 +1,24 @@
 # M5 Container isolation
 
-**Goal**: Runs can execute in a disposable container with outcomes injected from outside, a whole-container census, an egress allowlist and plug-in-declared environments.
+**Goal**: Runs can execute in a disposable container whose network is closed to everything but an allowlist and the model gateway, with the plug-in's agent environment provisioned by the core and the Docker plumbing built once.
 **Pre-conditions**:
 - [ ] `../m4_session_runner.md` is `done` (the tree also waits for `../m3_lean_cli.md`)
-- [ ] Reminder `candler-M5` read (image contents, injection from outside, census before destroy, egress allowlist, macOS host as its own stratum)
+- [ ] Reminder `candler-M5` read (egress allowlist, plug-in environments, the I8 guard, the Docker client)
 **Success Gates**:
-- ⬜ On a test experiment, the ground-truth file is absent from the container at every point of the run (I8)
-- ⬜ The census after SessionEnd lists every process, and a stray started inside the container is reported
-- ⬜ Egress outside the allowlist fails while the model gateway works
-- ⬜ The agent-side environment a plug-in declares (what the agent's isolation must contain) is provisioned by the core, with no hand-edited sandbox contract; evaluator environments are M2a's
-- ⬜ A second isolation kind falls in its own stratum through M2b's stratum verdict
-- ⬜ The agent environment has a declared kind, and the core holds no Python path, variable or marker outside that kind's implementation (amendment A3):
-  - `/opt/env`, `VIRTUAL_ENV`, `--python-version 3.12`, `pyvenv.cfg` and the `uv venv` step of the env Dockerfile live in the Python-venv kind only;
-  - the evidence tree's exclusion asks the kind what to exclude, and the code-fix PR's E1 test still passes;
-  - a `candler` binary run outside the source tree finds its assets (`commands/run.rs` no longer reads `CARGO_MANIFEST_DIR`), unless M3's packaging already does this;
-  - every cell digest of M1's golden import and M2a's parity fixtures is unchanged.
-**References**: [R01 §Contracts & Invariants (I8, I14), §Process supervision](../../../../../../../__design__/architecture.md) — isolation interface, ground-truth rule, census; [gap analysis A3](../../../../../../../__reports__/candler-v1-review/01-gap_analysis_harness_env_v0.md) — the Python-venv content of the core and the assets path (H2, H3)
+- ⬜ Egress is an allowlist of hostnames and ports: a listed host and port is reachable from the container, everything else fails, and the model gateway still works
+- ⬜ The agent-side environment a plug-in declares is provisioned by the core, with no hand-edited sandbox contract. It stays thin because `isolation.build.*` already builds environments; evaluator environments are M2a's
+- ⬜ A guard proves that on a test experiment the ground-truth file is absent from the agent container at every point of the run (I8)
+- ⬜ One Docker client and one control-container builder serve every caller (the interlude's A5), with multi-id inspect and guard re-use (A1) and `docker create` instead of cidfile polling (A8) as part of it; `__reports__/interlude-audit/00-findings_audit_v0.md` has the findings
+- ⬜ Every cell digest of M1's golden import and M2a's parity fixtures is unchanged
+**References**: [R01 §Contracts & Invariants (I8, I14), §Process supervision](../../../../../../../__design__/architecture.md) — isolation interface, ground-truth rule; [interlude audit findings](../../../../../../../__reports__/interlude-audit/00-findings_audit_v0.md) — A1, A5 and A8 (one Docker client); [R01 §Future features](../../../../../../../__design__/architecture.md) — what M5 leaves out and its triggers
 
 ## Step 1: Plan the milestone
 
 **Goal**: The campaign `__roadmap__/m5-container-isolation/` exists and Eliott has approved it.
 **Implementation Logic**:
-In plan mode, author the campaign with `managing-roadmaps`, covering: what it adds to M2b's Docker backend behind `Isolation`, which it extends; the image additions (procps for the census); outcome injection from outside; the census; the egress allowlist; agent-side environments declared by plug-ins, which replace per-domain sandbox contracts such as the HTN contract v6 that Phase 8 would otherwise need. The plug-in manifest has no field for them yet: the plan adds one as an optional field, a minor bump on the `schemas@` line, allowed before the 1.0 freeze. That declaration names the environment's kind (A3). Today's Python venv becomes the first kind: its paths, variables, markers and Python version move into that kind's implementation, and R01 §Isolation says what a kind supplies. Source: `__reports__/candler-v1-review/01-gap_analysis_harness_env_v0.md`, H2 and H3.
-Adversarial verification is required for I8: attack every path by which ground truth could enter the boundary (mounts, environment, logs, the driver's files).
+In plan mode, author the campaign with `managing-roadmaps`, covering: the egress allowlist behind `Isolation` over M2b's Docker backend, with hostnames and ports declared by the experiment or plug-in; agent-side environments declared by plug-ins, which replace per-domain sandbox contracts such as the HTN contract v6 that Phase 8 would otherwise need (the plug-in manifest has no field for them yet: the plan adds one as an optional field, a minor bump on the `schemas@` line); the I8 guard; and the Docker client work (A5, A1, A8), which is a refactor of what exists and goes first so the allowlist builds on it. Constraint: M5 must not tie the core further to Python. Today's Python venv is the only environment kind; M5 adds no Python path, variable, marker or version to the core and does not add a second kind (see Future features).
+M5 does not build outcome injection, a whole-container census, a macOS host backend or an environment-kind abstraction. Each is a Future features item with its trigger in R01.
+Adversarial verification is required for I8: attack every path by which ground truth could enter the boundary (mounts, environment, logs, the driver's files), and for the allowlist: attack every way a container could reach a host that is not listed (DNS, IP literals, redirects, the gateway as a proxy).
 **Deliverables**: `__roadmap__/m5-container-isolation/README.md` and its leaves
 **Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/m5-container-isolation/` (expected: PASS)
 **Commit**: `rdm(isolation): plan the m5-container-isolation milestone`
@@ -32,8 +28,8 @@ Adversarial verification is required for I8: attack every path by which ground t
 **Goal**: The milestone campaign is executed and lands on `main`.
 **Implementation Logic**:
 Execute the campaign on `feat/m5-container-isolation`, then land it on `main` with one `--no-ff` merge. The Success Gates above must pass on `main` after the merge. If a design decision changed, `__design__/architecture.md` changes in the same merge.
-**Deliverables**: injection, census and egress allowlist over M2b's Docker backend in `candler-core`; plug-in environment provisioning; their tests
-**Consistency Checks**: `cargo test --workspace` (expected: PASS)
+**Deliverables**: the egress allowlist and plug-in environment provisioning over M2b's Docker backend in `candler-core`; the single Docker client and control-container builder; the I8 guard; their tests
+**Consistency Checks**: `cargo nextest run --workspace` (expected: PASS)
 **Commit**: `merge(isolation): land container isolation`
 
 ## Step 3: Close out

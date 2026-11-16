@@ -1,16 +1,39 @@
 # M6a Paired statistics
 
-**Goal**: <One-line objective>
+**Goal**: `analyze` compares paired arms with McNemar, CMH, bootstrap and fixed-sequence tests alongside M3's Wilson intervals and Holm adjustment, and reports each arm's `instrument_error` count.
 **Pre-conditions**:
-- [ ] <Entry criteria>
+- [ ] `../m5_container_isolation.md` is `done`, and M2a before it (the tree also waits for M5; the reminder needs only M2a)
+- [ ] Reminder `candler-M6` read (statistics list, pairing model)
 **Success Gates**:
-- ⬜ <Measurable gate>
-**References**: [R01 §<section>](<path>) — <what to find>
+- ⬜ McNemar, CMH, bootstrap and fixed-sequence tests run on declared pairing keys, and each equals a second engine's table on the existing HTN golden runs
+- ⬜ The pairing keys, the execution order and the declared blocking factor are decided and recorded in `__design__/architecture.md` §Analysis statistics
+- ⬜ `analyze` reports `instrument_error` per arm, with the arm's counts of the other invalid causes unchanged
+- ⬜ Every cell digest of M1's golden import and M2a's parity fixtures is unchanged
+**References**: [R01 §Analysis statistics, §Contracts & Invariants (I5)](../../../../../../../../__design__/architecture.md) — today's defaults (rate, Wilson, Fisher with Newcombe, Holm) and the grading rule; [R04 Golden reference](../../../../../../README.md) — listed in the campaign README; the runs the gates test on
 
-## Step 1: <Title>
-**Goal**: <Unique change intent>
+## Step 1: Plan the milestone
+
+**Goal**: The campaign `__roadmap__/m6a-paired-stats/` exists and Eliott has approved it.
 **Implementation Logic**:
-<WHAT and WHY. Describe scope.>
-**Deliverables**: <file paths — for each, list the named symbols it will contain: function/method names, type names, exported identifiers, endpoint paths, component names>
-**Consistency Checks**: `<command>` (expected: PASS)
-**Commit**: `<type>(<scope>): <description>`
+In plan mode, author the campaign with `managing-roadmaps`, covering: the paired tests in `candler-core` beside M3's Wilson and Holm; the pairing model (replicate and attempt exist since M2b and start times are recorded; pairing keys, execution order and a declared blocking factor are new, and the plan decides them before any code is written); per-arm `instrument_error` reporting. The gates are tested on existing HTN golden runs, so the milestone runs no new model call. Probabilistic evaluators stay descriptive only (I5).
+**Deliverables**: `__roadmap__/m6a-paired-stats/README.md` and its leaves
+**Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/m6a-paired-stats/` (expected: PASS)
+**Commit**: `rdm(stats): plan the m6a-paired-stats milestone`
+
+## Step 2: Build and land
+
+**Goal**: The milestone campaign is executed and lands on `main`.
+**Implementation Logic**:
+Execute the campaign on `feat/m6a-paired-stats`, then land it on `main` with one `--no-ff` merge. The Success Gates above must pass on `main` after the merge. The pairing decisions go to `__design__/architecture.md` in the same merge.
+**Deliverables**: the paired tests and per-arm `instrument_error` reporting in `candler-core`; the pairing decisions in `__design__/architecture.md`; their tests
+**Consistency Checks**: `cargo nextest run --workspace` (expected: PASS)
+**Commit**: `merge(stats): land paired statistics`
+
+## Step 3: Close out
+
+**Goal**: The milestone is recorded.
+**Implementation Logic**:
+Write a knowledge-transfer report under `__reports__/m6a-paired-stats/`. Mark this leaf `done` with `dirtree-rdm update`. Propose the reminder reconciliation to Eliott: `candler-M6` complete. Apply only on his yes, through `sw_write.py`.
+**Deliverables**: `__reports__/m6a-paired-stats/` knowledge-transfer report; this leaf's status in `__roadmap__/candler-v1/contracts/parity/alignment/surfaces/isolation/stats/README.md`
+**Consistency Checks**: `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.2.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/candler-v1/contracts/parity/alignment/surfaces/isolation/stats/` (expected: PASS)
+**Commit**: `reports(stats): close the m6a-paired-stats milestone`
