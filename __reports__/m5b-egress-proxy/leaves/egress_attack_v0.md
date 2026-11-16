@@ -52,3 +52,17 @@ Fix: a rig network on 169.254.231.0/24 (--internal, made and removed by id) that
     
     failures:
     
+
+## Fix round 2 (verifier of the round-1 rig: 1 blocker, 7 should-fix)
+
+Fixed:
+- B1 (blocker, product): `egress.js` read only the first entry of `$upstream_addr`, and nginx retries the next resolved address by default, so a listed name answering [a refusing address, a link-local address] reached the link-local sink. The filter now refuses when any entry of the comma list is refused, and the stream block sets `proxy_next_upstream off;` (commit `fix(isolation): refuse every address nginx tries for an upstream`). New row `10b`: `multi.test:7004` answers [an egress-network address with no listener, the link-local sink]; eight attempts; every sink must receive 0 bytes. Bite `EGRESS_RIG_BITE=first_entry_retry` (the old filter plus the retry default) is red: `row 10b [refusing address, link-local sink]: sink 4 received 148 bytes, expected 0`. Clean: all zero.
+- S1: the `denied` sink carries the aliases `denied.test` and `external.test` on the egress network, so rows 4, 5, 7 and 8 go red under `agent_on_egress`: row 4 sink 3 37 bytes; row 5 sinks 0, 1 and 3 37, 37 and 74 bytes; row 7 sink 3 37 bytes; row 8 the host listener 37 bytes (rows 4 and 7 were green before).
+- S2: row 9 also sends SNI `rebind.test`, `external.test` and `allowed.test` to `a.test:9443`; sink 3 listens on 9443 and stays at 0.
+- S4: `low.test:443` is listed; new must-succeed row "1 a port below 1024 under cap-drop" delivers 37 bytes to its sink, so the proxy binds 443 as a non-root user without capabilities.
+- S7: every container and network the rig makes carries `candler.rig=<job>`; the sweep (also on panic) lists by that label and by `candler.job=<job>` and removes by id; the run asserts that nothing carrying either label remains.
+- S3: the agent's second network now comes from the product's `GatewayHandle::agent_networks`; the clean run asserts it equals the job network and the allow network, and `agent_on_egress` asks it for a `bridge` cell (the agent keeps its allow network to reach the proxy), so the bite flips product code. Row 11 stays green under the bite: the gateway's `proxy_pass` is static, which is the design (holds by construction).
+
+Residuals, accepted: S5 (row 8 is meaningful on Linux CI only), S6 (no second allow network), R1 to R6 as in the verifier's notes. `multi.test` relies on nginx rotating its resolved addresses, hence eight attempts; the bite is red in the run above.
+
+Gates: rig clean 15.2 s wall (18.4 s test), `egress_proxy_never_resolves_a_listed_host_to_itself` green; the gateway and egress guards 19 of 19; Docker before and after: images and containers equal, no network of the rig left (the one network id that changed is the daemon's default `bridge`, not the rig's).
