@@ -17,27 +17,30 @@ use candler_core::isolation::container::guard::ContainerGuard;
 use candler_core::isolation::container::mounts::{MountMode, MountSpec};
 use candler_core::isolation::container::sweeper::LabelSweeper;
 use candler_core::isolation::container::sweeper::{ContainerSweeper, SweepError};
-use candler_core::isolation::docker::DockerError;
+use candler_core::isolation::docker::{DockerCli, DockerError};
 use candler_core::isolation::driver::{DestroyDriver, DockerDriver};
 use candler_core::isolation::gateway::ChildRecorder;
+use candler_core::isolation::gateway::Gateway;
 use candler_core::isolation::model::{
-    ContainerPlan, ContainerSweep, GatewayHandle, ImageId, ImageRef, Inspect, InspectState, Labels,
-    Limits, NetworkName, SweepScope, UserSpec,
+    ContainerOutcome, ContainerPlan, ContainerSweep, GatewayHandle, ImageId, ImageRef, Inspect,
+    InspectState, Labels, Limits, NetworkName, SweepScope, UserSpec,
 };
 use candler_core::isolation::testing::{RecordingDestroyer, RecordingDocker};
-use candler_core::isolation::{IsolatedRequest, Isolation as _, IsolationError, RunOutputs};
+use candler_core::isolation::{IsolatedRequest, Isolation, IsolationError, RunOutputs};
 use candler_core::jobs::dir::JobDir;
-use candler_core::jobs::model::{JobCause, JobControl, JobOutcome};
+use candler_core::jobs::model::{JobCause, JobControl, JobOutcome, JobSpec};
 use candler_core::jobs::orchestrate::orchestrate_with;
+use candler_core::jobs::orchestrate::schedule::Clock;
+use candler_core::jobs::orchestrate::session::{JobHost, OrchestrateError};
 use candler_core::jobs::view::JobView;
-use candler_core::supervise::EventSink;
-use candler_core::supervise::spawn::OutputSpec;
+use candler_core::runner::Runtime;
+use candler_core::supervise::spawn::{OutputSpec, SpawnRequest};
 use candler_core::supervise::stop::{Ended, Exit};
-use candler_harness::spec::Workspace;
-use candler_harness::spec::{CommandSpec, Framing};
+use candler_core::supervise::{EventSink, Supervisor};
+use candler_harness::spec::{Cell, CommandSpec, Framing, Workspace};
 use candler_schemas::container::{ContainerFound, ContainerRole};
 use candler_schemas::execution::{EventPayload, InvalidReason, JobState};
-use candler_schemas::primitives::{ContainerId, JobId, RunKey, Timestamp};
+use candler_schemas::primitives::{ContainerId, JobId, Marker, RunKey, Timestamp};
 use candler_schemas::process::ExitStatus;
 use candler_schemas::trace::EndedBy;
 use futures::future::BoxFuture;
@@ -508,7 +511,7 @@ fn record_name(id: &ContainerId) -> String {
 /// `sink`; `during` runs on another thread with the job's control while the job runs.
 fn run_job(
     rig: &Rig,
-    host: Arc<FakeHost>,
+    host: Arc<dyn JobHost>, // TRAIT_OBJECT: a test host is any host over the fake client
     sink: Arc<Recorder>,
     during: impl FnOnce(&JobControl) + Send,
 ) -> JobOutcome {
@@ -851,4 +854,145 @@ fn stop_that_races_the_clients_own_exit_is_still_a_stop() {
         assert_eq!(run.invalid, Some(reason), "{cause:?}: the reason");
         assert_eq!(run.ended_by, ended_by, "{cause:?}: the end");
     }
+}
+
+/// A job host over the fake client whose isolation creates and records the agent container, then
+/// hands the run a client program that does not exist, so the spawn fails.
+struct UnstartableHost(Arc<FakeHost>);
+
+/// The isolation of [`UnstartableHost`].
+struct Unstartable {
+    inner: Arc<dyn Isolation>, // TRAIT_OBJECT: the host's own isolation is a trait object
+}
+
+impl Isolation for Unstartable {
+    fn plan(
+        &self,
+        cell: &Cell<'_>,
+        workspace: &Workspace<'_>,
+    ) -> Result<ContainerPlan, IsolationError> {
+        self.inner.plan(cell, workspace)
+    }
+
+    fn run_request<'a>(
+        &'a self,
+        plan: &'a ContainerPlan,
+        command: CommandSpec,
+        marker: Marker,
+        key: RunKey,
+        outputs: RunOutputs,
+    ) -> BoxFuture<'a, Result<IsolatedRequest, IsolationError>> {
+        Box::pin(async move {
+            let made = self
+                .inner
+                .run_request(plan, command, marker.clone(), key.clone(), outputs) // BORROW: the replacement carries them too
+                .await?;
+            let framed = |stream: &str| {
+                OutputSpec::framed(
+                    plan.record_dir.clone(), // BORROW: the spec owns its directory
+                    stream.parse().expect("a stream name"),
+                    Framing::Lines,
+                )
+            };
+            let request = SpawnRequest::builder()
+                .argv(vec![String::from("/nonexistent/candler-fixb/docker")])
+                .marker(marker)
+                .run(key)
+                .stdout(framed("stdout"))
+                .stderr(framed("stderr"))
+                .record_dir(plan.record_dir.clone()) // BORROW: the request owns its directory
+                .build()
+                .expect("a request");
+            let mut broken = IsolatedRequest::new(request, made.end_facts);
+            if let Some(cid) = made.container {
+                broken = broken.with_container(cid);
+            }
+            Ok(broken)
+        })
+    }
+
+    fn collect_exec<'a>(
+        &'a self,
+        plan: &'a ContainerPlan,
+        command: &'a CommandSpec,
+    ) -> BoxFuture<'a, Result<Vec<u8>, IsolationError>> {
+        self.inner.collect_exec(plan, command)
+    }
+
+    fn collect_and_destroy<'a>(
+        &'a self,
+        plan: &'a ContainerPlan,
+        workspace: &'a Workspace<'a>,
+        exit: &'a Exit,
+        key: &'a RunKey,
+    ) -> BoxFuture<'a, Result<ContainerOutcome, IsolationError>> {
+        self.inner.collect_and_destroy(plan, workspace, exit, key)
+    }
+}
+
+impl JobHost for UnstartableHost {
+    fn docker_cli(
+        &self,
+        supervisor: Arc<Supervisor>,
+        record_dir: PathBuf,
+    ) -> Result<DockerCli, DockerError> {
+        self.0.docker_cli(supervisor, record_dir)
+    }
+
+    fn gateway<'a>(
+        &'a self,
+        rt: &'a Runtime,
+        spec: &'a JobSpec,
+        // TRAIT_OBJECT: the gateway is a fake, as the session takes it from the host
+    ) -> BoxFuture<'a, Result<Arc<dyn Gateway>, OrchestrateError>> {
+        self.0.gateway(rt, spec)
+    }
+
+    // TRAIT_OBJECT: the host hands the runs an isolation as a trait object
+    fn isolation(&self, isolation: DockerIsolation) -> Arc<dyn Isolation> {
+        Arc::new(Unstartable {
+            inner: self.0.isolation(isolation),
+        })
+    }
+
+    fn clock(&self) -> Clock {
+        self.0.clock()
+    }
+}
+
+/// Guards: R01 §Process supervision — an agent container that was created and recorded is
+/// destroyed by its own run when the docker client cannot be started, and not left to the
+/// job-close sweep alone.
+/// Oracle: the fake client's log of `container rm` calls, counted by hand: the run's own destroy
+/// and then the job-close sweep's, which the fake's static listing and record still offer (two),
+/// against the sweep's alone (one).
+/// Bite: remove the destroy on the spawn-failure path of `drive`, so only the job-close sweep
+/// reaches the client (one `rm`).
+#[test]
+fn agent_container_is_destroyed_when_its_client_cannot_start() {
+    let facts = facts();
+    let key = planned_key(&facts);
+    let id = cid(0xabc);
+    let rig = Rig::new(0);
+    script_agent(&rig, &id, &key);
+    let host = rig.host_with_agent(FakeAgent {
+        cid: id.clone(), // BORROW: the agent owns its id
+        sleep_s: 0,
+        sweeper: None,
+        stdout: String::new(),
+    });
+    let sink = Arc::new(Recorder::default());
+    let outcome = run_job(
+        &rig,
+        Arc::new(UnstartableHost(host)),
+        Arc::clone(&sink),
+        |_ctl| {},
+    ); // BORROW: the test reads the sink after the job
+    let _ = outcome;
+
+    assert_eq!(
+        rm_calls(&rig),
+        2,
+        "the run's own destroy and the job-close sweep's both reached the client"
+    );
 }
