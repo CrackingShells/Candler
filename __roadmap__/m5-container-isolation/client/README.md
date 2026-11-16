@@ -20,23 +20,23 @@ Every docker process the core starts is built by `isolation/docker.rs`. Every co
 - [ ] [cmd] DIGEST and GOLDEN pass on the milestone tip
 
 ## Success Gates
-- ⬜ [cmd] Both leaves' gates pass on the milestone tip after their merges; STD, LINUX and DIGEST pass
-- ⬜ [cmd] The trait additions are in place for L2: `git grep -q 'fn inspect_many' -- crates/candler-core/src/isolation/driver.rs && git grep -q 'fn create' -- crates/candler-core/src/isolation/driver.rs`
+- ✅ [cmd] Both leaves' gates pass on the milestone tip after their merges; STD, LINUX and DIGEST pass
+- ✅ [cmd] The trait additions are in place for L2: `git grep -q 'fn inspect_many' -- crates/candler-core/src/isolation/driver.rs && git grep -q 'fn create' -- crates/candler-core/src/isolation/driver.rs`
 - ⬜ [cmd] The milestone branch is pushed and CI's `container-e2e` job is green on it
 
 ## Gotchas
 - **Race rules:**
   - `docker_client` keeps the public signatures of `DockerImageService::{ensure, base}`;
-  - `egress_setting` owns `resolve/steps/egress.rs` (new) and the egress reading in
-    `experiment/surface.rs`;
+  - `egress_setting` owns `resolve/steps/egress.rs` (new), its refusal route in
+    `resolve/{preflight,refusal}.rs` and the per-cell settle in `runner/plan.rs`;
   - shared append-only hunks go to the coordinator.
 - `docker_client` leaves `harness_baseline/argv.json` byte-identical; A8 changes it at L2.
 
 ## Status
 ```mermaid
 graph TD
-    docker_client[Docker client]:::planned
-    egress_setting[Egress setting]:::planned
+    docker_client[Docker client]:::done
+    egress_setting[Egress setting]:::done
     seams[Seams]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -48,8 +48,8 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `docker_client.md` | 📄 Leaf Task | ⬜ Planned |
-| `egress_setting.md` | 📄 Leaf Task | ⬜ Planned |
+| `docker_client.md` | 📄 Leaf Task | ✅ Done |
+| `egress_setting.md` | 📄 Leaf Task | ✅ Done |
 | `seams/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log

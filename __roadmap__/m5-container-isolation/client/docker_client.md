@@ -6,14 +6,14 @@
 - [ ] [nl] OWNED: `crates/candler-core/src/isolation/{docker,driver,testing,gateway,image}.rs`, `isolation/hardening.rs` and `isolation/control.rs` (new), `isolation/container/{run,exec}.rs` (the client and control parts only), `runner/evidence/catalog.rs`, `jobs/orchestrate/controls.rs`, the test support under `crates/candler-core/tests/it/support/` and `crates/candler/tests/it/support/`, new e2e files
 - [ ] [nl] It keeps the public signatures of `DockerImageService::{ensure, base}`, which `plugin_environment` builds on
 **Success Gates**:
-- ⬜ [cmd] One client: `test -z "$(git grep -l 'SpawnRequest::builder' -- crates/candler-core/src/isolation crates/candler-core/src/runner/evidence | grep -v isolation/docker.rs)"` and `test -z "$(git grep -l '"docker"' -- crates/candler-core/src | grep -v isolation/docker.rs)"`
-- ⬜ [cmd] The agent's argv is unchanged: `git diff --quiet 18142ec -- crates/candler-core/tests/fixtures/harness_baseline` and `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_harness_facts::/)'`
-- ⬜ [cmd] Every control kind carries the hardening and its own limits, and every docker spawn carries only the allowlisted client names: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_container_run::control_kind_/) | test(/^guard_container_run::client_env_/)'`
-- ⬜ [cmd] The real-image guard passes with Docker up: `cargo nextest run -p candler-core --no-tests=fail --run-ignored only -E 'test(/^guard_container_e2e::.*control_each_kind_runs_on_the_real_base/)'`
-- ⬜ [cmd] The existing e2e still pass on images built through the core: E2E
-- ⬜ [cmd] SPAWN, STD (`-p candler-core -p candler`), LINUX, DIGEST and SUBJ pass
-- ⬜ [nl] The leaf report records why the gateway's client passed `PATH`, and whether it was kept (with its reason for R01) or removed; the bite of each guard; and the docker spawn sites found against the plan's six
-- ⬜ [nl] The review of the final diff closed with no open finding. It attacked argv byte-equality against `argv.json`, the control-kind table (a flag dropped, limits unified upward), and the `PATH` reason
+- ✅ [cmd] One client: `test -z "$(git grep -l 'SpawnRequest::builder' -- crates/candler-core/src/isolation crates/candler-core/src/runner/evidence | grep -v isolation/docker.rs)"` and `test -z "$(git grep -l '"docker"' -- crates/candler-core/src | grep -v isolation/docker.rs)"`
+- ✅ [cmd] The agent's argv is unchanged: `git diff --quiet 18142ec -- crates/candler-core/tests/fixtures/harness_baseline` and `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_harness_facts::/)'`
+- ✅ [cmd] Every control kind carries the hardening and its own limits, and every docker spawn carries only the allowlisted client names: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_container_run::control_kind_/) | test(/^guard_container_run::client_env_/)'`
+- ✅ [cmd] The real-image guard passes with Docker up: `cargo nextest run -p candler-core --no-tests=fail --run-ignored only -E 'test(/^guard_container_e2e::.*control_each_kind_runs_on_the_real_base/)'`
+- ✅ [cmd] The existing e2e still pass on images built through the core: E2E
+- ✅ [cmd] SPAWN, STD (`-p candler-core -p candler`), LINUX, DIGEST and SUBJ pass
+- ✅ [nl] The leaf report records why the gateway's client passed `PATH`, and whether it was kept (with its reason for R01) or removed; the bite of each guard; and the docker spawn sites found against the plan's six
+- ✅ [nl] The review of the final diff closed with no open finding. It attacked argv byte-equality against `argv.json`, the control-kind table (a flag dropped, limits unified upward), and the `PATH` reason
 **References**: [R04 A5](../../../__reports__/interlude-audit/00-findings_audit_v0.md) — the copies; [R06 D6 and its file layout](/Users/hacker/Library/Application%20Support/Claude/side-session-notes/local_7f577b41-1698-4eeb-9de3-4ee9460ae606/m5-approved-plan.md); [R01 §Process supervision](../../../__design__/architecture.md) — control containers, the client allowlist
 
 ## Step 1: Add multi-id inspect and create to the client

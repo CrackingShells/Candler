@@ -5,11 +5,11 @@
 - [ ] [cmd] The leaf's worktree is its own checkout: `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints the worktree path
 - [ ] [nl] OWNED: `crates/candler-schemas/**`; in the core only `resolve/layers.rs` (`LEAVES`, `is_location`), `tests/oracle/vectors/field_paths.toml` (rows added only), `tests/it/guard_settings_out_of_cell.rs` (one row), and the role arms at `isolation/container/guard.rs` and `jobs/lost.rs`
 **Success Gates**:
-- ⬜ [cmd] `cargo check --workspace --all-targets` passes on each of the leaf's two commits: `for c in $(git rev-list --reverse <base>..HEAD); do git checkout -q $c && cargo check --workspace --all-targets -q || exit 1; done; git checkout -q -`
-- ⬜ [cmd] Old documents stay valid, the new map reads set and unset, unknown keys and paths outside the allowed set are refused: `cargo nextest run -p candler-schemas --no-tests=fail -E 'test(/^guard_wire_shapes::agent_environments_/) | test(/^guard_execution_wire::container_role_egress_/)'`
-- ⬜ [cmd] The new setting never reaches a cell: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_settings_out_of_cell::/)'`
-- ⬜ [cmd] DRIFT, DIGEST and SUBJ pass; exactly one release-triggering commit touches `crates/candler-schemas`, it is `feat(schemas)`, and it touches no other crate (the campaign README's G6 form over `<base>..HEAD`)
-- ⬜ [nl] The leaf report records step 1's answer (whether `ValueSource::Derived {step, from}` records a plug-in fragment truthfully), each guard's bite, and the allowed fragment paths as written
+- ✅ [cmd] `cargo check --workspace --all-targets` passes on each of the leaf's two commits: `for c in $(git rev-list --reverse <base>..HEAD); do git checkout -q $c && cargo check --workspace --all-targets -q || exit 1; done; git checkout -q -`
+- ✅ [cmd] Old documents stay valid, the new map reads set and unset, unknown keys and paths outside the allowed set are refused: `cargo nextest run -p candler-schemas --no-tests=fail -E 'test(/^guard_wire_shapes::agent_environments_/) | test(/^guard_execution_wire::container_role_egress_/)'`
+- ✅ [cmd] The new setting never reaches a cell: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_settings_out_of_cell::/)'`
+- ✅ [cmd] DRIFT, DIGEST and SUBJ pass; exactly one release-triggering commit touches `crates/candler-schemas`, it is `feat(schemas)`, and it touches no other crate (the campaign README's G6 form over `<base>..HEAD`)
+- ✅ [nl] The leaf report records step 1's answer (whether `ValueSource::Derived {step, from}` records a plug-in fragment truthfully), each guard's bite, and the allowed fragment paths as written
 **References**: [R01 §Plug-in manifest, §Agent environment and secrets](../../__design__/architecture.md) — the configuration table; [R06 D4, D5](/Users/hacker/Library/Application%20Support/Claude/side-session-notes/local_7f577b41-1698-4eeb-9de3-4ee9460ae606/m5-approved-plan.md) — the shapes
 
 ## Step 1: Declare the shapes on the schemas line

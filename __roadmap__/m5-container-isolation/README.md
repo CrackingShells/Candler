@@ -135,7 +135,7 @@ An agent's container reaches only its listed hosts and the model gateway. A plug
 ```mermaid
 graph TD
     wire_shapes[Wire shapes]:::done
-    client[Client]:::planned
+    client[Client]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -147,7 +147,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `wire_shapes.md` | 📄 Leaf Task | ✅ Done |
-| `client/` | 📁 Directory | ⬜ Planned |
+| `client/` | 📁 Directory | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
