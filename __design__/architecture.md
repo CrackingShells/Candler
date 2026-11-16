@@ -404,12 +404,28 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
 - **Stop escalation:** the driver's pre-stop action, if any (an HTTP call or a command the core
   runs) → the request's stop hook, if any → the driver's stop signal and grace → terminate the
   process group → kill it → **stray sweep** → the stop hook's destroy step. Every step is an event.
-- **Containers (Docker, through the `docker` CLI).** The supervised child is the `docker run`
-  client; its stdout is the stream. Killing the client does not stop the container, so a run in a
-  container carries a **stop hook**, attached per spawn request: at pre-stop it reads the cidfile,
-  re-verifies the container and runs `docker stop -t <grace>`; its destroy step runs only when the
-  escalation ended the child. A run that exits by itself is inspected, collected, then destroyed.
-  Agent and gateway containers never use `--rm`, so the exit facts survive for the inspect.
+- **Containers (Docker, through the `docker` CLI).** One docker client (`isolation/docker.rs`)
+  builds every docker process the core starts: the agent's attached client, the gateway's calls,
+  the controls, the image build and the probes. It runs the absolute path of the `docker` binary
+  found at start, with an environment allowlist of `DOCKER_HOST`, `DOCKER_CONTEXT` and `HOME`. It
+  has no `PATH`, because nothing the core runs through it resolves a program by `PATH`: the
+  binary is absolute, and a gateway created from a local image id never pulls, builds or pushes,
+  so no credential helper runs. A docker context that needs a helper on `PATH` (an `ssh://` host)
+  therefore fails for every call alike.
+- **The agent container** is created, recorded, then attached. The core runs `docker create`,
+  which returns the id; it writes the container record; it then spawns `docker start -a <id>` as
+  the supervised child, and that client's stdout is the stream. `-i` is on both `create` and
+  `start` when a session feeds stdin. There is no cidfile and nothing polls for the id.
+- **Stopping a container.** Killing the client does not stop the container, so a run in a
+  container carries a **stop hook**, attached per spawn request. A stop is `docker stop --time
+  <grace> <id>`, sent to the daemon; while the daemon is reachable the attached client is never
+  signalled, so it relays what the agent prints after TERM and exits with the container's own
+  exit code. The supervisor's own ladder on the client (signal, terminate, kill) is only the
+  fallback for a lost daemon. An agent that ends by itself gets no stop, and the full grace is
+  spent only when the agent ignores TERM. The hook re-verifies the container before it stops it;
+  its destroy step runs only when the escalation ended the child. A run that exits by itself is
+  inspected, collected, then destroyed. Agent and gateway containers never use `--rm`, so the
+  exit facts survive for the inspect.
 - **Container records.** Each container gets `children/container-<cid12>.json`
   (`container-record/1`: `{cid, labels {job, run, experiment}, created_at, image_id, role:
   agent|gateway, spawned_at}`) and the labels `candler.job`, `candler.run`, `candler.experiment`
@@ -503,7 +519,8 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
 - Secrets are referenced by variable name in the experiment, resolved when the process is spawned,
   checked at `resolve` and again at resume, and recorded as `{name, present}`, never as a value.
 - **In a container** the environment is built from nothing and passed with `-e` only; the docker
-  client itself gets its own allowlist (`DOCKER_HOST`, `DOCKER_CONTEXT`, its config dir). The
+  client itself gets its own allowlist (`DOCKER_HOST`, `DOCKER_CONTEXT`, `HOME`; §Process
+  supervision). The
   container runs non-root, with a read-only root, tmpfs `/tmp`, no capabilities,
   `no-new-privileges`, and pids, memory and CPU limits. Only the workspace, a per-run HOME (a
   host directory outside the workspace, so sub-agent transcripts survive), the tmpfs `/tmp` and
@@ -527,15 +544,24 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
   | `tools.allowed`, `tools.disallowed`, `mcp.*`, `permission_mode` | cell value |
   | `prompt.template`, `prompt.values` | cell value |
   | `isolation.image` (the derived local image ID), `isolation.network`, `isolation.env_lock`, `isolation.limits.*` | cell value |
+  | `isolation.egress` (a list of `host:port` strings; parsed and canonicalised as a sorted set, `[]` meaning absent; refused for now, see below) | cell value |
   | `budget.per_run.{wall_s, turns, max_cost_usd}` | cell value |
   | `runner.mode` (`headless` or `session`; no core default, so an absent value is headless and every existing cell keeps its digest), `runner.idle_s` (whole seconds or `none`; session mode only) | cell value |
   | `isolation.build.{dockerfile, context}` (its content enters `inputs[]`); `isolation.build.{requirements, lock}` (the lock they give enters the cell as `isolation.env_lock`); `isolation.build.prune` (part of the env image's key, so it reaches the cell through `isolation.image`) | setting |
   | `isolation.record_packages` (read from the env image, recorded in `measured[]`, never in the cell) | setting |
+  | `isolation.build.plugin` (`<plugin>/<env>`: the plug-in agent environment the experiment selects; §Plug-ins) | setting |
   | `request.harness`, `request.treatment`, `request.inputs`, `model.token_secret` | setting |
   | `harness`, `treatment`, `inputs[]`, `snapshots`, `environments` (reserved) | typed root |
 
   A CLI path resolves against the caller's cwd, a path in the experiment file against that
   file's directory (I14).
+
+- **`isolation.egress`** is parsed and canonicalised (lowercase `host:port` entries, a sorted
+  set, `[]` the same as absent, so a cell without it keeps its digest). Until the egress proxy
+  exists the value is refused with `isolation.egress_unsupported`, at `resolve` and again for each
+  cell, whether the experiment or a plug-in environment wrote it. A malformed entry is
+  `isolation.egress_invalid`, and an entry beside `isolation.network = bridge` is
+  `isolation.egress_with_bridge`.
 
 ### Raw traces
 
@@ -840,6 +866,7 @@ through stdin and stdin stays open, so a notification starts a further turn.
 | `protocol` | Protocol major.minor it speaks |
 | `command` | argv, relative to the plug-in directory |
 | `environment` | `{kind: uv \| none, project, lock}`; the core builds one environment per lock digest and reuses it, and runs `command` inside it (`VIRTUAL_ENV` set, its `bin/` first on `PATH`) |
+| `agent_environments` | Optional map `<name> → {values {<path>: value}, inputs [[…]]}`: a fragment of the agent's environment that an experiment can select |
 
 The core reads manifests without running anything. Plug-ins come from the directories of
 `plugins.dirs[]`, which `evaluate` reads; each plug-in directory holds one manifest, named
@@ -848,12 +875,42 @@ only in a subdirectory is refused. A suite names an evaluator as `name@range`.
 
 **What the core knows of a domain.** Nothing (I1). An evaluator reports the packages of its own
 environment through `describe`, in `environment.packages{}`. The agent's environment is declared
-by the experiment: its requirements, the files it prunes and the import packages it records
-(§Experiment file). The core records a domain's facts only under names the experiment gives, as
+by the experiment, and by the plug-in environment it selects: its requirements, the files it
+prunes and the import packages it records (§Experiment file). The core records a domain's facts only under names the experiment gives, as
 `provenance.packages.<import>.*` (§Run manifest), and no plug-in adds a domain field to the core.
 Every field of the experiment file and the run manifest that these rules add is optional and
 absent when unset, so `experiment/1` and `run-manifest/1` keep their tags and the cell-digest
 function is unchanged.
+
+**Plug-in agent environments.** An environment is a fragment of ordinary layered values, so the
+core learns nothing about what it holds (MCP servers included; the drivers already turn `mcp.*`
+into their config). An experiment selects one with the setting `isolation.build.plugin =
+"<plugin>/<env>"`; the core reads the manifest from `plugins.dirs[]` and never runs it. A fragment
+may set only `isolation.build.*`, `isolation.egress` and `mcp.*`; the manifest reader refuses any
+other path. The rules:
+
+- **Layer.** The `plugin_environment` preflight step enters the fragment as a derived layer below
+  the experiment file, recorded as `Derived {step: plugin_environment@…, from: "<plugin>/<env>"}`.
+  A scalar the experiment writes wins, and both sources stay recorded; a scalar it leaves out is
+  the plug-in's. Paths in the fragment are relative to the plug-in directory and become absolute
+  in the step; one that is absolute, holds `..` or leaves the directory through a symlink is
+  refused.
+- **Lists append.** A derived value ranks below the experiment file, so the steps that read a list
+  take the fragment's entries first. The image step builds `isolation.build.requirements` and
+  `isolation.build.prune` from the plug-in's entries, then the experiment's, deduplicated keeping
+  the first, so the requirements compile into one lock. Per cell, `isolation.egress` is the
+  canonical union (a sorted set) of the plug-in's entries and the cell's.
+- **Pairs come from one layer.** `isolation.build.dockerfile` with `isolation.build.context`, and
+  `isolation.build.lock` with `isolation.build.requirements`, must each be set by one layer; a
+  pair split across the plug-in and the experiment is refused. Two requirement sources with the
+  same file name are refused too, but only when a plug-in contributes one; the check does not run
+  for an experiment alone, which is an inconsistency.
+- **Inputs.** The CLI resolves a fragment's `inputs` against the plug-in directory, under the same
+  declared-twice and mount-collision refusals as the experiment's own, and merges them into the
+  one set of resolved inputs. Inputs are agent-audience only. The step never derives
+  `request.inputs`, which the image step owns.
+- **Refusals.** An unknown plug-in is the generic `resolve.preflight_failed`; an unknown
+  environment of a known plug-in is `isolation.plugin_environment_missing`.
 
 ### Suite file (on the `schemas@` line)
 
@@ -1503,9 +1560,9 @@ by the original artifact commit `36290ab`, and is imported under `measured`. At 
 What is not built, and what would make us build it. An item is built when its trigger is met by
 evidence, not by a date, and no milestone builds one on spec: a milestone needs an item's trigger
 first. Candler stays at `0.y.z` through a long dogfooding period, so no item here waits on a freeze.
-Decided and scheduled work is not listed: M5 builds the egress allowlist, plug-in agent
-environments, the guard for I8 and one Docker client with one control-container builder (the
-interlude's A5, with A1 and A8); M6a builds the paired tests and settles the pairing keys, the
+Decided and scheduled work is not listed: M5b builds the egress proxy (the allowlist's
+enforcement), the reuse of the guard (A1), the refusal of ground truth with its end-to-end
+guard (D9, I8), and the live smoke; M6a builds the paired tests and settles the pairing keys, the
 execution order and the blocking factor (recorded in §Analysis statistics); M7 builds the MCP tool
 shapes and the agent skills; M8 builds the second plug-in and adds its gaps to this list. The
 container backend is decided (M2b): Docker through its CLI, one `docker run` per run; `Isolation`
@@ -1527,6 +1584,7 @@ turns a plan into a spawn request, then collects and destroys.
 | SIGCHLD-driven reaping (A3) | Reap children on signal instead of by polling | Less polling, faster exit facts | A measured reap delay or a missed exit |
 | Long-lived workers | A worker that serves many runs | Start-up cost per run | A measured start-up cost that dominates a run |
 | Signals error versus census | One ruling for `runner/exec/mod.rs:777`, which reads a signals error as "gateway did not fail" while the census reads it as "not collected" | The two readings can disagree on the same fact | The next change to either reader |
+| Catalog capture of input-delivered servers | A mount seam in `catalog_spec` and an inputs-aware provider | The per-run catalog cannot see servers delivered through inputs | An eval that must grade against the run's own captured catalog of input-delivered servers, or an automated snapshot-versus-live check |
 | Parallel container e2e (D4) | Run the container end-to-end tests in parallel | Shorter CI | A per-test analysis of sweep scope shows no overlap |
 
 ### Experiments and analysis
