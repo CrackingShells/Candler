@@ -8,7 +8,7 @@ An agent's container reaches only its listed hosts and the model gateway, a real
 
 ## Pre-conditions
 - [ ] `../m5_container_isolation.md` (M5a) is `done`
-- [ ] A plan for M5b, with step-sized leaves and a budget, is approved by Eliott
+- [x] A plan for M5b, with step-sized leaves and a budget, is approved by Eliott (2026-11-16: `__roadmap__/m5b-egress-proxy/`, cap $52; build started on his go)
 
 ## Success Gates
 - ⬜ The egress proxy enforces the allowlist and the `isolation.egress_unsupported` refusal is removed (D1, D2)
