@@ -25,9 +25,10 @@ use candler_core::isolation::model::{
     ContainerPlan, GatewayHandle, ImageId, ImageRef, Labels, Limits, NetworkName, UserSpec,
 };
 use candler_core::isolation::testing::AllowlistDriver;
-use candler_core::isolation::{Isolation as _, RunOutputs};
+use candler_core::isolation::{EndFacts, Isolation as _, RunOutputs};
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::view::JobView;
+use candler_core::runner::exec::spawn::RunStopper;
 use candler_core::supervise::spawn::{OutputSpec, SpawnRequest};
 use candler_core::supervise::stop::{Ended, Exit};
 use candler_core::supervise::{EventSink, Supervisor};
@@ -242,6 +243,12 @@ impl World {
 
     /// The created container's request through the isolation, and its id, allowed in the driver.
     async fn made(&self, mode: &str) -> (SpawnRequest, ContainerId) {
+        let (request, id, _facts) = self.made_stoppable(mode).await;
+        (request, id)
+    }
+
+    /// [`Self::made`] with the run's end facts, which stop the container through the daemon.
+    async fn made_stoppable(&self, mode: &str) -> (SpawnRequest, ContainerId, Arc<dyn EndFacts>) {
         let isolated = self
             .isolation
             .run_request(
@@ -255,7 +262,7 @@ impl World {
             .expect("a request");
         let id = isolated.container.expect("a created container");
         self.destroy.allow_container(id.as_str()); // BORROW: explicit .as_str()
-        (isolated.request, id)
+        (isolated.request, id, isolated.end_facts)
     }
 
     /// Destroys the run's container through the isolation, as the collect does after the exit. A
@@ -365,14 +372,16 @@ fn frames_text(path: &Path) -> String {
 
 /// Guards: R01 §Process supervision — the agent's container is created, recorded and attached with
 /// `docker start -a`: its exit code (3), its byte-exact standard output and error, its standard
-/// input (`-i`), a stop of the run through the stop hook that destroys the container by id, and a
-/// signal that reaches the agent's process through the attached client all behave as they do under
-/// `docker run`.
+/// input (`-i`), and a signal that reaches the agent's process through the attached client all
+/// behave as they do under `docker run`; a stop is one `docker stop` of the container, so the
+/// agent's last line after the TERM is in the recorded output and the recorded exit is the
+/// container's (143 under a TERM trap), and the container is destroyed by id.
 /// Oracle: the frames of `docker run --rm` of the same script on the same image (exit code and
-/// frame data without times), the script's own output written by hand, and `docker inspect` of
-/// the container id after the destroy.
+/// frame data without times), the script's own output written by hand, `docker inspect` of the
+/// container id after the destroy, and the coordinator's probe table (Engine 29.9.2: trap TERM,
+/// stop 0.23 s, client and container exit 143, final line relayed).
 /// Bite: `-i` dropped from the interactive start (the stdin row ends with exit code 143 and no
-/// echo).
+/// echo); the stop signalling the client instead of running `docker stop` (the stop row).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "needs a docker daemon and the testagent image; run by the container-e2e group"]
 async fn agent_create_then_attach() {
@@ -433,15 +442,30 @@ async fn agent_create_then_attach() {
         world.clean();
     }
 
-    // A stop mid-run through the stop hook ends the agent and the container is destroyed by id.
+    // A stop mid-run is one `docker stop` of the container: the client is not signalled, so it
+    // relays what the agent printed after the TERM and exits with the container's code.
     {
         let world = World::new(&image, false);
-        let (request, id) = world.made("term-echo").await;
+        let (request, id, facts) = world.made_stoppable("term-echo").await;
         let child = world.supervisor.spawn(request).expect("the client starts");
         World::until_running(&id);
-        let exit = child.stop().await.expect("the stop ends");
-        if exit.ended != Ended::Stopped {
-            failures.push(format!("stop: ended {:?}", exit.ended));
+        RunStopper::new(
+            child.stop_handle(),
+            facts,
+            world.key.clone(), // BORROW: the stopper owns its key
+            PATIENCE,
+        )
+        .request();
+        let exit = child.wait().await.expect("the client ends");
+        let shown = frames_text(&exit.raw.first().expect("a stdout file").path);
+        if exit.ended != Ended::Exited
+            || exit.status != (ExitStatus::Code { code: 143 })
+            || !holds(shown.as_bytes(), "got-term")
+        {
+            failures.push(format!(
+                "stop: ended {:?}, {:?}, output {shown}",
+                exit.ended, exit.status
+            ));
         }
         world.collect(&exit).await;
         if World::known(&id) {

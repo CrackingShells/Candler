@@ -32,12 +32,12 @@ use tokio::time::MissedTickBehavior;
 
 pub use crate::runner::evidence::session::{Idle, SessionEnd, SessionMeasures};
 
+use super::spawn::RunStopper;
 use crate::frames::{FrameWriter, RawFileInfo};
 use crate::isolation::IsolationError;
 use crate::resolve::steps::session::{DEFAULT_IDLE_S, MODE_SESSION, settle};
 use crate::supervise::now;
 use crate::supervise::spawn::Child;
-use crate::supervise::stop::StopHandle;
 use candler_schemas::execution::paths;
 
 /// How often the runner reads the hook log and decides.
@@ -541,11 +541,14 @@ impl SessionRun {
     ///
     /// # Errors
     /// [`IsolationError::Plan`] when the child has no stdin pipe.
-    pub fn start(self, child: &mut Child) -> Result<SessionHandle, IsolationError> {
+    pub fn start(
+        self,
+        child: &mut Child,
+        stop: RunStopper,
+    ) -> Result<SessionHandle, IsolationError> {
         let stdin = child.take_stdin().ok_or_else(|| {
             plan_error("the session's child has no stdin pipe".to_owned()) // BORROW: owned text
         })?;
-        let stop = child.stop_handle();
         let log = Arc::new(Mutex::new(self.log));
         let task = tokio::spawn(control(
             Arc::clone(&self.watch),
@@ -589,7 +592,7 @@ async fn control(
     watch: Arc<SessionWatch>,
     mut stdin: ChildStdin,
     input: Vec<u8>,
-    stop: StopHandle,
+    stop: RunStopper,
     grace: Duration,
     log: Arc<Mutex<Option<HookLog>>>,
 ) {

@@ -12,6 +12,7 @@ mod guard_container_e2e;
 mod guard_container_guard;
 mod guard_container_record;
 mod guard_container_run;
+mod guard_container_stop;
 mod guard_controls;
 mod guard_declared_inputs;
 mod guard_detach;

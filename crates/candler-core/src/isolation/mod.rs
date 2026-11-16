@@ -23,6 +23,7 @@ use candler_harness::spec::{Cell, CommandSpec, Observed, Workspace};
 use candler_schemas::primitives::{ContainerId, Marker, RunKey};
 use futures::future::BoxFuture;
 
+use crate::supervise::hook::HookError;
 use crate::supervise::spawn::{OutputSpec, SpawnRequest};
 use crate::supervise::stop::Exit;
 
@@ -101,6 +102,25 @@ pub trait EndFacts: Send + Sync {
     /// The final inspect and the destroy result of the run's container, when the stop hook
     /// took them; `None` for a backend that has no container.
     fn final_inspect(&self) -> Option<ContainerOutcome>;
+
+    /// Asks the daemon to stop the agent container of the run `run`, and returns once it has
+    /// stopped: the daemon sends the termination signal, waits its grace, then kills. The
+    /// attached client is not signalled; it relays what the agent printed on its way out and
+    /// exits with the container's code. A backend with no container refuses, and the caller ends the
+    /// client at once.
+    ///
+    /// # Errors
+    /// [`HookError`] when the daemon could not be asked or refused; the caller then falls back to
+    /// ending the client itself.
+    fn stop_agent<'a>(&'a self, run: &'a RunKey) -> BoxFuture<'a, Result<(), HookError>> {
+        // EXPLICIT: a backend with no container leaves the stop to the client's own ladder
+        let _ = run;
+        Box::pin(async {
+            Err(HookError::Refused {
+                detail: String::from("the run has no container"),
+            })
+        })
+    }
 }
 
 /// A spawn request and the handle that reports on its end.

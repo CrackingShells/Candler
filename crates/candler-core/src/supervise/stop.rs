@@ -387,10 +387,18 @@ impl Ladder<'_> {
                 if let Some(action) = &self.stop.pre_stop {
                     self.pre_stop(action, &mut climb).await;
                 }
-                if let Some(hook) = self.hook {
-                    self.hook_pre_stop(hook, &mut climb).await;
+                // A hook that stopped the child's world (the daemon stopped the container) lets the
+                // child drain and exit by itself for the grace; it is signalled only when the hook
+                // failed or the child is still there afterwards.
+                let mut left = false;
+                if let Some(hook) = self.hook
+                    && self.hook_pre_stop(hook, &mut climb).await
+                {
+                    left = wait_leader(leader, self.stop.grace).await;
                 }
-                self.signal(leader, &mut climb).await;
+                if !left {
+                    self.signal(leader, &mut climb).await;
+                }
                 self.terminate(leader, &mut climb).await;
                 self.kill(leader, &mut climb).await;
             }
@@ -421,14 +429,18 @@ impl Ladder<'_> {
     }
 
     /// Runs the hook's `pre_stop`; a failure is the step's outcome and the ladder goes on.
-    async fn hook_pre_stop(&self, hook: &Arc<dyn StopHook>, climb: &mut Climb) {
+    /// Says whether the hook succeeded.
+    async fn hook_pre_stop(&self, hook: &Arc<dyn StopHook>, climb: &mut Climb) -> bool {
         let started = now();
         let ctx = self.hook_ctx();
-        let outcome = match hook.pre_stop(&ctx).await {
+        let result = hook.pre_stop(&ctx).await;
+        let done = result.is_ok();
+        let outcome = match result {
             Ok(()) => "hook pre_stop done".to_owned(), // BORROW: .to_owned() makes the owned outcome from a literal
             Err(error) => format!("hook pre_stop failed: {error}"),
         };
         self.log(climb, StopStep::PreStop, started, outcome);
+        done
     }
 
     /// Runs the hook's `destroy` after the sweep. A failure is the step's outcome and the ladder

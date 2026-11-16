@@ -98,20 +98,31 @@ fn hook_error(error: &GuardError) -> HookError {
     }
 }
 
+impl ContainerStopHook {
+    /// Stops the agent container of `key` through the guard: one `docker stop` with the grace,
+    /// which returns once the container has exited. The attached client is not touched.
+    ///
+    /// # Errors
+    /// [`HookError`] when docker cannot list or stop the container, or the guard refuses it.
+    pub async fn stop_agent(&self, key: &RunKey) -> Result<(), HookError> {
+        let scope = SweepScope::Run(key.clone()); // BORROW: .clone() gives the scope its own key
+        let mut first = None;
+        for container in self.of_run(key, true).await? {
+            if let Err(error) = self.guard.stop(&container, &scope).await {
+                first.get_or_insert(hook_error(&error));
+            }
+        }
+        first.map_or(Ok(()), Err)
+    }
+}
+
 impl StopHook for ContainerStopHook {
     fn pre_stop<'a>(&'a self, ctx: &'a StopHookCtx) -> BoxFuture<'a, Result<(), HookError>> {
         Box::pin(async move {
-            let Some(key) = &ctx.run else {
-                return Ok(());
-            };
-            let scope = SweepScope::Run(key.clone()); // BORROW: .clone() gives the scope its own key
-            let mut first = None;
-            for container in self.of_run(key, true).await? {
-                if let Err(error) = self.guard.stop(&container, &scope).await {
-                    first.get_or_insert(hook_error(&error));
-                }
+            match &ctx.run {
+                Some(key) => self.stop_agent(key).await,
+                None => Ok(()),
             }
-            first.map_or(Ok(()), Err)
         })
     }
 
