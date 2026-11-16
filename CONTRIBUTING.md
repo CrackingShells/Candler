@@ -77,7 +77,7 @@ Plug-ins pin a schema version, so a core release never forces a schema bump. `re
 | `fix`, `perf`, `refactor`, `style`, `revert`, `docs(readme)` | patch |
 | anything else | no release |
 
-The highest bump across the batch wins. The core stays at `0.y.z` until the evaluator contract is frozen; the freeze is the `1.0.0` release.
+The highest bump across the batch wins. The core stays at `0.y.z` through a long dogfooding period; `__design__/architecture.md` §Future features lists the stability review that decides when `1.0.0` is due.
 
 **While a version is `0.y.z`**, a breaking change and a `feat` both bump the minor (`release-plz.toml` sets `features_always_increment_minor`), and every other release-triggering commit bumps the patch. A breaking change is still marked with `!` or a `BREAKING CHANGE:` footer, with its migration path in the body: the version cannot tell it from a feature, so the marker is what puts it in the changelog as breaking. The same holds for the schema and evaluator helper lines.
 
