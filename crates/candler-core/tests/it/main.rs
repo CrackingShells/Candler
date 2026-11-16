@@ -34,6 +34,7 @@ mod guard_legacy_mapping;
 mod guard_oracle_aggregates;
 mod guard_oracle_mini;
 mod guard_platform_seam;
+mod guard_plugin_environment;
 mod guard_proc_stat;
 mod guard_protocol_client;
 mod guard_refusal_codes;

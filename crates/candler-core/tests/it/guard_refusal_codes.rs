@@ -750,6 +750,16 @@ fn wrapped_cases() -> Vec<Wrapped> {
         ),
         case(
             "ResolveError",
+            "PluginEnvironment",
+            Box::new(ResolveError::PluginEnvironment(
+                candler_core::resolve::steps::plugin_environment::PluginEnvironmentRefusal::Missing {
+                    detail: "plug-in `p` has no agent environment `e`".to_owned(),
+                },
+            )),
+            "isolation.plugin_environment_missing",
+        ),
+        case(
+            "ResolveError",
             "Format",
             Box::new(ResolveError::Format(format())),
             "resolve.value_invalid",

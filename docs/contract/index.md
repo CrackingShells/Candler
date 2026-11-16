@@ -146,6 +146,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `isolation.mount_path_unsupported` | A mount path holds a comma, a newline or text that is not UTF-8, which cannot be written as a `--mount` option; a project directory with a comma in its name does it. | - | config |
 | `isolation.mount_symlink_escape` | A mount source is a symlink that leaves the project root and the store. | - | config |
 | `isolation.mount_unresolvable` | A mount source cannot be resolved on the host. | - | config |
+| `isolation.plugin_environment_missing` | `isolation.build.plugin` selects an agent environment that the plug-in does not offer. | - | experiment |
 | `isolation.secret_missing` | A secret the experiment declares is not set in the environment. | - | environment |
 | `isolation.secret_unsupported_character` | A secret holds a character that the gateway's configuration cannot carry. | - | environment |
 | `isolation.step_unavailable` | The container runtime has no isolation for the step, so the run cannot be placed. | - | environment |
