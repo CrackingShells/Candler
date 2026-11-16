@@ -7,27 +7,29 @@
 //! [`DockerCli`] reads and runs. [`DockerDestroyer`] stops and removes; only the container guard
 //! holds one. A destroy verb takes the full 64-digit id of a container, never a name or a prefix.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use candler_schemas::primitives::{ContainerId, Timestamp};
+use candler_schemas::primitives::{ContainerId, Marker, RunKey, Timestamp};
 use candler_schemas::process::ExitStatus;
 use futures::future::BoxFuture;
 use serde::Deserialize;
 
+use super::control::ControlSpec;
 use super::driver::{DestroyDriver, DockerDriver};
 use super::model::{
     BuildRequest, ContainerRef, ImageId, ImageInfo, Inspect, InspectState, LabelSel, Labels,
     LayerDigest, NetworkInfo, NetworkName,
 };
-use crate::supervise::Supervisor;
+use crate::supervise::hook::StopHook;
 use crate::supervise::signal::control_marker;
-use crate::supervise::spawn::SpawnRequest;
-use crate::supervise::stop::Ended;
+use crate::supervise::spawn::{OutputSpec, SpawnRequest, StdinSpec};
+use crate::supervise::stop::{Captured, Ended};
+use crate::supervise::{SuperviseError, Supervisor};
 
 /// The variables a docker client child may see: where the daemon is, which context names it, and
 /// the home directory that holds the client's own configuration.
@@ -139,8 +141,71 @@ impl ClientEnv {
 /// Finds `docker` in the directories of `path`, as an absolute path.
 fn find_docker(path: &OsString) -> Option<PathBuf> {
     std::env::split_paths(path)
-        .map(|dir| dir.join("docker"))
+        .map(|dir| dir.join(PROGRAM))
         .find(|candidate| candidate.is_absolute() && candidate.is_file())
+}
+
+/// The name of the docker program, which the first word of every docker argv is until the client
+/// replaces it with the binary it found.
+pub const PROGRAM: &str = "docker";
+
+/// What a run's supervised docker client needs besides its argv.
+#[non_exhaustive]
+pub struct AttachedRun {
+    /// The argv, led by [`PROGRAM`].
+    pub argv: Vec<String>,
+    /// The marker of the run's process.
+    pub marker: Marker,
+    /// The run the client belongs to.
+    pub key: RunKey,
+    /// Where the client's standard output goes.
+    pub stdout: OutputSpec,
+    /// Where the client's standard error goes.
+    pub stderr: OutputSpec,
+    /// The deadline the supervisor holds the client to.
+    pub deadline: Duration,
+    /// The directory of the client's process record.
+    pub record_dir: PathBuf,
+    /// Whether the client reads standard input from a pipe.
+    pub interactive: bool,
+    /// What stops the run's container when the supervisor stops the client.
+    // TRAIT_OBJECT: the isolation attaches its own hook per request
+    pub hook: Option<Arc<dyn StopHook>>,
+}
+
+/// The supervised request of a run's `docker run`, attached to the container until it exits: the
+/// first docker on this process's `PATH` (else the bare name) in place of the first word, and
+/// only the variables [`ClientEnv`] allows.
+///
+/// # Errors
+/// [`SuperviseError`] when the request is refused.
+pub fn attached_request(run: AttachedRun) -> Result<SpawnRequest, SuperviseError> {
+    let mut argv = run.argv;
+    if let Some(first) = argv.first_mut() {
+        *first = std::env::var_os("PATH")
+            .as_ref()
+            .and_then(find_docker)
+            .map_or_else(
+                || PROGRAM.to_owned(), // BORROW: the argv owns its text
+                |path| path.to_string_lossy().into_owned(),
+            );
+    }
+    let mut builder = SpawnRequest::builder()
+        .argv(argv)
+        .env(ClientEnv::from_process().pairs().to_vec()) // BORROW: .to_vec() gives the request its own pairs
+        .marker(run.marker)
+        .run(run.key)
+        .stdout(run.stdout)
+        .stderr(run.stderr)
+        .deadline(run.deadline)
+        .record_dir(run.record_dir);
+    if run.interactive {
+        builder = builder.stdin(StdinSpec::Pipe);
+    }
+    if let Some(attached) = run.hook {
+        builder = builder.stop_hook(attached);
+    }
+    builder.build()
 }
 
 /// Runs docker clients one call at a time through the supervisor.
@@ -166,7 +231,47 @@ impl Runner {
         deadline: Duration,
         limit: usize,
     ) -> Result<Vec<u8>, DockerError> {
-        let marker = control_marker();
+        let captured = self.captured(rest, deadline, limit).await?;
+        let stderr = detail_of(&captured.stderr);
+        match captured.exit.status {
+            ExitStatus::Code { code: 0 } => Ok(captured.stdout),
+            ExitStatus::Code { .. } | ExitStatus::Signal { .. } => {
+                if is_not_found(&stderr) {
+                    Err(DockerError::NotFound { detail: stderr })
+                } else {
+                    Err(DockerError::Failed { detail: stderr })
+                }
+            }
+        }
+    }
+
+    /// Runs `docker <args>` and returns how it ended with what it printed, at most `limit` bytes
+    /// of each stream. A client the supervisor ended before it finished is an error.
+    async fn captured(
+        &self,
+        rest: Vec<String>,
+        deadline: Duration,
+        limit: usize,
+    ) -> Result<Captured, DockerError> {
+        let captured = self
+            .spawned(&self.supervisor, rest, Call::new(deadline, limit))
+            .await?;
+        match captured.exit.ended {
+            Ended::Exited => Ok(captured),
+            Ended::Deadline | Ended::Stopped => Err(DockerError::Failed {
+                // BORROW: the error owns its text
+                detail: "the supervisor ended the docker client before it finished".to_owned(),
+            }),
+        }
+    }
+
+    /// Runs `docker <args>` through `sup` as `call` says and returns how it ended, whichever way.
+    async fn spawned(
+        &self,
+        sup: &Supervisor,
+        rest: Vec<String>,
+        call: Call,
+    ) -> Result<Captured, DockerError> {
         let mut argv = Vec::with_capacity(rest.len() + 1);
         // BORROW: .to_string_lossy().into_owned() gives the request the binary path as text
         argv.push(self.binary.to_string_lossy().into_owned());
@@ -174,37 +279,58 @@ impl Runner {
         let request = SpawnRequest::builder()
             .argv(argv)
             .env(self.env.pairs().to_vec()) // BORROW: .to_vec() gives the request its own pairs
-            .marker(marker)
+            .marker(call.marker.unwrap_or_else(control_marker))
             .record_dir(self.record_dir.clone()) // BORROW: .clone() gives the request its own path
-            .deadline(deadline)
+            .stdin(call.stdin)
+            .deadline(call.deadline)
             .build()
             .map_err(|error| DockerError::Failed {
                 detail: error.to_string(),
             })?;
-        let captured = self
-            .supervisor
-            .run_captured(request, limit)
+        sup.run_captured(request, call.limit)
             .await
             .map_err(|error| DockerError::Failed {
                 detail: format!("the docker client could not run: {error}"),
-            })?;
-        let stderr = detail_of(&captured.stderr);
-        match captured.exit.ended {
-            Ended::Exited => match captured.exit.status {
-                ExitStatus::Code { code: 0 } => Ok(captured.stdout),
-                ExitStatus::Code { .. } | ExitStatus::Signal { .. } => {
-                    if is_not_found(&stderr) {
-                        Err(DockerError::NotFound { detail: stderr })
-                    } else {
-                        Err(DockerError::Failed { detail: stderr })
-                    }
-                }
-            },
-            Ended::Deadline | Ended::Stopped => Err(DockerError::Failed {
-                // BORROW: the error owns its text
-                detail: "the supervisor ended the docker client before it finished".to_owned(),
-            }),
+            })
+    }
+}
+
+/// How one docker call is run: its deadline, how much of its output is kept, what it reads on
+/// standard input and which marker its process carries.
+#[derive(Debug, Clone)]
+pub struct Call {
+    deadline: Duration,
+    limit: usize,
+    stdin: StdinSpec,
+    marker: Option<Marker>,
+}
+
+impl Call {
+    /// A call that reads nothing, carries a marker of its own, ends at `deadline` and keeps at
+    /// most `limit` bytes of each output stream.
+    #[must_use]
+    pub const fn new(deadline: Duration, limit: usize) -> Self {
+        Self {
+            deadline,
+            limit,
+            stdin: StdinSpec::Null,
+            marker: None,
         }
+    }
+
+    /// The same call reading `stdin`.
+    #[must_use]
+    pub fn stdin(mut self, stdin: StdinSpec) -> Self {
+        self.stdin = stdin;
+        self
+    }
+
+    /// The same call whose process carries `marker`, so that one sweep ends every call that
+    /// shares it.
+    #[must_use]
+    pub fn marker(mut self, marker: Marker) -> Self {
+        self.marker = Some(marker);
+        self
     }
 }
 
@@ -223,6 +349,13 @@ fn is_not_found(stderr: &str) -> bool {
 /// Whether `text` is 64 lowercase hex digits.
 fn is_full_id(text: &str) -> bool {
     text.len() == 64 && text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// The error for an id that is not a full container id.
+fn not_a_full_id(id: &str) -> DockerError {
+    DockerError::NotAFullId {
+        detail: id.chars().take(DETAIL_LIMIT).collect(),
+    }
 }
 
 /// Whether `text` is the name of a job's network: `candler-<12 hex digits>-net` or
@@ -303,6 +436,40 @@ impl DockerCli {
         self.runner.binary.as_path()
     }
 
+    /// Runs `docker <args>` through `sup` as `call` says, and returns how it ended with what it
+    /// printed, whatever the exit.
+    ///
+    /// # Errors
+    /// [`DockerError::Failed`] when the client cannot be built or run.
+    pub async fn call(
+        &self,
+        sup: &Supervisor,
+        args: Vec<String>,
+        call: Call,
+    ) -> Result<Captured, DockerError> {
+        self.runner.spawned(sup, args, call).await
+    }
+
+    /// Runs the control container `spec` and returns how it ended with what it printed, whatever
+    /// the exit; [`outcome`](super::control::outcome) reads it.
+    ///
+    /// # Errors
+    /// [`DockerError::Failed`] when the client cannot be built or run.
+    pub async fn control(
+        &self,
+        spec: &ControlSpec,
+        deadline: Duration,
+        limit: usize,
+    ) -> Result<Captured, DockerError> {
+        self.runner
+            .spawned(
+                &self.runner.supervisor,
+                spec.args(),
+                Call::new(deadline, limit),
+            )
+            .await
+    }
+
     /// The destroy half over the same client; only the guard is given it.
     #[must_use]
     pub(super) fn destroyer(&self) -> DockerDestroyer {
@@ -324,6 +491,29 @@ impl DockerCli {
 /// The arguments of `docker container inspect` for one full id.
 fn inspect_args(id: &str) -> Vec<String> {
     to_args(&["container", "inspect", "--format", "{{json .}}", id])
+}
+
+/// The arguments of one `docker container inspect` for several full ids.
+fn inspect_many_args(ids: &[&str]) -> Vec<String> {
+    let mut args = to_args(&["container", "inspect", "--format", "{{json .}}"]);
+    args.extend(ids.iter().map(|id| (*id).to_owned())); // BORROW: .to_owned() gives the argument its own text
+    args
+}
+
+/// The arguments of `docker create`, whose own arguments are `rest`.
+fn create_args(rest: Vec<String>) -> Vec<String> {
+    let mut args = to_args(&["create"]);
+    args.extend(rest);
+    args
+}
+
+/// The ids that docker's error lines say no container has.
+fn missing_ids(stderr: &str) -> BTreeSet<&str> {
+    stderr
+        .lines()
+        .filter_map(|line| line.rsplit_once("No such container: "))
+        .map(|(_, id)| id.trim())
+        .collect()
 }
 
 /// The arguments that list every container, running or not, that carries `key=value`.
@@ -545,6 +735,48 @@ fn parse_ids(text: &str) -> Result<Vec<String>, DockerError> {
         .collect()
 }
 
+/// The answer of one `docker container inspect` of `ids`, one result per id in the order asked.
+///
+/// Docker prints the containers it found, in the order asked, one JSON object per line, and names
+/// each container it did not find on a line of its error output; it exits 1 when any is missing.
+fn inspect_many_answer(
+    ids: &[&str],
+    stdout: &[u8],
+    stderr: &[u8],
+    exited_zero: bool,
+) -> Vec<Result<Inspect, DockerError>> {
+    let found: BTreeMap<String, Inspect> = String::from_utf8_lossy(stdout)
+        .lines()
+        .filter_map(|line| parse_inspect(line).ok())
+        // BORROW: .to_owned() gives the key its own text
+        .map(|inspected| (inspected.id.as_str().to_owned(), inspected))
+        .collect();
+    let error_text = String::from_utf8_lossy(stderr);
+    // BORROW: explicit .as_ref() reads the text as a str
+    let gone = missing_ids(error_text.as_ref());
+    let detail = detail_of(stderr);
+    ids.iter()
+        .map(|id| {
+            if let Some(inspected) = found.get(*id) {
+                Ok(inspected.clone()) // BORROW: .clone() gives each id its own answer
+            } else if gone.contains(id) {
+                Err(DockerError::NotFound {
+                    detail: format!("No such container: {id}"),
+                })
+            } else if exited_zero {
+                Err(unreadable(
+                    "container inspect",
+                    "docker printed no answer for an id it was asked",
+                ))
+            } else {
+                Err(DockerError::Failed {
+                    detail: detail.clone(), // BORROW: .clone() gives each id its own text
+                })
+            }
+        })
+        .collect()
+}
+
 impl DockerDriver for DockerCli {
     fn capture(
         &self,
@@ -557,9 +789,7 @@ impl DockerDriver for DockerCli {
     fn inspect<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Inspect, DockerError>> {
         Box::pin(async move {
             if !is_full_id(id) {
-                return Err(DockerError::NotAFullId {
-                    detail: id.chars().take(DETAIL_LIMIT).collect(),
-                });
+                return Err(not_a_full_id(id));
             }
             let text = self.runner.run(inspect_args(id), CALL_DEADLINE).await?;
             let inspected = parse_inspect(&text)?;
@@ -571,6 +801,50 @@ impl DockerDriver for DockerCli {
                 ));
             }
             Ok(inspected)
+        })
+    }
+
+    fn inspect_many<'a>(
+        &'a self,
+        ids: &'a [String],
+    ) -> BoxFuture<'a, Vec<Result<Inspect, DockerError>>> {
+        Box::pin(async move {
+            // BORROW: explicit .as_str() reads each id as text
+            let asked: Vec<&str> = ids.iter().map(String::as_str).collect();
+            let valid: Vec<&str> = asked.iter().copied().filter(|id| is_full_id(id)).collect();
+            if valid.is_empty() {
+                return asked.iter().map(|id| Err(not_a_full_id(id))).collect();
+            }
+            let captured = match self
+                .runner
+                .captured(inspect_many_args(&valid), CALL_DEADLINE, OUTPUT_LIMIT)
+                .await
+            {
+                Ok(captured) => captured,
+                Err(error) => return asked.iter().map(|_| Err(error.clone())).collect(),
+            };
+            let exited_zero = matches!(captured.exit.status, ExitStatus::Code { code: 0 });
+            let mut answers =
+                inspect_many_answer(&valid, &captured.stdout, &captured.stderr, exited_zero)
+                    .into_iter();
+            asked
+                .iter()
+                .map(|id| {
+                    if is_full_id(id) {
+                        answers.next().unwrap_or_else(|| Err(not_a_full_id(id)))
+                    } else {
+                        Err(not_a_full_id(id))
+                    }
+                })
+                .collect()
+        })
+    }
+
+    fn create(&self, args: Vec<String>) -> BoxFuture<'_, Result<ContainerId, DockerError>> {
+        Box::pin(async move {
+            let printed = self.runner.run(create_args(args), CALL_DEADLINE).await?;
+            ContainerId::from_str(printed.trim())
+                .map_err(|error| unreadable("container create", error))
         })
     }
 

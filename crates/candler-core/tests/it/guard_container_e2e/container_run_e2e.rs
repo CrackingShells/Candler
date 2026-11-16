@@ -34,8 +34,7 @@ use candler_schemas::primitives::{Digest, JobId, RunKey};
 use candler_schemas::process::ExitStatus;
 use serde_json::Value;
 
-/// The testagent image, built from `assets/docker/testagent`.
-const TESTAGENT: &str = "candler-testagent:test";
+use crate::support::test_image::{TESTAGENT_CONTEXT, TestImage};
 
 /// A debian-slim python image on the real coreutils `timeout`, pulled by its index digest.
 const DEBIAN_SLIM: &str =
@@ -384,9 +383,9 @@ const fn container_user() -> UserSpec {
 /// read-only mount fails with EROFS.
 /// Bite: drop `--cap-drop ALL`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "needs a Docker daemon and the candler-testagent:test image"]
+#[ignore = "needs a Docker daemon"]
 async fn b06_kernel_facts() {
-    ensure_image(TESTAGENT);
+    let agent = TestImage::new(TESTAGENT_CONTEXT);
     let rig = Rig::new();
     let workspace = rig.dir("workspace");
     let home = rig.dir("home");
@@ -419,11 +418,11 @@ async fn b06_kernel_facts() {
             sentinel.to_string_lossy().into_owned(),
         ),
     ];
-    let mut plan = rig.plan(TESTAGENT, mounts, env);
+    let mut plan = rig.plan(agent.id(), mounts, env);
     plan.user = container_user();
     let wrapped = wrap_expiry(&command(&["/usr/local/bin/testagent", "probe"]), 60)
         .expect("a wrapped command");
-    let argv = without_entrypoint(run_argv(&plan, &wrapped).expect("an argv"), TESTAGENT);
+    let argv = without_entrypoint(run_argv(&plan, &wrapped).expect("an argv"), agent.id());
     let captured = rig.run(argv, Duration::from_secs(40), &plan).await;
     assert_eq!(
         captured.exit.status,

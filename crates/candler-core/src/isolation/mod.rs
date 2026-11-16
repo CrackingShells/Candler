@@ -5,9 +5,11 @@
 //! its own through the `testing` module behind the `test-support` feature.
 
 pub mod container;
+pub mod control;
 pub mod docker;
 pub mod driver;
 pub mod gateway;
+pub mod hardening;
 pub mod image;
 pub mod layout;
 pub mod model;

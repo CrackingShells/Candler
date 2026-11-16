@@ -26,8 +26,10 @@ use tokio::sync::watch;
 
 use super::session::{DockerHost, JobHost as _, JobSession, sidecar_gateway};
 use crate::import::digest_of;
+use crate::isolation::control::{ControlNetwork, ControlSpec};
 use crate::isolation::driver::DockerDriver;
 use crate::isolation::gateway::{SecretError, SecretSource, SecretValue, UpstreamConfig};
+use crate::isolation::hardening::HardLimits;
 use crate::isolation::image::{base_tag, context_digest};
 use crate::isolation::model::{BuildRequest, Labels, NetworkName, SweepScope};
 use crate::jobs::dir::JobDir;
@@ -672,7 +674,7 @@ impl DockerControlRunner {
         let image = fake_image(&*docker, &self.contexts.fakemodel, &digest).await?;
         let token = format!("candler-control-{}-{}", std::process::id(), nanos());
         let started = docker
-            .capture(fake_args(&image, &token), CALL)
+            .capture(fake_spec(&image, &token).args(), CALL)
             .await
             .map_err(|e| err("starting the fake model", &e))?;
         let fake = String::from_utf8_lossy(&started).trim().to_owned(); // BORROW: the world keeps the container id
@@ -821,49 +823,35 @@ async fn authority(
     (!found.is_empty()).then_some(found)
 }
 
-/// The arguments of the `docker run` of the fake model: a control container that removes itself
-/// when it ends and ends by itself after [`FAKE_LIFETIME_S`] seconds. Its working directory is a tmpfs.
-fn fake_args(image: &str, token: &str) -> Vec<String> {
-    let mut args: Vec<String> = [
-        "run",
-        "-d",
-        "--rm",
-        "--init",
-        "--read-only",
-        "--cap-drop",
-        "ALL",
-        "--security-opt",
-        "no-new-privileges",
-        "--pids-limit",
-        "64",
-        "--memory",
-        "256m",
-        "--label",
-        "candler.role=control",
-        "--entrypoint",
-        "timeout",
-    ]
-    .iter()
-    .map(|word| (*word).to_owned()) // BORROW: owned argv
-    .collect();
-    args.extend([
-        "-e".to_owned(), // BORROW: owned argv
-        format!("FAKE_TOKEN={token}"),
-        "-e".to_owned(), // BORROW: owned argv
-        format!("FAKE_HOST={FAKE_HOST}"),
-        "-e".to_owned(), // BORROW: owned argv
-        format!("FAKE_PORT={FAKE_PORT}"),
-        "-e".to_owned(), // BORROW: owned argv
-        format!("FAKE_DIR={FAKE_MOUNT}"),
-        "--tmpfs".to_owned(), // BORROW: owned argv
-        format!("{FAKE_MOUNT}:rw,mode=1777,size=1m,noexec,nosuid"),
-        image.to_owned(),               // BORROW: owned argv
-        FAKE_LIFETIME_S.to_owned(),     // BORROW: owned argv
-        "python3".to_owned(),           // BORROW: owned argv
-        "-u".to_owned(),                // BORROW: owned argv
-        "/opt/fakemodel.py".to_owned(), // BORROW: owned argv
-    ]);
-    args
+/// The fake model's control container: it removes itself when it ends and ends by itself after
+/// the fake lifetime in seconds, running in the background. Its working directory is a tmpfs, and it
+/// is on docker's default network so that the egress network can be joined once the gateway has
+/// made it.
+#[must_use]
+pub fn fake_spec(image: &str, token: &str) -> ControlSpec {
+    let limits = HardLimits {
+        pids_limit: 64,
+        memory: String::from("256m"),
+        cpus: None,
+        tmpfs: vec![format!("{FAKE_MOUNT}:rw,mode=1777,size=1m,noexec,nosuid")],
+        env_volume: false,
+    };
+    ControlSpec::new(image, limits)
+        .network(ControlNetwork::Default)
+        .detached()
+        .entrypoint("timeout")
+        .env(vec![
+            format!("FAKE_TOKEN={token}"),
+            format!("FAKE_HOST={FAKE_HOST}"),
+            format!("FAKE_PORT={FAKE_PORT}"),
+            format!("FAKE_DIR={FAKE_MOUNT}"),
+        ])
+        .command(
+            [FAKE_LIFETIME_S, "python3", "-u", "/opt/fakemodel.py"]
+                .iter()
+                .map(|word| (*word).to_owned()) // BORROW: owned argv
+                .collect(),
+        )
 }
 
 /// The cell of a control and its plan: a session over the base image with the fake model's

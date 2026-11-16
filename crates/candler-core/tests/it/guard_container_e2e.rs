@@ -10,6 +10,8 @@
 mod container_run_e2e;
 #[path = "guard_container_e2e/container_stop_e2e.rs"]
 mod container_stop_e2e;
+#[path = "guard_container_e2e/control_e2e.rs"]
+mod control_e2e;
 #[path = "guard_container_e2e/controls_e2e.rs"]
 mod controls_e2e_runs;
 #[path = "guard_container_e2e/env_image_e2e.rs"]

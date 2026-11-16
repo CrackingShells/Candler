@@ -469,11 +469,11 @@ impl Isolation for DockerIsolation {
         command: &'a CommandSpec,
     ) -> BoxFuture<'a, Result<Vec<u8>, IsolationError>> {
         Box::pin(async move {
-            let args = exec::collect_args(plan, command, COLLECT_WALL).map_err(|source| {
-                IsolationError::Plan {
+            let args = exec::collect_spec(plan, command, COLLECT_WALL)
+                .map(|spec| spec.args())
+                .map_err(|source| IsolationError::Plan {
                     detail: source.to_string(),
-                }
-            })?;
+                })?;
             self.docker
                 .capture(args, COLLECT_WALL + EXPIRY_MARGIN)
                 .await

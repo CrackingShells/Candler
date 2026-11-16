@@ -11,13 +11,12 @@ use candler_schemas::primitives::Digest;
 use candler_schemas::process::ExitStatus;
 use futures::future::BoxFuture;
 
-use crate::isolation::container::run::control_argv;
+use crate::isolation::container::run::catalog_spec;
+use crate::isolation::control::ControlSpec;
 use crate::isolation::docker::{ClientEnv, DockerCli};
 use crate::isolation::layout;
 use crate::isolation::model::{ImageRef, Limits};
 use crate::supervise::Supervisor;
-use crate::supervise::signal::control_marker;
-use crate::supervise::spawn::SpawnRequest;
 use crate::supervise::stop::{Captured, Ended};
 
 /// The exit code of coreutils `timeout` when the command it runs overran.
@@ -232,8 +231,8 @@ impl CommandCatalogProvider {
         &self.command
     }
 
-    /// The `docker run` argv of the control container, led by the client's binary.
-    fn argv(&self, image: &ImageRef) -> Result<Vec<String>, CatalogError> {
+    /// The control container of the capture.
+    fn spec(&self, image: &ImageRef) -> Result<ControlSpec, CatalogError> {
         let unavailable = |detail: String| CatalogError::Unavailable { detail };
         let spec = CommandSpec::builder()
             // BORROW: .clone() gives the spec its own argv
@@ -246,31 +245,25 @@ impl CommandCatalogProvider {
             memory: CONTROL_MEMORY.to_owned(),
             cpus: CONTROL_CPUS,
         };
-        let mut argv = control_argv(&image.id, &limits, self.command.timeout, &spec)
-            .map_err(|error| unavailable(error.to_string()))?;
-        if let Some(first) = argv.first_mut() {
-            // BORROW: .to_string_lossy().into_owned() gives the argv the binary path as text
-            *first = self.cli.binary().to_string_lossy().into_owned();
-        }
-        Ok(argv)
+        catalog_spec(&image.id, &limits, self.command.timeout, &spec)
+            .map_err(|error| unavailable(error.to_string()))
     }
 
     /// Runs the control container with its record dir `records`.
     async fn run(&self, image: &ImageRef, records: PathBuf) -> Result<Catalog, CatalogError> {
         let unavailable = |detail: String| CatalogError::Unavailable { detail };
-        let marker = control_marker();
-        let request = SpawnRequest::builder()
-            .argv(self.argv(image)?)
-            // BORROW: .to_vec() gives the request its own pairs
-            .env(self.env.pairs().to_vec())
-            .marker(marker)
-            .record_dir(records)
-            .deadline(self.command.timeout + CLIENT_GRACE)
-            .build()
-            .map_err(|error| unavailable(format!("the command cannot be built: {error}")))?;
-        let captured = self
-            .supervisor
-            .run_captured(request, OUTPUT_LIMIT)
+        let cli = DockerCli::with_binary(
+            Arc::clone(&self.supervisor),
+            self.cli.binary().to_path_buf(), // BORROW: the client owns its binary path
+            self.env.clone(),                // BORROW: the client owns its environment
+            records,
+        );
+        let captured = cli
+            .control(
+                &self.spec(image)?,
+                self.command.timeout + CLIENT_GRACE,
+                OUTPUT_LIMIT,
+            )
             .await
             .map_err(|error| unavailable(format!("the command cannot run: {error}")))?;
         interpret(&captured)

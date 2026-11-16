@@ -30,8 +30,7 @@ use candler_schemas::execution::{EventPayload, JobEnd, JobRecord, JobState, Supe
 use candler_schemas::primitives::{Digest, JobId, RunKey};
 use candler_schemas::process::ProcessStart;
 
-/// The image the testagent scaffold builds; it is not pulled.
-const IMAGE: &str = "candler-testagent:test";
+use crate::support::test_image::{TESTAGENT_CONTEXT, TestImage};
 
 /// The forwarding client. It is written beside its allowlist (`allow`, one id or network name per
 /// line) and its call log (`docker.log`), which it finds from its own path because the docker
@@ -358,7 +357,13 @@ async fn destroy_made(made: &[Made]) {
 
 /// Starts a detached testagent container of `job`, on `network` when given, and returns its full
 /// id, which is recorded for cleanup at once.
-fn start(real: &Path, cleanup: &mut Cleanup, job: &JobId, network: Option<&NetworkName>) -> String {
+fn start(
+    real: &Path,
+    image: &str,
+    cleanup: &mut Cleanup,
+    job: &JobId,
+    network: Option<&NetworkName>,
+) -> String {
     let mut command = Command::new(real);
     command
         .args(["run", "--detach", "--stop-timeout", "1", "--label"])
@@ -372,7 +377,7 @@ fn start(real: &Path, cleanup: &mut Cleanup, job: &JobId, network: Option<&Netwo
     if let Some(name) = network {
         command.args(["--network", name.as_str()]); // BORROW: .as_str() names the network
     }
-    let output = command.args([IMAGE, "sleep-forever"]).output().unwrap();
+    let output = command.args([image, "sleep-forever"]).output().unwrap();
     assert!(
         output.status.success(),
         "docker run failed: {}",
@@ -452,10 +457,12 @@ mod kill_e2e {
     /// Bite: `kill` stops only the first target, so the second lost job keeps its container and
     /// network.
     #[test]
-    #[ignore = "needs a Docker daemon and the candler-testagent:test image; run by the container-e2e group"]
+    #[ignore = "needs a Docker daemon; run by the container-e2e group"]
     fn b40_kill_all_destroys_lost_jobs_containers() {
         let real = real_docker();
         let scratch = tempfile::tempdir().unwrap();
+        // Declared before the cleanup, so the image goes after the containers.
+        let agent = TestImage::new(TESTAGENT_CONTEXT);
         let mut cleanup = Cleanup::default();
         let (first_lost, second_lost) = (unique_job(), unique_job());
         let (ended, bystander) = (unique_job(), unique_job());
@@ -504,10 +511,22 @@ mod kill_e2e {
 
         let (first_net, first_net_id) = network(&real, &mut cleanup, &first_lost);
         let (second_net, second_net_id) = network(&real, &mut cleanup, &second_lost);
-        let first_cid = start(&real, &mut cleanup, &first_lost, Some(&first_net));
-        let second_cid = start(&real, &mut cleanup, &second_lost, Some(&second_net));
-        let cid_ended = start(&real, &mut cleanup, &ended, None);
-        let cid_bystander = start(&real, &mut cleanup, &bystander, None);
+        let first_cid = start(
+            &real,
+            agent.id(),
+            &mut cleanup,
+            &first_lost,
+            Some(&first_net),
+        );
+        let second_cid = start(
+            &real,
+            agent.id(),
+            &mut cleanup,
+            &second_lost,
+            Some(&second_net),
+        );
+        let cid_ended = start(&real, agent.id(), &mut cleanup, &ended, None);
+        let cid_bystander = start(&real, agent.id(), &mut cleanup, &bystander, None);
 
         // The ids of the two lost jobs' containers and networks, with the names docker is asked
         // for a network by, and the egress names of the same jobs.

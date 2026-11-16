@@ -35,8 +35,7 @@ use crate::support::container_stop as stop_support;
 
 use stop_support::{job, run_key};
 
-/// The image the testagent scaffold builds; it is not pulled.
-const IMAGE: &str = "candler-testagent:test";
+use crate::support::test_image::{TESTAGENT_CONTEXT, TestImage};
 
 /// How long a sweep may take in these tests.
 const SWEEP_LIMIT: Duration = Duration::from_secs(90);
@@ -54,6 +53,8 @@ struct Rig {
     destroyer: Arc<AllowlistDriver<DockerDestroyer>>,
     supervisor: Arc<Supervisor>,
     records: tempfile::TempDir,
+    /// The test agent's image, removed when the rig goes if this test built it.
+    agent: TestImage,
 }
 
 impl Rig {
@@ -76,6 +77,7 @@ impl Rig {
             destroyer,
             supervisor,
             records,
+            agent: TestImage::new(TESTAGENT_CONTEXT),
         }
     }
 
@@ -142,7 +144,7 @@ fn start(
         // BORROW: explicit .as_str() instead of Deref coercion
         command.args(["--network", name.as_str()]);
     }
-    command.args([IMAGE, "sleep-forever"]);
+    command.args([rig.agent.id(), "sleep-forever"]);
     let output = command.output().expect("docker runs");
     assert!(
         output.status.success(),
@@ -358,7 +360,7 @@ async fn b13_client_killed_container_gone() {
             "1".to_owned(),   // BORROW: .to_owned() gives the argument its own text
         ];
         argv.extend(label_args(&current, "agent", Some(&run)));
-        argv.push(IMAGE.to_owned()); // BORROW: .to_owned() gives the argument its own text
+        argv.push(rig.agent.id().to_owned()); // BORROW: .to_owned() gives the argument its own text
         argv.push("ignore-term".to_owned()); // BORROW: .to_owned() gives the argument its own text
         let marker = Marker::for_run(&run);
         // TRAIT_OBJECT: the request takes its hook as a trait object
