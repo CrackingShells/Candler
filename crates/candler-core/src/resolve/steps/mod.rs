@@ -2,6 +2,7 @@
 //! the command catalog.
 
 pub mod catalog;
+pub mod egress;
 pub mod gateway;
 pub mod identity;
 pub mod image;
@@ -11,6 +12,7 @@ pub mod session;
 use std::sync::Arc;
 
 use self::catalog::CatalogStep;
+use self::egress::EgressStep;
 use self::identity::{HarnessIdentityStep, TreatmentIdentityStep};
 use self::image::ImageIdStep;
 use self::session::SessionModeStep;
@@ -37,7 +39,8 @@ pub struct M2bServices {
 
 /// Registers the preflight steps on `resolver`, in the order their values depend on one another:
 /// the treatment first (its pinned commit is where requirement sources are read), then the image,
-/// then the harness (it reads the image), then the catalog, then the session mode.
+/// then the harness (it reads the image), then the catalog, then the session mode, then the egress
+/// allowlist.
 ///
 /// Each step clones the services it holds, so `services` stays with the caller.
 ///
@@ -58,10 +61,12 @@ pub fn register_m2b_steps(
     let treatment = TreatmentIdentityStep::new(Arc::clone(&services.supervisor))?;
     let catalog = CatalogStep::new(Arc::clone(&services.catalog))?;
     let session = SessionModeStep::new(services.session_capable)?;
+    let egress = EgressStep::new()?;
     resolver
         .register(Box::new(treatment))? // TRAIT_OBJECT: steps of different types are registered side by side
         .register(Box::new(image))? // TRAIT_OBJECT: steps of different types are registered side by side
         .register(Box::new(harness))? // TRAIT_OBJECT: steps of different types are registered side by side
         .register(Box::new(catalog))? // TRAIT_OBJECT: steps of different types are registered side by side
-        .register(Box::new(session)) // TRAIT_OBJECT: steps of different types are registered side by side
+        .register(Box::new(session))? // TRAIT_OBJECT: steps of different types are registered side by side
+        .register(Box::new(egress)) // TRAIT_OBJECT: steps of different types are registered side by side
 }

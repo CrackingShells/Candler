@@ -26,6 +26,7 @@ use serde_json::Value;
 use crate::jobs::dir::JobDir;
 use crate::jobs::lock::{JobLock, LockState};
 use crate::resolve::layers::{Resolution, is_setting};
+use crate::resolve::steps::egress::{self, EgressRefusal};
 use crate::resolve::steps::session::{self, SessionRefusal};
 use crate::store::Store;
 use candler_schemas::execution::paths::{
@@ -221,6 +222,9 @@ pub enum PlanError {
     /// without session mode, or the driver cannot run a session.
     #[error(transparent)]
     Session(#[from] SessionRefusal),
+    /// A cell's egress allowlist is not valid, or is set on a cell whose network is `bridge`.
+    #[error(transparent)]
+    Egress(#[from] EgressRefusal),
     /// The harness's driver cannot honour a value of a cell.
     #[error(transparent)]
     Driver(#[from] DriverError),
@@ -357,7 +361,8 @@ fn setting_in(prefix: &str, table: &serde_json::Map<String, Value>) -> Option<St
 ///
 /// # Errors
 /// [`PlanError::SettingAsFactor`] when a factor of `file` varies a setting, [`PlanError::Cell`]
-/// when a cell cannot be built, [`PlanError::Session`] when a cell breaks the session rule, and
+/// when a cell cannot be built, [`PlanError::Session`] when a cell breaks the session rule,
+/// [`PlanError::Egress`] when its egress allowlist is refused, and
 /// [`PlanError::Driver`] when the driver cannot honour a value of a settled cell.
 fn fresh_cells(
     file: &ExperimentFile,
@@ -375,6 +380,11 @@ fn fresh_cells(
         .map(SourceEntry::path)
         .collect();
     let is_explicit = |path: &FieldPath| explicit.iter().any(|own| overlaps(own, path));
+    let egress_path = paths::ISOLATION_EGRESS
+        .parse::<FieldPath>()
+        .map_err(|error| PlanError::Cell {
+            source: error.into(),
+        })?;
     let mut cells = Vec::new();
     for cell in file.cells() {
         let effective: Vec<ResolvedValue> = cell
@@ -418,6 +428,24 @@ fn fresh_cells(
                 })
             })?;
             values.push(ResolvedValue::recorded(path, value));
+        }
+        let canonical = {
+            let at = |path: &str| {
+                values
+                    .iter()
+                    .find(|value| value.path().as_str() == path)
+                    .and_then(ResolvedValue::value)
+                    .map(JsonValue::as_value)
+            };
+            egress::settle(at(paths::ISOLATION_EGRESS), at(paths::ISOLATION_NETWORK))?
+        };
+        values.retain(|held| *held.path() != egress_path);
+        if let Some(entries) = canonical {
+            let value = egress::canonical_value(&entries).map_err(|error| PlanError::Cell {
+                source: error.into(),
+            })?;
+            // BORROW: .clone() gives each cell its own copy of the path
+            values.push(ResolvedValue::recorded(egress_path.clone(), value));
         }
         // BORROW: explicit .as_slice() instead of Deref coercion
         let comparable = Comparable::from_resolved(values.as_slice())
