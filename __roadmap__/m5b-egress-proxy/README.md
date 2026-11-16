@@ -73,9 +73,9 @@ An agent's container reaches only its listed hosts and ports and the model gatew
 ## Status
 ```mermaid
 graph TD
-    guard_reuse[Guard reuse]:::planned
-    egress_proxy[Egress proxy]:::planned
-    ground_truth_refusal[Ground-truth refusal]:::planned
+    guard_reuse[Guard reuse]:::done
+    egress_proxy[Egress proxy]:::done
+    ground_truth_refusal[Ground-truth refusal]:::done
     proven[Proven]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -87,15 +87,19 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `guard_reuse.md` | 📄 Leaf Task | ⬜ Planned |
-| `egress_proxy.md` | 📄 Leaf Task | ⬜ Planned |
-| `ground_truth_refusal.md` | 📄 Leaf Task | ⬜ Planned |
+| `guard_reuse.md` | 📄 Leaf Task | ✅ Done |
+| `egress_proxy.md` | 📄 Leaf Task | ✅ Done |
+| `ground_truth_refusal.md` | 📄 Leaf Task | ✅ Done |
 | `proven/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
 |:---|:-----|:-------|:------------|:----------|
+| A1 | 2026-11-16 | L0 coordinator; G3 ruled by the coordination session, placement by the milestone coordinator | none; two gates added to `proven/unstarted_destroy.md` | `guard_reuse` merged with its ladder stop at 12 spawns, not 8: the pre-stop and destroy hooks each take their own list. G3 stays at 8; the destroy hook taking a fresh list and reusing only the pre-stop's verification facts moves to `unstarted_destroy`, which already owns the destroy path at L1. The L0 teardown fix (cac84ff0) makes the guard take a job's allow networks; the lost sweep's allow networks need a new driver call and move with it |
 
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| `ground_truth_refusal.md` | `m5b/ground_truth_refusal` | merge ba55856e | D9 refusal `isolation.ground_truth_exposed` in six places, zero-length inputs skipped; newly refused input ruled by the coordination session before merge; report `__reports__/m5b-egress-proxy/leaves/ground_truth_refusal_v0.md` |
+| `guard_reuse.md` | `m5b/guard_reuse` | merge ff927d6a | one inspect per destroy decision; sweep 5, normal exit 8, ladder stop 12 (G3's 8 moved to `unstarted_destroy` by A1); report `__reports__/m5b-egress-proxy/leaves/guard_reuse_v0.md` |
+| `egress_proxy.md` | `m5b/egress_proxy` | merge 7897cb7c; fix cac84ff0 | one proxy per allowlist on its allow network, njs filter refusing loopback, link-local and empty upstreams; round 2 dropped the proxy's listed-name aliases (docker DNS resolved them to the proxy itself) for `--add-host` on each agent; cac84ff0 lets the guard tear down allow networks; report `__reports__/m5b-egress-proxy/leaves/egress_proxy_v0.md` |
