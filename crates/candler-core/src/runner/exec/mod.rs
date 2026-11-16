@@ -14,6 +14,7 @@ use std::io::{self, Write as _};
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::str::FromStr as _;
+use std::sync::Arc;
 
 use crate::frames::RawFileInfo;
 use candler_harness::driver::{HarnessDriver, Plan};
@@ -302,8 +303,8 @@ pub fn apply_harness_env(
 async fn wait_or_cancel(
     child: crate::supervise::spawn::Child,
     mut cancel: watch::Receiver<Option<JobCause>>,
+    stop: &spawn::RunStopper,
 ) -> (Result<Exit, SuperviseError>, Option<JobCause>) {
-    let stop = child.stop_handle();
     let mut cause: Option<JobCause> = *cancel.borrow();
     if cause.is_some() {
         stop.request();
@@ -535,7 +536,15 @@ async fn drive(
         mut child,
         end_facts,
     } = start_attempt(rt, isolated)?;
-    let session_handle: Option<SessionHandle> = match session_run.map(|run| run.start(&mut child)) {
+    let run_stop = spawn::RunStopper::new(
+        child.stop_handle(),
+        Arc::clone(&end_facts), // BORROW: the stopper shares the run's facts
+        plan.key.clone(),       // BORROW: the stopper owns its key
+        harness.stop().grace,
+    );
+    let session_handle: Option<SessionHandle> = match session_run
+        .map(|run| run.start(&mut child, run_stop.clone())) // BORROW: the session task owns a stopper
+    {
         None => None,
         Some(Ok(handle)) => Some(handle),
         Some(Err(error)) => {
@@ -544,7 +553,7 @@ async fn drive(
             return Err(error.into());
         }
     };
-    let (waited, cause) = wait_or_cancel(child, ctl.cancel.clone()).await; // BORROW: the wait owns a receiver
+    let (waited, cause) = wait_or_cancel(child, ctl.cancel.clone(), &run_stop).await; // BORROW: the wait owns a receiver
     let session_outcome = session_handle.map(SessionHandle::finish);
     let exit = waited?;
     let duration_ms = u64::try_from(attempt_began.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -731,7 +740,9 @@ async fn drive(
         ExitStatus::Code { code } => Some(code),
         ExitStatus::Signal { .. } => None,
     };
-    let stopped = (exit.ended == Ended::Stopped).then_some(cause).flatten();
+    // A stop goes through the daemon, so the client usually exits by itself with the container's
+    // code: a cancel that was asked for counts as the stop unless the deadline came first.
+    let stopped = cause.filter(|_| exit.ended != Ended::Deadline);
     let input = EndInput::new()
         .with_client_exit(client_exit)
         .with_container_started(inspect.is_some() || client_exit != Some(125))

@@ -122,6 +122,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `isolation.docker_step_failed` | Docker failed while the run was being placed in a container. | - | environment |
 | `isolation.docker_unavailable` | The docker client cannot be reached or does not offer the call. | - | environment |
 | `isolation.egress_invalid` | `isolation.egress` is not a list of `host:port` strings, or an entry is an IP literal, holds a wildcard, a scheme or a path, has no port or a port outside 1 to 65535, or is not an RFC 1123 hostname with at least one dot. | - | experiment |
+| `isolation.egress_unsupported` | `isolation.egress` is set, by the experiment or by a plug-in environment, and no run enforces an egress allowlist yet. | - | experiment |
 | `isolation.egress_with_bridge` | A cell sets `isolation.egress` and `isolation.network = bridge`, which reaches the whole internet. | - | experiment |
 | `isolation.env_name_invalid` | An environment name is empty or holds `=` or a NUL byte. | - | config |
 | `isolation.env_name_repeated` | The environment sets one name twice. | - | config |

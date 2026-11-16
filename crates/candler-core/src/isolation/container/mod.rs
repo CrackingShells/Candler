@@ -37,7 +37,7 @@ use super::model::{
     ImageRef, Inspect, LabelSel, Limits, Refusal, SweepScope, UserSpec,
 };
 use super::{EndFacts, IsolatedRequest, Isolation, IsolationError, RunOutputs};
-use crate::supervise::hook::StopHook;
+use crate::supervise::hook::{HookError, StopHook};
 use crate::supervise::stop::Exit;
 use candler_schemas::execution::paths;
 
@@ -99,6 +99,10 @@ struct HookFacts {
 impl EndFacts for HookFacts {
     fn final_inspect(&self) -> Option<ContainerOutcome> {
         self.hook.final_inspect()
+    }
+
+    fn stop_agent<'a>(&'a self, run: &'a RunKey) -> BoxFuture<'a, Result<(), HookError>> {
+        Box::pin(self.hook.stop_agent(run))
     }
 }
 

@@ -11,6 +11,10 @@
 //! start nor end with a hyphen, at most 253 characters in all, at least one dot, and a last label
 //! that is not all digits (so an IPv4 literal is no host). The port is 1 to 65535 and is never
 //! defaulted. An entry that carries a scheme, a path, a wildcard or an IP literal is refused.
+//!
+//! Nothing enforces an allowlist yet, so [`refuse_until_proxy`] refuses a valid one with
+//! [`EgressRefusal::Unsupported`], at resolve and per cell, rather than letting a cell record a
+//! restriction the run does not have. [`settle`] stays the whole parse and canonical form.
 
 use std::net::Ipv4Addr;
 use std::str::FromStr as _;
@@ -34,6 +38,9 @@ pub const CHECK_INVALID: &str = "egress_invalid@1";
 
 /// The check that names an allowlist set together with `isolation.network = bridge`.
 pub const CHECK_WITH_BRIDGE: &str = "egress_with_bridge@1";
+
+/// The check that names an allowlist no run can enforce yet.
+pub const CHECK_UNSUPPORTED: &str = "egress_unsupported@1";
 
 /// The `isolation.network` value that reaches the whole internet.
 const BRIDGE: &str = "bridge";
@@ -75,6 +82,12 @@ pub enum EgressRefusal {
         /// What is wrong, for the author of the experiment.
         detail: String,
     },
+    /// An allowlist is set, and no run enforces one yet.
+    #[error("{detail}")]
+    Unsupported {
+        /// What is wrong, for the author of the experiment.
+        detail: String,
+    },
 }
 
 impl EgressRefusal {
@@ -90,6 +103,7 @@ impl EgressRefusal {
         match self {
             Self::Invalid { .. } => CHECK_INVALID,
             Self::WithBridge { .. } => CHECK_WITH_BRIDGE,
+            Self::Unsupported { .. } => CHECK_UNSUPPORTED,
         }
     }
 
@@ -97,7 +111,9 @@ impl EgressRefusal {
     #[must_use]
     pub fn detail<'a>(&'a self) -> &'a str {
         match self {
-            Self::Invalid { detail } | Self::WithBridge { detail } => detail.as_str(),
+            Self::Invalid { detail }
+            | Self::WithBridge { detail }
+            | Self::Unsupported { detail } => detail.as_str(),
         }
     }
 
@@ -108,6 +124,7 @@ impl EgressRefusal {
         match check {
             CHECK_INVALID => Some(Self::Invalid { detail }),
             CHECK_WITH_BRIDGE => Some(Self::WithBridge { detail }),
+            CHECK_UNSUPPORTED => Some(Self::Unsupported { detail }),
             // EXHAUSTIVE: any other check belongs to another step, which this refusal does not stand for
             _ => None,
         }
@@ -231,6 +248,25 @@ pub fn settle(
     Ok((!entries.is_empty()).then_some(entries))
 }
 
+/// Refuses a settled allowlist: nothing enforces one yet, so a cell that sets any entry does not
+/// run. An absent list passes unchanged.
+///
+/// # Errors
+/// [`EgressRefusal::Unsupported`] naming the first entry when `settled` holds one.
+pub fn refuse_until_proxy(
+    settled: Option<Vec<HostPort>>,
+) -> Result<Option<Vec<HostPort>>, EgressRefusal> {
+    match settled.as_deref().and_then(<[HostPort]>::first) {
+        Some(first) => Err(EgressRefusal::Unsupported {
+            detail: format!(
+                "isolation.egress lists `{first}`, and no run enforces an egress allowlist yet: \
+                 remove `isolation.egress` from the experiment and from the plug-in environment"
+            ),
+        }),
+        None => Ok(settled),
+    }
+}
+
 /// The canonical list as the JSON value a cell holds.
 ///
 /// # Errors
@@ -286,7 +322,7 @@ impl PreflightStep for EgressStep {
             let mut report = StepReport::new(step);
             let egress = value_at(&ctx, paths::ISOLATION_EGRESS)?;
             let network = value_at(&ctx, paths::ISOLATION_NETWORK)?;
-            if let Err(refusal) = settle(egress, network) {
+            if let Err(refusal) = settle(egress, network).and_then(refuse_until_proxy) {
                 let name = NameToken::from_str(refusal.check()).map_err(|error| {
                     PreflightError::Failed {
                         detail: error.to_string(), // BORROW: .to_string() gives owned text

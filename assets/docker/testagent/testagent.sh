@@ -38,7 +38,7 @@ echo-stdin)
   while IFS= read -r line; do printf 'echo:%s\n' "$line"; done
   ;;
 term-echo)
-  trap 'echo got-term; exit 0' TERM
+  trap 'echo got-term; exit 143' TERM
   echo ready
   while :; do sleep 1; done
   ;;

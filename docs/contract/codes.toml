@@ -1918,3 +1918,8 @@ variant = "Missing"
 [internal."candler_core::resolve::steps::plugin_environment::FragmentError"]
 enum = "FragmentError"
 reason = "a plug-in environment that cannot be read reaches the author as the step's coded refusal or a failed preflight step, so the loader's own error is never a wire error"
+
+[resolve."isolation.egress_unsupported"]
+side = "experiment"
+enum = "EgressRefusal"
+variant = "Unsupported"

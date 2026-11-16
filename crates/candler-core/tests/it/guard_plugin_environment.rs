@@ -302,19 +302,10 @@ fn source<'a>(resolution: &'a Resolution, path: &str) -> Option<&'a ValueSource>
         .map(candler_schemas::values::SourceEntry::source)
 }
 
-fn cell_value(cell: &Comparable, path: &str) -> Option<Value> {
-    cell.values()
-        .iter()
-        .find(|v| v.path().as_str() == path)
-        .and_then(|v| v.value())
-        .map(|v| v.as_value().clone()) // BORROW: the caller owns the value
-}
-
 const WEB: &str = r#"
 [agent_environments.web.values]
 "isolation.build.requirements" = ["req.txt"]
 "isolation.build.prune" = ["a.py", "b.py"]
-"isolation.egress" = ["pypi.org:443"]
 "mcp.servers.tools.command" = "plug-cmd"
 "mcp.servers.tools.args" = ["--serve"]
 "#;
@@ -338,7 +329,6 @@ async fn equivalent_values_and_lock() {
         &file_with(&format!(
             "\"isolation.build.requirements\" = [\"{plug}/req.txt\"]\n\
              \"isolation.build.prune\" = [\"a.py\", \"b.py\"]\n\
-             \"isolation.egress\" = [\"pypi.org:443\"]\n\
              \"mcp.servers.tools.command\" = \"plug-cmd\"\n\
              \"mcp.servers.tools.args\" = [\"--serve\"]\n",
             plug = plug.display()
@@ -567,12 +557,12 @@ fn layer_paths_stay_in_the_plugin_directory() {
     );
 }
 
-/// Guards: R06 D4, N3 — prune and egress append the plug-in's entries first and drop repeats; an
-/// egress the experiment writes is united with the plug-in's in the cell, canonical, so the cell
-/// is the cell of the hand-written union.
-/// Oracle: the lists worked by hand (prune `a.py b.py c.py`; egress sorted `a.com b.com c.com`),
-/// and the cell of the experiment that writes the union.
-/// Bite: the plug-in's egress dropped when the experiment writes its own (no union per cell).
+/// Guards: R06 D4, N3 — prune appends the plug-in's entries first and drops repeats; a plug-in's
+/// egress, alone or beside the experiment's own, is refused per cell as unsupported, while an
+/// entry that is no host or meets bridge keeps its own code.
+/// Oracle: the prune list worked by hand (`a.py b.py c.py`), and the codes of the egress rule.
+/// Bite: the per-cell refusal removed (`refuse_until_proxy` passing a list through): the plug-in
+/// rows plan.
 #[tokio::test]
 async fn layer_lists_append() {
     let rig = Rig::new(
@@ -582,11 +572,35 @@ async fn layer_lists_append() {
 "isolation.egress" = ["b.com:443", "a.com:443"]
 "#,
     );
+    let refusal =
+        |planned: Result<Planned, PlanError>| planned.err().expect("refused").code().to_string();
+    let alone = refusal(plan(&rig, &file_with("\"isolation.build.plugin\" = \"p/web\"")).await);
+    assert_eq!(
+        alone, "isolation.egress_unsupported",
+        "the plug-in's list alone"
+    );
+    let beside = refusal(
+        plan(
+            &rig,
+            &file_with(
+                "\"isolation.build.plugin\" = \"p/web\"\n\"isolation.egress\" = [\"a.com:443\", \"c.com:443\"]\n",
+            ),
+        )
+        .await,
+    );
+    assert_eq!(
+        beside, "isolation.egress_unsupported",
+        "beside the experiment's list"
+    );
+
+    // Prune appends without any egress.
+    let pruned = Rig::new(
+        "[agent_environments.web.values]\n\"isolation.build.prune\" = [\"a.py\", \"b.py\"]\n",
+    );
     let selected = plan(
-        &rig,
+        &pruned,
         &file_with(
-            "\"isolation.build.plugin\" = \"p/web\"\n\"isolation.build.prune\" = [\"b.py\", \"c.py\"]\n\
-             \"isolation.egress\" = [\"a.com:443\", \"c.com:443\"]\n",
+            "\"isolation.build.plugin\" = \"p/web\"\n\"isolation.build.prune\" = [\"b.py\", \"c.py\"]\n",
         ),
     )
     .await
@@ -599,58 +613,40 @@ async fn layer_lists_append() {
             "c.py".to_owned()
         ]]
     );
-    assert_eq!(
-        cell_value(&selected.cells[0], "isolation.egress"),
-        Some(json!(["a.com:443", "b.com:443", "c.com:443"]))
-    );
-    let by_hand = plan(
-        &rig,
-        &file_with("\"isolation.egress\" = [\"c.com:443\", \"b.com:443\", \"a.com:443\"]\n"),
-    )
-    .await
-    .expect("plans");
-    assert_eq!(selected.cells[0].digest(), by_hand.cells[0].digest());
 
-    // Without an experiment list the plug-in's is the cell's, as the first plan has it.
-    let alone = plan(&rig, &file_with("\"isolation.build.plugin\" = \"p/web\""))
-        .await
-        .expect("plans");
-    assert_eq!(
-        cell_value(&alone.cells[0], "isolation.egress"),
-        Some(json!(["a.com:443", "b.com:443"]))
-    );
-    // A plug-in entry that is no host, or meets bridge, is refused per cell even when the
-    // experiment writes its own list.
+    // A plug-in entry that is no host, or meets bridge, is refused per cell with its own code
+    // even when the experiment writes its own list.
     let bad =
         Rig::new("[agent_environments.web.values]\n\"isolation.egress\" = [\"10.0.0.1:80\"]\n");
-    let refused = plan(
-        &bad,
-        &file_with(
-            "\"isolation.build.plugin\" = \"p/web\"\n\"isolation.egress\" = [\"a.com:443\"]\n",
-        ),
-    )
-    .await
-    .err()
-    .expect("refused");
-    assert_eq!(refused.code().to_string(), "isolation.egress_invalid");
-    let refused = plan(
-        &rig,
-        &file_with(
-            "\"isolation.build.plugin\" = \"p/web\"\n\"isolation.egress\" = [\"a.com:443\"]\n\"isolation.network\" = \"bridge\"\n",
-        ),
-    )
-    .await
-    .err()
-    .expect("refused");
-    assert_eq!(refused.code().to_string(), "isolation.egress_with_bridge");
+    let invalid = refusal(
+        plan(
+            &bad,
+            &file_with(
+                "\"isolation.build.plugin\" = \"p/web\"\n\"isolation.egress\" = [\"a.com:443\"]\n",
+            ),
+        )
+        .await,
+    );
+    assert_eq!(invalid, "isolation.egress_invalid");
+    let bridged = refusal(
+        plan(
+            &rig,
+            &file_with(
+                "\"isolation.build.plugin\" = \"p/web\"\n\"isolation.egress\" = [\"a.com:443\"]\n\"isolation.network\" = \"bridge\"\n",
+            ),
+        )
+        .await,
+    );
+    assert_eq!(bridged, "isolation.egress_with_bridge");
 }
 
 /// Guards: R06 D4, N3 — the per-cell egress merge reads the plug-in step's passing report and
 /// nothing else: another step's derived egress and a failed report do not enter, and a job
-/// re-planned from its stored resolution computes the merged list of the first plan.
-/// Oracle: reports built by hand (names, checks and values), and the first plan's cell.
+/// re-planned from its stored resolution refuses the plug-in's egress as the first plan does.
+/// Oracle: reports built by hand (names, checks and values), and the refusal code of the first
+/// plan.
 /// Bite: the merge reading every report's `isolation.egress`, or the stored resolution losing the
-/// reports.
+/// reports (the stored row plans instead of refusing).
 #[tokio::test]
 async fn layer_egress_merge_reads_the_plugin_report_only() {
     let report = |step: &str, egress: Value, passed: bool| {
@@ -690,35 +686,43 @@ async fn layer_egress_merge_reads_the_plugin_report_only() {
         "a value that is no list reaches the rule that refuses it"
     );
 
-    let rig = Rig::new(WEB);
-    let file = file_with(
-        "\"isolation.build.plugin\" = \"p/web\"\n\"isolation.egress\" = [\"own.com:443\"]\n",
-    );
+    // A job re-planned from its stored resolution refuses as the first plan does.
+    let rig =
+        Rig::new("[agent_environments.web.values]\n\"isolation.egress\" = [\"pypi.org:443\"]\n");
+    let file = file_with("\"isolation.build.plugin\" = \"p/web\"\n");
     let (resolution, asked) = resolve(&rig, &file).await.expect("resolves");
     let stored: Resolution =
         serde_json::from_slice(&serde_json::to_vec(&resolution).expect("JSON"))
             .expect("reads back");
-    let first = plan_resolved(&file, resolution, Arc::clone(&asked)).expect("plans");
-    let again = plan_resolved(&file, stored, asked).expect("plans");
-    assert_eq!(
-        cell_value(&first.cells[0], "isolation.egress"),
-        Some(json!(["own.com:443", "pypi.org:443"])),
-        "the cell holds the merged and settled list"
-    );
-    assert_eq!(first.cells[0].digest(), again.cells[0].digest());
+    for (label, held) in [("fresh", resolution), ("stored", stored)] {
+        let refused = plan_resolved(&file, held, Arc::clone(&asked))
+            .err()
+            .expect("refused");
+        assert_eq!(
+            refused.code().to_string(),
+            "isolation.egress_unsupported",
+            "{label}"
+        );
+    }
 }
 
 /// Guards: R06 D4 — the `dockerfile`/`context` pair comes from one layer: a plug-in that sets
 /// one half is refused by the must-be-set-together rule, and so is a pair split between the
-/// plug-in and the experiment; a pair from the plug-in, or from the experiment, resolves.
+/// plug-in and the experiment; a pair from the plug-in, or from the experiment, resolves. The
+/// same holds for the lock and the requirements list: one layer sets both, or the lock that would
+/// silently beat the list is refused.
 /// Oracle: D4's rule, one row per way the pair is set.
-/// Bite: the layer check dropped, so the split pair builds from two directories.
+/// Bite: the layer check dropped, so the split pair builds from two directories; the lock check
+/// dropped, so a plug-in lock beats the experiment's list (and the reverse) without a word.
 #[tokio::test]
 async fn layer_pair_from_two_layers() {
     let half =
         "[agent_environments.e.values]\n\"isolation.build.dockerfile\" = \"docker/Dockerfile\"\n";
     let both = "[agent_environments.e.values]\n\"isolation.build.dockerfile\" = \"docker/Dockerfile\"\n\"isolation.build.context\" = \"docker/ctx\"\n";
-    let rows: [(&str, &str, &str, bool); 5] = [
+    let lock = "[agent_environments.e.values]\n\"isolation.build.lock\" = \"req.txt\"\n";
+    let list = "[agent_environments.e.values]\n\"isolation.build.requirements\" = [\"req.txt\"]\n";
+    let lock_and_list = "[agent_environments.e.values]\n\"isolation.build.lock\" = \"req.txt\"\n\"isolation.build.requirements\" = [\"req.txt\"]\n";
+    let rows: [(&str, &str, &str, bool); 10] = [
         ("plug-in half", half, "", false),
         ("plug-in pair", both, "", true),
         (
@@ -739,6 +743,26 @@ async fn layer_pair_from_two_layers() {
             "\"isolation.build.context\" = \"ctx\"\n",
             false,
         ),
+        (
+            "plug-in lock, experiment list",
+            lock,
+            "\"isolation.build.requirements\" = [\"extra.txt\"]\n",
+            false,
+        ),
+        (
+            "experiment lock, plug-in list",
+            list,
+            "\"isolation.build.lock\" = \"extra.txt\"\n",
+            false,
+        ),
+        ("plug-in lock and list", lock_and_list, "", true),
+        (
+            "experiment lock and list",
+            "[agent_environments.e.values]\n",
+            "\"isolation.build.lock\" = \"extra.txt\"\n\"isolation.build.requirements\" = [\"extra.txt\"]\n",
+            true,
+        ),
+        ("plug-in lock alone", lock, "", true),
     ];
     for (label, environments, own, resolves) in rows {
         let rig = Rig::new(environments);
