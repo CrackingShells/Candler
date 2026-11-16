@@ -716,3 +716,47 @@ fn evaluation_inputs_are_optional_and_sorted() {
     assert!(with(json!([other, gold])).is_err());
     assert!(with(json!([gold, gold])).is_err());
 }
+
+/// A hand-written `container-record/1` whose role is `role`.
+fn container_record(role: &str) -> Value {
+    json!({
+        "schema": "container-record/1",
+        "cid": "0123456789ab",
+        "labels": {
+            "job": "01890a5d-ac96-774b-bcce-b302099a8057",
+            "run": "run-1",
+            "experiment": digest_text('e'),
+        },
+        "created_at": "2026-11-16T10:00:00Z",
+        "image_id": digest_text('f'),
+        "role": role,
+        "spawned_at": "2026-11-16T10:00:01Z",
+    })
+}
+
+/// Guards: R01 §Container record — a container record may name the egress proxy as its role, the record keeps the role it was read with, and every role the wire had before still reads. Oracle: the role names written by hand as wire text; the pre-existing roles are the two the released schema file lists (`agent`, `gateway`).
+/// Bite: the `Egress` variant removed from `ContainerRole`.
+#[test]
+fn container_role_egress_round_trips_and_the_older_roles_still_read() {
+    use candler_schemas::container::{ContainerRecord, ContainerRole};
+
+    for (text, role) in [
+        ("agent", ContainerRole::Agent),
+        ("gateway", ContainerRole::Gateway),
+        ("egress", ContainerRole::Egress),
+    ] {
+        let wire = container_record(text);
+        let record: ContainerRecord = serde_json::from_value(wire.clone())
+            .unwrap_or_else(|error| panic!("role `{text}` is refused: {error}"));
+        assert_eq!(record.role(), role, "role `{text}`");
+        assert_eq!(
+            serde_json::to_value(&record).expect("JSON"),
+            wire,
+            "role `{text}` round-trips"
+        );
+    }
+    assert!(
+        serde_json::from_value::<ContainerRecord>(container_record("proxy")).is_err(),
+        "a role that is not one of the three"
+    );
+}

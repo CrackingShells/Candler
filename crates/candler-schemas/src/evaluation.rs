@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 use crate::canonical::{self, CanonicalError};
+use crate::execution::{ExecutionError, ExperimentInput, InputAudience};
 use crate::generate::GeneratedSchema;
 use crate::map_only::MapOnly;
 use crate::outcome::{Cause, Instrument, OutcomeRecord, Role};
@@ -130,6 +131,16 @@ pub enum EvaluationError {
     /// A plug-in manifest whose `command` has no member.
     #[error("list is empty (`command` needs at least one member)")]
     ManifestCommandEmpty,
+    /// A plug-in manifest whose agent environment sets a path outside the set an environment may set.
+    #[error(
+        "agent environment sets a path it may not (`{path}` in environment `{environment}`; an environment sets `isolation.egress` and the paths below `isolation.build.` and `mcp.`)"
+    )]
+    EnvironmentPathUnsupported {
+        /// The name of the environment.
+        environment: String,
+        /// The path that is not allowed.
+        path: String,
+    },
     /// A list that must hold at least one member and holds none.
     #[error("list is empty (`{field}` needs at least one member)")]
     EmptyList {
@@ -410,6 +421,12 @@ struct RawPluginManifest {
     #[serde(deserialize_with = "strict_environment")]
     #[schemars(with = "PluginEnvironment")]
     environment: PluginEnvironment,
+    /// The agent environments the plug-in offers, by name; absent when it offers none.
+    #[serde(default)]
+    #[schemars(extend(
+        "$comment" = "An environment sets only `isolation.egress` and the paths below `isolation.build.` and `mcp.`; the Rust reader refuses any other path."
+    ))]
+    agent_environments: BTreeMap<Name, AgentEnvironment>,
 }
 
 impl TryFrom<MapOnly<RawPluginManifest>> for PluginManifest {
@@ -423,8 +440,10 @@ impl TryFrom<MapOnly<RawPluginManifest>> for PluginManifest {
             protocol,
             command,
             environment,
+            agent_environments,
         } = raw.0;
-        Self::new(name, version, protocol, command, environment)
+        Self::new(name, version, protocol, command, environment)?
+            .with_agent_environments(agent_environments)
     }
 }
 
@@ -441,6 +460,8 @@ pub struct PluginManifest {
     protocol: ProtocolVersion,
     command: Vec<String>,
     environment: PluginEnvironment,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    agent_environments: BTreeMap<Name, AgentEnvironment>,
 }
 
 impl PluginManifest {
@@ -465,15 +486,43 @@ impl PluginManifest {
             protocol,
             command,
             environment,
+            agent_environments: BTreeMap::new(),
         })
+    }
+
+    /// The manifest with the agent environments it offers.
+    ///
+    /// # Errors
+    /// Returns [`EvaluationError::EnvironmentPathUnsupported`] if an environment sets a path other
+    /// than `isolation.egress` or one below `isolation.build.` or `mcp.`.
+    pub fn with_agent_environments(
+        mut self,
+        agent_environments: BTreeMap<Name, AgentEnvironment>,
+    ) -> Result<Self, EvaluationError> {
+        for (name, environment) in &agent_environments {
+            if let Some(path) = environment
+                .values
+                .keys()
+                .find(|path| !environment_path_allowed(path.as_str()))
+            // BORROW: explicit .as_str() instead of Deref coercion
+            {
+                return Err(EvaluationError::EnvironmentPathUnsupported {
+                    environment: name.to_string(),
+                    path: path.to_string(),
+                });
+            }
+        }
+        self.agent_environments = agent_environments;
+        Ok(self)
     }
 
     /// Reads a manifest from TOML text.
     ///
     /// # Errors
     /// Returns [`EvaluationError::ManifestToml`] if the text is not TOML, does not have the shape of
-    /// a manifest or carries another `schema` marker, and [`EvaluationError::ManifestCommandEmpty`] if
-    /// `command` has no member.
+    /// a manifest or carries another `schema` marker, [`EvaluationError::ManifestCommandEmpty`] if
+    /// `command` has no member and [`EvaluationError::EnvironmentPathUnsupported`] if an agent
+    /// environment sets a path it may not.
     pub fn from_toml_str(text: &str) -> Result<Self, EvaluationError> {
         let raw: RawPluginManifest = read_toml(text).map_err(manifest_error)?;
         Self::try_from(MapOnly(raw))
@@ -508,6 +557,124 @@ impl PluginManifest {
     #[must_use]
     pub const fn environment<'a>(&'a self) -> &'a PluginEnvironment {
         &self.environment
+    }
+
+    /// The agent environments the plug-in offers, by name; empty when it offers none.
+    #[must_use]
+    pub const fn agent_environments<'a>(&'a self) -> &'a BTreeMap<Name, AgentEnvironment> {
+        &self.agent_environments
+    }
+}
+
+/// The prefix of the build paths an agent environment may set.
+const ENVIRONMENT_BUILD_PREFIX: &str = "isolation.build.";
+
+/// The prefix of the MCP paths an agent environment may set.
+const ENVIRONMENT_MCP_PREFIX: &str = "mcp.";
+
+/// Reports whether an agent environment may set `path`: `isolation.egress`, or a path below
+/// `isolation.build.` or `mcp.`. The prefixes end in a dot, so a segment decides, not a text prefix.
+fn environment_path_allowed(path: &str) -> bool {
+    path == crate::execution::paths::ISOLATION_EGRESS
+        || path.starts_with(ENVIRONMENT_BUILD_PREFIX)
+        || path.starts_with(ENVIRONMENT_MCP_PREFIX)
+}
+
+/// An input an agent environment mounts: a file or a directory, found relative to the plug-in directory. It is read by the agent, so it has no audience.
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(deny_unknown_fields, rename = "AgentInput")]
+struct RawAgentInput {
+    /// What the input is, as a plain name.
+    kind: Name,
+    /// The file or directory, relative to the plug-in directory.
+    path: String,
+    /// The workspace directory the input is mounted under; `.` when absent.
+    #[serde(default, deserialize_with = "present")]
+    #[schemars(extend(
+        "$comment" = "A relative path with no `..` segment; the Rust reader refuses an absolute path and a `..` segment."
+    ))]
+    at: Option<String>,
+}
+
+impl TryFrom<MapOnly<RawAgentInput>> for AgentInput {
+    type Error = ExecutionError;
+
+    fn try_from(raw: MapOnly<RawAgentInput>) -> Result<Self, Self::Error> {
+        let RawAgentInput { kind, path, at } = raw.0;
+        Self::new(kind, path, at)
+    }
+}
+
+/// An input an agent environment mounts: a file or a directory, found relative to the plug-in directory. It is read by the agent, so it has no audience.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(try_from = "MapOnly<RawAgentInput>")]
+#[non_exhaustive]
+pub struct AgentInput {
+    kind: Name,
+    path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    at: Option<String>,
+}
+
+impl AgentInput {
+    /// Declares an input. The rules of an experiment's input apply to `kind` and `at`.
+    ///
+    /// # Errors
+    /// Returns [`ExecutionError::InputDeclaration`] if `at` is empty, is an absolute path or holds
+    /// a `..` segment, or if `kind` is `build_inputs`, which the wire reserves.
+    pub fn new(kind: Name, path: String, at: Option<String>) -> Result<Self, ExecutionError> {
+        let checked = ExperimentInput::new(kind, path, at, InputAudience::Agent)?;
+        Ok(Self {
+            kind: checked.kind().clone(),        // BORROW: the input owns its name
+            path: checked.path().to_owned(),     // BORROW: the input owns its text
+            at: checked.at().map(str::to_owned), // BORROW: the input owns its text
+        })
+    }
+
+    /// What the input is.
+    #[must_use]
+    pub const fn kind<'a>(&'a self) -> &'a Name {
+        &self.kind
+    }
+
+    /// The file or directory, relative to the plug-in directory.
+    #[must_use]
+    pub const fn path<'a>(&'a self) -> &'a str {
+        // BORROW: explicit .as_str() instead of Deref coercion
+        self.path.as_str()
+    }
+
+    /// The workspace directory the input is mounted under, if the manifest names one.
+    #[must_use]
+    pub fn at<'a>(&'a self) -> Option<&'a str> {
+        // BORROW: explicit .as_deref() instead of Deref coercion
+        self.at.as_deref()
+    }
+}
+
+/// An agent environment a plug-in offers: the values it sets, by field path, and the inputs it mounts for the agent only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(remote = "Self")]
+#[serde(deny_unknown_fields)]
+#[schemars(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct AgentEnvironment {
+    /// The values the environment sets, by dotted field path; only `isolation.egress` and the paths below `isolation.build.` and `mcp.` are allowed.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub values: BTreeMap<FieldPath, JsonValue>,
+    /// The inputs the environment mounts for the agent.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inputs: Vec<AgentInput>,
+}
+
+object_only!(AgentEnvironment);
+
+impl AgentEnvironment {
+    /// An environment with its values and inputs.
+    #[must_use]
+    pub const fn new(values: BTreeMap<FieldPath, JsonValue>, inputs: Vec<AgentInput>) -> Self {
+        Self { values, inputs }
     }
 }
 

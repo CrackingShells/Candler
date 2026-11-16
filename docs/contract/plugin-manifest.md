@@ -19,6 +19,7 @@ Wire line: `schemas@0.10.0`.
 <!-- generated:fields -->
 | Path | Type | Class | Default |
 |---|---|---|---|
+| `agent_environments` | `map` | optional | `{}` |
 | `command` | `array of string` | required | - |
 | `environment` | `PluginEnvironment` | required | - |
 | `environment.kind` | `"uv" \| "none"` | required | - |
@@ -43,6 +44,7 @@ Wire line: `schemas@0.10.0`.
 | `plugin.describe_mismatch` | A plug-in describes itself with a name or a version that its manifest does not give. | - | plugin |
 | `plugin.environment_file_unreadable` | A lock or project file named by the environment section of a plug-in manifest cannot be read. | - | plugin |
 | `plugin.environment_not_ready` | The environment of a plug-in the suite names has not been built: its `ready` marker is missing. | - | environment |
+| `plugin.environment_path_unsupported` | An agent environment of a plug-in manifest sets a path other than `isolation.egress` or one below `isolation.build.` or `mcp.`. | The key of the path in the `values` of the environment. | plugin |
 | `plugin.manifest_ambiguous` | A plug-in directory holds both `plugin.toml` and `candler-plugin.toml`. | - | plugin |
 | `plugin.manifest_invalid` | A plug-in manifest is not valid TOML, or does not have the shape of a manifest. | The field at fault, or its parent table when a field is missing; none at the root. | plugin |
 | `plugin.manifest_unreadable` | A plug-in manifest file does not exist or cannot be read. | - | plugin |

@@ -186,7 +186,7 @@ const INTERNAL_CODES: [&str; 24] = [
 /// variant has a row, and the wrapping ones are marked as delegating.
 const VARIANT_COUNTS: [(&str, usize); 9] = [
     ("ExecutionError", 25),
-    ("EvaluationError", 13),
+    ("EvaluationError", 14),
     ("OutcomeError", 16),
     ("FormatError", 19),
     ("CanonicalError", 5),
