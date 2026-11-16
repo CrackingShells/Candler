@@ -136,6 +136,9 @@ impl JsonValue {
     }
 }
 
+// A `JsonValue` holds only finite numbers, so equality is reflexive.
+impl Eq for JsonValue {}
+
 impl TryFrom<Value> for JsonValue {
     type Error = ValuesError;
 

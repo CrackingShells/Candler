@@ -1,5 +1,61 @@
 {
   "$defs": {
+    "AgentEnvironment": {
+      "additionalProperties": false,
+      "description": "An agent environment a plug-in offers: the values it sets, by field path, and the inputs it mounts for the agent only.",
+      "properties": {
+        "inputs": {
+          "description": "The inputs the environment mounts for the agent.",
+          "items": {
+            "$ref": "#/$defs/AgentInput"
+          },
+          "type": "array"
+        },
+        "values": {
+          "additionalProperties": false,
+          "description": "The values the environment sets, by dotted field path; only `isolation.egress` and the paths below `isolation.build.` and `mcp.` are allowed.",
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*(?:[.][a-z][a-z0-9_]*)*(?![\\s\\S])": {
+              "$comment": "Integers lie within ±(2^53 - 1); JSON Schema cannot state this, and the Rust reader refuses a larger one.",
+              "description": "Any JSON value except null at the top, with finite numbers.",
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "array",
+                "object"
+              ]
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "AgentInput": {
+      "additionalProperties": false,
+      "description": "An input an agent environment mounts: a file or a directory, found relative to the plug-in directory. It is read by the agent, so it has no audience.",
+      "properties": {
+        "at": {
+          "$comment": "A relative path with no `..` segment; the Rust reader refuses an absolute path and a `..` segment.",
+          "description": "The workspace directory the input is mounted under; `.` when absent.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/Name",
+          "description": "What the input is, as a plain name."
+        },
+        "path": {
+          "description": "The file or directory, relative to the plug-in directory.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "path"
+      ],
+      "type": "object"
+    },
     "Name": {
       "description": "A plain name, such as that of a harness, a reader, a plug-in or a treatment: non-empty, with neither `@` nor white space.",
       "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+(?![\\s\\S])",
@@ -84,6 +140,18 @@
   "additionalProperties": false,
   "description": "The static description of a plug-in, read without running anything: a manifest with the version marker `plugin-manifest/1` in `schema`.",
   "properties": {
+    "agent_environments": {
+      "$comment": "An environment sets only `isolation.egress` and the paths below `isolation.build.` and `mcp.`; the Rust reader refuses any other path.",
+      "additionalProperties": false,
+      "default": {},
+      "description": "The agent environments the plug-in offers, by name; absent when it offers none.",
+      "patternProperties": {
+        "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+(?![\\s\\S])": {
+          "$ref": "#/$defs/AgentEnvironment"
+        }
+      },
+      "type": "object"
+    },
     "command": {
       "description": "The command that starts the plug-in as an argument vector, with at least one member, relative to the plug-in directory.",
       "items": {

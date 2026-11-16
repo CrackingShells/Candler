@@ -433,6 +433,11 @@ side = "plugin"
 enum = "EvaluationError"
 variant = "ManifestUnknownField"
 
+[schemas."plugin.environment_path_unsupported"]
+side = "plugin"
+enum = "EvaluationError"
+variant = "EnvironmentPathUnsupported"
+
 [resolve]
 
 [resolve."resolve.value_invalid"]

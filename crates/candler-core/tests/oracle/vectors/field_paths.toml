@@ -110,6 +110,11 @@ wildcard = true
 source = "experiment file (--pids-limit, --memory, --cpus)"
 
 [[path]]
+path = "isolation.egress"
+class = "cell_value"
+source = "experiment file or a plug-in environment; the hosts and ports the agent may reach, absent unless set (M5 D3)"
+
+[[path]]
 path = "budget.per_run.wall_s"
 class = "cell_value"
 source = "experiment file (PerRunCaps), appended to every cell by ExperimentFile::cells()"
@@ -148,6 +153,11 @@ source = "experiment file (ruling A15); its bytes enter the cell as isolation.en
 path = "isolation.build.prune"
 class = "setting"
 source = "experiment file; names the files deleted from the env, and keys the env image with the lock"
+
+[[path]]
+path = "isolation.build.plugin"
+class = "setting"
+source = "experiment file; names the plug-in environment `<plugin>/<env>` whose values enter below the file (M5 D4)"
 
 [[path]]
 path = "isolation.record_packages"

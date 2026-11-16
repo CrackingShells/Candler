@@ -13,6 +13,7 @@
 # record would also reach `event-envelope.schema.json`, which holds no such declaration.
 
 [plugin-manifest]
+"agent_environments" = "optional"
 "command" = "required"
 "environment" = "required"
 "environment.kind" = "required"

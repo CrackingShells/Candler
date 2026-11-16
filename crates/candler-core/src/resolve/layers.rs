@@ -63,7 +63,7 @@ pub fn is_setting(path: &FieldPath) -> bool {
 /// children are free, or an ancestor of any of these.
 #[must_use]
 pub fn is_known_path(path: &candler_schemas::primitives::FieldPath) -> bool {
-    const LEAVES: [&str; 33] = [
+    const LEAVES: [&str; 35] = [
         paths::MODEL_ID,
         paths::MODEL_ENDPOINT,
         paths::MODEL_EFFORT,
@@ -86,6 +86,8 @@ pub fn is_known_path(path: &candler_schemas::primitives::FieldPath) -> bool {
         paths::ISOLATION_BUILD_REQUIREMENTS,
         paths::ISOLATION_BUILD_PRUNE,
         paths::ISOLATION_BUILD_LOCK,
+        paths::ISOLATION_BUILD_PLUGIN,
+        paths::ISOLATION_EGRESS,
         paths::ISOLATION_RECORD_PACKAGES,
         paths::BUDGET_PER_RUN_WALL_S,
         paths::BUDGET_PER_RUN_TURNS,
