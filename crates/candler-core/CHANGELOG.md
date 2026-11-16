@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0](https://github.com/CrackingShells/Candler/compare/v0.8.5...v0.9.0) - 2026-11-16
+
+### Features
+
+- *(isolation)* refuse egress until the proxy lands
+- *(isolation)* append a plug-in environment's lists and inputs
+- *(isolation)* provision a plug-in's agent environment as a layer
+- *(isolation)* resolve an egress allowlist of hostnames and ports
+- *(isolation)* inspect many containers in one call and create by id
+- *(isolation)* admit the egress and plug-in environment paths
+
+### Fixes
+
+- *(isolation)* destroy the agent container when its client cannot start
+- *(isolation)* refuse a lock split between plug-in and experiment
+- *(isolation)* stop the agent container through the daemon
+
+### Refactoring
+
+- *(isolation)* create the agent container before attaching to it
+- *(isolation)* build every docker process in one client
+
+### Style
+
+- *(isolation)* add the missing Grit annotations
+
 ## [0.8.5](https://github.com/CrackingShells/Candler/compare/v0.8.4...v0.8.5) - 2026-11-13
 
 ### Refactoring
