@@ -48,8 +48,8 @@ A stopped run costs a handful of docker spawns, not about 37. The agent's record
 ```mermaid
 graph TD
     guard_reuse[Guard reuse]:::planned
-    container_create[Container create]:::planned
-    plugin_environment[Plug-in environment]:::planned
+    container_create[Container create]:::done
+    plugin_environment[Plug-in environment]:::done
     egress[Egress]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -62,8 +62,8 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `guard_reuse.md` | 📄 Leaf Task | ⬜ Planned |
-| `container_create.md` | 📄 Leaf Task | ⬜ Planned |
-| `plugin_environment.md` | 📄 Leaf Task | ⬜ Planned |
+| `container_create.md` | 📄 Leaf Task | ✅ Done |
+| `plugin_environment.md` | 📄 Leaf Task | ✅ Done |
 | `egress/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log

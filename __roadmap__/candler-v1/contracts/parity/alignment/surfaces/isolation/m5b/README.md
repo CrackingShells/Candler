@@ -15,6 +15,8 @@ An agent's container reaches only its listed hosts and the model gateway, a real
 - ⬜ Ground truth is refused at resolve and absent from the agent container at every point of a real run (D9, I8), merged with its e2e
 - ⬜ The destroy guard verifies by one multi-id inspect and re-uses the facts (A1)
 - ⬜ The rest of the design record is in `__design__/architecture.md`, and the live smoke with `isolation.egress` is recorded
+- ⬜ The live smoke runs a plug-in environment through the product path, not a hand-built plan: `DockerIsolation::plan`, the image step's merge, the runner's input mounts and the `mcp.*` rendering, and the agent lists the server's tools (M5a's `plugin_environment_serves_live_mcp_tools` builds these by hand)
+- ⬜ A container created but not recorded is destroyed, not left to the label sweep (with A1)
 - ⬜ `stats/` is `done`
 
 ## Status

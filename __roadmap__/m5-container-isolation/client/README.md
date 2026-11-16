@@ -37,7 +37,7 @@ Every docker process the core starts is built by `isolation/docker.rs`. Every co
 graph TD
     docker_client[Docker client]:::done
     egress_setting[Egress setting]:::done
-    seams[Seams]:::planned
+    seams[Seams]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -50,7 +50,7 @@ graph TD
 |:-----|:-----|:-------|
 | `docker_client.md` | 📄 Leaf Task | ✅ Done |
 | `egress_setting.md` | 📄 Leaf Task | ✅ Done |
-| `seams/` | 📁 Directory | ⬜ Planned |
+| `seams/` | 📁 Directory | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
