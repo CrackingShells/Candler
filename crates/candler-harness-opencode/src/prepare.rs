@@ -356,6 +356,9 @@ fn server(name: &str, entry: &Value) -> Result<Value, DriverError> {
 
 /// `text` with every character outside `[A-Za-z0-9_-]` replaced by `_`, as `OpenCode` spells an
 /// MCP server or tool in an action (`tool/runtime.ts:288-293`, `mcp.ts:21-25`, v2.2.7).
+///
+/// This mirrors `OpenCode`'s spelling, so it keeps case and `-`; it is not one of the name
+/// grammars `candler_schemas::primitives` owns, and must not be folded into them.
 fn normalize(text: &str) -> String {
     text.chars()
         .map(|c| {

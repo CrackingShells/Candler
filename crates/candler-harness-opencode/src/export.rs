@@ -42,17 +42,7 @@ const OUTCOMES: [&str; 3] = ["succeeded", "interrupted", "failed"];
 /// A reason code from an error type: lowercase letters, digits and `_`, so `provider.no-route` is
 /// `provider_no_route`.
 fn reason_of(kind: &str) -> Option<ReasonCode> {
-    let text: String = kind
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c.to_ascii_lowercase()
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    ReasonCode::from_str(&text).ok()
+    ReasonCode::from_lossy(kind)
 }
 
 /// How a run that ended with the error of type `kind` ended.

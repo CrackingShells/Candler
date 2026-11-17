@@ -15,7 +15,7 @@ use candler_harness::spec::{
     Observed, Prepared, ProcessExit, StateKind, StatePath, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::name;
-use candler_schemas::primitives::{RelPath, plain_segment};
+use candler_schemas::primitives::{RelPath, plain_arg};
 use candler_schemas::raw::StreamName;
 use candler_schemas::trace::{EndedBy, Session};
 use semver::{Version, VersionReq};
@@ -277,12 +277,11 @@ impl HarnessDriver for OpenCodeDriver {
         // The export needs `--standalone` and the run's own database and XDG variables, which only
         // a command inside the isolation has. One export, for the first root session the stream
         // named; an id that could pass as an option is not exported.
-        let plain = |id: &str| !id.starts_with('-') && plain_segment(id);
         let Some(id) = observed
             .session_ids
             .iter()
             .map(candler_schemas::trace::SessionId::as_str) // BORROW: explicit .as_str()
-            .find(|id| plain(id))
+            .find(|id| plain_arg(id))
         else {
             return Vec::new();
         };
