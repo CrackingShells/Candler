@@ -3,7 +3,8 @@
 //! A step is registered with a [`Resolver`], which runs the steps in registration order. Each step
 //! sees the configuration and the values resolved so far, including what the steps before it
 //! derived. A step that returns an error, or a report with a failed check, has its derived values
-//! dropped; the later steps still run, and the resolution fails once every step has run.
+//! dropped; the later steps still run, and the resolution fails once every step has run, unless the
+//! failed step is a gate, which ends the resolution there.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -150,6 +151,12 @@ pub struct StepError {
 pub trait PreflightStep: Send + Sync {
     /// The step's name, `name@token`; it is the `step` of the source of every value it derives.
     fn name<'a>(&'a self) -> &'a NameToken;
+
+    /// Whether the steps after this one run only when it passes. A gate that fails ends the
+    /// resolution there, so what a later step would build or fetch is never built or fetched.
+    fn gate(&self) -> bool {
+        false
+    }
 
     /// Runs the step against the values resolved so far.
     fn run(
@@ -338,6 +345,9 @@ impl Resolver {
                     step: step.name().clone(),
                     error,
                 }),
+            }
+            if step.gate() && !(reports.is_empty() && errors.is_empty()) {
+                break;
             }
         }
         if errors.is_empty()

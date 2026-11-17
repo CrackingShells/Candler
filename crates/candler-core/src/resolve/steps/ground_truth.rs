@@ -25,7 +25,7 @@ use candler_schemas::primitives::{Digest, FieldPath, FormatError, Marker, NameTo
 use candler_schemas::process::ExitStatus;
 use futures::future::BoxFuture;
 
-use super::image::BuildInputs;
+use super::image::{BuildInputs, context_dir};
 use super::plugin_environment::{Fragment, STEP_BASE};
 use crate::experiment::inputs::InputFiles;
 use crate::resolve::preflight::{
@@ -237,6 +237,7 @@ fn walk_files(path: &Path) -> Result<BTreeMap<String, Digest>, io::Error> {
 async fn context_exposures(
     ctx: &ResolveContext,
     truth: &GroundTruth,
+    supervisor: &Supervisor,
 ) -> Result<Vec<String>, PreflightError> {
     let dockerfile = text_at(ctx, paths::ISOLATION_BUILD_DOCKERFILE)?;
     let context = text_at(ctx, paths::ISOLATION_BUILD_CONTEXT)?;
@@ -248,10 +249,9 @@ async fn context_exposures(
     } else {
         "the experiment's build context"
     };
-    let (dockerfile, context) = (
-        ctx.config.cwd.join(dockerfile),
-        ctx.config.cwd.join(context),
-    );
+    // The tree of a `treatment:` context is read from the extracted bytes and removed after.
+    let (context, _tree) = context_dir(ctx, supervisor, &context).await?;
+    let dockerfile = ctx.config.cwd.join(dockerfile);
     let inputs = tokio::task::spawn_blocking(move || BuildInputs::read(&dockerfile, &context))
         .await
         .map_err(|e| failed(format!("the build inputs were not read: {e}")))?
@@ -400,6 +400,11 @@ impl PreflightStep for GroundTruthStep {
         &self.name
     }
 
+    /// The agent must not receive the ground truth, so no later step builds an image.
+    fn gate(&self) -> bool {
+        true
+    }
+
     fn run(
         &self,
         ctx: Arc<ResolveContext>,
@@ -414,7 +419,7 @@ impl PreflightStep for GroundTruthStep {
             if truth.is_empty() {
                 return Ok(report);
             }
-            let mut found = context_exposures(&ctx, &truth).await?;
+            let mut found = context_exposures(&ctx, &truth, &supervisor).await?;
             found.extend(input_exposures(&ctx, &truth).await?);
             found.extend(truth.agent.iter().filter_map(|copy| {
                 truth.named(&copy.digest).map(|file| {

@@ -77,11 +77,11 @@ pub const ISOLATION_BUILD_DOCKERFILE: &str = "isolation.build.dockerfile";
 pub const ISOLATION_BUILD_CONTEXT: &str = "isolation.build.context";
 
 /// A setting: the requirement sources the env lock is compiled from, each a path relative to the
-/// experiment file or `treatment:<path inside the skill>`.
+/// experiment file or `treatment:<path in the treatment's checkout>`.
 pub const ISOLATION_BUILD_REQUIREMENTS: &str = "isolation.build.requirements";
 
 /// The prefix of a requirement source read from the treatment's repository rather than a path:
-/// `treatment:<path inside the skill>`.
+/// `treatment:<path in the treatment's checkout>`.
 pub const TREATMENT_SOURCE_PREFIX: &str = "treatment:";
 
 /// A setting: the names of the files deleted from the env after the install, each matching

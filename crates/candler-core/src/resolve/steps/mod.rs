@@ -42,7 +42,8 @@ pub struct M2bServices {
 
 /// Registers the preflight steps on `resolver`, in the order their values depend on one another:
 /// the treatment first (its pinned commit is where requirement sources are read), then the plug-in
-/// environment (it supplies the image step's values), then the image,
+/// environment (it supplies the image step's values), then the ground truth (a gate: an image
+/// that would hold evaluator-only bytes is never built), then the image,
 /// then the harness (it reads the image), then the catalog, then the session mode, then the egress
 /// allowlist.
 ///
@@ -53,6 +54,7 @@ pub struct M2bServices {
 pub fn register_m2b_steps(
     resolver: Resolver,
     services: &M2bServices,
+    ground_truth: ground_truth::GroundTruthStep,
 ) -> Result<Resolver, ResolveError> {
     let image = ImageIdStep::new(
         Arc::clone(&services.images),
@@ -70,21 +72,10 @@ pub fn register_m2b_steps(
     resolver
         .register(Box::new(treatment))? // TRAIT_OBJECT: steps of different types are registered side by side
         .register(Box::new(plugin_environment))? // TRAIT_OBJECT: steps of different types are registered side by side
+        .register(Box::new(ground_truth))? // TRAIT_OBJECT: steps of different types are registered side by side
         .register(Box::new(image))? // TRAIT_OBJECT: steps of different types are registered side by side
         .register(Box::new(harness))? // TRAIT_OBJECT: steps of different types are registered side by side
         .register(Box::new(catalog))? // TRAIT_OBJECT: steps of different types are registered side by side
         .register(Box::new(session))? // TRAIT_OBJECT: steps of different types are registered side by side
         .register(Box::new(egress)) // TRAIT_OBJECT: steps of different types are registered side by side
-}
-
-/// Registers the ground-truth step on `resolver`, after the steps of [`register_m2b_steps`]: it
-/// reads the treatment the identity step derived.
-///
-/// # Errors
-/// [`ResolveError`] when the step name is already registered.
-pub fn register_ground_truth(
-    resolver: Resolver,
-    step: ground_truth::GroundTruthStep,
-) -> Result<Resolver, ResolveError> {
-    resolver.register(Box::new(step)) // TRAIT_OBJECT: steps of different types are registered side by side
 }

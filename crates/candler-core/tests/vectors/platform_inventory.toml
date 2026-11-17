@@ -78,6 +78,11 @@ uses = ["`flock` on the experiment lock"]
 windows = "`LockFileEx` on the file, released when the holder dies"
 
 [[file]]
+path = "crates/candler-core/src/resolve/steps/identity.rs"
+uses = ["`PermissionsExt::from_mode` to set the execute bit (0755) of a file of the treatment's tree"]
+windows = "ACLs, or no mode bits: an executable is told by its extension, so there is no bit to set"
+
+[[file]]
 path = "crates/candler-core/src/runner/exec/mod.rs"
 uses = ["`PermissionsExt::from_mode` to set the execute bit (0755)"]
 windows = "ACLs, or no mode bits: the read-only attribute stands in for 0444; an executable is told by its extension, so there is no bit to set"

@@ -156,6 +156,13 @@ impl FileValues {
                 continue;
             }
             let joined = match value.as_value() {
+                // A build context that starts with `treatment:` is read from the treatment's tree.
+                Value::String(text)
+                    if path.as_str() == ISOLATION_BUILD_CONTEXT
+                        && text.starts_with(TREATMENT_SOURCE_PREFIX) =>
+                {
+                    Value::String(text.clone()) // BORROW: the text stays as written
+                }
                 Value::String(text) => Value::String(join_text(dir, text)?),
                 Value::Array(items) => Value::Array(
                     items

@@ -15,13 +15,13 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use candler_schemas::canonical::CanonicalError;
-use candler_schemas::execution::{DigestRef, TreatmentRef, TreatmentSpec};
+use candler_schemas::execution::{DigestRef, GitCommit, TreatmentRef, TreatmentSpec};
 use candler_schemas::primitives::{Digest, FieldPath, FormatError, Name, NameToken};
 use candler_schemas::values::{JsonValue, ValueSource};
 use futures::future::BoxFuture;
 use serde_json::{Map, Value, json};
 
-use super::identity::show_file;
+use super::identity::{Extracted, show_file, tree_at};
 use super::plugin_environment::{Fragment, STEP_BASE};
 use crate::isolation::image::{
     BuildSetting, Extension, ImageService, LockDigest, LockRequest, LockSource, package_name_ok,
@@ -204,7 +204,11 @@ impl PreflightStep for ImageIdStep {
             check_record_packages(&ctx)?;
             let lock = lock_bytes(&ctx, fragment.as_ref(), &images, &supervisor).await?;
             let lock_digest = Digest::of_bytes(&lock);
-            let extension = extension_of(&ctx)?;
+            // The tree of a `treatment:` context lives until the image is built.
+            let (extension, _tree) = match extension_of(&ctx, &supervisor).await? {
+                Some((layer, tree)) => (Some(layer), tree),
+                None => (None, None),
+            };
             let inputs = match &extension {
                 Some(layer) => {
                     // BORROW: `.clone()` moves owned paths into the blocking read
@@ -338,8 +342,12 @@ fn declared_inputs(ctx: &ResolveContext) -> Result<Vec<DigestRef>, PreflightErro
 }
 
 /// The experiment's own layer, when both `isolation.build.dockerfile` and
-/// `isolation.build.context` are set.
-fn extension_of(ctx: &ResolveContext) -> Result<Option<Extension>, PreflightError> {
+/// `isolation.build.context` are set, with the extracted tree when the context is
+/// `treatment:<path>`.
+async fn extension_of(
+    ctx: &ResolveContext,
+    supervisor: &Supervisor,
+) -> Result<Option<(Extension, Option<Extracted>)>, PreflightError> {
     let dockerfile = text_at(ctx, paths::ISOLATION_BUILD_DOCKERFILE)?;
     let context = text_at(ctx, paths::ISOLATION_BUILD_CONTEXT)?;
     match (dockerfile, context) {
@@ -349,10 +357,16 @@ fn extension_of(ctx: &ResolveContext) -> Result<Option<Extension>, PreflightErro
             paths::ISOLATION_BUILD_DOCKERFILE,
             paths::ISOLATION_BUILD_CONTEXT
         ))),
-        (Some(dockerfile), Some(context)) => Ok(Some(Extension {
-            dockerfile: ctx.config.cwd.join(dockerfile),
-            context: ctx.config.cwd.join(context),
-        })),
+        (Some(dockerfile), Some(context)) => {
+            let (context, tree) = context_dir(ctx, supervisor, &context).await?;
+            Ok(Some((
+                Extension {
+                    dockerfile: ctx.config.cwd.join(dockerfile),
+                    context,
+                },
+                tree,
+            )))
+        }
         (None, None) => Ok(None),
         (Some(_), None) | (None, Some(_)) => Err(failed(format!(
             "`{}` and `{}` must be set together",
@@ -360,6 +374,40 @@ fn extension_of(ctx: &ResolveContext) -> Result<Option<Extension>, PreflightErro
             paths::ISOLATION_BUILD_CONTEXT
         ))),
     }
+}
+
+/// The directory a build context names: a path relative to the experiment file, or, for
+/// `treatment:<path>`, `<path>` of the treatment's checkout at the pinned commit, extracted to a
+/// scratch directory the returned tree owns.
+pub(super) async fn context_dir(
+    ctx: &ResolveContext,
+    supervisor: &Supervisor,
+    text: &str,
+) -> Result<(PathBuf, Option<Extracted>), PreflightError> {
+    let Some(inside) = text.strip_prefix(paths::TREATMENT_SOURCE_PREFIX) else {
+        return Ok((ctx.config.cwd.join(text), None));
+    };
+    let (source, commit) = checkout_of(ctx, text)?;
+    let tree = tree_at(supervisor, &source, &commit, inside).await?;
+    Ok((tree.root().to_path_buf(), Some(tree)))
+}
+
+/// The treatment's checkout and the commit it is pinned to, for the `treatment:` entry `entry`.
+fn checkout_of(ctx: &ResolveContext, entry: &str) -> Result<(PathBuf, GitCommit), PreflightError> {
+    let treatment: TreatmentRef = read_value(ctx, paths::TREATMENT)?;
+    let commit = treatment.commit.ok_or_else(|| {
+        failed(format!(
+            "`{entry}` needs a treatment pinned to a commit, and the treatment has none"
+        ))
+    })?;
+    let spec: TreatmentSpec = read_value(ctx, paths::REQUEST_TREATMENT)?;
+    let source = spec.source.ok_or_else(|| {
+        failed(format!(
+            "`{entry}` is read from the treatment's checkout, and the treatment names no \
+             `treatment.source`"
+        ))
+    })?;
+    Ok((ctx.config.cwd.join(source), commit))
 }
 
 /// Whether the plug-in environment derived the value at `text`.
@@ -464,20 +512,7 @@ async fn source_of(
     entry: &str,
 ) -> Result<LockSource, PreflightError> {
     let (path, bytes) = if let Some(inside) = entry.strip_prefix(paths::TREATMENT_SOURCE_PREFIX) {
-        let treatment: TreatmentRef = read_value(ctx, paths::TREATMENT)?;
-        let commit = treatment.commit.ok_or_else(|| {
-            failed(format!(
-                "`{entry}` needs a treatment pinned to a commit, and the treatment has none"
-            ))
-        })?;
-        let spec: TreatmentSpec = read_value(ctx, paths::REQUEST_TREATMENT)?;
-        let source = spec.source.ok_or_else(|| {
-            failed(format!(
-                "`{entry}` is read from the treatment's checkout, and the treatment names no \
-                 `treatment.source`"
-            ))
-        })?;
-        let source = ctx.config.cwd.join(source);
+        let (source, commit) = checkout_of(ctx, entry)?;
         let bytes = show_file(supervisor, &source, &commit, inside).await?;
         (inside, bytes)
     } else {
