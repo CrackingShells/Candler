@@ -83,8 +83,12 @@ fn plan_error(detail: String) -> IsolationError {
 /// [`IsolationError::Plan`] when the cell fails the session rule or its turn limit is not a whole
 /// number.
 pub fn session_config(cell: &Cell<'_>) -> Result<Option<SessionConfig>, IsolationError> {
-    let mode = cell.value_str(paths::RUNNER_MODE)?;
-    let idle = cell.value_str(paths::RUNNER_IDLE_S)?;
+    let mode = cell
+        .value_str(paths::RUNNER_MODE)
+        .map_err(|error| crate::isolation::cell_path_error(&error))?;
+    let idle = cell
+        .value_str(paths::RUNNER_IDLE_S)
+        .map_err(|error| crate::isolation::cell_path_error(&error))?;
     settle(mode, idle, None).map_err(|refusal| plan_error(refusal.detail().to_owned()))?; // BORROW: owned text
     if mode.and_then(Value::as_str) != Some(MODE_SESSION) {
         return Ok(None);
@@ -94,7 +98,10 @@ pub fn session_config(cell: &Cell<'_>) -> Result<Option<SessionConfig>, Isolatio
         Some(Value::String(_)) => Idle::Never,
         _ => Idle::Seconds(DEFAULT_IDLE_S),
     };
-    let turn_limit = match cell.value_str(paths::BUDGET_PER_RUN_TURNS)? {
+    let turn_limit = match cell
+        .value_str(paths::BUDGET_PER_RUN_TURNS)
+        .map_err(|error| crate::isolation::cell_path_error(&error))?
+    {
         None => None,
         Some(value) => Some(value.as_u64().ok_or_else(|| {
             plan_error("budget.per_run.turns is not a whole number".to_owned()) // BORROW: owned text

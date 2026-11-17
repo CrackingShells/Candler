@@ -37,12 +37,8 @@ fn value_str_reads_by_text() -> Res<()> {
     assert_eq!(cell.value_str("budget.per_run.wall_s")?, None);
     assert_eq!(cell.value_str("budget.per_run")?, None);
     let refused = cell.value_str("Not.A.Path").err().ok_or("accepted")?;
-    assert_eq!(
-        DriverError::from(refused.clone()),
-        DriverError::VersionOutput {
-            detail: refused.to_string()
-        }
-    );
+    let parser = FieldPath::from_str("Not.A.Path").err().ok_or("parsed")?;
+    assert_eq!(refused.to_string(), parser.to_string());
     Ok(())
 }
 
