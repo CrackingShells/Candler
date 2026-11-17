@@ -1,7 +1,8 @@
 //! The surface of an experiment: the values a cell is made of.
 //!
 //! The surface is the part of a cell the agent's run is configured from: the model, the tools, the
-//! MCP servers, the permission mode, the prompt and the isolation limits. A setting is not part of
+//! permission mode, the prompt and the isolation limits. The MCP servers are not read here: the
+//! harness driver renders them from the cell's `mcp.servers.*` leaves. A setting is not part of
 //! it: `request.*`, `model.token_secret` and `isolation.build.*` are never read here.
 
 use std::str::FromStr;
@@ -68,8 +69,6 @@ pub struct Surface {
     pub tools_allowed: Vec<String>,
     /// `tools.disallowed`; empty when unset.
     pub tools_disallowed: Vec<String>,
-    /// `mcp`: the server configuration, when set.
-    pub mcp: Option<Map<String, Value>>,
     /// `permission_mode`.
     pub permission_mode: String,
     /// `prompt.template`.
@@ -154,7 +153,6 @@ impl Surface {
             model_effort: reader.text(paths::MODEL_EFFORT)?,
             tools_allowed: reader.texts(paths::TOOLS_ALLOWED)?,
             tools_disallowed: reader.texts(paths::TOOLS_DISALLOWED)?,
-            mcp: reader.object(paths::MCP)?,
             permission_mode: reader.required_text(paths::PERMISSION_MODE)?,
             prompt_template: reader.required_text(paths::PROMPT_TEMPLATE)?,
             prompt_values: reader.object(paths::PROMPT_VALUES)?.unwrap_or_default(),
