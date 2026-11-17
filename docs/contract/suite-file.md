@@ -10,7 +10,7 @@ The suite file an evaluation author writes to list the expectations a run is gra
 Wire tag: `suite/1`.
 
 <!-- versions -->
-Wire line: `schemas@0.11.0`.
+Wire line: `schemas@0.11.1`.
 <!-- /versions -->
 <!-- /generated:version -->
 
