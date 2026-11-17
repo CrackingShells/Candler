@@ -53,6 +53,16 @@ pub enum IsolationError {
     },
 }
 
+impl From<candler_schemas::primitives::FormatError> for IsolationError {
+    /// A path of the cell that is not a field path: the cell cannot be planned.
+    fn from(error: candler_schemas::primitives::FormatError) -> Self {
+        Self::Plan {
+            // BORROW: .to_string() makes the owned text the error keeps
+            detail: error.to_string(),
+        }
+    }
+}
+
 /// What the run's live reader has seen so far, read when a stop needs it.
 // TRAIT_OBJECT: the view is a closure over the run's live reader
 pub type ObservedView = Arc<dyn Fn() -> Observed + Send + Sync>;

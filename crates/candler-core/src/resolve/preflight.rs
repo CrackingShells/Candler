@@ -124,6 +124,22 @@ impl ResolveContext {
             .find(|resolved| resolved.path() == path)
             .and_then(ResolvedValue::value)
     }
+
+    /// The JSON value resolved for the path written as `path`, if there is one.
+    ///
+    /// # Errors
+    /// [`PreflightError::Failed`] when `path` is not a field path.
+    pub fn value_at<'a>(
+        &'a self,
+        path: &str,
+    ) -> Result<Option<&'a serde_json::Value>, PreflightError> {
+        let path: FieldPath =
+            path.parse()
+                .map_err(|error: FormatError| PreflightError::Failed {
+                    detail: error.to_string(), // BORROW: .to_string() gives owned text
+                })?;
+        Ok(self.get(&path).map(JsonValue::as_value))
+    }
 }
 
 /// Why a step could not run its checks.

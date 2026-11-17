@@ -248,12 +248,6 @@ fn part_json<T: serde::Serialize>(part: &T) -> Value {
     }
 }
 
-/// Splits a dotted path into segments.
-fn segments_of(path: &str) -> Vec<String> {
-    // BORROW: .to_owned() makes the owned segment
-    path.split('.').map(str::to_owned).collect()
-}
-
 /// Flattens a cell to its leaves: every value at its own path, each field of the harness at
 /// `harness.<field>`, and the treatment, snapshots, inputs and environments each at their root.
 fn flatten(cell: &Comparable) -> Leaves {
@@ -263,8 +257,8 @@ fn flatten(cell: &Comparable) -> Leaves {
     };
     for value in cell.values() {
         put(
-            // BORROW: explicit .as_str() instead of Deref coercion
-            segments_of(value.path().as_str()),
+            // BORROW: .to_owned() makes the owned segment
+            value.path().segments().map(str::to_owned).collect(),
             // BORROW: .clone() gives the leaf its own value
             value.value().map(|json| json.as_value().clone()),
         );

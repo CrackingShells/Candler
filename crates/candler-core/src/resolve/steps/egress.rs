@@ -17,7 +17,7 @@ use std::str::FromStr as _;
 use std::sync::Arc;
 
 use candler_schemas::execution::paths;
-use candler_schemas::primitives::{FieldPath, FormatError, NameToken};
+use candler_schemas::primitives::{FormatError, NameToken};
 use candler_schemas::values::JsonValue;
 use futures::future::BoxFuture;
 use serde_json::Value;
@@ -264,14 +264,6 @@ impl EgressStep {
     }
 }
 
-/// The value the context resolved at `path`.
-fn value_at<'a>(ctx: &'a ResolveContext, path: &str) -> Result<Option<&'a Value>, PreflightError> {
-    let path = FieldPath::from_str(path).map_err(|error| PreflightError::Failed {
-        detail: error.to_string(), // BORROW: .to_string() gives owned text
-    })?;
-    Ok(ctx.get(&path).map(JsonValue::as_value))
-}
-
 impl PreflightStep for EgressStep {
     fn name<'a>(&'a self) -> &'a NameToken {
         &self.name
@@ -284,8 +276,8 @@ impl PreflightStep for EgressStep {
         let step = self.name.clone(); // BORROW: the future owns the step name
         let outcome = (|| {
             let mut report = StepReport::new(step);
-            let egress = value_at(&ctx, paths::ISOLATION_EGRESS)?;
-            let network = value_at(&ctx, paths::ISOLATION_NETWORK)?;
+            let egress = ctx.value_at(paths::ISOLATION_EGRESS)?;
+            let network = ctx.value_at(paths::ISOLATION_NETWORK)?;
             if let Err(refusal) = settle(egress, network) {
                 let name = NameToken::from_str(refusal.check()).map_err(|error| {
                     PreflightError::Failed {
