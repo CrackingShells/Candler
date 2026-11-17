@@ -9,6 +9,7 @@ use std::fmt;
 use std::path::Path;
 use std::time::Duration;
 
+use candler_schemas::distinct::first_repeat;
 use candler_schemas::execution::paths;
 use candler_schemas::field_path;
 use candler_schemas::primitives::{FieldPath, Name, RelPath, SecretName};
@@ -38,7 +39,7 @@ pub enum CommandSpecError {
     #[error("command has an empty argv")]
     EmptyArgv,
     /// An environment overlay that sets one variable twice.
-    #[error("command sets environment variable {name:?} more than once")]
+    #[error("environment variable {name:?} is declared twice")]
     DuplicateEnv {
         /// The name of the variable.
         name: String,
@@ -281,17 +282,12 @@ impl CommandSpecBuilder {
         if argv.is_empty() {
             return Err(CommandSpecError::EmptyArgv);
         }
-        let mut seen: Vec<&str> = Vec::with_capacity(self.env_overlay.len());
-        for entry in &self.env_overlay {
-            // BORROW: explicit .as_str() instead of Deref coercion
-            let name = entry.name.as_str();
-            if seen.contains(&name) {
-                return Err(CommandSpecError::DuplicateEnv {
-                    // BORROW: .to_owned() keeps the offending name in the error
-                    name: name.to_owned(),
-                });
-            }
-            seen.push(name);
+        // BORROW: explicit .as_str() instead of Deref coercion
+        if let Some(name) = first_repeat(self.env_overlay.iter().map(|entry| entry.name.as_str())) {
+            return Err(CommandSpecError::DuplicateEnv {
+                // BORROW: .to_owned() keeps the offending name in the error
+                name: name.to_owned(),
+            });
         }
         Ok(CommandSpec {
             argv,

@@ -58,7 +58,7 @@ pub enum RegistryError {
         dir: PathBuf,
     },
     /// Two manifests that carry the same plug-in name.
-    #[error("two plug-in manifests are named `{name}`")]
+    #[error("plug-in manifest name `{name}` is declared twice")]
     DuplicatePlugin {
         /// The repeated name.
         name: Name,
