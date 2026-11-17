@@ -31,6 +31,9 @@ use candler_core::resolve::steps::plugin_environment::{
 use candler_core::runner::plan::{Force, PlanError, PlanMode, plan_runs};
 use candler_core::store::Store;
 use candler_core::supervise::{EventSink, Supervisor};
+use candler_harness::driver::HarnessDriver as _;
+use candler_harness::spec::{Cell, Workspace};
+use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_schemas::execution::{
     Comparable, EventPayload, ExperimentFile, ExperimentInput, InputAudience,
 };
@@ -39,6 +42,7 @@ use candler_schemas::refusal::Refusal;
 use candler_schemas::values::{JsonValue, ValueSource};
 use futures::future::BoxFuture;
 use serde_json::{Value, json};
+use support::plugin_env;
 use support::run_plan::{Facts, fresh_store, plan_ctx};
 
 fn fp(text: &str) -> FieldPath {
@@ -873,4 +877,73 @@ fn layer_inputs_mount() {
     )
     .expect_err("a kind declared twice");
     assert!(error.to_string().contains("is declared twice"), "{error}");
+}
+
+/// Guards: R01 §Session runner — a plug-in's MCP servers reach Claude Code as the eval author
+/// declared them: an experiment that selects the fixture plug-in's environment, resolved by the
+/// core and planned by the Claude Code driver, prepares `.mcp.json` with `mcpServers.<name>`
+/// holding the command and arguments the plug-in declares and names it on the command with
+/// `--mcp-config` and `--strict-mcp-config`; an experiment without the plug-in prepares no file
+/// and keeps its command.
+/// Oracle: hand-derived from the `agent-env` fixture's `plugin.toml` (server `tools`, command
+/// `python`, arguments `["env/server.py"]`), from the `.mcp.json` format
+/// (`mcpServers.<name>.command` and `.args`) and from `claude --help` of 2.1.311
+/// (`--mcp-config <configs...>`, `--strict-mcp-config`).
+/// Bite: read `mcp` by exact path again (the servers never reach the file), or emit the servers
+/// under `mcp` or one level deeper (the file's key is off).
+#[tokio::test]
+async fn a_plugins_mcp_servers_reach_claude_code() {
+    const DECLARED: &str = "{\n  \"mcpServers\": {\n    \"tools\": {\n      \"args\": [\n        \"env/server.py\"\n      ],\n      \"command\": \"python\"\n    }\n  }\n}\n";
+    let scratch = tempfile::tempdir().expect("a scratch directory");
+    let project = scratch
+        .path()
+        .canonicalize()
+        .expect("a canonical path")
+        .join("project");
+    let driver = ClaudeCodeDriver::new();
+    let rows: [(Option<&str>, Option<&str>); 2] =
+        [(Some(plugin_env::SELECTOR), Some(DECLARED)), (None, None)];
+    for (selector, declared) in rows {
+        let resolution = plugin_env::resolve_experiment(&project, selector).await;
+        let plan = driver
+            .plan(
+                &Cell::new(&resolution.values),
+                &Workspace::new(std::path::Path::new("/work/run")),
+            )
+            .expect("the driver plans the cell");
+        let file = plan
+            .prepared
+            .files
+            .iter()
+            .find(|file| file.path.as_str() == ".mcp.json");
+        let argv = plan.command.argv();
+        if let Some(text) = declared {
+            let file = file.expect("the driver prepares no .mcp.json for the plug-in's servers");
+            assert_eq!(
+                std::str::from_utf8(&file.contents).expect("UTF-8"),
+                text,
+                "the .mcp.json of {selector:?}"
+            );
+            let tail: Vec<&str> = argv
+                .iter()
+                .rev()
+                .take(3)
+                .rev()
+                .map(String::as_str)
+                .collect();
+            assert_eq!(
+                tail,
+                ["--mcp-config", ".mcp.json", "--strict-mcp-config"],
+                "the end of the command of {selector:?}"
+            );
+        } else {
+            assert!(file.is_none(), "a cell without mcp.* prepares a .mcp.json");
+            assert!(
+                !argv
+                    .iter()
+                    .any(|arg| arg == "--mcp-config" || arg == "--strict-mcp-config"),
+                "a cell without mcp.* names an MCP config on the command: {argv:?}"
+            );
+        }
+    }
 }

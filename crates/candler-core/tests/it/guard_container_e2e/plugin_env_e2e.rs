@@ -38,7 +38,8 @@ use candler_core::resolve::steps::plugin_environment::Fragment;
 use candler_core::store::Store;
 use candler_core::supervise::spawn::OutputSpec;
 use candler_core::supervise::{EventSink, Supervisor};
-use candler_harness::spec::{CommandSpec, Framing, Workspace};
+use candler_harness::driver::HarnessDriver as _;
+use candler_harness::spec::{Cell, CommandSpec, Framing, Workspace};
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_schemas::execution::{EventPayload, ExperimentInput, InputAudience};
 use candler_schemas::primitives::{Digest, JobId, Name, RunKey};
@@ -50,13 +51,11 @@ use sha2::Digest as _;
 use crate::support::container_stop::{cid, container_ref, inspect, labels};
 use crate::support::job_orchestrate::quiet_gateway;
 use crate::support::job_store::job_record;
+use crate::support::plugin_env::{SELECTOR, agent_env_dir, resolve_experiment};
 use crate::support::run_plan::fresh_store;
 
 /// The label every container and network of this test carries.
 const TEST_LABEL: &str = "candler.test=plugin_environment";
-
-/// The plug-in's directory name and the environment the test selects.
-const SELECTOR: &str = "agent-env/tiny";
 
 /// The evaluator-only file of the fixture, by name and by a line of its bytes.
 const CANARY_NAME: &str = "canary.txt";
@@ -196,7 +195,7 @@ fn frames_text(path: &Path) -> String {
 
 /// The fixture plug-in's environment, read through the core's reader.
 fn fragment() -> Fragment {
-    let dirs = [Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/plugins/agent-env")];
+    let dirs = [agent_env_dir()];
     Fragment::load(&dirs, SELECTOR).expect("the fixture environment loads")
 }
 
@@ -212,18 +211,10 @@ fn value_of(fragment: &Fragment, path: &str) -> Value {
         )
 }
 
-/// The file the client reads: the resolved `mcp.servers.tools.*` values of the environment, as
-/// a driver renders a server into its own configuration.
-fn render_mcp(fragment: &Fragment) -> Value {
-    json!({
-        "command": value_of(fragment, "mcp.servers.tools.command"),
-        "args": value_of(fragment, "mcp.servers.tools.args"),
-    })
-}
-
 /// Guards: R06 D4, R01 §Agent environment — a real container built from a plug-in environment
 /// (the harness base, the env layer, the environment's own Dockerfile and context) runs the
-/// environment's MCP server from the environment's inputs, and the agent's process lists
+/// environment's MCP server from the `.mcp.json` the production driver prepares for the cell the
+/// core resolves for that environment, and the agent's process lists
 /// exactly the server's tools from inside the container, while an evaluator-only file of the
 /// same plug-in, declared as an evaluator-only input of the experiment, is in the container
 /// neither by name nor by bytes. Everything the test built is
@@ -231,10 +222,13 @@ fn render_mcp(fragment: &Fragment) -> Value {
 /// Oracle: the tools the fixture's `agent/server.py` declares, written by hand below (names,
 /// the `add` schema, and the dependency's tag that only the wheel built into the extension
 /// can supply); the fixture's `evaluator/canary.txt`, read on the host to prove it exists;
-/// `docker inspect` of every id after the removal.
+/// `docker inspect` of every id after the removal; the `.mcp.json` the client reads, which the
+/// test takes from the driver and renders nowhere itself, from the `plugin.toml` values the
+/// resolver hands the driver.
 /// Bite: the extension left out of the build (the server fails on its import), the plug-in's
-/// inputs not mounted (the client is not there), or the resolved `mcp.*` values dropped from the
-/// file the client reads (no server to launch), or the evaluator-only input declared for the agent
+/// inputs not mounted (the client is not there), or the driver's `mcp_servers` reading the
+/// exact path `mcp` instead of `mcp.servers` (the resolved values never reach `.mcp.json`: no
+/// server to launch), or the evaluator-only input declared for the agent
 /// (`InputAudience::Agent`: it is mounted, and the client finds the canary by name and bytes).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "needs a Docker daemon, the harness base image and PyPI for the env venv"]
@@ -416,11 +410,20 @@ async fn plugin_environment_serves_live_mcp_tools() {
             mode: MountMode::ReadOnly,
         });
     }
-    std::fs::write(
-        work.join("mcp.json"),
-        serde_json::to_vec(&render_mcp(&fragment)).expect("a config"),
-    )
-    .expect("the config file");
+    // The file the client reads is the one the Claude Code driver prepares for the cell the core
+    // resolves from an experiment that selects the plug-in's environment.
+    let project = root.join("project");
+    let resolution = resolve_experiment(&project, Some(SELECTOR)).await;
+    let driven = ClaudeCodeDriver::new()
+        .plan(&Cell::new(&resolution.values), &Workspace::new(&work))
+        .expect("the driver plans the cell");
+    let mcp_file = driven
+        .prepared
+        .files
+        .iter()
+        .find(|file| file.path.as_str() == ".mcp.json")
+        .expect("the driver prepares no .mcp.json for a cell with a plug-in's MCP server");
+    std::fs::write(work.join(".mcp.json"), &mcp_file.contents).expect("the config file");
 
     let experiment: Digest = format!("sha256:{}", "c".repeat(64))
         .parse()
@@ -470,7 +473,7 @@ async fn plugin_environment_serves_live_mcp_tools() {
         .argv(vec![
             String::from("python"),
             String::from("/work/env/client.py"),
-            String::from("/work/mcp.json"),
+            String::from("/work/.mcp.json"),
             CANARY_NAME.to_owned(),  // BORROW: the command owns its words
             CANARY_BYTES.to_owned(), // BORROW: the command owns its words
         ])
