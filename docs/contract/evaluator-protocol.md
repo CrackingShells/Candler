@@ -10,7 +10,7 @@ The messages Candler and an evaluator plug-in exchange, one JSON object per line
 Wire tag: none.
 
 <!-- versions -->
-Wire line: `schemas@0.11.1`.
+Wire line: `schemas@0.11.2`.
 <!-- /versions -->
 <!-- /generated:version -->
 

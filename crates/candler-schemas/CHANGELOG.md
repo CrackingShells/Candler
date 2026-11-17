@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.2](https://github.com/CrackingShells/Candler/compare/schemas@0.11.1...schemas@0.11.2) - 2026-11-17
+
+### Refactoring
+
+- *(schemas)* name what lies below a prefix once on FieldPath
+
 ## [0.11.1](https://github.com/CrackingShells/Candler/compare/schemas@0.11.0...schemas@0.11.1) - 2026-11-17
 
 ### Documentation

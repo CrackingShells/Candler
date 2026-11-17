@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.3](https://github.com/CrackingShells/Candler/compare/v0.12.2...v0.12.3) - 2026-11-17
+
+### Refactoring
+
+- *(library)* name the cell-path error at each reader
+- *(library)* read a cell by text and as a table through Cell
+
 ## [0.12.1](https://github.com/CrackingShells/Candler/compare/v0.12.0...v0.12.1) - 2026-11-17
 
 ### Refactoring

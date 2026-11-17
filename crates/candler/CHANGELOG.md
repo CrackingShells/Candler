@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.3](https://github.com/CrackingShells/Candler/compare/v0.12.2...v0.12.3) - 2026-11-17
+
+### Refactoring
+
+- *(library)* keep the layering guard's words out of a doc comment
+- *(library)* name the cell-path error at each reader
+- *(resolve)* read a context value by text through ResolveContext
+- *(library)* read a cell by text and as a table through Cell
+- *(adapter-claude-code)* name the cell-path error at each reader
+- *(adapter-opencode)* name the cell-path error at each reader
+
 ## [0.12.2](https://github.com/CrackingShells/Candler/compare/v0.12.1...v0.12.2) - 2026-11-17
 
 ### Refactoring
