@@ -400,16 +400,14 @@ fn host_link_local(net: &str) -> Option<String> {
 fn probe_host(
     cell: &str,
     agent: &str,
-    gateways: &[&str],
-    extra: &[&str],
+    addresses: &[&str],
     link_local: Option<&str>,
     listeners: &[HostListener],
     log: &std::cell::RefCell<Vec<String>>,
     failures: &std::cell::RefCell<Vec<String>>,
 ) {
-    let mut targets: Vec<String> = gateways.iter().map(|g| (*g).to_owned()).collect();
+    let mut targets: Vec<String> = addresses.iter().map(|a| (*a).to_owned()).collect();
     targets.push("host.docker.internal".to_owned());
-    targets.extend(extra.iter().map(|t| (*t).to_owned()));
     if let Some(ll) = link_local {
         targets.extend(["eth0", "eth1"].map(|nic| format!("{ll}%{nic}")));
     }
@@ -969,7 +967,6 @@ async fn egress_allowlist_holds_on_a_real_daemon() {
         "agent on the job and allow networks",
         &agent,
         &[&job_gw, &host_gw],
-        &[],
         host_ll.as_deref(),
         &listeners,
         &log,
@@ -1014,8 +1011,7 @@ async fn egress_allowlist_holds_on_a_real_daemon() {
     probe_host(
         "8b no isolation.egress: the job network only",
         &bare,
-        &[&job_gw],
-        &["::"],
+        &[&job_gw, "::"],
         host_ll.as_deref(),
         &listeners,
         &log,
