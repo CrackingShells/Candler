@@ -1262,6 +1262,28 @@ impl<'a> Cell<'a> {
         self.get(path).map(JsonValue::as_value)
     }
 
+    /// The values at `prefix` or below it, each with its path: a table of the cell reaches it as
+    /// one value per leaf, so a table is read by its prefix.
+    #[must_use]
+    pub fn below(&self, prefix: &FieldPath) -> Vec<(&'a FieldPath, &'a Value)> {
+        let root = prefix.as_str(); // BORROW: explicit .as_str() instead of Deref coercion
+        self.values
+            .iter()
+            .filter(|resolved| {
+                resolved
+                    .path()
+                    .as_str() // BORROW: explicit .as_str() instead of Deref coercion
+                    .strip_prefix(root)
+                    .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
+            })
+            .filter_map(|resolved| {
+                resolved
+                    .value()
+                    .map(|json| (resolved.path(), json.as_value()))
+            })
+            .collect()
+    }
+
     /// The text at `path`, if the cell has a value there.
     ///
     /// # Errors

@@ -16,7 +16,7 @@ lock = "env/uv.lock"
 "isolation.build.dockerfile" = "docker/Dockerfile"
 "isolation.build.context" = "docker/context"
 "mcp.servers.tools.command" = "python"
-"mcp.servers.tools.args" = ["/work/env/server.py"]
+"mcp.servers.tools.args" = ["env/server.py"]
 
 [[agent_environments.tiny.inputs]]
 kind = "mcp_server"
