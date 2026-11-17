@@ -1155,6 +1155,64 @@ pub fn plain_segment(text: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
 }
 
+/// Reports whether `text` is one plain path segment that cannot pass as a command-line option:
+/// a [`plain_segment`] that does not start with `-`.
+#[must_use]
+pub fn plain_arg(text: &str) -> bool {
+    !text.starts_with('-') && plain_segment(text)
+}
+
+/// Reports whether `text` is a POSIX environment-variable name: an ASCII letter or `_`, then
+/// ASCII letters, digits or `_`.
+///
+/// It is not the check of [`SecretName`], which takes upper case only.
+#[must_use]
+pub fn is_env_var_name(text: &str) -> bool {
+    let mut bytes = text.bytes();
+    bytes
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic() || first == b'_')
+        && bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
+/// `text` in lower case, with every character that is not an ASCII letter or digit replaced by
+/// `_`: the fold behind [`FieldPath::segment_of`] and [`ReasonCode::from_lossy`].
+fn lower_snake(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+impl FieldPath {
+    /// The field-path segment that stands for `name`: lower case, every other character `_`, and
+    /// an `x` in front when the result does not start with a letter.
+    ///
+    /// Two names that fold to one segment share a deviation path, so callers refuse them.
+    #[must_use]
+    pub fn segment_of(name: &str) -> String {
+        let mut text = lower_snake(name);
+        if !text.starts_with(|c: char| c.is_ascii_lowercase()) {
+            text.insert(0, 'x');
+        }
+        text
+    }
+}
+
+impl ReasonCode {
+    /// The reason code that `text` folds to: lower case, every other character `_`. `None` when
+    /// the result does not start with a letter (unlike [`FieldPath::segment_of`], it adds no `x`).
+    #[must_use]
+    pub fn from_lossy(text: &str) -> Option<Self> {
+        Self::from_str(&lower_snake(text)).ok()
+    }
+}
+
 text_type!(SecretName {
     description: "An environment-variable name: an uppercase ASCII letter or `_`, then uppercase letters, digits or `_`.",
     pattern: SECRET_NAME_PATTERN,

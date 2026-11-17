@@ -12,6 +12,7 @@ mod guard_experiment_file;
 mod guard_field_path_walk;
 mod guard_import_origin;
 mod guard_jcs;
+mod guard_name_grammars;
 mod guard_pattern_vectors;
 mod guard_refusal;
 mod guard_rpc_wire;
