@@ -4,9 +4,10 @@
 //! reading writes nothing. The stores are seeded by hand and the binary is the real one, run from
 //! an unrelated directory.
 
+use candler_testkit::snapshot;
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Output};
 
 use candler_core::jobs::dir::JobDir;
@@ -175,27 +176,6 @@ fn candler(home: &Path, store: Option<&Path>, args: &[&str]) -> Output {
 fn document(out: &Output) -> Value {
     assert_eq!(out.status.code(), Some(0), "{out:?}");
     serde_json::from_slice(&out.stdout).expect("one JSON document")
-}
-
-/// Every file under `dir`, by relative path, with its bytes.
-fn snapshot(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
-    fn walk(base: &Path, dir: &Path, out: &mut BTreeMap<PathBuf, Vec<u8>>) {
-        for entry in fs::read_dir(dir).expect("a directory lists") {
-            let path = entry.expect("an entry").path();
-            if path.is_dir() {
-                walk(base, &path, out);
-            } else {
-                let rel = path
-                    .strip_prefix(base)
-                    .expect("under the base")
-                    .to_path_buf();
-                out.insert(rel, fs::read(&path).expect("a file reads"));
-            }
-        }
-    }
-    let mut out = BTreeMap::new();
-    walk(dir, dir, &mut out);
-    out
 }
 
 /// Guards: I3 — `candler inspect <store>/runs/<key>`, with no `--store` and no environment, shows

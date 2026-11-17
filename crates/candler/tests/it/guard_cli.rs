@@ -3,6 +3,7 @@
 //! seeded by hand. The expected key sets are the hand-written literal in
 //! `fixtures/cli/diff_keys.json`.
 
+use candler_testkit::file_paths;
 use std::collections::BTreeSet;
 use std::fs;
 use std::os::unix::fs::symlink;
@@ -557,7 +558,7 @@ fn evaluate_diff_and_show_over_two_plugin_versions_follow_the_fixture_verdicts()
 
     // The tamper: `P1` of the 0.1.1 outcome file reads `fail` instead of `pass`.
     let mut edited = 0_usize;
-    for entry in walk(&store.join("outcomes")) {
+    for entry in file_paths(&store.join("outcomes")) {
         let in_new = entry.to_string_lossy().contains("engine@0.1.1");
         if !in_new || entry.extension().and_then(|e| e.to_str()) != Some("jsonl") {
             continue;
@@ -583,21 +584,4 @@ fn evaluate_diff_and_show_over_two_plugin_versions_follow_the_fixture_verdicts()
     assert_eq!(report["changes"][0]["expectation"], "P1");
     assert_eq!(report["changes"][0]["from"]["status"], "pass");
     assert_eq!(report["changes"][0]["to"]["status"], "fail");
-}
-
-/// The files under `root`, at any depth.
-fn walk(root: &Path) -> Vec<PathBuf> {
-    let mut found = Vec::new();
-    let mut pending = vec![root.to_owned()];
-    while let Some(dir) = pending.pop() {
-        for entry in fs::read_dir(&dir).expect("a directory reads") {
-            let path = entry.expect("an entry").path();
-            if path.is_dir() {
-                pending.push(path);
-            } else {
-                found.push(path);
-            }
-        }
-    }
-    found
 }

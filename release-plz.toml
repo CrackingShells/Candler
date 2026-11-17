@@ -66,3 +66,9 @@ commit_parsers = [
     { message = '^revert', group = "Reverts" },
     { message = '^docs', group = "Documentation" },
 ]
+
+# Dev-only tree helpers: never versioned, tagged or changelogged.
+[[package]]
+name = "candler-testkit"
+release = false
+changelog_update = false

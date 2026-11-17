@@ -1,6 +1,7 @@
 //! What the guards of the legacy import share: the mini-corpus, the reader, the import into a
 //! store, a copy of a folder, a walk of a store and the projection of a stored record to the
 //! oracle's plain strings.
+pub use candler_testkit::copy_tree;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -64,28 +65,6 @@ pub fn reader(_harness: &str) -> Option<Box<dyn TraceReader>> {
 /// Returns the import's error.
 pub fn import_with_reader(folder: &Path, store: &Store) -> Result<ImportReport, ImportError> {
     import(folder, &legacy_rules::rules(), &reader, store)
-}
-
-/// Copies the directory `from` to the new directory `to`, with the modes of its files.
-///
-/// # Panics
-///
-/// Panics when a file cannot be read or written.
-pub fn copy_tree(from: &Path, to: &Path) {
-    fs::create_dir_all(to).unwrap_or_else(|e| panic!("create {}: {e}", to.display()));
-    for entry in fs::read_dir(from).unwrap_or_else(|e| panic!("list {}: {e}", from.display())) {
-        let entry = entry.unwrap_or_else(|e| panic!("entry of {}: {e}", from.display()));
-        let target = to.join(entry.file_name());
-        let kind = entry
-            .file_type()
-            .unwrap_or_else(|e| panic!("type of {}: {e}", entry.path().display()));
-        if kind.is_dir() {
-            copy_tree(&entry.path(), &target);
-        } else {
-            fs::copy(entry.path(), &target)
-                .unwrap_or_else(|e| panic!("copy {}: {e}", entry.path().display()));
-        }
-    }
 }
 
 /// Every file and directory under `root`, by path relative to it: a file with its bytes, a

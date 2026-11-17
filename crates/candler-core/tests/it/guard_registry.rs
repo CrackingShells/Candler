@@ -3,6 +3,7 @@
 //! environment.
 #![cfg(unix)]
 
+use candler_testkit::copy_tree;
 use std::collections::BTreeMap;
 use std::fs;
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
@@ -145,20 +146,6 @@ fn stub_uv(dir: &Path, counter: &Path) {
 
 fn lines(file: &Path) -> usize {
     fs::read_to_string(file).map_or(0, |text| text.lines().count())
-}
-
-/// Copies `from` into `to`, files and directories.
-fn copy_tree(from: &Path, to: &Path) {
-    fs::create_dir_all(to).expect("a dir");
-    for entry in fs::read_dir(from).expect("a listing") {
-        let entry = entry.expect("an entry");
-        let target = to.join(entry.file_name());
-        if entry.file_type().expect("a type").is_dir() {
-            copy_tree(&entry.path(), &target);
-        } else {
-            fs::copy(entry.path(), target).expect("copied");
-        }
-    }
 }
 
 /// Guards: R6 — two preflights under the same lock digest run `uv` once, and the environment

@@ -1,6 +1,7 @@
 #![cfg(test)]
 //! Fixture provenance: every fixture file is listed with a hash that recomputes.
 
+use candler_testkit::file_set;
 use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt::Write as _;
@@ -54,19 +55,6 @@ fn entries() -> Res<Vec<Entry>> {
     Ok(out)
 }
 
-fn walk(dir: &Path, base: &Path, out: &mut BTreeSet<String>) -> Res<()> {
-    for item in fs::read_dir(dir)? {
-        let path = item?.path();
-        if path.is_dir() {
-            walk(&path, base, out)?;
-        } else {
-            let rel = path.strip_prefix(base)?;
-            out.insert(rel.to_string_lossy().replace('\\', "/"));
-        }
-    }
-    Ok(())
-}
-
 /// Guards: Fixture honesty — a fixture cannot change, vanish or appear without `PROVENANCE.toml` saying so, and a synthetic stream is never passed off as a recorded one. Oracle: the sha256 of each file's bytes as read now against the hex string written in `PROVENANCE.toml`; the `synthetic_` path prefix against its flag.
 #[test]
 fn provenance_matches_the_fixture_files() -> Res<()> {
@@ -94,8 +82,7 @@ fn provenance_matches_the_fixture_files() -> Res<()> {
             ));
         }
     }
-    let mut present = BTreeSet::new();
-    walk(&base, &base, &mut present)?;
+    let present = file_set(&base);
     let known: BTreeSet<&str> = listed.iter().map(|entry| entry.path.as_str()).collect(); // BORROW: view of the owned path
     for path in &present {
         if !known.contains(path.as_str()) && !EXEMPT.contains(&path.as_str()) {

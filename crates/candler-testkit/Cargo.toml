@@ -1,0 +1,12 @@
+[package]
+name = "candler-testkit"
+description = "Tree helpers shared by the test crates of the workspace; a dev-dependency only"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true

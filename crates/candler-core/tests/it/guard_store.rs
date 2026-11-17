@@ -4,8 +4,9 @@
 //! `serde_json`, never through the store's own readers alone.
 
 use crate::support;
+use candler_testkit::{copy_tree, snapshot};
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::fs;
 use std::io::{Read, Write};
@@ -160,44 +161,6 @@ fn drive(store: &Store, manifest: &RunManifest, existing: Existing, upto: usize)
     writer
 }
 
-/// Every regular file under `root`, by `/`-separated relative path.
-/// Copies the tree at `from` to `to`, directory by directory, with `std::fs` alone.
-fn copy_tree(from: &Path, to: &Path) {
-    fs::create_dir_all(to).expect("a directory");
-    for entry in fs::read_dir(from).expect("a listing") {
-        let entry = entry.expect("an entry");
-        let target = to.join(entry.file_name());
-        if entry.file_type().expect("a type").is_dir() {
-            copy_tree(&entry.path(), &target);
-        } else {
-            fs::copy(entry.path(), &target).expect("a copy");
-        }
-    }
-}
-
-fn files_of(root: &Path) -> BTreeMap<String, Vec<u8>> {
-    let mut found = BTreeMap::new();
-    let mut pending = vec![root.to_path_buf()];
-    while let Some(dir) = pending.pop() {
-        for entry in fs::read_dir(&dir).expect("list a directory") {
-            let entry = entry.expect("a directory entry");
-            let kind = entry.file_type().expect("a file type");
-            if kind.is_dir() {
-                pending.push(entry.path());
-            } else if kind.is_file() {
-                let relative = entry
-                    .path()
-                    .strip_prefix(root)
-                    .expect("below the root")
-                    .to_string_lossy()
-                    .into_owned(); // BORROW: .into_owned() makes the owned path text
-                found.insert(relative, fs::read(entry.path()).expect("read a file"));
-            }
-        }
-    }
-    found
-}
-
 /// Every directory under `root`, by relative path.
 fn dirs_of(root: &Path) -> BTreeSet<String> {
     let mut found = BTreeSet::new();
@@ -279,7 +242,7 @@ fn a_run_stopped_after_step_k_leaves_complete_files_and_can_be_retried_or_sealed
             drop(writer);
         }
 
-        let files = files_of(&run_dir);
+        let files = snapshot(&run_dir);
         let expected: BTreeSet<&str> = added.iter().take(k.saturating_add(1)).copied().collect();
         // BORROW: explicit .as_str() instead of Deref coercion
         let present: BTreeSet<&str> = files.keys().map(String::as_str).collect();
@@ -312,12 +275,12 @@ fn a_run_stopped_after_step_k_leaves_complete_files_and_can_be_retried_or_sealed
             .join("runs/.replaced")
             .join(format!("{key}-1"));
         assert_eq!(
-            files_of(&aside).len(),
+            snapshot(&aside).len(),
             files.len(),
             "the old run is kept whole"
         );
         assert_eq!(
-            files_of(&run_dir).len(),
+            snapshot(&run_dir).len(),
             1,
             "the retry holds its manifest only"
         );
@@ -453,8 +416,8 @@ fn a_copied_store_reads_byte_equal() {
 
     let copy = scratch.path().join("copy");
     copy_tree(&original, &copy);
-    assert_eq!(files_of(&original), files_of(&copy));
-    assert!(files_of(&copy).len() >= 9, "the walk saw the whole store");
+    assert_eq!(snapshot(&original), snapshot(&copy));
+    assert!(snapshot(&copy).len() >= 9, "the walk saw the whole store");
 
     let moved = Store::open(&copy).expect("open the copy");
     assert_eq!(
@@ -518,7 +481,7 @@ fn the_layout_of_a_run_with_two_outcome_files_is_the_frozen_path_set() {
         format!("runs/{cell}-r1-a1"),
         format!("runs/{cell}-r1-a1/raw"),
     ];
-    let files: BTreeSet<String> = files_of(scratch.path()).into_keys().collect();
+    let files: BTreeSet<String> = snapshot(scratch.path()).into_keys().collect();
     assert_eq!(files, BTreeSet::from(literal_files));
     assert_eq!(dirs_of(scratch.path()), BTreeSet::from(literal_dirs));
     let marker: Value =

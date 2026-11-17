@@ -7,6 +7,7 @@
 //! option added later is found without editing the guards.
 
 use crate::support::cli_run;
+use candler_testkit::snapshot;
 
 use crate::support::seam;
 
@@ -375,27 +376,6 @@ impl Env {
     }
 }
 
-/// Every file below `root`, by its path relative to `root`, with its bytes.
-fn files_below(root: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
-    let mut found = std::collections::BTreeMap::new();
-    let mut stack = vec![root.to_path_buf()]; // BORROW: the walk owns its paths
-    while let Some(dir) = stack.pop() {
-        for entry in fs::read_dir(&dir).expect("a directory lists").flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                stack.push(path);
-            } else {
-                let relative = path
-                    .strip_prefix(root)
-                    .expect("below the root")
-                    .to_path_buf();
-                found.insert(relative, fs::read(&path).expect("a file reads"));
-            }
-        }
-    }
-    found
-}
-
 /// The assets of the workspace this test was built in.
 fn tree() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -475,8 +455,8 @@ fn u3_a_copied_binary_runs_run() {
         );
         let name = here.file_name().expect("a name");
         assert_eq!(
-            files_below(&here),
-            files_below(&tree().join(name)),
+            snapshot(&here),
+            snapshot(&tree().join(name)),
             "{} holds the tree's bytes",
             here.display()
         );
@@ -531,12 +511,12 @@ fn u3_the_embedded_assets_equal_the_tree() {
     );
     let docker = entries[0].join("docker");
     assert_eq!(
-        files_below(&docker),
-        files_below(&tree()),
+        snapshot(&docker),
+        snapshot(&tree()),
         "the tree's files, byte for byte"
     );
     let stamps = || -> Vec<_> {
-        files_below(&docker)
+        snapshot(&docker)
             .keys()
             .map(|file| {
                 fs::metadata(docker.join(file))

@@ -6,6 +6,7 @@
 //! The expected values are literals, the recorded session fixtures of the Claude Code crate, or
 //! counts made by hand.
 
+use candler_testkit::file_list;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Arc;
@@ -1385,29 +1386,6 @@ fn session_hooks_never_decide_whatever_the_log_does() {
     std::fs::set_permissions(dir.path().join("readonly/.candler"), perms).expect("a mode");
 }
 
-/// The files under `dir`, relative, sorted.
-fn files_under(dir: &Path) -> Vec<String> {
-    let mut found = Vec::new();
-    let mut pending = vec![dir.to_path_buf()];
-    while let Some(next) = pending.pop() {
-        for entry in std::fs::read_dir(&next).expect("a directory").flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                pending.push(path);
-            } else {
-                found.push(
-                    path.strip_prefix(dir)
-                        .expect("below")
-                        .to_string_lossy()
-                        .into_owned(),
-                );
-            }
-        }
-    }
-    found.sort();
-    found
-}
-
 /// Guards: R01 §Session runner, I9 — the same stub run with the observation hooks installed and
 /// without them calls the same tools, runs the same turns and leaves the same files in the
 /// workspace: the hooks are installed in the agent's home, never in the workspace.
@@ -1448,8 +1426,8 @@ async fn session_hooks_leave_the_run_as_it_is() {
     assert_eq!(hooked.measured("run.tool_calls"), Some(j!({"Bash": 1})));
     assert_eq!(hooked.measured("session.turns"), Some(j!(2)));
     let (with_files, without_files) = (
-        files_under(&hooked.run_dir.join("workspace")),
-        files_under(&bare.run_dir.join("workspace")),
+        file_list(&hooked.run_dir.join("workspace")),
+        file_list(&bare.run_dir.join("workspace")),
     );
     assert_eq!(
         with_files, without_files,
@@ -1470,6 +1448,6 @@ async fn session_hooks_leave_the_run_as_it_is() {
     assert!(
         hooked.run_dir.join("raw/hooks.jsonl.gz").is_file(),
         "the hook log is archived as a raw stream: {:?}",
-        files_under(&hooked.run_dir)
+        file_list(&hooked.run_dir)
     );
 }
