@@ -89,16 +89,18 @@ fn source_files() -> Vec<(String, String)> {
                 if name != "target" && !is_test_dir {
                     stack.push(path);
                 }
-            } else if path.extension().is_some_and(|ext| ext == "rs")
-                && path.components().any(|c| c.as_os_str() == "src")
-            {
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
                 let file = path
                     .strip_prefix(root().join(""))
                     .unwrap()
                     .to_string_lossy()
                     .into_owned();
                 let file = file.trim_start_matches("../../").to_owned();
-                files.push((file, fs::read_to_string(&path).unwrap()));
+                // Judged on the path inside the repository: a checkout under a directory named
+                // `src` would otherwise let `build.rs` through.
+                if file.contains("/src/") {
+                    files.push((file, fs::read_to_string(&path).unwrap()));
+                }
             }
         }
     }
