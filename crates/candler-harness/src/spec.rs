@@ -1258,6 +1258,74 @@ impl<'a> Cell<'a> {
         self.get(path).map(JsonValue::as_value)
     }
 
+    /// The JSON value at the path written as `path`, if the cell has one.
+    ///
+    /// # Errors
+    /// [`FormatError`](candler_schemas::primitives::FormatError) when `path` is not a field path.
+    pub fn value_str(
+        &self,
+        path: &str,
+    ) -> Result<Option<&'a Value>, candler_schemas::primitives::FormatError> {
+        let field: FieldPath = path.parse()?;
+        Ok(self.value(&field))
+    }
+
+    /// The table the cell holds at `root`, rebuilt from the values at and below it: each leaf is
+    /// placed at its path under `root`, one object per segment, and an object at `root` itself is
+    /// merged in whole. `None` when the cell sets nothing there.
+    ///
+    /// # Errors
+    /// [`DriverError::InvalidValue`] at the offending path when a leaf lies below a value that is
+    /// not a table, or the value at `root` itself is not an object.
+    pub fn table_at(
+        &self,
+        root: &FieldPath,
+    ) -> Result<Option<serde_json::Map<String, Value>>, DriverError> {
+        let depth = root.segments().count();
+        let mut table = serde_json::Map::new();
+        for (path, value) in self.below(root) {
+            let relative: Vec<&str> = path.segments().skip(depth).collect();
+            let Some((leaf, parents)) = relative.split_last() else {
+                match value {
+                    Value::Object(inner) => table.extend(inner.clone()), // BORROW: .clone() copies the table out of the cell
+                    Value::Null
+                    | Value::Bool(_)
+                    | Value::Number(_)
+                    | Value::String(_)
+                    | Value::Array(_) => {
+                        return Err(DriverError::InvalidValue {
+                            path: path.clone(),                    // BORROW: the error owns the path
+                            detail: "is not an object".to_owned(), // BORROW: .to_owned() makes the owned text
+                        });
+                    }
+                }
+                continue;
+            };
+            let mut slot = &mut table;
+            for segment in parents {
+                match slot
+                    .entry((*segment).to_owned()) // BORROW: .to_owned() makes the owned key
+                    .or_insert_with(|| Value::Object(serde_json::Map::new()))
+                {
+                    Value::Object(inner) => slot = inner,
+                    Value::Null
+                    | Value::Bool(_)
+                    | Value::Number(_)
+                    | Value::String(_)
+                    | Value::Array(_) => {
+                        return Err(DriverError::InvalidValue {
+                            path: path.clone(), // BORROW: the error owns the path
+                            detail: "lies below a value that is not a table".to_owned(), // BORROW: .to_owned() makes the owned text
+                        });
+                    }
+                }
+            }
+            // BORROW: .to_owned() makes the owned key; .clone() copies the value out of the cell
+            slot.insert((*leaf).to_owned(), value.clone());
+        }
+        Ok((!table.is_empty()).then_some(table))
+    }
+
     /// The values at `prefix` or below it, each with its path: a table of the cell reaches it as
     /// one value per leaf, so a table is read by its prefix.
     #[must_use]
@@ -1265,13 +1333,7 @@ impl<'a> Cell<'a> {
         let root = prefix.as_str(); // BORROW: explicit .as_str() instead of Deref coercion
         self.values
             .iter()
-            .filter(|resolved| {
-                resolved
-                    .path()
-                    .as_str() // BORROW: explicit .as_str() instead of Deref coercion
-                    .strip_prefix(root)
-                    .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
-            })
+            .filter(|resolved| resolved.path().relative_to(root).is_some())
             .filter_map(|resolved| {
                 resolved
                     .value()

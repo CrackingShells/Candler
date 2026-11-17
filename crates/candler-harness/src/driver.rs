@@ -64,6 +64,16 @@ pub enum DriverError {
     },
 }
 
+impl From<candler_schemas::primitives::FormatError> for DriverError {
+    /// A path of the cell that is not a field path, read as text: the cell cannot be read.
+    fn from(error: candler_schemas::primitives::FormatError) -> Self {
+        Self::VersionOutput {
+            // BORROW: .to_string() makes the owned text the error keeps
+            detail: error.to_string(),
+        }
+    }
+}
+
 impl DriverError {
     /// The refusal of `setting`, which the harness `harness` at `version` cannot honour for the
     /// reason `detail`.

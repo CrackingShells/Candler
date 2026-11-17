@@ -236,14 +236,6 @@ pub(crate) fn unsupported(path: &str, version: &semver::Version, why: &str) -> D
     }
 }
 
-/// The value of `path` in the cell, if the cell has one.
-pub(crate) fn value_at<'c>(cell: &Cell<'c>, path: &str) -> Result<Option<&'c Value>, DriverError> {
-    let field = FieldPath::from_str(path).map_err(|error| invalid(path, error.to_string()))?; // BORROW: .to_string() gives owned text
-    Ok(cell
-        .get(&field)
-        .map(candler_schemas::values::JsonValue::as_value))
-}
-
 /// The model the cell names, as `OpenCode` takes it after the provider and a slash.
 pub(crate) fn model_id<'c>(cell: &Cell<'c>) -> Result<&'c str, DriverError> {
     let model = cell.model()?;
@@ -417,7 +409,7 @@ fn tool_permission_rows(
     effect: &str,
     version: &semver::Version,
 ) -> Result<Vec<Value>, DriverError> {
-    let Some(value) = value_at(cell, path)? else {
+    let Some(value) = cell.value_str(path)? else {
         return Ok(Vec::new());
     };
     let names = strings(path, "the list", value)?;
@@ -527,7 +519,7 @@ fn effort_variant(
     cell: &Cell<'_>,
     version: &semver::Version,
 ) -> Result<Option<(String, Value)>, DriverError> {
-    let Some(value) = value_at(cell, MODEL_EFFORT)? else {
+    let Some(value) = cell.value_str(MODEL_EFFORT)? else {
         return Ok(None);
     };
     let level = value
@@ -581,14 +573,14 @@ pub(crate) fn settings(
             .map_or(OTHER_MODE, |(_, why)| *why);
         return Err(unsupported(PERMISSION_MODE, version, why));
     }
-    if value_at(cell, BUDGET_PER_RUN_MAX_COST_USD)?.is_some() {
+    if cell.value_str(BUDGET_PER_RUN_MAX_COST_USD)?.is_some() {
         return Err(unsupported(
             BUDGET_PER_RUN_MAX_COST_USD,
             version,
             "OpenCode has no cost cap",
         ));
     }
-    if value_at(cell, BUDGET_PER_RUN_TURNS)?.is_some() {
+    if cell.value_str(BUDGET_PER_RUN_TURNS)?.is_some() {
         return Err(unsupported(BUDGET_PER_RUN_TURNS, version, TURNS_REFUSAL));
     }
     let variant = effort_variant(cell, version)?;

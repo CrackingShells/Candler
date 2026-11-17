@@ -11,11 +11,11 @@ use candler_schemas::execution::paths::{TOOLS_ALLOWED, TOOLS_DISALLOWED};
 use candler_schemas::primitives::RelPath;
 use serde_json::{Map, Value, json};
 
-use crate::driver::{invalid, value_at};
+use crate::driver::invalid;
 
 /// The names a list of the cell holds, or none when the cell sets no list.
 fn names(cell: &Cell<'_>, path: &str) -> Result<Vec<String>, DriverError> {
-    match value_at(cell, path)? {
+    match cell.value_str(path)? {
         None => Ok(Vec::new()),
         Some(Value::Array(items)) => items
             .iter()
@@ -55,11 +55,11 @@ fn json_file(path: &str, value: &Value) -> Result<PreparedFile, DriverError> {
 /// [`DriverError`] when a value of the cell cannot be used.
 pub fn render_settings(cell: &Cell<'_>) -> Result<PreparedFile, DriverError> {
     let mut permissions = Map::new();
-    if value_at(cell, TOOLS_ALLOWED)?.is_some() {
+    if cell.value_str(TOOLS_ALLOWED)?.is_some() {
         // BORROW: .to_owned() makes the owned key
         permissions.insert("allow".to_owned(), json!(names(cell, TOOLS_ALLOWED)?));
     }
-    if value_at(cell, TOOLS_DISALLOWED)?.is_some() {
+    if cell.value_str(TOOLS_DISALLOWED)?.is_some() {
         // BORROW: .to_owned() makes the owned key
         permissions.insert("deny".to_owned(), json!(names(cell, TOOLS_DISALLOWED)?));
     }
