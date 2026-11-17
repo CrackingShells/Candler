@@ -107,3 +107,4 @@ Wire line: `schemas@0.11.0`.
 - A TOML date or time among the values is refused with `experiment.value_unrepresentable`. [checked: v@0.7.0]
 - A name, secret name or `schema` marker of the wrong form, a factor with no level, a `replicates`, `wall_s` or cost cap of 0, an absolute `inputs[].at`, a repeated input kind, an integer out of range and overlapping paths print `experiment.document_invalid`, never `format.*`. [checked: v@0.7.0]
 - `canonical.integer_out_of_range` and `values.null` print only for a value given with `--set`. [checked: v@0.7.0]
+- `mcp.servers.<key>.name` names a server (default the key); a driver refuses a name with `__` or one two servers share. [checked: v@0.7.0]

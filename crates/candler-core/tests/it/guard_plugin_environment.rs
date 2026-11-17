@@ -947,3 +947,41 @@ async fn a_plugins_mcp_servers_reach_claude_code() {
         }
     }
 }
+
+/// Guards: R01 §Session runner — a plug-in's MCP servers reach `OpenCode` too (it never received
+/// them: it read the exact path `mcp`, which no resolved cell holds): the same resolved cell as
+/// above, planned by the `OpenCode` driver, writes `mcp.servers.<name>` of `opencode.json` with the
+/// command list the plug-in declares.
+/// Oracle: hand-derived from the `agent-env` fixture's `plugin.toml` (server `tools`, command
+/// `python`, arguments `["env/server.py"]`) and the V2 shape `opencode debug config` printed
+/// (`local`, `command` a list, `codemode` on by default).
+/// Bite: read `mcp` by exact path again (no server reaches the file).
+#[tokio::test]
+async fn a_plugins_mcp_servers_reach_opencode() {
+    let scratch = tempfile::tempdir().expect("a scratch directory");
+    let project = scratch
+        .path()
+        .canonicalize()
+        .expect("a canonical path")
+        .join("project");
+    let resolution = plugin_env::resolve_experiment(&project, Some(plugin_env::SELECTOR)).await;
+    let plan = candler_harness_opencode::driver::OpenCodeDriver::new()
+        .plan(
+            &Cell::new(&resolution.values),
+            &Workspace::new(std::path::Path::new("/work/run")),
+        )
+        .expect("the driver plans the cell");
+    let file = plan
+        .prepared
+        .files
+        .iter()
+        .find(|file| file.path.as_str().ends_with("opencode/opencode.json"))
+        .expect("the driver prepares an opencode.json");
+    let parsed: serde_json::Value = serde_json::from_slice(&file.contents).expect("JSON");
+    assert_eq!(
+        parsed["mcp"],
+        serde_json::json!({"servers": {"tools": {
+            "type": "local", "command": ["python", "env/server.py"], "codemode": true
+        }}})
+    );
+}

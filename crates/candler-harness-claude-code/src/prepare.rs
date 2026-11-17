@@ -8,13 +8,10 @@ use std::str::FromStr as _;
 use candler_harness::driver::DriverError;
 use candler_harness::spec::{Cell, PreparedFile};
 use candler_schemas::execution::paths::{TOOLS_ALLOWED, TOOLS_DISALLOWED};
-use candler_schemas::primitives::{FieldPath, RelPath};
+use candler_schemas::primitives::RelPath;
 use serde_json::{Map, Value, json};
 
 use crate::driver::{invalid, value_at};
-
-/// The path whose table holds the servers, one table per server name.
-const MCP_SERVERS: &str = "mcp.servers";
 
 /// The names a list of the cell holds, or none when the cell sets no list.
 fn names(cell: &Cell<'_>, path: &str) -> Result<Vec<String>, DriverError> {
@@ -77,72 +74,12 @@ pub fn render_settings(cell: &Cell<'_>) -> Result<PreparedFile, DriverError> {
 /// The file the MCP configuration is written to, and that the agent command names.
 pub(crate) const MCP_FILE: &str = ".mcp.json";
 
-/// Puts `value` at the dotted path `relative` of `table`, one object per segment.
-fn put_nested(
-    table: &mut Map<String, Value>,
-    relative: &str,
-    value: &Value,
-    path: &str,
-) -> Result<(), DriverError> {
-    match relative.split_once('.') {
-        None => {
-            // BORROW: .to_owned() makes the owned key; .clone() copies the value out of the cell
-            table.insert(relative.to_owned(), value.clone());
-            Ok(())
-        }
-        Some((head, rest)) => {
-            // BORROW: .to_owned() makes the owned key
-            match table
-                .entry(head.to_owned())
-                .or_insert_with(|| Value::Object(Map::new()))
-            {
-                Value::Object(inner) => put_nested(inner, rest, value, path),
-                Value::Null
-                | Value::Bool(_)
-                | Value::Number(_)
-                | Value::String(_)
-                | Value::Array(_) => {
-                    // BORROW: .to_owned() makes the owned text
-                    Err(invalid(
-                        path,
-                        "lies below a value that is not a table".to_owned(),
-                    ))
-                }
-            }
-        }
-    }
-}
-
-/// The servers of a cell, by name: the values at and below `mcp.servers`, each leaf placed at its
-/// path under the name. `None` when the cell sets no server.
+/// The servers of a cell, by the name the agent sees: see [`candler_harness::mcp::servers`].
 ///
 /// # Errors
-/// [`DriverError`] when a value of the cell cannot be used.
+/// [`DriverError`] when a value of the cell cannot be used, or a server name is refused.
 pub fn mcp_servers(cell: &Cell<'_>) -> Result<Option<Map<String, Value>>, DriverError> {
-    let root = FieldPath::from_str(MCP_SERVERS)
-        .map_err(|error| invalid(MCP_SERVERS, error.to_string()))?; // BORROW: .to_string() gives owned text
-    let mut servers = Map::new();
-    for (path, value) in cell.below(&root) {
-        let text = path.as_str(); // BORROW: explicit .as_str() instead of Deref coercion
-        match text
-            .strip_prefix(MCP_SERVERS)
-            .and_then(|rest| rest.strip_prefix('.'))
-        {
-            Some(relative) => put_nested(&mut servers, relative, value, text)?,
-            None => match value {
-                Value::Object(table) => servers.extend(table.clone()), // BORROW: .clone() copies the table out of the cell
-                Value::Null
-                | Value::Bool(_)
-                | Value::Number(_)
-                | Value::String(_)
-                | Value::Array(_) => {
-                    // BORROW: .to_owned() makes the owned text
-                    return Err(invalid(text, "is not an object".to_owned()));
-                }
-            },
-        }
-    }
-    Ok((!servers.is_empty()).then_some(servers))
+    candler_harness::mcp::servers(cell)
 }
 
 /// The `.mcp.json` file of a cell: the servers of `mcp.servers` as `mcpServers`, each under its
