@@ -1536,6 +1536,14 @@ reason = "the outputs of a run are collected by Candler, so a tree it cannot for
 enum = "HookError"
 reason = "the stop hook translates guard and docker failures that Candler raises itself"
 
+[internal."candler_core::supervise::git::GitError"]
+enum = "GitError"
+reason = "an intermediate that every call site maps into its own coded error, never shown to the author as it is"
+
+[internal."candler_core::supervise::git::ProbeError"]
+enum = "ProbeError"
+reason = "an intermediate that every call site maps into its own coded error, never shown to the author as it is"
+
 [internal."candler_core::frames::FramesError"]
 enum = "FramesError"
 reason = "raw frame files are written by Candler, so one it cannot read back is Candler's fault"
