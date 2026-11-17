@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.4](https://github.com/CrackingShells/Candler/compare/v0.12.3...v0.12.4) - 2026-11-17
+
+### Refactoring
+
+- *(isolation)* check prune, package, host names via primitives
+- *(runner)* fold plan names through FieldPath::segment_of
+- *(library)* check session ids and env names via primitives
+- *(adapter-opencode)* take reason codes and ids from primitives
+
 ## [0.12.3](https://github.com/CrackingShells/Candler/compare/v0.12.2...v0.12.3) - 2026-11-17
 
 ### Refactoring
