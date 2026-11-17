@@ -691,26 +691,6 @@ fn differ(path: &str, stored: Option<Value>, observed: Option<Value>) -> Option<
     Some(Deviation::new(path, wrap(stored), wrap(observed)))
 }
 
-/// A field-path segment for `name`: lower case, with every other character `_`.
-fn segment(name: &str) -> String {
-    let mut text: String = name
-        .chars()
-        .map(|c| {
-            if c.is_ascii_lowercase() || c.is_ascii_digit() {
-                c
-            } else if c.is_ascii_uppercase() {
-                c.to_ascii_lowercase()
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    if !text.starts_with(|c: char| c.is_ascii_lowercase()) {
-        text.insert(0, 'x');
-    }
-    text
-}
-
 /// Refuses two different names of one root, across `stored` and `fresh`, that map to one
 /// deviation path.
 fn check_names(stored: &Comparable, fresh: &Comparable) -> Result<(), PlanError> {
@@ -727,7 +707,7 @@ fn check_names(stored: &Comparable, fresh: &Comparable) -> Result<(), PlanError>
             .iter()
             .map(|r| ("environments", r.plugin.name()));
         for (root, name) in inputs.chain(environments) {
-            let entry = (format!("{root}.{}", segment(name)), name);
+            let entry = (format!("{root}.{}", FieldPath::segment_of(name)), name);
             if !named.contains(&entry) {
                 named.push(entry);
             }
@@ -753,13 +733,13 @@ fn check_roots(stored: &Comparable, fresh: &Comparable) -> Vec<Deviation> {
             // BORROW: explicit .as_str() instead of Deref coercion
             .map(|r| {
                 (
-                    format!("inputs.{}", segment(r.kind.as_str())),
+                    format!("inputs.{}", FieldPath::segment_of(r.kind.as_str())),
                     r.digest.to_string(),
                 )
             });
         let environments = cell.environments().iter().map(|r| {
             (
-                format!("environments.{}", segment(r.plugin.name())),
+                format!("environments.{}", FieldPath::segment_of(r.plugin.name())),
                 r.lock_digest.to_string(),
             )
         });
