@@ -225,6 +225,10 @@ impl HarnessDriver for ClaudeCodeDriver {
         Some(Box::new(session::Tracker::default())) // TRAIT_OBJECT: the core selects trackers at runtime
     }
 
+    fn check_settings(&self, cell: &Cell<'_>) -> Result<(), DriverError> {
+        prepare::mcp_servers(cell).map(|_| ())
+    }
+
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
         let _ = workspace;
         let mut files = vec![prepare::render_settings(cell)?];

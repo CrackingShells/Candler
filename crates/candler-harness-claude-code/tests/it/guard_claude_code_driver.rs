@@ -428,3 +428,53 @@ fn pinned_version_is_supported_and_built() {
         vec![("CC_VERSION".to_owned(), "2.1.311".to_owned())]
     );
 }
+
+/// Guards: G1 — `mcp.servers.<key>.name` gives a server its production name: `.mcp.json` keys the
+/// server by it, the server object carries no `name`, and the tool rows of `tools.allowed` that
+/// use the name pass through to the settings; a cell with a bad name is refused before any run.
+/// Oracle: the literal JSON written by hand (`x-y` is the production name `a` cannot spell).
+#[test]
+fn a_server_name_renders_the_server_under_it() -> Res<()> {
+    let mut cell = values("default")?;
+    for (path, value) in [
+        ("mcp.servers.a.command", json!("uvx")),
+        ("mcp.servers.a.name", json!("x-y")),
+        ("tools.allowed", json!(["mcp__x-y__t"])),
+    ] {
+        cell.push(ResolvedValue::recorded(
+            FieldPath::from_str(path)?,
+            JsonValue::new(value)?,
+        ));
+    }
+    let driver = ClaudeCodeDriver::new();
+    let files = driver
+        .plan(&Cell::new(&cell), &Workspace::new(Path::new("/work/run")))?
+        .prepared
+        .files;
+    let read = |suffix: &str| -> Res<serde_json::Value> {
+        let file = files
+            .iter()
+            .find(|file| file.path.as_str().ends_with(suffix))
+            .ok_or(format!("no {suffix}"))?;
+        Ok(serde_json::from_slice(&file.contents)?)
+    };
+    assert_eq!(
+        read(".mcp.json")?,
+        json!({"mcpServers": {"x-y": {"command": "uvx"}}})
+    );
+    assert_eq!(
+        read("settings.json")?,
+        json!({"permissions": {"allow": ["mcp__x-y__t"]}})
+    );
+    // The refusal comes at plan time too, before any run.
+    cell.push(ResolvedValue::recorded(
+        FieldPath::from_str("mcp.servers.x_y.command")?,
+        JsonValue::new(json!("uvx"))?,
+    ));
+    cell.push(ResolvedValue::recorded(
+        FieldPath::from_str("mcp.servers.x_y.name")?,
+        JsonValue::new(json!("x-y"))?,
+    ));
+    assert!(driver.check_settings(&Cell::new(&cell)).is_err());
+    Ok(())
+}

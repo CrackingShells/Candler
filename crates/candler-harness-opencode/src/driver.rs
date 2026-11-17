@@ -191,7 +191,8 @@ impl HarnessDriver for OpenCodeDriver {
     }
 
     fn check_settings(&self, cell: &Cell<'_>) -> Result<(), DriverError> {
-        prepare::settings(cell, &VALIDATED).map(|_| ())
+        prepare::settings(cell, &VALIDATED)?;
+        prepare::mcp_servers(cell).map(|_| ())
     }
 
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {

@@ -5,5 +5,6 @@ mod support;
 
 #[cfg(feature = "conformance")]
 mod conformance_shapes;
+mod guard_mcp_names;
 mod guard_two_shapes;
 mod guard_unsupported_setting;

@@ -43,24 +43,53 @@ fn stream_file(case: &str, file: &str) -> Res<Vec<u8>> {
 
 /// The cell values of a run: the model and the prompt, plus `extra`.
 fn values(extra: &[(&str, Value)]) -> Res<Vec<ResolvedValue>> {
-    let mut all = vec![
+    let mut all_leaves: Vec<(String, Value)> = Vec::new();
+    let mut all: Vec<(String, Value)> = vec![
         ("model.id", json!("claude-x")),
         ("model.endpoint", json!("https://api.example.test")),
         ("permission_mode", json!("bypassPermissions")),
         ("prompt.template", json!("Do {thing}")),
         ("prompt.values", json!({"thing": "it"})),
-    ];
+    ]
+    .into_iter()
+    .map(|(path, value)| (path.to_owned(), value)) // BORROW: owned path
+    .collect();
     // An extra value replaces the default at the same path.
-    all.retain(|(path, _)| !extra.iter().any(|(over, _)| over == path));
-    all.extend(extra.iter().map(|(path, value)| (*path, value.clone()))); // BORROW: .clone() copies the value
+    all.retain(|(path, _)| !extra.iter().any(|(over, _)| *over == path.as_str()));
+    // The resolver gives a table one value per leaf, so a test's `mcp` table of servers is spelled
+    // as the `mcp.servers.<key>.<field>` leaves a real cell holds (the production resolution is
+    // exercised in `guard_plugin_environment`).
+    for (path, value) in extra {
+        if *path == "mcp" {
+            flatten("mcp.servers", value, &mut all_leaves);
+        } else {
+            all.push(((*path).to_owned(), value.clone())); // BORROW: owned path; .clone() copies the value
+        }
+    }
     all.into_iter()
+        .chain(all_leaves)
         .map(|(path, value)| {
             Ok(ResolvedValue::recorded(
-                FieldPath::from_str(path)?,
+                FieldPath::from_str(&path)?,
                 JsonValue::new(value)?,
             ))
         })
         .collect()
+}
+
+/// The `mcp.servers.<key>.<field>` leaves of a table of servers: one per field, a field's own
+/// table (`env`, `headers`) staying one value.
+fn flatten(prefix: &str, servers: &Value, out: &mut Vec<(String, Value)>) {
+    for (key, server) in servers.as_object().into_iter().flatten() {
+        match server.as_object() {
+            Some(fields) => {
+                for (field, value) in fields {
+                    out.push((format!("{prefix}.{key}.{field}"), value.clone())); // BORROW: .clone() copies the value
+                }
+            }
+            None => out.push((format!("{prefix}.{key}"), server.clone())), // BORROW: .clone() copies the value
+        }
+    }
 }
 
 /// The command of a cell, or the driver's refusal.
@@ -1428,5 +1457,29 @@ fn opencode_wire_effort_levels_reach_the_request_body_as_output_config() -> Res<
             "{case}: the driver writes the variants entry the session ran with"
         );
     }
+    Ok(())
+}
+
+/// Guards: G1 — `name` of an MCP server gives it its production name: `opencode.json` keys the
+/// server by it, the server carries no `name` (the whitelist would refuse one), and a tool row
+/// that uses the name maps to `<name>_<tool>`, `-` kept as `OpenCode` keeps it.
+/// Oracle: the literal JSON written by hand; `normalize` keeps `[A-Za-z0-9_-]` (v2.2.7).
+#[test]
+fn opencode_a_server_name_renders_the_server_under_it() -> Res<()> {
+    let (_, parsed) = prepared_config(&[
+        (
+            "mcp",
+            json!({"a": {"command": "uvx", "args": [], "name": "x-y"}}),
+        ),
+        ("tools.allowed", json!(["mcp__x-y__t"])),
+    ])?;
+    assert_eq!(
+        parsed["mcp"],
+        json!({"servers": {"x-y": {"type": "local", "command": ["uvx"], "codemode": true}}})
+    );
+    assert_eq!(
+        parsed["permissions"],
+        json!([{"action": "x-y_t", "effect": "allow", "resource": "*"}])
+    );
     Ok(())
 }

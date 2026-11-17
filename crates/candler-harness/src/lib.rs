@@ -15,6 +15,7 @@
 #[cfg(feature = "conformance")]
 pub mod conformance;
 pub mod driver;
+pub mod mcp;
 pub mod reader;
 pub mod refusal;
 pub mod skills;

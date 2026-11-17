@@ -4,7 +4,7 @@
 //!
 //! The provider names the variables through which the core hands the gateway to the agent, as
 //! `{env:NAME}` references that `OpenCode` expands when it loads the file, so no address and no
-//! token passes through the driver. The MCP servers come from the cell's `mcp` value, with
+//! token passes through the driver. The MCP servers come from the cell's `mcp.servers.*` leaves, with
 //! `codemode` per server written out, so the run never depends on `OpenCode`'s default.
 
 use std::str::FromStr as _;
@@ -301,7 +301,7 @@ fn only_keys(at: &str, object: &Map<String, Value>, allowed: &[&str]) -> Result<
 /// One server of the cell's `mcp` value, in the shape `OpenCode` V2 prints: a `local` server with a
 /// command list, or a `remote` one with a url. Anything else is refused.
 fn server(name: &str, entry: &Value) -> Result<Value, DriverError> {
-    let at = format!("{MCP}.{name}");
+    let at = format!("{}.{name}", candler_harness::mcp::SERVERS);
     let object = entry
         .as_object()
         .ok_or_else(|| invalid(&at, "is not an object".to_owned()))?; // BORROW: .to_owned() makes the owned text
@@ -605,6 +605,15 @@ pub(crate) fn settings(
     })
 }
 
+/// The servers of the cell by the name the agent sees, read from the `mcp.servers.*` leaves as the
+/// resolver gives them (see [`candler_harness::mcp::servers`]). `None` when the cell sets no server.
+///
+/// # Errors
+/// [`DriverError::InvalidValue`] when a value cannot be used or a server name is refused.
+pub(crate) fn mcp_servers(cell: &Cell<'_>) -> Result<Option<Map<String, Value>>, DriverError> {
+    candler_harness::mcp::servers(cell)
+}
+
 /// The `opencode.json` of the run: the provider, the model, the effort variant and the
 /// permission rows of `settings`, and the MCP servers. `config_dir` is the home-relative directory
 /// that `XDG_CONFIG_HOME` names.
@@ -638,21 +647,15 @@ pub(crate) fn render_config(
             "models": models,
         } }),
     );
-    match value_at(cell, MCP)? {
-        // EXPLICIT: no `mcp` value, or an empty one, writes no servers
-        None => {}
-        Some(Value::Object(servers)) if servers.is_empty() => {}
-        Some(Value::Object(servers)) => {
-            let mut translated = Map::new();
-            for (name, entry) in servers {
-                translated.insert(name.clone(), server(name, entry)?); // BORROW: .clone() copies the name
-            }
-            root.insert(
-                MCP.to_owned(), // BORROW: .to_owned() makes the owned key
-                json!({ "servers": translated }),
-            );
+    if let Some(servers) = mcp_servers(cell)? {
+        let mut translated = Map::new();
+        for (name, entry) in &servers {
+            translated.insert(name.clone(), server(name, entry)?); // BORROW: .clone() copies the name
         }
-        Some(_) => return Err(invalid(MCP, "is not an object".to_owned())), // BORROW: .to_owned() makes the owned text
+        root.insert(
+            MCP.to_owned(), // BORROW: .to_owned() makes the owned key
+            json!({ "servers": translated }),
+        );
     }
     if !settings.permissions.is_empty() {
         root.insert(
