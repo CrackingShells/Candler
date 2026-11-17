@@ -354,7 +354,11 @@ impl DockerImageService {
         if !given.eq_ignore_ascii_case(&hex) {
             return Err(ImageError::LockMismatch);
         }
-        if !setting.prune.iter().all(|name| prune_name_ok(name)) {
+        if !setting
+            .prune
+            .iter()
+            .all(|name| candler_schemas::primitives::plain_segment(name))
+        {
             return Err(build_failed(
                 "a prune name has characters the build refuses",
             ));
@@ -539,15 +543,11 @@ pub struct PackageReading {
 /// The readings of an image, by import package name.
 pub type PackageReadings = BTreeMap<String, PackageReading>;
 
-/// Whether `name` is an import package name the experiment may record: lower-case letters, digits
-/// and `_`, not starting with a digit. The name becomes a field-path segment.
+/// Whether `name` is an import package name the experiment may record: a lower-case letter, then
+/// lower-case letters, digits or `_`. The name becomes a field-path segment, so it must be one.
 #[must_use]
 pub fn package_name_ok(name: &str) -> bool {
-    let mut bytes = name.bytes();
-    bytes
-        .next()
-        .is_some_and(|first| first.is_ascii_lowercase() || first == b'_')
-        && bytes.all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+    !name.contains('.') && candler_schemas::primitives::is_field_path(name)
 }
 
 /// Reads the distribution and version of named import packages in an image, in one control
@@ -728,13 +728,6 @@ fn env_key(lock_hex: &str, prune: &[String], base_tag: &str, env_sources: &str) 
         hasher.update(name.as_bytes());
     }
     format!("{}-{base}-env-{env_sources}", hex_of(&hasher.finalize()))
-}
-
-/// Whether `name` is a file name the env build may delete: letters, digits, `.`, `_` and `-`,
-/// and neither `.` nor `..`.
-#[must_use]
-pub fn prune_name_ok(name: &str) -> bool {
-    candler_schemas::primitives::plain_segment(name)
 }
 
 /// What a layer image is built from.

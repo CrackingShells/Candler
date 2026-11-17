@@ -36,6 +36,7 @@ mod guard_layering_i22;
 mod guard_legacy_mapping;
 mod guard_oracle_aggregates;
 mod guard_oracle_mini;
+mod guard_package_names;
 mod guard_platform_seam;
 mod guard_plugin_environment;
 mod guard_proc_stat;
