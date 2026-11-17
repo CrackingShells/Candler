@@ -24,7 +24,7 @@ use crate::resolve::preflight::{
     CheckResult, PreflightError, PreflightStep, ResolveContext, ResolveError, Resolver, StepReport,
 };
 use crate::supervise::Supervisor;
-use crate::supervise::spawn::SpawnRequest;
+use crate::supervise::git::{Probe, RecordDir, run_probe};
 
 /// The marker file that says the environment under a digest is complete.
 const READY: &str = "ready";
@@ -215,12 +215,9 @@ impl Job {
                 format!("environment {} is ready, nothing was spawned", key.digest()),
             )));
         }
-        let records = dir.join("records");
-        tokio::fs::create_dir_all(&records).await.map_err(failed)?;
-        let request = self.request(&key, &dir, records)?;
-        let captured = self
-            .supervisor
-            .run_captured(request, OUTPUT_LIMIT)
+        let records = RecordDir::at(dir.join("records")).map_err(failed)?;
+        let probe = self.probe(&key, &dir)?;
+        let captured = run_probe(&self.supervisor, probe, &records)
             .await
             .map_err(failed)?;
         if !matches!(captured.exit.status, ExitStatus::Code { code: 0 }) {
@@ -249,13 +246,8 @@ impl Job {
         )))
     }
 
-    /// The `uv sync` request for the environment `key` in `dir`.
-    fn request(
-        &self,
-        key: &EnvironmentKey,
-        dir: &Path,
-        records: PathBuf,
-    ) -> Result<SpawnRequest, PreflightError> {
+    /// The `uv sync` probe for the environment `key` in `dir`.
+    fn probe(&self, key: &EnvironmentKey, dir: &Path) -> Result<Probe, PreflightError> {
         // BORROW: .clone() builds the request's own environment
         let mut env = self.forwarded.clone();
         env.push((
@@ -265,20 +257,20 @@ impl Job {
         let marker: Marker = format!("environment-{}", key.digest())
             .parse()
             .map_err(failed)?;
-        SpawnRequest::builder()
-            .argv(vec![
+        Ok(Probe {
+            argv: vec![
                 "uv".to_owned(),
                 "sync".to_owned(),
                 "--frozen".to_owned(),
                 "--project".to_owned(),
                 self.project_dir.display().to_string(),
-            ])
-            .env(env)
-            .marker(marker)
-            .deadline(SYNC_DEADLINE)
-            .record_dir(records)
-            .build()
-            .map_err(failed)
+            ],
+            env,
+            marker,
+            stdin: None,
+            deadline: Some(SYNC_DEADLINE),
+            limit: OUTPUT_LIMIT,
+        })
     }
 }
 

@@ -7,12 +7,9 @@
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use candler_schemas::execution::{GitCommit, HarnessIdentity, HarnessRequest, TreatmentSpec};
-use candler_schemas::primitives::{FieldPath, FormatError, Marker, NameToken};
-use candler_schemas::process::ExitStatus;
+use candler_schemas::primitives::{FieldPath, FormatError, NameToken};
 use candler_schemas::values::JsonValue;
 use futures::future::BoxFuture;
 
@@ -20,7 +17,9 @@ use crate::isolation::image::ImageService;
 use crate::isolation::model::{ImageId, ImageRef};
 use crate::resolve::preflight::{PreflightError, PreflightStep, ResolveContext, StepReport};
 use crate::supervise::Supervisor;
-use crate::supervise::spawn::SpawnRequest;
+use crate::supervise::git::{
+    GitError, READ_DEADLINE, RecordDir, archive_argv, mark_executable, run_git, tree_at_commit,
+};
 use candler_schemas::execution::paths;
 
 /// The most bytes read from `git`.
@@ -29,8 +28,8 @@ const GIT_OUTPUT_LIMIT: usize = 4096;
 /// The most bytes a requirement source read from a commit may hold.
 pub(super) const SHOW_LIMIT: usize = 1024 * 1024;
 
-/// Counts the record directories this process made, so two probes never share one.
-static PROBES: AtomicU64 = AtomicU64::new(0);
+/// The marker of the identity steps' child processes.
+const MARKER: &str = "treatment-identity";
 
 fn failed(detail: String) -> PreflightError {
     PreflightError::Failed { detail }
@@ -206,7 +205,17 @@ async fn resolve_commit(
     revision: &str,
 ) -> Result<GitCommit, PreflightError> {
     let args = ["rev-parse", "--verify", "--quiet", revision];
-    let (code, stdout) = git_output(supervisor, source, &args, GIT_OUTPUT_LIMIT).await?;
+    let out = run_git(
+        supervisor,
+        source,
+        &args,
+        MARKER,
+        GIT_OUTPUT_LIMIT,
+        READ_DEADLINE,
+    )
+    .await
+    .map_err(|e| failed(e.to_string()))?;
+    let (code, stdout) = (out.code, out.stdout);
     if code != 0 {
         return Err(failed(format!(
             "`{revision}` does not name a commit in {} (git exited {code})",
@@ -242,7 +251,17 @@ pub(super) async fn show_file(
         )));
     }
     let object = format!("{commit}:./{path}");
-    let (code, stdout) = git_output(supervisor, source, &["show", &object], SHOW_LIMIT + 1).await?;
+    let out = run_git(
+        supervisor,
+        source,
+        &["show", &object],
+        MARKER,
+        SHOW_LIMIT + 1,
+        READ_DEADLINE,
+    )
+    .await
+    .map_err(|e| failed(e.to_string()))?;
+    let (code, stdout) = (out.code, out.stdout);
     if code != 0 {
         return Err(failed(format!(
             "`{path}` is not in commit {commit} of {} (git exited {code})",
@@ -257,12 +276,9 @@ pub(super) async fn show_file(
     Ok(stdout)
 }
 
-/// The most bytes of a tree archive the extraction reads.
-const TREE_LIMIT: usize = 64 * 1024 * 1024;
-
 /// A tree of the treatment's repository written to a scratch directory, removed when it is dropped.
 pub(super) struct Extracted {
-    base: PathBuf,
+    _dir: RecordDir,
     root: PathBuf,
 }
 
@@ -273,18 +289,11 @@ impl Extracted {
     }
 }
 
-impl Drop for Extracted {
-    fn drop(&mut self) {
-        // A failed removal leaves the directory for the temp sweep.
-        drop(std::fs::remove_dir_all(&self.base));
-    }
-}
-
 /// The directory `path` of the treatment's checkout `source`, as `commit` holds it, written to a
 /// scratch directory: the bytes of the pinned commit, never those of the working tree.
 ///
-/// A link, a device or an entry that leaves `path` is refused, as is a tree larger than
-/// [`TREE_LIMIT`].
+/// A link, a device or an entry that leaves `path` is refused, as is a tree of
+/// [`ARCHIVE_LIMIT`](crate::supervise::git::ARCHIVE_LIMIT) bytes or more.
 ///
 /// # Errors
 /// [`PreflightError::Failed`] when `path` is not a path below `source`, names no directory with
@@ -305,24 +314,25 @@ pub(super) async fn tree_at(
         )));
     }
     let revision = commit.to_string();
-    let (code, tar) = git_output(
+    let tar = tree_at_commit(
         supervisor,
-        source,
-        &["archive", "--format=tar", &revision, "--", trimmed],
-        TREE_LIMIT + 1,
+        archive_argv(source, &revision, trimmed),
+        MARKER,
+        None,
     )
-    .await?;
-    if code != 0 {
-        return Err(failed(format!(
+    .await
+    .map_err(|e| match e {
+        GitError::Failed(code) => failed(format!(
             "`{path}` is not in commit {commit} of {} (git exited {code})",
             source.display()
-        )));
-    }
-    if tar.len() > TREE_LIMIT {
-        return Err(failed(format!(
-            "`{path}` is larger than {TREE_LIMIT} bytes"
-        )));
-    }
+        )),
+        GitError::TooLarge(limit) => failed(format!("`{path}` is larger than {limit} bytes")),
+        other @ (GitError::Record(_)
+        | GitError::Request(_)
+        | GitError::Run(_)
+        | GitError::Signal(_)
+        | GitError::Deadline) => failed(other.to_string()),
+    })?;
     let files = candler_harness::skills::unpack(&tar, &format!("{trimmed}/"))
         .map_err(|e| failed(format!("`{path}` cannot be read from commit {commit}: {e}")))?;
     if files.is_empty() {
@@ -330,10 +340,11 @@ pub(super) async fn tree_at(
             "`{path}` is not a directory with files in commit {commit}"
         )));
     }
-    let base = record_dir();
+    let base = RecordDir::temp("treatment-tree")
+        .map_err(|e| failed(format!("cannot make the tree directory: {e}")))?;
     let extracted = Extracted {
-        root: base.join(trimmed),
-        base,
+        root: base.path().join(trimmed),
+        _dir: base,
     };
     for (inside, data, executable) in files {
         let plain = Path::new(&inside)
@@ -351,78 +362,8 @@ pub(super) async fn tree_at(
             .await
             .map_err(|e| failed(format!("cannot write the tree: {e}")))?;
         if executable {
-            use std::os::unix::fs::PermissionsExt as _;
-            tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755))
-                .await
-                .map_err(|e| failed(format!("cannot write the tree: {e}")))?;
+            mark_executable(&target).map_err(|e| failed(format!("cannot write the tree: {e}")))?;
         }
     }
     Ok(extracted)
-}
-
-/// Runs `git -C source args…` through the supervisor and returns its exit code and the first
-/// `limit` bytes of standard output.
-async fn git_output(
-    supervisor: &Supervisor,
-    source: &Path,
-    args: &[&str],
-    limit: usize,
-) -> Result<(i32, Vec<u8>), PreflightError> {
-    let record_dir = record_dir();
-    tokio::fs::create_dir_all(&record_dir)
-        .await
-        .map_err(|e| failed(format!("cannot make the probe directory: {e}")))?;
-    // BORROW: `.clone()` gives the probe its own copy; this function removes the directory
-    let outcome = probe(supervisor, source, args, limit, record_dir.clone()).await;
-    // The directory holds only the probe's record; a failed removal leaves it for the temp sweep.
-    drop(tokio::fs::remove_dir_all(&record_dir).await);
-    outcome
-}
-
-async fn probe(
-    supervisor: &Supervisor,
-    source: &Path,
-    subcommand: &[&str],
-    limit: usize,
-    record_dir: PathBuf,
-) -> Result<(i32, Vec<u8>), PreflightError> {
-    let marker = Marker::from_str("treatment-identity").map_err(|e| failed(e.to_string()))?;
-    let mut argv = vec![
-        "git".to_owned(), // BORROW: owned argument for the request
-        "-C".to_owned(),  // BORROW: owned argument for the request
-        source.to_string_lossy().into_owned(),
-    ];
-    argv.extend(subcommand.iter().map(|arg| (*arg).to_owned())); // BORROW: owned arguments for the request
-    let path = std::env::var("PATH").unwrap_or_default();
-    let request = SpawnRequest::builder()
-        .argv(argv)
-        .env(vec![
-            ("PATH".to_owned(), path), // BORROW: owned name for the child's environment
-            ("LC_ALL".to_owned(), "C".to_owned()), // BORROW: owned pair for the environment
-            ("GIT_TERMINAL_PROMPT".to_owned(), "0".to_owned()), // BORROW: owned pair for the environment
-        ])
-        .marker(marker)
-        .record_dir(record_dir)
-        .build()
-        .map_err(|e| failed(e.to_string()))?;
-    let captured = supervisor
-        .run_captured(request, limit)
-        .await
-        .map_err(|e| failed(format!("cannot run git: {e}")))?;
-    match captured.exit.status {
-        ExitStatus::Code { code } => Ok((code, captured.stdout)),
-        ExitStatus::Signal { signal } => Err(failed(format!("git ended on signal {signal}"))),
-    }
-}
-
-/// A directory no other probe of this process uses.
-fn record_dir() -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_nanos());
-    std::env::temp_dir().join(format!(
-        "candler-treatment-{}-{nanos}-{}",
-        std::process::id(),
-        PROBES.fetch_add(1, Ordering::Relaxed)
-    ))
 }
