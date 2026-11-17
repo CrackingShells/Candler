@@ -19,6 +19,7 @@ use candler_schemas::primitives::{FormatError, RelPath};
 
 use crate::runner::evidence::InputDigest;
 use crate::store::{Store, StoreError};
+use crate::tree::{Links, Names, Refusal, Screen, Walk, WalkError};
 
 /// The files of one declared input, as stored.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -267,72 +268,54 @@ fn walk(input: &ExperimentInput, experiment_dir: &Path) -> Result<Vec<Found>, In
             source: root,
         });
     } else if meta.is_dir() {
-        walk_dir(input, &root, "", &mut found)?;
+        let listing = Walk::new(Links::Refuse, Names::Strict)
+            .screen(screen_name)
+            .list(&root)
+            .map_err(|error| refused_walk(input, error))?;
+        found.extend(listing.entries().iter().map(|entry| Found {
+            relative: entry.rel.clone(), // BORROW: the entry owns its path
+            source: entry.abs.clone(),   // BORROW: the entry owns its path
+        }));
         if found.is_empty() {
             return Err(refused(input, written, "is a directory that holds no file"));
         }
     } else {
         return Err(refused(input, written, "is neither a file nor a directory"));
     }
-    found.sort_by(|first, second| first.relative.cmp(&second.relative));
     Ok(found)
 }
 
-/// Adds the files under `dir`, whose path relative to the input's root is `prefix`.
-fn walk_dir(
-    input: &ExperimentInput,
-    dir: &Path,
-    prefix: &str,
-    found: &mut Vec<Found>,
-) -> Result<(), InputError> {
-    let listing = fs::read_dir(dir).map_err(|error| {
-        refused(
+/// The rule for the names inside an input: one that cannot be mounted is refused.
+fn screen_name(name: &str) -> Screen {
+    if unmountable(name) {
+        Screen::Refuse
+    } else {
+        Screen::Keep
+    }
+}
+
+/// The refusal of `input` that says why its walk failed.
+fn refused_walk(input: &ExperimentInput, error: WalkError) -> InputError {
+    match error {
+        WalkError::Io { path, error } => refused(
             input,
-            &dir.display().to_string(),
+            &path.display().to_string(),
             format!("cannot be read: {error}"),
-        )
-    })?;
-    for entry in listing {
-        let entry = entry.map_err(|error| {
-            refused(
-                input,
-                &dir.display().to_string(),
-                format!("cannot be read: {error}"),
-            )
-        })?;
-        let file_name = entry.file_name();
-        let text = file_name.to_str().ok_or_else(|| {
-            refused(
-                input,
-                &entry.path().display().to_string(),
-                "has a name that is not UTF-8",
-            )
-        })?;
-        let relative = format!("{prefix}{text}");
-        if unmountable(text) {
-            return Err(refused(input, &relative, UNMOUNTABLE));
-        }
-        let kind = entry
-            .file_type()
-            .map_err(|error| refused(input, &relative, format!("cannot be read: {error}")))?;
-        if kind.is_symlink() {
-            return Err(refused(input, &relative, "is a symlink inside the input"));
-        } else if kind.is_dir() {
-            walk_dir(input, &entry.path(), &format!("{relative}/"), found)?;
-        } else if kind.is_file() {
-            found.push(Found {
-                relative,
-                source: entry.path(),
-            });
-        } else {
-            return Err(refused(
-                input,
-                &relative,
-                "is neither a file nor a directory",
-            ));
+        ),
+        WalkError::Name { path } => refused(
+            input,
+            &path.display().to_string(),
+            "has a name that is not UTF-8",
+        ),
+        WalkError::Refused { rel, why } => {
+            let problem = match why {
+                Refusal::Link => "is a symlink inside the input",
+                Refusal::Special => "is neither a file nor a directory",
+                Refusal::Name => UNMOUNTABLE,
+            };
+            refused(input, &rel, problem)
         }
     }
-    Ok(())
 }
 
 /// Stores the files of an input and its list, and returns the list's digest and entries.

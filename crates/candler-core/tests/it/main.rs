@@ -6,6 +6,7 @@ mod support;
 
 mod guard_analysis_report;
 mod guard_assert_clean;
+mod guard_build_context;
 mod guard_census_gateway;
 mod guard_comparability;
 mod guard_container_e2e;
@@ -61,6 +62,7 @@ mod guard_store;
 mod guard_supervise;
 mod guard_treatment_context;
 mod guard_treatment_source;
+mod guard_tree_walk;
 mod guard_unstarted_destroy;
 mod guard_upstream_ca;
 mod guard_wiring;

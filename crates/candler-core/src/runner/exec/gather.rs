@@ -2,7 +2,6 @@
 //! spent, and what the reader made of its output.
 
 use std::collections::BTreeMap;
-use std::fs;
 use std::io;
 use std::path::Path;
 
@@ -23,6 +22,7 @@ use crate::isolation::{Isolation, IsolationError};
 use crate::runner::Usage;
 use crate::runner::evidence::{Inputs, OutputDigest};
 use crate::store::blob::digest_of_file;
+use crate::tree::{Links, Names, Walk};
 use candler_schemas::primitives::Digest;
 
 /// The tokens and cost a trace reports.
@@ -331,19 +331,18 @@ pub fn collect_files(root: &Path, specs: &[CollectSpec]) -> io::Result<Vec<Outpu
             }
         }
     }
-    let mut found: Vec<(String, Digest)> = Vec::new();
-    walk(root, "", &mut |path, file| {
+    let mut found: Vec<OutputDigest> = Vec::new();
+    for entry in Walk::new(Links::Skip, Names::Strict).list(root)?.entries() {
+        let path = entry.rel.as_str();
         if keep.iter().any(|re| re.is_match(path)) && !drop.iter().any(|re| re.is_match(path)) {
-            let digest = digest_of_file(file).map_err(|e| io::Error::other(e.to_string()))?;
-            found.push((path.to_owned(), digest)); // BORROW: the list owns its paths
+            let digest = digest_of_file(&entry.abs).map_err(|e| io::Error::other(e.to_string()))?;
+            found.push(OutputDigest {
+                path: path.to_owned(), // BORROW: the list owns its paths
+                digest,
+            });
         }
-        Ok(())
-    })?;
-    found.sort_by(|a, b| a.0.cmp(&b.0));
-    Ok(found
-        .into_iter()
-        .map(|(path, digest)| OutputDigest { path, digest })
-        .collect())
+    }
+    Ok(found)
 }
 
 /// The files the run produced: [`collect_files`] without the mount point of any input. The mount
@@ -359,33 +358,6 @@ pub fn collect_outputs(
     let mut found = collect_files(root, specs)?;
     found.retain(|out| inputs.digests.iter().all(|input| input.path != out.path));
     Ok(found)
-}
-
-/// Calls `each` with the relative path and the file of every regular file under `dir`.
-fn walk(
-    dir: &Path,
-    prefix: &str,
-    each: &mut dyn FnMut(&str, &Path) -> io::Result<()>, // TRAIT_OBJECT: the visitor is a closure, held by reference to keep the recursion non-generic
-) -> io::Result<()> {
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        let kind = entry.file_type()?;
-        let name = entry.file_name();
-        let name = name.to_str().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "a file name is not text")
-        })?;
-        let rel = if prefix.is_empty() {
-            name.to_owned() // BORROW: the path is built from the name
-        } else {
-            format!("{prefix}/{name}")
-        };
-        if kind.is_dir() {
-            walk(&entry.path(), &rel, each)?;
-        } else if kind.is_file() {
-            each(&rel, &entry.path())?;
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]

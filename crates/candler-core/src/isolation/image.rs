@@ -21,6 +21,7 @@ use super::hardening::HardLimits;
 use super::layout;
 use super::model::{BuildRequest, ImageId, ImageInfo, ImageRef, Labels, LayerDigest};
 use crate::supervise::Supervisor;
+use crate::tree::{BuildContext, Listing};
 
 /// The seconds the entrypoint `timeout` gives the harness's version probe inside the control
 /// container.
@@ -196,7 +197,7 @@ impl DockerImageService {
     /// The base image: built once per digest of its sources, under the lock of its tag.
     async fn ensure_base(&self) -> Result<BaseImage, ImageError> {
         // BORROW: .clone() moves the context into the blocking task
-        let sources = off_thread(tree_digest, self.assets.base_context.clone(), "base").await?;
+        let sources = off_thread(context_digest, self.assets.base_context.clone(), "base").await?;
         let build_args = self.harness.base_image().build_args;
         let tag = base_tag_of(sources.as_str(), &build_args); // BORROW: explicit .as_str()
         let _guard = self.lock_tag(&tag).await?;
@@ -285,15 +286,15 @@ impl DockerImageService {
                     .await
                     .map_err(failed)
             }
-            Layer::Extension(extension) => {
-                // BORROW: .clone() moves the paths into the blocking task
-                let from = extension.context.clone();
+            Layer::Extension(extension, listing) => {
+                // BORROW: .clone() moves the listing into the blocking task
+                let listing = listing.clone();
                 // BORROW: .clone() moves the paths into the blocking task
                 let dockerfile = extension.dockerfile.clone();
                 // BORROW: .to_path_buf() moves the path into the blocking task
                 let to = context.to_path_buf();
                 tokio::task::spawn_blocking(move || -> Result<(), std::io::Error> {
-                    copy_tree(&from, &to)?;
+                    listing.stage(&to)?;
                     std::fs::copy(&dockerfile, to.join("Dockerfile")).map(|_| ())
                 })
                 .await
@@ -383,15 +384,22 @@ impl DockerImageService {
             let sources = extension.clone();
             // BORROW: .clone() moves the id into the blocking task
             let env_id = env.id.clone();
-            let digest = tokio::task::spawn_blocking(move || extension_digest(&env_id, &sources))
-                .await
-                .map_err(|error| build_failed(&format!("the digest task ended: {error}")))?
-                .map_err(|error| {
-                    build_failed(&format!("cannot read the extension sources: {error}"))
-                })?;
+            let (digest, listing) =
+                tokio::task::spawn_blocking(move || extension_digest(&env_id, &sources))
+                    .await
+                    .map_err(|error| build_failed(&format!("the digest task ended: {error}")))?
+                    .map_err(|error| {
+                        build_failed(&format!("cannot read the extension sources: {error}"))
+                    })?;
             let tag = format!("{EXT_REPO}:{digest}");
             let (made, ran) = self
-                .ensure_layer(&tag, &digest, &env, Layer::Extension(extension), &labels)
+                .ensure_layer(
+                    &tag,
+                    &digest,
+                    &env,
+                    Layer::Extension(extension, &listing),
+                    &labels,
+                )
                 .await?;
             info = made;
             built = built || ran;
@@ -703,7 +711,7 @@ impl Layer<'_> {
                 // BORROW: .to_owned() makes the argument name the request owns
                 vec![(PRUNE_ARG.to_owned(), setting.prune.join(" "))]
             }
-            Self::Env(_) | Self::Extension(_) => Vec::new(),
+            Self::Env(_) | Self::Extension(..) => Vec::new(),
         }
     }
 }
@@ -734,8 +742,8 @@ fn env_key(lock_hex: &str, prune: &[String], base_tag: &str, env_sources: &str) 
 enum Layer<'a> {
     /// The env layer: the env Dockerfile and the lock.
     Env(&'a BuildSetting),
-    /// The experiment's own Dockerfile and context.
-    Extension(&'a Extension),
+    /// The experiment's own Dockerfile and the listing of its context.
+    Extension(&'a Extension, &'a Listing),
 }
 
 /// The image a layer is built on.
@@ -791,14 +799,6 @@ fn hex_of(bytes: &[u8]) -> String {
     hex
 }
 
-/// The digest of every file under `dir`: paths in order, each with its bytes.
-fn tree_digest(dir: &Path) -> Result<String, std::io::Error> {
-    let mut files = Vec::new();
-    collect_files(dir, dir, &mut files)?;
-    files.sort();
-    files_digest(dir, &files)
-}
-
 /// The digest of the files `files` under `dir`, in the order given: each path, a NUL, its bytes
 /// and a NUL.
 fn files_digest<P: AsRef<Path>>(dir: &Path, files: &[P]) -> Result<String, std::io::Error> {
@@ -840,7 +840,7 @@ async fn off_thread(
 /// # Errors
 /// [`std::io::Error`] when a file of the context cannot be read.
 pub fn base_tag(dir: &Path, build_args: &[(String, String)]) -> Result<String, std::io::Error> {
-    Ok(base_tag_of(tree_digest(dir)?.as_str(), build_args)) // BORROW: explicit .as_str()
+    Ok(base_tag_of(context_digest(dir)?.as_str(), build_args)) // BORROW: explicit .as_str()
 }
 
 /// The base tag of sources whose digest is `sources`, built with `build_args`:
@@ -861,39 +861,32 @@ fn base_tag_of(sources: &str, build_args: &[(String, String)]) -> String {
     format!("{BASE_REPO}:src-{hex}")
 }
 
-/// The hex digest of every file under the build context `dir`.
+/// The hex digest of the build context `dir`, whose Dockerfile is `dir/Dockerfile`: the digest of
+/// its [`BuildContext`].
 ///
 /// # Errors
 /// [`std::io::Error`] when a file of the context cannot be read.
 pub fn context_digest(dir: &Path) -> Result<String, std::io::Error> {
-    tree_digest(dir)
+    let context = BuildContext::read(&dir.join("Dockerfile"), dir)?;
+    let digest = context.digest().map_err(std::io::Error::other)?;
+    Ok(digest.hex().to_owned()) // BORROW: the caller owns the text
 }
 
-/// The digest of an extension over the env image it builds on: the env id, the Dockerfile and
-/// every file of the context.
-fn extension_digest(env: &ImageId, extension: &Extension) -> Result<String, std::io::Error> {
+/// The digest of an extension over the env image it builds on, with the listing of its context:
+/// the sha256 of the env id, a NUL and the digest of the [`BuildContext`] the listing and the
+/// Dockerfile make. The listing is what is staged, so the tag names what the build sees.
+fn extension_digest(
+    env: &ImageId,
+    extension: &Extension,
+) -> Result<(String, Listing), std::io::Error> {
+    let listing = BuildContext::walk().list(&extension.context)?;
+    let context = BuildContext::of(&extension.dockerfile, &listing)?;
+    let digest = context.digest().map_err(std::io::Error::other)?;
     let mut hasher = sha2::Sha256::new();
     hasher.update(env.0.as_bytes());
     hasher.update([0_u8]);
-    hasher.update(std::fs::read(&extension.dockerfile)?);
-    hasher.update([0_u8]);
-    hasher.update(tree_digest(&extension.context)?.as_bytes());
-    Ok(hex_of(&hasher.finalize()))
-}
-
-/// Copies the files under `from` to `to`, keeping the layout.
-fn copy_tree(from: &Path, to: &Path) -> Result<(), std::io::Error> {
-    std::fs::create_dir_all(to)?;
-    for entry in std::fs::read_dir(from)? {
-        let entry = entry?;
-        let target = to.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            copy_tree(&entry.path(), &target)?;
-        } else {
-            std::fs::copy(entry.path(), target)?;
-        }
-    }
-    Ok(())
+    hasher.update(digest.hex().as_bytes());
+    Ok((hex_of(&hasher.finalize()), listing))
 }
 
 /// Whether the compiler can take `name` as a file of the source mount.
@@ -932,20 +925,6 @@ pub fn compile_spec(image: &ImageId, sources: &Path, names: &[String]) -> Contro
 /// The compile, for the platform the image runs on.
 const COMPILE_SCRIPT: &str = "exec uv pip compile --python-version 3.12 \
 --python-platform \"$(uname -m)-unknown-linux-gnu\" --no-header \"$@\"";
-
-fn collect_files(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), std::io::Error> {
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if entry.file_type()?.is_dir() {
-            collect_files(root, &path, out)?;
-        } else if let Ok(relative) = path.strip_prefix(root) {
-            // BORROW: .to_path_buf() keeps the relative path in the list
-            out.push(relative.to_path_buf());
-        }
-    }
-    Ok(())
-}
 
 fn unreadable(detail: &str) -> ImageError {
     ImageError::VersionUnreadable {
