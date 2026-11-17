@@ -401,6 +401,7 @@ fn probe_host(
     cell: &str,
     agent: &str,
     gateways: &[&str],
+    extra: &[&str],
     link_local: Option<&str>,
     listeners: &[HostListener],
     log: &std::cell::RefCell<Vec<String>>,
@@ -408,6 +409,7 @@ fn probe_host(
 ) {
     let mut targets: Vec<String> = gateways.iter().map(|g| (*g).to_owned()).collect();
     targets.push("host.docker.internal".to_owned());
+    targets.extend(extra.iter().map(|t| (*t).to_owned()));
     if let Some(ll) = link_local {
         targets.extend(["eth0", "eth1"].map(|nic| format!("{ll}%{nic}")));
     }
@@ -449,7 +451,8 @@ fn probe_host(
 /// handshake row red.
 /// Bite: `EGRESS_RIG_BITE=agent_on_egress` (the product's `agent_networks` is asked for a
 /// `bridge` cell, so the agent joins the egress network),
-/// `pinned` (the proxy caches an upstream address for an hour), `no_filter` (the proxy's
+/// `no_link_local` (the host link-local lookup finds nothing: on Linux under CI the row fails, and
+/// elsewhere it prints that it skipped), `pinned` (the proxy caches an upstream address for an hour), `no_filter` (the proxy's
 /// loopback filter forwards everything) and `first_entry_retry` (the filter reads only the first
 /// address nginx tried, and nginx retries the next one) each turn rows red.
 #[tokio::test(flavor = "multi_thread")]
@@ -938,17 +941,35 @@ async fn egress_allowlist_holds_on_a_real_daemon() {
             attempt(&agent, name, 8080, PLAIN);
         }
     });
-    let host_ll = host_link_local(&job_net);
-    log.borrow_mut().push(match &host_ll {
-        Some(ll) => format!("row 8 host link-local on the job bridge: {ll}"),
-        None => {
-            "row 8 the host has no link-local IPv6 on the job bridge: target skipped".to_owned()
+    // The link-local target runs only where the host has the bridge as an interface (Linux). On
+    // Linux under CI a missing address fails the row, so CI cannot pass without having run it;
+    // elsewhere the skip is printed. The bite `no_link_local` makes the lookup find nothing.
+    let host_ll = if bite == "no_link_local" {
+        None
+    } else {
+        host_link_local(&job_net)
+    };
+    match &host_ll {
+        Some(ll) => log
+            .borrow_mut()
+            .push(format!("row 8 host link-local on the job bridge: {ll}")),
+        None if cfg!(target_os = "linux") && std::env::var_os("CI").is_some() => {
+            failures.borrow_mut().push(
+                "row 8: the host has no link-local IPv6 on the job bridge, so the link-local \
+                 target did not run (Linux under CI must run it)"
+                    .to_owned(),
+            );
         }
-    });
+        None => eprintln!(
+            "row 8 SKIPPED: the host link-local target did not run (no link-local IPv6 on the \
+             job bridge; only a Linux host has the bridge as an interface)"
+        ),
+    }
     probe_host(
         "agent on the job and allow networks",
         &agent,
         &[&job_gw, &host_gw],
+        &[],
         host_ll.as_deref(),
         &listeners,
         &log,
@@ -976,10 +997,25 @@ async fn egress_allowlist_holds_on_a_real_daemon() {
     );
     made.containers.push(bare.clone());
     must(&["start", &bare], "starting the no-egress agent");
+    // A cell with no `isolation.egress`: the product gives its agent the job network and no other.
+    let (bare_job, bare_extra) = handle
+        .agent_networks(&job, None, None)
+        .expect("the no-egress agent's networks");
+    assert_eq!(
+        bare_job.as_str(),
+        job_net,
+        "the no-egress agent's job network"
+    );
+    assert!(
+        bare_extra.is_none(),
+        "a no-egress agent has no second network"
+    );
+    // Row 8b: through the bridge gateway (IPv4), `host.docker.internal` (host-gateway) and `::`.
     probe_host(
-        "no-egress agent on the job network only",
+        "8b no isolation.egress: the job network only",
         &bare,
         &[&job_gw],
+        &["::"],
         host_ll.as_deref(),
         &listeners,
         &log,
