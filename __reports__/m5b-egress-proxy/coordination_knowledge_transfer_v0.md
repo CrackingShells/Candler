@@ -17,8 +17,8 @@ for any future coordinator that dispatches implementers and verifiers.
 
   The final read-only verifier found every gate except the live smoke clean. CI's container job
   passed 21/21.
-- **What it cost.** About $96 to build, against a $52 cap: 1.8× over plan. Planning cost $10 more.
-- **Where it went.** Coordinators cost $62 and the agents doing the work cost $44. **Coordination
+- **What it cost.** About $111 to build, against a $52 cap: 2.1× over plan. Planning cost $10 more. Fix level after the live smoke added $15.46 of that.
+- **Where it went.** Coordinators cost $71 and the agents doing the work cost $51. **Coordination
   was 58 % of the bill.**
 - **Did the frugality rules work?** For the agents they bound, yes:
   - an implementer round fell from $4.55 to $1.40;
@@ -43,7 +43,8 @@ Context means the input, cache-write and cache-read tokens of one call.
 | L1 | verifiers (Sonnet) | 5 | 80 | 92k | $3.11 |
 | milestone | coordinator (Opus), planning included | 1 | 248 | 162k | $27.64 |
 | milestone | roadmap author, live smoke, final verifier | 3 | 67 | — | $3.56 |
-| **all** | | **31** | | | **≈ $106** |
+| milestone | fix level after the live smoke: coordinator share, 6 fix agents, smoke re-run | 7 | 182 | — | $15.46 |
+| **all** | | **38** | | | **≈ $122** |
 
 The plan was $52 to build, plus $15 to plan. The actual figures:
 
@@ -169,3 +170,45 @@ All four held, and together they cut the cost of each round by two thirds.
   catch what the Opus coordinators caught?
 - Should a level's integration be done by a fresh, short-lived agent per merge rather than by a
   coordinator that holds the whole level in its context?
+
+## Fix level after the live smoke
+
+Fix level is everything after the first live smoke: the six fix agents, the smoke re-run, and the
+coordinator's cost above its $27.64 at the smoke. Measured with `categorize.py` from the transcripts.
+
+| Role | Agent | Tool calls | Average context | Cost |
+|:--|:--|--:|--:|--:|
+| MCP render (F2) and F1 fix | a6a9742d | 36 | 103k | $1.10 |
+| F2/F1 fix round: gates and core check | a40a6b16 | 23 | 88k | $0.71 |
+| Drop or fix `Surface.mcp`, find the F1 refusal | ae0a0c66 | 11 | 87k | $0.45 |
+| MCP guards through production code | a5274601 | 29 | 109k | $1.25 |
+| Finish the MCP guards, real bites | ae6f21bd | 25 | 113k | $1.08 |
+| F3: njs binary-safe egress filter | a21a626c | 35 | 112k | $1.35 |
+| **Six fix agents** | | **159** | | **$5.94** |
+| B5 smoke re-run (23 calls, 86k) plus $0.15 of RiVault model cost | a039003e | 23 | 86k | $0.93 |
+| Coordinator (Opus), $36.23 now minus $27.64 | | | 164k whole session | $8.59 |
+| **Fix level total** | | | | **$15.46** |
+| Close agent | | | | measured at merge |
+
+The coordinator was 56 % of fix level. Its $8.59 is $0.79 above the $7.80 the close brief quoted,
+so the brief's figure was taken before the last session messages. The six fix agents averaged $0.99 each.
+
+Categories of tool call, for the coordinator's whole session (the script does not split by phase), as
+calls and cost:
+
+| Category | Calls | Cost |
+|:--|--:|--:|
+| reply with no tool call | 0 | $6.07 |
+| app: plan, wrap-up, sessions | 60 | $6.02 |
+| read code or docs through the shell | 55 | $4.81 |
+| coordinate: dispatch and message | 38 | $3.54 |
+| git, commit, roadmap tooling | 27 | $3.02 |
+| read: git grep, show, diff, log | 20 | $2.27 |
+| write: Edit and Write | 32 | $1.64 |
+| edit by script | 13 | $1.60 |
+| Docker | 14 | $1.52 |
+| tool and skill loading | 17 | $1.33 |
+| CI (gh) | 11 | $1.14 |
+| read: colgrep | 6 | $0.61 |
+
+The frugality rule on reading was ignored again: shell reads cost 8 times what colgrep reads did.
