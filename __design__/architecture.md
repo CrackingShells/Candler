@@ -554,6 +554,9 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
   internal network on a Linux daemon. Every internal network (the job network and each allow
   network) is therefore created with `-o com.docker.network.bridge.inhibit_ipv4=true` and
   `--ipv6=false`, so the bridge carries no host address to reach, and no agent has a host gateway.
+  The option needs no version check of its own: the bridge driver has honoured it since Docker
+  Engine 20.10 (moby/libnetwork#2317, merged 2020-02-14), older than the Engine 25 that two
+  `--network` flags already require.
   The host reaches the sidecar and the proxy through `docker exec` and `docker inspect` only. The
   egress guard's row 8 binds a listener on `0.0.0.0` and on `::` and tries the bridge gateways,
   `host.docker.internal` and the host's link-local IPv6 address on the bridge, from an agent with
