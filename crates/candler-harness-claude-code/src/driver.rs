@@ -53,7 +53,10 @@ pub(crate) fn cap_text(
     path: &str,
     whole: bool,
 ) -> Result<Option<String>, DriverError> {
-    match cell.value_str(path)? {
+    match cell
+        .value_str(path)
+        .map_err(|error| invalid(path, error.to_string()))?
+    {
         None => Ok(None),
         Some(Value::Number(number)) => {
             if whole && number.as_u64().is_none() {
