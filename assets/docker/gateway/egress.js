@@ -1,8 +1,10 @@
 // The egress proxy's address check. nginx has connected to the resolved upstream when the first
 // client byte arrives, and this filter decides on that address before the byte is forwarded: a
 // loopback, link-local, unspecified or empty upstream closes the session and nothing is sent.
-// $upstream_addr is a comma list when nginx tried more than one address for the session, so the
-// session is refused when ANY entry of the list is refused.
+// The filter takes the Buffer events `upstream` and `downstream`: the string events rewrite
+// invalid UTF-8, which corrupts a TLS record. $upstream_addr is a comma list when nginx tried
+// more than one address for the session, so the session is refused when ANY entry of the list is
+// refused.
 function refusedOne(addr) {
   var host = addr.charAt(0) === '[' ? addr.slice(1, addr.indexOf(']')) : addr.split(':')[0];
   host = host.toLowerCase();
@@ -32,14 +34,14 @@ function refused(s) {
 }
 
 function guard(s) {
-  s.on('upload', function (data, flags) {
+  s.on('upstream', function (data, flags) {
     if (refused(s)) {
       s.done();
       return;
     }
     s.send(data, flags);
   });
-  s.on('download', function (data, flags) {
+  s.on('downstream', function (data, flags) {
     if (refused(s)) {
       s.done();
       return;

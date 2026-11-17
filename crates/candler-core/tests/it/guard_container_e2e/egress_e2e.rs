@@ -37,7 +37,7 @@ use crate::support::test_image::{SIDECAR_CONTEXT, TESTAGENT_CONTEXT, TestImage};
 /// The listed names. Port 8080 belongs to one host, 9443 is shared, the last three resolve to
 /// loopback, link-local and, at first, to a decoy; `multi.test` answers two addresses, the first
 /// refusing connections and the second a link-local sink; `low.test` listens below 1024.
-const LISTED: [&str; 8] = [
+const LISTED: [&str; 9] = [
     "allowed.test:8080",
     "a.test:9443",
     "b.test:9443",
@@ -46,7 +46,26 @@ const LISTED: [&str; 8] = [
     "rebind.test:7003",
     "multi.test:7004",
     "low.test:443",
+    "upstream.test:8443",
 ];
+
+/// A TLS client that verifies the fake's certificate against the rig's authority, sends one
+/// request and prints the protocol version and the status line.
+const TLS_CLIENT: &str = r"
+import socket, ssl
+ctx = ssl.create_default_context(cafile='/fake/ca.pem')
+token = open('/fake/token').read().strip()
+raw = socket.create_connection(('upstream.test', 8443), 10)
+with ctx.wrap_socket(raw, server_hostname='upstream.test') as tls:
+    tls.sendall(('GET /v1/models HTTP/1.0\r\nHost: upstream.test\r\nAuthorization: Bearer %s\r\nx-api-key: %s\r\nContent-Length: 0\r\n\r\n' % (token, token)).encode())
+    data = b''
+    while True:
+        chunk = tls.recv(65536)
+        if not chunk:
+            break
+        data += chunk
+    print(tls.version(), data.split(b'\r\n')[0].decode())
+";
 
 const SINK: &str = r"
 import socket, sys, threading
@@ -422,6 +441,12 @@ fn probe_host(
 /// link-local, or proxying through the gateway. Oracle: the connection log of each target (and
 /// of a listener on the host), read with `docker logs`; a row passes on the bytes the target
 /// received, never on the client's error.
+/// Guards: D2 — an allowlisted TLS host is reachable byte-for-byte through the proxy: a real TLS
+/// client finishes the handshake against the rig's TLS fake, verifies its certificate and reads a
+/// 200 through the proxy. Oracle: the client's own TLS stack (a corrupted handshake fails its
+/// verification) and the status line the fake answers. Bite: `EGRESS_RIG_BITE=string_events` (the
+/// filter takes the string events `upload` and `download`, which rewrite invalid UTF-8) turns the
+/// handshake row red.
 /// Bite: `EGRESS_RIG_BITE=agent_on_egress` (the product's `agent_networks` is asked for a
 /// `bridge` cell, so the agent joins the egress network),
 /// `pinned` (the proxy caches an upstream address for an hour), `no_filter` (the proxy's
@@ -551,8 +576,8 @@ async fn egress_allowlist_holds_on_a_real_daemon() {
             },
         )
         .await;
-    made.containers
-        .push(fake_task.await.expect("the fake's thread"));
+    let fake_cid = fake_task.await.expect("the fake's thread");
+    made.containers.push(fake_cid.clone());
     let handle = started_gw.expect("a started gateway");
     made.containers.push(handle.container.cid.to_string());
     let job_net = handle.network.as_str().to_owned();
@@ -618,6 +643,7 @@ async fn egress_allowlist_holds_on_a_real_daemon() {
             "0.0.0.0:7003",
         ],
     );
+    let ip_fake = ip_on(&fake_cid, &egress_net);
     let (ip_allowed, ip_a, ip_b, ip_denied, ip_low) = (
         ip_on(&allowed, &egress_net),
         ip_on(&ta, &egress_net),
@@ -628,7 +654,7 @@ async fn egress_allowlist_holds_on_a_real_daemon() {
     let map = format!(
         "allowed.test {ip_allowed}\na.test {ip_a}\nb.test {ip_b}\nloop.test 127.0.0.1\n\
          ll.test {ip_ll}\nrebind.test {ip_denied}\nexternal.test {ip_denied}\n\
-         multi.test {ip_a},{ip_ll}\nlow.test {ip_low}\n"
+         multi.test {ip_a},{ip_ll}\nlow.test {ip_low}\nupstream.test {ip_fake}\n"
     );
     std::fs::write(dir.join("dns/map"), &map).expect("the resolver's map");
     let mount = format!("{}:/rig:ro", dir.display());
@@ -695,6 +721,11 @@ async fn egress_allowlist_holds_on_a_real_daemon() {
         "first_entry_retry" => {
             js = js.replace(".split(',')", ".split(',').slice(0, 1)");
             tpl = tpl.replace("proxy_next_upstream off;", "");
+        }
+        "string_events" => {
+            js = js
+                .replace("'upstream'", "'upload'")
+                .replace("'downstream'", "'download'");
         }
         _ => {}
     }
@@ -849,6 +880,34 @@ async fn egress_allowlist_holds_on_a_real_daemon() {
     if !reply.contains(" 200") {
         failures.borrow_mut().push(format!(
             "row 2: the model call was not answered 200: {reply:.200}"
+        ));
+    }
+    // Row 12: a real TLS client, on the allow network, finishes a handshake with the TLS fake
+    // through the proxy and reads one response.
+    let tls = docker(&[
+        "run",
+        "--rm",
+        "--label",
+        &rig,
+        "--network",
+        allow.as_str(),
+        "--add-host",
+        &format!("upstream.test:{proxy_ip}"),
+        "-v",
+        &format!("{}:/fake:ro", dir.join("fake").display()),
+        PYTHON_IMAGE,
+        "python3",
+        "-c",
+        TLS_CLIENT,
+    ]);
+    let said = tls.both();
+    log.borrow_mut().push(format!(
+        "row 12 TLS client through the proxy: {}",
+        said.trim()
+    ));
+    if !tls.ok() || !said.contains(" 200") {
+        failures.borrow_mut().push(format!(
+            "row 12: no TLS handshake and 200 through the proxy: {said:.400}"
         ));
     }
     // 2b is every 'must succeed' above: the listed names have no alias on any proxy network.
