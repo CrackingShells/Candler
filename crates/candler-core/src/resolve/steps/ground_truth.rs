@@ -17,12 +17,10 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr as _;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use candler_harness::skills::SkillTree;
 use candler_schemas::execution::{ExperimentInput, TreatmentRef, TreatmentSpec, paths};
-use candler_schemas::primitives::{Digest, FieldPath, FormatError, Marker, NameToken};
-use candler_schemas::process::ExitStatus;
+use candler_schemas::primitives::{Digest, FieldPath, FormatError, NameToken};
 use futures::future::BoxFuture;
 
 use super::image::{BuildInputs, context_dir};
@@ -32,7 +30,7 @@ use crate::resolve::preflight::{
     CheckResult, PreflightError, PreflightStep, ResolveContext, StepReport,
 };
 use crate::supervise::Supervisor;
-use crate::supervise::spawn::SpawnRequest;
+use crate::supervise::git::{GitError, tree_at_commit};
 use candler_schemas::values::ValueSource;
 
 /// The name of the step.
@@ -40,9 +38,6 @@ pub const STEP_NAME: &str = "ground_truth@1";
 
 /// The check that names an evaluator-only input found in what the agent receives.
 pub const CHECK_EXPOSED: &str = "ground_truth_exposed@1";
-
-/// The most bytes read from the archive of the treatment's skill tree.
-const ARCHIVE_LIMIT: usize = 64 * 1024 * 1024;
 
 /// Why an evaluator-only input is refused.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -313,16 +308,6 @@ fn describe(file: &TruthFile, place: &str) -> String {
     )
 }
 
-/// A directory of its own for the record of the archive command.
-fn record_dir() -> PathBuf {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    std::env::temp_dir().join(format!(
-        "candler-ground-truth-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ))
-}
-
 /// The files of the treatment's skill tree at its pinned commit.
 async fn treatment_exposures(
     ctx: &ResolveContext,
@@ -352,33 +337,24 @@ async fn treatment_exposures(
     let command = skills
         .archive_command(&pinned, &ctx.config.cwd.join(source))
         .map_err(|e| failed(e.to_string()))?;
-    let record = record_dir();
-    tokio::fs::create_dir_all(&record)
-        .await
-        .map_err(|e| failed(format!("cannot make the archive directory: {e}")))?;
-    let path = std::env::var("PATH").unwrap_or_default();
-    let request = SpawnRequest::builder()
-        .argv(command.argv().to_vec()) // BORROW: the request owns its arguments
-        .env(vec![
-            ("PATH".to_owned(), path), // BORROW: owned pair for the environment
-            ("LC_ALL".to_owned(), "C".to_owned()), // BORROW: owned pair for the environment
-            ("GIT_TERMINAL_PROMPT".to_owned(), "0".to_owned()), // BORROW: owned pair
-        ])
-        .marker(Marker::from_str("ground-truth-archive").map_err(|e| failed(e.to_string()))?)
-        .record_dir(record.clone()) // BORROW: the directory is removed below
-        .build()
-        .map_err(|e| failed(e.to_string()))?;
-    let captured = supervisor.run_captured(request, ARCHIVE_LIMIT).await;
-    // The directory holds only the record of the command; a failed removal leaves it for the temp sweep.
-    drop(tokio::fs::remove_dir_all(&record).await);
-    let captured = captured.map_err(|e| failed(format!("cannot archive the skill tree: {e}")))?;
-    if !matches!(captured.exit.status, ExitStatus::Code { code: 0 })
-        || captured.stdout.len() >= ARCHIVE_LIMIT
-    {
-        return Err(failed("the skill tree could not be archived".to_owned())); // BORROW: owned text
-    }
+    let tar = tree_at_commit(
+        supervisor,
+        command.argv().to_vec(),
+        "ground-truth-archive",
+        None,
+    )
+    .await
+    .map_err(|e| match e {
+        GitError::Failed(_) | GitError::TooLarge(_) | GitError::Signal(_) => {
+            failed("the skill tree could not be archived".to_owned()) // BORROW: owned text
+        }
+        other @ (GitError::Record(_)
+        | GitError::Request(_)
+        | GitError::Run(_)
+        | GitError::Deadline) => failed(format!("cannot archive the skill tree: {other}")),
+    })?;
     let files = skills
-        .files(&pinned, &captured.stdout)
+        .files(&pinned, &tar)
         .map_err(|e| failed(e.to_string()))?;
     Ok(files
         .iter()

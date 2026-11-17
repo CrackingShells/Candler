@@ -11,7 +11,6 @@ pub mod spawn;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write as _};
-use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::str::FromStr as _;
 use std::sync::Arc;
@@ -61,12 +60,10 @@ use crate::store::StoreError;
 use crate::store::blob::digest_of_file;
 use crate::store::run::{Existing, RunWriter};
 use crate::supervise::SuperviseError;
+use crate::supervise::git::{GitError, RecordDir, mark_executable, tree_at_commit};
 use crate::supervise::now;
-use crate::supervise::spawn::{OutputSpec, SpawnRequest};
+use crate::supervise::spawn::OutputSpec;
 use crate::supervise::stop::{Ended, Exit};
-
-/// The most bytes of a skill archive the core reads.
-const ARCHIVE_LIMIT: usize = 64 * 1024 * 1024;
 
 /// Executes the run `plan` while holding `slot`.
 ///
@@ -205,7 +202,7 @@ fn write_file(root: &Path, file: &PreparedFile) -> io::Result<Digest> {
     out.write_all(&file.contents)?;
     drop(out);
     if file.executable {
-        fs::set_permissions(&target, fs::Permissions::from_mode(0o755))?;
+        mark_executable(&target)?;
     }
     digest_of_file(&target).map_err(|error| io::Error::other(error.to_string()))
 }
@@ -229,34 +226,27 @@ async fn skill_files(
             detail: "the treatment is pinned to a commit and names no source".to_owned(), // BORROW: owned text
         })?;
     let command = rt.driver.skills().archive_command(treatment, source)?;
-    let record = scratch.join("archive");
-    fs::create_dir_all(&record).map_err(|e| local("cannot make the archive directory", &e))?;
-    let marker = Marker::from_str("skill-archive").map_err(|error| IsolationError::Plan {
-        detail: error.to_string(), // BORROW: .to_string() gives owned text
+    let record = RecordDir::at(scratch.join("archive"))
+        .map_err(|e| local("cannot make the archive directory", &e))?;
+    let tar = tree_at_commit(
+        &rt.supervisor,
+        command.argv().to_vec(), // BORROW: the request owns its arguments
+        "skill-archive",
+        Some(&record),
+    )
+    .await
+    .map_err(|e| IsolationError::Plan {
+        detail: match e {
+            GitError::Failed(_) | GitError::TooLarge(_) | GitError::Signal(_) => {
+                "the skill tree could not be archived".to_owned() // BORROW: owned detail
+            }
+            other @ (GitError::Record(_)
+            | GitError::Request(_)
+            | GitError::Run(_)
+            | GitError::Deadline) => other.to_string(),
+        },
     })?;
-    let path = std::env::var("PATH").unwrap_or_default();
-    let request = SpawnRequest::builder()
-        .argv(command.argv().to_vec()) // BORROW: the request owns its arguments
-        .env(vec![
-            ("PATH".to_owned(), path), // BORROW: owned pair for the environment
-            ("LC_ALL".to_owned(), "C".to_owned()), // BORROW: owned pair for the environment
-            ("GIT_TERMINAL_PROMPT".to_owned(), "0".to_owned()), // BORROW: owned pair
-        ])
-        .marker(marker)
-        .record_dir(record)
-        .build()
-        .map_err(|error| IsolationError::Plan {
-            detail: error.to_string(), // BORROW: .to_string() gives owned text
-        })?;
-    let captured = rt.supervisor.run_captured(request, ARCHIVE_LIMIT).await?;
-    let ok = matches!(captured.exit.status, ExitStatus::Code { code: 0 });
-    if !ok || captured.stdout.len() >= ARCHIVE_LIMIT {
-        return Err(IsolationError::Plan {
-            detail: "the skill tree could not be archived".to_owned(), // BORROW: owned detail
-        }
-        .into());
-    }
-    Ok(rt.driver.skills().files(treatment, &captured.stdout)?)
+    Ok(rt.driver.skills().files(treatment, &tar)?)
 }
 
 /// Gives `container` the gateway variable names and the state paths of `driver`: the state paths

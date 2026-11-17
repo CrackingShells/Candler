@@ -19,7 +19,7 @@ use crate::resolve::preflight::{
     CheckResult, PreflightError, PreflightStep, ResolveContext, ResolveError, Resolver, StepReport,
 };
 use crate::supervise::Supervisor;
-use crate::supervise::spawn::{SpawnRequest, StdinSpec};
+use crate::supervise::git::{Probe, ProbeError, RecordDir, run_probe};
 use candler_schemas::execution::paths;
 
 /// How long the request gets, connection and answer together.
@@ -124,32 +124,26 @@ async fn read_models(
     .map(|word| (*word).to_owned()) // BORROW: the request owns its words
     .collect();
     let marker = Marker::from_str("gateway-token").map_err(|e| failed(&e))?;
-    let record_dir = std::env::temp_dir().join(format!(
-        "candler-gateway-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |since| since.as_nanos())
-    ));
-    tokio::fs::create_dir_all(&record_dir)
-        .await
+    let record = RecordDir::temp("gateway")
         .map_err(|e| failed(&format!("cannot make the probe directory: {e}")))?;
     let config = format!("header = \"Authorization: Bearer {token}\"\n");
-    let request = SpawnRequest::builder()
-        .argv(argv)
-        .env(vec![(
+    let probe = Probe {
+        argv,
+        env: vec![(
             "PATH".to_owned(), // BORROW: the request owns its names
             std::env::var("PATH").unwrap_or_default(),
-        )])
-        .marker(marker)
-        .stdin(StdinSpec::Bytes(config.into_bytes()))
-        .deadline(TIMEOUT)
-        .record_dir(record_dir.clone()) // BORROW: this function removes the directory
-        .build()
-        .map_err(|e| failed(&e))?;
-    let outcome = supervisor.run_captured(request, OUTPUT_LIMIT).await;
-    drop(tokio::fs::remove_dir_all(&record_dir).await);
-    let captured = outcome.map_err(|e| failed(&format!("cannot run curl: {e}")))?;
+        )],
+        marker,
+        stdin: Some(config.into_bytes()),
+        deadline: Some(TIMEOUT),
+        limit: OUTPUT_LIMIT,
+    };
+    let captured = run_probe(supervisor, probe, &record)
+        .await
+        .map_err(|e| match e {
+            ProbeError::Request(text) => failed(&text),
+            ProbeError::Run(text) => failed(&format!("cannot run curl: {text}")),
+        })?;
     match captured.exit.status {
         ExitStatus::Code { code: 0 } => {
             let text = String::from_utf8_lossy(&captured.stdout);

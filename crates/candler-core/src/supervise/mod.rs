@@ -19,6 +19,7 @@ use self::signal::Signaller;
 use self::signal::{Guard, OsSignaller};
 use self::stop::StraySweeper;
 
+pub mod git;
 pub mod hook;
 pub mod http;
 pub mod output;
