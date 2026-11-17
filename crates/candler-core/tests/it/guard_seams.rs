@@ -5,6 +5,7 @@
 //! vector of `cell_digest.toml`; none comes from the store's own layout.
 
 use crate::support;
+use candler_testkit::file_list;
 
 use std::fmt::Write as _;
 use std::fs::{self, OpenOptions};
@@ -313,27 +314,6 @@ fn digest_of(path: &Path) -> Digest {
     Digest::from_hex(hex.as_str()).expect("a digest") // BORROW: explicit .as_str()
 }
 
-/// Every file under `root` as a path relative to it with `/` separators, sorted.
-fn walk(root: &Path) -> Vec<String> {
-    let mut found = Vec::new();
-    let mut pending = vec![root.to_path_buf()];
-    while let Some(next) = pending.pop() {
-        for entry in fs::read_dir(&next).expect("a directory") {
-            let entry = entry.expect("an entry");
-            let kind = entry.file_type().expect("a file type");
-            if kind.is_dir() {
-                pending.push(entry.path());
-            } else {
-                let relative = entry.path();
-                let relative = relative.strip_prefix(root).expect("below the root");
-                found.push(relative.to_string_lossy().into_owned());
-            }
-        }
-    }
-    found.sort();
-    found
-}
-
 /// Guards: I3 — the stored raw stdout, normalised again by a fresh reader whose `id()` the trace
 /// header names, gives a trace file byte-equal to the stored one, and the stream has one frame per
 /// line of the fixture. Oracle: the fixture stream counted by `lines()` over a `MultiGzDecoder`,
@@ -420,7 +400,7 @@ async fn the_run_sits_at_the_paths_of_its_cell_digest() {
     );
     assert_eq!(seamed.key.to_string(), RUN_DIR);
 
-    let mut files = walk(seamed.root.as_path()); // BORROW: explicit .as_path()
+    let mut files = file_list(seamed.root.as_path()); // BORROW: explicit .as_path()
     files.retain(|file| !file.starts_with("jobs/"));
     let outcome = format!("outcomes/{RUN_DIR}/{EVALUATOR}/{REQUEST}.jsonl");
     let wanted_files = [

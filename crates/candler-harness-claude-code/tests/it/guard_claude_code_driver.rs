@@ -1,6 +1,7 @@
 #![cfg(test)]
 //! The Claude Code driver: the agent command, the skill tree and output discovery.
 
+use candler_testkit::file_list;
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs;
@@ -306,21 +307,6 @@ fn b22_skill_tree_is_the_tag() -> Res<()> {
     Ok(())
 }
 
-/// The paths under `dir`, relative to `root`, joined with `/`.
-fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) -> Res<()> {
-    for entry in fs::read_dir(dir)? {
-        let path = entry?.path();
-        if path.is_dir() {
-            walk(root, &path, out)?;
-        } else {
-            let rel = path.strip_prefix(root)?;
-            let parts: Vec<_> = rel.iter().map(|part| part.to_string_lossy()).collect();
-            out.push(parts.join("/"));
-        }
-    }
-    Ok(())
-}
-
 /// Whether the `/`-separated `path` matches the glob `pattern`, where `**` stands for any number
 /// of segments and `*` for any one segment.
 fn glob(pattern: &[&str], path: &[&str]) -> bool {
@@ -362,9 +348,7 @@ fn b23_output_discovery_exclusions() -> Res<()> {
     ] {
         put(&root, path, "x\n")?;
     }
-    let mut paths = Vec::new();
-    walk(&root, &root, &mut paths)?;
-    paths.sort();
+    let paths = file_list(&root);
     let specs = ClaudeCodeDriver::new().collect(&Workspace::new(&root), &Observed::default());
     let globs: Vec<&str> = specs
         .iter()

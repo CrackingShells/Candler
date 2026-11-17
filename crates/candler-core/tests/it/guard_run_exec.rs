@@ -4,6 +4,7 @@
 //! store's layout nor the experiment paths.
 
 use crate::support;
+use candler_testkit::file_list;
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -360,25 +361,7 @@ fn gz_file(dir: &Path) -> (PathBuf, Digest) {
 /// The regular files under `root`, by `/`-separated path relative to the run directory, which is
 /// the one that holds `manifest.json`.
 fn run_files(root: &Path) -> BTreeSet<String> {
-    let mut all = Vec::new();
-    let mut pending = vec![root.to_path_buf()];
-    while let Some(dir) = pending.pop() {
-        for entry in fs::read_dir(&dir).expect("list a directory") {
-            let entry = entry.expect("a directory entry");
-            let kind = entry.file_type().expect("a file type");
-            if kind.is_dir() {
-                pending.push(entry.path());
-            } else if kind.is_file() {
-                let rel = entry
-                    .path()
-                    .strip_prefix(root)
-                    .expect("below the root")
-                    .to_string_lossy()
-                    .into_owned(); // BORROW: owned relative path
-                all.push(rel);
-            }
-        }
-    }
+    let all = file_list(root);
     let Some(manifest) = all.iter().find(|name| name.ends_with("/manifest.json")) else {
         return BTreeSet::new();
     };

@@ -7,6 +7,7 @@
 use crate::oracle;
 use crate::support;
 use crate::support::legacy_rules;
+use candler_testkit::{copy_tree, file_paths};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -420,43 +421,10 @@ fn contaminated_runs_have_no_records_and_incomplete_runs_have_all() {
     assert_eq!(imported.records_of(V6, 12).len(), 43);
 }
 
-/// Copies the directory at `from` to `to`.
-fn copy_dir(from: &Path, to: &Path) {
-    fs::create_dir_all(to).expect("create the copy");
-    for entry in fs::read_dir(from).expect("read the directory") {
-        let entry = entry.expect("a directory entry");
-        let target = to.join(entry.file_name());
-        if entry.file_type().expect("a file type").is_dir() {
-            copy_dir(&entry.path(), &target);
-        } else {
-            fs::copy(entry.path(), &target).expect("copy a file");
-        }
-    }
-}
-
-/// Every regular file under `root`, sorted.
-fn walk(root: &Path) -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    // BORROW: `.to_owned()` makes the owned root to push on the stack
-    let mut pending = vec![root.to_owned()];
-    while let Some(dir) = pending.pop() {
-        for entry in fs::read_dir(&dir).expect("read the directory") {
-            let entry = entry.expect("a directory entry");
-            if entry.file_type().expect("a file type").is_dir() {
-                pending.push(entry.path());
-            } else {
-                files.push(entry.path());
-            }
-        }
-    }
-    files.sort();
-    files
-}
-
 /// The files named `name` of `run-<number>` under the cell directory `cell`.
 fn run_files(root: &Path, cell: &str, number: u32, name: &str) -> Vec<PathBuf> {
     let tail = format!("/run-{number}/{name}");
-    walk(&root.join(cell))
+    file_paths(&root.join(cell))
         .into_iter()
         .filter(|path| path.to_string_lossy().ends_with(&tail))
         .collect()
@@ -836,14 +804,14 @@ fn faults() -> Vec<Fault> {
 #[test]
 fn every_fault_is_refused_naming_its_file_and_run() {
     let control = tempfile::tempdir().expect("a temporary directory");
-    copy_dir(&mini(), control.path());
+    copy_tree(&mini(), control.path());
     assert_eq!(
         import_all(control.path(), RESOLVED).expect("the control imports"),
         136
     );
     for fault in faults() {
         let copy = tempfile::tempdir().expect("a temporary directory");
-        copy_dir(&mini(), copy.path());
+        copy_tree(&mini(), copy.path());
         (fault.inject)(copy.path());
         let error = import_all(copy.path(), fault.resolved)
             .expect_err(&format!("`{}` is not refused", fault.name));
@@ -906,7 +874,7 @@ fn unusual_grades_get_the_causes_the_leaf_names() {
     ];
     for (name, inject, status, weight, cause) in cases {
         let copy = tempfile::tempdir().expect("a temporary directory");
-        copy_dir(&mini(), copy.path());
+        copy_tree(&mini(), copy.path());
         inject(copy.path());
         let row = a1(copy.path());
         assert_eq!(row.status, status, "{name}");
@@ -972,7 +940,7 @@ fn every_file_is_accounted_for_exactly_once() {
     assert_ne!(skipped.len(), 0);
     let root = mini();
     let mut counts = [0_usize; 4];
-    for path in walk(&root) {
+    for path in file_paths(&root) {
         let relative = path
             .strip_prefix(&root)
             .expect("under the root")
@@ -1014,7 +982,7 @@ fn every_file_is_accounted_for_exactly_once() {
             .unwrap_or_else(|| panic!("the stream file `{path}` is not among the run's sources"));
         assert_eq!(source.sha256, stream.sha256, "{path}");
     }
-    let on_disk: BTreeSet<String> = walk(&root)
+    let on_disk: BTreeSet<String> = file_paths(&root)
         .iter()
         .map(|path| {
             path.strip_prefix(&root)
@@ -1038,7 +1006,7 @@ fn every_file_is_accounted_for_exactly_once() {
 #[test]
 fn the_mapped_values_hold_no_absolute_path() {
     let copy = tempfile::tempdir().expect("a temporary directory");
-    copy_dir(&mini(), copy.path());
+    copy_tree(&mini(), copy.path());
     let imported = Imported::read(copy.path());
     let out = tempfile::tempdir().expect("a temporary directory");
     for (index, mapped) in imported.mapped.iter().enumerate() {

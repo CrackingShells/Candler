@@ -5,6 +5,7 @@
 #![cfg(test)]
 
 use crate::support::legacy_import;
+use candler_testkit::file_set;
 
 use std::collections::BTreeSet;
 use std::fs::{self, OpenOptions};
@@ -101,24 +102,6 @@ fn seal_synthetic(store: &Store, template: &RunKey, attempt: u32, files: &[File]
         .expect("the tree writes");
     writer.done().expect("the run seals");
     key
-}
-
-/// Every file below `dir`, by path relative to it with `/` separators.
-fn files_below(dir: &Path) -> BTreeSet<String> {
-    let mut found = BTreeSet::new();
-    let mut pending = vec![dir.to_path_buf()];
-    while let Some(next) = pending.pop() {
-        for entry in fs::read_dir(&next).expect("a directory lists") {
-            let path = entry.expect("an entry").path();
-            if path.is_dir() {
-                pending.push(path);
-            } else {
-                let rel = path.strip_prefix(dir).expect("below the directory");
-                found.insert(rel.to_string_lossy().replace('\\', "/"));
-            }
-        }
-    }
-    found
 }
 
 /// The string `path` of every artifact of a context.
@@ -329,7 +312,7 @@ fn the_file_rule_decides_the_paths_and_the_digest() {
         let context = context_of(&store, &run, &needs_of(case.globs), workspace.path());
         let expected: BTreeSet<String> = case.kept.iter().map(|p| (*p).to_owned()).collect();
         assert_eq!(
-            files_below(&workspace.path().join("outputs")),
+            file_set(&workspace.path().join("outputs")),
             expected,
             "materialised files: {}",
             case.name
@@ -667,12 +650,7 @@ fn needs_inputs_are_served_from_both_manifest_lists() {
                 entry.path
             );
             let expected: BTreeSet<String> = input.files.iter().map(|(p, _)| p.clone()).collect();
-            assert_eq!(
-                files_below(tree),
-                expected,
-                "files of {}: {title}",
-                input.kind
-            );
+            assert_eq!(file_set(tree), expected, "files of {}: {title}", input.kind);
             for (path, content) in &input.files {
                 let file = tree.join(path);
                 assert_eq!(

@@ -6,6 +6,7 @@
 #![cfg(test)]
 
 use crate::support::cli_run;
+use candler_testkit::copy_tree;
 
 // The terminal rules are pure and use nothing of the binary, so the guard reads the file itself:
 // the binary's modules are not reachable from a test crate.
@@ -392,20 +393,6 @@ fn o1_resolve_checks_the_gateway_token_by_a_model_list_read() {
         [("GET /v1/models HTTP/1.1".to_owned(), false)]
     );
     world.remove();
-}
-
-/// Copies the tree `from` to `to`.
-fn copy_tree(from: &Path, to: &Path) {
-    fs::create_dir_all(to).unwrap();
-    for entry in fs::read_dir(from).unwrap() {
-        let entry = entry.unwrap();
-        let target = to.join(entry.file_name());
-        if entry.file_type().unwrap().is_dir() {
-            copy_tree(&entry.path(), &target);
-        } else {
-            fs::copy(entry.path(), target).unwrap();
-        }
-    }
 }
 
 fn fixtures() -> PathBuf {
