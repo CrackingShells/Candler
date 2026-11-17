@@ -409,7 +409,10 @@ fn tool_permission_rows(
     effect: &str,
     version: &semver::Version,
 ) -> Result<Vec<Value>, DriverError> {
-    let Some(value) = cell.value_str(path)? else {
+    let Some(value) = cell
+        .value_str(path)
+        .map_err(|error| invalid(path, error.to_string()))?
+    else {
         return Ok(Vec::new());
     };
     let names = strings(path, "the list", value)?;
@@ -519,7 +522,10 @@ fn effort_variant(
     cell: &Cell<'_>,
     version: &semver::Version,
 ) -> Result<Option<(String, Value)>, DriverError> {
-    let Some(value) = cell.value_str(MODEL_EFFORT)? else {
+    let Some(value) = cell
+        .value_str(MODEL_EFFORT)
+        .map_err(|error| invalid(MODEL_EFFORT, error.to_string()))?
+    else {
         return Ok(None);
     };
     let level = value
@@ -573,14 +579,22 @@ pub(crate) fn settings(
             .map_or(OTHER_MODE, |(_, why)| *why);
         return Err(unsupported(PERMISSION_MODE, version, why));
     }
-    if cell.value_str(BUDGET_PER_RUN_MAX_COST_USD)?.is_some() {
+    if cell
+        .value_str(BUDGET_PER_RUN_MAX_COST_USD)
+        .map_err(|error| invalid(BUDGET_PER_RUN_MAX_COST_USD, error.to_string()))?
+        .is_some()
+    {
         return Err(unsupported(
             BUDGET_PER_RUN_MAX_COST_USD,
             version,
             "OpenCode has no cost cap",
         ));
     }
-    if cell.value_str(BUDGET_PER_RUN_TURNS)?.is_some() {
+    if cell
+        .value_str(BUDGET_PER_RUN_TURNS)
+        .map_err(|error| invalid(BUDGET_PER_RUN_TURNS, error.to_string()))?
+        .is_some()
+    {
         return Err(unsupported(BUDGET_PER_RUN_TURNS, version, TURNS_REFUSAL));
     }
     let variant = effort_variant(cell, version)?;
