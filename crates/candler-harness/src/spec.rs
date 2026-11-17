@@ -12,7 +12,9 @@ use std::time::Duration;
 use candler_schemas::distinct::first_repeat;
 use candler_schemas::execution::paths;
 use candler_schemas::field_path;
-use candler_schemas::primitives::{FieldPath, Name, RelPath, SecretName};
+use candler_schemas::primitives::{
+    FieldPath, Name, RelPath, SecretName, is_env_var_name, plain_segment,
+};
 use candler_schemas::process::ExitStatus;
 use candler_schemas::raw::StreamName;
 use candler_schemas::trace::SessionId;
@@ -51,14 +53,6 @@ pub enum CommandSpecError {
         /// The id that was refused.
         id: String,
     },
-}
-
-/// Whether `id` is plain enough to stand in a command line or a script.
-fn plain_session_id(id: &str) -> bool {
-    !id.is_empty()
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
 }
 
 /// `text` with the session placeholder replaced by `id`.
@@ -194,7 +188,7 @@ impl CommandSpec {
     pub fn with_session_id(&self, id: &SessionId) -> Result<Self, CommandSpecError> {
         // BORROW: explicit .as_str() instead of Deref coercion
         let id = id.as_str();
-        if !plain_session_id(id) {
+        if !plain_segment(id) {
             return Err(CommandSpecError::UnsafeSessionId {
                 // BORROW: .to_owned() keeps the refused id in the error
                 id: id.to_owned(),
@@ -396,7 +390,7 @@ impl Action {
             Self::Http { method, url, body } => {
                 // BORROW: explicit .as_str() instead of Deref coercion
                 let text = id.as_str();
-                if !plain_session_id(text) {
+                if !plain_segment(text) {
                     return Err(CommandSpecError::UnsafeSessionId {
                         // BORROW: .to_owned() keeps the refused id in the error
                         id: text.to_owned(),
@@ -1421,16 +1415,6 @@ impl<'a> Cell<'a> {
     }
 }
 
-/// Whether `text` is the name of a prompt placeholder: an ASCII letter or `_`, then ASCII letters,
-/// digits or `_`.
-fn is_key(text: &str) -> bool {
-    let mut chars = text.chars();
-    chars
-        .next()
-        .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-}
-
 /// The scalar `value` as text, or `None` when it is not a scalar.
 fn scalar_text(value: &Value) -> Option<String> {
     match value {
@@ -1463,7 +1447,7 @@ pub fn render_prompt(
         out.push_str(before);
         let after_open = from_open.get(1..).unwrap_or_default();
         match after_open.split_once('}') {
-            Some((key, tail)) if is_key(key) => {
+            Some((key, tail)) if is_env_var_name(key) => {
                 let value = values.and_then(|map| map.get(key)).ok_or_else(|| {
                     invalid(format!("the template names `{key}` and no value is given"))
                 })?;
