@@ -509,11 +509,6 @@ variant = "Refused"
 
 [experiment]
 
-[experiment."experiment.setting_value_invalid"]
-side = "experiment"
-enum = "SurfaceError"
-variant = "Format"
-
 [experiment."experiment.input_unusable"]
 side = "experiment"
 enum = "InputError"
@@ -523,26 +518,6 @@ variant = "Refused"
 side = "experiment"
 enum = "InputError"
 variant = "Store"
-
-[experiment."experiment.setting_missing"]
-side = "experiment"
-enum = "SurfaceError"
-variant = "Missing"
-
-[experiment."experiment.setting_wrong_type"]
-side = "experiment"
-enum = "SurfaceError"
-variant = "Type"
-
-[experiment."experiment.setting_under_reserved_root"]
-side = "experiment"
-enum = "SurfaceError"
-variant = "ReservedRoot"
-
-[experiment."experiment.setting_absolute_path"]
-side = "experiment"
-enum = "SurfaceError"
-variant = "AbsolutePath"
 
 [runner]
 

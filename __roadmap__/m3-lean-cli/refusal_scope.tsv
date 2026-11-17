@@ -7,7 +7,6 @@ candler_core::evaluation::registry::RegistryError	crates/candler-core/src/evalua
 candler_core::evaluation::registry::needs::NeedError	crates/candler-core/src/evaluation/registry/needs.rs	4	yes	plugin	evaluation	refusal_late	plug-in declares an unsupported need or bad glob
 candler_core::evaluation::selection::diff::EquivalenceError	crates/candler-core/src/evaluation/selection/diff.rs	4	yes	suite	evaluation	refusal_late	equivalence file unreadable, invalid, duplicate row
 candler_core::experiment::inputs::InputError	crates/candler-core/src/experiment/inputs.rs	2	yes	experiment	experiment	refusal_core	input file missing or cannot be stored
-candler_core::experiment::surface::SurfaceError	crates/candler-core/src/experiment/surface.rs	5	yes	experiment	experiment	refusal_core	experiment setting missing, wrong type, reserved root, absolute path
 candler_core::frames::FramesError	crates/candler-core/src/frames/mod.rs	4	no	candler	internal	refusal_core	raw frame file written by Candler; disk corruption only
 candler_core::import::ImportError	crates/candler-core/src/import/mod.rs	15	yes	environment	import	refusal_late	legacy results folder problems (missing outputs/, bad JSON, disagreement); import rules field/rule invalid is config
 candler_core::isolation::container::guard::GuardError	crates/candler-core/src/isolation/container/guard.rs	3	mixed	environment	isolation	refusal_core	author-facing: Docker, View (docker/job dir failing); internal: Refused guard
