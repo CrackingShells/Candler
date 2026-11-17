@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 use crate::canonical::{self, CanonicalError};
+use crate::distinct::first_repeat;
 use crate::execution::{ExecutionError, ExperimentInput, InputAudience};
 use crate::generate::GeneratedSchema;
 use crate::map_only::MapOnly;
@@ -148,7 +149,7 @@ pub enum EvaluationError {
         field: &'static str,
     },
     /// Two suite entries that share an id.
-    #[error("suite repeats an id (got {id})")]
+    #[error("suite id {id} is declared twice")]
     DuplicateId {
         /// The id that appears more than once.
         id: ExpectationId,
@@ -1201,19 +1202,17 @@ impl SuiteFile {
 
 /// Checks that ids are unique, that every dependency names an entry, and that no cycle exists.
 fn check_graph(entries: &[SuiteEntry]) -> Result<(), EvaluationError> {
-    let mut known: BTreeMap<&ExpectationId, &[ExpectationId]> = BTreeMap::new();
-    for entry in entries {
-        // BORROW: .as_slice() views the entry's dependency list
-        if known
-            .insert(&entry.id, entry.depends_on.as_slice())
-            .is_some()
-        {
-            return Err(EvaluationError::DuplicateId {
-                // BORROW: .clone() keeps the repeated id in the error
-                id: entry.id.clone(),
-            });
-        }
+    if let Some(id) = first_repeat(entries.iter().map(|entry| &entry.id)) {
+        return Err(EvaluationError::DuplicateId {
+            // BORROW: .clone() keeps the repeated id in the error
+            id: id.clone(),
+        });
     }
+    // BORROW: .as_slice() views the entry's dependency list
+    let known: BTreeMap<&ExpectationId, &[ExpectationId]> = entries
+        .iter()
+        .map(|entry| (&entry.id, entry.depends_on.as_slice()))
+        .collect();
     for entry in entries {
         if let Some(dependency) = entry.depends_on.iter().find(|d| !known.contains_key(d)) {
             return Err(EvaluationError::UnknownDependency {

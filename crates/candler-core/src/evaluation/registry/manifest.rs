@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use candler_schemas::distinct::first_clash;
 use candler_schemas::evaluation::PluginManifest;
 use candler_schemas::primitives::Name;
 
@@ -73,7 +74,7 @@ impl Registry {
     /// for one that is not a plug-in manifest and [`RegistryError::DuplicatePlugin`] for two that
     /// share a name.
     pub fn load(manifests: &[PathBuf]) -> Result<Self, RegistryError> {
-        let mut plugins = BTreeMap::new();
+        let mut loaded: Vec<(Name, Plugin)> = Vec::with_capacity(manifests.len());
         for path in manifests {
             let text = fs::read_to_string(path).map_err(|source| RegistryError::Read {
                 // BORROW: .clone() keeps the path in the error
@@ -94,14 +95,17 @@ impl Registry {
                 .map_or_else(|| Path::new(".").to_owned(), Path::to_owned);
             // BORROW: .clone() makes the owned name the map is keyed by
             let name = manifest.name().clone();
-            if plugins
-                .insert(name.clone(), Plugin::new(dir, manifest))
-                .is_some()
-            {
-                return Err(RegistryError::DuplicatePlugin { name });
-            }
+            loaded.push((name, Plugin::new(dir, manifest)));
         }
-        Ok(Self { plugins })
+        if let Some((_, (name, _))) = first_clash(loaded.iter(), |(name, _)| name) {
+            return Err(RegistryError::DuplicatePlugin {
+                // BORROW: .clone() keeps the repeated name in the error
+                name: name.clone(),
+            });
+        }
+        Ok(Self {
+            plugins: loaded.into_iter().collect(),
+        })
     }
 
     /// The loaded plug-ins, by name.

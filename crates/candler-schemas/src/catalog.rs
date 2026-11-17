@@ -20,7 +20,7 @@
 //! refused. Text nested deeper than about 120 levels is refused by the text readers.
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
@@ -28,6 +28,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 
 use crate::canonical::CanonicalError;
+use crate::distinct::first_repeat;
 use crate::map_only::MapOnly;
 use crate::primitives::{Digest, NameToken, RelPath, Timestamp, object_only};
 
@@ -96,36 +97,26 @@ fn non_empty(name: String, owner: &'static str) -> Result<String, CatalogError> 
     }
 }
 
-/// Refuses a name that occurs twice in `names`.
-fn all_distinct<'a, I>(
-    names: I,
-    owner: &'static str,
-    scope: &'static str,
-) -> Result<(), CatalogError>
-where
-    I: IntoIterator<Item = &'a str>,
-{
-    let mut seen = BTreeSet::new();
-    match names.into_iter().find(|name| !seen.insert(*name)) {
+fn distinct_tools(tools: &[Tool]) -> Result<(), CatalogError> {
+    match first_repeat(tools.iter().map(Tool::name)) {
         Some(name) => Err(CatalogError::DuplicateName {
-            owner,
-            scope,
+            owner: "tool",
+            scope: "server",
             name: String::from(name),
         }),
         None => Ok(()),
     }
 }
 
-fn distinct_tools(tools: &[Tool]) -> Result<(), CatalogError> {
-    all_distinct(tools.iter().map(Tool::name), "tool", "server")
-}
-
 fn distinct_servers(servers: &[CatalogServer]) -> Result<(), CatalogError> {
-    all_distinct(
-        servers.iter().map(CatalogServer::name),
-        "server",
-        "snapshot",
-    )
+    match first_repeat(servers.iter().map(CatalogServer::name)) {
+        Some(name) => Err(CatalogError::DuplicateName {
+            owner: "server",
+            scope: "snapshot",
+            name: String::from(name),
+        }),
+        None => Ok(()),
+    }
 }
 
 /// Reads a tool name, refusing an empty one.

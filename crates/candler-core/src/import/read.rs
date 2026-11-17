@@ -6,6 +6,7 @@ use std::fs;
 use std::io::BufRead as _;
 use std::path::{Path, PathBuf};
 
+use candler_schemas::distinct::first_clash;
 use candler_schemas::primitives::{Digest, RelPath};
 use flate2::read::GzDecoder;
 use serde_json::Value;
@@ -711,11 +712,10 @@ impl Reader<'_> {
                 }
                 (false, grading) if is_grading_name(grading) => {
                     let parsed = json_file(&file)?;
-                    if let Some(first) = run
-                        .gradings
-                        .iter()
-                        .find(|other| file_name(&other.path) == grading)
-                    {
+                    if let Some((first, _)) = first_clash(
+                        run.gradings.iter().chain(std::iter::once(&parsed)),
+                        |other| file_name(&other.path),
+                    ) {
                         return Err(ImportError::DuplicateGrading {
                             // BORROW: .clone() copies the run label into the error
                             run: run.label.clone(),

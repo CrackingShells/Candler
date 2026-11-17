@@ -14,6 +14,7 @@
 pub mod canonical;
 pub mod catalog;
 pub mod container;
+pub mod distinct;
 pub mod evaluation;
 pub mod execution;
 pub mod generate;

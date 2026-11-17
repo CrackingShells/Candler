@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use candler_schemas::distinct::first_clash;
 use candler_schemas::primitives::{FieldPath, FormatError, NameToken};
 use candler_schemas::values::{JsonValue, ResolvedValue, SourceEntry, ValuesError};
 use futures::future::BoxFuture;
@@ -182,7 +183,7 @@ pub enum ResolveError {
     #[error(transparent)]
     Format(#[from] FormatError),
     /// A step with the same name is already registered.
-    #[error("a preflight step named `{name}` is already registered")]
+    #[error("preflight step `{name}` is declared twice")]
     DuplicateStep {
         /// The name of the step that was refused.
         name: NameToken,
@@ -284,11 +285,8 @@ impl Resolver {
     pub fn register(mut self, step: Box<dyn PreflightStep>) -> Result<Self, ResolveError> {
         // TRAIT_OBJECT: steps of different types are registered side by side
         let name = step.name();
-        if self
-            .steps
-            .iter()
-            .any(|known| known.name().name() == name.name())
-        {
+        let names = self.steps.iter().map(|known| known.name()).chain([name]);
+        if first_clash(names, |token| token.name()).is_some() {
             return Err(ResolveError::DuplicateStep {
                 // BORROW: `.clone()` makes the owned name the error carries
                 name: name.clone(),

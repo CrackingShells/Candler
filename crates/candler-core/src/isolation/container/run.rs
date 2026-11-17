@@ -41,7 +41,7 @@ pub enum RunArgvError {
         name: String,
     },
     /// The overlay sets a name the plan already sets.
-    #[error("the environment sets {name} twice")]
+    #[error("environment variable {name:?} is declared twice")]
     DuplicateName {
         /// The variable.
         name: String,

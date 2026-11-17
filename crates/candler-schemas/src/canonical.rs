@@ -6,6 +6,7 @@
 //! refused: an integer beyond ±(2^53 − 1) held as an integer, a number that is not finite, and in
 //! [`from_text`] a lone surrogate escape or a repeated key.
 
+use crate::distinct::first_repeat;
 use std::fmt;
 
 use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
@@ -41,7 +42,7 @@ pub enum CanonicalError {
         offset: usize,
     },
     /// An object that holds the same key twice.
-    #[error("object repeats a key (got {key:?})")]
+    #[error("object key {key:?} is declared twice")]
     DuplicateKey {
         /// The repeated key.
         key: String,
@@ -241,15 +242,16 @@ impl<'de> Visitor<'de> for StrictVisitor {
     }
 
     fn visit_map<A: MapAccess<'de>>(self, mut access: A) -> Result<Strict, A::Error> {
-        let mut map = Map::new();
+        let mut entries: Vec<(String, Value)> = Vec::new();
         while let Some(key) = access.next_key::<String>()? {
-            if map.contains_key(&key) {
-                return Err(serde::de::Error::custom(DuplicateMarker(key)));
-            }
             let Strict(item) = access.next_value()?;
-            map.insert(key, item);
+            entries.push((key, item));
         }
-        Ok(Strict(Value::Object(map)))
+        if let Some(key) = first_repeat(entries.iter().map(|(key, _)| key.as_str())) {
+            // BORROW: .to_owned() makes the owned key the marker carries
+            return Err(serde::de::Error::custom(DuplicateMarker(key.to_owned())));
+        }
+        Ok(Strict(Value::Object(entries.into_iter().collect())))
     }
 }
 

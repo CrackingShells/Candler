@@ -13,6 +13,7 @@ use std::sync::Arc;
 use candler_harness::driver::{DriverError, HarnessDriver};
 use candler_harness::spec::Cell;
 
+use candler_schemas::distinct::first_clash;
 use candler_schemas::execution::{
     Comparable, Deviation, ExecutionError, ExperimentFile, Factor, Integrity, Level, RunManifest,
     SecretPresence, experiment_digest,
@@ -713,7 +714,8 @@ fn segment(name: &str) -> String {
 /// Refuses two different names of one root, across `stored` and `fresh`, that map to one
 /// deviation path.
 fn check_names(stored: &Comparable, fresh: &Comparable) -> Result<(), PlanError> {
-    let mut seen: BTreeMap<String, String> = BTreeMap::new();
+    // Each (path, name) once, in the order first met: the same name in both cells is no clash.
+    let mut named: Vec<(String, &str)> = Vec::new();
     for cell in [stored, fresh] {
         let inputs = cell
             .inputs()
@@ -725,24 +727,20 @@ fn check_names(stored: &Comparable, fresh: &Comparable) -> Result<(), PlanError>
             .iter()
             .map(|r| ("environments", r.plugin.name()));
         for (root, name) in inputs.chain(environments) {
-            let path = format!("{root}.{}", segment(name));
-            match seen.get(&path) {
-                Some(first) if first != name => {
-                    return Err(PlanError::NameCollision {
-                        // BORROW: the error owns both names
-                        first: first.clone(),
-                        second: name.to_owned(),
-                    });
-                }
-                Some(_) => {}
-                None => {
-                    // BORROW: the map owns the name
-                    seen.insert(path, name.to_owned());
-                }
+            let entry = (format!("{root}.{}", segment(name)), name);
+            if !named.contains(&entry) {
+                named.push(entry);
             }
         }
     }
-    Ok(())
+    match first_clash(named, |(path, _)| path.clone()) {
+        Some(((_, first), (_, second))) => Err(PlanError::NameCollision {
+            // BORROW: the error owns both names
+            first: first.to_owned(),
+            second: second.to_owned(),
+        }),
+        None => Ok(()),
+    }
 }
 
 /// The digests of the typed roots that `stored` and `fresh` hold under one name each, as a

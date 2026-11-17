@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use candler_schemas::distinct::first_clash;
 use candler_schemas::outcome::OutcomeRecord;
 use candler_schemas::primitives::{Digest, ExpectationId, FormatError, RunKey};
 use serde::{Deserialize, Serialize, Serializer};
@@ -127,7 +128,7 @@ pub enum EquivalenceError {
         source: FormatError,
     },
     /// A row is listed twice, in one rule or in two.
-    #[error("the equivalence file lists the row ({run}, {expectation}) twice")]
+    #[error("equivalence row ({run}, {expectation}) is declared twice")]
     DuplicateRow {
         /// The run of the row, in its path form.
         run: String,
@@ -203,7 +204,7 @@ impl Equivalence {
         })?;
         let mut rules = Vec::new();
         let mut names = Vec::new();
-        let mut rows = BTreeMap::new();
+        let mut listed = Vec::new();
         for (index, rule) in file.rules.into_iter().enumerate() {
             for row in rule.rows {
                 // BORROW: explicit .as_str() instead of Deref coercion
@@ -215,14 +216,7 @@ impl Equivalence {
                             value: row.run.clone(), // BORROW: the error owns the text
                             source,
                         })?;
-                let key = (run, row.expectation);
-                if rows.contains_key(&key) {
-                    return Err(EquivalenceError::DuplicateRow {
-                        run: key.0.to_string(),
-                        expectation: key.1.to_string(),
-                    });
-                }
-                rows.insert(key, index);
+                listed.push(((run, row.expectation), index));
             }
             names.push(rule.name);
             rules.push(Rule {
@@ -230,6 +224,13 @@ impl Equivalence {
                 to: rule.to.normalised(),
             });
         }
+        if let Some((_, (key, _))) = first_clash(listed.iter(), |(key, _)| key) {
+            return Err(EquivalenceError::DuplicateRow {
+                run: key.0.to_string(),
+                expectation: key.1.to_string(),
+            });
+        }
+        let rows = listed.into_iter().collect();
         Ok(Self {
             rules,
             rows,
