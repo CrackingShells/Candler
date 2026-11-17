@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.5](https://github.com/CrackingShells/Candler/compare/v0.12.4...v0.12.5) - 2026-11-17
+
+### Refactoring
+
+- *(library)* tag images by the build context digest
+- *(library)* walk and digest trees through one tree module
+
 ## [0.12.4](https://github.com/CrackingShells/Candler/compare/v0.12.3...v0.12.4) - 2026-11-17
 
 ### Refactoring
