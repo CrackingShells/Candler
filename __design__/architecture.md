@@ -1630,6 +1630,10 @@ turns a plan into a spawn request, then collects and destroys.
 | Ground truth through a symlink; one context walk | Refusal of ground truth reached through a symlink, and one context walk shared by the refusal (D9) and the build | The refusal and the build walk the context separately | The triggers in `__reports__/m5b-egress-proxy/leaves/ground_truth_refusal_v0.md` |
 | Fixed `--ip` for the egress proxy | A proxy address set by Candler instead of read after start | The proxy cannot restart inside a job, because its IP is read once | A proxy that must restart inside a job |
 | Proxy readiness probe; server-first protocols | A probe after the proxy starts, and a way to pass a protocol where the server speaks first on a shared SNI port, which `ssl_preread` stalls | A first connect can race the proxy's start, and a server-first service stalls | An eval whose listed service speaks first, or whose first connect races the proxy's start |
+| Origin of a plug-in-derived value in a refusal | The refusal `experiment.absolute_path` names the plug-in that contributed the value | `Comparable::from_resolved` refuses without saying which plug-in supplied the path | A second plug-in-derived value needs its origin |
+| `Surface` caller | Either the drivers read `Surface`, or it is deleted | Only the guard `guard_resolve_surface::b19` builds it; no production code does | A driver change that needs the surface, or the next dead-code pass |
+| Proxy denial record | A host the proxy denies is recorded as a proxy denial, not seen by the agent as a DNS failure or an empty close | The njs refusal throws, so the client gets 0 bytes and a close, and nothing records the denial | An eval that must count or explain denied hosts |
+| Gateway image tag as a content key | `SIDECAR_TAG` (`candler-gateway:latest`) replaced by a content key, with the product building the image | The tag is not a content key and the product never builds it | A product path that builds or pulls the gateway image |
 | Parallel container e2e (D4) | Run the container end-to-end tests in parallel | Shorter CI | A per-test analysis of sweep scope shows no overlap |
 
 ### Experiments and analysis
