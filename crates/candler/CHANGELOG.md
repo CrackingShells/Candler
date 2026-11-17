@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0](https://github.com/CrackingShells/Candler/compare/v0.9.0...v0.10.0) - 2026-11-17
+
+### Features
+
+- *(isolation)* enforce isolation.egress and lift its refusal
+- *(isolation)* trust a configured CA for the model upstream
+- *(isolation)* forward listed hosts and ports through the egress proxy
+- *(isolation)* refuse ground truth in what the agent receives
+- *(isolation)* plan one egress proxy per allowlist
+
+### Fixes
+
+- *(isolation)* give the supervisor the launcher's config home
+- *(isolation)* forward egress bytes through njs buffer events
+- *(isolation)* drop surface's unread mcp field
+- *(isolation)* use a relative server path in the agent-env fixture
+- *(isolation)* give internal networks no host address
+- *(isolation)* stop the agent once and list once at destroy
+- *(isolation)* destroy a container that was created but never ran
+- *(isolation)* tear down a job's allow networks
+- *(runner)* render a plug-in's mcp servers for claude code
+
+### Performance
+
+- *(isolation)* verify a destroy with one inspect of every container
+
 ## [0.9.0](https://github.com/CrackingShells/Candler/compare/v0.8.5...v0.9.0) - 2026-11-16
 
 ### Features
