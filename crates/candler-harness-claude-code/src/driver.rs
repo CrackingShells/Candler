@@ -128,6 +128,10 @@ pub(crate) fn argv(cell: &Cell<'_>, launch: Launch) -> Result<Vec<String>, Drive
         argv.push("--max-budget-usd".to_owned()); // BORROW: .to_owned() makes the owned argument
         argv.push(cost);
     }
+    if prepare::mcp_servers(cell)?.is_some() {
+        // Only the servers of the cell: no other MCP configuration reaches the agent.
+        argv.extend(["--mcp-config", prepare::MCP_FILE, "--strict-mcp-config"].map(str::to_owned)); // BORROW: str::to_owned makes the owned arguments
+    }
     Ok(argv)
 }
 

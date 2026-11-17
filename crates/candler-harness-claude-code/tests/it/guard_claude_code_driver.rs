@@ -428,3 +428,62 @@ fn pinned_version_is_supported_and_built() {
         vec![("CC_VERSION".to_owned(), "2.1.311".to_owned())]
     );
 }
+
+/// Guards: R01 §Session runner — a plug-in's MCP servers reach the agent: a cell that holds the
+/// plug-in's `mcp.servers.<name>.*` leaves gives Claude Code `mcpServers.<name>` in `.mcp.json`,
+/// named on the command with `--mcp-config` and `--strict-mcp-config`; a cell without `mcp.*`
+/// writes no file and keeps its command.
+/// Oracle: hand-derived from the `.mcp.json` format (`mcpServers.<name>.command` and `.args`) and
+/// from `claude --help` of 2.1.311 (`--mcp-config <configs...>`, `--strict-mcp-config`).
+/// Bite: read `mcp` by exact path again, or write the `mcp` object as `mcpServers` without
+/// descending to `servers`.
+#[test]
+fn a_plugins_mcp_servers_reach_the_agent() -> Res<()> {
+    let driver = ClaudeCodeDriver::new();
+    let root = Path::new("/work/run");
+    let mut with = values("bypassPermissions")?;
+    for (path, value) in [
+        ("mcp.servers.tools.command", json!("python3")),
+        ("mcp.servers.tools.args", json!(["env/server.py"])),
+    ] {
+        with.push(ResolvedValue::recorded(
+            FieldPath::from_str(path)?,
+            JsonValue::new(value)?,
+        ));
+    }
+    let plan = driver.plan(&Cell::new(&with), &Workspace::new(root))?;
+    let file = plan
+        .prepared
+        .files
+        .iter()
+        .find(|file| file.path.as_str() == ".mcp.json")
+        .ok_or("no .mcp.json is prepared")?;
+    let written: serde_json::Value = serde_json::from_slice(&file.contents)?;
+    assert_eq!(
+        written,
+        json!({"mcpServers": {"tools": {"command": "python3", "args": ["env/server.py"]}}})
+    );
+    let argv = plan.command.argv();
+    assert_eq!(
+        argv.iter().rev().take(3).rev().collect::<Vec<_>>(),
+        ["--mcp-config", ".mcp.json", "--strict-mcp-config"]
+    );
+
+    let without = values("bypassPermissions")?;
+    let bare = driver.plan(&Cell::new(&without), &Workspace::new(root))?;
+    assert!(
+        !bare
+            .prepared
+            .files
+            .iter()
+            .any(|file| file.path.as_str() == ".mcp.json")
+    );
+    assert!(
+        !bare
+            .command
+            .argv()
+            .iter()
+            .any(|arg| arg == "--mcp-config" || arg == "--strict-mcp-config")
+    );
+    Ok(())
+}
