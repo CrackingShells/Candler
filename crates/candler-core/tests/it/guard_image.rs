@@ -67,7 +67,7 @@ fn write_script(path: &Path, text: &str) {
 /// holds it: the first 12 hex digits of the sha256 of the sources' digest (each file's name, a
 /// NUL, its bytes and a NUL, in name order), a NUL, then `CC_VERSION`, a NUL, `2.1.311` and a
 /// NUL, computed with `shasum`.
-const BASE_SUFFIX: &str = "src-12bee9345901";
+const BASE_SUFFIX: &str = "src-83c18228eddb";
 
 /// The env tag's part for the sources of `assets/docker/env`: the first 12 hex digits of the
 /// sha256 of each file's name, a NUL, its bytes and a NUL, in name order, computed with `shasum`.

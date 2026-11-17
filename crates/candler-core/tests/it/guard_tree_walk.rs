@@ -67,6 +67,22 @@ fn each_link_policy_treats_a_link_as_named() {
     ));
 }
 
+fn refuse_comma(name: &str) -> Screen {
+    if name.contains(',') {
+        Screen::Refuse
+    } else {
+        Screen::Keep
+    }
+}
+
+fn skip_a(name: &str) -> Screen {
+    if name == "a" {
+        Screen::Skip
+    } else {
+        Screen::Keep
+    }
+}
+
 /// Guards: a name rule refuses or leaves out an entry by its own name, at any depth. Oracle: the
 /// hand-listed entries.
 #[test]
@@ -75,20 +91,6 @@ fn a_name_rule_refuses_or_skips_by_name() {
     write_tree(dir.path());
     let ctx = dir.path().join("ctx");
     fs::write(ctx.join("a/n/x,y"), "comma\n").unwrap();
-    fn refuse_comma(name: &str) -> Screen {
-        if name.contains(',') {
-            Screen::Refuse
-        } else {
-            Screen::Keep
-        }
-    }
-    fn skip_a(name: &str) -> Screen {
-        if name == "a" {
-            Screen::Skip
-        } else {
-            Screen::Keep
-        }
-    }
     let refused = Walk::new(Links::Skip, Names::Strict)
         .screen(refuse_comma)
         .list(&ctx);

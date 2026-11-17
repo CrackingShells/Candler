@@ -17,7 +17,7 @@ use candler_core::tree::BuildContext;
 const BUILD_INPUT_DIGEST: &str =
     "sha256:d8e8cbe75780c830a5e2b43c47f48cb251a8e3b172bb7c8799b1ea84b1f099db";
 /// The base tag of [`write_context`] built with the argument `A=b`.
-const BASE_TAG: &str = "candler-base:src-31c20597ffe9";
+const BASE_TAG: &str = "candler-base:src-610940524574";
 
 /// Writes the Dockerfile `root/Dockerfile` and the context `root/ctx`.
 fn write_context(root: &Path) {
@@ -44,9 +44,8 @@ fn guard_build_context() {
     let inputs = BuildContext::read(&dir.path().join("Dockerfile"), &ctx).unwrap();
     let digest = inputs.digest().unwrap();
     assert_eq!(digest.to_string(), BUILD_INPUT_DIGEST);
-    // The base tag before the merge read a directory link as a file and failed on it, so the tag
-    // is pinned over the same context without that link.
-    fs::remove_file(ctx.join("link-dir")).unwrap();
+    // A base context holds its own Dockerfile, which the tag digest covers.
+    fs::write(ctx.join("Dockerfile"), "FROM scratch\n").unwrap();
     let tag = base_tag(&ctx, &[("A".to_owned(), "b".to_owned())]).unwrap();
     assert_eq!(tag, BASE_TAG);
 }
