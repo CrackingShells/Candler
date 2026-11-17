@@ -288,6 +288,19 @@ field path is dotted: `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`.
     a NUL byte and each distinct name, sorted. The env image's tag joins that key and the base
     image's content tag (`<key>-src-<12 hex>`), so each base has its own env image for one lock.
     The image's own id enters the cell as `isolation.image`.
+  - `isolation.build.context` is a path relative to the experiment file, or `treatment:<path>`: the
+    directory `<path>` of the treatment's checkout (`treatment.source`, the root of its
+    repository) as `treatment.commit` holds it. The image step archives it from the pinned commit,
+    never the working tree, writes it to a scratch directory and gives that directory to the
+    experiment's own layer, so `inputs[build_inputs]` digests the extracted bytes: equal trees at
+    two commits give one digest and one image. A link in the tree is refused, and the ground-truth
+    refusal reads the extracted tree, before any image is built (a failed ground-truth step ends
+    the resolution). Only the context takes the prefix; `dockerfile` and `lock` stay the
+    experiment's files. A package in the tree installs offline from the experiment's Dockerfile
+    with `uv pip install --python /opt/env/bin/python --no-deps --no-build-isolation /tmp/pkg`
+    after `COPY . /tmp/pkg`, non-editable; the env venv carries setuptools, so a package with
+    another build backend (hatchling, poetry-core) lists the backend in
+    `isolation.build.requirements`.
   - `isolation.record_packages` lists import package names, each `^[a-z_][a-z0-9_]*$`. Each run
     reads the distribution and version of each from its env image and records them under
     `provenance.packages` (§Run manifest).

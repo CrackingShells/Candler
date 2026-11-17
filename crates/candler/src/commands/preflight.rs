@@ -15,7 +15,7 @@ use candler_core::resolve::config::Config;
 use candler_core::resolve::layers::{FileValues, Resolution, ResolveInput};
 use candler_core::resolve::preflight::{ResolveError, Resolver};
 use candler_core::resolve::steps::ground_truth::{GroundTruth, GroundTruthStep};
-use candler_core::resolve::steps::{M2bServices, register_ground_truth, register_m2b_steps};
+use candler_core::resolve::steps::{M2bServices, register_m2b_steps};
 use candler_core::runner::evidence::catalog::{CatalogCommand, CommandCatalogProvider};
 use candler_core::runner::plan::{PlanError, experiment_of};
 use candler_core::supervise::{EventSink, Supervisor};
@@ -104,7 +104,7 @@ pub fn compose_resolver(
     skills: SkillTree,
 ) -> Result<Resolver, ResolveError> {
     let step = GroundTruthStep::new(truth, Arc::clone(&services.supervisor), skills)?;
-    register_ground_truth(register_m2b_steps(Resolver::new(config), services)?, step)
+    register_m2b_steps(Resolver::new(config), services, step)
 }
 
 /// The value `text` stands for: JSON when it parses as JSON, else the text itself.

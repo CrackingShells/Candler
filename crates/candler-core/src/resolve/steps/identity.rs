@@ -257,6 +257,109 @@ pub(super) async fn show_file(
     Ok(stdout)
 }
 
+/// The most bytes of a tree archive the extraction reads.
+const TREE_LIMIT: usize = 64 * 1024 * 1024;
+
+/// A tree of the treatment's repository written to a scratch directory, removed when it is dropped.
+pub(super) struct Extracted {
+    base: PathBuf,
+    root: PathBuf,
+}
+
+impl Extracted {
+    /// The directory the requested path became.
+    pub(super) fn root(&self) -> &Path {
+        &self.root
+    }
+}
+
+impl Drop for Extracted {
+    fn drop(&mut self) {
+        // A failed removal leaves the directory for the temp sweep.
+        drop(std::fs::remove_dir_all(&self.base));
+    }
+}
+
+/// The directory `path` of the treatment's checkout `source`, as `commit` holds it, written to a
+/// scratch directory: the bytes of the pinned commit, never those of the working tree.
+///
+/// A link, a device or an entry that leaves `path` is refused, as is a tree larger than
+/// [`TREE_LIMIT`].
+///
+/// # Errors
+/// [`PreflightError::Failed`] when `path` is not a path below `source`, names no directory with
+/// files in the commit, or the archive cannot be read or written.
+pub(super) async fn tree_at(
+    supervisor: &Supervisor,
+    source: &Path,
+    commit: &GitCommit,
+    path: &str,
+) -> Result<Extracted, PreflightError> {
+    let trimmed = path.trim_end_matches('/');
+    let below = Path::new(trimmed)
+        .components()
+        .all(|part| matches!(part, std::path::Component::Normal(_)));
+    if trimmed.is_empty() || !below {
+        return Err(failed(format!(
+            "`{path}` is not a path below the treatment's checkout"
+        )));
+    }
+    let revision = commit.to_string();
+    let (code, tar) = git_output(
+        supervisor,
+        source,
+        &["archive", "--format=tar", &revision, "--", trimmed],
+        TREE_LIMIT + 1,
+    )
+    .await?;
+    if code != 0 {
+        return Err(failed(format!(
+            "`{path}` is not in commit {commit} of {} (git exited {code})",
+            source.display()
+        )));
+    }
+    if tar.len() > TREE_LIMIT {
+        return Err(failed(format!(
+            "`{path}` is larger than {TREE_LIMIT} bytes"
+        )));
+    }
+    let files = candler_harness::skills::unpack(&tar, &format!("{trimmed}/"))
+        .map_err(|e| failed(format!("`{path}` cannot be read from commit {commit}: {e}")))?;
+    if files.is_empty() {
+        return Err(failed(format!(
+            "`{path}` is not a directory with files in commit {commit}"
+        )));
+    }
+    let base = record_dir();
+    let extracted = Extracted {
+        root: base.join(trimmed),
+        base,
+    };
+    for (inside, data, executable) in files {
+        let plain = Path::new(&inside)
+            .components()
+            .all(|part| matches!(part, std::path::Component::Normal(_)));
+        if !plain {
+            return Err(failed(format!("`{inside}` leaves `{path}`")));
+        }
+        let target = extracted.root.join(&inside);
+        let parent = target.parent().unwrap_or(&extracted.root);
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| failed(format!("cannot make the tree directory: {e}")))?;
+        tokio::fs::write(&target, data)
+            .await
+            .map_err(|e| failed(format!("cannot write the tree: {e}")))?;
+        if executable {
+            use std::os::unix::fs::PermissionsExt as _;
+            tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755))
+                .await
+                .map_err(|e| failed(format!("cannot write the tree: {e}")))?;
+        }
+    }
+    Ok(extracted)
+}
+
 /// Runs `git -C source args…` through the supervisor and returns its exit code and the first
 /// `limit` bytes of standard output.
 async fn git_output(

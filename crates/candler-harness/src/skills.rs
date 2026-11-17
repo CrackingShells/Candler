@@ -124,71 +124,11 @@ impl SkillTree {
         let scope = format!("{}/{name}/", self.source_root);
         let target = format!("{}/{name}/", self.target_root);
         let entry = format!("{target}SKILL.md");
-        let cut = || invalid("the archive is cut short".to_owned()); // BORROW: .to_owned() makes the owned text
         let mut files = Vec::new();
-        let mut at = 0_usize;
-        let mut long_path: Option<String> = None;
-        loop {
-            let rest = archive.get(at..).unwrap_or_default();
-            if rest.is_empty() {
-                break;
-            }
-            let header = rest.get(..BLOCK).ok_or_else(cut)?;
-            if header.iter().all(|b| *b == 0) {
-                break;
-            }
-            let size = octal(span(header, 124..136))?;
-            let kind = header.get(156).copied().unwrap_or(0);
-            let data_end = BLOCK.checked_add(size).ok_or_else(cut)?;
-            let data = rest.get(BLOCK..data_end).ok_or_else(cut)?;
-            let padded = data_end
-                .div_ceil(BLOCK)
-                .checked_mul(BLOCK)
-                .ok_or_else(cut)?;
-            at = at.checked_add(padded).ok_or_else(cut)?;
-            match kind {
-                b'g' | b'5' => {}
-                b'x' => {
-                    for (key, value) in pax_records(data)? {
-                        // BORROW: explicit .as_str()
-                        match key.as_str() {
-                            "path" => long_path = Some(value),
-                            "linkpath" => {
-                                return Err(invalid("an entry is a link".to_owned())); // BORROW: .to_owned() makes the owned text
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                b'L' => {
-                    let long = std::str::from_utf8(text_field(data))
-                        .map_err(|_| invalid("a long name is not text".to_owned()))?; // BORROW: .to_owned() makes the owned text
-                    long_path = Some(long.to_owned()); // BORROW: .to_owned() makes the owned text
-                }
-                b'0' | 0 => {
-                    let path = match long_path.take() {
-                        Some(path) => path,
-                        None => entry_path(header)?,
-                    };
-                    // BORROW: explicit .as_str()
-                    let Some(inside) = path.strip_prefix(scope.as_str()) else {
-                        return Err(invalid(format!(
-                            "the entry `{path}` lies outside `{}/{name}`",
-                            self.source_root
-                        )));
-                    };
-                    let rel = RelPath::from_str(&format!("{target}{inside}"))
-                        .map_err(|error| invalid(error.to_string()))?; // BORROW: .to_string() gives owned text
-                    let mode = octal(span(header, 100..108))?;
-                    // BORROW: .to_vec() copies the file out of the archive
-                    files.push(PreparedFile::new(rel, data.to_vec(), mode & 0o111 != 0));
-                }
-                other => {
-                    return Err(invalid(format!(
-                        "an entry has the type flag {other} (a link, device or FIFO)"
-                    )));
-                }
-            }
+        for (inside, data, executable) in unpack(archive, &scope)? {
+            let rel = RelPath::from_str(&format!("{target}{inside}"))
+                .map_err(|error| invalid(error.to_string()))?; // BORROW: .to_string() gives owned text
+            files.push(PreparedFile::new(rel, data, executable));
         }
         // BORROW: explicit .as_str() on both sides
         if !files
@@ -199,6 +139,82 @@ impl SkillTree {
         }
         Ok(files)
     }
+}
+
+/// The regular files of a tar `archive` below `scope` (a directory path ending in `/`), as the
+/// path inside `scope`, the contents and the executable bit.
+///
+/// The reader takes ustar and pax headers and GNU long names, and skips directories and the pax
+/// global header.
+///
+/// # Errors
+/// [`DriverError::InvalidValue`] when an entry is a link, a device or a FIFO, when a path is
+/// absolute, empty or lies outside `scope`, or when the archive is cut short.
+pub fn unpack(archive: &[u8], scope: &str) -> Result<Vec<(String, Vec<u8>, bool)>, DriverError> {
+    let cut = || invalid("the archive is cut short".to_owned()); // BORROW: .to_owned() makes the owned text
+    let mut files: Vec<(String, Vec<u8>, bool)> = Vec::new();
+    let mut at = 0_usize;
+    let mut long_path: Option<String> = None;
+    loop {
+        let rest = archive.get(at..).unwrap_or_default();
+        if rest.is_empty() {
+            break;
+        }
+        let header = rest.get(..BLOCK).ok_or_else(cut)?;
+        if header.iter().all(|b| *b == 0) {
+            break;
+        }
+        let size = octal(span(header, 124..136))?;
+        let kind = header.get(156).copied().unwrap_or(0);
+        let data_end = BLOCK.checked_add(size).ok_or_else(cut)?;
+        let data = rest.get(BLOCK..data_end).ok_or_else(cut)?;
+        let padded = data_end
+            .div_ceil(BLOCK)
+            .checked_mul(BLOCK)
+            .ok_or_else(cut)?;
+        at = at.checked_add(padded).ok_or_else(cut)?;
+        match kind {
+            b'g' | b'5' => {}
+            b'x' => {
+                for (key, value) in pax_records(data)? {
+                    // BORROW: explicit .as_str()
+                    match key.as_str() {
+                        "path" => long_path = Some(value),
+                        "linkpath" => {
+                            return Err(invalid("an entry is a link".to_owned())); // BORROW: .to_owned() makes the owned text
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            b'L' => {
+                let long = std::str::from_utf8(text_field(data))
+                    .map_err(|_| invalid("a long name is not text".to_owned()))?; // BORROW: .to_owned() makes the owned text
+                long_path = Some(long.to_owned()); // BORROW: .to_owned() makes the owned text
+            }
+            b'0' | 0 => {
+                let path = match long_path.take() {
+                    Some(path) => path,
+                    None => entry_path(header)?,
+                };
+                let Some(inside) = path.strip_prefix(scope) else {
+                    return Err(invalid(format!(
+                        "the entry `{path}` lies outside `{}`",
+                        scope.trim_end_matches('/')
+                    )));
+                };
+                let mode = octal(span(header, 100..108))?;
+                // BORROW: .to_vec() copies the file out of the archive
+                files.push((inside.to_owned(), data.to_vec(), mode & 0o111 != 0)); // BORROW: owned path for the entry
+            }
+            other => {
+                return Err(invalid(format!(
+                    "an entry has the type flag {other} (a link, device or FIFO)"
+                )));
+            }
+        }
+    }
+    Ok(files)
 }
 
 /// The text of a header field up to its first NUL.
