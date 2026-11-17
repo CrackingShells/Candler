@@ -218,7 +218,8 @@ async fn resolve_commit(
 }
 
 /// The bytes of `path` as `commit` holds them, with `path` read relative to the directory `source`
-/// (so a skill directory inside a larger repository is the root of its own paths).
+/// (the treatment's checkout, the root of its repository: a skill lives at
+/// `.claude/skills/<name>` below it, as the archive command reads it).
 ///
 /// `commit` is a full hex id, so the revision argument cannot start with `-`; a path that is
 /// absolute or climbs out of `source` is refused.
@@ -237,7 +238,7 @@ pub(super) async fn show_file(
         .all(|part| matches!(part, std::path::Component::Normal(_)));
     if path.is_empty() || !below {
         return Err(failed(format!(
-            "`{path}` is not a path below the skill directory"
+            "`{path}` is not a path below the treatment's checkout"
         )));
     }
     let object = format!("{commit}:./{path}");
