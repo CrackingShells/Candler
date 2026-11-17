@@ -48,6 +48,11 @@ uses = ["`flock` while an event line is appended"]
 windows = "`LockFileEx` on the file, released when the holder dies"
 
 [[file]]
+path = "crates/candler-core/src/tree.rs"
+uses = ["`std::os::unix::fs::symlink` to make a link again when a build context is staged"]
+windows = "`std::os::windows::fs::symlink_file` or `symlink_dir`, by what the target is; `link` already returns an unsupported error there"
+
+[[file]]
 path = "crates/candler-core/src/jobs/runtime/session.rs"
 uses = ["`setsid` to detach the job supervisor", "`set_child_subreaper` (Linux) to adopt orphans"]
 windows = "`DETACHED_PROCESS` with `CREATE_NEW_PROCESS_GROUP` for the detached supervisor; no counterpart is needed for the subreaper, because a Job Object contains every descendant"

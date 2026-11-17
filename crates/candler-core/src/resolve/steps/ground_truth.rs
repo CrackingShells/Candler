@@ -23,7 +23,7 @@ use candler_schemas::execution::{ExperimentInput, TreatmentRef, TreatmentSpec, p
 use candler_schemas::primitives::{Digest, FieldPath, FormatError, NameToken};
 use futures::future::BoxFuture;
 
-use super::image::{BuildInputs, context_dir};
+use super::image::context_dir;
 use super::plugin_environment::{Fragment, STEP_BASE};
 use crate::experiment::inputs::InputFiles;
 use crate::resolve::preflight::{
@@ -31,6 +31,7 @@ use crate::resolve::preflight::{
 };
 use crate::supervise::Supervisor;
 use crate::supervise::git::{GitError, tree_at_commit};
+use crate::tree::{BuildContext, Links, Names, Walk};
 use candler_schemas::values::ValueSource;
 
 /// The name of the step.
@@ -198,27 +199,14 @@ fn from_plugin(ctx: &ResolveContext, text: &str) -> bool {
 /// The digest of every file below `path`, keyed by its path relative to `path`; a file gives its
 /// own name. A symbolic link is skipped.
 fn walk_files(path: &Path) -> Result<BTreeMap<String, Digest>, io::Error> {
-    fn go(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Digest>) -> Result<(), io::Error> {
-        for entry in fs::read_dir(dir)? {
-            let entry = entry?;
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let key = if prefix.is_empty() {
-                name
-            } else {
-                format!("{prefix}/{name}")
-            };
-            let kind = entry.file_type()?;
-            if kind.is_dir() {
-                go(&entry.path(), &key, out)?;
-            } else if kind.is_file() {
-                out.insert(key, Digest::of_reader(fs::File::open(entry.path())?)?);
-            }
-        }
-        Ok(())
-    }
     let mut out = BTreeMap::new();
     if fs::metadata(path)?.is_dir() {
-        go(path, "", &mut out)?;
+        for entry in Walk::new(Links::Skip, Names::Lossy).list(path)?.entries() {
+            out.insert(
+                entry.rel.clone(), // BORROW: the map owns its keys
+                Digest::of_reader(fs::File::open(&entry.abs)?)?,
+            );
+        }
     } else {
         let name = path
             .file_name()
@@ -247,7 +235,7 @@ async fn context_exposures(
     // The tree of a `treatment:` context is read from the extracted bytes and removed after.
     let (context, _tree) = context_dir(ctx, supervisor, &context).await?;
     let dockerfile = ctx.config.cwd.join(dockerfile);
-    let inputs = tokio::task::spawn_blocking(move || BuildInputs::read(&dockerfile, &context))
+    let inputs = tokio::task::spawn_blocking(move || BuildContext::read(&dockerfile, &context))
         .await
         .map_err(|e| failed(format!("the build inputs were not read: {e}")))?
         .map_err(|e| failed(format!("the build inputs cannot be read: {e}")))?;

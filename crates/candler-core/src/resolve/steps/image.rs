@@ -7,19 +7,15 @@
 //! own layer. Changing the build request moves the cell only through those values. The prune list
 //! keys the env image with the lock.
 
-use std::collections::BTreeMap;
-use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use candler_schemas::canonical::CanonicalError;
 use candler_schemas::execution::{DigestRef, GitCommit, TreatmentRef, TreatmentSpec};
 use candler_schemas::primitives::{Digest, FieldPath, FormatError, Name, NameToken};
 use candler_schemas::values::{JsonValue, ValueSource};
 use futures::future::BoxFuture;
-use serde_json::{Map, Value, json};
+use serde_json::Value;
 
 use super::identity::{Extracted, show_file, tree_at};
 use super::plugin_environment::{Fragment, STEP_BASE};
@@ -29,94 +25,8 @@ use crate::isolation::image::{
 };
 use crate::resolve::preflight::{PreflightError, PreflightStep, ResolveContext, StepReport};
 use crate::supervise::Supervisor;
+use crate::tree::BuildContext;
 use candler_schemas::execution::paths;
-
-/// What the experiment's own image layer is built from: the Dockerfile and the files of its
-/// context.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct BuildInputs {
-    /// The digest of the Dockerfile's bytes.
-    pub dockerfile: Digest,
-    /// The digest of each file of the context, by its path relative to the context, with `/` as
-    /// the separator. A symbolic link is listed by the digest of its target text, and not
-    /// followed.
-    pub context: BTreeMap<String, Digest>,
-}
-
-impl BuildInputs {
-    /// Reads the Dockerfile at `dockerfile` and walks the directory `context`.
-    ///
-    /// # Errors
-    /// The [`io::Error`] of a file that cannot be read, or of a name that is not UTF-8.
-    pub fn read(dockerfile: &Path, context: &Path) -> Result<Self, io::Error> {
-        let mut files = BTreeMap::new();
-        walk(context, "", &mut files)?;
-        Ok(Self {
-            dockerfile: digest_file(dockerfile)?,
-            context: files,
-        })
-    }
-
-    /// The inputs as the JSON object their digest is taken over.
-    #[must_use]
-    pub fn to_json(&self) -> Value {
-        let context: Vec<Value> = self
-            .context
-            .iter()
-            .map(|(path, digest)| json!({"path": path, "digest": digest}))
-            .collect();
-        let mut object = Map::new();
-        object.insert("dockerfile".to_owned(), json!(self.dockerfile)); // BORROW: owned key for the object
-        object.insert("context".to_owned(), Value::Array(context)); // BORROW: owned key for the object
-        Value::Object(object)
-    }
-}
-
-/// The digest of `inputs`: the SHA-256 of their canonical JSON text.
-///
-/// # Errors
-/// [`CanonicalError`] when the inputs have no canonical text.
-pub fn build_input_digest(inputs: &BuildInputs) -> Result<Digest, CanonicalError> {
-    Digest::of_canonical(&inputs.to_json())
-}
-
-/// `error` with the path it failed on in its text.
-fn at(path: &Path, error: &io::Error) -> io::Error {
-    io::Error::new(error.kind(), format!("{}: {error}", path.display()))
-}
-
-fn digest_file(path: &Path) -> Result<Digest, io::Error> {
-    let file = fs::File::open(path).map_err(|e| at(path, &e))?;
-    Digest::of_reader(file).map_err(|e| at(path, &e))
-}
-
-/// Lists the files below `dir`, keyed by their path below the context root.
-fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Digest>) -> Result<(), io::Error> {
-    for entry in fs::read_dir(dir).map_err(|e| at(dir, &e))? {
-        let entry = entry.map_err(|e| at(dir, &e))?;
-        let name = entry
-            .file_name()
-            .into_string()
-            .map_err(|_| io::Error::other("a file name in the context is not UTF-8"))?;
-        let key = if prefix.is_empty() {
-            name
-        } else {
-            format!("{prefix}/{name}")
-        };
-        let kind = entry.file_type().map_err(|e| at(&entry.path(), &e))?;
-        if kind.is_symlink() {
-            let target = fs::read_link(entry.path()).map_err(|e| at(&entry.path(), &e))?;
-            let text = format!("symlink:{}", target.to_string_lossy());
-            out.insert(key, Digest::of_bytes(text.as_bytes()));
-        } else if kind.is_dir() {
-            walk(&entry.path(), &key, out)?;
-        } else {
-            out.insert(key, digest_file(&entry.path())?);
-        }
-    }
-    Ok(())
-}
 
 fn failed(detail: String) -> PreflightError {
     PreflightError::Failed { detail }
@@ -237,7 +147,7 @@ impl PreflightStep for ImageIdStep {
                 .derive(path_of(paths::ISOLATION_IMAGE)?, to_json(&image.id.0)?);
             let mut roots: Vec<DigestRef> = declared_inputs(&ctx)?;
             if let Some(inputs) = inputs {
-                let digest = build_input_digest(&inputs).map_err(|e| failed(e.to_string()))?;
+                let digest = inputs.digest().map_err(|e| failed(e.to_string()))?;
                 let kind = Name::from_str("build_inputs").map_err(|e| failed(e.to_string()))?;
                 roots.push(DigestRef::new(kind, digest));
             }
@@ -534,8 +444,11 @@ async fn source_of(
 }
 
 /// Reads the build inputs off the runtime's threads.
-async fn read_inputs(dockerfile: PathBuf, context: PathBuf) -> Result<BuildInputs, PreflightError> {
-    tokio::task::spawn_blocking(move || BuildInputs::read(&dockerfile, &context))
+async fn read_inputs(
+    dockerfile: PathBuf,
+    context: PathBuf,
+) -> Result<BuildContext, PreflightError> {
+    tokio::task::spawn_blocking(move || BuildContext::read(&dockerfile, &context))
         .await
         .map_err(|e| failed(format!("the build inputs were not read: {e}")))?
         .map_err(|e| failed(format!("the build inputs cannot be read: {e}")))

@@ -23,9 +23,10 @@ use candler_core::resolve::preflight::{
     PreflightError, PreflightStep, ResolveContext, ResolveError, Resolver, StepReport,
 };
 use candler_core::resolve::steps::ground_truth::{GroundTruth, GroundTruthStep, TruthFile};
-use candler_core::resolve::steps::image::{BuildInputs, ImageIdStep, build_input_digest};
+use candler_core::resolve::steps::image::ImageIdStep;
 use candler_core::resolve::steps::plugin_environment::PluginEnvironmentStep;
 use candler_core::supervise::{EventSink, Supervisor};
+use candler_core::tree::BuildContext;
 use candler_harness::skills::SkillTree;
 use candler_schemas::execution::EventPayload;
 use candler_schemas::primitives::{Digest, FieldPath, NameToken, RunKey};
@@ -69,8 +70,9 @@ impl ImageService for Fake {
         setting: &'a BuildSetting,
     ) -> BoxFuture<'a, Result<ImageRef, ImageError>> {
         let layer = setting.extension.as_ref().expect("an extension");
-        let inputs = BuildInputs::read(&layer.dockerfile, &layer.context).expect("readable inputs");
-        let digest = build_input_digest(&inputs).expect("a digest");
+        let inputs =
+            BuildContext::read(&layer.dockerfile, &layer.context).expect("readable inputs");
+        let digest = inputs.digest().expect("a digest");
         let module = fs::read_to_string(layer.context.join("demo/__init__.py")).expect("module");
         self.0
             .lock()

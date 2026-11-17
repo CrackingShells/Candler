@@ -11,7 +11,7 @@ use std::os::unix::fs::symlink;
 use std::path::Path;
 
 use candler_core::isolation::image::base_tag;
-use candler_core::resolve::steps::image::{BuildInputs, build_input_digest};
+use candler_core::tree::BuildContext;
 
 /// The digest of the build inputs of [`write_context`].
 const BUILD_INPUT_DIGEST: &str =
@@ -41,8 +41,8 @@ fn guard_build_context() {
     let dir = tempfile::tempdir().unwrap();
     write_context(dir.path());
     let ctx = dir.path().join("ctx");
-    let inputs = BuildInputs::read(&dir.path().join("Dockerfile"), &ctx).unwrap();
-    let digest = build_input_digest(&inputs).unwrap();
+    let inputs = BuildContext::read(&dir.path().join("Dockerfile"), &ctx).unwrap();
+    let digest = inputs.digest().unwrap();
     assert_eq!(digest.to_string(), BUILD_INPUT_DIGEST);
     // The base tag before the merge read a directory link as a file and failed on it, so the tag
     // is pinned over the same context without that link.
