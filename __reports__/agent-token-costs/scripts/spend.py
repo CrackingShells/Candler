@@ -1,5 +1,5 @@
 import json,sys,glob,os
-R={'opus':(4,20,8,0.4),'sonnet':(2,10,4,0.2),'haiku':(0.5,2.5,1,0.05),'fable':(4,20,8,0.4)}
+R={'opus':(4,20,8,0.2),'sonnet':(2,10,4,0.1),'haiku':(0.5,2.5,1,0.05),'fable':(4,20,8,0.2)}
 def rate(m):
     for k,v in R.items():
         if k in (m or ''): return v

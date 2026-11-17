@@ -26,7 +26,7 @@ Where the Candler campaign's tokens went, what every subagent starts with, and h
 ## Status
 
 - Lost data: M4's analysis scripts (`analyse_v1.py`, `tbl.py`, `report_v1.txt`, `calls.csv`) were lost from a cleared temp dir, so round 02's M4 numbers (per-leaf, per-phase, role tables) cannot be recomputed. The totals can: `round03_measure.py` re-prices the raw transcripts.
-- `scripts/spend.py` uses Opus 5.5 cache read 0.40, twice the list price (0.20). Do not use it for new rounds.
+- `scripts/spend.py` used Opus 5.5 cache read 0.40 and Sonnet 0.20, twice the list prices; it now uses 0.20 and 0.10. Figures quoted from it before 2026-11-17 13:30 JST (the M5b reminder's first ≈ $140) are overstated.
 
 - Data covers 2026-10-28 to 2026-11-13 01:22 UTC (round 02): 25,894 API calls, 12 sessions, 279 subagents. Rounds 00 and 01 stop at 2026-11-12 00:30 UTC. Costs are API-equivalent at list price.
 - Round 02 corrects the role classifier, which moved 15 USD between roles. The architecture and prefix reports (round 00) are unchanged: M4 adds no new evidence on the prefix, and its data supports the leaf-sizing and fix-round proposals.
