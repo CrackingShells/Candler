@@ -127,11 +127,10 @@ fn path_of(text: &str) -> Result<FieldPath, PreflightError> {
 }
 
 fn text_at(ctx: &ResolveContext, text: &str) -> Result<Option<String>, PreflightError> {
-    let Some(found) = ctx.get(&path_of(text)?) else {
+    let Some(found) = ctx.value_at(text)? else {
         return Ok(None);
     };
     found
-        .as_value()
         .as_str()
         // BORROW: `.to_owned()` makes the owned text the step works with
         .map(|s| Some(s.to_owned()))
@@ -143,11 +142,10 @@ fn read_value<T: serde::de::DeserializeOwned>(
     text: &str,
 ) -> Result<T, PreflightError> {
     let found = ctx
-        .get(&path_of(text)?)
+        .value_at(text)?
         .ok_or_else(|| failed(format!("`{text}` has no value")))?;
     // BORROW: `.clone()` hands the JSON to the deserializer, which takes it by value
-    serde_json::from_value(found.as_value().clone())
-        .map_err(|e| failed(format!("`{text}` is not valid: {e}")))
+    serde_json::from_value(found.clone()).map_err(|e| failed(format!("`{text}` is not valid: {e}")))
 }
 
 fn to_json<T: serde::Serialize>(value: &T) -> Result<JsonValue, PreflightError> {

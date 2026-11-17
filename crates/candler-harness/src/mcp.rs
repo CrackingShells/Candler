@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::str::FromStr as _;
 
 use candler_schemas::field_path;
-use candler_schemas::primitives::{FieldPath, Name};
+use candler_schemas::primitives::Name;
 use serde_json::{Map, Value};
 
 use crate::driver::DriverError;
@@ -26,38 +26,6 @@ fn invalid(detail: String) -> DriverError {
     DriverError::InvalidValue {
         path: field_path!("mcp.servers"),
         detail,
-    }
-}
-
-/// Puts `value` at the dotted path `relative` of `table`, one object per segment.
-fn put_nested(
-    table: &mut Map<String, Value>,
-    relative: &str,
-    value: &Value,
-    path: &FieldPath,
-) -> Result<(), DriverError> {
-    match relative.split_once('.') {
-        None => {
-            // BORROW: .to_owned() makes the owned key; .clone() copies the value out of the cell
-            table.insert(relative.to_owned(), value.clone());
-            Ok(())
-        }
-        Some((head, rest)) => match table
-            .entry(head.to_owned()) // BORROW: .to_owned() makes the owned key
-            .or_insert_with(|| Value::Object(Map::new()))
-        {
-            Value::Object(inner) => put_nested(inner, rest, value, path),
-            Value::Null
-            | Value::Bool(_)
-            | Value::Number(_)
-            | Value::String(_)
-            | Value::Array(_) => {
-                Err(DriverError::InvalidValue {
-                    path: path.clone(), // BORROW: the error owns the path
-                    detail: "lies below a value that is not a table".to_owned(), // BORROW: .to_owned() makes the owned text
-                })
-            }
-        },
     }
 }
 
@@ -107,32 +75,7 @@ pub fn by_name(servers: &Map<String, Value>) -> Result<Map<String, Value>, Drive
 /// # Errors
 /// [`DriverError`] when a value of the cell cannot be used, or [`by_name`] refuses a name.
 pub fn servers(cell: &Cell<'_>) -> Result<Option<Map<String, Value>>, DriverError> {
-    let root = field_path!("mcp.servers");
-    let mut table = Map::new();
-    for (path, value) in cell.below(&root) {
-        let text = path.as_str(); // BORROW: explicit .as_str() instead of Deref coercion
-        match text
-            .strip_prefix(SERVERS)
-            .and_then(|rest| rest.strip_prefix('.'))
-        {
-            Some(relative) => put_nested(&mut table, relative, value, path)?,
-            None => match value {
-                Value::Object(inner) => table.extend(inner.clone()), // BORROW: .clone() copies the table out of the cell
-                Value::Null
-                | Value::Bool(_)
-                | Value::Number(_)
-                | Value::String(_)
-                | Value::Array(_) => {
-                    return Err(DriverError::InvalidValue {
-                        path: path.clone(),                    // BORROW: the error owns the path
-                        detail: "is not an object".to_owned(), // BORROW: .to_owned() makes the owned text
-                    });
-                }
-            },
-        }
-    }
-    if table.is_empty() {
-        return Ok(None);
-    }
-    by_name(&table).map(Some)
+    cell.table_at(&field_path!("mcp.servers"))?
+        .map(|table| by_name(&table))
+        .transpose()
 }

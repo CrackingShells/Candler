@@ -53,6 +53,17 @@ pub enum IsolationError {
     },
 }
 
+/// The error for a path of the cell that is not a field path: the cell cannot be planned.
+///
+/// Named at each call site (`.map_err(|error| cell_path_error(&error))`), so a path error never becomes a
+/// plan error by a conversion the caller did not write.
+pub(crate) fn cell_path_error(error: &candler_schemas::primitives::FormatError) -> IsolationError {
+    IsolationError::Plan {
+        // BORROW: .to_string() makes the owned text the error keeps
+        detail: error.to_string(),
+    }
+}
+
 /// What the run's live reader has seen so far, read when a stop needs it.
 // TRAIT_OBJECT: the view is a closure over the run's live reader
 pub type ObservedView = Arc<dyn Fn() -> Observed + Send + Sync>;

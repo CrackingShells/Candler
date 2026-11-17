@@ -19,10 +19,8 @@ use candler_harness::driver::HarnessDriver;
 use candler_harness::spec::{
     Cell, FileRoot, Framing, PendingState, SessionClose, SessionRecord, SessionSpec, SessionTracker,
 };
-use candler_schemas::primitives::FieldPath;
 use candler_schemas::raw::{Clock as FrameClock, ClockAnchor, StreamName};
 use candler_schemas::trace::{Cap, EndedBy};
-use candler_schemas::values::JsonValue;
 use serde_json::{Number, Value};
 use tokio::io::AsyncWriteExt as _;
 use tokio::process::ChildStdin;
@@ -76,16 +74,6 @@ fn plan_error(detail: String) -> IsolationError {
     IsolationError::Plan { detail }
 }
 
-/// The value of the cell at `path`.
-fn cell_value<'a>(cell: &'a Cell<'_>, path: &str) -> Result<Option<&'a Value>, IsolationError> {
-    let field: FieldPath =
-        path.parse()
-            .map_err(|error: candler_schemas::primitives::FormatError| {
-                plan_error(error.to_string()) // BORROW: .to_string() gives owned text
-            })?;
-    Ok(cell.get(&field).map(JsonValue::as_value))
-}
-
 /// The session settings of a cell, or `None` for a headless cell.
 ///
 /// The rule is [`settle`], which resolve and planning have applied already: a refusal here is a
@@ -95,8 +83,12 @@ fn cell_value<'a>(cell: &'a Cell<'_>, path: &str) -> Result<Option<&'a Value>, I
 /// [`IsolationError::Plan`] when the cell fails the session rule or its turn limit is not a whole
 /// number.
 pub fn session_config(cell: &Cell<'_>) -> Result<Option<SessionConfig>, IsolationError> {
-    let mode = cell_value(cell, paths::RUNNER_MODE)?;
-    let idle = cell_value(cell, paths::RUNNER_IDLE_S)?;
+    let mode = cell
+        .value_str(paths::RUNNER_MODE)
+        .map_err(|error| crate::isolation::cell_path_error(&error))?;
+    let idle = cell
+        .value_str(paths::RUNNER_IDLE_S)
+        .map_err(|error| crate::isolation::cell_path_error(&error))?;
     settle(mode, idle, None).map_err(|refusal| plan_error(refusal.detail().to_owned()))?; // BORROW: owned text
     if mode.and_then(Value::as_str) != Some(MODE_SESSION) {
         return Ok(None);
@@ -106,7 +98,10 @@ pub fn session_config(cell: &Cell<'_>) -> Result<Option<SessionConfig>, Isolatio
         Some(Value::String(_)) => Idle::Never,
         _ => Idle::Seconds(DEFAULT_IDLE_S),
     };
-    let turn_limit = match cell_value(cell, paths::BUDGET_PER_RUN_TURNS)? {
+    let turn_limit = match cell
+        .value_str(paths::BUDGET_PER_RUN_TURNS)
+        .map_err(|error| crate::isolation::cell_path_error(&error))?
+    {
         None => None,
         Some(value) => Some(value.as_u64().ok_or_else(|| {
             plan_error("budget.per_run.turns is not a whole number".to_owned()) // BORROW: owned text

@@ -795,3 +795,30 @@ fn e2_slots_evaluators_is_a_known_path() {
     assert!(is_known_path(&fp("slots.evaluators")));
     assert!(!is_known_path(&fp("slots.evaluator")));
 }
+
+/// Guards: C2 — a path that is not a field path, read by `ResolveContext::value_at`, refuses as
+/// `PreflightError::Failed` with the parser's words, the variant every resolve step reports.
+/// Oracle: the variant and the parser's message, written by hand.
+#[tokio::test]
+async fn value_at_refuses_a_bad_path_as_failed() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let ran: Log = Arc::default();
+    let seen: Seen = Arc::default();
+    let resolver = Resolver::new(Arc::new(empty_config(dir.path()))).register(probe(
+        "probe@1",
+        vec![],
+        Outcome::Pass,
+        &ran,
+        &seen,
+    ))?;
+    resolver.resolve(ResolveInput::default()).await?;
+    let contexts = seen.lock().map_err(|_| "poisoned")?;
+    let ctx = contexts.first().ok_or("the step did not run")?;
+    let parser = "Not.A.Path".parse::<FieldPath>().err().ok_or("parsed")?;
+    match ctx.value_at("Not.A.Path") {
+        Err(PreflightError::Failed { detail }) => assert_eq!(detail, parser.to_string()),
+        other => return Err(format!("not Failed: {other:?}").into()),
+    }
+    assert!(ctx.value_at("model.id")?.is_none());
+    Ok(())
+}

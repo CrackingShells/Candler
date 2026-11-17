@@ -11,14 +11,12 @@ pub mod sweeper;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use candler_harness::spec::{Cell, CommandSpec, Workspace};
 use candler_schemas::container::{ContainerLabels, ContainerRecord, ContainerRole};
-use candler_schemas::primitives::{ContainerId, Digest, FieldPath, JobId, Marker, RunKey};
-use candler_schemas::values::JsonValue;
+use candler_schemas::primitives::{ContainerId, Digest, JobId, Marker, RunKey};
 use futures::future::BoxFuture;
 
 use self::guard::{ContainerGuard, GuardError};
@@ -189,17 +187,6 @@ impl DockerIsolation {
     }
 }
 
-/// The value of the cell at `path`.
-fn cell_value<'a>(
-    cell: &Cell<'a>,
-    path: &str,
-) -> Result<Option<&'a serde_json::Value>, IsolationError> {
-    let field = FieldPath::from_str(path).map_err(|source| IsolationError::Plan {
-        detail: source.to_string(),
-    })?;
-    Ok(cell.get(&field).map(JsonValue::as_value))
-}
-
 fn plan_error(detail: &str) -> IsolationError {
     IsolationError::Plan {
         // BORROW: .to_owned() keeps the description in the error
@@ -224,14 +211,20 @@ const fn container_user() -> UserSpec {
 
 /// The limits the cell sets, over the defaults.
 fn cell_limits(cell: &Cell<'_>) -> Result<Limits, IsolationError> {
-    let pids = match cell_value(cell, paths::ISOLATION_LIMITS_PIDS)? {
+    let pids = match cell
+        .value_str(paths::ISOLATION_LIMITS_PIDS)
+        .map_err(|error| crate::isolation::cell_path_error(&error))?
+    {
         None => DEFAULT_PIDS,
         Some(value) => value
             .as_u64()
             .and_then(|n| u32::try_from(n).ok())
             .ok_or_else(|| plan_error("isolation.limits.pids is not a process count"))?,
     };
-    let memory = match cell_value(cell, paths::ISOLATION_LIMITS_MEMORY)? {
+    let memory = match cell
+        .value_str(paths::ISOLATION_LIMITS_MEMORY)
+        .map_err(|error| crate::isolation::cell_path_error(&error))?
+    {
         None => String::from(DEFAULT_MEMORY),
         // BORROW: .to_owned() copies the limit out of the cell
         Some(value) => value
@@ -239,7 +232,10 @@ fn cell_limits(cell: &Cell<'_>) -> Result<Limits, IsolationError> {
             .map(str::to_owned)
             .ok_or_else(|| plan_error("isolation.limits.memory is not a string"))?,
     };
-    let cpus = match cell_value(cell, paths::ISOLATION_LIMITS_CPUS)? {
+    let cpus = match cell
+        .value_str(paths::ISOLATION_LIMITS_CPUS)
+        .map_err(|error| crate::isolation::cell_path_error(&error))?
+    {
         None => DEFAULT_CPUS,
         Some(value) => value
             .as_f64()
@@ -263,10 +259,15 @@ impl Isolation for DockerIsolation {
             .dirs
             .as_ref()
             .ok_or_else(|| plan_error("the isolation has no directories to plan against"))?;
-        let image = cell_value(cell, paths::ISOLATION_IMAGE)?
+        let image = cell
+            .value_str(paths::ISOLATION_IMAGE)
+            .map_err(|error| crate::isolation::cell_path_error(&error))?
             .and_then(serde_json::Value::as_str)
             .ok_or_else(|| plan_error("isolation.image is missing"))?;
-        let allowlist = match cell_value(cell, paths::ISOLATION_EGRESS)? {
+        let allowlist = match cell
+            .value_str(paths::ISOLATION_EGRESS)
+            .map_err(|error| crate::isolation::cell_path_error(&error))?
+        {
             None => None,
             Some(value) => crate::resolve::steps::egress::settle(Some(value), None)
                 .map_err(|error| plan_error(error.detail()))?,
@@ -283,7 +284,9 @@ impl Isolation for DockerIsolation {
             .agent_networks(
                 &job_id,
                 allowlist.as_deref(),
-                cell_value(cell, paths::ISOLATION_NETWORK)?.and_then(serde_json::Value::as_str),
+                cell.value_str(paths::ISOLATION_NETWORK)
+                    .map_err(|error| crate::isolation::cell_path_error(&error))?
+                    .and_then(serde_json::Value::as_str),
             )
             .map_err(|detail| plan_error(&detail))?;
         let add_hosts = match (&allowlist, &egress) {
@@ -304,7 +307,9 @@ impl Isolation for DockerIsolation {
             }
             _ => Vec::new(),
         };
-        let wall = cell_value(cell, paths::BUDGET_PER_RUN_WALL_S)?
+        let wall = cell
+            .value_str(paths::BUDGET_PER_RUN_WALL_S)
+            .map_err(|error| crate::isolation::cell_path_error(&error))?
             .and_then(serde_json::Value::as_u64)
             .ok_or_else(|| plan_error("budget.per_run.wall_s is missing"))?;
         let job = self
@@ -368,7 +373,10 @@ impl Isolation for DockerIsolation {
             project_root: dirs.project_root.clone(),
             // BORROW: the roots are copied out of the directories
             store_root: dirs.store_root.clone(),
-            interactive: cell_value(cell, paths::RUNNER_MODE)?.and_then(serde_json::Value::as_str)
+            interactive: cell
+                .value_str(paths::RUNNER_MODE)
+                .map_err(|error| crate::isolation::cell_path_error(&error))?
+                .and_then(serde_json::Value::as_str)
                 == Some(crate::resolve::steps::session::MODE_SESSION),
         };
         plan.mounts = mounts(&plan, &MountRoots::from_plan(&plan)).map_err(|source| {

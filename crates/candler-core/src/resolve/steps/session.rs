@@ -182,14 +182,6 @@ impl SessionModeStep {
     }
 }
 
-/// The value the context resolved at `path`.
-fn value_at<'a>(ctx: &'a ResolveContext, path: &str) -> Result<Option<&'a Value>, PreflightError> {
-    let path = FieldPath::from_str(path).map_err(|error| PreflightError::Failed {
-        detail: error.to_string(), // BORROW: .to_string() gives owned text
-    })?;
-    Ok(ctx.get(&path).map(JsonValue::as_value))
-}
-
 /// The derived default of `runner.idle_s`, as a path and a value.
 ///
 /// # Errors
@@ -220,8 +212,8 @@ impl PreflightStep for SessionModeStep {
         let capable = self.session_capable;
         let outcome = (|| {
             let mut report = StepReport::new(step);
-            let mode = value_at(&ctx, paths::RUNNER_MODE)?;
-            let idle = value_at(&ctx, paths::RUNNER_IDLE_S)?;
+            let mode = ctx.value_at(paths::RUNNER_MODE)?;
+            let idle = ctx.value_at(paths::RUNNER_IDLE_S)?;
             match settle(mode, idle, Some(capable)) {
                 Err(refusal) => {
                     report =

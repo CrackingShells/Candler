@@ -47,21 +47,16 @@ pub(crate) fn invalid(path: &str, detail: String) -> DriverError {
     }
 }
 
-/// The value of the cell at `path`, if it has one.
-pub(crate) fn value_at<'c>(cell: &Cell<'c>, path: &str) -> Result<Option<&'c Value>, DriverError> {
-    let field = FieldPath::from_str(path).map_err(|error| invalid(path, error.to_string()))?; // BORROW: .to_string() gives owned text
-    Ok(cell
-        .get(&field)
-        .map(candler_schemas::values::JsonValue::as_value))
-}
-
 /// The turn or cost cap of the cell as flag text, when the cell sets it.
 pub(crate) fn cap_text(
     cell: &Cell<'_>,
     path: &str,
     whole: bool,
 ) -> Result<Option<String>, DriverError> {
-    match value_at(cell, path)? {
+    match cell
+        .value_str(path)
+        .map_err(|error| invalid(path, error.to_string()))?
+    {
         None => Ok(None),
         Some(Value::Number(number)) => {
             if whole && number.as_u64().is_none() {

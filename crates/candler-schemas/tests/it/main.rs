@@ -9,6 +9,7 @@ mod guard_evaluator_protocol;
 mod guard_event_kinds;
 mod guard_execution_wire;
 mod guard_experiment_file;
+mod guard_field_path_walk;
 mod guard_import_origin;
 mod guard_jcs;
 mod guard_pattern_vectors;

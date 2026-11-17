@@ -11,7 +11,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use candler_schemas::primitives::{FieldPath, FormatError, Marker, NameToken};
+use candler_schemas::primitives::{FormatError, Marker, NameToken};
 use candler_schemas::process::ExitStatus;
 use futures::future::BoxFuture;
 
@@ -94,9 +94,10 @@ impl GatewayStep {
 
 /// The text the context resolved at `path`.
 fn text_at(ctx: &ResolveContext, path: &str) -> Option<String> {
-    let path = FieldPath::from_str(path).ok()?;
-    ctx.get(&path)
-        .and_then(|value| value.as_value().as_str())
+    ctx.value_at(path)
+        .ok()
+        .flatten()
+        .and_then(serde_json::Value::as_str)
         .map(str::to_owned) // BORROW: the future owns its text
 }
 
