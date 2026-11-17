@@ -487,6 +487,8 @@ async fn image_step_refuses_malformed_names_before_docker() {
         (PRUNE, json!("a.py"), r#""a.py""#),
         (RECORD, json!(["x", "Foo"]), r#""Foo""#),
         (RECORD, json!(["1x"]), r#""1x""#),
+        // F3: a leading `_` is no field-path segment, so the recorded path would be dropped.
+        (RECORD, json!(["_y2"]), r#""_y2""#),
         (RECORD, json!(["a-b"]), r#""a-b""#),
         (RECORD, json!(["a.b"]), r#""a.b""#),
         (RECORD, json!([""]), r#""""#),
@@ -521,7 +523,7 @@ async fn image_step_refuses_malformed_names_before_docker() {
         &rig,
         &[
             (PRUNE, json!(["a.py", "b-1_2.so"])),
-            (RECORD, json!(["x", "_y2"])),
+            (RECORD, json!(["x", "y2_"])),
         ],
     )
     .await;

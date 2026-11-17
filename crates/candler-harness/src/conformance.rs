@@ -301,15 +301,6 @@ fn driven<T>(check: &'static str, result: Result<T, DriverError>) -> Result<T, F
     result.map_err(|error| driver_failure(check, error.to_string())) // BORROW: .to_string() gives owned text
 }
 
-/// Whether `name` is a valid environment variable name.
-fn is_env_name(name: &str) -> bool {
-    let mut chars = name.chars();
-    chars
-        .next()
-        .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-}
-
 /// Whether `url` is an HTTP URL whose host is a loopback address.
 fn is_loopback_http(url: &str) -> bool {
     let Some(rest) = url.strip_prefix("http://") else {
@@ -543,7 +534,7 @@ fn check_names(driver: &dyn HarnessDriver) -> Result<(), Failure> {
         .chain(gateway.reserved.iter())
     {
         // BORROW: explicit .as_str() instead of Deref coercion
-        if !is_env_name(name.as_str()) {
+        if !candler_schemas::primitives::is_env_var_name(name.as_str()) {
             return Err(driver_failure(
                 "gateway",
                 format!("{name:?} is not a variable name"),
@@ -576,7 +567,7 @@ fn check_names(driver: &dyn HarnessDriver) -> Result<(), Failure> {
     let mut envs: Vec<&String> = states.iter().map(|path| &path.env).collect();
     for env in &envs {
         // BORROW: explicit .as_str() instead of Deref coercion
-        if !is_env_name(env.as_str()) {
+        if !candler_schemas::primitives::is_env_var_name(env.as_str()) {
             return Err(driver_failure(
                 "state_paths",
                 format!("{env:?} is not a variable name"),

@@ -442,11 +442,7 @@ impl UpstreamConfigBuilder {
             // BORROW: .to_owned() keeps the message
             detail: String::from("the upstream host is not set"),
         })?;
-        let plain = !host.is_empty()
-            && host
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
-        if !plain {
+        if !candler_schemas::primitives::plain_segment(&host) {
             return Err(GatewayError::Config {
                 // BORROW: .to_owned() keeps the message
                 detail: String::from("the upstream host is not a plain name"),

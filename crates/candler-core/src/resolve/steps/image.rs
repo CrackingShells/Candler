@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use candler_schemas::canonical::CanonicalError;
 use candler_schemas::execution::{DigestRef, GitCommit, TreatmentRef, TreatmentSpec};
-use candler_schemas::primitives::{Digest, FieldPath, FormatError, Name, NameToken};
+use candler_schemas::primitives::{Digest, FieldPath, FormatError, Name, NameToken, plain_segment};
 use candler_schemas::values::{JsonValue, ValueSource};
 use futures::future::BoxFuture;
 use serde_json::{Map, Value, json};
@@ -25,7 +25,6 @@ use super::identity::{Extracted, show_file, tree_at};
 use super::plugin_environment::{Fragment, STEP_BASE};
 use crate::isolation::image::{
     BuildSetting, Extension, ImageService, LockDigest, LockRequest, LockSource, package_name_ok,
-    prune_name_ok,
 };
 use crate::resolve::preflight::{PreflightError, PreflightStep, ResolveContext, StepReport};
 use crate::supervise::Supervisor;
@@ -297,7 +296,7 @@ fn written_prune(ctx: &ResolveContext) -> Result<Vec<String>, PreflightError> {
     entries
         .iter()
         .map(|entry| {
-            let name = entry.as_str().filter(|name| prune_name_ok(name)); // BORROW: .as_str() reads the entry's text
+            let name = entry.as_str().filter(|name| plain_segment(name)); // BORROW: .as_str() reads the entry's text
             name.map(str::to_owned) // BORROW: owned name for the build
                 .ok_or_else(|| {
                     failed(format!(
