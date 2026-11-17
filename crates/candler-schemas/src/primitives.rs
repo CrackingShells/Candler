@@ -1245,6 +1245,34 @@ impl FieldPath {
         prefix.segments().all(|segment| own.next() == Some(segment))
     }
 
+    /// The part of the path below `prefix`: empty when the path is `prefix`, the dotted remainder
+    /// when it lies below it, `None` otherwise. `prefix` matches whole segments, so `prompt.valuesx`
+    /// is not below `prompt.values`.
+    #[must_use]
+    pub fn relative_to<'a>(&'a self, prefix: &str) -> Option<&'a str> {
+        // BORROW: explicit .as_str() instead of Deref coercion
+        self.text
+            .as_str()
+            .strip_prefix(prefix)
+            .and_then(|rest| match rest.strip_prefix('.') {
+                Some(below) => Some(below),
+                None => rest.is_empty().then_some(rest),
+            })
+    }
+
+    /// Wraps `value` in one table per segment of the dotted path `relative`, outermost first.
+    #[must_use]
+    pub fn nest(relative: &str, value: serde_json::Value) -> serde_json::Value {
+        let mut segments: Vec<&str> = relative.split('.').collect();
+        segments.reverse();
+        segments.into_iter().fold(value, |inner, segment| {
+            let mut table = serde_json::Map::new();
+            // BORROW: .to_owned() makes the owned key
+            table.insert(segment.to_owned(), inner);
+            serde_json::Value::Object(table)
+        })
+    }
+
     /// Appends one segment, or several joined by `.`.
     ///
     /// # Errors

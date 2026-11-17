@@ -657,12 +657,9 @@ pub const TABLE_VALUED_PATHS: [&str; 1] = [paths::PROMPT_VALUES];
 
 /// The table-valued path that `path` is or lies below, if any.
 fn table_root(path: &FieldPath) -> Option<&'static str> {
-    TABLE_VALUED_PATHS.into_iter().find(|root| {
-        // BORROW: explicit .as_str() instead of Deref coercion
-        path.as_str()
-            .strip_prefix(root)
-            .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
-    })
+    TABLE_VALUED_PATHS
+        .into_iter()
+        .find(|root| path.relative_to(root).is_some())
 }
 
 /// Collects the leaves a value gives: its own path, or, for a table at or below a table-valued path, the path of each leaf of the table.
@@ -718,16 +715,6 @@ fn merge_tables(into: &mut Value, from: &Value) {
     }
 }
 
-/// Wraps `value` in one table per segment of `relative`, innermost first.
-fn nest(relative: &str, value: Value) -> Value {
-    relative.rsplit('.').fold(value, |inner, segment| {
-        let mut table = Map::new();
-        // BORROW: .to_owned() makes the owned key
-        table.insert(segment.to_owned(), inner);
-        Value::Object(table)
-    })
-}
-
 /// Folds the values at or below a table-valued path into one value at that path, placed where the first of them stood. Values elsewhere, and a lone value at the path itself, are left as they are.
 ///
 /// # Errors
@@ -755,16 +742,15 @@ fn fold_tables(
                 return Err(ExecutionError::MissingField { field: "value" });
             };
             leaves_of(value.path(), json.as_value(), &mut leaves)?;
-            let relative = value
-                .path()
-                .as_str()
-                .strip_prefix(root)
-                .and_then(|rest| rest.strip_prefix('.'));
             // BORROW: .clone() gives the table its own copy of the value
-            let part = relative.map_or_else(
-                || json.as_value().clone(),
-                |relative| nest(relative, json.as_value().clone()),
-            );
+            let part = value
+                .path()
+                .relative_to(root)
+                .filter(|relative| !relative.is_empty())
+                .map_or_else(
+                    || json.as_value().clone(),
+                    |relative| FieldPath::nest(relative, json.as_value().clone()),
+                );
             merge_tables(&mut table, &part);
         }
         if let Some(repeat) = first_repeat(leaves.iter()) {
