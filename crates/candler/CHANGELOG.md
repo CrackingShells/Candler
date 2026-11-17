@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0](https://github.com/CrackingShells/Candler/compare/v0.11.0...v0.12.0) - 2026-11-17
+
+### Features
+
+- *(adapter-claude-code)* give an MCP server its production name
+
 ## [0.11.0](https://github.com/CrackingShells/Candler/compare/v0.10.1...v0.11.0) - 2026-11-17
 
 ### Documentation
