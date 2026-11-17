@@ -2,8 +2,8 @@
 
 **Goal**: `analyze` compares paired arms with McNemar, CMH, bootstrap and fixed-sequence tests alongside M3's Wilson intervals and Holm adjustment, and reports each arm's `instrument_error` count. An arm can be a treatment: one experiment declares the treatment as a factor, and each cell resolves its own treatment, env lock and image (amendment A7).
 **Pre-conditions**:
-- [ ] `../README.md`'s M5b is `done` (the leaf `../../m5_container_isolation.md`, M5a, before it), and M2a (the tree also waits for M5a and M5b; the reminder needs only M2a)
-- [ ] Reminder `candler-M6` read (statistics list, pairing model)
+- [x] `../README.md`'s M5b is `done` (the leaf `../../m5_container_isolation.md`, M5a, before it), and M2a (the tree also waits for M5a and M5b; the reminder needs only M2a) — M5b's own gates are met (PR #38, merge 1e6dc91); its last gate, `stats/`, is this level
+- [x] Reminder `candler-M6` read (statistics list, pairing model) — 2026-11-17, M6a coordination
 **Success Gates**:
 - ⬜ McNemar, CMH, bootstrap and fixed-sequence tests run on declared pairing keys, and each equals a second engine's table on the existing HTN golden runs
 - ⬜ The pairing keys, the execution order and the declared blocking factor are decided and recorded in `__design__/architecture.md` §Analysis statistics

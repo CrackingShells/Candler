@@ -7,7 +7,7 @@ Depth 7. Paired statistics (M6a), split from the old M6, one level below M5b and
 `analyze` compares paired arms with the paired tests, an arm can be a treatment, and the pairing model is decided and recorded in the design.
 
 ## Pre-conditions
-- [ ] `../../m5_container_isolation.md` (M5a) is `done` and `../README.md`'s M5b leaves are `done`
+- [x] `../../m5_container_isolation.md` (M5a) is `done` and `../README.md`'s M5b leaves are `done` (M5a: PR #36; M5b's own gates: PR #38, merge 1e6dc91; its last gate is this level)
 
 ## Success Gates
 - ⬜ `m6a_paired_stats.md` and `mcp/` are `done`
@@ -15,7 +15,7 @@ Depth 7. Paired statistics (M6a), split from the old M6, one level below M5b and
 ## Status
 ```mermaid
 graph TD
-    m6a_paired_stats[M6a Paired statistics]:::amendment
+    m6a_paired_stats[M6a Paired statistics]:::inprogress
     mcp[MCP server]:::amendment
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -27,7 +27,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `m6a_paired_stats.md` | 📄 Leaf Task | 🔵 Amendment |
+| `m6a_paired_stats.md` | 📄 Leaf Task | 🔄 In Progress |
 | `mcp/` | 📁 Directory | 🔵 Amendment |
 
 ## Amendment Log

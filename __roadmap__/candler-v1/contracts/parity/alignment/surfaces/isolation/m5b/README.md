@@ -11,18 +11,18 @@ An agent's container reaches only its listed hosts and the model gateway, a real
 - [x] A plan for M5b, with step-sized leaves and a budget, is approved by Eliott (2026-11-16: `__roadmap__/m5b-egress-proxy/`, cap $52; build started on his go)
 
 ## Success Gates
-- ⬜ The egress proxy enforces the allowlist and the `isolation.egress_unsupported` refusal is removed (D1, D2)
-- ⬜ Ground truth is refused at resolve and absent from the agent container at every point of a real run (D9, I8), merged with its e2e
-- ⬜ The destroy guard verifies by one multi-id inspect and re-uses the facts (A1)
-- ⬜ The rest of the design record is in `__design__/architecture.md`, and the live smoke with `isolation.egress` is recorded
-- ⬜ The live smoke runs a plug-in environment through the product path, not a hand-built plan: `DockerIsolation::plan`, the image step's merge, the runner's input mounts and the `mcp.*` rendering, and the agent lists the server's tools (M5a's `plugin_environment_serves_live_mcp_tools` builds these by hand)
-- ⬜ A container created but not recorded is destroyed, not left to the label sweep (with A1)
+- ✅ The egress proxy enforces the allowlist and the `isolation.egress_unsupported` refusal is removed (D1, D2) (PR #38, merge 1e6dc91: G1; CI container-e2e run 44008540106)
+- ✅ Ground truth is refused at resolve and absent from the agent container at every point of a real run (D9, I8), merged with its e2e (PR #38: G2, `i8_canary_never_reaches_the_agent` in CI's list)
+- ✅ The destroy guard verifies by one multi-id inspect and re-uses the facts (A1) (PR #38: G3, `destroy_verifies_by_one_inspect`)
+- ✅ The rest of the design record is in `__design__/architecture.md`, and the live smoke with `isolation.egress` is recorded (PR #38: G6; live smoke job 01a1e780-5310-7c3a-9718-216900be5694 in `__reports__/m5b-egress-proxy/live_smoke_v1.md`)
+- ✅ The live smoke runs a plug-in environment through the product path, not a hand-built plan: `DockerIsolation::plan`, the image step's merge, the runner's input mounts and the `mcp.*` rendering, and the agent lists the server's tools (M5a's `plugin_environment_serves_live_mcp_tools` builds these by hand) (PR #38: G7, same job; F2 guard `a_plugins_mcp_servers_reach_claude_code`)
+- ✅ A container created but not recorded is destroyed, not left to the label sweep (with A1) (PR #38: G4, `guard_unstarted_destroy`)
 - ⬜ `stats/` is `done`
 
 ## Status
 ```mermaid
 graph TD
-    stats[Paired statistics]:::amendment
+    stats[Paired statistics]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -33,7 +33,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `stats/` | 📁 Directory | 🔵 Amendment |
+| `stats/` | 📁 Directory | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
