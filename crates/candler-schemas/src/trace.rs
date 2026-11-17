@@ -15,6 +15,7 @@ use serde::ser::SerializeMap as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 
+use crate::distinct::first_repeat;
 use crate::generate::GeneratedSchema;
 use crate::map_only::MapOnly;
 use crate::outcome::Finite;
@@ -1339,13 +1340,13 @@ fn check_records(
 ) -> Result<(), TraceError> {
     let listed = |stream: &StreamName| header.raw.iter().any(|raw| raw.stream == *stream);
     let mut next_seq: BTreeMap<&SessionId, u64> = BTreeMap::new();
+    if let Some(id) = first_repeat(sessions.iter().map(Session::id)) {
+        return Err(TraceError::DuplicateSession {
+            session: id.to_string(),
+        });
+    }
     for session in sessions {
         let id = session.id();
-        if next_seq.contains_key(id) {
-            return Err(TraceError::DuplicateSession {
-                session: id.to_string(),
-            });
-        }
         if let Some(parent) = session.parent_session()
             && !next_seq.contains_key(parent)
         {

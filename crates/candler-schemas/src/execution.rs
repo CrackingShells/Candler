@@ -18,6 +18,7 @@ use serde_json::{Map, Number, Value};
 
 use crate::canonical::{self, CanonicalError};
 use crate::container::{ContainerFound, ContainerRole, StrayContainer, SweepScope};
+use crate::distinct::{first_clash, first_repeat};
 use crate::generate::GeneratedSchema;
 use crate::map_only::MapOnly;
 use crate::outcome::OutcomeRecord;
@@ -766,14 +767,14 @@ fn fold_tables(
             );
             merge_tables(&mut table, &part);
         }
-        let mut sorted: Vec<&FieldPath> = leaves.iter().collect();
-        sorted.sort();
-        if let Some(pair) = sorted.windows(2).find(|pair| pair.first() == pair.get(1)) {
+        if let Some(repeat) = first_repeat(leaves.iter()) {
             return Err(ExecutionError::Duplicate {
                 list,
-                value: pair.first().map(ToString::to_string).unwrap_or_default(),
+                value: repeat.to_string(),
             });
         }
+        let mut sorted: Vec<&FieldPath> = leaves.iter().collect();
+        sorted.sort();
         check_overlaps(&[sorted.into_iter().cloned().collect()])?;
         if under.len() == 1 && lone.path().as_str() == root {
             continue;
@@ -1264,14 +1265,11 @@ impl ExperimentFile {
     /// # Errors
     /// Returns [`ExecutionError::Duplicate`] if two inputs have one kind.
     pub fn with_inputs(mut self, inputs: Vec<ExperimentInput>) -> Result<Self, ExecutionError> {
-        let mut kinds: BTreeSet<&Name> = BTreeSet::new();
-        for input in &inputs {
-            if !kinds.insert(&input.kind) {
-                return Err(ExecutionError::Duplicate {
-                    list: "inputs",
-                    value: input.kind.to_string(),
-                });
-            }
+        if let Some(kind) = first_repeat(inputs.iter().map(|input| &input.kind)) {
+            return Err(ExecutionError::Duplicate {
+                list: "inputs",
+                value: kind.to_string(),
+            });
         }
         self.inputs = inputs;
         Ok(self)
@@ -1525,15 +1523,22 @@ fn flatten_fixed(value: toml::Value) -> Result<Value, ExecutionError> {
     let toml::Value::Table(table) = value else {
         return toml_to_json(value, "fixed");
     };
-    let mut flat = Map::new();
-    flatten_into(table, "", &mut flat)?;
-    Ok(Value::Object(flat))
+    let mut leaves = Vec::new();
+    flatten_into(table, "", &mut leaves)?;
+    if let Some(path) = first_repeat(leaves.iter().map(|(path, _)| path.as_str())) {
+        return Err(ExecutionError::Duplicate {
+            list: "fixed",
+            // BORROW: .to_owned() makes the owned path the error carries
+            value: path.to_owned(),
+        });
+    }
+    Ok(Value::Object(leaves.into_iter().collect()))
 }
 
 fn flatten_into(
     table: toml::Table,
     prefix: &str,
-    out: &mut Map<String, Value>,
+    out: &mut Vec<(String, Value)>,
 ) -> Result<(), ExecutionError> {
     for (key, value) in table {
         // BORROW: explicit .as_str() instead of Deref coercion
@@ -1554,13 +1559,7 @@ fn flatten_into(
             | toml::Value::Array(_) => {
                 // BORROW: explicit .as_str() instead of Deref coercion
                 let json = toml_to_json(value, path.as_str())?;
-                // BORROW: .clone() keeps the path for the duplicate error
-                if out.insert(path.clone(), json).is_some() {
-                    return Err(ExecutionError::Duplicate {
-                        list: "fixed",
-                        value: path,
-                    });
-                }
+                out.push((path, json));
             }
         }
     }
@@ -1623,17 +1622,13 @@ pub fn input_list_digest(entries: &[InputEntry]) -> Result<Digest, ExecutionErro
         });
     }
     let mut sorted: Vec<&InputEntry> = entries.iter().collect();
-    sorted.sort_by(|first, second| first.path.cmp(&second.path));
-    for pair in sorted.windows(2) {
-        if let [first, second] = pair
-            && first.path == second.path
-        {
-            return Err(ExecutionError::Duplicate {
-                list: "input entries",
-                value: second.path.to_string(),
-            });
-        }
+    if let Some(path) = first_repeat(entries.iter().map(|entry| &entry.path)) {
+        return Err(ExecutionError::Duplicate {
+            list: "input entries",
+            value: path.to_string(),
+        });
     }
+    sorted.sort_by(|first, second| first.path.cmp(&second.path));
     let list = sorted
         .into_iter()
         .map(|entry| {
@@ -1806,23 +1801,19 @@ fn check_ascending<'a, T, K: Ord>(
     show: impl Fn(&'a T) -> String,
 ) -> Result<(), ExecutionError> {
     for pair in items.windows(2) {
-        if let [first, second] = pair {
-            match key(first).cmp(&key(second)) {
-                // EXPLICIT: an ascending pair has nothing to report
-                std::cmp::Ordering::Less => {}
-                std::cmp::Ordering::Equal => {
-                    return Err(ExecutionError::Duplicate {
-                        list,
-                        value: show(second),
-                    });
-                }
-                std::cmp::Ordering::Greater => {
-                    return Err(ExecutionError::Unsorted { list, key: by });
-                }
-            }
+        if let [first, second] = pair
+            && key(first) > key(second)
+        {
+            return Err(ExecutionError::Unsorted { list, key: by });
         }
     }
-    Ok(())
+    match first_clash(items.iter(), |item| key(item)) {
+        Some((_, repeat)) => Err(ExecutionError::Duplicate {
+            list,
+            value: show(repeat),
+        }),
+        None => Ok(()),
+    }
 }
 
 fn environment_order(first: &EnvironmentRef, second: &EnvironmentRef) -> std::cmp::Ordering {
@@ -1981,10 +1972,19 @@ impl Comparable {
     /// or at any depth of an array or object, and the errors of [`ComparableBuilder::build`].
     pub fn from_resolved(resolved: &[ResolvedValue]) -> Result<Self, ExecutionError> {
         let mut builder = Self::builder();
-        let mut seen: BTreeSet<&'static str> = BTreeSet::new();
-        for value in resolved {
+        let reserved_root = |value: &ResolvedValue| {
             let root = value.path().segments().next().unwrap_or_default();
-            let Some(reserved) = RESERVED_ROOTS.iter().copied().find(|name| *name == root) else {
+            RESERVED_ROOTS.iter().copied().find(|name| *name == root)
+        };
+        if let Some(root) = first_repeat(resolved.iter().filter_map(reserved_root)) {
+            return Err(ExecutionError::Duplicate {
+                list: "reserved roots",
+                // BORROW: .to_owned() makes the owned value
+                value: root.to_owned(),
+            });
+        }
+        for value in resolved {
+            let Some(reserved) = reserved_root(value) else {
                 if value
                     .value()
                     .is_some_and(|json| holds_absolute_path(json.as_value()))
@@ -2010,13 +2010,6 @@ impl Comparable {
                     problem: "has no value",
                 });
             };
-            if !seen.insert(reserved) {
-                return Err(ExecutionError::Duplicate {
-                    list: "reserved roots",
-                    // BORROW: .to_owned() makes the owned value
-                    value: reserved.to_owned(),
-                });
-            }
             // BORROW: .clone() hands the value to the typed reader
             builder = builder.reserved(reserved, json.as_value().clone())?;
         }
@@ -2609,15 +2602,13 @@ fn stray_source(path: &FieldPath) -> ExecutionError {
 
 /// Checks that `sources` covers the cell: one entry for each value path, and an entry at the root path or below it for `harness`, `treatment` and each non-empty list among `snapshots`, `inputs` and `environments`. A source of any other path is refused, and so is a repeated path (I12).
 fn check_sources(comparable: &Comparable, sources: &[SourceEntry]) -> Result<(), ExecutionError> {
-    let mut own: BTreeSet<&FieldPath> = BTreeSet::new();
-    for source in sources {
-        if !own.insert(source.path()) {
-            return Err(ExecutionError::Duplicate {
-                list: "sources",
-                value: source.path().to_string(),
-            });
-        }
+    if let Some(path) = first_repeat(sources.iter().map(SourceEntry::path)) {
+        return Err(ExecutionError::Duplicate {
+            list: "sources",
+            value: path.to_string(),
+        });
     }
+    let own: BTreeSet<&FieldPath> = sources.iter().map(SourceEntry::path).collect();
     let held: BTreeSet<&FieldPath> = comparable
         .values()
         .iter()
