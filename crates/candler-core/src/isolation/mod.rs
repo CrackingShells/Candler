@@ -55,8 +55,8 @@ pub enum IsolationError {
 
 /// The error for a path of the cell that is not a field path: the cell cannot be planned.
 ///
-/// Named at each call site (`.map_err(|error| cell_path_error(&error))`), so a path error never reaches the
-/// planner by a conversion the caller did not write.
+/// Named at each call site (`.map_err(|error| cell_path_error(&error))`), so a path error never becomes a
+/// plan error by a conversion the caller did not write.
 pub(crate) fn cell_path_error(error: &candler_schemas::primitives::FormatError) -> IsolationError {
     IsolationError::Plan {
         // BORROW: .to_string() makes the owned text the error keeps
