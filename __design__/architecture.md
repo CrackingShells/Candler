@@ -202,10 +202,12 @@ its step; `resolve` itself knows none.
 | File | Where | Keys |
 |---|---|---|
 | Project config | `candler.toml` in the project root, the nearest ancestor of the working directory holding one | `store.root` (default `<project root>/.candler/store`; with no project, `$XDG_STATE_HOME/candler/store`, else `~/.local/state/candler/store`), `plugins.dirs[]`, the directories `evaluate` finds plug-ins in |
-| User config | `$XDG_CONFIG_HOME/candler/config.toml`, else `~/.config/candler/config.toml` | `slots.count`, `slots.evaluators` |
+| User config | `$XDG_CONFIG_HOME/candler/config.toml`, else `~/.config/candler/config.toml` | `slots.count`, `slots.evaluators`, `gateway.upstream_ca` (a PEM file of the CAs the gateway sidecar trusts for the model upstream; its bytes reach only the sidecar, never the cell digest, argv, the job record or the agent) |
 
-Unknown keys are refused, naming the file and key. A machine-wide setting (`slots.count`, `slots.evaluators`) is
-refused in a project config. A relative path written in a config file resolves against that file's
+Unknown keys are refused, naming the file and key. A machine-wide setting (`slots.count`, `slots.evaluators`, `gateway.upstream_ca`) is
+refused in a project config; a `gateway.upstream_ca` that cannot be read as PEM is refused with
+`config.upstream_ca_invalid`. The supervisor is given the launcher's `XDG_CONFIG_HOME`, so it reads
+the same user config. A relative path written in a config file resolves against that file's
 directory; a relative path given as an argument resolves against the caller's working directory
 (I14).
 
@@ -502,8 +504,15 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
   pattern or "all". A container is destroyable if the job's `children/` records it, or if it is
   labelled for the current job or a lost one (its lock is free) with the matching run, and
   `docker inspect` re-verifies its labels and creation time right before `stop` or `rm`. A
-  mismatch is refused and reported. The gateway sidecar and the per-job network follow the same
-  rule. The destroy calls sit behind a seam with a recording fake, as `Signaller` does.
+  mismatch is refused and reported. The gateway sidecar, the egress proxies and the per-job
+  networks follow the same rule. The destroy calls sit behind a seam with a recording fake, as
+  `Signaller` does. The verification is made once per decision: a sweep that destroys many
+  containers runs one inspect per decision (`inspect_many`), not one per step. The identity facts
+  it checks (the labels and the creation time) are immutable, so one inspect stays true for the
+  whole decision. The sweep finds its candidates by listing the run label. A container that was
+  created but never run (a failure between `docker create` and `docker start`) is destroyed by
+  its creator, by id, through the same guard in the run scope (`SweepScope::Run`), never by a name
+  or a label match.
 - **Pre-stop over HTTP** reaches loopback only: the host is parsed, never matched as text, and must
   be `localhost`, `127.0.0.0/8` or `::1`; redirects are not followed. A failed or timed-out pre-stop
   continues the escalation.
@@ -538,6 +547,17 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
   second network, a user-defined egress network. A cell may ask for `bridge`
   (`isolation.network`) when the agent needs the internet: its container then joins the egress
   network as well (two `--network` flags on one `docker run`, Docker Engine 25 or newer).
+  A cell that lists hosts in `isolation.egress` reaches only those, through an egress proxy (below).
+  An internal network does not shut the host out by itself. Docker's `--internal` isolation sits
+  in the FORWARD chain, while traffic to an address the host owns on a bridge, its gateway, goes
+  through INPUT: a host listener bound on every address was reachable from an agent on an
+  internal network on a Linux daemon. Every internal network (the job network and each allow
+  network) is therefore created with `-o com.docker.network.bridge.inhibit_ipv4=true` and
+  `--ipv6=false`, so the bridge carries no host address to reach, and no agent has a host gateway.
+  The host reaches the sidecar and the proxy through `docker exec` and `docker inspect` only. The
+  egress guard's row 8 binds a listener on `0.0.0.0` and on `::` and tries the bridge gateways,
+  `host.docker.internal` and the host's link-local IPv6 address on the bridge, from an agent with
+  an allowlist and from an agent on the job network alone; each listener must receive no byte.
 - **The configuration surface.** Each path is a cell value (hashed and compared), a setting
   (dropped from `Comparable`) or a typed root (filled by derived steps, never by the file):
 
@@ -547,7 +567,7 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
   | `tools.allowed`, `tools.disallowed`, `mcp.*`, `permission_mode` | cell value |
   | `prompt.template`, `prompt.values` | cell value |
   | `isolation.image` (the derived local image ID), `isolation.network`, `isolation.env_lock`, `isolation.limits.*` | cell value |
-  | `isolation.egress` (a list of `host:port` strings; parsed and canonicalised as a sorted set, `[]` meaning absent; refused for now, see below) | cell value |
+  | `isolation.egress` (a list of `host:port` strings; parsed and canonicalised as a sorted set, `[]` meaning absent; enforced by the egress proxy, see below) | cell value |
   | `budget.per_run.{wall_s, turns, max_cost_usd}` | cell value |
   | `runner.mode` (`headless` or `session`; no core default, so an absent value is headless and every existing cell keeps its digest), `runner.idle_s` (whole seconds or `none`; session mode only) | cell value |
   | `isolation.build.{dockerfile, context}` (its content enters `inputs[]`); `isolation.build.{requirements, lock}` (the lock they give enters the cell as `isolation.env_lock`); `isolation.build.prune` (part of the env image's key, so it reaches the cell through `isolation.image`) | setting |
@@ -560,11 +580,27 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
   file's directory (I14).
 
 - **`isolation.egress`** is parsed and canonicalised (lowercase `host:port` entries, a sorted
-  set, `[]` the same as absent, so a cell without it keeps its digest). Until the egress proxy
-  exists the value is refused with `isolation.egress_unsupported`, at `resolve` and again for each
-  cell, whether the experiment or a plug-in environment wrote it. A malformed entry is
-  `isolation.egress_invalid`, and an entry beside `isolation.network = bridge` is
-  `isolation.egress_with_bridge`.
+  set, `[]` the same as absent, so a cell without it keeps its digest), whether the experiment or a
+  plug-in environment wrote it. A malformed entry is `isolation.egress_invalid`, and an entry
+  beside `isolation.network = bridge` is `isolation.egress_with_bridge`: a cell has the bridge or
+  an allowlist, never both.
+- **The egress proxy** enforces the allowlist. There is one proxy per distinct allowlist in a job,
+  on its own `--internal` network `candler-<job12>-allow-<digest8>`; the proxy is nginx pinned by
+  digest, with an njs filter taken from the image. The rule is per port and per SNI: a connection
+  to a listed `host:port` is forwarded, any other is closed. The proxy resolves the name at connect
+  time, so a listed name that moves is followed. The filter refuses loopback and link-local
+  addresses and closes the session before any client byte is forwarded; the TCP connect to that
+  address still happens, and that is a residual. There is no TLS interception: the proxy reads the
+  SNI and forwards the stream untouched, so it cannot allow part of a host (a URL path), and a
+  listed host behind a shared CDN front is reachable by fronting (§Future features).
+  Each allowlisted agent reaches a listed name through `--add-host <name>:<proxy allow IP>`, one
+  per listed name, sorted. The proxy carries no network alias equal to a listed name: such an alias
+  would resolve to the proxy itself through Docker's embedded resolver and bypass the rule. The
+  proxy's IP is read once after it starts and is run-time only: it is in the argv and the
+  container record, never in a cell value or a digest, so the same allowlist keeps one digest. The
+  proxy is never restarted inside a job; if it dies, the egress cells that use it fail. There is
+  no readiness probe after start, and `ssl_preread` stalls a protocol where the server speaks
+  first on a shared SNI port.
 
 ### Raw traces
 
@@ -1358,7 +1394,7 @@ request files under the new evaluator version; `diff` compares versions.
 | I5 | Only deterministic evaluators may hold the `gate` or `quality` role. |
 | I6 | **Instrument pinning.** A checker shared by the treatment and the evaluator is a library with its own version. The evaluator depends on a pinned version and reports it in `describe` with a content digest and a dirty flag; every outcome records them. Dirty instruments cannot grade `gate` or `quality` expectations. One experiment grades all its arms with one instrument version unless it says otherwise. |
 | I7 | Arms differ only in declared treatment factors. The diff of comparability fields proves it. |
-| I8 | Ground truth never exists inside the isolation boundary, and no surface exposes it while its run is live. |
+| I8 | Ground truth never exists inside the isolation boundary, and no surface exposes it while its run is live. The refusal `isolation.ground_truth_exposed` enforces it at `resolve`; the guards are `guard_ground_truth_refusal::refuses_*` and `i8_canary_never_reaches_the_agent`. |
 | I9 | Observation never alters behaviour. |
 | I10 | An invalid run is never a failure. Invalid runs are reported per arm, with a reason. |
 | I11 | Outcomes, events and run attempts are append-only. A sealed record (a run with `run.done`, a committed outcome file, a written event) is never replaced or deleted; what never sealed, such as a `.partial` or an unfinished import, is not a record. |
@@ -1390,6 +1426,7 @@ request files under the new evaluator version; `diff` compares versions.
 | Resume finds a re-checked value changed | Refused unless forced; a forced deviation is recorded per run |
 | Arms differ outside declared factors | The stratum is invalid; comparisons are refused |
 | Dirty instrument asked to grade a gate or quality expectation | `resolve` fails |
+| An input that would put ground truth inside the isolation boundary | `resolve` refuses with `isolation.ground_truth_exposed` (side `experiment`); no run starts |
 
 ### Refusals
 
@@ -1557,15 +1594,14 @@ by the original artifact commit `36290ab`, and is imported under `measured`. At 
 | First Rust project | Grit conventions and their reviewer; small crates; schemas and protocol first |
 | The lean CLI regrows flags | Every new option must say why it cannot be derived or live in the experiment file |
 | An agent driving the MCP surface spends without bound or reads ground truth | Mandatory budgets (I13); read/mutate split; I8 at the surface |
+| An agent reaches a host outside its allowlist (egress bypass) | One `--internal` network and one proxy per allowlist; per-port and SNI rule; name resolved at connect time; loopback and link-local closed before any client byte; no alias equal to a listed name; the attack rows of the egress guard are the evidence. Residuals (domain fronting, the connect to a refused address) are in §Future features |
 
 ## Future features
 
 What is not built, and what would make us build it. An item is built when its trigger is met by
 evidence, not by a date, and no milestone builds one on spec: a milestone needs an item's trigger
 first. Candler stays at `0.y.z` through a long dogfooding period, so no item here waits on a freeze.
-Decided and scheduled work is not listed: M5b builds the egress proxy (the allowlist's
-enforcement), the reuse of the guard (A1), the refusal of ground truth with its end-to-end
-guard (D9, I8), and the live smoke; M6a builds the paired tests and settles the pairing keys, the
+Decided and scheduled work is not listed: M6a builds the paired tests and settles the pairing keys, the
 execution order and the blocking factor (recorded in §Analysis statistics); M7 builds the MCP tool
 shapes and the agent skills; M8 builds the second plug-in and adds its gaps to this list. The
 container backend is decided (M2b): Docker through its CLI, one `docker run` per run; `Isolation`
@@ -1575,7 +1611,7 @@ turns a plan into a spawn request, then collects and destroys.
 
 | Item | What it is | Why it might be needed | Trigger |
 |:--|:--|:--|:--|
-| Plug-in sidecar services | A service the plug-in starts beside the agent container, such as a server stub the agent talks to | An eval's hidden state cannot sit in the workspace or the plug-in's own process | An eval whose hidden state can't live outside the agent container |
+| Plug-in sidecar services | A service the plug-in starts beside the agent container, such as a server stub the agent talks to; its second consumer is an MCP server that reaches a real system with a secret (HTN's rikyu servers), run on the runner side as the model gateway holds its key, never in the agent container | An eval's hidden state cannot sit in the workspace or the plug-in's own process | An eval whose hidden state can't live outside the agent container |
 | Pre-destroy collection from the agent container | A hook that copies named files or process facts out of the container before `destroy` | The in-workspace process record may miss what ran in the container | M8's in-workspace process record proves insufficient |
 | Whole-container census and the long-lived handle | `create`, `exec`, `inject` and a whole-container `census` on one container handle | A process the agent starts outside the workspace tree, visible only from inside the container | M8's gap report names a stray that the in-workspace record missed |
 | macOS host backend | An `Isolation` that runs the agent on the host, as its own stratum | Behaviour that differs between BSD and GNU tools | An eval comparing BSD and GNU behaviour |
@@ -1588,6 +1624,16 @@ turns a plan into a spawn request, then collects and destroys.
 | Long-lived workers | A worker that serves many runs | Start-up cost per run | A measured start-up cost that dominates a run |
 | Signals error versus census | One ruling for `runner/exec/mod.rs:777`, which reads a signals error as "gateway did not fail" while the census reads it as "not collected" | The two readings can disagree on the same fact | The next change to either reader |
 | Catalog capture of input-delivered servers | A mount seam in `catalog_spec` and an inputs-aware provider | The per-run catalog cannot see servers delivered through inputs | An eval that must grade against the run's own captured catalog of input-delivered servers, or an automated snapshot-versus-live check |
+| URL-path allowlist | An allowlist that admits part of a host, through TLS interception at the proxy | The proxy reads only the SNI, so it cannot tell two paths of one host apart | An eval that must allow part of a host |
+| Domain fronting | Closing the residual that a listed host behind a shared CDN front is reachable under another name | The SNI rule trusts the name the client presents | A listed host behind a shared CDN front |
+| Transformed copy of ground truth | Detection of ground truth that was encoded or reformatted before it reached the boundary | Digests of the original miss a transformed copy | A leak that digests missed |
+| Ground truth through a symlink; one context walk | Refusal of ground truth reached through a symlink, and one context walk shared by the refusal (D9) and the build | The refusal and the build walk the context separately | The triggers in `__reports__/m5b-egress-proxy/leaves/ground_truth_refusal_v0.md` |
+| Fixed `--ip` for the egress proxy | A proxy address set by Candler instead of read after start | The proxy cannot restart inside a job, because its IP is read once | A proxy that must restart inside a job |
+| Proxy readiness probe; server-first protocols | A probe after the proxy starts, and a way to pass a protocol where the server speaks first on a shared SNI port, which `ssl_preread` stalls | A first connect can race the proxy's start, and a server-first service stalls | An eval whose listed service speaks first, or whose first connect races the proxy's start |
+| Origin of a plug-in-derived value in a refusal | The refusal `experiment.absolute_path` names the plug-in that contributed the value | `Comparable::from_resolved` refuses without saying which plug-in supplied the path | A second plug-in-derived value needs its origin |
+| `Surface` caller | Either the drivers read `Surface`, or it is deleted | Only the guard `guard_resolve_surface::b19` builds it; no production code does | A driver change that needs the surface, or the next dead-code pass |
+| Proxy denial record | A host the proxy denies is recorded as a proxy denial, not seen by the agent as a DNS failure or an empty close | The njs refusal throws, so the client gets 0 bytes and a close, and nothing records the denial | An eval that must count or explain denied hosts |
+| Gateway image tag as a content key | `SIDECAR_TAG` (`candler-gateway:latest`) replaced by a content key, with the product building the image | The tag is not a content key and the product never builds it | A product path that builds or pulls the gateway image |
 | Parallel container e2e (D4) | Run the container end-to-end tests in parallel | Shorter CI | A per-test analysis of sweep scope shows no overlap |
 
 ### Experiments and analysis

@@ -163,6 +163,9 @@ pub fn create_argv(plan: &ContainerPlan, cmd: &CommandSpec) -> Result<Vec<String
         // BORROW: the owned copy is made where it is needed
         argv.extend([String::from("--network"), egress.as_str().to_owned()]);
     }
+    for (name, ip) in &plan.add_hosts {
+        argv.extend([String::from("--add-host"), format!("{name}:{ip}")]);
+    }
     if let UserSpec::Host { uid, gid } = &plan.user {
         argv.extend([String::from("--user"), format!("{uid}:{gid}")]);
     }

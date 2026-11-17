@@ -30,6 +30,7 @@ use candler_core::jobs::runtime::detach::{DetachArgs, detach};
 use candler_core::jobs::runtime::launch::{mint_job_id, own_identity, spec_digest};
 use candler_core::resolve::config::{Config, ConfigEnv};
 use candler_core::resolve::layers::{FileValues, Layered, Resolution, ResolveInput};
+use candler_core::resolve::steps::ground_truth::GroundTruth;
 use candler_core::resolve::steps::plugin_environment::Fragment;
 use candler_core::runner::plan::{Force, PlanCtx, PlanMode, experiment_of, plan_runs};
 use candler_core::store::Store;
@@ -53,9 +54,10 @@ pub const STORE_ENV: &str = "CANDLER_STORE_ROOT";
 
 /// The variables of the launcher the supervisor is given, besides the secrets the experiment
 /// declares and [`STORE_ENV`].
-const ENV_ALLOWLIST: [&str; 5] = [
+const ENV_ALLOWLIST: [&str; 6] = [
     "PATH",
     "HOME",
+    "XDG_CONFIG_HOME",
     "XDG_STATE_HOME",
     "DOCKER_HOST",
     "DOCKER_CONTEXT",
@@ -165,7 +167,9 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let declared = declare_inputs(&store, &file, experiment_dir.as_path(), fragment.as_ref())?;
     let input = with_declared_inputs(settings, &declared)?;
     let driver = Registry::builtin().driver(&requested_harness(&input)?)?;
-    let services = foreground(Arc::clone(&config), &root, &driver)?;
+    let own_kinds: Vec<String> = file.inputs().iter().map(|i| i.kind().to_string()).collect();
+    let truth = GroundTruth::from_inputs(declared.files.as_slice(), own_kinds.as_slice()); // BORROW: explicit .as_slice()
+    let services = foreground(Arc::clone(&config), &root, &driver, truth)?;
     ensure_sidecar(&services.cli, services.gateway_context).await?;
     let resolution = services
         .resolver
@@ -287,4 +291,23 @@ async fn start(
         .map_err(failed)?;
     writeln!(std::io::stdout(), "{id}").map_err(failed)?;
     Ok(Exit::Success)
+}
+
+#[cfg(test)]
+mod allowlist_tests {
+    use super::ENV_ALLOWLIST;
+
+    /// Guards: the supervisor reads the machine configuration (the model upstream's CA) from the
+    /// same directory as the launcher, so the allowlist carries the variable that names it.
+    ///
+    /// Oracle: the variable `ConfigEnv::from_process` reads for the configuration directory.
+    ///
+    /// Bite: `XDG_CONFIG_HOME` removed from the allowlist (red here).
+    #[test]
+    fn the_supervisor_is_given_the_launchers_config_home() {
+        assert!(
+            ENV_ALLOWLIST.contains(&"XDG_CONFIG_HOME"),
+            "the supervisor would read another configuration than the launcher's"
+        );
+    }
 }

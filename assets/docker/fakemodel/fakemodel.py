@@ -8,6 +8,8 @@ Environment:
     FAKE_PORT    the TLS port (default 8443).
     FAKE_DIR     where the certificates and the records go (default /tmp/fake).
     FAKE_OUT_TOKENS  output tokens each answer reports (default 20).
+    FAKE_DELAY_SECS  how long the answer to a c3 request is held, after it is recorded (default 0,
+                 at most 120).
 
 The server exits when the file FAKE_DIR/done exists, so that whoever started it can end it
 with a `docker exec` and no destroy verb.
@@ -24,12 +26,15 @@ The script is chosen by the model id of a /v1/messages request:
         is answered with text. A user message that carries a background job's completion is
         answered with a second text. Anything else is answered with text.
     c2  must stop. Every request is answered "hello".
+    c3  must be slow. Every request is answered "hello" after FAKE_DELAY_SECS seconds, so that a
+        run is live and its agent is mid-turn for that long.
 
 Any other model id (the harness's small model, for titles and the like) gets a short harmless
 text. Every path other than /v1/messages is answered 200 with a small JSON body, and an unknown
 one is logged as such.
 """
 
+import ipaddress
 import json
 import os
 import ssl
@@ -44,6 +49,7 @@ HOST = os.environ.get("FAKE_HOST", "fake-anthropic.test")
 PORT = int(os.environ.get("FAKE_PORT", "8443"))
 DIR = os.environ.get("FAKE_DIR", "/tmp/fake")
 OUT_TOKENS = int(os.environ.get("FAKE_OUT_TOKENS", "20"))
+DELAY_SECS = max(0, min(int(os.environ.get("FAKE_DELAY_SECS", "0")), 120))
 JOB_COMMAND = "sleep 20 && date +%s%N > /work/job.done && echo job-finished"
 LOCK = threading.Lock()
 COUNTER = [0]
@@ -64,7 +70,12 @@ def make_certs():
     run("ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", "key.pem")
     run("req", "-new", "-key", "key.pem", "-out", "server.csr", "-subj", "/CN=" + HOST)
     with open(os.path.join(DIR, "ext.cnf"), "w", encoding="utf-8") as ext:
-        ext.write("subjectAltName=DNS:" + HOST + "\nbasicConstraints=CA:FALSE\n"
+        try:
+            ipaddress.ip_address(HOST)
+            kind = "IP:"
+        except ValueError:
+            kind = "DNS:"
+        ext.write("subjectAltName=" + kind + HOST + "\nbasicConstraints=CA:FALSE\n"
                   "keyUsage=digitalSignature\nextendedKeyUsage=serverAuth\n")
     run("x509", "-req", "-in", "server.csr", "-CA", "ca.pem", "-CAkey", "ca.key",
         "-CAcreateserial", "-out", "cert.pem", "-days", "2", "-extfile", "ext.cnf")
@@ -97,6 +108,8 @@ def script_blocks(model, state):
     """The content blocks, the stop reason and a label of the answer for one request."""
     if model.startswith("c2"):
         return [{"type": "text", "text": "hello"}], "end_turn", "c2-hello"
+    if model.startswith("c3"):
+        return [{"type": "text", "text": "hello"}], "end_turn", "c3-slow"
     if model.startswith("c1"):
         if state == "prompt":
             tool = {"type": "tool_use", "id": "toolu_fake_job", "name": "Bash",
@@ -207,6 +220,8 @@ class Handler(BaseHTTPRequestHandler):
             with open(os.path.join(DIR, "records.jsonl"), "a", encoding="utf-8") as out:
                 out.write(json.dumps(record) + "\n")
             print(json.dumps({k: v for k, v in record.items() if k != "body"}), flush=True)
+        if decision.startswith("c3-slow"):
+            time.sleep(DELAY_SECS)
         if status == 401:
             self.send_json(401, {"type": "error", "error": {"type": "authentication_error",
                                                             "message": "invalid credentials"}})

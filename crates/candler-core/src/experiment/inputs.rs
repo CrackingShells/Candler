@@ -20,6 +20,17 @@ use candler_schemas::primitives::{FormatError, RelPath};
 use crate::runner::evidence::InputDigest;
 use crate::store::{Store, StoreError};
 
+/// The files of one declared input, as stored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InputFiles {
+    /// The input's kind.
+    pub kind: String,
+    /// Whether the input is for the evaluators only.
+    pub evaluator: bool,
+    /// The input's files, sorted by path, each with the digest of its bytes.
+    pub entries: Vec<InputEntry>,
+}
+
 /// What a declared set of inputs resolved to.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ResolvedInputs {
@@ -29,6 +40,8 @@ pub struct ResolvedInputs {
     pub mounts: Vec<InputDigest>,
     /// The evaluator-only inputs as `{kind, digest}`, sorted by kind.
     pub evaluators: Vec<DigestRef>,
+    /// The files of every input, in declaration order.
+    pub files: Vec<InputFiles>,
 }
 
 /// Why the declared inputs were refused.
@@ -119,6 +132,11 @@ pub fn resolve_input_groups(
         let files = walk(input, experiment_dir)?;
         let (digest, entries) = store_input(store, input, &files)?;
         let reference = DigestRef::new(input.kind().clone(), digest); // BORROW: the reference owns its kind
+        resolved.files.push(InputFiles {
+            kind: input.kind().to_string(),
+            evaluator: matches!(input.audience(), InputAudience::Evaluators),
+            entries: entries.clone(), // BORROW: the record owns its entries
+        });
         match input.audience() {
             InputAudience::Agent => {
                 let prefix = at_prefix(input.at());

@@ -1,0 +1,17 @@
+# The egress proxy of one allowlist: nginx `stream` with `ssl_preread`. Rendered by entrypoint.sh
+# in `GW_MODE=egress`. Only GW_RESOLVER and GW_EGRESS_SERVERS are substituted; the servers are the
+# text Candler rendered from the canonical allowlist. Nothing here holds a credential.
+load_module /usr/lib/nginx/modules/ngx_stream_js_module.so;
+worker_processes 1;
+error_log /dev/stderr warn;
+pid /tmp/nginx.pid;
+events { worker_connections 1024; }
+stream {
+  js_import egress from /etc/gw/egress.js;
+  # The upstream names resolve at connect time, so no address is pinned at start.
+  resolver ${GW_RESOLVER} valid=1s ipv6=off;
+  resolver_timeout 3s;
+  # A session never retries another address: the filter judges the one address nginx used.
+  proxy_next_upstream off;
+${GW_EGRESS_SERVERS}
+}

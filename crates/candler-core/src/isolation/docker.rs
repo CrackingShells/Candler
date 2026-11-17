@@ -369,12 +369,22 @@ fn not_a_full_id(id: &str) -> DockerError {
 }
 
 /// Whether `text` is the name of a job's network: `candler-<12 hex digits>-net` or
-/// `candler-<12 hex digits>-egress`.
+/// `candler-<12 hex digits>-egress`, or `candler-<12 hex digits>-allow-<8 hex digits>`.
 fn is_job_network(text: &str) -> bool {
     text.strip_prefix("candler-")
         .and_then(|rest| {
             rest.strip_suffix("-net")
                 .or_else(|| rest.strip_suffix("-egress"))
+                .or_else(|| {
+                    rest.split_once("-allow-")
+                        .filter(|(_, digest)| {
+                            digest.len() == 8
+                                && digest
+                                    .bytes()
+                                    .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+                        })
+                        .map(|(short, _)| short)
+                })
         })
         .is_some_and(|short| {
             short.len() == 12
@@ -552,10 +562,19 @@ fn image_inspect_args(reference: &str) -> Vec<String> {
 }
 
 /// The arguments of `docker network create`.
+///
+/// An internal network also gets no host address: `--internal` cuts forwarding, but traffic to an
+/// address the host owns on the bridge reaches the host through its INPUT path, so the bridge
+/// takes no IPv4 gateway address and IPv6 is off.
 fn network_create_args(name: &NetworkName, internal: bool, labels: &Labels) -> Vec<String> {
     let mut args = to_args(&["network", "create"]);
     if internal {
         args.push("--internal".to_owned()); // BORROW: .to_owned() gives the argument its own text
+        args.extend(to_args(&[
+            "-o",
+            "com.docker.network.bridge.inhibit_ipv4=true",
+            "--ipv6=false",
+        ]));
     }
     for (key, value) in labels.iter() {
         args.push("--label".to_owned()); // BORROW: .to_owned() gives the argument its own text
@@ -871,6 +890,21 @@ impl DockerDriver for DockerCli {
         sel: &'a LabelSel,
     ) -> BoxFuture<'a, Result<Vec<ContainerRef>, DockerError>> {
         Box::pin(async move {
+            let found = self.ps_inspect_by_label(sel).await?;
+            Ok(found
+                .into_iter()
+                .map(|inspected| {
+                    ContainerRef::new(inspected.id, inspected.labels, inspected.created)
+                })
+                .collect())
+        })
+    }
+
+    fn ps_inspect_by_label<'a>(
+        &'a self,
+        sel: &'a LabelSel,
+    ) -> BoxFuture<'a, Result<Vec<Inspect>, DockerError>> {
+        Box::pin(async move {
             if !sel.key.starts_with("candler.") || sel.value.is_empty() {
                 return Err(DockerError::Failed {
                     // BORROW: the error owns its text
@@ -878,20 +912,37 @@ impl DockerDriver for DockerCli {
                 });
             }
             let listed = self.runner.run(ps_args(sel), CALL_DEADLINE).await?;
+            let ids = parse_ids(&listed)?;
             let mut found = Vec::new();
-            for id in parse_ids(&listed)? {
-                // BORROW: .as_str() hands the id to inspect
-                match self.inspect(id.as_str()).await {
-                    Ok(inspected) => found.push(ContainerRef::new(
-                        inspected.id,
-                        inspected.labels,
-                        inspected.created,
-                    )),
+            if ids.is_empty() {
+                return Ok(found);
+            }
+            // one inspect for the whole list; a container removed since the list is skipped
+            for answer in self.inspect_many(&ids).await {
+                match answer {
+                    Ok(inspected) => found.push(inspected),
                     Err(DockerError::NotFound { .. }) => {}
                     Err(error) => return Err(error),
                 }
             }
             Ok(found)
+        })
+    }
+
+    fn networks_of_job<'a>(
+        &'a self,
+        job: &'a candler_schemas::primitives::JobId,
+    ) -> BoxFuture<'a, Result<Vec<NetworkName>, DockerError>> {
+        Box::pin(async move {
+            let mut args = to_args(&["network", "ls", "--no-trunc", "--format", "{{.Name}}"]);
+            args.push("--filter".to_owned()); // BORROW: .to_owned() gives the argument its own text
+            args.push(format!("label=candler.job={job}"));
+            let text = self.runner.run(args, CALL_DEADLINE).await?;
+            Ok(text
+                .lines()
+                .map(str::trim)
+                .filter_map(|line| NetworkName::listed(job, line))
+                .collect())
         })
     }
 
@@ -999,5 +1050,48 @@ impl DestroyDriver for DockerDestroyer {
             let args = to_args(&["network", "rm", name.as_str()]);
             self.runner.run(args, CALL_DEADLINE).await.map(|_| ())
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use candler_schemas::primitives::JobId;
+
+    use super::*;
+
+    fn job_network() -> NetworkName {
+        let job: JobId = "00000000-0000-7000-8000-000000000000"
+            .parse()
+            .expect("a job id");
+        NetworkName::for_job(&job)
+    }
+
+    /// Guards: an internal network gives the host no address on its bridge, over IPv4 or IPv6.
+    /// Oracle: the argv of `docker network create` for an internal network names both options.
+    #[test]
+    fn internal_network_gets_no_host_address() {
+        let args = network_create_args(&job_network(), true, &Labels::new());
+        let has = |flag: &str| args.iter().any(|arg| arg == flag);
+        assert!(has("--internal"), "{args:?}");
+        assert!(has("--ipv6=false"), "{args:?}");
+        assert!(
+            args.windows(2)
+                .any(|pair| pair[0] == "-o"
+                    && pair[1] == "com.docker.network.bridge.inhibit_ipv4=true"),
+            "{args:?}"
+        );
+    }
+
+    /// Guards: the egress network keeps its host address, which the proxy's upstream needs.
+    /// Oracle: the argv of a non-internal network carries neither option.
+    #[test]
+    fn egress_network_keeps_its_defaults() {
+        let args = network_create_args(&job_network(), false, &Labels::new());
+        assert!(
+            !args
+                .iter()
+                .any(|arg| arg.contains("inhibit_ipv4") || arg.contains("ipv6")),
+            "{args:?}"
+        );
     }
 }

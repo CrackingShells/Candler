@@ -411,3 +411,82 @@ async fn b13_client_killed_container_gone() {
     })
     .await;
 }
+
+/// Guards: R01 §Process supervision (D7) — on a real daemon one multi-id inspect answers a
+/// removed container as `NotFound` for its id alone and keeps the facts of the others, and the
+/// sweep of a run destroys exactly the run's own containers by id and leaves another job's alone.
+/// Oracle: `docker ps -a` under each job's label before and after, and the ids `docker run`
+/// printed for the four containers made here; docker's partial answer is the engine's, measured.
+/// Bite: map an error of the whole call when one id is missing in `inspect_many`, or sweep the run
+/// by the job label alone (the other job's container then goes).
+#[tokio::test]
+#[ignore = "needs a docker daemon and the testagent image; run by the container-e2e group"]
+async fn destroy_verifies_by_one_inspect() {
+    let rig = Rig::new();
+    let current = unique_job(7);
+    let other = unique_job(8);
+    let (run, other_run) = (run_key(21), run_key(22));
+    let made = [
+        Made {
+            job: current.clone(),    // BORROW: .clone() gives the record its own job
+            runs: vec![run.clone()], // BORROW: .clone() gives the record its own run
+            lost: Vec::new(),
+        },
+        Made {
+            job: other.clone(),            // BORROW: .clone() gives the record its own job
+            runs: vec![other_run.clone()], // BORROW: .clone() gives the record its own run
+            lost: Vec::new(),
+        },
+    ];
+    guarded(&rig, &made, async {
+        let first = start(&rig, &current, "agent", Some(&run), None);
+        let removed = start(&rig, &current, "gateway", Some(&run), None);
+        let third = start(&rig, &current, "gateway", Some(&run), None);
+        let foreign = start(&rig, &other, "agent", Some(&other_run), None);
+
+        let gone = Command::new(rig.cli.binary())
+            .args(["rm", "--force", "--volumes", removed.as_str()]) // BORROW: .as_str() hands the exact id to docker
+            .output()
+            .expect("docker runs");
+        assert!(gone.status.success(), "docker rm failed");
+
+        let asked = vec![first.clone(), removed.clone(), third.clone()]; // BORROW: .clone() gives the request its own ids
+        let answers = rig.cli.inspect_many(&asked).await;
+        assert_eq!(answers.len(), 3);
+        assert_eq!(
+            answers[0].as_ref().expect("the first is found").id.as_str(),
+            first
+        ); // BORROW: .as_str() compares the id
+        assert!(
+            matches!(&answers[1], Err(DockerError::NotFound { .. })),
+            "the removed id alone is NotFound: {:?}",
+            answers[1]
+        );
+        assert_eq!(
+            answers[2].as_ref().expect("the third is found").id.as_str(),
+            third
+        ); // BORROW: .as_str() compares the id
+
+        let view = FakeJobView::new(current.clone()).shared(); // BORROW: .clone() gives the view its own job
+        let swept = rig
+            .sweeper(&view)
+            .sweep_report(&SweepScope::Run(run.clone())) // BORROW: .clone() gives the scope its own key
+            .await
+            .expect("a sweep");
+        assert!(!swept.sweep.unknown, "{swept:?}");
+        assert_eq!(swept.sweep.refused, Vec::new(), "{swept:?}");
+        let mut destroyed: Vec<String> = swept
+            .sweep
+            .destroyed
+            .iter()
+            .map(|container| container.cid.as_str().to_owned()) // BORROW: .as_str() and .to_owned() give the list its own ids
+            .collect();
+        destroyed.sort();
+        let mut expected = vec![first.clone(), third.clone()]; // BORROW: .clone() gives the list its own ids
+        expected.sort();
+        assert_eq!(destroyed, expected, "the run's two live containers, by id");
+        assert_eq!(listed(&rig, &current), Vec::<String>::new());
+        assert_eq!(listed(&rig, &other), [foreign.as_str()]); // BORROW: .as_str() compares the id
+    })
+    .await;
+}

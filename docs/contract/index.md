@@ -75,6 +75,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `config.run_directory_invalid` | The directory given to `inspect` holds a `manifest.json` but is not named by a run key, or is not below the `runs` directory of a store. | - | config |
 | `config.toml_invalid` | A configuration file is not valid TOML. | - | config |
 | `config.unknown_key` | A configuration file holds a key that no table defines, such as a misspelt setting. | The unknown key in the configuration file named in the message. | config |
+| `config.upstream_ca_invalid` | `gateway.upstream_ca` names a file that cannot be read or holds no PEM certificate. | The `gateway.upstream_ca` key in the user configuration file named in the message. | config |
 | `config.wrong_type` | A configuration key holds a value of the wrong type. | The key in the configuration file named in the message. | config |
 | `evaluation.artifact_glob_invalid` | An artifact glob in the needs of a kind is not a glob. | - | plugin |
 | `evaluation.blob_corrupt` | A blob of the store does not have the digest the store records for it. | - | environment |
@@ -122,7 +123,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `isolation.docker_step_failed` | Docker failed while the run was being placed in a container. | - | environment |
 | `isolation.docker_unavailable` | The docker client cannot be reached or does not offer the call. | - | environment |
 | `isolation.egress_invalid` | `isolation.egress` is not a list of `host:port` strings, or an entry is an IP literal, holds a wildcard, a scheme or a path, has no port or a port outside 1 to 65535, or is not an RFC 1123 hostname with at least one dot. | - | experiment |
-| `isolation.egress_unsupported` | `isolation.egress` is set, by the experiment or by a plug-in environment, and no run enforces an egress allowlist yet. | - | experiment |
+| `isolation.egress_unsupported` | Lifted, no refusal emits it: `isolation.egress` is accepted and enforced by the egress proxy. | - | experiment |
 | `isolation.egress_with_bridge` | A cell sets `isolation.egress` and `isolation.network = bridge`, which reaches the whole internet. | - | experiment |
 | `isolation.env_name_invalid` | An environment name is empty or holds `=` or a NUL byte. | - | config |
 | `isolation.env_name_repeated` | The environment sets one name twice. | - | config |
@@ -135,6 +136,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `isolation.gateway_unauthorized` | The upstream refused the credential with status 401. | - | environment |
 | `isolation.gateway_unavailable` | The gateway the run needs is not available. | - | environment |
 | `isolation.gateway_upstream_error` | The upstream answered with an error status other than 401 and 429. | - | environment |
+| `isolation.ground_truth_exposed` | The bytes of an evaluator-only input are also in what the agent receives: the Dockerfile or the build context of the experiment or of a plug-in environment, an agent input of the experiment or of a plug-in environment, or the treatment's skill tree. A renamed copy is found; an empty file, and a compressed or transformed copy, are not. | - | experiment |
 | `isolation.guard_docker_failed` | Docker failed under the container guard; nothing was destroyed after that call. | - | environment |
 | `isolation.guard_job_unreadable` | The job directory could not be read, so the guard could not tell what is recorded. | - | environment |
 | `isolation.harness_version_unreadable` | The version output of the harness in the image names no version. | - | environment |

@@ -7,11 +7,11 @@
 - [ ] [cmd] L0 is merged, so D9's step exists for the third Bite: `git log --format=%s | grep -q '^merge(isolation): land ground_truth_refusal'`
 - [ ] [nl] OWNED: a new `crates/candler/tests/it/guard_cli_e2e/i8_e2e.rs` with its `#[path]` module line in `crates/candler/tests/it/guard_cli_e2e.rs` (a single file today, not a directory), its fixture experiment and plug-in, and a seeker mode in `assets/docker/testagent/testagent.sh`. It edits no `src/` file: a defect found there is reported, not fixed. A Bite is a temporary local edit (for example in `mount_inputs`, `runner/exec/mod.rs`), never committed. CI's expected list gets this leaf's name through `egress_attack`
 **Success Gates**:
-- ⬜ [cmd] The e2e passes with Docker up, under the B4 flock: `cargo nextest run -p candler --no-tests=fail --run-ignored only -E 'test(/^guard_cli_e2e::.*i8_/)'`
-- ⬜ [cmd] The run's container and images are removed by id: `docker images -q` and `docker ps -aq` before and after are equal, as recorded in the report
-- ⬜ [cmd] SPAWN, STD (`-p candler`), LINUX, E2E and SUBJ pass (README, standard gates)
-- ⬜ [nl] The leaf report records each checkpoint's observation and the three Bites seen red: the audience filter flipped in `mount_inputs`, the input added to the agent's environment, and the D9 step disabled with the canary planted in a plug-in agent input
-- ⬜ [nl] The adversarial verifier (Sonnet, a fresh agent that did not write the e2e) closed with no open finding. It attacks: mounts (the store root, HOME placement, the collect container, the blob directory); the environment (the driver overlay, state env, secrets); logs (gateway, docker, raw frames); the driver's files (skills, base context, MCP config, the plug-in directory); images (build and plug-in contexts); the egress proxy; and D9's walk
+- ✅ [cmd] The e2e passes with Docker up, under the B4 flock: `cargo nextest run -p candler --no-tests=fail --run-ignored only -E 'test(/^guard_cli_e2e::.*i8_/)'`
+- ✅ [cmd] The run's container and images are removed by id: `docker images -q` and `docker ps -aq` before and after are equal, as recorded in the report
+- ✅ [cmd] SPAWN, STD (`-p candler`), LINUX, E2E and SUBJ pass (README, standard gates)
+- ✅ [nl] The leaf report records each checkpoint's observation and the three Bites seen red: the audience filter flipped in `mount_inputs`, the input added to the agent's environment, and the D9 step disabled with the canary planted in a plug-in agent input
+- ✅ [nl] The adversarial verifier (Sonnet, a fresh agent that did not write the e2e) closed with no open finding. It attacks: mounts (the store root, HOME placement, the collect container, the blob directory); the environment (the driver overlay, state env, secrets); logs (gateway, docker, raw frames); the driver's files (skills, base context, MCP config, the plug-in directory); images (build and plug-in contexts); the egress proxy; and D9's walk
 **References**: [R01 I8](../../../__design__/architecture.md); [R04 the attack list](/Users/hacker/Library/Application%20Support/Claude/side-session-notes/local_7f577b41-1698-4eeb-9de3-4ee9460ae606/m5-approved-plan.md); [R03 B7, I8 guard](/Users/hacker/Library/Application%20Support/Claude/side-session-notes/local_7f577b41-1698-4eeb-9de3-4ee9460ae606/m5b-approved-plan.md); existing seams `crates/candler/tests/it/guard_input_seam.rs` and `crates/candler-core/tests/it/guard_declared_inputs.rs`; [moved leaf](../../m5-container-isolation/client/seams/egress/proof/ground_truth_e2e.md) — source text
 
 ## Step 1: Teach the testagent to seek a canary
@@ -33,7 +33,7 @@
 1. Verify first how the cli e2e rig runs (`guard_cli_e2e.rs`, `support/cli_run.rs`): which harness stub, which model, whether the real gateway runs. Use the fake model and the real gateway if the rig can, and report what it could not use.
 2. The experiment has two inputs carrying canary bytes and a canary file name: an evaluator-only input; and a plug-in environment (values and agent inputs only, so the testagent base serves) whose agent inputs hold an ordinary file.
 3. Checkpoints:
-   - inside: the seeker's three reports (start, first turn, end);
+   - inspect before start (one inspect of env, mounts and labels, plus the image history; a created container cannot be exec'd), then `docker exec -i -u 10001 <agent id> sh -s` with the seeker live and at the end, before the destroy (B7's premise, a testagent as the agent, is withdrawn: the agent is real Claude Code);
    - from the host, after create and before start: the container's inspect (mounts, env, labels) and the image history;
    - while the run is live: `candler ps`, `show` and `inspect`;
    - after the run: gateway logs, the raw frames and the collect container's mounts.

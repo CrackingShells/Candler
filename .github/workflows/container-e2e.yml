@@ -30,7 +30,10 @@ jobs:
   e2e:
     name: Container e2e (Linux)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # One thread, so the guards run in series: the i8 guard alone takes about 110 s (107 to 112 s
+    # measured, on a warm Mac) because the fake model holds its answer for 100 s, and a cold runner
+    # also builds the base, the gateway and the fake model's image first. 20 minutes was tight.
+    timeout-minutes: 30
     steps:
       - name: Check out the repository
         uses: actions/checkout@v7
@@ -63,6 +66,10 @@ jobs:
             b36_supervisor_sigkill_nothing_left b37_untrusted_upstream_gets_no_credential \
             b40_kill_all_destroys_lost_jobs_containers \
             agent_create_then_attach \
+            destroy_verifies_by_one_inspect \
+            egress_allowlist_holds_on_a_real_daemon \
+            i8_canary_never_reaches_the_agent \
+            egress_proxy_never_resolves_a_listed_host_to_itself \
             controls_e2e_pinned_harness_passes \
             control_each_kind_runs_on_the_real_base \
             opencode_probe_reads_each_real_base_image_version \

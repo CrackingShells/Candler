@@ -4,14 +4,14 @@ Split by amendment A8: this leaf is M5a. Its campaign `__roadmap__/m5-container-
 
 **Goal**: Runs can execute in a disposable container whose network is closed to everything but an allowlist and the model gateway, with the plug-in's agent environment provisioned by the core and the Docker plumbing built once.
 **Pre-conditions**:
-- [ ] `../m4_session_runner.md` is `done` (the tree also waits for `../m3_lean_cli.md`)
+- [x] `../m4_session_runner.md` is `done` (the tree also waits for `../m3_lean_cli.md`)
 - [ ] Reminder `candler-M5` read (egress allowlist, plug-in environments, the I8 guard, the Docker client)
 **Success Gates**:
-- ⬜ Egress is an allowlist of hostnames and ports: a listed host and port is reachable from the container, everything else fails, and the model gateway still works
-- ⬜ The agent-side environment a plug-in declares is provisioned by the core, with no hand-edited sandbox contract. It stays thin because `isolation.build.*` already builds environments; evaluator environments are M2a's
-- ⬜ A guard proves that on a test experiment the ground-truth file is absent from the agent container at every point of the run (I8)
-- ⬜ One Docker client and one control-container builder serve every caller (the interlude's A5), with multi-id inspect and guard re-use (A1) and `docker create` instead of cidfile polling (A8) as part of it; `__reports__/interlude-audit/00-findings_audit_v0.md` has the findings
-- ⬜ Every cell digest of M1's golden import and M2a's parity fixtures is unchanged
+- ⬜ Egress is an allowlist of hostnames and ports: a listed host and port is reachable from the container, everything else fails, and the model gateway still works. Moved to M5b by A8: decided by `m5b/` (its gates 1 and 4); not met here
+- ✅ The agent-side environment a plug-in declares is provisioned by the core, with no hand-edited sandbox contract. It stays thin because `isolation.build.*` already builds environments; evaluator environments are M2a's. Met in PR #36 (3e654ef): `guard_container_e2e::plugin_env_e2e::plugin_environment_serves_live_mcp_tools`
+- ⬜ A guard proves that on a test experiment the ground-truth file is absent from the agent container at every point of the run (I8). Moved to M5b by A8: decided by `m5b/`; not met here
+- ⬜ One Docker client and one control-container builder serve every caller (the interlude's A5), with multi-id inspect and guard re-use (A1) and `docker create` instead of cidfile polling (A8) as part of it; `__reports__/interlude-audit/00-findings_audit_v0.md` has the findings. Met: one client, `inspect_many`, `docker create` (PR #36); A1 moved to `m5b/` under A8; not met here
+- ✅ Every cell digest of M1's golden import and M2a's parity fixtures is unchanged. Met in PR #36 (3e654ef): DIGEST and GOLDEN pass at 5095c3d
 **References**: [R01 §Contracts & Invariants (I8, I14), §Process supervision](../../../../../../../__design__/architecture.md) — isolation interface, ground-truth rule; [interlude audit findings](../../../../../../../__reports__/interlude-audit/00-findings_audit_v0.md) — A1, A5 and A8 (one Docker client); [R01 §Future features](../../../../../../../__design__/architecture.md) — what M5 leaves out and its triggers
 
 ## Step 1: Plan the milestone

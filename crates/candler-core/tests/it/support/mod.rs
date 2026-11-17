@@ -14,6 +14,7 @@ pub mod job_runtime;
 pub mod job_store;
 pub mod legacy_import;
 pub mod legacy_rules;
+pub mod plugin_env;
 pub mod run_evidence;
 pub mod run_exec;
 pub mod run_plan;

@@ -78,6 +78,11 @@ impl JobSession {
         {
             self.note(scope, &mut report, "gateway", &error.to_string());
         }
+        for proxy in &self.proxies {
+            if let Err(error) = self.guard.destroy(proxy, scope).await {
+                self.note(scope, &mut report, "egress proxy", &error.to_string());
+            }
+        }
         for network in &self.networks {
             if let Err(error) = self.guard.destroy_network(network, scope).await {
                 self.note(

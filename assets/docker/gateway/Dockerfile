@@ -7,6 +7,8 @@ FROM nginx@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d2
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/gw-entrypoint
 COPY nginx.conf.template /etc/gw/nginx.conf.template
 COPY gw.js /etc/gw/gw.js
+COPY egress.conf.template /etc/gw/egress.conf.template
+COPY egress.js /etc/gw/egress.js
 USER nginx
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/gw-entrypoint"]

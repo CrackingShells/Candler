@@ -31,6 +31,9 @@ use candler_core::resolve::steps::plugin_environment::{
 use candler_core::runner::plan::{Force, PlanError, PlanMode, plan_runs};
 use candler_core::store::Store;
 use candler_core::supervise::{EventSink, Supervisor};
+use candler_harness::driver::HarnessDriver as _;
+use candler_harness::spec::{Cell, Workspace};
+use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_schemas::execution::{
     Comparable, EventPayload, ExperimentFile, ExperimentInput, InputAudience,
 };
@@ -39,6 +42,7 @@ use candler_schemas::refusal::Refusal;
 use candler_schemas::values::{JsonValue, ValueSource};
 use futures::future::BoxFuture;
 use serde_json::{Value, json};
+use support::plugin_env;
 use support::run_plan::{Facts, fresh_store, plan_ctx};
 
 fn fp(text: &str) -> FieldPath {
@@ -280,6 +284,17 @@ fn plan_resolved(
         cells: outcome.fresh.into_values().collect(),
         resolution,
         asked,
+    })
+}
+
+/// The `isolation.egress` the only planned cell holds.
+fn egress_in(planned: &Planned) -> Option<Value> {
+    planned.cells.first().and_then(|cell| {
+        cell.values()
+            .iter()
+            .find(|value| value.path().as_str() == "isolation.egress")
+            .and_then(|value| value.value())
+            .map(|value| value.as_value().clone())
     })
 }
 
@@ -558,11 +573,12 @@ fn layer_paths_stay_in_the_plugin_directory() {
 }
 
 /// Guards: R06 D4, N3 — prune appends the plug-in's entries first and drops repeats; a plug-in's
-/// egress, alone or beside the experiment's own, is refused per cell as unsupported, while an
+/// egress, alone or beside the experiment's own, plans per cell as the canonical union, while an
 /// entry that is no host or meets bridge keeps its own code.
-/// Oracle: the prune list worked by hand (`a.py b.py c.py`), and the codes of the egress rule.
-/// Bite: the per-cell refusal removed (`refuse_until_proxy` passing a list through): the plug-in
-/// rows plan.
+/// Oracle: the prune list worked by hand (`a.py b.py c.py`), the unions worked by hand
+/// (`a.com b.com` and `a.com b.com c.com`), and the codes of the egress rule.
+/// Bite: the plug-in's egress dropped from the merge (the cell holds no list or only the
+/// experiment's).
 #[tokio::test]
 async fn layer_lists_append() {
     let rig = Rig::new(
@@ -574,22 +590,25 @@ async fn layer_lists_append() {
     );
     let refusal =
         |planned: Result<Planned, PlanError>| planned.err().expect("refused").code().to_string();
-    let alone = refusal(plan(&rig, &file_with("\"isolation.build.plugin\" = \"p/web\"")).await);
+    let alone = plan(&rig, &file_with("\"isolation.build.plugin\" = \"p/web\""))
+        .await
+        .expect("the plug-in's list alone plans");
     assert_eq!(
-        alone, "isolation.egress_unsupported",
+        egress_in(&alone),
+        Some(json!(["a.com:443", "b.com:443"])),
         "the plug-in's list alone"
     );
-    let beside = refusal(
-        plan(
-            &rig,
-            &file_with(
-                "\"isolation.build.plugin\" = \"p/web\"\n\"isolation.egress\" = [\"a.com:443\", \"c.com:443\"]\n",
-            ),
-        )
-        .await,
-    );
+    let beside = plan(
+        &rig,
+        &file_with(
+            "\"isolation.build.plugin\" = \"p/web\"\n\"isolation.egress\" = [\"a.com:443\", \"c.com:443\"]\n",
+        ),
+    )
+    .await
+    .expect("beside the experiment's list plans");
     assert_eq!(
-        beside, "isolation.egress_unsupported",
+        egress_in(&beside),
+        Some(json!(["a.com:443", "b.com:443", "c.com:443"])),
         "beside the experiment's list"
     );
 
@@ -642,11 +661,10 @@ async fn layer_lists_append() {
 
 /// Guards: R06 D4, N3 — the per-cell egress merge reads the plug-in step's passing report and
 /// nothing else: another step's derived egress and a failed report do not enter, and a job
-/// re-planned from its stored resolution refuses the plug-in's egress as the first plan does.
-/// Oracle: reports built by hand (names, checks and values), and the refusal code of the first
-/// plan.
+/// re-planned from its stored resolution holds the plug-in's egress as the first plan does.
+/// Oracle: reports built by hand (names, checks and values), and the list of the first plan.
 /// Bite: the merge reading every report's `isolation.egress`, or the stored resolution losing the
-/// reports (the stored row plans instead of refusing).
+/// reports (the stored cell holds no list).
 #[tokio::test]
 async fn layer_egress_merge_reads_the_plugin_report_only() {
     let report = |step: &str, egress: Value, passed: bool| {
@@ -695,12 +713,10 @@ async fn layer_egress_merge_reads_the_plugin_report_only() {
         serde_json::from_slice(&serde_json::to_vec(&resolution).expect("JSON"))
             .expect("reads back");
     for (label, held) in [("fresh", resolution), ("stored", stored)] {
-        let refused = plan_resolved(&file, held, Arc::clone(&asked))
-            .err()
-            .expect("refused");
+        let planned = plan_resolved(&file, held, Arc::clone(&asked)).expect("plans");
         assert_eq!(
-            refused.code().to_string(),
-            "isolation.egress_unsupported",
+            egress_in(&planned),
+            Some(json!(["pypi.org:443"])),
             "{label}"
         );
     }
@@ -861,4 +877,73 @@ fn layer_inputs_mount() {
     )
     .expect_err("a kind declared twice");
     assert!(error.to_string().contains("is declared twice"), "{error}");
+}
+
+/// Guards: R01 §Session runner — a plug-in's MCP servers reach Claude Code as the eval author
+/// declared them: an experiment that selects the fixture plug-in's environment, resolved by the
+/// core and planned by the Claude Code driver, prepares `.mcp.json` with `mcpServers.<name>`
+/// holding the command and arguments the plug-in declares and names it on the command with
+/// `--mcp-config` and `--strict-mcp-config`; an experiment without the plug-in prepares no file
+/// and keeps its command.
+/// Oracle: hand-derived from the `agent-env` fixture's `plugin.toml` (server `tools`, command
+/// `python`, arguments `["env/server.py"]`), from the `.mcp.json` format
+/// (`mcpServers.<name>.command` and `.args`) and from `claude --help` of 2.1.311
+/// (`--mcp-config <configs...>`, `--strict-mcp-config`).
+/// Bite: read `mcp` by exact path again (the servers never reach the file), or emit the servers
+/// under `mcp` or one level deeper (the file's key is off).
+#[tokio::test]
+async fn a_plugins_mcp_servers_reach_claude_code() {
+    const DECLARED: &str = "{\n  \"mcpServers\": {\n    \"tools\": {\n      \"args\": [\n        \"env/server.py\"\n      ],\n      \"command\": \"python\"\n    }\n  }\n}\n";
+    let scratch = tempfile::tempdir().expect("a scratch directory");
+    let project = scratch
+        .path()
+        .canonicalize()
+        .expect("a canonical path")
+        .join("project");
+    let driver = ClaudeCodeDriver::new();
+    let rows: [(Option<&str>, Option<&str>); 2] =
+        [(Some(plugin_env::SELECTOR), Some(DECLARED)), (None, None)];
+    for (selector, declared) in rows {
+        let resolution = plugin_env::resolve_experiment(&project, selector).await;
+        let plan = driver
+            .plan(
+                &Cell::new(&resolution.values),
+                &Workspace::new(std::path::Path::new("/work/run")),
+            )
+            .expect("the driver plans the cell");
+        let file = plan
+            .prepared
+            .files
+            .iter()
+            .find(|file| file.path.as_str() == ".mcp.json");
+        let argv = plan.command.argv();
+        if let Some(text) = declared {
+            let file = file.expect("the driver prepares no .mcp.json for the plug-in's servers");
+            assert_eq!(
+                std::str::from_utf8(&file.contents).expect("UTF-8"),
+                text,
+                "the .mcp.json of {selector:?}"
+            );
+            let tail: Vec<&str> = argv
+                .iter()
+                .rev()
+                .take(3)
+                .rev()
+                .map(String::as_str)
+                .collect();
+            assert_eq!(
+                tail,
+                ["--mcp-config", ".mcp.json", "--strict-mcp-config"],
+                "the end of the command of {selector:?}"
+            );
+        } else {
+            assert!(file.is_none(), "a cell without mcp.* prepares a .mcp.json");
+            assert!(
+                !argv
+                    .iter()
+                    .any(|arg| arg == "--mcp-config" || arg == "--strict-mcp-config"),
+                "a cell without mcp.* names an MCP config on the command: {argv:?}"
+            );
+        }
+    }
 }

@@ -199,6 +199,9 @@ pub enum ResolveError {
     /// The plug-in environment an experiment selects does not exist, and no other step failed.
     #[error(transparent)]
     PluginEnvironment(#[from] crate::resolve::steps::plugin_environment::PluginEnvironmentRefusal),
+    /// An evaluator-only input sits in what the agent receives, and no other step failed.
+    #[error(transparent)]
+    GroundTruth(#[from] crate::resolve::steps::ground_truth::GroundTruthRefusal),
     /// At least one step failed; every step ran.
     #[error(
         "preflight failed: {} failed step report(s), {} step error(s){}",
@@ -372,6 +375,12 @@ fn step_refusal(reports: &[StepReport]) -> Option<ResolveError> {
             failed.explanation.as_str(), // BORROW: explicit .as_str()
         )
         .map(ResolveError::Egress)
+    } else if step == crate::resolve::steps::ground_truth::STEP_NAME {
+        crate::resolve::steps::ground_truth::GroundTruthRefusal::from_check(
+            failed.name.as_str(),        // BORROW: explicit .as_str()
+            failed.explanation.as_str(), // BORROW: explicit .as_str()
+        )
+        .map(ResolveError::GroundTruth)
     } else if step == crate::resolve::steps::plugin_environment::STEP_NAME {
         crate::resolve::steps::plugin_environment::PluginEnvironmentRefusal::from_check(
             failed.name.as_str(),        // BORROW: explicit .as_str()

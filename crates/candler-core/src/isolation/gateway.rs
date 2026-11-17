@@ -1,5 +1,11 @@
 //! The gateway container the agent reaches its provider through. The agent holds a dummy token;
 //! the gateway holds the real one and forwards the calls.
+//!
+//! An egress proxy carries no network alias equal to a listed name: docker's resolver answers a
+//! container's own alias with its own address, so the proxy would connect to itself. Its address
+//! on the allow network is read once after it starts, and each allowlisted agent gets
+//! `--add-host <name>:<address>` for the listed names. The proxy is never restarted inside a
+//! job. If it dies, the job's egress cells fail and nothing re-resolves.
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -11,11 +17,12 @@ use candler_schemas::process::ExitStatus;
 use futures::future::BoxFuture;
 use url::Url;
 
-use super::docker::{Call, DockerCli, OUTPUT_LIMIT};
+use super::docker::{CALL_DEADLINE, Call, DockerCli, OUTPUT_LIMIT};
 use super::driver::DockerDriver;
 use super::hardening::{HardLimits, Role, hardening};
 use super::layout::{LABEL_EXPERIMENT, LABEL_JOB, LABEL_ROLE, LABEL_RUN};
 use super::model::{ContainerRef, GatewayHandle, ImageRef, Labels, NetworkName};
+use crate::resolve::steps::egress::HostPort;
 use crate::supervise::Supervisor;
 use crate::supervise::spawn::StdinSpec;
 
@@ -178,6 +185,34 @@ pub struct GatewayStart<'a> {
     pub secret: &'a str,
 }
 
+/// What starting the egress proxy of one allowlist needs.
+#[derive(Clone, Copy)]
+pub struct EgressStart<'a> {
+    /// The job. The proxy joins `NetworkName::egress_for_job` and its own allow network.
+    pub job: &'a JobId,
+    /// The experiment digest, the value of the proxy's `candler.experiment` label.
+    pub experiment: &'a Digest,
+    /// Where the proxy's container record is written.
+    // TRAIT_OBJECT: the job directory, or a recording fake in tests
+    pub recorder: &'a dyn ChildRecorder,
+    /// The canonical allowlist: sorted, deduplicated, never empty.
+    pub allowlist: &'a [HostPort],
+}
+
+/// A running egress proxy: its container, the allow network the agents of its allowlist join and
+/// the allowlist it serves.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EgressProxy {
+    /// The proxy's container.
+    pub container: ContainerRef,
+    /// The allow network, `NetworkName::allow_for`.
+    pub network: NetworkName,
+    /// The proxy's address on the allow network, read once after it started.
+    pub ip: String,
+    /// The canonical allowlist.
+    pub allowlist: Vec<HostPort>,
+}
+
 /// Starts the gateway of a job.
 pub trait Gateway: Send + Sync {
     /// Starts the gateway of `request.job`: creates the job's internal and egress networks,
@@ -191,6 +226,26 @@ pub trait Gateway: Send + Sync {
         docker: &'a dyn DockerDriver, // TRAIT_OBJECT: the Docker driver is the real one or a fake in tests
         request: GatewayStart<'a>,
     ) -> BoxFuture<'a, Result<GatewayHandle, GatewayError>>;
+
+    /// Starts the egress proxy of one allowlist: creates the allow network, creates the proxy on
+    /// it and on the job's egress network, records it, then starts it. A gateway that starts no
+    /// proxy refuses.
+    ///
+    /// # Errors
+    /// [`GatewayError::Start`] when the proxy does not start.
+    fn start_egress<'a>(
+        &'a self,
+        sup: &'a Supervisor,
+        docker: &'a dyn DockerDriver, // TRAIT_OBJECT: the Docker driver is the real one or a fake in tests
+        request: EgressStart<'a>,
+    ) -> BoxFuture<'a, Result<EgressProxy, GatewayError>> {
+        let _ = (sup, docker, request);
+        Box::pin(async {
+            Err(GatewayError::Start {
+                detail: String::from("this gateway starts no egress proxy"),
+            })
+        })
+    }
 
     /// Asks the gateway whether it can serve.
     fn probe<'a>(&'a self, handle: &'a GatewayHandle) -> BoxFuture<'a, GatewayStatus>;
@@ -326,6 +381,13 @@ impl UpstreamConfig {
     #[must_use]
     pub fn builder() -> UpstreamConfigBuilder {
         UpstreamConfigBuilder::default()
+    }
+
+    /// The PEM certificate authority the upstream must chain to; `None` means the sidecar image's
+    /// system bundle.
+    #[must_use]
+    pub fn ca_pem(&self) -> Option<&[u8]> {
+        self.ca_pem.as_deref()
     }
 
     fn authority(&self) -> String {
@@ -599,7 +661,9 @@ impl DockerGateway {
     /// The `container-record/1` of the created sidecar.
     async fn record_of(
         &self,
-        request: &GatewayStart<'_>,
+        job: &JobId,
+        experiment: &Digest,
+        role: Role,
         cid: &ContainerId,
         cid_text: &str,
         docker: &dyn DockerDriver, // TRAIT_OBJECT: the Docker driver is the real one or a fake in tests
@@ -617,11 +681,12 @@ impl DockerGateway {
             .as_str()
             .parse()
             .map_err(|_| failed(String::from("the sidecar's image id is not a digest")))?;
-        let run: Marker = GATEWAY_ROLE
+        let run: Marker = role
+            .label()
             .parse()
-            .map_err(|_| failed(String::from("the gateway marker is not valid")))?;
-        // BORROW: .clone() keeps the job and the experiment in the request
-        let labels = ContainerLabels::new(request.job.clone(), run, request.experiment.clone());
+            .map_err(|_| failed(String::from("the sidecar's marker is not valid")))?;
+        // BORROW: .clone() keeps the job and the experiment with the caller
+        let labels = ContainerLabels::new(job.clone(), run, experiment.clone());
         let spawned_at = crate::supervise::now().map_err(|error| failed(error.to_string()))?;
         ContainerRecord::builder()
             // BORROW: .clone() keeps the id for the handle
@@ -629,10 +694,121 @@ impl DockerGateway {
             .labels(labels)
             .created_at(inspect.created)
             .image_id(image_id)
-            .role(ContainerRole::Gateway)
+            .role(if role == Role::Egress {
+                ContainerRole::Egress
+            } else {
+                ContainerRole::Gateway
+            })
             .spawned_at(spawned_at)
             .build()
             .map_err(|error| failed(error.to_string()))
+    }
+
+    async fn start_proxy<'a>(
+        &'a self,
+        sup: &'a Supervisor,
+        docker: &'a dyn DockerDriver, // TRAIT_OBJECT: the Docker driver is the real one or a fake in tests
+        request: EgressStart<'a>,
+    ) -> Result<EgressProxy, GatewayError> {
+        let job = request.job;
+        let allow = NetworkName::allow_for(job, request.allowlist);
+        let egress = NetworkName::egress_for_job(job);
+        let docker_err = |error: super::docker::DockerError| GatewayError::Start {
+            detail: error.to_string(),
+        };
+        // BORROW: explicit .as_str() instead of Deref coercion
+        let labels = Labels::new().with(LABEL_JOB, job.as_str());
+        docker
+            .network_create(&allow, true, &labels)
+            .await
+            .map_err(docker_err)?;
+        let info = docker.network_inspect(&allow).await.map_err(docker_err)?;
+        if !info.internal {
+            return Err(GatewayError::Start {
+                detail: String::from("the allow network is not internal"),
+            });
+        }
+        let cid = docker
+            .create(egress_create_args(
+                self.image.id.0.as_str(),
+                job,
+                request.experiment,
+                request.allowlist,
+                &allow,
+            ))
+            .await
+            .map_err(|error| GatewayError::Start {
+                detail: format!("docker create failed: {error}"),
+            })?;
+        let cid_text = cid.to_string();
+        // Recorded before it joins the egress network or starts, so a teardown finds it.
+        let record = self
+            .record_of(
+                job,
+                request.experiment,
+                Role::Egress,
+                &cid,
+                &cid_text,
+                docker,
+            )
+            .await?;
+        request
+            .recorder
+            .record_child(&record)
+            .map_err(|error| GatewayError::Start {
+                detail: format!("the proxy's container record was not written: {error}"),
+            })?;
+        for step in [
+            vec![
+                String::from("network"),
+                String::from("connect"),
+                // BORROW: explicit .to_owned() instead of Deref coercion
+                egress.as_str().to_owned(),
+                // BORROW: .clone() keeps the id for the next step
+                cid_text.clone(),
+            ],
+            // BORROW: .clone() keeps the id for the inspect
+            vec![String::from("start"), cid_text.clone()],
+        ] {
+            let out = self.runner.run(sup, step, StdinSpec::Null).await?;
+            if !out.succeeded() {
+                return Err(out.failure("docker network connect or start of the egress proxy"));
+            }
+        }
+        let inspect = docker
+            // BORROW: explicit .as_str() instead of Deref coercion
+            .inspect(cid_text.as_str())
+            .await
+            .map_err(docker_err)?;
+        // The proxy's address on the allow network, read once.
+        let format = format!(
+            "{{{{(index .NetworkSettings.Networks \"{}\").IPAddress}}}}",
+            allow.as_str()
+        );
+        let raw = docker
+            .capture(
+                vec![
+                    String::from("inspect"),
+                    String::from("-f"),
+                    format,
+                    cid_text.clone(),
+                ], // BORROW: the call owns its arguments
+                CALL_DEADLINE,
+            )
+            .await
+            .map_err(docker_err)?;
+        let ip = String::from_utf8_lossy(&raw).trim().to_owned();
+        if ip.parse::<std::net::Ipv4Addr>().is_err() {
+            return Err(GatewayError::Start {
+                detail: format!("the egress proxy has no address on its allow network: `{ip}`"),
+            });
+        }
+        Ok(EgressProxy {
+            container: ContainerRef::new(cid, inspect.labels, inspect.created),
+            network: allow,
+            ip,
+            allowlist: request.allowlist.to_vec(), // BORROW: the proxy owns its allowlist
+        })
     }
 
     async fn start_sidecar<'a>(
@@ -678,7 +854,16 @@ impl DockerGateway {
 
         // The sidecar is recorded before it joins a network, starts or holds the token, so a
         // teardown of the job finds it whatever happens next.
-        let record = self.record_of(&request, &cid, &cid_text, docker).await?;
+        let record = self
+            .record_of(
+                request.job,
+                request.experiment,
+                Role::Gateway,
+                &cid,
+                &cid_text,
+                docker,
+            )
+            .await?;
         request
             .recorder
             .record_child(&record)
@@ -742,6 +927,15 @@ impl Gateway for DockerGateway {
         request: GatewayStart<'a>,
     ) -> BoxFuture<'a, Result<GatewayHandle, GatewayError>> {
         Box::pin(self.start_sidecar(sup, docker, request))
+    }
+
+    fn start_egress<'a>(
+        &'a self,
+        sup: &'a Supervisor,
+        docker: &'a dyn DockerDriver, // TRAIT_OBJECT: the Docker driver is the real one or a fake in tests
+        request: EgressStart<'a>,
+    ) -> BoxFuture<'a, Result<EgressProxy, GatewayError>> {
+        Box::pin(self.start_proxy(sup, docker, request))
     }
 
     fn probe<'a>(&'a self, handle: &'a GatewayHandle) -> BoxFuture<'a, GatewayStatus> {
@@ -840,6 +1034,92 @@ impl GatewayLogs {
 
 /// The labels of the sidecar: the job, the role, a run value that is no run's, and the
 /// experiment.
+/// The nginx `stream` servers of an egress proxy, from the canonical allowlist.
+///
+/// Each port is one server. When one listed host owns the port, everything on it goes to that
+/// host and an SNI, when the client sends one, must equal the host. When several hosts share the
+/// port, the SNI must be one of them. Any other connection gets an empty upstream and is closed.
+/// The upstream names resolve at connect time, and `egress.js` closes a connection whose
+/// upstream resolved to a loopback or link-local address.
+#[must_use]
+pub fn render_egress(allowlist: &[HostPort]) -> String {
+    use std::fmt::Write as _;
+
+    let mut ports: Vec<u16> = allowlist.iter().map(|entry| entry.port).collect();
+    ports.sort_unstable();
+    ports.dedup();
+    let mut out = String::new();
+    for port in ports {
+        let hosts: Vec<&str> = allowlist
+            .iter()
+            .filter(|entry| entry.port == port)
+            .map(|entry| entry.host.as_str())
+            .collect();
+        // EXPLICIT: writing to a String cannot fail
+        let _ = writeln!(
+            out,
+            "  map $ssl_preread_server_name $egress_up_{port} {{\n    hostnames;\n    default \"\";"
+        );
+        if let [only] = hosts.as_slice() {
+            let _ = writeln!(out, "    \"\" {only}:{port};");
+        }
+        for host in &hosts {
+            let _ = writeln!(out, "    {host} {host}:{port};");
+        }
+        let _ = writeln!(
+            out,
+            "  }}\n  server {{\n    listen {port};\n    ssl_preread on;\n    proxy_pass $egress_up_{port};\n    proxy_connect_timeout 10s;\n    js_filter egress.guard;\n  }}"
+        );
+    }
+    out
+}
+
+/// The arguments of `docker create` for an egress proxy of `image` on `allow`, after `create`.
+/// The proxy has no network alias: the agents reach it by the address they are given.
+#[must_use]
+pub fn egress_create_args(
+    image: &str,
+    job: &JobId,
+    experiment: &Digest,
+    allowlist: &[HostPort],
+    allow: &NetworkName,
+) -> Vec<String> {
+    // Binding a port below 1024 as the image's user needs no capability and no sysctl:
+    // docker sets net.ipv4.ip_unprivileged_port_start to 0 in the container.
+    let limits = HardLimits {
+        pids_limit: 128,
+        memory: String::from("256m"),
+        cpus: None,
+        tmpfs: vec![
+            String::from("/tmp:rw,mode=1777,uid=101,gid=101,size=8m,noexec,nosuid"),
+            String::from("/var/cache/nginx:rw,mode=0700,uid=101,gid=101,size=64m,noexec,nosuid"),
+        ],
+        env_volume: false,
+    };
+    let mut args = hardening(&limits);
+    let labels = Labels::new()
+        // BORROW: explicit .as_str() instead of Deref coercion
+        .with(LABEL_JOB, job.as_str())
+        .with(LABEL_ROLE, Role::Egress.label())
+        .with(LABEL_RUN, Role::Egress.label())
+        // BORROW: explicit .as_str() instead of Deref coercion
+        .with(LABEL_EXPERIMENT, experiment.to_string().as_str());
+    for (key, value) in labels.iter() {
+        args.push(String::from("--label"));
+        args.push(format!("{key}={value}"));
+    }
+    // BORROW: explicit .as_str() instead of Deref coercion
+    args.extend([String::from("--network"), allow.as_str().to_owned()]);
+    args.extend([
+        String::from("-e"),
+        String::from("GW_MODE=egress"),
+        String::from("-e"),
+        format!("GW_EGRESS_SERVERS={}", render_egress(allowlist)),
+        image.to_owned(),
+    ]);
+    args
+}
+
 fn sidecar_labels(request: &GatewayStart<'_>) -> Labels {
     Labels::new()
         // BORROW: explicit .as_str() instead of Deref coercion

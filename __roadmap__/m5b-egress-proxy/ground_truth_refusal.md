@@ -6,12 +6,12 @@
 - [ ] [cmd] The leaf's worktree is its own checkout: `cargo metadata --format-version 1 --no-deps | jq -r .workspace_root` prints the worktree path
 - [ ] [nl] OWNED: `crates/candler-core/src/resolve/steps/ground_truth.rs` (new) and its registration line in `resolve/steps/mod.rs`, the code `isolation.ground_truth_exposed` (its row in `docs/contract/codes.toml`, in `crates/candler-core/src/resolve/refusal.rs` and in the blessed `docs/contract/index.md`, which `contract_pages` checks together), a new `crates/candler-core/tests/it/guard_ground_truth_refusal.rs`. `refusal.rs` is also edited by `egress_attack` at L1: different level, so no race
 **Success Gates**:
-- ⬜ [cmd] The refusal rows pass, each refused with `isolation.ground_truth_exposed` naming the input and the place: an evaluator-only input's bytes in an experiment's build context, in a plug-in environment's context, in a plug-in environment's agent input, and in the treatment tree: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_ground_truth_refusal::refuses_/)'`
-- ⬜ [cmd] No existing experiment is refused, and the contract pages agree with the new code: GOLDEN, DIGEST, `cargo nextest run -p candler --no-tests=fail -E 'test(/^guard_input_seam::/) | test(/contract_pages/)'`
-- ⬜ [cmd] The code is in the table: `grep -q isolation.ground_truth_exposed docs/contract/codes.toml docs/contract/index.md`
-- ⬜ [cmd] SPAWN, STD (`-p candler-core -p candler`), LINUX and SUBJ pass (README, standard gates)
-- ⬜ [nl] This newly refused input is reported to the coordinator before the merge, and the coordination session's ruling is recorded in the leaf report
-- ⬜ [nl] The leaf report records each Bite and the residual: a renamed, compressed or transformed copy is not detected by digest. The step's guard against reading the evaluator-only input into agent-bound bytes is one `if`, read in review; no separate test is kept for it
+- ✅ [cmd] The refusal rows pass, each refused with `isolation.ground_truth_exposed` naming the input and the place: an evaluator-only input's bytes in an experiment's build context, in a plug-in environment's context, in a plug-in environment's agent input, and in the treatment tree: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_ground_truth_refusal::refuses_/)'`
+- ✅ [cmd] No existing experiment is refused, and the contract pages agree with the new code: GOLDEN, DIGEST, `cargo nextest run -p candler --no-tests=fail -E 'test(/^guard_input_seam::/) | test(/contract_pages/)'`
+- ✅ [cmd] The code is in the table: `grep -q isolation.ground_truth_exposed docs/contract/codes.toml docs/contract/index.md`
+- ✅ [cmd] SPAWN, STD (`-p candler-core -p candler`), LINUX and SUBJ pass (README, standard gates)
+- ✅ [nl] This newly refused input is reported to the coordinator before the merge, and the coordination session's ruling is recorded in the leaf report
+- ✅ [nl] The leaf report records each Bite and the residual: a renamed, compressed or transformed copy is not detected by digest. The step's guard against reading the evaluator-only input into agent-bound bytes is one `if`, read in review; no separate test is kept for it
 **References**: [R04 D9 and its trigger](/Users/hacker/Library/Application%20Support/Claude/side-session-notes/local_7f577b41-1698-4eeb-9de3-4ee9460ae606/m5-approved-plan.md); [R03 Test design](/Users/hacker/Library/Application%20Support/Claude/side-session-notes/local_7f577b41-1698-4eeb-9de3-4ee9460ae606/m5b-approved-plan.md); [R01 §Contracts & Invariants, I8](../../__design__/architecture.md); [moved leaf](../m5-container-isolation/client/seams/egress/ground_truth_refusal.md) — source text
 
 ## Step 1: Refuse ground truth in agent-bound bytes

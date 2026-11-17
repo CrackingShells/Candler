@@ -34,6 +34,7 @@ pub struct RecordingDocker {
     images: Mutex<BTreeMap<String, ImageInfo>>,
     captures: Mutex<Vec<Canned>>,
     created: Mutex<VecDeque<Result<ContainerId, DockerError>>>,
+    attach_refused: std::sync::atomic::AtomicBool,
 }
 
 impl RecordingDocker {
@@ -72,6 +73,15 @@ impl RecordingDocker {
         self
     }
 
+    /// Refuses the request that attaches to a created container, as a client that cannot be
+    /// built does.
+    #[must_use]
+    pub fn with_attach_refused(self) -> Self {
+        self.attach_refused
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self
+    }
+
     /// Answers the next `create` with `answer`; the answers are given in the order queued, and a
     /// `create` after the last fails.
     #[must_use]
@@ -92,6 +102,21 @@ impl RecordingDocker {
 }
 
 impl DockerDriver for RecordingDocker {
+    fn attach(
+        &self,
+        run: super::docker::AttachedRun,
+    ) -> Result<crate::supervise::spawn::SpawnRequest, crate::supervise::SuperviseError> {
+        if self
+            .attach_refused
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(crate::supervise::SuperviseError::InvalidRequest {
+                detail: String::from("the client request is refused"),
+            });
+        }
+        super::docker::attached_request(run)
+    }
+
     fn inspect<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Inspect, DockerError>> {
         self.record(format!("inspect {id}"));
         let answer = held(&self.inspects).get(id).cloned();

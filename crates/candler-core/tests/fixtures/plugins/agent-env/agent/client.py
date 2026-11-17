@@ -9,7 +9,7 @@ import os
 import subprocess
 import sys
 
-config = json.load(open(sys.argv[1]))
+config = json.load(open(sys.argv[1]))["mcpServers"]["tools"]
 canary_name, canary_bytes = sys.argv[2], sys.argv[3].encode()
 
 server = subprocess.Popen(

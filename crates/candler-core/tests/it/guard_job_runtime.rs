@@ -450,7 +450,7 @@ fn b42_reap_lost_jobs_spares_own_and_stops_on_cancel() {
     fs::write(
         &client,
         format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\ncase \"$1\" in\nnetwork | image)\n    echo 'Error: No such object' >&2\n    exit 1\n    ;;\nesac\n",
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\ncase \"$1 $2\" in\n\"network ls\")\n    exit 0\n    ;;\nesac\ncase \"$1\" in\nnetwork | image)\n    echo 'Error: No such object' >&2\n    exit 1\n    ;;\nesac\n",
             log.display()
         ),
     )

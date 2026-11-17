@@ -1,6 +1,14 @@
 #!/bin/sh
 # Candler M2b test agent. Mode is the first argument:
-#   stream | probe | ignore-term | sleep-forever | exit3 | stream-bytes | echo-stdin | term-echo
+#   stream | probe | ignore-term | sleep-forever | exit3 | stream-bytes | echo-stdin | term-echo | seeker
+#   seeker <pattern> [phase...]  Looks for a canary the agent must never see. <pattern> is an
+#     extended regular expression given at run time (the image holds no canary); each phase
+#     (default: start turn end, the order of a run) prints one report on stdout, where the
+#     harness's trace is read:
+#       seeker:<phase>:file:<path>    a readable file outside /proc and /sys whose path or bytes match
+#       seeker:<phase>:environ:<pid>:<line>   every line of every /proc/<pid>/environ
+#       seeker:<phase>:mount:<line>   the mount table
+#       seeker:<phase>:done           the phase's report is complete
 # `timeout <args>` runs `timeout` on <args>, so the run's expiry wrapper reaches the mode.
 # Oracle fixture: it reports facts, it never judges them.
 mode="${1:-}"
@@ -20,7 +28,36 @@ try_write() {
   fi
 }
 
+# Reports, for phase $2, what could be read that matches the pattern $1.
+seek() {
+  pat="$1"; ph="$2"
+  find / \( -path /proc -o -path /sys \) -prune -o -type f -print 2>/dev/null |
+    while IFS= read -r f; do
+      [ -r "$f" ] || continue
+      if printf '%s\n' "$f" | grep -Eq -- "$pat"; then
+        printf 'seeker:%s:file:%s\n' "$ph" "$f"
+      elif grep -Eaq -- "$pat" "$f" 2>/dev/null; then
+        printf 'seeker:%s:file:%s\n' "$ph" "$f"
+      fi
+    done
+  for e in /proc/[0-9]*/environ; do
+    [ -r "$e" ] || continue
+    pid="${e#/proc/}"; pid="${pid%/environ}"
+    tr '\000' '\n' < "$e" 2>/dev/null | while IFS= read -r l; do
+      printf 'seeker:%s:environ:%s:%s\n' "$ph" "$pid" "$l"
+    done
+  done
+  while IFS= read -r l; do printf 'seeker:%s:mount:%s\n' "$ph" "$l"; done < /proc/self/mounts
+  printf 'seeker:%s:done\n' "$ph"
+}
+
 case "$mode" in
+seeker)
+  shift
+  pat="${1:?seeker needs a pattern}"; shift
+  [ "$#" -gt 0 ] || set -- start turn end
+  for ph in "$@"; do seek "$pat" "$ph"; done
+  ;;
 timeout)
   shift
   exec timeout "$@"

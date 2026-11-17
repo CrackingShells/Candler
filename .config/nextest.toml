@@ -3,6 +3,12 @@
 [test-groups]
 container-e2e = { max-threads = 1 }
 
+# The I8 e2e holds the fake model's answer (up to 120 s) while it seeks from inside the container.
+[[profile.default.overrides]]
+filter = "test(/^guard_cli_e2e::.*i8_/)"
+test-group = "container-e2e"
+slow-timeout = { period = "60s", terminate-after = 12 }
+
 [[profile.default.overrides]]
 filter = "test(/^guard_container_e2e::/) | test(/^guard_cli_e2e::/)"
 test-group = "container-e2e"

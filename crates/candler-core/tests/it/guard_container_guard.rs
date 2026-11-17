@@ -13,6 +13,7 @@ use std::time::Duration;
 use candler_core::isolation::container::guard::{
     ContainerGuard, Destroyed, GuardError, GuardRefusal, LostProof,
 };
+use candler_core::isolation::container::stop::ContainerStopHook;
 use candler_core::isolation::container::sweeper::{LabelSweeper, UnreadableRecord};
 use candler_core::isolation::docker::{ClientEnv, DockerCli, DockerError};
 use candler_core::isolation::driver::{DestroyDriver, DockerDriver};
@@ -23,9 +24,11 @@ use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::events::JobEvents;
 use candler_core::jobs::lock::JobLock;
 use candler_core::jobs::view::ChildEntry;
+use candler_core::resolve::steps::egress::settle;
 use candler_core::supervise::hook::{HookError, StopHook, StopHookCtx};
 use candler_core::supervise::signal::Signaller;
 use candler_core::supervise::spawn::SpawnRequest;
+use candler_core::supervise::stop::Ended;
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_harness::spec::{StopSignal, StopSpec};
 use candler_schemas::container::ContainerRole;
@@ -133,10 +136,10 @@ async fn assert_refused(
 /// run, label mismatch, control role, unrecorded, a lost job without the proof of its held lock,
 /// a job that has ended and the networks of another job, with no stop, rm or network rm recorded.
 /// Oracle: the recording destroy driver's call list is empty for each refused case, and the
-/// positive control's list is exactly `stop` then `rm` of the recorded id after two inspects
-/// (the verb order of the design's I22 text).
+/// positive control's list is exactly `stop` then `rm` of the recorded id after one inspect
+/// (the verb order of the design's I22 text, with the second inspect dropped by D7).
 /// Bite: skip the `job == current job` comparison in `ContainerGuard::check_job`; or drop the
-/// `check_job` call before `rm` in `ContainerGuard::destroy_with`; or replace the
+/// `check_job` call before `rm` in `ContainerGuard::destroy_verified`; or replace the
 /// `check_job` call in `ContainerGuard::destroy_network_with` by `false && ..`.
 #[tokio::test]
 async fn b10_guard_refusals() {
@@ -475,19 +478,17 @@ async fn b10_guard_refusals() {
         destroyer.calls(),
         vec![format!("stop {full}"), format!("rm {full}")]
     );
-    assert_eq!(
-        docker.calls(),
-        vec![format!("inspect {full}"), format!("inspect {full}")]
-    );
+    assert_eq!(docker.calls(), vec![format!("inspect_many {full}")]);
 }
 
-/// Guards: B11 — every destroy verb is preceded by an inspect of the same id, and a second
-/// inspect that differs from the first refuses the `rm`.
-/// Oracle: the one ordered log of inspects and verbs; the verb list when the second scripted
-/// answer has another job, another creation time or another id.
-/// Bite: reuse the first inspect result in `ContainerGuard::destroy` instead of inspecting again.
+/// Guards: R01 §Process supervision (D7) — a destroy inspects the container once, before its
+/// verbs: `stop` and `rm` follow that one verification, and a container whose facts the caller
+/// claims wrongly is refused before any verb.
+/// Oracle: the one ordered log of inspects and verbs, derived by hand from D7's protocol
+/// (`inspect, stop, rm`); the forged claim is a reference whose labels docker does not show.
+/// Bite: inspect again before `rm` in `ContainerGuard::destroy_verified`, or skip `claims_hold`.
 #[tokio::test]
-async fn b11_inspect_before_every_verb() {
+async fn b11_one_inspect_before_the_verbs() {
     let current = job(1);
     let run = run_key(1);
     let id = cid(0xabc);
@@ -505,8 +506,7 @@ async fn b11_inspect_before_every_verb() {
         (ContainerGuard::new(destroyer, docker, view), log)
     };
 
-    // Positive control: the same answer twice runs all four verbs, each verb after an inspect.
-    let (guard, log) = run_case(vec![first.clone(), first.clone()]); // BORROW: .clone() gives the script its own answers
+    let (guard, log) = run_case(vec![first.clone()]); // BORROW: .clone() gives the script its own answer
     let result = guard.destroy(&container_ref(&first), &scope).await;
     assert_eq!(
         result,
@@ -520,36 +520,22 @@ async fn b11_inspect_before_every_verb() {
         vec![
             format!("inspect {full}"),
             format!("stop {full}"),
-            format!("inspect {full}"),
             format!("rm {full}"),
         ]
     );
 
-    // The second inspect answers with the id's labels changed, as if the id had been reused.
-    let other_job = inspect(&id, labels(&job(2), "agent", Some(&run)));
-    let mut later = first.clone(); // BORROW: .clone() gives the case its own answer
-    later.created = "2026-02-02T03:04:05Z".parse().expect("a timestamp");
-    for (case, second) in [
-        ("labels differ", other_job),
-        ("creation time differs", later),
-    ] {
-        let (guard, log) = run_case(vec![first.clone(), second]); // BORROW: .clone() gives the script its own answer
-        let result = guard.destroy(&container_ref(&first), &scope).await;
-        assert_eq!(
-            result,
-            Err(GuardError::Refused(GuardRefusal::Mismatch)),
-            "{case}"
-        );
-        assert_eq!(
-            log.lines(),
-            vec![
-                format!("inspect {full}"),
-                format!("stop {full}"),
-                format!("inspect {full}"),
-            ],
-            "{case}: a verb followed the second inspect"
-        );
-    }
+    let mut claimed = container_ref(&first);
+    claimed.labels = labels(&job(2), "agent", Some(&run));
+    let (guard, log) = run_case(vec![first.clone()]); // BORROW: .clone() gives the script its own answer
+    assert_eq!(
+        guard.destroy(&claimed, &scope).await,
+        Err(GuardError::Refused(GuardRefusal::Mismatch))
+    );
+    assert_eq!(
+        log.lines(),
+        vec![format!("inspect {full}")],
+        "a verb followed a refusal"
+    );
 }
 
 /// Records each group it is asked to signal and signals nothing.
@@ -926,5 +912,517 @@ async fn inspect_many_maps_each_id() {
         1,
         "one recorded call: {:?}",
         fake.calls()
+    );
+}
+
+/// Two containers whose full ids share their first 63 digits, one of this job's run and one of
+/// another job, for the rows that tell facts of one from facts of the other.
+fn twins() -> (ContainerId, ContainerId) {
+    (cid(0x10), cid(0x11))
+}
+
+/// Guards: R01 §Process supervision (D7) — facts verified for one container are never applied to
+/// another: a decision over two containers whose ids share a long prefix destroys the one that
+/// passes the rule, refuses the other by its own facts, and sends no verb for the refused id.
+/// Oracle: derived by hand: the twin of another job must answer `other_job`, whatever its
+/// neighbour's facts say; the destroyer's list is the passing twin's `stop` and `rm` alone.
+/// Bite: key the verified facts by the first 63 digits of the id in `verify_many`.
+#[tokio::test]
+async fn reuse_never_crosses_containers() {
+    let current = job(1);
+    let run = run_key(1);
+    let (ours, theirs) = twins();
+    let mine = inspect(&ours, labels(&current, "agent", Some(&run)));
+    let foreign = inspect(&theirs, labels(&job(2), "agent", Some(&run)));
+    let (guard, docker, destroyer) = rig(
+        FakeJobView::new(current.clone()), // BORROW: .clone() gives the view its own job
+        vec![mine.clone(), foreign.clone()], // BORROW: .clone() gives the rig its own answers
+    );
+    let asked = [container_ref(&mine), container_ref(&foreign)];
+    let answers = guard
+        .destroy_many(&asked, &SweepScope::Run(run.clone())) // BORROW: .clone() gives the scope its own key
+        .await;
+    assert_eq!(
+        answers,
+        vec![
+            Ok(Destroyed {
+                recorded: false,
+                absent: false
+            }),
+            Err(GuardError::Refused(GuardRefusal::OtherJob)),
+        ]
+    );
+    assert_eq!(
+        destroyer.calls(),
+        vec![
+            format!("stop {}", ours.as_str()), // BORROW: .as_str() renders the id
+            format!("rm {}", ours.as_str()),   // BORROW: .as_str() renders the id
+        ]
+    );
+    assert_eq!(
+        docker.calls().len(),
+        1,
+        "one inspect for both: {:?}",
+        docker.calls()
+    );
+}
+
+/// Guards: R01 §Process supervision (D7) — a container gone between the list and the inspect is
+/// skipped and never destroyed: the sweep names it neither destroyed nor refused, sends it no
+/// verb, and still destroys the container beside it.
+/// Oracle: derived by hand: docker lists three ids and knows two; the recording destroyer must
+/// show `stop` and `rm` of the two and nothing for the third.
+/// Bite: treat `NotFound` in `verify_many` as an inspect that passed, or as a failed sweep.
+#[tokio::test]
+async fn vanished_between_list_and_inspect() {
+    let current = job(1);
+    let run = run_key(1);
+    let (first, second, gone) = (cid(0x21), cid(0x22), cid(0x23));
+    let made = |id: &ContainerId| inspect(id, labels(&current, "agent", Some(&run)));
+    let listed = vec![
+        container_ref(&made(&first)),
+        container_ref(&made(&gone)),
+        container_ref(&made(&second)),
+    ];
+    let docker = Arc::new(
+        RecordingDocker::new()
+            .with_inspect(first.as_str(), made(&first)) // BORROW: .as_str() keys the answer
+            .with_inspect(second.as_str(), made(&second)) // BORROW: .as_str() keys the answer
+            .with_listed(listed),
+    );
+    let destroyer = Arc::new(RecordingDestroyer::new());
+    let view = FakeJobView::new(current.clone()); // BORROW: .clone() gives the view its own job
+    let read: Arc<dyn DockerDriver> = docker.clone(); // BORROW: .clone() shares the fake; TRAIT_OBJECT: the guard holds a trait object
+    let kill: Arc<dyn DestroyDriver> = destroyer.clone(); // BORROW: .clone() shares the fake; TRAIT_OBJECT: the guard holds a trait object
+    let guard = Arc::new(ContainerGuard::new(
+        kill,
+        Arc::clone(&read),
+        view.clone().shared(),
+    )); // BORROW: .clone() gives the guard its own view
+    let sweeper = LabelSweeper::new(read, guard, view.shared(), Duration::from_secs(5));
+    let report = sweeper
+        .sweep_report(&SweepScope::Run(run.clone())) // BORROW: .clone() gives the scope its own key
+        .await
+        .expect("a sweep");
+    assert!(
+        !report.sweep.unknown,
+        "a vanished container is not an unknown"
+    );
+    assert!(
+        report.sweep.refused.is_empty(),
+        "{:?}",
+        report.sweep.refused
+    );
+    assert_eq!(report.sweep.destroyed.len(), 2);
+    let verbs: Vec<String> = [&first, &second]
+        .iter()
+        .flat_map(|id| {
+            [
+                format!("stop {}", id.as_str()),
+                format!("rm {}", id.as_str()),
+            ]
+        }) // BORROW: .as_str() renders the id
+        .collect();
+    assert_eq!(destroyer.calls(), verbs);
+    assert!(
+        destroyer
+            .calls()
+            .iter()
+            .all(|call| !call.contains(gone.as_str())), // BORROW: .as_str() renders the id
+        "a verb named the vanished container: {:?}",
+        destroyer.calls()
+    );
+}
+
+/// A PATH-fake docker over a state directory, and the log of its calls.
+///
+/// Each container is a file `<id>.json` holding the answer of `container inspect`; `container ls`
+/// prints the ids whose file holds the filtered label, `container inspect` prints the files of the
+/// ids it is asked and names the others on stderr with exit 1, `container rm` deletes the file,
+/// and every call appends its second word to the log.
+struct Fakery {
+    dir: tempfile::TempDir,
+    cli: DockerCli,
+    view: FakeJobView,
+    job: JobId,
+}
+
+impl Fakery {
+    fn new(current: &JobId) -> Self {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().expect("a temp dir");
+        for sub in ["state", "records"] {
+            std::fs::create_dir_all(dir.path().join(sub)).expect("a directory");
+        }
+        let script = dir.path().join("docker");
+        std::fs::write(
+            &script,
+            format!(
+                r#"#!/bin/sh
+state='{state}'
+echo "$2" >> '{log}'
+case "$2" in
+  ls)
+    for a in "$@"; do case "$a" in label=*) kv="${{a#label=}}";; esac; done
+    k="${{kv%%=*}}"; v="${{kv#*=}}"
+    for f in "$state"/*.json; do
+      [ -f "$f" ] && grep -q "\"$k\":\"$v\"" "$f" && basename "$f" .json
+    done
+    exit 0;;
+  inspect)
+    code=0
+    for a in "$@"; do
+      case "$a" in
+        container|inspect|--format|'{{{{json .}}}}') ;;
+        *) if [ -f "$state/$a.json" ]; then cat "$state/$a.json"; echo; else echo "Error: No such container: $a" >&2; code=1; fi;;
+      esac
+    done
+    exit $code;;
+  rm) for a in "$@"; do [ -f "$state/$a.json" ] && mv "${{state:?}}/${{a:?}}.json" "${{state:?}}/${{a:?}}.gone"; done; exit 0;;
+  *) exit 0;;
+esac
+"#,
+                state = dir.path().join("state").display(),
+                log = dir.path().join("docker.log").display(),
+            ),
+        )
+        .expect("a fake docker");
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
+            .expect("executable");
+        let sink: Arc<dyn EventSink> = Arc::new(Quiet);
+        let cli = DockerCli::with_binary(
+            Arc::new(Supervisor::new(sink)),
+            script,
+            ClientEnv::default(),
+            dir.path().join("records"),
+        );
+        Self {
+            dir,
+            cli,
+            view: FakeJobView::new(current.clone()), // BORROW: .clone() gives the view its own job
+            job: current.clone(),                    // BORROW: .clone() gives the rig its own job
+        }
+    }
+
+    /// Adds a container of the view's job in `role`, of `run` when given.
+    fn add(&self, n: u32, role: &str, run: Option<&RunKey>) -> ContainerId {
+        let id = cid(n);
+        let owner = self.job.clone(); // BORROW: .clone() gives the labels their own job
+        let mut pairs = format!(r#""candler.job":"{owner}","candler.role":"{role}""#);
+        if let Some(key) = run {
+            pairs = format!(r#"{pairs},"candler.run":"{key}""#);
+        }
+        let text = format!(
+            r#"{{"Id":"{id}","Created":"2026-01-02T03:04:05.123456789Z","Image":"sha256:aa","Config":{{"Labels":{{{pairs}}}}},"State":{{"Status":"running","Running":true,"ExitCode":0,"OOMKilled":false,"StartedAt":"2026-01-02T03:04:05.123456789Z","FinishedAt":"0001-01-01T00:00:00Z"}}}}"#,
+            id = id.as_str() // BORROW: .as_str() renders the id
+        );
+        std::fs::write(
+            self.dir
+                .path()
+                .join("state")
+                .join(format!("{}.json", id.as_str())), // BORROW: .as_str() names the file
+            text,
+        )
+        .expect("a container");
+        id
+    }
+
+    /// The hook of this job over the fake.
+    fn hook(&self) -> ContainerStopHook {
+        let guard = Arc::new(ContainerGuard::over_docker(
+            &self.cli,
+            self.view.clone().shared(),
+        )); // BORROW: .clone() gives the guard its own view
+        let read: Arc<dyn DockerDriver> = Arc::new(self.cli.clone()); // BORROW: .clone() gives the sweeper its own client; TRAIT_OBJECT: the sweeper holds a trait object
+        let sweeper = Arc::new(LabelSweeper::new(
+            read,
+            Arc::clone(&guard),
+            self.view.clone().shared(), // BORROW: .clone() gives the sweeper its own view
+            Duration::from_secs(30),
+        ));
+        ContainerStopHook::new(guard, sweeper, self.job.clone()) // BORROW: .clone() gives the hook its own job
+    }
+
+    /// How many calls of the counted verbs the fake saw.
+    fn spawns(&self) -> usize {
+        std::fs::read_to_string(self.dir.path().join("docker.log"))
+            .unwrap_or_default()
+            .lines()
+            .filter(|verb| matches!(*verb, "ls" | "inspect" | "stop" | "rm"))
+            .count()
+    }
+
+    /// How many containers the fake still has.
+    fn remaining(&self) -> usize {
+        std::fs::read_dir(self.dir.path().join("state")).map_or(0, |entries| {
+            entries
+                .filter_map(Result::ok)
+                .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+                .count()
+        })
+    }
+}
+
+/// A job of 9 containers. A run is the cell's agent container (the gateway carries no run key);
+/// `own` agents belong to `run` and the rest of the 9 are one gateway and agents of other runs.
+fn nine(fake: &Fakery, run: &RunKey, own: u32) {
+    let mut made = 0;
+    for n in 0..own {
+        fake.add(0x31 + n, "agent", Some(run));
+        made += 1;
+    }
+    fake.add(0x50, "gateway", None);
+    made += 1;
+    for n in 0..(9 - made) {
+        fake.add(0x60 + n, "agent", Some(&run_key(2 + n)));
+    }
+}
+
+/// Guards: R01 §Process supervision (D7, A1) — a destroy decision costs one list, one inspect,
+/// then a stop and an rm per target: a stopped run in a job of 9 containers spawns at most the
+/// hand-derived number of docker calls on each path, and the run's own containers alone are gone.
+/// Oracle: counts derived by hand from the protocol, before any was measured, from the log of a
+/// PATH-fake docker (so a loop hidden in `inspect_many` or in the list is counted). The list is
+/// L = 2 (one `ls`, one `inspect_many` of what it printed); a verification is 1 `inspect_many`;
+/// a target costs a stop and an rm (2). One run (N = 1 agent) in a job of 9: sweep = L + 1 + 2 =
+/// 5. Normal exit = the hook's list L (2), the agent's last inspect (1) and the sweep (5) = 8.
+/// Ladder stop = the pre-stop (list 2, verify 1, stop 1 = 4) and the destroy hook, which lists once
+/// (2) and reuses the pre-stop's verification of the id it already verified (stop 1, rm 1) = 8.
+/// Exec pre-stop = list 2 and one inspect = 3. A run of N = 7 (7 of the 9): sweep = 2 + 1 + 14 = 17.
+/// Bite: `inspect_many` spawning one docker process per id, or `ps_by_label` inspecting per id.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn spawn_budget_paths() {
+    let current = job(1);
+    let run = run_key(1);
+    let ctx = |ended| StopHookCtx::new(Some(run.clone()), "m".parse().expect("a marker"), ended); // BORROW: .clone() gives the context its own key
+    let rows: [(&str, u32, usize); 5] = [
+        ("sweep", 1, 5),
+        ("normal exit", 1, 8),
+        ("ladder stop", 1, 8),
+        ("exec pre-stop", 1, 3),
+        ("sweep of 7", 7, 17),
+    ];
+    for (path, own, bound) in rows {
+        let fake = Fakery::new(&current);
+        nine(&fake, &run, own);
+        let hook = fake.hook().with_observer(Arc::new(|| {
+            candler_harness::spec::Observed::new(vec!["sess-1".parse().expect("a session id")])
+        }));
+        match path {
+            "sweep" | "sweep of 7" => {
+                let sweeper = {
+                    let guard = hook.guard();
+                    let read: Arc<dyn DockerDriver> = Arc::new(fake.cli.clone()); // BORROW: .clone() gives the sweeper its own client; TRAIT_OBJECT: the sweeper holds a trait object
+                    LabelSweeper::new(
+                        read,
+                        guard,
+                        fake.view.clone().shared(),
+                        Duration::from_secs(30),
+                    ) // BORROW: .clone() gives the sweeper its own view
+                };
+                let report = sweeper
+                    .sweep_report(&SweepScope::Run(run.clone())) // BORROW: .clone() gives the scope its own key
+                    .await
+                    .expect("a sweep");
+                assert_eq!(
+                    report.sweep.destroyed.len(),
+                    usize::try_from(own).expect("a small count"),
+                    "{path}"
+                );
+            }
+            "normal exit" | "ladder stop" => {
+                if path == "ladder stop" {
+                    hook.pre_stop(&ctx(Ended::Stopped))
+                        .await
+                        .expect("a pre-stop");
+                }
+                let swept = hook.destroy(&ctx(Ended::Stopped)).await.expect("a destroy");
+                assert_eq!(swept.destroyed.len(), 1, "{path}");
+            }
+            _ => {
+                let spec = candler_harness::spec::CommandSpec::builder()
+                    .argv(vec!["true".to_owned()]) // BORROW: .to_owned() gives the command its own text
+                    .build()
+                    .expect("a command");
+                let said = hook
+                    .exec(&ctx(Ended::Stopped), &spec, Duration::from_secs(5))
+                    .await
+                    .expect("an exec");
+                assert_eq!(said, "exec done", "{path}");
+            }
+        }
+        let spawned = fake.spawns();
+        assert!(
+            spawned <= bound,
+            "{path}: {spawned} spawns, at most {bound}"
+        );
+        if path != "exec pre-stop" {
+            assert_eq!(
+                fake.remaining(),
+                9 - usize::try_from(own).expect("a small count"),
+                "{path}: only the run's containers are gone"
+            );
+        }
+    }
+}
+
+/// Guards: a job's allow networks go through the guard by the job rule of its other networks —
+/// the current job's own allow network is removed, another job's is refused, and a lost job's is
+/// removed under the proof of its held lock.
+/// Oracle: the destroy log's `network rm` lines, one per network the rule lets go.
+/// Bite: compare the name with only `NetworkName::for_job` and `NetworkName::egress_for_job` in
+/// `ContainerGuard::destroy_network_with`, as before the allow networks: the current job's own
+/// allow network is refused as a mismatch and stays behind after every egress job.
+#[tokio::test]
+async fn b10_allow_networks_follow_the_job_rule() {
+    let root = tempfile::tempdir().expect("a temp dir");
+    let current = job(1);
+    let fifth = job(5);
+    let (_dir5, _lock5, proof5) = locked(root.path(), &fifth);
+    let allowlist = settle(Some(&serde_json::json!(["a.test:443"])), None)
+        .expect("a list")
+        .expect("not empty");
+    let net_of = |job: &JobId| {
+        let name = NetworkName::allow_for(job, &allowlist);
+        let info = NetworkInfo {
+            name: name.clone(), // BORROW: .clone() gives the answer its own name
+            internal: true,
+            labels: Labels::new().with("candler.job", job.as_str()), // BORROW: explicit .as_str() instead of Deref coercion
+        };
+        (name, info)
+    };
+    let (own, own_info) = net_of(&current);
+    let (theirs, theirs_info) = net_of(&fifth);
+    let log = Log::new();
+    let destroyer = Arc::new(RecordingDestroyer::new());
+    let docker = ScriptedDocker::new(&log)
+        .network(&own, own_info)
+        .network(&theirs, theirs_info);
+    let kill: Arc<dyn DestroyDriver> = Arc::new(LoggingDestroyer::new(&log, destroyer));
+    let guard = ContainerGuard::new(
+        kill,
+        Arc::new(docker),
+        FakeJobView::new(current.clone()).shared(), // BORROW: .clone() gives the view its own job
+    );
+    assert_eq!(
+        guard
+            .destroy_network(&theirs, &SweepScope::CurrentJob)
+            .await,
+        Err(GuardError::Refused(GuardRefusal::OtherJob)),
+        "another job's allow network"
+    );
+    assert_eq!(
+        guard.destroy_network(&own, &SweepScope::CurrentJob).await,
+        Ok(()),
+        "the current job's own allow network"
+    );
+    assert_eq!(
+        guard.destroy_network_lost(&theirs, &proof5).await,
+        Ok(()),
+        "a lost job's allow network under its proof"
+    );
+    let removed: Vec<String> = log
+        .lines()
+        .into_iter()
+        .filter(|line| line.starts_with("network rm"))
+        .collect();
+    assert_eq!(
+        removed,
+        [
+            format!("network rm {}", own.as_str()), // BORROW: explicit .as_str()
+            format!("network rm {}", theirs.as_str()), // BORROW: explicit .as_str()
+        ]
+    );
+}
+
+/// Guards: R01 §Process supervision (G3) — the destroy hook lists afresh, so a container created
+/// between the pre-stop and the destroy is found, verified by one inspect and destroyed.
+/// Oracle: derived by hand: pre-stop 4, fresh list 2, one `inspect_many` of the new id 1, then a
+/// stop and an rm of each of the 2 agents (4) = 11 at most; both agents are gone and the other 8
+/// containers remain.
+/// Bite: the destroy reusing the pre-stop's list, which does not name the new container: it stays
+/// behind and the first assertion fails.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn spawn_budget_container_created_between_hooks() {
+    let current = job(1);
+    let run = run_key(1);
+    let fake = Fakery::new(&current);
+    nine(&fake, &run, 1);
+    let hook = fake.hook();
+    let ctx = StopHookCtx::new(
+        Some(run.clone()),
+        "m".parse().expect("a marker"),
+        Ended::Stopped,
+    ); // BORROW: .clone() gives the context its own key
+    hook.pre_stop(&ctx).await.expect("a pre-stop");
+    fake.add(0x70, "agent", Some(&run));
+    let swept = hook.destroy(&ctx).await.expect("a destroy");
+    assert_eq!(swept.destroyed.len(), 2, "both agents are destroyed");
+    assert_eq!(fake.remaining(), 8, "only the run's containers are gone");
+    let spawned = fake.spawns();
+    assert!(spawned <= 11, "{spawned} spawns, at most 11");
+}
+
+/// Guards: a lost job's allow networks are destroyed by the lost sweep: one `network ls` by the job
+/// label names them, and the guard removes them under the proof like the job's other networks.
+/// Oracle: the log of the scripted docker, derived by hand: one container list, one `network ls`,
+/// and for each of the 3 networks (internal, egress, allow) one inspect and one `network rm`.
+/// Bite: the `network ls` dropped from `LabelSweeper::collect`: the allow network is never removed.
+#[tokio::test]
+async fn spawn_budget_lost_sweep_allow_networks() {
+    let root = tempfile::tempdir().expect("a temp dir");
+    let current = job(1);
+    let lost = job(5);
+    let (_dir, _lock, proof) = locked(root.path(), &lost);
+    let allowlist = settle(Some(&serde_json::json!(["a.test:443"])), None)
+        .expect("a list")
+        .expect("not empty");
+    let allow = NetworkName::allow_for(&lost, &allowlist);
+    let names = vec![
+        NetworkName::for_job(&lost),
+        NetworkName::egress_for_job(&lost),
+        allow.clone(), // BORROW: .clone() gives the list its own name
+    ];
+    let log = Log::new();
+    let mut docker = ScriptedDocker::new(&log).job_networks(names.clone()); // BORROW: .clone() gives the fake its own list
+    for name in &names {
+        let info = NetworkInfo {
+            name: name.clone(), // BORROW: .clone() gives the answer its own name
+            internal: true,
+            labels: Labels::new().with("candler.job", lost.as_str()), // BORROW: explicit .as_str()
+        };
+        docker = docker.network(name, info);
+    }
+    let read: Arc<dyn DockerDriver> = Arc::new(docker);
+    let kill: Arc<dyn DestroyDriver> = Arc::new(LoggingDestroyer::new(
+        &log,
+        Arc::new(RecordingDestroyer::new()),
+    ));
+    let view = FakeJobView::new(current).shared();
+    let guard = Arc::new(ContainerGuard::new(
+        kill,
+        Arc::clone(&read),
+        Arc::clone(&view),
+    ));
+    let sweeper = LabelSweeper::new(read, guard, view, Duration::from_secs(30));
+    let report = sweeper.sweep_lost_report(&proof).await.expect("a sweep");
+    assert!(!report.sweep.unknown, "the sweep is complete");
+    let lines = log.lines();
+    assert!(
+        lines.contains(&format!("network rm {}", allow.as_str())), // BORROW: explicit .as_str()
+        "the allow network is removed: {lines:?}"
+    );
+    let counted = lines
+        .iter()
+        .filter(|line| {
+            line.starts_with("ps ")
+                || line.starts_with("network ls")
+                || line.starts_with("network inspect")
+                || line.starts_with("network rm")
+        })
+        .count();
+    assert_eq!(
+        counted, 8,
+        "one list, one network ls, 3 inspects, 3 rms: {lines:?}"
     );
 }

@@ -25,7 +25,7 @@ An agent's container reaches only its listed hosts and ports and the model gatew
 
 ## Pre-conditions
 - [x] [nl] Eliott approved the plan (2026-11-16; all subagents on Sonnet; cap $52)
-- [ ] [cmd] The milestone branch starts at e05c508: `git merge-base --is-ancestor e05c508 feat/m5b-egress-proxy`
+- [x] [cmd] The milestone branch starts at e05c508 (cut from 54b83b3, 2026-11-16): `git merge-base --is-ancestor e05c508 feat/m5b-egress-proxy`
 
 ## Success Gates
 - ⬜ [cmd] G1 egress: `plan_` and `egress_*` pass locally, and in CI's `container-e2e` job; the refusal is gone: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_egress_proxy::plan_/)' && cargo nextest run -p candler-core --no-tests=fail --run-ignored only -E 'test(/^guard_container_e2e::.*egress_/)' && ! git grep -n egress_unsupported -- ':(glob)crates/*/src/**'`; CI's result is read with `gh pr checks <N>`
@@ -43,13 +43,13 @@ An agent's container reaches only its listed hosts and ports and the model gatew
   - **B1.** D1, D2, D7, D9 stand as approved for M5. Why: Nothing was found against them.
   - **B2.** A container created but never run is destroyed by its creator, by the id `docker create` returned, through the guard in `SweepScope::Run`, using A1's single verification. Why: One owner of destroy; the rule already admits it (`guard.rs`).
   - **B3.** The egress attack is one rig: one set of targets, one agent container running every row, each row judged by its target's own connection log. The refusal is removed in the same leaf, as its last commit, once the rows pass. Why: 11 rows for one container set; the refusal stays until enforcement is proven.
-  - **B4.** One `flock` serialises real-daemon test runs; all builds share one `CARGO_TARGET_DIR`. Why: Sweep scopes overlap (R01, "Parallel container e2e").
+  - **B4.** One lock serialises real-daemon test runs; builds use bounded target dirs, one per worktree, with sccache, deleted after each merge. Why: Sweep scopes overlap (R01, "Parallel container e2e"); a target dir shared across worktrees links a sibling worktree's code (`scripts/worktree.py`), so the shared dir of the approved plan is replaced by bounded ones.
   - **B5.** The coordinator runs the live smoke once (G7). No new rig, no kept test. Why: Meets the node's gates 4 and 5 with one run.
   - **B6.** The deadline-races-cancel case is one row in the existing stop-race table. Why: A row, not a test per incident.
   - **B7.** The I8 e2e goes through `candler run` with a plug-in environment of values and agent inputs only, so the cached testagent base serves and no env layer is built. Why: Runs the product path for inputs and builds no image.
 - **Budget.** Cap $52; the coordinator stops and reports to Eliott at $42 (80 %). Measured from transcripts at list rates; spend is measured at each level merge. Leaves on Sonnet, verifiers included: $33.5 (guard_reuse 5.0, egress_proxy 6.0, ground_truth_refusal 2.5, unstarted_destroy 3.0, egress_attack 8.5, ground_truth_e2e 7.0, design_record 1.5). A fresh Opus coordinator for each of 2 levels: $7.0. Close (live smoke, final read-only Sonnet verifier, PR, report): $4.5. Contingency (one fix round): $7.0.
-- **Shared machine.** All builds share one `CARGO_TARGET_DIR` (B4); a leaf never sets its own. Before a build that writes gigabytes: `df -h /System/Volumes/Data`.
-- **B4 flock.** Every real-daemon run (`--run-ignored only`, E2E, probes that start containers) is wrapped in the one `flock` the coordinator names in each brief.
+- **Shared machine.** Each leaf builds in `CARGO_TARGET_DIR=/private/tmp/claude-501/m5b-target-<leaf>` with `RUSTC_WRAPPER=sccache CARGO_INCREMENTAL=0`, exported per command, never in a config file; the coordinator deletes it after the leaf merges, and at most three leaves build at once. Before a build that writes gigabytes: `df -h /System/Volumes/Data`.
+- **B4 lock.** macOS has no `flock`: every real-daemon run (`--run-ignored only`, E2E, probes that start containers) is wrapped in `lockf -k /private/tmp/claude-501/m5b-docker.lock <command>`, which waits for the lock. "The B4 flock" in the leaves means this lock.
 - **Docker.** Never prune. Remove only what the leaf created, by exact id; record `docker images -q` and `docker ps -aq` before and after. No `docker rm -f $(…)`, no removal by name, label or prefix. If Docker is down, `docker desktop start`; never stop it.
 - **CI.** Never cancel a CI run. Push the milestone branch after each level so the cold daemon runs the container e2e early. A probe branch is deleted after its run is read.
 - **colgrep.** Index the leaf's worktree and scope every `search` call's `paths` to that worktree path. The search policy denies `grep -r`/`rg`; use `git grep`.
@@ -73,10 +73,10 @@ An agent's container reaches only its listed hosts and ports and the model gatew
 ## Status
 ```mermaid
 graph TD
-    guard_reuse[Guard reuse]:::planned
-    egress_proxy[Egress proxy]:::planned
-    ground_truth_refusal[Ground-truth refusal]:::planned
-    proven[Proven]:::planned
+    guard_reuse[Guard reuse]:::done
+    egress_proxy[Egress proxy]:::done
+    ground_truth_refusal[Ground-truth refusal]:::done
+    proven[Proven]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -87,15 +87,19 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `guard_reuse.md` | 📄 Leaf Task | ⬜ Planned |
-| `egress_proxy.md` | 📄 Leaf Task | ⬜ Planned |
-| `ground_truth_refusal.md` | 📄 Leaf Task | ⬜ Planned |
-| `proven/` | 📁 Directory | ⬜ Planned |
+| `guard_reuse.md` | 📄 Leaf Task | ✅ Done |
+| `egress_proxy.md` | 📄 Leaf Task | ✅ Done |
+| `ground_truth_refusal.md` | 📄 Leaf Task | ✅ Done |
+| `proven/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
 |:---|:-----|:-------|:------------|:----------|
+| A1 | 2026-11-16 | L0 coordinator; G3 ruled by the coordination session, placement by the milestone coordinator | none; two gates added to `proven/unstarted_destroy.md` | `guard_reuse` merged with its ladder stop at 12 spawns, not 8: the pre-stop and destroy hooks each take their own list. G3 stays at 8; the destroy hook taking a fresh list and reusing only the pre-stop's verification facts moves to `unstarted_destroy`, which already owns the destroy path at L1. The L0 teardown fix (cac84ff0) makes the guard take a job's allow networks; the lost sweep's allow networks need a new driver call and move with it |
 
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| `ground_truth_refusal.md` | `m5b/ground_truth_refusal` | merge ba55856e | D9 refusal `isolation.ground_truth_exposed` in six places, zero-length inputs skipped; newly refused input ruled by the coordination session before merge; report `__reports__/m5b-egress-proxy/leaves/ground_truth_refusal_v0.md` |
+| `guard_reuse.md` | `m5b/guard_reuse` | merge ff927d6a | one inspect per destroy decision; sweep 5, normal exit 8, ladder stop 12 (G3's 8 moved to `unstarted_destroy` by A1); report `__reports__/m5b-egress-proxy/leaves/guard_reuse_v0.md` |
+| `egress_proxy.md` | `m5b/egress_proxy` | merge 7897cb7c; fix cac84ff0 | one proxy per allowlist on its allow network, njs filter refusing loopback, link-local and empty upstreams; round 2 dropped the proxy's listed-name aliases (docker DNS resolved them to the proxy itself) for `--add-host` on each agent; cac84ff0 lets the guard tear down allow networks; report `__reports__/m5b-egress-proxy/leaves/egress_proxy_v0.md` |

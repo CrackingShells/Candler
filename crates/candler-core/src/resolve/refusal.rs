@@ -11,6 +11,7 @@ use crate::refusal::wrapper_table;
 use crate::resolve::config::ConfigError;
 use crate::resolve::preflight::{PreflightError, ResolveError};
 use crate::resolve::steps::egress::EgressRefusal;
+use crate::resolve::steps::ground_truth::GroundTruthRefusal;
 use crate::resolve::steps::plugin_environment::PluginEnvironmentRefusal;
 use crate::resolve::steps::session::SessionRefusal;
 use candler_schemas::refusal::{CatalogRow, Catalogued, Refusal, Side, pointer_of};
@@ -26,7 +27,8 @@ fn config_error_path(error: &ConfigError) -> Option<String> {
     match error {
         ConfigError::UnknownKey { key, .. }
         | ConfigError::MachineWideKey { key, .. }
-        | ConfigError::WrongType { key, .. } => Some(pointer_of(key.split('.'))),
+        | ConfigError::WrongType { key, .. }
+        | ConfigError::UpstreamCa { key, .. } => Some(pointer_of(key.split('.'))),
         ConfigError::Read { .. } | ConfigError::Parse { .. } | ConfigError::RelativeCwd { .. } => {
             None
         }
@@ -40,6 +42,7 @@ fn resolve_error_path(error: &ResolveError) -> Option<String> {
         ResolveError::Session(inner) => Refusal::path(inner),
         ResolveError::Egress(inner) => Refusal::path(inner),
         ResolveError::PluginEnvironment(inner) => Refusal::path(inner),
+        ResolveError::GroundTruth(inner) => Refusal::path(inner),
         ResolveError::NonUtf8Path { .. }
         | ResolveError::DuplicateStep { .. }
         | ResolveError::DerivedTwice { .. }
@@ -86,6 +89,12 @@ refusal_table! {
         "The working directory is not an absolute path, so no ancestor can be searched for a configuration.",
         "-",
     ),
+    UpstreamCa { .. } => row(
+        "config.upstream_ca_invalid",
+        Side::Config,
+        "`gateway.upstream_ca` names a file that cannot be read or holds no PEM certificate.",
+        "The `gateway.upstream_ca` key in the user configuration file named in the message.",
+    ),
 }
 
 refusal_table! {
@@ -122,12 +131,6 @@ refusal_table! {
         "A cell sets `isolation.egress` and `isolation.network = bridge`, which reaches the whole internet.",
         "-",
     ),
-    Unsupported { .. } => row(
-        "isolation.egress_unsupported",
-        Side::Experiment,
-        "`isolation.egress` is set, by the experiment or by a plug-in environment, and no run enforces an egress allowlist yet.",
-        "-",
-    ),
 }
 
 refusal_table! {
@@ -136,6 +139,16 @@ refusal_table! {
         "isolation.plugin_environment_missing",
         Side::Experiment,
         "`isolation.build.plugin` selects an agent environment that the plug-in does not offer.",
+        "-",
+    ),
+}
+
+refusal_table! {
+    GroundTruthRefusal, path = no_path;
+    Exposed { .. } => row(
+        "isolation.ground_truth_exposed",
+        Side::Experiment,
+        "The bytes of an evaluator-only input are also in what the agent receives: the Dockerfile or the build context of the experiment or of a plug-in environment, an agent input of the experiment or of a plug-in environment, or the treatment's skill tree. A renamed copy is found; an empty file, and a compressed or transformed copy, are not.",
         "-",
     ),
 }
@@ -165,6 +178,7 @@ wrapper_table! {
     Session (inner) => delegate(inner, Side::Experiment),
     Egress (inner) => delegate(inner, Side::Experiment),
     PluginEnvironment (inner) => delegate(inner, Side::Experiment),
+    GroundTruth (inner) => delegate(inner, Side::Experiment),
     Preflight { .. } => row(
         "resolve.preflight_failed",
         Side::Environment,
@@ -176,12 +190,13 @@ wrapper_table! {
 /// The rows of every coded error of this module, in the order of the types.
 #[must_use]
 pub(crate) fn catalog() -> Vec<CatalogRow> {
-    let tables: [&'static [CatalogRow]; 6] = [
+    let tables: [&'static [CatalogRow]; 7] = [
         <ConfigError as Catalogued>::rows(),
         <PreflightError as Catalogued>::rows(),
         <SessionRefusal as Catalogued>::rows(),
         <EgressRefusal as Catalogued>::rows(),
         <PluginEnvironmentRefusal as Catalogued>::rows(),
+        <GroundTruthRefusal as Catalogued>::rows(),
         <ResolveError as Catalogued>::rows(),
     ];
     tables
@@ -207,6 +222,7 @@ fn resolve_answer(error: &ResolveError) -> &dyn Refusal {
         | ResolveError::Session(..)
         | ResolveError::Egress(..)
         | ResolveError::PluginEnvironment(..)
+        | ResolveError::GroundTruth(..)
         | ResolveError::Format(..) => error,
     }
 }

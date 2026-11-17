@@ -16,7 +16,7 @@ Runs can be isolated in containers with a closed network, and the plug-in enviro
 ## Status
 ```mermaid
 graph TD
-    m5_container_isolation[M5a Container isolation]:::planned
+    m5_container_isolation[M5a Container isolation]:::done
     m5b[M5b Egress proxy and ground-truth guard]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -28,7 +28,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `m5_container_isolation.md` | 📄 Leaf Task | ⬜ Planned |
+| `m5_container_isolation.md` | 📄 Leaf Task | ✅ Done |
 | `m5b/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
@@ -41,3 +41,4 @@ graph TD
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| `m5_container_isolation.md` | `feat/m5-container-isolation` | merge 3e654ef (PR #36) | M5a landed; close report in the PR #36 merge message and `__reports__/m5-container-isolation/leaves/`; the egress allowlist, I8 and A1 gates moved to `m5b/` by A8 |
