@@ -219,7 +219,7 @@ async fn resolve_commit(
 
 /// The bytes of `path` as `commit` holds them, with `path` read relative to the directory `source`
 /// (the treatment's checkout, the root of its repository: a skill lives at
-/// `.claude/skills/<name>` below it, as the archive command reads it).
+/// `<source_root>/<name>` below it, as the archive command reads it).
 ///
 /// `commit` is a full hex id, so the revision argument cannot start with `-`; a path that is
 /// absolute or climbs out of `source` is refused.
