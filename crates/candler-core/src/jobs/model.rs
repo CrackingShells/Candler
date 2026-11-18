@@ -20,8 +20,13 @@ use crate::runner::{RunOutcome, Runtime};
 pub struct JobSpec {
     /// The experiment file.
     pub experiment: ExperimentFile,
-    /// The resolution of the experiment.
+    /// The resolution of the experiment: the first treatment level's, and the only one of a file
+    /// with at most one level.
     pub resolution: Resolution,
+    /// The resolution of every treatment level in declared order; empty for a file with at most
+    /// one level.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub levels: Vec<Resolution>,
     /// The plans of the runs to start, in order.
     pub plans: Vec<RunPlan>,
     /// The job's budget.
@@ -35,6 +40,19 @@ pub struct JobSpec {
     /// The evaluator-only inputs as `{kind, digest}`: they are recorded in each run's manifest and
     /// never mounted, copied or shown to the agent.
     pub evaluation_inputs: Vec<DigestRef>,
+}
+
+impl JobSpec {
+    /// The resolution of each treatment level in declared order: the one resolution of a job
+    /// with at most one level.
+    #[must_use]
+    pub fn level_resolutions(&self) -> &[Resolution] {
+        if self.levels.is_empty() {
+            std::slice::from_ref(&self.resolution)
+        } else {
+            self.levels.as_slice() // BORROW: explicit .as_slice()
+        }
+    }
 }
 
 /// Everything the supervisor of an evaluate job needs, written to the job directory by `candler

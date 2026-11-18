@@ -87,6 +87,7 @@ exit 1
             budget: file.budget().clone(), // BORROW: the spec owns its budget
             experiment: file,
             resolution,
+            levels: Vec::new(),
             plans: Vec::new(),
             force: false,
             inputs: Vec::new(),

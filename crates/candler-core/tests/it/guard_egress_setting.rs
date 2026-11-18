@@ -449,6 +449,7 @@ async fn planned(
     let spec = JobSpec {
         experiment: file.clone(),
         resolution,
+        levels: Vec::new(),
         plans: outcome.plans.clone(),
         budget: file.budget().clone(),
         force: false,

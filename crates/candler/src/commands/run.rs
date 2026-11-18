@@ -32,7 +32,9 @@ use candler_core::resolve::config::{Config, ConfigEnv};
 use candler_core::resolve::layers::{FileValues, Layered, Resolution, ResolveInput};
 use candler_core::resolve::steps::ground_truth::GroundTruth;
 use candler_core::resolve::steps::plugin_environment::Fragment;
-use candler_core::runner::plan::{Force, PlanCtx, PlanMode, experiment_of, plan_runs};
+use candler_core::runner::plan::{
+    Force, PlanCtx, PlanMode, experiment_of, plan_runs, treatment_levels,
+};
 use candler_core::store::Store;
 use candler_harness::driver::HarnessDriver;
 use candler_schemas::execution::paths;
@@ -171,12 +173,29 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let truth = GroundTruth::from_inputs(declared.files.as_slice(), own_kinds.as_slice()); // BORROW: explicit .as_slice()
     let services = foreground(Arc::clone(&config), &root, &driver, truth)?;
     ensure_sidecar(&services.cli, services.gateway_context).await?;
-    let resolution = services
-        .resolver
-        .resolve(input)
-        .await
-        .map_err(CliError::refused_by)?;
-    let spec = plan_job(&store, &file, resolution, force, declared, driver)?;
+    let declared_levels = treatment_levels(&file);
+    let mut resolutions = Vec::new();
+    if declared_levels.len() > 1 {
+        for level in declared_levels {
+            let given = input_for_level(&input, level, experiment_dir.as_path())?;
+            resolutions.push(
+                services
+                    .resolver
+                    .resolve(given)
+                    .await
+                    .map_err(CliError::refused_by)?,
+            );
+        }
+    } else {
+        resolutions.push(
+            services
+                .resolver
+                .resolve(input)
+                .await
+                .map_err(CliError::refused_by)?,
+        );
+    }
+    let spec = plan_job(&store, &file, resolutions, force, declared, driver)?;
     start(&store, &file, &spec, &root).await
 }
 
@@ -227,18 +246,42 @@ fn with_declared_inputs(
     Ok(input)
 }
 
+/// The input with `level` as the setting `request.treatment`, its `source` relative to the
+/// experiment file's directory `dir` as the file writes it.
+fn input_for_level(
+    input: &ResolveInput,
+    level: &serde_json::Value,
+    dir: &Path,
+) -> Result<ResolveInput, CliError> {
+    let path = path_of(paths::REQUEST_TREATMENT)?;
+    let given = FileValues::new(vec![(path.clone(), json_of(level)?)]) // BORROW: the values own the path
+        .relative_to(dir)
+        .map_err(CliError::refused_by)?;
+    let mut input = input.clone(); // BORROW: each level resolves its own copy
+    if let (Some(file), Some((_, value))) = (input.file.as_mut(), given.values.into_iter().next()) {
+        file.values.retain(|(held, _)| *held != path);
+        file.values.push((path, value));
+    }
+    Ok(input)
+}
+
 /// Plans the runs without the experiment lock and builds the job's spec: the agent's input files
 /// are mounted into every run and the evaluator-only inputs are listed for the manifest.
 fn plan_job(
     store: &Store,
     file: &ExperimentFile,
-    resolution: Resolution,
+    resolutions: Vec<Resolution>,
     force: bool,
     declared: ResolvedInputs,
     // TRAIT_OBJECT: the registry selects the driver at runtime
     driver: Arc<dyn HarnessDriver>,
 ) -> Result<JobSpec, CliError> {
-    let experiment = experiment_of(file, &resolution).map_err(failed)?;
+    let mut levels = resolutions;
+    let resolution = levels
+        .first()
+        .cloned() // BORROW: the spec owns its primary level
+        .ok_or_else(|| refused(String::from("the experiment has no resolution")))?;
+    let experiment = experiment_of(file, levels.as_slice()).map_err(failed)?; // BORROW: explicit .as_slice()
     let ctx = PlanCtx {
         store: store.clone(), // BORROW: the context owns its handle on the store
         experiment_lock: store.layout().experiment_lock(&experiment),
@@ -246,11 +289,15 @@ fn plan_job(
         driver: Some(driver),
     };
     let mode = if force { Force::Yes } else { Force::No };
-    let outcome = plan_runs(&ctx, file, &resolution, mode, PlanMode::Check)
+    let outcome = plan_runs(&ctx, file, levels.as_slice(), mode, PlanMode::Check) // BORROW: explicit .as_slice()
         .map_err(|e| refuse_plan(e, file))?;
+    if levels.len() < 2 {
+        levels.clear();
+    }
     Ok(JobSpec {
         experiment: file.clone(), // BORROW: the spec owns its file
         resolution,
+        levels,
         plans: outcome.plans,
         budget: file.budget().clone(), // BORROW: the spec owns its budget
         force,

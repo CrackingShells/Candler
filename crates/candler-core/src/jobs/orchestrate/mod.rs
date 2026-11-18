@@ -111,7 +111,7 @@ async fn run_job(
     host: Arc<dyn JobHost>,
 ) -> JobOutcome {
     let secrets = EnvSecrets::new(spec.experiment.secrets());
-    let fresh = match experiment_of(&spec.experiment, &spec.resolution) {
+    let fresh = match experiment_of(&spec.experiment, spec.level_resolutions()) {
         Ok(fresh) => fresh,
         Err(error) => return refused("the experiment cannot be identified", &error),
     };
@@ -125,14 +125,20 @@ async fn run_job(
     let outcome = match plan_runs(
         &ctx,
         &spec.experiment,
-        &spec.resolution,
+        spec.level_resolutions(),
         force,
         PlanMode::Hold,
     ) {
         Ok(outcome) => outcome,
         Err(error) => return refused("the plan was refused", &error),
     };
-    let names = record_packages(&spec.resolution);
+    let mut names: Vec<String> = spec
+        .level_resolutions()
+        .iter()
+        .flat_map(record_packages)
+        .collect();
+    names.sort();
+    names.dedup();
     let mut packages = BTreeMap::new();
     if !names.is_empty() {
         // EXPLICIT: the loop fills `packages` and skips images it already holds; .map() would hide the state update

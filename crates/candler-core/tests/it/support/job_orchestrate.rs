@@ -721,6 +721,7 @@ pub fn spec(models: &[&str], facts: &Facts, wall_s: u32, parallel: u32) -> JobSp
     JobSpec {
         experiment,
         resolution: serde_json::from_value(resolved).expect("a resolution"),
+        levels: Vec::new(),
         plans: Vec::new(),
         budget,
         force: false,

@@ -16,7 +16,7 @@ use candler_harness::spec::Cell;
 use candler_schemas::distinct::first_clash;
 use candler_schemas::execution::{
     Comparable, Deviation, ExecutionError, ExperimentFile, Factor, Integrity, Level, RunManifest,
-    SecretPresence, experiment_digest,
+    SecretPresence, TreatmentRef, experiment_digest,
 };
 use candler_schemas::primitives::{Digest, FieldPath, JobId, RunKey, SecretName};
 use candler_schemas::values::{JsonValue, ResolvedValue, SourceEntry, ValueSource};
@@ -137,12 +137,16 @@ pub struct PlanOutcome {
     pub idle_derived: BTreeSet<CellId>,
 }
 
-/// The digest of the experiment `file` makes under `resolution`, from its fresh cells.
+/// The digest of the experiment `file` makes under `levels`, from its fresh cells.
 ///
 /// # Errors
-/// [`PlanError::Cell`] when a cell cannot be built.
-pub fn experiment_of(file: &ExperimentFile, resolution: &Resolution) -> Result<Digest, PlanError> {
-    let cells = fresh_cells(file, &Levels::from(resolution), None)?;
+/// [`PlanError::Cell`] when a cell cannot be built, a treatment level has no resolution, or two
+/// levels resolve to one treatment reference.
+pub fn experiment_of<'a>(
+    file: &ExperimentFile,
+    levels: impl Into<Levels<'a>>,
+) -> Result<Digest, PlanError> {
+    let cells = fresh_cells(file, &levels.into(), None)?;
     let digests: Vec<Digest> = cells.iter().map(|cell| cell.comparable.digest()).collect();
     // BORROW: explicit .as_slice() instead of Deref coercion
     Ok(experiment_digest(digests.as_slice()))
@@ -348,7 +352,8 @@ impl<'a> Levels<'a> {
 }
 
 /// The distinct values of the treatment factor of `file`, in declared order.
-fn treatment_levels(file: &ExperimentFile) -> Vec<&Value> {
+#[must_use]
+pub fn treatment_levels(file: &ExperimentFile) -> Vec<&Value> {
     let mut distinct: Vec<&Value> = Vec::new();
     for factor in file
         .factors()
@@ -365,6 +370,31 @@ fn treatment_levels(file: &ExperimentFile) -> Vec<&Value> {
         }
     }
     distinct
+}
+
+/// The treatment reference a resolution gives its cells: the typed `treatment` root, which the
+/// cell digest hashes.
+fn reference_of(resolution: &Resolution) -> Option<TreatmentRef> {
+    resolution
+        .values
+        .iter()
+        .find(|value| value.path().as_str() == TREATMENT)
+        .and_then(ResolvedValue::value)
+        // BORROW: .clone() hands the JSON to the deserializer, which takes it by value
+        .and_then(|value| serde_json::from_value(value.as_value().clone()).ok())
+}
+
+/// The plan error for two treatment levels that resolve to one treatment reference.
+fn equal_levels(first: &Value, second: &Value) -> PlanError {
+    PlanError::Cell {
+        source: ExecutionError::Document {
+            detail: format!(
+                "the treatment levels {first} and {second} resolve to one treatment reference, \
+                 so their cells would be one"
+            ),
+            path: String::from("/factors"),
+        },
+    }
 }
 
 /// The plan error for a treatment level that has no resolution.
@@ -450,6 +480,16 @@ fn fresh_cells<'r>(
     for (index, level) in declared_levels.iter().enumerate() {
         if levels.get(index).is_none() {
             return Err(unresolved_level(level.to_string().as_str()));
+        }
+    }
+    for (later, second) in declared_levels.iter().enumerate().skip(1) {
+        let Some(held) = levels.get(later).and_then(reference_of) else {
+            continue;
+        };
+        for (earlier, first) in declared_levels.iter().enumerate().take(later) {
+            if levels.get(earlier).and_then(reference_of).as_ref() == Some(&held) {
+                return Err(equal_levels(first, second));
+            }
         }
     }
     let egress_path = paths::ISOLATION_EGRESS
