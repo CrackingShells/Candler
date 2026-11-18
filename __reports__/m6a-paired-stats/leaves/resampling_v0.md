@@ -49,7 +49,7 @@ Added after the first verifier round: the tie tolerance removed (`cutoff = |T|`)
 
 ## Verifier
 
-Round 1 (Sonnet, spec-verifier): VERIFY_DEVIATION, no formula or sign error; F1 jackknife weights recomputed while the bootstrap holds them fixed (fixed in both languages); F2 tie tolerance unguarded (`tie` row added); F3 scipy BCa check blind to the acceleration (`skew` design plus negative controls added); F4 z0 strict count versus scipy mid-rank (documented); F5 float-degenerate jackknife (documented); F6 guard comment wrong (fixed). Re-check of the fix commit requested through SendMessage; its verdict had not arrived when the call cap forced this report, so it is OPEN: the coordinator should read the verifier's reply (agent a3e3126176bb82a4e).
+Round 1 (Sonnet, spec-verifier): VERIFY_DEVIATION, no formula or sign error; F1 jackknife weights recomputed while the bootstrap holds them fixed (fixed in both languages); F2 tie tolerance unguarded (`tie` row added); F3 scipy BCa check blind to the acceleration (`skew` design plus negative controls added); F4 z0 strict count versus scipy mid-rank (documented); F5 float-degenerate jackknife (documented); F6 guard comment wrong (fixed). Re-check at e48a6ddf: VERIFY_COMPLETE, no open finding; F1 to F6 closed, `--check` passed. Still uncovered by an independent engine: the multi-block BCa, which only the twin checks.
 
 ## Commits
 
