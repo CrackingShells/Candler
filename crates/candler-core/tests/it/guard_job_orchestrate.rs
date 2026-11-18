@@ -18,10 +18,10 @@ use std::time::Duration;
 use candler_core::jobs::model::{JobCause, JobControl, JobOutcome};
 use candler_core::jobs::orchestrate::caps::{LiveRuns, stop_live};
 use candler_core::jobs::orchestrate::orchestrate_with;
-use candler_core::runner::RunStatus;
+use candler_core::runner::{RunStatus, run_order, seed_of};
 use candler_core::supervise::EventSink;
 use candler_schemas::execution::{InvalidReason, JobEnd};
-use candler_schemas::primitives::RunKey;
+use candler_schemas::primitives::{Digest, RunKey};
 use candler_schemas::trace::EndedBy;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
@@ -73,6 +73,21 @@ fn hashes(root: &Path, key: &RunKey) -> BTreeMap<PathBuf, String> {
         .filter(|(path, _)| path.starts_with(&prefix))
         .map(|(path, bytes)| (path, hex(&Sha256::digest(&bytes))))
         .collect()
+}
+
+/// The experiment digest the manifest of `key` stores, read from disk.
+fn experiment_on_disk(root: &Path, key: &RunKey) -> Digest {
+    let path = root
+        .join("runs")
+        .join(key.to_string())
+        .join("manifest.json");
+    let manifest: Value =
+        serde_json::from_slice(&fs::read(path).expect("a manifest file")).expect("manifest JSON");
+    manifest["experiment"]
+        .as_str()
+        .expect("an experiment digest")
+        .parse()
+        .expect("a digest")
 }
 
 /// The integrity of the manifest of `key`, read from disk.
@@ -142,7 +157,10 @@ const TABLE: [&str; 6] = ["m1", "m2", "m3", "m4", "m5", "m6"];
 /// Guards: I20 — crossing a job cap gives invalid(budget_stop) on live runs only; sealed runs keep
 /// their status; no new run starts. F4: the gateway's `container.created` comes before the first
 /// `run.started`.
-/// Oracle: R01 §Budget; a literal run table.
+/// Oracle: R01 §Budget; a literal run table. Which two of the unsealed runs are in flight is the
+/// order `run_order` gives on the job's own seed, the digest the sealed runs store, so the guard
+/// takes the first `max_parallel` unsealed runs of that order as the expected pair. Using
+/// `run_order` as the fixture is sound because the `b3_` rows of `guard_run_plan` pin it.
 /// Bite: apply the cap to all_runs instead of live_runs. F4: replace the gateway `container_created`
 /// payload in `jobs/orchestrate/session.rs` with `job_started`; it fails at the `container.created
 /// for the gateway precedes run.started` assertion.
@@ -152,8 +170,9 @@ const TABLE: [&str; 6] = ["m1", "m2", "m3", "m4", "m5", "m6"];
     reason = "the guard header names identifiers in the form the guard index reads"
 )]
 fn b34_cap_stops_live_runs_only() {
-    // The literal table: m1 and m2 are sealed valid before the job; m3 and m4 are the two runs
-    // in flight, because `max_parallel` is 2 and the fake `run` sleeps; m5 and m6 are pending.
+    // The literal table: m1 and m2 are sealed valid before the job; two of m3 to m6 are in flight,
+    // because `max_parallel` is 2 and the fake `run` sleeps; the other two are pending. The planned
+    // order, from `run_order`, says which two.
     let facts = facts();
     let rig = Rig::new(30);
     let root = rig.store.layout().root().to_path_buf();
@@ -161,8 +180,16 @@ fn b34_cap_stops_live_runs_only() {
         write_run(&rig.store, &row(model, &facts));
     }
     let sealed = ["m1", "m2"].map(|model| key_of(model, &facts));
-    let live = ["m3", "m4"].map(|model| key_of(model, &facts));
-    let pending = ["m5", "m6"].map(|model| key_of(model, &facts));
+    let unsealed = ["m3", "m4", "m5", "m6"].map(|model| key_of(model, &facts));
+    let in_flight = 2;
+    let seed = seed_of(&experiment_on_disk(&root, &sealed[0]));
+    let mut expected: Vec<RunKey> = run_order(TABLE.len(), 1, seed)
+        .into_iter()
+        .filter(|(cell, _)| *cell >= sealed.len())
+        .filter_map(|(cell, _)| TABLE.get(cell).map(|model| key_of(model, &facts)))
+        .take(in_flight)
+        .collect();
+    expected.sort();
     let before: Vec<_> = sealed.iter().map(|key| hashes(&root, key)).collect();
     assert!(
         before.iter().all(|files| !files.is_empty()),
@@ -175,7 +202,7 @@ fn b34_cap_stops_live_runs_only() {
     let ticks = Arc::new(AtomicU64::new(0));
     let outcome = std::thread::scope(|scope| {
         let job = scope.spawn(|| run_job_on(&rig, &TABLE, 1, rig.host_on(&ticks)));
-        while rig.runs_logged() < live.len() {
+        while rig.runs_logged() < in_flight {
             assert!(
                 !job.is_finished(),
                 "the job ended before both runs were live"
@@ -193,9 +220,16 @@ fn b34_cap_stops_live_runs_only() {
     );
     let mut ended: Vec<RunKey> = outcome.runs.iter().map(|run| run.key.clone()).collect();
     ended.sort();
-    let mut want = live.to_vec();
-    want.sort();
-    assert_eq!(ended, want, "only the runs in flight ended");
+    assert_eq!(
+        ended, expected,
+        "only the first `max_parallel` runs of the planned order ended"
+    );
+    let live = ended;
+    let pending: Vec<RunKey> = unsealed
+        .iter()
+        .filter(|key| !live.contains(key))
+        .cloned() // BORROW: the pending keys are owned copies
+        .collect();
     for run in &outcome.runs {
         assert_eq!(run.status, RunStatus::Invalid, "{} is invalid", run.key);
         assert_eq!(
