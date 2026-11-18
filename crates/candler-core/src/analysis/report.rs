@@ -13,10 +13,11 @@ use candler_schemas::outcome::Role;
 use candler_schemas::primitives::{Digest, ExpectationId, FieldPath, NameVersion, RunKey};
 use serde_json::Value;
 
-use super::blocking::{Battery, BlockEffect};
+use super::blocking::{
+    Battery, BlockEffect, Blocked, Design, blocks_of, holm_families, level_of, test_blocked,
+    unit_block_keys, unit_blocks_of,
+};
 use super::error::StatsError;
-use super::fisher::fisher_two_sided;
-use super::holm::{holm, rejected};
 use super::newcombe::newcombe_difference;
 use super::refusal::ReportError;
 use super::tally::{ArmTally, ExpectationTally, Omitted, Rate, RunFacts, tally};
@@ -375,6 +376,8 @@ pub enum OmitReason {
     Counts(Omitted),
     /// Only one of the two arms graded the expectation.
     OneArm,
+    /// A weighted comparison needs two runs in each arm of each block for its interval.
+    TooFewRuns,
 }
 
 impl OmitReason {
@@ -384,6 +387,7 @@ impl OmitReason {
         match self {
             Self::Counts(reason) => reason.as_str(),
             Self::OneArm => "one_arm",
+            Self::TooFewRuns => "too_few_runs",
         }
     }
 }
@@ -626,23 +630,199 @@ fn verdict_of(a: &[&RunView], b: &[&RunView], declared: &[FieldPath]) -> PairVer
     }
 }
 
-/// The entries of a comparable pair: each expectation graded in either arm, tested when both hold
-/// plain counts and left out, with its reason, when not.
-fn entries_of(a: &ArmReport, b: &ArmReport) -> Result<Vec<Entry>, StatsError> {
-    let ids: BTreeSet<&ExpectationId> = a
-        .tally
-        .expectations
-        .keys()
-        .chain(b.tally.expectations.keys())
+/// The seed of the permutation and bootstrap replicates of a weighted comparison: a fixed
+/// constant, so that one store always gives one report.
+pub const PERMUTATION_SEED: u64 = 0xC6C7_5EED;
+
+/// What a comparison of one factor reads: the runs of its stratum, the factors that block it, and
+/// the two levels of the compared one.
+struct Plan<'a> {
+    runs: &'a [RunView],
+    declared: &'a [FieldPath],
+    compared: &'a FieldPath,
+    a: &'a Value,
+    b: &'a Value,
+}
+
+/// A cell of a stratum as a comparison reads it: its runs, its level of the compared factor and
+/// the block it falls in.
+struct Placed<'a> {
+    cell: &'a CellKey,
+    runs: &'a [&'a RunView],
+    level: Value,
+    block: String,
+}
+
+/// The cells of a stratum placed by their level of `compared` and their level combination of the
+/// other declared factors.
+fn place<'a>(
+    listed: &[(&'a CellKey, &'a Vec<&'a RunView>)],
+    compared: &FieldPath,
+    declared: &[FieldPath],
+) -> Vec<Placed<'a>> {
+    listed
+        .iter()
+        .filter_map(|(cell, runs)| {
+            let first = runs.first()?;
+            let block = declared
+                .iter()
+                .filter(|factor| *factor != compared)
+                .map(|factor| format!("{factor}={}", level_of(first, factor)))
+                .collect::<Vec<_>>()
+                .join("\u{1f}");
+            Some(Placed {
+                cell,
+                runs: runs.as_slice(),
+                level: level_of(first, compared),
+                block,
+            })
+        })
+        .collect()
+}
+
+/// The runs of the cells of one side of a comparison.
+fn views_of<'a>(side: &[&Placed<'a>]) -> Vec<&'a RunView> {
+    side.iter()
+        .flat_map(|cell| cell.runs.iter().copied())
+        .collect()
+}
+
+/// The effect of a blocked test on the reported fields: the difference of the first arm over the
+/// second with its interval (`NaN` when the test gives none), and the reading of the interval.
+fn effect_of(
+    blocked: &Blocked,
+    a: Counts,
+    b: Counts,
+) -> Result<(f64, f64, f64, Reading), StatsError> {
+    let (diff, lo, hi) = match (blocked.battery, blocked.diff, blocked.interval) {
+        (Battery::MidP, _, _) => {
+            let difference = newcombe_difference(a, b)?;
+            (difference.diff(), difference.lo(), difference.hi())
+        }
+        (_, Some(statistic), Some((lo, hi))) => (-statistic, -hi, -lo),
+        _ => (f64::NAN, f64::NAN, f64::NAN),
+    };
+    let excludes = match blocked.battery {
+        Battery::MidP | Battery::Permutation => lo > 0.0 || hi < 0.0,
+        Battery::Cmh | Battery::ExactStrata => blocked
+            .or_ci
+            .is_some_and(|(low, high)| low > 1.0 || high < 1.0),
+    };
+    let reading = if excludes {
+        Reading::Effect
+    } else {
+        Reading::Inconclusive
+    };
+    Ok((diff, lo, hi, reading))
+}
+
+/// One expectation tested over the blocks of a comparison, or the reason it is left out.
+fn tested_of(
+    id: ExpectationId,
+    role: Role,
+    units: &[(RunKey, u64, u64)],
+    weighted: bool,
+    plan: &Plan<'_>,
+) -> Result<Entry, StatsError> {
+    let omit = |reason: OmitReason| Entry::Omitted {
+        id: id.clone(), // BORROW: the entry owns the id
+        role,
+        reason,
+    };
+    let (Plan {
+        runs,
+        declared,
+        compared,
+        a,
+        b,
+    },) = (plan,);
+    let outcome = if weighted {
+        let blocks = unit_blocks_of(runs, units, compared, a, b, declared);
+        if blocks
+            .iter()
+            .any(|block| block.a.len() < 2 || block.b.len() < 2)
+        {
+            return Ok(omit(OmitReason::TooFewRuns));
+        }
+        let keys = unit_block_keys(runs, units, compared, a, b, declared);
+        test_blocked(&Design::Weighted(blocks.as_slice()), PERMUTATION_SEED)
+            .map(|blocked| blocked.keyed(keys.as_slice()))
+    } else {
+        let blocks = blocks_of(runs, units, compared, a, b, declared);
+        test_blocked(&Design::Binary(blocks.as_slice()), PERMUTATION_SEED)
+    };
+    let blocked = match outcome {
+        Ok(blocked) => blocked,
+        Err(StatsError::NoRuns) => return Ok(omit(OmitReason::Counts(Omitted::NoRuns))),
+        Err(other) => return Err(other),
+    };
+    let sums = |pick: fn(&BlockEffect) -> (u64, u64)| {
+        blocked
+            .per_block
+            .iter()
+            .map(pick)
+            .fold((0_u64, 0_u64), |sum, (k, n)| {
+                (sum.0.saturating_add(k), sum.1.saturating_add(n))
+            })
+    };
+    let (held_a, held_b) = (sums(|effect| effect.a), sums(|effect| effect.b));
+    let (Ok(counts_a), Ok(counts_b)) = (
+        Counts::new(held_a.0, held_a.1),
+        Counts::new(held_b.0, held_b.1),
+    ) else {
+        return Ok(omit(OmitReason::Counts(Omitted::Unavailable)));
+    };
+    let (diff, diff_lo, diff_hi, reading) = effect_of(&blocked, counts_a, counts_b)?;
+    Ok(Entry::Tested(Tested {
+        id,
+        role,
+        a: counts_a,
+        b: counts_b,
+        p: blocked.p,
+        p_holm: blocked.p,
+        reject: false,
+        diff,
+        diff_lo,
+        diff_hi,
+        battery: Some(blocked.battery),
+        blocks: blocked.blocks,
+        fallback: blocked.fallback,
+        per_block: blocked.per_block,
+        or_mh: blocked.or_mh,
+        or_ci: blocked.or_ci,
+        homogeneity_p: blocked.homogeneity_p,
+        reading,
+    }))
+}
+
+/// The entries of a comparable comparison: each expectation graded at either level, tested over
+/// the blocks when both levels hold outcomes and left out, with its reason, when not. The arms
+/// are the cells at each level.
+fn entries_of(
+    arms_a: &[&ArmReport],
+    arms_b: &[&ArmReport],
+    plan: &Plan<'_>,
+) -> Result<Vec<Entry>, StatsError> {
+    let ids: BTreeSet<&ExpectationId> = arms_a
+        .iter()
+        .chain(arms_b.iter())
+        .flat_map(|arm| arm.tally.expectations.keys())
         .collect();
+    let held = |arms: &[&ArmReport], id: &ExpectationId| -> Vec<ExpectationTally> {
+        arms.iter()
+            .filter_map(|arm| arm.tally.expectations.get(id))
+            .cloned() // BORROW: the units are gathered from owned tallies
+            .collect()
+    };
     let mut entries = Vec::new();
     for id in ids {
         let id = id.clone(); // BORROW: the entry owns the id
-        let (held_a, held_b) = (a.tally.expectations.get(&id), b.tally.expectations.get(&id));
-        let (Some(held_a), Some(held_b)) = (held_a, held_b) else {
+        let (held_a, held_b) = (held(arms_a, &id), held(arms_b, &id));
+        let (Some(first_a), Some(_)) = (held_a.first(), held_b.first()) else {
             let role = held_a
-                .or(held_b)
-                .map_or(Role::Descriptive, |held| held.role);
+                .first()
+                .or_else(|| held_b.first())
+                .map_or(Role::Descriptive, |tally| tally.role);
             entries.push(Entry::Omitted {
                 id,
                 role,
@@ -650,38 +830,22 @@ fn entries_of(a: &ArmReport, b: &ArmReport) -> Result<Vec<Entry>, StatsError> {
             });
             continue;
         };
-        let role = held_a.role;
-        entries.push(match (held_a.counts(), held_b.counts()) {
-            (Ok(counts_a), Ok(counts_b)) => {
-                let difference = newcombe_difference(counts_a, counts_b)?;
-                let p = fisher_two_sided(counts_a, counts_b)?;
-                Entry::Tested(Tested {
-                    id,
-                    role,
-                    a: counts_a,
-                    b: counts_b,
-                    p,
-                    p_holm: p,
-                    reject: false,
-                    diff: difference.diff(),
-                    diff_lo: difference.lo(),
-                    diff_hi: difference.hi(),
-                    battery: None,
-                    blocks: 1,
-                    fallback: false,
-                    per_block: Vec::new(),
-                    or_mh: None,
-                    or_ci: None,
-                    homogeneity_p: None,
-                    reading: Reading::Inconclusive,
-                })
-            }
-            (Err(reason), _) | (Ok(_), Err(reason)) => Entry::Omitted {
+        let role = first_a.role;
+        if matches!(role, Role::Descriptive) {
+            entries.push(Entry::Omitted {
                 id,
                 role,
-                reason: OmitReason::Counts(reason),
-            },
-        });
+                reason: OmitReason::Counts(Omitted::Descriptive),
+            });
+            continue;
+        }
+        let all: Vec<&ExpectationTally> = held_a.iter().chain(held_b.iter()).collect();
+        let units: Vec<(RunKey, u64, u64)> = all
+            .iter()
+            .flat_map(|tally| tally.units().iter().cloned()) // BORROW: the design owns its units
+            .collect();
+        let weighted = all.iter().any(|tally| !tally.binary);
+        entries.push(tested_of(id, role, units.as_slice(), weighted, plan)?);
     }
     Ok(entries)
 }
@@ -756,11 +920,15 @@ pub fn check_factors(
     Ok(())
 }
 
-/// Compares every pair of arms of one stratum that differ in exactly one declared factor.
+/// Compares every pair of levels of every declared factor of one stratum, the other declared
+/// factors as blocks.
 ///
-/// The verdict of [`stratum_verdict`] over every valid run of both arms says whether the pair is
-/// comparable; a refused pair keeps its cause and has no test. Holm's adjustment runs once per
-/// role over every tested entry of every comparable pair.
+/// A comparison is made where at least one block holds cells at both levels. Its arms are the
+/// cells at each level, and `a` and `b` name the first cell of each in key order. The verdict of
+/// [`stratum_verdict`] over every valid run of both levels says whether it is comparable; a
+/// refused comparison keeps its cause and has no test. Holm's adjustment runs once per
+/// comparison and role. Pairs of cells that differ in no declared factor or in several are
+/// counted in [`Pairs::not_one_factor`] and are not a comparison of their own.
 ///
 /// # Errors
 /// The [`StatsError`] of a method.
@@ -774,38 +942,86 @@ pub fn compare_pairs(runs: &[RunView], arms: &[ArmReport]) -> Result<Pairs, Stat
     for (stratum, cells) in &strata_of(runs) {
         let declared = recorded_factors(cells);
         let listed: Vec<(&CellKey, &Vec<&RunView>)> = cells.iter().collect();
-        for (at, (cell_a, runs_a)) in listed.iter().enumerate() {
-            for (cell_b, runs_b) in listed.iter().skip(at + 1) {
+        for (at, (_, runs_a)) in listed.iter().enumerate() {
+            for (_, runs_b) in listed.iter().skip(at + 1) {
                 let (Some(first_a), Some(first_b)) = (runs_a.first(), runs_b.first()) else {
                     continue;
                 };
-                let factors = factors_between(declared.as_slice(), first_a, first_b);
-                let [factor] = factors.as_slice() else {
+                if factors_between(declared.as_slice(), first_a, first_b).len() != 1 {
                     not_one_factor += 1;
-                    continue;
-                };
-                let verdict = verdict_of(runs_a.as_slice(), runs_b.as_slice(), declared.as_slice());
-                let arm_a = by_arm.get(&(stratum.as_str(), *cell_a));
-                let arm_b = by_arm.get(&(stratum.as_str(), *cell_b));
-                let entries = match (&verdict, arm_a, arm_b) {
-                    (PairVerdict::Comparable, Some(arm_a), Some(arm_b)) => {
-                        entries_of(arm_a, arm_b)?
+                }
+            }
+        }
+        let own: Vec<RunView> = runs
+            .iter()
+            .filter(|view| view.manifest.experiment().to_string() == *stratum)
+            .cloned() // BORROW: the blocks read the stratum's own runs
+            .collect();
+        for compared in &declared {
+            let placed = place(listed.as_slice(), compared, declared.as_slice());
+            let mut levels: Vec<&Value> = Vec::new();
+            for cell in &placed {
+                if !levels.contains(&&cell.level) {
+                    levels.push(&cell.level);
+                }
+            }
+            for (at, level_a) in levels.iter().enumerate() {
+                for level_b in levels.iter().skip(at + 1) {
+                    let side = |level: &Value| -> Vec<&Placed<'_>> {
+                        placed.iter().filter(|cell| cell.level == *level).collect()
+                    };
+                    let (side_a, side_b) = (side(level_a), side(level_b));
+                    let blocked = side_a
+                        .iter()
+                        .any(|x| side_b.iter().any(|y| x.block == y.block));
+                    let (Some(first_a), Some(first_b)) = (side_a.first(), side_b.first()) else {
+                        continue;
+                    };
+                    if !blocked {
+                        continue;
                     }
-                    _ => Vec::new(),
-                };
-                comparisons.push(Comparison {
-                    experiment: stratum.clone(), // BORROW: the comparison owns the text
-                    a: (*cell_a).clone(),        // BORROW: the comparison owns the cells
-                    b: (*cell_b).clone(),
-                    factor: (*factor).clone(), // BORROW: the comparison owns the factor
-                    levels: None,
-                    verdict,
-                    entries,
-                });
+                    let verdict = verdict_of(
+                        views_of(side_a.as_slice()).as_slice(),
+                        views_of(side_b.as_slice()).as_slice(),
+                        declared.as_slice(),
+                    );
+                    let arms_of = |side: &[&Placed<'_>]| -> Vec<&ArmReport> {
+                        side.iter()
+                            .filter_map(|cell| by_arm.get(&(stratum.as_str(), cell.cell)).copied())
+                            .collect()
+                    };
+                    let entries = if matches!(verdict, PairVerdict::Comparable) {
+                        let plan = Plan {
+                            runs: own.as_slice(),
+                            declared: declared.as_slice(),
+                            compared,
+                            a: level_a,
+                            b: level_b,
+                        };
+                        entries_of(
+                            arms_of(side_a.as_slice()).as_slice(),
+                            arms_of(side_b.as_slice()).as_slice(),
+                            &plan,
+                        )?
+                    } else {
+                        Vec::new()
+                    };
+                    comparisons.push(Comparison {
+                        experiment: stratum.clone(), // BORROW: the comparison owns the text
+                        a: first_a.cell.clone(),     // BORROW: the comparison owns the cells
+                        b: first_b.cell.clone(),
+                        factor: compared.clone(), // BORROW: the comparison owns the factor
+                        levels: Some(((*level_a).clone(), (*level_b).clone())), // BORROW: the comparison owns the levels
+                        verdict,
+                        entries,
+                    });
+                }
             }
         }
     }
-    comparisons.sort_by(|x, y| (&x.experiment, &x.a, &x.b).cmp(&(&y.experiment, &y.a, &y.b)));
+    comparisons.sort_by(|x, y| {
+        (&x.experiment, &x.a, &x.b, &x.factor).cmp(&(&y.experiment, &y.a, &y.b, &y.factor))
+    });
     for comparison in &mut comparisons {
         comparison.entries.sort_by(|x, y| x.id().cmp(y.id()));
     }
@@ -817,29 +1033,40 @@ pub fn compare_pairs(runs: &[RunView], arms: &[ArmReport]) -> Result<Pairs, Stat
     })
 }
 
-/// Fills `p_holm` and `reject` of every tested entry: one family per role, over the whole call.
+/// Fills `p_holm` and `reject` of every tested entry: Holm over each comparison's gate
+/// expectations and, apart, over its quality expectations. One [`Family`] is listed per
+/// comparison and role that has a test.
 fn adjust(comparisons: &mut [Comparison]) -> Result<Vec<Family>, StatsError> {
+    let mut groups: Vec<Vec<Tested>> = comparisons
+        .iter()
+        .map(|comparison| {
+            comparison
+                .entries
+                .iter()
+                .filter_map(|entry| match entry {
+                    Entry::Tested(tested) => Some(tested.clone()), // BORROW: Holm adjusts owned tests
+                    Entry::Omitted { .. } => None,
+                })
+                .collect()
+        })
+        .collect();
+    holm_families(groups.as_mut_slice())?;
     let mut families = Vec::new();
-    for role in [Role::Gate, Role::Quality] {
-        let mut family: Vec<&mut Tested> = comparisons
-            .iter_mut()
-            .flat_map(|comparison| comparison.entries.iter_mut())
-            .filter_map(|entry| match entry {
-                Entry::Tested(tested) if tested.role == role => Some(tested),
-                Entry::Tested(_) | Entry::Omitted { .. } => None,
-            })
-            .collect();
-        if family.is_empty() {
-            continue;
+    for (comparison, tests) in comparisons.iter_mut().zip(groups) {
+        for role in [Role::Gate, Role::Quality] {
+            let m = tests.iter().filter(|tested| tested.role == role).count();
+            if m > 0 {
+                families.push(Family { role, m });
+            }
         }
-        let raw: Vec<f64> = family.iter().map(|tested| tested.p).collect();
-        let adjusted = holm(raw.as_slice())?;
-        let rejects = rejected(adjusted.as_slice());
-        for ((tested, value), reject) in family.iter_mut().zip(adjusted).zip(rejects) {
-            tested.p_holm = value;
-            tested.reject = reject;
+        let mut adjusted = tests.into_iter();
+        for entry in &mut comparison.entries {
+            if let Entry::Tested(slot) = entry
+                && let Some(done) = adjusted.next()
+            {
+                *slot = done;
+            }
         }
-        families.push(Family { role, m: raw.len() });
     }
     Ok(families)
 }

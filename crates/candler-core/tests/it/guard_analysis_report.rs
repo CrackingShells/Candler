@@ -902,7 +902,7 @@ fn a2_a_refused_pair_keeps_its_rates_and_cause() {
 /// Guards: A2 — a pair that differs in one declared factor and nothing else, with the clean
 /// provenance block, is comparable and tested (the positive control, as C52), and an invalid run
 /// that carries a dirty build is not in the verdict.
-/// Oracle: the Fisher row of `fisher.toml` for 4 of 5 against 1 of 5, and `verdicts.json` row
+/// Oracle: the mid-p row of `midp.toml` for 4 of 5 against 1 of 5, and `verdicts.json` row
 /// C52.
 /// Bite: put invalid runs into the verdict, and the control is refused; skip the verdict, and the
 /// refused rows of its twin turn red.
@@ -919,7 +919,7 @@ fn a2_a_comparable_pair_is_tested() {
         panic!("one tested entry: {:?}", comparison.entries);
     };
     assert_eq!(tested.id.to_string(), "E1");
-    close("p", tested.p, fisher_p((4, 5), (1, 5)));
+    close("p", tested.p, midp_p((4, 5), (1, 5)));
     // An invalid run with a dirty build sits in the second arm: it is not in the verdict.
     let mut b = runs_of("beta", 5, |_| {});
     let mut dirty = Spec::new("beta", 6);
@@ -960,9 +960,9 @@ fn a2_only_one_factor_pairs_are_compared() {
 /// Guards: A2 — a cell that sits in two strata is two arms: alpha and beta each have three runs
 /// under one experiment digest and three under another, so the report holds four arms of three
 /// runs each, one comparison per stratum on that stratum's own runs (3 of 3 against 0 of 3), and
-/// one Holm family of exactly two tests.
-/// Oracle: the Fisher row of `fisher.toml` for 3 of 3 against 0 of 3, and Holm's value for two
-/// equal p-values, `2p`, from `holm.toml`'s rule.
+/// one Holm family of one test in each.
+/// Oracle: the mid-p row of `midp.toml` for 3 of 3 against 0 of 3, which a family of one leaves
+/// as it is.
 /// Bite: key the tally by cell alone, and each arm pools six runs; compare each pair once on the
 /// pooled arms, and the count of comparisons or the p-value turns red.
 #[test]
@@ -1008,9 +1008,12 @@ fn a2_a_cell_in_two_strata_is_tallied_per_stratum() {
             .collect::<Vec<_>>(),
         vec![digest_text('0'), digest_text('1')]
     );
-    assert_eq!(report.families.len(), 1);
-    assert_eq!(report.families[0].m, 2, "two tests, not four and not one");
-    let p = fisher_p((3, 3), (0, 3));
+    assert_eq!(report.families.len(), 2);
+    assert!(
+        report.families.iter().all(|family| family.m == 1),
+        "one test in each comparison's family, not two in one"
+    );
+    let p = midp_p((3, 3), (0, 3));
     for comparison in &report.comparisons {
         let [Entry::Tested(tested)] = comparison.entries.as_slice() else {
             panic!("one tested entry: {:?}", comparison.entries);
@@ -1025,7 +1028,7 @@ fn a2_a_cell_in_two_strata_is_tallied_per_stratum() {
             (3, 3, 0, 3)
         );
         close("p", tested.p, p);
-        close("p_holm", tested.p_holm, (2.0 * p).min(1.0));
+        close("p_holm", tested.p_holm, p);
     }
 }
 
@@ -1054,8 +1057,9 @@ fn two_by_two(factors: &[&'static str]) -> (Selection, Vec<RunView>) {
 }
 
 /// Guards: A2 — the factors of a stratum come from its manifests, and an experiment file is a
-/// cross-check: on a 2 by 2 store whose manifests record `plan.model` and `plan.other`, four
-/// pairs differ in one factor and are compared and two differ in both and are not; a file that
+/// cross-check: on a 2 by 2 store whose manifests record `plan.model` and `plan.other`, two
+/// comparisons are made, one per factor, and the two cell pairs that differ in both are counted
+/// and not compared; a file that
 /// declares the parent path `plan` or an unrelated path is refused as
 /// `analysis.experiment_disagrees`, naming both sets; a file with the recorded factors is
 /// accepted; and manifests that record the parent `plan` are refused as
@@ -1068,7 +1072,7 @@ fn two_by_two(factors: &[&'static str]) -> (Selection, Vec<RunView>) {
 fn a2_a_wrong_experiment_is_refused() {
     let (selection, runs) = two_by_two(&["plan.model", "plan.other"]);
     let report = report(&selection, runs.clone());
-    assert_eq!(report.comparisons.len(), 4);
+    assert_eq!(report.comparisons.len(), 2);
     assert_eq!(report.pairs_not_one_factor, 2);
     assert_eq!(check_factors(&runs, None), Ok(()));
     assert_eq!(
@@ -1400,7 +1404,10 @@ fn tested_of(
     comparison: &candler_core::analysis::report::Comparison,
 ) -> &candler_core::analysis::report::Tested {
     let [Entry::Tested(tested)] = comparison.entries.as_slice() else {
-        panic!("one tested entry: {:?}", comparison.entries);
+        panic!(
+            "one tested entry: {:?} of a {:?} comparison",
+            comparison.entries, comparison.verdict
+        );
     };
     tested
 }
@@ -1478,7 +1485,10 @@ fn c6_two_by_two_gives_two_blocked_comparisons() {
         assert_eq!(path.to_string(), "plan.other");
         let at = usize::from(level == &json!("y"));
         let (alpha, beta) = ((row.pa[at], row.na[at]), (row.pb[at], row.nb[at]));
-        let rate = |c: (u64, u64)| c.0 as f64 / c.1 as f64;
+        let rate = |c: (u64, u64)| {
+            f64::from(u32::try_from(c.0).expect("small"))
+                / f64::from(u32::try_from(c.1).expect("small"))
+        };
         let want = if a_is_alpha {
             rate(beta) - rate(alpha)
         } else {
@@ -1569,9 +1579,12 @@ fn c6_holm_per_comparison_and_role() {
         let tests: Vec<&candler_core::analysis::report::Tested> = comparison
             .entries
             .iter()
-            .filter_map(|e| match e {
-                Entry::Tested(t) => Some(t),
-                _ => None,
+            .filter_map(|e| {
+                if let Entry::Tested(t) = e {
+                    Some(t)
+                } else {
+                    None
+                }
             })
             .collect();
         let gate: Vec<_> = tests.iter().filter(|t| t.role == Role::Gate).collect();
@@ -1602,50 +1615,59 @@ fn c6_holm_per_comparison_and_role() {
     }
 }
 
-/// Guards: C6 — a `request.treatment` level is read as the typed reference `{name, tag, commit}`
-/// from the cell's comparable, never as `null` and never from `values`: a treatment by model
-/// store gives a treatment comparison that names its two levels by their references and blocks by
-/// model, and a model comparison whose two blocks are keyed by the two references.
+/// Guards: C6 — a treatment level is read as the typed reference `{name, tag, commit}` from the
+/// cell's comparable, never as `null` and never from `values`: a treatment by model store gives a
+/// treatment comparison that names its two levels by their references and blocks by model, and a
+/// model comparison whose two blocks are keyed by the two references. The factor is declared as
+/// `treatment`, the path the verdict recognises, and as `request.treatment`, the setting that
+/// resolves into it, whose levels are read the same way.
 /// Oracle: the references written into the manifests by the test.
-/// Bite: read the level from `comparable().values()` (null for every run: one block, one level)
-/// and this turns red.
+/// Bite: read the level from `comparable().values()` (null for every run: one level, no
+/// comparison) and this turns red.
 #[test]
 fn c6_a_treatment_level_is_its_typed_reference() {
     let one = json!({"name": "t", "tag": "v1", "commit": "a".repeat(40)});
     let two = json!({"name": "t", "tag": "v2", "commit": "b".repeat(40)});
-    let mut cells = Vec::new();
-    for (treatment, model, passes) in [
-        (&one, "alpha", 1_u64),
-        (&two, "alpha", 4),
-        (&one, "beta", 2),
-        (&two, "beta", 5),
-    ] {
-        let mut spec = Spec::new(model, 1);
-        spec.treatment = treatment.clone();
-        spec.factors = vec!["request.treatment", "plan.model"];
-        cells.push((spec, passes, 5));
+    let both = BTreeSet::from([one.to_string(), two.to_string()]);
+    for name in ["treatment", "request.treatment"] {
+        let mut cells = Vec::new();
+        for (treatment, model, passes) in [
+            (&one, "alpha", 1_u64),
+            (&two, "alpha", 4),
+            (&one, "beta", 2),
+            (&two, "beta", 5),
+        ] {
+            let mut spec = Spec::new(model, 1);
+            spec.treatment = treatment.clone();
+            spec.factors = vec![name, "plan.model"];
+            cells.push((spec, passes, 5));
+        }
+        let (selection, runs) = store_of(&cells);
+        let report = report(&selection, runs);
+        assert_eq!(report.comparisons.len(), 2, "{name}");
+        let treatment = comparison_of(&report, name);
+        let (a, b) = treatment.levels.clone().expect("the levels");
+        assert_eq!(
+            BTreeSet::from([a.to_string(), b.to_string()]),
+            both,
+            "{name}"
+        );
+        if name == "request.treatment" {
+            continue;
+        }
+        let tested = tested_of(treatment);
+        assert_eq!(tested.blocks, 2);
+        let model = comparison_of(&report, "plan.model");
+        let tested = tested_of(model);
+        assert_eq!(tested.blocks, 2);
+        let keyed: BTreeSet<String> = tested
+            .per_block
+            .iter()
+            .map(|effect| match effect.key.as_slice() {
+                [(path, level)] if path.to_string() == name => level.to_string(),
+                other => panic!("a block keyed by the treatment: {other:?}"),
+            })
+            .collect();
+        assert_eq!(keyed, both);
     }
-    let (selection, runs) = store_of(&cells);
-    let report = report(&selection, runs);
-    assert_eq!(report.comparisons.len(), 2);
-    let treatment = comparison_of(&report, "request.treatment");
-    let (a, b) = treatment.levels.clone().expect("the levels");
-    assert_eq!(
-        BTreeSet::from([a.to_string(), b.to_string()]),
-        BTreeSet::from([one.to_string(), two.to_string()])
-    );
-    let tested = tested_of(treatment);
-    assert_eq!(tested.blocks, 2);
-    let model = comparison_of(&report, "plan.model");
-    let tested = tested_of(model);
-    assert_eq!(tested.blocks, 2);
-    let keyed: BTreeSet<String> = tested
-        .per_block
-        .iter()
-        .map(|effect| match effect.key.as_slice() {
-            [(path, level)] if path.to_string() == "request.treatment" => level.to_string(),
-            other => panic!("a block keyed by the treatment: {other:?}"),
-        })
-        .collect();
-    assert_eq!(keyed, BTreeSet::from([one.to_string(), two.to_string()]));
 }
