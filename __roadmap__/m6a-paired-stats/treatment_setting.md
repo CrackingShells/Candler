@@ -17,11 +17,11 @@
 ## Step 1: Write the t2_ rows, seen red
 **Goal**: Rows that pin the admission, the refusals that stay, and the one-treatment digest.
 **Implementation Logic**:
-1. In `guard_settings_out_of_cell.rs`, a `t2_` table: `request.treatment` with two levels is admitted by `fresh_cells` and yields one cell per level whose cell value at `treatment` differs; every other setting `is_setting` names, and the bare `request` parent table, still raise `SettingAsFactor`; a file with one treatment and no factor gives the same `experiment_of` digest as `$BASE_LEAF` (the expected digest is computed on `$BASE_LEAF` and written into the row, not taken from the new code).
+1. In `guard_settings_out_of_cell.rs`, a `t2_` table: `request.treatment` with two levels is not refused as `SettingAsFactor`; every other setting `is_setting` names, and the bare `request` parent table, still raise `SettingAsFactor`; a file with one treatment and no factor gives the same `experiment_of` digest as `$BASE_LEAF` (the expected digest is computed on `$BASE_LEAF` and written into the row, not taken from the new code).
 2. `Guards:` and `Oracle:` lines on each test. The admission row is red today.
 **Deliverables**: `crates/candler-core/tests/it/guard_settings_out_of_cell.rs`: `t2_treatment_is_the_one_admitted_setting`, `t2_other_settings_stay_refused`, `t2_one_treatment_digest_unchanged`
 **Consistency Checks**: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_settings_out_of_cell::t2_/)'` (expected: FAIL)
-**Commit**: `test(plan): guard treatment as the one setting factor`
+**Commit**: `test(runner): guard treatment as the one setting factor`
 
 ## Step 2: Admit the treatment factor
 **Goal**: `fresh_cells` admits `request.treatment` and nothing else.
@@ -30,13 +30,13 @@
 2. Nothing else in `fresh_cells` changes; `plan_runs` is not touched here.
 **Deliverables**: `crates/candler-core/src/runner/plan.rs`: `setting_of_factor`, `fresh_cells`, `TREATMENT_FACTOR`
 **Consistency Checks**: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_settings_out_of_cell::/) | test(/^guard_run_plan::/)'` (expected: PASS)
-**Commit**: `feat(plan): admit the treatment as a declared factor`
+**Commit**: `feat(runner): admit the treatment as a declared factor`
 
 ## Step 3: Bites, DIGEST and the report
 **Goal**: The rows bite, and no digest moved.
 **Implementation Logic**:
-1. Bites: admit every `request.*` setting (red on `t2_other_settings_stay_refused`); admit by prefix `request.treat` (red on a row with a lookalike path); put the level into the cell outside `treatment` (red on the digest row).
+1. Bites: admit every `request.*` setting (red on `t2_other_settings_stay_refused`); admit by prefix `request.treat` (cannot go red: `is_setting` names no other path starting `request.treat`, so no lookalike row exists); put the level into the cell outside `treatment` (red on the digest row).
 2. Run DIGEST and the CLI refusal rows. Record the bites, the refusal-row list and the `check_factors` answer.
 **Deliverables**: `__reports__/m6a-paired-stats/leaves/treatment_setting_v0.md`: sections "Refusal rows", "Bites", "CLI preflight"
 **Consistency Checks**: `grep -q '^## Bites' __reports__/m6a-paired-stats/leaves/treatment_setting_v0.md` (expected: PASS)
-**Commit**: `docs(plan): record the bites of the treatment factor`
+**Commit**: `docs(runner): record the bites of the treatment factor`

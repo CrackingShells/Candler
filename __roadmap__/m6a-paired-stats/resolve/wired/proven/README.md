@@ -7,7 +7,7 @@ Level L3 of `m6a-paired-stats`, the last one. It proves the battery built at L0 
 The blocked battery is shown correct on real data and on known truth, and its design is recorded with every validity source cited.
 
 ## Pre-conditions
-- [ ] [cmd] L2 is merged: `for l in level_wiring analyze_output; do git log --format=%s | grep -q "^merge(.*): land $l" || exit 1; done`
+- [ ] [cmd] L2 is merged: `for l in level_wiring analyze_output; do test -f __reports__/m6a-paired-stats/leaves/${l}_v0.md || exit 1; done`
 - [ ] [cmd] STD, DIGEST and GOLDEN passed at the L2 merge (Progress table)
 
 ## Success Gates

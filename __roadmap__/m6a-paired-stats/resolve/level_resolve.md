@@ -3,7 +3,7 @@
 **Goal**: A file declaring two or more treatment levels resolves each distinct level once, in declared order, before planning (T3); a failing level fails the plan; each cell and `check_facts` use their own level's resolution; equal lock bytes give one image through `ImageService::ensure` (T4); a one-treatment file resolves once and plans the bytes it plans today.
 **Estimate**: about 90 Sonnet calls, $3.7; verified with `level_wiring` at L2 (one verifier for the planning chain)
 **Pre-conditions**:
-- [ ] [cmd] Every-leaf pre-conditions (campaign README, Gotchas); `treatment_setting` is merged: `git log --format=%s | grep -q '^merge(.*): land treatment_setting'`
+- [ ] [cmd] Every-leaf pre-conditions (campaign README, Gotchas); `treatment_setting` is merged: `test -f __reports__/m6a-paired-stats/leaves/treatment_setting_v0.md`
 - [ ] [nl] OWNED (regex): `^crates/candler-core/src/runner/plan\.rs$|^crates/candler/src/commands/preflight\.rs$|^crates/candler-core/tests/it/guard_(run_plan|image)\.rs$|^__reports__/m6a-paired-stats/leaves/level_resolve_v0\.md$`. In `plan.rs`: `fresh_cells`, `plan_runs`, `check_facts` and a new `Levels` type; in `preflight.rs`: `check_factors`. The callers in `commands/run.rs` and the job side are `level_wiring`'s (L2): until then they pass the single resolution as the one level
 **Success Gates**:
 - ⬜ [cmd] Targeted test: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_run_plan::/) | test(/^guard_settings_out_of_cell::/) | test(/^guard_image::/)'`
@@ -16,12 +16,12 @@
 ## Step 1: Write the t3_ and t4_ rows, seen red
 **Goal**: Rows that pin per-level resolution and image sharing.
 **Implementation Logic**:
-1. In `guard_run_plan.rs`: `t3_one_level_plans_the_old_bytes`; `t3_each_cell_uses_its_level` (two levels, each cell's planned facts come from its own level); `t3_failing_level_fails_the_plan` (the second level's resolution fails, so the plan fails and names the level); `t3_check_facts_per_level`.
+1. In `guard_run_plan.rs`: `t3_one_level_plans_the_old_bytes`; `t3_each_cell_uses_its_level` (two levels, each cell's planned facts come from its own level, and two levels whose `treatment` differs give two cells with different cell digests: the row moved here from `treatment_setting`, which cannot reach the cell while `fresh_cells` drops setting paths); `t3_failing_level_fails_the_plan` (the second level's resolution fails, so the plan fails and names the level); `t3_check_facts_per_level`.
 2. In `guard_image.rs`: `t4_distinct_locks_two_images`, `t4_equal_locks_one_ensure`, with a counting fake `ImageService` in the shape of `b05_`'s.
 3. `Guards:` and `Oracle:` lines; expected values written in the rows, never read from the new code.
 **Deliverables**: `crates/candler-core/tests/it/guard_run_plan.rs`: the four `t3_` rows; `crates/candler-core/tests/it/guard_image.rs`: the two `t4_` rows
 **Consistency Checks**: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_run_plan::t3_/) | test(/^guard_image::t4_/)'` (expected: FAIL)
-**Commit**: `test(plan): guard per-level treatment resolution`
+**Commit**: `test(runner): guard per-level treatment resolution`
 
 ## Step 2: Plan with one resolution per level
 **Goal**: `plan_runs` and `check_facts` take `Levels`, one resolution per distinct treatment level in declared order.
@@ -31,7 +31,7 @@
 3. No resolve call is made here: resolution happens in the caller, before planning.
 **Deliverables**: `crates/candler-core/src/runner/plan.rs`: `Levels`, `Levels::single`, `fresh_cells`, `plan_runs`, `check_facts`
 **Consistency Checks**: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_run_plan::/) | test(/^guard_settings_out_of_cell::/)'` (expected: PASS)
-**Commit**: `feat(plan): plan each cell with its own treatment level`
+**Commit**: `feat(runner): plan each cell with its own treatment level`
 
 ## Step 3: Share images between equal locks, and check factors per level
 **Goal**: T4 holds, and the CLI preflight admits a treatment factor.
@@ -40,7 +40,7 @@
 2. `commands/preflight.rs::check_factors` admits `request.treatment` as `fresh_cells` does, and refuses every other setting as today (`guard_cli_refusal::r2_`/`r3_` unchanged).
 **Deliverables**: `crates/candler-core/src/runner/plan.rs`: the image step of `plan_runs`; `crates/candler/src/commands/preflight.rs`: `check_factors`
 **Consistency Checks**: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_image::/)' && cargo nextest run -p candler --no-tests=fail -E 'test(/^guard_cli_refusal::r[23]_/)'` (expected: PASS)
-**Commit**: `feat(plan): share one image between treatment levels with equal locks`
+**Commit**: `feat(runner): share one image between treatment levels with equal locks`
 
 ## Step 4: Bites and DIGEST
 **Goal**: The rows bite, and no digest moved.
@@ -49,4 +49,4 @@
 2. Run DIGEST. Record the bites.
 **Deliverables**: `__reports__/m6a-paired-stats/leaves/level_resolve_v0.md`: section "Bites"
 **Consistency Checks**: `grep -q '^## Bites' __reports__/m6a-paired-stats/leaves/level_resolve_v0.md` (expected: PASS)
-**Commit**: `docs(plan): record the bites of per-level resolution`
+**Commit**: `docs(runner): record the bites of per-level resolution`

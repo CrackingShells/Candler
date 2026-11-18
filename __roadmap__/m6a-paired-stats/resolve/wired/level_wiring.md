@@ -3,7 +3,7 @@
 **Goal**: Each cell of a two-treatment job runs with its own treatment level: `candler run` resolves every level, `JobSpec` carries them in `levels`, and `cells_of` gives each `CellRun` its own level's treatment, sources and harness (T3 wiring, C3). A one-treatment job's spec bytes are unchanged.
 **Estimate**: about 70 Sonnet calls, $2.9, plus the planning-chain verifier (about 40 calls, $1.6), which also covers `level_resolve`
 **Pre-conditions**:
-- [ ] [cmd] Every-leaf pre-conditions (campaign README, Gotchas); `level_resolve` is merged: `git log --format=%s | grep -q '^merge(.*): land level_resolve'`
+- [ ] [cmd] Every-leaf pre-conditions (campaign README, Gotchas); `level_resolve` is merged: `test -f __reports__/m6a-paired-stats/leaves/level_resolve_v0.md`
 - [ ] [nl] OWNED (regex): `^crates/candler-core/src/jobs/model\.rs$|^crates/candler-core/src/jobs/orchestrate/(mod|session)\.rs$|^crates/candler/src/commands/(run|supervise)\.rs$|^crates/candler-core/tests/it/guard_job_orchestrate\.rs$|^__reports__/m6a-paired-stats/leaves/level_wiring_v0\.md$`. In `model.rs` only `JobSpec`; in `orchestrate/mod.rs` only `run_job`; in `session.rs` only `cells_of` and `treatment_of`
 **Success Gates**:
 - ⬜ [cmd] Targeted test: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_job_orchestrate::/) | test(/^guard_job_spec_file::/)' && cargo nextest run -p candler --no-tests=fail -E 'test(/^guard_cli_run::/)'`

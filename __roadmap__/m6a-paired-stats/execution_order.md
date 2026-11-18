@@ -4,10 +4,10 @@
 **Estimate**: about 80 Sonnet calls, $3.3; no verifier (the `git grep -c` gate and the property rows are its evidence)
 **Pre-conditions**:
 - [ ] [cmd] Every-leaf pre-conditions (README, Gotchas); today's loop exists once: `test "$(git grep -c 'for replicate in 1..=' -- crates/candler-core/src/runner/plan.rs | cut -d: -f2)" = 1`
-- [ ] [nl] OWNED (regex): `^crates/candler-core/src/runner/(order|mod|plan)\.rs$|^crates/candler-core/tests/it/guard_run_plan\.rs$|^__reports__/m6a-paired-stats/leaves/execution_order_v0\.md$`. In `plan.rs`, only the tail of `plan_runs` (near line 985); `treatment_setting` edits `fresh_cells` (near line 369) in the same level and the hunks auto-merge. In `runner/mod.rs`, only the `mod order;` line
+- [ ] [nl] OWNED (regex): `^crates/candler-core/src/runner/(order|mod|plan)\.rs$|^crates/candler-core/tests/it/guard_run_plan\.rs$|^__reports__/m6a-paired-stats/leaves/execution_order_v0\.md$`. In `plan.rs`, only the tail of `plan_runs` (near line 985); `treatment_setting` edits `fresh_cells` (near line 369) in the same level and the hunks auto-merge. In `runner/mod.rs`, only the `mod order;` line and the `pub use self::order::{run_order, seed_of};` re-export. By supervisor ruling, `^crates/candler-core/tests/it/guard_job_orchestrate\.rs$` is also owned for the one `b34_` hunk: `b27_` and `b34_` pinned declaration order and were rewritten, `b34_` checking the in-flight pair against `run_order` on the job's seed
 **Success Gates**:
 - ⬜ [cmd] Targeted test: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_run_plan::/) | test(/^guard_job_orchestrate::/)'`
-- ⬜ [cmd] One replicate loop remains, inside `run_order`: `test "$(git grep -c 'for replicate in 1..=' -- crates/candler-core/src/runner/plan.rs | cut -d: -f2)" = 0 || exit 1; test "$(git grep -c 'for replicate in 1..=' -- crates/candler-core/src/runner/order.rs | cut -d: -f2)" = 1`
+- ⬜ [cmd] One replicate loop remains, inside `run_order`: `! git grep -q 'for replicate in 1..=' -- crates/candler-core/src/runner/plan.rs || exit 1; test "$(git grep -c 'for replicate in 1..=' -- crates/candler-core/src/runner/order.rs | cut -d: -f2)" = 1`
 - ⬜ [cmd] DIGEST passes (order changes no run key or digest)
 - ⬜ [cmd] Ownership check prints nothing
 - ⬜ [nl] `Scheduler.run` runs plans in the order given (the report cites the code), so the planned order holds at execution; existing guards that pinned today's order are listed in the report with the coordinator's ruling before they change

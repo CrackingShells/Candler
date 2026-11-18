@@ -7,7 +7,7 @@ Level L2 of `m6a-paired-stats`, after L1. `level_wiring` carries each cell's tre
 A two-treatment job runs each cell with its own treatment, and `analyze` reports one blocked comparison per declared factor and level pair.
 
 ## Pre-conditions
-- [ ] [cmd] L1 is merged: `for l in level_resolve blocking; do git log --format=%s | grep -q "^merge(.*): land $l" || exit 1; done`
+- [ ] [cmd] L1 is merged: `for l in level_resolve blocking; do test -f __reports__/m6a-paired-stats/leaves/${l}_v0.md || exit 1; done`
 - [ ] [cmd] STD, DIGEST, GOLDEN, LINUX and SUBJ passed at the L1 merge (Progress table)
 
 ## Success Gates

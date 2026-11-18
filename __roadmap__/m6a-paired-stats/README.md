@@ -77,13 +77,13 @@ The analysis chain (cmh, blocking, analyze_output, proven) is the critical path;
 ## Status
 ```mermaid
 graph TD
-    exact_tests[Exact tests]:::planned
-    cmh[CMH]:::planned
-    resampling[Resampling]:::planned
-    treatment_setting[Treatment setting]:::planned
-    treatment_verdict[Treatment verdict]:::planned
-    arm_counts[Arm counts]:::planned
-    execution_order[Execution order]:::planned
+    exact_tests[Exact tests]:::done
+    cmh[CMH]:::done
+    resampling[Resampling]:::done
+    treatment_setting[Treatment setting]:::done
+    treatment_verdict[Treatment verdict]:::done
+    arm_counts[Arm counts]:::done
+    execution_order[Execution order]:::done
     resolve[Resolve]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -95,19 +95,30 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `exact_tests.md` | 📄 Leaf Task | ⬜ Planned |
-| `cmh.md` | 📄 Leaf Task | ⬜ Planned |
-| `resampling.md` | 📄 Leaf Task | ⬜ Planned |
-| `treatment_setting.md` | 📄 Leaf Task | ⬜ Planned |
-| `treatment_verdict.md` | 📄 Leaf Task | ⬜ Planned |
-| `arm_counts.md` | 📄 Leaf Task | ⬜ Planned |
-| `execution_order.md` | 📄 Leaf Task | ⬜ Planned |
+| `exact_tests.md` | 📄 Leaf Task | ✅ Done |
+| `cmh.md` | 📄 Leaf Task | ✅ Done |
+| `resampling.md` | 📄 Leaf Task | ✅ Done |
+| `treatment_setting.md` | 📄 Leaf Task | ✅ Done |
+| `treatment_verdict.md` | 📄 Leaf Task | ✅ Done |
+| `arm_counts.md` | 📄 Leaf Task | ✅ Done |
+| `execution_order.md` | 📄 Leaf Task | ✅ Done |
 | `resolve/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
 |:---|:-----|:-------|:------------|:----------|
+| A1 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/treatment_setting_v0.md | [] | Supervisor ruling: fresh_cells drops setting paths, so treatment_setting is only the refusal change; the two-digest row moves to level_resolve |
+| A2 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/execution_order_v0.md | [] | Supervisor ruling: b27 and b34 pinned declaration order and were rewritten; OWNED gains guard_job_orchestrate.rs for b34; run_order and seed_of are public; the git grep gate uses ! git grep -q |
+| A3 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/treatment_setting_v0.md | [] | Scope plan is not in cog.toml: treatment_setting and level_resolve subjects use runner; treatment_verdict subjects cut to 72 characters |
+| A4 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/arm_counts_v0.md | [] | Merge pre-conditions test the landed leaf report instead of a merge title, since L0 merge titles name the change |
 
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| `exact_tests.md` | m6a/exact_tests | 5 | merged 50482359. BASE = 9560cd3d6b7b63eca28dc2bc0322ae769bd0d2f2. Golden probe: eval-K dirs merge into one run of a cell, the task is the expectation id, so 12 cells of 20 runs and the golden blocks are the model only (C5). Mechanism probe: AGENT-OK. Degenerate mid-p returns 0.5 |
+| `cmh.md` | m6a/cmh | 6 | merged 83f2c45d. Verifier F1-F4 fixed, re-check closed. OR is B over A |
+| `resampling.md` | m6a/resampling | 7 | merged e0462cd0. Verifier F1-F6 fixed, re-check closed. BCa needs 2 runs per arm; multi-block BCa has only the twin |
+| `treatment_setting.md` | m6a/treatment_setting | 3 | merged 02c50c30. Refusal only (A1); CLI no longer refuses a treatment factor and plans one collapsed cell until level_resolve |
+| `treatment_verdict.md` | m6a/treatment_verdict | 3 | merged c1cf6cad. 89 verdict rows unchanged, 3 t5_ rows added |
+| `arm_counts.md` | m6a/arm_counts | 3 | merged 45a91016. units are u64, not f64; the insertion-order bite cannot go red |
+| `execution_order.md` | m6a/execution_order | 5 | merged e7ca6bc0. b27 and b34 rewritten under ruling (A2) |

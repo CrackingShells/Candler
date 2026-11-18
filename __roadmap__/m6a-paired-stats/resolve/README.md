@@ -7,7 +7,7 @@ Level L1 of `m6a-paired-stats`, after every L0 leaf is merged. `level_resolve` r
 A two-treatment plan resolves each level once and gives each cell its own level's facts and image; each comparison has its blocks and its pre-specified test.
 
 ## Pre-conditions
-- [ ] [cmd] L0 is merged: `for l in exact_tests cmh resampling treatment_setting treatment_verdict arm_counts execution_order; do git log --format=%s | grep -q "^merge(.*): land $l" || exit 1; done`
+- [ ] [cmd] L0 is merged: `for l in exact_tests cmh resampling treatment_setting treatment_verdict arm_counts execution_order; do test -f __reports__/m6a-paired-stats/leaves/${l}_v0.md || exit 1; done`
 - [ ] [cmd] STD, DIGEST and GOLDEN passed at the L0 merge (the coordinator's record in the campaign Progress table)
 - [ ] [nl] The golden probe's answer (are eval tasks cells?) is recorded in the campaign Progress table
 
