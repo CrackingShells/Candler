@@ -645,17 +645,22 @@ impl Rig {
 
 /// A git repository that holds the skill `htn` in one commit, and that commit. The repository is
 /// the same for every process of the run, so racing processes agree on the commit; it lies in the
-/// build's scratch directory.
+/// build's scratch directory. A CI cache restores that directory as empty folders (rust-cache keeps
+/// directories but deletes every file outside the build profiles); such a skeleton is rebuilt, and
+/// git never searches above the scratch directory, so a missing repository fails here instead of
+/// reading the checkout's own.
 pub fn skill_repo() -> &'static (PathBuf, String) {
     static REPO: OnceLock<(PathBuf, String)> = OnceLock::new();
     REPO.get_or_init(|| {
-        let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("job_skill_repo");
+        let scratch = Path::new(env!("CARGO_TARGET_TMPDIR"));
+        let root = scratch.join("job_skill_repo");
         let own = root.with_extension(std::process::id().to_string());
         let git = |dir: &Path, args: &[&str]| {
             let out = std::process::Command::new("git")
                 .args(["-c", "commit.gpgsign=false", "-C"])
                 .arg(dir)
                 .args(args)
+                .env("GIT_CEILING_DIRECTORIES", scratch)
                 .env("GIT_AUTHOR_NAME", "t")
                 .env("GIT_AUTHOR_EMAIL", "t@t")
                 .env("GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z")
@@ -667,7 +672,10 @@ pub fn skill_repo() -> &'static (PathBuf, String) {
             assert!(out.status.success(), "git {args:?} failed");
             String::from_utf8(out.stdout).expect("git prints text")
         };
-        if !root.join(".git").exists() {
+        if !root.join(".git/HEAD").is_file() {
+            // A skeleton left by a CI cache would make the rename below fail. Pruning removes
+            // directories only, so it never harms a repository another process just placed.
+            prune_empty_dirs(&root);
             let _ = fs::remove_dir_all(&own);
             fs::create_dir_all(own.join(".claude/skills/htn")).expect("the skill directory");
             fs::write(own.join(".claude/skills/htn/SKILL.md"), "skill\n").expect("the skill");
@@ -682,6 +690,19 @@ pub fn skill_repo() -> &'static (PathBuf, String) {
         let commit = git(&root, &["rev-parse", "HEAD"]).trim().to_owned(); // BORROW: .to_owned() makes the owned text
         (root, commit)
     })
+}
+
+/// Removes every empty directory under `dir`, `dir` included, deepest first. A directory that
+/// holds a file stays, so a repository survives with at most its empty folders gone.
+fn prune_empty_dirs(dir: &Path) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                prune_empty_dirs(&entry.path());
+            }
+        }
+    }
+    let _ = fs::remove_dir(dir);
 }
 
 /// The spec of a job over the experiment of `models` and the facts `facts`, under `wall_s`
