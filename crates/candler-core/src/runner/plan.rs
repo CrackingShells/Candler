@@ -30,6 +30,7 @@ use crate::resolve::layers::{Resolution, is_setting};
 use crate::resolve::steps::egress::{self, EgressRefusal};
 use crate::resolve::steps::plugin_environment::{plugin_egress, unite_egress};
 use crate::resolve::steps::session::{self, SessionRefusal};
+use crate::runner::order::{run_order, seed_of};
 use crate::store::Store;
 use candler_schemas::execution::paths::{
     self, HARNESS, HARNESS_VERSION, ISOLATION_IMAGE, SECRETS, TREATMENT,
@@ -883,7 +884,8 @@ fn seal_open(
 /// A cell with a stored run is replayed from the stored `Comparable`, and its four re-checked
 /// facts (image ID, harness version, secrets present, tag-to-commit) must still hold. Under
 /// [`PlanMode::Hold`] every unfinished attempt of the experiment is sealed first; a replicate
-/// with a valid sealed attempt is skipped and any other gets the next attempt number.
+/// with a valid sealed attempt is skipped and any other gets the next attempt number. The runs
+/// are in the order [`run_order`] gives, seeded from the experiment digest.
 ///
 /// # Errors
 /// [`PlanError::ExperimentLocked`] when another supervisor holds the experiment,
@@ -987,32 +989,33 @@ pub fn plan_runs(
     // sealing still decides every replicate.
     let mut plans = Vec::new();
     let mut sealed = Vec::new();
-    for (digest, pinned, deviations) in per_cell {
-        for replicate in 1..=file.replicates() {
-            let slot = runs
-                .slots
-                .get(&digest)
-                .and_then(|replicates| replicates.get(&replicate));
-            if let Some(key) = slot.and_then(|slot| slot.valid.as_ref()) {
-                sealed.push(key.clone()); // BORROW: the outcome owns the sealed key
-                continue;
-            }
-            let Some(attempt) = slot.map_or(0, |slot| slot.highest).checked_add(1) else {
-                return Err(PlanError::AttemptOverflow {
-                    cell: digest.to_string(),
-                    replicate,
-                });
-            };
-            let key = RunKey::new(digest.clone(), replicate, attempt) // BORROW: the key owns its cell
-                .map_err(store_error)?;
-            plans.push(RunPlan {
-                key,
-                cell: digest.clone(),   // BORROW: the plan owns its cell digest
-                stored: pinned.clone(), // BORROW: the plan owns the stored cell
-                attempt,
-                deviations: deviations.clone(), // BORROW: every new attempt owns the deviations
-            });
+    for (cell, replicate) in run_order(per_cell.len(), file.replicates(), seed_of(&experiment)) {
+        let Some((digest, pinned, deviations)) = per_cell.get(cell) else {
+            continue;
+        };
+        let slot = runs
+            .slots
+            .get(digest)
+            .and_then(|replicates| replicates.get(&replicate));
+        if let Some(key) = slot.and_then(|slot| slot.valid.as_ref()) {
+            sealed.push(key.clone()); // BORROW: the outcome owns the sealed key
+            continue;
         }
+        let Some(attempt) = slot.map_or(0, |slot| slot.highest).checked_add(1) else {
+            return Err(PlanError::AttemptOverflow {
+                cell: digest.to_string(),
+                replicate,
+            });
+        };
+        let key = RunKey::new(digest.clone(), replicate, attempt) // BORROW: the key owns its cell
+            .map_err(store_error)?;
+        plans.push(RunPlan {
+            key,
+            cell: digest.clone(),   // BORROW: the plan owns its cell digest
+            stored: pinned.clone(), // BORROW: the plan owns the stored cell
+            attempt,
+            deviations: deviations.clone(), // BORROW: every new attempt owns the deviations
+        });
     }
     Ok(PlanOutcome {
         plans,

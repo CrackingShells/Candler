@@ -142,7 +142,9 @@ const TABLE: [&str; 6] = ["m1", "m2", "m3", "m4", "m5", "m6"];
 /// Guards: I20 — crossing a job cap gives invalid(budget_stop) on live runs only; sealed runs keep
 /// their status; no new run starts. F4: the gateway's `container.created` comes before the first
 /// `run.started`.
-/// Oracle: R01 §Budget; a literal run table.
+/// Oracle: R01 §Budget; a literal run table. Which two of the unsealed runs are in flight is the
+/// order `run_order` gives, so the guard reads that pair from the runs that ended and checks it
+/// against the table: exactly `max_parallel` runs, all of them unsealed.
 /// Bite: apply the cap to all_runs instead of live_runs. F4: replace the gateway `container_created`
 /// payload in `jobs/orchestrate/session.rs` with `job_started`; it fails at the `container.created
 /// for the gateway precedes run.started` assertion.
@@ -152,8 +154,9 @@ const TABLE: [&str; 6] = ["m1", "m2", "m3", "m4", "m5", "m6"];
     reason = "the guard header names identifiers in the form the guard index reads"
 )]
 fn b34_cap_stops_live_runs_only() {
-    // The literal table: m1 and m2 are sealed valid before the job; m3 and m4 are the two runs
-    // in flight, because `max_parallel` is 2 and the fake `run` sleeps; m5 and m6 are pending.
+    // The literal table: m1 and m2 are sealed valid before the job; two of m3 to m6 are in flight,
+    // because `max_parallel` is 2 and the fake `run` sleeps; the other two are pending. The planned
+    // order, from `run_order`, says which two.
     let facts = facts();
     let rig = Rig::new(30);
     let root = rig.store.layout().root().to_path_buf();
@@ -161,8 +164,8 @@ fn b34_cap_stops_live_runs_only() {
         write_run(&rig.store, &row(model, &facts));
     }
     let sealed = ["m1", "m2"].map(|model| key_of(model, &facts));
-    let live = ["m3", "m4"].map(|model| key_of(model, &facts));
-    let pending = ["m5", "m6"].map(|model| key_of(model, &facts));
+    let unsealed = ["m3", "m4", "m5", "m6"].map(|model| key_of(model, &facts));
+    let in_flight = 2;
     let before: Vec<_> = sealed.iter().map(|key| hashes(&root, key)).collect();
     assert!(
         before.iter().all(|files| !files.is_empty()),
@@ -175,7 +178,7 @@ fn b34_cap_stops_live_runs_only() {
     let ticks = Arc::new(AtomicU64::new(0));
     let outcome = std::thread::scope(|scope| {
         let job = scope.spawn(|| run_job_on(&rig, &TABLE, 1, rig.host_on(&ticks)));
-        while rig.runs_logged() < live.len() {
+        while rig.runs_logged() < in_flight {
             assert!(
                 !job.is_finished(),
                 "the job ended before both runs were live"
@@ -193,9 +196,17 @@ fn b34_cap_stops_live_runs_only() {
     );
     let mut ended: Vec<RunKey> = outcome.runs.iter().map(|run| run.key.clone()).collect();
     ended.sort();
-    let mut want = live.to_vec();
-    want.sort();
-    assert_eq!(ended, want, "only the runs in flight ended");
+    assert_eq!(ended.len(), in_flight, "only the runs in flight ended");
+    assert!(
+        ended.iter().all(|key| unsealed.contains(key)),
+        "only unsealed runs ended"
+    );
+    let live = ended;
+    let pending: Vec<RunKey> = unsealed
+        .iter()
+        .filter(|key| !live.contains(key))
+        .cloned() // BORROW: the pending keys are owned copies
+        .collect();
     for run in &outcome.runs {
         assert_eq!(run.status, RunStatus::Invalid, "{} is invalid", run.key);
         assert_eq!(

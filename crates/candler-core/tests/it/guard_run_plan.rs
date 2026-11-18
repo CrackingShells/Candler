@@ -11,8 +11,8 @@ use std::path::PathBuf;
 
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::lock::JobLock;
-use candler_core::runner::order::{run_order, seed_of};
 use candler_core::runner::plan::{CellId, Force, PlanError, PlanMode, plan_runs};
+use candler_core::runner::{run_order, seed_of};
 use candler_schemas::primitives::{Digest, JobId};
 use serde_json::{Value, json};
 use support::run_plan::{
@@ -402,6 +402,7 @@ fn two_cells() -> (tempfile::TempDir, candler_core::store::Store, PathBuf) {
 /// version, secret or treatment tag is refused without `--force`, naming the changed path, and a
 /// refusal writes nothing; with nothing changed the resume plans, and with `--force` the plan
 /// still carries the stored cell.
+/// The order of the plans comes from `run_order`, so a plan is found by its cell.
 /// Oracle: literal paths and values, with the stored ones read back from hand-built manifests;
 /// the bytes under `runs/` before and after.
 /// Rows for a changed input digest (the fifth fact, named `inputs.build`), for a value a
@@ -424,12 +425,14 @@ fn b27_changed_fact_is_refused_and_the_cell_is_pinned() {
         .map_err(|e| e.to_string())
         .expect("the control plans");
     assert_eq!(out.plans.len(), 2, "one replicate left per cell");
-    for (plan, model) in out.plans.iter().zip(models) {
-        assert_eq!(
-            plan.stored,
-            Some(stored_cell(model, &base)),
-            "the stored cell is replayed"
-        );
+    for model in models {
+        let stored = stored_cell(model, &base);
+        let plan = out
+            .plans
+            .iter()
+            .find(|plan| plan.cell == stored.digest())
+            .expect("a plan for the cell");
+        assert_eq!(plan.stored, Some(stored), "the stored cell is replayed");
         assert!(
             plan.deviations.is_empty(),
             "nothing changed, nothing deviates"
@@ -471,7 +474,12 @@ fn b27_changed_fact_is_refused_and_the_cell_is_pinned() {
             .map_err(|e| e.to_string())
             .expect("a forced plan");
         assert_eq!(out.plans.len(), 2, "{}", change.name);
-        for (plan, model) in out.plans.iter().zip(models) {
+        for model in models {
+            let plan = out
+                .plans
+                .iter()
+                .find(|plan| plan.cell == stored_cell(model, &base).digest())
+                .expect("a plan for the stored cell");
             assert_eq!(
                 plan.stored,
                 Some(stored_cell(model, &base)),
@@ -525,7 +533,12 @@ fn b27_pin_row() {
     .map_err(|e| e.to_string())
     .expect("a changed default is not a refusal");
     assert_eq!(out.plans.len(), 2, "replicate 2 of each cell");
-    for (plan, model) in out.plans.iter().zip(["m1", "m2"]) {
+    for model in ["m1", "m2"] {
+        let plan = out
+            .plans
+            .iter()
+            .find(|plan| plan.cell == stored_cell(model, &stored_facts).digest())
+            .expect("a plan for the stored cell");
         assert_eq!(
             plan.stored,
             Some(stored_cell(model, &stored_facts)),

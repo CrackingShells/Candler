@@ -6,7 +6,7 @@
 
 pub mod evidence;
 pub mod exec;
-pub mod order;
+mod order;
 pub mod plan;
 pub(crate) mod refusal;
 
@@ -32,6 +32,12 @@ use crate::supervise::{EventSink, Supervisor};
 use self::evidence::provenance::EvalInfra;
 use self::exec::CellRun;
 use self::exec::ends::Retry;
+/// The `(cell index, replicate)` of every run of a plan, in the order the runs start.
+///
+/// The order is deterministic: the same `cells`, `replicates` and `seed` give the same order. Each
+/// replicate round holds every cell index once, shuffled from `seed`, and rounds follow replicate
+/// order.
+pub use self::order::{run_order, seed_of};
 use self::plan::CellId;
 
 /// What a run needs from the job around it.
