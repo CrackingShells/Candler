@@ -10,8 +10,12 @@ use candler_schemas::primitives::Digest;
 
 use crate::analysis::splitmix::SplitMix64;
 
-/// The seed of the run order of the experiment `experiment`: the first 8 bytes of its digest,
-/// read as a little-endian number.
+/// The seed of the run order of the experiment `experiment`.
+///
+/// A reproducibility contract: the input is the experiment digest, which `plan_runs` holds (the
+/// stored group's digest when a past experiment answers, else the digest of the cells' digests).
+/// The seed is the first 8 bytes of that digest, read as a little-endian number. Changing this
+/// derivation changes the run order of every replay of every stored experiment.
 #[must_use]
 pub fn seed_of(experiment: &Digest) -> u64 {
     let mut bytes = [0_u8; 8];

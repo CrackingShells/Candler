@@ -18,10 +18,10 @@ use std::time::Duration;
 use candler_core::jobs::model::{JobCause, JobControl, JobOutcome};
 use candler_core::jobs::orchestrate::caps::{LiveRuns, stop_live};
 use candler_core::jobs::orchestrate::orchestrate_with;
-use candler_core::runner::RunStatus;
+use candler_core::runner::{RunStatus, run_order, seed_of};
 use candler_core::supervise::EventSink;
 use candler_schemas::execution::{InvalidReason, JobEnd};
-use candler_schemas::primitives::RunKey;
+use candler_schemas::primitives::{Digest, RunKey};
 use candler_schemas::trace::EndedBy;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
@@ -73,6 +73,21 @@ fn hashes(root: &Path, key: &RunKey) -> BTreeMap<PathBuf, String> {
         .filter(|(path, _)| path.starts_with(&prefix))
         .map(|(path, bytes)| (path, hex(&Sha256::digest(&bytes))))
         .collect()
+}
+
+/// The experiment digest the manifest of `key` stores, read from disk.
+fn experiment_on_disk(root: &Path, key: &RunKey) -> Digest {
+    let path = root
+        .join("runs")
+        .join(key.to_string())
+        .join("manifest.json");
+    let manifest: Value =
+        serde_json::from_slice(&fs::read(path).expect("a manifest file")).expect("manifest JSON");
+    manifest["experiment"]
+        .as_str()
+        .expect("an experiment digest")
+        .parse()
+        .expect("a digest")
 }
 
 /// The integrity of the manifest of `key`, read from disk.
@@ -143,8 +158,9 @@ const TABLE: [&str; 6] = ["m1", "m2", "m3", "m4", "m5", "m6"];
 /// their status; no new run starts. F4: the gateway's `container.created` comes before the first
 /// `run.started`.
 /// Oracle: R01 §Budget; a literal run table. Which two of the unsealed runs are in flight is the
-/// order `run_order` gives, so the guard reads that pair from the runs that ended and checks it
-/// against the table: exactly `max_parallel` runs, all of them unsealed.
+/// order `run_order` gives on the job's own seed, the digest the sealed runs store, so the guard
+/// takes the first `max_parallel` unsealed runs of that order as the expected pair. Using
+/// `run_order` as the fixture is sound because the `b3_` rows of `guard_run_plan` pin it.
 /// Bite: apply the cap to all_runs instead of live_runs. F4: replace the gateway `container_created`
 /// payload in `jobs/orchestrate/session.rs` with `job_started`; it fails at the `container.created
 /// for the gateway precedes run.started` assertion.
@@ -166,6 +182,14 @@ fn b34_cap_stops_live_runs_only() {
     let sealed = ["m1", "m2"].map(|model| key_of(model, &facts));
     let unsealed = ["m3", "m4", "m5", "m6"].map(|model| key_of(model, &facts));
     let in_flight = 2;
+    let seed = seed_of(&experiment_on_disk(&root, &sealed[0]));
+    let mut expected: Vec<RunKey> = run_order(TABLE.len(), 1, seed)
+        .into_iter()
+        .filter(|(cell, _)| *cell >= sealed.len())
+        .filter_map(|(cell, _)| TABLE.get(cell).map(|model| key_of(model, &facts)))
+        .take(in_flight)
+        .collect();
+    expected.sort();
     let before: Vec<_> = sealed.iter().map(|key| hashes(&root, key)).collect();
     assert!(
         before.iter().all(|files| !files.is_empty()),
@@ -196,10 +220,9 @@ fn b34_cap_stops_live_runs_only() {
     );
     let mut ended: Vec<RunKey> = outcome.runs.iter().map(|run| run.key.clone()).collect();
     ended.sort();
-    assert_eq!(ended.len(), in_flight, "only the runs in flight ended");
-    assert!(
-        ended.iter().all(|key| unsealed.contains(key)),
-        "only unsealed runs ended"
+    assert_eq!(
+        ended, expected,
+        "only the first `max_parallel` runs of the planned order ended"
     );
     let live = ended;
     let pending: Vec<RunKey> = unsealed
