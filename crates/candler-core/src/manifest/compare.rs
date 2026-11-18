@@ -43,6 +43,14 @@ const IMPORT_RULES_PATH: &str = "import.rules";
 /// so exempt `census.init_tools`.
 const TOOL_FACTOR_ROOTS: &[&str] = &["tools", "mcp"];
 
+/// The root of the declared factor whose difference explains a difference in the environment
+/// locks, the image and the build inputs: the treatment resolves into the hashed `treatment`.
+const TREATMENT_ROOT: &str = "treatment";
+
+/// The paths a differing declared `treatment` factor accounts for: the plug-in environment locks,
+/// the image and the build inputs, which follow from which treatment a cell mounts.
+const TREATMENT_EXPLAINED: &[&str] = &["environments", "isolation.image", "inputs"];
+
 /// The roots a value of `comparable` never takes: the typed fields own them.
 const TYPED_ROOTS: &[&str] = &[
     "harness",
@@ -343,12 +351,41 @@ fn declared_covers(declared: &[FieldPath], path: &FieldPath) -> bool {
 }
 
 /// The paths where `arm` differs from `first` outside the declared factors.
+///
+/// A difference in the environment locks, the image or the build inputs is also dropped when a
+/// declared `treatment` factor differs between the two arms: see `treatment_explains`.
 fn residual(first: &ArmView, arm: &ArmView, declared: &[FieldPath]) -> Vec<FieldPath> {
+    let treated = treatment_explains(first, arm, declared);
     compare(first.comparable(), arm.comparable())
         .into_iter()
         .map(|d| d.path)
         .filter(|path| !declared_covers(declared, path))
+        .filter(|path| !(treated && treatment_explained(path)))
         .collect()
+}
+
+/// Whether a path is one a differing declared treatment accounts for, by whole segments.
+fn treatment_explained(path: &FieldPath) -> bool {
+    let own: Vec<&str> = path.segments().collect();
+    TREATMENT_EXPLAINED.iter().any(|explained| {
+        let prefix: Vec<&str> = explained.split('.').collect();
+        // BORROW: `.as_slice()` views each vector as a slice
+        covers(prefix.as_slice(), own.as_slice())
+    })
+}
+
+/// Whether a declared factor at or under `treatment` covers a path where the two arms' treatments
+/// differ, so the treatment is a factor of this stratum and varies between these arms.
+fn treatment_explains(one: &ArmView, other: &ArmView, declared: &[FieldPath]) -> bool {
+    compare(one.comparable(), other.comparable())
+        .iter()
+        .any(|d| {
+            declared_covers(declared, &d.path)
+                && d.path
+                    .segments()
+                    .next()
+                    .is_some_and(|root| root == TREATMENT_ROOT)
+        })
 }
 
 /// Whether two arms differ in `census.init_tools` without a declared `tools.*` or `mcp.*` factor
