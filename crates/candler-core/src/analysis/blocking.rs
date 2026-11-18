@@ -150,8 +150,9 @@ struct Gathered {
 
 /// The level a run's manifest records for a factor: for the treatment, the typed reference
 /// `{name, tag, commit}` of the cell's comparable, which `values` never holds; for another
-/// factor, the value at its path, or an object of the values below it, `null` when it records
-/// none.
+/// factor, the value at its path, `null` when it records none. A declared factor is never a
+/// strict prefix of a path where cells differ: `check_factors` refuses that before any level is
+/// read.
 pub(super) fn level_of(view: &RunView, factor: &FieldPath) -> Value {
     let comparable = view.manifest.comparable();
     if matches!(factor.as_str(), REQUEST_TREATMENT | TREATMENT) {
@@ -166,21 +167,7 @@ pub(super) fn level_of(view: &RunView, factor: &FieldPath) -> Value {
             .value()
             .map_or(Value::Null, |value| value.as_value().clone()); // BORROW: the key owns the level
     }
-    let below: serde_json::Map<String, Value> = comparable
-        .values()
-        .iter()
-        .filter(|held| held.path().starts_with(factor))
-        .filter_map(|held| {
-            // BORROW: the key owns the path and the level
-            held.value()
-                .map(|value| (held.path().to_string(), value.as_value().clone()))
-        })
-        .collect();
-    if below.is_empty() {
-        Value::Null
-    } else {
-        Value::Object(below)
-    }
+    Value::Null
 }
 
 /// The valid runs at level `a` or `b` of the compared factor, grouped by the levels of the other
