@@ -268,6 +268,34 @@ pub fn unit_blocks_of(
         .collect()
 }
 
+/// The keys of the blocks of [`unit_blocks_of`], in the same order.
+#[must_use]
+pub fn unit_block_keys(
+    runs: &[RunView],
+    units: &[(RunKey, u64, u64)],
+    compared: &FieldPath,
+    a: &Value,
+    b: &Value,
+    declared: &[FieldPath],
+) -> Vec<Vec<(FieldPath, Value)>> {
+    gather(runs, units, compared, a, b, declared)
+        .into_iter()
+        .map(|block| block.key)
+        .collect()
+}
+
+impl Blocked {
+    /// Names the per-block effects by the keys of their blocks, in block order; a weighted
+    /// block carries no key of its own.
+    #[must_use]
+    pub fn keyed(mut self, keys: &[Vec<(FieldPath, Value)>]) -> Self {
+        for (effect, key) in self.per_block.iter_mut().zip(keys) {
+            effect.key.clone_from(key);
+        }
+        self
+    }
+}
+
 /// A count as a float.
 #[expect(
     clippy::as_conversions,
@@ -352,6 +380,9 @@ fn binary(battery: Battery, blocks: &[Stratum]) -> Result<Blocked, StatsError> {
 }
 
 fn weighted(blocks: &[UnitBlock], seed: u64) -> Result<Blocked, StatsError> {
+    if blocks.is_empty() {
+        return Err(StatsError::NoRuns);
+    }
     let mut per_block = Vec::with_capacity(blocks.len());
     for block in blocks {
         let (a, b) = (sums(block.a.as_slice()), sums(block.b.as_slice()));
@@ -437,6 +468,16 @@ pub fn holm_groups(keys: &[(usize, Role)], p: &[f64]) -> Result<Vec<f64>, StatsE
     Ok(adjusted)
 }
 
+/// Which adjusted values reject the null: those of a gate or quality test below alpha; a
+/// descriptive entry is never tested.
+#[must_use]
+pub fn holm_rejects(keys: &[(usize, Role)], adjusted: &[f64]) -> Vec<bool> {
+    keys.iter()
+        .zip(rejected(adjusted))
+        .map(|((_, role), reject)| reject && !matches!(role, Role::Descriptive))
+        .collect()
+}
+
 /// Adjusts the tested entries of each comparison in place: Holm over its gate expectations and,
 /// apart, over its quality expectations, setting `p_holm` and `reject`.
 ///
@@ -452,7 +493,7 @@ pub fn holm_families(comparisons: &mut [Vec<Tested>]) -> Result<(), StatsError> 
         }
     }
     let adjusted = holm_groups(keys.as_slice(), ps.as_slice())?;
-    let rejects = rejected(adjusted.as_slice());
+    let rejects = holm_rejects(keys.as_slice(), adjusted.as_slice());
     for ((tested, value), reject) in comparisons.iter_mut().flatten().zip(adjusted).zip(rejects) {
         tested.p_holm = value;
         tested.reject = reject;

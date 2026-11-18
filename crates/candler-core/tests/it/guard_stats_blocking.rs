@@ -6,8 +6,8 @@
 
 use candler_core::analysis::bca::stratified_bca;
 use candler_core::analysis::blocking::{
-    Battery, Design, OutcomeKind, Stratum, blocks_of, choose, holm_groups, test_blocked,
-    unit_blocks_of,
+    Battery, Design, OutcomeKind, Stratum, blocks_of, choose, holm_groups, holm_rejects,
+    test_blocked, unit_block_keys, unit_blocks_of,
 };
 use candler_core::analysis::cmh::cmh;
 use candler_core::analysis::exact_strata::exact_conditional;
@@ -262,7 +262,20 @@ fn weighted_uses_permutation_and_bca() {
         },
     ];
     assert_eq!(blocks, expected_blocks);
-    let tested = test_blocked(&Design::Weighted(&blocks), SEED).expect("a test");
+    let keys = unit_block_keys(
+        &views,
+        &units,
+        &path(TREATMENT),
+        &json!("t1"),
+        &json!("t2"),
+        &declared(),
+    );
+    let tested = test_blocked(&Design::Weighted(&blocks), SEED)
+        .expect("a test")
+        .keyed(&keys);
+    let named: Vec<_> = tested.per_block.iter().map(|e| e.key.clone()).collect();
+    assert_eq!(named, vec![key(MODEL, "m1"), key(MODEL, "m2")]);
+    assert!(test_blocked(&Design::Weighted(&[]), SEED).is_err());
     assert_eq!(tested.battery, Battery::Permutation);
     assert!(!tested.fallback);
     let perm = stratified_permutation(&blocks, 10_000, SEED).expect("a permutation test");
@@ -289,4 +302,13 @@ fn holm_family_is_per_comparison_and_role() {
     for (got, want) in adjusted.iter().zip(expected) {
         assert!((got - want).abs() < 1e-12, "{adjusted:?}");
     }
+}
+
+/// Guards: a descriptive entry is never rejected, whatever its raw p.
+/// Oracle: by hand, p 0.01 is below alpha for a gate and is not rejected as descriptive.
+#[test]
+fn descriptive_is_never_rejected() {
+    let keys = [(0, Role::Gate), (0, Role::Descriptive), (0, Role::Quality)];
+    let adjusted = holm_groups(&keys, &[0.01, 0.01, 0.2]).expect("an adjustment");
+    assert_eq!(holm_rejects(&keys, &adjusted), vec![true, false, false]);
 }
