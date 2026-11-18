@@ -185,7 +185,7 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
         );
     } else {
         for level in declared_levels {
-            let given = input_for_level(&input, level, experiment_dir.as_path())?;
+            let given = input_for_level(&input, &level, experiment_dir.as_path())?;
             resolutions.push(
                 services
                     .resolver

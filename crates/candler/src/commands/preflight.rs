@@ -226,6 +226,14 @@ fn check_file_paths(file: &ExperimentFile) -> Result<(), CliError> {
                 leaves(table, &mut Vec::new(), &mut found);
                 for keys in found {
                     let text = format!("{}.{}", factor.path, keys.join("."));
+                    let treatment_field = factor.path.as_str() == paths::REQUEST_TREATMENT
+                        && keys.len() == 1
+                        && keys.first().is_some_and(|key| {
+                            candler_core::runner::plan::TREATMENT_FIELDS.contains(&key.as_str())
+                        });
+                    if treatment_field {
+                        continue;
+                    }
                     if let Ok(path) = text.parse::<FieldPath>() {
                         let location = FieldLocation::Factor {
                             index,
