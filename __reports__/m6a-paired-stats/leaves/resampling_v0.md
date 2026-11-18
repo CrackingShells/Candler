@@ -30,3 +30,39 @@ papers before the milestone cites them in the architecture document (gate G3).
 
 Statistic as built (T1 of the leaf): T = sum_k w_k (r_Bk - r_Ak), w_k = n_k / N, two-sided, a
 permuted T* counts when |T*| >= |T| - 1e-12 max(1, |T|). Nothing here contradicts the battery.
+
+## Bites
+
+Each bug was injected, the guards run, and the file restored from a copy.
+
+| Bug injected | Red guard | Failing message |
+|:--|:--|:--|
+| Labels shuffled over all blocks pooled | `permutation_stays_within_blocks` (and `permutation_matches_twin`) | `p 0.6787321267873213 is not within 3 SE (0.015) of 1/2` |
+| `p = b/B` | `p_counts_the_observed_once` (and `permutation_matches_twin`) | `p of the observed alone: got 0, want 0.009900990099009901` |
+| Jackknife sign flipped, `d = t - mean` | `bca_matches_twin` | `one low: got 0.13463476747374484, want 0.13892183116071774` |
+| `below` by plain modulo, no rejection | `splitmix_matches_twin` | `assertion left == right failed: n 4611686018427387905 draw 11` |
+
+The first attempt at the fourth bite (`threshold > 0` as the accept test) never terminated for `n = 1`;
+it was a bad injection, not a guard result, and was replaced by dropping the rejection.
+
+Added after the first verifier round: the tie tolerance removed (`cutoff = |T|`) turns `permutation_matches_twin` red on the `tie` row.
+
+## Verifier
+
+Round 1 (Sonnet, spec-verifier): VERIFY_DEVIATION, no formula or sign error; F1 jackknife weights recomputed while the bootstrap holds them fixed (fixed in both languages); F2 tie tolerance unguarded (`tie` row added); F3 scipy BCa check blind to the acceleration (`skew` design plus negative controls added); F4 z0 strict count versus scipy mid-rank (documented); F5 float-degenerate jackknife (documented); F6 guard comment wrong (fixed). Re-check of the fix commit requested through SendMessage; its verdict had not arrived when the call cap forced this report, so it is OPEN: the coordinator should read the verifier's reply (agent a3e3126176bb82a4e).
+
+## Commits
+
+See `git log c39c26fc..HEAD`: cite (docs), SplitMix64 + twin (feat), permutation (feat), BCa (feat), fix for F1-F6. The three feat commits are split by file, so only the tip passes every gate.
+
+## Gates
+
+GEN PASS (`bca.toml: 7 rows match`, about 8 s); targeted test PASS (6 of 6); clippy `-D warnings` PASS; fmt PASS; ownership PASS; no `fn confirm_`.
+
+## Claims checked
+
+Scaffold `SplitMix64` equals the published seed-0 outputs and the twin; `below` keeps `new`, `next_u64` and `below` unchanged. `statrs` normal cdf is off by up to 1e-11, so BCa uses its own series for the cdf (ppf is fine).
+
+## Findings
+
+`StatsError` has no fitting variants, so bad input uses `Unreadable` and empty input `NoRuns`. BCa refuses an arm with fewer than two runs. Citations were written from knowledge (no network); check section numbers before G3. Jackknife weights are fixed at the observed values.
