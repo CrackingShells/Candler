@@ -142,7 +142,7 @@ pub struct PlanOutcome {
 /// # Errors
 /// [`PlanError::Cell`] when a cell cannot be built.
 pub fn experiment_of(file: &ExperimentFile, resolution: &Resolution) -> Result<Digest, PlanError> {
-    let cells = fresh_cells(file, resolution, None)?;
+    let cells = fresh_cells(file, &Levels::from(resolution), None)?;
     let digests: Vec<Digest> = cells.iter().map(|cell| cell.comparable.digest()).collect();
     // BORROW: explicit .as_slice() instead of Deref coercion
     Ok(experiment_digest(digests.as_slice()))
@@ -316,8 +316,71 @@ fn probe_lock(path: &Path) -> Result<(), PlanError> {
     }
 }
 
-/// A cell of the experiment under the fresh resolution.
-struct FreshCell {
+/// One resolution per distinct treatment level of an experiment, in the order the file declares
+/// the levels. A file with at most one treatment level holds one resolution.
+#[derive(Debug, Clone)]
+pub struct Levels<'a> {
+    /// The resolution of each level, first level first.
+    resolutions: Vec<&'a Resolution>,
+}
+
+impl<'a> From<&'a Resolution> for Levels<'a> {
+    fn from(resolution: &'a Resolution) -> Self {
+        Self {
+            resolutions: vec![resolution],
+        }
+    }
+}
+
+impl<'a> From<&'a [Resolution]> for Levels<'a> {
+    fn from(resolutions: &'a [Resolution]) -> Self {
+        Self {
+            resolutions: resolutions.iter().collect(),
+        }
+    }
+}
+
+impl<'a> Levels<'a> {
+    /// The resolution of the level at `index`, if there is one.
+    fn get(&self, index: usize) -> Option<&'a Resolution> {
+        self.resolutions.get(index).copied()
+    }
+}
+
+/// The distinct values of the treatment factor of `file`, in declared order.
+fn treatment_levels(file: &ExperimentFile) -> Vec<&Value> {
+    let mut distinct: Vec<&Value> = Vec::new();
+    for factor in file
+        .factors()
+        .iter()
+        .filter(|factor| factor.path.as_str() == TREATMENT_FACTOR)
+    {
+        for level in &factor.levels {
+            if let Level::Value(value) = level {
+                let value = value.as_value();
+                if !distinct.contains(&value) {
+                    distinct.push(value);
+                }
+            }
+        }
+    }
+    distinct
+}
+
+/// The plan error for a treatment level that has no resolution.
+fn unresolved_level(level: &str) -> PlanError {
+    PlanError::Cell {
+        source: ExecutionError::Document {
+            detail: format!("the treatment level {level} has no resolution"),
+            path: String::from("/factors"),
+        },
+    }
+}
+
+/// A cell of the experiment under the fresh resolution of its treatment level.
+struct FreshCell<'r> {
+    /// The resolution of the cell's treatment level.
+    resolution: &'r Resolution,
     /// The paths the experiment file or an explicit argument sets in the cell.
     declared: Vec<FieldPath>,
     /// The cell built from the effective values and everything else the resolution holds.
@@ -365,30 +428,30 @@ fn setting_in(prefix: &str, table: &serde_json::Map<String, Value>) -> Option<St
     })
 }
 
-/// Builds every cell of `file` under `resolution`. A path the file writes that [`is_setting`] names
-/// is a setting of the run, which the resolution holds, and no value of a cell.
+/// Builds every cell of `file`, each under the resolution of its treatment level. A path the file
+/// writes that [`is_setting`] names is a setting of the run, which the resolution holds, and no
+/// value of a cell; the treatment level reaches the cell through its resolution.
 ///
 /// # Errors
 /// [`PlanError::SettingAsFactor`] when a factor of `file` varies a setting, [`PlanError::Cell`]
-/// when a cell cannot be built, [`PlanError::Session`] when a cell breaks the session rule,
+/// when a cell cannot be built or a treatment level has no resolution, [`PlanError::Session`] when a cell breaks the session rule,
 /// [`PlanError::Egress`] when its egress allowlist is refused, and
 /// [`PlanError::Driver`] when the driver cannot honour a value of a settled cell.
-fn fresh_cells(
+fn fresh_cells<'r>(
     file: &ExperimentFile,
-    resolution: &Resolution,
+    levels: &Levels<'r>,
     driver: Option<&dyn HarnessDriver>,
-) -> Result<Vec<FreshCell>, PlanError> {
+) -> Result<Vec<FreshCell<'r>>, PlanError> {
     let session_capable = driver.map(|driver| driver.capabilities().session);
     if let Some(path) = file.factors().iter().find_map(setting_of_factor) {
         return Err(PlanError::SettingAsFactor { path });
     }
-    let explicit: Vec<&FieldPath> = resolution
-        .sources
-        .iter()
-        .filter(|entry| matches!(entry.source(), ValueSource::ExplicitArgument))
-        .map(SourceEntry::path)
-        .collect();
-    let is_explicit = |path: &FieldPath| explicit.iter().any(|own| overlaps(own, path));
+    let declared_levels = treatment_levels(file);
+    for (index, level) in declared_levels.iter().enumerate() {
+        if levels.get(index).is_none() {
+            return Err(unresolved_level(level.to_string().as_str()));
+        }
+    }
     let egress_path = paths::ISOLATION_EGRESS
         .parse::<FieldPath>()
         .map_err(|error| PlanError::Cell {
@@ -396,6 +459,26 @@ fn fresh_cells(
         })?;
     let mut cells = Vec::new();
     for cell in file.cells() {
+        let index = cell
+            .iter()
+            .find(|value| value.path().as_str() == TREATMENT_FACTOR)
+            .and_then(ResolvedValue::value)
+            .and_then(|level| {
+                declared_levels
+                    .iter()
+                    .position(|declared| **declared == *level.as_value())
+            })
+            .unwrap_or(0);
+        let resolution = levels
+            .get(index)
+            .ok_or_else(|| unresolved_level("treatment"))?;
+        let explicit: Vec<&FieldPath> = resolution
+            .sources
+            .iter()
+            .filter(|entry| matches!(entry.source(), ValueSource::ExplicitArgument))
+            .map(SourceEntry::path)
+            .collect();
+        let is_explicit = |path: &FieldPath| explicit.iter().any(|own| overlaps(own, path));
         let effective: Vec<ResolvedValue> = cell
             .into_iter()
             .filter(|value| !is_explicit(value.path()) && !is_setting(value.path()))
@@ -475,6 +558,7 @@ fn fresh_cells(
                 .map(|value| value.path().clone()), // BORROW: the cell owns its declared paths
         );
         cells.push(FreshCell {
+            resolution,
             declared,
             comparable,
             idle_derived: derived_idle,
@@ -573,7 +657,7 @@ fn read_ledger(store: &Store) -> Result<Ledger, PlanError> {
 /// stored value the fresh cell has no counterpart for is a mismatch. Any other fresh value (from
 /// a configuration file, a default or a derived step) may differ from the stored one, which is
 /// then replayed.
-fn answers(stored: &Comparable, cell: &FreshCell) -> bool {
+fn answers(stored: &Comparable, cell: &FreshCell<'_>) -> bool {
     let fresh = cell.comparable.values();
     let counterpart = |path: &FieldPath| fresh.iter().find(|value| value.path() == path);
     let is_fact = |path: &FieldPath| path.as_str() == ISOLATION_IMAGE; // BORROW: explicit .as_str()
@@ -607,7 +691,7 @@ fn answers(stored: &Comparable, cell: &FreshCell) -> bool {
 ///
 /// A past experiment none of whose cells answers is another experiment and is ignored.
 fn match_stored<'a>(
-    cells: &[FreshCell],
+    cells: &[FreshCell<'_>],
     groups: &'a [Vec<Stored>],
 ) -> Result<Vec<Option<&'a Stored>>, PlanError> {
     let mut chosen: Option<(&'a Stored, Vec<Option<&'a Stored>>)> = None;
@@ -878,8 +962,9 @@ fn seal_open(
     Ok(())
 }
 
-/// Decides the runs of `file` under `resolution`, taking the experiment lock when `mode` is
-/// [`PlanMode::Hold`].
+/// Decides the runs of `file`, each cell under the resolution of its treatment level, taking the
+/// experiment lock when `mode` is [`PlanMode::Hold`]. One resolution is the single level of a file
+/// with at most one treatment level.
 ///
 /// A cell with a stored run is replayed from the stored `Comparable`, and its four re-checked
 /// facts (image ID, harness version, secrets present, tag-to-commit) must still hold. Under
@@ -889,15 +974,17 @@ fn seal_open(
 ///
 /// # Errors
 /// [`PlanError::ExperimentLocked`] when another supervisor holds the experiment,
-/// [`PlanError::Changed`] when a re-checked fact differs and `force` is [`Force::No`], and the
-/// other [`PlanError`] variants when the cells or the store cannot be read.
-pub fn plan_runs(
+/// [`PlanError::Changed`] when a re-checked fact differs and `force` is [`Force::No`],
+/// [`PlanError::Cell`] when a treatment level has no resolution, and the other [`PlanError`]
+/// variants when the cells or the store cannot be read.
+pub fn plan_runs<'a>(
     ctx: &PlanCtx,
     file: &ExperimentFile,
-    resolution: &Resolution,
+    levels: impl Into<Levels<'a>>,
     force: Force,
     mode: PlanMode,
 ) -> Result<PlanOutcome, PlanError> {
+    let levels = levels.into();
     let lock = match mode {
         PlanMode::Hold => Some(take_lock(ctx.experiment_lock.as_path())?),
         PlanMode::Check => {
@@ -905,7 +992,7 @@ pub fn plan_runs(
             None
         }
     };
-    let cells = fresh_cells(file, resolution, ctx.driver.as_deref())?;
+    let cells = fresh_cells(file, &levels, ctx.driver.as_deref())?;
     let ledger = read_ledger(&ctx.store)?;
     // BORROW: explicit .as_slice() instead of Deref coercion
     let matched = match_stored(cells.as_slice(), ledger.groups.as_slice())?;
@@ -949,7 +1036,8 @@ pub fn plan_runs(
         let (digest, pinned, deviations) = match found {
             Some(held) => {
                 check_names(&held.comparable, &cell.comparable)?;
-                let mut deviations = check_facts(&held.comparable, &cell.comparable, resolution);
+                let mut deviations =
+                    check_facts(&held.comparable, &cell.comparable, cell.resolution);
                 // BORROW: explicit .as_slice() instead of Deref coercion
                 deviations.extend(check_secrets(held.secrets.as_slice(), &ctx.secrets_present));
                 (
