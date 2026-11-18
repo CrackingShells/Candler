@@ -335,6 +335,36 @@ pub struct Tested {
     pub fallback: bool,
     /// The effect of the second arm over the first in each block.
     pub per_block: Vec<BlockEffect>,
+    /// The Mantel–Haenszel odds ratio of arm B over arm A, over several blocks of a binary
+    /// expectation.
+    pub or_mh: Option<f64>,
+    /// The interval of [`Self::or_mh`].
+    pub or_ci: Option<(f64, f64)>,
+    /// The p-value of the Breslow–Day homogeneity test: shown, never used to choose.
+    pub homogeneity_p: Option<f64>,
+    /// What the interval says.
+    pub reading: Reading,
+}
+
+/// What the interval of a test says: never that there is no difference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Reading {
+    /// The interval excludes the null value: 0 for a difference, 1 for an odds ratio.
+    Effect,
+    /// The interval spans the null value, or the test gives none.
+    Inconclusive,
+}
+
+impl Reading {
+    /// The reading as it is reported: `effect` or `inconclusive`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Effect => "effect",
+            Self::Inconclusive => "inconclusive",
+        }
+    }
 }
 
 /// Why an expectation of a pair is not tested.
@@ -640,6 +670,10 @@ fn entries_of(a: &ArmReport, b: &ArmReport) -> Result<Vec<Entry>, StatsError> {
                     blocks: 1,
                     fallback: false,
                     per_block: Vec::new(),
+                    or_mh: None,
+                    or_ci: None,
+                    homogeneity_p: None,
+                    reading: Reading::Inconclusive,
                 })
             }
             (Err(reason), _) | (Ok(_), Err(reason)) => Entry::Omitted {

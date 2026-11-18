@@ -4,9 +4,10 @@
 //! every interval, p-value and difference is a row of the vector files `tests/vectors/stats/*.toml`
 //! that scipy and statsmodels wrote, so no expected number comes from the code under test.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
+use candler_core::analysis::blocking::Battery;
 use candler_core::analysis::refusal::ReportError;
 use candler_core::analysis::report::{
     Entry, OmitReason, PairVerdict, Report, ReportInput, RunView, Unsealed, check_factors,
@@ -46,6 +47,8 @@ struct Spec {
     factors: Vec<&'static str>,
     /// The character the experiment digest is made of.
     experiment: char,
+    /// The typed treatment of the cell.
+    treatment: Value,
 }
 
 impl Spec {
@@ -60,6 +63,7 @@ impl Spec {
             unrecorded: Vec::new(),
             factors: vec!["plan.model"],
             experiment: '0',
+            treatment: json!({"name": "t"}),
         }
     }
 }
@@ -117,7 +121,7 @@ fn manifest(spec: &Spec) -> RunManifest {
             "comparable": {
                 "values": values,
                 "harness": {"name": "h", "version": "1.0.0"},
-                "treatment": {"name": "t"},
+                "treatment": spec.treatment,
                 "snapshots": [],
                 "inputs": [],
                 "environments": []
@@ -1329,4 +1333,319 @@ fn u1_units_in_deterministic_order() {
     assert_eq!(first.iter().map(|u| u.1).sum::<u64>(), num);
     assert_eq!(first.iter().map(|u| u.2).sum::<u64>(), den);
     assert_eq!(read().0, first, "the same store reads in the same order");
+}
+
+/// One row of `cmh.toml`.
+#[derive(Deserialize)]
+struct CmhRow {
+    label: String,
+    pa: Vec<u64>,
+    na: Vec<u64>,
+    pb: Vec<u64>,
+    nb: Vec<u64>,
+    p: Option<f64>,
+    mf_holds: Option<bool>,
+}
+
+/// One row of `midp.toml`.
+#[derive(Deserialize)]
+struct MidpRow {
+    a_k: u64,
+    a_n: u64,
+    b_k: u64,
+    b_n: u64,
+    p: f64,
+}
+
+/// The mid-p of a table, a row of the second engine.
+fn midp_p(a: (u64, u64), b: (u64, u64)) -> f64 {
+    vector::<MidpRow>("midp.toml")
+        .into_iter()
+        .find(|r| (r.a_k, r.a_n, r.b_k, r.b_n) == (a.0, a.1, b.0, b.1))
+        .map(|r| r.p)
+        .expect("a midp row")
+}
+
+/// A store of cells, each `(spec, passes, runs)`: the first `passes` runs pass `E1`.
+fn store_of(cells: &[(Spec, u64, u64)]) -> (Selection, Vec<RunView>) {
+    let mut runs: Vec<RunView> = Vec::new();
+    let mut records = Vec::new();
+    for (base, passes, count) in cells {
+        for replicate in 1..=u32::try_from(*count).expect("small") {
+            let run = view(&Spec {
+                replicate,
+                ..base.clone()
+            });
+            let status = if u64::from(replicate) <= *passes {
+                "pass"
+            } else {
+                "fail"
+            };
+            records.push(record(
+                &run,
+                records.len() + 1,
+                "E1",
+                "gate",
+                status,
+                None,
+                None,
+            ));
+            runs.push(run);
+        }
+    }
+    (select(records), runs)
+}
+
+fn tested_of(
+    comparison: &candler_core::analysis::report::Comparison,
+) -> &candler_core::analysis::report::Tested {
+    let [Entry::Tested(tested)] = comparison.entries.as_slice() else {
+        panic!("one tested entry: {:?}", comparison.entries);
+    };
+    tested
+}
+
+fn comparison_of<'a>(
+    report: &'a Report,
+    factor: &str,
+) -> &'a candler_core::analysis::report::Comparison {
+    report
+        .comparisons
+        .iter()
+        .find(|c| c.factor.to_string() == factor)
+        .unwrap_or_else(|| panic!("a comparison of {factor}"))
+}
+
+/// Guards: C6 — a 2 by 2 store gives two comparisons, not four pairs: `plan.model` blocked by
+/// `plan.other` and `plan.other` blocked by `plan.model`. The model comparison is the second
+/// engine's "random K=2 #0" table: two blocks, the CMH test with its p, and each block's own
+/// risk difference (B minus A) from the counts; both comparisons name their blocks by the other
+/// factor, and the two diagonal cell pairs stay counted as not one-factor.
+/// Oracle: the `cmh.toml` row (statsmodels `StratifiedTable`) and the counts' own arithmetic.
+/// Bite: keep the one-factor pairs (four comparisons, one block each), or leave the compared
+/// factor in the block key, and this turns red.
+#[test]
+fn c6_two_by_two_gives_two_blocked_comparisons() {
+    let row = vector::<CmhRow>("cmh.toml")
+        .into_iter()
+        .find(|r| r.label == "random K=2 #0")
+        .expect("the row");
+    assert_eq!(row.mf_holds, Some(true), "the row is a CMH table");
+    let mut cells = Vec::new();
+    for (at, other) in ["x", "y"].into_iter().enumerate() {
+        for (model, passes, count) in [
+            ("alpha", row.pa[at], row.na[at]),
+            ("beta", row.pb[at], row.nb[at]),
+        ] {
+            let mut spec = Spec::new(model, 1);
+            spec.extra = vec![("plan.other", json!(other))];
+            spec.factors = vec!["plan.model", "plan.other"];
+            cells.push((spec, passes, count));
+        }
+    }
+    let (selection, runs) = store_of(&cells);
+    let report = report(&selection, runs);
+    assert_eq!(report.comparisons.len(), 2);
+    assert_eq!(report.pairs_not_one_factor, 2);
+    let factors: BTreeSet<String> = report
+        .comparisons
+        .iter()
+        .map(|c| c.factor.to_string())
+        .collect();
+    assert_eq!(
+        factors,
+        BTreeSet::from(["plan.model".to_owned(), "plan.other".to_owned()])
+    );
+    let model = comparison_of(&report, "plan.model");
+    assert_eq!(model.verdict, PairVerdict::Comparable);
+    let tested = tested_of(model);
+    assert_eq!(tested.blocks, 2);
+    assert_eq!(tested.battery, Some(Battery::Cmh));
+    assert!(!tested.fallback);
+    close("p", tested.p, row.p.expect("a p"));
+    let (level_a, _) = model.levels.clone().expect("the levels");
+    let a_is_alpha = level_a == json!("alpha");
+    let keys: BTreeSet<String> = tested
+        .per_block
+        .iter()
+        .map(|b| format!("{:?}", b.key))
+        .collect();
+    assert_eq!(keys.len(), 2, "two blocks with their own keys");
+    for effect in &tested.per_block {
+        let [(path, level)] = effect.key.as_slice() else {
+            panic!("a block keyed by the other factor: {:?}", effect.key);
+        };
+        assert_eq!(path.to_string(), "plan.other");
+        let at = usize::from(level == &json!("y"));
+        let (alpha, beta) = ((row.pa[at], row.na[at]), (row.pb[at], row.nb[at]));
+        let rate = |c: (u64, u64)| c.0 as f64 / c.1 as f64;
+        let want = if a_is_alpha {
+            rate(beta) - rate(alpha)
+        } else {
+            rate(alpha) - rate(beta)
+        };
+        close("block diff", effect.diff, want);
+    }
+    let other = comparison_of(&report, "plan.other");
+    let tested = tested_of(other);
+    assert_eq!(tested.blocks, 2);
+    assert!(matches!(
+        tested.battery,
+        Some(Battery::Cmh | Battery::ExactStrata)
+    ));
+    assert!(
+        tested
+            .per_block
+            .iter()
+            .all(|b| matches!(b.key.as_slice(), [(path, _)] if path.to_string() == "plan.model"))
+    );
+}
+
+/// Guards: C6 — the reading is "effect" when the interval excludes 0 and "inconclusive" when it
+/// spans 0, and no reading says "no difference": 4 of 5 against 1 of 5 has a Newcombe interval
+/// that spans 0, 10 of 10 against 0 of 10 has one that does not.
+/// Oracle: the `newcombe.toml` rows for the two tables, read for their limits.
+/// Bite: read "effect" from the p-value, or say "no difference" for a spanning interval, and this
+/// turns red.
+#[test]
+fn c6_reading_effect_or_inconclusive() {
+    for (a, b) in [((4_u64, 5_u64), (1_u64, 5_u64)), ((10, 10), (0, 10))] {
+        let cells = vec![
+            (Spec::new("alpha", 1), a.0, a.1),
+            (Spec::new("beta", 1), b.0, b.1),
+        ];
+        let (selection, runs) = store_of(&cells);
+        let report = report(&selection, runs);
+        let tested = tested_of(only_comparison(&report));
+        let row = vector::<NewcombeRow>("newcombe.toml")
+            .into_iter()
+            .find(|r| {
+                (r.k1, r.n1, r.k2, r.n2) == (tested.a.k(), tested.a.n(), tested.b.k(), tested.b.n())
+            })
+            .expect("a newcombe row");
+        let want = if row.lo > 0.0 || row.hi < 0.0 {
+            "effect"
+        } else {
+            "inconclusive"
+        };
+        assert_eq!(tested.reading.as_str(), want, "{a:?} against {b:?}");
+        assert_ne!(tested.reading.as_str(), "no difference");
+    }
+    assert_eq!(
+        {
+            let (selection, runs) = store_of(&[
+                (Spec::new("alpha", 1), 10, 10),
+                (Spec::new("beta", 1), 0, 10),
+            ]);
+            let report = report(&selection, runs);
+            tested_of(only_comparison(&report)).reading.as_str()
+        },
+        "effect"
+    );
+}
+
+/// Guards: C7 — Holm runs once per comparison and role: the three model pairs of the layout give
+/// six families (a gate family of two, `E1` and `E2`, and a quality family of one, `E3`, for each
+/// comparison), each gate `p_holm` is the step-down value of its own two raw p-values, and the
+/// quality `p_holm` is its raw p.
+/// Oracle: the mid-p of each table, a row of `midp.toml`, and the two-test step-down by hand.
+/// Bite: one family across comparisons (six gate tests) or across roles turns this red.
+#[test]
+fn c6_holm_per_comparison_and_role() {
+    let (report, _) = holm_report();
+    assert_eq!(report.comparisons.len(), 3);
+    assert_eq!(report.families.len(), 6);
+    for role in [Role::Gate, Role::Quality] {
+        let want = if role == Role::Gate { 2 } else { 1 };
+        let held: Vec<usize> = report
+            .families
+            .iter()
+            .filter(|f| f.role == role)
+            .map(|f| f.m)
+            .collect();
+        assert_eq!(held, vec![want; 3], "{role:?}");
+    }
+    for comparison in &report.comparisons {
+        let tests: Vec<&candler_core::analysis::report::Tested> = comparison
+            .entries
+            .iter()
+            .filter_map(|e| match e {
+                Entry::Tested(t) => Some(t),
+                _ => None,
+            })
+            .collect();
+        let gate: Vec<_> = tests.iter().filter(|t| t.role == Role::Gate).collect();
+        let [first, second] = gate.as_slice() else {
+            panic!("two gate tests");
+        };
+        let raw = |t: &&&candler_core::analysis::report::Tested| {
+            midp_p((t.a.k(), t.a.n()), (t.b.k(), t.b.n()))
+        };
+        let (p1, p2) = (raw(first), raw(second));
+        close("p", first.p, p1);
+        close("p", second.p, p2);
+        let low = (2.0 * p1.min(p2)).min(1.0);
+        let high = low.max(p1.max(p2));
+        let (low_of, high_of) = if p1 <= p2 {
+            (first, second)
+        } else {
+            (second, first)
+        };
+        close("p_holm low", low_of.p_holm, low);
+        close("p_holm high", high_of.p_holm, high);
+        let quality: Vec<_> = tests.iter().filter(|t| t.role == Role::Quality).collect();
+        let [only] = quality.as_slice() else {
+            panic!("one quality test");
+        };
+        close("quality p_holm", only.p_holm, only.p);
+        assert_eq!(only.battery, Some(Battery::Permutation));
+    }
+}
+
+/// Guards: C6 — a `request.treatment` level is read as the typed reference `{name, tag, commit}`
+/// from the cell's comparable, never as `null` and never from `values`: a treatment by model
+/// store gives a treatment comparison that names its two levels by their references and blocks by
+/// model, and a model comparison whose two blocks are keyed by the two references.
+/// Oracle: the references written into the manifests by the test.
+/// Bite: read the level from `comparable().values()` (null for every run: one block, one level)
+/// and this turns red.
+#[test]
+fn c6_a_treatment_level_is_its_typed_reference() {
+    let one = json!({"name": "t", "tag": "v1", "commit": "a".repeat(40)});
+    let two = json!({"name": "t", "tag": "v2", "commit": "b".repeat(40)});
+    let mut cells = Vec::new();
+    for (treatment, model, passes) in [
+        (&one, "alpha", 1_u64),
+        (&two, "alpha", 4),
+        (&one, "beta", 2),
+        (&two, "beta", 5),
+    ] {
+        let mut spec = Spec::new(model, 1);
+        spec.treatment = treatment.clone();
+        spec.factors = vec!["request.treatment", "plan.model"];
+        cells.push((spec, passes, 5));
+    }
+    let (selection, runs) = store_of(&cells);
+    let report = report(&selection, runs);
+    assert_eq!(report.comparisons.len(), 2);
+    let treatment = comparison_of(&report, "request.treatment");
+    let (a, b) = treatment.levels.clone().expect("the levels");
+    assert_eq!(
+        BTreeSet::from([a.to_string(), b.to_string()]),
+        BTreeSet::from([one.to_string(), two.to_string()])
+    );
+    let tested = tested_of(treatment);
+    assert_eq!(tested.blocks, 2);
+    let model = comparison_of(&report, "plan.model");
+    let tested = tested_of(model);
+    assert_eq!(tested.blocks, 2);
+    let keyed: BTreeSet<String> = tested
+        .per_block
+        .iter()
+        .map(|effect| match effect.key.as_slice() {
+            [(path, level)] if path.to_string() == "request.treatment" => level.to_string(),
+            other => panic!("a block keyed by the treatment: {other:?}"),
+        })
+        .collect();
+    assert_eq!(keyed, BTreeSet::from([one.to_string(), two.to_string()]));
 }
