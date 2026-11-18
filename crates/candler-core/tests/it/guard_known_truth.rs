@@ -133,6 +133,12 @@ impl Design {
     /// `weighted` designs grade `E3` with weights over 4 (outcome 0 to 4, a pass at 4); the others
     /// grade `E1` pass or fail (outcome 0 or 1).
     fn new(cells: &[Cell], weighted: bool) -> Self {
+        Self::with_den(cells, weighted.then_some(4))
+    }
+
+    /// `den` of `Some(d)` grades `E3` with weights over `d` (outcome 0 to `d`, a pass at `d`).
+    fn with_den(cells: &[Cell], den: Option<u32>) -> Self {
+        let weighted = den.is_some();
         let mut views = Vec::new();
         let mut records = Vec::new();
         let mut cell_of = Vec::new();
@@ -145,10 +151,11 @@ impl Design {
                 };
                 let n = views.len() + 1;
                 let held = if weighted {
-                    (0..=4)
+                    let den = den.unwrap_or(4);
+                    (0..=den)
                         .map(|num| {
-                            let status = if num == 4 { "pass" } else { "fail" };
-                            record(&view, n, "E3", "quality", status, Some((num, 4)))
+                            let status = if num == den { "pass" } else { "fail" };
+                            record(&view, n, "E3", "quality", status, Some((num, den)))
                         })
                         .collect()
                 } else {
@@ -404,8 +411,8 @@ fn kt_simpson_blocked_holds() {
 
 /// Guards: the false-positive rate of the weighted (permutation) test under H0. Outcomes are
 /// counts over 4 at rate 0.4 in block x and 0.7 in block y for both arms, 6 runs per cell; the
-/// count of experiments is set by the measured runtime. The rejection rate is not above the upper
-/// limit of the 99 % binomial interval of 0.05 (it lies below it: the test is conservative).
+/// count of experiments is set by the measured runtime. The 99 % binomial interval of the rejection
+/// rate at 0.05 contains 0.05.
 /// Oracle: the planted truth and the binomial variance of a rate of 0.05.
 /// Bite: a constant p of 0.01 leaves the interval.
 #[test]
@@ -428,11 +435,76 @@ fn kt_h0_weighted_nominal() {
         "kt_h0_weighted_nominal: {rejected}/{WEIGHTED_TRIALS} = {rate:.4} (+-{half:.4}), {:?}",
         start.elapsed()
     );
-    // The permutation test is conservative on these designs (about 0.025 at 6 and at 10 runs per
-    // cell), so the guard holds the upper limit of the interval: the size is never above alpha.
     assert!(
-        rate <= ALPHA + Z99 * (ALPHA * (1.0 - ALPHA) / f64::from(WEIGHTED_TRIALS)).sqrt(),
-        "rejection rate {rate:.4} above the 99 % interval of 0.05"
+        holds(rejected, WEIGHTED_TRIALS, ALPHA),
+        "rejection rate {rate:.4} outside the 99 % interval of 0.05"
+    );
+}
+
+/// Guards: the false-positive rate of the one-block binary test (the mid-p) under H0. Both arms
+/// pass at 0.3 in the one block, 12 runs per arm; the 99 % binomial interval of the rejection
+/// rate of 4 000 experiments at 0.05 contains 0.05.
+/// Oracle: the planted truth (no difference) and the binomial variance of a rate of 0.05 over
+/// 4 000 trials.
+/// Bite: report Fisher's p in place of the mid-p on the one-block path and the rate leaves the
+/// interval.
+#[test]
+fn kt_h0_one_block_nominal() {
+    let cells = [("alpha", 12), ("beta", 12)].map(|(model, runs)| Cell {
+        model,
+        block: Some("x"),
+        runs,
+    });
+    let design = Design::new(&cells, false);
+    let trials = 4_000;
+    let start = Instant::now();
+    let rejected = rejections_blocked(&design, &[0.3, 0.3], trials, 0x0001_B10C);
+    let (rate, half) = rate_of(rejected, trials);
+    println!(
+        "kt_h0_one_block_nominal: {rejected}/{trials} = {rate:.4} (+-{half:.4}), {:?}",
+        start.elapsed()
+    );
+    assert!(
+        holds(rejected, trials, ALPHA),
+        "rejection rate {rate:.4} outside the 99 % interval of 0.05"
+    );
+}
+
+/// Guards: the false-positive rate of the weighted (permutation) test under H0 when the weights
+/// carry no ties. Weights are on a grid of 1 000 (uniform up to 0.4 in block x and 0.7 in block y
+/// for both arms), 6 runs per cell, 1 000 experiments; the 99 % binomial interval of the
+/// rejection rate at 0.05 contains 0.05. With the five weights of `kt_h0_weighted_nominal` the
+/// statistic ties often and the rate falls to about half of alpha.
+/// Oracle: the planted truth and the binomial variance of a rate of 0.05.
+/// Bite: a constant p of 0.01 leaves the interval.
+#[test]
+fn kt_h0_weighted_continuous() {
+    const DEN: u32 = 1_000;
+    const TRIALS: u32 = 1_000;
+    let design = Design::with_den(&two_by_two([6; 4]), Some(DEN));
+    let upper = [400_u32, 700, 400, 700];
+    let start = Instant::now();
+    let (rejected, _) = simulate(TRIALS, 0x0E16_47ED, |rng| {
+        let outcomes: Vec<usize> = design
+            .cell_of
+            .iter()
+            .map(|cell| {
+                let top = *upper.get(*cell).expect("a limit");
+                let draw = u32::try_from(rng.next_u64() >> 32).unwrap_or(0);
+                usize::try_from(draw % top).unwrap_or(0)
+            })
+            .collect();
+        let report = design.report(&outcomes);
+        (u32::from(model_test(&report).p < ALPHA), 0)
+    });
+    let (rate, half) = rate_of(rejected, TRIALS);
+    println!(
+        "kt_h0_weighted_continuous: {rejected}/{TRIALS} = {rate:.4} (+-{half:.4}), {:?}",
+        start.elapsed()
+    );
+    assert!(
+        holds(rejected, TRIALS, ALPHA),
+        "rejection rate {rate:.4} outside the 99 % interval of 0.05"
     );
 }
 
