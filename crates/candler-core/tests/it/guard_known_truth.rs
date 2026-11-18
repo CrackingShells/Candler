@@ -258,6 +258,13 @@ fn holds(rejections: u32, trials: u32, value: f64) -> bool {
     (rate - value).abs() <= Z99 * (value * (1.0 - value) / f64::from(trials)).sqrt()
 }
 
+/// Whether the rejection rate stays at or below the upper limit of the 99 % interval of `value`,
+/// the bound a conservative test must keep.
+fn within_upper(rejections: u32, trials: u32, value: f64) -> bool {
+    let rate = f64::from(rejections) / f64::from(trials);
+    rate - value <= Z99 * (value * (1.0 - value) / f64::from(trials)).sqrt()
+}
+
 /// Workers a simulation spreads its experiments over.
 const WORKERS: u64 = 4;
 
@@ -409,12 +416,14 @@ fn kt_simpson_blocked_holds() {
     );
 }
 
-/// Guards: the false-positive rate of the weighted (permutation) test under H0. Outcomes are
-/// counts over 4 at rate 0.4 in block x and 0.7 in block y for both arms, 6 runs per cell; the
-/// count of experiments is set by the measured runtime. The 99 % binomial interval of the rejection
-/// rate at 0.05 contains 0.05.
+/// Guards: the validity of the weighted (permutation) test under H0 when weights tie. Outcomes are
+/// counts over 4 at rate 0.4 in block x and 0.7 in block y for both arms, 6 runs per cell, so the
+/// weights take 5 values and the statistic ties heavily. The test counts a tie as at least as
+/// extreme, so it is conservative here: the rejection rate stays at or below the upper limit of
+/// the 99 % interval of 0.05 (0.063), an upper bound only (A15). Measured: 0.024 at 6 runs per cell
+/// and 0.025 at 10. `kt_h0_weighted_continuous` holds the two-sided interval without ties.
 /// Oracle: the planted truth and the binomial variance of a rate of 0.05.
-/// Bite: a constant p of 0.01 leaves the interval.
+/// Bite: a constant p of 0.01 exceeds the upper limit.
 #[test]
 fn kt_h0_weighted_nominal() {
     const WEIGHTED_TRIALS: u32 = 1_000;
@@ -436,8 +445,8 @@ fn kt_h0_weighted_nominal() {
         start.elapsed()
     );
     assert!(
-        holds(rejected, WEIGHTED_TRIALS, ALPHA),
-        "rejection rate {rate:.4} outside the 99 % interval of 0.05"
+        within_upper(rejected, WEIGHTED_TRIALS, ALPHA),
+        "rejection rate {rate:.4} above the upper limit of the 99 % interval of 0.05"
     );
 }
 
