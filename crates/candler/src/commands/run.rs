@@ -175,7 +175,15 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     ensure_sidecar(&services.cli, services.gateway_context).await?;
     let declared_levels = treatment_levels(&file);
     let mut resolutions = Vec::new();
-    if declared_levels.len() > 1 {
+    if declared_levels.is_empty() {
+        resolutions.push(
+            services
+                .resolver
+                .resolve(input)
+                .await
+                .map_err(CliError::refused_by)?,
+        );
+    } else {
         for level in declared_levels {
             let given = input_for_level(&input, level, experiment_dir.as_path())?;
             resolutions.push(
@@ -186,14 +194,6 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
                     .map_err(CliError::refused_by)?,
             );
         }
-    } else {
-        resolutions.push(
-            services
-                .resolver
-                .resolve(input)
-                .await
-                .map_err(CliError::refused_by)?,
-        );
     }
     let spec = plan_job(&store, &file, resolutions, force, declared, driver)?;
     start(&store, &file, &spec, &root).await
@@ -281,7 +281,7 @@ fn plan_job(
         .first()
         .cloned() // BORROW: the spec owns its primary level
         .ok_or_else(|| refused(String::from("the experiment has no resolution")))?;
-    let experiment = experiment_of(file, levels.as_slice()).map_err(failed)?; // BORROW: explicit .as_slice()
+    let experiment = experiment_of(file, levels.as_slice()).map_err(|e| refuse_plan(e, file))?; // BORROW: explicit .as_slice()
     let ctx = PlanCtx {
         store: store.clone(), // BORROW: the context owns its handle on the store
         experiment_lock: store.layout().experiment_lock(&experiment),

@@ -384,7 +384,12 @@ fn two_level_file(levels: &[&str]) -> candler_schemas::execution::ExperimentFile
 
 /// The base resolution of a level: its treatment tag, the checkout its `request.treatment`
 /// setting names and the harness version it observed.
-fn level_of(tag: &str, source: &str, version: &str) -> candler_core::resolve::layers::Resolution {
+fn level_of(
+    tag: &str,
+    source: &str,
+    version: &str,
+    root: &str,
+) -> candler_core::resolve::layers::Resolution {
     let facts = Facts {
         version: version.to_owned(), // BORROW: the facts own their version text
         ..facts()
@@ -398,6 +403,7 @@ fn level_of(tag: &str, source: &str, version: &str) -> candler_core::resolve::la
     {
         value["value"]["tag"] = json!(tag);
     }
+    json["sources"] = json!([{"path": root, "source": {"kind": "experiment_file"}}]);
     json["settings"] = json!([
         {"path": "request.treatment", "value": {"name": "htn", "tag": tag, "source": source}},
     ]);
@@ -436,19 +442,35 @@ fn cells_by_tag(
 
 /// Guards: T3 wiring (C3) -- each cell of a two-level job carries its own level's treatment
 /// checkout and harness, never the first level's.
-/// Oracle: the checkouts `/src/a` and `/src/b` and the harness versions `2.1.0` and `2.2.0`
-/// written below, one pair for each level's tag.
+/// Oracle: the checkouts `/src/a` and `/src/b`, the harness versions `2.1.0` and `2.2.0` and the
+/// source paths `snapshots` and `environments` written below, one set for each level's tag.
 /// Bite: build every cell from the job's primary level.
 #[test]
 fn t3_each_cell_runs_its_own_treatment() {
     let levels = [
-        level_of("v1", "/src/a", "2.1.0"),
-        level_of("v2", "/src/b", "2.2.0"),
+        level_of("v1", "/src/a", "2.1.0", "snapshots"),
+        level_of("v2", "/src/b", "2.2.0", "environments"),
     ];
     let cells = cells_by_tag(&two_level_file(&["htn", "other"]), &levels);
     assert_eq!(cells.len(), 2, "one cell per level");
-    for (tag, source, version) in [("v1", "/src/a", "2.1.0"), ("v2", "/src/b", "2.2.0")] {
+    for (tag, source, version, root, other) in [
+        ("v1", "/src/a", "2.1.0", "snapshots", "environments"),
+        ("v2", "/src/b", "2.2.0", "environments", "snapshots"),
+    ] {
         let cell = cells.get(tag).expect("the level's cell");
+        let held: Vec<&str> = cell
+            .sources
+            .iter()
+            .map(|entry| entry.path().as_str())
+            .collect();
+        assert!(
+            held.contains(&root),
+            "the sources of {tag} hold its own {root}: {held:?}"
+        );
+        assert!(
+            !held.contains(&other),
+            "the sources of {tag} hold {other}: {held:?}"
+        );
         assert_eq!(
             cell.treatment_source,
             Some(PathBuf::from(source)),
@@ -465,7 +487,7 @@ fn t3_each_cell_runs_its_own_treatment() {
 /// Bite: look the cell's level up among the job's levels and refuse a job that holds none.
 #[test]
 fn t3_one_level_job_unchanged() {
-    let levels = [level_of("v1", "/src/a", "2.1.0")];
+    let levels = [level_of("v1", "/src/a", "2.1.0", "snapshots")];
     let cells = cells_by_tag(&two_level_file(&["htn"]), &levels);
     assert_eq!(cells.len(), 1, "one level, one cell");
     let cell = cells.get("v1").expect("the cell");
