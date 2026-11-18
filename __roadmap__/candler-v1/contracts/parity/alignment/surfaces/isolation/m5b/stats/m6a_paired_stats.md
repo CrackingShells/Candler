@@ -5,14 +5,14 @@
 - [x] `../README.md`'s M5b is `done` (the leaf `../../m5_container_isolation.md`, M5a, before it), and M2a (the tree also waits for M5a and M5b; the reminder needs only M2a) — M5b's own gates are met (PR #38, merge 1e6dc91); its last gate, `stats/`, is this level
 - [x] Reminder `candler-M6` read (statistics list, pairing model) — 2026-11-17, M6a coordination
 **Success Gates**:
-- ⬜ The blocked tests (mid-p, CMH with its exact fallback, stratified permutation with BCa) run on blocks taken from the other declared factors, and each equals a second engine's table; McNemar and fixed-sequence are dropped (A9)
-- ⬜ The HTN golden experiment (3 models × 4 skill versions × 20 runs, htn-creator-eval 0.4.2) is written as one Candler experiment file that plans 12 cells; `analyze` compares each version pair blocked by model and each model pair blocked by version; an import of the golden runs declares the same factors (A10)
-- ⬜ The blocks, the execution order and each test's validity sources are decided and recorded in `__design__/architecture.md` §Analysis statistics; Holm is the only multiplicity method
-- ⬜ `analyze` reports `instrument_error` per arm, with the arm's counts of the other invalid causes unchanged
-- ⬜ An experiment declaring two treatment levels plans one cell per level; cells whose `treatment:` sources or treatment trees differ get their own env lock and image, and cells with equal inputs share one
-- ⬜ `analyze` runs the blocked tests between treatment arms like any other declared factor; an experiment without treatment arms keeps its comparisons under A9's tests and Holm families, and a two-level one-factor binary experiment gives today's output except the mid-p p-value (A10)
-- ⬜ A treatment factor never moves a setting into a cell: every path `is_setting` names stays out of the cell digest (I7)
-- ⬜ Every cell digest of M1's golden import and M2a's parity fixtures is unchanged
+- ✅ The blocked tests (mid-p, CMH with its exact fallback, stratified permutation with BCa) run on blocks taken from the other declared factors, and each equals a second engine's table; McNemar and fixed-sequence are dropped (A9)
+- ✅ The HTN golden experiment (3 models × 4 skill versions × 20 runs, htn-creator-eval 0.4.2) is written as one Candler experiment file that plans 12 cells; `analyze` compares each version pair blocked by model and each model pair blocked by version; an import of the golden runs declares the same factors (A10)
+- ✅ The blocks, the execution order and each test's validity sources are decided and recorded in `__design__/architecture.md` §Analysis statistics; Holm is the only multiplicity method
+- ✅ `analyze` reports `instrument_error` per arm, with the arm's counts of the other invalid causes unchanged
+- ✅ An experiment declaring two treatment levels plans one cell per level; cells whose `treatment:` sources or treatment trees differ get their own env lock and image, and cells with equal inputs share one
+- ✅ `analyze` runs the blocked tests between treatment arms like any other declared factor; an experiment without treatment arms keeps its comparisons under A9's tests and Holm families, and a two-level one-factor binary experiment gives today's output except the mid-p p-value (A10)
+- ✅ A treatment factor never moves a setting into a cell: every path `is_setting` names stays out of the cell digest (I7)
+- ✅ Every cell digest of M1's golden import and M2a's parity fixtures is unchanged
 **References**: [R01 §Analysis statistics, §Contracts & Invariants (I5)](../../../../../../../../../__design__/architecture.md) — today's defaults (rate, Wilson, Fisher with Newcombe, Holm) and the grading rule; [R04 Golden reference](../../../../../../../README.md) — listed in the campaign README; the runs the gates test on
 
 ## Step 1: Plan the milestone
