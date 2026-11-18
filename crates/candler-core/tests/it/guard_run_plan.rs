@@ -11,8 +11,9 @@ use std::path::PathBuf;
 
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::lock::JobLock;
-use candler_core::runner::plan::{Force, PlanError, PlanMode, plan_runs};
-use candler_schemas::primitives::JobId;
+use candler_core::runner::order::{run_order, seed_of};
+use candler_core::runner::plan::{CellId, Force, PlanError, PlanMode, plan_runs};
+use candler_schemas::primitives::{Digest, JobId};
 use serde_json::{Value, json};
 use support::run_plan::{
     Facts, Run, attempts_on_disk, digest_text, experiment, fresh_store, manifest, plan_ctx,
@@ -750,4 +751,125 @@ fn b28_forced_deviations_are_recorded_on_every_new_attempt() {
             change.name
         );
     }
+}
+
+/// The cell of the single-model experiment over `model`: the digest of a cell does not depend on
+/// the other cells of an experiment.
+fn single_cell(model: &str) -> CellId {
+    let facts = Facts::base();
+    let (_dir, store, lock) = fresh_store();
+    let ctx = plan_ctx(&store, &lock, &facts);
+    let out = plan_runs(
+        &ctx,
+        &experiment(&[model], 1),
+        &resolution(&facts),
+        Force::No,
+        PlanMode::Check,
+    )
+    .map_err(|e| e.to_string())
+    .expect("a plan");
+    out.plans.first().expect("one run").cell.clone() // BORROW: the cell outlives the outcome
+}
+
+/// The `(model index, replicate)` of each planned run of `models`, in plan order, and the digest
+/// the plan seeds its order from.
+fn planned_order(models: &[&str], replicates: u32) -> (Vec<(usize, u32)>, Digest) {
+    let cells: Vec<CellId> = models.iter().map(|model| single_cell(model)).collect();
+    let facts = Facts::base();
+    let (_dir, store, lock) = fresh_store();
+    let ctx = plan_ctx(&store, &lock, &facts);
+    let out = plan_runs(
+        &ctx,
+        &experiment(models, replicates),
+        &resolution(&facts),
+        Force::No,
+        PlanMode::Check,
+    )
+    .map_err(|e| e.to_string())
+    .expect("a plan");
+    let order = out
+        .plans
+        .iter()
+        .map(|plan| {
+            let index = cells
+                .iter()
+                .position(|cell| *cell == plan.cell)
+                .expect("a planned run of a declared cell");
+            (index, plan.key.replicate())
+        })
+        .collect();
+    (order, out.experiment.clone()) // BORROW: the digest outlives the outcome
+}
+
+/// Guards: B3 — every replicate round holds each cell exactly once, and rounds come in replicate
+/// order, for several seeds and design sizes.
+/// Oracle: the arithmetic of the design: a round of `cells` runs is a permutation of `0..cells`
+/// and round `r` carries replicate `r`.
+/// Bite: shuffle across rounds instead of within each round.
+#[test]
+fn b3_each_round_holds_each_cell_once() {
+    for seed in [0, 1, 0x9E37_79B9_7F4A_7C15, u64::MAX] {
+        for (cells, replicates) in [(1_usize, 1_u32), (2, 3), (6, 4), (13, 5)] {
+            let order = run_order(cells, replicates, seed);
+            let total = cells * usize::try_from(replicates).expect("a small count");
+            assert_eq!(order.len(), total, "seed {seed}, {cells} cells");
+            for (round, replicate) in order.chunks(cells).zip(1..=replicates) {
+                let mut seen: Vec<usize> = round.iter().map(|(cell, _)| *cell).collect();
+                seen.sort_unstable();
+                assert_eq!(
+                    seen,
+                    (0..cells).collect::<Vec<_>>(),
+                    "seed {seed}, {cells} cells, replicate {replicate}: each cell once"
+                );
+                assert!(
+                    round.iter().all(|(_, r)| *r == replicate),
+                    "seed {seed}, {cells} cells: the round of replicate {replicate} holds only it"
+                );
+            }
+        }
+    }
+}
+
+/// Guards: B3 — one seed gives one order, however often it is asked.
+/// Oracle: equality of two calls with the same arguments.
+/// Bite: draw the shuffle from a clock or a counter.
+#[test]
+fn b3_same_seed_same_order() {
+    for seed in [0, 7, u64::MAX] {
+        assert_eq!(run_order(8, 3, seed), run_order(8, 3, seed), "seed {seed}");
+    }
+}
+
+/// Guards: B3 — two seeds give two orders for a design of at least 6 cells.
+/// Oracle: inequality of the orders of seeds 1 and 2 on 8 cells and 3 replicates, which is chance
+/// 1 in 40 320 per round if the seed were ignored.
+/// Bite: ignore the seed.
+#[test]
+fn b3_other_seed_other_order() {
+    assert_ne!(run_order(8, 3, 1), run_order(8, 3, 2));
+    assert_ne!(run_order(6, 1, 1), run_order(6, 1, 3));
+}
+
+/// Guards: B3 — `plan_runs` orders from the experiment's digest: the same file planned twice plans
+/// one order, a file whose cells digest differently plans another, and the seed is the first 8
+/// bytes of the digest, little-endian.
+/// Oracle: two plans of one file; two files of 8 cells and 2 replicates that differ in the model
+/// ids only (one chance in 40 320 per round of agreeing if the digest were ignored); the literal
+/// bytes `01..08` of a digest read as the number `0x0807060504030201`.
+/// Bite: seed the order with a constant.
+#[test]
+fn b3_plan_runs_uses_the_experiment_seed() {
+    let first = ["m1", "m2", "m3", "m4", "m5", "m6", "m7", "m8"];
+    let second = ["n1", "n2", "n3", "n4", "n5", "n6", "n7", "n8"];
+    let (order, digest) = planned_order(&first, 2);
+    let (again, again_digest) = planned_order(&first, 2);
+    let (other, other_digest) = planned_order(&second, 2);
+    assert_eq!(digest, again_digest);
+    assert_ne!(digest, other_digest);
+    assert_eq!(order, again, "the same file plans one order");
+    assert_ne!(order, other, "another digest plans another order");
+
+    let literal = Digest::from_hex(&format!("0102030405060708{}", "0".repeat(48)))
+        .expect("a digest of 64 hex digits");
+    assert_eq!(seed_of(&literal), 0x0807_0605_0403_0201);
 }
