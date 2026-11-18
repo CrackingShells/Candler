@@ -65,9 +65,9 @@ Sonnet spec-verifier, 27 calls, VERIFY_DEVIATION with no test-gaming and no wron
 - F3 one-factor output differs beyond the p-value (sign, weighted entries, Holm family): by ruling 1 and 3, listed above; stale doc fixed.
 - F4 `level_of` prefix-object branch: intentional (a table-level factor, verdict row C08, would read `null`); the treatment branch keeps `unwrap_or(Null)` for a serialisation failure that cannot occur.
 - F5 no `analyze_c6_*.json` vector: none needed, the rows use `midp.toml`, `newcombe.toml`, `cmh.toml` rows; the numstat gate holds vacuously. Deviation from the leaf's Deliverables.
-- F6 tautological `assert_ne!` removed; weighted and short-arm row added. Not added: a weighted row in a 2×2 store, a bare-spelling `t5_` refusal row.
+- F6 tautological `assert_ne!` removed; weighted and short-arm row added. Added afterwards: the weighted 2×2 row and a CMH reading row. Not added: a bare-spelling `t5_` refusal row (no input can produce that spelling).
 - Noted, not changed: runs in blocks without both arms leave `Tested.a/b`; a run lacking a factor reads level `null`; a `StatsError` other than `NoRuns` from a test aborts the call; CSV `number()` would print `inf`/`NaN` if `or_mh` were non-finite.
-Re-check: see the final message.
+Re-check of `e9f25ef0` by the same verifier: F1 CLOSED (`factors_between` maps `request.treatment` to the typed root; the treatment row asserts `pairs_not_one_factor == 2`), F2 CLOSED (Permutation reads "effect" only for `low < high` with the interval excluding 0), F6 tautology closed, F3 and F4 accepted, F5 recorded as a deviation. Residual, informational and not fixed: a flat bootstrap (for example 50 identical runs per arm, 0.1 against 0.9) reads "inconclusive" even with a tiny permutation p. The two gaps it left open are closed by rows: the CMH/ExactStrata reading by `c6_cmh_reading_follows_the_odds_ratio_interval`, and a weighted expectation in a multi-block store (keyed blocks, per-run units) by `c6_weighted_two_by_two_gives_keyed_permutation_blocks`. Those rows add coverage only and were not re-checked.
 
 ## Findings
 1. Verdict fix (ruling 2) done at the source with the schema constants; no alias in `report.rs`.
@@ -75,5 +75,9 @@ Re-check: see the final message.
 3. Signs are B minus A everywhere; CMH and exact-conditional comparisons give `diff*` as `None` (null), reading from the MH odds-ratio interval against 1.
 4. `a` and `b` of a comparison are the first cell of each level in key order; levels ordered by first appearance, so a one-factor store keeps today's A and B. A comparison needs a block with cells at both levels.
 
+5. **Behaviour change in `blocking.rs::level_of`:** a factor with no value at its exact path but values below it (a table-level factor, verdict row C08) now reads an object `{path: value}` where it read `null`. No row guards it; it is untested.
+6. **Deviation from Deliverables:** the leaf names `crates/candler-core/tests/oracle/vectors/analyze_c6_*.json`; none was added. The rows take their expected values from `midp.toml`, `newcombe.toml`, `cmh.toml` and hand arithmetic, so the vectors numstat gate holds vacuously.
+7. Residual from the verifier: a flat bootstrap reads "inconclusive" however small the permutation p.
+
 ## Left
-Nothing for the leaf itself. Open for the coordinator: the verifier re-check result (final message), the L3 route in Finding 2, and the two unadded rows of F6.
+Nothing for the leaf itself. Open for the coordinator: the L3 route in Finding 2.

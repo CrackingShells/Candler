@@ -1736,3 +1736,145 @@ fn c6_weighted_degenerate_and_short_arms() {
         }
     }
 }
+
+/// Guards: C6 — a weighted expectation in a treatment by model store gives two comparisons, each
+/// tested by the stratified permutation test over two blocks whose keys name the other factor
+/// (the treatment by its typed reference), and each block's sums are the per-run units of its
+/// cells: they reach the test, not a pooled count.
+/// Oracle: the weights written by the test (four cells of three runs of weight `num/4`), summed by
+/// hand, and the rates' difference B minus A from those sums.
+/// Bite: drop the units (blocks of pooled counts) or the keys of a weighted block, and this turns
+/// red.
+#[test]
+fn c6_weighted_two_by_two_gives_keyed_permutation_blocks() {
+    let refs = [
+        json!({"name": "t", "tag": "v1", "commit": "a".repeat(40)}),
+        json!({"name": "t", "tag": "v2", "commit": "b".repeat(40)}),
+    ];
+    let table: [(usize, &str, [u32; 3]); 4] = [
+        (0, "alpha", [1, 1, 2]),
+        (1, "alpha", [3, 3, 4]),
+        (0, "beta", [0, 1, 1]),
+        (1, "beta", [2, 2, 3]),
+    ];
+    let mut views = Vec::new();
+    let mut records = Vec::new();
+    for (treatment, model, nums) in &table {
+        for (at, num) in nums.iter().enumerate() {
+            let mut spec = Spec::new(model, u32::try_from(at + 1).expect("small"));
+            spec.treatment = refs[*treatment].clone();
+            spec.factors = vec!["request.treatment", "plan.model"];
+            let run = view(&spec);
+            let status = if *num == 4 { "pass" } else { "fail" };
+            records.push(record(
+                &run,
+                records.len() + 1,
+                "E3",
+                "quality",
+                status,
+                Some((*num, 4)),
+                None,
+            ));
+            views.push(run);
+        }
+    }
+    let report = report(&select(records), views);
+    assert_eq!(report.comparisons.len(), 2);
+    let sum = |treatment: usize, model: &str| -> (u64, u64) {
+        table
+            .iter()
+            .filter(|(t, m, _)| *t == treatment && *m == model)
+            .flat_map(|(_, _, nums)| nums.iter())
+            .fold((0, 0), |held, num| (held.0 + u64::from(*num), held.1 + 4))
+    };
+    let rate = |c: (u64, u64)| {
+        f64::from(u32::try_from(c.0).expect("small"))
+            / f64::from(u32::try_from(c.1).expect("small"))
+    };
+    for comparison in &report.comparisons {
+        let tested = tested_of(comparison);
+        assert_eq!(tested.battery, Some(Battery::Permutation));
+        assert_eq!(tested.blocks, 2);
+        let (level_a, level_b) = comparison.levels.clone().expect("the levels");
+        let by_treatment = comparison.factor.to_string() == "request.treatment";
+        for effect in &tested.per_block {
+            let [(path, level)] = effect.key.as_slice() else {
+                panic!("a keyed block: {:?}", effect.key);
+            };
+            let other = if by_treatment {
+                "plan.model"
+            } else {
+                "request.treatment"
+            };
+            assert_eq!(path.to_string(), other);
+            let side = |compared: &Value| -> (u64, u64) {
+                let at = |value: &Value| refs.iter().position(|r| r == value).expect("a reference");
+                if by_treatment {
+                    sum(at(compared), level.as_str().expect("a model"))
+                } else {
+                    sum(at(level), compared.as_str().expect("a model"))
+                }
+            };
+            assert_eq!(effect.a, side(&level_a));
+            assert_eq!(effect.b, side(&level_b));
+            close("diff", effect.diff, rate(effect.b) - rate(effect.a));
+        }
+    }
+}
+
+/// Guards: C6 — a CMH comparison over two blocks reads "effect" when the Mantel–Haenszel odds
+/// ratio's interval excludes 1 and "inconclusive" when it spans 1, and gives no interval of the
+/// difference (`None`): "random K=2 #0" has the interval (1.47, 3.90), "odds ratio exactly one"
+/// has (0.29, 3.45).
+/// Oracle: the `or_lo` and `or_hi` of the `cmh.toml` rows (statsmodels `StratifiedTable`).
+/// Bite: read the reading from the p-value, or from the interval against 0, and one row turns red.
+#[test]
+fn c6_cmh_reading_follows_the_odds_ratio_interval() {
+    #[derive(Deserialize)]
+    struct Interval {
+        label: String,
+        or_lo: Option<f64>,
+        or_hi: Option<f64>,
+    }
+    for label in [
+        "random K=2 #0",
+        "odds ratio exactly one: every block independent",
+    ] {
+        let row = vector::<CmhRow>("cmh.toml")
+            .into_iter()
+            .find(|r| r.label == label)
+            .expect("the row");
+        let bounds = vector::<Interval>("cmh.toml")
+            .into_iter()
+            .find(|r| r.label == label)
+            .expect("the interval");
+        assert_eq!(row.mf_holds, Some(true), "{label}");
+        let mut cells = Vec::new();
+        for (at, other) in ["x", "y"].into_iter().enumerate() {
+            for (model, passes, count) in [
+                ("alpha", row.pa[at], row.na[at]),
+                ("beta", row.pb[at], row.nb[at]),
+            ] {
+                let mut spec = Spec::new(model, 1);
+                spec.extra = vec![("plan.other", json!(other))];
+                spec.factors = vec!["plan.model", "plan.other"];
+                cells.push((spec, passes, count));
+            }
+        }
+        let (selection, runs) = store_of(&cells);
+        let report = report(&selection, runs);
+        let tested = tested_of(comparison_of(&report, "plan.model"));
+        assert_eq!(tested.battery, Some(Battery::Cmh), "{label}");
+        assert_eq!(tested.diff, None, "{label}");
+        let (lo, hi) = (
+            bounds.or_lo.expect("a limit"),
+            bounds.or_hi.expect("a limit"),
+        );
+        let want = if lo > 1.0 || hi < 1.0 {
+            "effect"
+        } else {
+            "inconclusive"
+        };
+        assert_eq!(tested.reading.as_str(), want, "{label}");
+    }
+}
