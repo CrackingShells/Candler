@@ -24,3 +24,9 @@ Tally: held 6, fixed 1 (Mantel-Fleiss title and pages), contradicting 0, not che
 ## Commits
 
 See `git log afd32f0b..HEAD`.
+
+## Docs changed
+
+- `docs/statistics.md`: the section "Fisher's exact test" is now "Mid-p exact test (one block)" (what it answers, why mid-p when one margin is fixed, where it stops, what it does not claim). New sections "Cochran-Mantel-Haenszel test (several blocks)" and "Permutation test and BCa interval (weighted expectations)". The Holm text says the family is one role in one comparison. Sources gain Lydersen et al., the CMH papers, Phipson & Smyth and Efron.
+- `__design__/architecture.md`: the old §Analysis statistics paragraph that named Fisher's test is replaced by the new `## Analysis statistics` (Step 1); it was moved out of Data Model so that the G3 range (`## Analysis statistics` to the next `## `) holds it.
+- `crates/*/CHANGELOG.md` keep their generated history line "add Wilson, Newcombe, Fisher and Holm methods" (the history line the gate allows).
