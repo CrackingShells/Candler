@@ -13,6 +13,7 @@ use candler_schemas::outcome::Role;
 use candler_schemas::primitives::{Digest, ExpectationId, FieldPath, NameVersion, RunKey};
 use serde_json::Value;
 
+use super::blocking::{Battery, BlockEffect};
 use super::error::StatsError;
 use super::fisher::fisher_two_sided;
 use super::holm::{holm, rejected};
@@ -326,6 +327,14 @@ pub struct Tested {
     pub diff_lo: f64,
     /// The upper limit of Newcombe's interval of the difference.
     pub diff_hi: f64,
+    /// The test that produced `p`; none for a p of the one-factor Fisher test.
+    pub battery: Option<Battery>,
+    /// The number of blocks the test ran over.
+    pub blocks: usize,
+    /// Whether the exact conditional test replaced a CMH test whose criterion failed.
+    pub fallback: bool,
+    /// The effect of the second arm over the first in each block.
+    pub per_block: Vec<BlockEffect>,
 }
 
 /// Why an expectation of a pair is not tested.
@@ -398,6 +407,8 @@ pub struct Comparison {
     pub b: CellKey,
     /// The declared factor the arms differ in.
     pub factor: FieldPath,
+    /// The levels of [`Self::factor`] the arms are at, when the comparison states them.
+    pub levels: Option<(Value, Value)>,
     /// What the verdict said.
     pub verdict: PairVerdict,
     /// The expectations graded in both arms; empty unless the pair is comparable.
@@ -625,6 +636,10 @@ fn entries_of(a: &ArmReport, b: &ArmReport) -> Result<Vec<Entry>, StatsError> {
                     diff: difference.diff(),
                     diff_lo: difference.lo(),
                     diff_hi: difference.hi(),
+                    battery: None,
+                    blocks: 1,
+                    fallback: false,
+                    per_block: Vec::new(),
                 })
             }
             (Err(reason), _) | (Ok(_), Err(reason)) => Entry::Omitted {
@@ -749,6 +764,7 @@ pub fn compare_pairs(runs: &[RunView], arms: &[ArmReport]) -> Result<Pairs, Stat
                     a: (*cell_a).clone(),        // BORROW: the comparison owns the cells
                     b: (*cell_b).clone(),
                     factor: (*factor).clone(), // BORROW: the comparison owns the factor
+                    levels: None,
                     verdict,
                     entries,
                 });

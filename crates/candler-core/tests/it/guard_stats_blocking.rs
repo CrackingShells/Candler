@@ -89,7 +89,11 @@ fn store(cells: &[Cell]) -> (Vec<RunView>, Vec<(RunKey, u64, u64)>) {
     let mut units = Vec::new();
     for (model, treatment, outcomes) in cells {
         for (at, (num, den)) in outcomes.iter().enumerate() {
-            let manifest = manifest(model, treatment, u32::try_from(at).expect("a small index"));
+            let manifest = manifest(
+                model,
+                treatment,
+                u32::try_from(at + 1).expect("a small index"),
+            );
             units.push((manifest.run().clone(), *num, *den));
             views.push(RunView {
                 facts: RunFacts::new(manifest.run().clone(), manifest.integrity().clone()),
@@ -137,10 +141,7 @@ fn blocks_exclude_the_compared_factor() {
     );
     assert_eq!(
         by_treatment,
-        vec![
-            stratum("m1", (2, 2), (1, 2)),
-            stratum("m2", (0, 2), (2, 2)),
-        ]
+        vec![stratum("m1", (2, 2), (1, 2)), stratum("m2", (0, 2), (2, 2)),]
     );
     let by_model = blocks_of(
         &views,
@@ -183,7 +184,11 @@ fn one_block_uses_midp() {
     assert_eq!(tested.blocks, 1);
     assert!(!tested.fallback);
     let expected = midp_two_sided(&blocks[0]).expect("a mid-p");
-    assert!((tested.p - expected).abs() < 1e-12, "{} vs {expected}", tested.p);
+    assert!(
+        (tested.p - expected).abs() < 1e-12,
+        "{} vs {expected}",
+        tested.p
+    );
     assert!((tested.diff.expect("a difference") + 0.5).abs() < 1e-12);
     assert_eq!(tested.per_block.len(), 1);
 }
@@ -226,7 +231,7 @@ fn cmh_falls_back_to_exact_when_mantel_fleiss_fails() {
     assert!((tested.p - expected).abs() < 1e-12);
 }
 
-/// Guards: a weighted expectation gets the stratified permutation test and BCa interval, with the
+/// Guards: a weighted expectation gets the stratified permutation test and `BCa` interval, with the
 /// per-run units as exact fractions.
 /// Oracle: the unit blocks and the difference (2/8 − 7/8) by hand; p and interval from the
 /// resampling engines.
@@ -253,7 +258,7 @@ fn weighted_uses_permutation_and_bca() {
         },
         UnitBlock {
             a: vec![(2.0, 2.0), (2.0, 2.0)],
-            b: vec![(1.0, 2.0), (0.0, 2.0)],
+            b: vec![(0.0, 2.0), (1.0, 2.0)],
         },
     ];
     assert_eq!(blocks, expected_blocks);
