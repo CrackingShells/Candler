@@ -1,0 +1,25 @@
+# The HTN golden experiment's design: 3 models x 4 htn-creator versions x 20 runs.
+schema = "experiment/1"
+replicates = 20
+
+[[factors]]
+path = "model.id"
+levels = ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-sonnet-5"]
+
+[[factors]]
+path = "request.treatment"
+levels = [
+  { name = "htn-creator", tag = "0.4.0", source = "skills" },
+  { name = "htn-creator", tag = "0.4.1", source = "skills" },
+  { name = "htn-creator", tag = "0.4.2", source = "skills" },
+  { name = "htn-creator", tag = "0.4.3", source = "skills" },
+]
+
+[budget.per_run]
+wall_s = 3600
+
+[harness]
+name = "claude-code"
+
+[treatment]
+name = "htn-creator"
