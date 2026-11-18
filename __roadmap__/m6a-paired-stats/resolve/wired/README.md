@@ -18,8 +18,8 @@ A two-treatment job runs each cell with its own treatment, and `analyze` reports
 ## Status
 ```mermaid
 graph TD
-    level_wiring[Level wiring]:::planned
-    analyze_output[Analyze output]:::planned
+    level_wiring[Level wiring]:::done
+    analyze_output[Analyze output]:::done
     proven[Proven]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -31,8 +31,8 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `level_wiring.md` | 📄 Leaf Task | ⬜ Planned |
-| `analyze_output.md` | 📄 Leaf Task | ⬜ Planned |
+| `level_wiring.md` | 📄 Leaf Task | ✅ Done |
+| `analyze_output.md` | 📄 Leaf Task | ✅ Done |
 | `proven/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
@@ -42,3 +42,5 @@ graph TD
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| `level_wiring.md` | m6a/level_wiring | 10 | merged 637ef2d3. Probe: the treatment commit IS in the cell digest (R01 holds; the L1 handover was wrong). Equal levels refused naming both (t3_equal_levels_are_refused, existing PlanError::Cell/Document code). Table-level syntax on request.treatment (A7); two levels plan and run through the binary (t3_cli_*). T4 rows green on base (bite unreachable). record_packages per level unguarded (PackageReading non_exhaustive). Verifier closed, 3 rounds |
+| `analyze_output.md` | m6a/analyze_output | 9 | merged 57cffaa2. a1_ and a2_ guards changed under A6, listed in the report and merge body; t5_ fixtures respelled request.treatment. Treatment keyed by its typed reference. PERMUTATION_SEED fixed. No analyze_c6_ vector files (rows use midp/newcombe/cmh). level_of reads an object under a prefix factor, unguarded. Verifier closed. L2 close at 57cffaa2: STD, DIGEST, GOLDEN, SUBJ and the level gate pass |

@@ -21,7 +21,7 @@ A two-treatment plan resolves each level once and gives each cell its own level'
 graph TD
     level_resolve[Level resolve]:::done
     blocking[Blocking]:::done
-    wired[Wired]:::planned
+    wired[Wired]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -34,7 +34,7 @@ graph TD
 |:-----|:-----|:-------|
 | `level_resolve.md` | 📄 Leaf Task | ✅ Done |
 | `blocking.md` | 📄 Leaf Task | ✅ Done |
-| `wired/` | 📁 Directory | ⬜ Planned |
+| `wired/` | 📁 Directory | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

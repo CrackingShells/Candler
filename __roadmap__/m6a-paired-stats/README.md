@@ -33,7 +33,7 @@ The analysis chain (cmh, blocking, analyze_output, proven) is the critical path;
 - ⬜ [cmd] G4 E1: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_stats::t3_/) | test(/^guard_analysis_report::e1_/)'`
 - ⬜ [cmd] G5 treatment plan and wiring: two levels plan one cell per level, each mounting its own sources, with one image per distinct lock: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_run_plan::t3_/) | test(/^guard_image::t4_/) | test(/^guard_job_orchestrate::t3_/)'`
 - ⬜ [cmd] G6 I7: every other setting factor is still refused: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_settings_out_of_cell::/)' && cargo nextest run -p candler --no-tests=fail -E 'test(/^guard_cli_refusal::r[23]_/)'`
-- ⬜ [cmd] G7 one factor: a one-factor store gives today's output except the mid-p p-value: `cargo nextest run -p candler --no-tests=fail -E 'test(/^guard_analyze::a1_/)'`
+- ⬜ [cmd] G7 one factor (A6): a two-level one-factor store with binary expectations only gives today's output except the mid-p p-value: `cargo nextest run -p candler --no-tests=fail -E 'test(/^guard_analyze::c6_one_factor_/)'`
 - ⬜ [cmd] G8 known truth: under H0 the false-positive rate's Monte Carlo interval contains α, and the Simpson case holds nominal blocked and not pooled: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_known_truth::/)'`
 - ⬜ [cmd] G9 digests: DIGEST and GOLDEN pass
 - ⬜ [cmd] G10 hygiene: STD, LINUX and SUBJ pass; no schemas commit: `test -z "$(git log --no-merges --format=%s $BASE..HEAD -- crates/candler-schemas)"`; confirms are culled: `! git grep -n 'fn confirm_' -- ':(glob)crates/**'`
@@ -112,6 +112,8 @@ graph TD
 | A3 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/treatment_setting_v0.md | [] | Scope plan is not in cog.toml: treatment_setting and level_resolve subjects use runner; treatment_verdict subjects cut to 72 characters |
 | A4 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/arm_counts_v0.md | [] | Merge pre-conditions test the landed leaf report instead of a merge title, since L0 merge titles name the change |
 | A5 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/level_resolve_v0.md | [] | Supervisor ruling: plan_runs has no image step (ensure runs per resolution in resolve/steps/image.rs), so T4 and its t4_ rows move from level_resolve to level_wiring, which owns guard_image.rs; plan_runs takes impl Into<Levels<'a>>, so no existing caller changes, and a level without a resolution fails the plan naming it |
+| A6 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/analyze_output_v0.md | [] | Supervisor rulings: G7 is reworded to a two-level one-factor store with binary expectations only, since C7 and the weighted battery change any other store; analyze_output may change a1_ and a2_ guards whose cause is C6, C7, mid-p, the weighted battery or the B − A sign; the treatment verdict keys on request.treatment only (t5_ fixtures respelled); every difference is B − A, None where no pooled interval |
+| A7 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/level_wiring_v0.md | [] | Supervisor rulings: a table level on request.treatment is that level's whole treatment, with only the fields name, tag, commit and source (newly admitted); two levels with equal resolved treatments are refused at plan time naming both (newly refused, existing code); the probe shows the treatment commit enters the cell digest, as R01 says |
 
 ## Progress
 | Node | Branch | Commits | Notes |
