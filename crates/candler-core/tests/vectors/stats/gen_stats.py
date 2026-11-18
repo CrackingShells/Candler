@@ -319,6 +319,21 @@ FILES = {
 }
 
 
+# --- exact_tests ---
+
+FILES |= {}
+
+
+# --- cmh ---
+
+FILES |= {}
+
+
+# --- resampling ---
+
+FILES |= {}
+
+
 def differs(a, b) -> bool:
     if isinstance(a, bool) or isinstance(b, bool):
         return a != b
