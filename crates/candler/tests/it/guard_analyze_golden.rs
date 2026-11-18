@@ -298,3 +298,53 @@ fn a4_status_totals_equal_the_oracle_counts() {
         );
     }
 }
+
+/// Guards: A8 — the imported golden runs declare the factors of the native experiment, the model
+/// and the treatment, and no spelling of the skill version, so `analyze` compares each version
+/// pair blocked by model and each model pair blocked by version. Shape only, no p-value: the
+/// factors the comparisons are made on are exactly `plan.model` and `request.treatment`; the 4
+/// versions give 6 version comparisons, each in 3 blocks (the models); the 3 models give 3 model
+/// comparisons, each in 4 blocks (the versions); every stratum reads as comparable.
+/// The expectations a comparison does not test carry no block count and are left out.
+/// Oracle: the corpus layout, counted by hand: 3 models (`claude-sonnet-5`, `claude-haiku-4-5` and
+/// the third of `tests/oracle/rates_by_cell.toml`) times 4 versions of `htn-creator` is 12 cells;
+/// pairs are 4 choose 2 = 6 and 3 choose 2 = 3.
+/// Bite: declare the three skill version spellings as the importer did before (the factor set
+/// gains them and the block counts change).
+#[test]
+#[ignore = "needs CANDLER_GOLDEN_CORPUS and about a minute"]
+fn declared_golden_factors() {
+    let (_dir, report) = analysed();
+    let comparisons = report["comparisons"].as_array().expect("comparisons");
+    let factors: BTreeSet<&str> = comparisons
+        .iter()
+        .map(|comparison| comparison["factor"].as_str().expect("factor"))
+        .collect();
+    assert_eq!(factors, BTreeSet::from(["plan.model", "request.treatment"]));
+    for (factor, comparisons_of, blocks) in
+        [("request.treatment", 6_usize, 3_u64), ("plan.model", 3, 4)]
+    {
+        let of: Vec<&Value> = comparisons
+            .iter()
+            .filter(|comparison| comparison["factor"] == factor)
+            .collect();
+        assert_eq!(of.len(), comparisons_of, "comparisons on {factor}");
+        for comparison in of {
+            assert_eq!(
+                comparison["stratum"]["verdict"], "comparable",
+                "the stratum of a comparison on {factor}"
+            );
+            let blocked: Vec<u64> = comparison["entries"]
+                .as_array()
+                .expect("entries")
+                .iter()
+                .filter_map(|entry| entry["blocks"].as_u64())
+                .collect();
+            assert!(!blocked.is_empty(), "tested entries on {factor}");
+            assert!(
+                blocked.iter().all(|got| *got == blocks),
+                "blocks on {factor}: {blocked:?}"
+            );
+        }
+    }
+}

@@ -29,8 +29,8 @@ use flate2::Compression;
 use flate2::read::MultiGzDecoder;
 use flate2::write::GzEncoder;
 use legacy_import::{
-    SYNTHETIC, assert_same_store, cell_of, copy_tree, field, import_with_reader, mini, project,
-    reader, snapshot, text_of,
+    SYNTHETIC, V3, V6, assert_same_store, cell_of, copy_tree, field, import_with_reader, mini,
+    project, reader, snapshot, text_of,
 };
 use oracle::{ExpectedRow, expected_rows};
 use serde_json::Value;
@@ -843,4 +843,62 @@ fn entry_params_are_required_by_the_builder() {
         .entry_params(Vec::new())
         .build()
         .expect("an explicit empty list builds");
+}
+
+/// The distinct factor lists the manifests of an import of `corpus` carry, as plain strings.
+fn imported_factor_lists(corpus: &Path) -> BTreeSet<Vec<String>> {
+    let store_dir = tempfile::tempdir().expect("a temporary directory");
+    let store = Store::init(store_dir.path()).expect("the store initialises");
+    import_with_reader(corpus, &store).expect("the corpus imports");
+    store
+        .runs()
+        .expect("the runs list")
+        .iter()
+        .map(|entry| {
+            store
+                .read_manifest(&entry.key)
+                .expect("the manifest reads")
+                .factors()
+                .iter()
+                .map(ToString::to_string)
+                .collect()
+        })
+        .collect()
+}
+
+/// Guards: A8 — an imported experiment declares the same factors as its native rerun: two skill
+/// versions by two models declare the model and the treatment, and no skill-version spelling. Every
+/// run of the store carries the one list.
+/// Oracle: the four `experiment.json` files of the corpus (the mini-corpus' two real cells and
+/// their clones under another model) diffed by hand with `jq`: the leaves that differ are
+/// `plan.model` and the three skill version spellings. The spellings map one to one onto the two
+/// treatments `htn-creator@v0.2.3` and `htn-creator@0.2.6` (two cells each, one level each);
+/// `plan.model` does not (two treatments, four pairs), so it stays. The treatments differ, so
+/// `request.treatment` is declared.
+/// Bite: declare the varying value paths as before (the three spellings come back).
+#[test]
+fn it_two_versions_declare_treatment() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    legacy_import::versions_by_models(dir.path(), &[V3, V6]);
+    let lists = imported_factor_lists(dir.path());
+    let want: BTreeSet<Vec<String>> = BTreeSet::from([vec![
+        "plan.model".to_owned(),
+        "request.treatment".to_owned(),
+    ]]);
+    assert_eq!(lists, want);
+}
+
+/// Guards: A8 — a one-version import declares what it declares without the treatment rule: the one
+/// version by two models declares the model alone, and never `request.treatment`.
+/// Oracle: the two `experiment.json` files (the real v0.2.3 cell and its clone under another
+/// model) diffed by hand with `jq`: only `plan.model` differs, and both cells hold the one
+/// treatment `htn-creator@v0.2.3`, so no treatment is declared.
+/// Bite: declare `request.treatment` whatever the treatments.
+#[test]
+fn it_one_version_unchanged() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    legacy_import::versions_by_models(dir.path(), &[V3]);
+    let lists = imported_factor_lists(dir.path());
+    let want: BTreeSet<Vec<String>> = BTreeSet::from([vec!["plan.model".to_owned()]]);
+    assert_eq!(lists, want);
 }

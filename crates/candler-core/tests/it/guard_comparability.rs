@@ -367,20 +367,21 @@ fn nuisance_set_is_the_hand_written_one() {
     );
 }
 
-/// The factor the runs of the mini-corpus' two real cells differ in: the version of the skill, with
-/// the value paths and typed roots that carry it.
-const SKILL_FACTORS: [&str; 5] = [
-    "inputs",
-    "plan.skill_version",
-    "provenance.skill_version",
-    "resolved_skill_version",
-    "treatment",
-];
+/// The factor the runs of the mini-corpus' two real cells differ in: the treatment, the one factor
+/// the importer declares for the version of the skill.
+const SKILL_FACTORS: [&str; 1] = ["request.treatment"];
 
 /// Imports the mini-corpus into a fresh store under rules whose file digested to `rules` and
 /// reads three runs of it as the arms of one stratum: runs 6 and 17 of the v0.2.3 cell and run
 /// 12 of the v0.2.6 cell. Every run is asserted sealed first.
 fn mini_arms(rules: &str) -> Vec<Result<ArmView, VerdictError>> {
+    arms_of(rules, &[6, 17, 12], false)
+}
+
+/// Imports the mini-corpus as `mini_arms` does and reads the runs of `replicates` as arms. With
+/// `live` the arms are read from the manifests with the `import` record removed, so they read as
+/// live runs whose comparable records are the imported ones.
+fn arms_of(rules: &str, replicates: &[u32], live: bool) -> Vec<Result<ArmView, VerdictError>> {
     let dir = tempfile::tempdir().expect("a temporary directory");
     let store = Store::init(dir.path()).expect("the store initialises");
     let digest =
@@ -402,8 +403,9 @@ fn mini_arms(rules: &str) -> Vec<Result<ArmView, VerdictError>> {
         entries.iter().all(|entry| entry.done),
         "every imported run is sealed: {entries:?}"
     );
-    [6, 17, 12]
-        .into_iter()
+    replicates
+        .iter()
+        .copied()
         .map(|replicate| {
             let key = entries
                 .iter()
@@ -411,7 +413,14 @@ fn mini_arms(rules: &str) -> Vec<Result<ArmView, VerdictError>> {
                 .unwrap_or_else(|| panic!("no run {replicate} in the store"))
                 .key
                 .clone(); // BORROW: .clone() gives the lookup its own key
-            let manifest = store.read_manifest(&key).expect("the manifest reads");
+            let mut manifest = store.read_manifest(&key).expect("the manifest reads");
+            if live {
+                let mut doc = serde_json::to_value(&manifest).expect("a manifest serializes");
+                doc.as_object_mut()
+                    .expect("a manifest is an object")
+                    .remove("import");
+                manifest = serde_json::from_value(doc).expect("a live manifest reads");
+            }
             ArmView::from_manifest(&manifest)
         })
         .collect()
@@ -435,7 +444,8 @@ fn skill_factors() -> Vec<FieldPath> {
 /// `0e84a75`, `dirty: true` and sandbox contract `v5`. The skill snapshot and the treatment are
 /// the typed fields that version travels in.
 /// Bite: read the measured provenance only (the importer records none there), so the stratum is
-/// refused for its unrecorded commit.
+/// refused for its unrecorded commit; stop dropping a value path that maps one to one onto the
+/// treatment (`plan.skill_version` and its two spellings come back refused).
 #[test]
 fn imported_stratum_of_the_mini_corpus_is_comparable() {
     let arms = mini_arms("1");
@@ -468,4 +478,64 @@ fn imported_stratum_with_other_rules_is_refused() {
     let got = stratum_verdict(arms.as_slice(), skill_factors().as_slice());
     let want = FieldPath::from_str("import.rules").expect("a path");
     assert_eq!(got, Verdict::Refused(vec![want]));
+}
+
+/// Guards: the stratum verdict for a value path that tracks the treatment — only a stratum whose
+/// arms are all imported drops it. The same three runs of the mini-corpus read as live arms, with
+/// `request.treatment` declared, keep refusing `plan.skill_version`, `provenance.skill_version`
+/// and `resolved_skill_version`, the paths where the v0.2.3 and v0.2.6 cells differ, though each
+/// maps one to one onto the treatment; the three provenance paths a live stratum needs measured
+/// are refused as well, since the import records them as values. Oracle: the two
+/// `experiment.json` files diffed with `jq -S` (the three paths above, `plan.out_dir` filed under
+/// `import`) and the live rule `declared_covers` of D8, which names `request.treatment` as
+/// covering the typed `treatment` root only; the sorted list is written by hand.
+/// Bite: drop the all-imported condition (apply the treatment rule to live arms too), and the
+/// three skill paths vanish from the refusal.
+#[test]
+fn live_stratum_tracking_the_treatment_is_refused() {
+    let arms = arms_of("1", &[6, 17, 12], true);
+    assert!(
+        arms.iter()
+            .all(|arm| arm.as_ref().is_ok_and(|view| !view.is_imported())),
+        "every arm reads as live: {arms:?}"
+    );
+    // BORROW: explicit conversion makes the owned or borrowed form the next line needs
+    let got = stratum_verdict(arms.as_slice(), skill_factors().as_slice());
+    let want: Vec<FieldPath> = [
+        "plan.skill_version",
+        "provenance.eval_infra.commit",
+        "provenance.eval_infra.dirty",
+        "provenance.sandbox_contract",
+        "provenance.skill_version",
+        "resolved_skill_version",
+    ]
+    .iter()
+    .map(|path| FieldPath::from_str(path).expect("a path"))
+    .collect();
+    assert_eq!(got, Verdict::Refused(want));
+}
+
+/// Guards: an imported stratum drops a value path only when its levels map one to one onto the
+/// treatments over every arm. Runs 6 (v0.2.3), 12 (v0.2.6) and 1 (the synthetic cell, a third
+/// treatment) with `request.treatment` declared: the three skill spellings map one to one and are
+/// dropped; `plan.model` (two cells share a model, three treatments) and `plan.runs` (20, 20 and 3)
+/// do not, and are refused by name. Oracle: the three `experiment.json` files read with `jq`:
+/// model `claude-haiku-4-5`, `claude-haiku-4-5`, `claude-synthetic-1`; runs 20, 20, 3; three
+/// distinct `skill_version` strings.
+/// Bite: drop a path that does not map one to one (skip the level count in `maps_one_to_one`).
+#[test]
+fn imported_stratum_with_a_path_that_does_not_map_one_to_one_is_refused() {
+    let arms = arms_of("1", &[6, 12, 1], false);
+    assert!(
+        arms.iter()
+            .all(|arm| arm.as_ref().is_ok_and(ArmView::is_imported)),
+        "every arm reads as imported: {arms:?}"
+    );
+    // BORROW: explicit conversion makes the owned or borrowed form the next line needs
+    let got = stratum_verdict(arms.as_slice(), skill_factors().as_slice());
+    let want: Vec<FieldPath> = ["plan.model", "plan.runs"]
+        .iter()
+        .map(|path| FieldPath::from_str(path).expect("a path"))
+        .collect();
+    assert_eq!(got, Verdict::Refused(want));
 }
