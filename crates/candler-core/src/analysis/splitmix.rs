@@ -1,6 +1,6 @@
 //! `SplitMix64`, the seeded generator of every resampled statistic and of the run order.
 
-use core::num::NonZeroU64;
+use core::num::{NonZeroU64, NonZeroUsize};
 
 /// The `SplitMix64` generator (Steele, Lea & Flood 2014), one 64-bit word of state.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,6 +37,25 @@ impl SplitMix64 {
             if x >= threshold {
                 return x % n;
             }
+        }
+    }
+
+    /// A draw uniform on `0..n`, as an index.
+    pub fn index_below(&mut self, n: NonZeroUsize) -> usize {
+        let bound =
+            NonZeroU64::new(u64::try_from(n.get()).unwrap_or(u64::MAX)).unwrap_or(NonZeroU64::MIN);
+        usize::try_from(self.below(bound)).unwrap_or(0)
+    }
+
+    /// Shuffles `items` in place by Fisher-Yates: for `i` from the last position down to 1, swap
+    /// position `i` with a position drawn uniform on `0..=i`.
+    pub fn shuffle_within(&mut self, items: &mut [usize]) {
+        for i in (1..items.len()).rev() {
+            let Some(bound) = NonZeroUsize::new(i.saturating_add(1)) else {
+                continue;
+            };
+            let j = self.index_below(bound);
+            items.swap(i, j);
         }
     }
 }
