@@ -17,7 +17,9 @@
 1. Sections: question and estimand; design facts (unit, no pairing, fixed margin, blocks); comparisons rule; the battery table; readings ("effect", "inconclusive", never "no difference"); Holm per comparison and role; known truth and the golden check.
 2. Citations, from the L0 probes: Lydersen, Fagerland & Laake 2009 (doi:10.1002/sim.3531); Mantel & Haenszel 1959; Mantel & Fleiss 1980; Robins, Breslow & Greenland 1986; Breslow & Day 1980; Phipson & Smyth 2010; Efron 1987.
 3. N3's residuals; Future rows: paired designs with McNemar, a declared margin read with TOST, `lock_split`.
-**Deliverables**: `__design__/architecture.md`: §Analysis statistics
+4. (A8) §Experiment file documents the table form of a treatment level (A7: `{name, tag?, commit?, source?}`, validated by treatment_identity@1; other leaves refused naming the path; `source` resolved per level against the file's directory and never in the digest; two levels with equal resolved treatments refused at plan time). §Analysis statistics also states: every difference is B − A; the treatment is a declared factor like any other, each factor compared with the others as blocks (version pairs blocked by model, model pairs blocked by version); the importer declares `request.treatment` when imported treatments differ and drops value paths that map one to one onto it.
+5. (A8) Before G3, re-read the citations the `exact_tests`, `cmh` and `resampling` reports wrote offline against their sources (reading public pages is allowed for this step only; no download); fix in architecture.md any that does not hold, list each check in the report, and stop and report a source that contradicts the battery.
+**Deliverables**: `__design__/architecture.md`: §Analysis statistics, §Experiment file (treatment table form); `__reports__/m6a-paired-stats/leaves/design_record_v0.md`: section "Citations checked"
 **Consistency Checks**: the G3 loop above (expected: PASS)
 **Commit**: `docs(design): record the analysis statistics and their sources`
 
