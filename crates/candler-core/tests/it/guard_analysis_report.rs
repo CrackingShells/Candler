@@ -1542,7 +1542,6 @@ fn c6_reading_effect_or_inconclusive() {
             "inconclusive"
         };
         assert_eq!(tested.reading.as_str(), want, "{a:?} against {b:?}");
-        assert_ne!(tested.reading.as_str(), "no difference");
     }
     assert_eq!(
         {
@@ -1647,6 +1646,7 @@ fn c6_a_treatment_level_is_its_typed_reference() {
         let (selection, runs) = store_of(&cells);
         let report = report(&selection, runs);
         assert_eq!(report.comparisons.len(), 2, "{name}");
+        assert_eq!(report.pairs_not_one_factor, 2, "{name}");
         let treatment = comparison_of(&report, name);
         let (a, b) = treatment.levels.clone().expect("the levels");
         assert_eq!(
@@ -1696,4 +1696,43 @@ fn c6_a_treatment_store_with_new_locks_and_image_is_comparable() {
     let comparison = only_comparison(&report);
     assert_eq!(comparison.verdict, PairVerdict::Comparable);
     assert_eq!(tested_of(comparison).blocks, 1);
+}
+
+/// Guards: C6 — a weighted expectation reaches the permutation test through the per-run units: a
+/// block whose arms hold identical runs (A at 1/4 twice, B at 3/4 twice) has a zero-width interval
+/// and reads "inconclusive", not "effect"; an arm of one run has no `BCa` interval and is left out
+/// as `too_few_runs`.
+/// Oracle: the weights written by the test; the interval of identical runs is the point itself.
+/// Bite: read a zero-width interval as excluding 0 and the first half turns red.
+#[test]
+fn c6_weighted_degenerate_and_short_arms() {
+    for (runs_a, want) in [(2_u32, "inconclusive"), (1, "too_few_runs")] {
+        let mut views = Vec::new();
+        let mut records = Vec::new();
+        for (model, count, num) in [("alpha", runs_a, 1_u32), ("beta", 2, 3)] {
+            for replicate in 1..=count {
+                let run = view(&Spec::new(model, replicate));
+                records.push(record(
+                    &run,
+                    records.len() + 1,
+                    "E3",
+                    "quality",
+                    "fail",
+                    Some((num, 4)),
+                    None,
+                ));
+                views.push(run);
+            }
+        }
+        let report = report(&select(records), views);
+        let entry = only_comparison(&report).entries.first().expect("an entry");
+        match entry {
+            Entry::Tested(tested) => {
+                assert_eq!(tested.battery, Some(Battery::Permutation));
+                assert_eq!(tested.reading.as_str(), want);
+            }
+            Entry::Omitted { reason, .. } => assert_eq!(reason.as_str(), want),
+            _ => panic!("an unexpected entry kind"),
+        }
+    }
 }

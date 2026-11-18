@@ -1188,7 +1188,7 @@ struct MidpRow {
 /// Guards: C6 — a one-factor store keeps today's output through the binary except the p-value of
 /// each plain-count entry, which is the mid-p: over the three models of the layout, every
 /// `mid_p` entry has its counts, `diff`, `diff_lo` and `diff_hi` of the Newcombe row (the first
-/// arm minus the second, as before), one block with an empty key, and the p of the `midp.toml`
+/// arm minus the second, the other way round from before: B minus A), one block with an empty key, and the p of the `midp.toml`
 /// row, which differs from Fisher's p for a table whose p is not 1; the weighted entry is the
 /// permutation test.
 /// Oracle: the `midp.toml` and `newcombe.toml` rows of the second engine and `fisher.toml` for the

@@ -13,6 +13,8 @@ use candler_schemas::outcome::Role;
 use candler_schemas::primitives::{Digest, ExpectationId, FieldPath, NameVersion, RunKey};
 use serde_json::Value;
 
+use candler_schemas::execution::paths::{REQUEST_TREATMENT, TREATMENT};
+
 use super::blocking::{
     Battery, BlockEffect, Blocked, Design, blocks_of, holm_families, level_of, test_blocked,
     unit_block_keys, unit_blocks_of,
@@ -605,7 +607,11 @@ fn factors_between<'a>(declared: &'a [FieldPath], a: &RunView, b: &RunView) -> V
     declared
         .iter()
         .filter(|factor| {
-            let prefix: Vec<&str> = factor.segments().collect();
+            let prefix: Vec<&str> = if factor.as_str() == REQUEST_TREATMENT {
+                vec![TREATMENT]
+            } else {
+                factor.segments().collect()
+            };
             paths.iter().any(|path| {
                 let own: Vec<&str> = path.segments().collect();
                 covers(prefix.as_slice(), own.as_slice())
@@ -714,9 +720,12 @@ fn effect_of(blocked: &Blocked, a: Counts, b: Counts) -> Result<Effect, StatsErr
         _ => (None, None, None),
     };
     let excludes = match blocked.battery {
-        Battery::MidP | Battery::Permutation => {
-            lo.is_some_and(|low| low > 0.0) || hi.is_some_and(|high| high < 0.0)
-        }
+        Battery::MidP => lo.is_some_and(|low| low > 0.0) || hi.is_some_and(|high| high < 0.0),
+        // A bootstrap of identical runs gives a zero-width interval, which is no evidence.
+        Battery::Permutation => match (lo, hi) {
+            (Some(low), Some(high)) => low < high && (low > 0.0 || high < 0.0),
+            _ => false,
+        },
         Battery::Cmh | Battery::ExactStrata => blocked
             .or_ci
             .is_some_and(|(low, high)| low > 1.0 || high < 1.0),
