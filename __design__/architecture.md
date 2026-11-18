@@ -265,6 +265,14 @@ field path is dotted: `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`.
   applied to the text, no trailing slash, no symlink followed), and never enters the digest: two
   checkouts of one commit give one cell. The retired `request` setting for the source is
   refused by `--set`, by name. Candler fetches nothing from a remote.
+- **Treatment as a factor.** `request.treatment` is the one setting a factor may name. Each level
+  is a table that is that level's whole treatment: `{name, tag?, commit?, source?}`, validated by
+  `treatment_identity@1`. Any other leaf is refused, naming its path. `source` resolves per level
+  against the experiment file's directory and never enters the digest. Each level must carry its own
+  `source`, since a level replaces the whole setting. Two levels whose resolved treatments are equal
+  are refused at plan time (`ExecutionError::Document` at `/factors`); levels that differ in commit
+  alone are two cells. Each distinct level is resolved once, in declared order, and a level that
+  fails fails the plan. Every difference between levels reads B − A (§Analysis statistics).
 - **Inputs.** `[[inputs]] {kind, path, at?, audience}` declares a file or a directory a run reads.
   `kind` is a name, unique in the file; `build_inputs` is reserved for the files an environment
   build reads. `path` is relative to the experiment file (I14). `at` is the workspace directory
@@ -1250,35 +1258,6 @@ the latest complete request wins. Differing outcomes under one key, other than a
 `instrument_error` or `deadline` replaced by a measured one, are reported as I4 violations. Roles
 and weights are read from the outcomes, never from today's suite.
 
-### Analysis statistics
-
-`analyze` reports Candler's default statistics. The unit of replication is the run, and an arm is a
-cell: the outcomes of one run share the agent's behaviour, so they are not independent.
-
-- **Rate.** Per role, Σnum/Σden as defined above, reported with its counts and with no interval,
-  because an interval over correlated outcomes is falsely narrow.
-- **Interval.** The Wilson 95 % interval, per (arm, expectation), on k passes over n graded runs. It
-  applies only where every weight is 0/1; otherwise it is omitted, with the reason `weighted`. Wilson
-  keeps its coverage at small n and at k = 0 or k = n, where the Wald interval fails. Its exact
-  coverage dips below 95 % at small n (0.9185 at n = 5, p = 0.1) and stays at or above 0.91 for the
-  sizes replicates give; the implementation equals a second engine's table.
-- **Comparison.** For every pair of cells in one comparable stratum that differ in exactly one
-  declared factor, per expectation: Fisher's exact test (two-sided; the p-value sums the tables no
-  more likely than the observed one, within a relative tolerance of 1e-7, as R's `fisher.test`
-  does) and the difference with its Newcombe interval, the hybrid score interval, consistent with
-  Wilson. Fisher's test needs no large-sample condition, so it is valid at the few runs a replicate
-  count gives.
-- **Multiplicity.** Holm's adjustment runs over every comparison and expectation of one role in one
-  analysis. It controls the family-wise error rate with no independence assumption.
-- **What a run counts for.** An invalid run is in neither k nor n; it is reported per arm with its
-  reason, and an end the experimenter caused is never charged to an arm. A pair the stratum verdict
-  refuses is reported as refused, with its cause and its rates.
-- **Constants.** α is 0.05, recorded with the source `core_default`; there is no option.
-
-These are Candler's defaults, not the analysis: every count is carried, so an author can analyse the
-same results another way. `docs/statistics.md` says what each method answers, where it stops being
-valid and what Candler does not claim.
-
 ### Wire schema: tool-catalog snapshot
 
 What the MCP servers a run targets actually offered, captured per run by a catalog provider. HTN's
@@ -1328,6 +1307,158 @@ Outcome record · catalog snapshot · raw frames · normalised trace (header, se
 · workspace tree (`run-tree/1`) · child record · evaluator messages (`describe` result, `evaluate`
 params, notifications, and the request side: method names, `{reported}` and `-32800`) · plug-in manifest · suite file · run manifest · job record, event envelope
 and event payloads · experiment file. All are generated from `candler-schemas`.
+
+## Analysis statistics
+
+`analyze` reports Candler's default statistics. The unit of replication is the run, and an arm is a
+cell: the outcomes of one run share the agent's behaviour, so they are not independent. The
+experiment file fixes which test applies before any data are seen. `docs/statistics.md` says what
+each method answers, where it stops being valid and what Candler does not claim.
+
+### Question and estimand
+
+For each comparison and each gate or quality expectation: does B change the pass rate compared with
+A? The question is two-sided, since a regression matters as much as a gain. The estimand is the
+difference in pass rate within blocks, and every difference reads **B − A**. H0 is no difference in
+any block; H1 is a difference. Candler sets no smallest effect of interest: every effect is reported
+with its interval.
+
+### Design facts
+
+1. **The unit is one run.** Runs are isolated containers and their order is randomised, so
+   independence is argued from the design, not from the data.
+2. **Runs are not paired.** Replicate r of A and replicate r of B share nothing: the sampling is
+   unseeded and every replicate gets the same task. A paired test (McNemar) therefore does not
+   apply; a Future features row covers designs that do pair runs.
+3. **One margin is fixed by design.** The replicates per arm are fixed. Fisher's exact test
+   conditions on both margins, so it is conservative here; the exact test uses its mid-p instead
+   (Lydersen, Fagerland and Laake 2009, doi:10.1002/sim.3531: Fisher's test with the mid-p
+   adjustment performs about as well as an unconditional test, and the traditional test should
+   practically never be used).
+4. **Blocks** are the level combinations of the declared factors other than the compared one.
+
+### Comparisons
+
+There is one comparison per (declared factor, pair of its levels), with the remaining declared
+factors as blocks. Each block's own risk difference is shown, and not tested. A comparison needs a
+block with cells at both levels; `Comparison.a` and `.b` are the first cell of each level.
+
+- The treatment is a declared factor like any other (`request.treatment`, §Experiment file), and the
+  model is another. A store that declares both gives one comparison per pair of skill versions,
+  blocked by model, and one per pair of models, blocked by version. The HTN golden design, 3 models
+  by 4 versions, gives 6 version comparisons over 3 blocks and 3 model comparisons over 4 blocks.
+- A store that declares one factor gives one comparison in one block: today's output, with the
+  mid-p p-value and the B − A sign.
+- An experiment that declares no treatment factor keeps its comparisons under the same battery and
+  the same Holm families.
+
+### Rates and intervals
+
+- **Rate.** Per role, Σnum/Σden as defined in §Wire schema: outcome record, reported with its counts
+  and no interval, because an interval over correlated outcomes is falsely narrow.
+- **Interval.** The Wilson 95 % interval, per (arm, expectation), on k passes over n graded runs. It
+  applies only where every weight is 0/1; otherwise it is omitted, with the reason `weighted`. Its
+  exact coverage dips below 95 % at small n (0.9185 at n = 5, p = 0.1) and stays at or above 0.91
+  for the sizes replicates give; the implementation equals a second engine's table.
+- **Difference.** The Newcombe hybrid score interval for the difference of two proportions,
+  consistent with Wilson, for a single block.
+
+### The battery
+
+| Case | Test | Effect and interval | Validity evidence | Named fallback |
+|:--|:--|:--|:--|:--|
+| Binary, 1 block | Fisher **mid-p**, two-sided | Risk difference, Newcombe interval | Independence, by design | none (exact) |
+| Binary, 2 or more blocks | **CMH** χ² without continuity correction, 1 df | MH odds ratio (B over A) with the RBG interval; each block's risk difference | Mantel–Fleiss criterion, computed per comparison; homogeneity (Breslow–Day) is shown, never a gate | Exact conditional test: the convolution of the blocks' hypergeometrics, as a mid-p |
+| Weighted (num/den) | Stratified **permutation** test of the difference in Σnum/Σden, B = 10 000, p = (b + 1)/(B + 1) | Stratified **BCa** interval | Exchangeability under H0, by design; labels permuted within blocks | none |
+
+- **mid-p.** With f the null pmf of A's passes given the margins, p is Σ f(x) over x with f(x) <
+  f(obs), plus half of Σ f(x) over x with f(x) = f(obs). "Equal" means within a relative 1e-7 of
+  f(obs), the tolerance R's `fisher.test` uses.
+- **CMH.** (Σ(a_k − E a_k))² / Σ Var a_k (Mantel and Haenszel 1959) with the hypergeometric mean
+  and variance per block; the odds ratio is the Mantel–Haenszel pooled estimator, with the variance
+  of its logarithm from Robins, Breslow and Greenland (1986), consistent in both the sparse-data
+  and the large-strata limits. A block with a zero margin is dropped from every quantity.
+- **Validity.** The χ² approximation is adequate when min(Σ E − Σ L, Σ U − Σ E) ≥ 5, where L_k and
+  U_k bound the first cell of block k given its margins (Mantel and Fleiss 1980). When the criterion
+  fails, or CMH yields no p, the exact conditional test runs instead. The homogeneity test (Breslow
+  and Day 1980) is reported as information.
+- **Permutation.** The statistic is Σ w_k (r_Bk − r_Ak), w_k = n_k/N, two-sided; the observed
+  labelling counts as one of the B + 1 so p is never 0 (Phipson and Smyth 2010). The seed is a
+  fixed constant, so a re-run gives the same p; a new seed moves every permutation p-value.
+- **BCa.** The bias-corrected and accelerated interval of Efron (1987), with the jackknife
+  acceleration; an arm with fewer than two runs gets no interval, with the reason `too_few_runs`.
+- **Second engines** run offline: scipy `hypergeom`, statsmodels `StratifiedTable`, a Python
+  SplitMix64 twin of the shuffle, and scipy `permutation_test` and `bootstrap(method="BCa")`
+  within 3 Monte Carlo SE. The generator asserts the agreement, so `--check` stays deterministic.
+  The multi-block BCa has only the twin as a check.
+
+### Readings
+
+- "effect": the interval excludes 0 (for CMH and the exact conditional test, the odds-ratio interval
+  excludes 1, and the risk-difference fields are empty).
+- "inconclusive": the interval spans 0, or has no width (a flat bootstrap).
+- "no difference" is never stated; a declared margin read with TOST is a Future features row.
+
+### Multiplicity and what a run counts for
+
+- **Holm** runs over one comparison's gate expectations, and separately over its quality
+  expectations: one family per comparison and role. A descriptive entry is never rejected.
+- **What a run counts for.** An invalid run is in neither k nor n; it is reported per arm with its
+  reason, and an end the experimenter caused is never charged to an arm. A pair the stratum verdict
+  refuses is reported as refused, with its cause and its rates.
+- **Constants.** α is 0.05, recorded with the source `core_default`; there is no option.
+- **I5.** Only gate and quality outcomes are tested, and no model call is made.
+
+### The treatment as a factor, and the importer
+
+The factor path is `request.treatment`. Its levels are tables (§Experiment file), each resolved
+once at plan time, and each cell runs with its own level. The stratum verdict explains a difference
+in env lock, image or build inputs only when `request.treatment` is declared and the levels differ.
+An import declares `request.treatment` when the imported cells' typed treatments differ, and drops
+a value path whose levels map one to one onto the treatment's levels, so an imported store and its
+native rerun declare the same factors. Values stay in the cell untouched.
+
+### Known truth
+
+Simulated experiments go through the real `analyze`: under H0 the false-positive rate's Monte Carlo
+interval contains α; the power at a 0.2 difference is reported; a Simpson H0 case shows the blocked
+test holding its nominal rate where the pooled test does not. The HTN golden design is one Candler
+experiment file that plans 12 cells, and its version and model pairs are analysed as above.
+
+### Residuals
+
+The plug-in environment holds the domain dependencies, shared across arms, and the experiment
+appends `treatment:<path>` sources read at each arm's pinned commit (N3). What stays open:
+
+- The env lock differs between arms by the declared factor. Equal lock bytes give one image.
+- The treatment commit is in the cell digest, so two levels that differ only in commit are two
+  cells; two levels with equal resolved treatments are refused at plan time.
+- Job-wide settings (model endpoint, token secret, harness choice) are read from the primary level.
+- The per-level `provenance.packages` reading is not guarded by a test.
+- `--set request.treatment=X` replaces every level, so all levels resolve to X and the plan is
+  refused.
+- `lock_split` reads the plug-in's requirements from the fragment and the experiment's from the
+  resolved value (Future features).
+
+### Sources
+
+- Lydersen S, Fagerland MW, Laake P (2009). Recommended tests for association in 2×2 tables.
+  Statistics in Medicine 28(7):1159–1175. doi:10.1002/sim.3531.
+- Mantel N, Haenszel W (1959). Statistical aspects of the analysis of data from retrospective
+  studies of disease. J Natl Cancer Inst 22(4):719–748.
+- Mantel N, Fleiss JL (1980). Minimum expected cell size requirements for the Mantel-Haenszel
+  one-degree-of-freedom chi-square test and a related rapid procedure. Am J Epidemiol
+  112(1):129–134. doi:10.1093/oxfordjournals.aje.a112962.
+- Robins J, Breslow N, Greenland S (1986). Estimators of the Mantel-Haenszel variance consistent in
+  both sparse data and large-strata limiting models. Biometrics 42(2):311–323.
+- Breslow NE, Day NE (1980). Statistical Methods in Cancer Research, vol. I, The Analysis of
+  Case-Control Studies. IARC Scientific Publications 32.
+- Phipson B, Smyth GK (2010). Permutation P-values should never be zero: calculating exact P-values
+  when permutations are randomly drawn. Stat Appl Genet Mol Biol 9(1): article 39.
+  doi:10.2202/1544-6115.1585.
+- Efron B (1987). Better bootstrap confidence intervals. J Am Stat Assoc 82(397):171–185.
+  doi:10.1080/01621459.1987.10478410.
+- Agresti A, Categorical Data Analysis (Wiley): exact conditional inference for 2×2×K tables.
 
 ## Key Flows
 
@@ -1665,6 +1796,9 @@ turns a plan into a spawn request, then collects and destroys.
 | One `Comparable` diff (B10) | One diff for the stratum verdict | Fewer copies | A change to the shape of recorded deviations |
 | fsync budget and streaming import (B6, B8) | A bounded fsync cost and an import that streams | Crash guards cost time, and a large import peaks in memory | A measured cost or memory peak that hurts |
 | Static tool catalog, `as_bytes`, schemas for CLI outputs, refusal codes, shared outcome vectors (C5, C9, C10–C12) | Small consistency work | Fewer drifting copies | The next change that touches one of them |
+| `lock_split` | `lock_split` reads the plug-in's requirements from the fragment and the experiment's from the resolved value | The two sources can disagree | A plug-in whose fragment and resolved requirements differ |
+| Paired designs | McNemar for designs that pair runs | Runs are unpaired today (§Analysis statistics) | A design that pairs replicates |
+| Declared margin | A margin declared in the experiment, read with TOST | "No difference" is never stated today | An experimenter who needs equivalence |
 | Remaining digest copies | Jobs and isolation still hand-roll digests (`controls.rs`, `runtime/session.rs`, `runtime/launch.rs`, `image.rs`); with `Digest::of_bytes` in use, `import::digest_of` and its re-export go too | One digest constructor | The next change to one of them |
 | Dead public API | `supervise::platform::parse_proc_stat` has no user outside its module | Less surface | The next change to the module |
 
