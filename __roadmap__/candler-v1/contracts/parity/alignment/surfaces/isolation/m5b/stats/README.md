@@ -15,7 +15,7 @@ Depth 7. Paired statistics (M6a), split from the old M6, one level below M5b and
 ## Status
 ```mermaid
 graph TD
-    m6a_paired_stats[M6a Paired statistics]:::inprogress
+    m6a_paired_stats[M6a Paired statistics]:::done
     mcp[MCP server]:::amendment
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -27,7 +27,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `m6a_paired_stats.md` | 📄 Leaf Task | 🔄 In Progress |
+| `m6a_paired_stats.md` | 📄 Leaf Task | ✅ Done |
 | `mcp/` | 📁 Directory | 🔵 Amendment |
 
 ## Amendment Log
