@@ -42,6 +42,10 @@ use super::error::StatsError;
 /// The Mantel–Fleiss quantity at which the χ² approximation is taken as adequate.
 const MANTEL_FLEISS_MINIMUM: f64 = 5.0;
 
+/// The slack on that comparison: a quantity that is exactly 5 in rational arithmetic can come out a
+/// few ulps below it when the blocks are summed as floats.
+const MANTEL_FLEISS_TIE: f64 = 1e-9;
+
 /// The largest count a float holds exactly.
 const EXACT_LIMIT: u64 = 1 << 53;
 
@@ -158,8 +162,10 @@ fn breslow_day(blocks: &[Block], odds: f64) -> f64 {
         let q_a = 1.0 - odds;
         let q_b = odds * (row + col) + diff;
         let q_c = -odds * row * col;
-        let expected = if q_a.abs() < f64::EPSILON {
-            -q_c / q_b
+        // The two roots have the product `q_c / q_a`; `q_b` is positive whenever the odds ratio is
+        // near 1, and the second form keeps its accuracy there (and at `q_a = 0`).
+        let expected = if q_b > 0.0 {
+            2.0 * q_c / (-q_b - (q_b * q_b - 4.0 * q_a * q_c).sqrt())
         } else {
             (-q_b + (q_b * q_b - 4.0 * q_a * q_c).sqrt()) / (2.0 * q_a)
         };
@@ -249,6 +255,6 @@ pub fn cmh(strata: &[Stratum], level: f64) -> Result<CmhResult, StatsError> {
 
     let quantity = mantel_fleiss(&blocks);
     result.mantel_fleiss = quantity;
-    result.mantel_fleiss_holds = quantity >= MANTEL_FLEISS_MINIMUM;
+    result.mantel_fleiss_holds = quantity >= MANTEL_FLEISS_MINIMUM - MANTEL_FLEISS_TIE;
     Ok(result)
 }

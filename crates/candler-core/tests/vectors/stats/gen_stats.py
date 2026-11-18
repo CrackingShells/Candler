@@ -581,14 +581,14 @@ def mantel_fleiss(blocks) -> tuple[float, bool]:
     return float(value), value >= MANTEL_FLEISS_MINIMUM
 
 
-def cmh_row(label, pa, na, pb, nb) -> dict:
+def cmh_row(label, pa, na, pb, nb, alpha=ALPHA) -> dict:
     """Candler's convention: blocks with a zero margin are dropped; statsmodels is the oracle on
     the rest, and wherever it also returns a finite value on every block of at least two runs,
     that value is asserted equal."""
     blocks = cmh_blocks(pa, na, pb, nb)
     informative = [blk for blk in blocks if cmh_informative(blk)]
     wide = [blk for blk in blocks if sum(blk) >= 2]
-    row = {"label": label, "pa": pa, "na": na, "pb": pb, "nb": nb, "informative": len(informative)}
+    row = {"label": label, "pa": pa, "na": na, "pb": pb, "nb": nb, "level": 1 - alpha, "informative": len(informative)}
     row["mf"], row["mf_holds"] = mantel_fleiss(informative)
     with np.errstate(all="ignore"):
         if wide:
@@ -613,11 +613,16 @@ def cmh_row(label, pa, na, pb, nb) -> dict:
                 if r_sum == 0:
                     assert odds == 0.0, (label, odds)
             if r_sum > 0 and s_sum > 0:
-                lo, hi = table.oddsratio_pooled_confint(alpha=ALPHA)
+                lo, hi = table.oddsratio_pooled_confint(alpha=alpha)
                 row["or_lo"], row["or_hi"] = float(lo), float(hi)
                 assert 0 < row["or_lo"] < odds < row["or_hi"], label
-                if len(informative) >= 2:
-                    assert abs(odds - 1) > 1e-9, (label, "statsmodels divides by 1 - OR")
+                if len(informative) >= 2 and abs(odds - 1) <= 1e-9:
+                    # statsmodels divides by 1 - OR. With every block independent the expected
+                    # count of each block is its observed one, so the statistic is 0.
+                    assert all(a * sum(blk) == (a + b) * (a + c) for blk in informative
+                               for a, b, c, _ in [blk]), label
+                    row["hom_stat"], row["hom_p"] = 0.0, float(scipy.stats.chi2.sf(0.0, len(informative) - 1))
+                elif len(informative) >= 2:
                     equal = table.test_equal_odds(adjust=False)
                     # statsmodels writes the p-value as 1 - cdf, which loses the tail; the
                     # survival function of the same statistic is exact.
@@ -640,6 +645,8 @@ def make_cmh() -> dict:
         ("no runs at all", [0], [0], [0], [0]),
         ("sum R zero: arm B never passes", [5, 6], [10, 10], [0, 0], [10, 10]),
         ("sum S zero: arm A never passes", [0, 0], [10, 10], [5, 6], [10, 10]),
+        ("Mantel-Fleiss exactly five over four blocks", [3, 1, 4, 1], [3, 2, 6, 5], [4, 4, 3, 3], [6, 8, 3, 5]),
+        ("odds ratio exactly one: every block independent", [5, 5], [10, 10], [5, 5], [10, 10]),
         ("homogeneity rejected: opposite effects", [2, 18], [20, 20], [18, 3], [20, 20]),
     ]
     rng = random.Random(SEED)
@@ -653,6 +660,13 @@ def make_cmh() -> dict:
             pa = [round(n * p) for n, p in zip(na, base)]
             pb = [round(n * min(0.97, max(0.03, p + shift))) for n, p in zip(nb, base)]
             rows.append(cmh_row(f"random K={k} #{repeat}", pa, na, pb, nb))
+    for source in ("random K=3 #0", "random K=5 #1"):
+        base_row = next(row for row in rows if row["label"] == source)
+        for alpha in (0.10, 0.01):
+            rows.append(cmh_row(f"{source} at alpha {alpha}", base_row["pa"], base_row["na"],
+                                base_row["pb"], base_row["nb"], alpha))
+    multi = next(row for row in rows if row["label"].startswith("Mantel-Fleiss exactly five over"))
+    assert multi["mf"] == MANTEL_FLEISS_MINIMUM and multi["mf_holds"], multi
     assert any(row["mf"] < MANTEL_FLEISS_MINIMUM for row in rows), "no row fails the criterion"
     assert any(row["mf"] == MANTEL_FLEISS_MINIMUM for row in rows), "no row on the threshold"
     assert any(3 <= row["mf"] < MANTEL_FLEISS_MINIMUM for row in rows), "no row between 3 and 5"

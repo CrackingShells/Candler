@@ -10,7 +10,6 @@ use candler_core::analysis::cmh::{CmhResult, cmh};
 use candler_core::analysis::error::StatsError;
 use serde::Deserialize;
 
-const LEVEL: f64 = 0.95;
 const RELATIVE: f64 = 1e-12;
 /// The p-value of a χ² survival function carries an absolute error of about 1e-16 in `statrs`
 /// (it is computed as `1 - cdf`), so a tail value is compared with this floor as well.
@@ -28,6 +27,7 @@ struct Row {
     na: Vec<u64>,
     pb: Vec<u64>,
     nb: Vec<u64>,
+    level: f64,
     informative: usize,
     mf: f64,
     mf_holds: bool,
@@ -58,7 +58,7 @@ fn strata(row: &Row) -> Vec<Stratum> {
 }
 
 fn run(row: &Row) -> CmhResult {
-    cmh(&strata(row), LEVEL).unwrap_or_else(|e| panic!("{}: {e}", row.label))
+    cmh(&strata(row), row.level).unwrap_or_else(|e| panic!("{}: {e}", row.label))
 }
 
 fn close(label: &str, what: &str, got: Option<f64>, want: f64) {
@@ -89,10 +89,10 @@ fn cmh_statistic_matches_statsmodels() {
     assert!(seen >= 20, "only {seen} rows carry a statistic");
 }
 
-/// Guards: the Mantel–Haenszel odds ratio of B over A and the Robins–Breslow–Greenland 95 %
-/// interval, on every row where the odds ratio is finite and positive; an odds ratio of 0
+/// Guards: the Mantel–Haenszel odds ratio of B over A and the Robins–Breslow–Greenland
+/// interval at the row's level (0.95, and 0.90 and 0.99 on two rows each), on every row where the odds ratio is finite and positive; an odds ratio of 0
 /// (arm B never passes) has no interval.
-/// Oracle: statsmodels `oddsratio_pooled` and `oddsratio_pooled_confint(alpha=0.05)`.
+/// Oracle: statsmodels `oddsratio_pooled` and `oddsratio_pooled_confint(alpha)`.
 #[test]
 fn mh_odds_ratio_and_rbg_interval_match_statsmodels() {
     let mut intervals = 0;
@@ -139,7 +139,8 @@ fn mantel_fleiss_matches_hand_count() {
 }
 
 /// Guards: the Breslow–Day homogeneity p-value at the Mantel–Haenszel odds ratio (no Tarone
-/// adjustment), over the informative blocks only, with `K − 1` degrees of freedom; it is `None`
+/// adjustment; at an odds ratio of exactly 1, where statsmodels divides by zero, every block's
+/// expected count is its observed one), over the informative blocks only, with `K − 1` degrees of freedom; it is `None`
 /// below two informative blocks.
 /// Oracle: statsmodels `test_equal_odds(adjust=False)` statistic, with scipy's `chi2.sf`
 /// (statsmodels writes `1 - cdf`).
@@ -218,7 +219,7 @@ fn degenerate_blocks_follow_the_convention() {
         b: (1, 5),
     };
     assert_eq!(
-        cmh(&[over], LEVEL),
+        cmh(&[over], 0.95),
         Err(StatsError::CountAboveRuns { k: 6, n: 5 })
     );
     let fine = Stratum {
@@ -227,5 +228,5 @@ fn degenerate_blocks_follow_the_convention() {
         b: (3, 5),
     };
     assert!(cmh(&[fine], 1.0).is_err(), "a level of 1 has no interval");
-    assert_eq!(cmh(&[], LEVEL).map(|r| r.statistic), Ok(None));
+    assert_eq!(cmh(&[], 0.95).map(|r| r.statistic), Ok(None));
 }
