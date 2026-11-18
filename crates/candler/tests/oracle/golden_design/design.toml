@@ -1,0 +1,107 @@
+# The golden design's store: 3 models x 4 htn-creator versions x 20 runs. Both the Rust test and
+# second_engine.py read this file. In every cell the first `k` replicates pass the expectation, and
+# the first `w` replicates of the weighted expectation weigh 5/5 where the others weigh 2/5.
+#
+# Planted: version 1 -> version 2 raises gate g1 from 5/20 to 17/20 in model 1 and from 6/20 to
+# 16/20 in model 2 and leaves model 3 at 10/20 (a real effect in 2 of 3 models); versions 3 and 4
+# hold identical counts in every model and expectation (the null pair).
+
+replicates = 20
+weight_den = 5
+weight_full = 5
+weight_low = 2
+models = ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-sonnet-5"]
+treatment_name = "htn-creator"
+tags = ["0.4.0", "0.4.1", "0.4.2", "0.4.3"]
+commits = [
+  "1111111111111111111111111111111111111111",
+  "2222222222222222222222222222222222222222",
+  "3333333333333333333333333333333333333333",
+  "4444444444444444444444444444444444444444",
+]
+
+# model index, version index, g1, g2, q1, w
+[[cell]]
+m = 0
+v = 0
+g1 = 5
+g2 = 12
+q1 = 8
+w = 6
+[[cell]]
+m = 1
+v = 0
+g1 = 6
+g2 = 10
+q1 = 9
+w = 7
+[[cell]]
+m = 2
+v = 0
+g1 = 10
+g2 = 11
+q1 = 10
+w = 10
+[[cell]]
+m = 0
+v = 1
+g1 = 17
+g2 = 13
+q1 = 8
+w = 12
+[[cell]]
+m = 1
+v = 1
+g1 = 16
+g2 = 9
+q1 = 10
+w = 14
+[[cell]]
+m = 2
+v = 1
+g1 = 10
+g2 = 12
+q1 = 11
+w = 10
+[[cell]]
+m = 0
+v = 2
+g1 = 9
+g2 = 8
+q1 = 12
+w = 9
+[[cell]]
+m = 1
+v = 2
+g1 = 11
+g2 = 14
+q1 = 7
+w = 8
+[[cell]]
+m = 2
+v = 2
+g1 = 13
+g2 = 9
+q1 = 10
+w = 12
+[[cell]]
+m = 0
+v = 3
+g1 = 9
+g2 = 8
+q1 = 12
+w = 9
+[[cell]]
+m = 1
+v = 3
+g1 = 11
+g2 = 14
+q1 = 7
+w = 8
+[[cell]]
+m = 2
+v = 3
+g1 = 13
+g2 = 9
+q1 = 10
+w = 12
