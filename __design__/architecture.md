@@ -1341,7 +1341,7 @@ with its interval.
 
 There is one comparison per (declared factor, pair of its levels), with the remaining declared
 factors as blocks. Each block's own risk difference is shown, and not tested. A comparison needs a
-block with cells at both levels; `Comparison.a` and `.b` are the first cell of each level.
+block with cells at both levels; `Comparison.a` and `.b` are the first cell of each level. A and B are the two levels in their recorded key order, not the declared order; `Comparison.levels` holds the two levels, A first.
 
 - The treatment is a declared factor like any other (`request.treatment`, §Experiment file), and the
   model is another. A store that declares both gives one comparison per pair of skill versions,
