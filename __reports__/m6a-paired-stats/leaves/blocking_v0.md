@@ -56,8 +56,21 @@ Each file was restored from a copy and the six rows pass again.
 
 ## Verifier
 
-(pending)
+Sonnet spec-verifier, 10 calls, then a re-check. First verdict VERIFY_DEVIATION, three findings, all fixed in
+`fix(analysis): reject only tested entries and key weighted blocks`, re-check closed (no cargo run by the
+verifier; the implementer ran the 27 targeted tests):
+
+- F1 `holm_families` rejected a descriptive entry on its raw p. Fixed by `holm_rejects`; row `descriptive_is_never_rejected`.
+- F2 weighted `per_block` had no keys. Fixed by `unit_block_keys` and `Blocked::keyed`; asserted in the weighted row.
+  Wiring obligation for L2: `analyze_output` must chain `.keyed(&keys)` after `test_blocked` for a weighted design.
+- F3 an empty weighted design reached the engines. `weighted` now returns `NoRuns`; asserted with `is_err()`.
+
+Accepted as notes (no behaviour change): F4 a missing factor level reads as `null` and such runs share a block;
+F5 the block row uses two factors, so a miss in a third is not caught and block order is lexical on the JSON
+text of the key; F6 a block dropped for an empty arm can move a design from CMH to mid-p (reads counts, not
+outcomes); the fallback also fires when CMH gives no p, no row; `holm_families` with real `Tested` values has no
+row (the type cannot be built outside the crate).
 
 ## Commits and gates
 
-(see the final message)
+See the final message.
