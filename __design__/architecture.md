@@ -1388,6 +1388,9 @@ block with cells at both levels; `Comparison.a` and `.b` are the first cell of e
 - **Permutation.** The statistic is Σ w_k (r_Bk − r_Ak), w_k = n_k/N, two-sided; the observed
   labelling counts as one of the B + 1 so p is never 0 (Phipson and Smyth 2010). The seed is a
   fixed constant, so a re-run gives the same p; a new seed moves every permutation p-value.
+  A tie with the observed statistic counts as at least as extreme, so the test is valid but
+  conservative when weights take few values (measured size about 0.025 with 5 values) and nominal
+  when they do not.
 - **BCa.** The bias-corrected and accelerated interval of Efron (1987), with the jackknife
   acceleration; an arm with fewer than two runs gets no interval, with the reason `too_few_runs`.
 - **Second engines** run offline: scipy `hypergeom`, statsmodels `StratifiedTable`, a Python
