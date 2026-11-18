@@ -546,7 +546,134 @@ FILES |= {"midp.toml": make_midp, "exact.toml": make_exact}
 
 # --- cmh ---
 
-FILES |= {}
+import numpy as np
+from statsmodels.stats.contingency_tables import StratifiedTable
+
+MANTEL_FLEISS_MINIMUM = 5
+
+
+def cmh_blocks(pa, na, pb, nb):
+    """Per block `(a, b, c, d)`: arm B's passes and fails, then arm A's, so the odds ratio is the
+    odds of passing in B over the odds in A."""
+    return [(x, m - x, y, n - y) for y, n, x, m in zip(pa, na, pb, nb)]
+
+
+def cmh_informative(block) -> bool:
+    a, b, c, d = block
+    return a + b > 0 and c + d > 0 and a + c > 0 and b + d > 0
+
+
+def cmh_table(blocks) -> StratifiedTable:
+    return StratifiedTable([np.array([[a, b], [c, d]], dtype=float) for a, b, c, d in blocks])
+
+
+def mantel_fleiss(blocks) -> tuple[float, bool]:
+    """The Mantel-Fleiss quantity from the margins, in exact rationals: the lower bound of a_k is
+    max(0, m1 - n2) and the upper bound min(n1, m1), with n1 the row (arm B) runs, n2 the arm A
+    runs and m1 the passes."""
+    total_e, total_lo, total_hi = Fraction(0), 0, 0
+    for a, b, c, d in blocks:
+        n1, n2, m1, n = a + b, c + d, a + c, a + b + c + d
+        total_e += Fraction(n1 * m1, n)
+        total_lo += max(0, m1 - n2)
+        total_hi += min(n1, m1)
+    value = min(total_e - total_lo, total_hi - total_e)
+    return float(value), value >= MANTEL_FLEISS_MINIMUM
+
+
+def cmh_row(label, pa, na, pb, nb, alpha=ALPHA) -> dict:
+    """Candler's convention: blocks with a zero margin are dropped; statsmodels is the oracle on
+    the rest, and wherever it also returns a finite value on every block of at least two runs,
+    that value is asserted equal."""
+    blocks = cmh_blocks(pa, na, pb, nb)
+    informative = [blk for blk in blocks if cmh_informative(blk)]
+    wide = [blk for blk in blocks if sum(blk) >= 2]
+    row = {"label": label, "pa": pa, "na": na, "pb": pb, "nb": nb, "level": 1 - alpha, "informative": len(informative)}
+    row["mf"], row["mf_holds"] = mantel_fleiss(informative)
+    with np.errstate(all="ignore"):
+        if wide:
+            wide_table = cmh_table(wide)
+            wide_null = wide_table.test_null_odds(correction=False)
+            if not informative:
+                assert not math.isfinite(float(wide_null.statistic)), (label, "all degenerate")
+        if informative:
+            table = cmh_table(informative)
+            null = table.test_null_odds(correction=False)
+            row["statistic"], row["p"] = float(null.statistic), float(null.pvalue)
+            assert math.isclose(row["statistic"], float(wide_null.statistic), rel_tol=1e-12), label
+            r_sum = sum(a * d / sum(blk) for blk in informative for a, _, _, d in [blk])
+            s_sum = sum(b * c / sum(blk) for blk in informative for _, b, c, _ in [blk])
+            odds = float(table.oddsratio_pooled)
+            if s_sum == 0:
+                assert not math.isfinite(odds), (label, odds)
+            else:
+                row["or_mh"] = odds
+                if math.isfinite(float(wide_table.oddsratio_pooled)):
+                    assert math.isclose(odds, float(wide_table.oddsratio_pooled), rel_tol=1e-12)
+                if r_sum == 0:
+                    assert odds == 0.0, (label, odds)
+            if r_sum > 0 and s_sum > 0:
+                lo, hi = table.oddsratio_pooled_confint(alpha=alpha)
+                row["or_lo"], row["or_hi"] = float(lo), float(hi)
+                assert 0 < row["or_lo"] < odds < row["or_hi"], label
+                if len(informative) >= 2 and abs(odds - 1) <= 1e-9:
+                    # statsmodels divides by 1 - OR. With every block independent the expected
+                    # count of each block is its observed one, so the statistic is 0.
+                    assert all(a * sum(blk) == (a + b) * (a + c) for blk in informative
+                               for a, b, c, _ in [blk]), label
+                    row["hom_stat"], row["hom_p"] = 0.0, float(scipy.stats.chi2.sf(0.0, len(informative) - 1))
+                elif len(informative) >= 2:
+                    equal = table.test_equal_odds(adjust=False)
+                    # statsmodels writes the p-value as 1 - cdf, which loses the tail; the
+                    # survival function of the same statistic is exact.
+                    row["hom_stat"] = float(equal.statistic)
+                    row["hom_p"] = float(scipy.stats.chi2.sf(row["hom_stat"], len(informative) - 1))
+                    assert abs(row["hom_p"] - float(equal.pvalue)) < 1e-12, label
+    return row
+
+
+def make_cmh() -> dict:
+    fixed = [
+        ("one block, Mantel-Fleiss exactly five", [3], [10], [7], [10]),
+        ("one block, Mantel-Fleiss four", [2], [8], [6], [8]),
+        ("zero cells in two blocks", [0, 7, 3], [10, 10, 10], [4, 0, 8], [10, 10, 10]),
+        ("zero margin: no passes in a block", [0, 6, 4], [10, 10, 10], [0, 3, 8], [10, 10, 10]),
+        ("zero margin: no fails in a block", [10, 6, 4], [10, 10, 10], [10, 3, 8], [10, 10, 10]),
+        ("empty arm A in a block", [0, 6, 4], [0, 10, 10], [2, 3, 8], [5, 10, 10]),
+        ("one informative block among degenerate ones", [0, 5, 10], [5, 10, 10], [0, 8, 10], [5, 10, 10]),
+        ("all blocks degenerate", [0, 5], [5, 5], [0, 5], [5, 5]),
+        ("no runs at all", [0], [0], [0], [0]),
+        ("sum R zero: arm B never passes", [5, 6], [10, 10], [0, 0], [10, 10]),
+        ("sum S zero: arm A never passes", [0, 0], [10, 10], [5, 6], [10, 10]),
+        ("Mantel-Fleiss exactly five over four blocks", [3, 1, 4, 1], [3, 2, 6, 5], [4, 4, 3, 3], [6, 8, 3, 5]),
+        ("odds ratio exactly one: every block independent", [5, 5], [10, 10], [5, 5], [10, 10]),
+        ("homogeneity rejected: opposite effects", [2, 18], [20, 20], [18, 3], [20, 20]),
+    ]
+    rng = random.Random(SEED)
+    rows = [cmh_row(*spec) for spec in fixed]
+    for k in range(2, 7):
+        for repeat in range(3):
+            na = [rng.randint(5, 200) for _ in range(k)]
+            nb = [rng.randint(5, 200) for _ in range(k)]
+            base = [rng.uniform(0.2, 0.8) for _ in range(k)]
+            shift = rng.uniform(-0.25, 0.25)
+            pa = [round(n * p) for n, p in zip(na, base)]
+            pb = [round(n * min(0.97, max(0.03, p + shift))) for n, p in zip(nb, base)]
+            rows.append(cmh_row(f"random K={k} #{repeat}", pa, na, pb, nb))
+    for source in ("random K=3 #0", "random K=5 #1"):
+        base_row = next(row for row in rows if row["label"] == source)
+        for alpha in (0.10, 0.01):
+            rows.append(cmh_row(f"{source} at alpha {alpha}", base_row["pa"], base_row["na"],
+                                base_row["pb"], base_row["nb"], alpha))
+    multi = next(row for row in rows if row["label"].startswith("Mantel-Fleiss exactly five over"))
+    assert multi["mf"] == MANTEL_FLEISS_MINIMUM and multi["mf_holds"], multi
+    assert any(row["mf"] < MANTEL_FLEISS_MINIMUM for row in rows), "no row fails the criterion"
+    assert any(row["mf"] == MANTEL_FLEISS_MINIMUM for row in rows), "no row on the threshold"
+    assert any(3 <= row["mf"] < MANTEL_FLEISS_MINIMUM for row in rows), "no row between 3 and 5"
+    return {"engine": engine(), "rows": rows}
+
+
+FILES |= {"cmh.toml": make_cmh}
 
 
 # --- resampling ---
