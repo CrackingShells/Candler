@@ -111,6 +111,7 @@ graph TD
 | A2 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/execution_order_v0.md | [] | Supervisor ruling: b27 and b34 pinned declaration order and were rewritten; OWNED gains guard_job_orchestrate.rs for b34; run_order and seed_of are public; the git grep gate uses ! git grep -q |
 | A3 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/treatment_setting_v0.md | [] | Scope plan is not in cog.toml: treatment_setting and level_resolve subjects use runner; treatment_verdict subjects cut to 72 characters |
 | A4 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/arm_counts_v0.md | [] | Merge pre-conditions test the landed leaf report instead of a merge title, since L0 merge titles name the change |
+| A5 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/level_resolve_v0.md | [] | Supervisor ruling: plan_runs has no image step (ensure runs per resolution in resolve/steps/image.rs), so T4 and its t4_ rows move from level_resolve to level_wiring, which owns guard_image.rs; plan_runs takes impl Into<Levels<'a>>, so no existing caller changes, and a level without a resolution fails the plan naming it |
 
 ## Progress
 | Node | Branch | Commits | Notes |
