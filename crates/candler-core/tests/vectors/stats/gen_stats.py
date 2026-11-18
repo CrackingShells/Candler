@@ -551,7 +551,414 @@ FILES |= {}
 
 # --- resampling ---
 
-FILES |= {}
+import itertools
+
+import numpy as np
+from scipy.stats import bootstrap, norm, permutation_test
+
+U64 = (1 << 64) - 1
+RESAMPLE_SEED = 20261118
+MC_SIGMAS = 3.0
+
+
+class SplitMix64:
+    """The twin of `analysis::splitmix::SplitMix64` (Steele, Lea and Flood 2014)."""
+
+    def __init__(self, seed: int):
+        self.state = seed & U64
+        self.rejected = 0
+
+    def next_u64(self) -> int:
+        self.state = (self.state + 0x9E3779B97F4A7C15) & U64
+        z = self.state
+        z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & U64
+        z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & U64
+        return z ^ (z >> 31)
+
+    def below(self, n: int) -> int:
+        threshold = ((1 << 64) - n) % n  # 2^64 mod n
+        while True:
+            x = self.next_u64()
+            if x >= threshold:
+                return x % n
+            self.rejected += 1
+
+    def shuffle_within(self, items: list) -> None:
+        for i in range(len(items) - 1, 0, -1):
+            j = self.below(i + 1)
+            items[i], items[j] = items[j], items[i]
+
+
+def make_splitmix() -> dict:
+    # The published first outputs of seed 0 (Vigna's splitmix64.c reference): a twin that
+    # misreads the algorithm fails here before it can write a vector.
+    first = SplitMix64(0)
+    if (first.next_u64(), first.next_u64()) != (0xE220A8397B1DCDAF, 0x6E789E6AA1B965F4):
+        sys.exit("gen_stats: the SplitMix64 twin does not reproduce the published seed-0 outputs")
+    rows = []
+    for seed in (0, 1, 42, 2**63 - 1, SEED):
+        rng = SplitMix64(seed)
+        rows.append({"kind": "next", "seed": seed,
+                     "outputs": [f"{rng.next_u64():016x}" for _ in range(1000)]})
+    below_ns = [1, 2, 3, 7, 10, 1000, 2**32 + 1, 2**62 + 1, 3 * 2**62, 2**63 + 1, 2**64 - 1]
+    rejected_on_large = 0
+    for n in below_ns:
+        rng = SplitMix64(SEED)
+        draws = [rng.below(n) for _ in range(200)]
+        if n > 2**62:
+            rejected_on_large += rng.rejected
+        rows.append({"kind": "below", "seed": SEED, "n": str(n), "draws": [str(d) for d in draws]})
+    if rejected_on_large == 0:
+        sys.exit("gen_stats: no rejection on the large moduli, so `below` rows would not tell "
+                 "rejection from a plain modulo")
+    for length in (1, 2, 5, 17, 100):
+        rng = SplitMix64(SEED)
+        order = list(range(length))
+        rng.shuffle_within(order)
+        rows.append({"kind": "shuffle", "seed": SEED, "len": length, "order": order})
+    return {"engine": {"python": platform.python_version()}, "rows": rows}
+
+
+def arm_sums(runs):
+    num = den = 0.0
+    for n, d in runs:
+        num += n
+        den += d
+    return num, den
+
+
+def statistic_of(summaries) -> float:
+    total = float(sum(n for _, _, n in summaries))
+    t = 0.0
+    for sa, sb, n in summaries:
+        t += (n / total) * (sb[0] / sb[1] - sa[0] / sa[1])
+    return t
+
+
+def summarise(blocks):
+    return [(arm_sums(a), arm_sums(b), len(a) + len(b)) for a, b in blocks]
+
+
+def perm_cutoff(observed: float) -> float:
+    return abs(observed) - 1e-12 * max(1.0, abs(observed))
+
+
+def stratified_permutation(blocks, b: int, seed: int):
+    observed = statistic_of(summarise(blocks))
+    cutoff = perm_cutoff(observed)
+    pools = [(len(a), list(a) + list(bb)) for a, bb in blocks]
+    rng = SplitMix64(seed)
+    extreme = 0
+    for _ in range(b):
+        summaries = []
+        for n_a, runs in pools:
+            order = list(range(len(runs)))
+            rng.shuffle_within(order)
+            summaries.append((arm_sums(runs[i] for i in order[:n_a]),
+                              arm_sums(runs[i] for i in order[n_a:]), len(runs)))
+        if abs(statistic_of(summaries)) >= cutoff:
+            extreme += 1
+    return observed, (extreme + 1) / (b + 1), extreme
+
+
+def exact_permutation_p(blocks) -> float:
+    """Exact p over every within-block relabelling (the observed one included)."""
+    observed = statistic_of(summarise(blocks))
+    cutoff = perm_cutoff(observed)
+    per_block = []
+    for a, bb in blocks:
+        pool = list(a) + list(bb)
+        options = []
+        for in_a in itertools.combinations(range(len(pool)), len(a)):
+            chosen = set(in_a)
+            options.append((arm_sums(pool[i] for i in in_a),
+                            arm_sums(pool[i] for i in range(len(pool)) if i not in chosen),
+                            len(pool)))
+        per_block.append(options)
+    hits = total = 0
+    for combo in itertools.product(*per_block):
+        total += 1
+        if abs(statistic_of(list(combo))) >= cutoff:
+            hits += 1
+    return hits / total
+
+
+def pooled_shuffle_p(blocks, b: int, seed: int) -> float:
+    """The wrong test: labels shuffled over all runs of all blocks. Used as a negative control."""
+    observed = statistic_of(summarise(blocks))
+    cutoff = perm_cutoff(observed)
+    pool = [(k, run) for k, (a, bb) in enumerate(blocks) for run in list(a) + list(bb)]
+    n_a = [len(a) for a, _ in blocks]
+    sizes = [len(a) + len(bb) for a, bb in blocks]
+    rng = SplitMix64(seed)
+    extreme = 0
+    for _ in range(b):
+        order = list(range(len(pool)))
+        rng.shuffle_within(order)
+        labels = ["B"] * len(pool)
+        for i in order[:sum(n_a)]:
+            labels[i] = "A"
+        summaries = []
+        for k, size in enumerate(sizes):
+            runs_a = [pool[i][1] for i in range(len(pool)) if pool[i][0] == k and labels[i] == "A"]
+            runs_b = [pool[i][1] for i in range(len(pool)) if pool[i][0] == k and labels[i] == "B"]
+            if not runs_a or not runs_b:
+                summaries = None
+                break
+            summaries.append((arm_sums(runs_a), arm_sums(runs_b), size))
+        if summaries is not None and abs(statistic_of(summaries)) >= cutoff:
+            extreme += 1
+    return (extreme + 1) / (b + 1)
+
+
+def synth_block(rng, n_a: int, n_b: int, rate_a: float, rate_b: float):
+    """Runs as (num, den): den expectations of weight 1 to 4, each passing with the arm's rate."""
+    def arm(n, rate):
+        runs = []
+        for _ in range(n):
+            den = rng.randint(2, 5)
+            runs.append((float(sum(rng.random() < rate for _ in range(den))), float(den)))
+        return runs
+    return arm(n_a, rate_a), arm(n_b, rate_b)
+
+
+def agree(estimate: float, reference: float, se: float) -> bool:
+    return abs(estimate - reference) <= MC_SIGMAS * se
+
+
+def permutation_designs():
+    rng = random.Random(SEED)
+    mild = [synth_block(rng, 3, 3, 0.4, 0.5), synth_block(rng, 4, 3, 0.6, 0.6)]
+    one = [synth_block(rng, 12, 12, 0.4, 0.6)]
+    two = [synth_block(rng, 8, 8, 0.3, 0.5), synth_block(rng, 10, 6, 0.7, 0.7)]
+    three = [synth_block(rng, 6, 6, 0.2, 0.2), synth_block(rng, 9, 4, 0.5, 0.7),
+             synth_block(rng, 5, 12, 0.9, 0.8)]
+    equal = [([(1.0, 2.0)] * 4, [(1.0, 2.0)] * 4), ([(2.0, 2.0)] * 3, [(2.0, 2.0)] * 5)]
+    # Blocks of rates 0 and 1; B differs from A by one run in each block.
+    gap = [([(0.0, 1.0)] * 6, [(0.0, 1.0)] * 5 + [(1.0, 1.0)]),
+           ([(1.0, 1.0)] * 5 + [(0.0, 1.0)], [(1.0, 1.0)] * 6)]
+    simpson = [([(0.0, 1.0)] * 3, [(1.0, 1.0)] * 3), ([(1.0, 2.0)] * 3, [(2.0, 2.0)] * 3)]
+    # Ratios over 3 and 7: permuted |T*| equals |T| only up to rounding, so the tolerance counts.
+    r = random.Random(2)
+    tie = [([(float(r.randint(0, 3)), 3.0) for _ in range(4)],
+            [(float(r.randint(0, 3)), 3.0) for _ in range(4)]),
+           ([(float(r.randint(0, 7)), 7.0) for _ in range(5)],
+            [(float(r.randint(0, 7)), 7.0) for _ in range(5)])]
+    return [("tie", tie, 2000), ("mild", mild, 10000), ("one", one, 10000), ("two", two, 2000),
+            ("three", three, 2000), ("equal", equal, 500), ("gap", gap, 10000),
+            ("simpson", simpson, 2000)]
+
+
+def flat(blocks) -> dict:
+    return {
+        "a_sizes": [len(a) for a, _ in blocks], "b_sizes": [len(b) for _, b in blocks],
+        "a_num": [n for a, _ in blocks for n, _ in a], "a_den": [d for a, _ in blocks for _, d in a],
+        "b_num": [n for _, b in blocks for n, _ in b], "b_den": [d for _, b in blocks for _, d in b],
+    }
+
+
+def make_permutation() -> dict:
+    rows = []
+    results = {}
+    for index, (name, blocks, b) in enumerate(permutation_designs()):
+        seed = RESAMPLE_SEED + index
+        statistic, p, extreme = stratified_permutation(blocks, b, seed)
+        results[name] = (blocks, b, p)
+        rows.append({"name": name, "seed": seed, "b": b, **flat(blocks),
+                     "statistic": statistic, "p": p, "extreme": extreme})
+    # The tie tolerance must matter on the `tie` row, or no row could tell it from none.
+    blocks, b, _ = results["tie"]
+    seed = RESAMPLE_SEED
+    cutoff = perm_cutoff
+    try:
+        globals()["perm_cutoff"] = abs
+        strict = stratified_permutation(blocks, b, seed)[2]
+    finally:
+        globals()["perm_cutoff"] = cutoff
+    if strict == stratified_permutation(blocks, b, seed)[2]:
+        sys.exit("gen_stats: the `tie` row does not depend on the tie tolerance")
+    # Monte Carlo agreement 1: the exact p over every within-block relabelling.
+    for name in ("mild", "gap"):
+        blocks, b, p = results[name]
+        exact = exact_permutation_p(blocks)
+        se = math.sqrt(exact * (1 - exact) / b)
+        if not agree(p, exact, se):
+            sys.exit(f"gen_stats: permutation `{name}`: p {p} is not within {MC_SIGMAS} SE "
+                     f"({se:.4g}) of the exact {exact}")
+    # Negative control: the same check must reject a pooled shuffle, or it could not fail.
+    blocks, b, _ = results["gap"]
+    exact = exact_permutation_p(blocks)
+    pooled = pooled_shuffle_p(blocks, 2000, RESAMPLE_SEED)
+    if agree(pooled, exact, math.sqrt(exact * (1 - exact) / 2000)):
+        sys.exit("gen_stats: the exact-p check cannot tell a pooled shuffle from the stratified "
+                 "one")
+    # Monte Carlo agreement 2: scipy's permutation_test for one block.
+    blocks, b, p = results["one"]
+    a_runs, b_runs = blocks[0]
+    num = np.array([n for n, _ in a_runs + b_runs])
+    den = np.array([d for _, d in a_runs + b_runs])
+
+    def stat(ia, ib):
+        return num[ib].sum() / den[ib].sum() - num[ia].sum() / den[ia].sum()
+
+    ia = np.arange(len(a_runs))
+    ib = np.arange(len(a_runs), len(a_runs) + len(b_runs))
+    scipy_p = permutation_test((ia, ib), stat, permutation_type="independent", vectorized=False,
+                               n_resamples=b, alternative="two-sided",
+                               random_state=np.random.default_rng(RESAMPLE_SEED)).pvalue
+    se = math.sqrt(2 * scipy_p * (1 - scipy_p) / b)
+    if not agree(p, float(scipy_p), se):
+        sys.exit(f"gen_stats: permutation `one`: p {p} is not within {MC_SIGMAS} SE ({se:.4g}) "
+                 f"of scipy's {scipy_p}")
+    return {"engine": engine(), "rows": rows}
+
+
+def jackknife_acceleration(blocks) -> float:
+    base = summarise(blocks)
+    thetas = []
+    for k, (a, bb) in enumerate(blocks):
+        for is_b, runs in ((False, a), (True, bb)):
+            for num, den in runs:
+                s = list(base)
+                sa, sb, n = s[k]
+                if is_b:
+                    sb = (sb[0] - num, sb[1] - den)
+                else:
+                    sa = (sa[0] - num, sa[1] - den)
+                s[k] = (sa, sb, n)
+                thetas.append(statistic_of(s))
+    if all(t == thetas[0] for t in thetas):
+        return 0.0
+    total = 0.0
+    for t in thetas:
+        total += t
+    mean = total / len(thetas)
+    cubes = squares = 0.0
+    for t in thetas:
+        d = mean - t
+        cubes += d * d * d
+        squares += d * d
+    return cubes / (6.0 * squares * math.sqrt(squares))
+
+
+def interpolated_quantile(sorted_values, q: float) -> float:
+    position = min(max(q, 0.0), 1.0) * (len(sorted_values) - 1)
+    lower = math.floor(position)
+    fraction = position - lower
+    if lower + 1 < len(sorted_values):
+        return sorted_values[lower] + fraction * (sorted_values[lower + 1] - sorted_values[lower])
+    return sorted_values[lower]
+
+
+def stratified_bca(blocks, b: int, level: float, seed: int):
+    base = summarise(blocks)
+    observed = statistic_of(base)
+    rng = SplitMix64(seed)
+    thetas = []
+    for _ in range(b):
+        summaries = []
+        for a, bb in blocks:
+            sums = []
+            for runs in (a, bb):
+                drawn = [runs[rng.below(len(runs))] for _ in range(len(runs))]
+                sums.append(arm_sums(drawn))
+            summaries.append((sums[0], sums[1], len(a) + len(bb)))
+        thetas.append(statistic_of(summaries))
+    thetas.sort()
+    if thetas[0] == thetas[-1] == observed:
+        return observed, observed
+    below = sum(1 for t in thetas if t < observed)
+    below = min(max(below, 1), b - 1)
+    z0 = float(norm.ppf(below / b))
+    accel = jackknife_acceleration(blocks)
+    alpha = 1.0 - level
+    ends = []
+    for tail in (alpha / 2.0, 1.0 - alpha / 2.0):
+        z = z0 + float(norm.ppf(tail))
+        denominator = 1.0 - accel * z
+        if not denominator > 0.0:
+            sys.exit("gen_stats: BCa acceleration leaves the quantile undefined")
+        ends.append(interpolated_quantile(thetas, float(norm.cdf(z0 + z / denominator))))
+    return ends[0], ends[1]
+
+
+def bca_designs():
+    rng = random.Random(SEED + 1)
+    one = [synth_block(rng, 15, 15, 0.4, 0.6)]
+    two = [synth_block(rng, 8, 8, 0.3, 0.5), synth_block(rng, 10, 6, 0.7, 0.7)]
+    three = [synth_block(rng, 6, 6, 0.2, 0.2), synth_block(rng, 9, 4, 0.5, 0.7),
+             synth_block(rng, 5, 12, 0.9, 0.8)]
+    binary = [([(float(i % 2), 1.0) for i in range(8)], [(float(i % 3 == 0), 1.0) for i in range(9)])]
+    # One block with every run equal, beside one that varies.
+    degenerate_mix = [([(1.0, 2.0)] * 4, [(1.0, 2.0)] * 5), two[0]]
+    degenerate = [([(1.0, 2.0)] * 4, [(1.0, 2.0)] * 5)]
+    # Heavy-tailed runs: the acceleration is about 0.09, so scipy's interval separates a wrong one.
+    r = random.Random(0)
+    skew = [([(r.expovariate(1 / 0.3) ** 2, 1.0) for _ in range(12)],
+             [(r.expovariate(1 / 0.5) ** 2, 1.0) for _ in range(12)])]
+    return [("skew", skew, 2000, 0.95), ("one", one, 2000, 0.95), ("two", two, 2000, 0.9), ("three", three, 2000, 0.95),
+            ("binary", binary, 2000, 0.95), ("degenerate_mix", degenerate_mix, 2000, 0.95),
+            ("degenerate", degenerate, 200, 0.95)]
+
+
+def make_bca() -> dict:
+    rows = []
+    results = {}
+    for index, (name, blocks, b, level) in enumerate(bca_designs()):
+        seed = RESAMPLE_SEED + 100 + index
+        low, high = stratified_bca(blocks, b, level, seed)
+        results[name] = (blocks, b, level, low, high)
+        rows.append({"name": name, "seed": seed, "b": b, "level": level, **flat(blocks),
+                     "low": low, "high": high})
+    # Monte Carlo agreement: scipy's BCa over 20 seeds for one block; the twin's endpoints must lie
+    # within 3 SE of scipy's mean, SE being the seed-to-seed SD of scipy's own endpoints with the
+    # twin's one draw added in quadrature. On `skew` the same check must reject a twin whose
+    # acceleration has the wrong sign or is 0, or it could not tell them from the right one.
+    def disagrees(blocks, b, level, ends, low, high) -> bool:
+        flags = []
+        for which, mine in enumerate((low, high)):
+            values = np.array([e[which] for e in ends])
+            se = float(values.std(ddof=1)) * math.sqrt(1 + 1 / len(values))
+            flags.append(not agree(mine, float(values.mean()), se))
+        return any(flags)
+
+    for name in ("one", "skew"):
+        blocks, b, level, low, high = results[name]
+        a_runs, b_runs = blocks[0]
+        num = np.array([n for n, _ in a_runs + b_runs])
+        den = np.array([d for _, d in a_runs + b_runs])
+
+        def stat(ia, ib, axis=-1):
+            return (num[ib].sum(axis=axis) / den[ib].sum(axis=axis)
+                    - num[ia].sum(axis=axis) / den[ia].sum(axis=axis))
+
+        ia = np.arange(len(a_runs))
+        ib = np.arange(len(a_runs), len(a_runs) + len(b_runs))
+        ends = []
+        for seed in range(20):
+            ci = bootstrap((ia, ib), stat, vectorized=True, method="BCa", n_resamples=b,
+                           confidence_level=level, random_state=np.random.default_rng(seed)
+                           ).confidence_interval
+            ends.append((float(ci.low), float(ci.high)))
+        if disagrees(blocks, b, level, ends, low, high):
+            sys.exit(f"gen_stats: BCa `{name}`: the twin's ({low}, {high}) is not within "
+                     f"{MC_SIGMAS} SE of scipy's mean")
+        if name == "skew":
+            true_accel = jackknife_acceleration
+            for label, wrong in (("flipped", lambda bl: -true_accel(bl)), ("zero", lambda bl: 0.0)):
+                globals()["jackknife_acceleration"] = wrong
+                try:
+                    bad_low, bad_high = stratified_bca(blocks, b, level, RESAMPLE_SEED + 100)
+                finally:
+                    globals()["jackknife_acceleration"] = true_accel
+                if not disagrees(blocks, b, level, ends, bad_low, bad_high):
+                    sys.exit(f"gen_stats: scipy's check cannot tell a {label} acceleration "
+                             "from the right one")
+    return {"engine": engine(), "rows": rows}
+
+
+FILES |= {"splitmix.toml": make_splitmix, "permutation.toml": make_permutation,
+          "bca.toml": make_bca}
 
 
 def differs(a, b) -> bool:
