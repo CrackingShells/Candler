@@ -5,6 +5,9 @@
 //! The manifests of a design do not depend on the draw, so a design is built once and each
 //! simulation only chooses which outcome record every run carries.
 
+use std::collections::BTreeSet;
+use std::fs;
+use std::sync::Arc;
 use std::time::Instant;
 
 use candler_core::analysis::report::{Comparison, Entry, Report, ReportInput, RunView, Tested};
@@ -15,6 +18,14 @@ use candler_schemas::execution::RunManifest;
 use candler_schemas::outcome::OutcomeRecord;
 use candler_schemas::primitives::NameVersion;
 use serde_json::{Value, json};
+use tokio::sync::watch;
+
+use crate::support::job_orchestrate::{Rig, skill_repo, spec};
+use crate::support::run_plan::Facts;
+use candler_core::analysis::blocking::Battery;
+use candler_core::jobs::model::{JobCause, JobControl, JobOutcome};
+use candler_core::jobs::orchestrate::orchestrate_with;
+use candler_schemas::execution::ExperimentFile;
 
 const ALPHA: f64 = 0.05;
 /// The two-sided 99 % normal quantile.
@@ -423,4 +434,210 @@ fn kt_h0_weighted_nominal() {
         rate <= ALPHA + Z99 * (ALPHA * (1.0 - ALPHA) / f64::from(WEIGHTED_TRIALS)).sqrt(),
         "rejection rate {rate:.4} above the 99 % interval of 0.05"
     );
+}
+
+/// The treatment tags of the golden shape, and its models.
+const TAGS: [&str; 4] = ["v1", "v2", "v3", "v4"];
+const MODELS: [&str; 3] = ["m1", "m2", "m3"];
+const REPLICATES: u32 = 4;
+
+/// Plans and runs the golden job (4 treatment levels by 3 models, `REPLICATES` runs a cell) on the
+/// fakes.
+fn golden_job(rig: &Rig) -> JobOutcome {
+    let models = MODELS.map(|m| format!("\"{m}\"")).join(", ");
+    let names = ["htn", "t2", "t3", "t4"]
+        .map(|n| format!("\"{n}\""))
+        .join(", ");
+    let text = format!(
+        "schema = \"experiment/1\"\nreplicates = {REPLICATES}\n\n[[factors]]\npath = \"model.id\"\nlevels = [{models}]\n\n[[factors]]\npath = \"request.treatment\"\nlevels = [{names}]\n\n[budget.per_run]\nwall_s = 3600\n\n[harness]\nname = \"claude-code\"\n\n[treatment]\nname = \"htn\"\n"
+    );
+    let mut job = spec(&["m1"], &Facts::base(), 3600, 4);
+    job.experiment = ExperimentFile::from_toml_str(&text).expect("an experiment file");
+    let (repo, _) = skill_repo();
+    let base = serde_json::to_value(&job.resolution).expect("JSON");
+    job.levels = TAGS
+        .map(|tag| {
+            let mut json = base.clone();
+            for value in json["values"]
+                .as_array_mut()
+                .expect("values")
+                .iter_mut()
+                .filter(|value| value["path"] == "treatment")
+            {
+                value["value"]["tag"] = json!(tag);
+            }
+            for setting in json["settings"]
+                .as_array_mut()
+                .expect("settings")
+                .iter_mut()
+            {
+                if setting["path"] == "request.treatment" {
+                    setting["value"] =
+                        json!({"name": "htn", "tag": tag, "source": repo.display().to_string()});
+                }
+            }
+            serde_json::from_value(json).expect("a resolution")
+        })
+        .to_vec();
+    job.resolution = job.levels.first().expect("a level").clone();
+    let (cancel, _keep) = watch::channel::<Option<JobCause>>(None);
+    let ctl = JobControl {
+        cancel: Arc::new(cancel),
+    };
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .expect("a runtime");
+    runtime.block_on(orchestrate_with(rig.runtime(), job, ctl, rig.host()))
+}
+
+/// The tag a typed treatment reference carries.
+fn tag_of(level: &Value) -> String {
+    level["tag"].as_str().expect("a tag").to_owned() // BORROW: .to_owned() makes the owned tag
+}
+
+/// Guards: the golden shape end to end. A job of 4 treatment levels by 3 models, 4 replicates a
+/// cell, is planned and run on the fakes; the outcomes planted afterwards are v1 passing 0 of 4 in
+/// every model, v2 4 of 4, v3 and v4 2 of 4. `analyze` then gives 6 treatment comparisons, each
+/// blocked by model (3 blocks), and 3 model comparisons, each blocked by treatment (4 blocks), the
+/// CMH battery on the treatment pairs, and on the planted pair a p below alpha and the planted
+/// direction (v2 over v1, B minus A) in every block (the interval of a 0 of 4 against 4 of 4 odds
+/// ratio is undefined, so its reading is not asserted).
+/// Oracle: the shape's arithmetic (C(4,2) = 6 pairs, C(3,2) = 3 pairs) and the planted counts.
+/// Bite: leave the treatment out of the declared factors and the comparisons are not 6 and 3.
+#[test]
+fn kt_two_levels_end_to_end() {
+    let rig = Rig::new(0);
+    let outcome = golden_job(&rig);
+    assert_eq!(
+        outcome.runs.len(),
+        48,
+        "{:?}: every run of the plan ran",
+        outcome.end
+    );
+    let root = rig.store.layout().root().join("runs");
+    let mut views = Vec::new();
+    for entry in fs::read_dir(&root).expect("the runs directory") {
+        let path = entry.expect("an entry").path().join("manifest.json");
+        // The fakes seal their runs as infrastructure failures with no evaluation provenance; the
+        // planted outcomes need valid runs, so the integrity and the provenance are planted too.
+        // Neither is part of the cell, so the keys stay the ones the plan gave.
+        let mut body: Value =
+            serde_json::from_slice(&fs::read(path).expect("a manifest")).expect("manifest JSON");
+        body["integrity"] = json!({"kind": "valid"});
+        for (name, value) in [
+            ("provenance.eval_infra.commit", json!("abc1234")),
+            ("provenance.eval_infra.dirty", json!(false)),
+        ] {
+            body["measured"]
+                .as_array_mut()
+                .expect("measured")
+                .push(json!({"path": name, "value": value, "source": {"kind": "experiment_file"}}));
+        }
+        let manifest: RunManifest = serde_json::from_value(body).expect("a manifest");
+        views.push(RunView {
+            facts: RunFacts::new(manifest.run().clone(), manifest.integrity().clone()),
+            manifest,
+        });
+    }
+    assert_eq!(views.len(), 48, "every run is sealed with a manifest");
+    let passes = |tag: &str| match tag {
+        "v1" => 0,
+        "v2" => REPLICATES,
+        _ => REPLICATES / 2,
+    };
+    let records: Vec<OutcomeRecord> = views
+        .iter()
+        .enumerate()
+        .map(|(n, view)| {
+            let treatment =
+                serde_json::to_value(view.manifest.comparable().treatment()).expect("JSON");
+            let status = if view.manifest.run().replicate() <= passes(&tag_of(&treatment)) {
+                "pass"
+            } else {
+                "fail"
+            };
+            record(view, n + 1, "E1", "gate", status, None)
+        })
+        .collect();
+    let report = Report::build(ReportInput {
+        selection: select(records),
+        evaluator: "suite-eval@1.0.0"
+            .parse::<NameVersion>()
+            .expect("name@version"),
+        runs: views,
+        unsealed: Vec::new(),
+    })
+    .expect("the report builds");
+    let by = |factor: &str| -> Vec<&Comparison> {
+        report
+            .comparisons
+            .iter()
+            .filter(|c| c.factor.to_string() == factor)
+            .collect()
+    };
+    let (treatment, model) = (by("request.treatment"), by("model.id"));
+    assert_eq!(
+        treatment.len(),
+        6,
+        "{:?}",
+        report
+            .comparisons
+            .iter()
+            .map(|c| c.factor.to_string())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(model.len(), 3);
+    for comparison in &treatment {
+        let [Entry::Tested(tested)] = comparison.entries.as_slice() else {
+            panic!("one tested entry: {:?}", comparison.entries);
+        };
+        assert_eq!(
+            tested.blocks, 3,
+            "a treatment pair is blocked by the 3 models"
+        );
+        assert!(matches!(
+            tested.battery,
+            Some(Battery::Cmh | Battery::ExactStrata)
+        ));
+    }
+    for comparison in &model {
+        let [Entry::Tested(tested)] = comparison.entries.as_slice() else {
+            panic!("one tested entry: {:?}", comparison.entries);
+        };
+        assert_eq!(
+            tested.blocks, 4,
+            "a model pair is blocked by the 4 treatments"
+        );
+    }
+    let tags: BTreeSet<(String, String)> = treatment
+        .iter()
+        .map(|c| {
+            let (a, b) = c.levels.clone().expect("the levels");
+            (tag_of(&a), tag_of(&b))
+        })
+        .collect();
+    assert_eq!(tags.len(), 6, "six distinct level pairs");
+    let planted = treatment
+        .iter()
+        .find(|c| {
+            let (a, b) = c.levels.clone().expect("the levels");
+            BTreeSet::from([tag_of(&a), tag_of(&b)])
+                == BTreeSet::from(["v1".to_owned(), "v2".to_owned()])
+        })
+        .expect("the planted pair");
+    let [Entry::Tested(tested)] = planted.entries.as_slice() else {
+        panic!("one tested entry");
+    };
+    let (a, _) = planted.levels.clone().expect("the levels");
+    let sign = if tag_of(&a) == "v1" { 1.0 } else { -1.0 };
+    assert!(tested.p < ALPHA);
+    for effect in &tested.per_block {
+        assert!(
+            (effect.diff - sign).abs() < 1e-12,
+            "B minus A is {sign} in {:?}",
+            effect.key
+        );
+    }
 }
