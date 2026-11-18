@@ -330,14 +330,20 @@ fn overlaps(first: &FieldPath, second: &FieldPath) -> bool {
     first.starts_with(second) || second.starts_with(first)
 }
 
+/// The one setting a factor may vary: the treatment, which resolves into the hashed typed root
+/// `treatment`.
+const TREATMENT_FACTOR: &str = paths::REQUEST_TREATMENT;
+
 /// The path of the first setting a factor varies: its own path when a value level sets it and that
-/// is a setting, or a leaf that a table level fills when that is a setting.
+/// is a setting other than [`TREATMENT_FACTOR`], or a leaf that a table level fills when that is a
+/// setting.
 fn setting_of_factor(factor: &Factor) -> Option<String> {
     factor.levels.iter().find_map(|level| {
         if let Level::Fill(table) = level {
             setting_in(factor.path.as_str(), table)
         } else {
-            is_setting(&factor.path).then(|| factor.path.to_string())
+            (is_setting(&factor.path) && factor.path.as_str() != TREATMENT_FACTOR) // BORROW: the path's text
+                .then(|| factor.path.to_string())
         }
     })
 }
