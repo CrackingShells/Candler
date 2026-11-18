@@ -17,7 +17,7 @@ Runs can be isolated in containers with a closed network, and the plug-in enviro
 ```mermaid
 graph TD
     m5_container_isolation[M5a Container isolation]:::done
-    m5b[M5b Egress proxy and ground-truth guard]:::planned
+    m5b[M5b Egress proxy and ground-truth guard]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -29,7 +29,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `m5_container_isolation.md` | 📄 Leaf Task | ✅ Done |
-| `m5b/` | 📁 Directory | ⬜ Planned |
+| `m5b/` | 📁 Directory | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

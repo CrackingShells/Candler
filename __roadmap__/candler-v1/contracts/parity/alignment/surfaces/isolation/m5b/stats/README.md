@@ -7,7 +7,7 @@ Depth 7. Paired statistics (M6a), split from the old M6, one level below M5b and
 `analyze` compares paired arms with the paired tests, an arm can be a treatment, and the pairing model is decided and recorded in the design.
 
 ## Pre-conditions
-- [ ] `../../m5_container_isolation.md` (M5a) is `done` and `../README.md`'s M5b leaves are `done`
+- [x] `../../m5_container_isolation.md` (M5a) is `done` and `../README.md`'s M5b leaves are `done` (M5a: PR #36; M5b's own gates: PR #38, merge 1e6dc91; its last gate is this level)
 
 ## Success Gates
 - ⬜ `m6a_paired_stats.md` and `mcp/` are `done`
@@ -15,7 +15,7 @@ Depth 7. Paired statistics (M6a), split from the old M6, one level below M5b and
 ## Status
 ```mermaid
 graph TD
-    m6a_paired_stats[M6a Paired statistics]:::amendment
+    m6a_paired_stats[M6a Paired statistics]:::inprogress
     mcp[MCP server]:::amendment
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -27,7 +27,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `m6a_paired_stats.md` | 📄 Leaf Task | 🔵 Amendment |
+| `m6a_paired_stats.md` | 📄 Leaf Task | 🔄 In Progress |
 | `mcp/` | 📁 Directory | 🔵 Amendment |
 
 ## Amendment Log
@@ -35,6 +35,7 @@ graph TD
 |:---|:-----|:-------|:------------|:----------|
 | A6 | 2026-11-16 | `__reports__/candler-v1-review/02-findings_amendment_a6_v0.md` | [ "m6a_paired_stats" ] | M6 splits: its paired-statistics half becomes this leaf, one level below M5 |
 | A7 | 2026-11-16 | `__reports__/candler-v1-review/03-findings_amendment_a7_v0.md` | [ ] | M6a gains treatment as a declared factor, with a treatment, env lock and image per cell, so the paired tests can compare treatments |
+| A9 | 2026-11-18 | `m6a-approved-plan.md` (notes folder of session local_7f577b41), Eliott's approval of the round-4 plan | [ ] | Runs are not paired, so McNemar is dropped and "paired" becomes "blocked": blocks come from the other declared factors, Fisher becomes its mid-p, CMH gets an exact fallback, the bootstrap becomes a stratified permutation test with BCa, Holm replaces fixed-sequence |
 
 ## Progress
 | Node | Branch | Commits | Notes |
