@@ -6,6 +6,7 @@
 
 pub mod evidence;
 pub mod exec;
+pub mod order;
 pub mod plan;
 pub(crate) mod refusal;
 
