@@ -321,7 +321,227 @@ FILES = {
 
 # --- exact_tests ---
 
-FILES |= {}
+from functools import lru_cache
+from itertools import product
+
+import numpy as np
+
+# Candler's two-sided rule calls two table probabilities equal when they differ by at most this
+# relative amount (the tolerance of `fisher_two_sided`). The generator proves the tolerance
+# decides nothing: no table in any row has a probability within it that is not exactly equal.
+MIDP_TIE = 1e-7
+
+# Zero margins. A block with no runs in one arm, or with no passes, or with only passes, has a
+# one-point null (A's passes are forced), so it contributes a point mass. A table whose whole null
+# is one point has mid-p = 1/2 (the observed table is the only, hence tied, table); a block that is
+# a point mass inside a convolution moves the support and leaves the other blocks' pmf unchanged.
+
+
+def support(a_n: int, b_n: int, t: int) -> tuple[int, int]:
+    return max(0, t - b_n), min(a_n, t)
+
+
+@lru_cache(maxsize=None)
+def scipy_block(a_n: int, b_n: int, t: int) -> tuple[int, tuple[float, ...]]:
+    """scipy's pmf of A's passes in one block, as (first value, probabilities)."""
+    first, last = support(a_n, b_n, t)
+    if first == last:
+        return first, (1.0,)
+    pmf = tuple(float(hypergeom.pmf(x, a_n + b_n, t, a_n)) for x in range(first, last + 1))
+    return first, pmf
+
+
+@lru_cache(maxsize=None)
+def exact_block(a_n: int, b_n: int, t: int) -> tuple[int, tuple[Fraction, ...]]:
+    first, last = support(a_n, b_n, t)
+    total = math.comb(a_n + b_n, a_n)
+    return first, tuple(
+        Fraction(math.comb(t, x) * math.comb(a_n + b_n - t, a_n - x), total)
+        for x in range(first, last + 1)
+    )
+
+
+def scipy_null(margins) -> tuple[int, list[float]]:
+    """The convolution of scipy's block pmfs: (first value of the sum, probabilities)."""
+    offset, pmf = 0, np.array([1.0])
+    for a_n, b_n, t in margins:
+        first, block = scipy_block(a_n, b_n, t)
+        offset += first
+        pmf = np.convolve(pmf, np.array(block))
+    return offset, [float(p) for p in pmf]
+
+
+def exact_null(margins) -> tuple[int, list[Fraction]]:
+    offset, pmf = 0, [Fraction(1)]
+    for a_n, b_n, t in margins:
+        first, block = exact_block(a_n, b_n, t)
+        offset += first
+        out = [Fraction(0)] * (len(pmf) + len(block) - 1)
+        for i, p in enumerate(pmf):
+            for j, q in enumerate(block):
+                out[i + j] += p * q
+        pmf = out
+    return offset, pmf
+
+
+def enumerated_null(margins) -> tuple[int, list[Fraction]]:
+    """Brute force over every table set with these margins. The conditional probability of a set
+    of tables is proportional to the product of 1/(cell!) over all cells, so this uses neither the
+    hypergeometric formula nor a convolution."""
+    ranges = [range(*(lambda f, l: (f, l + 1))(*support(a_n, b_n, t))) for a_n, b_n, t in margins]
+    weight: dict[int, Fraction] = {}
+    for xs in product(*ranges):
+        w = Fraction(1)
+        for x, (a_n, b_n, t) in zip(xs, margins):
+            w /= (math.factorial(x) * math.factorial(a_n - x)
+                  * math.factorial(t - x) * math.factorial(b_n - t + x))
+        weight[sum(xs)] = weight.get(sum(xs), Fraction(0)) + w
+    total = sum(weight.values())
+    first = min(weight)
+    return first, [weight.get(first + i, Fraction(0)) / total for i in range(max(weight) - first + 1)]
+
+
+def float_mid_p(pmf: list[float], index: int) -> float:
+    observed = pmf[index]
+    less = [p for p in pmf if abs(p - observed) > MIDP_TIE * observed and p < observed]
+    equal = [p for p in pmf if abs(p - observed) <= MIDP_TIE * observed]
+    return min(1.0, math.fsum(less) + math.fsum(equal) / 2)
+
+
+def exact_mid_p(pmf: list[Fraction], index: int) -> tuple[Fraction, bool]:
+    """The exact mid-p, and whether another table is exactly as likely as the observed one.
+    Raises if a table is unequal yet inside the tolerance, where the float rule would differ."""
+    observed = pmf[index]
+    for p in pmf:
+        assert p == observed or abs(p - observed) > Fraction(MIDP_TIE) * observed, "near tie"
+    less = sum((p for p in pmf if p < observed), Fraction(0))
+    equal = [p for p in pmf if p == observed]
+    return less + sum(equal, Fraction(0)) / 2, len(equal) > 1
+
+
+def checked_p(margins, s: int, brute: bool) -> tuple[float, bool]:
+    """scipy's mid-p of observed sum s, asserted against exact rational arithmetic."""
+    offset, pmf = scipy_null(margins)
+    index = s - offset
+    p = float_mid_p(pmf, index)
+    e_off, e_pmf = exact_null(margins)
+    assert e_off == offset and len(e_pmf) == len(pmf), margins
+    exact, tie = exact_mid_p(e_pmf, index)
+    assert math.isclose(p, float(exact), rel_tol=1e-12, abs_tol=1e-15), (margins, s, p, exact)
+    if brute:
+        b_off, b_pmf = enumerated_null(margins)
+        assert b_off == offset and b_pmf == e_pmf, margins
+    return p, tie
+
+
+def midp_rows() -> list[dict]:
+    rows = []
+    # Every table with at most 12 runs per arm, empty arms and zero or full passes included.
+    for a_n in range(13):
+        for b_n in range(13):
+            for a_k in range(a_n + 1):
+                for b_k in range(b_n + 1):
+                    margin = [(a_n, b_n, a_k + b_k)]
+                    p, tie = checked_p(margin, a_k, brute=a_n + b_n <= 12)
+                    rows.append({"a_k": a_k, "a_n": a_n, "b_k": b_k, "b_n": b_n, "p": p,
+                                 "tie": tie})
+    rng = random.Random(SEED + 1)
+    for _ in range(150):
+        a_n, b_n = rng.randint(13, 200), rng.randint(13, 200)
+        a_k, b_k = rng.randint(0, a_n), rng.randint(0, b_n)
+        p, tie = checked_p([(a_n, b_n, a_k + b_k)], a_k, brute=False)
+        rows.append({"a_k": a_k, "a_n": a_n, "b_k": b_k, "b_n": b_n, "p": p, "tie": tie})
+    # Equal arms make mirror tables equally likely: ties at sizes where floats drift.
+    for n in (40, 100, 200):
+        for a_k, b_k in ((0, 1), (1, 0), (2, 5), (5, 2), (n // 2, n // 2 + 3), (n // 2 + 3, n // 2)):
+            p, tie = checked_p([(n, n, a_k + b_k)], a_k, brute=False)
+            rows.append({"a_k": a_k, "a_n": n, "b_k": b_k, "b_n": n, "p": p, "tie": tie})
+    return rows
+
+
+def margin_sets(blocks: int, total: int):
+    """Every (a_n, b_n, t) tuple of `blocks` blocks with at most `total` runs overall."""
+    def sizes(left: int, remaining: int):
+        if remaining == 0:
+            yield ()
+            return
+        for a_n in range(left + 1):
+            for b_n in range(left - a_n + 1):
+                for rest in sizes(left - a_n - b_n, remaining - 1):
+                    yield ((a_n, b_n),) + rest
+    for sized in sizes(total, blocks):
+        for ts in product(*(range(a_n + b_n + 1) for a_n, b_n in sized)):
+            yield tuple((a_n, b_n, t) for (a_n, b_n), t in zip(sized, ts))
+
+
+def row_of(margins, s: int, rng: random.Random) -> dict:
+    """A table set with these margins whose A passes sum to s, spread over the blocks at random."""
+    while True:
+        xs = [rng.randint(*support(*m)) for m in margins[:-1]]
+        last = s - sum(xs)
+        if support(*margins[-1])[0] <= last <= support(*margins[-1])[1]:
+            xs.append(last)
+            break
+    p, tie = checked_p(margins, s, brute=False)
+    return {"a_k": xs, "a_n": [m[0] for m in margins], "b_k": [m[2] - x for m, x in zip(margins, xs)],
+            "b_n": [m[1] for m in margins], "p": p, "tie": tie}
+
+
+def exact_rows() -> list[dict]:
+    rows = []
+    rng = random.Random(SEED + 2)
+    # Brute force over every table set up to a total of 12 runs (K = 2), 8 (K = 3) and 6 (K = 4):
+    # each margin set's null is enumerated and every observed sum is checked against scipy's
+    # convolution. A sample of those sets is written out.
+    for blocks, total, keep in ((2, 12, 0.003), (3, 8, 0.004), (4, 6, 0.004)):
+        for margins in margin_sets(blocks, total):
+            offset, pmf = scipy_null(margins)
+            b_off, b_pmf = enumerated_null(margins)
+            e_off, e_pmf = exact_null(margins)
+            assert b_off == e_off == offset and b_pmf == e_pmf, margins
+            for index in range(len(pmf)):
+                p = float_mid_p(pmf, index)
+                exact, _ = exact_mid_p(e_pmf, index)
+                assert math.isclose(p, float(exact), rel_tol=1e-12, abs_tol=1e-15), margins
+                if rng.random() < keep:
+                    rows.append(row_of(margins, offset + index, rng))
+    # Zero margins by hand: a block with no passes, with only passes, with an empty arm, and an
+    # all-empty block, each next to ordinary blocks.
+    for margins in (
+        ((4, 4, 0), (5, 3, 4)), ((4, 4, 8), (5, 3, 4)), ((0, 4, 2), (5, 3, 4)), ((4, 0, 2), (5, 3, 4)),
+        ((0, 0, 0), (5, 3, 4)), ((0, 0, 0), (4, 0, 0)), ((3, 3, 0), (4, 4, 8), (2, 6, 3)),
+        ((5, 5, 5), (0, 3, 1), (4, 0, 1), (0, 0, 0)),
+    ):
+        offset, pmf = scipy_null(margins)
+        for index in range(len(pmf)):
+            rows.append(row_of(margins, offset + index, rng))
+    # Larger sets, exact rational convolution as the oracle.
+    for _ in range(120):
+        blocks = rng.randint(2, 4)
+        margins = []
+        for _ in range(blocks):
+            a_n, b_n = rng.randint(5, 60), rng.randint(5, 60)
+            margins.append((a_n, b_n, rng.randint(0, a_n + b_n)))
+        margins = tuple(margins)
+        offset, pmf = scipy_null(margins)
+        rows.append(row_of(margins, offset + rng.randrange(len(pmf)), rng))
+    # Equal blocks, symmetric: ties between mirror tables.
+    for margins in (((10, 10, 10),) * 2, ((20, 20, 20),) * 3, ((15, 15, 15),) * 4):
+        offset, pmf = scipy_null(margins)
+        for index in (0, 1, 2, len(pmf) // 2 - 2, len(pmf) // 2 + 1):
+            rows.append(row_of(margins, offset + index, rng))
+    return rows
+
+
+def make_midp() -> dict:
+    return {"engine": engine() | {"tie_tolerance": MIDP_TIE}, "rows": midp_rows()}
+
+
+def make_exact() -> dict:
+    return {"engine": engine() | {"tie_tolerance": MIDP_TIE}, "rows": exact_rows()}
+
+
+FILES |= {"midp.toml": make_midp, "exact.toml": make_exact}
 
 
 # --- cmh ---
