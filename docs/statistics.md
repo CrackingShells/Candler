@@ -62,35 +62,70 @@ when either arm has no graded runs.
 whose interval contains 0 is zero. The interval is reported beside the test of the next section and
 is not a test itself.
 
-## Fisher's exact test
+## Mid-p exact test (one block)
 
 **Answers.** If the two arms had the same pass probability, how likely is a split of passes as
-uneven as the one seen, or more uneven? The p-value is the total probability of every table that is
-no more likely than the observed one, under that shared probability (two-sided).
+uneven as the one seen, or more uneven? The p-value is the total probability of every table less
+likely than the observed one, plus half the probability of the tables as likely as it, given the
+margins (two-sided). With one block this is Fisher's exact test with the mid-p adjustment.
 
-**Why Candler uses it.** The test is exact: it needs no large-sample condition, so it is valid at
-the 3 to 20 runs that replicates give. It is conservative, which means its false-positive rate is
-at most alpha and usually below it, and Candler accepts that cost. Rejected alternatives: the
-chi-square test and the z test for two proportions, whose approximations are invalid at small `n`;
-and Barnard's test, which is more powerful but is not available in the statistics library Candler
-uses.
+**Why Candler uses it.** It needs no large-sample condition, so it is valid at the 3 to 20 runs that
+replicates give. The replicates per arm are fixed by design, so Fisher's own test, which conditions
+on both margins, is conservative here; the mid-p is about as powerful as an unconditional test and
+keeps its level in practice (Lydersen, Fagerland and Laake, 2009). Rejected alternatives: the
+chi-square test and the z test for two proportions, whose approximations are invalid at small `n`.
 
 **Stops being valid.** When the runs within an arm are not independent draws with one pass
 probability; when the two arms were not run under comparable conditions (Candler compares cells only
 inside one comparable stratum, and reports a refused stratum as refused); and when the outcomes are
-weighted.
+weighted, where the permutation test below applies.
 
 **Candler does not claim.** That a p-value above alpha shows the arms are equal: with a few runs
 the test has little power, and a non-rejection is an absence of evidence. It does not claim that
 the p-value is the probability that the null hypothesis is true, nor that a rejection is
-practically significant.
+practically significant. The mid-p can fall slightly below alpha under the null, as it is not
+guaranteed to be conservative.
+
+## Cochran-Mantel-Haenszel test (several blocks)
+
+**Answers.** When the compared factor is tested within blocks (the model, when the question is the
+skill version), does it change the pass rate with the block held fixed? The test pools each block's
+evidence without letting a block with a different base rate create or hide an effect. Candler shows
+the Mantel-Haenszel odds ratio of B over A with its interval, each block's own difference, and
+Breslow-Day's homogeneity test as information only.
+
+**Why Candler uses it.** Pooling the blocks into one table can reverse a real effect (Simpson's
+paradox); the blocked test holds its level where the pooled one does not. No continuity correction
+is applied.
+
+**Stops being valid.** When the chi-square approximation is poor. Candler computes the
+Mantel-Fleiss criterion per comparison and, when it is below 5, runs the exact conditional test (the
+convolution of the blocks' hypergeometric distributions) instead.
+
+**Candler does not claim.** That the effect is the same in every block, nor that homogeneity was
+tested as a condition: per-block effects are shown, not tested.
+
+## Permutation test and BCa interval (weighted expectations)
+
+**Answers.** For an expectation whose outcomes carry weights, is the difference in the summed
+numerators over the summed denominators larger than the labelling of runs could produce by chance?
+Run labels are shuffled within blocks 10 000 times, and the p-value counts the observed labelling
+once, so it is never 0 (Phipson and Smyth, 2010). The interval is a stratified bias-corrected and
+accelerated bootstrap interval (Efron, 1987).
+
+**Stops being valid.** When runs are not exchangeable within a block under no difference; the
+design argues that they are. An arm with fewer than two runs gets no interval, with the reason
+`too_few_runs`. The shuffle seed is fixed, so a re-run gives the same p-value.
+
+**Candler does not claim.** An independent check of the multi-block interval beyond a twin of the
+shuffle, and a reading of "no difference" from a wide interval.
 
 ## Holm adjustment
 
 **Answers.** When several comparisons are tested at once, which of them can be called different
 while the chance of calling any equal pair different stays at or below alpha? Holm's step-down
-procedure adjusts the p-values for that. Candler adjusts over every comparison and expectation of
-one role in one `analyze` call.
+procedure adjusts the p-values for that. Candler adjusts over the expectations of one role in one
+comparison.
 
 **Why Candler uses it.** Holm controls the family-wise error rate (the chance of at least one false
 rejection in the family) with no assumption of independence between the tests, which matters
@@ -144,9 +179,17 @@ that Holm keeps.
   10.1002/(SICI)1097-0258(19980430)17:8<873::AID-SIM779>3.0.CO;2-I](https://doi.org/10.1002/(SICI)1097-0258(19980430)17:8%3C873::AID-SIM779%3E3.0.CO;2-I).
 - Holm (1979), *A Simple Sequentially Rejective Multiple Test Procedure*, Scandinavian Journal of
   Statistics 6(2): [JSTOR 4615733](https://www.jstor.org/stable/4615733).
+- Lydersen, Fagerland and Laake (2009), *Recommended tests for association in 2x2 tables*,
+  Statistics in Medicine 28(7): [doi 10.1002/sim.3531](https://doi.org/10.1002/sim.3531).
+- Mantel and Haenszel (1959), J Natl Cancer Inst 22(4); Mantel and Fleiss (1980), Am J Epidemiol
+  112(1); Robins, Breslow and Greenland (1986), Biometrics 42(2); Breslow and Day (1980), IARC
+  Scientific Publications 32. The CMH statistic, its validity criterion, the odds-ratio variance and
+  the homogeneity test.
+- Phipson and Smyth (2010), Stat Appl Genet Mol Biol 9(1): article 39; Efron (1987), J Am Stat Assoc
+  82(397). The permutation p-value and the BCa interval.
 
 As entry points:
 
 - [Binomial proportion confidence interval](https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval)
-- [Fisher's exact test](https://en.wikipedia.org/wiki/Fisher%27s_exact_test)
+- [Fisher's exact test](https://en.wikipedia.org/wiki/Fisher%27s_exact_test), the test the mid-p adjusts
 - [Holm–Bonferroni method](https://en.wikipedia.org/wiki/Holm%E2%80%93Bonferroni_method)
