@@ -473,3 +473,34 @@ fn t3_one_level_job_unchanged() {
     let harness = serde_json::to_value(cell.comparable.harness()).expect("JSON");
     assert_eq!(harness["version"], json!("2.1.0"));
 }
+
+/// Guards: C3 -- a spec of one level serialises with the keys it had before levels existed, and a
+/// spec of two levels adds `levels`.
+/// Oracle: the key list written below, which is the spec's field list before levels.
+/// Bite: serialise an empty `levels`.
+#[test]
+fn t3_one_level_spec_has_no_levels_key() {
+    let mut one = spec(&["m1"], &facts(), 3600, 1);
+    let mut keys: Vec<String> = serde_json::to_value(&one)
+        .expect("JSON")
+        .as_object()
+        .expect("an object")
+        .keys()
+        .cloned() // BORROW: owned key names
+        .collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        [
+            "budget",
+            "evaluation_inputs",
+            "experiment",
+            "force",
+            "inputs",
+            "plans",
+            "resolution"
+        ]
+    );
+    one.levels = vec![one.resolution.clone(), one.resolution.clone()]; // BORROW: the spec owns its levels
+    assert!(serde_json::to_value(&one).expect("JSON")["levels"].is_array());
+}
