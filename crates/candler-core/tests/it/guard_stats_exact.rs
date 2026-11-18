@@ -65,7 +65,10 @@ fn midp_matches_scipy_hypergeom() {
     for row in &rows {
         let table = stratum((row.a_k, row.a_n), (row.b_k, row.b_n));
         let got = midp_two_sided(&table).unwrap_or_else(|e| {
-            panic!("{}/{} against {}/{}: {e}", row.a_k, row.a_n, row.b_k, row.b_n)
+            panic!(
+                "{}/{} against {}/{}: {e}",
+                row.a_k, row.a_n, row.b_k, row.b_n
+            )
         });
         assert!(
             agrees(got, row.p),
