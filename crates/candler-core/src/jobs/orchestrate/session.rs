@@ -11,7 +11,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use candler_schemas::container::ContainerRole;
-use candler_schemas::execution::{Comparable, EventPayload, SecretPresence, TreatmentSpec};
+use candler_schemas::execution::{
+    Comparable, EventPayload, SecretPresence, TreatmentRef, TreatmentSpec,
+};
 use candler_schemas::primitives::{Digest, FieldPath, Marker, NameToken, SecretName};
 use candler_schemas::values::{ResolvedValue, SourceEntry, ValueSource};
 use futures::future::BoxFuture;
@@ -505,6 +507,36 @@ pub fn image_of(comparable: &Comparable) -> Option<String> {
         .map(str::to_owned) // BORROW: the caller owns the id
 }
 
+/// The resolution a cell runs under: the job's one resolution, or, for a job with levels, the
+/// level whose treatment reference the cell holds.
+///
+/// # Errors
+/// [`OrchestrateError::Treatment`] when no level holds the cell's treatment reference.
+pub fn level_of<'a>(
+    spec: &'a JobSpec,
+    comparable: &Comparable,
+) -> Result<&'a Resolution, OrchestrateError> {
+    if spec.levels.is_empty() {
+        return Ok(&spec.resolution);
+    }
+    spec.levels
+        .iter()
+        .find(|level| {
+            level
+                .values
+                .iter()
+                .find(|value| value.path().as_str() == TREATMENT)
+                .and_then(ResolvedValue::value)
+                // BORROW: .clone() hands the JSON to the deserializer, which takes it by value
+                .and_then(|value| {
+                    serde_json::from_value::<TreatmentRef>(value.as_value().clone()).ok()
+                })
+                .as_ref()
+                == Some(comparable.treatment())
+        })
+        .ok_or(OrchestrateError::Treatment)
+}
+
 /// The cells of a job: what each one is, with the secrets it needs and where its treatment is.
 ///
 /// # Errors
@@ -516,7 +548,6 @@ pub fn cells_of(
     present: &BTreeSet<SecretName>,
     packages: &BTreeMap<String, PackageReadings>,
 ) -> Result<BTreeMap<CellId, Arc<CellRun>>, OrchestrateError> {
-    let source = treatment_of(&spec.resolution)?.source.map(PathBuf::from);
     let factors: Vec<_> = spec
         .experiment
         .factors()
@@ -545,18 +576,17 @@ pub fn cells_of(
             .find(|plan| plan.cell == *digest)
             .and_then(|plan| plan.stored.as_ref())
             .unwrap_or(comparable);
+        let level = level_of(spec, comparable)?;
+        let source = treatment_of(level)?.source.map(PathBuf::from);
+        let names = record_packages(level);
         let cell = CellRun::new(
             comparable.clone(),         // BORROW: the cell owns its comparable
             outcome.experiment.clone(), // BORROW: the cell owns its experiment digest
             factors.clone(),            // BORROW: the cell owns its factors
-            sources_of(
-                written,
-                &spec.resolution,
-                outcome.idle_derived.contains(digest),
-            ),
+            sources_of(written, level, outcome.idle_derived.contains(digest)),
             secrets.clone(), // BORROW: the cell owns its secrets
-            source.clone(),  // BORROW: the cell owns its treatment source
-            inputs.clone(),  // BORROW: the cell owns its inputs
+            source,
+            inputs.clone(), // BORROW: the cell owns its inputs
         )
         // BORROW: the cell owns the evaluator-only inputs
         .with_evaluation_inputs(spec.evaluation_inputs.clone())
@@ -564,7 +594,10 @@ pub fn cells_of(
         .with_packages(
             image_of(comparable)
                 .and_then(|id| packages.get(&id).cloned())
-                .unwrap_or_default(),
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|(name, _)| names.contains(name))
+                .collect(),
         );
         cells.insert(digest.clone(), Arc::new(cell)); // BORROW: the map owns the cell digest
     }

@@ -367,3 +367,148 @@ fn manifests_under(dir: &std::path::Path) -> Vec<String> {
     }
     found
 }
+
+/// Runs `git` in `dir`, panicking when it fails.
+fn run_git(dir: &std::path::Path, args: &[&str]) {
+    let status = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .env("GIT_AUTHOR_NAME", "t")
+        .env("GIT_AUTHOR_EMAIL", "t@example.org")
+        .env("GIT_COMMITTER_NAME", "t")
+        .env("GIT_COMMITTER_EMAIL", "t@example.org")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    assert!(status.success(), "git {args:?} failed");
+}
+
+/// Adds the factor `request.treatment` with the table levels `levels` (TOML text) to the
+/// world's experiment.
+fn declare_levels(world: &World, levels: &str) {
+    let text = fs::read_to_string(&world.experiment).unwrap();
+    let factor = format!("[[factors]]\npath = \"request.treatment\"\nlevels = {levels}\n\n");
+    assert!(text.contains("[budget.per_run]"));
+    fs::write(
+        &world.experiment,
+        text.replace("[budget.per_run]", &format!("{factor}[budget.per_run]")),
+    )
+    .unwrap();
+}
+
+/// A second commit of the skills repository, tagged `v2`.
+fn tag_second_commit(world: &World) {
+    let skill = world.skills.join(".claude").join("skills").join("demo");
+    fs::write(skill.join("SKILL.md"), "# second\n").unwrap();
+    run_git(&world.skills, &["commit", "-q", "-a", "-m", "second"]);
+    run_git(&world.skills, &["tag", "v2"]);
+}
+
+/// Guards: T3 through the binary -- an experiment whose `request.treatment` factor has two table
+/// levels plans one cell per level: two sealed runs whose manifests hold two treatment
+/// references, and no level is reported unresolved.
+/// Oracle: the tags `v1` and `v2` written in the experiment, one on each of two commits of the
+/// skills repository.
+/// Bite: fold every cell to the first level, or leave a treatment table out of the level count.
+#[test]
+fn t3_cli_two_levels_plan_two_cells() {
+    let world = world();
+    tag_second_commit(&world);
+    let source = world.skills.display().to_string();
+    declare_levels(
+        &world,
+        &format!(
+            "[{{name = \"demo\", tag = \"v1\", source = \"{source}\"}}, {{name = \"demo\", tag = \"v2\", source = \"{source}\"}}]"
+        ),
+    );
+    let out = world.launch();
+    assert!(
+        !stderr_of(&out).contains("has no resolution"),
+        "no level is unresolved\n{}",
+        stderr_of(&out)
+    );
+    finish(&world, &out);
+    world.assert_sealed(2);
+    let mut tags: Vec<String> = manifests_under(&world.store().join("runs"))
+        .iter()
+        .map(|text| {
+            let manifest: serde_json::Value = serde_json::from_str(text).unwrap();
+            manifest["comparable"]["treatment"]["tag"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
+        .collect();
+    tags.sort();
+    tags.dedup();
+    assert_eq!(tags, ["v1", "v2"], "one treatment reference for each level");
+    world.remove();
+}
+
+/// Guards: ruling 2 through the binary -- two table levels that resolve to one treatment
+/// reference (one name, tag and commit, read from two checkouts) are refused before any job
+/// exists, and the refusal names both levels.
+/// Oracle: the two checkouts, `skills` and its clone `skills2`, written in the experiment.
+/// Bite: skip the equality check between levels.
+#[test]
+fn t3_cli_equal_levels_are_refused() {
+    let world = world();
+    let first = world.skills.display().to_string();
+    let second = format!("{first}2");
+    run_git(
+        world.skills.parent().unwrap(),
+        &["clone", "-q", first.as_str(), second.as_str()],
+    );
+    declare_levels(
+        &world,
+        &format!(
+            "[{{name = \"demo\", tag = \"v1\", source = \"{first}\"}}, {{name = \"demo\", tag = \"v1\", source = \"{second}\"}}]"
+        ),
+    );
+    let out = world.launch();
+    let stderr = stderr_of(&out);
+    assert!(!out.status.success(), "the launcher refuses\n{stderr}");
+    for source in [&first, &second] {
+        assert!(
+            stderr.contains(&format!("\"source\":\"{source}\"")),
+            "the refusal names the level read from {source}\n{stderr}"
+        );
+    }
+    assert!(
+        String::from_utf8_lossy(&out.stdout).trim().is_empty(),
+        "no job id is printed"
+    );
+    world.remove();
+}
+
+/// Guards: I7 -- a table level of `request.treatment` admits the four fields of a treatment and no
+/// other leaf: `request.treatment.foo` is refused, naming the path, before any job exists.
+/// Oracle: the leaf written in the experiment.
+/// Bite: admit any leaf under `request.treatment`.
+#[test]
+fn t3_cli_stray_treatment_leaf_is_refused() {
+    let world = world();
+    let source = world.skills.display().to_string();
+    declare_levels(
+        &world,
+        &format!(
+            "[{{name = \"demo\", tag = \"v1\", source = \"{source}\", foo = \"x\"}}, {{name = \"demo\", tag = \"v1\", source = \"{source}\"}}]"
+        ),
+    );
+    let out = world.launch();
+    let stderr = stderr_of(&out);
+    assert!(!out.status.success(), "the launcher refuses\n{stderr}");
+    assert!(
+        stderr.contains("request.treatment.foo"),
+        "the refusal names the leaf\n{stderr}"
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stdout).trim().is_empty(),
+        "no job id is printed"
+    );
+    world.remove();
+}

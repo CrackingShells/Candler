@@ -16,7 +16,7 @@ use candler_harness::spec::Cell;
 use candler_schemas::distinct::first_clash;
 use candler_schemas::execution::{
     Comparable, Deviation, ExecutionError, ExperimentFile, Factor, Integrity, Level, RunManifest,
-    SecretPresence, experiment_digest,
+    SecretPresence, TreatmentRef, experiment_digest,
 };
 use candler_schemas::primitives::{Digest, FieldPath, JobId, RunKey, SecretName};
 use candler_schemas::values::{JsonValue, ResolvedValue, SourceEntry, ValueSource};
@@ -137,12 +137,16 @@ pub struct PlanOutcome {
     pub idle_derived: BTreeSet<CellId>,
 }
 
-/// The digest of the experiment `file` makes under `resolution`, from its fresh cells.
+/// The digest of the experiment `file` makes under `levels`, from its fresh cells.
 ///
 /// # Errors
-/// [`PlanError::Cell`] when a cell cannot be built.
-pub fn experiment_of(file: &ExperimentFile, resolution: &Resolution) -> Result<Digest, PlanError> {
-    let cells = fresh_cells(file, &Levels::from(resolution), None)?;
+/// [`PlanError::Cell`] when a cell cannot be built, a treatment level has no resolution, or two
+/// levels resolve to one treatment reference.
+pub fn experiment_of<'a>(
+    file: &ExperimentFile,
+    levels: impl Into<Levels<'a>>,
+) -> Result<Digest, PlanError> {
+    let cells = fresh_cells(file, &levels.into(), None)?;
     let digests: Vec<Digest> = cells.iter().map(|cell| cell.comparable.digest()).collect();
     // BORROW: explicit .as_slice() instead of Deref coercion
     Ok(experiment_digest(digests.as_slice()))
@@ -347,24 +351,87 @@ impl<'a> Levels<'a> {
     }
 }
 
-/// The distinct values of the treatment factor of `file`, in declared order.
-fn treatment_levels(file: &ExperimentFile) -> Vec<&Value> {
-    let mut distinct: Vec<&Value> = Vec::new();
+/// The fields of a treatment, which a table level of the treatment factor may fill.
+pub const TREATMENT_FIELDS: [&str; 4] = ["name", "tag", "commit", "source"];
+
+/// The distinct treatment levels of `file`, in declared order: a value level is itself, and a
+/// table level is the treatment its fields fold to.
+#[must_use]
+pub fn treatment_levels(file: &ExperimentFile) -> Vec<Value> {
+    let mut distinct: Vec<Value> = Vec::new();
     for factor in file
         .factors()
         .iter()
         .filter(|factor| factor.path.as_str() == TREATMENT_FACTOR)
     {
         for level in &factor.levels {
-            if let Level::Value(value) = level {
-                let value = value.as_value();
-                if !distinct.contains(&value) {
-                    distinct.push(value);
-                }
+            let value = match level {
+                // BORROW: .clone() gives the list its own copy of the level
+                Level::Value(value) => value.as_value().clone(),
+                // BORROW: .clone() gives the list its own copy of the level
+                Level::Fill(table) => Value::Object(table.clone()),
+                _ => continue, // EXPLICIT: a level of another kind names no treatment
+            };
+            if !distinct.contains(&value) {
+                distinct.push(value);
             }
         }
     }
     distinct
+}
+
+/// Whether `path` is a field of the treatment a table level fills: a leaf of the setting
+/// `request.treatment`, which names the cell's treatment and is no value of it.
+fn is_treatment_leaf(path: &FieldPath) -> bool {
+    path.as_str()
+        .strip_prefix(TREATMENT_FACTOR)
+        .is_some_and(|rest| rest.starts_with('.'))
+}
+
+/// The treatment level a cell holds: the value at the factor's path, or the table its leaves fill.
+fn level_of_cell(cell: &[ResolvedValue]) -> Option<Value> {
+    let held = cell
+        .iter()
+        .find(|value| value.path().as_str() == TREATMENT_FACTOR)
+        .and_then(ResolvedValue::value);
+    if let Some(value) = held {
+        return Some(value.as_value().clone()); // BORROW: .clone() hands the level on
+    }
+    let prefix = format!("{TREATMENT_FACTOR}.");
+    let table: serde_json::Map<String, Value> = cell
+        .iter()
+        .filter_map(|value| {
+            let key = value.path().as_str().strip_prefix(prefix.as_str())?;
+            // BORROW: .to_owned() and .clone() give the table its own keys and values
+            Some((key.to_owned(), value.value()?.as_value().clone()))
+        })
+        .collect();
+    (!table.is_empty()).then_some(Value::Object(table))
+}
+
+/// The treatment reference a resolution gives its cells: the typed `treatment` root, which the
+/// cell digest hashes.
+fn reference_of(resolution: &Resolution) -> Option<TreatmentRef> {
+    resolution
+        .values
+        .iter()
+        .find(|value| value.path().as_str() == TREATMENT)
+        .and_then(ResolvedValue::value)
+        // BORROW: .clone() hands the JSON to the deserializer, which takes it by value
+        .and_then(|value| serde_json::from_value(value.as_value().clone()).ok())
+}
+
+/// The plan error for two treatment levels that resolve to one treatment reference.
+fn equal_levels(first: &Value, second: &Value) -> PlanError {
+    PlanError::Cell {
+        source: ExecutionError::Document {
+            detail: format!(
+                "the treatment levels {first} and {second} resolve to one treatment reference, \
+                 so their cells would be one"
+            ),
+            path: String::from("/factors"),
+        },
+    }
 }
 
 /// The plan error for a treatment level that has no resolution.
@@ -404,7 +471,17 @@ const TREATMENT_FACTOR: &str = paths::REQUEST_TREATMENT;
 fn setting_of_factor(factor: &Factor) -> Option<String> {
     factor.levels.iter().find_map(|level| {
         if let Level::Fill(table) = level {
-            setting_in(factor.path.as_str(), table)
+            if factor.path.as_str() == TREATMENT_FACTOR {
+                // a treatment table fills the fields of one treatment, and no other leaf
+                table
+                    .iter()
+                    .find(|(key, value)| {
+                        !TREATMENT_FIELDS.contains(&key.as_str()) || value.is_object()
+                    })
+                    .map(|(key, _)| format!("{TREATMENT_FACTOR}.{key}"))
+            } else {
+                setting_in(factor.path.as_str(), table)
+            }
         } else {
             (is_setting(&factor.path) && factor.path.as_str() != TREATMENT_FACTOR) // BORROW: the path's text
                 .then(|| factor.path.to_string())
@@ -452,6 +529,16 @@ fn fresh_cells<'r>(
             return Err(unresolved_level(level.to_string().as_str()));
         }
     }
+    for (later, second) in declared_levels.iter().enumerate().skip(1) {
+        let Some(held) = levels.get(later).and_then(reference_of) else {
+            continue;
+        };
+        for (earlier, first) in declared_levels.iter().enumerate().take(later) {
+            if levels.get(earlier).and_then(reference_of).as_ref() == Some(&held) {
+                return Err(equal_levels(first, second));
+            }
+        }
+    }
     let egress_path = paths::ISOLATION_EGRESS
         .parse::<FieldPath>()
         .map_err(|error| PlanError::Cell {
@@ -459,14 +546,11 @@ fn fresh_cells<'r>(
         })?;
     let mut cells = Vec::new();
     for cell in file.cells() {
-        let index = cell
-            .iter()
-            .find(|value| value.path().as_str() == TREATMENT_FACTOR)
-            .and_then(ResolvedValue::value)
+        let index = level_of_cell(&cell)
             .and_then(|level| {
                 declared_levels
                     .iter()
-                    .position(|declared| **declared == *level.as_value())
+                    .position(|declared| *declared == level)
             })
             .unwrap_or(0);
         let resolution = levels
@@ -481,7 +565,11 @@ fn fresh_cells<'r>(
         let is_explicit = |path: &FieldPath| explicit.iter().any(|own| overlaps(own, path));
         let effective: Vec<ResolvedValue> = cell
             .into_iter()
-            .filter(|value| !is_explicit(value.path()) && !is_setting(value.path()))
+            .filter(|value| {
+                !is_explicit(value.path())
+                    && !is_setting(value.path())
+                    && !is_treatment_leaf(value.path())
+            })
             .collect();
         let mut values: Vec<ResolvedValue> = resolution
             .values

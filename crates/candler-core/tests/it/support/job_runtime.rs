@@ -80,6 +80,7 @@ pub fn job_spec() -> JobSpec {
         budget: file.budget().clone(), // BORROW: the spec owns its budget
         experiment: file,
         resolution: resolution(&Facts::base()),
+        levels: Vec::new(),
         plans: Vec::new(),
         force: false,
         inputs: Vec::new(),
