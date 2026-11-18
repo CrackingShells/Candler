@@ -20,7 +20,7 @@ A two-treatment job runs each cell with its own treatment, and `analyze` reports
 graph TD
     level_wiring[Level wiring]:::done
     analyze_output[Analyze output]:::done
-    proven[Proven]:::planned
+    proven[Proven]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -33,7 +33,7 @@ graph TD
 |:-----|:-----|:-------|
 | `level_wiring.md` | 📄 Leaf Task | ✅ Done |
 | `analyze_output.md` | 📄 Leaf Task | ✅ Done |
-| `proven/` | 📁 Directory | ⬜ Planned |
+| `proven/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

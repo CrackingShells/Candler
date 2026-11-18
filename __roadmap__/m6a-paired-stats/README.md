@@ -85,7 +85,7 @@ graph TD
     treatment_verdict[Treatment verdict]:::done
     arm_counts[Arm counts]:::done
     execution_order[Execution order]:::done
-    resolve[Resolve]:::inprogress
+    resolve[Resolve]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -103,7 +103,7 @@ graph TD
 | `treatment_verdict.md` | 📄 Leaf Task | ✅ Done |
 | `arm_counts.md` | 📄 Leaf Task | ✅ Done |
 | `execution_order.md` | 📄 Leaf Task | ✅ Done |
-| `resolve/` | 📁 Directory | 🔄 In Progress |
+| `resolve/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

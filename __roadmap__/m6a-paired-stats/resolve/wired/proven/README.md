@@ -21,11 +21,11 @@ The blocked battery is shown correct on real data and on known truth, and its de
 ```mermaid
 graph TD
     golden_blocked[Golden blocked]:::blocked
-    known_truth[Known truth]:::planned
-    design_record[Design record]:::planned
-    golden_design[Golden design]:::amendment
-    import_treatment[Import treatment]:::amendment
-    level_of_prefix[Level-of prefix]:::amendment
+    known_truth[Known truth]:::done
+    design_record[Design record]:::done
+    golden_design[Golden design]:::done
+    import_treatment[Import treatment]:::done
+    level_of_prefix[Level-of prefix]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -37,11 +37,11 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `golden_blocked.md` | 📄 Leaf Task | 🚫 Blocked |
-| `known_truth.md` | 📄 Leaf Task | ⬜ Planned |
-| `design_record.md` | 📄 Leaf Task | ⬜ Planned |
-| `golden_design.md` | 📄 Leaf Task | 🔵 Amendment |
-| `import_treatment.md` | 📄 Leaf Task | 🔵 Amendment |
-| `level_of_prefix.md` | 📄 Leaf Task | 🔵 Amendment |
+| `known_truth.md` | 📄 Leaf Task | ✅ Done |
+| `design_record.md` | 📄 Leaf Task | ✅ Done |
+| `golden_design.md` | 📄 Leaf Task | ✅ Done |
+| `import_treatment.md` | 📄 Leaf Task | ✅ Done |
+| `level_of_prefix.md` | 📄 Leaf Task | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
@@ -51,3 +51,8 @@ graph TD
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| `design_record.md` | m6a/design_record | 2 | merged 56bdc6bb. §Analysis statistics as a ## heading, the treatment table form and the importer rule; every validity source cited (G3). The N3 residuals list wants confirmation. Chung and Davis 1998 caveat on the Mantel–Fleiss criterion recorded. The leaf's `:!__roadmap__` pathspec fails in this git; `:(exclude)` used |
+| `golden_design.md` | m6a/golden_design | 3 | merged fffbad28. The golden design (3 models x 4 versions x 20 runs) plans and analyses through Candler; second engine (scipy 1.17.0, statsmodels 0.15.0) agrees (G2). Accepted deviations (A13): fabricated resolutions, partial weighted match, exact fallback not exercised, orientation by recorded key order. Verifier closed |
+| `level_of_prefix.md` | m6a/level_of_prefix | 3 | merged e33894e2. The object-under-prefix branch of level_of was unreachable (check_factors refuses a prefix factor) and is deleted (A13); the design record states A and B are the recorded key order (`Comparison.levels`) |
+| `import_treatment.md` | m6a/import_treatment | 3 | merged 854c275c. The importer declares request.treatment when typed treatments differ and drops the paths mapping one to one onto it (A11); stratum_verdict applies it to all-imported strata only (A12). 25/25 targeted, golden declared_ row green (G12), DIGEST unchanged. Verifier PASS, low findings in the handover |
+| `known_truth.md` | m6a/known_truth | 6 | merged fb691ef1. H0 rates: binary 0.0505, one block 0.0447, tie-free weighted 0.059, tied weighted 0.024 (upper bound only, A14/A15). Simpson blocked 0.051 vs pooled 0.727; power at 0.2 is 0.329 at 12 runs per cell; two levels end to end on fakes (seal `invalid(infrastructure)`, a fakes artefact). Fisher-for-mid-p bite red; weighted constant-p bite not run |
