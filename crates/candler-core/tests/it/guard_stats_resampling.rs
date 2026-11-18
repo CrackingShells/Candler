@@ -161,7 +161,7 @@ fn run(num: f64, den: f64) -> (f64, f64) {
 /// Guards: labels are shuffled within each block, never across blocks. Two blocks, rates 0 and 1,
 /// B differing from A by one run in each: `T = 1/6`, and each block's difference is `+-1/6` with
 /// equal chance, so `|T*| >= 1/6` exactly when the two agree, `p = 1/2`. A shuffle across blocks
-/// mixes the rate-0 and rate-1 runs, so `|T*|` is nearly always at least `1/6` and `p` is near 1.
+/// mixes the rate-0 and rate-1 runs, so `|T*|` reaches `1/6` far less often than half the time and `p` is about 0.26.
 /// Oracle: exact arithmetic, `p = 1/2`, held to 3 Monte Carlo SE at B = 10 000.
 #[test]
 fn permutation_stays_within_blocks() {

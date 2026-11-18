@@ -9,6 +9,10 @@
 //! `Phi(z0 + (z0 + z) / (1 - a (z0 + z)))` for `z` the normal quantiles of `(1 - level) / 2` and
 //! `1 - (1 - level) / 2`.
 //!
+//! `z0` counts replicates strictly below `T`; scipy counts ties as half, so the two differ on
+//! designs with many tied replicates. "Equal" for the jackknife values is exact equality, so a
+//! block of runs equal only up to rounding gives a small, arbitrary `a`.
+//!
 //! A degenerate block (every run in it equal) adds no spread. If every replicate equals the
 //! observed statistic, the interval is the point `(T, T)`; if the jackknife values are all equal,
 //! `a = 0`. A block needs at least two runs in each arm, so that each run can be left out.
@@ -35,8 +39,8 @@ fn validate_for_bca(blocks: &[UnitBlock]) -> Result<(), StatsError> {
 }
 
 /// The acceleration `a = sum(d^3) / (6 (sum(d^2))^(3/2))`, with `d = mean - theta_i` over the
-/// statistic `theta_i` of the data with run `i` left out (weights taken from the remaining
-/// runs); 0 if every `theta_i` is equal.
+/// statistic `theta_i` of the data with run `i` left out, the block weights held at their observed
+/// values as the bootstrap holds them; 0 if every `theta_i` is exactly equal.
 ///
 /// # Errors
 /// As [`stratified_bca`] for the blocks.
@@ -49,7 +53,6 @@ pub fn jackknife_acceleration(blocks: &[UnitBlock]) -> Result<f64, StatsError> {
             for &(num, den) in runs {
                 let mut left_out = base.clone();
                 if let Some(summary) = left_out.get_mut(k) {
-                    summary.n -= 1;
                     let arm = if is_b { &mut summary.b } else { &mut summary.a };
                     *arm = (arm.0 - num, arm.1 - den);
                 }

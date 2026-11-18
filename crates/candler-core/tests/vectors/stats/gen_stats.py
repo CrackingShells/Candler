@@ -738,7 +738,13 @@ def permutation_designs():
     gap = [([(0.0, 1.0)] * 6, [(0.0, 1.0)] * 5 + [(1.0, 1.0)]),
            ([(1.0, 1.0)] * 5 + [(0.0, 1.0)], [(1.0, 1.0)] * 6)]
     simpson = [([(0.0, 1.0)] * 3, [(1.0, 1.0)] * 3), ([(1.0, 2.0)] * 3, [(2.0, 2.0)] * 3)]
-    return [("mild", mild, 10000), ("one", one, 10000), ("two", two, 2000),
+    # Ratios over 3 and 7: permuted |T*| equals |T| only up to rounding, so the tolerance counts.
+    r = random.Random(2)
+    tie = [([(float(r.randint(0, 3)), 3.0) for _ in range(4)],
+            [(float(r.randint(0, 3)), 3.0) for _ in range(4)]),
+           ([(float(r.randint(0, 7)), 7.0) for _ in range(5)],
+            [(float(r.randint(0, 7)), 7.0) for _ in range(5)])]
+    return [("tie", tie, 2000), ("mild", mild, 10000), ("one", one, 10000), ("two", two, 2000),
             ("three", three, 2000), ("equal", equal, 500), ("gap", gap, 10000),
             ("simpson", simpson, 2000)]
 
@@ -760,6 +766,17 @@ def make_permutation() -> dict:
         results[name] = (blocks, b, p)
         rows.append({"name": name, "seed": seed, "b": b, **flat(blocks),
                      "statistic": statistic, "p": p, "extreme": extreme})
+    # The tie tolerance must matter on the `tie` row, or no row could tell it from none.
+    blocks, b, _ = results["tie"]
+    seed = RESAMPLE_SEED
+    cutoff = perm_cutoff
+    try:
+        globals()["perm_cutoff"] = abs
+        strict = stratified_permutation(blocks, b, seed)[2]
+    finally:
+        globals()["perm_cutoff"] = cutoff
+    if strict == stratified_permutation(blocks, b, seed)[2]:
+        sys.exit("gen_stats: the `tie` row does not depend on the tie tolerance")
     # Monte Carlo agreement 1: the exact p over every within-block relabelling.
     for name in ("mild", "gap"):
         blocks, b, p = results[name]
@@ -808,7 +825,7 @@ def jackknife_acceleration(blocks) -> float:
                     sb = (sb[0] - num, sb[1] - den)
                 else:
                     sa = (sa[0] - num, sa[1] - den)
-                s[k] = (sa, sb, n - 1)
+                s[k] = (sa, sb, n)
                 thetas.append(statistic_of(s))
     if all(t == thetas[0] for t in thetas):
         return 0.0
@@ -875,7 +892,11 @@ def bca_designs():
     # One block with every run equal, beside one that varies.
     degenerate_mix = [([(1.0, 2.0)] * 4, [(1.0, 2.0)] * 5), two[0]]
     degenerate = [([(1.0, 2.0)] * 4, [(1.0, 2.0)] * 5)]
-    return [("one", one, 2000, 0.95), ("two", two, 2000, 0.9), ("three", three, 2000, 0.95),
+    # Heavy-tailed runs: the acceleration is about 0.09, so scipy's interval separates a wrong one.
+    r = random.Random(0)
+    skew = [([(r.expovariate(1 / 0.3) ** 2, 1.0) for _ in range(12)],
+             [(r.expovariate(1 / 0.5) ** 2, 1.0) for _ in range(12)])]
+    return [("skew", skew, 2000, 0.95), ("one", one, 2000, 0.95), ("two", two, 2000, 0.9), ("three", three, 2000, 0.95),
             ("binary", binary, 2000, 0.95), ("degenerate_mix", degenerate_mix, 2000, 0.95),
             ("degenerate", degenerate, 200, 0.95)]
 
@@ -890,32 +911,49 @@ def make_bca() -> dict:
         rows.append({"name": name, "seed": seed, "b": b, "level": level, **flat(blocks),
                      "low": low, "high": high})
     # Monte Carlo agreement: scipy's BCa over 20 seeds for one block; the twin's endpoints must lie
-    # within 3 SE of scipy's mean, SE being the seed-to-seed SD of scipy's own endpoints and the
-    # twin's one draw added in quadrature.
-    blocks, b, level, low, high = results["one"]
-    a_runs, b_runs = blocks[0]
-    num = np.array([n for n, _ in a_runs + b_runs])
-    den = np.array([d for _, d in a_runs + b_runs])
+    # within 3 SE of scipy's mean, SE being the seed-to-seed SD of scipy's own endpoints with the
+    # twin's one draw added in quadrature. On `skew` the same check must reject a twin whose
+    # acceleration has the wrong sign or is 0, or it could not tell them from the right one.
+    def disagrees(blocks, b, level, ends, low, high) -> bool:
+        flags = []
+        for which, mine in enumerate((low, high)):
+            values = np.array([e[which] for e in ends])
+            se = float(values.std(ddof=1)) * math.sqrt(1 + 1 / len(values))
+            flags.append(not agree(mine, float(values.mean()), se))
+        return any(flags)
 
-    def stat(ia, ib, axis=-1):
-        return (num[ib].sum(axis=axis) / den[ib].sum(axis=axis)
-                - num[ia].sum(axis=axis) / den[ia].sum(axis=axis))
+    for name in ("one", "skew"):
+        blocks, b, level, low, high = results[name]
+        a_runs, b_runs = blocks[0]
+        num = np.array([n for n, _ in a_runs + b_runs])
+        den = np.array([d for _, d in a_runs + b_runs])
 
-    ia = np.arange(len(a_runs))
-    ib = np.arange(len(a_runs), len(a_runs) + len(b_runs))
-    ends = []
-    for seed in range(20):
-        ci = bootstrap((ia, ib), stat, vectorized=True, method="BCa", n_resamples=b,
-                       confidence_level=level, random_state=np.random.default_rng(seed)
-                       ).confidence_interval
-        ends.append((float(ci.low), float(ci.high)))
-    for which, mine in enumerate((low, high)):
-        values = np.array([e[which] for e in ends])
-        sd = float(values.std(ddof=1))
-        se = sd * math.sqrt(1 + 1 / len(values))
-        if not agree(mine, float(values.mean()), se):
-            sys.exit(f"gen_stats: BCa endpoint {which}: {mine} is not within {MC_SIGMAS} SE "
-                     f"({se:.4g}) of scipy's mean {values.mean()}")
+        def stat(ia, ib, axis=-1):
+            return (num[ib].sum(axis=axis) / den[ib].sum(axis=axis)
+                    - num[ia].sum(axis=axis) / den[ia].sum(axis=axis))
+
+        ia = np.arange(len(a_runs))
+        ib = np.arange(len(a_runs), len(a_runs) + len(b_runs))
+        ends = []
+        for seed in range(20):
+            ci = bootstrap((ia, ib), stat, vectorized=True, method="BCa", n_resamples=b,
+                           confidence_level=level, random_state=np.random.default_rng(seed)
+                           ).confidence_interval
+            ends.append((float(ci.low), float(ci.high)))
+        if disagrees(blocks, b, level, ends, low, high):
+            sys.exit(f"gen_stats: BCa `{name}`: the twin's ({low}, {high}) is not within "
+                     f"{MC_SIGMAS} SE of scipy's mean")
+        if name == "skew":
+            true_accel = jackknife_acceleration
+            for label, wrong in (("flipped", lambda bl: -true_accel(bl)), ("zero", lambda bl: 0.0)):
+                globals()["jackknife_acceleration"] = wrong
+                try:
+                    bad_low, bad_high = stratified_bca(blocks, b, level, RESAMPLE_SEED + 100)
+                finally:
+                    globals()["jackknife_acceleration"] = true_accel
+                if not disagrees(blocks, b, level, ends, bad_low, bad_high):
+                    sys.exit(f"gen_stats: scipy's check cannot tell a {label} acceleration "
+                             "from the right one")
     return {"engine": engine(), "rows": rows}
 
 
