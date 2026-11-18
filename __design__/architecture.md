@@ -1193,7 +1193,10 @@ rules is refused), and every arm records `provenance.eval_infra.commit` (a non-e
 `provenance.eval_infra.dirty` and `provenance.sandbox_contract` in `comparable.values` with equal
 values. The verdict compares these three itself, so no declared factor pools arms of two legacy
 builds. A dirty legacy build does not refuse: arms that agree on commit, flag, contract and rules
-pool, on the assumption that one legacy launch is one checkout. Live strata keep the gate above.
+pool, on the assumption that one legacy launch is one checkout. Live strata keep the gate above. Among
+imported arms only, an undeclared value path that differs is also dropped when `request.treatment`
+is declared, the arms' treatments differ and the path's levels map one to one onto the treatment
+levels over every arm of the stratum; a live stratum gets no such exemption.
 
 **Session and census measures.** A session run records the `session.*` values of §Session runner
 and `session.control`. A census whose source is not the harness's own init event also records

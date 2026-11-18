@@ -192,3 +192,96 @@ pub fn project(cell: &str, run_n: u32, record: &Value) -> ExpectedRow {
         cause,
     }
 }
+
+/// The model the clones of [`versions_by_models`] run under.
+pub const OTHER_MODEL: &str = "claude-sonnet-4-5";
+
+/// Writes under `dest` a corpus of the mini-corpus' real cells named in `versions`, each once under
+/// the model it has and once cloned under [`OTHER_MODEL`]: the cloned cell's `experiment.json`
+/// names the other model in `plan.model` and `plan.out_dir`, and nothing else of it changes; the
+/// corpus' `PROVENANCE.json` and `expectations.jsonl` list the runs of the kept and cloned cells
+/// only. With
+/// `[V3, V6]` that is two versions by two models, four cells; with `[V3]` one version by two.
+///
+/// # Panics
+///
+/// Panics when the mini-corpus cannot be copied or a cell's `experiment.json` cannot be edited.
+pub fn versions_by_models(dest: &Path, versions: &[&str]) {
+    copy_tree(&mini(), dest);
+    for cell in [SYNTHETIC, V3, V6] {
+        if !versions.contains(&cell) {
+            fs::remove_dir_all(dest.join(cell))
+                .unwrap_or_else(|e| panic!("remove the cell {cell}: {e}"));
+        }
+    }
+    let listing = dest.join("PROVENANCE.json");
+    let text = fs::read_to_string(&listing).unwrap_or_else(|e| panic!("read {listing:?}: {e}"));
+    let mut provenance: Value =
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("parse {listing:?}: {e}"));
+    let mut runs: Vec<Value> = provenance
+        .get("runs")
+        .and_then(Value::as_array)
+        .expect("a runs list")
+        .iter()
+        .filter(|run| versions.contains(&text_of(run, "cell").as_str()))
+        .cloned() // BORROW: .cloned() gives the new listing its own entries
+        .collect();
+    let mut cloned_runs: Vec<Value> = Vec::new();
+    for run in &runs {
+        let mut copy = run.clone(); // BORROW: .clone() gives the cloned run its own entry
+        let entry = copy.as_object_mut().expect("a run entry is an object");
+        let cell = text_of(&Value::Object(entry.clone()), "cell");
+        entry.insert(
+            "cell".to_owned(),
+            Value::String(cell.replace("claude-haiku-4-5", OTHER_MODEL)),
+        );
+        entry.insert("model".to_owned(), Value::String(OTHER_MODEL.to_owned()));
+        cloned_runs.push(copy);
+    }
+    runs.extend(cloned_runs);
+    provenance
+        .as_object_mut()
+        .expect("a provenance object")
+        .insert("runs".to_owned(), Value::Array(runs));
+    let bytes = serde_json::to_vec_pretty(&provenance).expect("a document serializes");
+    fs::write(&listing, bytes).unwrap_or_else(|e| panic!("write {listing:?}: {e}"));
+    let rows = dest.join("expectations.jsonl");
+    let text = fs::read_to_string(&rows).unwrap_or_else(|e| panic!("read {rows:?}: {e}"));
+    let mut kept: Vec<String> = Vec::new();
+    let mut cloned: Vec<String> = Vec::new();
+    for line in text.lines() {
+        let row: Value = serde_json::from_str(line).unwrap_or_else(|e| panic!("parse {line}: {e}"));
+        let cell = text_of(&row, "cell");
+        if versions.contains(&cell.as_str()) {
+            // BORROW: .replace() makes the cloned row's own text
+            cloned.push(line.replace(
+                cell.as_str(),
+                &cell.replace("claude-haiku-4-5", OTHER_MODEL),
+            ));
+            kept.push(line.to_owned()); // BORROW: .to_owned() makes the owned line
+        }
+    }
+    kept.extend(cloned);
+    fs::write(&rows, format!("{}\n", kept.join("\n")))
+        .unwrap_or_else(|e| panic!("write {rows:?}: {e}"));
+    for cell in versions {
+        let clone = cell.replace("claude-haiku-4-5", OTHER_MODEL);
+        copy_tree(&dest.join(cell), &dest.join(&clone));
+        let file = dest.join(&clone).join("experiment.json");
+        let text = fs::read_to_string(&file).unwrap_or_else(|e| panic!("read {file:?}: {e}"));
+        let mut doc: Value =
+            serde_json::from_str(&text).unwrap_or_else(|e| panic!("parse {file:?}: {e}"));
+        let plan = doc
+            .get_mut("plan")
+            .and_then(Value::as_object_mut)
+            .expect("a plan object");
+        plan.insert("model".to_owned(), Value::String(OTHER_MODEL.to_owned()));
+        let out_dir = text_of(&Value::Object(plan.clone()), "out_dir");
+        plan.insert(
+            "out_dir".to_owned(),
+            Value::String(out_dir.replace("claude-haiku-4-5", OTHER_MODEL)),
+        );
+        let bytes = serde_json::to_vec_pretty(&doc).expect("a document serializes");
+        fs::write(&file, bytes).unwrap_or_else(|e| panic!("write {file:?}: {e}"));
+    }
+}

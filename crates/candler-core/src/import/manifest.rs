@@ -14,6 +14,8 @@ use candler_schemas::values::{JsonValue, MeasuredValue, ResolvedValue, SourceEnt
 use serde_json::Value;
 use sha2::Digest as _;
 
+use crate::manifest::compare::maps_one_to_one;
+
 use super::ImportError;
 use super::legacy::{
     COMPLETED_AT, CONFIG, CONTAMINATION_CATALOG_FILE, COPIED_INPUTS, CORPUS_BASE_COMMIT,
@@ -115,6 +117,8 @@ struct CellModel {
     comparable: Comparable,
     experiment: RelPath,
     provenance_leaves: Vec<(String, Value)>,
+    /// The treatment reference as the experiment file writes it, `<name>@<tag>`.
+    treatment: String,
 }
 
 /// The `provenance.*` leaves of `experiment.json` and all the leaves a cell digest holds.
@@ -180,6 +184,52 @@ fn copied_inputs(run: &LegacyRun) -> Result<BTreeSet<DigestRef>, ImportError> {
         inputs.insert(DigestRef::new(kind, digest));
     }
     Ok(inputs)
+}
+
+/// Whether the levels of `path` map one to one onto the cells' treatment references: every cell
+/// records a value, and two cells share a treatment exactly when they share that value.
+fn tracks_treatment(models: &[CellModel], path: &FieldPath) -> bool {
+    let cells: Vec<(String, Option<String>)> = models
+        .iter()
+        .map(|model| {
+            let level = model
+                .comparable
+                .values()
+                .iter()
+                .find(|value| value.path() == path)
+                .and_then(ResolvedValue::value)
+                .map(|value| value.as_value().to_string());
+            // BORROW: .clone() gives the pair its own treatment text
+            (model.treatment.clone(), level)
+        })
+        .collect();
+    maps_one_to_one(cells.as_slice())
+}
+
+/// The factors an imported experiment declares: the varying value paths, and, when the cells'
+/// treatment references differ, `request.treatment` in place of every value path whose levels map
+/// one to one onto the treatment's. The values stay in each cell.
+fn declared_factors(
+    models: &[CellModel],
+    varying: Vec<FieldPath>,
+) -> Result<Vec<FieldPath>, ImportError> {
+    let treatments: BTreeSet<&str> = models
+        .iter()
+        .map(|model| model.treatment.as_str())
+        .collect();
+    if treatments.len() < 2 {
+        return Ok(varying);
+    }
+    let mut factors: Vec<FieldPath> = varying
+        .into_iter()
+        .filter(|path| !tracks_treatment(models, path))
+        .collect();
+    factors.push(FieldPath::from_str(
+        candler_schemas::execution::paths::REQUEST_TREATMENT,
+    )?);
+    factors.sort();
+    factors.dedup();
+    Ok(factors)
 }
 
 /// Builds what every run of `cell` shares.
@@ -287,6 +337,7 @@ fn cell_model(
         comparable,
         experiment,
         provenance_leaves,
+        treatment: format!("{}@{}", treatment.0, treatment.1),
     })
 }
 
@@ -604,7 +655,7 @@ pub fn map_runs(folder: &LegacyFolder, rules: &ImportRules) -> Result<Vec<Mapped
         // BORROW: .to_vec() copies the cell's values for the comparison across cells
         .map(|model| model.comparable.values().to_vec())
         .collect();
-    let factors = varying_paths(&lists);
+    let factors = declared_factors(&models, varying_paths(&lists))?;
     let digests: Vec<Digest> = models
         .iter()
         .map(|model| model.comparable.digest())
