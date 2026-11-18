@@ -57,9 +57,16 @@ Round 1 (spec-verifier, Sonnet, 28 calls): VERIFY_DEVIATION, no path found where
 | F4 `sources_of` per level unguarded (mutant survived) | fixed: fake levels carry their own sources; mutant now red. `record_packages` stays unguarded (Left) |
 | F5 `t4_` rows cannot go red on the named bite | recorded in Bites and Findings |
 | F6 extras in `Levels` ignored; job-wide settings read from the primary level | no leak found; informational |
-Re-check of F1, F2, F4 was requested from the same verifier; its answer was not back when this report was committed, so the verdict is open until the coordinator reads it (not fabricated here).
+Round 2 (same verifier, SendMessage): F1 closed, F2 closed (by reading; the CLI needs Docker), F4 closed for `sources_of` (mutant now red) and open for `record_packages`, which the coordinator ruled to leave unguarded (Finding 5). Verdict: no open finding except that accepted residual and the T4 bite (Finding 3); F5 and the CLI row below are the coordinator's to rule.
+
+## Ownership
+Files outside the leaf's OWNED regex, accepted by the coordinator:
+- `crates/candler-core/src/runner/plan.rs`: the ruling-2 check, `experiment_of(file, impl Into<Levels>)` (existing `&Resolution` callers compile unchanged) and `pub treatment_levels`.
+- `crates/candler-core/tests/it/guard_run_plan.rs`: the probe row and the equal-levels row, appended.
+- `crates/candler-core/tests/it/guard_egress_setting.rs`, `guard_session.rs`, `support/job_orchestrate.rs`, `support/job_runtime.rs`, `crates/candler/tests/it/guard_cli_kill_live.rs`, `guard_cli_observe.rs`: only `levels: Vec::new()` in a `JobSpec` literal; no assertion changes.
 
 ## Findings
+0. **Spec defect: a two-treatment experiment cannot be written, so `candler run` cannot plan one end to end.** Probed through the binary on the `guard_cli_run` world (a temporary row, removed): a factor `request.treatment` with string levels `["demo","other"]` is refused by `treatment_identity@1`: "`request.treatment` is not valid: invalid type: string "demo", expected an object". With table levels `[{name="demo", tag="v1"}, ...]` the file parser makes them `Level::Fill`, and the CLI refuses "`request.treatment.name` is not a path of the experiment surface" (`setting_in` flags the leaves; `treatment_levels` and `Levels` only count `Level::Value`). So the only levels `treatment_levels` sees are scalars, which the resolver rejects. The planning chain, `JobSpec.levels` and `cells_of` are right on resolutions built by hand, but no experiment file reaches them. Needs a ruling on the level syntax (for example a scalar level naming a table `[treatments.<name>]`, or `Level::Value` allowing an object) before a `t3_cli_*` row can exist. `t3_cli_two_levels_plan_two_cells` and `t3_cli_equal_levels_are_refused` were therefore not added.
 1. Probe contradicts the L1 handover: the commit enters the digest (above). Handover and any note saying levels must differ in `tag` are wrong; commit alone suffices.
 2. Ownership extensions the change forced, none altering a guard's meaning:
    - `runner/plan.rs`: `experiment_of` takes `impl Into<Levels>` (it built a single-level `Levels`, so any multi-level file failed with "no resolution" in `run_job` and `plan_job`); `treatment_levels` is `pub`; the ruling-2 check.
@@ -71,5 +78,5 @@ Re-check of F1, F2, F4 was requested from the same verifier; its answer was not 
 
 ## Left
 - Per-level `record_packages` has no guard (readings cannot be built from tests); it is filtered in `cells_of` by the cell's own level's names.
-- A CLI-level row for a two-level file needs Docker or a fake that `guard_cli_run` does not have.
+- `t3_cli_two_levels_plan_two_cells` and `t3_cli_equal_levels_are_refused`: blocked by Finding 0, not by Docker (the `guard_cli_run` world runs a full job on a PATH-fake docker).
 - STD workspace, LINUX, SUBJ, GOLDEN for the coordinator.
