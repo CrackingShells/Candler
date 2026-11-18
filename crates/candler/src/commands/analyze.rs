@@ -251,12 +251,8 @@ fn per_block_json(tested: &Tested) -> Value {
 }
 
 /// A number as a CSV field, empty when there is none.
-fn number(value: f64) -> String {
-    if value.is_nan() {
-        String::new()
-    } else {
-        value.to_string()
-    }
+fn number(value: Option<f64>) -> String {
+    value.map_or_else(String::new, |held| held.to_string())
 }
 
 fn entry_json(entry: &Entry) -> Value {
@@ -269,6 +265,7 @@ fn entry_json(entry: &Entry) -> Value {
             "p": tested.p,
             "p_holm": tested.p_holm,
             "reject": tested.reject,
+            // B − A: the difference of arm B's rate over arm A's, null when the test gives none.
             "diff": tested.diff,
             "diff_lo": tested.diff_lo,
             "diff_hi": tested.diff_hi,
@@ -524,10 +521,10 @@ fn comparisons_csv(report: &Report) -> String {
                     tested.fallback.to_string(),
                     tested.blocks.to_string(),
                     tested.reading.as_str().to_owned(),
-                    tested.or_mh.map_or_else(String::new, number),
-                    tested.or_ci.map_or_else(String::new, |(lo, _)| number(lo)),
-                    tested.or_ci.map_or_else(String::new, |(_, hi)| number(hi)),
-                    tested.homogeneity_p.map_or_else(String::new, number),
+                    number(tested.or_mh),
+                    number(tested.or_ci.map(|(lo, _)| lo)),
+                    number(tested.or_ci.map(|(_, hi)| hi)),
+                    number(tested.homogeneity_p),
                     json_text(&per_block_json(tested)),
                 ],
                 Entry::Omitted { .. } | _ => vec![String::new(); 9],

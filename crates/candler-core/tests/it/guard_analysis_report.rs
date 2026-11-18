@@ -49,6 +49,10 @@ struct Spec {
     experiment: char,
     /// The typed treatment of the cell.
     treatment: Value,
+    /// The build inputs of the cell.
+    inputs: Value,
+    /// The plug-in environment locks of the cell.
+    environments: Value,
 }
 
 impl Spec {
@@ -64,6 +68,8 @@ impl Spec {
             factors: vec!["plan.model"],
             experiment: '0',
             treatment: json!({"name": "t"}),
+            inputs: json!([]),
+            environments: json!([]),
         }
     }
 }
@@ -92,6 +98,14 @@ fn manifest(spec: &Spec) -> RunManifest {
         .collect();
     sources.push(json!({"path": "harness", "source": {"kind": "experiment_file"}}));
     sources.push(json!({"path": "treatment", "source": {"kind": "experiment_file"}}));
+    for (path, held) in [
+        ("inputs", &spec.inputs),
+        ("environments", &spec.environments),
+    ] {
+        if held != &json!([]) {
+            sources.push(json!({"path": path, "source": {"kind": "experiment_file"}}));
+        }
+    }
     let mut block: Vec<(String, Value)> = vec![
         ("eval_infra.commit".to_owned(), json!("abc1234")),
         ("eval_infra.dirty".to_owned(), json!(false)),
@@ -123,8 +137,8 @@ fn manifest(spec: &Spec) -> RunManifest {
                 "harness": {"name": "h", "version": "1.0.0"},
                 "treatment": spec.treatment,
                 "snapshots": [],
-                "inputs": [],
-                "environments": []
+                "inputs": spec.inputs,
+                "environments": spec.environments
             },
             "sources": sources,
             "secrets": [],
@@ -336,15 +350,6 @@ struct WilsonRow {
 }
 
 #[derive(Deserialize)]
-struct FisherRow {
-    k1: u64,
-    n1: u64,
-    k2: u64,
-    n2: u64,
-    p: f64,
-}
-
-#[derive(Deserialize)]
 struct NewcombeRow {
     k1: u64,
     n1: u64,
@@ -360,14 +365,6 @@ fn close(label: &str, got: f64, want: f64) {
         (got - want).abs() <= 1e-9,
         "{label}: got {got:?}, the second engine has {want:?}"
     );
-}
-
-fn fisher_p(a: (u64, u64), b: (u64, u64)) -> f64 {
-    vector::<FisherRow>("fisher.toml")
-        .into_iter()
-        .find(|r| (r.k1, r.n1, r.k2, r.n2) == (a.0, a.1, b.0, b.1))
-        .map(|r| r.p)
-        .expect("a fisher vector row")
 }
 
 /// The hand counts of one arm: model, gate, quality, `E1` and `E2` as `k` and `n`, and the status
@@ -568,21 +565,36 @@ fn holm_report() -> (Report, BTreeMap<&'static str, String>) {
     (report(&selection, runs), cells)
 }
 
-/// Guards: A1 — the Holm family is one per role per call: the three comparable pairs give six
-/// tested gate entries in one family `gate, 6`, E3 is `weighted` in every arm so the quality
-/// family is empty, and each `p_holm` equals the step-down adjustment of the six raw p-values,
-/// the p-values and differences being rows of the second engine.
-/// Oracle: `fisher.toml` and `newcombe.toml`, and the test's own few lines of Holm.
-/// Bite: adjust each pair on its own (family of 2), or leave Holm out, and this turns red.
+/// Guards: A1 — Holm is one family per comparison and role per call: the three comparable pairs
+/// give six families (two gate tests, `E1` and `E2`, and one quality test, `E3`, in each), `E3`
+/// is `weighted` in every arm and so tested by the permutation test, and each gate `p_holm` is the
+/// step-down adjustment of its comparison's own two raw p-values, the p-values and differences
+/// (B − A) being rows of the second engine.
+/// Oracle: `midp.toml` and `newcombe.toml`, and the test's own few lines of Holm.
+/// Bite: adjust the six gate p-values as one family, or leave Holm out, and this turns red.
 #[test]
 fn a1_holm_family_is_one_per_role_per_call() {
     let (report, cells) = holm_report();
     let comparisons = &report.comparisons;
     assert_eq!(comparisons.len(), 3);
     assert_eq!(report.pairs_not_one_factor, 0);
-    assert_eq!(report.families.len(), 1);
-    assert_eq!(report.families[0].role, Role::Gate);
-    assert_eq!(report.families[0].m, 6);
+    assert_eq!(report.families.len(), 6);
+    assert_eq!(
+        report
+            .families
+            .iter()
+            .filter(|f| f.role == Role::Gate && f.m == 2)
+            .count(),
+        3
+    );
+    assert_eq!(
+        report
+            .families
+            .iter()
+            .filter(|f| f.role == Role::Quality && f.m == 1)
+            .count(),
+        3
+    );
     let counts: BTreeMap<(&str, &str), (u64, u64)> = BTreeMap::from([
         (("alpha", "E1"), (6, 10)),
         (("alpha", "E2"), (3, 5)),
@@ -598,8 +610,6 @@ fn a1_holm_family_is_one_per_role_per_call() {
             .expect("a cell")
             .0
     };
-    let mut raw: Vec<f64> = Vec::new();
-    let mut seen = Vec::new();
     for comparison in comparisons {
         assert_eq!(comparison.verdict, PairVerdict::Comparable);
         assert_eq!(comparison.factor.to_string(), "plan.model");
@@ -609,55 +619,47 @@ fn a1_holm_family_is_one_per_role_per_call() {
             3,
             "E1, E2 and E3 are graded in both arms"
         );
+        let mut raw: Vec<(f64, f64, bool)> = Vec::new();
         for entry in &comparison.entries {
-            if let Entry::Tested(tested) = entry {
-                let id = tested.id.to_string();
-                let (ca, cb) = (counts[&(a, id.as_str())], counts[&(b, id.as_str())]);
-                assert_eq!((tested.a.k(), tested.a.n()), ca);
-                assert_eq!((tested.b.k(), tested.b.n()), cb);
-                close("p", tested.p, fisher_p(ca, cb));
-                let row = vector::<NewcombeRow>("newcombe.toml")
-                    .into_iter()
-                    .find(|r| (r.k1, r.n1, r.k2, r.n2) == (ca.0, ca.1, cb.0, cb.1))
-                    .expect("a newcombe row");
-                close("diff", tested.diff, row.diff);
-                close("diff_lo", tested.diff_lo, row.lo);
-                close("diff_hi", tested.diff_hi, row.hi);
-                raw.push(tested.p);
-                seen.push(tested.clone());
-            } else {
-                assert_eq!(entry.id().to_string(), "E3");
-                assert_eq!(
-                    entry,
-                    &Entry::Omitted {
-                        id: entry.id().clone(),
-                        role: Role::Quality,
-                        reason: OmitReason::Counts(Omitted::Weighted)
-                    }
-                );
+            let Entry::Tested(tested) = entry else {
+                panic!("every entry is tested: {entry:?}");
+            };
+            let id = tested.id.to_string();
+            if id == "E3" {
+                assert_eq!(tested.role, Role::Quality);
+                assert_eq!(tested.battery, Some(Battery::Permutation));
+                continue;
             }
+            let (ca, cb) = (counts[&(a, id.as_str())], counts[&(b, id.as_str())]);
+            assert_eq!((tested.a.k(), tested.a.n()), ca);
+            assert_eq!((tested.b.k(), tested.b.n()), cb);
+            close("p", tested.p, midp_p(ca, cb));
+            let row = vector::<NewcombeRow>("newcombe.toml")
+                .into_iter()
+                .find(|r| (r.k1, r.n1, r.k2, r.n2) == (cb.0, cb.1, ca.0, ca.1))
+                .expect("a newcombe row");
+            close("diff", tested.diff.expect("a difference"), row.diff);
+            close("diff_lo", tested.diff_lo.expect("a limit"), row.lo);
+            close("diff_hi", tested.diff_hi.expect("a limit"), row.hi);
+            raw.push((tested.p, tested.p_holm, tested.reject));
         }
+        // The step-down adjustment of two, written out: the smaller p doubled, the larger kept
+        // at least as high, both capped at 1.
+        let [first, second] = raw.as_slice() else {
+            panic!("two gate tests");
+        };
+        let low = (2.0 * first.0.min(second.0)).min(1.0);
+        let high = low.max(first.0.max(second.0));
+        let (low_at, high_at) = if first.0 <= second.0 {
+            (first, second)
+        } else {
+            (second, first)
+        };
+        close("p_holm low", low_at.1, low);
+        close("p_holm high", high_at.1, high);
+        assert_eq!(low_at.2, low < 0.05);
+        assert_eq!(high_at.2, high < 0.05);
     }
-    assert_eq!(raw.len(), 6);
-    // The step-down adjustment, written out: sort ascending, multiply by (m - rank), keep the
-    // running maximum, cap at 1.
-    let m = raw.len();
-    let mut order: Vec<usize> = (0..m).collect();
-    order.sort_by(|&i, &j| raw[i].total_cmp(&raw[j]).then(i.cmp(&j)));
-    let mut adjusted = vec![0.0_f64; m];
-    let mut running = 0.0_f64;
-    for (rank, &at) in order.iter().enumerate() {
-        running = running.max(f64::from(u32::try_from(m - rank).expect("small")) * raw[at]);
-        adjusted[at] = running.min(1.0);
-    }
-    for (at, tested) in seen.iter().enumerate() {
-        close("p_holm", tested.p_holm, adjusted[at]);
-        assert_eq!(tested.reject, adjusted[at] < 0.05, "reject at {at}");
-    }
-    assert!(
-        seen.iter().any(|t| t.p_holm > t.p),
-        "a family of six moves some p-value up"
-    );
 }
 
 /// A selection of one pass per evaluator on one run.
@@ -1530,9 +1532,10 @@ fn c6_reading_effect_or_inconclusive() {
         let row = vector::<NewcombeRow>("newcombe.toml")
             .into_iter()
             .find(|r| {
-                (r.k1, r.n1, r.k2, r.n2) == (tested.a.k(), tested.a.n(), tested.b.k(), tested.b.n())
+                (r.k1, r.n1, r.k2, r.n2) == (tested.b.k(), tested.b.n(), tested.a.k(), tested.a.n())
             })
             .expect("a newcombe row");
+        close("diff", tested.diff.expect("a difference"), row.diff);
         let want = if row.lo > 0.0 || row.hi < 0.0 {
             "effect"
         } else {
@@ -1619,8 +1622,7 @@ fn c6_holm_per_comparison_and_role() {
 /// cell's comparable, never as `null` and never from `values`: a treatment by model store gives a
 /// treatment comparison that names its two levels by their references and blocks by model, and a
 /// model comparison whose two blocks are keyed by the two references. The factor is declared as
-/// `treatment`, the path the verdict recognises, and as `request.treatment`, the setting that
-/// resolves into it, whose levels are read the same way.
+/// `request.treatment`, the setting that resolves into the typed root.
 /// Oracle: the references written into the manifests by the test.
 /// Bite: read the level from `comparable().values()` (null for every run: one level, no
 /// comparison) and this turns red.
@@ -1629,7 +1631,7 @@ fn c6_a_treatment_level_is_its_typed_reference() {
     let one = json!({"name": "t", "tag": "v1", "commit": "a".repeat(40)});
     let two = json!({"name": "t", "tag": "v2", "commit": "b".repeat(40)});
     let both = BTreeSet::from([one.to_string(), two.to_string()]);
-    for name in ["treatment", "request.treatment"] {
+    for name in ["request.treatment"] {
         let mut cells = Vec::new();
         for (treatment, model, passes) in [
             (&one, "alpha", 1_u64),
@@ -1652,9 +1654,6 @@ fn c6_a_treatment_level_is_its_typed_reference() {
             both,
             "{name}"
         );
-        if name == "request.treatment" {
-            continue;
-        }
         let tested = tested_of(treatment);
         assert_eq!(tested.blocks, 2);
         let model = comparison_of(&report, "plan.model");
@@ -1670,4 +1669,31 @@ fn c6_a_treatment_level_is_its_typed_reference() {
             .collect();
         assert_eq!(keyed, both);
     }
+}
+
+/// Guards: C6 — a two-treatment store whose arms differ in the treatment, an environment lock, the
+/// image and a build input is comparable, not refused, when the manifests declare
+/// `request.treatment`; it is tested and keeps its levels.
+/// Oracle: the paths the manifests differ in, written by the test, and the `t5_` rows of
+/// `verdicts.json`.
+/// Bite: key the verdict on the bare `treatment` spelling and every such store is refused.
+#[test]
+fn c6_a_treatment_store_with_new_locks_and_image_is_comparable() {
+    let mut cells = Vec::new();
+    for (tag, image, lock, input, passes) in
+        [("v1", '1', 'a', '3', 1_u64), ("v2", '4', 'b', '5', 4)]
+    {
+        let mut spec = Spec::new("alpha", 1);
+        spec.treatment = json!({"name": "t", "tag": tag, "commit": "a".repeat(40)});
+        spec.factors = vec!["request.treatment"];
+        spec.extra = vec![("isolation.image", json!(digest_text(image)))];
+        spec.inputs = json!([{"kind": "dockerfile", "digest": digest_text(input)}]);
+        spec.environments = json!([{"plugin": "p@1.0.0", "lock_digest": digest_text(lock)}]);
+        cells.push((spec, passes, 5));
+    }
+    let (selection, runs) = store_of(&cells);
+    let report = report(&selection, runs);
+    let comparison = only_comparison(&report);
+    assert_eq!(comparison.verdict, PairVerdict::Comparable);
+    assert_eq!(tested_of(comparison).blocks, 1);
 }

@@ -322,12 +322,14 @@ pub struct Tested {
     pub p_holm: f64,
     /// Whether the adjusted p is below alpha.
     pub reject: bool,
-    /// The first arm's proportion minus the second's.
-    pub diff: f64,
-    /// The lower limit of Newcombe's interval of the difference.
-    pub diff_lo: f64,
-    /// The upper limit of Newcombe's interval of the difference.
-    pub diff_hi: f64,
+    /// The difference, arm B minus arm A (B − A, as every difference of a report): the rates'
+    /// for one block, the permutation statistic for a weighted expectation, none for CMH.
+    pub diff: Option<f64>,
+    /// The lower limit of the interval of [`Self::diff`]: Newcombe's for one block, `BCa` for a
+    /// weighted expectation.
+    pub diff_lo: Option<f64>,
+    /// The upper limit of the interval of [`Self::diff`].
+    pub diff_hi: Option<f64>,
     /// The test that produced `p`; none for a p of the one-factor Fisher test.
     pub battery: Option<Battery>,
     /// The number of blocks the test ran over.
@@ -687,23 +689,34 @@ fn views_of<'a>(side: &[&Placed<'a>]) -> Vec<&'a RunView> {
         .collect()
 }
 
-/// The effect of a blocked test on the reported fields: the difference of the first arm over the
-/// second with its interval (`NaN` when the test gives none), and the reading of the interval.
-fn effect_of(
-    blocked: &Blocked,
-    a: Counts,
-    b: Counts,
-) -> Result<(f64, f64, f64, Reading), StatsError> {
+/// The difference of B over A with its interval, and the reading.
+struct Effect {
+    diff: Option<f64>,
+    lo: Option<f64>,
+    hi: Option<f64>,
+    reading: Reading,
+}
+
+/// The effect of a blocked test on the reported fields: the difference of arm B over arm A with
+/// its interval, none where the test gives none (CMH and the exact conditional test), and the
+/// reading of the interval, which for those two is the odds ratio's against 1.
+fn effect_of(blocked: &Blocked, a: Counts, b: Counts) -> Result<Effect, StatsError> {
     let (diff, lo, hi) = match (blocked.battery, blocked.diff, blocked.interval) {
         (Battery::MidP, _, _) => {
-            let difference = newcombe_difference(a, b)?;
-            (difference.diff(), difference.lo(), difference.hi())
+            let difference = newcombe_difference(b, a)?;
+            (
+                Some(difference.diff()),
+                Some(difference.lo()),
+                Some(difference.hi()),
+            )
         }
-        (_, Some(statistic), Some((lo, hi))) => (-statistic, -hi, -lo),
-        _ => (f64::NAN, f64::NAN, f64::NAN),
+        (_, statistic, Some((lo, hi))) => (statistic, Some(lo), Some(hi)),
+        _ => (None, None, None),
     };
     let excludes = match blocked.battery {
-        Battery::MidP | Battery::Permutation => lo > 0.0 || hi < 0.0,
+        Battery::MidP | Battery::Permutation => {
+            lo.is_some_and(|low| low > 0.0) || hi.is_some_and(|high| high < 0.0)
+        }
         Battery::Cmh | Battery::ExactStrata => blocked
             .or_ci
             .is_some_and(|(low, high)| low > 1.0 || high < 1.0),
@@ -713,7 +726,12 @@ fn effect_of(
     } else {
         Reading::Inconclusive
     };
-    Ok((diff, lo, hi, reading))
+    Ok(Effect {
+        diff,
+        lo,
+        hi,
+        reading,
+    })
 }
 
 /// One expectation tested over the blocks of a comparison, or the reason it is left out.
@@ -772,7 +790,12 @@ fn tested_of(
     ) else {
         return Ok(omit(OmitReason::Counts(Omitted::Unavailable)));
     };
-    let (diff, diff_lo, diff_hi, reading) = effect_of(&blocked, counts_a, counts_b)?;
+    let Effect {
+        diff,
+        lo: diff_lo,
+        hi: diff_hi,
+        reading,
+    } = effect_of(&blocked, counts_a, counts_b)?;
     Ok(Entry::Tested(Tested {
         id,
         role,
