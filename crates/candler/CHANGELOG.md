@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0](https://github.com/CrackingShells/Candler/compare/v0.12.5...v0.13.0) - 2026-11-18
+
+### Documentation
+
+- *(analysis)* record the weighted known-truth evidence
+
+### Features
+
+- *(analysis)* report every difference as B minus A
+- *(analysis)* report blocked comparisons in analyze
+- *(runner)* admit a table of treatment fields as a treatment level
+- *(jobs)* run each cell with its own treatment level
+- *(runner)* admit a treatment factor in the CLI preflight
+- *(analysis)* report instrument errors per arm and keep per-run units
+- *(analysis)* compare declared factors blocked by the others
+- *(analysis)* build blocks and choose each comparison's test
+- *(runner)* plan each cell with its own treatment level
+- *(analysis)* let a treatment factor explain lock and image changes
+- *(runner)* add a seeded run order
+- *(runner)* admit the treatment as a declared factor
+- *(stats)* compute the CMH test and the MH odds ratio
+- *(stats)* add the stratified BCa interval
+- *(stats)* add the stratified permutation test
+- *(stats)* add a seeded SplitMix64 with a Python twin
+- *(stats)* compute the mid-p and the exact conditional test
+
+### Fixes
+
+- *(importer)* declare the treatment as an imported factor
+- *(analysis)* count treatment pairs; a flat bootstrap is inconclusive
+- *(jobs)* apply a one-level treatment factor and code plan refusals
+- *(analysis)* drop the unreachable prefix branch of level_of
+- *(resolve)* key the treatment verdict on request.treatment
+- *(analysis)* reject only tested entries and key weighted blocks
+- *(runner)* pin the in-flight pair and the seed contract
+- *(stats)* hold the Mantel-Fleiss tie and guard the level and OR 1
+- *(stats)* pin the tie tolerance and the BCa acceleration to engines
+
+### Refactoring
+
+- *(runner)* plan runs in the seeded order
+
 ## [0.12.5](https://github.com/CrackingShells/Candler/compare/v0.12.4...v0.12.5) - 2026-11-17
 
 ### Refactoring
