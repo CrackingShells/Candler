@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use std::str::FromStr;
 
 use candler_schemas::canonical;
+use candler_schemas::execution::paths::{REQUEST_TREATMENT, TREATMENT};
 use candler_schemas::execution::{Comparable, Deviation, RunManifest};
 use candler_schemas::primitives::{Digest, FieldPath};
 use candler_schemas::values::JsonValue;
@@ -42,10 +43,6 @@ const IMPORT_RULES_PATH: &str = "import.rules";
 /// The first segments of the declared factors that change the tool list the harness reports, and
 /// so exempt `census.init_tools`.
 const TOOL_FACTOR_ROOTS: &[&str] = &["tools", "mcp"];
-
-/// The root of the declared factor whose difference explains a difference in the environment
-/// locks, the image and the build inputs: the treatment resolves into the hashed `treatment`.
-const TREATMENT_ROOT: &str = "treatment";
 
 /// The paths a differing declared `treatment` factor accounts for: the plug-in environment locks,
 /// the image and the build inputs, which follow from which treatment a cell mounts.
@@ -340,11 +337,16 @@ pub fn compare(stored: &Comparable, observed: &Comparable) -> Vec<Deviation> {
     out
 }
 
-/// Whether some declared factor covers the path.
+/// Whether some declared factor covers the path. The treatment factor, the setting
+/// `request.treatment`, covers every path under the typed root `treatment` it resolves into.
 fn declared_covers(declared: &[FieldPath], path: &FieldPath) -> bool {
     let own: Vec<&str> = path.segments().collect();
     declared.iter().any(|factor| {
-        let prefix: Vec<&str> = factor.segments().collect();
+        let prefix: Vec<&str> = if factor.as_str() == REQUEST_TREATMENT {
+            vec![TREATMENT]
+        } else {
+            factor.segments().collect()
+        };
         // BORROW: `.as_slice()` views each vector as a slice
         covers(prefix.as_slice(), own.as_slice())
     })
@@ -374,18 +376,15 @@ fn treatment_explained(path: &FieldPath) -> bool {
     })
 }
 
-/// Whether a declared factor at or under `treatment` covers a path where the two arms' treatments
-/// differ, so the treatment is a factor of this stratum and varies between these arms.
+/// Whether the declared treatment factor, `request.treatment`, varies between the two arms: a
+/// deviation sits under the typed root `treatment` it resolves into.
 fn treatment_explains(one: &ArmView, other: &ArmView, declared: &[FieldPath]) -> bool {
-    compare(one.comparable(), other.comparable())
+    declared
         .iter()
-        .any(|d| {
-            declared_covers(declared, &d.path)
-                && d.path
-                    .segments()
-                    .next()
-                    .is_some_and(|root| root == TREATMENT_ROOT)
-        })
+        .any(|factor| factor.as_str() == REQUEST_TREATMENT)
+        && compare(one.comparable(), other.comparable())
+            .iter()
+            .any(|d| d.path.segments().next() == Some(TREATMENT))
 }
 
 /// Whether two arms differ in `census.init_tools` without a declared `tools.*` or `mcp.*` factor
