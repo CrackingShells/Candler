@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 
 use candler_schemas::execution::Integrity;
+use candler_schemas::execution::paths::{REQUEST_TREATMENT, TREATMENT};
 use candler_schemas::outcome::Role;
 use candler_schemas::primitives::{FieldPath, RunKey};
 use serde_json::Value;
@@ -147,15 +148,39 @@ struct Gathered {
     b: Vec<(u64, u64)>,
 }
 
-/// The level a run's manifest records for a factor, `null` when it records none.
-fn level_of(view: &RunView, factor: &FieldPath) -> Value {
-    view.manifest
-        .comparable()
+/// The level a run's manifest records for a factor: for the treatment, the typed reference
+/// `{name, tag, commit}` of the cell's comparable, which `values` never holds; for another
+/// factor, the value at its path, or an object of the values below it, `null` when it records
+/// none.
+pub(super) fn level_of(view: &RunView, factor: &FieldPath) -> Value {
+    let comparable = view.manifest.comparable();
+    if matches!(factor.as_str(), REQUEST_TREATMENT | TREATMENT) {
+        return serde_json::to_value(comparable.treatment()).unwrap_or(Value::Null);
+    }
+    if let Some(held) = comparable
         .values()
         .iter()
         .find(|held| held.path() == factor)
-        .and_then(|held| held.value())
-        .map_or(Value::Null, |value| value.as_value().clone()) // BORROW: the key owns the level
+    {
+        return held
+            .value()
+            .map_or(Value::Null, |value| value.as_value().clone()); // BORROW: the key owns the level
+    }
+    let below: serde_json::Map<String, Value> = comparable
+        .values()
+        .iter()
+        .filter(|held| held.path().starts_with(factor))
+        .filter_map(|held| {
+            // BORROW: the key owns the path and the level
+            held.value()
+                .map(|value| (held.path().to_string(), value.as_value().clone()))
+        })
+        .collect();
+    if below.is_empty() {
+        Value::Null
+    } else {
+        Value::Object(below)
+    }
 }
 
 /// The valid runs at level `a` or `b` of the compared factor, grouped by the levels of the other
