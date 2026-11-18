@@ -4,10 +4,11 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+use candler_core::analysis::blocking::Battery;
 use candler_core::analysis::refusal::ReportError;
 use candler_core::analysis::report::{
-    ArmReport, Comparison, Entry, Report, ReportInput, RunRow, RunView, Unsealed, check_factors,
-    choose_evaluator, role_name,
+    ArmReport, Comparison, Entry, Report, ReportInput, RunRow, RunView, Tested, Unsealed,
+    check_factors, choose_evaluator, role_name,
 };
 use candler_core::analysis::tally::{Rate, RunFacts};
 use candler_core::analysis::{ALPHA, alpha_source};
@@ -211,6 +212,53 @@ fn arm_json(arm: &ArmReport) -> Value {
     })
 }
 
+/// The test that produced a p-value, by name.
+const fn battery_name(battery: Battery) -> &'static str {
+    match battery {
+        Battery::MidP => "mid_p",
+        Battery::Cmh => "cmh",
+        Battery::ExactStrata => "exact_strata",
+        Battery::Permutation => "permutation",
+        _ => "unknown",
+    }
+}
+
+/// A block's key as `[{factor, level}]`, in the order of the declared factors.
+fn block_key_json(key: &[(FieldPath, Value)]) -> Value {
+    Value::Array(
+        key.iter()
+            .map(|(factor, level)| json!({"factor": factor.to_string(), "level": level}))
+            .collect(),
+    )
+}
+
+/// The effect of B over A in each block of a tested entry.
+fn per_block_json(tested: &Tested) -> Value {
+    Value::Array(
+        tested
+            .per_block
+            .iter()
+            .map(|effect| {
+                json!({
+                    "key": block_key_json(effect.key.as_slice()),
+                    "a": {"k": effect.a.0, "n": effect.a.1},
+                    "b": {"k": effect.b.0, "n": effect.b.1},
+                    "diff": effect.diff,
+                })
+            })
+            .collect(),
+    )
+}
+
+/// A number as a CSV field, empty when there is none.
+fn number(value: f64) -> String {
+    if value.is_nan() {
+        String::new()
+    } else {
+        value.to_string()
+    }
+}
+
 fn entry_json(entry: &Entry) -> Value {
     match entry {
         Entry::Tested(tested) => json!({
@@ -224,6 +272,15 @@ fn entry_json(entry: &Entry) -> Value {
             "diff": tested.diff,
             "diff_lo": tested.diff_lo,
             "diff_hi": tested.diff_hi,
+            "battery": tested.battery.map(battery_name),
+            "fallback": tested.fallback,
+            "blocks": tested.blocks,
+            "reading": tested.reading.as_str(),
+            "or_mh": tested.or_mh,
+            "or_lo": tested.or_ci.map(|(lo, _)| lo),
+            "or_hi": tested.or_ci.map(|(_, hi)| hi),
+            "homogeneity_p": tested.homogeneity_p,
+            "per_block": per_block_json(tested),
         }),
         Entry::Omitted { id, role, reason } => json!({
             "id": id.to_string(),
@@ -240,6 +297,7 @@ fn comparison_json(comparison: &Comparison) -> Value {
         "a": comparison.a.to_string(),
         "b": comparison.b.to_string(),
         "factor": comparison.factor.to_string(),
+        "levels": comparison.levels.as_ref().map(|(a, b)| json!([a, b])),
         "stratum": {
             "verdict": comparison.verdict.as_str(),
             "causes": comparison.verdict.causes(),
@@ -396,6 +454,17 @@ fn comparisons_csv(report: &Report) -> String {
         "omitted",
         "experiment",
         "causes",
+        "level_a",
+        "level_b",
+        "battery",
+        "fallback",
+        "blocks",
+        "reading",
+        "or_mh",
+        "or_lo",
+        "or_hi",
+        "homogeneity_p",
+        "per_block",
     ]));
     for comparison in &report.comparisons {
         let head = [
@@ -406,11 +475,17 @@ fn comparisons_csv(report: &Report) -> String {
         ];
         let experiment = comparison.experiment.clone(); // BORROW: the row owns its text
         let causes = comparison.verdict.causes().join(";");
+        let levels: Vec<String> = comparison.levels.as_ref().map_or_else(
+            || vec![String::new(); 2],
+            |(a, b)| vec![json_text(a), json_text(b)],
+        );
         if comparison.entries.is_empty() {
             // A pair with nothing to show, a refused one first of all, still has its row.
             let mut fields: Vec<String> = head.to_vec();
             fields.extend(vec![String::new(); 13]);
             fields.extend([experiment, causes]);
+            fields.extend(levels);
+            fields.extend(vec![String::new(); 9]);
             text.push_str(&row(fields.as_slice()));
             continue;
         }
@@ -424,9 +499,9 @@ fn comparisons_csv(report: &Report) -> String {
                     tested.p.to_string(),
                     tested.p_holm.to_string(),
                     tested.reject.to_string(),
-                    tested.diff.to_string(),
-                    tested.diff_lo.to_string(),
-                    tested.diff_hi.to_string(),
+                    number(tested.diff),
+                    number(tested.diff_lo),
+                    number(tested.diff_hi),
                     String::new(),
                 ],
                 Entry::Omitted { reason, .. } => {
@@ -440,6 +515,23 @@ fn comparisons_csv(report: &Report) -> String {
             fields.extend([entry.id().to_string(), role_name(entry.role()).to_owned()]);
             fields.extend(tail);
             fields.extend([experiment.clone(), causes.clone()]); // BORROW: each row owns its text
+            fields.extend(levels.clone()); // BORROW: each row owns its text
+            fields.extend(match entry {
+                Entry::Tested(tested) => vec![
+                    tested
+                        .battery
+                        .map_or_else(String::new, |battery| battery_name(battery).to_owned()),
+                    tested.fallback.to_string(),
+                    tested.blocks.to_string(),
+                    tested.reading.as_str().to_owned(),
+                    tested.or_mh.map_or_else(String::new, number),
+                    tested.or_ci.map_or_else(String::new, |(lo, _)| number(lo)),
+                    tested.or_ci.map_or_else(String::new, |(_, hi)| number(hi)),
+                    tested.homogeneity_p.map_or_else(String::new, number),
+                    json_text(&per_block_json(tested)),
+                ],
+                Entry::Omitted { .. } | _ => vec![String::new(); 9],
+            });
             text.push_str(&row(fields.as_slice()));
         }
     }
