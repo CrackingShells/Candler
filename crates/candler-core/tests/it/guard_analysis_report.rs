@@ -1207,7 +1207,10 @@ fn a2_an_expectation_of_one_arm_is_reported_as_omitted() {
 }
 
 /// The single arm of a one-model store.
-fn only_arm(selection: &Selection, runs: Vec<RunView>) -> candler_core::analysis::report::ArmReport {
+fn only_arm(
+    selection: &Selection,
+    runs: Vec<RunView>,
+) -> candler_core::analysis::report::ArmReport {
     let mut report = report(selection, runs);
     assert_eq!(report.arms.len(), 1, "one model is one arm");
     report.arms.remove(0)
@@ -1245,7 +1248,10 @@ fn e1_instrument_error_counted_per_arm() {
     // A deadline is not an instrument error.
     push(
         Spec::new("alpha", 3),
-        &[("E1", "not_measured", Some("deadline")), ("E2", "pass", None)],
+        &[
+            ("E1", "not_measured", Some("deadline")),
+            ("E2", "pass", None),
+        ],
     );
     push(
         Spec::new("alpha", 4),
@@ -1253,7 +1259,10 @@ fn e1_instrument_error_counted_per_arm() {
     );
     let mut gateway = Spec::new("alpha", 5);
     gateway.integrity = json!({"kind": "invalid", "reason": "gateway"});
-    push(gateway, &[("E1", "not_measured", ie), ("E2", "not_measured", ie)]);
+    push(
+        gateway,
+        &[("E1", "not_measured", ie), ("E2", "not_measured", ie)],
+    );
     let mut killed = Spec::new("alpha", 6);
     killed.integrity = json!({"kind": "invalid", "reason": "killed"});
     push(killed, &[("E1", "not_measured", ie)]);
@@ -1261,7 +1270,10 @@ fn e1_instrument_error_counted_per_arm() {
     assert_eq!(arm.instrument_error.runs, 2);
     assert_eq!(arm.instrument_error.outcomes, 3);
     assert_eq!(arm.tally.valid_runs, 4);
-    assert_eq!(arm.tally.invalid, BTreeMap::from([("gateway".to_owned(), 1)]));
+    assert_eq!(
+        arm.tally.invalid,
+        BTreeMap::from([("gateway".to_owned(), 1)])
+    );
     assert_eq!(
         arm.tally.experimenter_ends,
         BTreeMap::from([("killed".to_owned(), 1)])
@@ -1271,18 +1283,21 @@ fn e1_instrument_error_counted_per_arm() {
     assert_eq!(e1.not_measured["reason:deadline"], 1);
 }
 
+/// A replicate with a status and a weight.
+type UnitRow = (u32, &'static str, Option<(u32, u32)>);
+
 /// Guards: `units()` yields one `(run, num, den)` per run that adds to the sums, ordered by run
 /// key whatever the order of the records, the same twice, and its sums equal the tally's; an
 /// invalid run and a `not_measured` outcome add no unit.
 /// Oracle: hand sums, 3+5+0+4 = 12 and 5+5+5+10 = 25.
 #[test]
 fn u1_units_in_deterministic_order() {
-    let rows: [(u32, &str, Option<(u32, u32)>); 5] = [
+    let rows: [UnitRow; 5] = [
         (5, "fail", Some((4, 10))),
         (4, "not_measured", None),
         (3, "fail", Some((0, 5))),
         (2, "pass", Some((5, 5))),
-        (1, "pass", Some((3, 5))),
+        (1, "fail", Some((3, 5))),
     ];
     let mut records: Vec<OutcomeRecord> = Vec::new();
     let mut runs: Vec<RunView> = Vec::new();

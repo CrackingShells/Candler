@@ -172,8 +172,20 @@ pub struct ArmReport {
     pub quality: Rate,
     /// The status totals over gate and quality.
     pub status: StatusTotals,
+    /// The instrument errors of the arm's valid runs.
+    pub instrument_error: InstrumentError,
     /// The expectations, by id.
     pub expectations: Vec<ExpectationReport>,
+}
+
+/// What an arm lost to the instrument: counted apart from every invalid cause.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct InstrumentError {
+    /// Valid runs with at least one `not_measured` outcome of cause `instrument_error`.
+    pub runs: u64,
+    /// Outcomes that are `not_measured` with the cause `instrument_error`.
+    pub outcomes: u64,
 }
 
 impl ArmReport {
@@ -199,6 +211,10 @@ impl ArmReport {
             });
         }
         Self {
+            instrument_error: InstrumentError {
+                runs: tally.instrument_error_runs,
+                outcomes: tally.instrument_error_outcomes,
+            },
             gate: tally.rate(Role::Gate),
             quality: tally.rate(Role::Quality),
             experiment,

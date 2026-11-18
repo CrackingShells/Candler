@@ -203,6 +203,10 @@ fn arm_json(arm: &ArmReport) -> Value {
             "not_measured": arm.status.not_measured,
             "not_applicable": arm.status.not_applicable,
         },
+        "instrument_error": {
+            "runs": arm.instrument_error.runs,
+            "outcomes": arm.instrument_error.outcomes,
+        },
         "expectations": expectations,
     })
 }
