@@ -738,6 +738,7 @@ fn o3_ps_shows_the_experiment_or_the_suite() {
     let spec = JobSpec {
         experiment: file.clone(),
         resolution: resolution.clone(),
+        levels: Vec::new(),
         plans: Vec::new(),
         budget: file.budget().clone(),
         force: false,

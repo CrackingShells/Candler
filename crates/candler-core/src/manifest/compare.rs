@@ -5,10 +5,11 @@
 //! `harness.<field>`, and the treatment, the snapshots, the inputs and the environments each
 //! contribute one leaf at their root name.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
 
 use candler_schemas::canonical;
+use candler_schemas::execution::paths::{REQUEST_TREATMENT, TREATMENT};
 use candler_schemas::execution::{Comparable, Deviation, RunManifest};
 use candler_schemas::primitives::{Digest, FieldPath};
 use candler_schemas::values::JsonValue;
@@ -42,6 +43,10 @@ const IMPORT_RULES_PATH: &str = "import.rules";
 /// The first segments of the declared factors that change the tool list the harness reports, and
 /// so exempt `census.init_tools`.
 const TOOL_FACTOR_ROOTS: &[&str] = &["tools", "mcp"];
+
+/// The paths a differing declared `treatment` factor accounts for: the plug-in environment locks,
+/// the image and the build inputs, which follow from which treatment a cell mounts.
+const TREATMENT_EXPLAINED: &[&str] = &["environments", "isolation.image", "inputs"];
 
 /// The roots a value of `comparable` never takes: the typed fields own them.
 const TYPED_ROOTS: &[&str] = &[
@@ -332,23 +337,54 @@ pub fn compare(stored: &Comparable, observed: &Comparable) -> Vec<Deviation> {
     out
 }
 
-/// Whether some declared factor covers the path.
+/// Whether some declared factor covers the path. The treatment factor, the setting
+/// `request.treatment`, covers every path under the typed root `treatment` it resolves into.
 fn declared_covers(declared: &[FieldPath], path: &FieldPath) -> bool {
     let own: Vec<&str> = path.segments().collect();
     declared.iter().any(|factor| {
-        let prefix: Vec<&str> = factor.segments().collect();
+        let prefix: Vec<&str> = if factor.as_str() == REQUEST_TREATMENT {
+            vec![TREATMENT]
+        } else {
+            factor.segments().collect()
+        };
         // BORROW: `.as_slice()` views each vector as a slice
         covers(prefix.as_slice(), own.as_slice())
     })
 }
 
 /// The paths where `arm` differs from `first` outside the declared factors.
+///
+/// A difference in the environment locks, the image or the build inputs is also dropped when a
+/// declared `treatment` factor differs between the two arms: see `treatment_explains`.
 fn residual(first: &ArmView, arm: &ArmView, declared: &[FieldPath]) -> Vec<FieldPath> {
+    let treated = treatment_explains(first, arm, declared);
     compare(first.comparable(), arm.comparable())
         .into_iter()
         .map(|d| d.path)
         .filter(|path| !declared_covers(declared, path))
+        .filter(|path| !(treated && treatment_explained(path)))
         .collect()
+}
+
+/// Whether a path is one a differing declared treatment accounts for, by whole segments.
+fn treatment_explained(path: &FieldPath) -> bool {
+    let own: Vec<&str> = path.segments().collect();
+    TREATMENT_EXPLAINED.iter().any(|explained| {
+        let prefix: Vec<&str> = explained.split('.').collect();
+        // BORROW: `.as_slice()` views each vector as a slice
+        covers(prefix.as_slice(), own.as_slice())
+    })
+}
+
+/// Whether the declared treatment factor, `request.treatment`, varies between the two arms: a
+/// deviation sits under the typed root `treatment` it resolves into.
+fn treatment_explains(one: &ArmView, other: &ArmView, declared: &[FieldPath]) -> bool {
+    declared
+        .iter()
+        .any(|factor| factor.as_str() == REQUEST_TREATMENT)
+        && compare(one.comparable(), other.comparable())
+            .iter()
+            .any(|d| d.path.segments().next() == Some(TREATMENT))
 }
 
 /// Whether two arms differ in `census.init_tools` without a declared `tools.*` or `mcp.*` factor
@@ -478,6 +514,56 @@ fn imported_refused(views: &[&ArmView]) -> Vec<FieldPath> {
         .collect()
 }
 
+/// Whether the levels of a value map one to one onto the treatments: each entry is the treatment
+/// of one cell and the level the value takes there, `None` when the cell records no value. Two
+/// cells share a treatment exactly when they share the level. No entry, or an entry without a
+/// level, does not map.
+#[must_use]
+pub fn maps_one_to_one(cells: &[(String, Option<String>)]) -> bool {
+    let mut pairs: BTreeSet<(&str, &str)> = BTreeSet::new();
+    for (treatment, level) in cells {
+        let Some(level) = level else {
+            return false;
+        };
+        // BORROW: explicit .as_str() instead of Deref coercion
+        pairs.insert((treatment.as_str(), level.as_str()));
+    }
+    let treatments: BTreeSet<&str> = pairs.iter().map(|(treatment, _)| *treatment).collect();
+    let levels: BTreeSet<&str> = pairs.iter().map(|(_, level)| *level).collect();
+    !pairs.is_empty() && treatments.len() == pairs.len() && levels.len() == pairs.len()
+}
+
+/// Whether a value path that differs between imported arms is the declared treatment's own
+/// doing: `request.treatment` is declared, the arms' typed treatments differ, and the levels of
+/// the path map one to one onto the treatments over every arm of the stratum.
+fn tracks_treatment(views: &[&ArmView], declared: &[FieldPath], path: &FieldPath) -> bool {
+    if !declared
+        .iter()
+        .any(|factor| factor.as_str() == REQUEST_TREATMENT)
+    {
+        return false;
+    }
+    let cells: Vec<(String, Option<String>)> = views
+        .iter()
+        .map(|arm| {
+            let level = arm
+                .comparable()
+                .values()
+                .iter()
+                .find(|value| value.path() == path)
+                .and_then(|value| value.value())
+                .and_then(|json| leaf_key(Some(json.as_value())));
+            let treatment =
+                leaf_key(Some(&part_json(arm.comparable().treatment()))).unwrap_or_default();
+            (treatment, level)
+        })
+        .collect();
+    let differ = cells
+        .windows(2)
+        .any(|pair| pair.first().map(|cell| &cell.0) != pair.get(1).map(|cell| &cell.0));
+    differ && maps_one_to_one(cells.as_slice())
+}
+
 /// Whether the arms of a stratum are comparable, given the factors the experiment declares.
 ///
 /// Every arm is diffed against the first. A deviation is dropped when a declared factor covers
@@ -494,6 +580,10 @@ fn imported_refused(views: &[&ArmView]) -> Vec<FieldPath> {
 /// the legacy commit, dirty flag and sandbox contract recorded. The dirty flag of a legacy build
 /// does not refuse: arms that agree on commit, flag, contract and rules pool, on the assumption
 /// that one legacy launch is one checkout; no declared factor pools arms of two legacy builds.
+/// Among imported arms only, a differing value path that is not declared is also dropped when
+/// `request.treatment` is declared, the arms' treatments differ and the path's levels map one to
+/// one onto the treatments over every arm (`maps_one_to_one`): the importer files the skill
+/// version under such paths and declares the treatment instead. Live arms get no such exemption.
 #[must_use]
 pub fn stratum_verdict(arms: &[Result<ArmView, VerdictError>], declared: &[FieldPath]) -> Verdict {
     let errors: Vec<VerdictError> = arms
@@ -525,6 +615,7 @@ pub fn stratum_verdict(arms: &[Result<ArmView, VerdictError>], declared: &[Field
     if imported == 0 {
         refused.extend(provenance_refused(&views));
     } else if imported == views.len() {
+        refused.retain(|path| !tracks_treatment(&views, declared, path));
         refused.extend(imported_refused(&views));
     } else {
         let Ok(field) = FieldPath::from_str(IMPORT_PATH) else {

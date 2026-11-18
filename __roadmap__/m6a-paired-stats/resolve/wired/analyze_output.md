@@ -3,7 +3,7 @@
 **Goal**: `analyze` reports one comparison per (declared factor, pair of its levels), blocked by the other declared factors, each with its test, effect, interval, each block's risk difference, the reading ("effect" or "inconclusive") and Holm per comparison and role (C6, C7); a one-factor store gives today's output except the mid-p p-value.
 **Estimate**: about 110 Sonnet calls, $4.5, plus its verifier (about 40 calls, $1.6)
 **Pre-conditions**:
-- [ ] [cmd] Every-leaf pre-conditions (campaign README, Gotchas); L0 and `blocking` are merged: `for l in exact_tests cmh resampling arm_counts blocking; do git log --format=%s | grep -q "^merge(.*): land $l" || exit 1; done`
+- [ ] [cmd] Every-leaf pre-conditions (campaign README, Gotchas); L0 and `blocking` are merged: `for l in exact_tests cmh resampling arm_counts blocking; do test -f __reports__/m6a-paired-stats/leaves/${l}_v0.md || exit 1; done`
 - [ ] [nl] OWNED (regex): `^crates/candler-core/src/analysis/(report|mod|fisher)\.rs$|^crates/candler/src/commands/analyze\.rs$|^crates/candler-core/tests/it/guard_(analysis_report|stats)\.rs$|^crates/candler/tests/it/guard_analyze\.rs$|^crates/candler-core/tests/oracle/vectors/analyze_c6_.*$|^__reports__/m6a-paired-stats/leaves/analyze_output_v0\.md$`. In `report.rs`: `compare_pairs`, `entries_of`, `adjust`, `Pairs`; in `fisher.rs`: nothing but removing the now-unused call path if clippy asks (`fisher_two_sided` and `fisher.toml` stay, read by the `t1_` oracles)
 **Success Gates**:
 - ⬜ [cmd] Targeted test: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_analysis_report::/) | test(/^guard_stats::/)' && cargo nextest run -p candler --no-tests=fail -E 'test(/^guard_analyze/)'`

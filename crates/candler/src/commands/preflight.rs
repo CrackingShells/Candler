@@ -151,11 +151,15 @@ fn factor_pointer(file: &ExperimentFile, setting: &str) -> Option<String> {
 
 /// Refuses an experiment that has a factor over a setting, before anything is resolved: the same
 /// refusal the plan makes, reached without the resolution it would need, so that nothing has been
-/// built for an experiment that cannot run.
+/// built for an experiment that cannot run. The treatment, `request.treatment`, is the one setting
+/// admitted as a factor: its levels are resolved one by one before the plan, so a level without a
+/// resolution at this point is not a refusal of the file.
 ///
 /// # Errors
 /// [`CliError::Coded`] with [`PlanError::SettingAsFactor`] when a factor varies a setting.
 pub(crate) fn check_factors(file: &ExperimentFile) -> Result<(), CliError> {
+    // Only a setting factor is refused here; every other error the empty resolution gives, such as
+    // a treatment level it does not resolve, is the plan's to report once the levels are resolved.
     if let Err(error @ PlanError::SettingAsFactor { .. }) =
         experiment_of(file, &Resolution::default())
     {
@@ -222,6 +226,14 @@ fn check_file_paths(file: &ExperimentFile) -> Result<(), CliError> {
                 leaves(table, &mut Vec::new(), &mut found);
                 for keys in found {
                     let text = format!("{}.{}", factor.path, keys.join("."));
+                    let treatment_field = factor.path.as_str() == paths::REQUEST_TREATMENT
+                        && keys.len() == 1
+                        && keys.first().is_some_and(|key| {
+                            candler_core::runner::plan::TREATMENT_FIELDS.contains(&key.as_str())
+                        });
+                    if treatment_field {
+                        continue;
+                    }
                     if let Ok(path) = text.parse::<FieldPath>() {
                         let location = FieldLocation::Factor {
                             index,

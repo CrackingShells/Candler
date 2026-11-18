@@ -433,6 +433,15 @@ fn pair_rows(a: (u64, u64), b: (u64, u64)) -> (FisherRow, NewcombeRow) {
     (fisher, newcombe)
 }
 
+/// The mid-p of a table, a row of the second engine.
+fn midp_p(a: (u64, u64), b: (u64, u64)) -> f64 {
+    vector::<MidpRow>("midp.toml")
+        .into_iter()
+        .find(|r| (r.a_k, r.a_n, r.b_k, r.b_n) == (a.0, a.1, b.0, b.1))
+        .map(|r| r.p)
+        .expect("a midp row")
+}
+
 fn arm<'a>(report: &'a Value, cell: &str) -> &'a Value {
     report["arms"]
         .as_array()
@@ -523,11 +532,19 @@ fn a1_the_json_equals_the_hand_counts() {
         arm(&report, gamma.as_str())["rates"],
         json!({"gate": {"num": 10, "den": 15}, "quality": {"num": 50, "den": 50}})
     );
-    // With the experiment file, the three pairs are compared and Holm is one family of six.
+    // With the experiment file, the three pairs are compared and Holm is one family of two gate
+    // tests and one of a quality test for each pair.
     let file = experiment(dir.path());
     let file_arg = file.to_str().expect("a UTF-8 path");
     let compared = json_of(&analyze(dir.path(), &store, &["--experiment", file_arg]));
-    assert_eq!(compared["families"], json!([{"role": "gate", "m": 6}]));
+    assert_eq!(
+        compared["families"],
+        json!([
+            {"role": "gate", "m": 2}, {"role": "quality", "m": 1},
+            {"role": "gate", "m": 2}, {"role": "quality", "m": 1},
+            {"role": "gate", "m": 2}, {"role": "quality", "m": 1},
+        ])
+    );
     assert_eq!(compared["pairs_not_one_factor"], 0);
     let pairs = compared["comparisons"].as_array().expect("comparisons");
     assert_eq!(pairs.len(), 3);
@@ -541,8 +558,6 @@ fn a1_the_json_equals_the_hand_counts() {
             _ => (5, 5),
         }
     };
-    let mut raw = Vec::new();
-    let mut adjusted = Vec::new();
     for pair in pairs {
         assert_eq!(pair["factor"], "plan.model");
         assert_eq!(
@@ -553,17 +568,21 @@ fn a1_the_json_equals_the_hand_counts() {
             pair["a"].as_str().expect("a"),
             pair["b"].as_str().expect("b"),
         );
+        let mut raw = Vec::new();
+        let mut adjusted = Vec::new();
         for entry in pair["entries"].as_array().expect("entries") {
             if entry["id"] == "E3" {
-                assert_eq!(entry["omitted"], "weighted");
+                assert_eq!(entry["role"], "quality");
+                assert_eq!(entry["battery"], "permutation");
                 continue;
             }
             let id = entry["id"].as_str().expect("id");
             let (ka, kb) = (counts(ca, id), counts(cb, id));
             assert_eq!(entry["a"], json!({"k": ka.0, "n": ka.1}));
             assert_eq!(entry["b"], json!({"k": kb.0, "n": kb.1}));
-            let (fisher, newcombe) = pair_rows(ka, kb);
-            close("p", entry["p"].as_f64().expect("p"), fisher.p);
+            // B minus A: the row of the second engine with the arms swapped.
+            let (_, newcombe) = pair_rows(kb, ka);
+            close("p", entry["p"].as_f64().expect("p"), midp_p(ka, kb));
             close("diff", entry["diff"].as_f64().expect("diff"), newcombe.diff);
             close(
                 "diff_lo",
@@ -575,24 +594,16 @@ fn a1_the_json_equals_the_hand_counts() {
                 entry["diff_hi"].as_f64().expect("hi"),
                 newcombe.hi,
             );
-            raw.push(fisher.p);
+            raw.push(midp_p(ka, kb));
             adjusted.push(entry["p_holm"].as_f64().expect("p_holm"));
         }
-    }
-    assert_eq!(raw.len(), 6);
-    // The step-down adjustment, written out here: sort ascending, multiply by (m - rank), keep the
-    // running maximum, cap at 1. The entries came out in pair order, which is the order of `raw`.
-    let m = raw.len();
-    let mut order: Vec<usize> = (0..m).collect();
-    order.sort_by(|&i, &j| raw[i].total_cmp(&raw[j]).then(i.cmp(&j)));
-    let mut want = vec![0.0_f64; m];
-    let mut running = 0.0_f64;
-    for (rank, &at) in order.iter().enumerate() {
-        running = running.max(f64::from(u32::try_from(m - rank).expect("small")) * raw[at]);
-        want[at] = running.min(1.0);
-    }
-    for (at, got) in adjusted.iter().enumerate() {
-        close("p_holm", *got, want[at]);
+        // The step-down adjustment of the pair's two gate tests, written out here.
+        assert_eq!(raw.len(), 2);
+        let low = (2.0 * raw[0].min(raw[1])).min(1.0);
+        let high = low.max(raw[0].max(raw[1]));
+        let (low_at, high_at) = if raw[0] <= raw[1] { (0, 1) } else { (1, 0) };
+        close("p_holm low", adjusted[low_at], low);
+        close("p_holm high", adjusted[high_at], high);
     }
 }
 
@@ -688,23 +699,25 @@ fn a1_the_csv_tables_equal_the_hand_counts() {
     );
     assert_eq!(
         pairs[0].join(","),
-        "a,b,factor,verdict,expectation,role,a_k,a_n,b_k,b_n,p,p_holm,reject,diff,diff_lo,diff_hi,omitted,experiment,causes"
+        "a,b,factor,verdict,expectation,role,a_k,a_n,b_k,b_n,p,p_holm,reject,diff,diff_lo,diff_hi,omitted,experiment,causes,level_a,level_b,battery,fallback,blocks,reading,or_mh,or_lo,or_hi,homogeneity_p,per_block"
     );
     assert_eq!(pairs.len(), 1 + 9, "three pairs of three expectations");
     let tested: Vec<&Vec<String>> = pairs[1..].iter().filter(|r| r[16].is_empty()).collect();
-    assert_eq!(tested.len(), 6);
-    assert_eq!(pairs[1..].iter().filter(|r| r[16] == "weighted").count(), 3);
-    for r in &tested {
+    assert_eq!(tested.len(), 9, "E3 is tested by the permutation test now");
+    assert_eq!(pairs[1..].iter().filter(|r| r[16] == "weighted").count(), 0);
+    assert_eq!(tested.iter().filter(|r| r[21] == "permutation").count(), 3);
+    for r in tested.iter().filter(|r| r[5] == "gate") {
         assert_eq!(
             (r[2].as_str(), r[3].as_str(), r[5].as_str()),
             ("plan.model", "comparable", "gate")
         );
         let a = (r[6].parse().expect("a_k"), r[7].parse().expect("a_n"));
         let b = (r[8].parse().expect("b_k"), r[9].parse().expect("b_n"));
-        let (fisher, newcombe) = pair_rows(a, b);
-        close("p", r[10].parse().expect("p"), fisher.p);
+        let (_, newcombe) = pair_rows(b, a);
+        let p = midp_p(a, b);
+        close("p", r[10].parse().expect("p"), p);
         close("diff", r[13].parse().expect("diff"), newcombe.diff);
-        assert!(r[11].parse::<f64>().expect("p_holm") >= fisher.p);
+        assert!(r[11].parse::<f64>().expect("p_holm") >= p);
         assert!(r[12] == "true" || r[12] == "false");
     }
     // The summary table holds what no other row does.
@@ -722,7 +735,12 @@ fn a1_the_csv_tables_equal_the_hand_counts() {
             "i4_violations=0",
             "pairs_not_one_factor=0",
             "pairs_compared=3",
-            "family.gate=6",
+            "family.gate=2",
+            "family.quality=1",
+            "family.gate=2",
+            "family.quality=1",
+            "family.gate=2",
+            "family.quality=1",
         ]
     );
     // The runs table.
@@ -1009,8 +1027,9 @@ fn two_by_two(factors: &[&'static str]) -> Vec<Seeded> {
     seeded
 }
 
-/// Guards: A2 — through the binary, a 2 by 2 store compares the four pairs that differ in one
-/// factor and counts the two that differ in two, from the factors its manifests record; a file
+/// Guards: A2 — through the binary, a 2 by 2 store gives two comparisons, one per factor, blocked
+/// by the other, and counts the two cell pairs that differ in two, from the factors its manifests
+/// record; a file
 /// that declares the parent path `plan` or an unrelated path is refused with the record of
 /// `analysis.experiment_disagrees` (side `experiment`); the file with the recorded factors is
 /// accepted; and manifests that record the parent `plan` are refused with the record of
@@ -1022,7 +1041,7 @@ fn two_by_two(factors: &[&'static str]) -> Vec<Seeded> {
 fn a2_a_wrong_experiment_is_refused_through_the_binary() {
     let (dir, store) = fixture(&two_by_two(&["plan.model", "plan.other"]));
     let report = json_of(&analyze(dir.path(), &store, &[]));
-    assert_eq!(report["comparisons"].as_array().expect("pairs").len(), 4);
+    assert_eq!(report["comparisons"].as_array().expect("pairs").len(), 2);
     assert_eq!(report["pairs_not_one_factor"], 2);
     let right = experiment_of(
         dir.path(),
@@ -1113,7 +1132,10 @@ fn a1_a_cell_in_two_strata_is_two_arms() {
         experiments,
         [&json!(digest_text('0')), &json!(digest_text('1'))]
     );
-    assert_eq!(report["families"], json!([{"role": "gate", "m": 2}]));
+    assert_eq!(
+        report["families"],
+        json!([{"role": "gate", "m": 1}, {"role": "gate", "m": 1}])
+    );
 }
 
 /// Guards: A1 — a run without a seal does not fail the call through the binary: with the layout
@@ -1151,4 +1173,234 @@ fn a1_an_unsealed_run_does_not_fail_the_call() {
         .expect("the unknown stratum");
     assert_eq!(unknown["runs"]["unsealed"], 1);
     assert_eq!(unknown["runs"]["valid"], 0);
+}
+
+/// One row of `midp.toml`.
+#[derive(Deserialize)]
+struct MidpRow {
+    a_k: u64,
+    a_n: u64,
+    b_k: u64,
+    b_n: u64,
+    p: f64,
+}
+
+/// Guards: C6 — a one-factor store keeps today's output through the binary except the p-value of
+/// each plain-count entry, which is the mid-p: over the three models of the layout, every
+/// `mid_p` entry has its counts, `diff`, `diff_lo` and `diff_hi` of the Newcombe row (the first
+/// arm minus the second, the other way round from before: B minus A), one block with an empty key, and the p of the `midp.toml`
+/// row, which differs from Fisher's p for a table whose p is not 1; the weighted entry is the
+/// permutation test.
+/// Oracle: the `midp.toml` and `newcombe.toml` rows of the second engine and `fisher.toml` for the
+/// old p.
+/// Bite: Fisher's p instead of the mid-p turns this red.
+#[test]
+fn c6_one_factor_store_keeps_todays_output() {
+    let runs = layout(&[EVALUATOR], true);
+    let (dir, store) = fixture(&runs);
+    let report = json_of(&analyze(dir.path(), &store, &[]));
+    let mut mid = 0_usize;
+    let mut moved = 0_usize;
+    for comparison in report["comparisons"].as_array().expect("comparisons") {
+        assert_eq!(comparison["factor"], "plan.model");
+        assert!(comparison["levels"].is_array(), "{comparison}");
+        for entry in comparison["entries"].as_array().expect("entries") {
+            if entry["battery"] == "permutation" {
+                assert_eq!(entry["id"], "E3");
+                continue;
+            }
+            assert_eq!(entry["battery"], "mid_p", "{entry}");
+            let at = |side: &str| {
+                (
+                    entry[side]["k"].as_u64().expect("k"),
+                    entry[side]["n"].as_u64().expect("n"),
+                )
+            };
+            let (a, b) = (at("a"), at("b"));
+            let want = vector::<MidpRow>("midp.toml")
+                .into_iter()
+                .find(|r| (r.a_k, r.a_n, r.b_k, r.b_n) == (a.0, a.1, b.0, b.1))
+                .expect("a midp row");
+            close("p", entry["p"].as_f64().expect("p"), want.p);
+            let (fisher, _) = pair_rows(a, b);
+            let (_, flipped) = pair_rows(b, a);
+            if (fisher.p - want.p).abs() > 1e-9 {
+                moved += 1;
+            }
+            close("diff", entry["diff"].as_f64().expect("diff"), flipped.diff);
+            close(
+                "diff_lo",
+                entry["diff_lo"].as_f64().expect("lo"),
+                flipped.lo,
+            );
+            close(
+                "diff_hi",
+                entry["diff_hi"].as_f64().expect("hi"),
+                flipped.hi,
+            );
+            assert_eq!(entry["blocks"], 1);
+            let blocks = entry["per_block"].as_array().expect("per_block");
+            assert_eq!(blocks.len(), 1);
+            assert_eq!(blocks[0]["key"], json!([]));
+            mid += 1;
+        }
+    }
+    assert_eq!(mid, 6, "E1 and E2 in three comparisons");
+    assert!(moved > 0, "some table whose mid-p is not Fisher's p");
+}
+
+/// Guards: C6 — the JSON and the CSV name the test and the blocks: a 2 by 2 store gives two
+/// comparisons, each entry naming its battery, the number of blocks, whether the exact test
+/// replaced CMH, its reading and each block's key and risk difference; the CSV `comparisons` table
+/// keeps today's nineteen columns first and appends `level_a`, `level_b`, `battery`, `fallback`,
+/// `blocks`, `reading`, `or_mh`, `or_lo`, `or_hi`, `homogeneity_p` and `per_block`.
+/// Oracle: the layout written by `two_by_two` and the column names of the leaf.
+/// Bite: drop a block key, or insert the new columns before the old ones, and this turns red.
+#[test]
+fn c6_json_and_csv_name_the_test_and_blocks() {
+    let (dir, store) = fixture(&two_by_two(&["plan.model", "plan.other"]));
+    let report = json_of(&analyze(dir.path(), &store, &[]));
+    let comparisons = report["comparisons"].as_array().expect("comparisons");
+    assert_eq!(comparisons.len(), 2);
+    for comparison in comparisons {
+        assert_eq!(comparison["levels"].as_array().map(Vec::len), Some(2));
+        let [entry] = comparison["entries"]
+            .as_array()
+            .expect("entries")
+            .as_slice()
+        else {
+            panic!("one entry: {comparison}");
+        };
+        assert!(
+            matches!(entry["battery"].as_str(), Some("cmh" | "exact_strata")),
+            "{entry}"
+        );
+        assert_eq!(entry["blocks"], 2);
+        assert!(entry["fallback"].is_boolean());
+        assert!(matches!(
+            entry["reading"].as_str(),
+            Some("effect" | "inconclusive")
+        ));
+        let other = if comparison["factor"] == "plan.model" {
+            "plan.other"
+        } else {
+            "plan.model"
+        };
+        let blocks = entry["per_block"].as_array().expect("per_block");
+        assert_eq!(blocks.len(), 2);
+        for block in blocks {
+            assert_eq!(block["key"][0]["factor"], other);
+            assert!(block["diff"].is_number());
+        }
+    }
+    let table = csv(dir.path(), &store, &["--table", "comparisons"]);
+    let header = table[0].join(",");
+    assert!(
+        header.starts_with("a,b,factor,verdict,expectation,role,a_k,a_n,b_k,b_n,p,p_holm,reject,diff,diff_lo,diff_hi,omitted,experiment,causes,"),
+        "{header}"
+    );
+    assert!(
+        header.ends_with(",level_a,level_b,battery,fallback,blocks,reading,or_mh,or_lo,or_hi,homogeneity_p,per_block"),
+        "{header}"
+    );
+    assert_eq!(table.len(), 3);
+    for row in &table[1..] {
+        assert_eq!(row.len(), 30);
+        assert!(matches!(row[21].as_str(), "cmh" | "exact_strata"));
+        assert_eq!(row[23], "2");
+    }
+}
+
+/// A store of two models, `alpha` with 4 of 5 runs passing `E1` and `beta` with 1 of 5.
+fn alpha_beta() -> Vec<Seeded> {
+    let mut seeded = Vec::new();
+    let mut n = 0_usize;
+    for (model, passes) in [("alpha", 4_u32), ("beta", 1)] {
+        for replicate in 1..=5_u32 {
+            let manifest = manifest(&Spec::new(model, replicate));
+            n += 1;
+            let key = manifest.run().clone();
+            let status = if replicate <= passes { "pass" } else { "fail" };
+            let rec = record(
+                EVALUATOR,
+                &key,
+                &request(n),
+                "E1",
+                "gate",
+                (status, None, None),
+            );
+            seeded.push(Seeded {
+                manifest,
+                records: vec![(EVALUATOR.to_owned(), rec)],
+            });
+        }
+    }
+    seeded
+}
+
+/// Guards: C6 — a two-level one-factor store with a binary expectation gives today's output except
+/// the p-value, which is the mid-p, and the sign of the difference, which is B minus A: 4 of 5
+/// against 1 of 5 had Fisher's p 0.2063492063492064, the difference 0.6000000000000001 of the
+/// first arm over the second with the interval (-0.00028468334755393787, 0.83161408676176); it now
+/// has the mid-p 0.10714285714285714 and the same numbers seen from B. The counts, the Holm value
+/// of a family of one, the verdict and the keys of today's entry are today's.
+/// Oracle: the literals above, which are the `fisher.toml`, `midp.toml` and `newcombe.toml` rows.
+/// Bite: Fisher's p instead of the mid-p, or the old sign, turns this red.
+#[test]
+fn c6_one_factor_binary_store_keeps_todays_literals() {
+    let runs = alpha_beta();
+    let (dir, store) = fixture(&runs);
+    let report = json_of(&analyze(dir.path(), &store, &[]));
+    let [comparison] = report["comparisons"]
+        .as_array()
+        .expect("comparisons")
+        .as_slice()
+    else {
+        panic!("one comparison");
+    };
+    let alpha = cell_of(&runs, "alpha");
+    let a_is_alpha = comparison["a"] == alpha.as_str();
+    assert_eq!(comparison["factor"], "plan.model");
+    assert_eq!(
+        comparison["stratum"],
+        json!({"verdict": "comparable", "causes": []})
+    );
+    let [entry] = comparison["entries"]
+        .as_array()
+        .expect("entries")
+        .as_slice()
+    else {
+        panic!("one entry");
+    };
+    let (alpha_side, beta_side) = if a_is_alpha { ("a", "b") } else { ("b", "a") };
+    assert_eq!(entry["id"], "E1");
+    assert_eq!(entry["role"], "gate");
+    assert_eq!(entry[alpha_side], json!({"k": 4, "n": 5}));
+    assert_eq!(entry[beta_side], json!({"k": 1, "n": 5}));
+    close(
+        "p",
+        entry["p"].as_f64().expect("p"),
+        0.107_142_857_142_857_14,
+    );
+    close(
+        "p_holm",
+        entry["p_holm"].as_f64().expect("p_holm"),
+        0.107_142_857_142_857_14,
+    );
+    assert_eq!(entry["reject"], false);
+    let sign = if a_is_alpha { -1.0 } else { 1.0 };
+    close(
+        "diff",
+        entry["diff"].as_f64().expect("diff"),
+        sign * 0.600_000_000_000_000_1,
+    );
+    let (lo, hi) = if a_is_alpha {
+        (-0.831_614_086_761_76, 0.000_284_683_347_553_937_87)
+    } else {
+        (-0.000_284_683_347_553_937_87, 0.831_614_086_761_76)
+    };
+    close("diff_lo", entry["diff_lo"].as_f64().expect("lo"), lo);
+    close("diff_hi", entry["diff_hi"].as_f64().expect("hi"), hi);
+    assert_eq!(report["families"], json!([{"role": "gate", "m": 1}]));
+    assert_eq!(report["pairs_not_one_factor"], 0);
 }

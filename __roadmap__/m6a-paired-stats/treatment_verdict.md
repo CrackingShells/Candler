@@ -19,7 +19,7 @@
 2. The test reading `verdicts.json` already iterates every row; add a `t5_` test only if a row needs a check the table does not express.
 **Deliverables**: `crates/candler-core/tests/fixtures/comparability/verdicts.json`: three appended rows; `crates/candler-core/tests/it/guard_comparability.rs`: `t5_treatment_explains_lock_and_image` if needed
 **Consistency Checks**: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_comparability::/)'` (expected: FAIL)
-**Commit**: `test(analysis): guard the treatment as an explanation of lock differences`
+**Commit**: `test(analysis): guard treatment as an explanation of lock differences`
 
 ## Step 2: Explain lock differences by the treatment
 **Goal**: The rows pass, and every existing row keeps its verdict.
@@ -29,4 +29,4 @@
 3. Bites, recorded: explain on any declared factor (red on the no-treatment row); explain when the treatment is equal (red).
 **Deliverables**: `crates/candler-core/src/manifest/compare.rs`: `treatment_explains`, `stratum_verdict`; `__reports__/m6a-paired-stats/leaves/treatment_verdict_v0.md`: section "Bites"
 **Consistency Checks**: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_comparability::/) | test(/^guard_analysis_report::a2_/)'` (expected: PASS)
-**Commit**: `feat(analysis): let a treatment factor explain lock and image differences`
+**Commit**: `feat(analysis): let a treatment factor explain lock and image changes`

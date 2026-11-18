@@ -1,13 +1,14 @@
 # Level wiring
 
-**Goal**: Each cell of a two-treatment job runs with its own treatment level: `candler run` resolves every level, `JobSpec` carries them in `levels`, and `cells_of` gives each `CellRun` its own level's treatment, sources and harness (T3 wiring, C3). A one-treatment job's spec bytes are unchanged.
+**Goal**: Each cell of a two-treatment job runs with its own treatment level: `candler run` resolves every level, `JobSpec` carries them in `levels`, and `cells_of` gives each `CellRun` its own level's treatment, sources and harness (T3 wiring, C3). Two levels with equal lock bytes give one build and one image id, and two with different lock bytes give two (T4, moved here by A5). A one-treatment job's spec bytes are unchanged.
 **Estimate**: about 70 Sonnet calls, $2.9, plus the planning-chain verifier (about 40 calls, $1.6), which also covers `level_resolve`
 **Pre-conditions**:
-- [ ] [cmd] Every-leaf pre-conditions (campaign README, Gotchas); `level_resolve` is merged: `git log --format=%s | grep -q '^merge(.*): land level_resolve'`
-- [ ] [nl] OWNED (regex): `^crates/candler-core/src/jobs/model\.rs$|^crates/candler-core/src/jobs/orchestrate/(mod|session)\.rs$|^crates/candler/src/commands/(run|supervise)\.rs$|^crates/candler-core/tests/it/guard_job_orchestrate\.rs$|^__reports__/m6a-paired-stats/leaves/level_wiring_v0\.md$`. In `model.rs` only `JobSpec`; in `orchestrate/mod.rs` only `run_job`; in `session.rs` only `cells_of` and `treatment_of`
+- [ ] [cmd] Every-leaf pre-conditions (campaign README, Gotchas); `level_resolve` is merged: `test -f __reports__/m6a-paired-stats/leaves/level_resolve_v0.md`
+- [ ] [nl] OWNED (regex): `^crates/candler-core/src/jobs/model\.rs$|^crates/candler-core/src/jobs/orchestrate/(mod|session)\.rs$|^crates/candler/src/commands/(run|supervise)\.rs$|^crates/candler-core/tests/it/guard_(job_orchestrate|image)\.rs$|^__reports__/m6a-paired-stats/leaves/level_wiring_v0\.md$`. In `model.rs` only `JobSpec`; in `orchestrate/mod.rs` only `run_job` (and its `plan_runs` call); in `session.rs` only `cells_of` and `treatment_of`. `plan_runs` takes `impl Into<Levels<'a>>` (`level_resolve`); `run.rs` and `orchestrate/mod.rs` still pass one `&Resolution`, so a two-level file fails the plan naming the unresolved level until this leaf passes a real `Levels`
 **Success Gates**:
 - ⬜ [cmd] Targeted test: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_job_orchestrate::/) | test(/^guard_job_spec_file::/)' && cargo nextest run -p candler --no-tests=fail -E 'test(/^guard_cli_run::/)'`
 - ⬜ [cmd] Two fake levels with different sources: each `CellRun` carries its own level's treatment and sources: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_job_orchestrate::t3_/)'`
+- ⬜ [cmd] T4: two levels with equal lock bytes give one build and one id (`ensure` may be called once per level; the existing tag cache answers the second), and two with different lock bytes give two, counted on `guard_image::b05_`'s PATH-fake rig: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_image::t4_/)'`
 - ⬜ [cmd] A one-treatment spec serialises to the same bytes: `guard_job_spec_file::p0_` passes unchanged (`git diff --quiet $BASE_LEAF -- crates/candler-core/tests/it/guard_job_spec_file.rs`)
 - ⬜ [cmd] DIGEST passes; ownership check prints nothing
 - ⬜ [nl] The planning-chain verifier closed with no open finding; the report records each Bite
@@ -17,9 +18,10 @@
 **Goal**: Rows that pin per-cell treatment at run time.
 **Implementation Logic**:
 1. In `guard_job_orchestrate.rs`, with the file's existing fakes: `t3_each_cell_runs_its_own_treatment` (two levels whose sources differ: each `CellRun`'s treatment, mounted sources and harness come from its own level); `t3_one_level_job_unchanged` (one level gives the `CellRun`s of today).
-2. `Guards:` and `Oracle:` lines.
-**Deliverables**: `crates/candler-core/tests/it/guard_job_orchestrate.rs`: the two `t3_` rows
-**Consistency Checks**: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_job_orchestrate::t3_/)'` (expected: FAIL)
+2. In `guard_image.rs`, on `b05_`'s PATH-fake rig: `t4_distinct_locks_two_images`, `t4_equal_locks_one_build` (two levels resolved through the image step `resolve/steps/image.rs`, equal lock bytes: one build and one id).
+3. `Guards:` and `Oracle:` lines.
+**Deliverables**: `crates/candler-core/tests/it/guard_job_orchestrate.rs`: the two `t3_` rows; `crates/candler-core/tests/it/guard_image.rs`: the two `t4_` rows
+**Consistency Checks**: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_job_orchestrate::t3_/) | test(/^guard_image::t4_/)'` (expected: FAIL)
 **Commit**: `test(jobs): guard per-cell treatment at run time`
 
 ## Step 2: Carry the levels in the job
@@ -35,9 +37,9 @@
 ## Step 3: Bites and the planning-chain verifier
 **Goal**: The rows bite, and a fresh verifier attacks the whole planning chain.
 **Implementation Logic**:
-1. Bites: `cells_of` uses the primary level for every cell (red on `t3_each_cell_`); serialise an empty `levels` (red on `p0_`). Record each.
+1. Bites: `cells_of` uses the primary level for every cell (red on `t3_each_cell_`); serialise an empty `levels` (red on `p0_`); key the image by the treatment level instead of the lock bytes (red on `t4_equal_locks_`). Record each.
 2. Dispatch the verifier (Sonnet, fresh agent) with the brief below verbatim plus the branch name; fix, re-check through SendMessage, report once.
-3. **Verifier brief:** "You verify the planning chain of `__roadmap__/m6a-paired-stats/`: the leaves `treatment_setting.md`, `resolve/level_resolve.md` and `resolve/wired/level_wiring.md`, on branch <branch>. Read the leaves, then the code: `runner/plan.rs` (`setting_of_factor`, `fresh_cells`, `Levels`, `plan_runs`, `check_facts`), `commands/preflight.rs`, `commands/run.rs`, `jobs/model.rs`, `jobs/orchestrate/{mod,session}.rs`. Do not read the implementers' reports until you have your own findings. Attack: any path where a cell mounts, records or reports another level's treatment (`cells_of`, `sources_of`, `record_packages`, `harness_of`, `check_factors`); a setting other than `request.treatment` admitted as a factor (I7); an image built twice for equal lock bytes, or shared between different ones; a failing level that does not fail the plan; a one-treatment file whose plan, spec bytes or digests moved (run DIGEST); a test whose expected value came from the code under test. Report each finding with file, line and a failing input. Change nothing."
+3. **Verifier brief:** "You verify the planning chain of `__roadmap__/m6a-paired-stats/`: the leaves `treatment_setting.md`, `resolve/level_resolve.md` and `resolve/wired/level_wiring.md`, on branch <branch>. Read the leaves, then the code: `runner/plan.rs` (`setting_of_factor`, `fresh_cells`, `Levels`, `plan_runs`, `check_facts`), `commands/preflight.rs`, `commands/run.rs`, `jobs/model.rs`, `jobs/orchestrate/{mod,session}.rs`, `resolve/steps/image.rs`, and the `t4_` rows of `guard_image.rs`. Do not read the implementers' reports until you have your own findings. Attack: any path where a cell mounts, records or reports another level's treatment (`cells_of`, `sources_of`, `record_packages`, `harness_of`, `check_factors`); a setting other than `request.treatment` admitted as a factor (I7); an image built twice for equal lock bytes, or shared between different ones; a failing level that does not fail the plan; a one-treatment file whose plan, spec bytes or digests moved (run DIGEST); a test whose expected value came from the code under test. Report each finding with file, line and a failing input. Change nothing."
 **Deliverables**: `__reports__/m6a-paired-stats/leaves/level_wiring_v0.md`: sections "Bites", "Verifier"
 **Consistency Checks**: `grep -q '^## Bites' __reports__/m6a-paired-stats/leaves/level_wiring_v0.md && grep -q '^## Verifier' __reports__/m6a-paired-stats/leaves/level_wiring_v0.md` (expected: PASS)
 **Commit**: `docs(jobs): record the bites and the verifier of the planning chain`

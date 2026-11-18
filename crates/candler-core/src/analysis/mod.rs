@@ -4,12 +4,19 @@
 use candler_schemas::values::ValueSource;
 use statrs::distribution::{ContinuousCDF as _, Normal};
 
+pub mod bca;
+pub mod blocking;
+pub mod cmh;
 pub mod error;
+pub mod exact_strata;
 pub mod fisher;
 pub mod holm;
+pub mod midp;
 pub mod newcombe;
+pub mod permutation;
 pub mod refusal;
 pub mod report;
+pub mod splitmix;
 pub mod tally;
 pub mod wilson;
 

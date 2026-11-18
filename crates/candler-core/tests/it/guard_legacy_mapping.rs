@@ -218,8 +218,23 @@ fn measured(manifest: &Value) -> Vec<(String, Value)> {
 /// Guards: D6 — a run's integrity, harness version and measured values equal the oracle's, the
 /// manifests list the factors that differ between the cells, and a run's start and end are the
 /// timestamps worked out by hand. Oracle: `oracle::expected_runs` for integrity, harness and
-/// measured values; the factor list read with `jq` over the three `experiment.json` files (the
-/// leaves that differ are the model, the run count and three skill version spellings); start and
+/// measured values; the factor list computed with `jq` over the three `experiment.json` files by the
+/// rule itself: the leaves that differ (the model, the run count and three skill version
+/// spellings, `plan.out_dir` filed under `import`), minus those whose levels map one to one onto
+/// the cells' `<name>@<tag>` treatment strings (the three spellings), plus `request.treatment`
+/// because the three treatments differ. The `jq` rule, run as `jq -n -S -c -f rule.jq` over the
+/// three files with `inputs`:
+/// `def leaves: [paths(scalars) as $p | {key: ($p|map(tostring)|join(".")), value: getpath($p)}]
+/// | from_entries;`
+/// `[inputs | {t: .plan.skill_version, l: (leaves | del(.["plan.out_dir"]))}] as $cells`
+/// `| ($cells | map(.l | keys[]) | unique) as $paths`
+/// `| [ $paths[] | select(. as $p | ($cells | map(.l[$p]) | unique | length) > 1) ] as $varying`
+/// `| [ $varying[] | select(. as $p | ($cells | map([.t, .l[$p]]) | unique) as $pairs`
+/// `| ((($pairs|map(.[0])|unique|length) == ($pairs|length))`
+/// `and (($pairs|map(.[1])|unique|length) == ($pairs|length))) | not) ] as $kept`
+/// `| ($kept + (if ($cells|map(.t)|unique|length) > 1 then ["request.treatment"] else [] end))`
+/// `| sort`;
+/// start and
 /// end from `run_complete.json` and the `elapsed_seconds` of `progress.jsonl`:
 /// 2086.386 - 1882.076 = 204.310 s before `19:34:27.030762`, and 15 - 10 = 5 s before `00:00:11`.
 #[test]
@@ -265,16 +280,7 @@ fn the_mapped_runs_are_the_oracle_runs() {
             // BORROW: `.as_str()` and `.to_owned()` make the owned factor path
             .map(|factor| factor.as_str().expect("a factor path").to_owned())
             .collect();
-        assert_eq!(
-            factors,
-            [
-                "plan.model",
-                "plan.runs",
-                "plan.skill_version",
-                "provenance.skill_version",
-                "resolved_skill_version",
-            ]
-        );
+        assert_eq!(factors, ["plan.model", "plan.runs", "request.treatment",]);
     }
     let first = imported.manifest(V3, 6);
     assert_eq!(text_of(&first, "started_at"), "2026-08-05T19:31:02.720762Z");

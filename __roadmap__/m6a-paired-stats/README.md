@@ -5,7 +5,7 @@ Milestone M6a of `candler-v1`, the leaf `stats/m6a_paired_stats.md` (R02), amend
 - **L0, this level:** `exact_tests`, `cmh`, `resampling` (the battery's engines); `treatment_setting` (T2), `treatment_verdict` (T5), `arm_counts` (E1 and per-run units), `execution_order` (B3).
 - **L1, `resolve/`:** `level_resolve` (T3, T4), `blocking` (blocks and test selection).
 - **L2, `resolve/wired/`:** `level_wiring` (T3 wiring), `analyze_output` (the comparisons rule in `analyze`).
-- **L3, `resolve/wired/proven/`:** `golden_blocked`, `known_truth`, `design_record`.
+- **L3, `resolve/wired/proven/`:** `golden_design`, `import_treatment`, `known_truth`, `design_record` (A8: `golden_blocked` is blocked, superseded by `golden_design`).
 The analysis chain (cmh, blocking, analyze_output, proven) is the critical path; the planning chain (treatment_setting, level_resolve, level_wiring) runs beside it. `analyze_output` needs only `blocking` and L0; it sits at L2 for that reason. No gate needs Docker or a model call. DIGEST and GOLDEN must not move.
 ## Reference Documents
 - [R01 Architecture](../../__design__/architecture.md) — §Analysis statistics, §Contracts & Invariants (I5, I7), §Future features
@@ -28,21 +28,22 @@ The analysis chain (cmh, blocking, analyze_output, proven) is the critical path;
 
 ## Success Gates
 - ⬜ [cmd] G1 engines: every test equals its second engine, and the generator is deterministic and offline: GEN passes, and `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_stats_exact::/) | test(/^guard_stats_cmh::/) | test(/^guard_stats_resampling::/) | test(/^guard_stats::/)'`
-- ⬜ [cmd] G2 golden: the blocked comparisons on the 240 golden runs equal the independent engine, and permuting skill versions within model blocks rejects at a rate inside the Monte Carlo interval of α: `cargo nextest run -p candler --run-ignored only --no-tests=fail -E 'test(/^guard_analyze_golden::blocked_/)'`, with `CANDLER_GOLDEN_CORPUS` set (GOLDEN)
+- ⬜ [cmd] G2 golden design (A8): the HTN golden experiment (3 models × 4 htn-creator versions × 20 runs) is one experiment file that plans 12 cells, and on a store of that shape `analyze` gives 6 version comparisons blocked by model and 3 model comparisons blocked by version, each equal to an independent second engine within 1e-9: `cargo nextest run -p candler --no-tests=fail -E 'test(/^guard_golden_design::/)' && (cd crates/candler/tests/oracle/golden_design && uv run --offline --no-project --with scipy==1.17.0 --with statsmodels==0.15.0 python second_engine.py --check)`
+- ⬜ [cmd] G12 import (A8): an imported experiment declares the same factors as its native rerun: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_import_mini::/)' && CANDLER_GOLDEN_CORPUS=/Users/hacker/Documents/tmp/candler-m1-golden/campaign/20260806-cont-train cargo nextest run -p candler --run-ignored only --no-tests=fail -E 'test(/^guard_analyze_golden::declared_/)'`
 - ⬜ [cmd] G3 citations: every validity source is cited in R01: `for k in 10.1002/sim.3531 Mantel Fleiss Robins Phipson Efron; do sed -n '/^## Analysis statistics/,/^## /p' __design__/architecture.md | grep -q "$k" || exit 1; done`
 - ⬜ [cmd] G4 E1: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_stats::t3_/) | test(/^guard_analysis_report::e1_/)'`
 - ⬜ [cmd] G5 treatment plan and wiring: two levels plan one cell per level, each mounting its own sources, with one image per distinct lock: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_run_plan::t3_/) | test(/^guard_image::t4_/) | test(/^guard_job_orchestrate::t3_/)'`
 - ⬜ [cmd] G6 I7: every other setting factor is still refused: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_settings_out_of_cell::/)' && cargo nextest run -p candler --no-tests=fail -E 'test(/^guard_cli_refusal::r[23]_/)'`
-- ⬜ [cmd] G7 one factor: a one-factor store gives today's output except the mid-p p-value: `cargo nextest run -p candler --no-tests=fail -E 'test(/^guard_analyze::a1_/)'`
-- ⬜ [cmd] G8 known truth: under H0 the false-positive rate's Monte Carlo interval contains α, and the Simpson case holds nominal blocked and not pooled: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_known_truth::/)'`
+- ⬜ [cmd] G7 one factor (A6): a two-level one-factor store with binary expectations only gives today's output except the mid-p p-value: `cargo nextest run -p candler --no-tests=fail -E 'test(/^guard_analyze::c6_one_factor_/)'`
+- ⬜ [cmd] G8 known truth: under H0 the false-positive rate's Monte Carlo interval contains α for binary outcomes, one block and tie-free weighted outcomes (kt_h0_binary_nominal, kt_h0_one_block_nominal, kt_h0_weighted_continuous, two-sided); with tied weights the weighted rate stays at or below the interval's upper limit, conservative (kt_h0_weighted_nominal, upper bound only); and the Simpson case holds nominal blocked and not pooled: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_known_truth::/)'`
 - ⬜ [cmd] G9 digests: DIGEST and GOLDEN pass
 - ⬜ [cmd] G10 hygiene: STD, LINUX and SUBJ pass; no schemas commit: `test -z "$(git log --no-merges --format=%s $BASE..HEAD -- crates/candler-schemas)"`; confirms are culled: `! git grep -n 'fn confirm_' -- ':(glob)crates/**'`
-- ⬜ [nl] G11 reports: the 5 verifiers closed with no open finding; every Bite is recorded in the leaf reports `__reports__/m6a-paired-stats/leaves/<leaf>_v0.md`; every probe is answered in its report
+- ⬜ [nl] G11 reports: the 6 verifiers closed with no open finding; every Bite is recorded in the leaf reports `__reports__/m6a-paired-stats/leaves/<leaf>_v0.md`; every probe is answered in its report
 
 ## Gotchas
 - **Statistical design** (R03 §Statistical design; Eliott's four decisions of round 2):
   - **Question.** For each comparison and each gate or quality expectation, does B change the pass rate compared with A? Two-sided. Estimand: B − A within blocks. H0: no difference in any block. No SESOI; every effect is shown with its interval.
-  - **Design facts.** The unit is one run (isolated containers; B3 randomizes order). Runs are not paired (replicate r of A and of B share nothing), so McNemar is out. Replicates per arm are fixed, so one margin is fixed and Fisher's exact test is conservative: use its mid-p (Lydersen, Fagerland & Laake 2009, doi:10.1002/sim.3531). Blocks are the level combinations of the declared factors other than the compared one; on the golden runs, the model, plus the eval task if the golden probe finds tasks are cells.
+  - **Design facts.** The unit is one run (isolated containers; B3 randomizes order). Runs are not paired (replicate r of A and of B share nothing), so McNemar is out. Replicates per arm are fixed, so one margin is fixed and Fisher's exact test is conservative: use its mid-p (Lydersen, Fagerland & Laake 2009, doi:10.1002/sim.3531). Blocks are the level combinations of the declared factors other than the compared one; on the golden design (A8), the model for a version comparison and the version for a model comparison; the eval task is not a block (golden probe, C5).
   - **C6, comparisons.** One comparison per (declared factor, pair of its levels), the other declared factors as blocks, each block's own risk difference shown. A 2×2 store gives 2 comparisons where today it gives 4 one-factor pairs, so the `a2_` guards change by design; `analyze_output` lists each changed guard with its reason. A one-factor store gives one comparison in one block: today's output with the mid-p p.
   - **Battery**, fixed by the experiment file before any data: binary in 1 block, Fisher mid-p with Newcombe; binary in ≥2 blocks, CMH χ² without continuity correction with the MH odds ratio and its RBG interval, the Mantel–Fleiss criterion computed per comparison, homogeneity shown and never a gatekeeper, and the exact conditional test (convolution of the blocks' hypergeometrics) as the named fallback; weighted (num/den), a stratified permutation test of the difference in Σnum/Σden, B = 10 000, p = (b+1)/(B+1), with a stratified BCa interval.
   - **C7, multiplicity.** Holm over one comparison's gate expectations, and separately over its quality expectations. Holm is the only method.
@@ -56,7 +57,7 @@ The analysis chain (cmh, blocking, analyze_output, proven) is the critical path;
 - **Traps.** Do not edit `fisher.toml`; add `midp.toml` (the `t1_`, `a1_` and `a2_` oracles read `fisher.toml`). Keep `fisher_two_sided` until `analyze_output` swaps the call.
 - **Budget.** Cap $105; the coordinator stops and reports to Eliott at $84 (80 %). Measured from transcripts at the list rates of R05 (Opus 5.5 $4/$20/$5 or $8/$0.20; Sonnet 5.5 $2/$10/$2.5 or $4/$0.10); `spend.py` and `m5b-spend.py` overstate cache reads and are not used. Implementers 1,140 calls × $0.041 = $46.7; verifiers 200 × $0.041 = $8.2; fix rounds 70 × $0.041 = $2.9; coordinators 305 × $0.063 = $19.2 (4 levels × 70, scaffold and probe 25); close $8; contingency 15 % $12.8. A coordinator at 200 calls per level adds about $33: it measures at each level merge and stops early if its own row is over. Each leaf's call estimate is in its Estimate line; at the cap the implementer stops, pushes what is green and lists what is left.
 - **Execution model.** A fresh Opus coordinator per level dispatches every leaf of the level at once, each a Sonnet subagent with the model passed explicitly, in its own worktree. It integrates each leaf: rebase onto the feature tip, run the leaf's targeted `[cmd]` gates and ownership check (integration, not verification), `git merge --no-ff -F <file>`, confirm with `git log`. It reviews the seams after each level and handles escalations only; it never verifies its own dispatches. At each level merge it runs STD (workspace form), DIGEST and GOLDEN; at the L1 merge and at the end, LINUX and SUBJ. It batches `dirtree-rdm update` calls per level and re-reads `dirtree-rdm ls` at each level close.
-- **Implementer owns its verify loop.** On a `[V]` leaf the implementer, once its gates pass, dispatches a fresh Sonnet verifier with the leaf's Verifier brief verbatim, adding only the branch name, fixes the findings, asks the same verifier to re-check through SendMessage, and reports once. A disputed finding, a spec defect or a second failed re-check goes to the coordinator. **Mechanism probe** (the L0 coordinator, first dispatch): if a Sonnet subagent cannot dispatch Agent, implementers run as Sonnet side sessions that each dispatch their verifier, and their turn-end note is the report. Verifiers (5): `level_wiring` (covering `level_resolve`), `analyze_output`, `resampling`, `cmh`, `blocking`.
+- **Implementer owns its verify loop.** On a `[V]` leaf the implementer, once its gates pass, dispatches a fresh Sonnet verifier with the leaf's Verifier brief verbatim, adding only the branch name, fixes the findings, asks the same verifier to re-check through SendMessage, and reports once. A disputed finding, a spec defect or a second failed re-check goes to the coordinator. **Mechanism probe** (the L0 coordinator, first dispatch): if a Sonnet subagent cannot dispatch Agent, implementers run as Sonnet side sessions that each dispatch their verifier, and their turn-end note is the report. Verifiers (6): `level_wiring` (covering `level_resolve`), `analyze_output`, `resampling`, `cmh`, `blocking`, `import_treatment` (A8).
 - **Shared machine.** Each leaf builds in `CARGO_TARGET_DIR=/private/tmp/claude-501/m6a-target-<leaf>` with `RUSTC_WRAPPER=sccache CARGO_INCREMENTAL=0`, exported per command, never in a config file; the coordinator deletes it after the leaf merges; at most three leaves build at once. `df -h /System/Volumes/Data` before the first build. No Docker. Never cancel CI. Never rewrite history on main.
 - **colgrep.** Index the leaf's worktree and scope every `search` to that path. The search policy denies `grep -r` and `rg`; use `git grep`.
 - **Schemas.** No leaf touches `crates/candler-schemas/`. A commit that would is scoped `schemas` and touches no other crate, and needs a coordinator ruling first.
@@ -77,14 +78,14 @@ The analysis chain (cmh, blocking, analyze_output, proven) is the critical path;
 ## Status
 ```mermaid
 graph TD
-    exact_tests[Exact tests]:::planned
-    cmh[CMH]:::planned
-    resampling[Resampling]:::planned
-    treatment_setting[Treatment setting]:::planned
-    treatment_verdict[Treatment verdict]:::planned
-    arm_counts[Arm counts]:::planned
-    execution_order[Execution order]:::planned
-    resolve[Resolve]:::planned
+    exact_tests[Exact tests]:::done
+    cmh[CMH]:::done
+    resampling[Resampling]:::done
+    treatment_setting[Treatment setting]:::done
+    treatment_verdict[Treatment verdict]:::done
+    arm_counts[Arm counts]:::done
+    execution_order[Execution order]:::done
+    resolve[Resolve]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -95,19 +96,39 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `exact_tests.md` | 📄 Leaf Task | ⬜ Planned |
-| `cmh.md` | 📄 Leaf Task | ⬜ Planned |
-| `resampling.md` | 📄 Leaf Task | ⬜ Planned |
-| `treatment_setting.md` | 📄 Leaf Task | ⬜ Planned |
-| `treatment_verdict.md` | 📄 Leaf Task | ⬜ Planned |
-| `arm_counts.md` | 📄 Leaf Task | ⬜ Planned |
-| `execution_order.md` | 📄 Leaf Task | ⬜ Planned |
-| `resolve/` | 📁 Directory | ⬜ Planned |
+| `exact_tests.md` | 📄 Leaf Task | ✅ Done |
+| `cmh.md` | 📄 Leaf Task | ✅ Done |
+| `resampling.md` | 📄 Leaf Task | ✅ Done |
+| `treatment_setting.md` | 📄 Leaf Task | ✅ Done |
+| `treatment_verdict.md` | 📄 Leaf Task | ✅ Done |
+| `arm_counts.md` | 📄 Leaf Task | ✅ Done |
+| `execution_order.md` | 📄 Leaf Task | ✅ Done |
+| `resolve/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
 |:---|:-----|:-------|:------------|:----------|
+| A1 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/treatment_setting_v0.md | [] | Supervisor ruling: fresh_cells drops setting paths, so treatment_setting is only the refusal change; the two-digest row moves to level_resolve |
+| A2 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/execution_order_v0.md | [] | Supervisor ruling: b27 and b34 pinned declaration order and were rewritten; OWNED gains guard_job_orchestrate.rs for b34; run_order and seed_of are public; the git grep gate uses ! git grep -q |
+| A3 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/treatment_setting_v0.md | [] | Scope plan is not in cog.toml: treatment_setting and level_resolve subjects use runner; treatment_verdict subjects cut to 72 characters |
+| A4 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/arm_counts_v0.md | [] | Merge pre-conditions test the landed leaf report instead of a merge title, since L0 merge titles name the change |
+| A5 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/level_resolve_v0.md | [] | Supervisor ruling: plan_runs has no image step (ensure runs per resolution in resolve/steps/image.rs), so T4 and its t4_ rows move from level_resolve to level_wiring, which owns guard_image.rs; plan_runs takes impl Into<Levels<'a>>, so no existing caller changes, and a level without a resolution fails the plan naming it |
+| A6 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/analyze_output_v0.md | [] | Supervisor rulings: G7 is reworded to a two-level one-factor store with binary expectations only, since C7 and the weighted battery change any other store; analyze_output may change a1_ and a2_ guards whose cause is C6, C7, mid-p, the weighted battery or the B − A sign; the treatment verdict keys on request.treatment only (t5_ fixtures respelled); every difference is B − A, None where no pooled interval |
+| A7 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/level_wiring_v0.md | [] | Supervisor rulings: a table level on request.treatment is that level's whole treatment, with only the fields name, tag, commit and source (newly admitted); two levels with equal resolved treatments are refused at plan time naming both (newly refused, existing code); the probe shows the treatment commit enters the cell digest, as R01 says |
+| A8 | 2026-11-18 | m6a-l3-addendum.md (notes folder of session local_7f577b41), Eliott's approval of the L3 reshape | [ "golden_design", "import_treatment" ] | The 240 golden runs are the trace of a design to rerun, not numbers to refit: golden_blocked is blocked, superseded by golden_design (the design plans 12 cells and analyses against a second engine); import_treatment makes an import declare request.treatment like its native rerun; G2 becomes the golden design gate, G12 the import gate, 6 verifiers; known_truth runs the golden shape end to end; design_record documents the treatment table form and re-reads the offline citations |
+| A11 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/import_treatment_v0.md (probe) | [] | Milestone coordinator ruling: the A8 drop rule changes two existing guards and no digest; import_treatment owns guard_legacy_mapping's the_mapped_runs_are_the_oracle_runs (expected factors [plan.model, plan.runs, request.treatment] computed by the jq oracle applying the rule, never from the importer) and guard_comparability's imported_stratum_of_the_mini_corpus_is_comparable (SKILL_FACTORS respelled request.treatment, verdict stays comparable, a flip is a finding); the verifier attacks a changed guard whose expected value came from the code under test |
+| A12 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/import_treatment_v0.md (guard_comparability flip) | [] | Milestone coordinator ruling: in stratum_verdict, only when every arm is imported, an undeclared differing value path is explained when request.treatment is declared, the typed treatments differ and the path maps one to one onto the treatment levels over all arms (shared maps_one_to_one in manifest/compare.rs); live strata unchanged so I7 keeps its force; import_treatment owns that branch, new guard_comparability rows and one architecture.md sentence; t5_ and other verdict rows unchanged |
+| A13 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/golden_design_v0.md (findings 1-4) | [ "level_of_prefix" ] | Milestone coordinator ruling: check_factors refuses a declared factor that is a strict prefix of a differing path, so level_of's object-under-prefix branch is unreachable behind it; level_of_prefix confirms every caller and deletes the branch (or guards the path that reaches it) and states in R01 that A and B follow the recorded key order; golden_design's fabricated plan resolutions, partial weighted match and unexercised exact fallback are accepted (guarded at L0 and L1) |
+| A14 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/known_truth_v0.md (weighted H0 at 0.024) | [] | Milestone coordinator ruling: G8 is unchanged; the relaxed one-sided kt_h0_weighted_nominal is reverted to the two-sided interval; a fresh agent finds which p the row counts (raw permutation p of one expectation, not Holm-adjusted, not the reading) and fixes the row, or stops with evidence (p histogram, distinct weights, continuous weights) without changing code; the one-block Fisher bite is added; the end-to-end row planting integrity = valid is accepted for this level |
+| A15 | 2026-11-18 | __reports__/m6a-paired-stats/leaves/known_truth_v0.md (5 weight values: 0.024 and 0.025; grid of 1000: 0.056 and 0.045) | [] | Milestone coordinator ruling, option (a): the weighted H0 shortfall is ties in the statistic, not the engine; G8 holds the two-sided interval on binary, one-block and tie-free weighted rows and an upper bound of 0.063 on the tied weighted row; the design record states that the permutation test is valid but conservative under ties |
 
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| `exact_tests.md` | m6a/exact_tests | 5 | merged 50482359. BASE = 9560cd3d6b7b63eca28dc2bc0322ae769bd0d2f2. Golden probe: eval-K dirs merge into one run of a cell, the task is the expectation id, so 12 cells of 20 runs and the golden blocks are the model only (C5). Mechanism probe: AGENT-OK. Degenerate mid-p returns 0.5 |
+| `cmh.md` | m6a/cmh | 6 | merged 83f2c45d. Verifier F1-F4 fixed, re-check closed. OR is B over A |
+| `resampling.md` | m6a/resampling | 7 | merged e0462cd0. Verifier F1-F6 fixed, re-check closed. BCa needs 2 runs per arm; multi-block BCa has only the twin |
+| `treatment_setting.md` | m6a/treatment_setting | 3 | merged 02c50c30. Refusal only (A1); CLI no longer refuses a treatment factor and plans one collapsed cell until level_resolve |
+| `treatment_verdict.md` | m6a/treatment_verdict | 3 | merged c1cf6cad. 89 verdict rows unchanged, 3 t5_ rows added |
+| `arm_counts.md` | m6a/arm_counts | 3 | merged 45a91016. units are u64, not f64; the insertion-order bite cannot go red |
+| `execution_order.md` | m6a/execution_order | 5 | merged e7ca6bc0. b27 and b34 rewritten under ruling (A2) |

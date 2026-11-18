@@ -3,7 +3,7 @@
 //! The functions here read neither the store nor the clock: the caller hands over the selection
 //! and the validity of its runs.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use candler_schemas::execution::{Integrity, InvalidReason};
 use candler_schemas::outcome::{Cause, OutcomeRecord, Role, Status};
@@ -113,6 +113,9 @@ pub struct ExpectationTally {
     pub den: u64,
     /// Whether every counted outcome weighs 1/1 or 0/1.
     pub binary: bool,
+    /// The counted outcomes' effective weights per run, `(run, num, den)`, ordered by run key:
+    /// the units whose sums are `num` and `den`.
+    units: Vec<(RunKey, u64, u64)>,
 }
 
 impl ExpectationTally {
@@ -128,7 +131,15 @@ impl ExpectationTally {
             num: 0,
             den: 0,
             binary: true,
+            units: Vec::new(),
         }
+    }
+
+    /// The effective weight of each counted outcome per run, `(run, num, den)`, ordered by run
+    /// key; a descriptive expectation has none. Their sums are `num` and `den`.
+    #[must_use]
+    pub fn units(&self) -> &[(RunKey, u64, u64)] {
+        &self.units
     }
 
     /// The counts of passes in graded runs, `k` out of `n = pass + fail + blocked`.
@@ -186,6 +197,9 @@ impl ExpectationTally {
                         self.den = self.den.saturating_add(weight.den());
                         let plain = (weight.num(), weight.den());
                         self.binary &= plain == (1, 1) || plain == (0, 1);
+                        // BORROW: the unit owns the run key
+                        self.units
+                            .push((record.run().clone(), weight.num(), weight.den()));
                     }
                     Role::Descriptive => {}
                 }
@@ -208,6 +222,10 @@ pub struct ArmTally {
     /// Runs the experimenter ended (`budget_stop`, `killed`, `interrupted`), never charged to an
     /// arm and kept apart so that no reader sums them as failures.
     pub experimenter_ends: BTreeMap<String, u64>,
+    /// Valid runs with at least one `not_measured` outcome of cause `instrument_error`.
+    pub instrument_error_runs: u64,
+    /// Outcomes of valid runs that are `not_measured` with the cause `instrument_error`.
+    pub instrument_error_outcomes: u64,
     /// The expectations of the arm's valid runs.
     pub expectations: BTreeMap<ExpectationId, ExpectationTally>,
 }
@@ -249,6 +267,9 @@ fn cause_key(cause: Option<&Cause>) -> Result<String, StatsError> {
         )),
     }
 }
+
+/// The key of the `not_measured` cause that marks an outcome the evaluator failed to report.
+const INSTRUMENT_ERROR: &str = "reason:instrument_error";
 
 /// The serde name of an invalid reason.
 fn reason_name(reason: InvalidReason) -> Result<String, StatsError> {
@@ -305,6 +326,7 @@ pub fn tally(
             )));
         }
     }
+    let mut errored: BTreeMap<CellKey, BTreeSet<RunKey>> = BTreeMap::new();
     for record in selection
         .outcomes()
         .filter(|record| record.evaluator() == evaluator)
@@ -321,11 +343,31 @@ pub fn tally(
         let Some(arm) = arms.get_mut(&cell) else {
             continue;
         };
+        if matches!(record.status(), Status::NotMeasured)
+            && cause_key(record.cause())? == INSTRUMENT_ERROR
+        {
+            arm.instrument_error_outcomes += 1;
+            // BORROW: the set owns the run key
+            errored
+                .entry(cell.clone())
+                .or_default()
+                .insert(record.run().clone());
+        }
         // BORROW: the key owns the expectation id
         arm.expectations
             .entry(record.expectation_id().clone())
             .or_insert_with(|| ExpectationTally::new(record.role()))
             .count(record)?;
+    }
+    for (cell, runs) in &errored {
+        if let Some(arm) = arms.get_mut(cell) {
+            arm.instrument_error_runs = u64::try_from(runs.len()).unwrap_or(u64::MAX);
+        }
+    }
+    for arm in arms.values_mut() {
+        for held in arm.expectations.values_mut() {
+            held.units.sort();
+        }
     }
     Ok(arms)
 }

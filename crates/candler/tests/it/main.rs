@@ -60,6 +60,7 @@ mod guard_cli_refusal;
 mod guard_cli_run;
 mod guard_cli_surface;
 mod guard_eval_infra;
+mod guard_golden_design;
 mod guard_golden_parity;
 mod guard_ground_truth_cli;
 mod guard_ingest;

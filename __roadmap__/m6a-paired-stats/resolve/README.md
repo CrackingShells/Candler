@@ -7,7 +7,7 @@ Level L1 of `m6a-paired-stats`, after every L0 leaf is merged. `level_resolve` r
 A two-treatment plan resolves each level once and gives each cell its own level's facts and image; each comparison has its blocks and its pre-specified test.
 
 ## Pre-conditions
-- [ ] [cmd] L0 is merged: `for l in exact_tests cmh resampling treatment_setting treatment_verdict arm_counts execution_order; do git log --format=%s | grep -q "^merge(.*): land $l" || exit 1; done`
+- [ ] [cmd] L0 is merged: `for l in exact_tests cmh resampling treatment_setting treatment_verdict arm_counts execution_order; do test -f __reports__/m6a-paired-stats/leaves/${l}_v0.md || exit 1; done`
 - [ ] [cmd] STD, DIGEST and GOLDEN passed at the L0 merge (the coordinator's record in the campaign Progress table)
 - [ ] [nl] The golden probe's answer (are eval tasks cells?) is recorded in the campaign Progress table
 
@@ -19,9 +19,9 @@ A two-treatment plan resolves each level once and gives each cell its own level'
 ## Status
 ```mermaid
 graph TD
-    level_resolve[Level resolve]:::planned
-    blocking[Blocking]:::planned
-    wired[Wired]:::planned
+    level_resolve[Level resolve]:::done
+    blocking[Blocking]:::done
+    wired[Wired]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -32,9 +32,9 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `level_resolve.md` | 📄 Leaf Task | ⬜ Planned |
-| `blocking.md` | 📄 Leaf Task | ⬜ Planned |
-| `wired/` | 📁 Directory | ⬜ Planned |
+| `level_resolve.md` | 📄 Leaf Task | ✅ Done |
+| `blocking.md` | 📄 Leaf Task | ✅ Done |
+| `wired/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
@@ -43,3 +43,5 @@ graph TD
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| `level_resolve.md` | m6a/level_resolve | 4 | merged 6a43447a. Narrowed by A5 (T4 to level_wiring). Two-digest row green; a level without a resolution fails the plan through the existing PlanError::Cell/Document code; run.rs and orchestrate/mod.rs still pass one resolution until L2. L1 close at 6da1cb0b: STD, DIGEST, GOLDEN, LINUX, SUBJ, GEN pass |
+| `blocking.md` | m6a/blocking | 5 | merged 6da1cb0b. Verifier F1-F3 fixed, re-check closed. Units are u64 on the wire (Weight::new(u64, u64)). blocks_of takes per-run units, not an ExpectationId; a treatment level is not in comparable().values() and reads as null, for analyze_output to settle |

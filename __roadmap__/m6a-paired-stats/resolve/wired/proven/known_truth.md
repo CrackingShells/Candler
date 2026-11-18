@@ -4,13 +4,13 @@
 **Estimate**: about 80 Sonnet calls, $3.3; no verifier (the simulations are the evidence)
 **Pre-conditions**:
 - [ ] [cmd] Every-leaf pre-conditions (campaign README, Gotchas); L2 is merged
-- [ ] [nl] OWNED (regex): `^crates/candler-core/tests/it/guard_known_truth\.rs$|^crates/candler-core/tests/it/main\.rs$|^crates/candler-core/tests/it/support/fake_jobs\.rs$|^crates/candler-core/tests/it/guard_job_orchestrate\.rs$|^__reports__/m6a-paired-stats/leaves/known_truth_v0\.md$`. `guard_job_orchestrate.rs` only to move its fakes into `support/fake_jobs.rs`, with no row changed
+- [ ] [nl] OWNED (regex): `^crates/candler-core/tests/it/guard_known_truth\.rs$|^crates/candler-core/tests/it/main\.rs$|^crates/candler-core/tests/it/support/fake_jobs\.rs$|^crates/candler-core/tests/it/support/mod\.rs$|^crates/candler-core/tests/it/guard_job_orchestrate\.rs$|^__reports__/m6a-paired-stats/leaves/known_truth_v0\.md$`. `guard_job_orchestrate.rs` only to move its fakes into `support/fake_jobs.rs`, with no row changed; if the fakes already live in `support/job_orchestrate.rs`, reuse them and skip the move (A8). In `support/mod.rs`, only the one `mod` line
 **Success Gates**:
 - ⬜ [cmd] Targeted test: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_known_truth::/) | test(/^guard_job_orchestrate::/)'`
 - ⬜ [cmd] H0, binary: 2 000 simulated experiments; the 99 % binomial interval of the rejection rate contains 0.05 (`kt_h0_binary_nominal`)
 - ⬜ [cmd] Simpson H0: blocked rate nominal, pooled rate outside its interval (`kt_simpson_blocked_holds`)
 - ⬜ [cmd] Weighted H0: fewer simulations (the count and the measured runtime recorded), interval contains 0.05 (`kt_h0_weighted_nominal`)
-- ⬜ [cmd] Two treatment levels on the fakes give one treatment comparison blocked by model (`kt_two_levels_end_to_end`)
+- ⬜ [cmd] The golden shape on the fakes (4 treatment levels × 3 model levels, a small replicate count) gives 6 treatment comparisons blocked by model and 3 model comparisons blocked by treatment (`kt_two_levels_end_to_end`, A8)
 - ⬜ [nl] The report gives the power at a 0.2 difference with its Monte Carlo interval, and each Bite
 **References**: [R03 §Known truth](/Users/hacker/Library/Application%20Support/Claude/side-session-notes/local_7f577b41-1698-4eeb-9de3-4ee9460ae606/m6a-approved-plan.md); designing-tests science step 5
 
@@ -30,7 +30,7 @@
 **Goal**: A two-treatment job planned, run on fakes and analysed gives the treatment comparison blocked by model.
 **Implementation Logic**:
 1. Move the fakes of `guard_job_orchestrate.rs` into `support/fake_jobs.rs` unchanged; its rows still pass.
-2. `kt_two_levels_end_to_end`: plan two treatment levels × two models, run on the fakes with planted outcomes, analyse; the treatment comparison has two blocks, the CMH battery, and the planted direction.
+2. `kt_two_levels_end_to_end` (A8, the golden shape): plan 4 treatment levels × 3 models with a small replicate count, run on the fakes with planted outcomes, analyse; 6 treatment comparisons with 3 blocks each and 3 model comparisons with 4 blocks each, the CMH battery, and the planted direction on the planted pair. The `analyze_c6_*` vector deviation from L2 is accepted: add no such vectors.
 **Deliverables**: `crates/candler-core/tests/it/support/fake_jobs.rs`; `crates/candler-core/tests/it/guard_known_truth.rs`: `kt_two_levels_end_to_end`
 **Consistency Checks**: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_known_truth::/) | test(/^guard_job_orchestrate::/)'` (expected: PASS)
 **Commit**: `test(jobs): run two treatment levels end to end on fakes`

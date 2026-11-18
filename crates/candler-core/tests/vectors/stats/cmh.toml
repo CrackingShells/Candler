@@ -1,0 +1,569 @@
+[engine]
+scipy = "1.17.0"
+statsmodels = "0.15.0"
+python = "3.12.12"
+
+[[rows]]
+label = "one block, Mantel-Fleiss exactly five"
+pa = [3]
+na = [10]
+pb = [7]
+nb = [10]
+level = 0.95
+informative = 1
+mf = 5.0
+mf_holds = true
+statistic = 3.0399999999999996
+p = 0.08123591708598543
+or_mh = 5.444444444444445
+or_lo = 0.8040182792188957
+or_hi = 36.867290302702045
+
+[[rows]]
+label = "one block, Mantel-Fleiss four"
+pa = [2]
+na = [8]
+pb = [6]
+nb = [8]
+level = 0.95
+informative = 1
+mf = 4.0
+mf_holds = false
+statistic = 3.75
+p = 0.05280751141611362
+or_mh = 9.0
+or_lo = 0.9361805827580642
+or_hi = 86.52176886789024
+
+[[rows]]
+label = "zero cells in two blocks"
+pa = [0, 7, 3]
+na = [10, 10, 10]
+pb = [4, 0, 8]
+nb = [10, 10, 10]
+level = 0.95
+informative = 3
+mf = 10.0
+mf_holds = true
+statistic = 0.2992125984251969
+p = 0.5843764723688915
+or_mh = 1.263157894736842
+or_lo = 0.48574327609977075
+or_hi = 3.2847966107682867
+hom_stat = 20.62375642349567
+hom_p = 3.323595747169708e-05
+
+[[rows]]
+label = "zero margin: no passes in a block"
+pa = [0, 6, 4]
+na = [10, 10, 10]
+pb = [0, 3, 8]
+nb = [10, 10, 10]
+level = 0.95
+informative = 2
+mf = 8.5
+mf_holds = true
+statistic = 0.09743589743589744
+p = 0.7549286289095608
+or_mh = 1.2
+or_lo = 0.3669418399979718
+or_hi = 3.9243276264379103
+hom_stat = 5.0615860189813855
+hom_p = 0.024461841922844344
+
+[[rows]]
+label = "zero margin: no fails in a block"
+pa = [10, 6, 4]
+na = [10, 10, 10]
+pb = [10, 3, 8]
+nb = [10, 10, 10]
+level = 0.95
+informative = 2
+mf = 8.5
+mf_holds = true
+statistic = 0.09743589743589744
+p = 0.7549286289095608
+or_mh = 1.2
+or_lo = 0.3669418399979718
+or_hi = 3.9243276264379103
+hom_stat = 5.0615860189813855
+hom_p = 0.024461841922844344
+
+[[rows]]
+label = "empty arm A in a block"
+pa = [0, 6, 4]
+na = [0, 10, 10]
+pb = [2, 3, 8]
+nb = [5, 10, 10]
+level = 0.95
+informative = 2
+mf = 8.5
+mf_holds = true
+statistic = 0.09743589743589744
+p = 0.7549286289095608
+or_mh = 1.2
+or_lo = 0.3669418399979718
+or_hi = 3.9243276264379103
+hom_stat = 5.0615860189813855
+hom_p = 0.024461841922844344
+
+[[rows]]
+label = "one informative block among degenerate ones"
+pa = [0, 5, 10]
+na = [5, 10, 10]
+pb = [0, 8, 10]
+nb = [5, 10, 10]
+level = 0.95
+informative = 1
+mf = 3.5
+mf_holds = false
+statistic = 1.879120879120879
+p = 0.17043409920147146
+or_mh = 4.0
+or_lo = 0.5499004947965866
+or_hi = 29.096173128410353
+
+[[rows]]
+label = "all blocks degenerate"
+pa = [0, 5]
+na = [5, 5]
+pb = [0, 5]
+nb = [5, 5]
+level = 0.95
+informative = 0
+mf = 0.0
+mf_holds = false
+
+[[rows]]
+label = "no runs at all"
+pa = [0]
+na = [0]
+pb = [0]
+nb = [0]
+level = 0.95
+informative = 0
+mf = 0.0
+mf_holds = false
+
+[[rows]]
+label = "sum R zero: arm B never passes"
+pa = [5, 6]
+na = [10, 10]
+pb = [0, 0]
+nb = [10, 10]
+level = 0.95
+informative = 2
+mf = 5.5
+mf_holds = true
+statistic = 14.459119496855346
+p = 0.00014323465423826676
+or_mh = 0.0
+
+[[rows]]
+label = "sum S zero: arm A never passes"
+pa = [0, 0]
+na = [10, 10]
+pb = [5, 6]
+nb = [10, 10]
+level = 0.95
+informative = 2
+mf = 5.5
+mf_holds = true
+statistic = 14.459119496855346
+p = 0.00014323465423826676
+
+[[rows]]
+label = "Mantel-Fleiss exactly five over four blocks"
+pa = [3, 1, 4, 1]
+na = [3, 2, 6, 5]
+pb = [4, 4, 3, 3]
+nb = [6, 8, 3, 5]
+level = 0.95
+informative = 4
+mf = 5.0
+mf_holds = true
+statistic = 0.5294117647058819
+p = 0.46685427082272546
+or_mh = 1.7894736842105263
+or_lo = 0.39527119619846185
+or_hi = 8.101313977035131
+hom_stat = 3.715405636783067
+hom_p = 0.29388039337729877
+
+[[rows]]
+label = "odds ratio exactly one: every block independent"
+pa = [5, 5]
+na = [10, 10]
+pb = [5, 5]
+nb = [10, 10]
+level = 0.95
+informative = 2
+mf = 10.0
+mf_holds = true
+statistic = 0.0
+p = 1.0
+or_mh = 1.0
+or_lo = 0.2895028710899463
+or_hi = 3.454197176819389
+hom_stat = 0.0
+hom_p = 1.0
+
+[[rows]]
+label = "homogeneity rejected: opposite effects"
+pa = [2, 18]
+na = [20, 20]
+pb = [18, 3]
+nb = [20, 20]
+level = 0.95
+informative = 2
+mf = 19.5
+mf_holds = true
+statistic = 0.048811013767209005
+p = 0.8251452658165319
+or_mh = 1.064516129032258
+or_lo = 0.5323023518863198
+or_hi = 2.128855123322528
+hom_stat = 48.12518962287004
+hom_p = 3.998565212934718e-12
+
+[[rows]]
+label = "random K=2 #0"
+pa = [56, 50]
+na = [118, 73]
+pb = [62, 39]
+nb = [93, 45]
+level = 0.95
+informative = 2
+mf = 52.049843360912526
+mf_holds = true
+statistic = 12.523847900304222
+p = 0.0004017905708995073
+or_mh = 2.3974036725987142
+or_lo = 1.4719648490423791
+or_hi = 3.904675015255291
+hom_stat = 0.2679080337920483
+hom_p = 0.6047385454679235
+
+[[rows]]
+label = "random K=2 #1"
+pa = [7, 25]
+na = [33, 51]
+pb = [9, 7]
+nb = [197, 23]
+level = 0.95
+informative = 2
+mf = 15.349706227967097
+mf_holds = true
+statistic = 10.12359670627136
+p = 0.0014638306573483417
+or_mh = 0.3124656781987919
+or_lo = 0.14457592998491972
+or_hi = 0.6753184991610633
+hom_stat = 1.5872028025822642
+hom_p = 0.2077262309386551
+
+[[rows]]
+label = "random K=2 #2"
+pa = [44, 52]
+na = [78, 97]
+pb = [12, 57]
+nb = [34, 179]
+level = 0.95
+informative = 2
+mf = 55.30797101449275
+mf_holds = true
+statistic = 16.589949449791536
+p = 4.639624324087599e-05
+or_mh = 0.4090105717932772
+or_lo = 0.2650150479451804
+or_hi = 0.6312458448520561
+hom_stat = 0.0069717127981927425
+hom_p = 0.9334565351281319
+
+[[rows]]
+label = "random K=3 #0"
+pa = [32, 75, 18]
+na = [55, 192, 25]
+pb = [15, 79, 167]
+nb = [18, 125, 178]
+level = 0.95
+informative = 3
+mf = 74.5313419148365
+mf_holds = true
+statistic = 29.306964371978395
+p = 6.177327782630471e-08
+or_mh = 3.0092017046282695
+or_lo = 1.996802475252184
+or_hi = 4.534897673338498
+hom_stat = 1.881471193329675
+hom_p = 0.3903405964845697
+
+[[rows]]
+label = "random K=3 #1"
+pa = [55, 104, 31]
+na = [113, 165, 65]
+pb = [21, 37, 59]
+nb = [69, 82, 198]
+level = 0.95
+informative = 3
+mf = 97.62044259522747
+mf_holds = true
+statistic = 19.87772937639665
+p = 8.255647903188112e-06
+or_mh = 0.4706821466124554
+or_lo = 0.33722261691876654
+or_hi = 0.6569597412058398
+hom_stat = 0.013110374627708176
+hom_p = 0.9934662510567492
+
+[[rows]]
+label = "random K=3 #2"
+pa = [78, 89, 38]
+na = [188, 184, 56]
+pb = [26, 29, 91]
+nb = [47, 47, 111]
+level = 0.95
+informative = 3
+mf = 57.55117297871789
+mf_holds = true
+statistic = 9.436085604359022
+p = 0.0021275711099859596
+or_mh = 1.8370546044383407
+or_lo = 1.2426429637665402
+or_hi = 2.7157998862834574
+hom_stat = 0.241687015001684
+hom_p = 0.8861726281115596
+
+[[rows]]
+label = "random K=4 #0"
+pa = [86, 32, 48, 60]
+na = [183, 110, 176, 78]
+pb = [5, 9, 35, 53]
+nb = [13, 40, 159, 73]
+level = 0.95
+informative = 4
+mf = 75.99221654264157
+mf_holds = true
+statistic = 2.5536886159880923
+p = 0.11003708506353416
+or_mh = 0.7490851489464349
+or_lo = 0.5258179365493494
+or_hi = 1.067153707335427
+hom_stat = 0.053342720004122476
+hom_p = 0.9967752785363896
+
+[[rows]]
+label = "random K=4 #1"
+pa = [55, 58, 76, 9]
+na = [168, 184, 187, 21]
+pb = [45, 93, 83, 105]
+nb = [90, 192, 144, 171]
+level = 0.95
+informative = 4
+mf = 189.69355934702241
+mf_holds = true
+statistic = 30.491045792494845
+p = 3.35411053375978e-08
+or_mh = 2.0319880268259825
+or_lo = 1.5778255804228802
+or_hi = 2.6168769174457953
+hom_stat = 0.020319477281070045
+hom_p = 0.9992343297897803
+
+[[rows]]
+label = "random K=4 #2"
+pa = [36, 20, 3, 47]
+na = [177, 61, 9, 68]
+pb = [4, 24, 17, 38]
+nb = [93, 144, 127, 73]
+level = 0.95
+informative = 4
+mf = 69.63134236223463
+mf_holds = true
+statistic = 24.206218392682608
+p = 8.655237342392041e-07
+or_mh = 0.3530522908515169
+or_lo = 0.23201685116453324
+or_hi = 0.5372278756904265
+hom_stat = 2.7240339443166417
+hom_p = 0.4361584165706187
+
+[[rows]]
+label = "random K=5 #0"
+pa = [82, 32, 90, 77, 57]
+na = [165, 135, 156, 187, 83]
+pb = [17, 25, 85, 30, 54]
+nb = [34, 102, 145, 70, 77]
+level = 0.95
+informative = 5
+mf = 161.31126288693255
+mf_holds = true
+statistic = 0.1267038172430862
+p = 0.7218744179350673
+or_mh = 1.0484282318279252
+or_lo = 0.8084938969000217
+or_hi = 1.3595671674312675
+hom_stat = 0.020037647066716166
+hom_p = 0.9999501455506553
+
+[[rows]]
+label = "random K=5 #1"
+pa = [4, 8, 99, 113, 23]
+na = [10, 35, 170, 188, 75]
+pb = [9, 10, 65, 26, 35]
+nb = [32, 52, 123, 48, 138]
+level = 0.95
+informative = 5
+mf = 104.64154979392
+mf_holds = true
+statistic = 2.569536469563137
+p = 0.10893964896415154
+or_mh = 0.7810320331697713
+or_lo = 0.5775266594659614
+or_hi = 1.0562474075246737
+hom_stat = 0.1634487078379595
+hom_p = 0.9968370506641722
+
+[[rows]]
+label = "random K=5 #2"
+pa = [133, 28, 28, 51, 20]
+na = [195, 76, 77, 73, 32]
+pb = [83, 54, 62, 116, 72]
+nb = [115, 133, 152, 156, 105]
+level = 0.95
+informative = 5
+mf = 158.67601724889428
+mf_holds = true
+statistic = 2.092250493312328
+p = 0.14804783961923662
+or_mh = 1.2176871099755542
+or_lo = 0.9326625811954568
+or_hi = 1.5898160038757652
+hom_stat = 0.05566561687601884
+hom_p = 0.9996197799637672
+
+[[rows]]
+label = "random K=6 #0"
+pa = [53, 39, 55, 4, 57, 71]
+na = [67, 60, 88, 14, 98, 143]
+pb = [15, 41, 47, 47, 99, 102]
+nb = [16, 52, 62, 109, 138, 162]
+level = 0.95
+informative = 6
+mf = 160.28472359776882
+mf_holds = true
+statistic = 18.24194958070373
+p = 1.945464561903254e-05
+or_mh = 1.8561808669304374
+or_lo = 1.3970831146024523
+or_hi = 2.4661434776119524
+hom_stat = 0.6572880045027987
+hom_p = 0.98523032350492
+
+[[rows]]
+label = "random K=6 #1"
+pa = [93, 12, 26, 48, 95, 23]
+na = [139, 22, 104, 83, 176, 70]
+pb = [36, 4, 17, 60, 5, 32]
+nb = [68, 10, 157, 136, 12, 170]
+level = 0.95
+informative = 6
+mf = 110.34748281523282
+mf_holds = true
+statistic = 21.903549865939137
+p = 2.8670307257172567e-06
+or_mh = 0.5053748559345801
+or_lo = 0.3788169453435085
+or_hi = 0.6742141505293521
+hom_stat = 1.3846294448271355
+hom_p = 0.9259872336834016
+
+[[rows]]
+label = "random K=6 #2"
+pa = [50, 75, 20, 52, 19, 75]
+na = [170, 148, 68, 86, 44, 130]
+pb = [47, 90, 46, 120, 83, 73]
+nb = [99, 132, 97, 155, 139, 97]
+level = 0.95
+informative = 6
+mf = 224.624706268047
+mf_holds = true
+statistic = 41.78886626552129
+p = 1.0168077491101712e-10
+or_mh = 2.144287012959164
+or_lo = 1.699056902263245
+or_hi = 2.7061876431687293
+hom_stat = 0.12962663657160822
+hom_p = 0.9996927299861486
+
+[[rows]]
+label = "random K=3 #0 at alpha 0.1"
+pa = [32, 75, 18]
+na = [55, 192, 25]
+pb = [15, 79, 167]
+nb = [18, 125, 178]
+level = 0.9
+informative = 3
+mf = 74.5313419148365
+mf_holds = true
+statistic = 29.306964371978395
+p = 6.177327782630471e-08
+or_mh = 3.0092017046282695
+or_lo = 2.1329048317976858
+or_hi = 4.245522239970533
+hom_stat = 1.881471193329675
+hom_p = 0.3903405964845697
+
+[[rows]]
+label = "random K=3 #0 at alpha 0.01"
+pa = [32, 75, 18]
+na = [55, 192, 25]
+pb = [15, 79, 167]
+nb = [18, 125, 178]
+level = 0.99
+informative = 3
+mf = 74.5313419148365
+mf_holds = true
+statistic = 29.306964371978395
+p = 6.177327782630471e-08
+or_mh = 3.0092017046282695
+or_lo = 1.7553630093783266
+or_hi = 5.158645163853985
+hom_stat = 1.881471193329675
+hom_p = 0.3903405964845697
+
+[[rows]]
+label = "random K=5 #1 at alpha 0.1"
+pa = [4, 8, 99, 113, 23]
+na = [10, 35, 170, 188, 75]
+pb = [9, 10, 65, 26, 35]
+nb = [32, 52, 123, 48, 138]
+level = 0.9
+informative = 5
+mf = 104.64154979392
+mf_holds = true
+statistic = 2.569536469563137
+p = 0.10893964896415154
+or_mh = 0.7810320331697713
+or_lo = 0.6062460688823331
+or_hi = 1.0062102966901125
+hom_stat = 0.1634487078379595
+hom_p = 0.9968370506641722
+
+[[rows]]
+label = "random K=5 #1 at alpha 0.01"
+pa = [4, 8, 99, 113, 23]
+na = [10, 35, 170, 188, 75]
+pb = [9, 10, 65, 26, 35]
+nb = [32, 52, 123, 48, 138]
+level = 0.99
+informative = 5
+mf = 104.64154979392
+mf_holds = true
+statistic = 2.569536469563137
+p = 0.10893964896415154
+or_mh = 0.7810320331697713
+or_lo = 0.5252649639112205
+or_hi = 1.1613396642621114
+hom_stat = 0.1634487078379595
+hom_p = 0.9968370506641722
