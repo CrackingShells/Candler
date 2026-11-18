@@ -7,7 +7,7 @@
 
 use crate::support;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -18,6 +18,8 @@ use std::time::Duration;
 use candler_core::jobs::model::{JobCause, JobControl, JobOutcome};
 use candler_core::jobs::orchestrate::caps::{LiveRuns, stop_live};
 use candler_core::jobs::orchestrate::orchestrate_with;
+use candler_core::jobs::orchestrate::session::cells_of;
+use candler_core::runner::plan::{Force, Levels, PlanMode, plan_runs};
 use candler_core::runner::{RunStatus, run_order, seed_of};
 use candler_core::supervise::EventSink;
 use candler_schemas::execution::{InvalidReason, JobEnd};
@@ -365,4 +367,109 @@ fn b34_run_entering_after_a_stop_hears_it() {
         Some(JobCause::Killed),
         "a run that enters after the kill starts killed"
     );
+}
+
+/// An experiment over the model `m1` and the treatment levels `levels`, one replicate.
+fn two_level_file(levels: &[&str]) -> candler_schemas::execution::ExperimentFile {
+    let list = levels
+        .iter()
+        .map(|level| format!("\"{level}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let text = format!(
+        "schema = \"experiment/1\"\nreplicates = 1\n\n[[factors]]\npath = \"model.id\"\nlevels = [\"m1\"]\n\n[[factors]]\npath = \"request.treatment\"\nlevels = [{list}]\n\n[budget.per_run]\nwall_s = 3600\n\n[harness]\nname = \"claude-code\"\n\n[treatment]\nname = \"htn\"\n"
+    );
+    candler_schemas::execution::ExperimentFile::from_toml_str(&text).expect("an experiment file")
+}
+
+/// The base resolution of a level: its treatment tag, the checkout its `request.treatment`
+/// setting names and the harness version it observed.
+fn level_of(tag: &str, source: &str, version: &str) -> candler_core::resolve::layers::Resolution {
+    let facts = Facts {
+        version: version.to_owned(), // BORROW: the facts own their version text
+        ..facts()
+    };
+    let mut json = serde_json::to_value(support::run_plan::resolution(&facts)).expect("JSON");
+    for value in json["values"]
+        .as_array_mut()
+        .expect("values")
+        .iter_mut()
+        .filter(|value| value["path"] == "treatment")
+    {
+        value["value"]["tag"] = json!(tag);
+    }
+    json["settings"] = json!([
+        {"path": "request.treatment", "value": {"name": "htn", "tag": tag, "source": source}},
+    ]);
+    serde_json::from_value(json).expect("a resolution")
+}
+
+/// The cells `cells_of` builds for the job over `file` whose levels are `levels`, by the tag of
+/// each cell's treatment.
+fn cells_by_tag(
+    file: &candler_schemas::execution::ExperimentFile,
+    levels: &[candler_core::resolve::layers::Resolution],
+) -> BTreeMap<String, candler_core::runner::exec::cell::CellRun> {
+    let facts = facts();
+    let (_dir, store, lock) = support::run_plan::fresh_store();
+    let ctx = support::run_plan::plan_ctx(&store, &lock, &facts);
+    let outcome =
+        plan_runs(&ctx, file, Levels::from(levels), Force::No, PlanMode::Check).expect("a plan");
+    let mut base = spec(&["m1"], &facts, 3600, 1);
+    base.experiment = file.clone(); // BORROW: the spec owns its file
+    base.resolution = levels[0].clone(); // BORROW: the spec owns its primary level
+    let mut json = serde_json::to_value(&base).expect("JSON");
+    if levels.len() > 1 {
+        json["levels"] = serde_json::to_value(levels).expect("JSON");
+    }
+    let job: candler_core::jobs::model::JobSpec = serde_json::from_value(json).expect("a spec");
+    cells_of(&job, &outcome, &BTreeSet::new(), &BTreeMap::new())
+        .expect("cells")
+        .values()
+        .map(|cell| {
+            let treatment = serde_json::to_value(cell.comparable.treatment()).expect("JSON");
+            let tag = treatment["tag"].as_str().expect("a tag").to_owned(); // BORROW: owned tag
+            (tag, (**cell).clone())
+        })
+        .collect()
+}
+
+/// Guards: T3 wiring (C3) -- each cell of a two-level job carries its own level's treatment
+/// checkout and harness, never the first level's.
+/// Oracle: the checkouts `/src/a` and `/src/b` and the harness versions `2.1.0` and `2.2.0`
+/// written below, one pair for each level's tag.
+/// Bite: build every cell from the job's primary level.
+#[test]
+fn t3_each_cell_runs_its_own_treatment() {
+    let levels = [
+        level_of("v1", "/src/a", "2.1.0"),
+        level_of("v2", "/src/b", "2.2.0"),
+    ];
+    let cells = cells_by_tag(&two_level_file(&["htn", "other"]), &levels);
+    assert_eq!(cells.len(), 2, "one cell per level");
+    for (tag, source, version) in [("v1", "/src/a", "2.1.0"), ("v2", "/src/b", "2.2.0")] {
+        let cell = cells.get(tag).expect("the level's cell");
+        assert_eq!(
+            cell.treatment_source,
+            Some(PathBuf::from(source)),
+            "the checkout of {tag}"
+        );
+        let harness = serde_json::to_value(cell.comparable.harness()).expect("JSON");
+        assert_eq!(harness["version"], json!(version), "the harness of {tag}");
+    }
+}
+
+/// Guards: T3 wiring (C3) -- a one-level job gives the cell it gave before levels: its
+/// treatment checkout and harness come from the one resolution.
+/// Oracle: the checkout `/src/a` and the version `2.1.0` written below.
+/// Bite: look the cell's level up among the job's levels and refuse a job that holds none.
+#[test]
+fn t3_one_level_job_unchanged() {
+    let levels = [level_of("v1", "/src/a", "2.1.0")];
+    let cells = cells_by_tag(&two_level_file(&["htn"]), &levels);
+    assert_eq!(cells.len(), 1, "one level, one cell");
+    let cell = cells.get("v1").expect("the cell");
+    assert_eq!(cell.treatment_source, Some(PathBuf::from("/src/a")));
+    let harness = serde_json::to_value(cell.comparable.harness()).expect("JSON");
+    assert_eq!(harness["version"], json!("2.1.0"));
 }

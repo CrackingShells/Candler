@@ -1051,3 +1051,55 @@ fn t3_check_facts_per_level() {
         .collect();
     assert_eq!(paths, vec!["treatment".to_owned()]);
 }
+
+/// The base resolution with its treatment record at the commit `commit`.
+fn commit_resolution(commit: &str) -> candler_core::resolve::layers::Resolution {
+    let mut json = serde_json::to_value(resolution(&Facts::base())).expect("JSON");
+    let values = json["values"].as_array_mut().expect("values");
+    for value in values
+        .iter_mut()
+        .filter(|value| value["path"] == "treatment")
+    {
+        value["value"]["commit"] = json!(commit);
+    }
+    serde_json::from_value(json).expect("a resolution")
+}
+
+/// Guards: T3 — the commit of a treatment reference is part of its cell: two one-level plans that
+/// differ only in the treatment commit give two cell digests.
+/// Oracle: `__design__/architecture.md` §Treatment and §Comparable, which hash the reference
+/// `{name, tag, commit}` and leave out only `source`; the two commits are written below.
+/// Bite: leave the commit out of the treatment record the cell hashes.
+#[test]
+fn t3_probe_treatment_commit_in_digest() {
+    let first = cell_of_level(&commit_resolution(&"1".repeat(40)));
+    let second = cell_of_level(&commit_resolution(&"2".repeat(40)));
+    assert_ne!(
+        first, second,
+        "the treatment commit does not enter the cell digest"
+    );
+}
+
+/// Guards: ruling 2 -- two declared treatment levels whose resolved references are equal are
+/// refused at plan time, naming both levels; two that differ in the commit alone plan.
+/// Oracle: the level names written in the file, and the probe above, which shows the commit
+/// enters the cell.
+/// Bite: skip the equality check between levels.
+#[test]
+fn t3_equal_levels_are_refused() {
+    let same = [resolution(&Facts::base()), resolution(&Facts::base())];
+    let error = plan_levels(&treatment_file(&["htn", "other"]), Levels::from(&same[..]))
+        .map(|_| ())
+        .expect_err("equal levels");
+    let text = error.to_string();
+    assert!(
+        text.contains("htn") && text.contains("other"),
+        "the refusal names both levels: {text}"
+    );
+    let apart = [
+        commit_resolution(&"1".repeat(40)),
+        commit_resolution(&"2".repeat(40)),
+    ];
+    plan_levels(&treatment_file(&["htn", "other"]), Levels::from(&apart[..]))
+        .expect("levels that differ in the commit plan");
+}

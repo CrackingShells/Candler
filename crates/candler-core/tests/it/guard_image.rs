@@ -533,3 +533,91 @@ async fn image_step_refuses_malformed_names_before_docker() {
         "an accepted resolution reaches docker, so an empty log means a refusal"
     );
 }
+
+/// The env lock and image the image step derives from a lock file holding `text`, resolved for a
+/// treatment level whose tag is `tag`, over the rig's service.
+async fn level_image(rig: &Rig, tag: &str, text: &str) -> (String, String) {
+    let cwd = tempfile::tempdir().expect("a directory");
+    std::fs::write(cwd.path().join("lock.txt"), text).expect("a lock");
+    let config = Arc::new(Config::new(
+        cwd.path().to_owned(), // BORROW: .to_owned() makes the owned working directory
+        None,
+        UserConfig::default(),
+        Some(cwd.path().join("state")),
+    ));
+    // TRAIT_OBJECT: the step takes its image service as a trait object
+    let images: Arc<dyn ImageService> = rig.service.clone(); // BORROW: .clone() shares the service
+    let step = ImageIdStep::new(images, Arc::clone(&rig.sup)).expect("a step");
+    let values = [
+        ("isolation.build.lock", json!("lock.txt")),
+        ("request.treatment", json!({"name": "htn", "tag": tag})),
+    ];
+    let file = FileValues::new(
+        values
+            .iter()
+            .map(|(path, value)| {
+                (
+                    path.parse::<FieldPath>().expect("a field path"),
+                    JsonValue::new(value.clone()).expect("a JSON value"), // BORROW: .clone() owns the value
+                )
+            })
+            .collect(),
+    );
+    let resolution = Resolver::new(config)
+        .register(Box::new(step))
+        .expect("registers")
+        .resolve(ResolveInput::default().file(file))
+        .await
+        .expect("a resolution");
+    let at = |path: &str| {
+        let value = resolution
+            .values
+            .iter()
+            .find(|value| value.path().as_str() == path)
+            .and_then(|value| value.value())
+            .expect("a derived value");
+        value.as_value().as_str().expect("text").to_owned() // BORROW: owned text
+    };
+    (at("isolation.env_lock"), at("isolation.image"))
+}
+
+/// Guards: T4 -- two treatment levels whose lock files hold the same bytes resolve to one env
+/// lock and one image id and make one build; the second resolution finds the image.
+/// Oracle: the lock bytes are written below; the PATH-fake docker's argv log counts the builds
+/// of the env tag, which is the tag `a1_` and `b05_` derive from the lock's own sha256.
+/// Bite: key the image by the treatment level instead of the lock bytes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn t4_equal_locks_one_build() {
+    let rig = Rig::new();
+    let (_, _, hex) = lock("numpy==2.0.0\n");
+    let tag = format!("candler-env:{hex}-{BASE_SUFFIX}-{ENV_SUFFIX}");
+    let first = level_image(&rig, "v1", "numpy==2.0.0\n").await;
+    let second = level_image(&rig, "v2", "numpy==2.0.0\n").await;
+    assert_eq!(first, second, "equal lock bytes give one lock and one id");
+    assert_eq!(first.1, FAKE_ID);
+    assert_eq!(rig.builds_of(&tag), 1, "equal lock bytes built twice");
+    assert_eq!(rig.env_tags_built().len(), 1, "one build in all");
+}
+
+/// Guards: T4 -- two treatment levels whose lock files differ resolve to two env locks and make
+/// two builds, one for each lock's tag.
+/// Oracle: the lock bytes are written below; the PATH-fake docker's argv log counts the builds
+/// of each env tag. The fake prints one id for every build, so the locks and the builds, not the
+/// ids, tell the images apart.
+/// Bite: key the image by the treatment name alone, so both levels take one tag.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn t4_distinct_locks_two_images() {
+    let rig = Rig::new();
+    let (_, _, hex_a) = lock("numpy==2.0.0\n");
+    let (_, _, hex_b) = lock("numpy==2.0.1\n");
+    let tag = |hex: &str| format!("candler-env:{hex}-{BASE_SUFFIX}-{ENV_SUFFIX}");
+    let first = level_image(&rig, "v1", "numpy==2.0.0\n").await;
+    let second = level_image(&rig, "v2", "numpy==2.0.1\n").await;
+    assert_ne!(
+        first.0, second.0,
+        "different lock bytes give different locks"
+    );
+    assert_eq!(rig.builds_of(&tag(&hex_a)), 1, "the first lock's image");
+    assert_eq!(rig.builds_of(&tag(&hex_b)), 1, "the second lock's image");
+    assert_eq!(rig.env_tags_built().len(), 2, "two builds in all");
+}
