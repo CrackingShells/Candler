@@ -1205,3 +1205,128 @@ fn a2_an_expectation_of_one_arm_is_reported_as_omitted() {
     );
     assert_eq!(OmitReason::OneArm.as_str(), "one_arm");
 }
+
+/// The single arm of a one-model store.
+fn only_arm(
+    selection: &Selection,
+    runs: Vec<RunView>,
+) -> candler_core::analysis::report::ArmReport {
+    let mut report = report(selection, runs);
+    assert_eq!(report.arms.len(), 1, "one model is one arm");
+    report.arms.remove(0)
+}
+
+/// Guards: an arm's `instrument_error` counts the valid runs with at least one `not_measured`
+/// outcome of cause `instrument_error` (`runs`) and those outcomes (`outcomes`); a deadline, an
+/// invalid run's outcome and another invalid cause are not counted, and the other counts do not
+/// move.
+/// Oracle: hand count of the six fabricated runs below.
+#[test]
+fn e1_instrument_error_counted_per_arm() {
+    let ie = Some("instrument_error");
+    let mut records: Vec<OutcomeRecord> = Vec::new();
+    let mut runs: Vec<RunView> = Vec::new();
+    let mut n = 0_usize;
+    let mut push = |spec: Spec, rows: &[(&str, &str, Option<&str>)]| {
+        let run = view(&spec);
+        for (expectation, status, cause) in rows {
+            n += 1;
+            records.push(record(&run, n, expectation, "gate", status, None, *cause));
+        }
+        runs.push(run);
+    };
+    // Two outcomes in one run: 1 run, 2 outcomes.
+    push(
+        Spec::new("alpha", 1),
+        &[("E1", "not_measured", ie), ("E2", "not_measured", ie)],
+    );
+    // One outcome: 1 run, 1 outcome.
+    push(
+        Spec::new("alpha", 2),
+        &[("E1", "not_measured", ie), ("E2", "pass", None)],
+    );
+    // A deadline is not an instrument error.
+    push(
+        Spec::new("alpha", 3),
+        &[
+            ("E1", "not_measured", Some("deadline")),
+            ("E2", "pass", None),
+        ],
+    );
+    push(
+        Spec::new("alpha", 4),
+        &[("E1", "pass", None), ("E2", "fail", None)],
+    );
+    let mut gateway = Spec::new("alpha", 5);
+    gateway.integrity = json!({"kind": "invalid", "reason": "gateway"});
+    push(
+        gateway,
+        &[("E1", "not_measured", ie), ("E2", "not_measured", ie)],
+    );
+    let mut killed = Spec::new("alpha", 6);
+    killed.integrity = json!({"kind": "invalid", "reason": "killed"});
+    push(killed, &[("E1", "not_measured", ie)]);
+    let arm = only_arm(&select(records), runs);
+    assert_eq!(arm.instrument_error.runs, 2);
+    assert_eq!(arm.instrument_error.outcomes, 3);
+    assert_eq!(arm.tally.valid_runs, 4);
+    assert_eq!(
+        arm.tally.invalid,
+        BTreeMap::from([("gateway".to_owned(), 1)])
+    );
+    assert_eq!(
+        arm.tally.experimenter_ends,
+        BTreeMap::from([("killed".to_owned(), 1)])
+    );
+    let e1 = arm.tally.expectations.values().next().expect("E1");
+    assert_eq!(e1.not_measured["reason:instrument_error"], 2);
+    assert_eq!(e1.not_measured["reason:deadline"], 1);
+}
+
+/// A replicate with a status and a weight.
+type UnitRow = (u32, &'static str, Option<(u32, u32)>);
+
+/// Guards: `units()` yields one `(run, num, den)` per run that adds to the sums, ordered by run
+/// key whatever the order of the records, the same twice, and its sums equal the tally's; an
+/// invalid run and a `not_measured` outcome add no unit.
+/// Oracle: hand sums, 3+5+0+4 = 12 and 5+5+5+10 = 25.
+#[test]
+fn u1_units_in_deterministic_order() {
+    let rows: [UnitRow; 5] = [
+        (5, "fail", Some((4, 10))),
+        (4, "not_measured", None),
+        (3, "fail", Some((0, 5))),
+        (2, "pass", Some((5, 5))),
+        (1, "fail", Some((3, 5))),
+    ];
+    let mut records: Vec<OutcomeRecord> = Vec::new();
+    let mut runs: Vec<RunView> = Vec::new();
+    for (n, (replicate, status, weight)) in rows.into_iter().enumerate() {
+        let run = view(&Spec::new("alpha", replicate));
+        let cause = (status == "not_measured").then_some("instrument_error");
+        records.push(record(&run, n + 1, "E3", "quality", status, weight, cause));
+        runs.push(run);
+    }
+    let mut gateway = Spec::new("alpha", 6);
+    gateway.integrity = json!({"kind": "invalid", "reason": "gateway"});
+    let run = view(&gateway);
+    records.push(record(&run, 6, "E3", "quality", "pass", Some((5, 5)), None));
+    runs.push(run);
+    let selection = select(records);
+    let read = || {
+        let arm = only_arm(&selection, runs.clone());
+        let held = arm.tally.expectations.values().next().expect("E3");
+        let units: Vec<(u32, u64, u64)> = held
+            .units()
+            .iter()
+            .map(|(key, num, den)| (key.replicate(), *num, *den))
+            .collect();
+        (units, held.num, held.den)
+    };
+    let (first, num, den) = read();
+    assert_eq!(first, [(1, 3, 5), (2, 5, 5), (3, 0, 5), (5, 4, 10)]);
+    assert_eq!((num, den), (12, 25));
+    assert_eq!(first.iter().map(|u| u.1).sum::<u64>(), num);
+    assert_eq!(first.iter().map(|u| u.2).sum::<u64>(), den);
+    assert_eq!(read().0, first, "the same store reads in the same order");
+}
