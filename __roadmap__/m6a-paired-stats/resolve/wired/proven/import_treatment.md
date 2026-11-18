@@ -4,7 +4,7 @@
 **Estimate**: about 60 Sonnet calls, $3.0 with its verifier; verifier `spec-verifier`, Sonnet, "at 30 calls, stop and report"
 **Pre-conditions**:
 - [ ] [cmd] Every-leaf pre-conditions (campaign README, Gotchas); L2 is merged
-- [ ] [nl] OWNED (regex): `^crates/candler-core/src/import/.*$|^crates/candler-core/tests/it/guard_import_mini\.rs$|^crates/candler-core/tests/it/support/legacy_import\.rs$|^crates/candler/tests/it/guard_analyze_golden\.rs$|^__reports__/m6a-paired-stats/leaves/import_treatment_v0\.md$`. Nothing in `crates/candler-schemas/` or `codes.toml`
+- [ ] [nl] OWNED (regex): `^crates/candler-core/src/import/.*$|^crates/candler-core/tests/it/guard_import_mini\.rs$|^crates/candler-core/tests/it/support/legacy_import\.rs$|^crates/candler/tests/it/guard_analyze_golden\.rs$|^crates/candler-core/tests/it/guard_legacy_mapping\.rs$|^crates/candler-core/tests/it/guard_comparability\.rs$|^__reports__/m6a-paired-stats/leaves/import_treatment_v0\.md$`. Nothing in `crates/candler-schemas/` or `codes.toml`. In `guard_legacy_mapping.rs` only the row `the_mapped_runs_are_the_oracle_runs`, and in `guard_comparability.rs` only `imported_stratum_of_the_mini_corpus_is_comparable` (A11); nothing else in either file
 **Success Gates**:
 - ⬜ [cmd] Targeted test: `cargo nextest run -p candler-core --no-tests=fail -E 'test(/^guard_import_mini::/)'`
 - ⬜ [cmd] Golden row (GOLDEN's corpus): `CANDLER_GOLDEN_CORPUS=/Users/hacker/Documents/tmp/candler-m1-golden/campaign/20260806-cont-train cargo nextest run -p candler --run-ignored only --no-tests=fail -E 'test(/^guard_analyze_golden::declared_/)'`
@@ -27,7 +27,10 @@
 1. When the imported cells' typed treatment references `{name, tag}` differ, declare `request.treatment`, and do not declare a value path whose levels map one to one onto the treatment's levels (on the golden runs `plan.skill_version`, `provenance.skill_version`, `resolved_skill_version`). The values stay in the cell untouched. A one-version import declares what it declares today.
 2. `it_two_versions_declare_treatment` (in `guard_import_mini.rs`, mini legacy import from `support/legacy_import.rs` with 2 versions × 2 models): declares exactly the treatment and the model. `it_one_version_unchanged`: a one-version import's factors are today's.
 3. `declared_golden_factors` (ignored, in `guard_analyze_golden.rs`, with `CANDLER_GOLDEN_CORPUS`): the imported golden runs declare exactly `plan.model` and `request.treatment`, and `analyze` gives 6 version comparisons with 3 blocks and 3 model comparisons with 4 blocks. Shape only, no p-value pinned.
-**Deliverables**: `crates/candler-core/src/import/` (the declaration rule); `crates/candler-core/tests/it/guard_import_mini.rs`: `it_two_versions_declare_treatment`, `it_one_version_unchanged`; `crates/candler-core/tests/it/support/legacy_import.rs` (a two-version mini fixture); `crates/candler/tests/it/guard_analyze_golden.rs`: `declared_golden_factors`
+4. (A11) `guard_legacy_mapping::the_mapped_runs_are_the_oracle_runs`: the expected factors become `[plan.model, plan.runs, request.treatment]`, computed by the jq oracle, never taken from the importer's output. The jq computes the rule itself: the varying paths, minus those whose levels map one to one onto the cells' `<name>@<tag>` treatment strings, plus `request.treatment` when the treatments differ; the oracle note says so.
+5. (A11) `guard_comparability::imported_stratum_of_the_mini_corpus_is_comparable`: `SKILL_FACTORS` is respelled `request.treatment`; the verdict stays "comparable". A flip to refused is a new finding: stop and report.
+6. The report lists both changed rows with old value, new value and cause (the A8 drop rule).
+**Deliverables**: `crates/candler-core/src/import/` (the declaration rule); `crates/candler-core/tests/it/guard_legacy_mapping.rs` and `guard_comparability.rs` (the two A11 rows); `crates/candler-core/tests/it/guard_import_mini.rs`: `it_two_versions_declare_treatment`, `it_one_version_unchanged`; `crates/candler-core/tests/it/support/legacy_import.rs` (a two-version mini fixture); `crates/candler/tests/it/guard_analyze_golden.rs`: `declared_golden_factors`
 **Consistency Checks**: the two targeted gates above (expected: PASS)
 **Commit**: `fix(importer): declare the treatment as an imported factor`
 
@@ -35,7 +38,7 @@
 **Goal**: The rows bite and an independent read agrees.
 **Implementation Logic**:
 1. Bites, each injected, seen red, restored from a copy: the importer keeps declaring the mapped value paths; it declares the treatment on a one-version import; it drops a value path that does not map one to one. Record each failing message.
-2. Dispatch one fresh `spec-verifier` (Sonnet) with this leaf, the branch, the worktree, colgrep-only reading and "at 30 calls, stop and report"; fix its findings (`fix(importer): …`), one re-check by SendMessage, record the verdict.
+2. Dispatch one fresh `spec-verifier` (Sonnet) with this leaf, the branch, the worktree, colgrep-only reading, the extra attack line "a changed guard whose expected value came from the code under test" (A11), and "at 30 calls, stop and report"; fix its findings (`fix(importer): …`), one re-check by SendMessage, record the verdict.
 **Deliverables**: `__reports__/m6a-paired-stats/leaves/import_treatment_v0.md`: sections "Bites", "Verifier"
 **Consistency Checks**: `grep -q '^## Verifier' __reports__/m6a-paired-stats/leaves/import_treatment_v0.md` (expected: PASS)
 **Commit**: `docs(importer): record the bites and the verifier of the import`
