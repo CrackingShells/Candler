@@ -12,6 +12,9 @@ use serde::Deserialize;
 
 const LEVEL: f64 = 0.95;
 const RELATIVE: f64 = 1e-12;
+/// The p-value of a χ² survival function carries an absolute error of about 1e-16 in `statrs`
+/// (it is computed as `1 - cdf`), so a tail value is compared with this floor as well.
+const ABSOLUTE: f64 = 1e-15;
 
 #[derive(Deserialize)]
 struct Vectors {
@@ -61,10 +64,10 @@ fn run(row: &Row) -> CmhResult {
 fn close(label: &str, what: &str, got: Option<f64>, want: f64) {
     let got =
         got.unwrap_or_else(|| panic!("{label}: {what} is None, the second engine has {want:?}"));
-    let slack = RELATIVE * want.abs().max(f64::MIN_POSITIVE);
+    let slack = RELATIVE * want.abs() + ABSOLUTE;
     assert!(
         (got - want).abs() <= slack,
-        "{label}: {what} is {got:?}, the second engine has {want:?} (relative {RELATIVE:e})"
+        "{label}: {what} is {got:?}, the second engine has {want:?} (relative {RELATIVE:e} plus {ABSOLUTE:e})"
     );
 }
 
