@@ -1,15 +1,15 @@
 # M6a Paired statistics
 
-**Goal**: `analyze` compares paired arms with McNemar, CMH, bootstrap and fixed-sequence tests alongside M3's Wilson intervals and Holm adjustment, and reports each arm's `instrument_error` count. An arm can be a treatment: one experiment declares the treatment as a factor, and each cell resolves its own treatment, env lock and image (amendment A7).
+**Goal**: `analyze` compares arms with blocked tests chosen by design (Fisher mid-p for one block, CMH with an exact conditional fallback for two or more, a stratified permutation test with a BCa interval for weighted outcomes) alongside M3's Wilson intervals and Holm adjustment (amendment A9), and reports each arm's `instrument_error` count. An arm can be a treatment: one experiment declares the treatment as a factor, and each cell resolves its own treatment, env lock and image (amendment A7).
 **Pre-conditions**:
 - [x] `../README.md`'s M5b is `done` (the leaf `../../m5_container_isolation.md`, M5a, before it), and M2a (the tree also waits for M5a and M5b; the reminder needs only M2a) — M5b's own gates are met (PR #38, merge 1e6dc91); its last gate, `stats/`, is this level
 - [x] Reminder `candler-M6` read (statistics list, pairing model) — 2026-11-17, M6a coordination
 **Success Gates**:
-- ⬜ McNemar, CMH, bootstrap and fixed-sequence tests run on declared pairing keys, and each equals a second engine's table on the existing HTN golden runs
-- ⬜ The pairing keys, the execution order and the declared blocking factor are decided and recorded in `__design__/architecture.md` §Analysis statistics
+- ⬜ The blocked tests (mid-p, CMH with its exact fallback, stratified permutation with BCa) run on blocks taken from the other declared factors, and each equals a second engine's table on the existing HTN golden runs (htn-creator-eval 0.4.2); McNemar and fixed-sequence are dropped (A9)
+- ⬜ The blocks, the execution order and each test's validity sources are decided and recorded in `__design__/architecture.md` §Analysis statistics; Holm is the only multiplicity method
 - ⬜ `analyze` reports `instrument_error` per arm, with the arm's counts of the other invalid causes unchanged
 - ⬜ An experiment declaring two treatment levels plans one cell per level; cells whose `treatment:` sources or treatment trees differ get their own env lock and image, and cells with equal inputs share one
-- ⬜ `analyze` runs the paired tests between two treatment arms of one experiment, and a one-treatment experiment keeps the analysis it has today
+- ⬜ `analyze` runs the blocked tests between two treatment arms of one experiment, and a one-treatment experiment keeps the analysis it has today
 - ⬜ A treatment factor never moves a setting into a cell: every path `is_setting` names stays out of the cell digest (I7)
 - ⬜ Every cell digest of M1's golden import and M2a's parity fixtures is unchanged
 **References**: [R01 §Analysis statistics, §Contracts & Invariants (I5)](../../../../../../../../../__design__/architecture.md) — today's defaults (rate, Wilson, Fisher with Newcombe, Holm) and the grading rule; [R04 Golden reference](../../../../../../../README.md) — listed in the campaign README; the runs the gates test on

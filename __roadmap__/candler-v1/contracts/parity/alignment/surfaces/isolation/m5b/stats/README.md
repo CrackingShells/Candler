@@ -35,6 +35,7 @@ graph TD
 |:---|:-----|:-------|:------------|:----------|
 | A6 | 2026-11-16 | `__reports__/candler-v1-review/02-findings_amendment_a6_v0.md` | [ "m6a_paired_stats" ] | M6 splits: its paired-statistics half becomes this leaf, one level below M5 |
 | A7 | 2026-11-16 | `__reports__/candler-v1-review/03-findings_amendment_a7_v0.md` | [ ] | M6a gains treatment as a declared factor, with a treatment, env lock and image per cell, so the paired tests can compare treatments |
+| A9 | 2026-11-18 | `m6a-approved-plan.md` (notes folder of session local_7f577b41), Eliott's approval of the round-4 plan | [ ] | Runs are not paired, so McNemar is dropped and "paired" becomes "blocked": blocks come from the other declared factors, Fisher becomes its mid-p, CMH gets an exact fallback, the bootstrap becomes a stratified permutation test with BCa, Holm replaces fixed-sequence |
 
 ## Progress
 | Node | Branch | Commits | Notes |
