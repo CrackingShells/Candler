@@ -19,8 +19,8 @@ A two-treatment plan resolves each level once and gives each cell its own level'
 ## Status
 ```mermaid
 graph TD
-    level_resolve[Level resolve]:::planned
-    blocking[Blocking]:::planned
+    level_resolve[Level resolve]:::done
+    blocking[Blocking]:::done
     wired[Wired]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -32,8 +32,8 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `level_resolve.md` | 📄 Leaf Task | ⬜ Planned |
-| `blocking.md` | 📄 Leaf Task | ⬜ Planned |
+| `level_resolve.md` | 📄 Leaf Task | ✅ Done |
+| `blocking.md` | 📄 Leaf Task | ✅ Done |
 | `wired/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
@@ -43,3 +43,5 @@ graph TD
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| `level_resolve.md` | m6a/level_resolve | 4 | merged 6a43447a. Narrowed by A5 (T4 to level_wiring). Two-digest row green; a level without a resolution fails the plan through the existing PlanError::Cell/Document code; run.rs and orchestrate/mod.rs still pass one resolution until L2. L1 close at 6da1cb0b: STD, DIGEST, GOLDEN, LINUX, SUBJ, GEN pass |
+| `blocking.md` | m6a/blocking | 5 | merged 6da1cb0b. Verifier F1-F3 fixed, re-check closed. Units are u64 on the wire (Weight::new(u64, u64)). blocks_of takes per-run units, not an ExpectationId; a treatment level is not in comparable().values() and reads as null, for analyze_output to settle |
