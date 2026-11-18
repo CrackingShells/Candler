@@ -11,7 +11,9 @@ use std::path::PathBuf;
 
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::lock::JobLock;
-use candler_core::runner::plan::{CellId, Force, PlanError, PlanMode, plan_runs};
+use candler_core::runner::plan::{
+    CellId, Force, Levels, PlanError, PlanMode, check_facts, plan_runs,
+};
 use candler_core::runner::{run_order, seed_of};
 use candler_schemas::primitives::{Digest, JobId};
 use serde_json::{Value, json};
@@ -885,4 +887,167 @@ fn b3_plan_runs_uses_the_experiment_seed() {
     let literal = Digest::from_hex(&format!("0102030405060708{}", "0".repeat(48)))
         .expect("a digest of 64 hex digits");
     assert_eq!(seed_of(&literal), 0x0807_0605_0403_0201);
+}
+
+/// Guards: T3 — a file with one treatment resolves once and plans the runs it planned before
+/// treatment levels existed: the same cells, the same experiment digest, the same order.
+/// Oracle: the cell digests, the experiment digest and the run order written below, taken from
+/// the planner before per-level resolution was written.
+/// Bite: key the cell by a level index, or add the level to a one-level cell.
+#[test]
+fn t3_one_level_plans_the_old_bytes() {
+    let facts = Facts::base();
+    let (_dir, store, lock) = fresh_store();
+    let ctx = plan_ctx(&store, &lock, &facts);
+    let out = plan_runs(
+        &ctx,
+        &experiment(&["m1", "m2"], 2),
+        &resolution(&facts),
+        Force::No,
+        PlanMode::Check,
+    )
+    .map_err(|e| e.to_string())
+    .expect("a plan");
+    let planned: Vec<(String, u32)> = out
+        .plans
+        .iter()
+        .map(|plan| (plan.cell.to_string(), plan.key.replicate()))
+        .collect();
+    let m1 = "sha256:c8c025d07f891ace920b103b2dd93ae78cdbe49fbf4269085554aa79d72dfab2";
+    let m2 = "sha256:528ad7c2a0587eda8c5fbeee1760c89687f211a181a125f7dfc74b7be074c13a";
+    let expected: Vec<(String, u32)> = [(m1, 1), (m2, 1), (m1, 2), (m2, 2)]
+        .into_iter()
+        .map(|(cell, replicate)| (cell.to_owned(), replicate))
+        .collect();
+    assert_eq!(
+        (out.experiment.to_string(), planned),
+        (
+            "sha256:2a0b3bf188be1e42e471095c7973dfaa390f5d0288cbb6733f15ac6ce4e670e7".to_owned(),
+            expected
+        )
+    );
+}
+
+/// An experiment over the cell `m1` and the treatment levels `levels`, one replicate.
+fn treatment_file(levels: &[&str]) -> candler_schemas::execution::ExperimentFile {
+    let list = levels
+        .iter()
+        .map(|level| format!("\"{level}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let text = format!(
+        "schema = \"experiment/1\"\nreplicates = 1\n\n[[factors]]\npath = \"model.id\"\nlevels = [\"m1\"]\n\n[[factors]]\npath = \"request.treatment\"\nlevels = [{list}]\n\n[budget.per_run]\nwall_s = 3600\n\n[harness]\nname = \"claude-code\"\n\n[treatment]\nname = \"htn\"\n"
+    );
+    candler_schemas::execution::ExperimentFile::from_toml_str(&text).expect("an experiment file")
+}
+
+/// The base resolution with its treatment record at the tag `tag`: a level that hashes apart from
+/// the base level.
+fn level_resolution(tag: &str) -> candler_core::resolve::layers::Resolution {
+    let mut json = serde_json::to_value(resolution(&Facts::base())).expect("JSON");
+    let values = json["values"].as_array_mut().expect("values");
+    for value in values
+        .iter_mut()
+        .filter(|value| value["path"] == "treatment")
+    {
+        value["value"]["tag"] = json!(tag);
+    }
+    serde_json::from_value(json).expect("a resolution")
+}
+
+/// The planned runs of `file` under `levels`, planned against an empty store.
+fn plan_levels(
+    file: &candler_schemas::execution::ExperimentFile,
+    levels: Levels<'_>,
+) -> Result<candler_core::runner::plan::PlanOutcome, PlanError> {
+    let facts = Facts::base();
+    let (_dir, store, lock) = fresh_store();
+    let ctx = plan_ctx(&store, &lock, &facts);
+    plan_runs(&ctx, file, levels, Force::No, PlanMode::Check)
+}
+
+/// The digest of the one cell of the one-level file under `level`.
+fn cell_of_level(level: &candler_core::resolve::layers::Resolution) -> Digest {
+    let out = plan_levels(&treatment_file(&["htn"]), Levels::from(level)).expect("a plan");
+    out.plans.first().expect("one run").cell.clone() // BORROW: the cell outlives the outcome
+}
+
+/// Guards: T3 — two treatment levels give two cells, each built from its own level's resolution,
+/// so the cells differ in digest and each holds its own level's treatment record.
+/// Oracle: the digest of the one cell a one-level file plans under each level's resolution, and
+/// the tag each level's resolution names.
+/// Bite: build every cell from the first level.
+#[test]
+fn t3_each_cell_uses_its_level() {
+    let levels = [resolution(&Facts::base()), level_resolution("v2")];
+    let out = plan_levels(
+        &treatment_file(&["htn", "other"]),
+        Levels::from(&levels[..]),
+    )
+    .expect("a plan");
+    let planned: BTreeSet<Digest> = out.plans.iter().map(|plan| plan.cell.clone()).collect(); // BORROW: the set owns its digests
+    let expected: BTreeSet<Digest> = levels.iter().map(cell_of_level).collect();
+    assert_eq!(expected.len(), 2, "two levels hold two digests");
+    assert_eq!(planned, expected);
+    for (level, tag) in levels.iter().zip(["v1", "v2"]) {
+        let cell = out
+            .fresh
+            .get(&cell_of_level(level))
+            .expect("the level's cell");
+        let treatment = serde_json::to_value(cell.treatment()).expect("JSON");
+        assert_eq!(
+            treatment["tag"],
+            json!(tag),
+            "the cell of the level at {tag}"
+        );
+    }
+}
+
+/// Guards: T3 — a file with two or more treatment levels given fewer resolutions fails the plan,
+/// naming the first level without a resolution; a failing level cannot reach the plan as a
+/// resolution, so this is the plan failing on a level.
+/// Oracle: the level names written in the file.
+/// Bite: skip a level without a resolution and plan the others.
+#[test]
+fn t3_unresolved_level_fails_the_plan() {
+    let first = resolution(&Facts::base());
+    let both = [resolution(&Facts::base()), level_resolution("v2")];
+    let two = treatment_file(&["htn", "other"]);
+    let three = treatment_file(&["htn", "other", "third"]);
+    let cases = [
+        ("one resolution", &two, Levels::from(&first), "other"),
+        ("two of three", &three, Levels::from(&both[..]), "third"),
+    ];
+    for (name, file, levels, missing) in cases {
+        let error = plan_levels(file, levels).map(|_| ()).expect_err(name);
+        assert!(
+            error.to_string().contains(missing),
+            "{name}: the error names {missing}: {error}"
+        );
+    }
+}
+
+/// Guards: T3 — `check_facts` compares a stored cell with the resolution of its own level: the
+/// cell of one level reports no deviation under that level and a treatment deviation under
+/// another.
+/// Oracle: the tags the two resolutions name, and the path `treatment`.
+/// Bite: check every cell against the first level's resolution.
+#[test]
+fn t3_check_facts_per_level() {
+    let levels = [resolution(&Facts::base()), level_resolution("v2")];
+    let out = plan_levels(
+        &treatment_file(&["htn", "other"]),
+        Levels::from(&levels[..]),
+    )
+    .expect("a plan");
+    let second = out
+        .fresh
+        .get(&cell_of_level(&levels[1]))
+        .expect("the second cell");
+    assert_eq!(check_facts(second, second, &levels[1]), Vec::new());
+    let paths: Vec<String> = check_facts(second, second, &levels[0])
+        .iter()
+        .map(|deviation| deviation.path.to_string())
+        .collect();
+    assert_eq!(paths, vec!["treatment".to_owned()]);
 }
