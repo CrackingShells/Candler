@@ -25,6 +25,7 @@ graph TD
     design_record[Design record]:::planned
     golden_design[Golden design]:::amendment
     import_treatment[Import treatment]:::amendment
+    level_of_prefix[Level-of prefix]:::amendment
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -40,6 +41,7 @@ graph TD
 | `design_record.md` | 📄 Leaf Task | ⬜ Planned |
 | `golden_design.md` | 📄 Leaf Task | 🔵 Amendment |
 | `import_treatment.md` | 📄 Leaf Task | 🔵 Amendment |
+| `level_of_prefix.md` | 📄 Leaf Task | 🔵 Amendment |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
