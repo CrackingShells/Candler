@@ -1103,3 +1103,48 @@ fn t3_equal_levels_are_refused() {
     plan_levels(&treatment_file(&["htn", "other"]), Levels::from(&apart[..]))
         .expect("levels that differ in the commit plan");
 }
+
+/// An experiment over the cell `m1` whose treatment factor has the table levels `levels` (TOML).
+fn table_levels_file(levels: &str) -> candler_schemas::execution::ExperimentFile {
+    let text = format!(
+        "schema = \"experiment/1\"\nreplicates = 1\n\n[[factors]]\npath = \"model.id\"\nlevels = [\"m1\"]\n\n[[factors]]\npath = \"request.treatment\"\nlevels = {levels}\n\n[budget.per_run]\nwall_s = 3600\n\n[harness]\nname = \"claude-code\"\n\n[treatment]\nname = \"htn\"\n"
+    );
+    candler_schemas::execution::ExperimentFile::from_toml_str(&text).expect("an experiment file")
+}
+
+/// Guards: ruling 4 -- a table level of `request.treatment` fills the four fields of a treatment
+/// and plans one cell per level; a leaf that is not one of the four, or a table where a field
+/// takes a value, is refused naming its path.
+/// Oracle: the fields written in the tables below (`name`, `tag`, `commit`, `source` are the
+/// fields of the `[treatment]` table) and the two tags each level's resolution names.
+/// Bite: admit every leaf under `request.treatment`.
+#[test]
+fn t3_treatment_table_levels_admit_four_fields() {
+    let levels = [resolution(&Facts::base()), level_resolution("v2")];
+    let planned = plan_levels(
+        &table_levels_file(
+            "[{name = \"htn\", tag = \"v1\", source = \"a\"}, {name = \"htn\", tag = \"v2\", source = \"a\"}]",
+        ),
+        Levels::from(&levels[..]),
+    )
+    .expect("two table levels plan");
+    assert_eq!(planned.plans.len(), 2, "one cell per level");
+    for (table, path) in [
+        (
+            "[{name = \"htn\", foo = \"x\"}, {name = \"other\"}]",
+            "request.treatment.foo",
+        ),
+        (
+            "[{name = \"htn\", source = {a = 1}}, {name = \"other\"}]",
+            "request.treatment.source",
+        ),
+    ] {
+        let error = plan_levels(&table_levels_file(table), Levels::from(&levels[..]))
+            .map(|_| ())
+            .expect_err(path);
+        assert!(
+            error.to_string().contains(path),
+            "the refusal names {path}: {error}"
+        );
+    }
+}
