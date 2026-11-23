@@ -822,3 +822,22 @@ async fn value_at_refuses_a_bad_path_as_failed() -> Result<(), Box<dyn std::erro
     assert!(ctx.value_at("model.id")?.is_none());
     Ok(())
 }
+
+/// Guards: I12 — an experiment whose `request.treatment` factor gives each level its source and
+/// tag needs no `[treatment]` table, and one with neither a table nor that factor is refused.
+/// Oracle: the two files written below, one the file the factor describes and one a file with
+/// no treatment at all.
+/// Bite: demand the `[treatment]` table again when the factor holds the treatment.
+#[test]
+fn treatment_factor_needs_no_default() {
+    let file = |factors: &str| {
+        let text = format!(
+            "schema = \"experiment/1\"\nreplicates = 1\n\n[[factors]]\npath = \"model.id\"\nlevels = [\"m1\"]\n{factors}\n[budget.per_run]\nwall_s = 3600\n\n[harness]\nname = \"claude-code\"\n"
+        );
+        candler_schemas::execution::ExperimentFile::from_toml_str(&text)
+    };
+    let factor = "\n[[factors]]\npath = \"request.treatment\"\nlevels = [{ name = \"a\", tag = \"v1\", source = \"/a\" }, { name = \"b\", tag = \"v2\", source = \"/b\" }]\n";
+    let parsed = file(factor);
+    assert!(parsed.is_ok(), "{:?}", parsed.err().map(|e| e.to_string()));
+    assert!(file("").is_err());
+}
