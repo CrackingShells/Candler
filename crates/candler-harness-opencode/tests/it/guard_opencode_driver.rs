@@ -624,8 +624,12 @@ fn opencode_collect_exports_the_root_session_inside() -> Res<()> {
     let dash: SessionId = "-sanitize".parse()?;
     let observed = Observed::new(vec![dash, child, root]);
     let specs = driver.collect(&workspace, &observed);
-    assert_eq!(specs.len(), 1);
-    let Some(CollectSpec::Exec { spec, name, .. }) = specs.first() else {
+    let execs: Vec<&CollectSpec> = specs
+        .iter()
+        .filter(|spec| matches!(spec, CollectSpec::Exec { .. }))
+        .collect();
+    assert_eq!(execs.len(), 1);
+    let Some(CollectSpec::Exec { spec, name, .. }) = execs.first().copied() else {
         return Err("the export is not collected by an Exec".into());
     };
     assert_eq!(name.as_str(), "export");
@@ -639,9 +643,12 @@ fn opencode_collect_exports_the_root_session_inside() -> Res<()> {
             "ses_e32c17b4fffe2bjBVM2E3xAaLZ"
         ])
     );
-    assert_eq!(
-        driver.collect(&workspace, &Observed::new(Vec::new())),
-        Vec::new()
+    assert!(
+        !driver
+            .collect(&workspace, &Observed::new(Vec::new()))
+            .iter()
+            .any(|spec| matches!(spec, CollectSpec::Exec { .. })),
+        "no session, no export"
     );
     Ok(())
 }

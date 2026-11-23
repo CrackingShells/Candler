@@ -187,7 +187,12 @@ fn cases() -> Res<Vec<Case>> {
                 read(run.case, "stdout.jsonl")?,
             )
             .with_observed_ids(vec![id.clone()]) // BORROW: .clone() copies the id
-            .with_collect(vec![export_collect(&id, &export)?]);
+            .with_collect(vec![
+                CollectSpec::file("**/*".to_owned()),
+                CollectSpec::file("!.opencode/**".to_owned()),
+                CollectSpec::file("!**/.opencode/**".to_owned()),
+                export_collect(&id, &export)?,
+            ]);
             Ok(match &run.live_end {
                 Some(end) => case.with_observed_end(end.clone()), // BORROW: .clone() copies the end
                 None => case,
