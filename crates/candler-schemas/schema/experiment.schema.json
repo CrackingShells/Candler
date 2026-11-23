@@ -293,15 +293,14 @@
     },
     "treatment": {
       "$ref": "#/$defs/TreatmentSpec",
-      "description": "The treatment the runs apply, and where its files are."
+      "description": "The treatment the runs apply, and where its files are. It may be absent when a factor of\n`request.treatment` gives each level its own."
     }
   },
   "required": [
     "schema",
     "replicates",
     "budget",
-    "harness",
-    "treatment"
+    "harness"
   ],
   "title": "ExperimentFile",
   "type": "object"

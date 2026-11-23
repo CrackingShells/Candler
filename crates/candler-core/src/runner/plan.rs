@@ -14,6 +14,7 @@ use candler_harness::driver::{DriverError, HarnessDriver};
 use candler_harness::spec::Cell;
 
 use candler_schemas::distinct::first_clash;
+use candler_schemas::execution::{Budget, check_replicates};
 use candler_schemas::execution::{
     Comparable, Deviation, ExecutionError, ExperimentFile, Factor, Integrity, Level, RunManifest,
     SecretPresence, TreatmentRef, experiment_digest,
@@ -348,6 +349,23 @@ impl<'a> Levels<'a> {
     /// The resolution of the level at `index`, if there is one.
     fn get(&self, index: usize) -> Option<&'a Resolution> {
         self.resolutions.get(index).copied()
+    }
+
+    /// The replicates of each cell: the setting `replicates` of the first level when the
+    /// resolution holds one, else `file`'s own count. A setting is no part of a cell, so the
+    /// levels agree on it.
+    fn replicates(&self, file: &ExperimentFile) -> u32 {
+        self.get(0)
+            .and_then(|resolution| {
+                resolution
+                    .settings
+                    .iter()
+                    .find(|setting| setting.path().as_str() == "replicates") // BORROW: explicit .as_str()
+            })
+            .and_then(|setting| setting.value())
+            .and_then(|value| value.as_value().as_u64())
+            .and_then(|count| check_replicates(count).ok())
+            .unwrap_or_else(|| file.replicates())
     }
 }
 
@@ -1050,6 +1068,71 @@ fn seal_open(
     Ok(())
 }
 
+/// What a plan holds: the cells, the runs still to start and the runs already sealed, with the
+/// caps that bound them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PlanSummary {
+    /// The cells of the experiment.
+    pub cells: usize,
+    /// The runs the plan starts.
+    pub new_runs: usize,
+    /// The runs the store already holds sealed.
+    pub reused_runs: usize,
+    /// The new runs times the per-run wall cap in seconds, when the product fits.
+    pub wall_s_bound: Option<u64>,
+    /// The job caps the experiment file sets, by path; `budget.max_parallel` is always there.
+    pub job_caps: Vec<(String, Value)>,
+}
+
+impl PlanOutcome {
+    /// The counts of this plan and the caps that bound them, read from what planning decided and
+    /// from `budget`, the experiment file's caps: the new runs times the per-run wall cap, and the
+    /// job caps the file sets.
+    #[must_use]
+    pub fn summary(&self, budget: &Budget) -> PlanSummary {
+        let new_runs = self.plans.len();
+        // The cap a run gets is the value of its cell, which `fresh_cells` settles (an explicit
+        // setting first, then the file's); the file's cap stands only for a cell without one.
+        let wall_of = |plan: &RunPlan| -> u64 {
+            self.fresh
+                .get(&plan.cell)
+                .and_then(|cell| {
+                    cell.values()
+                        .iter()
+                        .find(|value| value.path().as_str() == paths::BUDGET_PER_RUN_WALL_S)
+                })
+                .and_then(ResolvedValue::value)
+                .and_then(|value| value.as_value().as_u64())
+                .unwrap_or_else(|| u64::from(budget.per_run.wall_s))
+        };
+        let wall_s_bound = self
+            .plans
+            .iter()
+            .try_fold(0_u64, |total, plan| total.checked_add(wall_of(plan)));
+        let job_caps = [
+            ("budget.max_runs", budget.max_runs.map(Value::from)),
+            ("budget.max_tokens", budget.max_tokens.map(Value::from)),
+            ("budget.max_cost_usd", budget.max_cost_usd.map(Value::from)),
+            ("budget.wall_s", budget.wall_s.map(Value::from)),
+            (
+                "budget.max_parallel",
+                Some(Value::from(budget.max_parallel)),
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(path, cap)| cap.map(|value| (path.to_owned(), value))) // BORROW: the summary owns its paths
+        .collect();
+        PlanSummary {
+            cells: self.fresh.len(),
+            new_runs,
+            reused_runs: self.sealed.len(),
+            wall_s_bound,
+            job_caps,
+        }
+    }
+}
+
 /// Decides the runs of `file`, each cell under the resolution of its treatment level, taking the
 /// experiment lock when `mode` is [`PlanMode::Hold`]. One resolution is the single level of a file
 /// with at most one treatment level.
@@ -1165,7 +1248,11 @@ pub fn plan_runs<'a>(
     // sealing still decides every replicate.
     let mut plans = Vec::new();
     let mut sealed = Vec::new();
-    for (cell, replicate) in run_order(per_cell.len(), file.replicates(), seed_of(&experiment)) {
+    for (cell, replicate) in run_order(
+        per_cell.len(),
+        levels.replicates(file),
+        seed_of(&experiment),
+    ) {
         let Some((digest, pinned, deviations)) = per_cell.get(cell) else {
             continue;
         };

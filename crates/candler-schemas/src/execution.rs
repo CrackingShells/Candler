@@ -1099,6 +1099,23 @@ struct Plan {
     caps: Vec<ResolvedValue>,
 }
 
+/// The replicates `count` stands for: at least 1 and at most [`u32::MAX`].
+///
+/// # Errors
+/// [`ExecutionError::Zero`] when `count` is 0, and [`ExecutionError::NotPositive`] when it does
+/// not fit in 32 bits.
+pub fn check_replicates(count: u64) -> Result<u32, ExecutionError> {
+    match u32::try_from(count) {
+        Ok(0) => Err(ExecutionError::Zero {
+            field: "replicates",
+        }),
+        Ok(replicates) => Ok(replicates),
+        Err(_) => Err(ExecutionError::NotPositive {
+            field: "replicates",
+        }),
+    }
+}
+
 /// An experiment file: the values fixed in every cell, the factors whose levels make the cells, the replicates, the budget, the harness, the treatment and the names of the secrets the runs need.
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -1122,8 +1139,10 @@ struct RawExperimentFile {
     budget: Budget,
     /// The harness the runs use.
     harness: HarnessRequest,
-    /// The treatment the runs apply, and where its files are.
-    treatment: TreatmentSpec,
+    /// The treatment the runs apply, and where its files are. It may be absent when a factor of
+    /// `request.treatment` gives each level its own.
+    #[serde(default)]
+    treatment: Option<TreatmentSpec>,
     /// The names of the environment variables the runs need; their values are never written.
     #[serde(default)]
     secrets: Vec<SecretName>,
@@ -1168,7 +1187,7 @@ impl TryFrom<MapOnly<RawExperimentFile>> for ExperimentFile {
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        Self::new(
+        Self::build(
             fixed, factors, replicates, budget, harness, treatment, secrets,
         )?
         .with_inputs(inputs)
@@ -1186,7 +1205,8 @@ pub struct ExperimentFile {
     replicates: u32,
     budget: Budget,
     harness: HarnessRequest,
-    treatment: TreatmentSpec,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    treatment: Option<TreatmentSpec>,
     secrets: Vec<SecretName>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     inputs: Vec<ExperimentInput>,
@@ -1213,11 +1233,40 @@ impl ExperimentFile {
         treatment: impl Into<TreatmentSpec>,
         secrets: Vec<SecretName>,
     ) -> Result<Self, ExecutionError> {
-        if replicates == 0 {
-            return Err(ExecutionError::Zero {
-                field: "replicates",
-            });
+        Self::build(
+            fixed,
+            factors,
+            replicates,
+            budget,
+            harness,
+            Some(treatment.into()),
+            secrets,
+        )
+    }
+
+    /// Builds an experiment file whose treatment may be absent: a factor of `request.treatment`
+    /// then gives it.
+    ///
+    /// # Errors
+    /// [`ExecutionError::MissingField`] when there is neither a treatment nor a factor of
+    /// `request.treatment`, and the errors of [`ExperimentFile::new`].
+    fn build(
+        fixed: BTreeMap<FieldPath, JsonValue>,
+        factors: Vec<Factor>,
+        replicates: u32,
+        budget: Budget,
+        harness: HarnessRequest,
+        treatment: Option<TreatmentSpec>,
+        secrets: Vec<SecretName>,
+    ) -> Result<Self, ExecutionError> {
+        if treatment.is_none()
+            && !factors
+                .iter()
+                .any(|factor| factor.path.as_str() == "request.treatment")
+        {
+            return Err(ExecutionError::MissingField { field: "treatment" });
         }
+        check_replicates(u64::from(replicates))?;
         budget.check()?;
         let fixed = fold_fixed(fixed)?;
         let mut levels = Vec::with_capacity(factors.len());
@@ -1260,7 +1309,7 @@ impl ExperimentFile {
             replicates,
             budget,
             harness,
-            treatment: treatment.into(),
+            treatment,
             secrets,
             inputs: Vec::new(),
             plan,
@@ -1370,10 +1419,10 @@ impl ExperimentFile {
         &self.harness
     }
 
-    /// The treatment the runs apply.
+    /// The treatment the runs apply; absent when a factor of `request.treatment` gives it.
     #[must_use]
-    pub const fn treatment<'a>(&'a self) -> &'a TreatmentSpec {
-        &self.treatment
+    pub const fn treatment<'a>(&'a self) -> Option<&'a TreatmentSpec> {
+        self.treatment.as_ref()
     }
 
     /// The inputs the runs read, in written order.
