@@ -223,6 +223,9 @@ pub enum ResolveError {
     /// The plug-in environment an experiment selects does not exist, and no other step failed.
     #[error(transparent)]
     PluginEnvironment(#[from] crate::resolve::steps::plugin_environment::PluginEnvironmentRefusal),
+    /// An entry of the experiment's `env` table names a variable Candler sets or a declared secret.
+    #[error(transparent)]
+    Env(#[from] crate::resolve::steps::env::EnvRefusal),
     /// An evaluator-only input sits in what the agent receives, and no other step failed.
     #[error(transparent)]
     GroundTruth(#[from] crate::resolve::steps::ground_truth::GroundTruthRefusal),
