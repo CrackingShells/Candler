@@ -29,6 +29,7 @@ Wire line: `schemas@0.11.3`.
 | `budget.per_run.turns` | `integer` | optional | - |
 | `budget.per_run.wall_s` | `integer` | required | - |
 | `budget.wall_s` | `integer` | optional | - |
+| `env` | `map of string` | optional | `{}` |
 | `factors` | `array of Factor` | optional | `[]` |
 | `factors[].levels` | `array of any` | required | - |
 | `factors[].path` | `FieldPath` | required | - |
@@ -69,6 +70,8 @@ Wire line: `schemas@0.11.3`.
 | `experiment.count_zero` | A count, duration or process id that must be at least 1 is 0. | The field when it is `replicates` or one under `budget`; none otherwise. | experiment |
 | `experiment.document_invalid` | The TOML is not an experiment file: a field is missing, has the wrong type or breaks the format of its own. | The field at fault, or its parent table when a field is missing; none at the root. | experiment |
 | `experiment.entry_repeated` | A list holds the same entry twice: a fixed path, a factor path or an input kind. | - | experiment |
+| `experiment.env_reserved` | An entry of the `env` table names a variable Candler sets for the harness process: `PATH`, `HOME`, `VIRTUAL_ENV` or `LANG`. | The key of the entry in the `env` table. | experiment |
+| `experiment.env_secret` | An entry of the `env` table names a secret the experiment declares; a secret's value reaches the gateway only. | The key of the entry in the `env` table. | experiment |
 | `experiment.factor_without_levels` | A factor has no level, so the experiment would have no cell. | - | experiment |
 | `experiment.input_invalid` | An input declaration uses the kind the wire reserves, or mounts under an empty, absolute or escaping directory. | `/inputs`, the list that holds the declaration. | experiment |
 | `experiment.input_not_stored` | A declared input file or list could not be copied into the store. | The `inputs` array of the experiment file. | experiment |
