@@ -29,7 +29,8 @@ use crate::commands::{
 #[command(
     name = "candler",
     version,
-    about = "Run, evaluate and compare agent experiments"
+    about = "Run, evaluate and compare agent experiments",
+    after_help = commands::exit_help()
 )]
 struct Cli {
     /// The store root, for every verb; by default the store the configuration names. not an

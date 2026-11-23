@@ -16,109 +16,30 @@ use serde_json::Value;
 
 use super::config::Config;
 use super::preflight::{ResolveError, StepReport};
-use candler_schemas::execution::paths;
 use candler_schemas::execution::paths::{
     ISOLATION_BUILD_CONTEXT, ISOLATION_BUILD_DOCKERFILE, ISOLATION_BUILD_LOCK,
-    ISOLATION_BUILD_REQUIREMENTS, ISOLATION_RECORD_PACKAGES, MODEL_TOKEN_SECRET, PLUGINS_DIRS,
-    REQUEST_HARNESS, REQUEST_INPUTS, REQUEST_TREATMENT, SLOTS_COUNT, SLOTS_EVALUATORS, STORE_ROOT,
-    TREATMENT_SOURCE_PREFIX,
+    ISOLATION_BUILD_REQUIREMENTS, PLUGINS_DIRS, REQUEST_TREATMENT, SLOTS_COUNT, SLOTS_EVALUATORS,
+    STORE_ROOT, TREATMENT_SOURCE_PREFIX,
 };
 
-/// Reports whether `path` is an operational setting, by its path alone: a configuration key
-/// (`store.root`, `plugins.dirs`, `slots.count`, `slots.evaluators`), a job cap (every `budget.*` path except
-/// `budget.per_run.*`), `replicates`, a request key (`request.harness`, `request.treatment`,
-/// `request.inputs`), the gateway's secret (`model.token_secret`), the packages a run records
-/// (`isolation.record_packages`) or an image build request (every `isolation.build.*` path). A
-/// setting never reaches a cell digest. The paths an
-/// explicit argument marks are settings too; [`Layered::is_setting`] adds them.
+/// Reports whether `path` is an operational setting, by its path alone: the row of
+/// [`CONFIGURATION_PATHS`](super::paths::CONFIGURATION_PATHS) with the most segments that names it
+/// is of a setting class. A setting never reaches a cell digest. The paths an explicit argument
+/// marks are settings too; [`Layered::is_setting`] adds them.
 ///
 /// The match follows path segments, so `isolation.image` and `isolation.builder` are not
 /// settings and `model.id` is not one either.
 #[must_use]
 pub fn is_setting(path: &FieldPath) -> bool {
-    let mut segments = path.segments();
-    match (segments.next(), segments.next()) {
-        (Some("budget"), Some("per_run")) => false,
-        (Some("budget" | "replicates"), _) => true,
-        (Some("isolation"), Some("build")) => segments.next().is_some(),
-        // BORROW: the path's text, compared with the setting keys
-        _ => matches!(
-            path.as_str(),
-            STORE_ROOT
-                | PLUGINS_DIRS
-                | SLOTS_COUNT
-                | SLOTS_EVALUATORS
-                | REQUEST_HARNESS
-                | REQUEST_TREATMENT
-                | ISOLATION_RECORD_PACKAGES
-                | REQUEST_INPUTS
-                | MODEL_TOKEN_SECRET
-        ),
-    }
+    super::paths::names_a_setting(path)
 }
 
-/// Reports whether `path` belongs to the configuration surface: a path named above, an operational
-/// setting ([`is_setting`]), a typed root or a path below one
-/// (which another check refuses on its own terms), a path below `mcp` or `prompt.values`, whose
-/// children are free, or an ancestor of any of these.
+/// Reports whether `path` belongs to the configuration surface: an operational setting
+/// ([`is_setting`]), a path a row of the table names, or an ancestor of one; a path below a typed
+/// root is refused on its own terms by another check.
 #[must_use]
 pub fn is_known_path(path: &candler_schemas::primitives::FieldPath) -> bool {
-    const LEAVES: [&str; 35] = [
-        paths::MODEL_ID,
-        paths::MODEL_ENDPOINT,
-        paths::MODEL_EFFORT,
-        paths::MODEL_TOKEN_SECRET,
-        paths::TOOLS_ALLOWED,
-        paths::TOOLS_DISALLOWED,
-        paths::PERMISSION_MODE,
-        paths::REQUEST_HARNESS,
-        paths::REQUEST_TREATMENT,
-        paths::REQUEST_INPUTS,
-        paths::PROMPT_TEMPLATE,
-        paths::ISOLATION_IMAGE,
-        paths::ISOLATION_NETWORK,
-        paths::ISOLATION_ENV_LOCK,
-        paths::ISOLATION_LIMITS_PIDS,
-        paths::ISOLATION_LIMITS_MEMORY,
-        paths::ISOLATION_LIMITS_CPUS,
-        paths::ISOLATION_BUILD_DOCKERFILE,
-        paths::ISOLATION_BUILD_CONTEXT,
-        paths::ISOLATION_BUILD_REQUIREMENTS,
-        paths::ISOLATION_BUILD_PRUNE,
-        paths::ISOLATION_BUILD_LOCK,
-        paths::ISOLATION_BUILD_PLUGIN,
-        paths::ISOLATION_EGRESS,
-        paths::ISOLATION_RECORD_PACKAGES,
-        paths::BUDGET_PER_RUN_WALL_S,
-        paths::BUDGET_PER_RUN_TURNS,
-        paths::BUDGET_PER_RUN_MAX_COST_USD,
-        paths::RUNNER_MODE,
-        paths::RUNNER_IDLE_S,
-        paths::STORE_ROOT,
-        paths::PLUGINS_DIRS,
-        paths::SLOTS_COUNT,
-        paths::ISOLATION_LIMITS,
-        paths::PROMPT_VALUES,
-    ];
-    const SUBTREES: [&str; 7] = [
-        paths::MCP,
-        paths::PROMPT_VALUES,
-        paths::HARNESS,
-        paths::TREATMENT,
-        paths::INPUTS,
-        paths::SNAPSHOTS,
-        paths::ENVIRONMENTS,
-    ];
-    let known = |text: &str| text.parse::<candler_schemas::primitives::FieldPath>().ok();
-    is_setting(path)
-        || LEAVES
-            .iter()
-            .filter_map(|text| known(text))
-            .any(|leaf| leaf.starts_with(path))
-        || SUBTREES
-            .iter()
-            .filter_map(|text| known(text))
-            .any(|root| path.starts_with(&root) || root.starts_with(path))
+    is_setting(path) || super::paths::reaches(path)
 }
 
 /// The values an experiment file sets.

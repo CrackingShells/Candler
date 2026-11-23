@@ -1,6 +1,6 @@
 # Contract pages
 
-One page per surface an author writes or a plug-in speaks. Each page holds the sections Surface, Version, Fields, Refusals and Notes, in that order. Version and Fields are generated from the committed schema files in `crates/candler-schemas/schema/`; the two harness pages are generated from the driver traits and the registered drivers.
+One page per surface an author writes or a plug-in speaks. Each page holds the sections Surface, Version, Fields, Refusals and Notes, in that order. Version and Fields are generated from the committed schema files in `crates/candler-schemas/schema/`; the two harness pages are generated from the driver traits and the registered drivers, and the two configuration pages from the path table that the resolver reads.
 
 ## Pages
 
@@ -14,6 +14,8 @@ One page per surface an author writes or a plug-in speaks. Each page holds the s
 | [evaluator-helper.md](evaluator-helper.md) | Evaluator helper | evaluator kind author | none |
 | [driver-traits.md](driver-traits.md) | Driver traits | driver author | none |
 | [harness-capabilities.md](harness-capabilities.md) | Harness capabilities | experimenter, reading | none |
+| [configuration-paths.md](configuration-paths.md) | Configuration paths | experimenter | none |
+| [config-file.md](config-file.md) | Configuration files | project owner, user | none |
 
 ## Field classes
 
@@ -35,6 +37,18 @@ Every row of a Fields table has one class. A `required` followed by a variant in
 | wire schemas | `schemas@0.11.3` | `crates/candler-schemas/Cargo.toml` |
 | evaluator helper | `candler-evaluator@0.1.0` | `python/candler-evaluator/pyproject.toml` |
 <!-- /versions -->
+
+## Exit codes
+
+The status the `candler` process returns.
+
+<!-- generated:exit-codes -->
+| Code | Meaning |
+|---|---|
+| 0 | the verb did its work and found nothing to report |
+| 1 | `diff` found changed rows |
+| 2 | the verb was refused or failed |
+<!-- /generated:exit-codes -->
 
 ## Other refusals
 
@@ -67,7 +81,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `config.machine_wide_key` | A project configuration sets a machine-wide key, which only the user configuration may set. | The key in the project configuration file named in the message. | config |
 | `config.no_evaluator_slots` | `slots.evaluators` is 0 in the user configuration, so the pool that evaluators draw from has no slot. | - | config |
 | `config.no_plugin_dirs` | `evaluate` is run where no `candler.toml` at or above the working directory lists a plug-in directory under `plugins.dirs`. | - | config |
-| `config.no_store` | Not raised today: a verb that is given no store root takes the default store, and a store that is missing prints `store.not_a_store`. | - | config |
+| `config.no_store` | No store root resolves at all: neither `--store` nor `CANDLER_STORE` is given, no `candler.toml` is found at or above the working directory, and the user has no state home (`$XDG_STATE_HOME`, else `~/.local/state`), so there is no default store either. | - | config |
 | `config.no_such_run` | No run of the store has a key that starts with the prefix given to `inspect`. | - | config |
 | `config.nothing_compared` | `diff` found no expectation that both evaluators graded in the same run, such as an evaluator version the store lacks. | - | config |
 | `config.plugin_dir_no_manifest` | A directory of `plugins.dirs` does not exist or holds neither `plugin.toml` nor `candler-plugin.toml`. | - | config |
