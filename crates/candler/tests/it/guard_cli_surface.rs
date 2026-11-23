@@ -1542,3 +1542,152 @@ fn u6_usage_text_and_help_are_unchanged_and_the_file_is_named() {
     );
     assert!(out.stderr.is_empty(), "nothing on stderr");
 }
+
+/// The JSON document a call printed on standard output.
+fn document_of(out: &Output) -> Value {
+    serde_json::from_slice(&out.stdout)
+        .unwrap_or_else(|e| panic!("stdout is one JSON document ({e}): {}", stdout_of(out)))
+}
+
+/// Asserts that `document` carries the version marker `schema` and every key of `keys`.
+fn assert_record(verb: &str, document: &Value, schema: &str, keys: &[&str]) {
+    assert_eq!(document["schema"], schema, "{verb}: the version marker");
+    for key in keys {
+        assert!(document.get(*key).is_some(), "{verb}: key `{key}` in {document}");
+    }
+}
+
+/// Guards: X1 — each data verb prints its record as JSON when no option is given, and
+/// `--format text` is accepted and exits 0, so a verb cannot drift back to a hand-built line shape.
+/// Oracle: the version marker and keys the record of each verb names, and the store the call read.
+/// Bite: a verb that prints a TSV line, or a bare `println!` document without its marker, fails
+/// its row.
+#[test]
+fn every_data_verb_prints_its_record() {
+    let store = Seeded::with(TWO_EVALUATORS);
+    let run = store_run_key(&store);
+    let rows: [(&[&str], &str, &[&str]); 6] = [
+        (&["ps"], "job-list/1", &["store", "jobs"]),
+        (&["ls"], "experiment-list/1", &["store", "experiments"]),
+        (&["inspect", run.as_str()], "inspect-run/1", &["run", "sealed", "outcomes"]),
+        (
+            &["diff", "--from", "1.0.0", "--to", "2.0.0"],
+            "diff-report/1",
+            &["compared", "changed", "changes"],
+        ),
+        (&["show", "--rates"], "rates/1", &["cell"]),
+        (&["show"], "", &["counts"]),
+    ];
+    for (args, schema, keys) in rows {
+        let verb = args.join(" ");
+        let out = store.candler(args);
+        assert!(out.status.code().is_some_and(|code| code <= 1), "{verb}: {}", text_of(&out.stderr));
+        let document = document_of(&out);
+        if schema.is_empty() {
+            for key in keys {
+                assert!(document.get(*key).is_some(), "{verb}: key `{key}` in {document}");
+            }
+        } else {
+            assert_record(&verb, &document, schema, keys);
+        }
+        let mut text_args = args.to_vec(); // BORROW: the call line is extended
+        text_args.extend(["--format", "text"]);
+        let text = store.candler(&text_args);
+        assert!(
+            text.status.code().is_some_and(|code| code <= 1),
+            "{verb} --format text: {}",
+            text_of(&text.stderr)
+        );
+        assert!(
+            serde_json::from_slice::<Value>(&text.stdout).is_err(),
+            "{verb} --format text prints text, not the document"
+        );
+    }
+
+    let env = Env::with(Path::new(env!("CARGO_BIN_EXE_candler")));
+    let launched = env.run();
+    let id = env.settle(&launched);
+    let job = succeeded(
+        env.command(&["inspect", &id.to_string()])
+            .output()
+            .expect("the binary runs"),
+    );
+    assert_record("inspect job", &document_of(&job), "inspect-job/1", &["id", "state", "runs", "spent"]);
+    let watched = succeeded(
+        env.command(&["watch", &id.to_string(), "--format", "text"])
+            .output()
+            .expect("the binary runs"),
+    );
+    assert!(!watched.stdout.is_empty(), "watch --format text prints");
+}
+
+/// The key of the one run of the seeded store, as `inspect` takes it.
+fn store_run_key(store: &Seeded) -> String {
+    let runs = store.dir.path().join("store").join("runs");
+    let name = fs::read_dir(runs)
+        .expect("the runs directory lists")
+        .flatten()
+        .next()
+        .expect("one run")
+        .file_name();
+    name.to_string_lossy().into_owned()
+}
+
+/// Guards: Q2 — a refusal prints a `refusal/1` document on stderr when no option is given, and
+/// text with `--format text`, a usage error included.
+/// Oracle: the version marker the document of the refusal record names, and the `candler: ` lead
+/// of the text form.
+/// Bite: stderr that is text by default, or `--format text` that still prints JSON, fails here.
+#[test]
+fn refusals_print_json_by_default() {
+    let store = Seeded::with(TWO_EVALUATORS);
+    let calls: [&[&str]; 2] = [&["diff", "--from", "9.9.9", "--to", "2.0.0"], &["ps", "--no-such-flag"]];
+    for args in calls {
+        let out = store.candler(args);
+        assert_eq!(out.status.code(), Some(2), "{args:?}");
+        let record: Value = serde_json::from_str(text_of(&out.stderr).trim())
+            .unwrap_or_else(|e| panic!("{args:?}: stderr is one JSON document ({e})"));
+        assert_eq!(record["schema"], "refusal/1", "{args:?}");
+        let mut text_args = args.to_vec(); // BORROW: the call line is extended
+        text_args.extend(["--format", "text"]);
+        let text = store.candler(&text_args);
+        assert_eq!(text.status.code(), Some(2), "{args:?}");
+        assert!(
+            serde_json::from_str::<Value>(text_of(&text.stderr).trim()).is_err(),
+            "{args:?}: text with --format text: {}",
+            text_of(&text.stderr)
+        );
+    }
+}
+
+/// Guards: N8 — with `CANDLER_STORE` set, `resolve` names that variable as the source of the
+/// store root it prints.
+/// Oracle: the variable the call set.
+/// Bite: a store root printed with the default's source.
+#[test]
+fn resolve_names_the_store_source() {
+    let env = Env::with(Path::new(env!("CARGO_BIN_EXE_candler")));
+    let models = Models::start();
+    let out = succeeded(
+        env.command(&[
+            "resolve",
+            "exp.toml",
+            "--set",
+            "isolation.build.lock=env.lock",
+            "--set",
+            &models.setting(),
+            "--set",
+            &format!("model.token_secret={SECRET_NAME}"),
+        ])
+        .env("CANDLER_STORE", env.world.work.join("named-store"))
+        .output()
+        .expect("the binary runs"),
+    );
+    let text = stdout_of(&out);
+    let store_lines: Vec<&str> = text.lines().filter(|line| line.contains("store.root")).collect();
+    assert!(!store_lines.is_empty(), "the store root is printed: {text}");
+    assert!(
+        store_lines.iter().any(|line| line.contains("CANDLER_STORE")),
+        "the source names the variable: {store_lines:?}"
+    );
+}
