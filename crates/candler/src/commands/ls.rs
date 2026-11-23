@@ -25,7 +25,8 @@ use candler_schemas::primitives::FieldPath;
 use serde_json::Value;
 
 use super::term::Paint;
-use super::{CliError, Exit, common};
+use super::{CliError, Exit, OutputArgs, common, write_record};
+use candler_schemas::listing::{ExperimentList, ListedExperiment};
 
 /// The directory of a project that holds its experiments.
 const EXPERIMENTS: &str = "experiments";
@@ -35,6 +36,8 @@ const EXPERIMENTS: &str = "experiments";
 pub struct Args {
     /// Files or directories to list besides the project's `experiments/` directory.
     pub paths: Vec<PathBuf>,
+    #[command(flatten)]
+    pub output: OutputArgs,
 }
 
 /// One line of the listing.
@@ -197,6 +200,21 @@ pub fn list_files(
         .collect()
 }
 
+/// The record entry of a listed file.
+fn listed(listing: &Listing) -> ListedExperiment {
+    match listing {
+        Listing::Experiment { path, cells, runs } => ListedExperiment::Experiment {
+            path: path.display().to_string(),
+            cells: u64::try_from(*cells).unwrap_or(u64::MAX),
+            runs: u64::try_from(*runs).unwrap_or(u64::MAX),
+        },
+        Listing::Skipped { path, reason } => ListedExperiment::Skipped {
+            path: path.display().to_string(),
+            reason: reason.clone(), // BORROW: the record owns its text
+        },
+    }
+}
+
 /// Lists the experiments of the project and of the paths given.
 ///
 /// # Errors
@@ -218,14 +236,23 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
             files.entry(root).or_insert(None);
         }
     }
-    let runs = match common::store_root("ls", store).await {
-        Ok(root) => stored_runs(&root),
-        Err(_) => Vec::new(),
+    let (root, runs) = match common::store_root("ls", store).await {
+        Ok(root) => {
+            let runs = stored_runs(&root);
+            (root.display().to_string(), runs)
+        }
+        Err(_) => (String::new(), Vec::new()),
     };
-    let paint = Paint::detect();
+    let listings = list_files(&files, &runs);
     let mut stdout = std::io::stdout().lock();
-    for listing in list_files(&files, &runs) {
-        writeln!(stdout, "{}", listing.line(paint)).map_err(|e| CliError::failed("ls", e))?;
+    if args.output.text() {
+        let paint = Paint::detect();
+        for listing in &listings {
+            writeln!(stdout, "{}", listing.line(paint)).map_err(|e| CliError::failed("ls", e))?;
+        }
+    } else {
+        let experiments = listings.iter().map(listed).collect();
+        write_record("ls", &mut stdout, &ExperimentList::new(root, experiments))?;
     }
     Ok(Exit::Success)
 }

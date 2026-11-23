@@ -191,7 +191,7 @@ fn equivalence(dir: &Path, run: &RunKey) -> PathBuf {
 }
 
 fn diff_json(home: &Path, store: &Path, extra: &[&str]) -> (i32, Value) {
-    let mut args = vec!["diff", "--from", OLD, "--to", NEW, "--format", "json"];
+    let mut args = vec!["diff", "--from", OLD, "--to", NEW];
     args.extend_from_slice(extra);
     let out = candler(home, store, &args);
     let code = out.status.code().expect("the binary exits with a code");
@@ -253,7 +253,9 @@ fn diff_exits_zero_without_a_change_and_two_without_a_to_record() {
     );
     let (code, report) = diff_json(same.path(), &store, &[]);
     assert_eq!(code, 0, "no change: {report}");
-    assert_eq!(keys(&report), literal("top"));
+    let mut without_equivalence = literal("top");
+    without_equivalence.remove("equivalence");
+    assert_eq!(keys(&report), without_equivalence);
     assert_eq!(report["compared"], 2);
     assert!(report["equivalence"].is_null());
 
@@ -298,7 +300,7 @@ fn import_show_and_diff_over_the_mini_corpus_match_the_hand_counts() {
     let summary: Value = serde_json::from_slice(&out.stdout).expect("a JSON summary");
     assert_eq!(summary, json!({"runs": 6, "records": 136}));
 
-    let out = candler(dir.path(), &store, &["show", "--format", "json"]);
+    let out = candler(dir.path(), &store, &["show"]);
     assert_eq!(out.status.code(), Some(0), "{out:?}");
     let shown: Value = serde_json::from_slice(&out.stdout).expect("JSON counts");
     let expected = json!({"counts": {"htn-creator-eval@0.4.2": {
@@ -307,11 +309,7 @@ fn import_show_and_diff_over_the_mini_corpus_match_the_hand_counts() {
     assert_eq!(shown, expected);
 
     let same = "htn-creator-eval@0.4.2";
-    let out = candler(
-        dir.path(),
-        &store,
-        &["diff", "--from", same, "--to", same, "--format", "json"],
-    );
+    let out = candler(dir.path(), &store, &["diff", "--from", same, "--to", same]);
     assert_eq!(out.status.code(), Some(0), "{out:?}");
     let report: Value = serde_json::from_slice(&out.stdout).expect("a JSON report");
     assert_eq!(report["compared"], 136);
@@ -319,15 +317,7 @@ fn import_show_and_diff_over_the_mini_corpus_match_the_hand_counts() {
     let out = candler(
         dir.path(),
         &store,
-        &[
-            "diff",
-            "--from",
-            same,
-            "--to",
-            "htn-creator-eval@0.4.3",
-            "--format",
-            "json",
-        ],
+        &["diff", "--from", same, "--to", "htn-creator-eval@0.4.3"],
     );
     assert_eq!(out.status.code(), Some(2), "nothing to compare: {out:?}");
 
@@ -528,7 +518,7 @@ fn evaluate_diff_and_show_over_two_plugin_versions_follow_the_fixture_verdicts()
         assert_eq!(report["failed_requests"], json!([]), "{version}");
     }
 
-    let out = candler(dir.path(), &store, &["show", "--format", "json"]);
+    let out = candler(dir.path(), &store, &["show"]);
     assert_eq!(out.status.code(), Some(0), "{out:?}");
     let shown: Value = serde_json::from_slice(&out.stdout).expect("JSON counts");
     assert_eq!(shown["counts"]["engine@0.1.0"], verdicts);
@@ -538,15 +528,7 @@ fn evaluate_diff_and_show_over_two_plugin_versions_follow_the_fixture_verdicts()
         let out = candler(
             dir,
             &store,
-            &[
-                "diff",
-                "--from",
-                "engine@0.1.0",
-                "--to",
-                "engine@0.1.1",
-                "--format",
-                "json",
-            ],
+            &["diff", "--from", "engine@0.1.0", "--to", "engine@0.1.1"],
         );
         let report: Value = serde_json::from_slice(&out.stdout).unwrap_or(Value::Null);
         (out.status.code(), report)

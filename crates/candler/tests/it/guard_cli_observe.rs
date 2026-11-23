@@ -222,7 +222,12 @@ fn o1_resolve_prints_every_value_with_its_source_and_starts_no_job() {
     let out = resolve(
         &world,
         &models.url(),
-        &["--set", "prompt.template=\"overridden\""],
+        &[
+            "--set",
+            "prompt.template=\"overridden\"",
+            "--format",
+            "text",
+        ],
         Some(TOKEN),
     );
     let stderr = text(&out.stderr);
@@ -295,7 +300,7 @@ fn o1_resolve_prints_every_value_with_its_source_and_starts_no_job() {
         &world.work.join("candler.toml"),
         "[store]\nroot = \"mystore\"\n",
     );
-    let out = resolve(&world, &models.url(), &[], Some(TOKEN));
+    let out = resolve(&world, &models.url(), &["--format", "text"], Some(TOKEN));
     assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
     assert_eq!(table(&out)["store.root"][2], "project_config");
     assert!(!world.work.join("mystore").join("jobs").exists());
@@ -369,7 +374,7 @@ fn o1_resolve_reports_every_failure_at_once_with_codes() {
 fn o1_resolve_checks_the_gateway_token_by_a_model_list_read() {
     let world = world();
     let models = Models::start("the-right-token");
-    let out = resolve(&world, &models.url(), &[], Some(TOKEN));
+    let out = resolve(&world, &models.url(), &["--format", "text"], Some(TOKEN));
     let stdout = text(&out.stdout);
     assert_eq!(
         out.status.code(),
@@ -408,6 +413,7 @@ fn ls(cwd: &Path, home: &Path, args: &[&str]) -> Output {
         .arg("--store")
         .arg(home.join("store"))
         .arg("ls")
+        .args(["--format", "text"])
         .args(args)
         .current_dir(cwd)
         .env_clear()
@@ -658,7 +664,7 @@ fn candler(store: &Path, args: &[&str], env: &[(&str, &str)]) -> Output {
 }
 
 /// Guards: O3 — `candler watch <id>` with no flag prints each event of the job as one JSON line,
-/// as `watch --json` did, and `--json` is still accepted. Oracle: a recorded event log
+/// as `watch` always did. Oracle: a recorded event log
 /// (`fixtures/observe/events.jsonl`); its lines, read as JSON. Bite: the refusal "watch needs
 /// --json" kept.
 #[test]
@@ -671,7 +677,8 @@ fn o3_watch_prints_json_lines_by_default() {
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
-    for args in [vec!["watch", WATCHED], vec!["watch", WATCHED, "--json"]] {
+    {
+        let args = vec!["watch", WATCHED];
         let out = candler(&store, &args, &[]);
         assert_eq!(
             out.status.code(),
@@ -710,13 +717,6 @@ fn o3_live_on_a_pipe_prints_plain_lines_and_no_escape_byte() {
             assert!(!bytes.contains(&0x1b), "an escape byte on a pipe: {env:?}");
         }
     }
-    let out = candler(&store, &["watch", WATCHED, "--live", "--json"], &[]);
-    assert!(!out.status.success());
-    assert!(
-        text(&out.stderr).contains("cannot be used with"),
-        "{}",
-        text(&out.stderr)
-    );
 }
 
 /// Guards: O3 — `candler ps` prints each row's four fields as before and a fifth, last, with no
@@ -730,7 +730,7 @@ fn o3_live_on_a_pipe_prints_plain_lines_and_no_escape_byte() {
 fn o3_ps_shows_the_experiment_or_the_suite() {
     let world = world();
     let models = Models::start(TOKEN);
-    let out = resolve(&world, &models.url(), &["--json"], Some(TOKEN));
+    let out = resolve(&world, &models.url(), &[], Some(TOKEN));
     assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
     let resolution: Resolution = serde_json::from_slice(&out.stdout).unwrap();
     let file =
@@ -762,7 +762,7 @@ fn o3_ps_shows_the_experiment_or_the_suite() {
     fs::write(dir.path().join(SPEC_FILE), "not a spec").unwrap();
     job_in(&store, none_job, None);
 
-    let out = candler(&store, &["ps"], &[]);
+    let out = candler(&store, &["ps", "--format", "text"], &[]);
     assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
     let rows: Vec<Vec<String>> = text(&out.stdout)
         .lines()
@@ -858,7 +858,7 @@ fn o3_ps_shows_the_suite_of_an_evaluate_job() {
         )
         .unwrap();
     }
-    let out = candler(&store, &["ps"], &[]);
+    let out = candler(&store, &["ps", "--format", "text"], &[]);
     assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
     let rows: Vec<Vec<String>> = text(&out.stdout)
         .lines()

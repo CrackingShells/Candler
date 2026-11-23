@@ -1,5 +1,5 @@
 //! `candler watch`: follows the events of a job, one JSON document per line by default, or the
-//! progress of the job with `--live`.
+//! progress of the job with `--live` or `--format text`.
 
 use std::collections::BTreeSet;
 use std::io::{self, IsTerminal as _, Write};
@@ -16,7 +16,7 @@ use candler_schemas::execution::EventPayload;
 use candler_schemas::primitives::{JobId, RunKey};
 
 use super::term::Paint;
-use super::{CliError, Exit, common};
+use super::{CliError, Exit, OutputArgs, common};
 
 /// How often the log is read for new events.
 const POLL: Duration = Duration::from_millis(200);
@@ -26,14 +26,12 @@ const POLL: Duration = Duration::from_millis(200);
 pub struct Args {
     /// The job to follow.
     pub id: JobId,
-    /// Print each event as a JSON document on its own line; this is the default. not an
-    /// experiment setting: it is how the output is read.
-    #[arg(long)]
-    pub json: bool,
     /// Show the progress of the job instead of its events: one line rewritten on a terminal, one
     /// line per change on a pipe. not an experiment setting: it is how the output is drawn.
-    #[arg(long, conflicts_with = "json")]
+    #[arg(long)]
     pub live: bool,
+    #[command(flatten)]
+    pub output: OutputArgs,
 }
 
 /// What the events seen so far say of the job's progress.
@@ -170,7 +168,7 @@ pub async fn follow(
     stop: &AtomicBool,
     terminal: bool,
 ) -> Result<(), CliError> {
-    let mut mode = if args.live {
+    let mut mode = if args.live || args.output.text() {
         Mode::Live {
             progress: Progress::default(),
             terminal,

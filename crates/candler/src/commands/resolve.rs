@@ -33,7 +33,7 @@ use candler_schemas::values::{SourceEntry, ValueSource};
 use super::preflight::{check_factors, foreground, request_settings, requested_harness};
 use super::refusal::CliRefusal;
 use super::term::Paint;
-use super::{CliError, Exit, common};
+use super::{CliError, Exit, OutputArgs, common};
 use crate::drivers::Registry;
 
 /// The arguments of `candler resolve`.
@@ -45,10 +45,8 @@ pub struct Args {
     /// and as text otherwise. Repeatable. cannot be derived: an override is what the caller types.
     #[arg(long = "set", value_name = "PATH=VALUE", value_parser = parse_field)]
     pub fields: Vec<(FieldPath, String)>,
-    /// Print the resolution as one JSON document. not an experiment setting: it is how the output
-    /// is read.
-    #[arg(long)]
-    pub json: bool,
+    #[command(flatten)]
+    pub output: OutputArgs,
 }
 
 /// Reads `PATH=VALUE` from the command line.
@@ -202,20 +200,20 @@ fn failed_here(error: impl std::error::Error + Send + Sync + 'static) -> CliErro
 /// Prints the failures, one line each.
 fn print_failures(
     failures: &[Failure],
-    json: bool,
+    text: bool,
     out: &mut dyn std::io::Write, // TRAIT_OBJECT: stdout, or a buffer
 ) -> Result<(), CliError> {
     let paint = Paint::detect();
-    let written = if json {
+    let written = if text {
+        failures
+            .iter()
+            .try_for_each(|f| writeln!(out, "{}\t{}\t{}", paint.red("failed"), f.id, f.explanation))
+    } else {
         let list: Vec<serde_json::Value> = failures
             .iter()
             .map(|f| serde_json::json!({"id": f.id, "explanation": f.explanation}))
             .collect();
         writeln!(out, "{}", serde_json::json!({ "failures": list }))
-    } else {
-        failures
-            .iter()
-            .try_for_each(|f| writeln!(out, "{}\t{}\t{}", paint.red("failed"), f.id, f.explanation))
     };
     written.map_err(failed_here)
 }
@@ -230,8 +228,9 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let Args {
         experiment,
         fields,
-        json,
+        output,
     } = args;
+    let text = output.text();
     let cwd = std::env::current_dir()
         .map_err(|e| CliError::refused(format!("no working directory: {e}")))?;
     let file = read_experiment(&experiment)?;
@@ -282,7 +281,7 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
 
     let mut stdout = std::io::stdout().lock();
     if !failures.is_empty() {
-        print_failures(&failures, json, &mut stdout)?;
+        print_failures(&failures, text, &mut stdout)?;
         return Err(match summary {
             Some(error) => CliError::refused_by(error),
             None => CliError::refused(format!(
@@ -294,13 +293,13 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let Some(resolution) = resolution else {
         return Ok(Exit::Success);
     };
-    if json {
-        let text = serde_json::to_string_pretty(&resolution).map_err(failed_here)?;
-        writeln!(stdout, "{text}").map_err(failed_here)?;
-    } else {
+    if text {
         for line in render_values(&resolution, Paint::detect()) {
             writeln!(stdout, "{line}").map_err(failed_here)?;
         }
+    } else {
+        let document = serde_json::to_string_pretty(&resolution).map_err(failed_here)?;
+        writeln!(stdout, "{document}").map_err(failed_here)?;
     }
     Ok(Exit::Success)
 }

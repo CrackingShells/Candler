@@ -1,10 +1,13 @@
 //! `candler diff`: the outcomes of two evaluator versions, compared.
 
-use candler_core::evaluation::selection::diff::{DiffReport, Equivalence, diff};
+use candler_core::evaluation::selection::diff::{Equivalence, diff};
+use candler_schemas::listing::{
+    DiffChange, DiffEquivalence, DiffReport, DiffReportTag, DiffUncompared,
+};
 use std::path::PathBuf;
 
 use super::refusal::CliRefusal;
-use super::{CliError, Exit, common};
+use super::{CliError, Exit, OutputArgs, common, write_record};
 use crate::Cli;
 
 /// The arguments of `candler diff`.
@@ -22,18 +25,8 @@ pub struct DiffArgs {
     /// setting: it is the caller's list of rows to excuse from this one comparison.
     #[arg(long)]
     pub equivalence: Option<PathBuf>,
-    /// The output format. not an experiment setting: it is how the output is read.
-    #[arg(long, value_enum)]
-    pub format: DiffFormat,
-}
-
-/// The output formats of `candler diff`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub enum DiffFormat {
-    /// JSON.
-    Json,
-    /// Text.
-    Text,
+    #[command(flatten)]
+    pub output: OutputArgs,
 }
 
 /// Compares the two versions and prints the report.
@@ -65,13 +58,12 @@ pub async fn run(cli: &Cli, args: &DiffArgs) -> Result<Exit, CliError> {
             to: to.to_string(),
         }));
     }
-    let text = match args.format {
-        DiffFormat::Json => {
-            serde_json::to_string(&report).map_err(|e| CliError::failed("diff", e))?
-        }
-        DiffFormat::Text => render_text(&report),
-    };
-    println!("{text}");
+    let record = record_of(&report)?;
+    if args.output.text() {
+        println!("{}", render_text(&record));
+    } else {
+        write_record("diff", &mut std::io::stdout().lock(), &record)?;
+    }
     if report.changed > 0 {
         Ok(Exit::Changed {
             count: usize::try_from(report.changed).unwrap_or(usize::MAX),
@@ -81,6 +73,50 @@ pub async fn run(cli: &Cli, args: &DiffArgs) -> Result<Exit, CliError> {
     }
 }
 
+/// The record of the core's report.
+fn record_of(
+    report: &candler_core::evaluation::selection::diff::DiffReport,
+) -> Result<DiffReport, CliError> {
+    let mut changes = Vec::new();
+    for change in &report.changes {
+        let class = serde_json::to_value(change.class)
+            .map_err(|e| CliError::failed("diff", e))?
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        changes.push(DiffChange {
+            class,
+            run: change.run.to_string(),
+            expectation: change.expectation.to_string(),
+            from: serde_json::to_value(&change.from).map_err(|e| CliError::failed("diff", e))?,
+            to: serde_json::to_value(&change.to).map_err(|e| CliError::failed("diff", e))?,
+        });
+    }
+    Ok(DiffReport {
+        schema: DiffReportTag,
+        compared: report.compared,
+        unchanged: report.unchanged,
+        excused: report.excused,
+        changed: report.changed,
+        changes,
+        uncompared: report
+            .uncompared
+            .iter()
+            .map(|left_out| DiffUncompared {
+                expectation: left_out.expectation.to_string(),
+                count: left_out.count,
+            })
+            .collect(),
+        equivalence: report
+            .equivalence
+            .as_ref()
+            .map(|equivalence| DiffEquivalence {
+                sha256: equivalence.sha256.clone(), // BORROW: the record owns its text
+                rows: equivalence.rows,
+            }),
+    })
+}
+
 /// The report as plain lines: the counts, then each change and each uncompared expectation.
 fn render_text(report: &DiffReport) -> String {
     let mut lines = vec![format!(
@@ -88,13 +124,9 @@ fn render_text(report: &DiffReport) -> String {
         report.compared, report.unchanged, report.excused, report.changed
     )];
     for change in &report.changes {
-        let class = serde_json::to_value(change.class)
-            .ok()
-            .and_then(|v| v.as_str().map(str::to_owned))
-            .unwrap_or_default();
         lines.push(format!(
-            "changed {class} {} {}",
-            change.run, change.expectation
+            "changed {} {} {}",
+            change.class, change.run, change.expectation
         ));
     }
     for left_out in &report.uncompared {
