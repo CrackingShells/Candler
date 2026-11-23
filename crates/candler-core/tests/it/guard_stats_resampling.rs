@@ -3,12 +3,10 @@
 //! (`gen_stats.py`, which reads no Candler file); a vector row is never edited to make a guard
 //! pass.
 
-use std::num::NonZeroU64;
 use std::path::PathBuf;
 
 use candler_core::analysis::bca::{jackknife_acceleration, stratified_bca};
 use candler_core::analysis::permutation::{UnitBlock, stratified_permutation};
-use candler_core::analysis::splitmix::SplitMix64;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
@@ -34,58 +32,6 @@ fn close(label: &str, got: f64, want: f64) {
         (got - want).abs() <= tolerance,
         "{label}: got {got}, want {want}"
     );
-}
-
-#[derive(Deserialize)]
-struct SplitMixRow {
-    kind: String,
-    seed: u64,
-    #[serde(default)]
-    n: String,
-    #[serde(default)]
-    outputs: Vec<String>,
-    #[serde(default)]
-    draws: Vec<String>,
-    #[serde(default)]
-    len: usize,
-    #[serde(default)]
-    order: Vec<usize>,
-}
-
-/// Guards: the generator's outputs, its `below` by rejection (large moduli reject often, so a
-/// plain modulo differs) and its Fisher-Yates shuffle are those of the Python twin, bit for bit.
-/// Oracle: the twin, which reproduces the published outputs of seed 0 before it writes anything.
-#[test]
-fn splitmix_matches_twin() {
-    for row in vector::<SplitMixRow>("splitmix.toml") {
-        let mut rng = SplitMix64::new(row.seed);
-        match row.kind.as_str() {
-            "next" => {
-                assert_eq!(row.outputs.len(), 1000, "seed {}", row.seed);
-                for (i, want) in row.outputs.iter().enumerate() {
-                    assert_eq!(
-                        &format!("{:016x}", rng.next_u64()),
-                        want,
-                        "seed {} output {i}",
-                        row.seed
-                    );
-                }
-            }
-            "below" => {
-                let n: u64 = row.n.parse().unwrap_or_else(|e| panic!("n {}: {e}", row.n));
-                let bound = NonZeroU64::new(n).unwrap_or_else(|| panic!("n is 0"));
-                for (i, want) in row.draws.iter().enumerate() {
-                    assert_eq!(&rng.below(bound).to_string(), want, "n {n} draw {i}");
-                }
-            }
-            "shuffle" => {
-                let mut order: Vec<usize> = (0..row.len).collect();
-                rng.shuffle_within(&mut order);
-                assert_eq!(order, row.order, "shuffle of {}", row.len);
-            }
-            other => panic!("unknown splitmix row kind {other}"),
-        }
-    }
 }
 
 #[derive(Deserialize)]

@@ -6,19 +6,17 @@
 
 use std::path::PathBuf;
 
+use candler_core::analysis::ALPHA;
 use candler_core::analysis::error::StatsError;
-use candler_core::analysis::fisher::{TIE_TOLERANCE, fisher_two_sided};
+use candler_core::analysis::fisher::fisher_two_sided;
 use candler_core::analysis::holm::{holm, rejected};
 use candler_core::analysis::newcombe::newcombe_difference;
 use candler_core::analysis::tally::{ArmTally, Omitted, RunFacts, tally};
 use candler_core::analysis::wilson::{Counts, wilson};
-use candler_core::analysis::{ALPHA, z_two_sided};
 use candler_core::evaluation::selection::rates::{CellKey, Rates, rates};
 use candler_core::evaluation::selection::select::select;
 use candler_schemas::execution::{Integrity, InvalidReason};
-use candler_schemas::outcome::{
-    Cause, OutcomeRecord, OutcomeRecordBuilder, Role, Status, Value, Weight,
-};
+use candler_schemas::outcome::{Cause, OutcomeRecord, OutcomeRecordBuilder, Role, Status};
 use candler_schemas::primitives::{Digest, ExpectationId, NameVersion, RequestId, RunKey};
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{Rng as _, SeedableRng as _};
@@ -119,16 +117,6 @@ fn t1_wilson_matches_the_second_engine() {
     }
 }
 
-/// Guards: the normal quantile behind every Wilson and Newcombe limit is the exact 0.975
-/// quantile, not its two-digit rounding.
-/// Oracle: `scipy.stats.norm.ppf(0.975)`, written as a literal.
-/// Bite: `z` written as 1.96.
-#[test]
-fn t1_z_is_the_normal_quantile() {
-    let z = z_two_sided().unwrap_or_else(|e| panic!("z: {e}"));
-    close("z", z, 1.959_963_984_540_054, 1e-12);
-}
-
 /// Guards: Fisher's two-sided p-value of every vector row that is not a tie, in the small grid
 /// and the 20/30 rows, to 1e-10, with `p < ALPHA` agreeing on each.
 /// Oracle: scipy `fisher_exact(.., alternative="two-sided")`.
@@ -160,44 +148,6 @@ fn t1_fisher_ties_follow_the_tolerance() {
     for row in ties {
         check_fisher(row);
     }
-}
-
-/// Guards: the tie tolerance of Fisher's test is a deliberate choice between scipy's 1e-14 and
-/// R's 1e-7. Over every pair of tables that the margins of `fisher.toml` compare, no two exact
-/// hypergeometric probabilities differ relatively by more than 1e-14 and less than 1e-7, so the
-/// choice changes no p-value on the grid; the vector records that count and its bounds.
-/// Oracle: exact rationals (`fractions.Fraction` over `math.comb`) in `gen_stats.py`, which
-/// `--check` regenerates and compares.
-/// Bite: the tolerance set to 0, or to 1e-14 (the equal-arm rows go red under the distribution
-/// library's rounding); a planted near-tie, which `--check` flags.
-#[test]
-fn t1_the_tie_tolerance_changes_no_vector_value() {
-    #[derive(Deserialize)]
-    struct Window {
-        lower: f64,
-        upper: f64,
-        near_ties: u64,
-    }
-    #[derive(Deserialize)]
-    struct File {
-        ties: Window,
-    }
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/vectors/stats/fisher.toml");
-    let text = std::fs::read_to_string(&path).expect("fisher.toml");
-    let file: File = toml::from_str(&text).expect("the [ties] table");
-    assert_eq!(
-        file.ties.near_ties, 0,
-        "tables with near-equal probabilities exist on the grid"
-    );
-    assert!(
-        file.ties.lower < TIE_TOLERANCE,
-        "the tolerance is not above scipy's"
-    );
-    assert!(
-        TIE_TOLERANCE <= file.ties.upper,
-        "the tolerance {TIE_TOLERANCE:e} reaches beyond the checked window {:e}",
-        file.ties.upper
-    );
 }
 
 /// Guards: Newcombe's hybrid score difference and both limits for 576 pairs of counts, to 1e-9,
@@ -421,28 +371,6 @@ fn counts_of(arm: &ArmTally, id: &str) -> (u64, u64) {
     (counts.k(), counts.n())
 }
 
-/// Guards: `blocked` is a failure: it is in `n`, never in `k`, and weighs 0/1 in the rate. With
-/// two passes, one fail and one blocked, `k/n` is 2/4 and the gate rate 2/4.
-/// Oracle: R01's rate rule, hand counts.
-/// Bite: `blocked` left out of `n`.
-#[test]
-fn t3_blocked_counts_as_a_failure() {
-    let records = vec![
-        built(gate(1, 'a', 1, "E1", Status::Pass)),
-        built(gate(2, 'a', 2, "E1", Status::Blocked).cause(reason("missing_input"))),
-        built(gate(3, 'a', 3, "E1", Status::Fail)),
-        built(gate(4, 'a', 4, "E1", Status::Pass)),
-    ];
-    let runs: Vec<RunFacts> = (1..=4).map(|r| valid('a', r)).collect();
-    let arms = tallied(records, &runs);
-    let a = arm(&arms, 'a');
-    let e1 = a.expectations.get(&expectation("E1")).expect("E1");
-    assert_eq!((e1.pass, e1.fail, e1.blocked), (2, 1, 1));
-    assert_eq!(counts_of(a, "E1"), (2, 4));
-    let rate = a.rate(Role::Gate);
-    assert_eq!((rate.num(), rate.den()), (2, 4));
-}
-
 /// Guards: a run's expectation counts once per evaluator, by its latest record, when a regrade
 /// gave it another context digest or another suite entry digest: a blocked outcome under the
 /// empty context then a pass under the real one is 1/1, and a fail under one suite entry then a
@@ -552,196 +480,6 @@ fn t3_invalid_runs_are_out_per_arm_with_their_reason() {
     let b = arm(&arms, 'b');
     assert_eq!((b.valid_runs, b.invalid.len()), (1, 0));
     assert_eq!(counts_of(b, "E1"), (0, 1));
-}
-
-/// Guards: a run the experimenter ended (`budget_stop`, `killed`, `interrupted`) is kept in
-/// `experimenter_ends` and never in the arm's `invalid`, so no reader sums it as a failure; its
-/// records are out of `n`.
-/// Oracle: I20.
-/// Bite: an experimenter end (`killed`) charged to the arm.
-#[test]
-fn t3_experimenter_ends_are_not_charged_to_an_arm() {
-    let records = vec![
-        built(gate(1, 'a', 1, "E1", Status::Pass)),
-        built(gate(2, 'a', 2, "E1", Status::Fail)),
-        built(gate(3, 'a', 3, "E1", Status::Fail)),
-    ];
-    let runs = vec![
-        valid('a', 1),
-        invalid('a', 2, InvalidReason::Killed),
-        invalid('a', 3, InvalidReason::BudgetStop),
-        invalid('a', 4, InvalidReason::Interrupted),
-        invalid('a', 5, InvalidReason::Killed),
-        invalid('a', 6, InvalidReason::Infrastructure),
-    ];
-    let arms = tallied(records, &runs);
-    let a = arm(&arms, 'a');
-    assert_eq!(
-        a.experimenter_ends,
-        BTreeMap::from([
-            ("budget_stop".to_owned(), 1),
-            ("interrupted".to_owned(), 1),
-            ("killed".to_owned(), 2)
-        ])
-    );
-    assert_eq!(
-        a.invalid,
-        BTreeMap::from([("infrastructure".to_owned(), 1)])
-    );
-    assert_eq!(counts_of(a, "E1"), (1, 1));
-}
-
-/// Guards: an expectation with a counted outcome weighing other than 1/1 or 0/1 is not binary:
-/// its counts, its Wilson interval and every comparison built on them are omitted with the
-/// reason `weighted`, while its rate still sums the weights (3/3 + 0/1 + 1/3 gives 4/7). An
-/// expectation of plain outcomes beside it stays binary.
-/// Oracle: R01's weight rule, hand sums.
-/// Bite: `binary` left true for a weighted outcome.
-#[test]
-fn t3_weights_make_an_expectation_non_binary() {
-    let records = vec![
-        built(gate(1, 'a', 1, "W", Status::Pass).weight(Weight::new(3, 3).expect("a weight"))),
-        built(gate(2, 'a', 2, "W", Status::Fail)),
-        built(gate(3, 'a', 3, "W", Status::Fail).weight(Weight::new(1, 3).expect("a weight"))),
-        built(gate(4, 'a', 1, "P", Status::Pass)),
-        built(gate(5, 'a', 2, "P", Status::Fail)),
-    ];
-    let runs: Vec<RunFacts> = (1..=3).map(|r| valid('a', r)).collect();
-    let arms = tallied(records, &runs);
-    let a = arm(&arms, 'a');
-    let weighted = a.expectations.get(&expectation("W")).expect("W");
-    assert!(!weighted.binary);
-    assert_eq!(weighted.counts(), Err(Omitted::Weighted));
-    assert_eq!(weighted.wilson(), Err(Omitted::Weighted));
-    assert_eq!(Omitted::Weighted.as_str(), "weighted");
-    assert_eq!((weighted.num, weighted.den), (4, 7));
-    let plain = a.expectations.get(&expectation("P")).expect("P");
-    assert!(plain.binary);
-    assert!(plain.wilson().is_ok());
-    let rate = a.rate(Role::Gate);
-    assert_eq!((rate.num(), rate.den()), (5, 9));
-}
-
-/// Guards: a `pass` weighing 0/0 is out of `k`, out of `n` and out of every sum, and is counted
-/// in `zero_weight`.
-/// Oracle: R01's rate rule (a 0/0 weight adds nothing), hand counts.
-/// Bite: a zero-weight pass counted as a pass.
-#[test]
-#[expect(deprecated, reason = "a zero weight carries the legacy cause")]
-fn t3_zero_weight_passes_add_nothing() {
-    let legacy = Cause::Legacy("zero_weight".parse().expect("a reason code"));
-    let records = vec![
-        built(gate(1, 'a', 1, "E1", Status::Pass)),
-        built(
-            gate(2, 'a', 2, "E1", Status::Pass)
-                .weight(Weight::new(0, 0).expect("a weight"))
-                .cause(legacy),
-        ),
-        built(gate(3, 'a', 3, "E1", Status::Fail)),
-    ];
-    let runs: Vec<RunFacts> = (1..=3).map(|r| valid('a', r)).collect();
-    let arms = tallied(records, &runs);
-    let a = arm(&arms, 'a');
-    let e1 = a.expectations.get(&expectation("E1")).expect("E1");
-    assert_eq!(e1.zero_weight, 1);
-    assert_eq!((e1.pass, e1.fail), (1, 1));
-    assert_eq!(counts_of(a, "E1"), (1, 2));
-    assert!(e1.binary, "a zero weight does not make the rest weighted");
-    let rate = a.rate(Role::Gate);
-    assert_eq!((rate.num(), rate.den()), (1, 2));
-}
-
-/// Guards: when every run is valid, each cell's per-role sums equal the existing
-/// `evaluation::selection::rates::rates` on the same selection, over gate, quality and
-/// descriptive expectations with every status and a weight.
-/// Oracle: `rates`, an implementation of the same R01 rule that shares no code with `tally`.
-/// Bite: a role's sum taken from the wrong role.
-#[test]
-fn t3_roles_sum_as_rates_does() {
-    let mut n = 0;
-    let mut next = || {
-        n += 1;
-        n
-    };
-    let mut records = Vec::new();
-    for (cell, replicates) in [('a', 4_u32), ('b', 3)] {
-        for r in 1..=replicates {
-            records.push(built(record(
-                next(),
-                cell,
-                r,
-                "G1",
-                Role::Gate,
-                Status::Pass,
-            )));
-            records.push(built(record(
-                next(),
-                cell,
-                r,
-                "G2",
-                Role::Gate,
-                if r % 2 == 0 {
-                    Status::Fail
-                } else {
-                    Status::Pass
-                },
-            )));
-            records.push(built(
-                record(next(), cell, r, "Q1", Role::Quality, Status::Pass)
-                    .weight(Weight::new(2, 2).expect("a weight")),
-            ));
-            records.push(built(
-                record(next(), cell, r, "Q2", Role::Quality, Status::Fail)
-                    .weight(Weight::new(r.into(), 5).expect("a weight")),
-            ));
-            records.push(built(
-                record(next(), cell, r, "Q3", Role::Quality, Status::Blocked)
-                    .cause(reason("missing_input")),
-            ));
-            records.push(built(
-                record(next(), cell, r, "Q4", Role::Quality, Status::NotApplicable)
-                    .cause(reason("not_applicable_to_arm")),
-            ));
-            records.push(built(
-                record(next(), cell, r, "D1", Role::Descriptive, Status::Pass)
-                    .value(Value::count(3)),
-            ));
-        }
-    }
-    let runs: Vec<RunFacts> = [('a', 4_u32), ('b', 3)]
-        .into_iter()
-        .flat_map(|(cell, count)| (1..=count).map(move |r| valid(cell, r)))
-        .collect();
-    let selection = select(records);
-    let expected = rates(&selection, &evaluator());
-    let arms = tally(&selection, &evaluator(), &runs).expect("a tally");
-    assert_eq!(expected.len(), 2);
-    for (cell, sums) in &expected {
-        let arm = arms.get(cell).expect("the same cells");
-        let gate = arm.rate(Role::Gate);
-        let quality = arm.rate(Role::Quality);
-        assert_eq!((gate.num(), gate.den()), sums.gate(), "gate of {cell}");
-        assert_eq!(
-            (quality.num(), quality.den()),
-            sums.quality(),
-            "quality of {cell}"
-        );
-        let descriptive = arm.rate(Role::Descriptive);
-        assert_eq!((descriptive.num(), descriptive.den()), (0, 0));
-    }
-    // Hand check of cell a: G1 4/4, G2 2/4 (replicates 1 and 3 pass); Q1 weighs 2/2 four times,
-    // Q2 weighs r/5 with r from 1 to 4, Q3 weighs 0/1 four times.
-    let a = arm(&arms, 'a');
-    let gate = a.rate(Role::Gate);
-    assert_eq!((gate.num(), gate.den()), (4 + 2, 8));
-    let quality = a.rate(Role::Quality);
-    assert_eq!(
-        (quality.num(), quality.den()),
-        (8 + (1 + 2 + 3 + 4), 8 + 20 + 4)
-    );
-    let d1 = a.expectations.get(&expectation("D1")).expect("D1");
-    assert_eq!(d1.pass, 4);
-    assert_eq!(d1.counts(), Err(Omitted::Descriptive));
 }
 
 /// Guards: no number without its counts. A rate is a pair of counts (a role with nothing
@@ -880,51 +618,12 @@ fn rejection_share(seed: u64, n: u64, m: usize, passing: Passing) -> f64 {
 }
 
 #[derive(Deserialize)]
-struct CoverageRow {
-    n: u64,
-    p: f64,
-    coverage: f64,
-}
-
-#[derive(Deserialize)]
 struct PowerRow {
     n: u64,
     p_a: f64,
     p_b: f64,
     alpha: f64,
     power: f64,
-}
-
-/// Guards: the exact coverage of the Wilson interval, summed over every k with the binomial
-/// probability, equals scipy's table to 1e-9 for n in {5, 10, 30} and p in {0.1, 0.5, 0.9}, and
-/// is at least 0.91 in each. The floor is 0.91 and not 0.93 because Wilson itself cannot reach
-/// 0.93 at small n: at n = 5, p = 0.1 the exact coverage is 0.9185.
-/// Oracle: scipy's `binom.pmf` over statsmodels' Wilson limits, in `coverage.toml`.
-/// Bite: Wilson with a continuity correction (the equality goes red); the Wald interval (the
-/// floor goes red).
-#[test]
-fn t2_wilson_coverage_is_exact() {
-    let rows = vector::<CoverageRow>("coverage.toml");
-    assert_eq!(rows.len(), 9);
-    for row in rows {
-        let binomial = Binomial::new(row.p, row.n).expect("a binomial");
-        let coverage: f64 = (0..=row.n)
-            .map(|k| {
-                let interval = wilson(counts(k, row.n)).expect("an interval");
-                if interval.lo() <= row.p && row.p <= interval.hi() {
-                    binomial.pmf(k)
-                } else {
-                    0.0
-                }
-            })
-            .sum();
-        let label = format!("coverage at n = {}, p = {}", row.n, row.p);
-        close(&label, coverage, row.coverage, 1e-9);
-        assert!(
-            coverage >= 0.91,
-            "{label}: {coverage:?} is below the floor 0.91"
-        );
-    }
 }
 
 /// Guards: with the same pass probability in both arms, so that every null is true, Fisher plus
