@@ -14,6 +14,7 @@ pub mod holm;
 pub mod midp;
 pub mod newcombe;
 pub mod permutation;
+pub mod record;
 pub mod refusal;
 pub mod report;
 pub mod spend;

@@ -83,11 +83,7 @@ fn analysed() -> (TempDir, Value) {
         "import: {}",
         String::from_utf8_lossy(&imported.stderr)
     );
-    let out = candler(
-        dir.path(),
-        &store,
-        &["analyze".as_ref(), "--format".as_ref(), "json".as_ref()],
-    );
+    let out = candler(dir.path(), &store, &["analyze".as_ref()]);
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -304,7 +300,7 @@ fn a4_status_totals_equal_the_oracle_counts() {
 /// pair blocked by model and each model pair blocked by version. Shape only, no p-value: the
 /// factors the comparisons are made on are exactly `plan.model` and `request.treatment`; the 4
 /// versions give 6 version comparisons, each in 3 blocks (the models); the 3 models give 3 model
-/// comparisons, each in 4 blocks (the versions); every stratum reads as comparable.
+/// comparisons, each in 4 blocks (the versions); every comparability class reads as comparable.
 /// The expectations a comparison does not test carry no block count and are left out.
 /// Oracle: the corpus layout, counted by hand: 3 models (`claude-sonnet-5`, `claude-haiku-4-5` and
 /// the third of `tests/oracle/rates_by_cell.toml`) times 4 versions of `htn-creator` is 12 cells;
@@ -331,8 +327,8 @@ fn declared_golden_factors() {
         assert_eq!(of.len(), comparisons_of, "comparisons on {factor}");
         for comparison in of {
             assert_eq!(
-                comparison["stratum"]["verdict"], "comparable",
-                "the stratum of a comparison on {factor}"
+                comparison["comparability_class"]["verdict"], "comparable",
+                "the comparability class of a comparison on {factor}"
             );
             let blocked: Vec<u64> = comparison["entries"]
                 .as_array()

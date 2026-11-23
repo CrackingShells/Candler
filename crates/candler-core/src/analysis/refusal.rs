@@ -37,26 +37,26 @@ pub enum ReportError {
         /// What is wrong with it.
         detail: String,
     },
-    /// The factors of an experiment file are not the ones the manifests of a stratum record.
+    /// The factors of an experiment file are not the ones the manifests of a comparability class record.
     #[error(
         "the experiment file declares {} and the manifests of experiment {experiment} record {}",
         .file.join(", "),
         .manifests.join(", ")
     )]
     ExperimentDisagrees {
-        /// The digest of the stratum.
+        /// The digest of the comparability class.
         experiment: String,
         /// The factors of the file.
         file: Vec<String>,
         /// The factors the manifests record.
         manifests: Vec<String>,
     },
-    /// A recorded factor is a strict prefix of a path where two cells of a stratum differ.
+    /// A recorded factor is a strict prefix of a path where two cells of a comparability class differ.
     #[error(
         "experiment {experiment} records the factor {factor}, which is broader than {path}, where its cells differ"
     )]
     FactorBroaderThanVariation {
-        /// The digest of the stratum.
+        /// The digest of the comparability class.
         experiment: String,
         /// The recorded factor.
         factor: String,
@@ -66,6 +66,12 @@ pub enum ReportError {
     /// The store holds no outcome to analyse.
     #[error("the store holds no outcome to analyse")]
     NoOutcomes,
+    /// The run or job named for a transcript has no stored normalised trace.
+    #[error("`{target}` has no stored trace: a transcript is read from a run's normalised trace")]
+    NoStoredTrace {
+        /// The target as the caller gave it.
+        target: String,
+    },
 }
 
 /// The place of a refusal in a parsed document: none of these sits in one.
@@ -102,19 +108,25 @@ refusal_table! {
     ExperimentDisagrees { .. } => row(
         "analysis.experiment_disagrees",
         Side::Experiment,
-        "The factors of the file given with `--experiment` differ from the factors the manifests of a stratum record, so the file is not the one that made these runs.",
+        "The factors of the file given with `--experiment` differ from the factors the manifests of a comparability class record, so the file is not the one that made these runs.",
         "-",
     ),
     FactorBroaderThanVariation { .. } => row(
         "analysis.factor_broader_than_variation",
         Side::Environment,
-        "A stratum's manifests record a factor that is a strict prefix of a path where its cells differ, so the record cannot be trusted to declare the variation.",
+        "A comparability class's manifests record a factor that is a strict prefix of a path where its cells differ, so the record cannot be trusted to declare the variation.",
         "-",
     ),
     NoOutcomes { .. } => row(
         "analysis.no_outcomes",
         Side::Environment,
         "The store holds no outcome record, so there is nothing to analyse; run `evaluate` first.",
+        "-",
+    ),
+    NoStoredTrace { .. } => row(
+        "analysis.no_stored_trace",
+        Side::Config,
+        "The run given to `inspect --transcript` has no stored normalised trace, or the target is a job, which holds none.",
         "-",
     ),
 }

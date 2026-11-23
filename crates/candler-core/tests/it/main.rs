@@ -67,6 +67,7 @@ mod guard_stats_exact;
 mod guard_stats_resampling;
 mod guard_store;
 mod guard_supervise;
+mod guard_transcript;
 mod guard_treatment_context;
 mod guard_treatment_source;
 mod guard_tree_walk;

@@ -10,7 +10,7 @@ use crate::support;
 use crate::support::wiring;
 
 use candler_core::isolation::gateway::census_of;
-use candler_core::manifest::compare::{ArmView, Verdict, stratum_verdict};
+use candler_core::manifest::compare::{ArmView, Verdict, class_verdict};
 use candler_schemas::execution::RunManifest;
 use candler_schemas::primitives::{FieldPath, RunKey};
 use serde_json::{Value, json};
@@ -292,7 +292,7 @@ fn census_gateway_verdict_never_takes_a_gateway_list_for_another_source() {
         ),
     ];
     for (case, one, two, want) in rows {
-        let verdict = stratum_verdict(&[arm(one), arm(two)], &[]);
+        let verdict = class_verdict(&[arm(one), arm(two)], &[]);
         assert_eq!(verdict, want, "{case}");
     }
 }
