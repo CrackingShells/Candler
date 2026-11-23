@@ -787,6 +787,16 @@ fn wrapped_cases() -> Vec<Wrapped> {
         ),
         case(
             "ResolveError",
+            "Env",
+            Box::new(ResolveError::Env(
+                candler_core::resolve::steps::env::EnvRefusal::Reserved {
+                    name: "PATH".to_owned(),
+                },
+            )),
+            "experiment.env_reserved",
+        ),
+        case(
+            "ResolveError",
             "Format",
             Box::new(ResolveError::Format(format())),
             "resolve.value_invalid",

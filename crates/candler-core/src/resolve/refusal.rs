@@ -11,6 +11,7 @@ use crate::refusal::wrapper_table;
 use crate::resolve::config::ConfigError;
 use crate::resolve::preflight::{PreflightError, ResolveError};
 use crate::resolve::steps::egress::EgressRefusal;
+use crate::resolve::steps::env::EnvRefusal;
 use crate::resolve::steps::ground_truth::GroundTruthRefusal;
 use crate::resolve::steps::plugin_environment::PluginEnvironmentRefusal;
 use crate::resolve::steps::session::SessionRefusal;
@@ -43,6 +44,7 @@ fn resolve_error_path(error: &ResolveError) -> Option<String> {
         ResolveError::Egress(inner) => Refusal::path(inner),
         ResolveError::PluginEnvironment(inner) => Refusal::path(inner),
         ResolveError::GroundTruth(inner) => Refusal::path(inner),
+        ResolveError::Env(inner) => Refusal::path(inner),
         ResolveError::NonUtf8Path { .. }
         | ResolveError::DuplicateStep { .. }
         | ResolveError::DerivedTwice { .. }
@@ -133,6 +135,48 @@ refusal_table! {
     ),
 }
 
+/// The pointer of the `env` entry an [`EnvRefusal`] names.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "a refusal table takes a function that returns an optional pointer"
+)]
+fn env_refusal_path(error: &EnvRefusal) -> Option<String> {
+    match error {
+        EnvRefusal::Source { path } => Some(pointer_of(path.split('.'))),
+        EnvRefusal::Reserved { .. } | EnvRefusal::Invalid { .. } | EnvRefusal::Secret { .. } => {
+            Some(pointer_of(["env", error.name()]))
+        }
+    }
+}
+
+refusal_table! {
+    EnvRefusal, path = env_refusal_path;
+    Reserved { .. } => row(
+        "experiment.env_reserved",
+        Side::Experiment,
+        "An entry of the `env` table names a variable Candler sets for the harness process itself.",
+        "The key of the entry in the `env` table.",
+    ),
+    Invalid { .. } => row(
+        "experiment.env_name_invalid",
+        Side::Experiment,
+        "An entry of the `env` table has a name that is not a variable name: it must match `[A-Za-z_][A-Za-z0-9_]*`.",
+        "The key of the entry in the `env` table.",
+    ),
+    Source { .. } => row(
+        "experiment.env_source",
+        Side::Experiment,
+        "A `[fixed]` key, a factor or a `--set` names the path `env`; the `[env]` table is its only source.",
+        "The path that was written.",
+    ),
+    Secret { .. } => row(
+        "experiment.env_secret",
+        Side::Experiment,
+        "An entry of the `env` table names a secret the experiment declares; a secret's value reaches the gateway only.",
+        "The key of the entry in the `env` table.",
+    ),
+}
+
 refusal_table! {
     PluginEnvironmentRefusal, path = no_path;
     Missing { .. } => row(
@@ -179,6 +223,7 @@ wrapper_table! {
     Egress (inner) => delegate(inner, Side::Experiment),
     PluginEnvironment (inner) => delegate(inner, Side::Experiment),
     GroundTruth (inner) => delegate(inner, Side::Experiment),
+    Env (inner) => delegate(inner, Side::Experiment),
     Preflight { .. } => row(
         "resolve.preflight_failed",
         Side::Environment,
@@ -190,13 +235,14 @@ wrapper_table! {
 /// The rows of every coded error of this module, in the order of the types.
 #[must_use]
 pub(crate) fn catalog() -> Vec<CatalogRow> {
-    let tables: [&'static [CatalogRow]; 7] = [
+    let tables: [&'static [CatalogRow]; 8] = [
         <ConfigError as Catalogued>::rows(),
         <PreflightError as Catalogued>::rows(),
         <SessionRefusal as Catalogued>::rows(),
         <EgressRefusal as Catalogued>::rows(),
         <PluginEnvironmentRefusal as Catalogued>::rows(),
         <GroundTruthRefusal as Catalogued>::rows(),
+        <EnvRefusal as Catalogued>::rows(),
         <ResolveError as Catalogued>::rows(),
     ];
     tables
@@ -223,6 +269,7 @@ fn resolve_answer(error: &ResolveError) -> &dyn Refusal {
         | ResolveError::Egress(..)
         | ResolveError::PluginEnvironment(..)
         | ResolveError::GroundTruth(..)
+        | ResolveError::Env(..)
         | ResolveError::Format(..) => error,
     }
 }

@@ -3,6 +3,7 @@
 
 pub mod catalog;
 pub mod egress;
+pub mod env;
 pub mod gateway;
 pub mod ground_truth;
 pub mod identity;

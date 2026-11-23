@@ -21,6 +21,9 @@ pub const TOOLS_ALLOWED: &str = "tools.allowed";
 /// A cell value: the disallowed tools.
 pub const TOOLS_DISALLOWED: &str = "tools.disallowed";
 
+/// The environment table of the harness process, a cell value: a table of variable name to text.
+pub const ENV: &str = "env";
+
 /// The root of the MCP server configuration, a cell value.
 pub const MCP: &str = "mcp";
 

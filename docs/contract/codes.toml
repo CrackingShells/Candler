@@ -1943,3 +1943,23 @@ side = "experiment"
 enum = "EgressRefusal"
 variant = "Unsupported"
 lifted = "`isolation.egress` is accepted and enforced by the egress proxy."
+
+[resolve."experiment.env_reserved"]
+side = "experiment"
+enum = "EnvRefusal"
+variant = "Reserved"
+
+[resolve."experiment.env_secret"]
+side = "experiment"
+enum = "EnvRefusal"
+variant = "Secret"
+
+[resolve."experiment.env_name_invalid"]
+side = "experiment"
+enum = "EnvRefusal"
+variant = "Invalid"
+
+[resolve."experiment.env_source"]
+side = "experiment"
+enum = "EnvRefusal"
+variant = "Source"

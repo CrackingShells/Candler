@@ -126,6 +126,8 @@ pub struct ResolveInput {
     pub file: Option<FileValues>,
     /// The core's defaults, by path; they replace the built-in `store.root` default.
     pub core_defaults: Vec<(FieldPath, JsonValue)>,
+    /// The names of the declared secrets, which the `env` table may not name.
+    pub secret_names: Vec<String>,
 }
 
 impl ResolveInput {
@@ -154,6 +156,13 @@ impl ResolveInput {
         // BORROW: `.as_path()` views the owned absolute path as a `&Path`
         self.explicit.push((path, path_json(absolute.as_path())?));
         Ok(self)
+    }
+
+    /// Sets the names of the declared secrets.
+    #[must_use]
+    pub fn secret_names(mut self, names: Vec<String>) -> Self {
+        self.secret_names = names;
+        self
     }
 
     /// Sets the values of an experiment file.
@@ -210,6 +219,22 @@ impl Layered {
     /// # Errors
     /// Returns [`ResolveError::NonUtf8Path`] if a configured path is not UTF-8.
     pub fn new(config: &Config, input: ResolveInput) -> Result<Self, ResolveError> {
+        let written = input
+            .file
+            .iter()
+            .flat_map(|file| file.values.iter().map(|(path, value)| (path, value)))
+            .chain(input.explicit.iter().map(|(path, value)| (path, value)));
+        if let Some((path, _)) = input
+            .explicit
+            .iter()
+            .find(|(path, _)| super::steps::env::EnvRefusal::is_env_path(path))
+        {
+            return Err(super::steps::env::EnvRefusal::Source {
+                path: path.to_string(),
+            }
+            .into());
+        }
+        super::steps::env::check(written, &input.secret_names)?;
         let store_root: FieldPath = STORE_ROOT.parse()?;
         let plugins_dirs: FieldPath = PLUGINS_DIRS.parse()?;
         let slots_count: FieldPath = SLOTS_COUNT.parse()?;

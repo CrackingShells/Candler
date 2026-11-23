@@ -997,3 +997,52 @@ fn agent_container_is_destroyed_when_its_client_cannot_start() {
         "the run's own destroy and the job-close sweep's both reached the client"
     );
 }
+
+/// Guards: the `env` table of a cell reaches the plan of the harness process with its name and
+/// value, once.
+/// Oracle: the name and value are written by hand.
+/// Bite: the table passed to the gateway instead of the plan's environment, or dropped.
+#[test]
+fn env_reaches_the_harness_process() {
+    use candler_core::isolation::container::DockerDirs;
+    use candler_schemas::primitives::FieldPath;
+    use candler_schemas::values::{JsonValue, ResolvedValue};
+
+    let current = job(1);
+    let (_keep, dir) = job_dir(&current);
+    let work = tempfile::tempdir().expect("a temp dir");
+    let root = work.path().join("run").join("workspace");
+    fs::create_dir_all(&root).expect("a workspace");
+    let read: Arc<dyn DockerDriver> = Arc::new(RecordingDocker::new());
+    let isolation = isolation_with(read, Arc::new(RecordingDestroyer::new()), &dir, &current)
+        .with_dirs(DockerDirs {
+            children: dir.children_dir(),
+            project_root: work.path().to_path_buf(),
+            store_root: work.path().to_path_buf(),
+        });
+    let value = |path: &str, json: Value| {
+        ResolvedValue::recorded(
+            path.parse::<FieldPath>().expect("a field path"),
+            JsonValue::new(json).expect("a JSON value"),
+        )
+    };
+    let values = vec![
+        value("isolation.image", json!("img:1")),
+        value("budget.per_run.wall_s", json!(60)),
+        value("env", json!({"TOOL_MODE": "fast"})),
+    ];
+    let plan = isolation
+        .plan(&Cell::new(&values), &Workspace::new(&root))
+        .expect("a plan");
+    let named: Vec<&(String, String)> = plan
+        .env
+        .iter()
+        .filter(|(name, _)| name == "TOOL_MODE")
+        .collect();
+    assert_eq!(
+        named,
+        vec![&(String::from("TOOL_MODE"), String::from("fast"))],
+        "{:?}",
+        plan.env
+    );
+}

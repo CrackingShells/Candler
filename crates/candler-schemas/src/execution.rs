@@ -1143,9 +1143,14 @@ struct RawExperimentFile {
     /// `request.treatment` gives each level its own.
     #[serde(default)]
     treatment: Option<TreatmentSpec>,
-    /// The names of the environment variables the runs need; their values are never written.
+    /// The names of the secrets the model gateway needs; their values reach the gateway only and
+    /// are never written.
     #[serde(default)]
     secrets: Vec<SecretName>,
+    /// The environment of the harness process, by variable name. The values are cell values: they
+    /// are recorded with the cell and enter its digest, and they reach the harness process only.
+    #[serde(default)]
+    env: BTreeMap<String, String>,
     /// The files and directories the runs read, with who sees each.
     #[serde(default)]
     #[schemars(extend(
@@ -1168,6 +1173,7 @@ impl TryFrom<MapOnly<RawExperimentFile>> for ExperimentFile {
             harness,
             treatment,
             secrets,
+            env,
             inputs,
         } = raw.0;
         let inputs = inputs
@@ -1190,6 +1196,7 @@ impl TryFrom<MapOnly<RawExperimentFile>> for ExperimentFile {
         Self::build(
             fixed, factors, replicates, budget, harness, treatment, secrets,
         )?
+        .with_env(env)
         .with_inputs(inputs)
     }
 }
@@ -1208,6 +1215,8 @@ pub struct ExperimentFile {
     #[serde(skip_serializing_if = "Option::is_none")]
     treatment: Option<TreatmentSpec>,
     secrets: Vec<SecretName>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    env: BTreeMap<String, String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     inputs: Vec<ExperimentInput>,
     #[serde(skip)]
@@ -1311,9 +1320,23 @@ impl ExperimentFile {
             harness,
             treatment,
             secrets,
+            env: BTreeMap::new(),
             inputs: Vec::new(),
             plan,
         })
+    }
+
+    /// Sets the environment of the harness process, by variable name.
+    #[must_use]
+    pub fn with_env(mut self, env: BTreeMap<String, String>) -> Self {
+        self.env = env;
+        self
+    }
+
+    /// The environment of the harness process, by variable name.
+    #[must_use]
+    pub const fn env(&self) -> &BTreeMap<String, String> {
+        &self.env
     }
 
     /// Declares the inputs of the runs.
