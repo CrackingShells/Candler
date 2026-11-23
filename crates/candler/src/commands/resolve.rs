@@ -242,7 +242,14 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
         .map_or_else(|| cwd.clone(), Path::to_path_buf); // BORROW: the directory is owned
     let root = common::store_root("resolve", store).await?;
     let config = Arc::new(Config::load(&cwd, &ConfigEnv::from_process()).map_err(failed_here)?);
-    let input = request_settings(&file, experiment_dir.as_path(), &fields, &cwd)?;
+    let mut input = request_settings(&file, experiment_dir.as_path(), &fields, &cwd)?;
+    if let Some(explicit) = store {
+        let path: candler_schemas::primitives::FieldPath =
+            "store.root".parse().map_err(failed_here)?;
+        input = input
+            .explicit_path(&config, path, explicit)
+            .map_err(failed_here)?;
+    }
     let driver = Registry::builtin().driver(&requested_harness(&input)?)?;
     // `resolve` declares no input, so there is no ground truth to check
     let services = foreground(

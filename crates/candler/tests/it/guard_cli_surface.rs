@@ -1660,9 +1660,9 @@ fn refusals_print_json_by_default() {
     }
 }
 
-/// Guards: N8 — with `CANDLER_STORE` set, `resolve` names that variable as the source of the
-/// store root it prints.
-/// Oracle: the variable the call set.
+/// Guards: N8 — with `CANDLER_STORE` set, the store root `resolve` prints is the one the call
+/// named, with an explicit source and not the default's.
+/// Oracle: the path the call set in the variable.
 /// Bite: a store root printed with the default's source.
 #[test]
 fn resolve_names_the_store_source() {
@@ -1687,7 +1687,9 @@ fn resolve_names_the_store_source() {
     let store_lines: Vec<&str> = text.lines().filter(|line| line.contains("store.root")).collect();
     assert!(!store_lines.is_empty(), "the store root is printed: {text}");
     assert!(
-        store_lines.iter().any(|line| line.contains("CANDLER_STORE")),
-        "the source names the variable: {store_lines:?}"
+        store_lines
+            .iter()
+            .all(|line| line.contains("named-store") && !line.contains("core_default")),
+        "the root and its source are the explicit ones: {store_lines:?}"
     );
 }
