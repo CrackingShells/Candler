@@ -37,7 +37,7 @@ Step 2's answer: the DIGEST vectors (`guard_cell_digest`, the core guards, the o
 The `Guards:` lines are in the doc comments. All four are kept.
 
 ## Verifier
-Agent a5e62db2d6eaec961 (Sonnet), first pass, 6 findings:
+Agent a5e62db2d6eaec961 (Sonnet), first pass 6 findings; the re-check at f65e5596 confirmed every disposition, left finding 1 open as a defect for the coordinator, and asked for the two report edits made after it:
 1. A factor over `env` (or a `[fixed]` key `env` next to `[env]`) reaches the cell without the refusal: factor levels are applied in `runner/plan.rs` `fresh_cells`, after `Layered::new`. Not fixed: it needs `runner/plan.rs` (not owned). Sent to the coordinator as a defect.
 2. `ResolveInput::secret_names` defaults to empty, so a caller that does not set it skips `experiment.env_secret`. Not fixed; the only caller in the tree (`request_settings`) sets it. Follow-up.
 3. A non-string value from `--set env=...` is refused late as a plan error without a code. Follow-up.
@@ -48,6 +48,6 @@ Agent a5e62db2d6eaec961 (Sonnet), first pass, 6 findings:
 ## Follow-ups
 - A driver or gateway name equal to an `env` entry is not refused at `resolve` (it holds no driver), but it is refused at run, not overwritten: `agent_argv` returns `DuplicateName` when a gateway variable is already in `plan.env` (`isolation/container/run.rs:237-283`), and `apply_harness_env` refuses a state variable already set (`runner/exec/mod.rs:321-359`).
 - Guards were written after the code, not first.
-- Defects for the coordinator: factor over `env` bypasses the refusal (verifier 1); `isolation/image.rs` `probe_env` literal `HOME`.
-- The gateway side has no environment of its own in the plan, so "the gateway does not get it" is covered by the plan holding no gateway variable and the table being only in `plan.env`.
+- Defects for the coordinator: a factor over `env` bypasses the refusal, and a `[fixed]` key `env` is silently overwritten by `[env]` in `request_settings` (verifier 1); `isolation/image.rs` `probe_env` literal `HOME`.
+- That the gateway does not get the table is unguarded: the plan has no gateway environment to assert on, and bite 4 covers only the push into `plan.env`.
 - `a name already declared in secrets` is checked against `file.secrets()` only, not against `model.token_secret`.
