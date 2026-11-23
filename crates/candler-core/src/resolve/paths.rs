@@ -3,7 +3,7 @@
 //! configuration readers and the contract pages all read.
 
 use candler_schemas::execution::paths::{
-    BUDGET_PER_RUN_MAX_COST_USD, BUDGET_PER_RUN_TURNS, BUDGET_PER_RUN_WALL_S, ENVIRONMENTS,
+    BUDGET_PER_RUN_MAX_COST_USD, BUDGET_PER_RUN_TURNS, BUDGET_PER_RUN_WALL_S, ENV, ENVIRONMENTS,
     HARNESS, INPUTS, ISOLATION_BUILD_CONTEXT, ISOLATION_BUILD_DOCKERFILE, ISOLATION_BUILD_LOCK,
     ISOLATION_BUILD_PLUGIN, ISOLATION_BUILD_PRUNE, ISOLATION_BUILD_REQUIREMENTS, ISOLATION_EGRESS,
     ISOLATION_ENV_LOCK, ISOLATION_IMAGE, ISOLATION_LIMITS, ISOLATION_LIMITS_CPUS,
@@ -118,7 +118,7 @@ const fn key(path: &'static str, kind: Kind, file: ConfigFile, meaning: &'static
 }
 
 /// Every path the configuration surface names.
-pub const CONFIGURATION_PATHS: [PathRow; 48] = [
+pub const CONFIGURATION_PATHS: [PathRow; 49] = [
     row(
         MODEL_ID,
         Kind::Leaf,
@@ -154,6 +154,12 @@ pub const CONFIGURATION_PATHS: [PathRow; 48] = [
         Kind::Leaf,
         Class::Value,
         "The tools the harness may not use.",
+    ),
+    row(
+        ENV,
+        Kind::Leaf,
+        Class::Value,
+        "The environment of the harness process: a table of variable name to text.",
     ),
     row(
         MCP,

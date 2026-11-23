@@ -303,6 +303,9 @@ pub fn request_settings(
         .iter()
         .map(|(path, value)| (path.clone(), value.clone())) // BORROW: the input owns its paths and values
         .collect();
+    if !file.env().is_empty() {
+        values.insert(path_of(paths::ENV)?, json_of(file.env())?);
+    }
     values.insert(path_of(paths::REQUEST_HARNESS)?, json_of(file.harness())?);
     if let Some(treatment) = file.treatment() {
         values.insert(path_of(paths::REQUEST_TREATMENT)?, json_of(treatment)?);
@@ -313,7 +316,9 @@ pub fn request_settings(
     let file_values = FileValues::new(values.into_iter().collect())
         .relative_to(experiment_dir)
         .map_err(CliError::refused_by)?;
-    let mut input = ResolveInput::default().file(file_values);
+    let mut input = ResolveInput::default()
+        .file(file_values)
+        .secret_names(file.secrets().iter().map(ToString::to_string).collect());
     check_file_paths(file)?;
     check_set_paths(fields)?;
     for (path, text) in fields {

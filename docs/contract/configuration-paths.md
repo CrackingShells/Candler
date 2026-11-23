@@ -23,6 +23,7 @@ Core line: `v0.13.0`.
 | `model.token_secret` | the path | setting | The name of the secret that holds the gateway's token. |
 | `tools.allowed` | the path | experiment value | The tools the harness may use. |
 | `tools.disallowed` | the path | experiment value | The tools the harness may not use. |
+| `env` | the path | experiment value | The environment of the harness process: a table of variable name to text. |
 | `mcp` | the path and every path below it | experiment value | The MCP servers of a run; the names below are free. |
 | `permission_mode` | the path | experiment value | The permission mode the harness runs in. |
 | `request.harness` | the path | request key | The harness the run uses. |
