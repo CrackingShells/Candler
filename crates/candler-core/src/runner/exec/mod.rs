@@ -924,15 +924,21 @@ async fn drive(
     }
     // The seal syncs every file and directory it writes, so it runs off the async workers.
     let tree = evidence.tree;
-    tokio::task::spawn_blocking(move || seal_run(writer, &last, &tree, &raw_files, &trace))
-        .await
-        .map_err(|error| StoreError::Io {
-            op: "seal a run",
-            path: rt.store.layout().run_dir(&plan.key),
-            source: io::Error::other(error),
-        })??;
+    let outputs_root = workspace_dir.clone(); // BORROW: the seal task owns its copy of the root
+    tokio::task::spawn_blocking(move || {
+        seal_run(writer, &outputs_root, &last, &tree, &raw_files, &trace)
+    })
+    .await
+    .map_err(|error| StoreError::Io {
+        op: "seal a run",
+        path: rt.store.layout().run_dir(&plan.key),
+        source: io::Error::other(error),
+    })??;
     // EXPLICIT: the scratch directory holds only what the seal moved or no longer needs
     let _ = fs::remove_dir_all(&scratch);
+    // EXPLICIT: the seal stored each output as a blob and nothing reads the workspace of a
+    // sealed run, so a directory left by a failed removal holds only copies
+    let _ = fs::remove_dir_all(&workspace_dir);
 
     rt.sink.emit(
         Some(&plan.key),

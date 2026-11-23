@@ -1104,8 +1104,8 @@ erDiagram
 
 | Path | Holds |
 |---|---|
-| `runs/<run key>/` | `manifest.json`, `run.done`, `raw/` (`raw-frames/1`), `trace.jsonl` (`normalised-trace/1`), `tree.json` (`run-tree/1`: `{schema, entries[]}`, each file entry `{path, sha256, executable}` and each empty directory its own entry, sorted by path), and under container isolation the kept `workspace/` and the per-run `home/` |
-| `blobs/<sha256>` | Artifact contents, once |
+| `runs/<run key>/` | `manifest.json`, `run.done`, `raw/` (`raw-frames/1`), `trace.jsonl` (`normalised-trace/1`), `tree.json` (`run-tree/1`: `{schema, entries[]}`, each file entry `{path, sha256, executable}` and each empty directory its own entry, sorted by path), and under container isolation the per-run `home/`; the run's `workspace/` is removed once the run is sealed, since its outputs are blobs and nothing reads it |
+| `blobs/<sha256>` | Artifact contents, once: the bytes of every file entry of each run's `tree.json`, native and session runs alike, stored by the seal before the manifest |
 | `outcomes/<run key>/<evaluator@version>/<request id>.jsonl` | One request's outcomes; written as `.partial`, renamed when the result arrives; one writer, no locks |
 | `jobs/<job id>/` | `job.json`, `events.jsonl`, `children/`, `lock` |
 | `experiments/<digest>/lock` | One supervisor per experiment |

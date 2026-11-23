@@ -163,6 +163,18 @@ impl RunWriter {
         self.sync_run_dir()
     }
 
+    /// Stores the bytes of the output file at `path` as the blob of `sha256`, the digest its
+    /// tree entry names.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::DigestMismatch`] when the file's bytes are not those of `sha256`,
+    /// and [`StoreError::Io`] when a read or a write fails.
+    pub fn output(&self, path: &Path, sha256: &Digest) -> Result<(), StoreError> {
+        self.store
+            .put_blob_from_path(path, Some(sha256))
+            .map(|_| ())
+    }
+
     /// Moves the finished `raw-frames/1` file at `gz` into `raw/<stream>.jsonl.gz` after checking
     /// its digest. The store frames nothing itself.
     ///
