@@ -48,7 +48,7 @@ Agent a5e62db2d6eaec961 (Sonnet), first pass 6 findings; the re-check at f65e559
 5. The report contradicted itself: fixed.
 6. Hand copies: the prose of `experiment.env_reserved` no longer lists the names (pages regenerated); `probe_env` in `isolation/image.rs` still writes `HOME` as a literal (not owned): follow-up.
 
-Re-check of the rebase onto 40aaef40 and of the `experiment.env_source` fix: see the answer recorded below.
+Re-check of the rebase onto 40aaef40 and of the `experiment.env_source` fix: answer of the same verifier: all three channels and the dotted `env.x` covered, `codes.toml` grows only after analysis_record's rows, no generated file hand-merged, finding 1 closed, no new finding; one nit (assert the `Source` refusal and add a dotted case), taken.
 
 ## Follow-ups
 - A driver or gateway name equal to an `env` entry is not refused at `resolve` (it holds no driver), but it is refused at run, not overwritten: `agent_argv` returns `DuplicateName` when a gateway variable is already in `plan.env` (`isolation/container/run.rs:237-283`), and `apply_harness_env` refuses a state variable already set (`runner/exec/mod.rs:321-359`).
