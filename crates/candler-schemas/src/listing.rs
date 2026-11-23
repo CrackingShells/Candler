@@ -297,21 +297,3 @@ pub struct IngestSkipped {
     /// Why it was left out.
     pub reason: String,
 }
-
-/// What a plan holds: the cells, the runs still to start and the runs already sealed, with the
-/// caps that bound them.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct PlanCounts {
-    /// The cells of the experiment.
-    pub cells: u64,
-    /// The runs the plan starts.
-    pub new_runs: u64,
-    /// The runs the store already holds sealed.
-    pub reused_runs: u64,
-    /// The new runs times the per-run wall cap in seconds, when the product fits.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub wall_s_bound: Option<u64>,
-    /// The job caps the experiment file sets, by path.
-    pub job_caps: BTreeMap<String, Value>,
-}
