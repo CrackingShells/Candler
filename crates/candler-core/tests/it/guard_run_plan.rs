@@ -1202,3 +1202,34 @@ fn set_replicates_is_honoured() {
         "the source of `replicates`: {sources}"
     );
 }
+
+/// Guards: I11 — the summary of a plan bounds the wall clock by the new runs times the per-run
+/// cap, and names the job caps, as the experiment file wrote them.
+/// Oracle: two cells times two replicates is four runs of 600 s, and the caps are the file's own
+/// numbers written below.
+/// Bite: read the caps from the resolution, which holds neither (seen red that way).
+#[test]
+fn the_summary_of_a_plan_holds_the_caps_of_the_file() {
+    let text = "schema = \"experiment/1\"\nreplicates = 2\n\n[[factors]]\npath = \"model.id\"\nlevels = [\"m1\", \"m2\"]\n\n[budget]\nmax_runs = 7\nmax_parallel = 2\n\n[budget.per_run]\nwall_s = 600\n\n[harness]\nname = \"claude-code\"\n\n[treatment]\nname = \"htn\"\n";
+    let file = candler_schemas::execution::ExperimentFile::from_toml_str(text).expect("a file");
+    let facts = Facts::base();
+    let (_dir, store, lock) = fresh_store();
+    let ctx = plan_ctx(&store, &lock, &facts);
+    let resolved = resolution(&facts);
+    let out = plan_runs(&ctx, &file, &resolved, Force::No, PlanMode::Check)
+        .map_err(|e| e.to_string())
+        .expect("a plan");
+    let summary = out.summary(file.budget());
+    assert_eq!(
+        (summary.cells, summary.new_runs, summary.reused_runs),
+        (2, 4, 0)
+    );
+    assert_eq!(summary.wall_s_bound, Some(2400));
+    assert_eq!(
+        summary.job_caps,
+        vec![
+            ("budget.max_runs".to_owned(), json!(7)),
+            ("budget.max_parallel".to_owned(), json!(2)),
+        ]
+    );
+}

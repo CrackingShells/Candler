@@ -14,7 +14,7 @@ use candler_harness::driver::{DriverError, HarnessDriver};
 use candler_harness::spec::Cell;
 
 use candler_schemas::distinct::first_clash;
-use candler_schemas::execution::check_replicates;
+use candler_schemas::execution::{Budget, check_replicates};
 use candler_schemas::execution::{
     Comparable, Deviation, ExecutionError, ExperimentFile, Factor, Integrity, Level, RunManifest,
     SecretPresence, TreatmentRef, experiment_digest,
@@ -1079,37 +1079,35 @@ pub struct PlanSummary {
     pub new_runs: usize,
     /// The runs the store already holds sealed.
     pub reused_runs: usize,
-    /// The new runs times the per-run wall cap in seconds, when the resolution holds one.
+    /// The new runs times the per-run wall cap in seconds, when the product fits.
     pub wall_s_bound: Option<u64>,
-    /// The job caps the resolution holds, by path.
+    /// The job caps the experiment file sets, by path; `budget.max_parallel` is always there.
     pub job_caps: Vec<(String, Value)>,
 }
 
 impl PlanOutcome {
     /// The counts of this plan and the caps that bound them, read from what planning decided and
-    /// from `resolution`: the per-run wall cap is a value of it and the job caps are its
-    /// `budget` settings.
+    /// from `budget`, the experiment file's caps: the new runs times the per-run wall cap, and the
+    /// job caps the file sets.
     #[must_use]
-    pub fn summary(&self, resolution: &Resolution) -> PlanSummary {
+    pub fn summary(&self, budget: &Budget) -> PlanSummary {
         let new_runs = self.plans.len();
-        let wall_s_bound = resolution
-            .values
-            .iter()
-            .find(|value| value.path().as_str() == "budget.per_run.wall_s") // BORROW: explicit .as_str()
-            .and_then(|value| value.value())
-            .and_then(|value| value.as_value().as_u64())
-            .and_then(|wall_s| wall_s.checked_mul(u64::try_from(new_runs).ok()?));
-        let job_caps = resolution
-            .settings
-            .iter()
-            .filter(|setting| setting.path().as_str().starts_with("budget.")) // BORROW: explicit .as_str()
-            .filter_map(|setting| {
-                setting.value().map(|value| {
-                    // BORROW: the summary owns its path and value
-                    (setting.path().to_string(), value.as_value().clone())
-                })
-            })
-            .collect();
+        let wall_s_bound = u64::try_from(new_runs)
+            .ok()
+            .and_then(|runs| u64::from(budget.per_run.wall_s).checked_mul(runs));
+        let job_caps = [
+            ("budget.max_runs", budget.max_runs.map(Value::from)),
+            ("budget.max_tokens", budget.max_tokens.map(Value::from)),
+            ("budget.max_cost_usd", budget.max_cost_usd.map(Value::from)),
+            ("budget.wall_s", budget.wall_s.map(Value::from)),
+            (
+                "budget.max_parallel",
+                Some(Value::from(budget.max_parallel)),
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(path, cap)| cap.map(|value| (path.to_owned(), value))) // BORROW: the summary owns its paths
+        .collect();
         PlanSummary {
             cells: self.fresh.len(),
             new_runs,
