@@ -114,6 +114,29 @@ graph TD
 | Evaluators (plug-in) | Domain science over trace + artifacts + snapshots + inputs + metadata | Layout, statistics, which runs an expectation applies to |
 | Analysis | The selection rule, rates, tests, intervals, multiplicity; JSON or CSV tables | Re-deciding any outcome; drawing figures |
 
+### Documents and surfaces
+
+**Four audiences, one source per fact.** Candler's text is written for four audiences. Each fact has one source, and every other place that shows it is generated from that source or does not show it.
+
+| Audience | Serves | Files | May hold | May not hold | Source of truth |
+|:--|:--|:--|:--|:--|:--|
+| Store window | a person or agent deciding whether Candler fits | `README.md` | what Candler is and is not, its main features, a quick start, the way to more | crate or verb inventories, version numbers, plans, anything a code fact owns | hand-written, short, with no copy of a code fact |
+| Web-wide | a visitor who reads, with internet, what Candler specifies | `docs/` (contract pages, statistics, config pages), `crates/candler-schemas/schema/` | reference: fields, rules, refusals, versions, method and caveats | design rationale, roadmap, contributor rules | tables and samples generated from schemas, manifests, `codes.toml`, the path table and fixtures that tests parse, under a drift test; hand text only where generation cannot speak (Surface, Notes, method prose) |
+| Interactive | an agent or person using Candler in an isolated environment, offline | the CLI (`--help`, refusals, JSON), the MCP server, the skills, the package docstrings | everything the caller needs to act: values, domains, exit codes, the same facts the web pages show | a link to `docs/`, a URL, a pointer that needs a network; a hand copy of a fact | the binary and the package: the same schemas, registry and tables the pages are generated from |
+| Development | an agent or person who changes Candler | `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `__design__/`, `__reports__/`, `__roadmap__/` | rules, rationale, plans, history | a consumer entry point; a claim a consumer relies on and no guard checks | hand-written; a rule a test can hold is held by a guard |
+
+**The offline rule.** The interactive surfaces (CLI, MCP, skills) are self-contained and work with no network: they never link to `docs/` and never need it. What a page of `docs/` says that an interactive caller needs must reach that caller from the same source, through the binary or the package. The rule requires of the MCP server only that its content is served from what it ships; the shape of its tools and resources is decided when the server is planned. The generator of the config pages is test code, so offline delivery of the path vocabulary and the config keys is not built yet.
+
+**Consequences.**
+1. A hand copy of a code fact, in any audience, is a second source: remove it or generate it.
+2. A page never says in prose what a guard or a refusal already says.
+3. Web pages may link each other and the repository; interactive text may not link them.
+4. A fact two items would both own gets one owner in the owning crate; pages are slices of it.
+
+One named exception to (1): an example a test imports may repeat a signature (the helper's author page).
+
+**The box border.** The experiment file declares what the box must hold: its servers, the treatment's skill, its read-only mounts. Candler builds the box from those declarations and the author's build context. Software the agent uses at run time, MCP servers included, belongs in the image build; read-only mounts are for the files the agent works on (data, or code it analyses, even when that code is an MCP server). Candler is responsible that each declared stdio server starts in the box it built: once per job, before the first run, in a container set up as a run's, each server's start command must start and stay up, or the job is refused. Whether a server answers MCP correctly once started is recorded by the harness's census at each run; what the author's build context adds beyond the declarations is the author's.
+
 ### Workspace
 
 crates.io has one flat namespace without organisation scopes, so crates carry the project prefix
@@ -323,9 +346,9 @@ field path is dotted: `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`.
 | `candler kill <id> \| --all` | Stops jobs; asks for confirmation unless `--yes` / `-y` |
 | `candler watch <id> [--live]` | Follows a job's events: it prints event records by default; `--live` or `--format text` draws progress |
 | `candler ingest <path>...` | Turns raw harness trace directories (one run per stream; the registry's drivers recognise the stream and supply the reader) into runs; with `--rules <file>`, imports a legacy results folder under the import rules the TOML file states. It runs to completion in the caller, repeats to the same store and is safe to interrupt; `candler import` stays as a hidden alias for a results folder |
-| `candler resolve <experiment \| suite>` | Prints every resolved value with its source and runs the preflight; starts no job |
+| `candler resolve <experiment>` | Prints every resolved value with its source and runs the preflight; starts no job |
 | `candler inspect <run dir \| key prefix \| job id>` | Shows the run, or the job's runs, with outcomes, evidence, provenance and integrity, deriving the store from a run directory |
-| `candler analyze [--evaluator <name@version \| version>] [--experiment <file>] [--format json\|csv]` | Reports rates, Wilson intervals and pairwise tests (§Analysis statistics). It finds the experiment file by the digest the runs' manifests name, under `<project root>/experiments/`; `--experiment` names it when it lives elsewhere |
+| `candler analyze [--evaluator <name@version \| version>] [--experiment <file>] [--format json\|csv]` | Reports rates, Wilson intervals and pairwise tests (§Analysis statistics). It reads the experiment file `--experiment` names |
 | `candler evaluate <suite> [<job-id> \| --runs <glob>]` | Starts the evaluate job, prints its id on stderr, follows it and prints the report; Ctrl-C cancels it. With no selection it grades the runs with no complete outcome set for the suite's evaluator versions |
 | `--format text` | On every verb: the text rendering of the output, and of a refusal on stderr (below); without it a data verb prints its JSON record and a refusal prints one `refusal/1` record |
 | `candler show`, `diff` | The other operations |
@@ -1754,8 +1777,8 @@ by the original artifact commit `36290ab`, and is imported under `measured`. At 
 What is not built, and what would make us build it. An item is built when its trigger is met by
 evidence, not by a date, and no milestone builds one on spec: a milestone needs an item's trigger
 first. Candler stays at `0.y.z` through a long dogfooding period, so no item here waits on a freeze.
-Decided and scheduled work is not listed: M6a builds the paired tests and settles the pairing keys, the
-execution order and the blocking factor (recorded in §Analysis statistics); M7 builds the MCP tool
+Decided and scheduled work is not listed: M6a settles the execution order and the blocking factor
+(recorded in §Analysis statistics); M7 builds the MCP tool
 shapes and the agent skills; M8 builds the second plug-in and adds its gaps to this list. The
 container backend is decided (M2b): Docker through its CLI, one `docker run` per run; `Isolation`
 turns a plan into a spawn request, then collects and destroys.
@@ -1797,16 +1820,25 @@ turns a plan into a spawn request, then collects and destroys.
 | Event kinds beyond the first set | New kinds in the event log | A harness fact the first set cannot carry | A driver or surface that needs one |
 | Slot count and store root defaults | Better defaults for both | The first values were chosen before real use | Dogfooding shows a default that users override |
 | `snapshots[]` and `inputs[]` | Needs the registry refuses today (unimplemented) | An eval that declares them | The first eval that declares one |
-| Two counts and a regrade gap | `show` without `--rates` and `inspect` count every current record, and `--pending` does not regrade a run after its suite entry's params change | One count per fact | A user-visible mismatch in a report |
+| Two counts, a regrade gap and double grading | `show` without `--rates` and `inspect` count every current record; `--pending` does not regrade a run after its suite entry's params change; two concurrent evaluations can grade one run twice | One count per fact, and a regrade that follows params | A user-visible mismatch in a report, or a double-graded run seen in a store |
 | One sealing step for importers (B4) | An importer whose trace reader fails seals the run invalid, as raw ingest does | One integrity rule for every import | Eliott's ruling; no external user depends on today's behaviour |
 | One `Comparable` diff (B10) | One diff for the stratum verdict | Fewer copies | A change to the shape of recorded deviations |
 | fsync budget and streaming import (B6, B8) | A bounded fsync cost and an import that streams | Crash guards cost time, and a large import peaks in memory | A measured cost or memory peak that hurts |
-| Static tool catalog, `as_bytes`, schemas for CLI outputs, refusal codes, shared outcome vectors (C5, C9, C10–C12) | Small consistency work | Fewer drifting copies | The next change that touches one of them |
+| Static tool catalog, `as_bytes`, refusal codes, shared outcome vectors (C5, C9, C10–C12) | Small consistency work | Fewer drifting copies | The next change that touches one of them |
 | `lock_split` | `lock_split` reads the plug-in's requirements from the fragment and the experiment's from the resolved value | The two sources can disagree | A plug-in whose fragment and resolved requirements differ |
 | Paired designs | McNemar for designs that pair runs | Runs are unpaired today (§Analysis statistics) | A design that pairs replicates |
 | Declared margin | A margin declared in the experiment, read with TOST | "No difference" is never stated today | An experimenter who needs equivalence |
 | Remaining digest copies | Jobs and isolation still hand-roll digests (`controls.rs`, `runtime/session.rs`, `runtime/launch.rs`, `image.rs`); with `Digest::of_bytes` in use, `import::digest_of` and its re-export go too | One digest constructor | The next change to one of them |
 | Dead public API | `supervise::platform::parse_proc_stat` has no user outside its module | Less surface | The next change to the module |
+| Declared-versus-census check | The run compares the cell's declared MCP servers and tools with the census the harness reports at start, and flags a run whose box lacks one | A box can differ from its files and only a census read shows it | A run on the tip, or a model-free test, whose census differs from the cell's declared servers or tools after `1e6dc91a` (an earlier defect predates that fix and is not counted). A start-command check before each job's first run is built; this row is the run-time comparison, which also catches a server that starts but does not answer MCP |
+| Bind-mount probe on the store root | A resolve step that mounts the store root into a throwaway container and refuses with the Docker error named | A store on a path the Docker host cannot share fails every run late | A second bind-mount failure of a run or control. Naming the Docker cause in `jobs.session_controls_failed` waits with it |
+| Docker lock and `candler gc` | A lock the call holds around image builds, and a verb that lists, with a dry run, then removes a store's own images, containers and networks | Concurrent builds of one tag, and env images that pile up per store | Two concurrent resolves or runs that fail or build twice on one tag. (Deciding the `isolation.image` content identity row unblocks `gc` but is a decision, not evidence.) |
+| Reported model and errata | Record the model the endpoint reports as a `provenance.*` value, only as the stream or gateway gives it; an errata file of commit ranges known to give invalid runs, with a `check` | A run's validity depends on a Candler commit and the alias hides which model answered | (a) a captured live stream or gateway log of a real run that carries a model field; (b) a second defect after `1e6dc91a` that invalidates stored runs and that the recorded commit does not already let `compare` refuse |
+| Check a plug-in and a suite without a job | Expose `check_suite` and `describe` as one operation | Fewer wasted job starts for plug-in authors | A plug-in author (or the HTN lane) loses a job start to a fault `check_suite` would have reported, shown in a report |
+| Glossary page | One page of the terms the contract pages use, each entry quoting its owner's doc comment | A consumer reads cell, arm, stratum or block in the wrong sense, or the MCP server needs an undefined term | A recorded misreading by a consumer agent, or the MCP planning names the term. "Stratum" means a block; the comparability sense is "comparability class" |
+| Token sums in reports | `analyze` and `inspect <job>` sum tokens beside cost | `run.usage` is the harness's own shape, so sums differ by harness | A second harness whose usage shape the first sum cannot read, or a report that needs tokens |
+| Treatment layer in a plug-in's build context | Accept `treatment:` in a plug-in fragment's `isolation.build.context`, so a plug-in ships one "install the skill's own package" layer | Each experiment declares the dockerfile and `treatment:` context pair itself today | A second plug-in needs the same layer, or two experiments of one plug-in diverge in that pair; first read why `plugin_environment.rs:310-322` takes the value as a path |
+| Merge of the dependency-code twins | Retire `suite.dependency_*` or `evaluation.dependency_*` into one | One fault at two stages | An MCP client matches on one and not the other |
 
 ### Tests, CI and the harness trait
 
