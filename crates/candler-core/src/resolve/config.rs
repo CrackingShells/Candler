@@ -10,17 +10,10 @@ use std::path::{Path, PathBuf};
 
 use toml::{Table, Value};
 
+use super::paths::{ConfigFile, config_keys};
+
 /// The file name of a project configuration.
 const PROJECT_FILE: &str = "candler.toml";
-
-/// The tables of a project configuration and the keys each defines.
-const PROJECT_TABLES: [(&str, &[&str]); 2] = [("store", &["root"]), ("plugins", &["dirs"])];
-
-/// The tables of a user configuration and the keys each defines.
-const USER_TABLES: [(&str, &[&str]); 2] = [
-    ("slots", &["count", "evaluators"]),
-    ("gateway", &["upstream_ca"]),
-];
 
 /// Why a configuration could not be loaded.
 #[derive(Debug, thiserror::Error)]
@@ -196,7 +189,7 @@ impl ProjectConfig {
             return Err(ConfigError::MachineWideKey { file, key });
         }
         // BORROW: `.as_path()` and `.as_slice()` view the owned file and the table list as borrows
-        check_keys(file.as_path(), &table, PROJECT_TABLES.as_slice())?;
+        check_keys(file.as_path(), &table, ConfigFile::Project)?;
         let store_root = match table.get("store").and_then(Value::as_table) {
             Some(store) => store
                 .get("root")
@@ -257,7 +250,7 @@ impl UserConfig {
         // BORROW: `.as_path()` and `.as_slice()` view the owned file and the table list as borrows
         let table = read_table(file.as_path())?;
         // BORROW: `.as_path()` and `.as_slice()` view the owned file and the table list as borrows
-        check_keys(file.as_path(), &table, USER_TABLES.as_slice())?;
+        check_keys(file.as_path(), &table, ConfigFile::User)?;
         // BORROW: `.as_path()` views the owned file as a `&Path`
         let slots_count = slots_key(file.as_path(), &table, "count")?;
         // BORROW: `.as_path()` views the owned file as a `&Path`
@@ -398,8 +391,9 @@ fn read_table(file: &Path) -> Result<Table, ConfigError> {
     })
 }
 
-/// Refuses every key of `table`, and of its tables, that `tables` does not define.
-fn check_keys(file: &Path, table: &Table, tables: &[(&str, &[&str])]) -> Result<(), ConfigError> {
+/// Refuses every key of `table`, and of its tables, that the rows of the path table do not give to
+/// `config_file`.
+fn check_keys(file: &Path, table: &Table, config_file: ConfigFile) -> Result<(), ConfigError> {
     let unknown = |key: String| ConfigError::UnknownKey {
         // BORROW: `.to_owned()` makes the owned path the error carries
         file: file.to_owned(),
@@ -407,20 +401,21 @@ fn check_keys(file: &Path, table: &Table, tables: &[(&str, &[&str])]) -> Result<
     };
     for (key, value) in table {
         // BORROW: `.as_str()` views the key as a `&str` for the comparison
-        let Some((name, keys)) = tables.iter().find(|(name, _)| *name == key.as_str()) else {
+        let Some((name, _)) = config_keys(config_file).find(|(name, _)| *name == key.as_str())
+        else {
             return Err(unknown(key.clone())); // BORROW: owned key for the error
         };
         let Some(inner) = value.as_table() else {
             return Err(ConfigError::WrongType {
                 // BORROW: `.to_owned()` makes the owned path the error carries
                 file: file.to_owned(),
-                key: (*name).to_owned(), // BORROW: owned key for the error
+                key: name.to_owned(), // BORROW: owned key for the error
                 expected: "a table",
             });
         };
         for inner_key in inner.keys() {
             // BORROW: `.as_str()` views the key as a `&str` for the comparison
-            if !keys.contains(&inner_key.as_str()) {
+            if !config_keys(config_file).any(|(table, name)| table == key.as_str() && name == inner_key.as_str()) {
                 return Err(unknown(format!("{name}.{inner_key}")));
             }
         }
