@@ -9,7 +9,7 @@
 - ⬜ The `waiting-on-processes` plug-in grades its fixtures as correct, false success or stray process, deterministically (I5)
 - ⬜ The plug-in lives in its own repository and builds against the core's published interfaces, with no change to `candler-core`, `candler-harness` or `candler-schemas` made for it
 - ⬜ A gap report lists every point where the plug-in needed something the core lacks, each entered as a "Future features" item in `__design__/architecture.md` with its trigger; a blocking gap is named as such and proposed as a core milestone of its own
-**References**: [R01 §Plug-ins, §Future features, §Contracts & Invariants (I5)](../../../../../../../../../../../../__design__/architecture.md) — the contract the plug-in builds against and where its gaps are listed
+**References**: [R01 §Plug-ins, §Future features, §Contracts & Invariants (I5)](../../../../../../../../../../../../../__design__/architecture.md) — the contract the plug-in builds against and where its gaps are listed
 
 ## Step 1: Plan the milestone
 

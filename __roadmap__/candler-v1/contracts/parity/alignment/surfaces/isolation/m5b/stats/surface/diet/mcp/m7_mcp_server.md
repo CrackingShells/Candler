@@ -2,7 +2,7 @@
 
 **Goal**: Agents can design and drive experiments through an MCP server over the same operation API the CLI uses.
 **Pre-conditions**:
-- [ ] `../m6b_surface_consolidation.md` is `done` (the reminder needs only M3; the tree also waits for M4, M5a, M5b, M6a and M6b)
+- [ ] `../m6c_diet.md` is `done` (the reminder needs only M3; the tree also waits for M4, M5a, M5b, M6a, M6b and M6c)
 - [ ] Reminder `candler-M7` read
 **Success Gates**:
 - ⬜ The read-only operations (`resolve`, `jobs`, `events`, `show`, `inspect`, `analyze`, `diff`) are exposed, and results come back as ids plus compact summaries
@@ -10,7 +10,7 @@
 - ⬜ No tool exposes a live run's ground truth (I8)
 - ⬜ The MCP server and the CLI return the same results for the same operation
 - ⬜ A set of agent skills lets an agent use the MCP server to author plug-ins, drive runs and compute evals; each skill is exercised by an agent that completes its task through the server alone, and they land before M8
-**References**: [R01 §Operation API, §Budget, §Contracts & Invariants (I8, I13)](../../../../../../../../../../../__design__/architecture.md) — operations, budgets, surface rules
+**References**: [R01 §Operation API, §Budget, §Contracts & Invariants (I8, I13)](../../../../../../../../../../../../__design__/architecture.md) — operations, budgets, surface rules
 
 ## Step 1: Plan the milestone
 
