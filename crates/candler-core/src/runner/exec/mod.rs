@@ -143,6 +143,75 @@ fn manifest_of(
     Ok(builder.build()?)
 }
 
+/// The files a cell's run starts with: the driver's plan for the cell, and its prepared files and
+/// skill files written under `workspace_dir` and `home`, with the digest of each file by path.
+/// `scratch` holds the skill archive. It writes no run record.
+///
+/// # Errors
+/// [`ExecError`] when the driver refuses the cell, the skill tree cannot be archived or holds a
+/// path the driver renders, or a file cannot be written.
+pub async fn stage_cell(
+    rt: &Runtime,
+    cell: &CellRun,
+    comparable: &candler_schemas::execution::Comparable,
+    view: &Cell<'_>,
+    workspace_dir: &Path,
+    home: &Path,
+    scratch: &Path,
+) -> Result<(Plan, BTreeMap<String, Digest>), ExecError> {
+    let plan = rt.driver.plan(view, &Workspace::new(workspace_dir))?;
+    let prepared = &plan.prepared;
+    let skills = skill_files(rt, cell, comparable, scratch).await?;
+    let rendered: BTreeSet<&str> = prepared.files.iter().map(|f| f.path.as_str()).collect(); // BORROW: explicit .as_str()
+    let mut written: BTreeMap<String, Digest> = BTreeMap::new();
+    for file in &skills {
+        if rendered.contains(file.path.as_str()) {
+            // BORROW: the rendered set holds `&str`, so the path is lent as one
+            return Err(IsolationError::Plan {
+                detail: format!(
+                    "the skill tree holds `{}`, which prepare renders",
+                    file.path
+                ),
+            }
+            .into());
+        }
+    }
+    for file in skills.iter().chain(&prepared.files) {
+        #[expect(
+            clippy::wildcard_enum_match_arm,
+            reason = "a root this core does not know is the workspace, where the agent's tools work"
+        )]
+        let root = match file.root {
+            FileRoot::Home => home,
+            _ => workspace_dir,
+        };
+        let digest =
+            write_file(root, file).map_err(|e| local("cannot write a workspace file", &e))?;
+        written.insert(file.path.as_str().to_owned(), digest); // BORROW: the map owns its paths
+    }
+    Ok((plan, written))
+}
+
+/// The container of one cell: the isolation's plan, the harness's environment over it and the
+/// cell's inputs mounted read-only into `workspace_dir`. It writes no run record; the mount
+/// points of the inputs are made in `workspace_dir`, so the caller owns that directory.
+///
+/// # Errors
+/// [`IsolationError`] when the plan, the harness's environment or a mount is refused.
+pub fn compose_container(
+    rt: &Runtime,
+    isolation: &dyn Isolation, // TRAIT_OBJECT: the runtime's isolation, or a fake in tests
+    view: &Cell<'_>,
+    workspace_dir: &Path,
+    home: &Path,
+    inputs: &Inputs,
+) -> Result<ContainerPlan, IsolationError> {
+    let mut container = isolation.plan(view, &Workspace::new(workspace_dir))?;
+    apply_harness_env(&mut container, rt.driver.as_ref(), home)?;
+    mount_inputs(rt, &mut container, workspace_dir, inputs)?;
+    Ok(container)
+}
+
 /// Makes the mount point of each input in the workspace, mounts each input of the cell read-only
 /// there from its blob in the store, and checks the whole mount list again.
 fn mount_inputs(
@@ -414,41 +483,25 @@ async fn drive(
 
     let view = Cell::new(comparable.values());
     let workspace = Workspace::new(&workspace_dir);
-    let Plan {
-        prepared,
-        command: headless,
-        session: session_spec,
-        ..
-    } = rt.driver.plan(&view, &workspace)?;
-    let skills = skill_files(rt, cell, comparable, &scratch).await?;
-    let rendered: BTreeSet<&str> = prepared.files.iter().map(|f| f.path.as_str()).collect(); // BORROW: explicit .as_str()
-    let mut written: BTreeMap<String, Digest> = BTreeMap::new();
-    for file in &skills {
-        if rendered.contains(file.path.as_str()) {
-            // BORROW: the rendered set holds `&str`, so the path is lent as one
-            return Err(IsolationError::Plan {
-                detail: format!(
-                    "the skill tree holds `{}`, which prepare renders",
-                    file.path
-                ),
-            }
-            .into());
-        }
-    }
     let home_dir = agent_home(&layout.run_dir(&plan.key));
-    for file in skills.iter().chain(&prepared.files) {
-        #[expect(
-            clippy::wildcard_enum_match_arm,
-            reason = "a root this core does not know is the workspace, where the agent's tools work"
-        )]
-        let root = match file.root {
-            FileRoot::Home => home_dir.as_path(), // BORROW: explicit .as_path()
-            _ => workspace_dir.as_path(),         // BORROW: explicit .as_path()
-        };
-        let digest =
-            write_file(root, file).map_err(|e| local("cannot write a workspace file", &e))?;
-        written.insert(file.path.as_str().to_owned(), digest); // BORROW: the map owns its paths
-    }
+    let (
+        Plan {
+            prepared,
+            command: headless,
+            session: session_spec,
+            ..
+        },
+        written,
+    ) = stage_cell(
+        rt,
+        cell,
+        comparable,
+        &view,
+        &workspace_dir,
+        &home_dir,
+        &scratch,
+    )
+    .await?;
 
     let session = match session_config(&view)? {
         None => None,
@@ -478,13 +531,14 @@ async fn drive(
     // What the driver resolved from the cell, kept with the run: the argv, the variable names the
     // overlay sets and each prepared file.
     let resolved = resolved_record(&command, &prepared.files, &written);
-    let mut container = isolation.plan(&view, &workspace)?;
-    apply_harness_env(
-        &mut container,
-        rt.driver.as_ref(),
+    let container = compose_container(
+        rt,
+        isolation.as_ref(),
+        &view,
+        &workspace_dir,
         &agent_home(&layout.run_dir(&plan.key)),
+        &cell.inputs,
     )?;
-    mount_inputs(rt, &mut container, &workspace_dir, &cell.inputs)?;
 
     let out_stream = stream("stdout")?;
     let err_stream = stream("stderr")?;
