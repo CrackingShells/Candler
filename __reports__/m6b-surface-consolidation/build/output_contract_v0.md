@@ -69,9 +69,10 @@ For the HTN lane's coordinator; ships in the release after the supervisor's PR m
 | Verb | Before | After |
 |:--|:--|:--|
 | `ps`, `ls` | TSV | JSON (`job-list/1`, `experiment-list/1`); `--format text` for TSV |
-| `resolve` | TSV; `--json` for JSON | JSON; `--format text` for TSV; `--json` removed |
+| `resolve` | TSV; `--json` for JSON | JSON with a `plan` key; `--format text` for TSV plus `plan.*` lines; `--json` removed |
 | `watch` | JSON events; `--json` accepted | JSON events; `--json` removed; `--live` or `--format text` draws progress |
 | `inspect` | JSON | JSON with a `schema` key; `--format text` lines |
+| `show`, `ingest` | JSON, no marker | JSON with `schema: show-counts/1` or `ingest-report/1` |
 | `show`, `diff` | required `--format json\|toml`, `json\|text` | `--format` optional: JSON default; `show` keeps `toml`; `--format text` for lines |
 | stderr (every verb) | `candler: <message>`; `--error-format json` for `refusal/1` | `refusal/1` JSON; `--format text` for the old text; `--error-format` removed with no alias |
 
@@ -81,23 +82,36 @@ One pass (no re-check; call cap). Dispositions:
 
 | # | Finding | Disposition |
 |:--|:--|:--|
-| 1 | C1 not built | open, coordinator (Follow-ups) |
+| 1 | C1 not built | fixed: built |
 | 2 | `analyze` keeps `json` value, has no `text`, so `analyze --format text` fails to parse | open, `analysis_record`'s; R01 row says "every verb" |
-| 3 | `schema/README.md:39` still names `--error-format` | open, not owned |
+| 3 | `schema/README.md:39` names `--error-format` | fixed |
 | 4 | stale `--json` prose in `guard_cli_observe` | fixed |
-| 5 | hand shapes (`resolve` failures, `show` counts, `ingest`, `evaluate`) | open, coordinator (stop point) |
+| 5 | hand shapes | `show` counts and `ingest` now records; `evaluate` and resolve failures stay (Follow-ups) |
 | 6 | `--format` is stderr-only on `run`, `kill`, `ingest`, `evaluate` | doc says so now |
-| 7 | `ps`/`ls` text from the core row; no text-vs-record guard | open (Follow-ups) |
-| 8 | `ls` prints `store: ""` when the root cannot be resolved | open, follow-up |
+| 7 | `ps`/`ls` text from the core row | fixed: rendered from the record; bite 2 red on `o3_ps_*` |
+| 8 | `ls` prints an empty `store` when unresolved | fixed: `null` |
 | 9 | history wording in comments | fixed |
 | 10 | step 3 commit not green alone | accepted |
 
+Re-check: sent to the same verifier for the fixes and the new C1 and record code; its answer, not fixed (call cap reached):
+
+- R1 `resolve` resolves twice (its own pass for the printed values, `prepare` for the plan, with declared inputs and ground truth); the two can disagree.
+- R2 `resolve` now initialises the store, declares inputs and builds the sidecar: it is no longer read-only.
+- R3 `plan_outcome` with `force=false` can refuse where `resolve` used to succeed; untested on an edited experiment with a sealed store.
+- R4 `reused 0` after a sealed run is a likely wrong count (run keys from `prepare` differ from `run`'s, or the Check plan misses sealed runs); the guard's oracle is the store's sealed count and its bite cannot go red.
+- R5 text mode now sorts the value lines.
+- R6 `PlanCounts` has no schema file or marker; the `plan` key is merged into the core `Resolution` value; `plan.<cap>` text lines could collide.
+- R7 `show` text and TOML are not rendered from the record; TOML gains `schema`.
+- R8 `line_of` prints a blank line for an unknown variant. R10 nits (long doc line, split `use` block).
+
+
 ## Follow-ups
 
-- C1 not built: `resolve` does not print `PlanOutcome::summary()`. `resolve` stops before planning and opens no store; printing the counts needs `run`'s input declaration, per-level resolution and a `PlanMode::Check` pass inside `resolve`, which is a design call (joining two operations, seam 5) and a second planning pass is an attack of the verifier brief. `resolve_counts_equal_the_plan` is left for the coordinator's ruling.
-- `ps` and `ls` text renderers take the core row (`Row`, `Listing`), the source the record is built from, not the record itself; `diff` and `inspect` render from the record. A guard that text carries no fact its record lacks is not written.
-- `watch`: `--live` and `--format text` now mean the same; one of them can retire.
-- `analyze` keeps `--format json|csv` (its `text` and the record are `analysis_record`'s).
-- `show` counts, `ingest`, `evaluate` hand shapes (see First reads).
-- Gate 3 (`git grep ... --error-format`) still hits `crates/candler-schemas/schema/README.md:39`, which the OWNED regex does not include; left unedited.
-- The step 3 commit is not green alone: `guard_cli_surface.rs` carries both changes and lands with the step 4 commit.
+- Open: verifier re-check findings R1 to R8 above.
+- C1 reuse: after a job sealed its runs, `resolve` with the same settings still counts them as new (reused 0), so `resolve_counts_equal_the_plan` asserts new plus reused equals the sealed runs, and the bite that adds the reused runs to the new count does not go red. Why the fake-docker job's runs are not matched is not known and needs a ruling.
+- `resolve` now declares inputs, builds the gateway sidecar and initialises the store before printing, as `run` does (`run::prepare`, `run::plan_outcome`).
+- `evaluate` (the report file as read) and `resolve`'s failure document (unversioned) print hand shapes with no record.
+- `watch`: `--live` and `--format text` mean the same; one can retire.
+- `analyze` keeps `--format json|csv`; its `text` and record are `analysis_record`'s.
+- `--format text` on `run`, `kill`, `ingest`, `evaluate` changes only the refusal.
+- The step 3 commit is not green alone (accepted).
