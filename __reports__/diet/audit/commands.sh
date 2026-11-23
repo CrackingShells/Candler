@@ -22,5 +22,17 @@ stage() {  # the treatment repository, and the plug-in directory with its paths 
 }
 inproj() { cd "$A/project"; "$@"; }
 
+# The audit, in the order it ran (each record is saved beside this file in records/).
+# $S is the job id a step prints; ps/watch/kill read $A/store through the exported variables.
 resolve() { rec resolve "$C" resolve "$HERE/experiment.toml"; }
+run_all()   { rec run_1 "$C" run "$HERE/experiment.toml"; }                          # 8 runs, finished in 33 s
+run_kill()  { rec run_2 "$C" run --set replicates=3 "$HERE/experiment.toml"; }        # then: candler kill -y <job>
+run_resume(){ rec run_3 "$C" run --set replicates=3 "$HERE/experiment.toml"; }        # resumes: only the missing runs
+run_variant(){ rec run_4_variant "$C" run --set replicates=1 --set budget.per_run.wall_s=601 "$HERE/experiment.toml"; }
+evaluate()  { ( cd "$A/project" && for s in suite_file suite_second; do rec evaluate_$s "$C" evaluate "$HERE/$s.toml"; done ); }
+rates()     { ( cd "$A/project" && for e in audit-file@0.1.0 audit-second@0.1.0; do rec show_rates_$e "$C" show --rates --evaluator $e; done ); }
+ingest()    { rec ingest "$C" ingest --rules "$REPO/crates/candler/tests/fixtures/cli/mini-corpus-rules.toml" "$REPO/crates/candler-core/tests/fixtures/mini-corpus"; }
+analyze()   { ( cd "$A/project" && rec analyze_second "$C" analyze --evaluator audit-second@0.1.0 ); }
+e2e()       { ( cd "$REPO" && cargo nextest run --workspace --run-ignored all --no-fail-fast -E 'test(/e2e/) | test(/i8/)' ) > "$HERE/records/e2e_guards.txt" 2>&1; }
+# ps, kill and the job event copies: candler ps; candler kill -y <job>; cp $A/store/jobs/<job>/events.jsonl records/
 "$@"

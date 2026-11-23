@@ -1,6 +1,8 @@
 # The e2e audit experiment: OpenCode through the gateway, model x treatment (2 x 2), 2 replicates,
 # one declared stdio MCP server, a task that makes the agent write a file. Every value is in the
-# file; the secret is named by its variable only. The treatment repository is staged by commands.sh.
+# file; the skill treatment is one per experiment (`treatment` cannot be a factor, refused as
+# experiment.reserved_root_misused), so the second factor is the prompt hint that turns it on or off;
+# the secret is named by its variable only. The treatment repository is staged by commands.sh.
 schema = "experiment/1"
 replicates = 2
 secrets = ["RIVAULT_LLM_INFERENCE"]
@@ -9,11 +11,11 @@ secrets = ["RIVAULT_LLM_INFERENCE"]
 permission_mode = "bypassPermissions"
 "model.endpoint" = "https://api.class2.llm.ai.r-ccs.riken.jp"
 "model.token_secret" = "RIVAULT_LLM_INFERENCE"
-"prompt.template" = "Call the MCP tool audit_stamp once. Then use the shell tool to create /work/outputs and write the text it returned, on one line and nothing else, to /work/outputs/answer.txt. Then reply with the single word done. This is a non-interactive run: proceed without asking for confirmation."
+"prompt.template" = "{hint} Call the MCP tool audit_stamp once. Then use the shell tool to create /work/outputs and write the text it returned, on one line and nothing else, to /work/outputs/answer.txt. Then reply with the single word done. This is a non-interactive run: proceed without asking for confirmation."
 
 [fixed.mcp.servers.audit]
 command = "python3"
-args = ["/work/servers/audit/audit_mcp.py"]
+args = ["servers/audit/audit_mcp.py"]
 codemode = false
 
 [[factors]]
@@ -21,8 +23,8 @@ path = "model.id"
 levels = ["RiVault/Reasoning-Small", "RiVault/Instruction-Small"]
 
 [[factors]]
-path = "treatment.name"
-levels = ["audit-on", "audit-off"]
+path = "prompt.values.hint"
+levels = ["Follow the audit-on skill.", "Ignore any skill."]
 
 [budget.per_run]
 wall_s = 600
