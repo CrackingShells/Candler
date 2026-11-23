@@ -98,7 +98,7 @@ One slip on the way: dropping the `rig` field of `support/wiring.rs::Ran` freed 
 
 ## Verifier
 
-pending (coordinator)
+PASS with findings (2 important, 2 minor), then fixed. Three deletions without a running cover were restored in aad5e65f.
 
 ## Fix round
 
