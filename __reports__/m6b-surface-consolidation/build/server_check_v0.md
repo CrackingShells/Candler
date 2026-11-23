@@ -1,24 +1,34 @@
-# server_check build report (partial)
+# server_check build report
 
 ## First reads
-- Job start: `run_job` in `jobs/orchestrate/mod.rs` plans, opens the session, then runs `Scheduler::run`. A refusal there is `refused(what, error)`: one stderr line and a failed outcome. It carries no registry code, so `codes.toml` gained no row (a new `OrchestrateError` variant would need `jobs/refusal.rs`, which is not owned).
-- A run's container was composed inline in `drive` (`runner/exec/mod.rs`). It is now `compose_container` (isolation plan, harness env, input mounts), called by `drive` and by the check.
-- Servers: `candler_harness::mcp::servers(&Cell)` gives the `mcp.servers` table; a server with `url` is remote, one with `command`/`args`/`env` is stdio. The check reads it from each cell's comparable values.
-- Double: none existed that starts a command. `Isolation::start_probe` (default: Unavailable) and `ProbingIsolation` in `isolation/testing.rs` are new.
-- Design: the check groups the plans by (image, declared servers) and probes each group once, before `Scheduler::run`, on a scratch workspace under the job's scratch dir that it removes. Docker impl: create (with `-i`, command wrapped in `sh -c 'exec "$@" 2>&1'`), `docker start`, wait `SERVER_START_WAIT`, inspect `State.Running`, `docker logs`, then destroy through the guard by id.
+- Job start: `run_job` (`jobs/orchestrate/mod.rs`) plans, opens the session, then runs `Scheduler::run`. A refusal there is `refused(what, error)`: one stderr line and a failed outcome with no registry code.
+- A run's container was composed inline in `drive` (`runner/exec/mod.rs`). It is now `compose_container` (isolation plan, harness env, input mounts; writes no run record), called by `drive` and by the check (`jobs/orchestrate/servers.rs`, `probe_group`).
+- Servers: `candler_harness::mcp::servers(&Cell)` gives the `mcp.servers` table; `url` is remote, `command`/`args`/`env` is stdio.
+- Doubles: none started a command. `Isolation::start_probe` (default: Unavailable) and `ProbingIsolation` (`isolation/testing.rs`) are new.
+- Design: the check groups the plans by (image, declared servers), probes each group once before `Scheduler::run` on a scratch workspace under the job's scratch directory (removed after), with `interactive = true` so stdin stays open. Docker impl: `docker create -i` (command wrapped in `sh -c 'exec "$@" 2>&1'`), `docker start`, wait `SERVER_START_WAIT`, inspect `State.Running`, `docker logs` (tail of 4096 bytes), destroy through the guard by id on both paths.
+- Changed existing guards: none. The refactor left the runner and `guard_job_orchestrate` guards green unchanged.
 
 ## Bites
-- Check not called before the first run: `server_that_exits_refuses_the_job_with_its_stderr` and `server_that_stays_up_lets_the_job_start` red (a run starts, nothing probed). Reverted.
-- Not made: stdin closed, remote started, stderr dropped. `remote_server_is_skipped` and `job_without_stdio_servers_starts_no_check` pass without a check, so they only bite against a check that starts those servers.
+- Check not called before the first run: exits-refuses and stays-up red. Reverted.
+- Refusal drops the output (`output: String::new()`): `server_that_exits_refuses_the_job_with_its_stderr` red. Reverted.
+- Stdin closed (`interactive = false`): `server_that_stays_up_lets_the_job_start` red (the double's server exits at end of input). Reverted.
+- Remote servers started (url used as the command): `remote_server_is_skipped` red. Reverted.
+- Real-container bite (skip the destroy) was not made.
+- `job_without_stdio_servers_starts_no_check` passes without a check; it bites only against a check that probes with no stdio server.
 
 ## D3
-Not written.
+1. `server_that_exits_refuses_the_job_with_its_stderr` (guard). Q: does a server that exited stop the job before any run, with its output in the refusal? Oracle: literal `boom: no module named x`; the job runs in a child of the test binary so the stderr line is read. Fails when: the check runs late, or drops the output. Lives while the refusal text is user-facing.
+2. `server_that_stays_up_lets_the_job_start` (guard). Q: does a running server leave the job alone, with stdin held open? Oracle: the one probed command and one run request. Fails when: the check refuses a running server or closes stdin. Lives with the check.
+3. `remote_server_is_skipped` (guard). Q: is a `url` server never started? Oracle: no probed command. Fails when: remote servers are probed. Lives with the check.
+4. `job_without_stdio_servers_starts_no_check` (guard). Q: does a job with no stdio server pay for no probe? Oracle: no probed command, one run. Fails when: the check probes with nothing declared. Lives with the check.
+5. `server_that_exits_refuses_the_job_in_docker` (confirm, ignored). Q: does the Docker impl see an exited command and its output in a real container set up as a run's, and remove it by id? Oracle: literal `server-boom`; `docker inspect` of every id that carried the label. Fails when: the wrapper, start, inspect or logs are wrong, or the destroy is skipped. Kept as the only real-engine case.
 
 ## Verifier
-Not dispatched (call cap).
+(filled below)
 
 ## Follow-ups
-- Left: the real-container test `server_that_exits_refuses_the_job_in_docker`, the remaining bites, the D3 answers, the verifier.
-- The guards assert the probed command and run count; the refusal text (key and output) is not asserted yet because `refused` prints to stderr only.
-- Guards were written with the check, not seen red first.
-- `guard_server_check.rs` composes the experiment TOML by hand because `support/` is not owned.
+- No `codes.toml` row: a pre-run refusal uses `refused()` with no registry code, as the tip does; a coded variant would need `jobs/refusal.rs`.
+- The `sh -c 'exec "$@" 2>&1'` wrapper assumes `sh` in the image, because the `capture` seam returns stdout only.
+- The guards build their experiment TOML by hand (`support/` is not owned) and read the refusal line from a child process.
+- The guards were written together with the check, not seen red first; their bites are above.
+- The real-container test uses the testagent image through `TestImage`, which removes it on drop; a failed test leaves the image and network (removed by id during this build).
