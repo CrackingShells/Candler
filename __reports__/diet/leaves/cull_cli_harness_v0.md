@@ -65,4 +65,4 @@ fmt, workspace clippy, `cargo doc` with `-D warnings`, owned-crates nextest (187
 
 ## Verifier
 
-pending (coordinator)
+FAIL, then fixed. The verifier found `command_spec_refuses_empty_argv_and_duplicate_variables` deleted without a row, and `guard_ground_truth_cli` cited against an `#[ignore]`d end-to-end test. Both were restored in 238750b8.
