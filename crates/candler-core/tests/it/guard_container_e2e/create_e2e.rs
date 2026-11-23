@@ -25,7 +25,7 @@ use candler_core::isolation::model::{
     ContainerPlan, GatewayHandle, ImageId, ImageRef, Labels, Limits, NetworkName, UserSpec,
 };
 use candler_core::isolation::testing::AllowlistDriver;
-use candler_core::isolation::{EndFacts, Isolation as _, RunOutputs};
+use candler_core::isolation::{EndFacts, Isolation as _, RunOutputs, StartProbe};
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::view::JobView;
 use candler_core::runner::exec::spawn::RunStopper;
@@ -513,4 +513,65 @@ async fn agent_create_then_attach() {
     }
 
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// Guards: a declared server whose start command exits is seen as exited with what it printed,
+/// through a real container set up as a run's (the plan's image, mounts, network and `-i`), and
+/// the probe's container is gone by id afterwards.
+/// Oracle: the literal `server-boom` the command writes to its error stream; `docker inspect` of
+/// each container id that carried the test's labels while the probe ran.
+/// Bite: skip the destroy after the reads (the container is left).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "needs a docker daemon and the testagent image; run by the container-e2e group"]
+async fn server_that_exits_refuses_the_job_in_docker() {
+    let image = TestImage::new(TESTAGENT_CONTEXT);
+    let world = World::new(&image, true);
+    let command = CommandSpec::builder()
+        .argv(
+            ["sh", "-c", "echo server-boom >&2; exit 7"]
+                .map(String::from)
+                .to_vec(),
+        )
+        .build()
+        .expect("a command");
+    let probe = world.isolation.start_probe(
+        &world.plan,
+        &command,
+        world.key.clone(), // BORROW: the container is labelled with the key
+        Duration::from_secs(2),
+    );
+    // The test allows each container the probe creates, by the id docker lists for its label.
+    let allow = async {
+        let mut seen: Vec<String> = Vec::new();
+        for _ in 0..30 {
+            let listed = docker(&[
+                "ps",
+                "-aq",
+                "--no-trunc",
+                "--filter",
+                &format!("label={TEST_LABEL}"),
+            ]);
+            for id in String::from_utf8_lossy(&listed.stdout).split_whitespace() {
+                world.destroy.allow_container(id);
+                if !seen.iter().any(|known| known == id) {
+                    seen.push(id.to_owned()); // BORROW: the list owns its ids
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        seen
+    };
+    let (probed, seen) = tokio::join!(probe, allow);
+    world.clean();
+    let StartProbe::Exited { output } = probed.expect("a probe") else {
+        panic!("the server was reported running");
+    };
+    assert!(output.contains("server-boom"), "the output: {output}");
+    assert!(!seen.is_empty(), "the probe made a container");
+    for id in &seen {
+        assert!(
+            !World::known(&id.parse().expect("a container id")),
+            "{id} is left"
+        );
+    }
 }
