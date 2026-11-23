@@ -52,3 +52,7 @@ Re-check: see the final message.
 Ruled, nothing to do: schema version (derived by the release); `docs/contract/experiment-file.md` and the `field_classes.toml` row (amendment A3).
 
 Third verifier check: dispatched through SendMessage at the call cap; its reply is not in this report.
+
+NEW-2: the summary bound a plan by the file's per-run wall cap, while the cells keep an explicit `--set budget.per_run.wall_s` over it; ruled: the bound uses the cap the cells get.
+Fix: `PlanOutcome::summary` reads the cap from each fresh cell's values (what `fresh_cells` settles) and falls back to the file's; job caps stay the file's; no signature change.
+Test: `the_summary_of_a_plan_holds_the_caps_of_the_file` gains a case, file 600 and explicit 300, bound 1200; seen red on the old code (2400 against 1200).
