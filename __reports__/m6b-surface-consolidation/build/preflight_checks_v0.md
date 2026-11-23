@@ -25,7 +25,14 @@ Built: N2, G5, C1's method. N4 stopped (its rule is in a file this leaf does not
 
 
 ## Verifier
-Pending.
+Findings of the first pass (the verifier was not re-run: the call cap was reached):
+1. N2: `--set replicates` is not validated (0 plans no run; a non-integer or out of range value falls back to the file's count). Not fixed: refusing it is a new refusal beyond the leaf's rows. Open, for the coordinator.
+2. G5: the refusal dropped the `files()` error text. Fixed: the explanation now ends with the driver's message.
+3. G5 bite: the fixture cannot tell the tag from the commit (each tag sits on the commit it pins); a moved-tag case is not added. Open.
+4. C1: the summary omits the cap bounds. Recorded as a follow-up; needs a ruling. Open.
+5. The `G5` id in a test doc comment. Fixed (removed).
+6. The source assertion is a loose substring check and the guard does not go through `--set` parsing. Accepted (nit).
+7. A failing `skill_tree@1` drops the step's derived `treatment`, as the existing step errors do. Accepted (not new).
 
 ## Follow-ups
 - `PlanSummary` holds cells, new runs and reused runs. The cap bounds (runs times the per-run `wall_s`, and the job caps) are not in `PlanOutcome`: they come from the resolution, which `resolve` has. `output_contract` computes them where it prints, or the outcome gains them then.

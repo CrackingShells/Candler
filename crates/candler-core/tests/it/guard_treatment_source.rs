@@ -312,7 +312,7 @@ async fn source_only_one_checkout_is_one_entry() {
     );
 }
 
-/// Guards: G5 (I7) — a treatment whose pinned commit lacks the skill subtree is refused by
+/// Guards: I7 — a treatment whose pinned commit lacks the skill subtree is refused by
 /// `resolve`, and the refusal names the subtree path; the tag of a commit that has it resolves.
 /// Oracle: `.claude/skills/demo` is the subtree the fixture wrote at `v1` and removed at `bare`,
 /// written by hand.

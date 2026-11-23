@@ -246,7 +246,10 @@ async fn skill_tree_refusal(
         source.display()
     );
     match tree_at_commit(supervisor, command.argv().to_vec(), MARKER, None).await {
-        Ok(tar) => Ok(skills.files(treatment, &tar).err().map(|_| missing)),
+        Ok(tar) => Ok(skills
+            .files(treatment, &tar)
+            .err()
+            .map(|error| format!("{missing}: {error}"))),
         Err(GitError::Failed(_)) => Ok(Some(missing)),
         Err(other) => Err(failed(format!("cannot archive `{subtree}`: {other}"))),
     }
