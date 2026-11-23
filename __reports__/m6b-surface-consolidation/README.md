@@ -53,7 +53,7 @@ Six read-only leaves judged the 63 inputs raised by the M7 pre-study, one report
 
 - Eliott said Go on `01-findings_verdicts_v3.md` and asked this session to write the build leaves itself. Amendment A1 adds them under `__roadmap__/m6b-surface-consolidation/consolidated/build/`: nine leaves over four levels, from v3's §Design suggestions, with a build cap of $55.
 - The leaf reports of the build will go under `build/`, the knowledge transfer as `03-knowledge_transfer_build_v0.md`.
-- Open for the build: the word for Q7's comparability class. v3 proposes "comparability class"; `analysis_record` and `docs_chores` wait on it.
+- Eliott ruled the Q7 word: "comparability class", key `comparability_class`. `analysis_record` and `docs_chores` use it.
 
 ## Rulings
 
@@ -78,6 +78,7 @@ Eliott's rulings on the verdicts report, one row per question and round.
 | 05 | N8 `CANDLER_STORE` | Accept |
 | 05 | N2, N3, N4, N5, N6, N9a | Proposals acknowledged: accept, owner:provider, accept, defer, accept, reject |
 | 06 | Go | Go on v3; this session writes the build leaves (`consolidated/build/`, amendment A1) |
+| 06 | Q7 word | "comparability class", key `comparability_class` |
 
 ## Status
 

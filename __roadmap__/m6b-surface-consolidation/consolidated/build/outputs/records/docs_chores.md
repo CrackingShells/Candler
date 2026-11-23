@@ -5,7 +5,7 @@
 **Pre-conditions**:
 - [ ] [cmd] Every-leaf pre-conditions (build README, Gotchas)
 - [ ] [cmd] `knowledge_pages` and `output_contract` are merged (they edit `docs/contract/` and R01 §CLI surface first): `git log --format=%s $BUILD_BASE..HEAD | grep -q '^feat(resolve): read the configuration paths from one table' && git log --format=%s $BUILD_BASE..HEAD | grep -q '^feat(cli)!: print refusals as json by default'`
-- [ ] [nl] The Q7 word is the one written into `analysis_record`'s pre-condition
+- [x] [nl] The Q7 word is "comparability class" (key `comparability_class`), as in `analysis_record`'s pre-condition
 - [ ] [nl] OWNED (regex): `^README\.md$|^docs/statistics\.md$|^python/candler-evaluator/README\.md$|^docs/contract/evaluator-helper\.md$|^__design__/architecture\.md$|^__reports__/m6b-surface-consolidation/build/docs_chores_v0\.md$`. In `evaluator-helper.md`, the Surface section only; in R01, not §CLI surface's `--format` and refusal lines (`output_contract`'s). No code, no test: a test of a stale sentence is a test per incident (R12, the fail list)
 **Success Gates**:
 - ⬜ [cmd] The store window is short: `n=$(wc -l < README.md); test $n -ge 60 && test $n -le 80`, and it holds no inventory: `! grep -qE 'candler-harness-claude-code|candler-harness-opencode' README.md`

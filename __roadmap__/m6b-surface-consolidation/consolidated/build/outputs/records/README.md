@@ -8,7 +8,7 @@ Level L2 of the M6b build (`../../README.md`). It runs after `outputs/` is merge
 
 ## Pre-conditions
 - [ ] [cmd] Both L1 leaves are merged: `for l in output_contract knowledge_pages; do test -f __reports__/m6b-surface-consolidation/build/${l}_v0.md || exit 1; done`
-- [ ] [nl] Eliott fixed the new word for the comparability sense of "stratum" (proposed: "comparability class"), and the coordinator wrote it into `analysis_record`'s pre-condition before dispatch
+- [x] [nl] Eliott fixed the new word for the comparability sense of "stratum": "comparability class", key `comparability_class` (2026-11-23, round 06), written into `analysis_record`'s pre-condition
 - [ ] [cmd] The disk has room: `df -h /System/Volumes/Data` shows at least 40 GiB available
 
 ## Success Gates
