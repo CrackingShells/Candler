@@ -943,6 +943,10 @@ fn reserved_env_names_are_refused() {
         let refused = format!("{error:?}");
         assert!(refused.contains(kind), "{name}: {refused}");
     }
+    let explicit = ResolveInput::default().explicit(fp("env"), js("x"));
+    let error = Layered::new(&config, explicit).expect_err("a refusal");
+    assert!(matches!(error, ResolveError::Env(_)), "{error}");
+    assert!(error.to_string().contains("`env`"), "{error}");
     let allowed = ResolveInput::default()
         .file(FileValues::new(vec![(
             fp("env"),

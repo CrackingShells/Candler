@@ -141,7 +141,12 @@ refusal_table! {
     reason = "a refusal table takes a function that returns an optional pointer"
 )]
 fn env_refusal_path(error: &EnvRefusal) -> Option<String> {
-    Some(pointer_of(["env", error.name()]))
+    match error {
+        EnvRefusal::Source { path } => Some(pointer_of(path.split('.'))),
+        EnvRefusal::Reserved { .. } | EnvRefusal::Invalid { .. } | EnvRefusal::Secret { .. } => {
+            Some(pointer_of(["env", error.name()]))
+        }
+    }
 }
 
 refusal_table! {
@@ -157,6 +162,12 @@ refusal_table! {
         Side::Experiment,
         "An entry of the `env` table has a name that is not a variable name: it must match `[A-Za-z_][A-Za-z0-9_]*`.",
         "The key of the entry in the `env` table.",
+    ),
+    Source { .. } => row(
+        "experiment.env_source",
+        Side::Experiment,
+        "A `[fixed]` key, a factor or a `--set` names the path `env`; the `[env]` table is its only source.",
+        "The path that was written.",
     ),
     Secret { .. } => row(
         "experiment.env_secret",

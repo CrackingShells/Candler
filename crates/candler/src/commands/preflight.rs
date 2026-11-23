@@ -14,6 +14,7 @@ use candler_core::isolation::layout;
 use candler_core::resolve::config::Config;
 use candler_core::resolve::layers::{FileValues, Resolution, ResolveInput};
 use candler_core::resolve::preflight::{ResolveError, Resolver};
+use candler_core::resolve::steps::env::EnvRefusal;
 use candler_core::resolve::steps::ground_truth::{GroundTruth, GroundTruthStep};
 use candler_core::resolve::steps::{M2bServices, register_m2b_steps};
 use candler_core::runner::evidence::catalog::{CatalogCommand, CommandCatalogProvider};
@@ -281,6 +282,20 @@ fn check_replicate_count(value: &JsonValue) -> Result<(), CliError> {
         .map_err(CliError::refused_by)
 }
 
+/// Refuses the first of `paths` that names `env`, which only the `[env]` table sets.
+fn check_env_source<'a>(paths: impl IntoIterator<Item = &'a FieldPath>) -> Result<(), CliError> {
+    paths
+        .into_iter()
+        .find(|path| EnvRefusal::is_env_path(path))
+        .map_or(Ok(()), |path| {
+            Err(CliError::refused_by(ResolveError::Env(
+                EnvRefusal::Source {
+                    path: path.to_string(),
+                },
+            )))
+        })
+}
+
 /// What the experiment file and the command line ask for, as the input of a resolution: the
 /// file's fixed values, the settings `request.harness` and `request.treatment` it names, and the
 /// arguments of `--set` as explicit values. A location setting (the treatment's source, the build
@@ -298,6 +313,12 @@ pub fn request_settings(
     fields: &[(FieldPath, String)],
     cwd: &Path,
 ) -> Result<ResolveInput, CliError> {
+    check_env_source(
+        file.fixed()
+            .keys()
+            .chain(file.factors().iter().map(|factor| &factor.path))
+            .chain(fields.iter().map(|(path, _)| path)),
+    )?;
     let mut values: BTreeMap<FieldPath, JsonValue> = file
         .fixed()
         .iter()
@@ -499,5 +520,25 @@ mod tests {
             .find(|(path, _)| path.as_str() == "env")
             .map(|(_, value)| value.as_value().clone());
         assert_eq!(table, Some(serde_json::json!({"TOOL_MODE": "fast"})));
+    }
+
+    /// Guards: the `[env]` table is the only source of `env`: a `[fixed]` key, a factor and a
+    /// `--set` that name the path `env` are each refused, and the refusal names `env`.
+    /// Oracle: the three spellings are written by hand; the word `env` is the key's own path.
+    /// Bite: dropping any one of the three checks, which lets that channel write the table.
+    #[test]
+    fn env_has_one_source() {
+        let fixed = file("[fixed]\nenv = \"x\"\n");
+        let factor = file("[[factors]]\npath = \"env\"\nlevels = [\"a\", \"b\"]\n");
+        let plain = file("");
+        let cases = [
+            ("fixed", settings(&fixed, &[])),
+            ("factor", settings(&factor, &[])),
+            ("set", settings(&plain, &["env=x"])),
+        ];
+        for (channel, outcome) in cases {
+            let error = outcome.expect_err(channel);
+            assert!(error.to_string().contains("`env`"), "{channel}: {error}");
+        }
     }
 }

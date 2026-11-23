@@ -1958,3 +1958,8 @@ variant = "Secret"
 side = "experiment"
 enum = "EnvRefusal"
 variant = "Invalid"
+
+[resolve."experiment.env_source"]
+side = "experiment"
+enum = "EnvRefusal"
+variant = "Source"
