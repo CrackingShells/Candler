@@ -83,7 +83,7 @@ graph TD
     analysis_core[Analysis core: order, summary, spend]:::done
     codes_inner[Inner refusal codes]:::done
     preflight_checks[Preflight checks]:::done
-    outputs[Outputs and pages]:::amendment
+    outputs[Outputs and pages]:::done
     server_check[Server start check]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -98,7 +98,7 @@ graph TD
 | `analysis_core.md` | 📄 Leaf Task | ✅ Done |
 | `codes_inner.md` | 📄 Leaf Task | ✅ Done |
 | `preflight_checks.md` | 📄 Leaf Task | ✅ Done |
-| `outputs/` | 📁 Directory | 🔵 Amendment |
+| `outputs/` | 📁 Directory | ✅ Done |
 | `server_check.md` | 📄 Leaf Task | ✅ Done |
 
 ## Amendment Log

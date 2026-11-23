@@ -21,7 +21,7 @@ The build is shown green on the integration tip, recorded, cleaned up and handed
 ## Status
 ```mermaid
 graph TD
-    knowledge_transfer[Knowledge transfer]:::amendment
+    knowledge_transfer[Knowledge transfer]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -32,7 +32,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `knowledge_transfer.md` | 📄 Leaf Task | 🔵 Amendment |
+| `knowledge_transfer.md` | 📄 Leaf Task | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
@@ -41,3 +41,4 @@ graph TD
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| knowledge_transfer | claude/rdm-m6b-surface-consolidation-8c47a6 | 4 | Coordinator. 6d1e17d9 ticks the gates, 18c808f3 adds the build knowledge transfer, 4c1cb8e5 adds the R01 Future row for `env` across cells, and the close commit sets every build node done. Gates on 82d28def: STD, LINUX, SUBJ, DIGEST, GOLDEN; nextest 836/836 on the rerun after the `late.sh` flake |

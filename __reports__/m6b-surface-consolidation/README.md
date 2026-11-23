@@ -62,6 +62,15 @@ Six read-only leaves judged the 63 inputs raised by the M7 pre-study, one report
 - Eliott kept S1 and S2, the two defects of the HTN smoke run, out of M6b: they go in a PR of their own, with a report set of their own (`__reports__/htn-smoke-defects/`).
 - Eliott raised the build cap to $90 and said to proceed.
 
+## Round 08: build L1 and L2 closed, the build knowledge transfer (2026-11-24)
+
+- Leaf reports under `build/`, one per leaf:
+  - L0: `codes_inner_v0.md`, `analysis_core_v0.md`, `preflight_checks_v0.md` and `server_check_v0.md`;
+  - L1: `output_contract_v0.md` and `knowledge_pages_v0.md`;
+  - L2: `docs_chores_v0.md`, `analysis_record_v0.md` and `experiment_env_v0.md`.
+- Eliott took C1 out of M6b (Rulings, round 08). It was withdrawn in new commits.
+- `03-knowledge_transfer_build_v0.md` (latest): what each leaf built and its merge commit, the HTN lane's migration note, the follow-ups, the `late.sh` flake, and the spend.
+
 ## Rulings
 
 Eliott's rulings on the verdicts report, one row per question and round.
@@ -93,4 +102,4 @@ Eliott's rulings on the verdicts report, one row per question and round.
 
 ## Status
 
-Verdict study closed: v3 is approved (round 06). The build runs in `__roadmap__/m6b-surface-consolidation/consolidated/build/`: L0 is merged (round 07), L1 is next.
+Verdict study closed: v3 is approved (round 06). The build in `__roadmap__/m6b-surface-consolidation/consolidated/build/` is closed: all nine leaves are merged (round 08), and the knowledge transfer is `03-knowledge_transfer_build_v0.md`.
