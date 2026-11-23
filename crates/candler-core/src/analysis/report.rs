@@ -23,6 +23,8 @@ use super::blocking::{
 use super::error::StatsError;
 use super::newcombe::newcombe_difference;
 use super::refusal::ReportError;
+use super::spend::{Spend, spend_of};
+use super::summary::Summary;
 use super::tally::{ArmTally, ExpectationTally, Omitted, Rate, RunFacts, tally};
 use super::wilson::{Counts, Interval};
 use crate::evaluation::selection::rates::CellKey;
@@ -181,6 +183,8 @@ pub struct ArmReport {
     pub instrument_error: InstrumentError,
     /// The expectations, by id.
     pub expectations: Vec<ExpectationReport>,
+    /// The cost the arm's sealed runs recorded.
+    pub spent: Spend,
 }
 
 /// What an arm lost to the instrument: counted apart from every invalid cause.
@@ -228,6 +232,7 @@ impl ArmReport {
             tally,
             status,
             expectations,
+            spent: Spend::default(),
         }
     }
 }
@@ -483,6 +488,8 @@ pub struct Report {
     pub pairs_not_one_factor: usize,
     /// Every run, by run key.
     pub runs: Vec<RunRow>,
+    /// One decision per tested entry of the comparisons and one line per entry left out.
+    pub summary: Summary,
 }
 
 impl Report {
@@ -533,10 +540,14 @@ impl Report {
             let facts: Vec<RunFacts> = views.iter().map(|view| view.facts.clone()).collect(); // BORROW: the tally reads its own copy
             for (cell, held) in tally(&own, &evaluator, facts.as_slice())? {
                 // BORROW: the key and the arm own the stratum text
-                arms.insert(
-                    (stratum.clone(), cell.clone()),
-                    ArmReport::new(stratum.clone(), cell, held),
+                let mut arm = ArmReport::new(stratum.clone(), cell.clone(), held);
+                arm.spent = spend_of(
+                    views
+                        .iter()
+                        .filter(|view| CellKey::new(view.facts.run.cell().clone()) == cell) // BORROW: the key owns the cell
+                        .map(|view| &view.manifest),
                 );
+                arms.insert((stratum.clone(), cell), arm);
             }
         }
         for held in &unsealed {
@@ -559,6 +570,7 @@ impl Report {
         Ok(Self {
             evaluator,
             i4_violations,
+            summary: Summary::of(pairs.comparisons.as_slice()),
             comparisons: pairs.comparisons,
             families: pairs.families,
             pairs_not_one_factor: pairs.not_one_factor,
