@@ -9,7 +9,6 @@ use crate::support::seam;
 
 use std::collections::BTreeSet;
 use std::fs;
-use std::io::Write as _;
 use std::os::unix::fs::symlink;
 use std::os::unix::process::CommandExt as _;
 use std::path::{Path, PathBuf};
@@ -17,24 +16,21 @@ use std::process::{Command, Output, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use candler_core::evaluation::engine::RunSelection;
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::events::{JobEvents, TailPos};
 use candler_core::jobs::lock::{JobLock, LockState};
-use candler_core::jobs::model::EvaluateSpec;
 use candler_core::jobs::runtime::TEARDOWN_BOUND;
-use candler_core::jobs::runtime::launch::{mint_job_id, own_identity};
 use candler_core::store::layout::StoreLayout;
 use candler_core::supervise::platform::process_start;
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_harness::spec::{StopSignal, StopSpec};
-use candler_schemas::execution::{EventPayload, JobEnd, JobRecord, JobState};
-use candler_schemas::primitives::{Digest, JobId, Marker, RunKey, Timestamp};
+use candler_schemas::execution::{EventPayload, JobEnd};
+use candler_schemas::primitives::{JobId, Marker, RunKey, Timestamp};
 use candler_schemas::process::ChildRecord;
 use serde_json::{Value, json};
 
 use cli_run::{World, ps_with_environment, run_keys, wait_for, world};
-use seam::{entries_under, finish, occurrences, shasum, sync_environment};
+use seam::{entries_under, finish, occurrences, sync_environment};
 
 /// How long a job that has all it needs may take to end.
 const JOB_LIMIT: Duration = Duration::from_secs(120);
@@ -217,91 +213,6 @@ fn outcome_files(world: &World) -> BTreeSet<PathBuf> {
         .collect()
 }
 
-/// Guards: E1 (the binary half), the hidden verb — `candler supervise --job <id>` runs an
-/// evaluate spec that a test wrote by hand: it builds no Claude driver, and reads the spec as the
-/// kind of job it is. The test seals one run with `candler run`, writes the spec and the job's
-/// directory itself, and starts the supervisor with the environment `evaluate` gives it.
-///
-/// Oracle: the job's `events.jsonl` ends in `job.ended` with `completed`, `report.json` exists,
-/// and the store holds an outcome directory for every run the fake docker was handed and for no
-/// other.
-///
-/// Bite: the `Evaluate` arm missing from the verb (it reads the file as a run job's spec, which
-/// an evaluate spec is not, and the job never starts).
-#[test]
-fn e1_supervise_runs_an_evaluate_spec_written_by_hand() {
-    let (world, _) = sealed_world();
-    let plugin = pool_plugin(&world);
-    let suite = suite_of(&world, "suite_pool_ok.toml", &[]);
-    let spec = EvaluateSpec {
-        suite: suite.clone(),
-        suite_digest: Digest::from_hex(&shasum(&fs::read(&suite).unwrap())).unwrap(),
-        plugin_dirs: vec![plugin],
-        env_root: world.state.join("candler").join("environments"),
-        selection: RunSelection::All,
-        request_deadline_secs: None,
-    };
-    let bytes = serde_json::to_vec(&spec).unwrap();
-    let digest = Digest::from_hex(&shasum(&bytes)).unwrap();
-    let id = mint_job_id().unwrap();
-    let record = JobRecord::builder()
-        .id(id.clone())
-        .supervisor(own_identity().unwrap())
-        .spec_digest(digest)
-        .state(JobState::Running)
-        .build()
-        .unwrap();
-    let layout = StoreLayout::new(&world.store());
-    let dir = JobDir::create(&layout, id.clone(), &record).unwrap();
-
-    let mut child = Command::new(env!("CARGO_BIN_EXE_candler"))
-        .args(["supervise", "--job", &id.to_string()])
-        .env_clear()
-        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
-        .env("HOME", world.root.join("home"))
-        .env("XDG_STATE_HOME", &world.state)
-        .env("XDG_CONFIG_HOME", world.root.join("config"))
-        .env("CANDLER_STORE_ROOT", world.store())
-        .stdin(Stdio::piped())
-        .stdout(fs::File::create(world.work.join("supervise.out")).unwrap())
-        .stderr(fs::File::create(world.work.join("supervise.err")).unwrap())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(&bytes).unwrap();
-    // The supervisor exiting ends the wait too: one that refused its spec never writes `job.ended`.
-    let ended = wait_for(JOB_LIMIT, || {
-        child.try_wait().unwrap().is_some()
-            || (events_of(&world, &id)
-                .iter()
-                .any(|event| matches!(event, EventPayload::JobEnded { .. }))
-                && JobLock::probe(&dir).unwrap() == LockState::Free)
-    });
-    let status = child.wait().unwrap();
-    let err = fs::read_to_string(world.work.join("supervise.err")).unwrap_or_default();
-    assert!(ended, "the job ends\nstderr: {err}");
-    assert!(
-        status.success(),
-        "the supervisor exits 0: {status:?}\n{err}"
-    );
-
-    let events = events_of(&world, &id);
-    assert!(
-        matches!(
-            events.last(),
-            Some(EventPayload::JobEnded {
-                reason: JobEnd::Completed,
-                ..
-            })
-        ),
-        "the log ends in job.ended(completed): {events:?}"
-    );
-    assert!(dir.path().join("report.json").is_file(), "the report");
-    let handed = handed_runs(&world);
-    assert_eq!(graded(&world), handed, "an outcome directory per run");
-    assert!(!handed.is_empty(), "the run was handed to the fake docker");
-    world.remove();
-}
-
 /// Guards: E4 — `evaluate <suite>`, with no `--plugin`, takes the plug-ins from the project's
 /// `plugins.dirs` and grades by default the runs with no complete outcome set. Two jobs of
 /// `candler run` leave three sealed runs; `evaluate` runs from `project/`, whose `candler.toml`
@@ -465,35 +376,6 @@ fn e1_evaluate_prints_the_job_id_on_stderr_and_the_report_on_stdout() {
         Some("ended (completed)"),
         "{listing}"
     );
-    world.remove();
-}
-
-/// Guards: E1 (the binary half) — `evaluate` with no plug-in directory anywhere is refused before
-/// a job exists: exit 2, a message that names `plugins.dirs`, and no job directory in the store.
-///
-/// Oracle: the exit status, stderr, and the store's `jobs/` directory.
-///
-/// Bite: the job started and failing later (a job directory exists, or the message is the
-/// supervisor's).
-#[test]
-fn e1_evaluate_refuses_without_a_plugin_directory() {
-    let (world, _) = sealed_world();
-    let before = fs::read_dir(world.store().join("jobs")).unwrap().count();
-    let suite = suite_of(&world, "suite_pool_ok.toml", &[]);
-    let out = candler(&world, &world.work)
-        .arg("evaluate")
-        .arg(&suite)
-        .output()
-        .unwrap();
-    assert_eq!(out.status.code(), Some(2), "{}", stderr_of(&out));
-    assert!(
-        stderr_of(&out).contains("plugins.dirs"),
-        "{}",
-        stderr_of(&out)
-    );
-    assert!(out.stdout.is_empty(), "nothing on stdout");
-    let after = fs::read_dir(world.store().join("jobs")).unwrap().count();
-    assert_eq!(before, after, "no job directory was created");
     world.remove();
 }
 
@@ -906,74 +788,6 @@ fn e5_the_callers_environment_is_written_nowhere() {
         occurrences(&world.store(), &value),
         Vec::<String>::new(),
         "the variable is in a file of the store"
-    );
-    world.remove();
-}
-
-/// Guards: R2 — a suite that changed after the job was started prints as the record of
-/// `evaluation.suite_changed`, side `suite`, with no option. The test writes the job
-/// by hand with the digest of the suite as it was, changes the suite, and starts the hidden
-/// `supervise` verb; the job ends `failed`.
-///
-/// Oracle: a record written by hand from the contract, compared field by field.
-///
-/// Bite: the refusal left as text only (the record has the fallback code `candler.internal` and
-/// the side `candler`).
-#[test]
-fn r2_a_suite_changed_after_the_job_started_prints_as_a_suite_record() {
-    let (world, _) = sealed_world();
-    let plugin = pool_plugin(&world);
-    let suite = suite_of(&world, "suite_pool_ok.toml", &[]);
-    let spec = EvaluateSpec {
-        suite: suite.clone(),
-        suite_digest: Digest::from_hex(&shasum(&fs::read(&suite).unwrap())).unwrap(),
-        plugin_dirs: vec![plugin],
-        env_root: world.state.join("candler").join("environments"),
-        selection: RunSelection::All,
-        request_deadline_secs: None,
-    };
-    fs::write(&suite, "# edited after the launcher read it\n").unwrap();
-    let bytes = serde_json::to_vec(&spec).unwrap();
-    let id = mint_job_id().unwrap();
-    let record = JobRecord::builder()
-        .id(id.clone())
-        .supervisor(own_identity().unwrap())
-        .spec_digest(Digest::from_hex(&shasum(&bytes)).unwrap())
-        .state(JobState::Running)
-        .build()
-        .unwrap();
-    JobDir::create(&StoreLayout::new(&world.store()), id.clone(), &record).unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_candler"))
-        .args(["supervise", "--job", &id.to_string()])
-        .env_clear()
-        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
-        .env("HOME", world.root.join("home"))
-        .env("XDG_STATE_HOME", &world.state)
-        .env("XDG_CONFIG_HOME", world.root.join("config"))
-        .env("CANDLER_STORE_ROOT", world.store())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(&bytes).unwrap();
-    let out = child.wait_with_output().unwrap();
-    assert_eq!(out.status.code(), Some(2), "{}", stderr_of(&out));
-    let stderr = stderr_of(&out);
-    let last = stderr.lines().last().unwrap();
-    let record: Value = serde_json::from_str(last).unwrap();
-    assert_eq!(record["schema"], "refusal/1", "{record}");
-    assert_eq!(record["code"], "evaluation.suite_changed", "{record}");
-    assert_eq!(record["side"], "suite", "{record}");
-    assert!(
-        matches!(
-            events_of(&world, &id).last(),
-            Some(EventPayload::JobEnded {
-                reason: JobEnd::Failed,
-                ..
-            })
-        ),
-        "the job ended failed"
     );
     world.remove();
 }

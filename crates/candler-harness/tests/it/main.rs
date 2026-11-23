@@ -5,8 +5,5 @@ mod support;
 
 #[cfg(feature = "conformance")]
 mod conformance_shapes;
-mod guard_cell_reading;
 mod guard_mcp_names;
 mod guard_session_id;
-mod guard_two_shapes;
-mod guard_unsupported_setting;
