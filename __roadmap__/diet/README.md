@@ -20,7 +20,7 @@ A sealed run holds the bytes it names, and the suite is about 525 guards at the 
 ## Status
 ```mermaid
 graph TD
-    s1_seal_blobs[s1_seal_blobs]:::planned
+    s1_seal_blobs[s1_seal_blobs]:::done
     cull_schemas_contracts[cull_schemas_contracts]:::planned
     cull_isolation[cull_isolation]:::planned
     cull_supervision[cull_supervision]:::planned
@@ -39,7 +39,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `s1_seal_blobs.md` | 📄 Leaf Task | ⬜ Planned |
+| `s1_seal_blobs.md` | 📄 Leaf Task | ✅ Done |
 | `cull_schemas_contracts.md` | 📄 Leaf Task | ⬜ Planned |
 | `cull_isolation.md` | 📄 Leaf Task | ⬜ Planned |
 | `cull_supervision.md` | 📄 Leaf Task | ⬜ Planned |
