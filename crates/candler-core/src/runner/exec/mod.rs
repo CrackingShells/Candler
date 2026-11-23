@@ -936,9 +936,6 @@ async fn drive(
     })??;
     // EXPLICIT: the scratch directory holds only what the seal moved or no longer needs
     let _ = fs::remove_dir_all(&scratch);
-    // EXPLICIT: the seal stored each output as a blob and nothing reads the workspace of a
-    // sealed run, so a directory left by a failed removal holds only copies
-    let _ = fs::remove_dir_all(&workspace_dir);
 
     rt.sink.emit(
         Some(&plan.key),

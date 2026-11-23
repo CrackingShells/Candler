@@ -133,7 +133,7 @@ fn sealed_run(layout: &StoreLayout) -> PathBuf {
 
 /// Guards: S1, the seal as the one owner of output bytes — a run whose agent writes a file is
 /// graded from that file's bytes. After `candler run` the store holds the blob of every file
-/// entry of the run's `tree.json` and the run keeps no `workspace/`; `candler evaluate` with a
+/// entry of the run's `tree.json`; `candler evaluate` with a
 /// plug-in that needs the file reports the sha256 of the bytes the agent wrote.
 ///
 /// Oracle: the agent's bytes are a literal of the fake client, and their sha256 is taken by
@@ -196,7 +196,7 @@ fn a_run_that_writes_a_file_is_graded_from_its_stored_bytes() {
         fs::read_to_string(run.join("tree.json")).unwrap()
     ); // BORROW: explicit .as_str()
 
-    // The store side: a blob for every file of the tree, and no workspace kept beside them.
+    // The store side: a blob for every file of the tree.
     let tree: Value =
         serde_json::from_str(&fs::read_to_string(run.join("tree.json")).unwrap()).unwrap();
     let files: Vec<&Value> = tree["entries"]
@@ -217,9 +217,5 @@ fn a_run_that_writes_a_file_is_graded_from_its_stored_bytes() {
             "the blob of {entry} is stored"
         );
     }
-    assert!(
-        !run.join("workspace").exists(),
-        "the sealed run keeps no workspace"
-    );
     world.remove();
 }
