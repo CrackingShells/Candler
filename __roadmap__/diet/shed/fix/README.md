@@ -16,7 +16,7 @@ Every claim the audit found broken is fixed or moved to Next with its evidence.
 ## Status
 ```mermaid
 graph TD
-    audit_fixes[audit_fixes]:::planned
+    audit_fixes[audit_fixes]:::done
     close[Close out]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -28,7 +28,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `audit_fixes.md` | 📄 Leaf Task | ⬜ Planned |
+| `audit_fixes.md` | 📄 Leaf Task | ✅ Done |
 | `close/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
