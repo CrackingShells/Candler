@@ -229,7 +229,7 @@ refusal_table! {
     NoStore { .. } => row(
         "config.no_store",
         Side::Config,
-        "Not raised today: a verb that is given no store root takes the default store, and a store that is missing prints `store.not_a_store`.",
+        "No store root resolves at all: neither `--store` nor `CANDLER_STORE` is given, no `candler.toml` is found at or above the working directory, and the user has no state home (`$XDG_STATE_HOME`, else `~/.local/state`), so there is no default store either.",
         "-",
     ),
     RetiredSetting { .. } => row(
