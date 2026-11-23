@@ -349,6 +349,23 @@ impl<'a> Levels<'a> {
     fn get(&self, index: usize) -> Option<&'a Resolution> {
         self.resolutions.get(index).copied()
     }
+
+    /// The replicates of each cell: the setting `replicates` of the first level when the
+    /// resolution holds one, else `file`'s own count. A setting is no part of a cell, so the
+    /// levels agree on it.
+    fn replicates(&self, file: &ExperimentFile) -> u32 {
+        self.get(0)
+            .and_then(|resolution| {
+                resolution
+                    .settings
+                    .iter()
+                    .find(|setting| setting.path().as_str() == "replicates") // BORROW: explicit .as_str()
+            })
+            .and_then(|setting| setting.value())
+            .and_then(|value| value.as_value().as_u64())
+            .and_then(|count| u32::try_from(count).ok())
+            .unwrap_or_else(|| file.replicates())
+    }
 }
 
 /// The fields of a treatment, which a table level of the treatment factor may fill.
@@ -1165,7 +1182,11 @@ pub fn plan_runs<'a>(
     // sealing still decides every replicate.
     let mut plans = Vec::new();
     let mut sealed = Vec::new();
-    for (cell, replicate) in run_order(per_cell.len(), file.replicates(), seed_of(&experiment)) {
+    for (cell, replicate) in run_order(
+        per_cell.len(),
+        levels.replicates(file),
+        seed_of(&experiment),
+    ) {
         let Some((digest, pinned, deviations)) = per_cell.get(cell) else {
             continue;
         };
