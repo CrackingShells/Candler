@@ -80,11 +80,11 @@ Every accepted input of R16 is built as its row says, with its tests designed pe
 ## Status
 ```mermaid
 graph TD
-    analysis_core[Analysis core: order, summary, spend]:::amendment
-    codes_inner[Inner refusal codes]:::amendment
-    preflight_checks[Preflight checks]:::amendment
+    analysis_core[Analysis core: order, summary, spend]:::inprogress
+    codes_inner[Inner refusal codes]:::inprogress
+    preflight_checks[Preflight checks]:::inprogress
     outputs[Outputs and pages]:::amendment
-    server_check[Server start check]:::amendment
+    server_check[Server start check]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -95,11 +95,11 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `analysis_core.md` | 📄 Leaf Task | 🔵 Amendment |
-| `codes_inner.md` | 📄 Leaf Task | 🔵 Amendment |
-| `preflight_checks.md` | 📄 Leaf Task | 🔵 Amendment |
+| `analysis_core.md` | 📄 Leaf Task | 🔄 In Progress |
+| `codes_inner.md` | 📄 Leaf Task | 🔄 In Progress |
+| `preflight_checks.md` | 📄 Leaf Task | 🔄 In Progress |
 | `outputs/` | 📁 Directory | 🔵 Amendment |
-| `server_check.md` | 📄 Leaf Task | 🔵 Amendment |
+| `server_check.md` | 📄 Leaf Task | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
