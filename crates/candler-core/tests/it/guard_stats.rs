@@ -16,7 +16,7 @@ use candler_core::analysis::wilson::{Counts, wilson};
 use candler_core::evaluation::selection::rates::{CellKey, Rates, rates};
 use candler_core::evaluation::selection::select::select;
 use candler_schemas::execution::{Integrity, InvalidReason};
-use candler_schemas::outcome::{Cause, OutcomeRecord, OutcomeRecordBuilder, Role, Status};
+use candler_schemas::outcome::{Cause, OutcomeRecord, OutcomeRecordBuilder, Role, Status, Weight};
 use candler_schemas::primitives::{Digest, ExpectationId, NameVersion, RequestId, RunKey};
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{Rng as _, SeedableRng as _};
@@ -480,6 +480,35 @@ fn t3_invalid_runs_are_out_per_arm_with_their_reason() {
     let b = arm(&arms, 'b');
     assert_eq!((b.valid_runs, b.invalid.len()), (1, 0));
     assert_eq!(counts_of(b, "E1"), (0, 1));
+}
+
+/// Guards: a `pass` weighing 0/0 is out of `k`, out of `n` and out of every sum, and is counted
+/// in `zero_weight`.
+/// Oracle: R01's rate rule (a 0/0 weight adds nothing), hand counts.
+/// Bite: a zero-weight pass counted as a pass.
+#[test]
+#[expect(deprecated, reason = "a zero weight carries the legacy cause")]
+fn t3_zero_weight_passes_add_nothing() {
+    let legacy = Cause::Legacy("zero_weight".parse().expect("a reason code"));
+    let records = vec![
+        built(gate(1, 'a', 1, "E1", Status::Pass)),
+        built(
+            gate(2, 'a', 2, "E1", Status::Pass)
+                .weight(Weight::new(0, 0).expect("a weight"))
+                .cause(legacy),
+        ),
+        built(gate(3, 'a', 3, "E1", Status::Fail)),
+    ];
+    let runs: Vec<RunFacts> = (1..=3).map(|r| valid('a', r)).collect();
+    let arms = tallied(records, &runs);
+    let a = arm(&arms, 'a');
+    let e1 = a.expectations.get(&expectation("E1")).expect("E1");
+    assert_eq!(e1.zero_weight, 1);
+    assert_eq!((e1.pass, e1.fail), (1, 1));
+    assert_eq!(counts_of(a, "E1"), (1, 2));
+    assert!(e1.binary, "a zero weight does not make the rest weighted");
+    let rate = a.rate(Role::Gate);
+    assert_eq!((rate.num(), rate.den()), (1, 2));
 }
 
 /// Guards: no number without its counts. A rate is a pair of counts (a role with nothing
