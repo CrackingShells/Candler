@@ -8,7 +8,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use candler_harness::mcp::servers;
-use candler_harness::spec::{Cell, CommandSpec, EnvEntry};
+use candler_harness::spec::{Cell, CommandSpec};
 use candler_schemas::primitives::RunKey;
 use serde_json::{Map, Value};
 
