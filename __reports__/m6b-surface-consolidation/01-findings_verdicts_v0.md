@@ -270,3 +270,155 @@ G8 and phase one could share a release if they land close; they are different le
 | `e2_slots_evaluators_is_a_known_path` (`guard_resolve.rs:788-797`) | C3 | stays; the table feeds the same predicate |
 
 Digests: none moves. Outputs of `analyze`, `inspect` and the CLI are not hashed; cell and run digests come from manifests, which no accepted item changes (C8 reads manifests; C2's census check, deferred, would have been the one near `comparable`). The ordering by natural level in F2 changes which level is called A, not any digest. GOLDEN: the 240-run golden parity compares outcome rows (`architecture.md:29`), untouched; only the three sign-pinning guards above move.
+
+## D1
+
+One output contract. Condensed from `leaves/cli_contract_v0.md`; terms: a *data verb* is one whose stdout a program parses; `--error-format` is the existing global option that picks the stderr refusal rendering (text or JSON) and is never derived from a terminal (R01 §CLI surface).
+
+**What the tip shows.** Defaults split three ways: JSON by default (`watch`, `analyze`, `inspect`); text by default (`resolve` with `--json`, `ps` and `ls` as TSV with no JSON); no default (`show` and `diff`, a required `--format` with different value sets, `json|toml` and `json|text`). Only the refusal on stderr has a versioned record (`refusal/1`). `ps` squashes whitespace into `_` to keep its TSV splittable (`ps.rs:283-296`): text is already used as a machine format. `analyze`'s JSON is built by hand with `json!` (`analyze.rs:162-357`) and the core `Report` is not `Serialize` (`report.rs:466-485`). Corrections to the inputs: `Table` selects the CSV table, it is not a third format; `resolve` prints values and has `--json`.
+
+| Option | What it is | Gains | Costs |
+|:--|:--|:--|:--|
+| O1 | fill holes only: JSON for `ps`/`ls`, a schema for `analyze` | smallest | three defaults and three spellings stay |
+| O2 | one `--format json\|text` on every data verb, each keeps today's default | one spelling, no behaviour change | the default still depends on the verb |
+| O3 (recommended) | as O2, default `json` everywhere | one spelling and one default; `show`/`diff` need no required option, X10 dissolves; matches the three verbs already JSON | `candler ps` at a terminal prints JSON; humans type `--format text` |
+| O4 | as O3, default `text` | friendlier at a terminal | consumers always pass the option, as they must pass `--error-format json` today |
+
+Recommendation O3, because stdout is data read by a program and stderr is a message to a person; that asymmetry is why `--error-format` defaults to text and `--format` should default to json. A fixed default is not derivation from a terminal, so it does not break R01's rule; auto-switching on a TTY would, and D1 forbids it. Flipping `resolve`, `ps` and `ls` is a compatibility finding for the supervising session (no external users). Asked as Q1.
+
+**The option.** One shared `OutputArgs { format }` flattened into each data verb, per-verb value sets so clap refuses a wrong value at parse time (a usage record, no `codes.toml` row). `watch --json` and `resolve --json` become `--format json`; `ps` and `ls` TSV become their `text`; `analyze` gains `text` and keeps `csv` with `--table`; `inspect` gains `text`; `show`'s `toml` stays as an extra. Guard U2 requires every option to say why it cannot be derived: "it is how the output is read" already satisfies it on `show` and `diff`. `--error-format` stays separate; whether an explicit `--format json` implies it is Q2.
+
+**Ground truth in `candler-schemas`.** For every JSON output a consumer parses, not for the computation behind it: core computes domain types, `candler-schemas` holds the wire record (versioned, `JsonSchema`, under `schema_drift`), a conversion at the core boundary builds it, the CLI only renders it. The pattern exists for the refusal (`refusal.rs:488-502`).
+
+| Output | Moves into `candler-schemas` | Stays in core or the CLI |
+|:--|:--|:--|
+| `analyze` report | `analysis-report/1`: arms (with C8's `spent`), entries, comparisons (F2 order), runs, summary (C6) | the statistics and `Report`; CSV renders from the record |
+| `inspect` run and job | `inspect-run/1`, `inspect-job/1` (the job one carries C8's `spent`) | the store reads |
+| `ps`, `ls` | small records, each with the `store` root used | recovery logic |
+| `diff` report, `show --rates` | small records | the comparison logic |
+| C9's transcript | one record if the stored trace is not already a schema type (unchecked) | the render |
+| `resolve` | later, if M7 or a consumer needs it (`Resolution` is already `Serialize` in core, `layers.rs:246-259`) | the layering |
+| `show` outcome rows, `watch` events | already `outcome-record`, `event-envelope`; build checks the CLI prints exactly those | nothing |
+| `Exit`, `CliError`, `Paint`, `--live` drawing | no | CLI crate |
+
+**Text stays a rendering, never a second source.** A renderer's only input is the record (`fn text(&Record) -> String`), so text cannot show a fact JSON lacks; CSV reads the record too. One table-driven guard enforces it (D3), not a test per renderer.
+
+**CLI and M7 share the types, M7's shape stays open.** Record types live in `candler-schemas`, producers in the operation API, the CLI renders. M7 may serialise the same record as a tool result, wrap it, or choose another envelope at M7 planning. D1 fixes only that no output shape is defined in a surface crate.
+
+**What "every data verb" covers.** Evidence exists for `analyze`, `inspect`, `resolve`, `ps`, `ls`, `diff` and `show --rates`. **Not examined, unknown: `run`, `kill`, `ingest`, `evaluate` (its report is the likely candidate for a record), `show`'s outcome row types, and whether `watch` prints the committed `event-envelope` type.** The design suggestions carry this as a gap; the first build leaf reads them before writing the matrix.
+
+**Releases.** See Blast radius: phase one is `analysis-report/1` and `inspect-*`, cut after F2, C6 and C8; phase two the small records.
+
+## D2
+
+README as the store window. Condensed from `leaves/docs_and_skills_v0.md`.
+
+Four audiences, one source per fact: the store window (`README.md`), the web-wide surface (`docs/`), the interactive surfaces (CLI, MCP, skills: self-contained, offline) and development (`AGENTS.md`, `CLAUDE.md`, `__design__/`). The README's 31 lines hold a good identity paragraph (`README.md:3-8`) and a crate and verb inventory that is a hand copy of what `Cargo.toml` and the clap verbs own, with no guard; it lacks who it is for, features in consumer words, a quick start (nothing is published, so the honest one is a source build and a command that spends nothing) and a link to `docs/`. `AGENTS.md` and `CLAUDE.md` stay development-level, as Eliott said; the fix for a consumer agent landing in the repo is the store window plus a link, not a change to the rules.
+
+**X5 accept**: `README.md` becomes 60 to 80 lines: what it is and is not, six to eight features, quick start (build from source, then `candler resolve` on X6's sample, which starts no job; the builder checks once by hand that `resolve` needs no Docker and words the quick start to match, see seam 5), Learn more (`docs/contract/index.md`, `docs/statistics.md`, `candler --help`), one line each for status and contributing; the crate inventory and verb list leave. No test: no copy of a code fact remains.
+
+## D3
+
+Every test an accepted item proposes, with its role (probe, confirm or guard; R14), the question, why no existing test answers it, and why it stays sustainable and scalable. Items with no test are listed after the table with the reason. X6 first checked whether fixtures that tests already parse can be the samples: yes (table in `leaves/docs_and_skills_v0.md`), so no new test proves a sample valid.
+
+| Test | Role | Question | Why no existing test answers it | Sustainable and scalable |
+|:--|:--|:--|:--|:--|
+| C1: printed counts equal `PlanOutcome` | confirm | does the printed run count equal the runs `run` would start, and the reused count the sealed runs? | no test compares printed numbers with `PlanOutcome` | one test over the existing plan fixtures; reads `PlanOutcome`, asserts a relation, so no new infrastructure |
+| G5: a pinned commit without the skill subtree is refused with the path named | guard (I7) | does resolve refuse a treatment whose commit lacks the skill tree? | `b22_skill_tree_is_the_tag` (`guard_claude_code_driver.rs:179-308`) covers a tag that has the tree, not one without it | one added case in an existing git fixture, no new file; no per-harness code |
+| C3: the path page equals what the code accepts | guard | is the page equal to what `is_known_path` accepts? | the d1 guard covers schema and driver pages only, not paths | no new test: the page is listed in the d1 guard's page table and `is_known_path` reads the table, so the page cannot differ without the guard turning red. If a reviewer keeps `is_known_path` hand-coded, add one guard that every accepted path is a row |
+| F2: `orientation_ignores_cell_digests` | guard | does A and B depend on anything but the levels? | the report and known-truth tests fix one digest order and assert signs, never vary it | one fixture varying one unrelated setting, asserting a relation, independent of level count |
+| C6: `summary_agrees_with_entries` | guard | can the headline disagree with the entries it summarises? | `guard_analyze.rs:1252-1312` checks the JSON names the test and blocks; nothing derives a decision list | reuses the golden-shape fixture, asserts a relation so retuning a statistic does not break it, covers every entry |
+| C8: `spend_sums_recorded_costs_and_counts_the_rest` | guard | is the sum exactly the recorded values, never hiding a missing one? | caps tests exercise the live meter (`caps.rs:105-162`); `run_values` only builds per-run values | a fake store, no model; asserts counts and sum, not a harness shape |
+| C9: `transcript_lists_every_event_in_order` | guard | does the transcript drop or reorder events? | trace tests prove raw to trace, nothing renders it | runs on a stored fixture, independent of the provider stream; the assertion is the relation, so a new event kind needs no edit |
+| X1: one table-driven guard in `guard_cli_surface.rs` | guard | does a verb drift back to a hand-built `println!` shape? | U1 and U2 check which verbs and options exist, not what they print | one row per verb over the U1 matrix; `schema_drift` keeps the files honest; no test per renderer. It also covers X10, F5 and X4's output |
+| G8: inner codes print as `code` | confirm | does a file with a factor without a level print `experiment.factor_without_levels` and a suite with a repeated id `suite.id_repeated`? | current tests assert `document_invalid` for these (the defect) | one table-driven test over the 14 inner codes of the review, expectations read from `codes.toml`; a new inner code adds a row, not a test |
+| X6: a page's Example equals the fixture a test parses | guard | does a page's example equal the file a test parses? | no page shows a file today | the existing d1 guard extended; the generator reads the file, a new sample adds a row |
+| X7: the config page keys equal the keys the reader accepts | guard | do the page's keys equal the keys the code accepts? | no test compares the two | covered by the d1 guard because the page reads the same table (seam 3) |
+| X3: exit codes in `--help` and on the page come from one constant | confirm | do help and page agree? | the page row does not exist | the existing `contract_pages` drift check covers it; one constant |
+
+No test, with the reason: X4 (schema files fall under the existing `schema_drift`, role confirm, already present), X10 and F5 (covered by X1's guard row), X5 (a hand page with no copied code fact), X8 and X9 (prose and row text; a test for a stale sentence is a test per incident), X11 (docstrings are the source; the example is already imported by an engine fixture).
+
+## Codes review
+
+From `leaves/codes_review_v0.md`; the report carries **263 / 85 / 27**, never "377".
+
+- 377 rows are 263 live caller codes, 85 `[internal]` allowlist entries (R04's 85 counts by key and is right; a recount of 83 counted by header and missed the two rows after `[helper]`) and 27 `[helper]` rows, plus the one retired and one lifted row. Total by key: 85 + 27 + 265, minus the two exit rows. Keep all three audiences in the file; state the split once in `docs/contract/index.md` and the `codes.toml` header with the counts generated.
+- A section is a module's catalog, a code prefix is the surface (22 prefixes across 14 caller tables); state it in the header; seven rows sit after the `[helper]` header and are left (append-only); no guard proposed (a test per incident).
+- **Merge: no.** `*.value_invalid` (6), `*.io_failed` (6), `*.field_unset` (5), `isolation.gateway_*` (8), docker (7) keep their distinctions of side or path. The one real duplicate, `suite.` and `evaluation.dependency_*` (4 rows, one fault at two stages), defers with the trigger "an MCP client matches on one and not the other".
+- **Retire: no new retirement**; the existing retired and lifted rows are the promise working as written. Eight rows have zero static emit sites outside tables and tests; none is proven dead, none proven emitted (a `#[from]` conversion builds a variant without naming it). One catalog-reading probe, run once and deleted, would settle it; not proposed.
+- **G8 accept**: 39 caller rows (15 %) are shadowed by `*.document_invalid` on the file-read path. Option 2: `code` becomes the inner code, `document_invalid` stays for pure shape errors serde cannot name. One `schemas@` release; no row added or retired. Cost: the typed error must survive serde (validate after parse). Size 25 Sonnet calls.
+- **X9 accept**: `config.no_store` row text is wrong (seam 1); the 21 `[checked: v@...]` stamps are re-stamped only after a real re-read.
+- Not added: any `remedy` key (G3 stays true).
+
+## Responsibility record (draft)
+
+For R01, as a section of §Layer responsibilities or a new §Documents and surfaces. It folds in the seams: the config pages are generated from the one table (seam 3), and the generator is test code so offline delivery is not promised yet.
+
+> **Four audiences, one source per fact.** Candler's text is written for four audiences. Each fact has one source, and every other place that shows it is generated from that source or does not show it.
+>
+> | Audience | Serves | Files | May hold | May not hold | Source of truth |
+> |:--|:--|:--|:--|:--|:--|
+> | Store window | a person or agent deciding whether Candler fits | `README.md` | what Candler is and is not, its main features, a quick start, the way to more | crate or verb inventories, version numbers, plans, anything a code fact owns | hand-written, short, with no copy of a code fact |
+> | Web-wide | a visitor who reads, with internet, what Candler specifies | `docs/` (contract pages, statistics, samples, config pages), `crates/candler-schemas/schema/` | reference: fields, rules, refusals, versions, method and caveats, worked samples | design rationale, roadmap, contributor rules | tables and samples generated from schemas, manifests, `codes.toml`, the path table and fixtures that tests parse, under a drift test; hand text only where generation cannot speak (Surface, Notes, method prose) |
+> | Interactive | an agent or person using Candler in an isolated environment, offline | the CLI (`--help`, refusals, JSON), the MCP server, the skills, the package docstrings | everything the caller needs to act: values, domains, exit codes, the same facts the web pages show | a link to `docs/`, a URL, a pointer that needs a network; a hand copy of a fact | the binary and the package: the same schemas, registry and tables the pages are generated from |
+> | Development | an agent or person who changes Candler | `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `__design__/`, `__reports__/`, `__roadmap__/` | rules, rationale, plans, history | a consumer entry point; a claim a consumer relies on and no guard checks | hand-written; a rule a test can hold is held by a guard |
+>
+> **The offline rule.** The interactive surfaces (CLI, MCP, skills) are self-contained and work with no network: they never link to `docs/` and never need it. What a page of `docs/` says that an interactive caller needs must reach that caller from the same source, through the binary or the package. This rule requires of the MCP server only that its content is served from what it ships; the shape of its tools and resources is decided at M7 planning.
+>
+> **Consequences.** (1) A hand copy of a code fact, in any audience, is a second source: remove it or generate it. (2) A page never says in prose what a guard or a refusal already says. (3) Web pages may link each other and the repository; interactive text may not link them. (4) A fact two accepted items would both own gets one table in the owning crate; pages are slices of it.
+
+Open and not decided: how the interactive surfaces get generated content that today only the web pages have (the generator is test code); the path vocabulary reaches an offline agent only through `resolve` and refusals until M7 decides.
+
+## Design suggestions
+
+### Proposed build leaves
+
+Levels are by shared files and dependencies. Estimates are Sonnet calls from the records (X4's 40 split by me: about 15 for the inspect records inside the output leaf, about 25 for the analysis record). A verifier means the leaf changes wire or guard behaviour.
+
+| Leaf | Ids | Owned files | Level | Calls | Verifier |
+|:--|:--|:--|:--|--:|:--|
+| `analysis_core` | F2, C6, C8 | `candler-core/src/analysis/{report,summary,spend}.rs`; the four F2 guards | L0 | 30 | yes: re-pins sign guards |
+| `codes_inner` | G8 | `candler-schemas/src/{execution,evaluation,refusal,refusal_impls}.rs`, tests asserting `document_invalid` | L0 | 25 | yes: wire behaviour, `schemas@` release |
+| `preflight_checks` | C1 (summary method), G5 | `candler-core/src/runner/plan.rs`, `resolve/steps/identity.rs`, `candler-harness/src/skills.rs`, one fixture | L0 | 14 | no |
+| `output_contract` | X1, X10, X4 (inspect and small records), C1 (printing, per Q5) | `candler/src/commands/*`, `main.rs`, `candler-schemas` new inspect records, `guard_cli_surface.rs` | L1, after `analysis_core` (shares `analyze.rs`, `inspect.rs`) | 60 | yes: defaults flip, guards U1 and U2 |
+| `knowledge_pages` | C3, X7, X6, X3, X9 | `candler-core/src/resolve/{layers,config}.rs`, `candler/tests/it/support/contract_pages/`, `docs/contract/`, `CONTRIBUTING.md`, `commands/refusal.rs` row, `main.rs` `after_help` | L1, after `codes_inner` (shares `experiment-file.md` and `suite-file.md` Notes) | 47 | yes: generator and page-shape rule |
+| `analysis_record` | X4 (analysis-report), F5, C9 | `candler-schemas/src/analysis.rs`, `candler-core/src/trace/`, `commands/analyze.rs`, `commands/inspect.rs` | L2, after `analysis_core` and `output_contract` | 43 | yes: the record cut once |
+| `docs_chores` | X5, X8, X11, the drift table of seam 6 | `README.md`, `docs/statistics.md`, `python/candler-evaluator/README.md`, `docs/contract/evaluator-helper.md` Surface, `__design__/architecture.md` | L2, after `knowledge_pages` (shares `evaluator-helper.md`) | 20 | no |
+
+Total about 239 Sonnet calls (about $9.8 at $0.041 per call, before verifiers). `knowledge_pages` builds C3 and X7 from one table, as seam 3 requires. The build session's first read, before writing code: the unexamined verbs and the `watch` envelope (seam 7), whether the stored trace is a schema type (seam 4), and whether planning needs Docker (seam 5).
+
+```mermaid
+graph LR
+  A[analysis_core] --> D[output_contract]
+  B[codes_inner] --> E[knowledge_pages]
+  C[preflight_checks]
+  D --> F[analysis_record]
+  A --> F
+  E --> G[docs_chores]
+```
+
+### Drafted R01 §Future features rows
+
+From the leaves' `defer` records (row form: name, what, why, evidence trigger).
+
+| Name | What | Why | Evidence trigger |
+|:--|:--|:--|:--|
+| Declared-versus-census check | The run compares the cell's declared MCP servers and tools with the census the harness reports at start, and flags a run whose box lacks one | A box can differ from its files and only a census read shows it | A run, or a model-free test, whose census differs from the cell's declared servers or tools (Q4 asks whether to build now) |
+| Bind-mount probe on the store root | A resolve step that mounts the store root into a throwaway container and refuses with the Docker error named | A store on a path the Docker host cannot share fails every run late | A second bind-mount failure of a run or control, or the cause of `jobs.session_controls_failed` still unnamed (Q6) |
+| Docker lock and `candler gc` | A lock the call holds around image builds, and a verb that lists, with a dry run, then removes a store's own images, containers and networks | Concurrent builds of one tag, and env images that pile up per store | Two concurrent resolves or runs that fail or build twice on one tag, or the identity row at `architecture.md:1773` decided |
+| Reported model and errata | Record the model the endpoint reports as a `provenance.*` value, only as the stream or gateway gives it; an errata file of commit ranges known to give invalid runs, with a `check` | A run's validity depends on a Candler commit and the alias hides which model answered | (a) a captured live stream or gateway log of a real run that carries a model field; (b) a second defect after `1e6dc91a` that invalidates stored runs and that the recorded commit does not already let `compare` refuse |
+| Two counts, a regrade gap and double grading (widens the row at `:1800`) | `show` without `--rates` and `inspect` count every current record; `--pending` does not regrade after a suite entry's params change; two concurrent evaluations can grade one run twice | One count per fact, and a regrade that follows params | A user-visible mismatch in a report, or a double-graded run seen in a store |
+| Check a plug-in and a suite without a job | Expose `check_suite` and `describe` as one operation | Fewer wasted job starts for plug-in authors | A plug-in author (or the HTN lane) loses a job start to a fault `check_suite` would have reported, shown in a report |
+| Glossary page | One page of the terms the contract pages use, each entry quoting its owner's doc comment | A consumer reads cell, arm, stratum or block in the wrong sense, or M7 needs an undefined term | A recorded misreading by a consumer agent, or M7 planning names the term; and Q7 settled |
+| Token sums in reports (C8's tokens half) | `analyze` and `inspect <job>` sum tokens beside cost | `run.usage` is the harness's own shape, so sums differ by harness | A second harness whose usage shape the first sum cannot read, or a report that needs tokens |
+| Merge of the dependency-code twins | retire `suite.dependency_*` or `evaluation.dependency_*` into one | one fault at two stages | An MCP client matches on one and not the other |
+
+Also from the leaves: a bare-minimum gap, not a Future row, for the build: D1's unexamined verbs (seam 7).
+
+### Owners
+
+| Input | Owner | What to tell them |
+|:--|:--|:--|
+| Input G1 | consumer (the experiment's author, today the HTN lane) | Candler derives the catalog from the image, records its digest and the census, and refuses unequal strata; choosing the instrument is yours. Read the catalog digest and the census before trusting a fail. M7's skill text should say so. |
+| C10 and G4 | provider (RiVault) | Identical replies come from the provider's cache, which counts cache hits as paid; only the body field `"cache": {"no-cache": true}` bypasses it. Candler adds no flag and no workaround (ruling of 2026-11-09). The experimenter documents n and independence (`docs/statistics.md`, "Independence"). |
+| Input G17 | supervising session | Closed, no action: the policy is in `CONTRIBUTING.md:20,82` (`:75` the bump, minor while 0.y.z); the four unmarked M2c changes are past misses the supervisor accepted, with no history rewrite; the version table is correct. |
