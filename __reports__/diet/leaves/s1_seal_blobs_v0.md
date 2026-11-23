@@ -23,7 +23,7 @@ The seal now stores the blob of every file entry of `tree.json` before it writes
 
 ## Verifier
 
-Pending (coordinator).
+PASS with findings, no blocker (spec-verifier). F1: the `# Errors` doc of `seal_run_observed` omits `DigestMismatch`. F2: no seal-level test checks the blobs of a session run; coverage rests on the shared `drive` path. F3: real Docker with root-owned agent files was not exercised. All three stay as follow-ups.
 
 ## Follow-ups
 
