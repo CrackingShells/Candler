@@ -13,7 +13,7 @@
 - Refusal drops the output (`output: String::new()`): `server_that_exits_refuses_the_job_with_its_stderr` red. Reverted.
 - Stdin closed (`interactive = false`): `server_that_stays_up_lets_the_job_start` red (the double's server exits at end of input). Reverted.
 - Remote servers started (url used as the command): `remote_server_is_skipped` red. Reverted.
-- Real-container bite (skip the destroy) was not made.
+- Real-container bite (skip the destroy) was not made; the Running case shows the held-open stdin against Docker.
 - `job_without_stdio_servers_starts_no_check` passes without a check; it bites only against a check that probes with no stdio server.
 
 ## D3
@@ -24,7 +24,19 @@
 5. `server_that_exits_refuses_the_job_in_docker` (confirm, ignored). Q: does the Docker impl see an exited command and its output in a real container set up as a run's, and remove it by id? Oracle: literal `server-boom`; `docker inspect` of every id that carried the label. Fails when: the wrapper, start, inspect or logs are wrong, or the destroy is skipped. Kept as the only real-engine case.
 
 ## Verifier
-(filled below)
+Verifier: fresh Sonnet agent, brief verbatim. Findings and dispositions:
+1. The probe container lacks the harness overlay (`prepared.env_overlay`, the driver's overlay), the prepared files and skill files that `drive` writes before composing: DEFECT, reported to the coordinator, not fixed (needs `driver.plan` and file writes into the scratch, beyond A2's extraction). Network, mounts and plan env are the run's through `compose_container`.
+2. The real-container test covered only an exit: FIXED. It now also probes `sleep 30` and requires Running, against a real `create -i` plus detached start. The test calls `start_probe`, not `check_servers`; the job-level path is covered by the double guards.
+3. Racy poll and leak: FIXED for the poll (it runs until the probes finish, and requires two containers). A failing run still leaves what `World` does not remove; recorded.
+4. Destroy result dropped, cancel not observed, serial probes: follow-up.
+5. Needs `sh` in the image, and refuses an image without it ("could not run"): follow-up.
+6. Grouping omits inputs and env (follows the leaf's "distinct pair"): follow-up.
+7. Refusal is a supervisor stderr line, not a typed record: accepted by the coordinator.
+8. Silent skips of non-string `command`, `args` and `env`: follow-up.
+9. Guards not seen red first: accepted, recorded; all four bites made after.
+10. The double reads `plan.interactive`, which the check sets: the Docker side is covered by the real-container Running case.
+11. `compose_container` is at `crates/candler-core/src/runner/exec/mod.rs:146`, called by `drive` and by `probe_group` (`jobs/orchestrate/servers.rs`).
+Re-check by the same verifier: see the message below.
 
 ## Follow-ups
 - No `codes.toml` row: a pre-run refusal uses `refused()` with no registry code, as the tip does; a coded variant would need `jobs/refusal.rs`.

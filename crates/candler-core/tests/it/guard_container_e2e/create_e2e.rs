@@ -518,7 +518,7 @@ async fn agent_create_then_attach() {
 /// Guards: a declared server whose start command exits is seen as exited with what it printed,
 /// through a real container set up as a run's (the plan's image, mounts, network and `-i`), and
 /// the probe's container is gone by id afterwards.
-/// Oracle: the literal `server-boom` the command writes to its error stream; `docker inspect` of
+/// Oracle: the literal `server-boom` the command writes (and `sleep 30` running for the other case) to its error stream; `docker inspect` of
 /// each container id that carried the test's labels while the probe ran.
 /// Bite: skip the destroy after the reads (the container is left).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -534,16 +534,37 @@ async fn server_that_exits_refuses_the_job_in_docker() {
         )
         .build()
         .expect("a command");
-    let probe = world.isolation.start_probe(
-        &world.plan,
-        &command,
-        world.key.clone(), // BORROW: the container is labelled with the key
-        Duration::from_secs(2),
-    );
+    let done = std::sync::atomic::AtomicBool::new(false);
+    let probe = async {
+        let first = world
+            .isolation
+            .start_probe(
+                &world.plan,
+                &command,
+                world.key.clone(), // BORROW: the container is labelled with the key
+                Duration::from_secs(2),
+            )
+            .await;
+        let staying = CommandSpec::builder()
+            .argv(["sleep", "30"].map(String::from).to_vec())
+            .build()
+            .expect("a command");
+        let second = world
+            .isolation
+            .start_probe(
+                &world.plan,
+                &staying,
+                world.key.clone(), // BORROW: the container is labelled with the key
+                Duration::from_secs(2),
+            )
+            .await;
+        done.store(true, std::sync::atomic::Ordering::SeqCst);
+        (first, second)
+    };
     // The test allows each container the probe creates, by the id docker lists for its label.
     let allow = async {
         let mut seen: Vec<String> = Vec::new();
-        for _ in 0..30 {
+        while !done.load(std::sync::atomic::Ordering::SeqCst) {
             let listed = docker(&[
                 "ps",
                 "-aq",
@@ -557,17 +578,22 @@ async fn server_that_exits_refuses_the_job_in_docker() {
                     seen.push(id.to_owned()); // BORROW: the list owns its ids
                 }
             }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            tokio::time::sleep(Duration::from_millis(20)).await;
         }
         seen
     };
-    let (probed, seen) = tokio::join!(probe, allow);
+    let ((exited, staying), seen) = tokio::join!(probe, allow);
     world.clean();
-    let StartProbe::Exited { output } = probed.expect("a probe") else {
+    assert_eq!(
+        staying.expect("a probe"),
+        StartProbe::Running,
+        "a command that keeps running, with stdin held open, is reported running"
+    );
+    let StartProbe::Exited { output } = exited.expect("a probe") else {
         panic!("the server was reported running");
     };
     assert!(output.contains("server-boom"), "the output: {output}");
-    assert!(!seen.is_empty(), "the probe made a container");
+    assert_eq!(seen.len(), 2, "each probe made one container: {seen:?}");
     for id in &seen {
         assert!(
             !World::known(&id.parse().expect("a container id")),
