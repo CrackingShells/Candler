@@ -63,7 +63,8 @@ fn store() -> (
 /// two factors, three models and three expectations, every tested entry of every comparison has
 /// exactly one decision with its levels, its role, its `reject` and a family size equal to the
 /// tested entries of that comparison and role; every omitted entry is listed once with its
-/// reason and has no decision; nothing is listed that no entry holds.
+/// reason and has no decision; each decision copies the adjusted p and the difference of its
+/// entry, so none reads the unadjusted p; nothing is listed that no entry holds.
 /// Oracle: the relations, counted in the test from `Report.comparisons`; no statistic is a
 /// literal.
 /// Bite: drop an omitted entry, flip one decision's `reject` or take the levels from another
@@ -107,6 +108,11 @@ fn summary_agrees_with_entries() {
                     assert_eq!(decision.levels, comparison.levels, "{key}");
                     assert_eq!(decision.role, tested.role, "{key}");
                     assert_eq!(decision.reject, tested.reject, "{key}");
+                    assert_eq!(decision.factor, comparison.factor, "{key}");
+                    assert_eq!(decision.p_holm.to_bits(), tested.p_holm.to_bits(), "{key}");
+                    assert_eq!(decision.diff, tested.diff, "{key}");
+                    assert_eq!(decision.diff_lo, tested.diff_lo, "{key}");
+                    assert_eq!(decision.diff_hi, tested.diff_hi, "{key}");
                     let family = comparison
                         .entries
                         .iter()

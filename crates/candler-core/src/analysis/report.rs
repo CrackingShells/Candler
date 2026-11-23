@@ -987,10 +987,10 @@ fn treatment_key(level: &Value) -> Option<(&str, &str, &str)> {
 
 /// The natural order of two levels of one factor: a scalar by its value, a treatment by the text
 /// of its name and tag and then its commit, any other value by its JSON text. Levels of different
-/// kinds are ordered by kind. It reads the levels and nothing else, so which arm is A does not
+/// kinds are ordered by kind, and levels that tie by value by their JSON text. It reads the levels and nothing else, so which arm is A does not
 /// depend on the cells' digests.
 fn level_order(a: &Value, b: &Value) -> Ordering {
-    level_rank(a)
+    let by_value = level_rank(a)
         .cmp(&level_rank(b))
         .then_with(|| match (a, b) {
             (Value::Bool(x), Value::Bool(y)) => x.cmp(y),
@@ -1003,13 +1003,15 @@ fn level_order(a: &Value, b: &Value) -> Ordering {
                 (Some(x), Some(y)) => x.cmp(&y),
                 _ => a.to_string().cmp(&b.to_string()),
             },
-        })
+        });
+    by_value.then_with(|| a.to_string().cmp(&b.to_string()))
 }
 
 /// Compares every pair of levels of every declared factor of one stratum, the other declared
 /// factors as blocks.
 ///
-/// The levels of a factor are taken in their natural order, so arm A is the lower level. A comparison is made where at least one block holds cells at both levels. Its arms are the
+/// The levels of a factor are taken in their natural order, so arm A is the lower level.
+/// A comparison is made where at least one block holds cells at both levels. Its arms are the
 /// cells at each level, and `a` and `b` name the first cell of each in key order. The verdict of
 /// [`stratum_verdict`] over every valid run of both levels says whether it is comparable; a
 /// refused comparison keeps its cause and has no test. Holm's adjustment runs once per
