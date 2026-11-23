@@ -35,7 +35,8 @@ pub enum Rendering {
 #[derive(Debug, Clone, Copy, Default, clap::Args)]
 pub struct OutputArgs {
     /// Print the output as text instead of its JSON record; a refusal is written as text too (on
-    /// a verb with no data to print, only the refusal changes). not an experiment setting: it is how the output is read.
+    /// a verb with no data to print, only the refusal changes). not an experiment setting: it is
+    /// how the output is read.
     #[arg(long, value_enum)]
     pub format: Option<Rendering>,
 }
