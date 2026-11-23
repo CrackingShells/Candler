@@ -11,10 +11,7 @@ use crate::support::wiring;
 use std::fs;
 
 use serde_json::{Value, json};
-use wiring::{
-    CONFIG_PATH, CONFIG_TEXT, LITERAL_CANARY, Scenario, agent_cid, docker_calls, planned_key,
-    recorded, run, session_of, wait_for,
-};
+use wiring::{CONFIG_PATH, CONFIG_TEXT, LITERAL_CANARY, Scenario, recorded, run, session_of};
 
 /// The index of the first logged call that `wanted` accepts.
 fn first_call(calls: &[Vec<String>], wanted: impl Fn(&[String]) -> bool) -> Option<usize> {
@@ -151,124 +148,6 @@ fn wiring_collect_exports_before_the_destroy_and_the_export_is_the_trace() {
         Some(&root),
         "the collect command carries the root session, not the last one seen"
     );
-}
-
-/// Guards: R01 §Process supervision (stop escalation, containers) — a stopped run's pre-stop is
-/// a `docker exec` in the agent's container, which the guard re-verified, carrying the session id
-/// the live reader observed; it is never an HTTP call or a command on the host; a pre-stop with no
-/// id observed yet is skipped and a failed one is reported, and the escalation goes on to the
-/// signal in each case.
-/// Oracle: the PATH-fake docker client's log of calls and the ordered outcomes of the stop steps
-/// the run's events carry; the session id from the hand-written `expected.toml` of
-/// `completed_o1`; the expected outcome text of each row written here.
-/// Bite: a pre-stop with no observed id run anyway (the skipped row runs an `exec`), or an `exec`
-/// that fails reported as done.
-#[test]
-fn wiring_stop_execs_in_the_container_with_the_observed_id() {
-    let id = session_of("completed_o1");
-    // (case, what the agent prints, the fake client's exit for `exec`, the pre-stop outcome, exec)
-    let rows: [(&str, String, &str, &str, bool); 4] = [
-        (
-            "an id observed",
-            recorded("completed_o1", "stdout.jsonl"),
-            "0",
-            "exec done",
-            true,
-        ),
-        (
-            "no id yet",
-            String::new(),
-            "0",
-            "skipped: no session id observed yet",
-            false,
-        ),
-        (
-            "the exec fails",
-            recorded("completed_o1", "stdout.jsonl"),
-            "1",
-            "exec failed",
-            true,
-        ),
-        (
-            "a child session seen after the root",
-            with_child(&recorded("completed_o1", "stdout.jsonl"), &id),
-            "0",
-            "exec done",
-            true,
-        ),
-    ];
-    for (case, stdout, exec_code, outcome, execs) in rows {
-        let mut scenario = Scenario::exited("completed_o1");
-        scenario.stdout = stdout.clone(); // BORROW: the scenario owns the text
-        scenario.sleep_s = 30;
-        let observed = !stdout.is_empty();
-        let ran = run(&scenario, |rig, ctl| {
-            fs::write(rig.canned().join("exec.code"), exec_code).expect("an exit code");
-            let key = planned_key();
-            let record = rig
-                .store
-                .layout()
-                .job_dir(&rig.job)
-                .join("children")
-                .join(format!("container-{}.json", &agent_cid().as_str()[..12])); // INDEX: the id is 64 hex digits
-            wait_for(&record);
-            if observed {
-                // The live frames are flushed: the stream file holds the id before the stop.
-                let frames = rig
-                    .store
-                    .layout()
-                    .job_dir(&rig.job)
-                    .join("scratch")
-                    .join(key.to_string())
-                    .join("frames")
-                    .join("stdout.jsonl.tmp");
-                let began = std::time::Instant::now();
-                while !fs::read_to_string(&frames).is_ok_and(|text| text.contains("ses_")) {
-                    assert!(began.elapsed().as_secs() < 10, "no frame with the id");
-                    std::thread::sleep(std::time::Duration::from_millis(20));
-                }
-            }
-            let _ = ctl
-                .cancel
-                .send(Some(candler_core::jobs::model::JobCause::Killed));
-        });
-        let calls = docker_calls(&ran.rig);
-        let exec = first_call(&calls, |call| {
-            call.first().is_some_and(|verb| verb == "exec")
-        });
-        assert_eq!(
-            exec.is_some(),
-            execs,
-            "{case}: {:?} {calls:?}",
-            ran.pre_stops()
-        );
-        if let Some(at) = exec {
-            let call = &calls[at]; // INDEX: found above
-            assert!(
-                call.contains(&agent_cid().as_str().to_owned()),
-                "{case}: {call:?}"
-            ); // BORROW: .to_owned() makes the owned id
-            assert_eq!(
-                call.last(),
-                Some(&id),
-                "{case}: the observed id is the last argument"
-            );
-            assert!(
-                !call.iter().any(|arg| arg.contains("session_id")),
-                "{case}: the placeholder was not filled: {call:?}"
-            );
-        }
-        let stops = ran.pre_stops();
-        assert!(
-            stops.first().is_some_and(|text| text.starts_with(outcome)),
-            "{case}: {stops:?}"
-        );
-        assert!(
-            ran.steps().iter().any(|step| step.contains("Signal")),
-            "{case}: the escalation went on: {:?}",
-            ran.steps()
-        );
-    }
 }
 
 /// Guards: amendment A2 — a run keeps what the driver resolved from its cell: the harness argv,

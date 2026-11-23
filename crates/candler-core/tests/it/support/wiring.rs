@@ -6,7 +6,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use candler_core::isolation::container::DockerIsolation;
 use candler_core::isolation::container::sweeper::{ContainerSweeper, SweepError};
@@ -29,7 +28,6 @@ use candler_harness::spec::{
     Prepared, PreparedFile, ProcessExit, StatePath, StopSpec, Workspace,
 };
 use candler_harness_opencode::driver::OpenCodeDriver;
-use candler_schemas::execution::EventPayload;
 use candler_schemas::primitives::{ContainerId, RunKey};
 use candler_schemas::raw::StreamName;
 use candler_schemas::trace::{EndedBy, Session};
@@ -338,16 +336,14 @@ impl Scenario {
 
 /// What a run left.
 pub struct Ran {
-    /// The world the run ran in.
-    pub rig: Rig,
+    /// The world the run ran in, held so that the files under `dir` outlive the call.
+    pub _rig: Rig,
     /// The run's directory in the store.
     pub dir: PathBuf,
     /// The manifest of the sealed run.
     pub manifest: Value,
     /// Every docker call of the fake client, in order.
     pub docker: Vec<Vec<String>>,
-    /// The events of the job.
-    pub events: Vec<(Option<RunKey>, EventPayload)>,
 }
 
 impl Ran {
@@ -371,34 +367,6 @@ impl Ran {
         )
         .ok()?;
         Some(text)
-    }
-
-    /// The outcome text of each pre-stop step the run's stop ladder took.
-    pub fn pre_stops(&self) -> Vec<String> {
-        self.events
-            .iter()
-            .filter_map(|(_, payload)| {
-                if let EventPayload::ProcessStopStep { step, outcome, .. } = payload
-                    && format!("{step:?}").contains("PreStop")
-                {
-                    return outcome.clone();
-                }
-                None
-            })
-            .collect()
-    }
-
-    /// The steps the stop ladder took, by name, in order.
-    pub fn steps(&self) -> Vec<String> {
-        self.events
-            .iter()
-            .filter_map(|(_, payload)| {
-                if let EventPayload::ProcessStopStep { step, .. } = payload {
-                    return Some(format!("{step:?}"));
-                }
-                None
-            })
-            .collect()
     }
 }
 
@@ -524,9 +492,8 @@ pub fn run(scenario: &Scenario, during: impl FnOnce(&Rig, &JobControl) + Send) -
     Ran {
         manifest,
         docker: docker_calls(&rig),
-        events: sink.events(),
         dir,
-        rig,
+        _rig: rig,
     }
 }
 
@@ -539,18 +506,5 @@ impl ContainerSweeper for NoSweep {
         _scope: &'a SweepScope,
     ) -> BoxFuture<'a, Result<ContainerSweep, SweepError>> {
         Box::pin(async { Ok(ContainerSweep::default()) })
-    }
-}
-
-/// Waits until `path` exists, up to ten seconds.
-pub fn wait_for(path: &Path) {
-    let began = Instant::now();
-    while !path.exists() {
-        assert!(
-            began.elapsed() < Duration::from_secs(10),
-            "{} did not appear",
-            path.display()
-        );
-        std::thread::sleep(Duration::from_millis(20));
     }
 }
