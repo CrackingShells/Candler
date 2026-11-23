@@ -229,6 +229,18 @@ pub enum ResolveError {
     /// An evaluator-only input sits in what the agent receives, and no other step failed.
     #[error(transparent)]
     GroundTruth(#[from] crate::resolve::steps::ground_truth::GroundTruthRefusal),
+    /// A path below `replicates` is given, and `replicates` is one setting with no fields.
+    #[error("`{path}` is below `replicates`, which is one count with no fields")]
+    ReplicatesPath {
+        /// The path, as written.
+        path: String,
+    },
+    /// The `replicates` count is not a whole number.
+    #[error("`replicates` is {value}, which is not a whole number")]
+    ReplicatesNotInteger {
+        /// The value, as JSON text.
+        value: String,
+    },
     /// At least one step failed; every step ran.
     #[error(
         "preflight failed: {} failed step report(s), {} step error(s){}",

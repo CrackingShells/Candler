@@ -329,7 +329,7 @@ async fn resolve(fixed: &[(&str, Value)]) -> Result<Resolution, ResolveError> {
     Resolver::new(config)
         .register(Box::new(EgressStep::new().expect("a step")))
         .expect("registers")
-        .resolve(ResolveInput::default().file(FileValues::new(values)))
+        .resolve(ResolveInput::new(Vec::new()).file(FileValues::new(values)))
         .await
 }
 

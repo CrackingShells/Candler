@@ -337,9 +337,8 @@ pub fn request_settings(
     let file_values = FileValues::new(values.into_iter().collect())
         .relative_to(experiment_dir)
         .map_err(CliError::refused_by)?;
-    let mut input = ResolveInput::default()
-        .file(file_values)
-        .secret_names(file.secrets().iter().map(ToString::to_string).collect());
+    let mut input = ResolveInput::new(file.secrets().iter().map(ToString::to_string).collect())
+        .file(file_values);
     check_file_paths(file)?;
     check_set_paths(fields)?;
     for (path, text) in fields {

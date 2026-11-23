@@ -579,7 +579,7 @@ pub async fn comparables(file: &ExperimentFile, dir: &Path) -> Vec<Value> {
         .expect("registers")
         .register(Box::new(harness))
         .expect("registers")
-        .resolve(ResolveInput::default().file(layer))
+        .resolve(ResolveInput::new(Vec::new()).file(layer))
         .await
         .expect("resolves");
     let (_keep, store, lock) = support::run_plan::fresh_store();

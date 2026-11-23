@@ -187,7 +187,7 @@ async fn try_plan(file: &ExperimentFile, dir: &Path) -> Result<Planned, PlanErro
         .expect("registers")
         .register(Box::new(image))
         .expect("registers")
-        .resolve(ResolveInput::default().file(layer))
+        .resolve(ResolveInput::new(Vec::new()).file(layer))
         .await
         .expect("resolves");
     let (_keep, store, lock) = fresh_store();

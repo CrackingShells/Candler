@@ -45,6 +45,8 @@ fn resolve_error_path(error: &ResolveError) -> Option<String> {
         ResolveError::PluginEnvironment(inner) => Refusal::path(inner),
         ResolveError::GroundTruth(inner) => Refusal::path(inner),
         ResolveError::Env(inner) => Refusal::path(inner),
+        ResolveError::ReplicatesPath { path } => Some(pointer_of(path.split('.'))),
+        ResolveError::ReplicatesNotInteger { .. } => Some(pointer_of(["replicates"])),
         ResolveError::NonUtf8Path { .. }
         | ResolveError::DuplicateStep { .. }
         | ResolveError::DerivedTwice { .. }
@@ -143,9 +145,10 @@ refusal_table! {
 fn env_refusal_path(error: &EnvRefusal) -> Option<String> {
     match error {
         EnvRefusal::Source { path } => Some(pointer_of(path.split('.'))),
-        EnvRefusal::Reserved { .. } | EnvRefusal::Invalid { .. } | EnvRefusal::Secret { .. } => {
-            Some(pointer_of(["env", error.name()]))
-        }
+        EnvRefusal::Reserved { .. }
+        | EnvRefusal::Invalid { .. }
+        | EnvRefusal::Secret { .. }
+        | EnvRefusal::TokenSecret { .. } => Some(pointer_of(["env", error.name()])),
     }
 }
 
@@ -173,6 +176,12 @@ refusal_table! {
         "experiment.env_secret",
         Side::Experiment,
         "An entry of the `env` table names a secret the experiment declares; a secret's value reaches the gateway only.",
+        "The key of the entry in the `env` table.",
+    ),
+    TokenSecret { .. } => row(
+        "experiment.env_token_secret",
+        Side::Experiment,
+        "An entry of the `env` table is named like `model.token_secret`, the secret that holds the gateway token, whose value reaches the gateway only.",
         "The key of the entry in the `env` table.",
     ),
 }
@@ -224,6 +233,18 @@ wrapper_table! {
     PluginEnvironment (inner) => delegate(inner, Side::Experiment),
     GroundTruth (inner) => delegate(inner, Side::Experiment),
     Env (inner) => delegate(inner, Side::Experiment),
+    ReplicatesPath { .. } => row(
+        "experiment.replicates_path",
+        Side::Experiment,
+        "A `[fixed]` key or a `--set` names a path below `replicates`; `replicates` is one count and has no fields.",
+        "The path that was written.",
+    ),
+    ReplicatesNotInteger { .. } => row(
+        "experiment.replicates_not_integer",
+        Side::Experiment,
+        "`replicates` in `[fixed]` or in a `--set` is not a whole number, such as a string or a fraction.",
+        "The `replicates` key.",
+    ),
     Preflight { .. } => row(
         "resolve.preflight_failed",
         Side::Environment,
@@ -270,6 +291,8 @@ fn resolve_answer(error: &ResolveError) -> &dyn Refusal {
         | ResolveError::PluginEnvironment(..)
         | ResolveError::GroundTruth(..)
         | ResolveError::Env(..)
+        | ResolveError::ReplicatesPath { .. }
+        | ResolveError::ReplicatesNotInteger { .. }
         | ResolveError::Format(..) => error,
     }
 }

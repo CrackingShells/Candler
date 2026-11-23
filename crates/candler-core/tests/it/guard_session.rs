@@ -56,7 +56,7 @@ async fn resolve(file: &[(&str, Value)], capable: bool) -> Result<Resolution, Re
     Resolver::new(config)
         .register(Box::new(SessionModeStep::new(capable).expect("a step")))
         .expect("registers")
-        .resolve(ResolveInput::default().file(FileValues::new(values)))
+        .resolve(ResolveInput::new(Vec::new()).file(FileValues::new(values)))
         .await
 }
 

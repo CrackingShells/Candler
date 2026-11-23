@@ -60,7 +60,7 @@ pub async fn resolve_experiment(project: &Path, selector: Option<&str>) -> Resol
     Resolver::new(config)
         .register(Box::new(PluginEnvironmentStep::new().expect("a step")))
         .expect("registers")
-        .resolve(ResolveInput::default().file(layer))
+        .resolve(ResolveInput::new(Vec::new()).file(layer))
         .await
         .expect("the experiment resolves")
 }

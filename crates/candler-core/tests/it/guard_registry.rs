@@ -183,7 +183,7 @@ async fn a_second_preflight_under_one_digest_spawns_nothing() {
         Resolver::new(Arc::new(config.clone()))
             .register(Box::new(step))
             .expect("registered")
-            .resolve(ResolveInput::default())
+            .resolve(ResolveInput::new(Vec::new()))
             .await
             .expect("the preflight passes")
     };

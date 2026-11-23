@@ -86,7 +86,7 @@ fn the_highest_layer_that_sets_a_path_wins_and_names_its_source() {
     ];
     for (row, (winner, source)) in table.iter().enumerate() {
         let level = row + 1;
-        let input = ResolveInput::default()
+        let input = ResolveInput::new(Vec::new())
             .explicit_path(&config, fp("run.input_dir"), Path::new("in/file"))
             .expect("a UTF-8 path");
         let mut layered = Layered::new(&config, input).expect("layers");
@@ -303,7 +303,7 @@ async fn paths_resolve_against_the_file_or_the_working_directory() {
     let root_text = root.display();
 
     let from_file = resolver
-        .resolve(ResolveInput::default())
+        .resolve(ResolveInput::new(Vec::new()))
         .await
         .expect("resolves");
     let store = |resolution: &Resolution| {
@@ -316,7 +316,7 @@ async fn paths_resolve_against_the_file_or_the_working_directory() {
     };
     assert_eq!(store(&from_file), Some(format!("{root_text}/data/store")));
 
-    let input = ResolveInput::default()
+    let input = ResolveInput::new(Vec::new())
         .explicit_path(&config, fp("store.root"), Path::new("data/store"))
         .expect("a UTF-8 path");
     let from_argument = resolver.resolve(input).await.expect("resolves");
@@ -341,7 +341,7 @@ async fn paths_resolve_against_the_file_or_the_working_directory() {
     ])
     .relative_to(&file_dir)
     .expect("a UTF-8 path");
-    let input = ResolveInput::default()
+    let input = ResolveInput::new(Vec::new())
         .file(file)
         .explicit_path(
             &config,
@@ -471,7 +471,7 @@ async fn steps_run_in_order_and_every_failure_is_reported() {
         .register(probe("second@1", vec![], Outcome::Pass, &ran, &seen))
         .expect("second registers");
     let resolution = resolver
-        .resolve(ResolveInput::default())
+        .resolve(ResolveInput::new(Vec::new()))
         .await
         .expect("both steps pass");
     {
@@ -525,7 +525,7 @@ async fn steps_run_in_order_and_every_failure_is_reported() {
         ))
         .expect("registers");
     let error = twice
-        .resolve(ResolveInput::default())
+        .resolve(ResolveInput::new(Vec::new()))
         .await
         .expect_err("one path, two deriving steps");
     assert!(
@@ -560,7 +560,7 @@ async fn steps_run_in_order_and_every_failure_is_reported() {
         .register(probe("last@1", vec![], Outcome::Pass, &ran, &seen))
         .expect("registers");
     let error = resolver
-        .resolve(ResolveInput::default())
+        .resolve(ResolveInput::new(Vec::new()))
         .await
         .expect_err("two steps fail");
     let ResolveError::Preflight { reports, errors } = error else {
@@ -592,7 +592,7 @@ async fn steps_run_in_order_and_every_failure_is_reported() {
 fn job_caps_and_replicates_are_settings_and_per_run_caps_are_values() {
     let root = tempfile::tempdir().expect("a temp dir");
     let config = empty_config(root.path());
-    let input = ResolveInput::default()
+    let input = ResolveInput::new(Vec::new())
         .explicit(fp("budget.max_runs"), num(5))
         .explicit(fp("budget.per_run.wall_s"), num(600))
         .file(FileValues::new(vec![
@@ -640,7 +640,7 @@ async fn the_default_store_root_follows_the_project_or_the_user_state_directory(
     fs::create_dir_all(&work).expect("create the working directory");
     let store = |config: Config| async move {
         let resolution = Resolver::new(Arc::new(config))
-            .resolve(ResolveInput::default())
+            .resolve(ResolveInput::new(Vec::new()))
             .await
             .expect("resolves");
         let found = resolution
@@ -763,7 +763,7 @@ fn e2_slots_evaluators_is_a_setting_not_a_cell_value() {
         user,
         Some(dir.path().join("state")),
     );
-    let resolution = Layered::new(&config, ResolveInput::default())
+    let resolution = Layered::new(&config, ResolveInput::new(Vec::new()))
         .expect("layers")
         .resolve();
     let path = fp("slots.evaluators");
@@ -829,7 +829,7 @@ async fn treatment_factor_needs_no_default() {
     let error = Resolver::new(Arc::new(empty_config(root.path())))
         .register(Box::new(step))
         .expect("registers")
-        .resolve(ResolveInput::default().file(level))
+        .resolve(ResolveInput::new(Vec::new()).file(level))
         .await
         .expect_err("a level with no source is refused");
     assert!(error.to_string().contains("names no source"), "{error}");
@@ -854,7 +854,7 @@ fn env_enters_the_cell_digest() {
     let root = tempfile::tempdir().expect("a temp dir");
     let config = empty_config(root.path());
     let resolve = |value: &str| {
-        let input = ResolveInput::default().file(FileValues::new(vec![
+        let input = ResolveInput::new(Vec::new()).file(FileValues::new(vec![
             (fp("env"), table(&[("TOOL_MODE", value)])),
             (fp("run.seed"), num(7)),
         ]));
@@ -895,9 +895,8 @@ fn reserved_env_names_are_refused() {
         ("1ST", "Invalid"),
     ];
     for (name, kind) in cases {
-        let input = ResolveInput::default()
-            .file(FileValues::new(vec![(fp("env"), table(&[(name, "x")]))]))
-            .secret_names(vec![String::from("OPENAI_API_KEY")]);
+        let input = ResolveInput::new(vec![String::from("OPENAI_API_KEY")])
+            .file(FileValues::new(vec![(fp("env"), table(&[(name, "x")]))]));
         let error = Layered::new(&config, input).expect_err("a refusal");
         assert!(matches!(error, ResolveError::Env(_)), "{name}: {error}");
         let text = error.to_string();
@@ -905,15 +904,12 @@ fn reserved_env_names_are_refused() {
         let refused = format!("{error:?}");
         assert!(refused.contains(kind), "{name}: {refused}");
     }
-    let explicit = ResolveInput::default().explicit(fp("env"), js("x"));
+    let explicit = ResolveInput::new(Vec::new()).explicit(fp("env"), js("x"));
     let error = Layered::new(&config, explicit).expect_err("a refusal");
     assert!(matches!(error, ResolveError::Env(_)), "{error}");
     assert!(error.to_string().contains("`env`"), "{error}");
-    let allowed = ResolveInput::default()
-        .file(FileValues::new(vec![(
-            fp("env"),
-            table(&[("TOOL_MODE", "x")]),
-        )]))
-        .secret_names(vec![String::from("OPENAI_API_KEY")]);
+    let allowed = ResolveInput::new(vec![String::from("OPENAI_API_KEY")]).file(FileValues::new(
+        vec![(fp("env"), table(&[("TOOL_MODE", "x")]))],
+    ));
     assert!(Layered::new(&config, allowed).is_ok());
 }

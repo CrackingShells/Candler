@@ -50,6 +50,7 @@ mod guard_server_check;
 mod guard_session;
 mod guard_settings_out_of_cell;
 mod guard_signal;
+mod guard_silent_acceptance;
 mod guard_spec_file;
 mod guard_stats;
 mod guard_stats_blocking;
