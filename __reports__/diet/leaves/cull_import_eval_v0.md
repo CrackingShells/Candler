@@ -75,4 +75,4 @@ Each bite is a one-line edit of product code; each was reverted with `git checko
 
 ## Verifier
 
-pending (coordinator)
+PASS with findings (3 medium/low), then fixed. The renamed-domain row now compares every projected row (bitten red in 05c4abce); `no_evaluation_module_signals_a_process` is relabelled structure with its residual listed; the oracle covers are marked `#[ignore]`d and corpus-gated, and the lost A-C re-derivation is an accepted loss.
