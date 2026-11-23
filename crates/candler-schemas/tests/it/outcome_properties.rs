@@ -1160,3 +1160,22 @@ fn check_value_record(record: &OutcomeRecord) {
     assert_eq!(&back, record);
     assert!(back.validate().is_ok());
 }
+
+/// Guards: the Rust reader refuses an integer field written as a float, even an integral one
+/// (`2.0`), where the JSON Schema reads it as an integer. Oracle: the literals written below, each
+/// accepted when written as an integer.
+#[test]
+fn outcome_the_rust_reader_refuses_an_integral_float_for_an_integer_field() {
+    let edits: [(&str, &str, &str); 2] = [("run", "replicate", "2"), ("weight", "num", "2")];
+    for (member, field, int) in edits {
+        for (literal, accepted) in [(int, true), ("2.0", false)] {
+            let mut document = base("pass");
+            document[member][field] = serde_json::from_str(literal).expect("JSON");
+            assert_eq!(
+                rust_accepts(&document),
+                accepted,
+                "{member}.{field} written {literal}"
+            );
+        }
+    }
+}

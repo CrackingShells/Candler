@@ -1,5 +1,6 @@
-//! Guards for the registry of refusal codes: every row of the catalogue equals its row in
-//! `docs/contract/codes.toml`, and every wrapper variant answers with a registered code and side.
+//! Guards for the registry of refusal codes: every error type of the workspace is coded or
+//! listed as Candler's own, and every row of the catalogue equals its row in
+//! `docs/contract/codes.toml`.
 #![cfg(test)]
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -35,6 +36,193 @@ const CATALOGUED_SECTIONS: [&str; 13] = [
 /// The workspace root.
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+/// One row of `refusal_scope.tsv`.
+struct Scope {
+    path: String,
+    author: String,
+    leaf: String,
+}
+
+/// The rows of the scope oracle, read by the names of its header row.
+fn scope() -> Vec<Scope> {
+    let text =
+        fs::read_to_string(root().join("__roadmap__/m3-lean-cli/refusal_scope.tsv")).unwrap();
+    let mut lines = text.lines();
+    let header: Vec<&str> = lines.next().unwrap().split('\t').collect();
+    let at = |name: &str| header.iter().position(|column| *column == name).unwrap();
+    let (enum_at, author_at, leaf_at) = (at("enum"), at("author"), at("leaf"));
+    lines
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            let cells: Vec<&str> = line.split('\t').collect();
+            Scope {
+                path: cells[enum_at].to_owned(),
+                author: cells[author_at].to_owned(),
+                leaf: cells[leaf_at].to_owned(),
+            }
+        })
+        .collect()
+}
+
+/// The last segment of a Rust path.
+fn name_of(path: &str) -> &str {
+    path.rsplit("::").next().unwrap()
+}
+
+/// Every source file under `crates/*/src`, as `(<file>, <text>)`. A scan of text: a derive that a
+/// `macro_rules!` expands into is not seen.
+fn source_files() -> Vec<(String, String)> {
+    let mut files = Vec::new();
+    let mut stack = vec![root().join("crates")];
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(&dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = entry.file_name();
+                // `tests` and `benches` of a crate hold no source of the crate; the same names
+                // deeper down are modules of it.
+                let at_crate_root =
+                    path.parent().and_then(Path::parent) == Some(root().join("crates").as_path());
+                let is_test_dir = at_crate_root && (name == "tests" || name == "benches");
+                if name != "target" && !is_test_dir {
+                    stack.push(path);
+                }
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                let file = path
+                    .strip_prefix(root().join(""))
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned();
+                let file = file.trim_start_matches("../../").to_owned();
+                // Judged on the path inside the repository: a checkout under a directory named
+                // `src` would otherwise let `build.rs` through.
+                if file.contains("/src/") {
+                    files.push((file, fs::read_to_string(&path).unwrap()));
+                }
+            }
+        }
+    }
+    files.sort();
+    files
+}
+
+/// Every error type under `crates/*/src`, as `<file>::<name>`: a type with any `derive(..)` of
+/// the attributes above it that names `Error`, however many `derive` lines it has, and a type
+/// with a hand-written `impl Error for`.
+fn error_types() -> Vec<String> {
+    let header = Regex::new(
+        r"(?s)((?:\s*(?:#\[[^\]]*\]|///[^\n]*))+)\s*(?:pub(?:\([^)]*\))?\s+)?(?:enum|struct)\s+(\w+)",
+    )
+    .unwrap();
+    let derive = Regex::new(r"derive\(([^)]*)\)").unwrap();
+    let error = Regex::new(r"\bError\b").unwrap();
+    let manual =
+        Regex::new(r"impl(?:<[^>]*>)?\s+(?:std::error::|core::error::)?Error\s+for\s+(\w+)")
+            .unwrap();
+    let mut found = Vec::new();
+    for (file, text) in source_files() {
+        for capture in header.captures_iter(&text) {
+            let derives_error = derive
+                .captures_iter(&capture[1])
+                .any(|group| error.is_match(&group[1]));
+            if derives_error {
+                found.push(format!("{file}::{}", &capture[2]));
+            }
+        }
+        for capture in manual.captures_iter(&text) {
+            found.push(format!("{file}::{}", &capture[1]));
+        }
+    }
+    found.sort();
+    found.dedup();
+    found
+}
+
+/// The module path of a source file, as `<crate>::<module>`: `crates/candler-core/src/a/b.rs`
+/// and `crates/candler-core/src/a/b/mod.rs` are `candler_core::a::b`.
+fn module_path(file: &str) -> String {
+    let rest = file.strip_prefix("crates/").unwrap();
+    let (krate, inside) = rest.split_once("/src/").unwrap();
+    let inside = inside.strip_suffix(".rs").unwrap();
+    let inside = inside.strip_suffix("/mod").unwrap_or(inside);
+    let mut path = krate.replace('-', "_");
+    if inside != "lib" && inside != "main" {
+        for segment in inside.split('/') {
+            path.push_str("::");
+            path.push_str(segment);
+        }
+    }
+    path
+}
+
+/// The error types that have a `refusal_table!`, as `<file>::<name>`: the type a table names is the
+/// one defined in the same file, or the one whose module the table's file imports it from, or the
+/// only type of that name.
+fn tabled_types(types: &[String]) -> BTreeSet<String> {
+    let table = Regex::new(
+        r"(?:(?:refusal|wrapper)_table!\s*[{(]\s*(?:struct\s+)?|impl\s+(?:candler_schemas::refusal::)?Refusal\s+for\s+)(\w+)\s*[,{]",
+    )
+    .unwrap();
+    let uses = Regex::new(r"(?m)^\s*use\s+([^;]+);").unwrap();
+    let mut tabled = BTreeSet::new();
+    for (file, text) in source_files() {
+        let krate = module_path(&file);
+        let krate = krate.split("::").next().unwrap().to_owned();
+        let mut imports: Vec<String> = Vec::new();
+        for statement in uses.captures_iter(&text) {
+            let statement = statement[1].replace('\n', " ");
+            if let Some((prefix, group)) = statement.split_once("::{") {
+                for item in group.trim_end_matches('}').split(',') {
+                    imports.push(format!("{}::{}", prefix.trim(), item.trim()));
+                }
+            } else {
+                imports.push(statement.trim().to_owned());
+            }
+        }
+        let imports: Vec<String> = imports
+            .into_iter()
+            .map(|path| path.replacen("crate::", &format!("{krate}::"), 1))
+            .collect();
+        for capture in table.captures_iter(&text) {
+            let name = &capture[1];
+            let candidates: Vec<&String> = types
+                .iter()
+                .filter(|entry| name_of(entry) == name)
+                .collect();
+            if candidates.is_empty() {
+                // A refusal that is no error type, such as an adapter.
+                continue;
+            }
+            let chosen: Vec<&&String> = if candidates.len() == 1 {
+                candidates.iter().collect()
+            } else {
+                candidates
+                    .iter()
+                    .filter(|entry| {
+                        let (defined_in, _) = entry.rsplit_once("::").unwrap();
+                        let module = module_path(defined_in);
+                        defined_in == file
+                            || imports.iter().any(|import| {
+                                import.rsplit_once("::").is_some_and(|(from, last)| {
+                                    last == name
+                                        && (module == from
+                                            || module.starts_with(&format!("{from}::")))
+                                })
+                            })
+                    })
+                    .collect()
+            };
+            assert!(
+                chosen.len() == 1,
+                "{file}: the table of `{name}` names {} types of that name ({candidates:?}): import it by its module",
+                chosen.len()
+            );
+            tabled.insert((*chosen[0]).clone());
+        }
+    }
+    tabled
 }
 
 /// The parsed `codes.toml`.
@@ -107,6 +295,152 @@ fn internal_rows(table: &toml::Table) -> Vec<(String, Option<String>)> {
 /// The catalogue of the core, the harness crates and the schemas.
 fn catalogue() -> Vec<CatalogRow> {
     candler_core::refusal::catalog()
+}
+
+/// Guards: R1 — every error type of the workspace is coded, or listed as Candler's own in
+/// `[internal]`, or only wraps coded errors, with no list of types waiting for a later leaf; an
+/// error of the scope of `refusal_core` or `refusal_late` implements `Refusal` and is in the
+/// catalogue; the oracle's classification (an enum that is an author's has a variant coded for
+/// the author, one that is not has only the fallback code, a mixed one has both) holds, and the
+/// fallback code goes with the side `candler`.
+///
+/// Oracle: the `thiserror` types found by a scan of `crates/*/src`, `codes.toml` and
+/// `__roadmap__/m3-lean-cli/refusal_scope.tsv`, none of them generated from the code under test.
+///
+/// Bite: a new `thiserror` enum named in neither `codes.toml` nor `[internal]`; a variant of
+/// an enum the oracle gives to the author whose row carries the fallback code; a variant's side
+/// set to `candler` where the oracle says author.
+#[test]
+fn r1_every_error_enum_is_coded_or_internal() {
+    let table = codes();
+    let coded: BTreeSet<String> = code_rows(&table)
+        .into_iter()
+        .map(|row| row.enum_name)
+        .collect();
+    let internal: BTreeSet<String> = internal_rows(&table)
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+    let types = error_types();
+    let scope = scope();
+    let catalogue = catalogue();
+
+    let tabled = tabled_types(&types);
+    let whole_enum_internal: BTreeSet<String> = table["internal"]
+        .as_table()
+        .unwrap()
+        .iter()
+        .filter(|(_, row)| row.get("variant").is_none())
+        .map(|(key, _)| key.clone())
+        .collect();
+    for entry in &types {
+        let name = name_of(entry);
+        let (file, _) = entry.rsplit_once("::").unwrap();
+        let qualified = format!("{}::{name}", module_path(file));
+        let delegates_only = {
+            let mut rows = catalogue
+                .iter()
+                .filter(|row| row.enum_name == name)
+                .peekable();
+            rows.peek().is_some() && rows.all(|row| row.delegates)
+        };
+        let registered = coded.contains(name) || internal.contains(name) || delegates_only;
+        assert!(
+            (tabled.contains(entry) && registered) || whole_enum_internal.contains(&qualified),
+            "{entry} has no table of codes in its own module's `refusal_table!` and no whole-enum [internal] row keyed `{qualified}`: code it, or list it as Candler's own"
+        );
+    }
+
+    for row in scope.iter().filter(|row| row.leaf == "refusal_late") {
+        let name = name_of(&row.path);
+        let rows: Vec<&CatalogRow> = catalogue.iter().filter(|r| r.enum_name == name).collect();
+        assert!(
+            !rows.is_empty(),
+            "{} is in this leaf's scope and has no row in the catalogue",
+            row.path
+        );
+        let own = |r: &&&CatalogRow| !r.delegates;
+        let authored = rows
+            .iter()
+            .filter(own)
+            .filter(|r| r.code != INTERNAL_CODE)
+            .count();
+        let internal = rows
+            .iter()
+            .filter(own)
+            .filter(|r| r.code == INTERNAL_CODE)
+            .count();
+        for r in rows.iter().filter(own) {
+            assert_eq!(
+                r.code == INTERNAL_CODE,
+                r.side == Side::Candler,
+                "{}::{} has code {:?} and side {}: the fallback code and the side `candler` go together",
+                row.path,
+                r.variant,
+                r.code,
+                r.side
+            );
+        }
+        match row.author.as_str() {
+            "yes" => assert!(
+                authored > 0,
+                "{} is an author's enum by the oracle and codes no variant",
+                row.path
+            ),
+            "no" => assert!(
+                authored == 0 && internal > 0,
+                "{} is not an author's enum by the oracle and codes a variant for the author",
+                row.path
+            ),
+            "mixed" => assert!(
+                authored > 0 && internal > 0,
+                "{} is a mixed enum by the oracle and has {authored} author and {internal} internal variants",
+                row.path
+            ),
+            other => panic!("{}: the oracle's author column holds {other:?}", row.path),
+        }
+    }
+
+    for row in scope.iter().filter(|row| row.leaf == "refusal_core") {
+        let name = name_of(&row.path);
+        if name == "CliError" {
+            continue;
+        }
+        let rows: Vec<&CatalogRow> = catalogue.iter().filter(|r| r.enum_name == name).collect();
+        assert!(
+            !rows.is_empty(),
+            "{} is in this leaf's scope and has no row in the catalogue",
+            row.path
+        );
+        match row.author.as_str() {
+            "yes" => {
+                for r in &rows {
+                    assert!(
+                        r.code != INTERNAL_CODE && r.side != Side::Candler,
+                        "{}::{} is an author's error by the oracle and carries code {:?}, side {}",
+                        row.path,
+                        r.variant,
+                        r.code,
+                        r.side
+                    );
+                }
+            }
+            "no" => {
+                for r in &rows {
+                    assert!(
+                        r.code == INTERNAL_CODE && r.side == Side::Candler,
+                        "{}::{} is not an author's error by the oracle and carries code {:?}, side {}",
+                        row.path,
+                        r.variant,
+                        r.code,
+                        r.side
+                    );
+                }
+            }
+            "mixed" => {}
+            other => panic!("{}: the oracle's author column holds {other:?}", row.path),
+        }
+    }
 }
 
 /// Guards: R1 — every row of the catalogue equals its row in `codes.toml` (code, side, enum and
