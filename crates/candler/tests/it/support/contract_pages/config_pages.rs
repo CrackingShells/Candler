@@ -71,7 +71,9 @@ fn names(kind: Kind) -> &'static str {
         Kind::Leaf => "the path",
         Kind::Subtree => "the path and every path below it",
         Kind::Below => "every path below it",
-        Kind::Carveout => "the path and every path below it, which the enclosing family does not reach",
+        Kind::Carveout => {
+            "the path and every path below it, which the enclosing family does not reach"
+        }
         Kind::NotAPath => "text that is not a field path",
         _ => "other",
     }
@@ -98,7 +100,10 @@ fn file_fields() -> String {
         ("### `candler.toml` (project)", ConfigFile::Project),
         ("### `config.toml` (user)", ConfigFile::User),
     ] {
-        let _ = write!(out, "{heading}\n\n| Table | Key | Meaning |\n|---|---|---|\n");
+        let _ = write!(
+            out,
+            "{heading}\n\n| Table | Key | Meaning |\n|---|---|---|\n"
+        );
         for row in CONFIGURATION_PATHS.iter().filter(|row| row.file == file) {
             let (table, key) = row.path.split_once('.').unwrap_or((row.path, ""));
             let _ = writeln!(out, "| `{table}` | `{key}` | {} |", cell(row.meaning));
@@ -140,12 +145,14 @@ pub fn exit_codes() -> Result<Vec<(u8, String)>, String> {
     let array: &ExprArray = file
         .items
         .iter()
-        .find_map(|item| match item {
-            Item::Const(found) if found.ident == "EXIT_CODES" => match &*found.expr {
-                Expr::Array(array) => Some(array),
-                _ => None,
-            },
-            _ => None,
+        .find_map(|item| {
+            if let Item::Const(found) = item
+                && found.ident == "EXIT_CODES"
+                && let Expr::Array(array) = &*found.expr
+            {
+                return Some(array);
+            }
+            None
         })
         .ok_or("no `EXIT_CODES` array")?;
     array
@@ -158,8 +165,14 @@ pub fn exit_codes() -> Result<Vec<(u8, String)>, String> {
             let mut parts = pair.elems.iter();
             match (parts.next(), parts.next()) {
                 (
-                    Some(Expr::Lit(ExprLit { lit: Lit::Int(code), .. })),
-                    Some(Expr::Lit(ExprLit { lit: Lit::Str(meaning), .. })),
+                    Some(Expr::Lit(ExprLit {
+                        lit: Lit::Int(code),
+                        ..
+                    })),
+                    Some(Expr::Lit(ExprLit {
+                        lit: Lit::Str(meaning),
+                        ..
+                    })),
                 ) => Ok((
                     code.base10_parse::<u8>().map_err(|e| e.to_string())?,
                     meaning.value(),
@@ -172,9 +185,7 @@ pub fn exit_codes() -> Result<Vec<(u8, String)>, String> {
 
 /// The generated Exit codes section of the index.
 pub fn exit_codes_section() -> Result<String, String> {
-    let mut out = String::from(
-        "<!-- generated:exit-codes -->\n| Code | Meaning |\n|---|---|\n",
-    );
+    let mut out = String::from("<!-- generated:exit-codes -->\n| Code | Meaning |\n|---|---|\n");
     for (code, meaning) in exit_codes()? {
         let _ = writeln!(out, "| {code} | {} |", cell(&meaning));
     }

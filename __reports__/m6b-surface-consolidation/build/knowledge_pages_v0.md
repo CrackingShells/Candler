@@ -33,7 +33,14 @@ Branch `claude/m6b-build-knowledge_pages`, branch point e016b320.
 - Steps 2 to 4 were committed as four commits with the leaf's subjects, in the order table, exit codes, pages, no-store row; the paths page and the file page share one commit, since one generator and one index feed both. The first-reads report is one commit with this report.
 
 ## Verifier
-(see below)
+One verifier (fresh, Sonnet). Findings and dispositions:
+- F1 (`is_known_path` accepted `budget.per_run.bogus` through the `budget` family): fixed in `reaches`; guard `a_misspelt_per_run_cap_is_not_known` in paths.rs. It was a behaviour change the first pass of the leaf introduced; no existing guard saw it.
+- F2 (typed readers and the machine-wide check in config.rs still name `slots`, `store`, `plugins`, `gateway` by literal; `config.rs` holds `gateway.upstream_ca` twice; `common.rs` has a hand `STORE_ROOT`; `is_location` is a hand list): not fixed. Only the key-name check reads the table; the value readers need typed access per key. Follow-up, with a second leaf if wanted.
+- F3 (`usage_failure` returns 2 and clap's status outside the table; `Exit` doc comments say the codes): the length of the table is now asserted by the unit test; the rest is follow-up after `output_contract` merges.
+- F4 (uncommitted fmt changes): committed with the fix.
+- Minor: `names()` prints "other" for a new kind; the code lists per page are hand picks. Not changed.
+Re-check by the same verifier: requested for F1, F3.
 
 ## Follow-ups
+- F2 and F3 above.
 - `treatment:` row meaning was written from the constant's name; not checked against the treatment reader.

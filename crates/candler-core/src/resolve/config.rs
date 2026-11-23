@@ -415,7 +415,9 @@ fn check_keys(file: &Path, table: &Table, config_file: ConfigFile) -> Result<(),
         };
         for inner_key in inner.keys() {
             // BORROW: `.as_str()` views the key as a `&str` for the comparison
-            if !config_keys(config_file).any(|(table, name)| table == key.as_str() && name == inner_key.as_str()) {
+            if !config_keys(config_file)
+                .any(|(table, name)| table == key.as_str() && name == inner_key.as_str())
+            {
                 return Err(unknown(format!("{name}.{inner_key}")));
             }
         }

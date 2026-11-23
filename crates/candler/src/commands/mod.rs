@@ -112,6 +112,7 @@ mod exit_codes_tests {
             crate::status(&Ok(Exit::Changed { count: 1 })),
             crate::status(&failure),
         ];
+        assert_eq!(EXIT_CODES.len(), seen.len(), "every row has a case");
         for (row, status) in EXIT_CODES.iter().zip(seen) {
             assert_eq!(row.0, status, "{}", row.1);
         }
