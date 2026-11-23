@@ -49,4 +49,4 @@ None. No guard was merged or rewritten: this cull only deletes tests, and every 
 
 ## Verifier
 
-pending (coordinator)
+PASS with findings (1 medium, 3 low), then fixed. `t3_zero_weight_passes_add_nothing` was covered only by an `#[ignore]`d, corpus-gated golden test; it was restored in 0a8b97ab and the report citations were corrected.
