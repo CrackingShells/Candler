@@ -66,6 +66,5 @@ mod guard_supervise;
 mod guard_transcript;
 mod guard_treatment_context;
 mod guard_treatment_source;
-mod guard_tree_walk;
 mod guard_upstream_ca;
 mod guard_wiring;

@@ -1,4 +1,5 @@
-//! Guards for the digest of a build context and the tag of the base image built from one.
+//! Guards for the digest of a build context and the tag of the base image built from one, for the
+//! tree a listing stages, and for the files a run leaves out when it lists its output.
 //!
 //! The context holds what a naive merge of the tree walkers would move: `a-b` beside `a/b` (the
 //! joined string and the path components sort them in opposite orders), a file link, a directory
@@ -48,4 +49,54 @@ fn guard_build_context() {
     fs::write(ctx.join("Dockerfile"), "FROM scratch\n").unwrap();
     let tag = base_tag(&ctx, &[("A".to_owned(), "b".to_owned())]).unwrap();
     assert_eq!(tag, BASE_TAG);
+}
+
+/// Guards: a staged copy of a listing is the tree its digest covers: the build context read from
+/// the staged copy has the digest of the one it was staged from, links included. Oracle: the
+/// digest of the source, taken before the copy exists.
+#[test]
+fn a_staged_copy_has_the_digest_of_its_listing() {
+    let dir = tempfile::tempdir().unwrap();
+    write_context(dir.path());
+    let ctx = dir.path().join("ctx");
+    let dockerfile = dir.path().join("Dockerfile");
+    let listing = BuildContext::walk().list(&ctx).unwrap();
+    let source = BuildContext::of(&dockerfile, &listing).unwrap();
+    let staged = dir.path().join("staged");
+    listing.stage(&staged).unwrap();
+    let copy = BuildContext::read(&dockerfile, &staged).unwrap();
+    assert_eq!(copy.digest().unwrap(), source.digest().unwrap());
+    assert!(
+        fs::symlink_metadata(staged.join("link-dir"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+}
+
+/// Guards: the files a run produced leave out a link (the file link and the directory link of the
+/// tree) and are listed by joined string, so a planted link never enters the digest. Oracle: the
+/// hand-listed paths.
+#[test]
+fn the_files_of_a_run_leave_out_links() {
+    use candler_core::runner::exec::gather::collect_files;
+    use candler_harness::spec::CollectSpec;
+    let dir = tempfile::tempdir().unwrap();
+    write_context(dir.path());
+    let found = collect_files(
+        &dir.path().join("ctx"),
+        &[CollectSpec::file("**/*".to_owned())],
+    )
+    .unwrap();
+    let paths: Vec<&str> = found.iter().map(|out| out.path.as_str()).collect();
+    assert_eq!(
+        paths,
+        [
+            ".hidden",
+            "a-b",
+            "a/b",
+            "a/n/deep.txt",
+            "caf\u{e9}-\u{65e5}\u{672c}.txt"
+        ]
+    );
 }

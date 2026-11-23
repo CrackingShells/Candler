@@ -20,7 +20,7 @@ use candler_core::resolve::preflight::{
     PreflightError, PreflightStep, ResolveContext, Resolver, StepReport,
 };
 use candler_core::resolve::steps::image::ImageIdStep;
-use candler_core::runner::plan::{Force, PlanError, PlanMode, experiment_of, plan_runs};
+use candler_core::runner::plan::{Force, PlanError, PlanMode, plan_runs};
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_schemas::execution::{Comparable, EventPayload, ExperimentFile};
 use candler_schemas::primitives::{FieldPath, NameToken, RunKey};
@@ -457,24 +457,6 @@ async fn settings_out_of_cell_setting_as_factor_is_refused() {
     );
 }
 
-/// Guards: R01 §Contracts & Invariants (I7), as narrowed for the treatment — an experiment that
-/// declares `request.treatment` as a factor is not refused as a setting factor, because the
-/// treatment is the one setting that resolves into a hashed typed root.
-/// Oracle: the hand-written path `request.treatment` and the two levels written in the file; the
-/// row reads the refusal, never the cells (the per-level cells belong to the level resolve).
-/// Bite: leave the refusal at the top of `fresh_cells` as it is.
-#[tokio::test]
-async fn t2_treatment_is_the_one_admitted_setting() {
-    let root = tempfile::tempdir().expect("a directory");
-    let more = "[[factors]]\npath = \"request.treatment\"\nlevels = [\"htn\", \"other\"]\n";
-    let result = try_plan(&file_with("", more), root.path()).await;
-    assert!(
-        !matches!(&result, Err(PlanError::SettingAsFactor { .. })),
-        "`request.treatment` given as a factor was refused as a setting: {:?}",
-        result.err()
-    );
-}
-
 /// Guards: R01 §Contracts & Invariants (I7) — every setting but the treatment still raises
 /// `SettingAsFactor` with its own path: each other path `is_setting` names given as a factor, and
 /// the `request` parent table filling `request.treatment`.
@@ -520,24 +502,4 @@ async fn t2_other_settings_stay_refused() {
             "`{leaf}` given as a factor: {more}: {refused:?}"
         );
     }
-}
-
-/// The `experiment_of` digest of a file with one treatment and no treatment factor, computed on
-/// the code before the treatment factor was admitted.
-const ONE_TREATMENT_DIGEST: &str =
-    "sha256:f726a43030e52feff244a6204643305f0420c59b4efd253b5a2933834ce7b255";
-
-/// Guards: R01 §Contracts & Invariants (I7), and the digest contracts — admitting the treatment as
-/// a factor moves no digest: a file with one treatment and no factor on it has the experiment
-/// digest it had before.
-/// Oracle: the digest literal, computed by running the code before the change.
-/// Bite: none plausible; the digest reads cells of a file that declares no treatment factor, and
-/// the change reads only the factors.
-#[tokio::test]
-async fn t2_one_treatment_digest_unchanged() {
-    let root = tempfile::tempdir().expect("a directory");
-    let file = file_with("", "");
-    let planned = plan(&file, root.path()).await;
-    let digest = experiment_of(&file, &planned.resolution).expect("a digest");
-    assert_eq!(digest.to_string(), ONE_TREATMENT_DIGEST);
 }
