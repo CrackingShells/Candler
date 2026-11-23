@@ -7,6 +7,7 @@
 pub mod caps;
 pub mod controls;
 pub mod schedule;
+pub mod servers;
 pub mod session;
 pub mod teardown;
 
@@ -17,6 +18,7 @@ use candler_schemas::execution::JobEnd;
 use futures::future::BoxFuture;
 
 use self::schedule::Scheduler;
+use self::servers::check_servers;
 use self::session::{
     DockerHost, EnvSecrets, JobHost, JobSession, OrchestrateError, cells_of, image_of,
     record_packages,
@@ -172,6 +174,10 @@ async fn run_job(
             Ok(session) => session,
             Err(error) => return refused("the job's session cannot be opened", &error),
         };
+    if let Err(error) = check_servers(&rt, &outcome.plans).await {
+        let _report = session.close(&SweepScope::CurrentJob).await;
+        return refused("a declared server does not start", &error);
+    }
     let _lock = outcome.lock;
     let scheduler = Scheduler::with_clock(
         Arc::new(rt),

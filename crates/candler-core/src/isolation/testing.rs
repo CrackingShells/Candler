@@ -465,3 +465,92 @@ impl JobView for FakeJobView {
         Ok(self.lost.contains(job))
     }
 }
+
+/// An [`Isolation`] that answers a start probe from a script and passes everything else to the
+/// isolation it wraps. It records each probed command and each run request.
+pub struct ProbingIsolation {
+    // TRAIT_OBJECT: the wrapped isolation is the job's own, or a fake
+    inner: Arc<dyn super::Isolation>,
+    answers: Mutex<BTreeMap<String, super::StartProbe>>,
+    probed: Mutex<Vec<Vec<String>>>,
+    runs: Mutex<usize>,
+}
+
+impl ProbingIsolation {
+    /// A probing isolation over `inner`. A command no answer names is running.
+    #[must_use]
+    pub fn new(inner: Arc<dyn super::Isolation>) -> Self {
+        // BORROW: the wrapper shares the isolation it wraps
+        Self {
+            inner,
+            answers: Mutex::new(BTreeMap::new()),
+            probed: Mutex::new(Vec::new()),
+            runs: Mutex::new(0),
+        }
+    }
+
+    /// Answers a probe whose command starts with the program `program` with `answer`.
+    pub fn answer(&self, program: &str, answer: super::StartProbe) {
+        held(&self.answers).insert(program.to_owned(), answer);
+    }
+
+    /// The commands probed so far, as their words.
+    #[must_use]
+    pub fn probed(&self) -> Vec<Vec<String>> {
+        held(&self.probed).clone() // BORROW: the caller reads its own copy
+    }
+
+    /// How many run requests were made.
+    #[must_use]
+    pub fn runs(&self) -> usize {
+        *held(&self.runs)
+    }
+}
+
+impl super::Isolation for ProbingIsolation {
+    fn plan(
+        &self,
+        cell: &candler_harness::spec::Cell<'_>,
+        workspace: &candler_harness::spec::Workspace<'_>,
+    ) -> Result<super::model::ContainerPlan, super::IsolationError> {
+        self.inner.plan(cell, workspace)
+    }
+
+    fn run_request<'a>(
+        &'a self,
+        plan: &'a super::model::ContainerPlan,
+        command: candler_harness::spec::CommandSpec,
+        marker: candler_schemas::primitives::Marker,
+        key: candler_schemas::primitives::RunKey,
+        outputs: super::RunOutputs,
+    ) -> BoxFuture<'a, Result<super::IsolatedRequest, super::IsolationError>> {
+        *held(&self.runs) += 1;
+        self.inner.run_request(plan, command, marker, key, outputs)
+    }
+
+    fn collect_and_destroy<'a>(
+        &'a self,
+        plan: &'a super::model::ContainerPlan,
+        workspace: &'a candler_harness::spec::Workspace<'a>,
+        exit: &'a crate::supervise::stop::Exit,
+        key: &'a candler_schemas::primitives::RunKey,
+    ) -> BoxFuture<'a, Result<super::model::ContainerOutcome, super::IsolationError>> {
+        self.inner.collect_and_destroy(plan, workspace, exit, key)
+    }
+
+    fn start_probe<'a>(
+        &'a self,
+        _plan: &'a super::model::ContainerPlan,
+        command: &'a candler_harness::spec::CommandSpec,
+        _key: candler_schemas::primitives::RunKey,
+        _wait: std::time::Duration,
+    ) -> BoxFuture<'a, Result<super::StartProbe, super::IsolationError>> {
+        held(&self.probed).push(command.argv().to_vec()); // BORROW: the log owns the words
+        let answer = command
+            .argv()
+            .first()
+            .and_then(|program| held(&self.answers).get(program).cloned()) // BORROW: the caller owns the answer
+            .unwrap_or(super::StartProbe::Running);
+        Box::pin(async move { Ok(answer) })
+    }
+}

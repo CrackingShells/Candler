@@ -55,6 +55,7 @@ mod guard_run_plan;
 mod guard_seams;
 mod guard_secrets_step;
 mod guard_selection;
+mod guard_server_check;
 mod guard_session;
 mod guard_settings_out_of_cell;
 mod guard_signal;
