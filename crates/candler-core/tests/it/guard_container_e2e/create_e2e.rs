@@ -518,7 +518,7 @@ async fn agent_create_then_attach() {
 /// Guards: a declared server whose start command exits is seen as exited with what it printed,
 /// through a real container set up as a run's (the plan's image, mounts, network and `-i`), and
 /// the probe's container is gone by id afterwards.
-/// Oracle: the literal `server-boom` the command writes (and `sleep 30` running for the other case) to its error stream; `docker inspect` of
+/// Oracle: the literal `server-boom` the command writes (and a command that exits at end of input yet stays up while stdin is open, for the other case) to its error stream; `docker inspect` of
 /// each container id that carried the test's labels while the probe ran.
 /// Bite: skip the destroy after the reads (the container is left).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -546,7 +546,11 @@ async fn server_that_exits_refuses_the_job_in_docker() {
             )
             .await;
         let staying = CommandSpec::builder()
-            .argv(["sleep", "30"].map(String::from).to_vec())
+            .argv(
+                ["sh", "-c", "read line || exit 3; sleep 30"]
+                    .map(String::from)
+                    .to_vec(),
+            )
             .build()
             .expect("a command");
         let second = world

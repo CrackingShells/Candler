@@ -21,7 +21,7 @@
 2. `server_that_stays_up_lets_the_job_start` (guard). Q: does a running server leave the job alone, with stdin held open? Oracle: the one probed command and one run request. Fails when: the check refuses a running server or closes stdin. Lives with the check.
 3. `remote_server_is_skipped` (guard). Q: is a `url` server never started? Oracle: no probed command. Fails when: remote servers are probed. Lives with the check.
 4. `job_without_stdio_servers_starts_no_check` (guard). Q: does a job with no stdio server pay for no probe? Oracle: no probed command, one run. Fails when: the check probes with nothing declared. Lives with the check.
-5. `server_that_exits_refuses_the_job_in_docker` (confirm, ignored). Q: does the Docker impl see an exited command and its output in a real container set up as a run's, and remove it by id? Oracle: literal `server-boom`; `docker inspect` of every id that carried the label. Fails when: the wrapper, start, inspect or logs are wrong, or the destroy is skipped. Kept as the only real-engine case.
+5. `server_that_exits_refuses_the_job_in_docker` (confirm, ignored; also a Running case whose command exits at end of input). Q: does the Docker impl see an exited command and its output in a real container set up as a run's, and remove it by id? Oracle: literal `server-boom`; `docker inspect` of every id that carried the label. Fails when: the wrapper, start, inspect or logs are wrong, or the destroy is skipped. Kept as the only real-engine case.
 
 ## Verifier
 Verifier: fresh Sonnet agent, brief verbatim. Findings and dispositions:
@@ -36,7 +36,7 @@ Verifier: fresh Sonnet agent, brief verbatim. Findings and dispositions:
 9. Guards not seen red first: accepted, recorded; all four bites made after.
 10. The double reads `plan.interactive`, which the check sets: the Docker side is covered by the real-container Running case.
 11. `compose_container` is at `crates/candler-core/src/runner/exec/mod.rs:146`, called by `drive` and by `probe_group` (`jobs/orchestrate/servers.rs`).
-Re-check by the same verifier: see the message below.
+Re-check by the same verifier: findings 3 and 11 closed; 2 closed after the Running case was changed to `read line || exit 3; sleep 30`, which exits if stdin is closed; finding 1 stays open as a defect for the coordinator; no new finding.
 
 ## Follow-ups
 - No `codes.toml` row: a pre-run refusal uses `refused()` with no registry code, as the tip does; a coded variant would need `jobs/refusal.rs`.
@@ -44,3 +44,7 @@ Re-check by the same verifier: see the message below.
 - The guards build their experiment TOML by hand (`support/` is not owned) and read the refusal line from a child process.
 - The guards were written together with the check, not seen red first; their bites are above.
 - The real-container test uses the testagent image through `TestImage`, which removes it on drop; a failed test leaves the image and network (removed by id during this build).
+- The probe's destroy result is dropped, a cancel during the probes is not observed, and servers are probed serially (up to `SERVER_START_WAIT` per server and group).
+- The grouping key is (image, declared servers): cells with the same pair but other inputs or env are not probed.
+- A server whose `command` is not a string, and non-string `args` or `env` values, are skipped silently.
+- Open defect: the probe container lacks the harness env overlay and the prepared and skill files a run has (verifier finding 1).
