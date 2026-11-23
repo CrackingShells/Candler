@@ -39,7 +39,11 @@ One verifier (fresh, Sonnet). Findings and dispositions:
 - F3 (`usage_failure` returns 2 and clap's status outside the table; `Exit` doc comments say the codes): the length of the table is now asserted by the unit test; the rest is follow-up after `output_contract` merges.
 - F4 (uncommitted fmt changes): committed with the fix.
 - Minor: `names()` prints "other" for a new kind; the code lists per page are hand picks. Not changed.
-Re-check by the same verifier: requested for F1, F3.
+Re-check by the same verifier, final verdicts:
+- F1 closed (guard not run by the verifier; run by the implementer, green).
+- F2 not a blocker, partly met: the key lists have one owner (`check_keys` reads `config_keys` over `CONFIGURATION_PATHS`; `PROJECT_TABLES` and `USER_TABLES` are gone). "Named once" does not hold for the value readers' field names and the machine-wide `slots` check, which are all in `config.rs` at e016b320 and are not new. `const KEY = "gateway.upstream_ca"` predates e016b320 (line 279); the new duplicate is the private `GATEWAY_UPSTREAM_CA` in paths.rs, the disclosed schemas-crate limit. Read the gate as "key lists named once".
+- F3 closed for the table length; `ExitCode::from(2)` in `usage_failure` and clap's own status stay outside `EXIT_CODES` (low, follow-up).
+- Clippy `cargo clippy -p candler-core -p candler --all-targets -- -D warnings` on the tip before this commit: clean.
 
 ## Follow-ups
 - F2 and F3 above.
