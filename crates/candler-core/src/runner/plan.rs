@@ -1067,6 +1067,30 @@ fn seal_open(
     Ok(())
 }
 
+/// What a plan holds, counted: the cells, the runs still to start and the runs already sealed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PlanSummary {
+    /// The cells of the experiment.
+    pub cells: usize,
+    /// The runs the plan starts.
+    pub new_runs: usize,
+    /// The runs the store already holds sealed.
+    pub reused_runs: usize,
+}
+
+impl PlanOutcome {
+    /// The counts of this plan, read from what planning already decided.
+    #[must_use]
+    pub fn summary(&self) -> PlanSummary {
+        PlanSummary {
+            cells: self.fresh.len(),
+            new_runs: self.plans.len(),
+            reused_runs: self.sealed.len(),
+        }
+    }
+}
+
 /// Decides the runs of `file`, each cell under the resolution of its treatment level, taking the
 /// experiment lock when `mode` is [`PlanMode::Hold`]. One resolution is the single level of a file
 /// with at most one treatment level.
