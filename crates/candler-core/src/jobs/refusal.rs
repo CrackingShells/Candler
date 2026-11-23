@@ -1,5 +1,6 @@
 //! The refusal codes of the errors of jobs: the job directory, the lost-job recovery, the
-//! orchestration of a job's runs, the supervisor's runtime, the slots and the job view.
+//! orchestration of a job's runs, the start check of its servers, the supervisor's runtime, the
+//! slots and the job view.
 //!
 //! One `refusal_table!` call per error type: a variant without a row does not compile. The `when`
 //! and `at` sentences are written for a coding agent, because the contract pages' tables of
@@ -14,6 +15,7 @@ use std::error::Error;
 
 use crate::jobs::dir::JobError;
 use crate::jobs::lost::RecoverError;
+use crate::jobs::orchestrate::servers::ServerCheckError;
 use crate::jobs::orchestrate::session::OrchestrateError;
 use crate::jobs::runtime::RuntimeError;
 use crate::jobs::slots::SlotError;
@@ -344,16 +346,33 @@ refusal_table! {
     ),
 }
 
+refusal_table! {
+    ServerCheckError, path = no_path;
+    Server { .. } => row(
+        "jobs.server_exited_at_start",
+        Side::Experiment,
+        "A server that the experiment declares under `mcp.servers` exited when it was started in the run's image before the job's first run.",
+        "-",
+    ),
+    ServerCheck { .. } => row(
+        "jobs.server_check_failed",
+        Side::Environment,
+        "The start check of the declared servers could not run, for example because a probe container could not be started.",
+        "-",
+    ),
+}
+
 /// The rows of every coded error of this module, in the order of the types.
 #[must_use]
 pub(crate) fn catalog() -> Vec<CatalogRow> {
-    let tables: [&'static [CatalogRow]; 6] = [
+    let tables: [&'static [CatalogRow]; 7] = [
         <JobError as Catalogued>::rows(),
         <RecoverError as Catalogued>::rows(),
         <OrchestrateError as Catalogued>::rows(),
         <RuntimeError as Catalogued>::rows(),
         <SlotError as Catalogued>::rows(),
         <JobViewError as Catalogued>::rows(),
+        <ServerCheckError as Catalogued>::rows(),
     ];
     tables
         .iter()
@@ -409,4 +428,5 @@ pub(crate) fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refu
         .or_else(|| error.downcast_ref::<RuntimeError>().map(as_refusal))
         .or_else(|| error.downcast_ref::<SlotError>().map(as_refusal))
         .or_else(|| error.downcast_ref::<JobViewError>().map(as_refusal))
+        .or_else(|| error.downcast_ref::<ServerCheckError>().map(as_refusal))
 }

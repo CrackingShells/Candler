@@ -1021,6 +1021,16 @@ side = "environment"
 enum = "JobViewError"
 variant = "Read"
 
+[jobs."jobs.server_exited_at_start"]
+side = "experiment"
+enum = "ServerCheckError"
+variant = "Server"
+
+[jobs."jobs.server_check_failed"]
+side = "environment"
+enum = "ServerCheckError"
+variant = "ServerCheck"
+
 [evaluation]
 
 [evaluation."outcome.value_invalid"]
