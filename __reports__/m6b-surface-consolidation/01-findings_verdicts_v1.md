@@ -406,6 +406,13 @@ Levels are by shared files and dependencies. Estimates are Sonnet calls from the
 
 Total about 272 Sonnet calls (about $11.2 at $0.041 per call, before verifiers), of which C2's 15 are provisional until its code is read. `knowledge_pages` builds C3 and X7 from one table, as seam 3 requires. The build session's first read, before writing code: the unexamined verbs and the `watch` envelope (seam 7), and the exact shape of `TraceFile` events as C9's output (seam 4).
 
+**Conditions on `output_contract` from the supervising session** (its compatibility ruling on Q1 and Q2, 2026-11-23: accepted as a breaking change, built as Eliott ruled):
+- No deprecation period and no aliases: `--error-format`, `watch --json` and `resolve --json` retire outright. clap's ordinary unknown-flag error is enough, with no refusal row and no remedy hint.
+- Each commit that changes a default output or retires a flag carries `!` and gives its migration path in the body: the old invocation, the new one, and how to get text back (`--format text`). This is `CONTRIBUTING.md:20` and `:82`; before 1.0 it bumps the minor version.
+- The same merge sweeps every in-repo caller: `scripts/`, `docs/` (CLI pages and examples), the tests that parse TSV or text output, and any skill text. No caller is left on the old shape.
+- The HTN lane is the only outside caller. The build's knowledge-transfer report holds a short migration note for its coordinator (what changed, old-to-new flags, the release tag); the supervising session relays it at merge.
+- A golden or parity test that compares CLI output may move its digest only with this verdict cited.
+
 ```mermaid
 graph LR
   A[analysis_core] --> D[output_contract]

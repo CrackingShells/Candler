@@ -37,6 +37,7 @@ Six read-only leaves judged the 63 inputs raised by the M7 pre-study, one report
 ## Round 03: Eliott's rulings on the steering questions (2026-11-23)
 
 - `01-findings_verdicts_v1.md` (latest): v0 with the rulings below applied. G11 and C2 (with H1) move to `accept`; the build leaves grow to about 272 calls. Open: Q3 (answered with Eliott's question), the Q4 border, the round 02 candidates.
+- The supervising session accepted Q1 and Q2 as a breaking change and set conditions on the `output_contract` leaf (no aliases, `!` commits with a migration path, every in-repo caller swept in the same merge, a migration note for the HTN lane). They are in v1 under Proposed build leaves.
 
 ## Rulings
 
