@@ -16,7 +16,7 @@ use super::session::image_of;
 use crate::isolation::container::agent_home;
 use crate::isolation::{Isolation, StartProbe};
 use crate::runner::Runtime;
-use crate::runner::exec::compose_container;
+use crate::runner::exec::{compose_container, stage_cell};
 use crate::runner::plan::RunPlan;
 
 /// How long a server's start command is given before it must still be running.
@@ -163,19 +163,32 @@ async fn probe_group(
     fs::create_dir_all(&workspace).map_err(|e| failed(&e))?;
     let home = agent_home(root);
     fs::create_dir_all(&home).map_err(|e| failed(&e))?;
-    let mut container = compose_container(
+    let view = Cell::new(comparable.values());
+    let (staged, _written) = stage_cell(
         rt,
-        isolation,
-        &Cell::new(comparable.values()),
+        cell,
+        comparable,
+        &view,
         &workspace,
         &home,
-        &cell.inputs,
+        &root.join("scratch"),
     )
+    .await
     .map_err(|e| failed(&e))?;
+    let mut container = compose_container(rt, isolation, &view, &workspace, &home, &cell.inputs)
+        .map_err(|e| failed(&e))?;
     // Standard input stays open, as a server's own would while the agent runs.
     container.interactive = true;
     for server in stdio {
         let mut builder = CommandSpec::builder().argv(server.argv.clone()); // BORROW: the command owns its words
+        for entry in staged
+            .prepared
+            .env_overlay
+            .iter()
+            .chain(staged.command.env_overlay())
+        {
+            builder = builder.env(entry.clone()); // BORROW: the command owns its entries
+        }
         for (name, value) in &server.env {
             builder = builder.env(EnvEntry::literal(name.clone(), value.clone())); // BORROW: the entry owns its text
         }

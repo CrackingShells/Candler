@@ -26,6 +26,7 @@ struct Probed {
     inner: Arc<FakeHost>,
     answers: Vec<(String, StartProbe)>,
     eof_exits: Vec<String>,
+    needs: Vec<String>,
     probing: Mutex<Option<Arc<ProbingIsolation>>>,
 }
 
@@ -59,6 +60,9 @@ impl JobHost for Probed {
         let probing = Arc::new(ProbingIsolation::new(self.inner.isolation(isolation)));
         for (program, answer) in &self.answers {
             probing.answer(program, answer.clone()); // BORROW: the double owns its answers
+        }
+        for program in &self.needs {
+            probing.needs_file(program);
         }
         for program in &self.eof_exits {
             probing.exit_at_eof(program, "stdin closed");
@@ -99,12 +103,14 @@ fn run(
     job: JobSpec,
     answers: Vec<(String, StartProbe)>,
     eof_exits: Vec<String>,
+    needs: Vec<String>,
 ) -> (JobOutcome, Vec<Vec<String>>, usize) {
     let rig = Rig::new(0);
     let host = Arc::new(Probed {
         inner: rig.host(),
         answers,
         eof_exits,
+        needs,
         probing: Mutex::new(None),
     });
     let (cancel, _keep) = watch::channel::<Option<JobCause>>(None);
@@ -139,7 +145,7 @@ fn server_that_exits_refuses_the_job_with_its_stderr() {
                 output: String::from("boom: no module named x"),
             },
         )];
-        let (outcome, probed, runs) = run(job, answers, Vec::new());
+        let (outcome, probed, runs) = run(job, answers, Vec::new(), Vec::new());
         assert_eq!(probed, vec![vec!["badserver".to_owned(), "--x".to_owned()]]);
         assert_eq!(runs, 0, "no run starts");
         assert!(outcome.runs.is_empty(), "no run is recorded");
@@ -165,7 +171,12 @@ fn server_that_exits_refuses_the_job_with_its_stderr() {
 #[test]
 fn server_that_stays_up_lets_the_job_start() {
     let job = job_with(&[("alpha", json!({"command": "goodserver"}))]);
-    let (outcome, probed, runs) = run(job, Vec::new(), vec![String::from("goodserver")]);
+    let (outcome, probed, runs) = run(
+        job,
+        Vec::new(),
+        vec![String::from("goodserver")],
+        Vec::new(),
+    );
     assert_eq!(probed, vec![vec!["goodserver".to_owned()]]);
     assert_eq!(runs, 1, "the run starts");
     assert_eq!(outcome.runs.len(), 1);
@@ -177,7 +188,7 @@ fn server_that_stays_up_lets_the_job_start() {
 #[test]
 fn remote_server_is_skipped() {
     let job = job_with(&[("remote", json!({"url": "https://example.test/mcp"}))]);
-    let (_, probed, runs) = run(job, Vec::new(), Vec::new());
+    let (_, probed, runs) = run(job, Vec::new(), Vec::new(), Vec::new());
     assert!(
         probed.is_empty(),
         "no container is started for a url server"
@@ -189,7 +200,20 @@ fn remote_server_is_skipped() {
 /// Oracle: no probed command; the run starts.
 #[test]
 fn job_without_stdio_servers_starts_no_check() {
-    let (_, probed, runs) = run(job_with(&[]), Vec::new(), Vec::new());
+    let (_, probed, runs) = run(job_with(&[]), Vec::new(), Vec::new(), Vec::new());
     assert_eq!(probed, Vec::<Vec<String>>::new());
     assert_eq!(runs, 1);
+}
+
+/// Guards: the container a server is probed in holds the files a run's would: a server whose
+/// command is a file of the treatment's skill tree passes the check.
+/// Oracle: the skill file `.claude/skills/htn/SKILL.md` the skill repository fixture commits.
+/// Bite: stage the cell's files outside the probe's mounts.
+#[test]
+fn server_in_the_skill_tree_passes_the_check() {
+    let file = ".claude/skills/htn/SKILL.md";
+    let job = job_with(&[("alpha", json!({"command": file}))]);
+    let (_, probed, runs) = run(job, Vec::new(), Vec::new(), vec![String::from(file)]);
+    assert_eq!(probed, vec![vec![file.to_owned()]]);
+    assert_eq!(runs, 1, "the file is there, so the run starts");
 }

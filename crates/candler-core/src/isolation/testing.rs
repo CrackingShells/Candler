@@ -475,6 +475,7 @@ pub struct ProbingIsolation {
     probed: Mutex<Vec<Vec<String>>>,
     runs: Mutex<usize>,
     eof_exits: Mutex<BTreeMap<String, String>>,
+    needs: Mutex<BTreeSet<String>>,
 }
 
 impl ProbingIsolation {
@@ -488,6 +489,7 @@ impl ProbingIsolation {
             probed: Mutex::new(Vec::new()),
             runs: Mutex::new(0),
             eof_exits: Mutex::new(BTreeMap::new()),
+            needs: Mutex::new(BTreeSet::new()),
         }
     }
 
@@ -500,6 +502,12 @@ impl ProbingIsolation {
     /// does not hold standard input open, as a server that stops at end of input does.
     pub fn exit_at_eof(&self, program: &str, output: &str) {
         held(&self.eof_exits).insert(program.to_owned(), output.to_owned());
+    }
+
+    /// Makes a probed command whose program is `program`, a path relative to a mount, exit unless
+    /// that file exists under the source of one of the plan's mounts.
+    pub fn needs_file(&self, program: &str) {
+        held(&self.needs).insert(program.to_owned());
     }
 
     /// The commands probed so far, as their words.
@@ -555,11 +563,23 @@ impl super::Isolation for ProbingIsolation {
     ) -> BoxFuture<'a, Result<super::StartProbe, super::IsolationError>> {
         held(&self.probed).push(command.argv().to_vec()); // BORROW: the log owns the words
         let program = command.argv().first();
+        let missing = program
+            .filter(|program| held(&self.needs).contains(program.as_str()))
+            .filter(|program| {
+                !plan
+                    .mounts
+                    .iter()
+                    .any(|mount| mount.source.join(program.as_str()).is_file())
+            })
+            .map(|_| super::StartProbe::Exited {
+                output: String::from("no such file"),
+            });
         let at_eof = program
             .filter(|_| !plan.interactive)
             .and_then(|program| held(&self.eof_exits).get(program).cloned()) // BORROW: the caller owns the output
             .map(|output| super::StartProbe::Exited { output });
-        let answer = at_eof
+        let answer = missing
+            .or(at_eof)
             .or_else(|| {
                 program.and_then(|program| held(&self.answers).get(program).cloned()) // BORROW: the caller owns the answer
             })

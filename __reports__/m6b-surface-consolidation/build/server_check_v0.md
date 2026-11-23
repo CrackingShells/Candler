@@ -17,6 +17,7 @@
 - `job_without_stdio_servers_starts_no_check` passes without a check; it bites only against a check that probes with no stdio server.
 
 ## D3
+0. `server_in_the_skill_tree_passes_the_check` (guard). Q: does the probe container hold the files a run's has? Oracle: the skill file the fixture commits. Fails when: the cell's files are not staged into the probe's mounts. Lives with the check.
 1. `server_that_exits_refuses_the_job_with_its_stderr` (guard). Q: does a server that exited stop the job before any run, with its output in the refusal? Oracle: literal `boom: no module named x`; the job runs in a child of the test binary so the stderr line is read. Fails when: the check runs late, or drops the output. Lives while the refusal text is user-facing.
 2. `server_that_stays_up_lets_the_job_start` (guard). Q: does a running server leave the job alone, with stdin held open? Oracle: the one probed command and one run request. Fails when: the check refuses a running server or closes stdin. Lives with the check.
 3. `remote_server_is_skipped` (guard). Q: is a `url` server never started? Oracle: no probed command. Fails when: remote servers are probed. Lives with the check.
@@ -25,7 +26,7 @@
 
 ## Verifier
 Verifier: fresh Sonnet agent, brief verbatim. Findings and dispositions:
-1. The probe container lacks the harness overlay (`prepared.env_overlay`, the driver's overlay), the prepared files and skill files that `drive` writes before composing: DEFECT, reported to the coordinator, not fixed (needs `driver.plan` and file writes into the scratch, beyond A2's extraction). Network, mounts and plan env are the run's through `compose_container`.
+1. The probe container lacked the harness overlay, the prepared files and the skill files: FIXED on the coordinator's ruling. `stage_cell` (extracted from `drive`, `runner/exec/mod.rs`) runs the driver plan and writes those files into the probe's scratch workspace and home; `probe_group` passes the overlay to each server command and removes the scratch after. Guard `server_in_the_skill_tree_passes_the_check` (bite: stage outside the probe's mounts, red).
 2. The real-container test covered only an exit: FIXED. It now also probes `sleep 30` and requires Running, against a real `create -i` plus detached start. The test calls `start_probe`, not `check_servers`; the job-level path is covered by the double guards.
 3. Racy poll and leak: FIXED for the poll (it runs until the probes finish, and requires two containers). A failing run still leaves what `World` does not remove; recorded.
 4. Destroy result dropped, cancel not observed, serial probes: follow-up.
@@ -39,6 +40,7 @@ Verifier: fresh Sonnet agent, brief verbatim. Findings and dispositions:
 Re-check by the same verifier: findings 3 and 11 closed; 2 closed after the Running case was changed to `read line || exit 3; sleep 30`, which exits if stdin is closed; finding 1 stays open as a defect for the coordinator; no new finding.
 
 ## Follow-ups
+- Accepted by the coordinator: verifier findings 4 to 8 and 10, the guards not seen red first, and the missing real-container bite (skip the destroy).
 - No `codes.toml` row: a pre-run refusal uses `refused()` with no registry code, as the tip does; a coded variant would need `jobs/refusal.rs`.
 - The `sh -c 'exec "$@" 2>&1'` wrapper assumes `sh` in the image, because the `capture` seam returns stdout only.
 - The guards build their experiment TOML by hand (`support/` is not owned) and read the refusal line from a child process.
@@ -47,4 +49,3 @@ Re-check by the same verifier: findings 3 and 11 closed; 2 closed after the Runn
 - The probe's destroy result is dropped, a cancel during the probes is not observed, and servers are probed serially (up to `SERVER_START_WAIT` per server and group).
 - The grouping key is (image, declared servers): cells with the same pair but other inputs or env are not probed.
 - A server whose `command` is not a string, and non-string `args` or `env` values, are skipped silently.
-- Open defect: the probe container lacks the harness env overlay and the prepared and skill files a run has (verifier finding 1).
