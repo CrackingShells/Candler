@@ -10,6 +10,8 @@ use candler_core::analysis::report::{
     ArmReport, Comparison, Entry, Report, ReportInput, RunRow, RunView, Tested, Unsealed,
     check_factors, choose_evaluator, role_name,
 };
+use candler_core::analysis::spend::Spend;
+use candler_core::analysis::summary::Summary;
 use candler_core::analysis::tally::{Rate, RunFacts};
 use candler_core::analysis::{ALPHA, alpha_source};
 use candler_schemas::execution::{ExperimentFile, varying_paths};
@@ -159,6 +161,53 @@ fn map_json(map: &std::collections::BTreeMap<String, u64>) -> Value {
     )
 }
 
+/// A spend as `{cost_usd, runs_counted, runs_without_total}`.
+pub fn spent_json(spend: &Spend) -> Value {
+    json!({
+        "cost_usd": spend.cost_usd,
+        "runs_counted": spend.runs_counted,
+        "runs_without_total": spend.runs_without_total,
+    })
+}
+
+/// The decision summary as `{decisions, omitted}`.
+fn summary_json(summary: &Summary) -> Value {
+    let decisions: Vec<Value> = summary
+        .decisions
+        .iter()
+        .map(|decision| {
+            json!({
+                "experiment": decision.experiment,
+                "factor": decision.factor.to_string(),
+                "levels": decision.levels.as_ref().map(|(a, b)| json!([a, b])),
+                "id": decision.id.to_string(),
+                "role": role_name(decision.role),
+                "diff": decision.diff,
+                "diff_lo": decision.diff_lo,
+                "diff_hi": decision.diff_hi,
+                "p_holm": decision.p_holm,
+                "reject": decision.reject,
+                "family": decision.family,
+            })
+        })
+        .collect();
+    let omitted: Vec<Value> = summary
+        .omitted
+        .iter()
+        .map(|held| {
+            json!({
+                "experiment": held.experiment,
+                "factor": held.factor.to_string(),
+                "levels": held.levels.as_ref().map(|(a, b)| json!([a, b])),
+                "id": held.id.to_string(),
+                "role": role_name(held.role),
+                "reason": held.reason.as_str(),
+            })
+        })
+        .collect();
+    json!({"decisions": decisions, "omitted": omitted})
+}
+
 fn arm_json(arm: &ArmReport) -> Value {
     let expectations: Vec<Value> = arm
         .expectations
@@ -209,6 +258,7 @@ fn arm_json(arm: &ArmReport) -> Value {
             "outcomes": arm.instrument_error.outcomes,
         },
         "expectations": expectations,
+        "spent": spent_json(&arm.spent),
     })
 }
 
@@ -350,6 +400,7 @@ pub fn render_json(report: &Report) -> Result<String, CliError> {
             .collect::<Vec<Value>>(),
         "pairs_not_one_factor": report.pairs_not_one_factor,
         "runs": runs,
+        "summary": summary_json(&report.summary),
     });
     let mut text = serde_json::to_string(&document).map_err(|e| CliError::failed(VERB, e))?;
     text.push('\n');

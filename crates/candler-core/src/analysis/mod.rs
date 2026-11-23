@@ -16,7 +16,9 @@ pub mod newcombe;
 pub mod permutation;
 pub mod refusal;
 pub mod report;
+pub mod spend;
 pub mod splitmix;
+pub mod summary;
 pub mod tally;
 pub mod wilson;
 

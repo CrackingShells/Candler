@@ -11,6 +11,7 @@ use std::fs;
 use std::path::Path;
 use std::str::FromStr as _;
 
+use candler_core::analysis::spend::spend_of;
 use candler_core::evaluation::selection::select::select;
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::lost::{JobLiveness, classify};
@@ -19,6 +20,7 @@ use candler_schemas::outcome::OutcomeRecord;
 use candler_schemas::primitives::{JobId, RunKey};
 use serde_json::{Map, Value, json};
 
+use super::analyze::spent_json;
 use super::refusal::CliRefusal;
 use super::{CliError, Exit, common, ps};
 use crate::Cli;
@@ -317,6 +319,7 @@ pub fn render_job(store: &Store, id: &JobId) -> Result<Value, CliError> {
     let record = dir.record().map_err(|e| CliError::failed("inspect", e))?;
     let state = job_state(&dir)?;
     let mut runs = Vec::new();
+    let mut sealed = Vec::new();
     for entry in store.runs().map_err(|e| CliError::failed("inspect", e))? {
         // EXPLICIT: a run whose manifest cannot be read names no job
         let Ok(manifest) = store.read_manifest(&entry.key) else {
@@ -332,8 +335,16 @@ pub fn render_job(store: &Store, id: &JobId) -> Result<Value, CliError> {
             "integrity": integrity,
             "outcomes": status_counts(store, &entry.key)?,
         }));
+        if entry.done {
+            sealed.push(manifest);
+        }
     }
-    Ok(json!({"id": record.id().to_string(), "state": state, "runs": runs}))
+    Ok(json!({
+        "id": record.id().to_string(),
+        "state": state,
+        "runs": runs,
+        "spent": spent_json(&spend_of(sealed.iter())),
+    }))
 }
 
 /// Prints what the store holds of the run, or the job, that the target names.
