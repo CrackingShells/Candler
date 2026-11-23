@@ -41,3 +41,14 @@ Re-check: see the final message.
 - `plan_runs` falls back to the file's count when the resolution holds no `replicates` setting, because `request_settings` does not put the file's count into the resolution; adding it prints a new `replicates` row in `resolve`.
 - `compose_resolver` lost its `skills` parameter: the services carry it (`M2bServices::skills`), one source for both steps.
 - `GroundTruthStep` could drop its own skill-tree read once it relies on `skill_tree@1`.
+
+## Coordinator rulings
+1. NEW-1, summary bounds: done. `PlanOutcome::summary(&Budget)` reads the experiment file's budget (`file.budget()`): new runs times `budget.per_run.wall_s`, and the job caps the file sets (`max_runs`, `max_tokens`, `max_cost_usd`, `wall_s`, `max_parallel`). Test `the_summary_of_a_plan_holds_the_caps_of_the_file` (`guard_run_plan.rs`) plans a parsed file with `plan_runs` and calls `summary`. It was seen red against the previous version, which read the resolution: `wall_s_bound` was `None` where 2400 was expected. Commit `fix(runner): take the plan caps from the experiment file`.
+2. `--set replicates=0` and `=abc`: done. Unit test `a_replicates_value_that_is_not_a_count_is_refused` (`crates/candler/src/commands/preflight.rs`) refuses 0, `abc` and `2.5`; seen red by removing the `--set` call and, separately, the `[fixed]` call. `check_replicate_count` parses to an integer and calls `check_replicates` for the range; a non-integer stays `NotPositive` (accepted, a follow-up: no code says "not a count"). Commit `fix(resolve): check a replicates value of the file and of --set once`.
+3. OPEN-1: done in the existing test `treatment_factor_needs_no_default` (now async): it asserts the missing-treatment refusal mentions `treatment`, and that a level `{name, tag}` with no source is refused by the real `TreatmentIdentityStep` with "names no source". The schema reader wraps the typed `MissingField` in a document error, so the test checks its text, not the variant. Commit `test(resolve): check the refusals around a treatment factor`.
+4. OPEN-2: no change. `Level` has two variants, `Value` (any JSON but null) and `Fill`; null is refused by the reader, so the `_ => continue` in `treatment_levels` (`runner/plan.rs`) cannot fire today. A level that is a string, not a table, fails in the step with the same read error whether or not a `[treatment]` table exists. Left: none.
+5. `[fixed] replicates`: `check_known` accepts it (`replicates` is a known setting) and its value reached `Levels::replicates`, which falls back silently. `request_settings` now checks it with the same helper as `--set`; covered by the same test.
+
+Ruled, nothing to do: schema version (derived by the release); `docs/contract/experiment-file.md` and the `field_classes.toml` row (amendment A3).
+
+Third verifier check: dispatched through SendMessage at the call cap; its reply is not in this report.
