@@ -1,0 +1,11 @@
+schema = "plugin-manifest/1"
+name = "audit-second"
+version = "0.1.0"
+command = ["env", "PYTHONPATH=@REPO@/python/candler-evaluator/src:@PLUGINS@/audit_second", "uv", "run", "--frozen", "--project", "@REPO@/python/candler-evaluator", "python", "-m", "candler_evaluator", "audit_second"]
+
+[protocol]
+major = 1
+minor = 0
+
+[environment]
+kind = "none"

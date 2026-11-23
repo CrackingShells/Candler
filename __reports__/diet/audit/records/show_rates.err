@@ -1,0 +1,1 @@
+{"schema":"refusal/1","code":"analysis.mixed_evaluator_versions","side":"config","message":"refused: --evaluator: the store holds outcomes of several evaluators (audit-file@0.1.0, audit-second@0.1.0): name one","causes":[]}

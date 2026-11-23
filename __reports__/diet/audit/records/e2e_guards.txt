@@ -1,0 +1,32 @@
+   Compiling candler v0.13.0 (/Users/hacker/Documents/tmp/claude-worktrees/Candler/diet-e2e_audit/crates/candler)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.54s
+────────────
+ Nextest run ID bd8cf44c-d45d-4897-8c02-c7d8746f0243 with nextest profile: default
+    Starting 24 tests across 13 binaries (746 tests skipped)
+        SLOW [> 60.000s] (─────) candler::it guard_cli_e2e::i8_e2e::i8_canary_never_reaches_the_agent
+        PASS [ 108.930s] ( 1/24) candler::it guard_cli_e2e::i8_e2e::i8_canary_never_reaches_the_agent
+        PASS [  24.531s] ( 2/24) candler::it guard_cli_e2e::kill_e2e::b40_kill_all_destroys_lost_jobs_containers
+        PASS [   1.228s] ( 3/24) candler::it guard_cli_e2e::shim_refusals::the_shim_refuses_a_destroy_of_an_id_outside_the_allowlist
+        PASS [   0.686s] ( 4/24) candler::it guard_cli_e2e::shim_refusals::the_shim_with_no_allowlist_refuses_every_destroy
+        PASS [   1.608s] ( 5/24) candler-core::it guard_container_e2e::container_run_e2e::b06_kernel_facts
+        PASS [   4.615s] ( 6/24) candler-core::it guard_container_e2e::container_run_e2e::b08_self_expiry
+        PASS [  18.012s] ( 7/24) candler-core::it guard_container_e2e::container_stop_e2e::b12_sweep_scope
+        PASS [   6.826s] ( 8/24) candler-core::it guard_container_e2e::container_stop_e2e::b13_client_killed_container_gone
+        PASS [  17.701s] ( 9/24) candler-core::it guard_container_e2e::container_stop_e2e::destroy_verifies_by_one_inspect
+        PASS [   0.895s] (10/24) candler-core::it guard_container_e2e::control_e2e::control_each_kind_runs_on_the_real_base
+        PASS [  32.318s] (11/24) candler-core::it guard_container_e2e::controls_e2e_runs::controls_e2e_pinned_harness_passes
+        PASS [  11.104s] (12/24) candler-core::it guard_container_e2e::create_e2e::agent_create_then_attach
+        PASS [   7.578s] (13/24) candler-core::it guard_container_e2e::create_e2e::server_that_exits_refuses_the_job_in_docker
+        PASS [  27.622s] (14/24) candler-core::it guard_container_e2e::egress_e2e::egress_allowlist_holds_on_a_real_daemon
+        PASS [   4.895s] (15/24) candler-core::it guard_container_e2e::egress_proxy_e2e::egress_proxy_never_resolves_a_listed_host_to_itself
+        PASS [   8.910s] (16/24) candler-core::it guard_container_e2e::env_image_e2e::x1_env_image_prunes_the_named_file_and_reads_the_pin
+        PASS [   4.024s] (17/24) candler-core::it guard_container_e2e::env_image_e2e::x1_env_image_without_requirements_has_only_seed_packages
+        PASS [  25.907s] (18/24) candler-core::it guard_container_e2e::gateway_e2e::b17_canary_absent
+        PASS [  14.922s] (19/24) candler-core::it guard_container_e2e::gateway_e2e::b18_internal_network_no_route
+        PASS [  19.023s] (20/24) candler-core::it guard_container_e2e::gateway_e2e::b37_untrusted_upstream_gets_no_credential
+        PASS [   2.066s] (21/24) candler-core::it guard_container_e2e::plugin_env_e2e::plugin_environment_serves_live_mcp_tools
+        PASS [  10.287s] (22/24) candler-core::it guard_container_e2e::supervision_gates_e2e::b36_supervisor_sigkill_nothing_left
+        PASS [   0.024s] (23/24) candler-core::it guard_container_e2e::supervision_gates_e2e::supervisor_child
+        PASS [   3.069s] (24/24) candler-core::it guard_container_e2e::version_probe_e2e::opencode_probe_reads_each_real_base_image_version
+────────────
+     Summary [ 356.793s] 24 tests run: 24 passed (1 slow), 746 skipped

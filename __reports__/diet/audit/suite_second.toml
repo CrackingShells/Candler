@@ -1,0 +1,13 @@
+schema = "suite/1"
+
+[[expectations]]
+id = "S1"
+role = "quality"
+kind = "artifact_count"
+depends_on = []
+
+[expectations.evaluator]
+name = "audit-second"
+range = "^0.1"
+
+[expectations.params]
