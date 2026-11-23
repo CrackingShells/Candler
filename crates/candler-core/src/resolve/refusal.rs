@@ -149,7 +149,7 @@ refusal_table! {
     Reserved { .. } => row(
         "experiment.env_reserved",
         Side::Experiment,
-        "An entry of the `env` table names a variable Candler sets for the harness process: `PATH`, `HOME`, `VIRTUAL_ENV` or `LANG`.",
+        "An entry of the `env` table names a variable Candler sets for the harness process itself.",
         "The key of the entry in the `env` table.",
     ),
     Invalid { .. } => row(
