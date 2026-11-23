@@ -3,6 +3,7 @@
 use std::fmt::Write;
 use std::path::Path;
 
+use super::config_pages::exit_codes_section;
 use super::harness::HARNESS_PAGES;
 use super::pages::{PAGES, wire_tags};
 use super::refusals::other_refusals;
@@ -35,11 +36,12 @@ pub fn render_index(dir: &Path, versions: &Versions) -> Result<String, String> {
     let evaluator = versions
         .tag("candler-evaluator@")
         .ok_or("no evaluator version")?;
+    let exit_codes = exit_codes_section()?;
     let other = other_refusals()?;
     Ok(format!(
         "# Contract pages
 
-One page per surface an author writes or a plug-in speaks. Each page holds the sections Surface, Version, Fields, Refusals and Notes, in that order. Version and Fields are generated from the committed schema files in `crates/candler-schemas/schema/`; the two harness pages are generated from the driver traits and the registered drivers.
+One page per surface an author writes or a plug-in speaks. Each page holds the sections Surface, Version, Fields, Refusals and Notes, in that order. Version and Fields are generated from the committed schema files in `crates/candler-schemas/schema/`; the two harness pages are generated from the driver traits and the registered drivers, and the two configuration pages from the path table that the resolver reads.
 
 ## Pages
 
@@ -66,6 +68,12 @@ Every row of a Fields table has one class. A `required` followed by a variant in
 | wire schemas | {schemas} | `crates/candler-schemas/Cargo.toml` |
 | evaluator helper | {evaluator} | `python/candler-evaluator/pyproject.toml` |
 {CLOSE}
+
+## Exit codes
+
+The status the `candler` process returns.
+
+{exit_codes}
 
 ## Other refusals
 

@@ -1,6 +1,6 @@
 # Contract pages
 
-One page per surface an author writes or a plug-in speaks. Each page holds the sections Surface, Version, Fields, Refusals and Notes, in that order. Version and Fields are generated from the committed schema files in `crates/candler-schemas/schema/`; the two harness pages are generated from the driver traits and the registered drivers.
+One page per surface an author writes or a plug-in speaks. Each page holds the sections Surface, Version, Fields, Refusals and Notes, in that order. Version and Fields are generated from the committed schema files in `crates/candler-schemas/schema/`; the two harness pages are generated from the driver traits and the registered drivers, and the two configuration pages from the path table that the resolver reads.
 
 ## Pages
 
@@ -14,6 +14,8 @@ One page per surface an author writes or a plug-in speaks. Each page holds the s
 | [evaluator-helper.md](evaluator-helper.md) | Evaluator helper | evaluator kind author | none |
 | [driver-traits.md](driver-traits.md) | Driver traits | driver author | none |
 | [harness-capabilities.md](harness-capabilities.md) | Harness capabilities | experimenter, reading | none |
+| [configuration-paths.md](configuration-paths.md) | Configuration paths | experimenter | none |
+| [config-file.md](config-file.md) | Configuration files | project owner, user | none |
 
 ## Field classes
 
@@ -35,6 +37,18 @@ Every row of a Fields table has one class. A `required` followed by a variant in
 | wire schemas | `schemas@0.11.3` | `crates/candler-schemas/Cargo.toml` |
 | evaluator helper | `candler-evaluator@0.1.0` | `python/candler-evaluator/pyproject.toml` |
 <!-- /versions -->
+
+## Exit codes
+
+The status the `candler` process returns.
+
+<!-- generated:exit-codes -->
+| Code | Meaning |
+|---|---|
+| 0 | the verb did its work and found nothing to report |
+| 1 | `diff` found changed rows |
+| 2 | the verb was refused or failed |
+<!-- /generated:exit-codes -->
 
 ## Other refusals
 
