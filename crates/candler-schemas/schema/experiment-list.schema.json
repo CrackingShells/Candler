@@ -81,13 +81,12 @@
       "type": "string"
     },
     "store": {
-      "description": "The root of the store the runs were counted in.",
+      "description": "The root of the store the runs were counted in; `null` when the root cannot be resolved.",
       "type": "string"
     }
   },
   "required": [
     "schema",
-    "store",
     "experiments"
   ],
   "title": "ExperimentList",

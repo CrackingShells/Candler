@@ -25,6 +25,12 @@ pub const DIFF_REPORT_SCHEMA: &str = "diff-report/1";
 /// The version marker of the rates.
 pub const RATES_SCHEMA: &str = "rates/1";
 
+/// The version marker of the `show` counts.
+pub const SHOW_COUNTS_SCHEMA: &str = "show-counts/1";
+
+/// The version marker of the ingest report.
+pub const INGEST_REPORT_SCHEMA: &str = "ingest-report/1";
+
 /// The wire root schemas this module publishes.
 pub(crate) fn roots() -> Vec<GeneratedSchema> {
     vec![
@@ -32,6 +38,8 @@ pub(crate) fn roots() -> Vec<GeneratedSchema> {
         GeneratedSchema::of::<ExperimentList>("experiment-list"),
         GeneratedSchema::of::<DiffReport>("diff-report"),
         GeneratedSchema::of::<Rates>("rates"),
+        GeneratedSchema::of::<ShowCounts>("show-counts"),
+        GeneratedSchema::of::<IngestReport>("ingest-report"),
     ]
 }
 
@@ -48,6 +56,16 @@ schema_tag! {
 schema_tag! {
     /// The constant `schema` field of the diff report.
     pub DiffReportTag = DIFF_REPORT_SCHEMA
+}
+
+schema_tag! {
+    /// The constant `schema` field of the `show` counts.
+    pub ShowCountsTag = SHOW_COUNTS_SCHEMA
+}
+
+schema_tag! {
+    /// The constant `schema` field of the ingest report.
+    pub IngestReportTag = INGEST_REPORT_SCHEMA
 }
 
 schema_tag! {
@@ -106,8 +124,8 @@ pub struct JobRow {
 pub struct ExperimentList {
     /// The version marker of the document: always `experiment-list/1`.
     pub schema: ExperimentListTag,
-    /// The root of the store the runs were counted in.
-    pub store: String,
+    /// The root of the store the runs were counted in; `null` when the root cannot be resolved.
+    pub store: Option<String>,
     /// One entry per file found, in the order of their paths.
     pub experiments: Vec<ListedExperiment>,
 }
@@ -115,7 +133,7 @@ pub struct ExperimentList {
 impl ExperimentList {
     /// A listing of `experiments` whose runs were counted in the store at `store`.
     #[must_use]
-    pub const fn new(store: String, experiments: Vec<ListedExperiment>) -> Self {
+    pub const fn new(store: Option<String>, experiments: Vec<ListedExperiment>) -> Self {
         Self {
             schema: ExperimentListTag,
             store,
@@ -235,4 +253,65 @@ pub struct CellRate {
     pub gate: Value,
     /// The rate of the quality expectations, as the core computed it.
     pub quality: Value,
+}
+
+/// How many current outcomes each evaluator has with each status: what `candler show` prints.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ShowCounts {
+    /// The version marker of the document: always `show-counts/1`.
+    pub schema: ShowCountsTag,
+    /// The counts by evaluator, then by status.
+    pub counts: BTreeMap<String, BTreeMap<String, u64>>,
+}
+
+/// What one ingested path added to the store: what `candler ingest` prints, one document per
+/// results folder, or one for all the raw trace directories.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct IngestReport {
+    /// The version marker of the document: always `ingest-report/1`.
+    pub schema: IngestReportTag,
+    /// How many runs the ingest holds.
+    pub runs: u64,
+    /// How many outcome records a results folder held; set for a results folder only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub records: Option<u64>,
+    /// How many runs the ingest created; set for raw trace directories only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created: Option<u64>,
+    /// How many runs the store already held; set for raw trace directories only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub existing: Option<u64>,
+    /// The entries left out and why; set for raw trace directories only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skipped: Option<Vec<IngestSkipped>>,
+}
+
+/// An entry an ingest left out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct IngestSkipped {
+    /// The entry.
+    pub path: String,
+    /// Why it was left out.
+    pub reason: String,
+}
+
+/// What a plan holds: the cells, the runs still to start and the runs already sealed, with the
+/// caps that bound them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PlanCounts {
+    /// The cells of the experiment.
+    pub cells: u64,
+    /// The runs the plan starts.
+    pub new_runs: u64,
+    /// The runs the store already holds sealed.
+    pub reused_runs: u64,
+    /// The new runs times the per-run wall cap in seconds, when the product fits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wall_s_bound: Option<u64>,
+    /// The job caps the experiment file sets, by path.
+    pub job_caps: BTreeMap<String, Value>,
 }

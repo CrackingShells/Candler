@@ -1,0 +1,71 @@
+{
+  "$defs": {
+    "IngestSkipped": {
+      "additionalProperties": false,
+      "description": "An entry an ingest left out.",
+      "properties": {
+        "path": {
+          "description": "The entry.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why it was left out.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "reason"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:candler:schemas:ingest-report",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "What one ingested path added to the store: what `candler ingest` prints, one document per\nresults folder, or one for all the raw trace directories.",
+  "properties": {
+    "created": {
+      "description": "How many runs the ingest created; set for raw trace directories only.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "existing": {
+      "description": "How many runs the store already held; set for raw trace directories only.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "records": {
+      "description": "How many outcome records a results folder held; set for a results folder only.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "runs": {
+      "description": "How many runs the ingest holds.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "schema": {
+      "const": "ingest-report/1",
+      "description": "The version marker of the document: always `ingest-report/1`.",
+      "type": "string"
+    },
+    "skipped": {
+      "description": "The entries left out and why; set for raw trace directories only.",
+      "items": {
+        "$ref": "#/$defs/IngestSkipped"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema",
+    "runs"
+  ],
+  "title": "IngestReport",
+  "type": "object"
+}
