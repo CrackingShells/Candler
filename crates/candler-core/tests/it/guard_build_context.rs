@@ -103,7 +103,7 @@ fn the_files_of_a_run_leave_out_links() {
 
 /// Guards: README "evaluation, fresh" for `OpenCode` — what the `OpenCode` driver collects, taken
 /// through the core's own file collection, stores the file the agent wrote and leaves out the
-/// skills the harness mounts. Oracle: the hand-listed paths of the audit run
+/// skills the harness mounts, at the root and below it. Oracle: the hand-listed paths of the audit run
 /// (`workspace/outputs/answer.txt` written, `tree.json` empty).
 /// Bite: `OpenCodeDriver::collect` returns only the export command (the run stores no file).
 #[test]
@@ -119,6 +119,7 @@ fn opencode_collect_stores_the_files_the_agent_wrote() {
         ("outputs/answer.txt", "stamp-7f3a"),
         ("notes.md", "kept"),
         (".opencode/skills/s/SKILL.md", "mounted"),
+        ("sub/.opencode/x", "nested"),
     ] {
         let file = ws.join(path);
         fs::create_dir_all(file.parent().unwrap()).unwrap();

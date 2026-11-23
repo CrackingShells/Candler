@@ -30,7 +30,13 @@ Out of scope: D1 to D5 and the silent_acceptance follow-ups.
 
 ## Verifier
 
-Not run: the 55-call cap was kept for the fix, the rerun and the gates; the verifier is the caller's step.
+A fresh Sonnet verifier, dispatched by the coordinator after the implementer's cap, read the leaf, this report and the diff (20 calls, no build). Verdict: **PASS with findings.**
+
+- B1 is true by source; the guard calls the real `OpenCodeDriver::collect` and the core's real `collect_files`, and is `[]` without the fix.
+- No over-collection: OpenCode's `.xdg/*` directories and `OPENCODE_DB` are under the agent home (`run_dir/home`), a sibling of the workspace that `collect_files` never walks; the mounted skills sit under `<workspace>/.opencode/skills`, which the exclusion covers; `input_leak` (i8) still runs over the collected outputs.
+- Finding (low, fixed by the coordinator): the nested `!**/.opencode/**` pattern had no test. The guard now also writes `sub/.opencode/x` and expects it left out.
+- Info: the two edited OpenCode tests lost only the "collect is exactly the export" pin; the conformance case hand-copies the driver's list. A file the agent itself writes under `.opencode/` is not stored, the same trade-off Claude Code makes with `.claude/`.
+- B2's and the audit plug-in's reasons are true by source.
 
 ## Follow-ups
 
