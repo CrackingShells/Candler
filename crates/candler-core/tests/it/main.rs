@@ -19,6 +19,7 @@ mod guard_controls;
 mod guard_declared_inputs;
 mod guard_detach;
 mod guard_diff;
+mod guard_egress_proxy;
 mod guard_egress_setting;
 mod guard_engine;
 mod guard_evaluate_job;

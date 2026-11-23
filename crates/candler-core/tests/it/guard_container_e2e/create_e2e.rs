@@ -25,7 +25,7 @@ use candler_core::isolation::model::{
     ContainerPlan, GatewayHandle, ImageId, ImageRef, Labels, Limits, NetworkName, UserSpec,
 };
 use candler_core::isolation::testing::AllowlistDriver;
-use candler_core::isolation::{EndFacts, Isolation as _, RunOutputs};
+use candler_core::isolation::{EndFacts, Isolation as _, RunOutputs, StartProbe};
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::view::JobView;
 use candler_core::runner::exec::spawn::RunStopper;
@@ -513,4 +513,95 @@ async fn agent_create_then_attach() {
     }
 
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// Guards: a declared server whose start command exits is seen as exited with what it printed,
+/// through a real container set up as a run's (the plan's image, mounts, network and `-i`), and
+/// the probe's container is gone by id afterwards.
+/// Oracle: the literal `server-boom` the command writes (and a command that exits at end of input yet stays up while stdin is open, for the other case) to its error stream; `docker inspect` of
+/// each container id that carried the test's labels while the probe ran.
+/// Bite: skip the destroy after the reads (the container is left).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "needs a docker daemon and the testagent image; run by the container-e2e group"]
+async fn server_that_exits_refuses_the_job_in_docker() {
+    let image = TestImage::new(TESTAGENT_CONTEXT);
+    let world = World::new(&image, true);
+    let command = CommandSpec::builder()
+        .argv(
+            ["sh", "-c", "echo server-boom >&2; exit 7"]
+                .map(String::from)
+                .to_vec(),
+        )
+        .build()
+        .expect("a command");
+    let done = std::sync::atomic::AtomicBool::new(false);
+    let probe = async {
+        let first = world
+            .isolation
+            .start_probe(
+                &world.plan,
+                &command,
+                world.key.clone(), // BORROW: the container is labelled with the key
+                Duration::from_secs(2),
+            )
+            .await;
+        let staying = CommandSpec::builder()
+            .argv(
+                ["sh", "-c", "read line || exit 3; sleep 30"]
+                    .map(String::from)
+                    .to_vec(),
+            )
+            .build()
+            .expect("a command");
+        let second = world
+            .isolation
+            .start_probe(
+                &world.plan,
+                &staying,
+                world.key.clone(), // BORROW: the container is labelled with the key
+                Duration::from_secs(2),
+            )
+            .await;
+        done.store(true, std::sync::atomic::Ordering::SeqCst);
+        (first, second)
+    };
+    // The test allows each container the probe creates, by the id docker lists for its label.
+    let allow = async {
+        let mut seen: Vec<String> = Vec::new();
+        while !done.load(std::sync::atomic::Ordering::SeqCst) {
+            let listed = docker(&[
+                "ps",
+                "-aq",
+                "--no-trunc",
+                "--filter",
+                &format!("label={TEST_LABEL}"),
+            ]);
+            for id in String::from_utf8_lossy(&listed.stdout).split_whitespace() {
+                world.destroy.allow_container(id);
+                if !seen.iter().any(|known| known == id) {
+                    seen.push(id.to_owned()); // BORROW: the list owns its ids
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        seen
+    };
+    let ((exited, staying), seen) = tokio::join!(probe, allow);
+    world.clean();
+    assert_eq!(
+        staying.expect("a probe"),
+        StartProbe::Running,
+        "a command that keeps running, with stdin held open, is reported running"
+    );
+    let StartProbe::Exited { output } = exited.expect("a probe") else {
+        panic!("the server was reported running");
+    };
+    assert!(output.contains("server-boom"), "the output: {output}");
+    assert_eq!(seen.len(), 2, "each probe made one container: {seen:?}");
+    for id in &seen {
+        assert!(
+            !World::known(&id.parse().expect("a container id")),
+            "{id} is left"
+        );
+    }
 }
