@@ -77,6 +77,47 @@ pub enum Exit {
     },
 }
 
+/// The exit codes of the binary, each with what it means. `--help` prints them and the contract
+/// index lists them.
+pub const EXIT_CODES: [(u8, &str); 3] = [
+    (0, "the verb did its work and found nothing to report"),
+    (1, "`diff` found changed rows"),
+    (2, "the verb was refused or failed"),
+];
+
+/// The `--help` text that closes the command line's help: one line per exit code.
+#[must_use]
+pub fn exit_help() -> String {
+    let lines: Vec<String> = EXIT_CODES
+        .iter()
+        .map(|(code, meaning)| format!("  {code}  {meaning}"))
+        .collect();
+    format!("Exit codes:\n{}", lines.join("\n"))
+}
+
+#[cfg(test)]
+mod exit_codes_tests {
+    use super::{CliError, EXIT_CODES, Exit};
+
+    /// Guards: the binary's one exit mapping is the `EXIT_CODES` table, so `--help` and the
+    /// contract index never say another code than the process returns.
+    /// Oracle: the table's own rows, read by position.
+    #[test]
+    fn the_status_mapping_reads_the_exit_code_table() {
+        let failure: Result<Exit, CliError> = Err(CliError::Runtime {
+            detail: "trouble".to_owned(),
+        });
+        let seen = [
+            crate::status(&Ok(Exit::Success)),
+            crate::status(&Ok(Exit::Changed { count: 1 })),
+            crate::status(&failure),
+        ];
+        for (row, status) in EXIT_CODES.iter().zip(seen) {
+            assert_eq!(row.0, status, "{}", row.1);
+        }
+    }
+}
+
 /// Why a verb did not run to an answer: exit 2.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
