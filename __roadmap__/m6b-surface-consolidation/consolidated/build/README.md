@@ -107,6 +107,7 @@ graph TD
 | A1 | 2026-11-23 | __reports__/m6b-surface-consolidation/build/preflight_checks_v0.md | [] | N4's rule is the required `treatment` of `RawExperimentFile` in `candler-schemas` (R18 cites `execution.rs`); `preflight_checks` owns that file for N4, after `codes_inner` merges |
 | A2 | 2026-11-23 | __reports__/m6b-surface-consolidation/build/server_check_v0.md | [] | The tip has no run setup function and no isolation operation that starts a command with stdin open; `server_check` extracts `drive`'s container setup, adds one `Isolation` operation and its double, owns `isolation/mod.rs`, cap 60 |
 | A3 | 2026-11-23 | __reports__/m6b-surface-consolidation/build/preflight_checks_v0.md, server_check_v0.md | [] | N4 makes `treatment` optional, so the field-class table changes: DIGEST excludes it (its own guard pins it); `preflight_checks` owns the regenerated `docs/contract/experiment-file.md`; `server_check`'s cap rises to 90 calls for the real-container case, the bites and the verifier |
+| A4 | 2026-11-23 | __reports__/m6b-surface-consolidation/build/server_check_v0.md, preflight_checks_v0.md | [] | The server probe lacked the driver's prepared files, skill files and environment overlay, so a server shipped in the skill tree would be refused at start: `server_check` composes the probe from `driver.plan` in its own scratch workspace, cap 110; `PlanOutcome::summary` takes the per-run wall cap from an explicit `--set` before the file's, as the runs' cells do |
 
 ## Progress
 | Node | Branch | Commits | Notes |
