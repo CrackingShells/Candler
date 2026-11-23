@@ -1423,6 +1423,8 @@ block with cells at both levels; `Comparison.a` and `.b` are the first cell of e
 
 ### Readings
 
+The analysis record names an interval's reading `interval_reading`; its values are below.
+
 - "effect": the interval excludes 0 (for CMH and the exact conditional test, the odds-ratio interval
   excludes 1, and the risk-difference fields are empty).
 - "inconclusive": the interval spans 0, or has no width (a flat bootstrap).
@@ -1433,7 +1435,7 @@ block with cells at both levels; `Comparison.a` and `.b` are the first cell of e
 - **Holm** runs over one comparison's gate expectations, and separately over its quality
   expectations: one family per comparison and role. A descriptive entry is never rejected.
 - **What a run counts for.** An invalid run is in neither k nor n; it is reported per arm with its
-  reason, and an end the experimenter caused is never charged to an arm. A pair the stratum verdict
+  reason, and an end the experimenter caused is never charged to an arm. A pair the comparability verdict
   refuses is reported as refused, with its cause and its rates.
 - **Constants.** α is 0.05, recorded with the source `core_default`; there is no option.
 - **I5.** Only gate and quality outcomes are tested, and no model call is made.
@@ -1441,7 +1443,7 @@ block with cells at both levels; `Comparison.a` and `.b` are the first cell of e
 ### The treatment as a factor, and the importer
 
 The factor path is `request.treatment`. Its levels are tables (§Experiment file), each resolved
-once at plan time, and each cell runs with its own level. The stratum verdict explains a difference
+once at plan time, and each cell runs with its own level. The comparability verdict explains a difference
 in env lock, image or build inputs only when `request.treatment` is declared and the levels differ.
 An import declares `request.treatment` when the imported cells' typed treatments differ, and drops
 a value path whose levels map one to one onto the treatment's levels, so an imported store and its
