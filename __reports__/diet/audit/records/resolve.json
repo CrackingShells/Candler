@@ -1,0 +1,290 @@
+{
+  "values": [
+    {
+      "path": "harness",
+      "value": {
+        "name": "opencode",
+        "version": "2.2.7"
+      }
+    },
+    {
+      "path": "isolation.env_lock",
+      "value": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "isolation.image",
+      "value": "sha256:a28c36d9353b1c9f0a11c5a82c758e83cd53cc59ef3bc4b223f7717783563a40"
+    },
+    {
+      "path": "mcp.servers.audit.args",
+      "value": [
+        "/work/servers/audit/audit_mcp.py"
+      ]
+    },
+    {
+      "path": "mcp.servers.audit.codemode",
+      "value": false
+    },
+    {
+      "path": "mcp.servers.audit.command",
+      "value": "python3"
+    },
+    {
+      "path": "model.endpoint",
+      "value": "https://api.class2.llm.ai.r-ccs.riken.jp"
+    },
+    {
+      "path": "permission_mode",
+      "value": "bypassPermissions"
+    },
+    {
+      "path": "prompt.template",
+      "value": "Call the MCP tool audit_stamp once. Then use the shell tool to create /work/outputs and write the text it returned, on one line and nothing else, to /work/outputs/answer.txt. Then reply with the single word done. This is a non-interactive run: proceed without asking for confirmation."
+    },
+    {
+      "path": "snapshots",
+      "value": [
+        {
+          "digest": "sha256:02083e4fd7977a4a9e9aa1f8ec9f4a23624f73f73dd338a27c8de958edad42d8",
+          "kind": "catalog"
+        }
+      ]
+    },
+    {
+      "path": "treatment",
+      "value": {
+        "commit": "f67d652a71021c12745bd78671ca6a951d964d03",
+        "name": "audit-on",
+        "tag": "v1"
+      }
+    }
+  ],
+  "settings": [
+    {
+      "path": "model.token_secret",
+      "value": "RIVAULT_LLM_INFERENCE"
+    },
+    {
+      "path": "request.harness",
+      "value": {
+        "name": "opencode"
+      }
+    },
+    {
+      "path": "request.treatment",
+      "value": {
+        "name": "audit-on",
+        "source": "/Users/hacker/candler-diet-audit-store/treatment",
+        "tag": "v1"
+      }
+    },
+    {
+      "path": "store.root",
+      "value": "/Users/hacker/candler-diet-audit-store/store"
+    }
+  ],
+  "sources": [
+    {
+      "path": "harness",
+      "source": {
+        "kind": "derived",
+        "step": "harness_identity@1"
+      }
+    },
+    {
+      "path": "isolation.env_lock",
+      "source": {
+        "kind": "derived",
+        "step": "image_id@1"
+      }
+    },
+    {
+      "path": "isolation.image",
+      "source": {
+        "kind": "derived",
+        "step": "image_id@1"
+      }
+    },
+    {
+      "path": "mcp.servers.audit.args",
+      "source": {
+        "kind": "experiment_file"
+      }
+    },
+    {
+      "path": "mcp.servers.audit.codemode",
+      "source": {
+        "kind": "experiment_file"
+      }
+    },
+    {
+      "path": "mcp.servers.audit.command",
+      "source": {
+        "kind": "experiment_file"
+      }
+    },
+    {
+      "path": "model.endpoint",
+      "source": {
+        "kind": "experiment_file"
+      }
+    },
+    {
+      "path": "model.token_secret",
+      "source": {
+        "kind": "experiment_file"
+      }
+    },
+    {
+      "path": "permission_mode",
+      "source": {
+        "kind": "experiment_file"
+      }
+    },
+    {
+      "path": "prompt.template",
+      "source": {
+        "kind": "experiment_file"
+      }
+    },
+    {
+      "path": "request.harness",
+      "source": {
+        "kind": "experiment_file"
+      }
+    },
+    {
+      "path": "request.treatment",
+      "source": {
+        "kind": "experiment_file"
+      }
+    },
+    {
+      "path": "snapshots",
+      "source": {
+        "kind": "derived",
+        "step": "catalog@1"
+      }
+    },
+    {
+      "path": "store.root",
+      "source": {
+        "kind": "explicit_argument"
+      }
+    },
+    {
+      "path": "treatment",
+      "source": {
+        "kind": "derived",
+        "step": "treatment_identity@1",
+        "from": "/Users/hacker/candler-diet-audit-store/treatment"
+      }
+    }
+  ],
+  "preflight": [
+    {
+      "step": "treatment_identity@1",
+      "derived": [
+        [
+          "treatment",
+          {
+            "commit": "f67d652a71021c12745bd78671ca6a951d964d03",
+            "name": "audit-on",
+            "tag": "v1"
+          }
+        ]
+      ],
+      "origins": [
+        [
+          "treatment",
+          "/Users/hacker/candler-diet-audit-store/treatment"
+        ]
+      ],
+      "checks": []
+    },
+    {
+      "step": "plugin_environment@1",
+      "derived": [],
+      "checks": []
+    },
+    {
+      "step": "ground_truth@1",
+      "derived": [],
+      "checks": []
+    },
+    {
+      "step": "image_id@1",
+      "derived": [
+        [
+          "isolation.env_lock",
+          "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        ],
+        [
+          "isolation.image",
+          "sha256:a28c36d9353b1c9f0a11c5a82c758e83cd53cc59ef3bc4b223f7717783563a40"
+        ]
+      ],
+      "checks": []
+    },
+    {
+      "step": "harness_identity@1",
+      "derived": [
+        [
+          "harness",
+          {
+            "name": "opencode",
+            "version": "2.2.7"
+          }
+        ]
+      ],
+      "checks": []
+    },
+    {
+      "step": "catalog@1",
+      "derived": [
+        [
+          "snapshots",
+          [
+            {
+              "digest": "sha256:02083e4fd7977a4a9e9aa1f8ec9f4a23624f73f73dd338a27c8de958edad42d8",
+              "kind": "catalog"
+            }
+          ]
+        ]
+      ],
+      "checks": []
+    },
+    {
+      "step": "session_mode@1",
+      "derived": [],
+      "checks": []
+    },
+    {
+      "step": "egress_setting@1",
+      "derived": [],
+      "checks": []
+    },
+    {
+      "step": "secrets@1",
+      "derived": [],
+      "checks": [
+        {
+          "name": "secret_RIVAULT_LLM_INFERENCE@1",
+          "passed": true,
+          "explanation": "the secret RIVAULT_LLM_INFERENCE is set"
+        }
+      ]
+    },
+    {
+      "step": "gateway@1",
+      "derived": [],
+      "checks": [
+        {
+          "name": "gateway_token@1",
+          "passed": true,
+          "explanation": "https://api.class2.llm.ai.r-ccs.riken.jp accepted the secret RIVAULT_LLM_INFERENCE: its model list was read"
+        }
+      ]
+    }
+  ]
+}
