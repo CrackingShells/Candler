@@ -18,9 +18,8 @@ use super::config::Config;
 use super::preflight::{ResolveError, StepReport};
 use candler_schemas::execution::paths::{
     ISOLATION_BUILD_CONTEXT, ISOLATION_BUILD_DOCKERFILE, ISOLATION_BUILD_LOCK,
-    ISOLATION_BUILD_REQUIREMENTS, PLUGINS_DIRS,
-    REQUEST_TREATMENT, SLOTS_COUNT, SLOTS_EVALUATORS, STORE_ROOT,
-    TREATMENT_SOURCE_PREFIX,
+    ISOLATION_BUILD_REQUIREMENTS, PLUGINS_DIRS, REQUEST_TREATMENT, SLOTS_COUNT, SLOTS_EVALUATORS,
+    STORE_ROOT, TREATMENT_SOURCE_PREFIX,
 };
 
 /// Reports whether `path` is an operational setting, by its path alone: the row of
