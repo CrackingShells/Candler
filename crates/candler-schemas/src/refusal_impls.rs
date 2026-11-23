@@ -23,7 +23,10 @@ fn execution_path(error: &ExecutionError) -> Option<String> {
         ExecutionError::Toml { path, .. }
         | ExecutionError::Document { path, .. }
         | ExecutionError::UnknownField { path, .. } => non_root(path.as_str()),
-        ExecutionError::InputDeclaration { .. } => Some(pointer_of(["inputs"])),
+        ExecutionError::InputDeclaration { entry, .. } => Some(entry.map_or_else(
+            || pointer_of(["inputs"]),
+            |index| pointer_of(["inputs", index.to_string().as_str()]),
+        )),
         ExecutionError::Zero { field, .. } | ExecutionError::NotPositive { field } => {
             file_field(field)
         }
@@ -205,13 +208,16 @@ fn evaluation_path(error: &EvaluationError) -> Option<String> {
         | EvaluationError::SuiteUnknownField { path, .. }
         | EvaluationError::ManifestUnknownField { path, .. }
         | EvaluationError::Json { path, .. } => non_root(path.as_str()),
+        EvaluationError::EmptyList {
+            entry: Some(index), ..
+        } => Some(pointer_of(["expectations", index.to_string().as_str()])),
         EvaluationError::EnvironmentPathUnsupported { environment, path } => {
             Some(format!("/agent_environments/{environment}/values/{path}"))
         }
         EvaluationError::Canonical(inner) => Refusal::path(inner),
         EvaluationError::MissingField { .. }
         | EvaluationError::ManifestCommandEmpty
-        | EvaluationError::EmptyList { .. }
+        | EvaluationError::EmptyList { entry: None, .. }
         | EvaluationError::DuplicateId { .. }
         | EvaluationError::UnknownDependency { .. }
         | EvaluationError::Cycle { .. }

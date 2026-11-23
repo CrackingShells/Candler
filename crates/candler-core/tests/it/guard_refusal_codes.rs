@@ -952,6 +952,7 @@ fn wrapped_cases() -> Vec<Wrapped> {
                 path: "s.toml".into(),
                 source: EvaluationError::EmptyList {
                     field: "expectations",
+                    entry: None,
                 },
             }),
             "suite.list_empty",
@@ -992,7 +993,10 @@ fn wrapped_cases() -> Vec<Wrapped> {
             "Manifest",
             Box::new(RegistryError::Manifest {
                 path: "m.toml".into(),
-                source: EvaluationError::EmptyList { field: "f" },
+                source: EvaluationError::EmptyList {
+                    field: "f",
+                    entry: None,
+                },
             }),
             "suite.list_empty",
         ),
