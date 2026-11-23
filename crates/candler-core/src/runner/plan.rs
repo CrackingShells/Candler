@@ -1092,9 +1092,24 @@ impl PlanOutcome {
     #[must_use]
     pub fn summary(&self, budget: &Budget) -> PlanSummary {
         let new_runs = self.plans.len();
-        let wall_s_bound = u64::try_from(new_runs)
-            .ok()
-            .and_then(|runs| u64::from(budget.per_run.wall_s).checked_mul(runs));
+        // The cap a run gets is the value of its cell, which `fresh_cells` settles (an explicit
+        // setting first, then the file's); the file's cap stands only for a cell without one.
+        let wall_of = |plan: &RunPlan| -> u64 {
+            self.fresh
+                .get(&plan.cell)
+                .and_then(|cell| {
+                    cell.values()
+                        .iter()
+                        .find(|value| value.path().as_str() == paths::BUDGET_PER_RUN_WALL_S)
+                })
+                .and_then(ResolvedValue::value)
+                .and_then(|value| value.as_value().as_u64())
+                .unwrap_or_else(|| u64::from(budget.per_run.wall_s))
+        };
+        let wall_s_bound = self
+            .plans
+            .iter()
+            .try_fold(0_u64, |total, plan| total.checked_add(wall_of(plan)));
         let job_caps = [
             ("budget.max_runs", budget.max_runs.map(Value::from)),
             ("budget.max_tokens", budget.max_tokens.map(Value::from)),
