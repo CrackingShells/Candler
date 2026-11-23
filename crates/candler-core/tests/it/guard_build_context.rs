@@ -100,3 +100,34 @@ fn the_files_of_a_run_leave_out_links() {
         ]
     );
 }
+
+/// Guards: README "evaluation, fresh" for `OpenCode` — what the `OpenCode` driver collects, taken
+/// through the core's own file collection, stores the file the agent wrote and leaves out the
+/// skills the harness mounts, at the root and below it. Oracle: the hand-listed paths of the audit run
+/// (`workspace/outputs/answer.txt` written, `tree.json` empty).
+/// Bite: `OpenCodeDriver::collect` returns only the export command (the run stores no file).
+#[test]
+fn opencode_collect_stores_the_files_the_agent_wrote() {
+    use candler_core::runner::exec::gather::collect_files;
+    use candler_harness::driver::HarnessDriver as _;
+    use candler_harness::spec::{Observed, Workspace};
+    use candler_harness_opencode::driver::OpenCodeDriver;
+    use candler_schemas::trace::SessionId;
+    let dir = tempfile::tempdir().unwrap();
+    let ws = dir.path();
+    for (path, text) in [
+        ("outputs/answer.txt", "stamp-7f3a"),
+        ("notes.md", "kept"),
+        (".opencode/skills/s/SKILL.md", "mounted"),
+        ("sub/.opencode/x", "nested"),
+    ] {
+        let file = ws.join(path);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, text).unwrap();
+    }
+    let id: SessionId = "ses_e32c17b4fffe2bjBVM2E3xAaLZ".parse().unwrap();
+    let specs = OpenCodeDriver::new().collect(&Workspace::new(ws), &Observed::new(vec![id]));
+    let found = collect_files(ws, &specs).unwrap();
+    let paths: Vec<&str> = found.iter().map(|out| out.path.as_str()).collect();
+    assert_eq!(paths, ["notes.md", "outputs/answer.txt"]);
+}
