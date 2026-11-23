@@ -91,6 +91,15 @@ network)
     ;;
 create)
     new_container "$@"
+    # The host directory mounted at /work: the agent writes there.
+    for a in "$@"; do
+        case "$a" in
+        type=bind,source=*,target=/work)
+            w="${a#type=bind,source=}"
+            printf '%s' "${w%,target=/work}" > "$st/c/$NEW.work"
+            ;;
+        esac
+    done
     echo "$NEW"
     ;;
 container)
@@ -121,6 +130,10 @@ container)
 start)
     case " $* " in
     *" -a "*)
+        id=$(last "$@")
+        if [ -f "$st/c/$id.work" ]; then
+            printf 'graded from the store\n' > "$(cat "$st/c/$id.work")/answer.txt"
+        fi
         sleep 1
         echo exited > "$st/c/$(last "$@").state"
         ;;
@@ -158,6 +171,13 @@ run)
     ;;
 esac
 "#;
+
+/// The file the fake agent writes at the top of its workspace when its container is started; a
+/// suite names it `outputs/answer.txt`.
+pub const AGENT_FILE: &str = "answer.txt";
+
+/// The bytes the fake agent writes into [`AGENT_FILE`].
+pub const AGENT_BYTES: &str = "graded from the store\n";
 
 /// The one secret the experiment declares; its value is plain text of the characters a token has.
 pub const SECRET_NAME: &str = "FIXTURE_TOKEN";

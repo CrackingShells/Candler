@@ -18,9 +18,11 @@ use candler_core::isolation::model::{ImageId, Inspect, InspectState, Labels};
 use candler_core::jobs::model::JobCause;
 use candler_core::runner::exec::collect::{RetryDecision, retry_decision};
 use candler_core::runner::exec::ends::{EndInput, Retry, TraceFacts, classify_end};
-use candler_core::runner::exec::seal::{RawStreamFile, SealProgress, SealStep, seal_run_observed};
-use candler_core::store::Store;
+use candler_core::runner::exec::seal::{
+    RawStreamFile, SealProgress, SealStep, seal_run, seal_run_observed,
+};
 use candler_core::store::run::{Existing, RunWriter};
+use candler_core::store::{Store, StoreError};
 use candler_schemas::execution::{RunManifest, RunTree};
 use candler_schemas::primitives::{ContainerId, Digest, Timestamp};
 use candler_schemas::raw::StreamName;
@@ -321,13 +323,30 @@ fn manifest() -> RunManifest {
     serde_json::from_value(body(&cell)).expect("a manifest")
 }
 
-/// A run tree with one file.
-fn tree() -> RunTree {
-    serde_json::from_value(json!({
+/// A workspace in `dir` of one output file, and the run tree that names it with the digest of its
+/// bytes taken by `sha2`; returns the tree and the hex of that digest.
+fn workspace_tree(dir: &Path) -> (RunTree, String) {
+    let bytes = b"an output of the agent\n";
+    fs::write(dir.join("a.txt"), bytes).expect("write the output");
+    let mut hex = String::new();
+    for byte in sha2::Sha256::digest(bytes) {
+        write!(hex, "{byte:02x}").expect("write to a string");
+    }
+    let digest = Digest::from_hex(&hex).expect("a digest");
+    let tree = serde_json::from_value(json!({
         "schema": "run-tree/1",
-        "entries": [{"kind": "file", "path": "a.txt", "sha256": digest_text('a'), "executable": false}]
+        "entries": [{"kind": "file", "path": "a.txt", "sha256": digest.to_string(), "executable": false}]
     }))
-    .expect("a run tree")
+    .expect("a run tree");
+    (tree, hex)
+}
+
+/// Whether the store under `root` holds the blob of `hex`.
+fn has_blob(root: &Path, hex: &str) -> bool {
+    let name = format!("blobs/{hex}");
+    file_list(root)
+        .iter()
+        .any(|path| path.ends_with(name.as_str())) // BORROW: explicit .as_str()
 }
 
 /// A trace file of one session and one event.
@@ -372,19 +391,24 @@ fn run_files(root: &Path) -> BTreeSet<String> {
 }
 
 /// Guards: B30, the sealed layout and `run.done` last: a seal stopped after any step leaves exactly
-/// the files of the steps that ran and no `run.done`; a full seal writes the manifest, the tree,
-/// the raw stream and the trace before `run.done`, and the run directory holds only names of the
-/// layout.
+/// the files of the steps that ran and no `run.done`; a full seal stores the blob of each file of
+/// the tree first, then writes the manifest, the tree, the raw stream and the trace before
+/// `run.done`, and the run directory holds only names of the layout. The blobs come first (S1) so
+/// a run with `run.done` never names a blob the store lacks, and a seal stopped at the blob step
+/// adds only content-addressed blobs, which are not records of the run (I11). An output whose
+/// bytes changed after the tree was taken fails the seal, which leaves no `tree.json` and no
+/// `run.done`.
 /// Oracle: the step order and the layout, hand-written from R01 section Run store and
 /// 00-architecture section 7 (manifest.json, run.done, raw/, trace.jsonl, tree.json, workspace/,
 /// home/); a run that holds a canary is the positive control of the scan, and the sealed run is scanned
 /// for the temporary root, the needle the leaf names.
 /// Bite: write `run.done`
-/// before `tree.json`.
+/// before `tree.json`; leave the blob step out; store the blob without the tree's digest.
 #[test]
 fn b30_sealed_layout_and_done_last() {
     // Files present once each step has run, in order (the layout names, relative to the run).
     let after = [
+        (SealStep::Blob, vec!["manifest.json"]),
         (SealStep::Manifest, vec!["manifest.json"]),
         (SealStep::Tree, vec!["manifest.json", "tree.json"]),
         (
@@ -410,17 +434,58 @@ fn b30_sealed_layout_and_done_last() {
         let writer = RunWriter::create(&store, &manifest, Existing::Refuse).expect("create");
         let (gz, digest) = gz_file(scratch.path());
         let raw = [RawStreamFile::new(stdout.clone(), gz, digest)]; // BORROW: the file owns its stream name
-        let progress = seal_run_observed(writer, &manifest, &tree(), &raw, &trace(), |step| {
-            if step == *halt {
-                ControlFlow::Break(())
-            } else {
-                ControlFlow::Continue(())
-            }
-        })
+        let workspace = TempDir::new().expect("a workspace");
+        let (tree, hex) = workspace_tree(workspace.path());
+        let progress = seal_run_observed(
+            writer,
+            workspace.path(),
+            &manifest,
+            &tree,
+            &raw,
+            &trace(),
+            |step| {
+                if step == *halt {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            },
+        )
         .expect("a seal halted by the observer");
         assert_eq!(progress, SealProgress::Halted(*halt));
         let want: BTreeSet<String> = files.iter().map(|name| (*name).to_owned()).collect(); // BORROW: owned names
         assert_eq!(run_files(root.path()), want, "files after {halt:?}");
+        assert!(
+            has_blob(root.path(), &hex),
+            "the output's blob after {halt:?}"
+        );
+    }
+    // An output changed after its tree was taken: the seal fails at the blob step, and the run
+    // holds only the manifest `create` wrote.
+    {
+        let root = TempDir::new().expect("a temporary root");
+        let scratch = TempDir::new().expect("a scratch directory");
+        let store = Store::init(root.path()).expect("init");
+        let manifest = manifest();
+        let writer = RunWriter::create(&store, &manifest, Existing::Refuse).expect("create");
+        let (gz, digest) = gz_file(scratch.path());
+        let raw = [RawStreamFile::new(stdout.clone(), gz, digest)]; // BORROW: the file owns its stream name
+        let workspace = TempDir::new().expect("a workspace");
+        let (tree, hex) = workspace_tree(workspace.path());
+        fs::write(workspace.path().join("a.txt"), "changed").expect("change the output");
+        let failed = seal_run(writer, workspace.path(), &manifest, &tree, &raw, &trace());
+        assert!(
+            matches!(failed, Err(StoreError::DigestMismatch { .. })),
+            "a changed output fails the seal: {failed:?}"
+        );
+        assert!(
+            run_files(root.path()) == BTreeSet::from(["manifest.json".to_owned()]), // BORROW: owned name
+            "the run is left unsealed"
+        );
+        assert!(
+            !has_blob(root.path(), &hex),
+            "no blob under the tree's digest"
+        );
     }
     let root = TempDir::new().expect("a temporary root");
     let scratch = TempDir::new().expect("a scratch directory");
@@ -429,20 +494,31 @@ fn b30_sealed_layout_and_done_last() {
     let writer = RunWriter::create(&store, &manifest, Existing::Refuse).expect("create");
     let (gz, digest) = gz_file(scratch.path());
     let raw = [RawStreamFile::new(stdout, gz, digest)];
+    let workspace = TempDir::new().expect("a workspace");
+    let (tree, hex) = workspace_tree(workspace.path());
     let mut steps = Vec::new();
     let mut done_early = false;
-    let progress = seal_run_observed(writer, &manifest, &tree(), &raw, &trace(), |step| {
-        if step != SealStep::Done && run_files(root.path()).contains("run.done") {
-            done_early = true;
-        }
-        steps.push(step);
-        ControlFlow::Continue(())
-    })
+    let progress = seal_run_observed(
+        writer,
+        workspace.path(),
+        &manifest,
+        &tree,
+        &raw,
+        &trace(),
+        |step| {
+            if step != SealStep::Done && run_files(root.path()).contains("run.done") {
+                done_early = true;
+            }
+            steps.push(step);
+            ControlFlow::Continue(())
+        },
+    )
     .expect("a full seal");
     assert_eq!(progress, SealProgress::Sealed);
     assert_eq!(
         steps,
         [
+            SealStep::Blob,
             SealStep::Manifest,
             SealStep::Tree,
             SealStep::Raw,
@@ -464,6 +540,10 @@ fn b30_sealed_layout_and_done_last() {
     .map(|name| (*name).to_owned()) // BORROW: owned names
     .collect();
     assert_eq!(sealed, literal, "the full seal equals R01's list");
+    assert!(
+        has_blob(root.path(), &hex),
+        "the full seal stores the output's blob"
+    );
     // The scan: a canary written into a scratch directory is found (positive control), and the
     // sealed run holds none.
     let needle = "CANDLER-B30-CANARY";
