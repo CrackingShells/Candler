@@ -469,4 +469,35 @@ mod tests {
         }
         assert!(settings(&file("\n[fixed]\nreplicates = 0\n"), &[]).is_err());
     }
+
+    /// Guards: an experiment file without an `env` table gives the resolution no `env` value, so
+    /// it resolves, and hashes, as before; a file with one gives exactly one `env` value, the
+    /// table as written.
+    /// Oracle: the paths and the table are written by hand.
+    /// Bite: an empty `env` value written for a file that has no table.
+    #[test]
+    fn env_is_a_value_only_when_the_file_has_a_table() {
+        let paths_of = |input: &ResolveInput| -> Vec<String> {
+            input
+                .file
+                .iter()
+                .flat_map(|values| values.values.iter())
+                .map(|(path, _)| path.to_string())
+                .collect()
+        };
+        let plain = settings(&file(""), &[]).expect("an input");
+        assert!(!paths_of(&plain).iter().any(|path| path == "env"));
+        let with = settings(&file("[env]\nTOOL_MODE = \"fast\"\n"), &[]).expect("an input");
+        assert_eq!(
+            paths_of(&with).iter().filter(|path| *path == "env").count(),
+            1
+        );
+        let table = with
+            .file
+            .iter()
+            .flat_map(|values| values.values.iter())
+            .find(|(path, _)| path.as_str() == "env")
+            .map(|(_, value)| value.as_value().clone());
+        assert_eq!(table, Some(serde_json::json!({"TOOL_MODE": "fast"})));
+    }
 }
