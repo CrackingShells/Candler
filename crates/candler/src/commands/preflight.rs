@@ -20,7 +20,9 @@ use candler_core::runner::evidence::catalog::{CatalogCommand, CommandCatalogProv
 use candler_core::runner::plan::{PlanError, experiment_of};
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_schemas::execution::paths;
-use candler_schemas::execution::{EventPayload, ExperimentFile, Level};
+use candler_schemas::execution::{
+    EventPayload, ExecutionError, ExperimentFile, Level, check_replicates,
+};
 use candler_schemas::primitives::{FieldPath, RunKey};
 use candler_schemas::refusal::pointer_of;
 use candler_schemas::values::JsonValue;
@@ -286,10 +288,9 @@ pub fn request_settings(
         .map(|(path, value)| (path.clone(), value.clone())) // BORROW: the input owns its paths and values
         .collect();
     values.insert(path_of(paths::REQUEST_HARNESS)?, json_of(file.harness())?);
-    values.insert(
-        path_of(paths::REQUEST_TREATMENT)?,
-        json_of(file.treatment())?,
-    );
+    if let Some(treatment) = file.treatment() {
+        values.insert(path_of(paths::REQUEST_TREATMENT)?, json_of(treatment)?);
+    }
     let file_values = FileValues::new(values.into_iter().collect())
         .relative_to(experiment_dir)
         .map_err(CliError::refused_by)?;
@@ -298,6 +299,16 @@ pub fn request_settings(
     check_set_paths(fields)?;
     for (path, text) in fields {
         let mut value = value_of(text)?;
+        if path.as_str() == "replicates" {
+            let count = value
+                .as_value()
+                .as_u64()
+                .ok_or(ExecutionError::NotPositive {
+                    field: "replicates",
+                })
+                .map_err(CliError::refused_by)?;
+            check_replicates(count).map_err(CliError::refused_by)?;
+        }
         if path.as_str() == paths::REQUEST_TREATMENT {
             // BORROW: .clone() gives the file values their own path
             let given = FileValues::new(vec![(path.clone(), value.clone())])
