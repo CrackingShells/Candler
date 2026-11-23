@@ -25,9 +25,9 @@ Level L2 of the M6b build (`../../README.md`). It runs after `outputs/` is merge
 ## Status
 ```mermaid
 graph TD
-    analysis_record[Analysis record]:::inprogress
-    docs_chores[Docs chores]:::inprogress
-    experiment_env[Experiment env table]:::inprogress
+    analysis_record[Analysis record]:::done
+    docs_chores[Docs chores]:::done
+    experiment_env[Experiment env table]:::done
     close[Close]:::amendment
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -39,9 +39,9 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `analysis_record.md` | 📄 Leaf Task | 🔄 In Progress |
-| `docs_chores.md` | 📄 Leaf Task | 🔄 In Progress |
-| `experiment_env.md` | 📄 Leaf Task | 🔄 In Progress |
+| `analysis_record.md` | 📄 Leaf Task | ✅ Done |
+| `docs_chores.md` | 📄 Leaf Task | ✅ Done |
+| `experiment_env.md` | 📄 Leaf Task | ✅ Done |
 | `close/` | 📁 Directory | 🔵 Amendment |
 
 ## Amendment Log
@@ -51,3 +51,6 @@ graph TD
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| docs_chores | claude/m6b-build-docs_chores | 8 | Merged 096d8959. Seven leaf commits plus the coordinator's 0f76e1a2 (the comparability class across R01). R01 gains the responsibility record and the ten Future rows; README is the store window; X8 no longer promises paired tests. Follow-ups: the quick start's `resolve` step has no offline fixture (accepted), R01's `interval_reading` named in §Readings only |
+| analysis_record | claude/m6b-build-analysis_record | 8 | Merged 40aaef40. A10. `analyze` prints `analysis-report/1`, text and CSV render it; `stratum` (comparability) is `comparability_class`, `reading` is `interval_reading`; `inspect <run> --transcript`. Verifier closed after one re-check. Follow-ups: no CLI test of `--transcript`, no text-content guard, `build.rs:66` wording, `text_line` degrades silently |
+| experiment_env | claude/m6b-build-experiment_env | 14 | Merged 82d28def. A8, A9, A11. `[env]` reaches the harness and enters the cell digest; `resolve` refuses reserved, secret, invalid names and `env` outside the table (`experiment.env_source`). Verifier closed. Follow-ups: driver and gateway names, varying `env` across cells (Future), `probe_env`'s literal `HOME`, `secret_names` default |

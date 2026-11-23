@@ -3,14 +3,14 @@
 **Goal**: The build closes with every standard gate green on the integration tip, a knowledge-transfer report that holds the HTN lane's migration note and the spend against the cap, and nothing left behind (worktrees, branches, colgrep indexes); the supervising session gets one note it can relay at merge.
 **Estimate**: about 20 coordinator calls ($1.3), cap 30; at 30 calls, stop, commit what is done, list what is left
 **Pre-conditions**:
-- [ ] [cmd] Every L2 leaf is merged: `for l in analysis_record docs_chores experiment_env; do test -f __reports__/m6b-surface-consolidation/build/${l}_v0.md || exit 1; done`
-- [ ] [nl] OWNED (regex): `^__reports__/m6b-surface-consolidation/(03-knowledge_transfer_build_v0|README)\.md$|^__roadmap__/m6b-surface-consolidation/.*$`. The roadmap's tool-managed sections change through `dirtree-rdm` only. This leaf is the coordinator's own: no subagent, no verifier, no code
+- [x] [cmd] Every L2 leaf is merged: `for l in analysis_record docs_chores experiment_env; do test -f __reports__/m6b-surface-consolidation/build/${l}_v0.md || exit 1; done`
+- [x] [nl] OWNED (regex): `^__reports__/m6b-surface-consolidation/(03-knowledge_transfer_build_v0|README)\.md$|^__roadmap__/m6b-surface-consolidation/.*$`. The roadmap's tool-managed sections change through `dirtree-rdm` only. This leaf is the coordinator's own: no subagent, no verifier, no code
 **Success Gates**:
-- ⬜ [cmd] The build README's `[cmd]` Success Gates pass on the integration tip (STD, LINUX, SUBJ, DIGEST, GOLDEN, no `remedy` key, every leaf report)
-- ⬜ [cmd] The report exists with its migration note and its spend: `f=__reports__/m6b-surface-consolidation/03-knowledge_transfer_build_v0.md; grep -q '^## Migration' $f && grep -q '^## Spend' $f && grep -q -- '--format text' $f`
-- ⬜ [cmd] Nothing is left behind: `test -z "$(git worktree list | grep 'm6b-build-')" && test -z "$(git branch --list 'claude/m6b-build-*')"`
-- ⬜ [cmd] `bash $HOME/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.3.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/m6b-surface-consolidation/` passes, and every build node is `done` or `blocked`
-- ⬜ [nl] The build README's `[nl]` gates hold: every accepted id built or carrying a ruled reason, the supervisor's conditions on `output_contract`, every verifier closed
+- ✅ [cmd] The build README's `[cmd]` Success Gates pass on the integration tip (STD, LINUX, SUBJ, DIGEST, GOLDEN, no `remedy` key, every leaf report)
+- ✅ [cmd] The report exists with its migration note and its spend: `f=__reports__/m6b-surface-consolidation/03-knowledge_transfer_build_v0.md; grep -q '^## Migration' $f && grep -q '^## Spend' $f && grep -q -- '--format text' $f`
+- ✅ [cmd] Nothing is left behind: `test -z "$(git worktree list | grep 'm6b-build-')" && test -z "$(git branch --list 'claude/m6b-build-*')"`
+- ✅ [cmd] `bash $HOME/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.3.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh validate __roadmap__/m6b-surface-consolidation/` passes, and every build node is `done` or `blocked`
+- ✅ [nl] The build README's `[nl]` gates hold: every accepted id built or carrying a ruled reason, the supervisor's conditions on `output_contract`, every verifier closed
 **References**: [R16 §Design suggestions (the supervisor's conditions: the migration note)](../../../../../../../__reports__/m6b-surface-consolidation/01-findings_verdicts_v3.md); the nine leaf reports under `__reports__/m6b-surface-consolidation/build/`; the `writing-reports` skill (knowledge-transfer type); [R11 Cost report v2](../../../../../../../__reports__/agent-token-costs/03-findings_campaign_costs_v2.md) and `__reports__/agent-token-costs/scripts/spend.py`
 
 ## Step 1: Run the closing gates
