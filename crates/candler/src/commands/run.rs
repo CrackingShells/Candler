@@ -33,7 +33,7 @@ use candler_core::resolve::layers::{FileValues, Layered, Resolution, ResolveInpu
 use candler_core::resolve::steps::ground_truth::GroundTruth;
 use candler_core::resolve::steps::plugin_environment::Fragment;
 use candler_core::runner::plan::{
-    Force, PlanCtx, PlanMode, experiment_of, plan_runs, treatment_levels,
+    Force, PlanCtx, PlanMode, PlanOutcome, experiment_of, plan_runs, treatment_levels,
 };
 use candler_core::store::Store;
 use candler_harness::driver::HarnessDriver;
@@ -166,17 +166,55 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
         .map_or_else(|| cwd.clone(), Path::to_path_buf); // BORROW: the directory is owned
     let root = common::store_root("run", store).await?;
     let store = Store::init(&root).map_err(failed)?;
-    let config = Arc::new(Config::load(&cwd, &ConfigEnv::from_process()).map_err(failed)?);
-    let settings = request_settings(&file, experiment_dir.as_path(), &fields, &cwd)?;
+    let Prepared {
+        resolutions,
+        declared,
+        driver,
+    } = prepare(
+        &store,
+        &file,
+        experiment_dir.as_path(),
+        &fields,
+        &cwd,
+        &root,
+    )
+    .await?;
+    let spec = plan_job(&store, &file, resolutions, force, declared, driver)?;
+    start(&store, &file, &spec, &root).await
+}
+
+/// An experiment resolved and ready to plan.
+pub(super) struct Prepared {
+    /// One resolution per treatment level, one for a file with no levels.
+    pub resolutions: Vec<Resolution>,
+    /// The inputs the file and its plug-in environment declare.
+    pub declared: ResolvedInputs,
+    /// The harness driver the request selects.
+    // TRAIT_OBJECT: the registry selects the driver at runtime
+    pub driver: Arc<dyn HarnessDriver>,
+}
+
+/// Declares the inputs of `file` into `store` and resolves it, once per treatment level, after
+/// building the gateway's sidecar image.
+pub(super) async fn prepare(
+    store: &Store,
+    file: &ExperimentFile,
+    experiment_dir: &Path,
+    fields: &[(FieldPath, String)],
+    cwd: &Path,
+    root: &Path,
+) -> Result<Prepared, CliError> {
+    let config = Arc::new(Config::load(cwd, &ConfigEnv::from_process()).map_err(failed)?);
+    let settings = request_settings(file, experiment_dir, fields, cwd)?;
     let fragment = selected_fragment(&config, &settings)?;
-    let declared = declare_inputs(&store, &file, experiment_dir.as_path(), fragment.as_ref())?;
+    let declared = declare_inputs(store, file, experiment_dir, fragment.as_ref())?;
     let input = with_declared_inputs(settings, &declared)?;
     let driver = Registry::builtin().driver(&requested_harness(&input)?)?;
     let own_kinds: Vec<String> = file.inputs().iter().map(|i| i.kind().to_string()).collect();
     let truth = GroundTruth::from_inputs(declared.files.as_slice(), own_kinds.as_slice()); // BORROW: explicit .as_slice()
-    let services = foreground(Arc::clone(&config), &root, &driver, truth)?;
+    let services = foreground(Arc::clone(&config), root, &driver, truth)?;
     ensure_sidecar(&services.cli, services.gateway_context).await?;
-    let declared_levels = treatment_levels(&file);
+    let declared_levels = treatment_levels(file);
     let mut resolutions = Vec::new();
     if declared_levels.is_empty() {
         resolutions.push(
@@ -188,7 +226,7 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
         );
     } else {
         for level in declared_levels {
-            let given = input_for_level(&input, &level, experiment_dir.as_path())?;
+            let given = input_for_level(&input, &level, experiment_dir)?;
             resolutions.push(
                 services
                     .resolver
@@ -198,8 +236,11 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
             );
         }
     }
-    let spec = plan_job(&store, &file, resolutions, force, declared, driver)?;
-    start(&store, &file, &spec, &root).await
+    Ok(Prepared {
+        resolutions,
+        declared,
+        driver,
+    })
 }
 
 /// The plug-in environment the request selects, read before the inputs are resolved. A selection
@@ -268,6 +309,26 @@ fn input_for_level(
     Ok(input)
 }
 
+/// Decides the runs of `file` under `levels` without taking the experiment lock.
+pub(super) fn plan_outcome(
+    store: &Store,
+    file: &ExperimentFile,
+    levels: &[Resolution],
+    force: bool,
+    // TRAIT_OBJECT: the registry selects the driver at runtime
+    driver: Arc<dyn HarnessDriver>,
+) -> Result<PlanOutcome, CliError> {
+    let experiment = experiment_of(file, levels).map_err(|e| refuse_plan(e, file))?;
+    let ctx = PlanCtx {
+        store: store.clone(), // BORROW: the context owns its handle on the store
+        experiment_lock: store.layout().experiment_lock(&experiment),
+        secrets_present: EnvSecrets::new(file.secrets()).present(),
+        driver: Some(driver),
+    };
+    let mode = if force { Force::Yes } else { Force::No };
+    plan_runs(&ctx, file, levels, mode, PlanMode::Check).map_err(|e| refuse_plan(e, file))
+}
+
 /// Plans the runs without the experiment lock and builds the job's spec: the agent's input files
 /// are mounted into every run and the evaluator-only inputs are listed for the manifest.
 fn plan_job(
@@ -284,16 +345,7 @@ fn plan_job(
         .first()
         .cloned() // BORROW: the spec owns its primary level
         .ok_or_else(|| refused(String::from("the experiment has no resolution")))?;
-    let experiment = experiment_of(file, levels.as_slice()).map_err(|e| refuse_plan(e, file))?; // BORROW: explicit .as_slice()
-    let ctx = PlanCtx {
-        store: store.clone(), // BORROW: the context owns its handle on the store
-        experiment_lock: store.layout().experiment_lock(&experiment),
-        secrets_present: EnvSecrets::new(file.secrets()).present(),
-        driver: Some(driver),
-    };
-    let mode = if force { Force::Yes } else { Force::No };
-    let outcome = plan_runs(&ctx, file, levels.as_slice(), mode, PlanMode::Check) // BORROW: explicit .as_slice()
-        .map_err(|e| refuse_plan(e, file))?;
+    let outcome = plan_outcome(store, file, levels.as_slice(), force, driver)?; // BORROW: explicit .as_slice()
     if levels.len() < 2 {
         levels.clear();
     }

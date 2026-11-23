@@ -273,11 +273,14 @@ pub async fn render(
         }
         rows.push(row);
     }
+    let list = JobList::new(
+        root.display().to_string(),
+        rows.iter().map(job_row).collect(),
+    );
     if text {
-        render_rows(&rows, out).map_err(fail)?;
+        render_text(&list, out).map_err(fail)?;
     } else {
-        let jobs = rows.iter().map(job_row).collect();
-        write_record("ps", out, &JobList::new(root.display().to_string(), jobs))?;
+        write_record("ps", out, &list)?;
     }
     Ok(rows
         .iter()
@@ -297,13 +300,13 @@ fn job_row(row: &Row) -> JobRow {
     }
 }
 
-/// Writes one line per row: id, spec digest, state, progress and what the job runs.
+/// Writes one line per job of `list`: id, spec digest, state, progress and what the job runs.
 ///
 /// # Errors
 /// The write error of `out`.
 // TRAIT_OBJECT: the output is stdout, or a buffer in tests
-pub fn render_rows(rows: &[Row], out: &mut dyn Write) -> io::Result<()> {
-    for row in rows {
+pub fn render_text(list: &JobList, out: &mut dyn Write) -> io::Result<()> {
+    for row in &list.jobs {
         writeln!(
             out,
             "{}\t{}\t{}\t{}\t{}",
