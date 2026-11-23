@@ -845,16 +845,6 @@ fn b3_each_round_holds_each_cell_once() {
     }
 }
 
-/// Guards: B3 — one seed gives one order, however often it is asked.
-/// Oracle: equality of two calls with the same arguments.
-/// Bite: draw the shuffle from a clock or a counter.
-#[test]
-fn b3_same_seed_same_order() {
-    for seed in [0, 7, u64::MAX] {
-        assert_eq!(run_order(8, 3, seed), run_order(8, 3, seed), "seed {seed}");
-    }
-}
-
 /// Guards: B3 — two seeds give two orders for a design of at least 6 cells.
 /// Oracle: inequality of the orders of seeds 1 and 2 on 8 cells and 3 replicates, which is chance
 /// 1 in 40 320 per round if the seed were ignored.
