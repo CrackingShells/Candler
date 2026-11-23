@@ -26,13 +26,13 @@ Six read-only leaves judged the 63 inputs raised by the M7 pre-study, one report
 |:--|:--|:--|
 | N1 | A native run cannot supply metadata a plug-in suite needs, so `evaluate` and `analyze` were blocked | New. Next to C3/G20 (one path table) and C13 (`check_suite`), neither of which covers it. Open question of ownership: Candler (a declared metadata surface) or the plug-in (it asks for a path no run records) |
 | N2 | `--set replicates=1` ignored without a warning | Extends G10 (`done`): its leaf left the `--set` residuals unread |
-| N3 | `budget.turns=200`: one run stopped at 201, another completed at 250 | Extends G14 (`done`): its leaf left cap metering unverified. A possible budget-enforcement defect |
+| N3 | `budget.turns=200`: run `a16b0809…-r2-a1` stopped at 201 by the cap, run `a16b0809…-r4-a1` completed at 250 | Extends G14 (`done`): its leaf left cap metering unverified. A possible budget-enforcement defect |
 | N4 | `[treatment]` needs a source and tag even when `request.treatment` is the factor | New. Nearest: G10 (traps in the experiment file) |
 | N5 | `treatment:` refused in a plug-in's `isolation.build.context` | New. Nearest: G15 (isolation facts an author trips over) |
 | N6 | A prompt starting with `/` passes `resolve` and is refused at run time | New. Nearest: C5 (what runs before the image step); C5's ask was a skip switch, this one moves a check earlier |
 | N8 | `CANDLER_STORE` may not be honoured by `resolve` | Extends G9 (`done`): its leaf read `store_root` honouring it (`commands/common.rs:106-116`), not the path `resolve` takes |
 | N9a | Stored workspaces keep 0-byte placeholders for mounted server files | New observation |
-| N9b | No way found to set the harness's maximum output tokens | New observation |
+| N9b | No way found to set the harness's maximum output tokens (run `be1123c5…-r4-a1` died at the 32000-token limit) | New observation |
 
 ## Round 03: Eliott's rulings on the steering questions (2026-11-23)
 

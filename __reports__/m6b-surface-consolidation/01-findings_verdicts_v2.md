@@ -495,19 +495,19 @@ See the next section. Each candidate taken in gets a verdict row in the next ver
 
 ## Round 02 candidates (not yet inputs)
 
-The HTN lane hit these while running Candler `5199afc7` (v0.13.0) in its Phase 6 run 2. The supervising session routed them; Eliott has not taken them in, and none is checked in code. Evidence: `02-input_htn_run2_gaps_v0.md`, a verbatim copy of the lane's file. Ids keep the file's numbering under the prefix N; its item 7 is the skill's to fix and is left out.
+The HTN lane hit these while running Candler `5199afc7` (v0.13.0) in its Phase 6 run 2. The supervising session routed them; Eliott has not taken them in, and none is checked in code. Evidence: `02-input_htn_run2_gaps_v0.md`, a verbatim copy of the lane's file; the run ids for N3 and N9b came later from the run-2 session, and all three runs are in the run store the file names. Ids keep the file's numbering under the prefix N; its item 7 is the skill's to fix and is left out.
 
 | Id | What the lane saw | Relation to the judged inputs |
 |:--|:--|:--|
 | N1 | A native run cannot supply metadata a plug-in's grading suite needs (`plan.prompt_domain_name`): the lookup is an exact match on the run manifest (`evaluation/context/assemble.rs:143-158`, the lane's citation), declaring the path is refused at resolve, and the prompt's values are recorded as one map. `evaluate` and `analyze` were blocked | New. Next to C3/G20 and C13, neither of which covers it. Open ownership: Candler (a declared metadata surface) or the plug-in (it asks for a path no run records) |
 | N2 | `--set replicates=1` was ignored without a warning: the job ran 5 replicates per arm | Extends G10 (`done`), whose leaf left the `--set` residuals unread |
-| N3 | With `budget.turns = 200`, one run stopped at 201 by the cap and another completed at 250 | Extends G14 (`done`), whose leaf left cap metering unverified. A possible budget-enforcement defect |
+| N3 | With `budget.turns = 200`, run `a16b0809…-r2-a1` stopped at 201 turns with the cap as its stop reason, and run `a16b0809…-r4-a1` completed at 250 (`measured.run.num_turns`) | Extends G14 (`done`), whose leaf left cap metering unverified. A possible budget-enforcement defect |
 | N4 | `[treatment]` needs a source and pinned tag even when `request.treatment` is the factor | New. Nearest: G10 |
 | N5 | `treatment:` is refused in a plug-in's `isolation.build.context`, so a plug-in cannot ship a general "install the skill's package" layer | New. Nearest: G15 |
 | N6 | A prompt starting with `/` passes `resolve` and is refused at run time | New. Nearest: C5; C5 asked for a skip switch, this asks to move a check earlier |
 | N8 | `CANDLER_STORE` may not be honoured by `resolve` (seen once, unverified) | Extends G9 (`done`), whose leaf read `store_root` honouring it, not the path `resolve` takes |
 | N9a | The plug-in's server files reach the box through a mount. In the store, the run's saved workspace keeps those files only as 0-byte placeholders, so the store alone cannot re-run a gate against the same servers; the lane copied them from the plug-in | New observation. It touches Q4c's border: what the store keeps of a mounted server |
-| N9b | No way found to set the harness's maximum output tokens; one run died at the 32000-token output limit | New observation; unverified whether Candler exposes it |
+| N9b | No way found to set the harness's maximum output tokens; run `be1123c5…-r4-a1` died at the 32000-token output limit | New observation; unverified whether Candler exposes it |
 
 ## Pointers
 
