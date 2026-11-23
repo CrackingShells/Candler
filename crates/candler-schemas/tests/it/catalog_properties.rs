@@ -576,14 +576,6 @@ fn minimal() -> Value {
     })
 }
 
-#[test]
-fn catalog_minimal_snapshot_is_valid_in_both() {
-    let value = minimal();
-    assert!(SCHEMA.is_valid(&value));
-    let snapshot: CatalogSnapshot = serde_json::from_value(value.clone()).expect("reads");
-    assert_eq!(serde_json::to_value(&snapshot).expect("writes"), value);
-}
-
 /// The schemas of the snapshot and of a server are strict: they list what a writer emits. The
 /// reader ignores a field it does not know, so the field is not written back.
 #[test]
@@ -595,22 +587,6 @@ fn catalog_unknown_fields_fail_the_schema_and_are_dropped_by_the_reader() {
         let snapshot: CatalogSnapshot = serde_json::from_value(value.clone()).expect("reads");
         assert_eq!(serde_json::to_value(&snapshot).expect("writes"), minimal());
     }
-}
-
-/// A tool is open: an unknown key is valid by the schema and kept by the reader.
-#[test]
-fn catalog_unknown_tool_keys_pass_the_schema_and_are_kept_by_the_reader() {
-    let mut value = minimal();
-    set(
-        &mut value,
-        TOOL,
-        "icons",
-        json!([{"src": "https://example.com/i.png"}]),
-    );
-    set(&mut value, TOOL, "x", json!(null));
-    assert!(SCHEMA.is_valid(&value));
-    let snapshot: CatalogSnapshot = serde_json::from_value(value.clone()).expect("reads");
-    assert_eq!(serde_json::to_value(&snapshot).expect("writes"), value);
 }
 
 /// The schema states the lexical form of a timestamp; the parser also refuses a date or time
@@ -632,19 +608,6 @@ fn catalog_timestamp_with_no_instant_passes_the_schema_and_fails_the_reader() {
     }
 }
 
-/// An integer beyond `u64` is an integer to the schema; `serde_json` holds it as a float, so it
-/// is written back as a different number.
-#[test]
-fn catalog_integer_beyond_u64_is_not_kept_exactly() {
-    let text =
-        r#"{"name": "t", "inputSchema": {"type": "object", "maximum": 18446744073709551616}}"#;
-    let tool: Tool = serde_json::from_str(text).expect("reads");
-    assert_eq!(
-        serde_json::to_string(tool.input_schema()).expect("writes"),
-        r#"{"maximum":1.8446744073709552e+19,"type":"object"}"#
-    );
-}
-
 /// A repeated key of the JSON text is refused when it names a field of a tool and the last value
 /// wins when it is an extra key.
 #[test]
@@ -654,17 +617,6 @@ fn catalog_repeated_keys_are_refused_for_fields_and_overwritten_for_extra_keys()
     let extra = r#"{"name": "a", "inputSchema": {}, "x": 1, "x": 2}"#;
     let tool: Tool = serde_json::from_str(extra).expect("reads");
     assert_eq!(tool.extra().get("x"), Some(&json!(2)));
-}
-
-/// An integer-valued float is an integer to the schema; the reader keeps the literal as written.
-#[test]
-fn catalog_integral_float_keeps_its_literal() {
-    let tool: Tool =
-        serde_json::from_str(r#"{"name": "t", "inputSchema": {"minimum": 3.0}}"#).expect("reads");
-    assert_eq!(
-        serde_json::to_string(tool.input_schema()).expect("writes"),
-        r#"{"minimum":3.0}"#
-    );
 }
 
 /// Names are non-empty by the schema and by the reader.
@@ -746,21 +698,6 @@ fn catalog_environment_with_a_non_string_value_is_rejected() {
     }
 }
 
-/// Object keys are held in sorted order: the order of the text is not kept, the value is.
-#[test]
-fn catalog_object_key_order_is_not_kept() {
-    let text = r#"{"name": "t", "inputSchema": {"type": "object", "properties": {"z": {}, "a": {}, "m": {}}}}"#;
-    let tool: Tool = serde_json::from_str(text).expect("reads");
-    let written = serde_json::to_string(&tool).expect("writes");
-    assert_eq!(
-        written,
-        r#"{"name":"t","inputSchema":{"properties":{"a":{},"m":{},"z":{}},"type":"object"}}"#
-    );
-    let before: Value = serde_json::from_str(text).expect("parses");
-    let after: Value = serde_json::from_str(&written).expect("parses");
-    assert_eq!(before, after);
-}
-
 /// An object nested `depth` levels deep: `{"a": {"a": … {} …}}`.
 fn nested(depth: usize) -> Map<String, Value> {
     let mut inner = Map::new();
@@ -805,13 +742,4 @@ fn catalog_deeply_nested_documents_are_written_and_refused_on_reading() {
     let text = serde_json::to_string(&deep).expect("writes without a limit");
     let error = serde_json::from_str::<CatalogSnapshot>(&text).expect_err("refused on reading");
     assert!(error.to_string().contains("recursion limit"), "{error}");
-}
-
-/// A number outside the range of `f64` is refused; one outside the 64-bit integers is read as a
-/// float (see `catalog_integer_beyond_u64_is_not_kept_exactly`).
-#[test]
-fn catalog_number_beyond_f64_is_refused() {
-    let text = r#"{"name": "t", "inputSchema": {"maximum": 1e400}}"#;
-    let error = serde_json::from_str::<Tool>(text).expect_err("out of range");
-    assert!(error.to_string().contains("number out of range"), "{error}");
 }

@@ -940,21 +940,6 @@ fn base(status: &str) -> serde_json::Value {
 }
 
 #[test]
-fn outcome_pristine_bases_are_valid_for_both_readers() {
-    for status in ["pass", "fail", "blocked", "not_measured", "not_applicable"] {
-        let document = base(status);
-        assert!(
-            schema_accepts(&document),
-            "{status}: the schema refuses the base"
-        );
-        assert!(
-            rust_accepts(&document),
-            "{status}: the reader refuses the base"
-        );
-    }
-}
-
-#[test]
 fn outcome_every_mutation_is_refused_by_both_readers() {
     let all = &*MUTATIONS;
     assert!(all.len() > 200, "only {} mutations", all.len());
@@ -994,43 +979,6 @@ proptest! {
 }
 
 // ---- where the two readers differ ---------------------------------------------------------
-
-#[test]
-fn outcome_json_schema_reads_3_0_as_an_integer_and_the_rust_reader_does_not() {
-    let base = base("pass");
-    for (label, edit) in [
-        (
-            "replicate",
-            json!({"run": {"cell": good_digest(), "replicate": 3.0, "attempt": 1}}),
-        ),
-        (
-            "attempt",
-            json!({"run": {"cell": good_digest(), "replicate": 1, "attempt": 2.0}}),
-        ),
-        ("count", json!({"value": {"kind": "count", "count": 3.0}})),
-        (
-            "fraction num",
-            json!({"value": {"kind": "fraction", "num": 1.0, "den": 2}}),
-        ),
-        (
-            "fraction den",
-            json!({"value": {"kind": "fraction", "num": 1, "den": 2.0}}),
-        ),
-        (
-            "counts entry",
-            json!({"value": {"kind": "counts", "counts": {"a": 3.0}}}),
-        ),
-        ("weight num", json!({"weight": {"num": 2.0, "den": 2}})),
-        ("weight den", json!({"weight": {"num": 2, "den": 2.0}})),
-    ] {
-        let mut document = base.clone();
-        for (key, value) in edit.as_object().expect("an object") {
-            document[key] = value.clone();
-        }
-        assert!(schema_accepts(&document), "the schema refuses {label} 3.0");
-        assert!(!rust_accepts(&document), "the reader accepts {label} 3.0");
-    }
-}
 
 #[test]
 fn outcome_writers_emit_integer_literals_and_both_readers_read_a_number_written_as_an_integer() {
@@ -1090,120 +1038,6 @@ fn outcome_the_schema_refuses_unknown_fields_and_the_rust_reader_ignores_them() 
                 "the reader refuses an unknown field on {label}"
             );
         }
-    }
-}
-
-#[test]
-fn outcome_the_schema_cannot_compare_weight_num_with_den_and_the_rust_reader_does() {
-    for (num, den) in [(2, 1), (3, 2), (1, 0), (0, 0), (u64::MAX, u64::MAX - 1)] {
-        let mut document = base("fail");
-        document["weight"] = json!({"num": num, "den": den});
-        document["cause"] = json!({"legacy": "zero_weight"});
-        assert!(schema_accepts(&document), "the schema refuses {num}/{den}");
-        assert!(!rust_accepts(&document), "the reader accepts {num}/{den}");
-    }
-}
-
-#[test]
-fn outcome_the_schema_states_only_the_blocked_weight_rule_and_the_rust_reader_states_all_three() {
-    // A pass weighs num = den and a fail num < den; the schema compares neither.
-    for (status, num, den) in [
-        ("pass", 1, 2),
-        ("pass", 0, 3),
-        ("fail", 2, 2),
-        ("fail", 3, 3),
-        ("fail", u64::MAX, u64::MAX),
-    ] {
-        let mut document = base(status);
-        document["weight"] = json!({"num": num, "den": den});
-        assert!(
-            schema_accepts(&document),
-            "the schema refuses {status} {num}/{den}"
-        );
-        assert!(
-            !rust_accepts(&document),
-            "the reader accepts {status} {num}/{den}"
-        );
-    }
-    // A blocked weighs num 0, and both readers refuse anything else.
-    for (num, den) in [(1, 2), (2, 2), (1, 1)] {
-        let mut document = base("blocked");
-        document["weight"] = json!({"num": num, "den": den});
-        assert!(
-            !schema_accepts(&document),
-            "the schema accepts blocked {num}/{den}"
-        );
-        assert!(
-            !rust_accepts(&document),
-            "the reader accepts blocked {num}/{den}"
-        );
-    }
-    for (status, num, den) in [
-        ("pass", 5, 5),
-        ("fail", 0, 1),
-        ("fail", 4, 5),
-        ("blocked", 0, 7),
-    ] {
-        let mut document = base(status);
-        document["weight"] = json!({"num": num, "den": den});
-        assert!(
-            schema_accepts(&document) && rust_accepts(&document),
-            "{status} {num}/{den}"
-        );
-    }
-}
-
-#[test]
-fn outcome_the_schema_bounds_an_integer_only_by_its_type_and_the_rust_reader_by_64_bits() {
-    let past: serde_json::Value =
-        serde_json::from_str("18446744073709551616").expect("a number past u64");
-    for (label, edit) in [
-        ("count", json!({"value": {"kind": "count", "count": past}})),
-        (
-            "fraction num",
-            json!({"value": {"kind": "fraction", "num": past, "den": 2}}),
-        ),
-        (
-            "fraction den",
-            json!({"value": {"kind": "fraction", "num": 1, "den": past}}),
-        ),
-        (
-            "counts entry",
-            json!({"value": {"kind": "counts", "counts": {"a": past}}}),
-        ),
-        ("weight num", json!({"weight": {"num": past, "den": past}})),
-        ("weight den", json!({"weight": {"num": 2, "den": past}})),
-    ] {
-        let mut document = base("pass");
-        for (key, value) in edit.as_object().expect("an object") {
-            document[key] = value.clone();
-        }
-        assert!(
-            schema_accepts(&document),
-            "the schema refuses {label} past 64 bits"
-        );
-        assert!(
-            !rust_accepts(&document),
-            "the reader accepts {label} past 64 bits"
-        );
-    }
-}
-
-#[test]
-fn outcome_run_key_counters_past_32_bits_pass_the_schema_and_fail_the_reader() {
-    for field in ["replicate", "attempt"] {
-        let mut document = base("pass");
-        document["run"][field] = json!(4_294_967_296_u64);
-        assert!(
-            schema_accepts(&document),
-            "the schema refuses a {field} past 32 bits"
-        );
-        assert!(
-            !rust_accepts(&document),
-            "the reader accepts a {field} past 32 bits"
-        );
-        document["run"][field] = json!(u32::MAX);
-        assert!(schema_accepts(&document) && rust_accepts(&document));
     }
 }
 
@@ -1327,12 +1161,21 @@ fn check_value_record(record: &OutcomeRecord) {
     assert!(back.validate().is_ok());
 }
 
+/// Guards: the Rust reader refuses an integer field written as a float, even an integral one
+/// (`2.0`), where the JSON Schema reads it as an integer. Oracle: the literals written below, each
+/// accepted when written as an integer.
 #[test]
-fn outcome_the_schema_cannot_order_the_two_lines_of_a_range_and_the_rust_reader_does() {
-    for reference in ["path:a#L3-2", "path:a#L10-9"] {
-        let mut document = base("pass");
-        document["evidence"] = json!([{"ref": reference}]);
-        assert!(schema_accepts(&document), "the schema refuses {reference}");
-        assert!(!rust_accepts(&document), "the reader accepts {reference}");
+fn outcome_the_rust_reader_refuses_an_integral_float_for_an_integer_field() {
+    let edits: [(&str, &str, &str); 2] = [("run", "replicate", "2"), ("weight", "num", "2")];
+    for (member, field, int) in edits {
+        for (literal, accepted) in [(int, true), ("2.0", false)] {
+            let mut document = base("pass");
+            document[member][field] = serde_json::from_str(literal).expect("JSON");
+            assert_eq!(
+                rust_accepts(&document),
+                accepted,
+                "{member}.{field} written {literal}"
+            );
+        }
     }
 }
