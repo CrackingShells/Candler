@@ -23,8 +23,8 @@ Every data verb prints its record as JSON by default with one `--format` option,
 ## Status
 ```mermaid
 graph TD
-    output_contract[One output contract]:::inprogress
-    knowledge_pages[Knowledge pages]:::inprogress
+    output_contract[One output contract]:::done
+    knowledge_pages[Knowledge pages]:::done
     records[Records, docs and env]:::amendment
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -36,8 +36,8 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `output_contract.md` | 📄 Leaf Task | 🔄 In Progress |
-| `knowledge_pages.md` | 📄 Leaf Task | 🔄 In Progress |
+| `output_contract.md` | 📄 Leaf Task | ✅ Done |
+| `knowledge_pages.md` | 📄 Leaf Task | ✅ Done |
 | `records/` | 📁 Directory | 🔵 Amendment |
 
 ## Amendment Log
@@ -47,3 +47,5 @@ graph TD
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| output_contract | claude/m6b-build-output_contract | 16 | Merged f1b8b0b7. A6, A7. Every data verb prints its `candler-schemas` record as JSON by default and `--format text` renders it; refusals print `refusal/1` by default; `--error-format`, `watch --json` and `resolve --json` retire with no alias; N8 red on the tip, now a guard. C1 built and then withdrawn in new commits by Eliott's round 08 (`resolve` needed `run`'s setup and counted sealed runs as new). The step 3 commit is not green alone (accepted). Follow-ups: C1 with a read-only run-key count, `evaluate` and `resolve`-failure hand shapes, `watch --live` against `--format text`, `analyze` `text` (L2 `analysis_record`) |
+| knowledge_pages | claude/m6b-build-knowledge_pages | 8 | Merged faa4511c. One `CONFIGURATION_PATHS` table feeds `is_setting`, `is_known_path`, the request keys and `check_keys`; `configuration-paths.md`, `config-file.md` and the index's exit codes are generated; `--help` prints `EXIT_CODES`. Verifier F1 (a misspelt per-run cap accepted, introduced here) fixed and guarded; F3, F4 closed. Follow-ups: F2 (value readers, the machine-wide `slots` check and `is_location` still name keys by literal; all predate L1), five path texts private in `paths.rs` (schemas crate not owned), `status` and `usage_failure` in `main.rs` still type 0/1/2 |
