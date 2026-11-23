@@ -15,8 +15,8 @@ Leaf: `__roadmap__/diet/cull_import_eval.md`. Branch `diet/cull_import_eval`, cu
 | guard_oracle_mini | causes_follow_the_legacy_fields | tests the oracle helper | same row equality (causes are in the projection) |
 | guard_oracle_mini | the_number_token_decides_the_value_kind | tests the oracle helper | same row equality (values are in the projection) |
 | guard_oracle_mini | run_facts_come_from_the_verdicts_streams_and_metadata | tests the oracle helper | `mapping::the_mapped_runs_are_the_oracle_runs` and `mapping::contaminated_runs_have_no_records_and_incomplete_runs_have_all` |
-| guard_oracle_aggregates | oracle_aggregates (ignored) | tests the oracle helper | `guard_golden::the_golden_corpus_imports_to_the_oracle_rows` (240 runs, 10,320 rows, the 8,291, 802, 742 and 485 status counts) |
-| guard_oracle_ac (candler) | oracle_ac_rederived (ignored) | tests the oracle generator | structure; the committed `equivalence.json` is read by `guard_golden_parity` |
+| guard_oracle_aggregates | oracle_aggregates (ignored) | tests the oracle helper | `guard_golden::the_golden_corpus_imports_to_the_oracle_rows` (240 runs, 10,320 rows, the 8,291, 802, 742 and 485 status counts). The cover is `#[ignore]`d and corpus-gated, as the deleted test was; the per-role score sums have no cover (accepted loss, Follow-ups) |
+| guard_oracle_ac (candler) | oracle_ac_rederived (ignored) | tests the oracle generator | none for the re-derivation: `guard_golden_parity` only consumes the committed `equivalence.json`, and is itself corpus-gated. Accepted loss (Follow-ups) |
 | guard_layering_i1 | workspace_holds_no_domain_segment | source scan | structure; the README claim is held by the two rows moved into `guard_import_mini` |
 | guard_layering_i1 | workspace_tracks_no_file_under_a_skipped_name | source scan | structure |
 | guard_layering_i1 | tracked_check_names_the_tracked_file_under_a_skipped_name_only | self-test of the scanner | structure |
@@ -26,7 +26,7 @@ Leaf: `__roadmap__/diet/cull_import_eval.md`. Branch `diet/cull_import_eval`, cu
 | guard_layering_i1 | plant_symlink_or_binary_file_under_assets_fails_the_scan_naming_it | self-test of the scanner | structure |
 | guard_layering_i1 | segments_split_on_case_and_an_allowlist_entry_excuses_one_line_only | self-test of the scanner | structure |
 | guard_legacy_mapping | the_mapped_values_hold_no_absolute_path | repeats a kept guard | `guard_import_mini::the_store_holds_relative_paths_only` (the same I17 promise over the same corpus, read from the store) |
-| guard_protocol_client | no_evaluation_module_signals_a_process | source scan | `guard_signal::the_guard_refuses_what_it_did_not_spawn_and_signals_nothing`, and the `Recording` signaller of `every_failure_path_of_an_evaluator_is_accounted_for`, which asserts which groups the client's stops reach |
+| guard_protocol_client | no_evaluation_module_signals_a_process | structure (a source scan, like `guard_layering_i22`); I22 is held at the `Guard` | `guard_signal::the_guard_refuses_what_it_did_not_spawn_and_signals_nothing` tests the `Guard`, not that `src/evaluation/` never signals; the `Recording` signaller of `every_failure_path_of_an_evaluator_is_accounted_for` shows the client's own stops reach only the spawned group |
 | guard_eval_infra | the_binary_reads_the_names_the_build_exports | reads `supervise.rs` as text | structure; the `git_*` and `packaged_*` rows read the identity through `eval_infra()` |
 | guard_eval_infra | this_checkout_records_the_full_commit | repeats a kept guard | `git_checkout_clean_records_the_full_commit` (the 40-hex commit `git rev-parse` names, on a checkout the test builds) |
 
@@ -34,7 +34,7 @@ Support: the segment scanner (`SegmentRules`, `SegmentHit`, `SegmentScan`, `spli
 
 ## Merged and rewritten
 
-- `guard_layering_i1` becomes two rows in `guard_import_mini`: `a_renamed_domain_imports_to_the_same_counts_and_leaves_no_name_in_the_store` and `without_markers_every_unmeasured_record_is_unrecorded`. The first checks the store with a 13-segment check (`assert_no_domain_name`) in place of the scanner.
+- `guard_layering_i1` becomes two rows in `guard_import_mini`: `a_renamed_domain_imports_to_the_same_counts_and_leaves_no_name_in_the_store` and `without_markers_every_unmeasured_record_is_unrecorded`. The first checks the store with a 13-segment check (`assert_no_domain_name`) in place of the scanner, and compares every projected row (expectation id, role, status, value, weight, cause) and every manifest factor list with the oracle's, the domain names renamed in them, not only the counts.
 - `guard_legacy_mapping` moves into `guard_import_mini` as `mod mapping`, with 7 tests (below).
 - `guard_package_names` moves into `guard_import_mini` as `a_package_name_is_a_field_path_segment`.
 
@@ -59,6 +59,7 @@ Each bite is a one-line edit of product code; each was reverted with `git checko
 | `import/grading.rs` `marker_code`: the captured code becomes `htn_{code}` (the importer writes a domain name) | `a_renamed_domain_imports_to_the_same_counts_and_leaves_no_name_in_the_store`, `mapping::the_mapped_records_are_the_oracle_rows`, `the_store_holds_the_oracle_rows_and_every_difference_is_explained`, `entry_params_come_from_the_rules` | yes |
 | `import/grading.rs` `marker_code`: the fallback becomes `htn_unrecorded` | `without_markers_every_unmeasured_record_is_unrecorded` | yes |
 | `isolation/image.rs` `package_name_ok`: the `.` check dropped | `a_package_name_is_a_field_path_segment` | yes |
+| `import/grading.rs` `marker_code`: markers apply only when the evidence holds `TIER_D` (the importer needs the domain name; no status changes, only causes) | `a_renamed_domain_imports_to_the_same_counts_and_leaves_no_name_in_the_store` (the counts-only version stayed green) | yes |
 
 ## Gates
 
@@ -68,6 +69,8 @@ Each bite is a one-line edit of product code; each was reverted with `git checko
 
 - `guard_ingest` and `guard_cli_refusal` may hold the same refusal codes (`import.no_stream`, `import.rules_required`); a piece that owns both can check and drop one side.
 - `mod mapping` inside `guard_import_mini` still carries its own fixture-editing helpers (about 400 lines); `guard_import_mini` and `mapping` could share `support::legacy_import` for `Imported` if a later piece wants one reader.
+- Accepted loss: with `oracle_aggregates` and `oracle_ac` gone, nothing re-derives the A-C reference files (counts.toml, per-cell sums, equivalence pairs, D-E counts) from the corpus any more; `guard_golden` and `guard_golden_parity` run only with `CANDLER_GOLDEN_CORPUS` and take those files as given.
+- Residual: a direct signal from an evaluation module that bypasses the `Guard` is no longer caught by a test; I22 is held at the `Guard` only.
 - The renamed-domain row checks snake and kebab segments, not camel-case splits or the `plan trace` sequence the scanner held.
 
 ## Verifier

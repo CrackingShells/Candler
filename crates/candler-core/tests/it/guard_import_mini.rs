@@ -1071,7 +1071,7 @@ fn import_rows(
     folder: &Path,
     rules: &ImportRules,
     store_dir: &Path,
-) -> (usize, Vec<oracle::ExpectedRow>) {
+) -> (usize, Vec<oracle::ExpectedRow>, BTreeSet<Vec<String>>) {
     let store = Store::init(store_dir).expect("the store initialises");
     let report = import(folder, rules, &reader, &store).expect("the folder imports");
     let mut rows = Vec::new();
@@ -1086,14 +1086,32 @@ fn import_rows(
             }
         }
     }
-    (usize::try_from(report.runs).expect("a run count"), rows)
+    let factors = store
+        .runs()
+        .expect("the runs list")
+        .iter()
+        .map(|entry| {
+            store
+                .read_manifest(&entry.key)
+                .expect("the manifest reads")
+                .factors()
+                .iter()
+                .map(ToString::to_string)
+                .collect()
+        })
+        .collect();
+    (
+        usize::try_from(report.runs).expect("a run count"),
+        rows,
+        factors,
+    )
 }
 
 /// Guards: I1 — the core names no domain: a copy of the mini-corpus whose every file, directory and
 /// stream has the domain names rewritten (`tier` becomes `band`, and the entry params name `band`),
 /// imported with rules that name an `acme-eval` instrument, a renamed legacy format and a renamed
-/// marker, gives the oracle's run count and the oracle's count of each status, and the store holds
-/// no domain segment. Oracle: `oracle::expected_runs` and `oracle::expected_rows` over the original
+/// marker, gives the oracle's run count, the oracle's rows (the domain names renamed in them) and factor
+/// lists, and the store holds no domain segment. Oracle: `oracle::expected_runs` and `oracle::expected_rows` over the original
 /// mini-corpus, and `DOMAIN_SEGMENTS`.
 #[test]
 fn a_renamed_domain_imports_to_the_same_counts_and_leaves_no_name_in_the_store() {
@@ -1114,7 +1132,7 @@ fn a_renamed_domain_imports_to_the_same_counts_and_leaves_no_name_in_the_store()
         .expect("the renamed rules build");
 
     let store_dir = tempfile::tempdir().expect("a temporary directory");
-    let (runs, rows) = import_rows(copy.path(), &rules, store_dir.path());
+    let (runs, mut rows, factors) = import_rows(copy.path(), &rules, store_dir.path());
     assert_eq!(runs, expected_runs(&mini()).len());
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
     for row in &rows {
@@ -1122,6 +1140,28 @@ fn a_renamed_domain_imports_to_the_same_counts_and_leaves_no_name_in_the_store()
         *counts.entry(row.status.clone()).or_default() += 1;
     }
     assert_eq!(counts, oracle_counts());
+
+    // Every row and every factor list is the oracle's with the domain names renamed.
+    let rename = |text: &str| String::from_utf8(renamed(text.as_bytes())).expect("a UTF-8 text");
+    let mut expected: Vec<oracle::ExpectedRow> = expected_rows(&mini())
+        .into_iter()
+        .map(|row| oracle::ExpectedRow {
+            cell: String::new(),
+            expectation_id: rename(&row.expectation_id),
+            role: rename(&row.role),
+            value: row.value.map(|value| rename(&value)),
+            cause: row.cause.map(|cause| rename(&cause)),
+            ..row
+        })
+        .collect();
+    expected.sort();
+    rows.sort();
+    assert_eq!(rows, expected);
+    let expected_factors: BTreeSet<Vec<String>> = imported_factor_lists(&mini())
+        .into_iter()
+        .map(|list| list.iter().map(|factor| rename(factor)).collect())
+        .collect();
+    assert_eq!(factors, expected_factors);
     assert_no_domain_name(store_dir.path());
 }
 
@@ -1145,7 +1185,7 @@ fn without_markers_every_unmeasured_record_is_unrecorded() {
         .build()
         .expect("the rules without markers build");
     let store_dir = tempfile::tempdir().expect("a temporary directory");
-    let (runs, rows) = import_rows(&mini(), &rules, store_dir.path());
+    let (runs, rows, _) = import_rows(&mini(), &rules, store_dir.path());
     assert_eq!(runs, 6);
     let unmeasured: Vec<_> = rows
         .iter()
