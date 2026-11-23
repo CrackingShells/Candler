@@ -41,7 +41,13 @@ Six read-only leaves judged the 63 inputs raised by the M7 pre-study, one report
 
 ## Round 04: Q3 ruled, Q4 asked back (2026-11-23)
 
-- `01-findings_verdicts_v2.md` (latest): X6 is rejected (Q3), and the build leaves come to about 262 calls. Q4c answers Eliott's question on how a check would find a server in any language, with three options. The round 02 candidates now have their own section in the report.
+- `01-findings_verdicts_v2.md`: X6 is rejected (Q3), and the build leaves come to about 262 calls. Q4c answers Eliott's question on how a check would find a server in any language, with three options. The round 02 candidates now have their own section in the report.
+
+## Round 05: Q4c ruled, round 02 taken in (2026-11-23)
+
+- `01-findings_verdicts_v3.md` (latest): C2 takes Q4c's form, and N1 to N9b get verdict rows (72 in all). The build leaves come to about 302 calls, with a new `experiment_env` leaf for N9b. Nothing is left open.
+- `leaves/round02_candidates_v0.md`: the code check of N1 to N9b and of the start-command gate. `leaves/n9b_env_scout_v0.md`: the scout that found N9b is not a duplicate. The coordinator checked N3's turn counts and arguments in the run store.
+- The HTN coordinator was told N1's ruling, the dogfooding direction and Q4c's install advice (2026-11-23).
 
 ## Rulings
 
@@ -60,7 +66,12 @@ Eliott's rulings on the verdicts report, one row per question and round.
 | 03 | Q9 path vocabulary offline | Option A: offline delivery is M7's responsibility |
 | 04 | Q3 samples | The field list is enough; X6 is rejected |
 | 04 | Q4 border | Asked back: how would the check find servers written in different languages? Answered as Q4c in v2 |
+| 05 | Q4c the check's form | Run each declared server's start command; no MCP client. Software the agent uses at run time belongs in the image, and mounting it is the plug-in's fault. Accepted: the check runs once per job before the first run, in a container set up as a run's |
+| 05 | N1 plug-in metadata | owner:plugin. Tell the HTN coordinator; plug-ins dogfood the latest Candler instead of reproducing the old harness; the domain prompt is generated, so its values are known |
+| 05 | N9b env vars | Wanted; scout first for a duplicate. The scout found none: accept |
+| 05 | N8 `CANDLER_STORE` | Accept |
+| 05 | N2, N3, N4, N5, N6, N9a | Proposals acknowledged: accept, owner:provider, accept, defer, accept, reject |
 
 ## Status
 
-Verdict study, discussion rounds 03 and 04 ruled Q1 to Q3 and Q5 to Q9. Q4c and round 02's candidates wait for Eliott. The build session starts only after Eliott says Go, recorded in the rulings table.
+Verdict study, discussion rounds 03 to 05 ruled every question and the nine round 02 candidates. v3 waits for Eliott's Go or amendment. The build session starts only after Eliott says Go, recorded in the rulings table.
