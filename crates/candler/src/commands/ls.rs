@@ -63,8 +63,8 @@ pub enum Listing {
 }
 
 /// The line of an entry, without a trailing line feed.
-fn line_of(entry: &ListedExperiment, paint: Paint) -> String {
-    match entry {
+fn line_of(entry: &ListedExperiment, paint: Paint) -> Option<String> {
+    Some(match entry {
         ListedExperiment::Experiment { path, cells, runs } => {
             let runs = if *runs > 0 {
                 paint.green(&runs.to_string())
@@ -78,8 +78,8 @@ fn line_of(entry: &ListedExperiment, paint: Paint) -> String {
             paint.dim("skipped"),
             reason.split_whitespace().collect::<Vec<_>>().join(" ")
         ),
-        _ => String::new(),
-    }
+        _ => return None,
+    })
 }
 
 /// The roots to list: the project's `experiments/` (or the working directory's, with no project)
@@ -245,7 +245,9 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     if args.output.text() {
         let paint = Paint::detect();
         for entry in &record.experiments {
-            writeln!(stdout, "{}", line_of(entry, paint)).map_err(|e| CliError::failed("ls", e))?;
+            if let Some(line) = line_of(entry, paint) {
+                writeln!(stdout, "{line}").map_err(|e| CliError::failed("ls", e))?;
+            }
         }
     } else {
         write_record("ls", &mut stdout, &record)?;

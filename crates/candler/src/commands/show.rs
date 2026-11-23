@@ -107,7 +107,7 @@ pub async fn run(cli: &Cli, args: &ShowArgs) -> Result<Exit, CliError> {
         }
         let document = ShowCounts {
             schema: ShowCountsTag,
-            counts: counts.clone(), // BORROW: the text form reads the counts again
+            counts,
         };
         match args.format {
             None => {
@@ -118,7 +118,8 @@ pub async fn run(cli: &Cli, args: &ShowArgs) -> Result<Exit, CliError> {
             Some(ShowFormat::Toml) => {
                 toml::to_string(&document).map_err(|e| CliError::failed("show", e))?
             }
-            Some(ShowFormat::Text) => counts
+            Some(ShowFormat::Text) => document
+                .counts
                 .iter()
                 .flat_map(|(evaluator, by_status)| {
                     by_status
