@@ -61,6 +61,16 @@ One fresh Sonnet verifier, re-checked after the fixes of findings 1 and 2 (resul
 | 4 | `Format`/`Values`/`Canonical` remapped to `Document` with `detail` from `to_string()` | accepted: keeps the 25 rows behind `document_invalid` as ruled; no test pins `detail` |
 | 5 | Bite 3's hard-coded half not run; lookup is by (enum, variant), not by key | accepted: the literal would stay green; the registry is still the source |
 
+Re-check of the two fixes: findings 1 and 2 closed; five new findings.
+
+| # | Finding | Disposition |
+|:--|:--|:--|
+| A | `e5d52d84` adds a field to two public variants but is `fix(schemas):`, not `!`; history does not bisect between it and the core test commit | open, to the coordinator: making it `!` makes the one-crate gate's grep find two commits, folding it into `327cb73f` rewrites history; the coordinator decides |
+| B | `suite-file.md:66` said an empty `applies_to` is `document_invalid` | closed in the `docs(schemas)` commit after the report: the line says `suite.list_empty` at `/expectations/0`; `contract_pages` rerun |
+| C | a canonical fault of a JSON suite entry is rebuilt as `EvaluationError::Toml` (was `Json`), so its detail and variant name TOML | open: not changed; to the coordinator |
+| D | no test row for the canonical-fault mapping or an index above 0 on the suite side | open: not built (call cap) |
+| E | the suite row's red run before the fix was not captured | accepted, recorded |
+
 Everything else the verifier attacked came back clean (commit shape, registry unchanged, one validator, JSON readers validating, no changed expectation that did not assert the defect, no generated section edited).
 
 ## Follow-ups
