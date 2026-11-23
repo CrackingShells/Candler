@@ -4,6 +4,8 @@
 
 The Python package `candler-evaluator`, which an author of an evaluator kind uses to speak the protocol; a kind returns the fields of an outcome record that Candler does not fill.
 
+The author API (a kind's signature, `RunContext`, `KINDS`, `needs` and `params_schema`) is in the package's docstrings and README.
+
 ## Version
 
 <!-- generated:version -->
