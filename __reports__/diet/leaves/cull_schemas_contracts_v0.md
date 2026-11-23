@@ -83,4 +83,4 @@ The tests removed from `catalog_properties` and `outcome_properties`, and the tw
 
 ## Verifier
 
-pending (coordinator)
+PASS with findings (one important), then fixed. `guard_refusal_codes::r1_every_error_enum_is_coded_or_internal` was called structure but was the only check that a new error type gets a refusal/1 row; it was restored in 84b6512d, with a new row pinning that the Rust reader refuses an integral float for an integer field, and the report now cites the src tests that hold the three reader-only refusals.
