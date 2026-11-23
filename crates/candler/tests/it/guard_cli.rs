@@ -298,12 +298,15 @@ fn import_show_and_diff_over_the_mini_corpus_match_the_hand_counts() {
     );
     assert_eq!(out.status.code(), Some(0), "{out:?}");
     let summary: Value = serde_json::from_slice(&out.stdout).expect("a JSON summary");
-    assert_eq!(summary, json!({"runs": 6, "records": 136}));
+    assert_eq!(
+        summary,
+        json!({"schema": "ingest-report/1", "runs": 6, "records": 136})
+    );
 
     let out = candler(dir.path(), &store, &["show"]);
     assert_eq!(out.status.code(), Some(0), "{out:?}");
     let shown: Value = serde_json::from_slice(&out.stdout).expect("JSON counts");
-    let expected = json!({"counts": {"htn-creator-eval@0.4.2": {
+    let expected = json!({"schema": "show-counts/1", "counts": {"htn-creator-eval@0.4.2": {
         "pass": 105, "fail": 7, "blocked": 13, "not_measured": 10, "not_applicable": 1
     }}});
     assert_eq!(shown, expected);

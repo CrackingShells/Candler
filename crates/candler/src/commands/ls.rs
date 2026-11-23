@@ -62,26 +62,23 @@ pub enum Listing {
     },
 }
 
-impl Listing {
-    /// The line, without a trailing line feed.
-    #[must_use]
-    pub fn line(&self, paint: Paint) -> String {
-        match self {
-            Self::Experiment { path, cells, runs } => {
-                let runs = if *runs > 0 {
-                    paint.green(&runs.to_string())
-                } else {
-                    runs.to_string()
-                };
-                format!("{}\t{cells}\t{runs}", path.display())
-            }
-            Self::Skipped { path, reason } => format!(
-                "{}\t{}\t{}",
-                path.display(),
-                paint.dim("skipped"),
-                reason.split_whitespace().collect::<Vec<_>>().join(" ")
-            ),
+/// The line of an entry, without a trailing line feed.
+fn line_of(entry: &ListedExperiment, paint: Paint) -> String {
+    match entry {
+        ListedExperiment::Experiment { path, cells, runs } => {
+            let runs = if *runs > 0 {
+                paint.green(&runs.to_string())
+            } else {
+                runs.to_string()
+            };
+            format!("{path}\t{cells}\t{runs}")
         }
+        ListedExperiment::Skipped { path, reason } => format!(
+            "{path}\t{}\t{}",
+            paint.dim("skipped"),
+            reason.split_whitespace().collect::<Vec<_>>().join(" ")
+        ),
+        _ => String::new(),
     }
 }
 
@@ -239,20 +236,19 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let (root, runs) = match common::store_root("ls", store).await {
         Ok(root) => {
             let runs = stored_runs(&root);
-            (root.display().to_string(), runs)
+            (Some(root.display().to_string()), runs)
         }
-        Err(_) => (String::new(), Vec::new()),
+        Err(_) => (None, Vec::new()),
     };
-    let listings = list_files(&files, &runs);
+    let record = ExperimentList::new(root, list_files(&files, &runs).iter().map(listed).collect());
     let mut stdout = std::io::stdout().lock();
     if args.output.text() {
         let paint = Paint::detect();
-        for listing in &listings {
-            writeln!(stdout, "{}", listing.line(paint)).map_err(|e| CliError::failed("ls", e))?;
+        for entry in &record.experiments {
+            writeln!(stdout, "{}", line_of(entry, paint)).map_err(|e| CliError::failed("ls", e))?;
         }
     } else {
-        let experiments = listings.iter().map(listed).collect();
-        write_record("ls", &mut stdout, &ExperimentList::new(root, experiments))?;
+        write_record("ls", &mut stdout, &record)?;
     }
     Ok(Exit::Success)
 }

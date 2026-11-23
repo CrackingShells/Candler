@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use candler_core::evaluation::selection::rates::{rates, rates_toml};
-use candler_schemas::listing::{CellRate, Rates};
+use candler_schemas::listing::{CellRate, Rates, ShowCounts, ShowCountsTag};
 use serde_json::json;
 
 use super::{CliError, Exit, common};
@@ -105,7 +105,10 @@ pub async fn run(cli: &Cli, args: &ShowArgs) -> Result<Exit, CliError> {
                 .or_insert(0);
             *slot = slot.saturating_add(1);
         }
-        let document = json!({ "counts": counts });
+        let document = ShowCounts {
+            schema: ShowCountsTag,
+            counts: counts.clone(), // BORROW: the text form reads the counts again
+        };
         match args.format {
             None => {
                 let text =

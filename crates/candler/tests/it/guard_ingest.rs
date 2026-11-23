@@ -386,7 +386,7 @@ fn i1_the_verb_ingests_a_directory() {
     let first: Value = serde_json::from_slice(&out.stdout).expect("a JSON line");
     assert_eq!(
         first,
-        json!({"runs": 3, "created": 3, "existing": 0,
+        json!({"schema": "ingest-report/1", "runs": 3, "created": 3, "existing": 0,
                "skipped": [{"path": "notes.jsonl", "reason": "not_a_stream"}]})
     );
     let out = candler(dir.path(), &store, &["ingest", "traces"]);
@@ -591,7 +591,10 @@ fn i2_a_results_folder_gives_the_mini_corpus_counts() {
     );
     assert_eq!(out.status.code(), Some(0), "{out:?}");
     let summary: Value = serde_json::from_slice(&out.stdout).expect("a JSON line");
-    assert_eq!(summary, json!({"runs": MINI_RUNS, "records": MINI_RECORDS}));
+    assert_eq!(
+        summary,
+        json!({"schema": "ingest-report/1", "runs": MINI_RUNS, "records": MINI_RECORDS})
+    );
 }
 
 /// Guards: I2 — `candler import …` prints exactly what `candler ingest …` prints, and `import` is
