@@ -1129,7 +1129,8 @@ struct RawExperimentFile {
     #[schemars(extend(
         "$comment" = "The kinds are unique and none is `build_inputs`; the Rust reader refuses a repeated or reserved kind."
     ))]
-    inputs: Vec<ExperimentInput>,
+    #[schemars(with = "Vec<ExperimentInput>", extend("default" = []))]
+    inputs: Vec<RawExperimentInput>,
 }
 
 impl TryFrom<MapOnly<RawExperimentFile>> for ExperimentFile {
@@ -1147,6 +1148,10 @@ impl TryFrom<MapOnly<RawExperimentFile>> for ExperimentFile {
             secrets,
             inputs,
         } = raw.0;
+        let inputs = inputs
+            .into_iter()
+            .map(|input| ExperimentInput::try_from(MapOnly(input)))
+            .collect::<Result<Vec<_>, _>>()?;
         Self::new(
             fixed, factors, replicates, budget, harness, treatment, secrets,
         )?
@@ -1287,7 +1292,7 @@ impl ExperimentFile {
             };
             document.insert(key, converted);
         }
-        read_value(Value::Object(document)).map_err(|e| {
+        let raw: RawExperimentFile = read_value(Value::Object(document)).map_err(|e| {
             if e.unknown_field {
                 ExecutionError::UnknownField {
                     detail: e.detail,
@@ -1298,6 +1303,22 @@ impl ExperimentFile {
                     detail: e.detail,
                     path: e.path,
                 }
+            }
+        })?;
+        Self::try_from(MapOnly(raw)).map_err(|error| {
+            // A format, value or canonical fault is a fault of the document's shape.
+            if matches!(
+                error,
+                ExecutionError::Format(_)
+                    | ExecutionError::Values(_)
+                    | ExecutionError::Canonical(_)
+            ) {
+                ExecutionError::Document {
+                    detail: error.to_string(),
+                    path: String::new(),
+                }
+            } else {
+                error
             }
         })
     }
