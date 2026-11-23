@@ -18,10 +18,10 @@ use candler_harness::conformance::{
 use candler_harness::driver::{DriverError, HarnessDriver, Plan, SettingRow};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
-    Action, Capabilities, Cell, CensusSource, CollectSpec, CommandSpec, EnvEntry, GatewayEnv,
-    InitReport, Observed, ObservedEnd, PendingItem, PendingKind, PendingState, PreparedFile,
-    ProcessEnd, ProcessExit, SessionClose, SessionSpec, SessionTracker, StateKind, StatePath,
-    StopSignal, StopSpec, Workspace,
+    Action, Capabilities, Cell, CensusSource, CollectSpec, CommandSpec, CommandSpecError, EnvEntry,
+    GatewayEnv, InitReport, Observed, ObservedEnd, PendingItem, PendingKind, PendingState,
+    PreparedFile, ProcessEnd, ProcessExit, SessionClose, SessionSpec, SessionTracker, StateKind,
+    StatePath, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::process::ExitStatus;
@@ -1195,5 +1195,44 @@ fn conformance_session_surface_on_a_fake() -> TestResult {
     let filled = closing.with_session_id(&sid("ses_ok")?)?;
     assert!(!filled.uses_session_id());
     assert!(closing.with_session_id(&sid("a;b")?).is_err());
+    Ok(())
+}
+
+/// Guards: Cond 4 — a command with an empty argv or a variable set twice is refused, and the same
+/// command with one argument and distinct variable names builds (positive control). Oracle: R01
+/// §Harness drivers (`CommandSpec`: a non-empty argv and an overlay naming each variable once),
+/// hand-written inputs.
+#[test]
+fn command_spec_refuses_empty_argv_and_duplicate_variables() -> TestResult {
+    let env = |name: &str, value: &str| EnvEntry::literal(String::from(name), String::from(value));
+    let argv = || vec![String::from("tool")];
+
+    let valid = CommandSpec::builder()
+        .argv(argv())
+        .env(env("A", "1"))
+        .env(env("B", "1"))
+        .build()?;
+    assert_eq!(valid.argv(), ["tool"]);
+    assert_eq!(valid.env_overlay().len(), 2);
+
+    assert_eq!(
+        CommandSpec::builder()
+            .argv(argv())
+            .env(env("A", "1"))
+            .env(env("B", "2"))
+            .env(env("A", "3"))
+            .build(),
+        Err(CommandSpecError::DuplicateEnv {
+            name: String::from("A")
+        }),
+    );
+    assert_eq!(
+        CommandSpec::builder().argv(Vec::new()).build(),
+        Err(CommandSpecError::EmptyArgv),
+    );
+    assert_eq!(
+        CommandSpec::builder().build(),
+        Err(CommandSpecError::MissingField { field: "argv" }),
+    );
     Ok(())
 }
