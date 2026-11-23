@@ -23,7 +23,7 @@ graph TD
     s1_seal_blobs[s1_seal_blobs]:::done
     cull_schemas_contracts[cull_schemas_contracts]:::planned
     cull_isolation[cull_isolation]:::done
-    cull_supervision[cull_supervision]:::planned
+    cull_supervision[cull_supervision]:::done
     cull_plan_store[cull_plan_store]:::planned
     cull_stats_analyze[cull_stats_analyze]:::planned
     cull_import_eval[cull_import_eval]:::planned
@@ -42,7 +42,7 @@ graph TD
 | `s1_seal_blobs.md` | 📄 Leaf Task | ✅ Done |
 | `cull_schemas_contracts.md` | 📄 Leaf Task | ⬜ Planned |
 | `cull_isolation.md` | 📄 Leaf Task | ✅ Done |
-| `cull_supervision.md` | 📄 Leaf Task | ⬜ Planned |
+| `cull_supervision.md` | 📄 Leaf Task | ✅ Done |
 | `cull_plan_store.md` | 📄 Leaf Task | ⬜ Planned |
 | `cull_stats_analyze.md` | 📄 Leaf Task | ⬜ Planned |
 | `cull_import_eval.md` | 📄 Leaf Task | ⬜ Planned |
