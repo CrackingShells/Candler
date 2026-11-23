@@ -143,6 +143,26 @@ fn manifest_of(
     Ok(builder.build()?)
 }
 
+/// The container of one cell: the isolation's plan, the harness's environment over it and the
+/// cell's inputs mounted read-only into `workspace_dir`. It writes no run record; the mount
+/// points of the inputs are made in `workspace_dir`, so the caller owns that directory.
+///
+/// # Errors
+/// [`IsolationError`] when the plan, the harness's environment or a mount is refused.
+pub fn compose_container(
+    rt: &Runtime,
+    isolation: &dyn Isolation, // TRAIT_OBJECT: the runtime's isolation, or a fake in tests
+    view: &Cell<'_>,
+    workspace_dir: &Path,
+    home: &Path,
+    inputs: &Inputs,
+) -> Result<ContainerPlan, IsolationError> {
+    let mut container = isolation.plan(view, &Workspace::new(workspace_dir))?;
+    apply_harness_env(&mut container, rt.driver.as_ref(), home)?;
+    mount_inputs(rt, &mut container, workspace_dir, inputs)?;
+    Ok(container)
+}
+
 /// Makes the mount point of each input in the workspace, mounts each input of the cell read-only
 /// there from its blob in the store, and checks the whole mount list again.
 fn mount_inputs(
@@ -478,13 +498,14 @@ async fn drive(
     // What the driver resolved from the cell, kept with the run: the argv, the variable names the
     // overlay sets and each prepared file.
     let resolved = resolved_record(&command, &prepared.files, &written);
-    let mut container = isolation.plan(&view, &workspace)?;
-    apply_harness_env(
-        &mut container,
-        rt.driver.as_ref(),
+    let container = compose_container(
+        rt,
+        isolation.as_ref(),
+        &view,
+        &workspace_dir,
         &agent_home(&layout.run_dir(&plan.key)),
+        &cell.inputs,
     )?;
-    mount_inputs(rt, &mut container, &workspace_dir, &cell.inputs)?;
 
     let out_stream = stream("stdout")?;
     let err_stream = stream("stderr")?;
