@@ -999,8 +999,7 @@ fn agent_container_is_destroyed_when_its_client_cannot_start() {
 }
 
 /// Guards: the `env` table of a cell reaches the plan of the harness process with its name and
-/// value, once, and no other plan variable is the table's name; the gateway variables are not
-/// set by the plan.
+/// value, once.
 /// Oracle: the name and value are written by hand.
 /// Bite: the table passed to the gateway instead of the plan's environment, or dropped.
 #[test]
@@ -1046,5 +1045,4 @@ fn env_reaches_the_harness_process() {
         "{:?}",
         plan.env
     );
-    assert!(plan.gateway.is_none());
 }

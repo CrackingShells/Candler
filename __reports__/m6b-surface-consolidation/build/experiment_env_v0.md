@@ -1,15 +1,15 @@
-# experiment_env build, partial (stopped at the call cap)
+# experiment_env build
 
-Status: Step 1 reads done; no guard, schema field, wiring or refusal built. Nothing but this file is committed.
+Status: built; the guards and gates pass; the verifier findings and their dispositions are below.
 
 ## First reads
 - Additive within `experiment/1`: `RawExperimentFile` is `deny_unknown_fields` (`crates/candler-schemas/src/execution.rs:1119-1156`), but an optional field with `#[serde(default)]` and `skip_serializing_if` (as `treatment` and `inputs` already are, `execution.rs:1197-1216`) leaves every existing file valid and serialises an env-less file as today. A minor bump, no `/2`.
 - `ExperimentFile` is a hand-built type: `new` takes seven positional arguments and delegates to private `build` (`execution.rs:1219-1317`); `ExperimentFile::new` has many callers, so adding `env` as a constructor argument ripples through tests and crates (the schemas commit may touch only `candler-schemas`). A builder-style setter (like `inputs: Vec::new()` set after `build`) avoids that ripple.
-- Cell values: `build` makes `plan.fixed` from `fixed` with `ResolvedValue::recorded` (`execution.rs:1290-1300`); `resolve/layers.rs` resolves six layers per path, and `is_setting` (by `resolve/paths.rs` `CONFIGURATION_PATHS`) decides what never reaches a cell digest. An `env.<NAME>` path therefore needs a row in that table of a non-setting class, or `is_known_path` refuses it.
+- Cell values: `build` makes `plan.fixed` from `fixed` with `ResolvedValue::recorded` (`execution.rs:1290-1300`); `resolve/layers.rs` resolves six layers per path, and `is_setting` (by `resolve/paths.rs` `CONFIGURATION_PATHS`) decides what never reaches a cell digest. A table at the path `env` needs a non-setting row in that table (built as a `Leaf` row).
 - Harness environment: `DockerIsolation::plan` builds `ContainerPlan.env` from literals `PATH`, `HOME`, `VIRTUAL_ENV`, `LANG` with values from the constants `AGENT_PATH`, `CONTAINER_HOME`, `AGENT_VENV`, `AGENT_LANG` (`isolation/container/mod.rs:259-394`); the names are literals there, so the reserved list needs name constants made there. `apply_harness_env` adds the driver's state variables (`runner/exec/mod.rs:321-359`, from `driver.state_paths()`); `agent_argv` pushes the gateway's two variable names (`driver.gateway()`) and refuses a duplicate (`isolation/container/run.rs:237-283`). The gateway is a separate container; secret values never enter `ContainerPlan.env`.
 - So the reserved set is: the four literals (to become constants), `driver.gateway()` names, `driver.state_paths()` env names, and `secrets`. The last three are dynamic (driver-dependent), so the refusal at `resolve` needs the driver, which `resolve` may not hold: check before building.
-- Duplicate names: not read (a repeated TOML key is a parse error by the TOML reader; unconfirmed here).
-- Digest vectors: not read.
+- Duplicate names: the table is a TOML table, whose repeated key is a parse error of the TOML reader, so no row is needed. Digest vectors: answered in D3.
+- Final setters: the four names are the constants `ENV_PATH`, `ENV_HOME`, `ENV_VIRTUAL_ENV`, `ENV_LANG` at `crates/candler-core/src/isolation/container/mod.rs:61-71`, used by `plan` and by `PLAN_ENV_NAMES`.
 
 ## Built
 - `env` is an optional table in `experiment/1`, set after `build` (`ExperimentFile::with_env`, `env()`), serialised only when non-empty (`crates/candler-schemas/src/execution.rs`, `RawExperimentFile.env`, `ExperimentFile.env`); the `secrets` description now says its values reach the gateway only. Additive: a minor bump, no `/2`.
@@ -37,10 +37,17 @@ Step 2's answer: the DIGEST vectors (`guard_cell_digest`, the core guards, the o
 The `Guards:` lines are in the doc comments. All four are kept.
 
 ## Verifier
-Not yet run (see the final message).
+Agent a5e62db2d6eaec961 (Sonnet), first pass, 6 findings:
+1. A factor over `env` (or a `[fixed]` key `env` next to `[env]`) reaches the cell without the refusal: factor levels are applied in `runner/plan.rs` `fresh_cells`, after `Layered::new`. Not fixed: it needs `runner/plan.rs` (not owned). Sent to the coordinator as a defect.
+2. `ResolveInput::secret_names` defaults to empty, so a caller that does not set it skips `experiment.env_secret`. Not fixed; the only caller in the tree (`request_settings`) sets it. Follow-up.
+3. A non-string value from `--set env=...` is refused late as a plan error without a code. Follow-up.
+4. `env_reaches_the_harness_process` asserted `plan.gateway.is_none()`, always true: removed. The guard order and the gateway bite wording stand as disclosed; bite 2 is red on its own guard, not on DIGEST (D3).
+5. The report contradicted itself: fixed.
+6. Hand copies: the prose of `experiment.env_reserved` no longer lists the names (pages regenerated); `probe_env` in `isolation/image.rs` still writes `HOME` as a literal (not owned): follow-up.
 
 ## Follow-ups
 - A driver or gateway name equal to an `env` entry is not refused at `resolve` (it holds no driver), but it is refused at run, not overwritten: `agent_argv` returns `DuplicateName` when a gateway variable is already in `plan.env` (`isolation/container/run.rs:237-283`), and `apply_harness_env` refuses a state variable already set (`runner/exec/mod.rs:321-359`).
 - Guards were written after the code, not first.
+- Defects for the coordinator: factor over `env` bypasses the refusal (verifier 1); `isolation/image.rs` `probe_env` literal `HOME`.
 - The gateway side has no environment of its own in the plan, so "the gateway does not get it" is covered by the plan holding no gateway variable and the table being only in `plan.env`.
 - `a name already declared in secrets` is checked against `file.secrets()` only, not against `model.token_secret`.
