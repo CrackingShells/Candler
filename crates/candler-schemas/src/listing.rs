@@ -180,6 +180,10 @@ pub struct DiffChange {
     pub run: String,
     /// The expectation that changed.
     pub expectation: String,
+    /// The four fields of the base side, `null` when that side has no row.
+    pub from: Value,
+    /// The four fields of the compared side, `null` when that side has no row.
+    pub to: Value,
 }
 
 /// An expectation of a [`DiffReport`] that only one side holds.

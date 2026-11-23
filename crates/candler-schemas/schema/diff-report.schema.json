@@ -12,15 +12,23 @@
           "description": "The expectation that changed.",
           "type": "string"
         },
+        "from": {
+          "description": "The four fields of the base side, `null` when that side has no row."
+        },
         "run": {
           "description": "The run the change is in.",
           "type": "string"
+        },
+        "to": {
+          "description": "The four fields of the compared side, `null` when that side has no row."
         }
       },
       "required": [
         "class",
         "run",
-        "expectation"
+        "expectation",
+        "from",
+        "to"
       ],
       "type": "object"
     },
