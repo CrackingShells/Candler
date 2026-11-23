@@ -1,11 +1,11 @@
 # m6b-surface-consolidation
 
 ## Context
-Milestone M6b of `candler-v1`, the leaf `surface/m6b_surface_consolidation.md` (R02), inserted before M7 by amendment A11. This campaign is the **verdict study only**: it judges every input raised by the M7 pre-study and gives design suggestions; it builds nothing. Eliott set this scope in plan review (2026-11-23): this session explores, judges and suggests; he reviews the result over discussion rounds; after he says **Go**, this session starts a new session that plans and runs the build from the approved report. Build nodes are therefore not in this roadmap.
+Milestone M6b of `candler-v1`, the leaf `surface/m6b_surface_consolidation.md` (R02), inserted before M7 by amendment A11. This campaign is the **verdict study only**: it judges every input raised by the M7 pre-study and gives design suggestions; it builds nothing. Eliott set this scope in plan review (2026-11-23): this session explores, judges and suggests; he reviews the result over discussion rounds; after he said **Go** on verdicts v3 (2026-11-23), he asked this session to write the build leaves itself, so amendment A1 adds the build under `consolidated/build/` (R21), planned from R16; its README carries its own gates, gotchas and budget.
 - **L0, this level:** six verdict leaves in parallel, one per code area: `execution_preflight`, `knowledge_as_data`, `analysis_outputs`, `cli_contract`, `docs_and_skills`, `codes_review`. Each writes `__reports__/m6b-surface-consolidation/leaves/<leaf>_v0.md`.
 - **L1, `consolidated/`:** `verdicts` folds the six reports into `__reports__/m6b-surface-consolidation/01-findings_verdicts_v0.md`, with a verifier.
 - **Discussion rounds** (not nodes): this session presents the report, records Eliott's rulings in the report folder's README, and revises the report (`_v1`, `_v2`, …) until Go.
-No gate needs cargo, Docker or a model call. No file outside `__reports__/m6b-surface-consolidation/` and this campaign changes.
+No study gate needs cargo, Docker or a model call, and no file outside `__reports__/m6b-surface-consolidation/` and this campaign changes before `$BUILD_BASE` (the commit that adds `consolidated/build/`, defined in R21); the build changes code after it.
 
 ## Reference Documents
 - [R01 Architecture](../../__design__/architecture.md) — §Proposed State (Layer responsibilities), §Operation API, §CLI surface, §Contracts & Invariants (Error model, Refusals, Contract pages), §Risks & Mitigations, §Future features
@@ -22,6 +22,9 @@ No gate needs cargo, Docker or a model call. No file outside `__reports__/m6b-su
 - [R13 Refusal registry](../../docs/contract/codes.toml) — the 377 rows `codes_review` judges
 - [R14 designing-tests skill](/Users/hacker/.claude/plugins/cache/cracking-shells/designing-tests/1.1.0/skills/designing-tests/SKILL.md) — roles (probe, confirm, guard) for D3
 - [R15 writing-reports skill](/Users/hacker/.claude/plugins/cache/cracking-shells/writing-reports/2.1.0/skills/writing-reports/SKILL.md) — the findings report type and round-versioned naming
+- [R16 Verdicts v3](../../__reports__/m6b-surface-consolidation/01-findings_verdicts_v3.md) — the approved verdicts report (latest of v0 to v3); the build leaves come from its §Design suggestions
+- [R17 Report folder README](../../__reports__/m6b-surface-consolidation/README.md) — Eliott's rulings, rounds 03 to 06, including the Go
+- [R21 Build README](consolidated/build/README.md) — the build's levels, gates, gotchas and budget
 
 ## Goal
 Every input raised before M7 has one explicit, reasoned verdict, judged on responsibility, blast radius, the nine triad dimensions and idiom fit, and the accepted ones come with design suggestions that a build session can plan from; Eliott has discussed and approved them and said Go.
@@ -32,13 +35,13 @@ Every input raised before M7 has one explicit, reasoned verdict, judged on respo
 - [ ] [nl] The coordinator has built one colgrep index over this worktree's `crates/` and `python/` dirs before dispatching L0
 
 ## Success Gates
-- ⬜ [cmd] G1 every id has exactly one verdict row in the report, with a verdict from the closed set: COVER (below) exits 0
-- ⬜ [cmd] G2 each design question and the codes review has its section: `R=__reports__/m6b-surface-consolidation/01-findings_verdicts_v0.md; for h in '## D1' '## D2' '## D3' '## Codes review' '## Responsibility record (draft)' '## Design suggestions' '## Steering questions'; do grep -q "^$h" $R || exit 1; done`
-- ⬜ [cmd] G3 no remedy key was added: `! grep -Eq '^remedy *=' docs/contract/codes.toml`
-- ⬜ [cmd] G4 nothing outside the reports and this campaign changed: `test -z "$(git diff --name-only $BASE..HEAD | grep -vE '^__reports__/m6b-surface-consolidation/|^__roadmap__/m6b-surface-consolidation/')"`
-- ⬜ [nl] G5 the responsibility record draft names the four audiences (store window, web-wide, interactive, development) and the rule that interactive surfaces are self-contained and offline
-- ⬜ [nl] G6 every `accept` that brings a test answers D3's four questions; every verifier finding is fixed or adjudicated in `leaves/verdicts_v0.md`
-- ⬜ [nl] G7 Eliott said Go, recorded in the rulings table of `__reports__/m6b-surface-consolidation/README.md`; only then does the build session start
+- ✅ [cmd] G1 every id has exactly one verdict row in the report, with a verdict from the closed set: COVER (below) exits 0
+- ✅ [cmd] G2 each design question and the codes review has its section: `R=__reports__/m6b-surface-consolidation/01-findings_verdicts_v0.md; for h in '## D1' '## D2' '## D3' '## Codes review' '## Responsibility record (draft)' '## Design suggestions' '## Steering questions'; do grep -q "^$h" $R || exit 1; done`
+- ✅ [cmd] G3 no remedy key was added: `! grep -Eq '^remedy *=' docs/contract/codes.toml`
+- ✅ [cmd] G4 nothing outside the reports and this campaign changed during the study: `test -z "$(git diff --name-only $BASE..$BUILD_BASE | grep -vE '^__reports__/m6b-surface-consolidation/|^__roadmap__/m6b-surface-consolidation/')"`
+- ✅ [nl] G5 the responsibility record draft names the four audiences (store window, web-wide, interactive, development) and the rule that interactive surfaces are self-contained and offline
+- ✅ [nl] G6 every `accept` that brings a test answers D3's four questions; every verifier finding is fixed or adjudicated in `leaves/verdicts_v0.md`
+- ✅ [nl] G7 Eliott said Go, recorded in the rulings table of `__reports__/m6b-surface-consolidation/README.md`; only then does the build start (met 2026-11-23, round 06)
 
 ## Gotchas
 - **Rulings bind.** R04 round 02: items are inputs, not a backlog; each verdict explicit; no feature stitched from parts of others; Candler's idioms; no user-behaviour baseline; no refusal remedy hints by default; docs are the web-wide surface, while the CLI, MCP and skills are interactive, self-contained, offline and never link out; M7's MCP shape is decided at M7 planning; a container that differs from its files is a Candler defect for Candler's own guards and preflight.
@@ -106,8 +109,8 @@ Every input raised before M7 has one explicit, reasoned verdict, judged on respo
 - **Spec defects.** Verify each claim against the code before judging it. A claim in R05–R09 that is wrong on the tip is a finding (verdict `done` or `reject` with the evidence), never a premise.
 - **Execution model.** This session is the coordinator (Opus): it dispatches every L0 leaf at once, each a Sonnet subagent with `model: "sonnet"` passed explicitly, in its own worktree branched from `$BASE`; integrates each leaf (rebase onto the tip, record check, ownership check, `git merge --no-ff -F <file>`, confirm with `git log`); reviews the seams after L0 (id coverage, covered ids named by their primary, two leaves claiming one fact, one leaf assuming another's verdict) and sends gaps back to the agent that holds the context; then dispatches `verdicts`. It never verifies its own dispatches. Each brief carries the leaf file, D1–D3, colgrep-only reading, the shared-machine rules, "report spec defects, do not act on them" and the call cap as an action ("at N calls, stop, commit what is done, list what is left"). It batches `dirtree-rdm update` calls per level and re-reads `dirtree-rdm ls` at each level close.
 - **Verifier.** `verdicts` is the one `[V]` leaf. Its implementer, once its gates pass, dispatches a fresh Sonnet verifier with the leaf's Verifier brief verbatim, adding only the branch name, fixes the findings, has the same verifier re-check through SendMessage, and reports once. If a Sonnet subagent cannot dispatch Agent, the coordinator dispatches the verifier with the same brief and relays its findings to the implementer.
-- **Shared machine.** No builds, no Docker. Worktrees are removed after their merge; the colgrep index is cleared at Go.
-- **Budget** (R11 rates: $0.041 per Sonnet call, $0.063 per coordinator call). L0 leaves 275 calls, $11.3; `verdicts` with verifier and fixes 120, $4.9; discussion revisions by Sonnet agents (about 3 rounds) 90, $3.7; this session as coordinator 150, $9.5; contingency 15 % $4.4. **Cap $34; the coordinator stops and reports to Eliott at $27.** The milestone coordinator (the supervising session) has its own row, $18. The build's budget is set by the build session's plan. Spend is measured from transcripts after L0, after L1 and at Go. Each leaf's call cap is in its Estimate line.
+- **Shared machine** (the study's; the build's are in R21, Gotchas). No builds, no Docker. Worktrees are removed after their merge; the colgrep index is cleared at Go.
+- **Budget** (the study's; the build's are in R21, Gotchas) (R11 rates: $0.041 per Sonnet call, $0.063 per coordinator call). L0 leaves 275 calls, $11.3; `verdicts` with verifier and fixes 120, $4.9; discussion revisions by Sonnet agents (about 3 rounds) 90, $3.7; this session as coordinator 150, $9.5; contingency 15 % $4.4. **Cap $34; the coordinator stops and reports to Eliott at $27.** The milestone coordinator (the supervising session) has its own row, $18. The build's budget is R21's. Spend is measured from transcripts after L0, after L1 and at Go. Each leaf's call cap is in its Estimate line.
 
 
 ## Status

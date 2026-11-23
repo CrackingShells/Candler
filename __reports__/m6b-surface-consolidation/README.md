@@ -49,6 +49,12 @@ Six read-only leaves judged the 63 inputs raised by the M7 pre-study, one report
 - `leaves/round02_candidates_v0.md`: the code check of N1 to N9b and of the start-command gate. `leaves/n9b_env_scout_v0.md`: the scout that found N9b is not a duplicate. The coordinator checked N3's turn counts and arguments in the run store.
 - The HTN coordinator was told N1's ruling, the dogfooding direction and Q4c's install advice (2026-11-23).
 
+## Round 06: Go (2026-11-23)
+
+- Eliott said Go on `01-findings_verdicts_v3.md` and asked this session to write the build leaves itself. Amendment A1 adds them under `__roadmap__/m6b-surface-consolidation/consolidated/build/`: nine leaves over four levels, from v3's §Design suggestions, with a build cap of $55.
+- The leaf reports of the build will go under `build/`, the knowledge transfer as `03-knowledge_transfer_build_v0.md`.
+- Open for the build: the word for Q7's comparability class. v3 proposes "comparability class"; `analysis_record` and `docs_chores` wait on it.
+
 ## Rulings
 
 Eliott's rulings on the verdicts report, one row per question and round.
@@ -71,7 +77,8 @@ Eliott's rulings on the verdicts report, one row per question and round.
 | 05 | N9b env vars | Wanted; scout first for a duplicate. The scout found none: accept |
 | 05 | N8 `CANDLER_STORE` | Accept |
 | 05 | N2, N3, N4, N5, N6, N9a | Proposals acknowledged: accept, owner:provider, accept, defer, accept, reject |
+| 06 | Go | Go on v3; this session writes the build leaves (`consolidated/build/`, amendment A1) |
 
 ## Status
 
-Verdict study, discussion rounds 03 to 05 ruled every question and the nine round 02 candidates. v3 waits for Eliott's Go or amendment. The build session starts only after Eliott says Go, recorded in the rulings table.
+Verdict study closed: v3 is approved (round 06). The build is planned in `__roadmap__/m6b-surface-consolidation/consolidated/build/` and has not started.
