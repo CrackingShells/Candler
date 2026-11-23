@@ -8,14 +8,19 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use candler_schemas::execution::{GitCommit, HarnessIdentity, HarnessRequest, TreatmentSpec};
+use candler_harness::skills::SkillTree;
+use candler_schemas::execution::{
+    GitCommit, HarnessIdentity, HarnessRequest, TreatmentRef, TreatmentSpec,
+};
 use candler_schemas::primitives::{FieldPath, FormatError, NameToken};
 use candler_schemas::values::JsonValue;
 use futures::future::BoxFuture;
 
 use crate::isolation::image::ImageService;
 use crate::isolation::model::{ImageId, ImageRef};
-use crate::resolve::preflight::{PreflightError, PreflightStep, ResolveContext, StepReport};
+use crate::resolve::preflight::{
+    CheckResult, PreflightError, PreflightStep, ResolveContext, StepReport,
+};
 use crate::supervise::Supervisor;
 use crate::supervise::git::{
     GitError, READ_DEADLINE, RecordDir, archive_argv, mark_executable, run_git, tree_at_commit,
@@ -132,21 +137,24 @@ impl PreflightStep for HarnessIdentityStep {
 
 /// Derives `treatment`: the name, and the commit a tag resolves to in the checkout the treatment's
 /// `source` names, recording that source as where the value was read from. A treatment that names
-/// no source is refused.
+/// no source is refused, and so is one whose pinned commit holds no skill tree.
 pub struct TreatmentIdentityStep {
     name: NameToken,
     supervisor: Arc<Supervisor>,
+    skills: SkillTree,
 }
 
 impl TreatmentIdentityStep {
-    /// A step that resolves tags through `supervisor`.
+    /// A step that resolves tags through `supervisor` and checks the skill tree at the pinned
+    /// commit as `skills` lays it out.
     ///
     /// # Errors
     /// [`FormatError`] when the step name is not a name token.
-    pub fn new(supervisor: Arc<Supervisor>) -> Result<Self, FormatError> {
+    pub fn new(supervisor: Arc<Supervisor>, skills: SkillTree) -> Result<Self, FormatError> {
         Ok(Self {
             name: NameToken::from_str("treatment_identity@1")?,
             supervisor,
+            skills,
         })
     }
 }
@@ -162,6 +170,7 @@ impl PreflightStep for TreatmentIdentityStep {
     ) -> BoxFuture<'static, Result<StepReport, PreflightError>> {
         // BORROW: `Arc::clone` moves a share of the supervisor into the future
         let supervisor = Arc::clone(&self.supervisor);
+        let skills = self.skills;
         // BORROW: `.clone()` moves the step name into the future
         let step = self.name.clone();
         Box::pin(async move {
@@ -193,8 +202,53 @@ impl PreflightStep for TreatmentIdentityStep {
             }
             let path = path_of(paths::TREATMENT)?;
             let value = json_of(&treatment)?;
-            Ok(StepReport::new(step).derive_from(path, value, source.to_owned())) // BORROW: the report owns the source
+            let mut report = StepReport::new(step).derive_from(path, value, source.to_owned()); // BORROW: the report owns the source
+            if treatment.commit.is_some() {
+                let source = ctx.config.cwd.join(source);
+                if let Some(refusal) =
+                    skill_tree_refusal(&supervisor, skills, &treatment, &source).await?
+                {
+                    report = report.check(CheckResult::new(
+                        NameToken::from_str("skill_tree@1").map_err(|e| failed(e.to_string()))?, // BORROW: .to_string() gives owned text
+                        false,
+                        refusal,
+                    ));
+                }
+            }
+            Ok(report)
         })
+    }
+}
+
+/// Why the skill tree of `treatment` is not at its pinned commit in the repository at `source`,
+/// naming the subtree; `None` when the commit holds it.
+///
+/// # Errors
+/// [`PreflightError::Failed`] when `git` cannot be run or `treatment` pins no commit.
+async fn skill_tree_refusal(
+    supervisor: &Supervisor,
+    skills: SkillTree,
+    treatment: &TreatmentRef,
+    source: &Path,
+) -> Result<Option<String>, PreflightError> {
+    let command = skills
+        .archive_command(treatment, source)
+        .map_err(|e| failed(e.to_string()))?; // BORROW: .to_string() gives owned text
+    let subtree = skills
+        .subtree(treatment)
+        .map_err(|e| failed(e.to_string()))?; // BORROW: .to_string() gives owned text
+    let commit = treatment
+        .commit
+        .as_ref()
+        .ok_or_else(|| failed("the treatment pins no commit".to_owned()))?; // BORROW: owned text
+    let missing = format!(
+        "the pinned commit {commit} of {} holds no skill tree at `{subtree}`",
+        source.display()
+    );
+    match tree_at_commit(supervisor, command.argv().to_vec(), MARKER, None).await {
+        Ok(tar) => Ok(skills.files(treatment, &tar).err().map(|_| missing)),
+        Err(GitError::Failed(_)) => Ok(Some(missing)),
+        Err(other) => Err(failed(format!("cannot archive `{subtree}`: {other}"))),
     }
 }
 

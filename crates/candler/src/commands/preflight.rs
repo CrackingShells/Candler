@@ -19,7 +19,6 @@ use candler_core::resolve::steps::{M2bServices, register_m2b_steps};
 use candler_core::runner::evidence::catalog::{CatalogCommand, CommandCatalogProvider};
 use candler_core::runner::plan::{PlanError, experiment_of};
 use candler_core::supervise::{EventSink, Supervisor};
-use candler_harness::skills::SkillTree;
 use candler_schemas::execution::paths;
 use candler_schemas::execution::{EventPayload, ExperimentFile, Level};
 use candler_schemas::primitives::{FieldPath, RunKey};
@@ -93,7 +92,7 @@ pub(crate) fn refused(reason: impl Into<String>) -> CliError {
 }
 
 /// The resolver with the preflight steps of the image, the harness, the treatment, the catalog
-/// and the ground truth registered. `skills` is where the harness reads its skills.
+/// and the ground truth registered; the services say where the harness reads its skills.
 ///
 /// # Errors
 /// [`ResolveError`] when a step name is registered twice or malformed.
@@ -101,9 +100,8 @@ pub fn compose_resolver(
     config: Arc<Config>,
     services: &M2bServices,
     truth: GroundTruth,
-    skills: SkillTree,
 ) -> Result<Resolver, ResolveError> {
-    let step = GroundTruthStep::new(truth, Arc::clone(&services.supervisor), skills)?;
+    let step = GroundTruthStep::new(truth, Arc::clone(&services.supervisor), services.skills)?;
     register_m2b_steps(Resolver::new(config), services, step)
 }
 
@@ -397,8 +395,9 @@ pub(crate) fn foreground(
         catalog: Arc::new(catalog),
         harness_supported: driver.supported(),
         session_capable: driver.capabilities().session,
+        skills: driver.skills(),
     };
-    let resolver = compose_resolver(config, &services, truth, driver.skills()).map_err(failed)?;
+    let resolver = compose_resolver(config, &services, truth).map_err(failed)?;
     Ok(Foreground {
         cli,
         resolver,

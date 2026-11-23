@@ -64,6 +64,15 @@ impl SkillTree {
         }
     }
 
+    /// The directory of the repository that holds the skill tree of `treatment`:
+    /// `<source_root>/<name>`.
+    ///
+    /// # Errors
+    /// [`DriverError::InvalidValue`] when the treatment name is not one plain path segment.
+    pub fn subtree(&self, treatment: &TreatmentRef) -> Result<String, DriverError> {
+        Ok(format!("{}/{}", self.source_root, Self::name(treatment)?))
+    }
+
     /// The command that archives the skill tree at the commit `treatment` pins:
     /// `git -C <source> archive --format=tar <commit> -- <source_root>/<name>`.
     ///
@@ -85,7 +94,7 @@ impl SkillTree {
                 },
             }
         })?;
-        let subtree = format!("{}/{}", self.source_root, Self::name(treatment)?);
+        let subtree = self.subtree(treatment)?;
         let source = source
             .to_str()
             .ok_or_else(|| invalid("the treatment source is not text".to_owned()))?; // BORROW: .to_owned() makes the owned text

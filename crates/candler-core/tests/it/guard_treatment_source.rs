@@ -13,6 +13,7 @@ use candler_core::resolve::preflight::{
 };
 use candler_core::resolve::steps::identity::TreatmentIdentityStep;
 use candler_core::supervise::{EventSink, Supervisor};
+use candler_harness::skills::SkillTree;
 use candler_schemas::execution::{Comparable, EventPayload};
 use candler_schemas::primitives::{FieldPath, NameToken, RunKey};
 use candler_schemas::values::JsonValue;
@@ -98,7 +99,11 @@ async fn resolve(request: Value, cwd: &Path) -> Result<Resolution, String> {
         UserConfig::default(),
         Some(cwd.join("state")),
     ));
-    let treatment = TreatmentIdentityStep::new(supervisor).expect("a step");
+    let treatment = TreatmentIdentityStep::new(
+        supervisor,
+        SkillTree::new(".claude/skills", ".claude/skills"),
+    )
+    .expect("a step");
     let others = OtherRoots {
         name: "roots@1".parse().expect("a name@token"),
     };
@@ -142,10 +147,16 @@ fn two_checkouts() -> (tempfile::TempDir, PathBuf, PathBuf) {
     let one = root.path().join("one");
     std::fs::create_dir_all(&one).expect("a directory");
     git(&one, &["init", "-q"]);
-    std::fs::write(one.join("SKILL.md"), "# skill\n").expect("a file");
+    std::fs::create_dir_all(one.join(".claude/skills/demo")).expect("a directory");
+    std::fs::write(one.join(".claude/skills/demo/SKILL.md"), "# skill\n").expect("a file");
     git(&one, &["add", "."]);
     git(&one, &["commit", "-q", "-m", "skill"]);
     git(&one, &["tag", "v1"]);
+    git(&one, &["rm", "-q", "-r", ".claude"]);
+    std::fs::write(one.join("README.md"), "no skills\n").expect("a file");
+    git(&one, &["add", "."]);
+    git(&one, &["commit", "-q", "-m", "no skill tree"]);
+    git(&one, &["tag", "bare"]);
     let two = root.path().join("two");
     let out = Command::new("git")
         .arg("clone")
@@ -298,5 +309,27 @@ async fn source_only_one_checkout_is_one_entry() {
     assert_eq!(
         treatment_source(&plain)["source"]["from"],
         json!(one.to_str().expect("UTF-8"))
+    );
+}
+
+/// Guards: G5 (I7) — a treatment whose pinned commit lacks the skill subtree is refused by
+/// `resolve`, and the refusal names the subtree path; the tag of a commit that has it resolves.
+/// Oracle: `.claude/skills/demo` is the subtree the fixture wrote at `v1` and removed at `bare`,
+/// written by hand.
+/// Bite: look for the subtree at the tag's checkout instead of at the pinned commit.
+#[tokio::test]
+async fn skill_tree_missing_at_the_commit_is_refused() {
+    let (root, one, _two) = two_checkouts();
+    let source = one.to_str().expect("UTF-8");
+    let request = |tag: &str| json!({"name": "demo", "tag": tag, "source": source});
+    resolve(request("v1"), root.path())
+        .await
+        .expect("a tag whose commit holds the subtree resolves");
+    let refusal = resolve(request("bare"), root.path())
+        .await
+        .expect_err("a commit without the subtree is refused");
+    assert!(
+        refusal.contains(".claude/skills/demo"),
+        "the refusal names the subtree: {refusal}"
     );
 }
