@@ -36,8 +36,12 @@ Six read-only leaves judged the 63 inputs raised by the M7 pre-study, one report
 
 ## Round 03: Eliott's rulings on the steering questions (2026-11-23)
 
-- `01-findings_verdicts_v1.md` (latest): v0 with the rulings below applied. G11 and C2 (with H1) move to `accept`; the build leaves grow to about 272 calls. Open: Q3 (answered with Eliott's question), the Q4 border, the round 02 candidates.
+- `01-findings_verdicts_v1.md`: v0 with the rulings below applied. G11 and C2 (with H1) move to `accept`; the build leaves grow to about 272 calls. Open: Q3 (answered with Eliott's question), the Q4 border, the round 02 candidates.
 - The supervising session accepted Q1 and Q2 as a breaking change and set conditions on the `output_contract` leaf (no aliases, `!` commits with a migration path, every in-repo caller swept in the same merge, a migration note for the HTN lane). They are in v1 under Proposed build leaves.
+
+## Round 04: Q3 ruled, Q4 asked back (2026-11-23)
+
+- `01-findings_verdicts_v2.md` (latest): X6 is rejected (Q3), and the build leaves come to about 262 calls. Q4c answers Eliott's question on how a check would find a server in any language, with three options. The round 02 candidates now have their own section in the report.
 
 ## Rulings
 
@@ -54,7 +58,9 @@ Eliott's rulings on the verdicts report, one row per question and round.
 | 03 | Q7 two senses of "stratum" | Align to the standard meaning (option A) |
 | 03 | Q8 name of the interval's reading | Option B |
 | 03 | Q9 path vocabulary offline | Option A: offline delivery is M7's responsibility |
+| 04 | Q3 samples | The field list is enough; X6 is rejected |
+| 04 | Q4 border | Asked back: how would the check find servers written in different languages? Answered as Q4c in v2 |
 
 ## Status
 
-Verdict study, discussion round 03 ruled Q1, Q2 and Q4 to Q9. Q3, the Q4 border and round 02's candidates wait for Eliott. The build session starts only after Eliott says Go, recorded in the rulings table.
+Verdict study, discussion rounds 03 and 04 ruled Q1 to Q3 and Q5 to Q9. Q4c and round 02's candidates wait for Eliott. The build session starts only after Eliott says Go, recorded in the rulings table.
