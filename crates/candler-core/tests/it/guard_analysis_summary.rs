@@ -20,38 +20,31 @@ fn key_of(comparison: &Comparison, id: &str) -> String {
 }
 
 /// Three models by two settings of another factor, four runs a cell. `E1` and `E2` are gates and
-/// `E3` is a quality expectation. `gamma` has no `E2` measured at all, so every pair that holds a
+/// `E3` is a quality expectation; the passes of a cell vary with its model, setting and
+/// expectation. `gamma` has no `E2` measured at all, so every pair that holds a
 /// `gamma` arm leaves `E2` out.
 fn store() -> (
     candler_core::evaluation::selection::select::Selection,
     Vec<RunView>,
 ) {
-    let passes = |model: &str, other: &str, expectation: &str| -> u32 {
-        match (model, other, expectation) {
-            ("alpha", "x", "E1") => 4,
-            ("alpha", "y", "E1") => 3,
-            ("beta", "x", "E1") => 1,
-            ("beta", "y", "E1") => 0,
-            ("alpha", _, "E2") => 3,
-            ("beta", _, "E2") => 1,
-            ("alpha", _, "E3") => 4,
-            ("beta", _, "E3") => 2,
-            _ => 2,
-        }
-    };
     let mut runs: Vec<RunView> = Vec::new();
     let mut records: Vec<OutcomeRecord> = Vec::new();
-    for model in ["alpha", "beta", "gamma"] {
-        for other in ["x", "y"] {
+    for (m, model) in [(0_u32, "alpha"), (1, "beta"), (2, "gamma")] {
+        for (o, other) in [(0_u32, "x"), (1, "y")] {
             for replicate in 1..=4_u32 {
                 let mut spec = Spec::new(model, replicate);
                 spec.extra = vec![("plan.other", json!(other))];
                 spec.factors = vec!["plan.model", "plan.other"];
                 let run = view(&spec);
-                for (expectation, role) in [("E1", "gate"), ("E2", "gate"), ("E3", "quality")] {
+                for (e, expectation, role) in [
+                    (0_u32, "E1", "gate"),
+                    (1, "E2", "gate"),
+                    (2, "E3", "quality"),
+                ] {
+                    let passes = (m * 2 + o + e * 3) % 5;
                     let (status, cause) = if model == "gamma" && expectation == "E2" {
                         ("not_measured", Some("instrument_error"))
-                    } else if replicate <= passes(model, other, expectation) {
+                    } else if replicate <= passes {
                         ("pass", None)
                     } else {
                         ("fail", None)
