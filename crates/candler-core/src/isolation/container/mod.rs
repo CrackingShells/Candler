@@ -57,7 +57,6 @@ const DEFAULT_MEMORY: &str = "4g";
 /// The cpu limit of a container whose cell sets none.
 const DEFAULT_CPUS: f64 = 2.0;
 
-/// The `PATH` of the agent: the environment layer first.
 /// The name of the search path the plan sets.
 pub const ENV_PATH: &str = "PATH";
 /// The name of the home directory variable the plan sets.
@@ -70,6 +69,7 @@ pub const ENV_LANG: &str = "LANG";
 /// name.
 pub const PLAN_ENV_NAMES: [&str; 4] = [ENV_PATH, ENV_HOME, ENV_VIRTUAL_ENV, ENV_LANG];
 
+/// The `PATH` of the agent: the environment layer first.
 const AGENT_PATH: &str = "/opt/env/bin:/usr/local/bin:/usr/bin:/bin";
 
 /// The virtual environment the image carries.
