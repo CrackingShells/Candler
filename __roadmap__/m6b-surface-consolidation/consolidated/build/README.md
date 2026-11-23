@@ -3,7 +3,7 @@
 ## Context
 The build of M6b, added by amendment A1 after Eliott's Go (2026-11-23, G7 of the campaign README). It builds every `accept` row of the approved verdicts report, `__reports__/m6b-surface-consolidation/01-findings_verdicts_v3.md` (R16), as the leaves of R16 §Design suggestions (with the two changes in Gotchas), plus a knowledge-transfer close. The verdict study wrote it; Eliott asked for the leaves instead of a planning session ("Since you have the context, I task you to write the roadmap leaves for the `/build`"). Depth is order, from R16's leaf graph:
 - **This level (L0):** `analysis_core` (F2, C6, C8), `codes_inner` (G8), `preflight_checks` (C1's summary, G5, N2, N4, N6), `server_check` (C2).
-- **`outputs/` (L1):** `output_contract` (X1, G11, X10, X4's inspect and small records, C1's printing, N8), after `analysis_core`; `knowledge_pages` (C3, X7, X3, X9), after `codes_inner`.
+- **`outputs/` (L1):** `output_contract` (X1, G11, X10, X4's inspect and small records, N8; C1's printing withdrawn by A7), after `analysis_core`; `knowledge_pages` (C3, X7, X3, X9), after `codes_inner`.
 - **`outputs/records/` (L2):** `analysis_record` (X4's analysis record, F5, C9, the Q7 and Q8 names), after `analysis_core` and `output_contract`; `docs_chores` (X5, X8, X11, seam 6), after `knowledge_pages`; `experiment_env` (N9b), after `knowledge_pages`.
 - **`outputs/records/close/` (L3):** `knowledge_transfer`, the HTN lane's migration note and the close of M6b.
 Nothing here is pushed. The supervising session (the milestone coordinator, `local_7f577b41-1698-4eeb-9de3-4ee9460ae606`) owns the PR to `main`.
