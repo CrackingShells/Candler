@@ -937,7 +937,7 @@ fn a3_a_bare_version_is_accepted_through_the_binary() {
     assert_eq!(out.stdout, Vec::<u8>::new());
 }
 
-/// The one record on stderr of a refused call under `--error-format json`.
+/// The one record on stderr of a refused call with no option.
 fn record_of(out: &Output) -> Value {
     assert_eq!(out.status.code(), Some(2));
     assert_eq!(
@@ -951,7 +951,7 @@ fn record_of(out: &Output) -> Value {
 }
 
 /// Guards: R2 — a store with two evaluator versions prints as one `refusal/1` record under
-/// `--error-format json`, with the code `analysis.mixed_evaluator_versions`, the side `config`
+/// the default JSON form, with the code `analysis.mixed_evaluator_versions`, the side `config`
 /// (the fix is a setting of the command line, `--evaluator`) and both versions in the message.
 /// Oracle: a record written by hand from the contract.
 /// Bite: route the refusal through `CliError::refused`, and the record's code becomes
@@ -960,7 +960,7 @@ fn record_of(out: &Output) -> Value {
 fn r2_a_mixed_store_prints_as_a_record() {
     let runs = layout(&["suite-eval@1.0.0", "suite-eval@2.0.0"], false);
     let (dir, store) = fixture(&runs);
-    let out = analyze(dir.path(), &store, &["--error-format", "json"]);
+    let out = analyze(dir.path(), &store, &[]);
     let record = record_of(&out);
     assert_eq!(record["schema"], "refusal/1", "{record}");
     assert_eq!(
@@ -985,11 +985,7 @@ fn r2_an_unreadable_experiment_names_the_file() {
     let file = dir.path().join("broken.toml");
     fs::write(&file, "replicates = [\n").expect("the file writes");
     let file_arg = file.to_str().expect("a UTF-8 path");
-    let out = analyze(
-        dir.path(),
-        &store,
-        &["--error-format", "json", "--experiment", file_arg],
-    );
+    let out = analyze(dir.path(), &store, &["--experiment", file_arg]);
     let record = record_of(&out);
     assert_eq!(record["code"], "analysis.experiment_unreadable", "{record}");
     assert_eq!(record["side"], "experiment", "{record}");
@@ -1063,11 +1059,7 @@ fn a2_a_wrong_experiment_is_refused_through_the_binary() {
         ),
     ] {
         let wrong_arg = wrong.to_str().expect("a UTF-8 path");
-        let out = analyze(
-            dir.path(),
-            &store,
-            &["--error-format", "json", "--experiment", wrong_arg],
-        );
+        let out = analyze(dir.path(), &store, &["--experiment", wrong_arg]);
         let record = record_of(&out);
         assert_eq!(
             record["code"], "analysis.experiment_disagrees",
@@ -1076,7 +1068,7 @@ fn a2_a_wrong_experiment_is_refused_through_the_binary() {
         assert_eq!(record["side"], "experiment", "{label}: {record}");
     }
     let (dir, store) = fixture(&two_by_two(&["plan"]));
-    let out = analyze(dir.path(), &store, &["--error-format", "json"]);
+    let out = analyze(dir.path(), &store, &[]);
     let record = record_of(&out);
     assert_eq!(
         record["code"], "analysis.factor_broader_than_variation",

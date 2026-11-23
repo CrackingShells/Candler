@@ -457,11 +457,7 @@ fn i8_canary_never_reaches_the_agent() {
     let arrived = Instant::now();
     let reported = seek(&real, &agent, "turn", &canary_pattern());
     assert_seen_nothing("turn", &reported);
-    for args in [
-        vec!["ps"],
-        vec!["show", "--format", "json"],
-        vec!["inspect", &job],
-    ] {
+    for args in [vec!["ps"], vec!["show"], vec!["inspect", &job]] {
         let mut full = vec!["--store"];
         let store = (world.work.join(".candler").join("store"))
             .display()

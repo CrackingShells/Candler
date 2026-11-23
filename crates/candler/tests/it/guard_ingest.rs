@@ -386,7 +386,7 @@ fn i1_the_verb_ingests_a_directory() {
     let first: Value = serde_json::from_slice(&out.stdout).expect("a JSON line");
     assert_eq!(
         first,
-        json!({"runs": 3, "created": 3, "existing": 0,
+        json!({"schema": "ingest-report/1", "runs": 3, "created": 3, "existing": 0,
                "skipped": [{"path": "notes.jsonl", "reason": "not_a_stream"}]})
     );
     let out = candler(dir.path(), &store, &["ingest", "traces"]);
@@ -411,11 +411,7 @@ fn i1_a_path_with_no_stream_is_refused() {
     put(&folder, "expectations.jsonl", b"{\"id\":\"A1\"}\n");
     let store = dir.path().join("store");
     let folder_arg = folder.to_str().expect("a UTF-8 path");
-    let out = candler(
-        dir.path(),
-        &store,
-        &["--error-format", "json", "ingest", folder_arg],
-    );
+    let out = candler(dir.path(), &store, &["ingest", folder_arg]);
     assert_eq!(out.status.code(), Some(2), "{out:?}");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("import.no_stream"), "{stderr}");
@@ -435,11 +431,7 @@ fn i1_a_results_folder_without_rules_is_refused() {
     let corpus = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../candler-core/tests/fixtures/mini-corpus");
     let corpus_arg = corpus.to_str().expect("a UTF-8 path");
-    let out = candler(
-        dir.path(),
-        &store,
-        &["--error-format", "json", "ingest", corpus_arg],
-    );
+    let out = candler(dir.path(), &store, &["ingest", corpus_arg]);
     assert_eq!(out.status.code(), Some(2), "{out:?}");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("import.rules_required"), "{stderr}");
@@ -471,12 +463,7 @@ fn i1_a_nested_outputs_directory_does_not_make_a_results_folder() {
     let out = candler(
         dir.path(),
         &store,
-        &[
-            "--error-format",
-            "json",
-            "ingest",
-            traces.to_str().expect("a UTF-8 path"),
-        ],
+        &["ingest", traces.to_str().expect("a UTF-8 path")],
     );
     assert_eq!(out.status.code(), Some(0), "{out:?}");
     let summary: Value = serde_json::from_slice(&out.stdout).expect("a JSON line");
@@ -484,7 +471,7 @@ fn i1_a_nested_outputs_directory_does_not_make_a_results_folder() {
 }
 
 /// Guards: I1, R2 — a rules file whose `harness.version_pointer` is not a JSON pointer is refused
-/// under `--error-format json` with the record `{code: config.import_rule_invalid, side: config}`
+/// with no option with the record `{code: config.import_rule_invalid, side: config}`
 /// that names the rules file, and the text form still reads `refused: rules: import rule is
 /// invalid (...)`.
 /// Oracle: the fixture rules file with that one pointer changed by the test, and the code and side
@@ -511,7 +498,7 @@ fn i1_a_rules_file_with_an_invalid_rule_is_refused_with_its_code() {
         rules.to_str().expect("a UTF-8 path"),
     ];
     let store = dir.path().join("store");
-    let mut json_args = vec!["--error-format", "json"];
+    let mut json_args = Vec::<&str>::new();
     json_args.extend_from_slice(&args);
     let out = candler(dir.path(), &store, &json_args);
     assert_eq!(out.status.code(), Some(2), "{out:?}");
@@ -523,13 +510,15 @@ fn i1_a_rules_file_with_an_invalid_rule_is_refused_with_its_code() {
         rules.to_str().expect("a UTF-8 path"),
         "{record}"
     );
-    let out = candler(dir.path(), &store, &args);
+    let mut text_args = args.to_vec(); // BORROW: the call line is extended
+    text_args.extend(["--format", "text"]);
+    let out = candler(dir.path(), &store, &text_args);
     let text = String::from_utf8_lossy(&out.stderr);
     assert!(text.starts_with("candler: refused: rules: "), "{text}");
 }
 
 /// Guards: I1, R2 — a rules file that does not parse, here the fixture without its `entry_params`
-/// line, is the author's fault: under `--error-format json` the record is `{code:
+/// line, is the author's fault: with no option the record is `{code:
 /// config.import_rules_invalid, side: config}` and names the rules file, and the text form still
 /// reads `refused: rules file: TOML parse error ...` naming `entry_params`.
 /// Oracle: the fixture rules file with that one line removed by the test, and the code and side
@@ -555,7 +544,7 @@ fn i1_a_rules_file_that_does_not_parse_is_refused_with_its_code() {
         rules.to_str().expect("a UTF-8 path"),
     ];
     let store = dir.path().join("store");
-    let mut json_args = vec!["--error-format", "json"];
+    let mut json_args = Vec::<&str>::new();
     json_args.extend_from_slice(&args);
     let out = candler(dir.path(), &store, &json_args);
     assert_eq!(out.status.code(), Some(2), "{out:?}");
@@ -567,7 +556,9 @@ fn i1_a_rules_file_that_does_not_parse_is_refused_with_its_code() {
         rules.to_str().expect("a UTF-8 path"),
         "{record}"
     );
-    let out = candler(dir.path(), &store, &args);
+    let mut text_args = args.to_vec(); // BORROW: the call line is extended
+    text_args.extend(["--format", "text"]);
+    let out = candler(dir.path(), &store, &text_args);
     let text = String::from_utf8_lossy(&out.stderr);
     assert!(text.starts_with("candler: refused: rules file: "), "{text}");
     assert!(text.contains("entry_params"), "{text}");
@@ -600,7 +591,10 @@ fn i2_a_results_folder_gives_the_mini_corpus_counts() {
     );
     assert_eq!(out.status.code(), Some(0), "{out:?}");
     let summary: Value = serde_json::from_slice(&out.stdout).expect("a JSON line");
-    assert_eq!(summary, json!({"runs": MINI_RUNS, "records": MINI_RECORDS}));
+    assert_eq!(
+        summary,
+        json!({"schema": "ingest-report/1", "runs": MINI_RUNS, "records": MINI_RECORDS})
+    );
 }
 
 /// Guards: I2 — `candler import …` prints exactly what `candler ingest …` prints, and `import` is

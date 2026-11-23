@@ -1,0 +1,100 @@
+{
+  "$defs": {
+    "InspectJobRun": {
+      "additionalProperties": false,
+      "description": "One run of an [`InspectJob`].",
+      "properties": {
+        "integrity": {
+          "description": "The integrity verdict of the manifest."
+        },
+        "key": {
+          "description": "The run key.",
+          "type": "string"
+        },
+        "outcomes": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "How many current outcomes the run has with each status.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "key",
+        "integrity",
+        "outcomes"
+      ],
+      "type": "object"
+    },
+    "Spent": {
+      "additionalProperties": false,
+      "description": "What a set of runs cost.",
+      "properties": {
+        "cost_usd": {
+          "description": "The cost in US dollars of the runs that report one.",
+          "format": "double",
+          "type": "number"
+        },
+        "runs_counted": {
+          "description": "How many runs report a cost.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "runs_without_total": {
+          "description": "How many runs report no total.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cost_usd",
+        "runs_counted",
+        "runs_without_total"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:candler:schemas:inspect-job",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One job: its state, the runs whose manifest names it and what it spent.",
+  "properties": {
+    "id": {
+      "description": "The job id.",
+      "type": "string"
+    },
+    "runs": {
+      "description": "The runs whose manifest names the job.",
+      "items": {
+        "$ref": "#/$defs/InspectJobRun"
+      },
+      "type": "array"
+    },
+    "schema": {
+      "const": "inspect-job/1",
+      "description": "The version marker of the document: always `inspect-job/1`.",
+      "type": "string"
+    },
+    "spent": {
+      "$ref": "#/$defs/Spent",
+      "description": "What the sealed runs of the job cost."
+    },
+    "state": {
+      "description": "The state of the job, worded as `candler ps` words it.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "state",
+    "runs",
+    "spent"
+  ],
+  "title": "InspectJob",
+  "type": "object"
+}

@@ -523,10 +523,7 @@ fn the_live_ac_rows_and_rates_equal_the_reference() {
     );
     assert_eq!(status_counts(&live), expected, "the live status counts");
 
-    let shown = json_of(
-        &fixture.candler(&["show", "--evaluator", TO, "--format", "json"]),
-        "show",
-    );
+    let shown = json_of(&fixture.candler(&["show", "--evaluator", TO]), "show");
     let shown_counts: BTreeMap<String, u64> =
         serde_json::from_value(shown["counts"][TO].clone()).expect("the counts of the evaluator");
     assert_eq!(
@@ -608,8 +605,6 @@ fn the_version_diff_compares_everything_it_can_and_excuses_only_the_named_rows()
         TO,
         "--equivalence",
         equivalence.to_str().expect("a UTF-8 path"),
-        "--format",
-        "json",
     ]);
     let report = json_of(&out, "diff");
     let number = |name: &str| {

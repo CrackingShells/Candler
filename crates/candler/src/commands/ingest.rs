@@ -15,16 +15,18 @@ use candler_core::store::Store;
 use candler_schemas::primitives::{Digest, FieldPath, FormatError, Name, NameToken, ReasonCode};
 use regex::Regex;
 use serde::Deserialize;
-use serde_json::{Value, json};
 
 use super::refusal::CliRefusal;
-use super::{CliError, Exit, common};
+use super::{CliError, Exit, common, write_record};
 use crate::Cli;
 use crate::drivers::Registry;
+use candler_schemas::listing::{IngestReport, IngestReportTag, IngestSkipped};
 
 /// The arguments of `candler ingest`.
 #[derive(Debug, clap::Args)]
 pub struct IngestArgs {
+    #[command(flatten)]
+    pub output: super::OutputArgs,
     /// A raw trace directory, or a results folder when `--rules` is given.
     #[arg(required = true)]
     pub paths: Vec<PathBuf>,
@@ -201,10 +203,18 @@ async fn run_folders(cli: &Cli, args: &IngestArgs, rules: &Path) -> Result<Exit,
             &store,
         )
         .map_err(|e| CliError::failed("import", e))?;
-        println!(
-            "{}",
-            json!({"runs": report.runs, "records": report.outcomes})
-        );
+        write_record(
+            "import",
+            &mut std::io::stdout().lock(),
+            &IngestReport {
+                schema: IngestReportTag,
+                runs: report.runs,
+                records: Some(report.outcomes),
+                created: None,
+                existing: None,
+                skipped: None,
+            },
+        )?;
     }
     Ok(Exit::Success)
 }
@@ -218,7 +228,7 @@ async fn run_traces(cli: &Cli, args: &IngestArgs) -> Result<Exit, CliError> {
     let root = common::store_root("ingest", cli.store.as_deref()).await?;
     let store = Store::init(root.as_path()).map_err(|e| CliError::failed("ingest", e))?; // BORROW: explicit .as_path()
     let (mut created, mut existing) = (0_u64, 0_u64);
-    let mut skipped: Vec<Value> = Vec::new();
+    let mut skipped: Vec<IngestSkipped> = Vec::new();
     for path in &args.paths {
         let factory: Box<ReaderFactory> = Box::new(|name| registry.reader(name));
         let recognise = |sample: &[u8]| registry.recognise(sample);
@@ -244,22 +254,23 @@ async fn run_traces(cli: &Cli, args: &IngestArgs) -> Result<Exit, CliError> {
         })?;
         created = created.saturating_add(report.created);
         existing = existing.saturating_add(report.existing);
-        skipped.extend(
-            report
-                .skipped
-                .iter()
-                .map(|entry| json!({"path": entry.path, "reason": entry.reason.as_str()})),
-        );
+        skipped.extend(report.skipped.iter().map(|entry| IngestSkipped {
+            path: entry.path.clone(),                 // BORROW: the record owns its text
+            reason: entry.reason.as_str().to_owned(), // BORROW: the record owns its text
+        }));
     }
-    println!(
-        "{}",
-        json!({
-            "runs": created.saturating_add(existing),
-            "created": created,
-            "existing": existing,
-            "skipped": skipped,
-        })
-    );
+    write_record(
+        "ingest",
+        &mut std::io::stdout().lock(),
+        &IngestReport {
+            schema: IngestReportTag,
+            runs: created.saturating_add(existing),
+            records: None,
+            created: Some(created),
+            existing: Some(existing),
+            skipped: Some(skipped),
+        },
+    )?;
     Ok(Exit::Success)
 }
 

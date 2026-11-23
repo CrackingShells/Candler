@@ -21,11 +21,15 @@ use candler_core::store::layout::StoreLayout;
 use candler_schemas::execution::{EventPayload, JobEnd};
 use candler_schemas::primitives::{JobId, RunKey};
 
-use super::{CliError, Exit, common};
+use super::{CliError, Exit, OutputArgs, common, write_record};
+use candler_schemas::listing::{JobList, JobRow};
 
 /// The arguments of `candler ps`.
 #[derive(Debug, clap::Args)]
-pub struct Args {}
+pub struct Args {
+    #[command(flatten)]
+    pub output: OutputArgs,
+}
 
 /// One line of the listing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -234,6 +238,7 @@ async fn row_of(store: &StoreLayout, name: &str, path: &Path) -> (Row, Option<Ca
 // TRAIT_OBJECT: the output is stdout, or a buffer in tests
 pub async fn render(
     store: Option<&Path>,
+    text: bool,
     out: &mut dyn Write,
 ) -> Result<Option<RowFailed>, CliError> {
     let root = common::store_root("ps", store).await?;
@@ -268,20 +273,40 @@ pub async fn render(
         }
         rows.push(row);
     }
-    render_rows(&rows, out).map_err(fail)?;
+    let list = JobList::new(
+        root.display().to_string(),
+        rows.iter().map(job_row).collect(),
+    );
+    if text {
+        render_text(&list, out).map_err(fail)?;
+    } else {
+        write_record("ps", out, &list)?;
+    }
     Ok(rows
         .iter()
         .any(|row| row.failed)
         .then_some(RowFailed { cause }))
 }
 
-/// Writes one line per row: id, spec digest, state, progress and what the job runs.
+/// The record row of a listed job.
+fn job_row(row: &Row) -> JobRow {
+    JobRow {
+        id: row.id.clone(),             // BORROW: the record owns its text
+        spec: row.spec.clone(),         // BORROW: the record owns its text
+        state: row.state.clone(),       // BORROW: the record owns its text
+        progress: row.progress.clone(), // BORROW: the record owns its text
+        what: row.what.clone(),         // BORROW: the record owns its text
+        failed: row.failed,
+    }
+}
+
+/// Writes one line per job of `list`: id, spec digest, state, progress and what the job runs.
 ///
 /// # Errors
 /// The write error of `out`.
 // TRAIT_OBJECT: the output is stdout, or a buffer in tests
-pub fn render_rows(rows: &[Row], out: &mut dyn Write) -> io::Result<()> {
-    for row in rows {
+pub fn render_text(list: &JobList, out: &mut dyn Write) -> io::Result<()> {
+    for row in &list.jobs {
         writeln!(
             out,
             "{}\t{}\t{}\t{}\t{}",
@@ -299,9 +324,9 @@ pub fn render_rows(rows: &[Row], out: &mut dyn Write) -> io::Result<()> {
 ///
 /// # Errors
 /// [`CliError`] when the jobs cannot be listed or a job's recovery failed.
-pub async fn run(_args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
+pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let mut stdout = io::stdout().lock();
-    if let Some(failed) = render(store, &mut stdout).await? {
+    if let Some(failed) = render(store, args.output.text(), &mut stdout).await? {
         return Err(CliError::Failed {
             verb: "ps",
             // TRAIT_OBJECT: the failures of different crates travel as one type

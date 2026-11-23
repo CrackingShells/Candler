@@ -1,0 +1,94 @@
+{
+  "$defs": {
+    "ListedExperiment": {
+      "description": "One file of an [`ExperimentList`].",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A file that reads as an experiment.",
+          "properties": {
+            "cells": {
+              "description": "How many cells it declares.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "experiment",
+              "type": "string"
+            },
+            "path": {
+              "description": "The file.",
+              "type": "string"
+            },
+            "runs": {
+              "description": "How many sealed stored runs match it.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "path",
+            "cells",
+            "runs"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A file that is no experiment, or could not be read.",
+          "properties": {
+            "kind": {
+              "const": "skipped",
+              "type": "string"
+            },
+            "path": {
+              "description": "The file.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Why it was skipped.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$id": "urn:candler:schemas:experiment-list",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The experiment files a project holds and the stored runs each matches: what `candler ls`\nprints.",
+  "properties": {
+    "experiments": {
+      "description": "One entry per file found, in the order of their paths.",
+      "items": {
+        "$ref": "#/$defs/ListedExperiment"
+      },
+      "type": "array"
+    },
+    "schema": {
+      "const": "experiment-list/1",
+      "description": "The version marker of the document: always `experiment-list/1`.",
+      "type": "string"
+    },
+    "store": {
+      "description": "The root of the store the runs were counted in; `null` when the root cannot be resolved.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "experiments"
+  ],
+  "title": "ExperimentList",
+  "type": "object"
+}

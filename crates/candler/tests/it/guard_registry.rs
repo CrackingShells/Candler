@@ -58,7 +58,7 @@ fn resolve_with(world: &World, extra: &[&str]) -> Output {
 /// `resolve` that builds its services before it asks the registry; a bare name that is not read.
 #[test]
 fn registry_unknown_harness_is_refused_naming_it() {
-    let json = ["--error-format", "json"];
+    let json: [&str; 0] = [];
     // (case, the experiment names this harness, command, extra arguments, the name refused)
     let rows: [(&str, &str, &str, &[&str], &str); 6] = [
         ("run, in the file", "nonesuch", "run", &[], "nonesuch"),
