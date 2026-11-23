@@ -409,7 +409,7 @@ fn transcript_lines(
     let trace = store
         .read_trace(key)
         .map_err(|e| CliError::failed("inspect", e))?;
-    Ok(render_transcript(&trace, form))
+    render_transcript(&trace, form).map_err(|e| CliError::failed("inspect", e))
 }
 
 /// Prints what the store holds of the run, or the job, that the target names.

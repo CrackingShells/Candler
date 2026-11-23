@@ -13,9 +13,8 @@ pub enum TranscriptForm {
 }
 
 /// The line of one event as the trace file stores it.
-fn stored_line(event: &SessionEvent) -> String {
-    // EXPLICIT: an event holds no map with non-string keys, so serialising it cannot fail
-    serde_json::to_string(&TraceRecord::Event(event.clone())).unwrap_or_default() // BORROW: the record owns its event
+fn stored_line(event: &SessionEvent) -> Result<String, serde_json::Error> {
+    serde_json::to_string(&TraceRecord::Event(event.clone())) // BORROW: the record owns its event
 }
 
 /// The line of one event for a person.
@@ -52,15 +51,21 @@ fn text_line(event: &SessionEvent) -> String {
     line
 }
 
-/// One line per event of `trace`, in the stored order, none dropped.
-#[must_use]
-pub fn render_transcript(trace: &TraceFile, form: TranscriptForm) -> Vec<String> {
+/// One line per event of `trace`, in the stored order, none dropped. A JSON line is the event
+/// serialised as the trace file writes it.
+///
+/// # Errors
+/// Returns the serialiser's error when an event cannot be written as JSON.
+pub fn render_transcript(
+    trace: &TraceFile,
+    form: TranscriptForm,
+) -> Result<Vec<String>, serde_json::Error> {
     trace
         .events()
         .iter()
         .map(|event| match form {
             TranscriptForm::Json => stored_line(event),
-            TranscriptForm::Text => text_line(event),
+            TranscriptForm::Text => Ok(text_line(event)),
         })
         .collect()
 }

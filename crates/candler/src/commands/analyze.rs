@@ -226,11 +226,11 @@ fn arms_csv(report: &AnalysisReport) -> String {
 }
 
 /// The name of an interval's reading as the record writes it.
-fn reading_name(reading: Reading) -> &'static str {
-    match reading {
-        Reading::Effect => "effect",
-        Reading::Inconclusive | _ => "inconclusive",
-    }
+fn reading_name(reading: Reading) -> String {
+    serde_json::to_value(reading)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_default()
 }
 
 fn comparisons_csv(report: &AnalysisReport) -> Result<String, CliError> {
@@ -326,7 +326,7 @@ fn comparisons_csv(report: &AnalysisReport) -> Result<String, CliError> {
                     tested.battery.clone().unwrap_or_default(),
                     tested.fallback.to_string(),
                     tested.blocks.to_string(),
-                    reading_name(tested.interval_reading).to_owned(),
+                    reading_name(tested.interval_reading),
                     number(tested.or_mh),
                     number(tested.or_lo),
                     number(tested.or_hi),

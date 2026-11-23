@@ -4,7 +4,7 @@
 
 ### The trace
 
-`TraceFile` (`candler-schemas/src/trace.rs`) holds a header, sessions and `SessionEvent`s (a session id and an `Event` with `seq`, optional `at`, `kind`, optional `span`, `raw_ref`, `ext`). It reads and writes one JSON object per line, tagged by `kind` (`header`, `session`, `event`) through `TraceRecord`. `Store::read_trace` reads `layout().trace(key)` and returns `StoreError::Io` when the file is missing. The registry has no refusal for a run without a stored trace (`store.io_failed` is an environment failure of any file), so step 4 appends `config.no_stored_trace`.
+`TraceFile` (`candler-schemas/src/trace.rs`) holds a header, sessions and `SessionEvent`s (a session id and an `Event` with `seq`, optional `at`, `kind`, optional `span`, `raw_ref`, `ext`). It reads and writes one JSON object per line, tagged by `kind` (`header`, `session`, `event`) through `TraceRecord`. `Store::read_trace` reads `layout().trace(key)` and returns `StoreError::Io` when the file is missing. The registry has no refusal for a run without a stored trace (`store.io_failed` is an environment failure of any file), so step 4 appends `analysis.no_stored_trace` (side config) to `ReportError`.
 
 ### "stratum" and "strata", by sense
 
@@ -59,7 +59,18 @@ The step 1 guards were seen red on the tip: the core guard did not compile for w
 
 ## Verifier
 
-Not dispatched: the leaf reached its 77-call cap. The coordinator dispatches it with the leaf's brief and this branch.
+Fresh Sonnet verifier, first round. Findings and dispositions:
+
+1. Comparability-sense "stratum" left in `guard_analysis_summary.rs`, `guard_analyze_golden.rs` (two places) and `tests/fixtures/README.md`: fixed. The `verdicts.json` `source` strings quote R01 and stay.
+2. `crates/candler/build.rs:66` says "a stratum": outside OWNED, so left; follow-up. `docs/statistics.md` is `docs_chores`'.
+3. `schema/README.md` changed by `docs(schemas)`: the coordinator's amendment A10 added it to OWNED; no action.
+4. Report named `config.no_stored_trace`: corrected to `analysis.no_stored_trace` above. The code sits in `analysis.` because `ReportError` was the owned registered type (accepted, A10).
+5. `stored_line` used `unwrap_or_default` and could drop an event silently: `render_transcript` now returns a `Result` and `inspect` fails on a serialiser error. "As stored": the JSON line is the event serialised by the same writer as `TraceFile::write`, which `guard_trace_wire` pins byte for byte; the file's own bytes are not kept by `read`.
+6. Weak guard rows (`analyze` row checks keys only; text row checks prefix and kind): kept, as the coordinator ruled no more CLI or text-content tests; follow-up. No table-driven guard that text and CSV read only the record (D1): follow-up.
+7. `analyze` does not flatten `OutputArgs` (accepted, A10). `reading_name` hand-mapped the enum with a wildcard: now written from the record's own serialisation.
+8. Bite 3: nothing red, checked by diff (see Bites).
+
+Re-check: see below.
 
 ## Follow-ups
 
@@ -68,3 +79,5 @@ Not dispatched: the leaf reached its 77-call cap. The coordinator dispatches it 
 - No test of `--format text` content beyond exit 0 and not-JSON.
 - The refusal for a missing trace lives in `ReportError` (`analysis.no_stored_trace`) because `core/src/refusal.rs` and `commands/refusal.rs` are not OWNED; a trace-specific error type may be preferred.
 - The record's role, cell, id and factor fields are strings, not the primitive types.
+- `crates/candler/build.rs:66` still says "a stratum" in the comparability sense (not OWNED).
+- A guard that `analyze --format text` and every CSV table read only the record (D1), and tests of the `analyze` row's `interval_reading`, `comparability_class` and `spent` keys.

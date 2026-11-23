@@ -40,10 +40,10 @@ fn transcript_lists_every_event_in_order() {
     text.push('\n');
     let trace = TraceFile::read(text.as_bytes()).expect("the stored trace is valid");
 
-    let json = render_transcript(&trace, TranscriptForm::Json);
+    let json = render_transcript(&trace, TranscriptForm::Json).expect("events serialise");
     assert_eq!(json, stored, "JSON: each event as stored, in stored order");
 
-    let lines = render_transcript(&trace, TranscriptForm::Text);
+    let lines = render_transcript(&trace, TranscriptForm::Text).expect("events render");
     assert_eq!(lines.len(), stored.len(), "text: one line per event");
     for (line, stored_line) in lines.iter().zip(&stored) {
         let event: serde_json::Value =

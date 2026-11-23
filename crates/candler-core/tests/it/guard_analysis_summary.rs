@@ -11,7 +11,7 @@ use serde_json::json;
 
 use super::guard_analysis_report::{Spec, evaluator, record, view};
 
-/// The key that names one expectation of one comparison: its stratum, factor, levels and id.
+/// The key that names one expectation of one comparison: its comparability class, factor, levels and id.
 fn key_of(comparison: &Comparison, id: &str) -> String {
     format!(
         "{}|{}|{:?}|{id}",
