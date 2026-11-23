@@ -152,6 +152,12 @@ refusal_table! {
         "An entry of the `env` table names a variable Candler sets for the harness process: `PATH`, `HOME`, `VIRTUAL_ENV` or `LANG`.",
         "The key of the entry in the `env` table.",
     ),
+    Invalid { .. } => row(
+        "experiment.env_name_invalid",
+        Side::Experiment,
+        "An entry of the `env` table has a name that is not a variable name: it must match `[A-Za-z_][A-Za-z0-9_]*`.",
+        "The key of the entry in the `env` table.",
+    ),
     Secret { .. } => row(
         "experiment.env_secret",
         Side::Experiment,

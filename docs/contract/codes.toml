@@ -1953,3 +1953,8 @@ variant = "Reserved"
 side = "experiment"
 enum = "EnvRefusal"
 variant = "Secret"
+
+[resolve."experiment.env_name_invalid"]
+side = "experiment"
+enum = "EnvRefusal"
+variant = "Invalid"

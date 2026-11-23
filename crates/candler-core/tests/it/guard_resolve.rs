@@ -928,6 +928,9 @@ fn reserved_env_names_are_refused() {
         ("VIRTUAL_ENV", "Reserved"),
         ("LANG", "Reserved"),
         ("OPENAI_API_KEY", "Secret"),
+        ("A=B", "Invalid"),
+        ("A B", "Invalid"),
+        ("1ST", "Invalid"),
     ];
     for (name, kind) in cases {
         let input = ResolveInput::default()
