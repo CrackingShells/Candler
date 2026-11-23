@@ -1,7 +1,7 @@
 # Server start check
 
 **Goal**: Once per job, before its first run, in a container set up as a run's (same image, mounts, env and secrets), each declared stdio MCP server's start command is started with stdin open and must still be running after a short wait, or the job is refused with the server's stderr; remote servers are skipped; no MCP client is added (C2, H1, ruled by Q4 and Q4c).
-**Estimate**: about 45 Sonnet calls ($1.8), cap 60 (amendment A2); at 60 calls, stop, commit what is green, list what is left `[V]`
+**Estimate**: about 45 Sonnet calls ($1.8), cap 90 (amendments A2, A3); at 90 calls, stop, commit what is green, list what is left `[V]`
 **Pre-conditions**:
 - [ ] [cmd] Every-leaf pre-conditions (build README, Gotchas)
 - [ ] [cmd] Docker answers, for the real-container case only: `docker info >/dev/null` (if not, `docker desktop start`, then wait until it answers; never stop or prune it)
