@@ -558,7 +558,7 @@ fn gd_agrees_with_second_engine() {
             close(entry["or_lo"].as_f64(), odds(lo), &format!("{what} or_lo"));
             close(entry["or_hi"].as_f64(), odds(hi), &format!("{what} or_hi"));
             assert_eq!(
-                Some(entry["reading"].as_str().expect("a reading")),
+                Some(entry["interval_reading"].as_str().expect("a reading")),
                 row.reading.as_deref(),
                 "{what}"
             );
@@ -619,8 +619,8 @@ fn gd_readings() {
             .expect("the G1 entry")
             .clone() // BORROW: the report owns the entry
     };
-    assert_eq!(g1("0.4.0", "0.4.1")["reading"], "effect");
+    assert_eq!(g1("0.4.0", "0.4.1")["interval_reading"], "effect");
     let null = g1("0.4.2", "0.4.3");
-    assert_eq!(null["reading"], "inconclusive");
+    assert_eq!(null["interval_reading"], "inconclusive");
     assert!((null["p"].as_f64().expect("a p") - 1.0).abs() <= TOLERANCE);
 }

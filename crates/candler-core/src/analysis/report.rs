@@ -4,7 +4,7 @@
 //! Nothing here reads the store or the clock: the caller hands over the selection, the facts of
 //! every run and the manifests. Counts come from [`tally`], methods from the
 //! sibling modules, and whether two arms may be compared is answered by
-//! [`stratum_verdict`] alone.
+//! [`class_verdict`] alone.
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
@@ -29,7 +29,7 @@ use super::tally::{ArmTally, ExpectationTally, Omitted, Rate, RunFacts, tally};
 use super::wilson::{Counts, Interval};
 use crate::evaluation::selection::rates::CellKey;
 use crate::evaluation::selection::select::{Selection, select};
-use crate::manifest::compare::{ArmView, Verdict, compare, covers, stratum_verdict};
+use crate::manifest::compare::{ArmView, Verdict, class_verdict, compare, covers};
 
 /// The role as it is reported: `gate`, `quality` or `descriptive`.
 #[must_use]
@@ -129,8 +129,8 @@ pub struct Unsealed {
     pub experiment: Option<Digest>,
 }
 
-/// The stratum of an unsealed run whose manifest cannot be read.
-pub const UNKNOWN_STRATUM: &str = "unknown";
+/// The comparability class of an unsealed run whose manifest cannot be read.
+pub const UNKNOWN_CLASS: &str = "unknown";
 
 /// The status totals of one arm over its gate and quality expectations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -164,8 +164,8 @@ pub struct ExpectationReport {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct ArmReport {
-    /// The experiment digest of the stratum the arm belongs to: an arm is a cell within a
-    /// stratum, and the runs of another stratum are not in it.
+    /// The experiment digest of the comparability class the arm belongs to: an arm is a cell within a
+    /// comparability class, and the runs of another comparability class are not in it.
     pub experiment: String,
     /// The cell.
     pub cell: CellKey,
@@ -443,7 +443,7 @@ impl Entry {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Comparison {
-    /// The experiment digest of the stratum the pair is compared in.
+    /// The experiment digest of the comparability class the pair is compared in.
     pub experiment: String,
     /// The first arm, by cell.
     pub a: CellKey,
@@ -477,13 +477,13 @@ pub struct Report {
     pub evaluator: NameVersion,
     /// The I4 violations among the records of the evaluator.
     pub i4_violations: usize,
-    /// The arms, by stratum and cell.
+    /// The arms, by comparability class and cell.
     pub arms: Vec<ArmReport>,
-    /// The compared pairs, by stratum and cells.
+    /// The compared pairs, by comparability class and cells.
     pub comparisons: Vec<Comparison>,
     /// The Holm families, by role, for the roles that have a test.
     pub families: Vec<Family>,
-    /// The pairs of one stratum that differ in no declared factor or in several, which are not
+    /// The pairs of one comparability class that differ in no declared factor or in several, which are not
     /// compared.
     pub pairs_not_one_factor: usize,
     /// Every run, by run key.
@@ -520,44 +520,44 @@ impl Report {
                 });
             }
         }
-        // An arm is a cell within a stratum: each stratum is tallied over its own runs.
-        let mut strata: BTreeMap<String, Vec<&RunView>> = BTreeMap::new();
+        // An arm is a cell within a comparability class: each comparability class is tallied over its own runs.
+        let mut classes: BTreeMap<String, Vec<&RunView>> = BTreeMap::new();
         for view in &runs {
-            strata
+            classes
                 .entry(view.manifest.experiment().to_string())
                 .or_default()
                 .push(view);
         }
         let mut arms: BTreeMap<(String, CellKey), ArmReport> = BTreeMap::new();
-        for (stratum, views) in &strata {
+        for (class, views) in &classes {
             let members: BTreeSet<&RunKey> = views.iter().map(|view| &view.facts.run).collect();
             let own = select(
                 selection
                     .current()
                     .filter(|record| members.contains(record.run()))
-                    .cloned(), // BORROW: the stratum's selection owns its records
+                    .cloned(), // BORROW: the comparability class's selection owns its records
             );
             let facts: Vec<RunFacts> = views.iter().map(|view| view.facts.clone()).collect(); // BORROW: the tally reads its own copy
             for (cell, held) in tally(&own, &evaluator, facts.as_slice())? {
-                // BORROW: the key and the arm own the stratum text
-                let mut arm = ArmReport::new(stratum.clone(), cell.clone(), held);
+                // BORROW: the key and the arm own the comparability class text
+                let mut arm = ArmReport::new(class.clone(), cell.clone(), held);
                 arm.spent = spend_of(
                     views
                         .iter()
                         .filter(|view| CellKey::new(view.facts.run.cell().clone()) == cell) // BORROW: the key owns the cell
                         .map(|view| &view.manifest),
                 );
-                arms.insert((stratum.clone(), cell), arm);
+                arms.insert((class.clone(), cell), arm);
             }
         }
         for held in &unsealed {
-            let stratum = held
+            let class = held
                 .experiment
                 .as_ref()
-                .map_or_else(|| UNKNOWN_STRATUM.to_owned(), ToString::to_string);
+                .map_or_else(|| UNKNOWN_CLASS.to_owned(), ToString::to_string);
             let cell = CellKey::new(held.run.cell().clone()); // BORROW: the key owns the cell
-            arms.entry((stratum.clone(), cell.clone()))
-                .or_insert_with(|| ArmReport::new(stratum, cell, ArmTally::default()))
+            arms.entry((class.clone(), cell.clone()))
+                .or_insert_with(|| ArmReport::new(class, cell, ArmTally::default()))
                 .unsealed += 1;
         }
         let arms: Vec<ArmReport> = arms.into_values().collect();
@@ -591,24 +591,24 @@ pub struct Pairs {
     pub not_one_factor: usize,
 }
 
-/// The valid runs of each cell, by experiment digest: a stratum is the cells whose manifests name
+/// The valid runs of each cell, by experiment digest: a comparability class is the cells whose manifests name
 /// one experiment.
-type Strata<'a> = BTreeMap<String, BTreeMap<CellKey, Vec<&'a RunView>>>;
+type Classes<'a> = BTreeMap<String, BTreeMap<CellKey, Vec<&'a RunView>>>;
 
-fn strata_of(runs: &[RunView]) -> Strata<'_> {
-    let mut strata: Strata<'_> = BTreeMap::new();
+fn classes_of(runs: &[RunView]) -> Classes<'_> {
+    let mut classes: Classes<'_> = BTreeMap::new();
     for view in runs
         .iter()
         .filter(|view| matches!(view.facts.integrity, Integrity::Valid))
     {
-        strata
+        classes
             .entry(view.manifest.experiment().to_string())
             .or_default()
             .entry(CellKey::new(view.facts.run.cell().clone())) // BORROW: the key owns the cell
             .or_default()
             .push(view);
     }
-    strata
+    classes
 }
 
 /// The declared factors that cover at least one path where the two arms differ.
@@ -640,7 +640,7 @@ fn verdict_of(a: &[&RunView], b: &[&RunView], declared: &[FieldPath]) -> PairVer
         .chain(b.iter())
         .map(|view| ArmView::from_manifest(&view.manifest))
         .collect();
-    match stratum_verdict(views.as_slice(), declared) {
+    match class_verdict(views.as_slice(), declared) {
         Verdict::Comparable => PairVerdict::Comparable,
         Verdict::Refused(paths) => {
             PairVerdict::Refused(paths.iter().map(ToString::to_string).collect())
@@ -655,7 +655,7 @@ fn verdict_of(a: &[&RunView], b: &[&RunView], declared: &[FieldPath]) -> PairVer
 /// constant, so that one store always gives one report.
 pub const PERMUTATION_SEED: u64 = 0xC6C7_5EED;
 
-/// What a comparison of one factor reads: the runs of its stratum, the factors that block it, and
+/// What a comparison of one factor reads: the runs of its comparability class, the factors that block it, and
 /// the two levels of the compared one.
 struct Plan<'a> {
     runs: &'a [RunView],
@@ -665,7 +665,7 @@ struct Plan<'a> {
     b: &'a Value,
 }
 
-/// A cell of a stratum as a comparison reads it: its runs, its level of the compared factor and
+/// A cell of a comparability class as a comparison reads it: its runs, its level of the compared factor and
 /// the block it falls in.
 struct Placed<'a> {
     cell: &'a CellKey,
@@ -674,7 +674,7 @@ struct Placed<'a> {
     block: String,
 }
 
-/// The cells of a stratum placed by their level of `compared` and their level combination of the
+/// The cells of a comparability class placed by their level of `compared` and their level combination of the
 /// other declared factors.
 fn place<'a>(
     listed: &[(&'a CellKey, &'a Vec<&'a RunView>)],
@@ -895,7 +895,7 @@ fn entries_of(
     Ok(entries)
 }
 
-/// The factors a stratum's manifests record: the paths that vary across the experiment's cells.
+/// The factors a comparability class's manifests record: the paths that vary across the experiment's cells.
 fn recorded_factors(cells: &BTreeMap<CellKey, Vec<&RunView>>) -> Vec<FieldPath> {
     let all: BTreeSet<&FieldPath> = cells
         .values()
@@ -905,7 +905,7 @@ fn recorded_factors(cells: &BTreeMap<CellKey, Vec<&RunView>>) -> Vec<FieldPath> 
     all.into_iter().cloned().collect() // BORROW: the list owns its paths
 }
 
-/// The paths where two arms of a stratum differ, over the first run of each cell.
+/// The paths where two arms of a comparability class differ, over the first run of each cell.
 fn differing(a: &RunView, b: &RunView) -> Vec<FieldPath> {
     compare(a.manifest.comparable(), b.manifest.comparable())
         .into_iter()
@@ -913,13 +913,13 @@ fn differing(a: &RunView, b: &RunView) -> Vec<FieldPath> {
         .collect()
 }
 
-/// Checks the factors a stratum's manifests record, and the factors of an experiment file when one
+/// Checks the factors a comparability class's manifests record, and the factors of an experiment file when one
 /// is given, before any pair is compared.
 ///
 /// A recorded factor must not be broader than the variation it names: a factor that is a strict
-/// prefix of a path where two cells of the stratum differ would make every difference under it
+/// prefix of a path where two cells of the comparability class differ would make every difference under it
 /// look declared. When an experiment file is given, its factors must be the ones the manifests of
-/// every stratum record.
+/// every comparability class record.
 ///
 /// # Errors
 /// [`ReportError::FactorBroaderThanVariation`] and [`ReportError::ExperimentDisagrees`].
@@ -927,7 +927,7 @@ pub fn check_factors(
     runs: &[RunView],
     experiment: Option<&[FieldPath]>,
 ) -> Result<(), ReportError> {
-    for (stratum, cells) in &strata_of(runs) {
+    for (class, cells) in &classes_of(runs) {
         let recorded = recorded_factors(cells);
         let firsts: Vec<&RunView> = cells
             .values()
@@ -941,7 +941,7 @@ pub fn check_factors(
                         let prefix: Vec<&str> = factor.segments().collect();
                         if prefix.len() < own.len() && covers(prefix.as_slice(), own.as_slice()) {
                             return Err(ReportError::FactorBroaderThanVariation {
-                                experiment: stratum.clone(), // BORROW: the error owns the text
+                                experiment: class.clone(), // BORROW: the error owns the text
                                 factor: factor.to_string(),
                                 path: path.to_string(),
                             });
@@ -955,7 +955,7 @@ pub fn check_factors(
             let held: BTreeSet<&FieldPath> = recorded.iter().collect();
             if wanted != held {
                 return Err(ReportError::ExperimentDisagrees {
-                    experiment: stratum.clone(), // BORROW: the error owns the text
+                    experiment: class.clone(), // BORROW: the error owns the text
                     file: wanted.iter().map(ToString::to_string).collect(),
                     manifests: held.iter().map(ToString::to_string).collect(),
                 });
@@ -1007,13 +1007,13 @@ fn level_order(a: &Value, b: &Value) -> Ordering {
     by_value.then_with(|| a.to_string().cmp(&b.to_string()))
 }
 
-/// Compares every pair of levels of every declared factor of one stratum, the other declared
+/// Compares every pair of levels of every declared factor of one comparability class, the other declared
 /// factors as blocks.
 ///
 /// The levels of a factor are taken in their natural order, so arm A is the lower level.
 /// A comparison is made where at least one block holds cells at both levels. Its arms are the
 /// cells at each level, and `a` and `b` name the first cell of each in key order. The verdict of
-/// [`stratum_verdict`] over every valid run of both levels says whether it is comparable; a
+/// [`class_verdict`] over every valid run of both levels says whether it is comparable; a
 /// refused comparison keeps its cause and has no test. Holm's adjustment runs once per
 /// comparison and role. Pairs of cells that differ in no declared factor or in several are
 /// counted in [`Pairs::not_one_factor`] and are not a comparison of their own.
@@ -1027,7 +1027,7 @@ pub fn compare_pairs(runs: &[RunView], arms: &[ArmReport]) -> Result<Pairs, Stat
         .collect();
     let mut comparisons = Vec::new();
     let mut not_one_factor = 0_usize;
-    for (stratum, cells) in &strata_of(runs) {
+    for (class, cells) in &classes_of(runs) {
         let declared = recorded_factors(cells);
         let listed: Vec<(&CellKey, &Vec<&RunView>)> = cells.iter().collect();
         for (at, (_, runs_a)) in listed.iter().enumerate() {
@@ -1042,8 +1042,8 @@ pub fn compare_pairs(runs: &[RunView], arms: &[ArmReport]) -> Result<Pairs, Stat
         }
         let own: Vec<RunView> = runs
             .iter()
-            .filter(|view| view.manifest.experiment().to_string() == *stratum)
-            .cloned() // BORROW: the blocks read the stratum's own runs
+            .filter(|view| view.manifest.experiment().to_string() == *class)
+            .cloned() // BORROW: the blocks read the comparability class's own runs
             .collect();
         for compared in &declared {
             let placed = place(listed.as_slice(), compared, declared.as_slice());
@@ -1076,7 +1076,7 @@ pub fn compare_pairs(runs: &[RunView], arms: &[ArmReport]) -> Result<Pairs, Stat
                     );
                     let arms_of = |side: &[&Placed<'_>]| -> Vec<&ArmReport> {
                         side.iter()
-                            .filter_map(|cell| by_arm.get(&(stratum.as_str(), cell.cell)).copied())
+                            .filter_map(|cell| by_arm.get(&(class.as_str(), cell.cell)).copied())
                             .collect()
                     };
                     let entries = if matches!(verdict, PairVerdict::Comparable) {
@@ -1096,8 +1096,8 @@ pub fn compare_pairs(runs: &[RunView], arms: &[ArmReport]) -> Result<Pairs, Stat
                         Vec::new()
                     };
                     comparisons.push(Comparison {
-                        experiment: stratum.clone(), // BORROW: the comparison owns the text
-                        a: first_a.cell.clone(),     // BORROW: the comparison owns the cells
+                        experiment: class.clone(), // BORROW: the comparison owns the text
+                        a: first_a.cell.clone(),   // BORROW: the comparison owns the cells
                         b: first_b.cell.clone(),
                         factor: compared.clone(), // BORROW: the comparison owns the factor
                         levels: Some(((*level_a).clone(), (*level_b).clone())), // BORROW: the comparison owns the levels

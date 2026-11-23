@@ -1557,7 +1557,7 @@ fn assert_record(verb: &str, document: &Value, schema: &str, keys: &[&str]) {
 fn every_data_verb_prints_its_record() {
     let store = Seeded::with(TWO_EVALUATORS);
     let run = store_run_key(&store);
-    let rows: [(&[&str], &str, &[&str]); 6] = [
+    let rows: [(&[&str], &str, &[&str]); 7] = [
         (&["ps"], "job-list/1", &["store", "jobs"]),
         (&["ls"], "experiment-list/1", &["store", "experiments"]),
         (
@@ -1576,6 +1576,18 @@ fn every_data_verb_prints_its_record() {
             &["cell"],
         ),
         (&["show"], "show-counts/1", &["counts"]),
+        (
+            &["analyze", "--evaluator", "ev@1.0.0"],
+            "analysis-report/1",
+            &[
+                "evaluator",
+                "alpha",
+                "arms",
+                "comparisons",
+                "runs",
+                "summary",
+            ],
+        ),
     ];
     for (args, schema, keys) in rows {
         let verb = args.join(" ");
