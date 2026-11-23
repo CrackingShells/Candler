@@ -173,6 +173,8 @@ pub enum ExecutionError {
         kind: String,
         /// What is wrong with it.
         problem: &'static str,
+        /// The place of the input in the file's list, when the declaration is read from one.
+        entry: Option<usize>,
     },
     /// A list that holds the same entry twice.
     #[error("{list} repeats an entry (got {value:?})")]
@@ -1035,6 +1037,7 @@ impl ExperimentInput {
         let refuse = |problem| ExecutionError::InputDeclaration {
             kind: kind.to_string(),
             problem,
+            entry: None,
         };
         if kind.as_str() == RESERVED_INPUT_KIND {
             return Err(refuse("has a kind the wire reserves for build inputs"));
@@ -1150,7 +1153,20 @@ impl TryFrom<MapOnly<RawExperimentFile>> for ExperimentFile {
         } = raw.0;
         let inputs = inputs
             .into_iter()
-            .map(|input| ExperimentInput::try_from(MapOnly(input)))
+            .enumerate()
+            .map(|(index, input)| {
+                ExperimentInput::try_from(MapOnly(input)).map_err(|error| {
+                    if let ExecutionError::InputDeclaration { kind, problem, .. } = error {
+                        ExecutionError::InputDeclaration {
+                            kind,
+                            problem,
+                            entry: Some(index),
+                        }
+                    } else {
+                        error
+                    }
+                })
+            })
             .collect::<Result<Vec<_>, _>>()?;
         Self::new(
             fixed, factors, replicates, budget, harness, treatment, secrets,

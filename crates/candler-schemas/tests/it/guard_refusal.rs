@@ -854,7 +854,7 @@ fn suite_entry(id: &str, depends_on: &str, extra: &str) -> String {
 /// pointer the registry and the document give, and a pure shape error prints `document_invalid`.
 /// Guards: the inner codes — a file with a factor without a level prints
 /// `experiment.factor_without_levels` and a suite with a repeated id `suite.id_repeated`, one row
-/// per fault; a fault that sits in a list entry keeps the document's code and the entry's pointer.
+/// per fault; a fault in a list entry points at the entry.
 /// Oracle: each expected code and side is the `codes.toml` row of the (enum, variant) the row
 /// names; the files and the pointers are written by hand.
 /// Bite: a variant mapped back to `Document` (its row goes red); a variant that drops its pointer
@@ -954,19 +954,18 @@ fn inner_codes_print_as_code() {
                 1,
                 "",
                 "",
-                "[[inputs]]\nkind = \"data\"\npath = \"p\"\nat = \"/abs\"\n",
+                "[[inputs]]\nkind = \"first\"\npath = \"p\"\n[[inputs]]\nkind = \"data\"\npath = \"p\"\nat = \"/abs\"\n",
             ),
-            Some("/inputs"),
+            Some("/inputs/1"),
             false,
         ),
         ("EvaluationError", "DuplicateId", repeated, None, true),
         ("EvaluationError", "UnknownDependency", unknown, None, true),
         ("EvaluationError", "Cycle", two_cycle, None, true),
-        // The entry's own validator runs inside the list's reader: the document's code and the
-        // entry's pointer stay.
+        // The entry's own validator names the entry it refused.
         (
             "EvaluationError",
-            "Toml",
+            "EmptyList",
             empty_applies,
             Some("/expectations/0"),
             true,

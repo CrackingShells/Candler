@@ -31,7 +31,7 @@ use crate::primitives::{
     object_only, present, schema_tag,
 };
 use crate::raw::StreamName;
-use crate::refusal::{Located, read_json, read_toml};
+use crate::refusal::{Located, pointer_of, read_json, read_toml};
 use crate::values::JsonValue;
 
 /// The version marker every plug-in manifest carries in its `schema` field.
@@ -147,6 +147,8 @@ pub enum EvaluationError {
     EmptyList {
         /// The name of the field.
         field: &'static str,
+        /// The place of the suite entry in the file's list, when the list sits in one.
+        entry: Option<usize>,
     },
     /// Two suite entries that share an id.
     #[error("suite id {id} is declared twice")]
@@ -774,7 +776,10 @@ impl Condition {
     /// Returns [`EvaluationError::EmptyList`] if `any_of` has no member.
     pub fn new(path: FieldPath, any_of: Vec<JsonValue>) -> Result<Self, EvaluationError> {
         if any_of.is_empty() {
-            return Err(EvaluationError::EmptyList { field: "any_of" });
+            return Err(EvaluationError::EmptyList {
+                field: "any_of",
+                entry: None,
+            });
         }
         Ok(Self { path, any_of })
     }
@@ -876,6 +881,7 @@ impl SuiteEntry {
         if applies_to.as_ref().is_some_and(Vec::is_empty) {
             return Err(EvaluationError::EmptyList {
                 field: "applies_to",
+                entry: None,
             });
         }
         params.values().try_for_each(canonical::check)?;
@@ -1104,7 +1110,8 @@ struct RawSuiteFile {
     schema: SuiteSchemaTag,
     /// The expectations, in the order written.
     #[schemars(extend("$comment" = "Unique ids, dependencies that name entries and the absence of a dependency cycle are enforced in Rust; JSON Schema cannot state them."))]
-    expectations: Vec<SuiteEntry>,
+    #[schemars(with = "Vec<SuiteEntry>")]
+    expectations: Vec<RawSuiteEntry>,
     /// Where a translated suite came from: any table. Candler stores it and never reads it.
     #[serde(default, deserialize_with = "present")]
     #[schemars(extend("x-candler-class" = "free"))]
@@ -1120,6 +1127,28 @@ impl TryFrom<MapOnly<RawSuiteFile>> for SuiteFile {
             expectations,
             source,
         } = raw.0;
+        let expectations = expectations
+            .into_iter()
+            .enumerate()
+            .map(|(index, entry)| {
+                SuiteEntry::checked(entry).map_err(|error| {
+                    let at = pointer_of(["expectations", index.to_string().as_str()]);
+                    if let EvaluationError::EmptyList { field, .. } = error {
+                        EvaluationError::EmptyList {
+                            field,
+                            entry: Some(index),
+                        }
+                    } else if let EvaluationError::Canonical(inner) = &error {
+                        EvaluationError::Toml {
+                            detail: inner.to_string(),
+                            path: at,
+                        }
+                    } else {
+                        error
+                    }
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let mut suite = Self::new(expectations)?;
         suite.source = source;
         Ok(suite)
