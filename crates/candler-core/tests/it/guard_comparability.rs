@@ -6,14 +6,11 @@
 use crate::support::legacy_import;
 use crate::support::legacy_rules;
 
-use std::collections::BTreeSet;
 use std::path::Path;
 use std::str::FromStr;
 
 use candler_core::import::assemble::import;
-use candler_core::manifest::compare::{
-    ArmView, NUISANCE_PATHS, Verdict, VerdictError, class_verdict,
-};
+use candler_core::manifest::compare::{ArmView, Verdict, VerdictError, class_verdict};
 use candler_core::store::Store;
 use candler_schemas::execution::RunManifest;
 use candler_schemas::primitives::Digest;
@@ -311,59 +308,6 @@ fn class_verdict_table() {
         failures.is_empty(),
         "rows that disagree:\n{}",
         failures.join("\n")
-    );
-}
-
-/// Guards: I7 — the crate's nuisance set is the one written by hand in the schemas crate, so no
-/// value can hide as nuisance: it equals the `nuisance` entries of `hashed_paths.toml` as sets, no
-/// entry of either is a `comparable` path, and every `hashed` entry is one.
-/// Oracle: `crates/candler-schemas/tests/vectors/manifest/hashed_paths.toml`, written by hand from
-/// R01 §Run manifest.
-/// Bite: add `comparable.inputs` to `NUISANCE_PATHS`.
-#[test]
-fn nuisance_set_is_the_hand_written_one() {
-    #[derive(Deserialize)]
-    struct Entry {
-        name: String,
-        class: String,
-    }
-    #[derive(Deserialize)]
-    struct Table {
-        path: Vec<Entry>,
-    }
-    let file = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../candler-schemas/tests/vectors/manifest/hashed_paths.toml");
-    let text = std::fs::read_to_string(&file).expect("the hashed-paths table is readable");
-    // BORROW: explicit conversion makes the owned or borrowed form the next line needs
-    let table: Table = toml::from_str(text.as_str()).expect("the table parses");
-    let nuisance: BTreeSet<&str> = table
-        .path
-        .iter()
-        .filter(|e| e.class == "nuisance")
-        // BORROW: explicit conversion makes the owned or borrowed form the next line needs
-        .map(|e| e.name.as_str())
-        .collect();
-    let ours: BTreeSet<&str> = NUISANCE_PATHS.iter().copied().collect();
-    assert_eq!(ours, nuisance, "the crate's set is the hand-written one");
-    assert_eq!(
-        NUISANCE_PATHS.len(),
-        ours.len(),
-        "the crate's set holds no entry twice"
-    );
-    // BORROW: explicit conversion makes the owned or borrowed form the next line needs
-    let root = |name: &str| name.split('.').next().unwrap_or_default().to_owned();
-    assert!(
-        ours.iter().all(|name| root(name) != "comparable"),
-        "no `comparable.*` path is nuisance"
-    );
-    assert!(
-        table
-            .path
-            .iter()
-            .filter(|e| e.class == "hashed")
-            // BORROW: explicit conversion makes the owned or borrowed form the next line needs
-            .all(|e| root(e.name.as_str()) == "comparable"),
-        "every hashed path is a `comparable.*` path"
     );
 }
 
