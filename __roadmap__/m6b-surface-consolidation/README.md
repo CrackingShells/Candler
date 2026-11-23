@@ -119,7 +119,7 @@ graph TD
     cli_contract[CLI contract verdicts]:::done
     docs_and_skills[Docs and skills verdicts]:::done
     codes_review[Refusal codes review]:::done
-    consolidated[Consolidated verdicts]:::inprogress
+    consolidated[Consolidated verdicts]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -136,7 +136,7 @@ graph TD
 | `cli_contract.md` | 📄 Leaf Task | ✅ Done |
 | `docs_and_skills.md` | 📄 Leaf Task | ✅ Done |
 | `codes_review.md` | 📄 Leaf Task | ✅ Done |
-| `consolidated/` | 📁 Directory | 🔄 In Progress |
+| `consolidated/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
