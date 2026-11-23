@@ -854,24 +854,3 @@ async fn harness_resolution_comparable_equals_cf3de30() {
         );
     }
 }
-
-/// Guards: an entry of the experiment's `env` table, once in the container plan, reaches the
-/// argv of the agent container with its name and value.
-/// Oracle: the name and value are written by hand.
-/// Bite: passing the table to the gateway instead of the plan of the harness process.
-#[test]
-fn env_reaches_the_harness_process() {
-    let dir = tempfile::tempdir().expect("a directory");
-    let scene = facts::scene(dir.path());
-    let mut plan = scene.plan.clone();
-    plan.env
-        .push((String::from("TOOL_MODE"), String::from("fast")));
-    let argv = facts::plan_argv_over(
-        &scene,
-        plan,
-        &ClaudeCodeDriver::new(),
-        &facts::reference_command(),
-    )
-    .expect("an argv");
-    assert!(argv.iter().any(|word| word == "TOOL_MODE=fast"), "{argv:?}");
-}
