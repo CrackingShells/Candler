@@ -824,12 +824,21 @@ async fn value_at_refuses_a_bad_path_as_failed() -> Result<(), Box<dyn std::erro
 }
 
 /// Guards: I12 — an experiment whose `request.treatment` factor gives each level its source and
-/// tag needs no `[treatment]` table, and one with neither a table nor that factor is refused.
-/// Oracle: the two files written below, one the file the factor describes and one a file with
-/// no treatment at all.
+/// tag needs no `[treatment]` table; one with neither a table nor that factor is refused for the
+/// missing treatment; and a level that names no source is still refused by the treatment step.
+/// Oracle: the files and the level written below; the refusal words are the step's own.
 /// Bite: demand the `[treatment]` table again when the factor holds the treatment.
-#[test]
-fn treatment_factor_needs_no_default() {
+#[tokio::test]
+async fn treatment_factor_needs_no_default() {
+    struct Silent;
+    impl candler_core::supervise::EventSink for Silent {
+        fn emit(
+            &self,
+            _run: Option<&candler_schemas::primitives::RunKey>,
+            _payload: candler_schemas::execution::EventPayload,
+        ) {
+        }
+    }
     let file = |factors: &str| {
         let text = format!(
             "schema = \"experiment/1\"\nreplicates = 1\n\n[[factors]]\npath = \"model.id\"\nlevels = [\"m1\"]\n{factors}\n[budget.per_run]\nwall_s = 3600\n\n[harness]\nname = \"claude-code\"\n"
@@ -839,5 +848,27 @@ fn treatment_factor_needs_no_default() {
     let factor = "\n[[factors]]\npath = \"request.treatment\"\nlevels = [{ name = \"a\", tag = \"v1\", source = \"/a\" }, { name = \"b\", tag = \"v2\", source = \"/b\" }]\n";
     let parsed = file(factor);
     assert!(parsed.is_ok(), "{:?}", parsed.err().map(|e| e.to_string()));
-    assert!(file("").is_err());
+    let refused = file("").err().map(|e| e.to_string()).unwrap_or_default();
+    assert!(refused.contains("treatment"), "{refused}");
+
+    let root = tempfile::tempdir().expect("a temp dir");
+    // TRAIT_OBJECT: the supervisor reports to no job
+    let sink: Arc<dyn candler_core::supervise::EventSink> = Arc::new(Silent);
+    let supervisor = Arc::new(candler_core::supervise::Supervisor::new(sink));
+    let step = candler_core::resolve::steps::identity::TreatmentIdentityStep::new(
+        supervisor,
+        candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills"),
+    )
+    .expect("a step");
+    let level = FileValues::new(vec![(
+        fp("request.treatment"),
+        JsonValue::new(json!({"name": "a", "tag": "v1"})).expect("a JSON value"),
+    )]);
+    let error = Resolver::new(Arc::new(empty_config(root.path())))
+        .register(Box::new(step))
+        .expect("registers")
+        .resolve(ResolveInput::default().file(level))
+        .await
+        .expect_err("a level with no source is refused");
+    assert!(error.to_string().contains("names no source"), "{error}");
 }
