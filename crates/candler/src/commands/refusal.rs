@@ -8,7 +8,6 @@
 
 use std::error::Error;
 
-use candler_schemas::execution::paths;
 use candler_schemas::refusal::{Refusal, RefusalCode, RefusalRecord, Side, pointer_of};
 use candler_schemas::refusal_table;
 
@@ -198,11 +197,7 @@ fn known_request_keys() -> String {
 }
 
 /// The request settings `--set` may name, as the experiment's path table defines them.
-pub const REQUEST_KEYS: [&str; 3] = [
-    paths::REQUEST_HARNESS,
-    paths::REQUEST_TREATMENT,
-    paths::REQUEST_INPUTS,
-];
+pub const REQUEST_KEYS: [&str; 3] = candler_core::resolve::paths::request_keys();
 
 /// The pointer of the place in the experiment file where a [`CliRefusal`] sits, if it names one.
 fn cli_refusal_path(error: &CliRefusal) -> Option<String> {
@@ -234,7 +229,7 @@ refusal_table! {
     NoStore { .. } => row(
         "config.no_store",
         Side::Config,
-        "Not raised today: a verb that is given no store root takes the default store, and a store that is missing prints `store.not_a_store`.",
+        "No store root resolves at all: neither `--store` nor `CANDLER_STORE` is given, no `candler.toml` is found at or above the working directory, and the user has no state home (`$XDG_STATE_HOME`, else `~/.local/state`), so there is no default store either.",
         "-",
     ),
     RetiredSetting { .. } => row(

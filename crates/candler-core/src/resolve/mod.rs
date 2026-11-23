@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod layers;
+pub mod paths;
 pub mod preflight;
 pub(crate) mod refusal;
 #[cfg(unix)]
