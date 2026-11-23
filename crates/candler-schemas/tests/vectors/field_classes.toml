@@ -70,7 +70,7 @@
 "replicates" = "required"
 "schema" = "required"
 "secrets" = "optional"
-"treatment" = "required"
+"treatment" = "optional"
 "treatment.commit" = "optional"
 "treatment.name" = "required"
 "treatment.source" = "optional"

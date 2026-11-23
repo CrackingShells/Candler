@@ -685,8 +685,12 @@ fn declared_inputs_are_read_and_the_forbidden_ones_refused() {
 fn treatment_source_is_read_and_left_out_of_the_reference() {
     let text = "schema = \"experiment/1\"\nreplicates = 1\n[budget.per_run]\nwall_s = 5\n[harness]\nname = \"h\"\n[treatment]\nname = \"t\"\ntag = \"v1\"\nsource = \"../skills\"\n";
     let file = ExperimentFile::from_toml_str(text).expect("a treatment with a source");
-    assert_eq!(file.treatment().source.as_deref(), Some("../skills"));
-    let reference = serde_json::to_value(file.treatment().reference()).expect("JSON");
+    assert_eq!(
+        file.treatment().and_then(|t| t.source.as_deref()),
+        Some("../skills")
+    );
+    let reference =
+        serde_json::to_value(file.treatment().map(TreatmentSpec::reference)).expect("JSON");
     assert_eq!(reference, json!({"name": "t", "tag": "v1"}));
     let plain = text.replace("source = \"../skills\"\n", "");
     let file = ExperimentFile::from_toml_str(plain.as_str()).expect("no source");
@@ -759,4 +763,22 @@ fn container_role_egress_round_trips_and_the_older_roles_still_read() {
         serde_json::from_value::<ContainerRecord>(container_record("proxy")).is_err(),
         "a role that is not one of the three"
     );
+}
+
+/// Guards: I12 — one validator decides a replicate count, for the file and for `--set`: 0 is
+/// refused as zero, a count beyond 32 bits is refused, and a count from 1 to `u32::MAX` is kept.
+/// Oracle: the counts written below.
+/// Bite: accept 0 in the validator.
+#[test]
+fn replicates_are_checked_once() {
+    use candler_schemas::execution::{ExecutionError, check_replicates};
+    assert!(matches!(
+        check_replicates(0),
+        Err(ExecutionError::Zero {
+            field: "replicates"
+        })
+    ));
+    assert!(check_replicates(u64::from(u32::MAX) + 1).is_err());
+    assert_eq!(check_replicates(1).ok(), Some(1));
+    assert_eq!(check_replicates(u64::from(u32::MAX)).ok(), Some(u32::MAX));
 }
