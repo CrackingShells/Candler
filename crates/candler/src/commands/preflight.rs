@@ -535,10 +535,24 @@ mod tests {
             ("fixed", settings(&fixed, &[])),
             ("factor", settings(&factor, &[])),
             ("set", settings(&plain, &["env=x"])),
+            (
+                "dotted",
+                settings(
+                    &file(
+                        "[fixed.env]
+x = \"y\"
+",
+                    ),
+                    &[],
+                ),
+            ),
         ];
         for (channel, outcome) in cases {
             let error = outcome.expect_err(channel);
-            assert!(error.to_string().contains("`env`"), "{channel}: {error}");
+            assert!(
+                error.to_string().contains("outside the `[env]` table"),
+                "{channel}: {error}"
+            );
         }
     }
 }
