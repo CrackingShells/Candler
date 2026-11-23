@@ -6,6 +6,7 @@
 //! sibling modules, and whether two arms may be compared is answered by
 //! [`stratum_verdict`] alone.
 
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
 use candler_schemas::execution::{Integrity, RunManifest};
@@ -952,10 +953,51 @@ pub fn check_factors(
     Ok(())
 }
 
+/// The kind of a level, which orders levels of different kinds: null, boolean, number, text, a
+/// treatment, then any other value.
+fn level_rank(level: &Value) -> u8 {
+    match level {
+        Value::Null => 0,
+        Value::Bool(_) => 1,
+        Value::Number(_) => 2,
+        Value::String(_) => 3,
+        Value::Object(_) if treatment_key(level).is_some() => 4,
+        Value::Array(_) | Value::Object(_) => 5,
+    }
+}
+
+/// The `(name, tag, commit)` text of a treatment level, or `None` when the level is no treatment.
+fn treatment_key(level: &Value) -> Option<(&str, &str, &str)> {
+    let name = level.get("name")?.as_str()?;
+    let text = |key: &str| level.get(key).and_then(Value::as_str).unwrap_or_default();
+    Some((name, text("tag"), text("commit")))
+}
+
+/// The natural order of two levels of one factor: a scalar by its value, a treatment by the text
+/// of its name and tag and then its commit, any other value by its JSON text. Levels of different
+/// kinds are ordered by kind. It reads the levels and nothing else, so which arm is A does not
+/// depend on the cells' digests.
+fn level_order(a: &Value, b: &Value) -> Ordering {
+    level_rank(a)
+        .cmp(&level_rank(b))
+        .then_with(|| match (a, b) {
+            (Value::Bool(x), Value::Bool(y)) => x.cmp(y),
+            (Value::Number(x), Value::Number(y)) => match (x.as_f64(), y.as_f64()) {
+                (Some(x), Some(y)) => x.total_cmp(&y),
+                _ => x.to_string().cmp(&y.to_string()),
+            },
+            (Value::String(x), Value::String(y)) => x.cmp(y),
+            _ => match (treatment_key(a), treatment_key(b)) {
+                (Some(x), Some(y)) => x.cmp(&y),
+                _ => a.to_string().cmp(&b.to_string()),
+            },
+        })
+}
+
 /// Compares every pair of levels of every declared factor of one stratum, the other declared
 /// factors as blocks.
 ///
-/// A comparison is made where at least one block holds cells at both levels. Its arms are the
+/// The levels of a factor are taken in their natural order, so arm A is the lower level. A comparison is made where at least one block holds cells at both levels. Its arms are the
 /// cells at each level, and `a` and `b` name the first cell of each in key order. The verdict of
 /// [`stratum_verdict`] over every valid run of both levels says whether it is comparable; a
 /// refused comparison keeps its cause and has no test. Holm's adjustment runs once per
@@ -997,6 +1039,7 @@ pub fn compare_pairs(runs: &[RunView], arms: &[ArmReport]) -> Result<Pairs, Stat
                     levels.push(&cell.level);
                 }
             }
+            levels.sort_by(|x, y| level_order(x, y));
             for (at, level_a) in levels.iter().enumerate() {
                 for level_b in levels.iter().skip(at + 1) {
                     let side = |level: &Value| -> Vec<&Placed<'_>> {
