@@ -493,7 +493,6 @@ pub fn config_keys(file: ConfigFile) -> impl Iterator<Item = (&'static str, &'st
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::resolve::layers::is_known_path;
 
     /// Guards: a path below the per-run caps that no row names is not a known path, though the
