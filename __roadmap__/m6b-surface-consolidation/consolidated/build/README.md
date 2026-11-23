@@ -105,6 +105,7 @@ graph TD
 | ID | Date | Source | Nodes Added | Rationale |
 |:---|:-----|:-------|:------------|:----------|
 | A1 | 2026-11-23 | __reports__/m6b-surface-consolidation/build/preflight_checks_v0.md | [] | N4's rule is the required `treatment` of `RawExperimentFile` in `candler-schemas` (R18 cites `execution.rs`); `preflight_checks` owns that file for N4, after `codes_inner` merges |
+| A2 | 2026-11-23 | __reports__/m6b-surface-consolidation/build/server_check_v0.md | [] | The tip has no run setup function and no isolation operation that starts a command with stdin open; `server_check` extracts `drive`'s container setup, adds one `Isolation` operation and its double, owns `isolation/mod.rs`, cap 60 |
 
 ## Progress
 | Node | Branch | Commits | Notes |
