@@ -76,4 +76,4 @@ fmt, clippy, `RUSTDOCFLAGS="-D warnings"` doc, DIGEST (18 tests), GOLDEN (10 tes
 
 ## Verifier
 
-pending (coordinator)
+FAIL, then fixed. `create_e2e::server_that_exits_refuses_the_job_in_docker` and the egress per-allowlist plan rows had no cover that observes them on a daemon. They were restored in 08e11922; the other proposed repeats are kept with reasons.
