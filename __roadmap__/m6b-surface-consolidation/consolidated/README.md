@@ -18,7 +18,7 @@ One findings report that Eliott can rule on, in which every one of the 63 ids ha
 ## Status
 ```mermaid
 graph TD
-    verdicts[Verdicts report]:::planned
+    verdicts[Verdicts report]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -29,7 +29,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `verdicts.md` | 📄 Leaf Task | ⬜ Planned |
+| `verdicts.md` | 📄 Leaf Task | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

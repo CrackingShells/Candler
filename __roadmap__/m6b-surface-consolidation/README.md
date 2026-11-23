@@ -113,13 +113,13 @@ Every input raised before M7 has one explicit, reasoned verdict, judged on respo
 ## Status
 ```mermaid
 graph TD
-    execution_preflight[Execution and preflight verdicts]:::planned
-    knowledge_as_data[Knowledge as data verdicts]:::planned
-    analysis_outputs[Analysis outputs verdicts]:::planned
-    cli_contract[CLI contract verdicts]:::planned
-    docs_and_skills[Docs and skills verdicts]:::planned
-    codes_review[Refusal codes review]:::planned
-    consolidated[Consolidated verdicts]:::planned
+    execution_preflight[Execution and preflight verdicts]:::done
+    knowledge_as_data[Knowledge as data verdicts]:::done
+    analysis_outputs[Analysis outputs verdicts]:::done
+    cli_contract[CLI contract verdicts]:::done
+    docs_and_skills[Docs and skills verdicts]:::done
+    codes_review[Refusal codes review]:::done
+    consolidated[Consolidated verdicts]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -130,13 +130,13 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `execution_preflight.md` | 📄 Leaf Task | ⬜ Planned |
-| `knowledge_as_data.md` | 📄 Leaf Task | ⬜ Planned |
-| `analysis_outputs.md` | 📄 Leaf Task | ⬜ Planned |
-| `cli_contract.md` | 📄 Leaf Task | ⬜ Planned |
-| `docs_and_skills.md` | 📄 Leaf Task | ⬜ Planned |
-| `codes_review.md` | 📄 Leaf Task | ⬜ Planned |
-| `consolidated/` | 📁 Directory | ⬜ Planned |
+| `execution_preflight.md` | 📄 Leaf Task | ✅ Done |
+| `knowledge_as_data.md` | 📄 Leaf Task | ✅ Done |
+| `analysis_outputs.md` | 📄 Leaf Task | ✅ Done |
+| `cli_contract.md` | 📄 Leaf Task | ✅ Done |
+| `docs_and_skills.md` | 📄 Leaf Task | ✅ Done |
+| `codes_review.md` | 📄 Leaf Task | ✅ Done |
+| `consolidated/` | 📁 Directory | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
