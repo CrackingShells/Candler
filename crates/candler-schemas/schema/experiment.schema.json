@@ -230,6 +230,14 @@
       "$ref": "#/$defs/Budget",
       "description": "The caps on a run and on the job."
     },
+    "env": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {},
+      "description": "The environment of the harness process, by variable name. The values are cell values: they\nare recorded with the cell and enter its digest, and they reach the harness process only.",
+      "type": "object"
+    },
     "factors": {
       "$comment": "No path of a factor, nor a path a level fills, equals or lies below or above another factor's path or a key of `fixed`; the Rust reader refuses an overlap.",
       "default": [],
@@ -285,7 +293,7 @@
     },
     "secrets": {
       "default": [],
-      "description": "The names of the environment variables the runs need; their values are never written.",
+      "description": "The names of the secrets the model gateway needs; their values reach the gateway only and\nare never written.",
       "items": {
         "$ref": "#/$defs/SecretName"
       },
