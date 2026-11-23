@@ -8,18 +8,18 @@ Leaf: `__roadmap__/diet/cull_supervision.md`. Branch `diet/cull_supervision`, cu
 
 | Family file(s) | Before | After |
 |:--|--:|--:|
-| `guard_supervise` | 22 | 16 |
+| `guard_supervise` | 22 | 18 |
 | `guard_signal` | 9 | 11 |
 | `guard_proc_stat` | 9 | 0 |
 | `guard_session` | 10 | 9 |
 | `guard_controls` | 4 | 4 |
-| `guard_wiring` | 3 | 2 |
+| `guard_wiring` | 3 | 3 |
 | `guard_platform_seam` | 3 | 0 |
 | `guard_detach` | 1 | 1 |
 | `guard_spec_file` | 4 | 2 |
 | `guard_job_*` | 12 | 11 |
-| **Family** | **77** | **56** |
-| `-p candler-core` (all tests) | 406 | 385 |
+| **Family** | **77** | **59** |
+| `-p candler-core` (all tests) | 406 | 388 |
 
 The sweep counted 82. The five missing rows are Linux-only tests that do not list on macOS. One of them, `s4_a_real_process_with_a_hostile_name_reads_back_its_true_parent`, is deleted below. The `guard_job_*` rows include the two re-exec entries `reap_child` and `supervisor_child`, which stay because b32, b33 and b42 call them.
 
@@ -33,11 +33,8 @@ The sweep counted 82. The five missing rows are Linux-only tests that do not lis
 | `guard_job_spec_file` | `p0_run_spec_file_bytes_equal_the_job_spec` | structure | structure: pins a writer's byte form; the spec digest is held by the DIGEST guards |
 | `guard_spec_file` | `o3_spec_file_holds_no_secret_value` | repeat | `crates/candler/tests/it/guard_cli_observe.rs::o3_launched_job_spec_json_holds_no_secret_value` (CLI, same file, same planted value) |
 | `guard_spec_file` | `spec_file_child` | helper of the deleted test | none needed |
-| `guard_wiring` | `wiring_stop_execs_in_the_container_with_the_observed_id` | structure | structure (argv of a `docker exec` against a fake client); the stop itself is held by `container_stop_e2e` and `guard_container_guard` b10 |
-| `guard_supervise` | `reap_refuses_a_record_whose_group_the_process_does_not_lead` | repeat | `reap_signals_nothing_for_a_record_it_cannot_verify`, whose call log already lists "a group the record does not lead" |
 | `guard_supervise` | `reaping_a_group_the_supervisor_holds_leaves_it_held` | structure | structure: reads the supervisor's group table through `holds_group` |
 | `guard_supervise` | `a_group_is_forgotten_when_it_is_empty_and_kept_while_it_has_members` | structure | structure: the group table; the observable end (no survivor) is `a_stopped_and_a_reaped_tree_leave_no_survivor` |
-| `guard_supervise` | `a_child_that_exits_by_itself_reports_spawn_sweep_exit` | repeat | `a_stopped_child_reports_each_step_in_order` (same event kinds, same schema check, a superset) |
 | `guard_supervise` | `handles_carry_bytes_requests_and_captures` | structure | structure: pins the stdin, stdout and capture handles, which no consumer sees |
 | `guard_supervise` | `record_on_disk_equals_what_the_os_reports` | repeat | `a_stopped_and_a_reaped_tree_leave_no_survivor` reaps from the record alone, so a wrong pid, group or start fails it; `a_forged_record_does_not_read_alive` holds the start |
 | `guard_session` | `harness_env_session_adds_input_flag_only_when_interactive` | structure | structure: pins an argv baseline against `argv.json` |
@@ -61,7 +58,10 @@ The sweep counted 82. The five missing rows are Linux-only tests that do not lis
 | `guard_spec_file::o3_evaluate_spec_file_holds_no_secret_value` | The CLI guard holds `candler run` jobs only. No other test reads the spec file of an evaluate job. |
 | `guard_wiring::wiring_collect_exports_before_the_destroy_and_the_export_is_the_trace` | The only test that the trace export runs before the container is destroyed. `guard_container_record::create_collect_destroys_the_runs_own_container` checks the destroy, not the order. |
 | `guard_wiring::wiring_resolved_the_run_keeps_its_argv_and_prepared_files_without_secrets` | The only test of the stored `resolved` record (argv, overlay names, prepared files, no canary). No guard found that reads that stored artifact. |
-| `guard_supervise` the 16 left | Each is "no process left", "no secret on disk", the record lifecycle, the loopback-only pre-stop, or the ladder's bounds (`the_deadline_counts_from_the_spawn`, `a_grandchild_holding_the_pipe_does_not_hold_wait`, `a_sweeper_that_overruns_the_grace_is_not_waited_for`, `a_failed_pre_stop_still_reaches_term_then_kill`). None of the bounds has another test, so they stay although they pin timing. |
+| `guard_supervise` the 18 left | Each is "no process left", "no secret on disk", the record lifecycle, the loopback-only pre-stop, or the ladder's bounds (`the_deadline_counts_from_the_spawn`, `a_grandchild_holding_the_pipe_does_not_hold_wait`, `a_sweeper_that_overruns_the_grace_is_not_waited_for`, `a_failed_pre_stop_still_reaches_term_then_kill`). None of the bounds has another test, so they stay although they pin timing. |
+| `guard_wiring::wiring_stop_execs_in_the_container_with_the_observed_id` | Restored after the verifier's finding. The only test of three promises: `{session_id}` is filled from the live reader's observed id and is the last exec argument, "skipped: no session id observed yet" when none was seen, and "exec failed" lets the ladder go on. No other test runs a pre-stop exec. |
+| `guard_supervise::reap_refuses_a_record_whose_group_the_process_does_not_lead` | Restored. The only pin of `ReapRefusal::GroupMismatch`; `reap_signals_nothing_for_a_record_it_cannot_verify` asserts only that a refusal exists. |
+| `guard_supervise::a_child_that_exits_by_itself_reports_spawn_sweep_exit` | Restored. A natural exit (`Ended::Exited`, one sweep, no signal steps) is another path from the stopped child. |
 | `guard_session::session_close_follows_the_turns` | Overlaps `session_close_wired_through_the_run_loop` on the idle rule, but only this one holds the repeated `Stop` line and the coalesced `num_turns = 0` result. |
 | `guard_controls` (4) | Each is a behaviour of the core operation API (reuse key, refusal, record on the run, verdict independent of the model). No two repeat. |
 
@@ -80,7 +80,7 @@ The bite recorded in `guard_wiring` and `guard_spec_file` is unchanged: no kept 
 
 | Gate | Result |
 |:--|:--|
-| `cargo nextest run -p candler-core` | 385 passed |
+| `cargo nextest run -p candler-core` | 388 passed (after the fix round; `the_parents_environment_reaches_neither_the_child_nor_its_pre_stop` and `every_failure_path_of_an_evaluator_is_accounted_for` failed once under load 35 and passed on retry) |
 | `cargo fmt --check` | pass |
 | `cargo clippy --workspace --all-targets -- -D warnings` | pass |
 | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` | pass |
@@ -99,3 +99,7 @@ One slip on the way: dropping the `rig` field of `support/wiring.rs::Ran` freed 
 ## Verifier
 
 pending (coordinator)
+
+## Fix round
+
+The verifier found three deletions with no covering guard. All three are restored above. `support/wiring.rs` and `guard_wiring.rs` are back to their `feat/diet` text. `wiring_stop_execs_in_the_container_with_the_observed_id` takes about 90 s under a machine load near 35 (its helper `wait_for` gives the container record 10 s) and failed once for that reason before it passed on retry.

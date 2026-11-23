@@ -6,11 +6,13 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use candler_core::supervise::http::is_loopback;
 use candler_core::supervise::platform::{Liveness, liveness, process_start};
+use candler_core::supervise::reap::ReapRefusal;
 use candler_core::supervise::signal::Signaller;
 use candler_core::supervise::spawn::{OutputSpec, SpawnRequest, SpawnRequestBuilder};
 use candler_core::supervise::stop::{Ended, StraySweeper};
@@ -1430,4 +1432,92 @@ async fn the_parents_environment_reaches_neither_the_child_nor_its_pre_stop() {
         fs::read_to_string(&printed).expect("the command printed"),
         "unset|from-request"
     );
+}
+
+/// Guards: I22 — `reap` refuses a record whose process the operating system puts in another group than the record names, though the pid and the start time verify. Oracle: the fake's call log is empty, the report names `GroupMismatch`, and the child, which is in the test's own group, is alive after the reap; getpgid(2) for the group of a process that never called setpgid.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reap_refuses_a_record_whose_group_the_process_does_not_lead() {
+    let records = tempfile::tempdir().expect("a temp dir");
+    let (spawner, _events) = supervisor();
+    let template = spawner
+        .spawn(
+            request(&["sleep", "30"], records.path())
+                .build()
+                .expect("a request"),
+        )
+        .expect("a child");
+    let _cleanup = KillAll(&spawner);
+    let (_, json, _) = only_record(records.path());
+    // A child that stays in the test's own group, with a record that says it leads its own.
+    let mut bystander = Command::new("sleep").arg("30").spawn().expect("a child");
+    let pid = bystander.id();
+    let mut forged = json.clone(); // BORROW: .clone() forges a copy and leaves the true record alone
+    if let Some(map) = forged.as_object_mut() {
+        map.insert("pid".to_owned(), json!(pid));
+        map.insert("pgid".to_owned(), json!(pid));
+        map.insert(
+            "start".to_owned(),
+            serde_json::to_value(process_start(pid)).expect("JSON"),
+        );
+    }
+    let record: ChildRecord = serde_json::from_value(forged).expect("a forged record");
+
+    let recording = Arc::new(Recording::default());
+    // TRAIT_OBJECT: the supervisor takes its signaller as a trait object
+    // BORROW: .clone() shares the log with the supervisor
+    let signaller: Arc<dyn Signaller> = recording.clone();
+    let recorder = Arc::new(Recorder::default());
+    // TRAIT_OBJECT: the supervisor takes its sink as a trait object
+    // BORROW: .clone() shares the recorder with the supervisor
+    let sink: Arc<dyn EventSink> = recorder.clone();
+    let reaper = Supervisor::new(sink).with_signaller(signaller);
+    let report = reaper
+        .reap(None, &record, &stop_spec(None, 200))
+        .await
+        .expect("a report");
+    let calls = recording.calls.lock().expect("a lock").clone(); // BORROW: .clone() copies the log out of the lock
+    let alive_after = bystander.try_wait().expect("a status").is_none();
+    // EXPLICIT: handle kill of this test's own unreaped child; no pid or group number is passed
+    let _ = bystander.kill();
+    let _ = bystander.wait();
+    assert_eq!(calls, Vec::<(i32, i32)>::new(), "a signal was sent");
+    assert_eq!(report.refusal, Some(ReapRefusal::GroupMismatch));
+    assert!(alive_after, "the bystander was ended");
+    drop(template);
+}
+
+/// Guards: R01 §escalation (the events of a child that exits by itself) — a child that exits with no stop reports `process.spawned`, the one `sweep` step, then `process.exited`, each validating against the published schema. Oracle: the literal ordered list written here.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_child_that_exits_by_itself_reports_spawn_sweep_exit() {
+    let records = tempfile::tempdir().expect("a temp dir");
+    let (supervisor, recorder) = supervisor();
+    let child = supervisor
+        .spawn(
+            request(&["sh", "-c", "exit 0"], records.path())
+                .run(run_key())
+                .stop(stop_spec(None, 200))
+                .build()
+                .expect("a request"),
+        )
+        .expect("a child");
+    let _cleanup = KillAll(&supervisor);
+    let exit = child.wait().await.expect("an exit");
+    assert_eq!(exit.ended, Ended::Exited);
+    let all = envelopes(&recorder);
+    assert_eq!(
+        shape(&all),
+        [
+            "process.spawned",
+            "process.stop_step:sweep",
+            "process.exited"
+        ]
+    );
+    let validator = envelope_validator();
+    for envelope in &all {
+        let problems: Vec<String> = validator
+            .iter_errors(envelope)
+            .map(|problem| problem.to_string())
+            .collect();
+        assert!(problems.is_empty(), "{envelope}: {problems:?}");
+    }
 }
