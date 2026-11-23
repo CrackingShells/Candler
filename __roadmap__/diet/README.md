@@ -24,7 +24,7 @@ graph TD
     cull_schemas_contracts[cull_schemas_contracts]:::planned
     cull_isolation[cull_isolation]:::done
     cull_supervision[cull_supervision]:::done
-    cull_plan_store[cull_plan_store]:::planned
+    cull_plan_store[cull_plan_store]:::done
     cull_stats_analyze[cull_stats_analyze]:::planned
     cull_import_eval[cull_import_eval]:::planned
     cull_cli_harness[cull_cli_harness]:::done
@@ -43,7 +43,7 @@ graph TD
 | `cull_schemas_contracts.md` | 📄 Leaf Task | ⬜ Planned |
 | `cull_isolation.md` | 📄 Leaf Task | ✅ Done |
 | `cull_supervision.md` | 📄 Leaf Task | ✅ Done |
-| `cull_plan_store.md` | 📄 Leaf Task | ⬜ Planned |
+| `cull_plan_store.md` | 📄 Leaf Task | ✅ Done |
 | `cull_stats_analyze.md` | 📄 Leaf Task | ⬜ Planned |
 | `cull_import_eval.md` | 📄 Leaf Task | ⬜ Planned |
 | `cull_cli_harness.md` | 📄 Leaf Task | ✅ Done |
