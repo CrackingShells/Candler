@@ -104,6 +104,7 @@ graph TD
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
 |:---|:-----|:-------|:------------|:----------|
+| A1 | 2026-11-23 | __reports__/m6b-surface-consolidation/build/preflight_checks_v0.md | [] | N4's rule is the required `treatment` of `RawExperimentFile` in `candler-schemas` (R18 cites `execution.rs`); `preflight_checks` owns that file for N4, after `codes_inner` merges |
 
 ## Progress
 | Node | Branch | Commits | Notes |
