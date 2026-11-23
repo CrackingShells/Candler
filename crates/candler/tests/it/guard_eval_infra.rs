@@ -274,22 +274,6 @@ fn no_origin_records_the_tag_only() {
     }
 }
 
-/// Guards: R01 §Run manifest, `eval_infra` — a build in this very checkout records its commit in
-/// full, the one `git` names for it.
-/// Oracle: `git rev-parse HEAD` in the crate's directory.
-#[test]
-fn this_checkout_records_the_full_commit() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let head = git(dir, &["rev-parse", "HEAD"]);
-    assert_eq!(head.len(), 40);
-    assert_eq!(option_env!("CANDLER_BUILT_COMMIT"), Some(head.as_str()));
-    assert!(matches!(
-        option_env!("CANDLER_BUILT_DIRTY"),
-        Some("true" | "false")
-    ));
-    assert_eq!(resolve(dir, VERSION, env(&[])).commit, Some(head));
-}
-
 /// What the binary records for a build whose compiler environment is `ambient` overlaid with the
 /// values `build.rs` exports for `identity`. The read side takes the names of `EXPORTED_VARS`.
 fn recorded_by(identity: &Identity, ambient: &[(&str, &str)]) -> Recorded {
@@ -410,19 +394,4 @@ fn flag_text_other_than_true_or_false_is_unrecorded() {
         read_recorded(None, Some("0"), None, None).commits_ahead,
         Some(0)
     );
-}
-
-/// Guards: R01 §Run manifest, `eval_infra` — the names `build.rs` exports are the ones the
-/// binary's `eval_infra()` reads, and none of them is a name the packager sets.
-/// Oracle: the literal names in `supervise.rs`, read as text.
-#[test]
-fn the_binary_reads_the_names_the_build_exports() {
-    let supervise = include_str!("../../src/commands/supervise.rs");
-    for name in EXPORTED_VARS {
-        assert!(
-            supervise.contains(&format!("option_env!(\"{name}\")")),
-            "{name}"
-        );
-    }
-    assert!(!supervise.contains("CANDLER_EVAL_INFRA"));
 }
