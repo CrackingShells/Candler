@@ -180,7 +180,20 @@ async fn probe_group(
     // Standard input stays open, as a server's own would while the agent runs.
     container.interactive = true;
     for server in stdio {
-        let mut builder = CommandSpec::builder().argv(server.argv.clone()); // BORROW: the command owns its words
+        // The server's own variables reach the server alone, as in its configuration, and never
+        // the container's environment, where a gateway or plan name would be refused.
+        let mut words = Vec::new();
+        if !server.env.is_empty() {
+            words.push(String::from("env"));
+            words.extend(
+                server
+                    .env
+                    .iter()
+                    .map(|(name, value)| format!("{name}={value}")),
+            );
+        }
+        words.extend(server.argv.iter().cloned()); // BORROW: the command owns its words
+        let mut builder = CommandSpec::builder().argv(words);
         for entry in staged
             .prepared
             .env_overlay
@@ -188,9 +201,6 @@ async fn probe_group(
             .chain(staged.command.env_overlay())
         {
             builder = builder.env(entry.clone()); // BORROW: the command owns its entries
-        }
-        for (name, value) in &server.env {
-            builder = builder.env(EnvEntry::literal(name.clone(), value.clone())); // BORROW: the entry owns its text
         }
         let command = builder.build().map_err(|e| failed(&e))?;
         let key: RunKey = plan.key.clone(); // BORROW: the container is labelled as the run it stands in for

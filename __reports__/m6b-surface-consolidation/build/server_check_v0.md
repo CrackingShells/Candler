@@ -37,7 +37,7 @@ Verifier: fresh Sonnet agent, brief verbatim. Findings and dispositions:
 9. Guards not seen red first: accepted, recorded; all four bites made after.
 10. The double reads `plan.interactive`, which the check sets: the Docker side is covered by the real-container Running case.
 11. `compose_container` is at `crates/candler-core/src/runner/exec/mod.rs:146`, called by `drive` and by `probe_group` (`jobs/orchestrate/servers.rs`).
-Re-check by the same verifier: findings 3 and 11 closed; 2 closed after the Running case was changed to `read line || exit 3; sleep 30`, which exits if stdin is closed; finding 1 stays open as a defect for the coordinator; no new finding.
+Re-check of the finding 1 fix: confirmed `drive` unchanged, nothing left behind, secrets safe. New finding A (a server `env` naming a reserved or plan variable would refuse the probe): FIXED, the server env is now applied as `env NAME=value` before the command, not through the container overlay (assumes `env` in the image, like `sh`). New finding B (no guard that the overlays reach the probed command; `QuietDriver` has none and `support/` is not owned) and the session-cell overlay (the probe takes the headless command's overlay, not the session command's): follow-ups. Earlier re-check: findings 3 and 11 closed; 2 closed after the Running case was changed to `read line || exit 3; sleep 30`, which exits if stdin is closed; finding 1 stays open as a defect for the coordinator; no new finding.
 
 ## Follow-ups
 - Accepted by the coordinator: verifier findings 4 to 8 and 10, the guards not seen red first, and the missing real-container bite (skip the destroy).
@@ -49,3 +49,5 @@ Re-check by the same verifier: findings 3 and 11 closed; 2 closed after the Runn
 - The probe's destroy result is dropped, a cancel during the probes is not observed, and servers are probed serially (up to `SERVER_START_WAIT` per server and group).
 - The grouping key is (image, declared servers): cells with the same pair but other inputs or env are not probed.
 - A server whose `command` is not a string, and non-string `args` or `env` values, are skipped silently.
+- No guard shows the harness overlay or home-root files reach the probe; a session cell's overlay is taken from the headless command.
+- The real-container test calls `start_probe` directly, so staging is covered only through the double.
