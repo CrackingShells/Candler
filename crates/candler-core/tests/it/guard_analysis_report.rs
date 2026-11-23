@@ -959,16 +959,16 @@ fn a2_only_one_factor_pairs_are_compared() {
     assert_eq!(report.pairs_not_one_factor, 1);
 }
 
-/// Guards: A2 — a cell that sits in two strata is two arms: alpha and beta each have three runs
+/// Guards: A2 — a cell that sits in two comparability classes is two arms: alpha and beta each have three runs
 /// under one experiment digest and three under another, so the report holds four arms of three
-/// runs each, one comparison per stratum on that stratum's own runs (3 of 3 against 0 of 3), and
+/// runs each, one comparison per comparability class on that comparability class's own runs (3 of 3 against 0 of 3), and
 /// one Holm family of one test in each.
 /// Oracle: the mid-p row of `midp.toml` for 3 of 3 against 0 of 3, which a family of one leaves
 /// as it is.
 /// Bite: key the tally by cell alone, and each arm pools six runs; compare each pair once on the
 /// pooled arms, and the count of comparisons or the p-value turns red.
 #[test]
-fn a2_a_cell_in_two_strata_is_tallied_per_stratum() {
+fn a2_a_cell_in_two_classes_is_tallied_per_class() {
     let mut runs: Vec<RunView> = Vec::new();
     let mut records = Vec::new();
     for (at, experiment) in ['0', '1'].into_iter().enumerate() {
@@ -991,17 +991,23 @@ fn a2_a_cell_in_two_strata_is_tallied_per_stratum() {
         }
     }
     let report = report(&select(records), runs);
-    assert_eq!(report.arms.len(), 4, "a cell is an arm in each stratum");
+    assert_eq!(report.arms.len(), 4, "a cell is an arm in each class");
     for arm in &report.arms {
         assert_eq!(arm.tally.valid_runs, 3, "{}", arm.experiment);
         let counts = arm.expectations[0].tally.counts().expect("binary");
         let alpha = counts.k() == 3;
         assert_eq!((counts.k(), counts.n()), (if alpha { 3 } else { 0 }, 3));
     }
-    let strata: Vec<&str> = report.arms.iter().map(|a| a.experiment.as_str()).collect();
-    assert_eq!(strata.iter().filter(|s| **s == digest_text('0')).count(), 2);
-    assert_eq!(strata.iter().filter(|s| **s == digest_text('1')).count(), 2);
-    assert_eq!(report.comparisons.len(), 2, "one comparison per stratum");
+    let classes: Vec<&str> = report.arms.iter().map(|a| a.experiment.as_str()).collect();
+    assert_eq!(
+        classes.iter().filter(|s| **s == digest_text('0')).count(),
+        2
+    );
+    assert_eq!(
+        classes.iter().filter(|s| **s == digest_text('1')).count(),
+        2
+    );
+    assert_eq!(report.comparisons.len(), 2, "one comparison per class");
     assert_eq!(
         report
             .comparisons
@@ -1058,7 +1064,7 @@ fn two_by_two(factors: &[&'static str]) -> (Selection, Vec<RunView>) {
     (select(records), runs)
 }
 
-/// Guards: A2 — the factors of a stratum come from its manifests, and an experiment file is a
+/// Guards: A2 — the factors of a comparability class come from its manifests, and an experiment file is a
 /// cross-check: on a 2 by 2 store whose manifests record `plan.model` and `plan.other`, two
 /// comparisons are made, one per factor, and the two cell pairs that differ in both are counted
 /// and not compared; a file that
@@ -1108,7 +1114,7 @@ fn a2_a_wrong_experiment_is_refused() {
 
 /// Guards: A1 — a run without a seal is counted apart: with the layout and two unsealed runs, one
 /// whose manifest names the experiment of an arm and one whose manifest is unreadable, the call
-/// succeeds, the arm shows `unsealed` 1, a stratum `unknown` holds the other, and every count,
+/// succeeds, the arm shows `unsealed` 1, a comparability class `unknown` holds the other, and every count,
 /// rate and verdict equals the report without them although the unsealed run has a pass on the
 /// store.
 /// Oracle: the layout's hand counts.
@@ -1158,7 +1164,7 @@ fn a1_an_unsealed_run_is_counted_apart() {
         .arms
         .iter()
         .find(|a| a.experiment == "unknown")
-        .expect("the unknown stratum");
+        .expect("the unknown class");
     assert_eq!((unknown.unsealed, unknown.tally.valid_runs), (1, 0));
     assert_eq!(held.comparisons, baseline.comparisons);
 }

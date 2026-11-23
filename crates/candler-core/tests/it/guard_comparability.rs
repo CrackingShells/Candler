@@ -1,5 +1,5 @@
 #![cfg(test)]
-//! The stratum verdict and the nuisance set. The verdict rows are data, written by hand from the
+//! The comparability class verdict and the nuisance set. The verdict rows are data, written by hand from the
 //! R01 sentence each cites (`fixtures/comparability/verdicts.json`); no row computes its
 //! expectation from `compare`. Nothing here spawns a process or a container.
 
@@ -12,7 +12,7 @@ use std::str::FromStr;
 
 use candler_core::import::assemble::import;
 use candler_core::manifest::compare::{
-    ArmView, NUISANCE_PATHS, Verdict, VerdictError, stratum_verdict,
+    ArmView, NUISANCE_PATHS, Verdict, VerdictError, class_verdict,
 };
 use candler_core::store::Store;
 use candler_schemas::execution::RunManifest;
@@ -231,9 +231,9 @@ fn read_arm(arm: &Value) -> Result<ArmView, VerdictError> {
 /// `sandbox_contract` equal; `eval_infra.tag`, `commits_ahead` and `packages.*` gate nothing, and
 /// an unrecorded commit or dirty flag is refused and named, never counted as equal. The
 /// `imported_` rows (an arm with an `import` key is imported; its legacy build sits in
-/// `comparable.values`, as the importer writes it) gate an imported stratum on `import.rules`
+/// `comparable.values`, as the importer writes it) gate an imported comparability class on `import.rules`
 /// recorded and equal and on the legacy commit, dirty flag and contract recorded; a legacy dirty
-/// build pools with arms of the same commit, flag, contract and rules; a stratum mixing imported
+/// build pools with arms of the same commit, flag, contract and rules; a comparability class mixing imported
 /// and live arms is refused naming `import`; the live rows follow D8.
 /// Oracle: the R01 sentence each row of `verdicts.json` cites (C01 to C23 the lead's, C24 on
 /// added); the expected verdict is a literal in the row, written from decision D8, and for the
@@ -243,7 +243,7 @@ fn read_arm(arm: &Value) -> Result<ArmView, VerdictError> {
 /// rows); apply the imported rule to live arms too (the live rows); pool a dirty legacy build
 /// across commits (`imported_commit_differs_refused`).
 #[test]
-fn stratum_verdict_table() {
+fn class_verdict_table() {
     let rows = rows();
     // BORROW: explicit conversion makes the owned or borrowed form the next line needs
     let ids: Vec<&str> = rows.iter().map(|r| r.id.as_str()).collect();
@@ -274,7 +274,7 @@ fn stratum_verdict_table() {
             .collect();
         let arms: Vec<Result<ArmView, VerdictError>> = row.arms.iter().map(read_arm).collect();
         // BORROW: explicit conversion makes the owned or borrowed form the next line needs
-        let got = stratum_verdict(arms.as_slice(), declared.as_slice());
+        let got = class_verdict(arms.as_slice(), declared.as_slice());
         let ok = match (&row.expected, &got) {
             (Value::String(word), Verdict::Comparable) => word == "comparable",
             (Value::String(word), Verdict::Malformed(errors)) => {
@@ -372,7 +372,7 @@ fn nuisance_set_is_the_hand_written_one() {
 const SKILL_FACTORS: [&str; 1] = ["request.treatment"];
 
 /// Imports the mini-corpus into a fresh store under rules whose file digested to `rules` and
-/// reads three runs of it as the arms of one stratum: runs 6 and 17 of the v0.2.3 cell and run
+/// reads three runs of it as the arms of one comparability class: runs 6 and 17 of the v0.2.3 cell and run
 /// 12 of the v0.2.6 cell. Every run is asserted sealed first.
 fn mini_arms(rules: &str) -> Vec<Result<ArmView, VerdictError>> {
     arms_of(rules, &[6, 17, 12], false)
@@ -426,7 +426,7 @@ fn arms_of(rules: &str, replicates: &[u32], live: bool) -> Vec<Result<ArmView, V
         .collect()
 }
 
-/// The declared factors of the mini-corpus' stratum.
+/// The declared factors of the mini-corpus' comparability class.
 fn skill_factors() -> Vec<FieldPath> {
     SKILL_FACTORS
         .iter()
@@ -434,20 +434,20 @@ fn skill_factors() -> Vec<FieldPath> {
         .collect()
 }
 
-/// Guards: I7 and R01 §Run manifest (imported strata, D7) — three runs of the mini-corpus, read
+/// Guards: I7 and R01 §Run manifest (imported comparability classes, D7) — three runs of the mini-corpus, read
 /// by the real importer under one import-rules digest, differ only in the skill version of their
-/// two cells; with that factor declared the stratum is comparable, though the legacy build they
+/// two cells; with that factor declared the comparability class is comparable, though the legacy build they
 /// record is dirty.
 /// Oracle: the mini-corpus' two `experiment.json` files, diffed by hand with `jq -S`: they differ
 /// in `plan.out_dir` (which the importer files under `import`), `plan.skill_version`,
 /// `provenance.skill_version` and `resolved_skill_version`; both record `eval_infra` commit
 /// `0e84a75`, `dirty: true` and sandbox contract `v5`. The skill snapshot and the treatment are
 /// the typed fields that version travels in.
-/// Bite: read the measured provenance only (the importer records none there), so the stratum is
+/// Bite: read the measured provenance only (the importer records none there), so the comparability class is
 /// refused for its unrecorded commit; stop dropping a value path that maps one to one onto the
 /// treatment (`plan.skill_version` and its two spellings come back refused).
 #[test]
-fn imported_stratum_of_the_mini_corpus_is_comparable() {
+fn imported_class_of_the_mini_corpus_is_comparable() {
     let arms = mini_arms("1");
     assert!(
         arms.iter()
@@ -455,17 +455,17 @@ fn imported_stratum_of_the_mini_corpus_is_comparable() {
         "every arm reads as imported: {arms:?}"
     );
     // BORROW: explicit conversion makes the owned or borrowed form the next line needs
-    let got = stratum_verdict(arms.as_slice(), skill_factors().as_slice());
+    let got = class_verdict(arms.as_slice(), skill_factors().as_slice());
     assert_eq!(got, Verdict::Comparable);
 }
 
-/// Guards: R01 §Run manifest (imported strata, D7) — an arm read under other import rules than
-/// its stratum's refuses the stratum, naming `import.rules`, though every legacy value agrees.
+/// Guards: R01 §Run manifest (imported comparability classes, D7) — an arm read under other import rules than
+/// its comparability class's refuses the comparability class, naming `import.rules`, though every legacy value agrees.
 /// Oracle: the two imports are given the digests `1` repeated and `2` repeated by the test; D7
 /// says differing rules are refused at `import.rules`, and nothing else differs between the arms.
 /// Bite: leave `import.rules` out of the imported gate.
 #[test]
-fn imported_stratum_with_other_rules_is_refused() {
+fn imported_class_with_other_rules_is_refused() {
     let mut arms = mini_arms("1");
     let other = mini_arms("2");
     let flipped = other
@@ -475,16 +475,16 @@ fn imported_stratum_with_other_rules_is_refused() {
     arms.truncate(2);
     arms.push(flipped);
     // BORROW: explicit conversion makes the owned or borrowed form the next line needs
-    let got = stratum_verdict(arms.as_slice(), skill_factors().as_slice());
+    let got = class_verdict(arms.as_slice(), skill_factors().as_slice());
     let want = FieldPath::from_str("import.rules").expect("a path");
     assert_eq!(got, Verdict::Refused(vec![want]));
 }
 
-/// Guards: the stratum verdict for a value path that tracks the treatment — only a stratum whose
+/// Guards: the comparability class verdict for a value path that tracks the treatment — only a comparability class whose
 /// arms are all imported drops it. The same three runs of the mini-corpus read as live arms, with
 /// `request.treatment` declared, keep refusing `plan.skill_version`, `provenance.skill_version`
 /// and `resolved_skill_version`, the paths where the v0.2.3 and v0.2.6 cells differ, though each
-/// maps one to one onto the treatment; the three provenance paths a live stratum needs measured
+/// maps one to one onto the treatment; the three provenance paths a live comparability class needs measured
 /// are refused as well, since the import records them as values. Oracle: the two
 /// `experiment.json` files diffed with `jq -S` (the three paths above, `plan.out_dir` filed under
 /// `import`) and the live rule `declared_covers` of D8, which names `request.treatment` as
@@ -492,7 +492,7 @@ fn imported_stratum_with_other_rules_is_refused() {
 /// Bite: drop the all-imported condition (apply the treatment rule to live arms too), and the
 /// three skill paths vanish from the refusal.
 #[test]
-fn live_stratum_tracking_the_treatment_is_refused() {
+fn live_class_tracking_the_treatment_is_refused() {
     let arms = arms_of("1", &[6, 17, 12], true);
     assert!(
         arms.iter()
@@ -500,7 +500,7 @@ fn live_stratum_tracking_the_treatment_is_refused() {
         "every arm reads as live: {arms:?}"
     );
     // BORROW: explicit conversion makes the owned or borrowed form the next line needs
-    let got = stratum_verdict(arms.as_slice(), skill_factors().as_slice());
+    let got = class_verdict(arms.as_slice(), skill_factors().as_slice());
     let want: Vec<FieldPath> = [
         "plan.skill_version",
         "provenance.eval_infra.commit",
@@ -515,7 +515,7 @@ fn live_stratum_tracking_the_treatment_is_refused() {
     assert_eq!(got, Verdict::Refused(want));
 }
 
-/// Guards: an imported stratum drops a value path only when its levels map one to one onto the
+/// Guards: an imported comparability class drops a value path only when its levels map one to one onto the
 /// treatments over every arm. Runs 6 (v0.2.3), 12 (v0.2.6) and 1 (the synthetic cell, a third
 /// treatment) with `request.treatment` declared: the three skill spellings map one to one and are
 /// dropped; `plan.model` (two cells share a model, three treatments) and `plan.runs` (20, 20 and 3)
@@ -524,7 +524,7 @@ fn live_stratum_tracking_the_treatment_is_refused() {
 /// distinct `skill_version` strings.
 /// Bite: drop a path that does not map one to one (skip the level count in `maps_one_to_one`).
 #[test]
-fn imported_stratum_with_a_path_that_does_not_map_one_to_one_is_refused() {
+fn imported_class_with_a_path_that_does_not_map_one_to_one_is_refused() {
     let arms = arms_of("1", &[6, 12, 1], false);
     assert!(
         arms.iter()
@@ -532,7 +532,7 @@ fn imported_stratum_with_a_path_that_does_not_map_one_to_one_is_refused() {
         "every arm reads as imported: {arms:?}"
     );
     // BORROW: explicit conversion makes the owned or borrowed form the next line needs
-    let got = stratum_verdict(arms.as_slice(), skill_factors().as_slice());
+    let got = class_verdict(arms.as_slice(), skill_factors().as_slice());
     let want: Vec<FieldPath> = ["plan.model", "plan.runs"]
         .iter()
         .map(|path| FieldPath::from_str(path).expect("a path"))

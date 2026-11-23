@@ -55,6 +55,9 @@ fn transcript_lists_every_event_in_order() {
             line.starts_with(&format!("{session} {seq} ")),
             "text line `{line}` opens with the event's session and seq"
         );
-        assert!(line.contains(kind), "text line `{line}` names kind `{kind}`");
+        assert!(
+            line.contains(kind),
+            "text line `{line}` names kind `{kind}`"
+        );
     }
 }

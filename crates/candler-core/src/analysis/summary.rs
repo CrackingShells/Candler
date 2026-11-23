@@ -10,7 +10,7 @@ use super::report::{Comparison, Entry, OmitReason};
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Decision {
-    /// The experiment digest of the stratum of the comparison.
+    /// The experiment digest of the comparability class of the comparison.
     pub experiment: String,
     /// The declared factor the arms differ in.
     pub factor: FieldPath,
@@ -39,7 +39,7 @@ pub struct Decision {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Omitted {
-    /// The experiment digest of the stratum of the comparison.
+    /// The experiment digest of the comparability class of the comparison.
     pub experiment: String,
     /// The declared factor the arms differ in.
     pub factor: FieldPath,
