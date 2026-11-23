@@ -77,7 +77,20 @@ For the HTN lane's coordinator; ships in the release after the supervisor's PR m
 
 ## Verifier
 
-(filled below)
+One pass (no re-check; call cap). Dispositions:
+
+| # | Finding | Disposition |
+|:--|:--|:--|
+| 1 | C1 not built | open, coordinator (Follow-ups) |
+| 2 | `analyze` keeps `json` value, has no `text`, so `analyze --format text` fails to parse | open, `analysis_record`'s; R01 row says "every verb" |
+| 3 | `schema/README.md:39` still names `--error-format` | open, not owned |
+| 4 | stale `--json` prose in `guard_cli_observe` | fixed |
+| 5 | hand shapes (`resolve` failures, `show` counts, `ingest`, `evaluate`) | open, coordinator (stop point) |
+| 6 | `--format` is stderr-only on `run`, `kill`, `ingest`, `evaluate` | doc says so now |
+| 7 | `ps`/`ls` text from the core row; no text-vs-record guard | open (Follow-ups) |
+| 8 | `ls` prints `store: ""` when the root cannot be resolved | open, follow-up |
+| 9 | history wording in comments | fixed |
+| 10 | step 3 commit not green alone | accepted |
 
 ## Follow-ups
 

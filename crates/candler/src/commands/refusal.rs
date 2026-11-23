@@ -2,8 +2,8 @@
 //! stderr.
 //!
 //! [`CliRefusal`] holds the refusals that no library crate raises: they name a command line or
-//! an environment, not a file. [`render`] writes a failure as it always was (`candler:
-//! <message>`) or, with no option, as one `refusal/1` record whose code, side and
+//! an environment, not a file. [`render`] writes a failure as `candler:
+//! <message>` when text is asked for, and otherwise as one `refusal/1` record whose code, side and
 //! path come from the refusal the error carries or holds in its chain of causes.
 
 use std::error::Error;

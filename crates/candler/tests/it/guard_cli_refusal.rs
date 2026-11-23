@@ -235,7 +235,7 @@ fn r2_a_broken_experiment_file_names_the_file() {
     );
 }
 
-/// Guards: R2 — with `--format text` every refusal prints as it always did:
+/// Guards: R2 — with `--format text` every refusal prints as `candler: <message>`:
 /// `candler: <message>` on one line, with exit 2.
 ///
 /// Oracle: the text written by hand.

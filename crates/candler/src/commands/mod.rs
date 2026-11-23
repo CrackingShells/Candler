@@ -34,8 +34,8 @@ pub enum Rendering {
 /// The option every data verb shares: JSON is what a verb prints without it.
 #[derive(Debug, Clone, Copy, Default, clap::Args)]
 pub struct OutputArgs {
-    /// Print the output as text instead of its JSON record; a refusal is written as text too. not
-    /// an experiment setting: it is how the output is read.
+    /// Print the output as text instead of its JSON record; a refusal is written as text too (on
+    /// a verb with no data to print, only the refusal changes). not an experiment setting: it is how the output is read.
     #[arg(long, value_enum)]
     pub format: Option<Rendering>,
 }
