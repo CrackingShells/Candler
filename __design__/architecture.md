@@ -938,8 +938,8 @@ through stdin and stdin stays open, so a notification starts a further turn.
   control. Every session run records `session.control` (the record's path and digest) in
   `measured[]`, outside the cell digest. A model's behaviour never refuses a run.
 - **Tool inventory.** The census (`census.tools`, `census.init_tools`) is captured per run; when
-  `census.init_tools` differs between arms of one stratum that no declared `tools.*` or `mcp.*`
-  factor explains, that stratum is refused (I7). Claude Code reports the list at each turn's start
+  `census.init_tools` differs between arms of one comparability class that no declared `tools.*` or `mcp.*`
+  factor explains, that comparability class is refused (I7). Claude Code reports the list at each turn's start
   (`init` is emitted again every turn), so the core takes the first init that lists tools.
 
 ## Plug-ins
@@ -1180,7 +1180,7 @@ host?, job?, integrity, import?, evaluation_inputs[]?}`.
 `provenance.`. A value the build or the run cannot know is left out, never recorded as `false` or
 as an empty string. A verdict reads three of them (the gated paths); the rest describe the run.
 
-| Path | Meaning | Gates a stratum |
+| Path | Meaning | Gates a comparability class |
 |---|---|---|
 | `provenance.eval_infra.commit` | The commit the binary was built from, 40 hexadecimal digits | Yes: every arm records it as a non-empty string, and the arms agree |
 | `provenance.eval_infra.dirty` | Whether the sources the binary is built from differed from that commit | Yes: every arm records it, and it is `false` |
@@ -1207,19 +1207,19 @@ and the analysis reads them. The build's identity comes from the first origin th
    tag defaults to `v<version>`;
 4. otherwise the tag `v<version>` alone, with `commit` and `dirty` unrecorded.
 
-**Imported strata.** An arm is imported if and only if its manifest holds `import`. A stratum that
-mixes imported and live arms is refused, naming `import`. A stratum of imported arms swaps the
+**Imported comparability classes.** An arm is imported if and only if its manifest holds `import`. A comparability class that
+mixes imported and live arms is refused, naming `import`. A class of imported arms swaps the
 gate on `measured[]` provenance for the import's own record, since the legacy folder recorded the
-build in `comparable.values` and no run measured it. The stratum is refused unless every arm
+build in `comparable.values` and no run measured it. The class is refused unless every arm
 records the digest of its import rules and the arms agree (`import.rules`; an import without
 rules is refused), and every arm records `provenance.eval_infra.commit` (a non-empty string),
 `provenance.eval_infra.dirty` and `provenance.sandbox_contract` in `comparable.values` with equal
 values. The verdict compares these three itself, so no declared factor pools arms of two legacy
 builds. A dirty legacy build does not refuse: arms that agree on commit, flag, contract and rules
-pool, on the assumption that one legacy launch is one checkout. Live strata keep the gate above. Among
+pool, on the assumption that one legacy launch is one checkout. Live classes keep the gate above. Among
 imported arms only, an undeclared value path that differs is also dropped when `request.treatment`
 is declared, the arms' treatments differ and the path's levels map one to one onto the treatment
-levels over every arm of the stratum; a live stratum gets no such exemption.
+levels over every arm of the class; a live class gets no such exemption.
 
 **Session and census measures.** A session run records the `session.*` values of §Session runner
 and `session.control`. A census whose source is not the harness's own init event also records
@@ -1602,7 +1602,7 @@ request files under the new evaluator version; `diff` compares versions.
 | Per-run cap reached | Valid run; `ended_by = cap` |
 | Job budget, kill, supervisor lost | Run `invalid` (`budget_stop` / `killed` / `interrupted`) |
 | Resume finds a re-checked value changed | Refused unless forced; a forced deviation is recorded per run |
-| Arms differ outside declared factors | The stratum is invalid; comparisons are refused |
+| Arms differ outside declared factors | The comparability class is invalid; comparisons are refused |
 | Dirty instrument asked to grade a gate or quality expectation | `resolve` fails |
 | An input that would put ground truth inside the isolation boundary | `resolve` refuses with `isolation.ground_truth_exposed` (side `experiment`); no run starts |
 
@@ -1792,7 +1792,7 @@ turns a plan into a spawn request, then collects and destroys.
 | Plug-in sidecar services | A service the plug-in starts beside the agent container, such as a server stub the agent talks to; its second consumer is an MCP server that reaches a real system with a secret (HTN's rikyu servers), run on the runner side as the model gateway holds its key, never in the agent container | An eval's hidden state cannot sit in the workspace or the plug-in's own process | An eval whose hidden state can't live outside the agent container |
 | Pre-destroy collection from the agent container | A hook that copies named files or process facts out of the container before `destroy` | The in-workspace process record may miss what ran in the container | M8's in-workspace process record proves insufficient |
 | Whole-container census and the long-lived handle | `create`, `exec`, `inject` and a whole-container `census` on one container handle | A process the agent starts outside the workspace tree, visible only from inside the container | M8's gap report names a stray that the in-workspace record missed |
-| macOS host backend | An `Isolation` that runs the agent on the host, as its own stratum | Behaviour that differs between BSD and GNU tools | An eval comparing BSD and GNU behaviour |
+| macOS host backend | An `Isolation` that runs the agent on the host, as its own comparability class | Behaviour that differs between BSD and GNU tools | An eval comparing BSD and GNU behaviour |
 | Environment kinds | A declared kind for the agent environment, with the Python venv as the first kind | Agents whose environment is not a Python venv | A second agent environment that isn't Python |
 | Outcome injection | The core acts inside a running container at a time the agent does not see | A hidden event the eval must deliver mid-run | An eval that must act inside the container at a hidden time |
 | `isolation.image` content identity | A comparable identity for the image a cell ran in; with it, collection of orphaned env images | Two runs on rebuilt images cannot be told apart or compared | Eliott's decision on comparable identity |
@@ -1824,7 +1824,7 @@ turns a plan into a spawn request, then collects and destroys.
 | `snapshots[]` and `inputs[]` | Needs the registry refuses today (unimplemented) | An eval that declares them | The first eval that declares one |
 | Two counts, a regrade gap and double grading | `show` without `--rates` and `inspect` count every current record; `--pending` does not regrade a run after its suite entry's params change; two concurrent evaluations can grade one run twice | One count per fact, and a regrade that follows params | A user-visible mismatch in a report, or a double-graded run seen in a store |
 | One sealing step for importers (B4) | An importer whose trace reader fails seals the run invalid, as raw ingest does | One integrity rule for every import | Eliott's ruling; no external user depends on today's behaviour |
-| One `Comparable` diff (B10) | One diff for the stratum verdict | Fewer copies | A change to the shape of recorded deviations |
+| One `Comparable` diff (B10) | One diff for the comparability verdict | Fewer copies | A change to the shape of recorded deviations |
 | fsync budget and streaming import (B6, B8) | A bounded fsync cost and an import that streams | Crash guards cost time, and a large import peaks in memory | A measured cost or memory peak that hurts |
 | Static tool catalog, `as_bytes`, refusal codes, shared outcome vectors (C5, C9, C10–C12) | Small consistency work | Fewer drifting copies | The next change that touches one of them |
 | `lock_split` | `lock_split` reads the plug-in's requirements from the fragment and the experiment's from the resolved value | The two sources can disagree | A plug-in whose fragment and resolved requirements differ |
