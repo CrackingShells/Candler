@@ -987,8 +987,8 @@ fn treatment_key(level: &Value) -> Option<(&str, &str, &str)> {
 
 /// The natural order of two levels of one factor: a scalar by its value, a treatment by the text
 /// of its name and tag and then its commit, any other value by its JSON text. Levels of different
-/// kinds are ordered by kind, and levels that tie by value by their JSON text. It reads the levels and nothing else, so which arm is A does not
-/// depend on the cells' digests.
+/// kinds are ordered by kind, and levels that tie by value by their JSON text. It reads the
+/// levels and nothing else, so which arm is A does not depend on the cells' digests.
 fn level_order(a: &Value, b: &Value) -> Ordering {
     let by_value = level_rank(a)
         .cmp(&level_rank(b))
