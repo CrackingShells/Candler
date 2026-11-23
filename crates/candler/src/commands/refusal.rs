@@ -8,7 +8,6 @@
 
 use std::error::Error;
 
-use candler_schemas::execution::paths;
 use candler_schemas::refusal::{Refusal, RefusalCode, RefusalRecord, Side, pointer_of};
 use candler_schemas::refusal_table;
 
@@ -198,11 +197,7 @@ fn known_request_keys() -> String {
 }
 
 /// The request settings `--set` may name, as the experiment's path table defines them.
-pub const REQUEST_KEYS: [&str; 3] = [
-    paths::REQUEST_HARNESS,
-    paths::REQUEST_TREATMENT,
-    paths::REQUEST_INPUTS,
-];
+pub const REQUEST_KEYS: [&str; 3] = candler_core::resolve::paths::request_keys();
 
 /// The pointer of the place in the experiment file where a [`CliRefusal`] sits, if it names one.
 fn cli_refusal_path(error: &CliRefusal) -> Option<String> {
