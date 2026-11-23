@@ -15,7 +15,7 @@ Candler's consumer surface holds only what is Candler's responsibility, and the 
 ## Status
 ```mermaid
 graph TD
-    m6b_surface_consolidation[M6b Surface consolidation]:::amendment
+    m6b_surface_consolidation[M6b Surface consolidation]:::done
     diet[Architecture diet]:::amendment
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -27,7 +27,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `m6b_surface_consolidation.md` | 📄 Leaf Task | 🔵 Amendment |
+| `m6b_surface_consolidation.md` | 📄 Leaf Task | ✅ Done |
 | `diet/` | 📁 Directory | 🔵 Amendment |
 
 ## Amendment Log
