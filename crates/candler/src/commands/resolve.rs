@@ -30,9 +30,6 @@ use candler_schemas::execution::{EventPayload, ExperimentFile};
 use candler_schemas::primitives::{FieldPath, RunKey};
 use candler_schemas::values::{SourceEntry, ValueSource};
 
-use candler_core::store::Store;
-use candler_schemas::listing::PlanCounts;
-
 use super::preflight::{check_factors, foreground, request_settings, requested_harness};
 use super::refusal::CliRefusal;
 use super::term::Paint;
@@ -200,37 +197,6 @@ fn failed_here(error: impl std::error::Error + Send + Sync + 'static) -> CliErro
     CliError::failed("resolve", error)
 }
 
-/// The record of a plan's counts.
-fn plan_counts(summary: &candler_core::runner::plan::PlanSummary) -> PlanCounts {
-    let count = |n: usize| u64::try_from(n).unwrap_or(u64::MAX);
-    PlanCounts {
-        cells: count(summary.cells),
-        new_runs: count(summary.new_runs),
-        reused_runs: count(summary.reused_runs),
-        wall_s_bound: summary.wall_s_bound,
-        job_caps: summary.job_caps.iter().cloned().collect(),
-    }
-}
-
-/// The plan's counts as `<path>\t<value as JSON>\tplan` lines, the shape of the value lines.
-fn plan_lines(counts: &PlanCounts) -> Vec<String> {
-    let mut lines = vec![
-        format!("plan.cells\t{}\tplan", counts.cells),
-        format!("plan.new_runs\t{}\tplan", counts.new_runs),
-        format!("plan.reused_runs\t{}\tplan", counts.reused_runs),
-    ];
-    if let Some(bound) = counts.wall_s_bound {
-        lines.push(format!("plan.wall_s_bound\t{bound}\tplan"));
-    }
-    lines.extend(
-        counts
-            .job_caps
-            .iter()
-            .map(|(path, value)| format!("plan.{path}\t{value}\tplan")),
-    );
-    lines
-}
-
 /// Prints the failures, one line each.
 fn print_failures(
     failures: &[Failure],
@@ -327,28 +293,12 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let Some(resolution) = resolution else {
         return Ok(Exit::Success);
     };
-    let held = Store::init(&root).map_err(failed_here)?;
-    let prepared =
-        super::run::prepare(&held, &file, experiment_dir.as_path(), &fields, &cwd, &root).await?;
-    let outcome =
-        super::run::plan_outcome(&held, &file, &prepared.resolutions, false, prepared.driver)?;
-    let counts = plan_counts(&outcome.summary(file.budget()));
     if text {
-        let mut lines = render_values(&resolution, Paint::detect());
-        lines.extend(plan_lines(&counts));
-        lines.sort();
-        for line in lines {
+        for line in render_values(&resolution, Paint::detect()) {
             writeln!(stdout, "{line}").map_err(failed_here)?;
         }
     } else {
-        let mut document = serde_json::to_value(&resolution).map_err(failed_here)?;
-        if let serde_json::Value::Object(map) = &mut document {
-            map.insert(
-                "plan".to_owned(), // BORROW: the document owns its key
-                serde_json::to_value(&counts).map_err(failed_here)?,
-            );
-        }
-        let document = serde_json::to_string_pretty(&document).map_err(failed_here)?;
+        let document = serde_json::to_string_pretty(&resolution).map_err(failed_here)?;
         writeln!(stdout, "{document}").map_err(failed_here)?;
     }
     Ok(Exit::Success)

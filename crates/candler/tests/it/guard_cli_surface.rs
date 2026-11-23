@@ -1644,64 +1644,6 @@ fn every_data_verb_prints_its_record() {
     );
 }
 
-/// Guards: C1 — the run counts `resolve` prints equal the runs `run` plans: before a run, the new
-/// runs `resolve` counts are the runs the job then seals and none is reused; after it, the new and
-/// the reused runs together are those runs.
-/// Oracle: the sealed runs the store holds after the job, counted from its directory.
-/// Bite: a new-run count that includes the reused runs fails here.
-#[test]
-fn resolve_counts_equal_the_plan() {
-    let env = Env::with(Path::new(env!("CARGO_BIN_EXE_candler")));
-    let models = Models::start();
-    let counts = |env: &Env| -> Value {
-        let out = succeeded(
-            env.command(&[
-                "resolve",
-                "exp.toml",
-                "--set",
-                "isolation.build.lock=env.lock",
-                "--set",
-                &models.setting(),
-                "--set",
-                &format!("model.token_secret={SECRET_NAME}"),
-            ])
-            .output()
-            .expect("the binary runs"),
-        );
-        document_of(&out)["plan"].clone()
-    };
-    let before = counts(&env);
-    let launched = env
-        .command(&[
-            "run",
-            "exp.toml",
-            "--set",
-            "isolation.build.lock=env.lock",
-            "--set",
-            &models.setting(),
-            "--set",
-            &format!("model.token_secret={SECRET_NAME}"),
-        ])
-        .output()
-        .expect("the binary runs");
-    env.settle(&launched);
-    let store = Store::open(&env.world.store()).expect("the store opens");
-    let sealed = store
-        .runs()
-        .expect("the runs list")
-        .iter()
-        .filter(|entry| entry.done)
-        .count();
-    let sealed = u64::try_from(sealed).expect("a count");
-    assert!(sealed > 0, "the job sealed runs");
-    assert_eq!(before["new_runs"], sealed, "{before}");
-    assert_eq!(before["reused_runs"], 0, "{before}");
-    let after = counts(&env);
-    let planned =
-        after["new_runs"].as_u64().unwrap_or(0) + after["reused_runs"].as_u64().unwrap_or(0);
-    assert_eq!(planned, sealed, "no run is lost from the counts: {after}");
-}
-
 /// The key of the one run of the seeded store, as `inspect` takes it.
 fn store_run_key(store: &Seeded) -> String {
     let runs = store.dir.path().join("store").join("runs");
