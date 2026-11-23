@@ -474,7 +474,7 @@ fn t3_cli_equal_levels_are_refused() {
     assert!(!out.status.success(), "the launcher refuses\n{stderr}");
     for source in [&first, &second] {
         assert!(
-            stderr.contains(&format!("\"source\":\"{source}\"")),
+            stderr.contains(&format!("\\\"source\\\":\\\"{source}\\\"")),
             "the refusal names the level read from {source}\n{stderr}"
         );
     }

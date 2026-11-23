@@ -1,6 +1,6 @@
 #![cfg(test)]
 //! Guard for the refusal of `candler diff --equivalence`: a bad equivalence file reaches
-//! `--error-format json` with its own code and side, and the text form is the error's own words.
+//! the default JSON form with its own code and side, and the text form is the error's own words.
 
 use std::fs;
 use std::process::{Command, Output};
@@ -24,7 +24,7 @@ fn candler(home: &std::path::Path, args: &[&str]) -> Output {
 }
 
 /// Guards: R2 — an equivalence file that is not valid JSON, and one that cannot be read, are
-/// refused under `--error-format json` with exit 2, the codes `suite.equivalence_invalid` and
+/// refused with no option with exit 2, the codes `suite.equivalence_invalid` and
 /// `suite.equivalence_unreadable`, the side `suite` and the file named, and the text form of the
 /// first still reads `refused: the equivalence file is not valid: ...`.
 /// Oracle: the files the test wrote or left missing, and the codes and side the contract's
@@ -48,12 +48,10 @@ fn r2_a_bad_equivalence_file_is_refused_with_its_code() {
             "a@1.0.0",
             "--to",
             "b@1.0.0",
-            "--format",
-            "json",
             "--equivalence",
             path,
         ];
-        let mut json_args = vec!["--error-format", "json"];
+        let mut json_args = Vec::<&str>::new();
         json_args.extend_from_slice(&args);
         let out = candler(dir.path(), &json_args);
         assert_eq!(out.status.code(), Some(2), "{out:?}");
@@ -71,10 +69,10 @@ fn r2_a_bad_equivalence_file_is_refused_with_its_code() {
             "a@1.0.0",
             "--to",
             "b@1.0.0",
-            "--format",
-            "json",
             "--equivalence",
             bad.to_str().expect("a UTF-8 path"),
+            "--format",
+            "text",
         ],
     );
     let text = String::from_utf8_lossy(&out.stderr);
