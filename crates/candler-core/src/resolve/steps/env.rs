@@ -25,6 +25,12 @@ pub enum EnvRefusal {
         /// The text of the name.
         name: String,
     },
+    /// A path named `env` is given by a channel other than the `[env]` table.
+    #[error("`{path}` is set outside the `[env]` table, which is the only source of `env`")]
+    Source {
+        /// The path, as written.
+        path: String,
+    },
     /// The name is one of the declared secrets.
     #[error("`env.{name}` names a declared secret, whose value reaches the gateway only")]
     Secret {
@@ -34,6 +40,16 @@ pub enum EnvRefusal {
 }
 
 impl EnvRefusal {
+    /// The path of a refused `env` given outside the table: `env` itself or a path below it.
+    #[must_use]
+    pub fn is_env_path(path: &FieldPath) -> bool {
+        path.as_str() == paths::ENV
+            || path
+                .as_str()
+                .strip_prefix(paths::ENV)
+                .is_some_and(|rest| rest.starts_with('.'))
+    }
+
     /// The name of the refused variable.
     #[must_use]
     pub fn name<'a>(&'a self) -> &'a str {
@@ -41,6 +57,7 @@ impl EnvRefusal {
             Self::Reserved { name } | Self::Invalid { name } | Self::Secret { name } => {
                 name.as_str()
             }
+            Self::Source { path } => path.as_str(),
         }
     }
 }

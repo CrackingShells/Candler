@@ -224,6 +224,16 @@ impl Layered {
             .iter()
             .flat_map(|file| file.values.iter().map(|(path, value)| (path, value)))
             .chain(input.explicit.iter().map(|(path, value)| (path, value)));
+        if let Some((path, _)) = input
+            .explicit
+            .iter()
+            .find(|(path, _)| super::steps::env::EnvRefusal::is_env_path(path))
+        {
+            return Err(super::steps::env::EnvRefusal::Source {
+                path: path.to_string(),
+            }
+            .into());
+        }
         super::steps::env::check(written, &input.secret_names)?;
         let store_root: FieldPath = STORE_ROOT.parse()?;
         let plugins_dirs: FieldPath = PLUGINS_DIRS.parse()?;
