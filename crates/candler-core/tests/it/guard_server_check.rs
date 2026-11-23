@@ -7,6 +7,7 @@
 
 use crate::support;
 
+use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
 use candler_core::isolation::testing::ProbingIsolation;
@@ -79,9 +80,9 @@ fn job_with(servers: &[(&str, Value)]) -> JobSpec {
         "schema = \"experiment/1\"\nreplicates = 1\n\n[[factors]]\npath = \"model.id\"\nlevels = [\"m1\"]\n\n[budget.per_run]\nwall_s = 3600\n\n[harness]\nname = \"claude-code\"\n\n[treatment]\nname = \"htn\"\n",
     );
     for (key, value) in servers {
-        text.push_str(&format!("\n[fixed.mcp.servers.{key}]\n"));
+        let _ = write!(text, "\n[fixed.mcp.servers.{key}]\n");
         for (field, leaf) in value.as_object().expect("a server object") {
-            text.push_str(&format!("{field} = {leaf}\n"));
+            let _ = writeln!(text, "{field} = {leaf}");
         }
     }
     job.experiment = ExperimentFile::from_toml_str(&text).expect("an experiment file");
@@ -160,6 +161,6 @@ fn remote_server_is_skipped() {
 #[test]
 fn job_without_stdio_servers_starts_no_check() {
     let (_, probed, runs) = run(job_with(&[]), Vec::new());
-    assert!(probed.is_empty());
+    assert_eq!(probed, Vec::<Vec<String>>::new());
     assert_eq!(runs, 1);
 }
