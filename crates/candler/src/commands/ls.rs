@@ -25,7 +25,8 @@ use candler_schemas::primitives::FieldPath;
 use serde_json::Value;
 
 use super::term::Paint;
-use super::{CliError, Exit, common};
+use super::{CliError, Exit, OutputArgs, common, write_record};
+use candler_schemas::listing::{ExperimentList, ListedExperiment};
 
 /// The directory of a project that holds its experiments.
 const EXPERIMENTS: &str = "experiments";
@@ -35,6 +36,8 @@ const EXPERIMENTS: &str = "experiments";
 pub struct Args {
     /// Files or directories to list besides the project's `experiments/` directory.
     pub paths: Vec<PathBuf>,
+    #[command(flatten)]
+    pub output: OutputArgs,
 }
 
 /// One line of the listing.
@@ -59,27 +62,24 @@ pub enum Listing {
     },
 }
 
-impl Listing {
-    /// The line, without a trailing line feed.
-    #[must_use]
-    pub fn line(&self, paint: Paint) -> String {
-        match self {
-            Self::Experiment { path, cells, runs } => {
-                let runs = if *runs > 0 {
-                    paint.green(&runs.to_string())
-                } else {
-                    runs.to_string()
-                };
-                format!("{}\t{cells}\t{runs}", path.display())
-            }
-            Self::Skipped { path, reason } => format!(
-                "{}\t{}\t{}",
-                path.display(),
-                paint.dim("skipped"),
-                reason.split_whitespace().collect::<Vec<_>>().join(" ")
-            ),
+/// The line of an entry, without a trailing line feed.
+fn line_of(entry: &ListedExperiment, paint: Paint) -> Option<String> {
+    Some(match entry {
+        ListedExperiment::Experiment { path, cells, runs } => {
+            let runs = if *runs > 0 {
+                paint.green(&runs.to_string())
+            } else {
+                runs.to_string()
+            };
+            format!("{path}\t{cells}\t{runs}")
         }
-    }
+        ListedExperiment::Skipped { path, reason } => format!(
+            "{path}\t{}\t{}",
+            paint.dim("skipped"),
+            reason.split_whitespace().collect::<Vec<_>>().join(" ")
+        ),
+        _ => return None,
+    })
 }
 
 /// The roots to list: the project's `experiments/` (or the working directory's, with no project)
@@ -197,6 +197,21 @@ pub fn list_files(
         .collect()
 }
 
+/// The record entry of a listed file.
+fn listed(listing: &Listing) -> ListedExperiment {
+    match listing {
+        Listing::Experiment { path, cells, runs } => ListedExperiment::Experiment {
+            path: path.display().to_string(),
+            cells: u64::try_from(*cells).unwrap_or(u64::MAX),
+            runs: u64::try_from(*runs).unwrap_or(u64::MAX),
+        },
+        Listing::Skipped { path, reason } => ListedExperiment::Skipped {
+            path: path.display().to_string(),
+            reason: reason.clone(), // BORROW: the record owns its text
+        },
+    }
+}
+
 /// Lists the experiments of the project and of the paths given.
 ///
 /// # Errors
@@ -218,14 +233,24 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
             files.entry(root).or_insert(None);
         }
     }
-    let runs = match common::store_root("ls", store).await {
-        Ok(root) => stored_runs(&root),
-        Err(_) => Vec::new(),
+    let (root, runs) = match common::store_root("ls", store).await {
+        Ok(root) => {
+            let runs = stored_runs(&root);
+            (Some(root.display().to_string()), runs)
+        }
+        Err(_) => (None, Vec::new()),
     };
-    let paint = Paint::detect();
+    let record = ExperimentList::new(root, list_files(&files, &runs).iter().map(listed).collect());
     let mut stdout = std::io::stdout().lock();
-    for listing in list_files(&files, &runs) {
-        writeln!(stdout, "{}", listing.line(paint)).map_err(|e| CliError::failed("ls", e))?;
+    if args.output.text() {
+        let paint = Paint::detect();
+        for entry in &record.experiments {
+            if let Some(line) = line_of(entry, paint) {
+                writeln!(stdout, "{line}").map_err(|e| CliError::failed("ls", e))?;
+            }
+        }
+    } else {
+        write_record("ls", &mut stdout, &record)?;
     }
     Ok(Exit::Success)
 }

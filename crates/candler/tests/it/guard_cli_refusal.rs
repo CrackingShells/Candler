@@ -1,5 +1,5 @@
 //! Guards for how the binary reports a refusal: one `refusal/1` record on one line of stderr
-//! under `--error-format json`, with exit 2 and nothing on stdout, and the unchanged text form
+//! with no option, with exit 2 and nothing on stdout, and the unchanged text form
 //! without the flag. The binary is the real one, run from a directory outside the project with
 //! the PATH-fake docker client of `support/cli_run.rs`.
 #![cfg(test)]
@@ -182,7 +182,7 @@ const SETTING_AS_FACTOR: Expect = Expect {
 };
 
 /// Guards: R2 — a malformed plug-in manifest prints as one `refusal/1` record under
-/// `--error-format json`: the code, side and pointer of the schemas' own error, found in the
+/// the default JSON form: the code, side and pointer of the schemas' own error, found in the
 /// chain of causes of a verb that failed.
 ///
 /// Oracle: a record written by hand from the contract (code `plugin.unknown_field`, side
@@ -193,11 +193,7 @@ const SETTING_AS_FACTOR: Expect = Expect {
 #[test]
 fn r2_a_malformed_manifest_prints_as_a_record() {
     let dir = bad_manifest();
-    let out = candler(
-        dir.path(),
-        "/usr/bin:/bin",
-        &evaluate_args(&["--error-format", "json"]),
-    );
+    let out = candler(dir.path(), "/usr/bin:/bin", &evaluate_args(&[]));
     assert_record(&out, &MANIFEST);
 }
 
@@ -211,7 +207,7 @@ fn r2_a_malformed_manifest_prints_as_a_record() {
 fn r2_a_setting_as_factor_prints_as_a_record() {
     let world = world();
     vary_a_setting(&world);
-    let out = world.launch_with(&["--error-format", "json"]);
+    let out = world.launch_with(&[]);
     assert_record(&out, &SETTING_AS_FACTOR);
 }
 
@@ -225,7 +221,7 @@ fn r2_a_setting_as_factor_prints_as_a_record() {
 fn r2_a_broken_experiment_file_names_the_file() {
     let world = world();
     fs::write(&world.experiment, "replicates = [\n").expect("the experiment writes");
-    let out = world.launch_with(&["--error-format", "json"]);
+    let out = world.launch_with(&[]);
     let record = record_of(&out);
     let file = world.experiment.display().to_string();
     assert_eq!(record["code"], "experiment.toml_invalid", "{record}");
@@ -239,7 +235,7 @@ fn r2_a_broken_experiment_file_names_the_file() {
     );
 }
 
-/// Guards: R2 — without `--error-format` (or with `text`) every refusal prints as it always did:
+/// Guards: R2 — with `--format text` every refusal prints as `candler: <message>`:
 /// `candler: <message>` on one line, with exit 2.
 ///
 /// Oracle: the text written by hand.
@@ -249,7 +245,8 @@ fn r2_a_broken_experiment_file_names_the_file() {
 fn r2_the_text_form_is_unchanged_without_the_flag() {
     let world = world();
     vary_a_setting(&world);
-    for extra in [&[][..], &["--error-format", "text"][..]] {
+    {
+        let extra = &["--format", "text"][..];
         let out = world.launch_with(extra);
         assert_eq!(out.status.code(), Some(2));
         assert_eq!(out.stdout, b"");
@@ -260,7 +257,9 @@ fn r2_the_text_form_is_unchanged_without_the_flag() {
         );
     }
     let dir = bad_manifest();
-    let out = candler(dir.path(), "/usr/bin:/bin", &evaluate_args(&[]));
+    let mut args = evaluate_args(&[]);
+    args.extend(["--format", "text"]);
+    let out = candler(dir.path(), "/usr/bin:/bin", &args);
     let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
     assert!(
         stderr.starts_with("candler: `evaluate` failed: the plug-in manifest /")
@@ -305,14 +304,7 @@ fn r2_a_missing_plugin_manifest_prints_as_a_record() {
     let out = candler(
         &unreadable,
         "/usr/bin:/bin",
-        &[
-            "--error-format",
-            "json",
-            "evaluate",
-            "../suite.toml",
-            "--store",
-            "store",
-        ],
+        &["evaluate", "../suite.toml", "--store", "store"],
     );
     assert_refusal(&out, "plugin.manifest_unreadable", "plugin", None);
 }
@@ -327,7 +319,7 @@ fn r2_a_missing_plugin_manifest_prints_as_a_record() {
 fn r2_no_state_home_prints_as_an_environment_record() {
     let dir = bad_manifest();
     let out = Command::new(env!("CARGO_BIN_EXE_candler"))
-        .args(["--error-format", "json", "evaluate"])
+        .args(["evaluate"])
         .args(["suite.toml", "--store", "store"])
         .current_dir(dir.path())
         .env_clear()
@@ -346,7 +338,7 @@ fn r2_no_state_home_prints_as_an_environment_record() {
     )
     .expect("the manifest writes");
     let out = Command::new(env!("CARGO_BIN_EXE_candler"))
-        .args(["--error-format", "json", "evaluate"])
+        .args(["evaluate"])
         .args(["suite.toml", "--store", "store"])
         .current_dir(dir.path())
         .env_clear()
@@ -429,7 +421,7 @@ fn r2_refused_suite_params_print_as_a_suite_record() {
     project_naming(&world.work, &manifest);
     candler_core::store::Store::init(&world.store()).expect("a store");
     let out = Command::new(env!("CARGO_BIN_EXE_candler"))
-        .args(["--error-format", "json", "--store"])
+        .args(["--store"])
         .arg(world.store())
         .arg("evaluate")
         .arg(&suite)
@@ -480,7 +472,7 @@ fn r2_ingest_refusals_print_as_records_naming_the_file() {
         let out = candler(
             dir.path(),
             "/usr/bin:/bin",
-            &["--error-format", "json", "--store", "store", "ingest", path],
+            &["--store", "store", "ingest", path],
         );
         let record = record_of(&out);
         assert_eq!(record["code"], code, "{path}: {record}");
@@ -502,12 +494,7 @@ fn r2_ingest_refusals_print_as_records_naming_the_file() {
 #[test]
 fn r2_a_carried_refusal_answers_with_the_side_of_its_cause() {
     let world = world();
-    let out = world.launch_with(&[
-        "--error-format",
-        "json",
-        "--set",
-        "model.id=9007199254740993",
-    ]);
+    let out = world.launch_with(&["--set", "model.id=9007199254740993"]);
     assert_refusal(&out, "canonical.integer_out_of_range", "experiment", None);
 }
 
@@ -523,7 +510,7 @@ fn r2_a_carried_refusal_answers_with_the_side_of_its_cause() {
 fn r2_an_absolute_path_in_fixed_prints_as_the_experiments() {
     let world = world();
     add_to_fixed(&world, "\"model.effort\" = \"/abs/p\"");
-    let out = world.launch_with(&["--error-format", "json"]);
+    let out = world.launch_with(&[]);
     let record = record_of(&out);
     assert_eq!(record["code"], "experiment.absolute_path", "{record}");
     assert_eq!(record["side"], "experiment", "{record}");
@@ -543,7 +530,7 @@ fn r2_an_unknown_job_and_an_unreadable_suite_name_what_the_caller_got_wrong() {
     let world = world();
     fs::create_dir_all(world.store()).expect("a store directory");
     let watch = Command::new(env!("CARGO_BIN_EXE_candler"))
-        .args(["--error-format", "json", "--store"])
+        .args(["--store"])
         .arg(world.store())
         .args(["watch", "01939f3c-0000-7000-8000-000000000000"])
         .current_dir(&world.work)
@@ -558,7 +545,7 @@ fn r2_an_unknown_job_and_an_unreadable_suite_name_what_the_caller_got_wrong() {
     let (manifest, _suite) = params_plugin(&world);
     project_naming(&world.work, &manifest);
     let evaluate = Command::new(env!("CARGO_BIN_EXE_candler"))
-        .args(["--error-format", "json", "--store"])
+        .args(["--store"])
         .arg(world.store())
         .arg("evaluate")
         .args(["absent-suite.toml"])
@@ -579,11 +566,11 @@ fn r2_an_unknown_job_and_an_unreadable_suite_name_what_the_caller_got_wrong() {
     assert_refusal(&evaluate, "evaluation.suite_unreadable", "config", None);
 }
 
-/// The binary's `watch` of `id` over the store of `world`, under `--error-format json`.
+/// The binary's `watch` of `id` over the store of `world`, with no option.
 #[cfg(unix)]
 fn watch(world: &cli_run::World, id: &str) -> Output {
     Command::new(env!("CARGO_BIN_EXE_candler"))
-        .args(["--error-format", "json", "--store"])
+        .args(["--store"])
         .arg(world.store())
         .args(["watch", id])
         .current_dir(&world.work)
@@ -653,15 +640,10 @@ const UNKNOWN_REQUEST_KEY: Expect = Expect {
 #[test]
 fn r3_unknown_request_key_is_refused() {
     let world = world();
-    let out = world.launch_with(&["--error-format", "json", "--set", "request.foo=1"]);
+    let out = world.launch_with(&["--set", "request.foo=1"]);
     assert_record(&out, &UNKNOWN_REQUEST_KEY);
 
-    let retired = world.launch_with(&[
-        "--error-format",
-        "json",
-        "--set",
-        "request.treatment_source=somewhere",
-    ]);
+    let retired = world.launch_with(&["--set", "request.treatment_source=somewhere"]);
     let record = record_of(&retired);
     assert_eq!(record["code"], "config.retired_setting", "{record}");
 
@@ -676,7 +658,7 @@ fn r3_unknown_request_key_is_refused() {
         let out = Command::new(env!("CARGO_BIN_EXE_candler"))
             .arg("run")
             .arg(&world.experiment)
-            .args(["--error-format", "json", "--set", setting.as_str()])
+            .args(["--set", setting.as_str()])
             .current_dir(&world.work)
             .env_clear()
             .env("PATH", empty.path())
@@ -705,7 +687,7 @@ fn r3_unknown_request_key_is_refused() {
 fn r3_factor_refusal_precedes_docker() {
     let world = world();
     vary_a_setting(&world);
-    let out = world.launch_with(&["--error-format", "json"]);
+    let out = world.launch_with(&[]);
     assert_record(&out, &SETTING_AS_FACTOR);
     assert_eq!(
         world.calls(),
@@ -797,35 +779,32 @@ fn surface_paths() -> Vec<String> {
 fn r3_unknown_field_path_is_refused() {
     let world = world();
     add_to_fixed(&world, "\"zzz.unknown_thing\" = 1");
-    let out = world.launch_with(&["--error-format", "json"]);
+    let out = world.launch_with(&[]);
     assert_record(&out, &UNKNOWN_IN_FIXED);
 
     let world = cli_run::world();
     let mut text = fs::read_to_string(&world.experiment).expect("the experiment reads");
     text.push_str("\n[[factors]]\npath = \"zzz.other\"\nlevels = [1, 2]\n");
     fs::write(&world.experiment, text).expect("the experiment writes");
-    let out = world.launch_with(&["--error-format", "json"]);
+    let out = world.launch_with(&[]);
     assert_record(&out, &UNKNOWN_IN_FACTOR);
 
     let world = cli_run::world();
     let mut text = fs::read_to_string(&world.experiment).expect("the experiment reads");
     text.push_str("\n[[factors]]\npath = \"isolation\"\nlevels = [{ limits = { zzz = 1 } }]\n");
     fs::write(&world.experiment, text).expect("the experiment writes");
-    let out = world.launch_with(&["--error-format", "json"]);
+    let out = world.launch_with(&[]);
     assert_record(&out, &UNKNOWN_IN_LEVEL);
 
     let world = cli_run::world();
-    let out = world.launch_with(&["--error-format", "json", "--set", "zzz.third=1"]);
+    let out = world.launch_with(&["--set", "zzz.third=1"]);
     assert_record(&out, &UNKNOWN_IN_SET);
 
     let empty = TempDir::new().expect("a temporary directory");
     fs::create_dir_all(empty.path().join("home")).expect("a home");
     let world = cli_run::world();
     let mut command = Command::new(env!("CARGO_BIN_EXE_candler"));
-    command
-        .arg("run")
-        .arg(&world.experiment)
-        .args(["--error-format", "json"]);
+    command.arg("run").arg(&world.experiment);
     let paths = surface_paths();
     assert!(
         paths.len() > 40,

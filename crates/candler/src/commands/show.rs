@@ -3,7 +3,8 @@
 use std::collections::BTreeMap;
 
 use candler_core::evaluation::selection::rates::{rates, rates_toml};
-use serde_json::{Value, json};
+use candler_schemas::listing::{CellRate, Rates, ShowCounts, ShowCountsTag};
+use serde_json::json;
 
 use super::{CliError, Exit, common};
 use crate::Cli;
@@ -21,16 +22,17 @@ pub struct ShowArgs {
     /// outcomes the call prints.
     #[arg(long)]
     pub evaluator: Option<String>,
-    /// The output format. not an experiment setting: it is how the output is read.
+    /// Print the output as text, or as TOML, instead of its JSON record. not an experiment
+    /// setting: it is how the output is read.
     #[arg(long, value_enum)]
-    pub format: ShowFormat,
+    pub format: Option<ShowFormat>,
 }
 
 /// The output formats of `candler show`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum ShowFormat {
-    /// JSON.
-    Json,
+    /// Lines for a person.
+    Text,
     /// TOML.
     Toml,
 }
@@ -56,19 +58,29 @@ pub async fn run(cli: &Cli, args: &ShowArgs) -> Result<Exit, CliError> {
     let text = if args.rates {
         let evaluator = evaluator.ok_or_else(|| CliError::refused("--rates needs an evaluator"))?;
         let cells = rates(&selection, &evaluator);
-        match args.format {
-            ShowFormat::Toml => rates_toml(&cells),
-            ShowFormat::Json => {
-                let table: BTreeMap<String, Value> = cells
+        if args.format == Some(ShowFormat::Toml) {
+            rates_toml(&cells)
+        } else {
+            let table: BTreeMap<String, CellRate> = cells
+                .iter()
+                .map(|(cell, rate)| {
+                    (
+                        cell.to_string(),
+                        CellRate {
+                            gate: json!(rate.gate()),
+                            quality: json!(rate.quality()),
+                        },
+                    )
+                })
+                .collect();
+            if args.format == Some(ShowFormat::Text) {
+                table
                     .iter()
-                    .map(|(cell, rate)| {
-                        (
-                            cell.to_string(),
-                            json!({"gate": rate.gate(), "quality": rate.quality()}),
-                        )
-                    })
-                    .collect();
-                let text = serde_json::to_string(&json!({ "cell": table }))
+                    .map(|(cell, rate)| format!("{cell}\t{}\t{}\n", rate.gate, rate.quality))
+                    .collect::<Vec<_>>()
+                    .concat()
+            } else {
+                let text = serde_json::to_string(&Rates::new(table))
                     .map_err(|e| CliError::failed("show", e))?;
                 format!("{text}\n")
             }
@@ -93,16 +105,29 @@ pub async fn run(cli: &Cli, args: &ShowArgs) -> Result<Exit, CliError> {
                 .or_insert(0);
             *slot = slot.saturating_add(1);
         }
-        let document = json!({ "counts": counts });
+        let document = ShowCounts {
+            schema: ShowCountsTag,
+            counts,
+        };
         match args.format {
-            ShowFormat::Json => {
+            None => {
                 let text =
                     serde_json::to_string(&document).map_err(|e| CliError::failed("show", e))?;
                 format!("{text}\n")
             }
-            ShowFormat::Toml => {
+            Some(ShowFormat::Toml) => {
                 toml::to_string(&document).map_err(|e| CliError::failed("show", e))?
             }
+            Some(ShowFormat::Text) => document
+                .counts
+                .iter()
+                .flat_map(|(evaluator, by_status)| {
+                    by_status
+                        .iter()
+                        .map(move |(status, count)| format!("{evaluator}\t{status}\t{count}\n"))
+                })
+                .collect::<Vec<_>>()
+                .concat(),
         }
     };
     print!("{text}");

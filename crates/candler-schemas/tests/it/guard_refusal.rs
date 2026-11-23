@@ -40,7 +40,7 @@ fn codes_registry() -> toml::Table {
     read_toml_file(&crate_dir().join("../../docs/contract/codes.toml"))
 }
 
-/// Guards: C1 — a `refusal/1` record is the document an agent reads from `--error-format json`.
+/// Guards: C1 — a `refusal/1` record is the document an agent reads from stderr.
 /// It round-trips to the same JSON value, validates against its committed schema, and the reader
 /// and the schema both refuse every invalid record: an unknown field, a code that is a number, a
 /// side outside the six, `causes` missing, a path and a file together, a path that is no pointer.

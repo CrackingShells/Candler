@@ -2,8 +2,8 @@
 //! stderr.
 //!
 //! [`CliRefusal`] holds the refusals that no library crate raises: they name a command line or
-//! an environment, not a file. [`render`] writes a failure as it always was (`candler:
-//! <message>`) or, under `--error-format json`, as one `refusal/1` record whose code, side and
+//! an environment, not a file. [`render`] writes a failure as `candler:
+//! <message>` when text is asked for, and otherwise as one `refusal/1` record whose code, side and
 //! path come from the refusal the error carries or holds in its chain of causes.
 
 use std::error::Error;
@@ -13,7 +13,6 @@ use candler_schemas::refusal::{Refusal, RefusalCode, RefusalRecord, Side, pointe
 use candler_schemas::refusal_table;
 
 use super::{Carried, CliError};
-use crate::ErrorFormat;
 
 /// A refusal of the command line or the environment of the binary.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -489,15 +488,14 @@ pub fn usage_record(message: &str) -> String {
 /// The fallback code of an error that is not an author's.
 const INTERNAL_CODE: &str = "candler.internal";
 
-/// What `candler` prints on stderr for `error`: `candler: <message>` as `text`, or one
-/// `refusal/1` record on one line as `json`.
+/// What `candler` prints on stderr for `error`: one `refusal/1` record on one line, or
+/// `candler: <message>` when `text` is set.
 #[must_use]
-pub fn render(error: &CliError, format: ErrorFormat) -> String {
-    match format {
-        ErrorFormat::Text => format!("candler: {error}"),
-        ErrorFormat::Json => {
-            serde_json::to_string(&record_of(error)).unwrap_or_else(|_| format!("candler: {error}"))
-        }
+pub fn render(error: &CliError, text: bool) -> String {
+    if text {
+        format!("candler: {error}")
+    } else {
+        serde_json::to_string(&record_of(error)).unwrap_or_else(|_| format!("candler: {error}"))
     }
 }
 

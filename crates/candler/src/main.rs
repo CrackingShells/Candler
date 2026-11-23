@@ -18,7 +18,7 @@ mod drivers;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 
 use crate::commands::{
     CliError, Exit, analyze, inspect, kill, ls, ps, resolve, run, supervise, watch,
@@ -36,22 +36,9 @@ struct Cli {
     /// experiment setting: it chooses where the results of every experiment are kept.
     #[arg(long, env = "CANDLER_STORE", global = true)]
     store: Option<PathBuf>,
-    /// How refusals are written on stderr. cannot be derived: what parses the caller's stderr is not
-    /// visible from the terminal; cannot live in the experiment file: a refusal can come before any
-    /// file is read.
-    #[arg(long, value_enum, default_value_t, global = true)]
-    error_format: ErrorFormat,
     /// The verb to run.
     #[command(subcommand)]
     command: Command,
-}
-
-/// How a refusal is written on stderr: `candler: <message>` on one line, or one JSON object.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
-enum ErrorFormat {
-    #[default]
-    Text,
-    Json,
 }
 
 /// The verbs, one variant per line so that later verbs append.
@@ -123,23 +110,20 @@ fn status(result: &Result<Exit, CliError>) -> u8 {
     }
 }
 
-/// Whether the arguments ask for the JSON form of refusals: `--error-format json`, or
-/// `--error-format=json`. The parser has not accepted them when this is asked, so the value is read
-/// from the words themselves.
-fn json_requested(args: &[std::ffi::OsString]) -> bool {
+/// Whether the arguments ask for the text form of refusals: `--format text`, or `--format=text`.
+/// The parser has not accepted them when this is asked, so the value is read from the words
+/// themselves. Nothing about the terminal decides it.
+fn text_requested(args: &[std::ffi::OsString]) -> bool {
     let words: Vec<&str> = args.iter().filter_map(|arg| arg.to_str()).collect();
-    words
-        .windows(2)
-        .any(|pair| pair == ["--error-format", "json"])
-        || words.contains(&"--error-format=json")
+    words.windows(2).any(|pair| pair == ["--format", "text"]) || words.contains(&"--format=text")
 }
 
 /// Ends the process for a command line the parser refused: help and version are printed as they
-/// were, and a usage error is one `refusal/1` record when the arguments ask for JSON, or the
-/// parser's own text otherwise. The status is the parser's.
+/// were, and a usage error is one `refusal/1` record, or the parser's own text when the arguments
+/// ask for text. The status is the parser's.
 fn usage_failure(error: &clap::Error) -> ExitCode {
-    let asked = json_requested(&std::env::args_os().collect::<Vec<_>>());
-    if error.use_stderr() && asked {
+    let text = text_requested(&std::env::args_os().collect::<Vec<_>>());
+    if error.use_stderr() && !text {
         eprintln!(
             "{}",
             commands::refusal::usage_record(error.render().to_string().trim_end())
@@ -154,10 +138,10 @@ fn main() -> ExitCode {
         Ok(cli) => cli,
         Err(error) => return usage_failure(&error),
     };
-    let format = cli.error_format;
+    let text = text_requested(&std::env::args_os().collect::<Vec<_>>());
     let result = dispatch(cli);
     if let Err(error) = &result {
-        eprintln!("{}", commands::refusal::render(error, format));
+        eprintln!("{}", commands::refusal::render(error, text));
     }
     ExitCode::from(status(&result))
 }

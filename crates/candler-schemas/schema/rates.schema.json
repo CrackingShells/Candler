@@ -1,0 +1,45 @@
+{
+  "$defs": {
+    "CellRate": {
+      "additionalProperties": false,
+      "description": "The rates of one cell in [`Rates`].",
+      "properties": {
+        "gate": {
+          "description": "The rate of the gate expectations, as the core computed it."
+        },
+        "quality": {
+          "description": "The rate of the quality expectations, as the core computed it."
+        }
+      },
+      "required": [
+        "gate",
+        "quality"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:candler:schemas:rates",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The per-cell rates of one evaluator: what `candler show --rates` prints.",
+  "properties": {
+    "cell": {
+      "additionalProperties": {
+        "$ref": "#/$defs/CellRate"
+      },
+      "description": "The gate and quality rates of each cell, by the cell's digest.",
+      "type": "object"
+    },
+    "schema": {
+      "const": "rates/1",
+      "description": "The version marker of the document: always `rates/1`.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "cell"
+  ],
+  "title": "Rates",
+  "type": "object"
+}
