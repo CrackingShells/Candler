@@ -76,6 +76,7 @@ pub fn generated_schemas() -> Vec<GeneratedSchema> {
         crate::evaluation::roots(),
         crate::refusal::roots(),
         crate::inspect::roots(),
+        crate::analysis::roots(),
         crate::listing::roots(),
     ];
     in_file_name_order(modules.into_iter().flatten().collect())
