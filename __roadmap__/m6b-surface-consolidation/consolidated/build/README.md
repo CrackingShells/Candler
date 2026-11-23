@@ -80,11 +80,11 @@ Every accepted input of R16 is built as its row says, with its tests designed pe
 ## Status
 ```mermaid
 graph TD
-    analysis_core[Analysis core: order, summary, spend]:::inprogress
-    codes_inner[Inner refusal codes]:::inprogress
-    preflight_checks[Preflight checks]:::inprogress
+    analysis_core[Analysis core: order, summary, spend]:::done
+    codes_inner[Inner refusal codes]:::done
+    preflight_checks[Preflight checks]:::done
     outputs[Outputs and pages]:::amendment
-    server_check[Server start check]:::inprogress
+    server_check[Server start check]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -95,11 +95,11 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `analysis_core.md` | 📄 Leaf Task | 🔄 In Progress |
-| `codes_inner.md` | 📄 Leaf Task | 🔄 In Progress |
-| `preflight_checks.md` | 📄 Leaf Task | 🔄 In Progress |
+| `analysis_core.md` | 📄 Leaf Task | ✅ Done |
+| `codes_inner.md` | 📄 Leaf Task | ✅ Done |
+| `preflight_checks.md` | 📄 Leaf Task | ✅ Done |
 | `outputs/` | 📁 Directory | 🔵 Amendment |
-| `server_check.md` | 📄 Leaf Task | 🔄 In Progress |
+| `server_check.md` | 📄 Leaf Task | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
@@ -112,3 +112,7 @@ graph TD
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| codes_inner | claude/m6b-build-codes_inner | 10 | Merged 4705b21e. A JSON suite entry's fault is `suite.json_invalid` at `/expectations/N`; one commit compiles only with the next (accepted). Follow-ups: the reader tag fallback, no TOML counterpart row |
+| analysis_core | claude/m6b-build-analysis_core | 8 | Merged f8d504a1. `kt_two_levels_end_to_end` failed once and passed alone and twice in full: flake, panic not captured. Follow-ups: no CLI test of `summary` and `spent` (output_contract's), the number and treatment branches of the level order untested, spend counts invalid sealed runs |
+| preflight_checks | claude/m6b-build-preflight_checks | 18 | Merged 35653cb1. A1, A3, A4. N6 held for Eliott (no slash-prompt rule on the tip). Verifier closed after three checks; NEW-2 fixed by a fix agent. Follow-ups: `NotPositive` for a non-integer, `replicates.x` paths accepted as no-ops, `[fixed] replicates` silently wins, `Levels::replicates` silent fallback |
+| server_check | claude/m6b-build-server_check | 12 | Merged 0cbd72ff. A2, A3, A4. The leaf added no `codes.toml` row, so `guard_refusal_codes::r1` failed at the L0 close; 8872d38a codes `jobs.server_exited_at_start` (experiment) and `jobs.server_check_failed` (environment). Probe staged and composed as a run's. Verifier's last two commits unchecked (the real-container gate covers the env change). Follow-ups: verifier findings 4-8 and 10, guards not seen red first, no real-container bite, no guard that overlays reach the probe, `sh` and `env` assumed in the image |
