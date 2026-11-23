@@ -25,9 +25,9 @@ Level L2 of the M6b build (`../../README.md`). It runs after `outputs/` is merge
 ## Status
 ```mermaid
 graph TD
-    analysis_record[Analysis record]:::amendment
-    docs_chores[Docs chores]:::amendment
-    experiment_env[Experiment env table]:::amendment
+    analysis_record[Analysis record]:::inprogress
+    docs_chores[Docs chores]:::inprogress
+    experiment_env[Experiment env table]:::inprogress
     close[Close]:::amendment
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -39,9 +39,9 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `analysis_record.md` | 📄 Leaf Task | 🔵 Amendment |
-| `docs_chores.md` | 📄 Leaf Task | 🔵 Amendment |
-| `experiment_env.md` | 📄 Leaf Task | 🔵 Amendment |
+| `analysis_record.md` | 📄 Leaf Task | 🔄 In Progress |
+| `docs_chores.md` | 📄 Leaf Task | 🔄 In Progress |
+| `experiment_env.md` | 📄 Leaf Task | 🔄 In Progress |
 | `close/` | 📁 Directory | 🔵 Amendment |
 
 ## Amendment Log
