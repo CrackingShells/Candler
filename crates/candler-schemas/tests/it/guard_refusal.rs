@@ -887,22 +887,26 @@ fn inner_codes_print_as_code() {
         suite_entry("a", "", "").as_str(),
     ]);
     let unknown = suite_file(&[suite_entry("a", "\"zz\"", "").as_str()]);
+    let canonical_fault = r#"{"schema":"suite/1","expectations":[
+        {"id":"a","role":"gate","kind":"k","depends_on":[],"evaluator":{"name":"e","range":"^1"},"params":{}},
+        {"id":"b","role":"gate","kind":"k","depends_on":[],"evaluator":{"name":"e","range":"^1"},"params":{"n":9007199254740993}}]}"#
+        .to_owned();
     let empty_applies = suite_file(&[suite_entry("a", "", "applies_to = []").as_str()]);
-    // (error enum, variant, file, pointer, true for a suite file)
-    let table: Vec<(&str, &str, String, Option<&str>, bool)> = vec![
+    // (error enum, variant, file, pointer, reader: `experiment`, `suite` or `suite_json`)
+    let table: Vec<(&str, &str, String, Option<&str>, &str)> = vec![
         (
             "ExecutionError",
             "Zero",
             experiment_file(0, "", "", valid_tail),
             Some("/replicates"),
-            false,
+            "experiment",
         ),
         (
             "ExecutionError",
             "NotPositive",
             experiment_file(1, "", "max_cost_usd = 0", valid_tail),
             Some("/budget/per_run/max_cost_usd"),
-            false,
+            "experiment",
         ),
         (
             "ExecutionError",
@@ -914,14 +918,14 @@ fn inner_codes_print_as_code() {
                 valid_tail,
             ),
             None,
-            false,
+            "experiment",
         ),
         (
             "ExecutionError",
             "EmptyTable",
             experiment_file(1, "[fixed.prompt.values]", "", valid_tail),
             None,
-            false,
+            "experiment",
         ),
         (
             "ExecutionError",
@@ -933,7 +937,7 @@ fn inner_codes_print_as_code() {
                 valid_tail,
             ),
             None,
-            false,
+            "experiment",
         ),
         (
             "ExecutionError",
@@ -945,7 +949,7 @@ fn inner_codes_print_as_code() {
                 valid_tail,
             ),
             None,
-            false,
+            "experiment",
         ),
         (
             "ExecutionError",
@@ -957,29 +961,48 @@ fn inner_codes_print_as_code() {
                 "[[inputs]]\nkind = \"first\"\npath = \"p\"\n[[inputs]]\nkind = \"data\"\npath = \"p\"\nat = \"/abs\"\n",
             ),
             Some("/inputs/1"),
-            false,
+            "experiment",
         ),
-        ("EvaluationError", "DuplicateId", repeated, None, true),
-        ("EvaluationError", "UnknownDependency", unknown, None, true),
-        ("EvaluationError", "Cycle", two_cycle, None, true),
+        ("EvaluationError", "DuplicateId", repeated, None, "suite"),
+        (
+            "EvaluationError",
+            "UnknownDependency",
+            unknown,
+            None,
+            "suite",
+        ),
+        ("EvaluationError", "Cycle", two_cycle, None, "suite"),
         // The entry's own validator names the entry it refused.
         (
             "EvaluationError",
             "EmptyList",
             empty_applies,
             Some("/expectations/0"),
-            true,
+            "suite",
+        ),
+        // A canonical fault of an entry keeps the document's code of the file's own format and
+        // names the entry, whichever the index.
+        (
+            "EvaluationError",
+            "Json",
+            canonical_fault,
+            Some("/expectations/1"),
+            "suite_json",
         ),
     ];
-    for (enum_name, variant, text, pointer, is_suite) in table {
+    for (enum_name, variant, text, pointer, reader) in table {
         let (code, side) = code_of(enum_name, variant);
-        let error: Box<dyn Refusal> = if is_suite {
-            Box::new(SuiteFile::from_toml_str(text.as_str()).expect_err("a value-invalid suite"))
-        } else {
-            Box::new(
+        let error: Box<dyn Refusal> = match reader {
+            "suite" => Box::new(
+                SuiteFile::from_toml_str(text.as_str()).expect_err("a value-invalid suite"),
+            ),
+            "suite_json" => Box::new(
+                SuiteFile::from_json_str(text.as_str()).expect_err("a value-invalid suite"),
+            ),
+            _ => Box::new(
                 ExperimentFile::from_toml_str(text.as_str())
                     .expect_err("a value-invalid experiment file"),
-            )
+            ),
         };
         assert_eq!(error.code().as_str(), code, "{enum_name}::{variant}");
         assert_eq!(error.side().as_str(), side, "{enum_name}::{variant}");

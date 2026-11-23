@@ -1218,7 +1218,14 @@ impl SuiteFile {
                 }
             }
         })?;
-        Self::try_from(MapOnly(raw))
+        Self::try_from(MapOnly(raw)).map_err(|error| {
+            // An entry's canonical fault is the document's fault, in the file's own format.
+            if let EvaluationError::Toml { detail, path } = error {
+                EvaluationError::Json { detail, path }
+            } else {
+                error
+            }
+        })
     }
 
     /// The expectations, in the order written.
