@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use std::fs;
 
 use contract_pages::capabilities::render_capabilities;
+use contract_pages::config_pages::{render_file_page, render_paths};
 use contract_pages::frame::{MAX_NOTE_WORDS, SECTIONS, check_frame, check_notes};
 use contract_pages::hand::section;
 use contract_pages::harness::{HARNESS_PAGES, render_driver_traits};
@@ -97,6 +98,12 @@ fn d1_regenerating_the_pages_changes_nothing() {
     )
     .expect("the capability page is rendered");
     settle("harness-capabilities.md", &capabilities);
+    let paths = render_paths(&versions, existing("configuration-paths.md").as_deref())
+        .expect("the configuration paths page is rendered");
+    settle("configuration-paths.md", &paths);
+    let file_page = render_file_page(&versions, existing("config-file.md").as_deref())
+        .expect("the configuration file page is rendered");
+    settle("config-file.md", &file_page);
     let index = render_index(&schema_dir(), &versions).expect("the index is rendered");
     settle("index.md", &index);
 }
