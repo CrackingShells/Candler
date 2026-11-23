@@ -1148,3 +1148,57 @@ fn t3_treatment_table_levels_admit_four_fields() {
         );
     }
 }
+
+/// Guards: I12 — `replicates` is an operational setting, so the plan reads the resolved value: a
+/// file that writes `replicates = 5` and an explicit `replicates = 1` plan one run per cell, and
+/// the resolution names the explicit argument as the value's source.
+/// Oracle: two cells times one replicate is two runs; the file's own count would plan ten.
+/// Bite: read the file's `replicates` again in the plan.
+#[test]
+fn set_replicates_is_honoured() {
+    use candler_core::resolve::config::{Config, UserConfig};
+    use candler_core::resolve::layers::{FileValues, Layered, ResolveInput};
+
+    let root = tempfile::tempdir().expect("a temp dir");
+    let config = Config::new(
+        root.path().to_owned(), // BORROW: the config owns its working directory
+        None,
+        UserConfig::default(),
+        Some(root.path().join("state")),
+    );
+    let replicates =
+        |count: u32| candler_schemas::values::JsonValue::new(json!(count)).expect("a JSON value");
+    let input = ResolveInput::default()
+        .explicit("replicates".parse().expect("a field path"), replicates(1))
+        .file(FileValues::new(vec![(
+            "replicates".parse().expect("a field path"),
+            replicates(5),
+        )]));
+    let layered = Layered::new(&config, input).expect("layers");
+    let layers = layered.resolve();
+
+    let facts = Facts::base();
+    let mut json = serde_json::to_value(resolution(&facts)).expect("JSON");
+    json["settings"] = serde_json::to_value(&layers.settings).expect("JSON");
+    let resolved: candler_core::resolve::layers::Resolution =
+        serde_json::from_value(json).expect("a resolution");
+
+    let (_dir, store, lock) = fresh_store();
+    let ctx = plan_ctx(&store, &lock, &facts);
+    let out = plan_runs(
+        &ctx,
+        &experiment(&["m1", "m2"], 5),
+        &resolved,
+        Force::No,
+        PlanMode::Check,
+    )
+    .map_err(|e| e.to_string())
+    .expect("a plan");
+    assert_eq!(out.plans.len(), 2);
+
+    let sources = serde_json::to_string(&layers.sources).expect("JSON");
+    assert!(
+        sources.contains("explicit"),
+        "the source of `replicates`: {sources}"
+    );
+}
