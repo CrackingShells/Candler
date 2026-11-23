@@ -73,4 +73,4 @@ No other guard changed.
 
 ## Verifier
 
-pending (coordinator)
+PASS with findings, no blocker, then fixed. Deleting `guard_assert_clean` left the scanner unguarded; it was restored in 54ddabea and three report rows were corrected.
