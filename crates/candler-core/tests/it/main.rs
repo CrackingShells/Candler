@@ -6,6 +6,7 @@ mod support;
 
 mod guard_analysis_report;
 mod guard_analysis_summary;
+mod guard_assert_clean;
 mod guard_build_context;
 mod guard_census_gateway;
 mod guard_comparability;
