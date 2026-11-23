@@ -663,10 +663,10 @@ fn candler(store: &Path, args: &[&str], env: &[(&str, &str)]) -> Output {
         .unwrap()
 }
 
-/// Guards: O3 — `candler watch <id>` with no flag prints each event of the job as one JSON line,
-/// as `watch` always did. Oracle: a recorded event log
-/// (`fixtures/observe/events.jsonl`); its lines, read as JSON. Bite: the refusal "watch needs
-/// --json" kept.
+/// Guards: O3 — `candler watch <id>` with no flag prints each event of the job as one JSON line.
+/// Oracle: a recorded event log
+/// (`fixtures/observe/events.jsonl`); its lines, read as JSON. Bite: an event line that is not
+/// JSON.
 #[test]
 fn o3_watch_prints_json_lines_by_default() {
     let scratch = TempDir::new().unwrap();
@@ -695,8 +695,7 @@ fn o3_watch_prints_json_lines_by_default() {
 }
 
 /// Guards: O3 — `candler watch <id> --live` on a pipe prints plain progress lines and no escape
-/// byte anywhere, with `NO_COLOR` unset and set, on both streams; `--live` and `--json` together
-/// are refused by the parser. Oracle: a recorded event log (two runs started, both ended, four
+/// byte anywhere, with `NO_COLOR` unset and set, on both streams. Oracle: a recorded event log (two runs started, both ended, four
 /// outcomes planned and none seen) and a byte scan for 0x1b over everything the verb wrote. Bite:
 /// ANSI on a pipe.
 #[test]
