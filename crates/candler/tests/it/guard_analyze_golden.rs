@@ -83,11 +83,7 @@ fn analysed() -> (TempDir, Value) {
         "import: {}",
         String::from_utf8_lossy(&imported.stderr)
     );
-    let out = candler(
-        dir.path(),
-        &store,
-        &["analyze".as_ref(), "--format".as_ref(), "json".as_ref()],
-    );
+    let out = candler(dir.path(), &store, &["analyze".as_ref()]);
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -331,7 +327,7 @@ fn declared_golden_factors() {
         assert_eq!(of.len(), comparisons_of, "comparisons on {factor}");
         for comparison in of {
             assert_eq!(
-                comparison["stratum"]["verdict"], "comparable",
+                comparison["comparability_class"]["verdict"], "comparable",
                 "the stratum of a comparison on {factor}"
             );
             let blocked: Vec<u64> = comparison["entries"]

@@ -1371,6 +1371,11 @@ side = "environment"
 enum = "ReportError"
 variant = "NoOutcomes"
 
+[analysis."analysis.no_stored_trace"]
+side = "config"
+enum = "ReportError"
+variant = "NoStoredTrace"
+
 [internal]
 
 [internal."candler_core::resolve::preflight::ResolveError::DuplicateStep"]

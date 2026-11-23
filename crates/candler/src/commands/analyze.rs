@@ -1,25 +1,26 @@
 //! `candler analyze`: per-arm tables of one evaluator's outcomes and the tests between arms that
-//! differ in one declared factor, as JSON or CSV. It reads the store and never writes it.
+//! differ in one declared factor, as the `analysis-report/1` record, or as text or CSV rendered
+//! from it. It reads the store and never writes it.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use candler_core::analysis::blocking::Battery;
+use candler_core::analysis::record::analysis_report;
 use candler_core::analysis::refusal::ReportError;
 use candler_core::analysis::report::{
-    ArmReport, Comparison, Entry, Report, ReportInput, RunRow, RunView, Tested, Unsealed,
-    check_factors, choose_evaluator, role_name,
+    Report, ReportInput, RunView, Unsealed, check_factors, choose_evaluator,
 };
-use candler_core::analysis::spend::Spend;
-use candler_core::analysis::summary::Summary;
-use candler_core::analysis::tally::{Rate, RunFacts};
-use candler_core::analysis::{ALPHA, alpha_source};
+use candler_core::analysis::tally::RunFacts;
+use candler_schemas::analysis::{AnalysisReport, Entry, Reading};
 use candler_schemas::execution::{ExperimentFile, varying_paths};
 use candler_schemas::primitives::FieldPath;
-use serde_json::{Value, json};
+use serde_json::Value;
 
-use super::{CliError, Exit, common};
+use super::{CliError, Exit, common, write_record};
 use crate::Cli;
+
+/// How many characters of an experiment digest a line of text shows.
+const SHORT: usize = 12;
 
 /// The verb, as errors and the store reader name it.
 const VERB: &str = "analyze";
@@ -38,9 +39,11 @@ pub struct AnalyzeArgs {
     /// file the recorded factors are checked against.
     #[arg(long)]
     pub experiment: Option<PathBuf>,
-    /// How the tables are written. not an experiment setting: chooses how the tables are written.
-    #[arg(long, value_enum, default_value_t)]
-    pub format: Format,
+    /// Print the report as text, or one table of it as CSV, instead of its JSON record; a refusal
+    /// is written as text with `--format text`. not an experiment setting: chooses how the report
+    /// is written.
+    #[arg(long, value_enum)]
+    pub format: Option<Format>,
     /// The table `--format csv` writes; read only with `--format csv`. not an experiment setting:
     /// chooses which table is written.
     #[arg(long, value_enum, default_value_t)]
@@ -50,12 +53,11 @@ pub struct AnalyzeArgs {
 /// The name `main` dispatches on.
 pub type Args = AnalyzeArgs;
 
-/// The output formats of `candler analyze`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
+/// The renderings of `candler analyze` in place of its JSON record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum Format {
-    /// One JSON document.
-    #[default]
-    Json,
+    /// The arms, the decisions and the entries left out, as lines for a person.
+    Text,
     /// One CSV table, chosen with `--table`.
     Csv,
 }
@@ -120,11 +122,12 @@ pub async fn run(cli: &Cli, args: &AnalyzeArgs) -> Result<Exit, CliError> {
         unsealed,
     })
     .map_err(|e| CliError::failed(VERB, e))?;
-    let text = match args.format {
-        Format::Json => render_json(&report)?,
-        Format::Csv => render_csv(&report, args.table)?,
-    };
-    print!("{text}");
+    let record = analysis_report(&report).map_err(|e| CliError::failed(VERB, e))?;
+    match args.format {
+        None => write_record(VERB, &mut std::io::stdout().lock(), &record)?,
+        Some(Format::Text) => print!("{}", render_text(&record)),
+        Some(Format::Csv) => print!("{}", render_csv(&record, args.table)?),
+    }
     Ok(Exit::Success)
 }
 
@@ -148,263 +151,9 @@ fn experiment_factors(file: &std::path::Path) -> Result<Vec<FieldPath>, CliError
     Ok(varying_paths(experiment.cells().as_slice()))
 }
 
-/// A rate as `{num, den}`.
-fn rate_json(rate: Rate) -> Value {
-    json!({"num": rate.num(), "den": rate.den()})
-}
-
-fn map_json(map: &std::collections::BTreeMap<String, u64>) -> Value {
-    Value::Object(
-        map.iter()
-            .map(|(key, count)| (key.clone(), Value::from(*count))) // BORROW: the document owns its keys
-            .collect(),
-    )
-}
-
-/// A spend as `{cost_usd, runs_counted, runs_without_total}`.
-pub fn spent_json(spend: &Spend) -> Value {
-    json!({
-        "cost_usd": spend.cost_usd,
-        "runs_counted": spend.runs_counted,
-        "runs_without_total": spend.runs_without_total,
-    })
-}
-
-/// The decision summary as `{decisions, omitted}`.
-fn summary_json(summary: &Summary) -> Value {
-    let decisions: Vec<Value> = summary
-        .decisions
-        .iter()
-        .map(|decision| {
-            json!({
-                "experiment": decision.experiment,
-                "factor": decision.factor.to_string(),
-                "levels": decision.levels.as_ref().map(|(a, b)| json!([a, b])),
-                "id": decision.id.to_string(),
-                "role": role_name(decision.role),
-                "diff": decision.diff,
-                "diff_lo": decision.diff_lo,
-                "diff_hi": decision.diff_hi,
-                "p_holm": decision.p_holm,
-                "reject": decision.reject,
-                "family": decision.family,
-            })
-        })
-        .collect();
-    let omitted: Vec<Value> = summary
-        .omitted
-        .iter()
-        .map(|held| {
-            json!({
-                "experiment": held.experiment,
-                "factor": held.factor.to_string(),
-                "levels": held.levels.as_ref().map(|(a, b)| json!([a, b])),
-                "id": held.id.to_string(),
-                "role": role_name(held.role),
-                "reason": held.reason.as_str(),
-            })
-        })
-        .collect();
-    json!({"decisions": decisions, "omitted": omitted})
-}
-
-fn arm_json(arm: &ArmReport) -> Value {
-    let expectations: Vec<Value> = arm
-        .expectations
-        .iter()
-        .map(|held| {
-            let tally = &held.tally;
-            let (wilson, omitted) = match &held.wilson {
-                Ok(interval) => (
-                    json!({"lo": interval.lo(), "hi": interval.hi()}),
-                    Value::Null,
-                ),
-                Err(reason) => (Value::Null, Value::from(reason.as_str())),
-            };
-            json!({
-                "id": held.id.to_string(),
-                "role": role_name(tally.role),
-                "pass": tally.pass,
-                "fail": tally.fail,
-                "blocked": tally.blocked,
-                "not_measured": map_json(&tally.not_measured),
-                "not_applicable": map_json(&tally.not_applicable),
-                "zero_weight": tally.zero_weight,
-                "weight": {"num": tally.num, "den": tally.den},
-                "wilson": wilson,
-                "omitted": omitted,
-            })
-        })
-        .collect();
-    json!({
-        "experiment": arm.experiment,
-        "cell": arm.cell.to_string(),
-        "runs": {
-            "valid": arm.tally.valid_runs,
-            "unsealed": arm.unsealed,
-            "invalid": map_json(&arm.tally.invalid),
-            "experimenter_ends": map_json(&arm.tally.experimenter_ends),
-        },
-        "rates": {"gate": rate_json(arm.gate), "quality": rate_json(arm.quality)},
-        "status": {
-            "pass": arm.status.pass,
-            "fail": arm.status.fail,
-            "blocked": arm.status.blocked,
-            "not_measured": arm.status.not_measured,
-            "not_applicable": arm.status.not_applicable,
-        },
-        "instrument_error": {
-            "runs": arm.instrument_error.runs,
-            "outcomes": arm.instrument_error.outcomes,
-        },
-        "expectations": expectations,
-        "spent": spent_json(&arm.spent),
-    })
-}
-
-/// The test that produced a p-value, by name.
-const fn battery_name(battery: Battery) -> &'static str {
-    match battery {
-        Battery::MidP => "mid_p",
-        Battery::Cmh => "cmh",
-        Battery::ExactStrata => "exact_strata",
-        Battery::Permutation => "permutation",
-        _ => "unknown",
-    }
-}
-
-/// A block's key as `[{factor, level}]`, in the order of the declared factors.
-fn block_key_json(key: &[(FieldPath, Value)]) -> Value {
-    Value::Array(
-        key.iter()
-            .map(|(factor, level)| json!({"factor": factor.to_string(), "level": level}))
-            .collect(),
-    )
-}
-
-/// The effect of B over A in each block of a tested entry.
-fn per_block_json(tested: &Tested) -> Value {
-    Value::Array(
-        tested
-            .per_block
-            .iter()
-            .map(|effect| {
-                json!({
-                    "key": block_key_json(effect.key.as_slice()),
-                    "a": {"k": effect.a.0, "n": effect.a.1},
-                    "b": {"k": effect.b.0, "n": effect.b.1},
-                    "diff": effect.diff,
-                })
-            })
-            .collect(),
-    )
-}
-
 /// A number as a CSV field, empty when there is none.
 fn number(value: Option<f64>) -> String {
     value.map_or_else(String::new, |held| held.to_string())
-}
-
-fn entry_json(entry: &Entry) -> Value {
-    match entry {
-        Entry::Tested(tested) => json!({
-            "id": tested.id.to_string(),
-            "role": role_name(tested.role),
-            "a": {"k": tested.a.k(), "n": tested.a.n()},
-            "b": {"k": tested.b.k(), "n": tested.b.n()},
-            "p": tested.p,
-            "p_holm": tested.p_holm,
-            "reject": tested.reject,
-            // B − A: the difference of arm B's rate over arm A's, null when the test gives none.
-            "diff": tested.diff,
-            "diff_lo": tested.diff_lo,
-            "diff_hi": tested.diff_hi,
-            "battery": tested.battery.map(battery_name),
-            "fallback": tested.fallback,
-            "blocks": tested.blocks,
-            "reading": tested.reading.as_str(),
-            "or_mh": tested.or_mh,
-            "or_lo": tested.or_ci.map(|(lo, _)| lo),
-            "or_hi": tested.or_ci.map(|(_, hi)| hi),
-            "homogeneity_p": tested.homogeneity_p,
-            "per_block": per_block_json(tested),
-        }),
-        Entry::Omitted { id, role, reason } => json!({
-            "id": id.to_string(),
-            "role": role_name(*role),
-            "omitted": reason.as_str(),
-        }),
-        _ => json!({"id": entry.id().to_string(), "role": role_name(entry.role())}),
-    }
-}
-
-fn comparison_json(comparison: &Comparison) -> Value {
-    json!({
-        "experiment": comparison.experiment,
-        "a": comparison.a.to_string(),
-        "b": comparison.b.to_string(),
-        "factor": comparison.factor.to_string(),
-        "levels": comparison.levels.as_ref().map(|(a, b)| json!([a, b])),
-        "stratum": {
-            "verdict": comparison.verdict.as_str(),
-            "causes": comparison.verdict.causes(),
-        },
-        "entries": comparison.entries.iter().map(entry_json).collect::<Vec<Value>>(),
-    })
-}
-
-fn run_json(row: &RunRow) -> Result<Value, CliError> {
-    let integrity = serde_json::to_value(&row.integrity).map_err(|e| CliError::failed(VERB, e))?;
-    Ok(json!({
-        "run": row.run.to_string(),
-        "cell": row.cell.to_string(),
-        "integrity": integrity,
-        "comparable": row.comparable,
-        "measured": row.measured,
-    }))
-}
-
-/// The significance level with the place it comes from.
-fn alpha_json() -> Result<Value, CliError> {
-    let source = serde_json::to_value(alpha_source()).map_err(|e| CliError::failed(VERB, e))?;
-    let kind = source
-        .get("kind")
-        .cloned()
-        .ok_or_else(|| CliError::Runtime {
-            detail: "the source of alpha has no kind".to_owned(),
-        })?;
-    Ok(json!({"value": ALPHA, "source": kind}))
-}
-
-/// The report as one JSON document and a final newline.
-///
-/// # Errors
-/// Returns [`CliError::Failed`] when a stored value cannot be written as JSON.
-pub fn render_json(report: &Report) -> Result<String, CliError> {
-    let comparisons = Value::Array(report.comparisons.iter().map(comparison_json).collect());
-    let runs = report
-        .runs
-        .iter()
-        .map(run_json)
-        .collect::<Result<Vec<Value>, CliError>>()?;
-    let document = json!({
-        "evaluator": report.evaluator.to_string(),
-        "alpha": alpha_json()?,
-        "i4_violations": report.i4_violations,
-        "arms": report.arms.iter().map(arm_json).collect::<Vec<Value>>(),
-        "comparisons": comparisons,
-        "families": report
-            .families
-            .iter()
-            .map(|family| json!({"role": role_name(family.role), "m": family.m}))
-            .collect::<Vec<Value>>(),
-        "pairs_not_one_factor": report.pairs_not_one_factor,
-        "runs": runs,
-        "summary": summary_json(&report.summary),
-    });
-    let mut text = serde_json::to_string(&document).map_err(|e| CliError::failed(VERB, e))?;
-    text.push('\n');
-    Ok(text)
 }
 
 /// One CSV field: quoted when it holds a comma, a quote or a line break (RFC 4180).
@@ -430,7 +179,7 @@ fn json_text(value: &Value) -> String {
     }
 }
 
-fn arms_csv(report: &Report) -> String {
+fn arms_csv(report: &AnalysisReport) -> String {
     let mut text = row(&strings(&[
         "cell",
         "experiment",
@@ -450,38 +199,41 @@ fn arms_csv(report: &Report) -> String {
     ]));
     for arm in &report.arms {
         for held in &arm.expectations {
-            let tally = &held.tally;
-            let (lo, hi, omitted) = match &held.wilson {
-                Ok(interval) => (
-                    interval.lo().to_string(),
-                    interval.hi().to_string(),
-                    String::new(),
-                ),
-                Err(reason) => (String::new(), String::new(), reason.as_str().to_owned()),
-            };
+            let (lo, hi) = held.wilson.as_ref().map_or_else(
+                || (String::new(), String::new()),
+                |interval| (interval.lo.to_string(), interval.hi.to_string()),
+            );
             text.push_str(&row(&[
-                arm.cell.to_string(),
+                arm.cell.clone(),       // BORROW: the row owns its text
                 arm.experiment.clone(), // BORROW: the row owns its text
-                role_name(tally.role).to_owned(),
-                held.id.to_string(),
-                tally.pass.to_string(),
-                tally.fail.to_string(),
-                tally.blocked.to_string(),
-                tally.not_measured.values().sum::<u64>().to_string(),
-                tally.not_applicable.values().sum::<u64>().to_string(),
-                tally.zero_weight.to_string(),
-                tally.num.to_string(),
-                tally.den.to_string(),
+                held.role.clone(),      // BORROW: the row owns its text
+                held.id.clone(),        // BORROW: the row owns its text
+                held.pass.to_string(),
+                held.fail.to_string(),
+                held.blocked.to_string(),
+                held.not_measured.values().sum::<u64>().to_string(),
+                held.not_applicable.values().sum::<u64>().to_string(),
+                held.zero_weight.to_string(),
+                held.weight.num.to_string(),
+                held.weight.den.to_string(),
                 lo,
                 hi,
-                omitted,
+                held.omitted.clone().unwrap_or_default(),
             ]));
         }
     }
     text
 }
 
-fn comparisons_csv(report: &Report) -> String {
+/// The name of an interval's reading as the record writes it.
+fn reading_name(reading: Reading) -> &'static str {
+    match reading {
+        Reading::Effect => "effect",
+        Reading::Inconclusive | _ => "inconclusive",
+    }
+}
+
+fn comparisons_csv(report: &AnalysisReport) -> Result<String, CliError> {
     let mut text = row(&strings(&[
         "a",
         "b",
@@ -507,7 +259,7 @@ fn comparisons_csv(report: &Report) -> String {
         "battery",
         "fallback",
         "blocks",
-        "reading",
+        "interval_reading",
         "or_mh",
         "or_lo",
         "or_hi",
@@ -516,13 +268,13 @@ fn comparisons_csv(report: &Report) -> String {
     ]));
     for comparison in &report.comparisons {
         let head = [
-            comparison.a.to_string(),
-            comparison.b.to_string(),
-            comparison.factor.to_string(),
-            comparison.verdict.as_str().to_owned(),
+            comparison.a.clone(),                           // BORROW: the row owns its text
+            comparison.b.clone(),                           // BORROW: the row owns its text
+            comparison.factor.clone(),                      // BORROW: the row owns its text
+            comparison.comparability_class.verdict.clone(), // BORROW: the row owns its text
         ];
         let experiment = comparison.experiment.clone(); // BORROW: the row owns its text
-        let causes = comparison.verdict.causes().join(";");
+        let causes = comparison.comparability_class.causes.join(";");
         let levels: Vec<String> = comparison.levels.as_ref().map_or_else(
             || vec![String::new(); 2],
             |(a, b)| vec![json_text(a), json_text(b)],
@@ -538,12 +290,17 @@ fn comparisons_csv(report: &Report) -> String {
             continue;
         }
         for entry in &comparison.entries {
+            let (id, role) = match entry {
+                Entry::Tested(tested) => (tested.id.clone(), tested.role.clone()), // BORROW: the row owns its text
+                Entry::Omitted(left) => (left.id.clone(), left.role.clone()), // BORROW: the row owns its text
+                _ => (String::new(), String::new()),
+            };
             let tail: Vec<String> = match entry {
                 Entry::Tested(tested) => vec![
-                    tested.a.k().to_string(),
-                    tested.a.n().to_string(),
-                    tested.b.k().to_string(),
-                    tested.b.n().to_string(),
+                    tested.a.k.to_string(),
+                    tested.a.n.to_string(),
+                    tested.b.k.to_string(),
+                    tested.b.n.to_string(),
                     tested.p.to_string(),
                     tested.p_holm.to_string(),
                     tested.reject.to_string(),
@@ -552,46 +309,47 @@ fn comparisons_csv(report: &Report) -> String {
                     number(tested.diff_hi),
                     String::new(),
                 ],
-                Entry::Omitted { reason, .. } => {
+                Entry::Omitted(left) => {
                     let mut empty = vec![String::new(); 10];
-                    empty.push(reason.as_str().to_owned());
+                    empty.push(left.omitted.clone()); // BORROW: the row owns its text
                     empty
                 }
                 _ => vec![String::new(); 11],
             };
             let mut fields: Vec<String> = head.to_vec();
-            fields.extend([entry.id().to_string(), role_name(entry.role()).to_owned()]);
+            fields.extend([id, role]);
             fields.extend(tail);
             fields.extend([experiment.clone(), causes.clone()]); // BORROW: each row owns its text
             fields.extend(levels.clone()); // BORROW: each row owns its text
             fields.extend(match entry {
                 Entry::Tested(tested) => vec![
-                    tested
-                        .battery
-                        .map_or_else(String::new, |battery| battery_name(battery).to_owned()),
+                    tested.battery.clone().unwrap_or_default(),
                     tested.fallback.to_string(),
                     tested.blocks.to_string(),
-                    tested.reading.as_str().to_owned(),
+                    reading_name(tested.interval_reading).to_owned(),
                     number(tested.or_mh),
-                    number(tested.or_ci.map(|(lo, _)| lo)),
-                    number(tested.or_ci.map(|(_, hi)| hi)),
+                    number(tested.or_lo),
+                    number(tested.or_hi),
                     number(tested.homogeneity_p),
-                    json_text(&per_block_json(tested)),
+                    json_text(
+                        &serde_json::to_value(&tested.per_block)
+                            .map_err(|e| CliError::failed(VERB, e))?,
+                    ),
                 ],
-                Entry::Omitted { .. } | _ => vec![String::new(); 9],
+                Entry::Omitted(_) | _ => vec![String::new(); 9],
             });
             text.push_str(&row(fields.as_slice()));
         }
     }
-    text
+    Ok(text)
 }
 
 /// The counts that belong to no other table, one `item,value` row each.
-fn summary_csv(report: &Report) -> String {
+fn summary_csv(report: &AnalysisReport) -> String {
     let mut text = row(&strings(&["item", "value"]));
     let mut put = |item: &str, value: String| text.push_str(&row(&[item.to_owned(), value]));
-    put("evaluator", report.evaluator.to_string());
-    put("alpha", ALPHA.to_string());
+    put("evaluator", report.evaluator.clone()); // BORROW: the row owns its text
+    put("alpha", report.alpha.value.to_string());
     put("i4_violations", report.i4_violations.to_string());
     put(
         "pairs_not_one_factor",
@@ -599,15 +357,12 @@ fn summary_csv(report: &Report) -> String {
     );
     put("pairs_compared", report.comparisons.len().to_string());
     for family in &report.families {
-        put(
-            &format!("family.{}", role_name(family.role)),
-            family.m.to_string(),
-        );
+        put(&format!("family.{}", family.role), family.m.to_string());
     }
     text
 }
 
-fn runs_csv(report: &Report) -> Result<String, CliError> {
+fn runs_csv(report: &AnalysisReport) -> Result<String, CliError> {
     let comparable: BTreeSet<&String> = report
         .runs
         .iter()
@@ -625,11 +380,7 @@ fn runs_csv(report: &Report) -> Result<String, CliError> {
     for held in &report.runs {
         let integrity =
             serde_json::to_value(&held.integrity).map_err(|e| CliError::failed(VERB, e))?;
-        let mut fields = vec![
-            held.run.to_string(),
-            held.cell.to_string(),
-            json_text(&integrity),
-        ];
+        let mut fields = vec![held.run.clone(), held.cell.clone(), json_text(&integrity)]; // BORROW: the row owns its text
         fields.extend(comparable.iter().map(|path| {
             held.comparable
                 .get(*path)
@@ -654,11 +405,79 @@ fn strings(names: &[&str]) -> Vec<String> {
 ///
 /// # Errors
 /// Returns [`CliError::Failed`] when a stored value cannot be written as JSON.
-pub fn render_csv(report: &Report, table: Table) -> Result<String, CliError> {
+pub fn render_csv(report: &AnalysisReport, table: Table) -> Result<String, CliError> {
     match table {
         Table::Arms => Ok(arms_csv(report)),
-        Table::Comparisons => Ok(comparisons_csv(report)),
+        Table::Comparisons => comparisons_csv(report),
         Table::Summary => Ok(summary_csv(report)),
         Table::Runs => runs_csv(report),
     }
+}
+
+/// A levels pair as `a vs b`, or `-` when the comparison states none.
+fn levels_text(levels: Option<&(Value, Value)>) -> String {
+    levels.map_or_else(
+        || "-".to_owned(),
+        |(a, b)| format!("{} vs {}", json_text(a), json_text(b)),
+    )
+}
+
+/// The report as lines for a person: the arms, the decisions and the entries left out.
+#[must_use]
+pub fn render_text(report: &AnalysisReport) -> String {
+    let mut lines = vec![format!(
+        "evaluator {}  alpha {} ({})  i4 violations {}",
+        report.evaluator, report.alpha.value, report.alpha.source, report.i4_violations
+    )];
+    lines.push(format!("arms ({})", report.arms.len()));
+    for arm in &report.arms {
+        lines.push(format!(
+            "  {} {}  valid {}  unsealed {}  gate {}/{}  quality {}/{}  spent ${} over {} runs ({} without a total)",
+            arm.experiment.chars().take(SHORT).collect::<String>(),
+            arm.cell,
+            arm.runs.valid,
+            arm.runs.unsealed,
+            arm.rates.gate.num,
+            arm.rates.gate.den,
+            arm.rates.quality.num,
+            arm.rates.quality.den,
+            arm.spent.cost_usd,
+            arm.spent.runs_counted,
+            arm.spent.runs_without_total
+        ));
+    }
+    lines.push(format!("decisions ({})", report.summary.decisions.len()));
+    for held in &report.summary.decisions {
+        lines.push(format!(
+            "  {} [{}] {} {}  diff {} [{}, {}]  p_holm {}  {}",
+            held.factor,
+            held.role,
+            held.id,
+            levels_text(held.levels.as_ref()),
+            number_text(held.diff),
+            number_text(held.diff_lo),
+            number_text(held.diff_hi),
+            held.p_holm,
+            if held.reject { "reject" } else { "keep" }
+        ));
+    }
+    lines.push(format!("omitted ({})", report.summary.omitted.len()));
+    for held in &report.summary.omitted {
+        lines.push(format!(
+            "  {} [{}] {} {}  {}",
+            held.factor,
+            held.role,
+            held.id,
+            levels_text(held.levels.as_ref()),
+            held.reason
+        ));
+    }
+    let mut text = lines.join("\n");
+    text.push('\n');
+    text
+}
+
+/// A number for a person, `-` when there is none.
+fn number_text(value: Option<f64>) -> String {
+    value.map_or_else(|| "-".to_owned(), |held| held.to_string())
 }
