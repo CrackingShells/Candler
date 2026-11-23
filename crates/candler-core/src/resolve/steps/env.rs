@@ -19,6 +19,12 @@ pub enum EnvRefusal {
         /// The variable name.
         name: String,
     },
+    /// The name is not a variable name: `[A-Za-z_][A-Za-z0-9_]*`.
+    #[error("`env.{name}` is not a variable name: it must match `[A-Za-z_][A-Za-z0-9_]*`")]
+    Invalid {
+        /// The text of the name.
+        name: String,
+    },
     /// The name is one of the declared secrets.
     #[error("`env.{name}` names a declared secret, whose value reaches the gateway only")]
     Secret {
@@ -32,9 +38,20 @@ impl EnvRefusal {
     #[must_use]
     pub fn name<'a>(&'a self) -> &'a str {
         match self {
-            Self::Reserved { name } | Self::Secret { name } => name.as_str(),
+            Self::Reserved { name } | Self::Invalid { name } | Self::Secret { name } => {
+                name.as_str()
+            }
         }
     }
+}
+
+/// Whether `name` matches `[A-Za-z_][A-Za-z0-9_]*`.
+fn is_variable_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// Refuses the first name of the `env` table among `entries` that is reserved or one of `secrets`.
@@ -53,6 +70,11 @@ pub fn check<'a>(
             continue;
         };
         for name in table.keys() {
+            if !is_variable_name(name) {
+                return Err(EnvRefusal::Invalid {
+                    name: name.clone(), // BORROW: the refusal owns the name
+                });
+            }
             if PLAN_ENV_NAMES.contains(&name.as_str()) {
                 return Err(EnvRefusal::Reserved {
                     name: name.clone(), // BORROW: the refusal owns the name
