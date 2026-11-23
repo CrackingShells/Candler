@@ -1,0 +1,31 @@
+{
+  "$id": "urn:candler:schemas:show-counts",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "How many current outcomes each evaluator has with each status: what `candler show` prints.",
+  "properties": {
+    "counts": {
+      "additionalProperties": {
+        "additionalProperties": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": "object"
+      },
+      "description": "The counts by evaluator, then by status.",
+      "type": "object"
+    },
+    "schema": {
+      "const": "show-counts/1",
+      "description": "The version marker of the document: always `show-counts/1`.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "counts"
+  ],
+  "title": "ShowCounts",
+  "type": "object"
+}
