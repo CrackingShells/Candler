@@ -55,6 +55,13 @@ Six read-only leaves judged the 63 inputs raised by the M7 pre-study, one report
 - The leaf reports of the build will go under `build/`, the knowledge transfer as `03-knowledge_transfer_build_v0.md`.
 - Eliott ruled the Q7 word: "comparability class", key `comparability_class`. `analysis_record` and `docs_chores` use it.
 
+## Round 07: build L0 closed (2026-11-23)
+
+- The four L0 leaves of the build are merged (`21ed4ae7`). The build had spent $32.6 of its $55 cap, and the five leaves left projected to about $37, so the coordinator stopped and asked.
+- Eliott rejected N6: the tip has no rule that refuses a prompt starting with `/` (`crates/candler-harness/src/spec.rs:1389-1467` has none), so there was nothing to move into `resolve`.
+- Eliott kept S1 and S2, the two defects of the HTN smoke run, out of M6b: they go in a PR of their own, with a report set of their own (`__reports__/htn-smoke-defects/`).
+- Eliott raised the build cap to $90 and said to proceed.
+
 ## Rulings
 
 Eliott's rulings on the verdicts report, one row per question and round.
@@ -79,7 +86,10 @@ Eliott's rulings on the verdicts report, one row per question and round.
 | 05 | N2, N3, N4, N5, N6, N9a | Proposals acknowledged: accept, owner:provider, accept, defer, accept, reject |
 | 06 | Go | Go on v3; this session writes the build leaves (`consolidated/build/`, amendment A1) |
 | 06 | Q7 word | "comparability class", key `comparability_class` |
+| 07 | N6 | Reject: no slash-prompt rule exists on the tip, so none moves into `resolve` |
+| 07 | S1, S2 | Not in M6b: a separate PR and a dedicated report set |
+| 07 | Build budget | Cap raised from $55 to $90; proceed |
 
 ## Status
 
-Verdict study closed: v3 is approved (round 06). The build is planned in `__roadmap__/m6b-surface-consolidation/consolidated/build/` and has not started.
+Verdict study closed: v3 is approved (round 06). The build runs in `__roadmap__/m6b-surface-consolidation/consolidated/build/`: L0 is merged (round 07), L1 is next.

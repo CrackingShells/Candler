@@ -74,7 +74,7 @@ Every accepted input of R16 is built as its row says, with its tests designed pe
   | Coordinators, 3 levels at about 70 | 210 | 13.2 |
   | Close (`knowledge_transfer`, coordinator) | 30 | 1.9 |
   | Contingency 15 % | | 7.1 |
-  | **Build cap** | | **55 (stop and report to Eliott at 44)** |
+  | **Build cap** | | **90 (raised from 55 by Eliott at the L0 close, amendment A5; report at each level close)** |
   Spend is measured from transcripts at each level merge; a coordinator whose own row runs over stops early.
 
 ## Status
@@ -108,6 +108,7 @@ graph TD
 | A2 | 2026-11-23 | __reports__/m6b-surface-consolidation/build/server_check_v0.md | [] | The tip has no run setup function and no isolation operation that starts a command with stdin open; `server_check` extracts `drive`'s container setup, adds one `Isolation` operation and its double, owns `isolation/mod.rs`, cap 60 |
 | A3 | 2026-11-23 | __reports__/m6b-surface-consolidation/build/preflight_checks_v0.md, server_check_v0.md | [] | N4 makes `treatment` optional, so the field-class table changes: DIGEST excludes it (its own guard pins it); `preflight_checks` owns the regenerated `docs/contract/experiment-file.md`; `server_check`'s cap rises to 90 calls for the real-container case, the bites and the verifier |
 | A4 | 2026-11-23 | __reports__/m6b-surface-consolidation/build/server_check_v0.md, preflight_checks_v0.md | [] | The server probe lacked the driver's prepared files, skill files and environment overlay, so a server shipped in the skill tree would be refused at start: `server_check` composes the probe from `driver.plan` in its own scratch workspace, cap 110; `PlanOutcome::summary` takes the per-run wall cap from an explicit `--set` before the file's, as the runs' cells do |
+| A5 | 2026-11-23 | __reports__/m6b-surface-consolidation/README.md | [] | Eliott's round 07 at the L0 close: N6 is rejected (the tip has no slash-prompt rule to move), so `preflight_checks` is done without it; S1 and S2 stay out of M6b (their own PR and report set); the build cap rises from $55 to $90 |
 
 ## Progress
 | Node | Branch | Commits | Notes |
