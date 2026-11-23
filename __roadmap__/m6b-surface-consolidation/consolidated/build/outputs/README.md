@@ -23,8 +23,8 @@ Every data verb prints its record as JSON by default with one `--format` option,
 ## Status
 ```mermaid
 graph TD
-    output_contract[One output contract]:::amendment
-    knowledge_pages[Knowledge pages]:::amendment
+    output_contract[One output contract]:::inprogress
+    knowledge_pages[Knowledge pages]:::inprogress
     records[Records, docs and env]:::amendment
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -36,8 +36,8 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `output_contract.md` | 📄 Leaf Task | 🔵 Amendment |
-| `knowledge_pages.md` | 📄 Leaf Task | 🔵 Amendment |
+| `output_contract.md` | 📄 Leaf Task | 🔄 In Progress |
+| `knowledge_pages.md` | 📄 Leaf Task | 🔄 In Progress |
 | `records/` | 📁 Directory | 🔵 Amendment |
 
 ## Amendment Log
