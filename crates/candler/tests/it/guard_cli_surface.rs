@@ -1579,7 +1579,14 @@ fn every_data_verb_prints_its_record() {
         (
             &["analyze", "--evaluator", "ev@1.0.0"],
             "analysis-report/1",
-            &["evaluator", "alpha", "arms", "comparisons", "runs", "summary"],
+            &[
+                "evaluator",
+                "alpha",
+                "arms",
+                "comparisons",
+                "runs",
+                "summary",
+            ],
         ),
     ];
     for (args, schema, keys) in rows {

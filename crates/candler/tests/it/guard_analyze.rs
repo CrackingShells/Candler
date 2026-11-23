@@ -1076,13 +1076,13 @@ fn a2_a_wrong_experiment_is_refused_through_the_binary() {
     );
 }
 
-/// Guards: A1 — a cell in two strata is two arms through the binary: each arm names its
-/// experiment digest, the counts are per stratum, there is one comparison per stratum and one
+/// Guards: A1 — a cell in two comparability classes is two arms through the binary: each arm names its
+/// experiment digest, the counts are per comparability class, there is one comparison per comparability class and one
 /// Holm family of two tests.
-/// Oracle: the runs written into the store, three per cell and stratum.
+/// Oracle: the runs written into the store, three per cell and comparability class.
 /// Bite: key the tally by cell alone, and the arms pool six runs.
 #[test]
-fn a1_a_cell_in_two_strata_is_two_arms() {
+fn a1_a_cell_in_two_classes_is_two_arms() {
     let mut seeded = Vec::new();
     let mut n = 0_usize;
     for (at, experiment) in ['0', '1'].into_iter().enumerate() {
@@ -1132,7 +1132,7 @@ fn a1_a_cell_in_two_strata_is_two_arms() {
 
 /// Guards: A1 — a run without a seal does not fail the call through the binary: with the layout
 /// and two unsealed runs, one whose manifest was written and one with none, the call exits 0, the
-/// arm of the first shows `runs.unsealed` 1, a stratum `unknown` holds the second, and the counts
+/// arm of the first shows `runs.unsealed` 1, a comparability class `unknown` holds the second, and the counts
 /// of the sealed runs are the hand counts.
 /// Oracle: the layout's hand counts.
 /// Bite: list only the sealed runs while the unsealed one has records, and the call fails with a
@@ -1162,7 +1162,7 @@ fn a1_an_unsealed_run_does_not_fail_the_call() {
         .expect("arms")
         .iter()
         .find(|a| a["experiment"] == "unknown")
-        .expect("the unknown stratum");
+        .expect("the unknown class");
     assert_eq!(unknown["runs"]["unsealed"], 1);
     assert_eq!(unknown["runs"]["valid"], 0);
 }
