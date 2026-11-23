@@ -90,17 +90,16 @@ pub fn become_subreaper() -> Result<(), RuntimeError> {
     }
 }
 
-/// The digest of `bytes`: `sha256:` and the hex of their SHA-256.
+/// The digest of `bytes`, [`Digest::of_bytes`], in the `Result` its callers chain it in.
+///
+/// # Errors
+/// Never: the `Result` is the shape its callers expect.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "launch.rs and evaluate.rs chain it as a Result"
+)]
 pub(crate) fn digest_of(bytes: &[u8]) -> Result<Digest, RuntimeError> {
-    use sha2::Digest as _;
-    let mut hex = String::with_capacity(64);
-    for byte in sha2::Sha256::digest(bytes) {
-        hex.extend(char::from_digit(u32::from(byte >> 4), 16));
-        hex.extend(char::from_digit(u32::from(byte & 0xf), 16));
-    }
-    Digest::from_hex(&hex).map_err(|e| RuntimeError::SpecDigest {
-        detail: e.to_string(),
-    })
+    Ok(Digest::of_bytes(bytes))
 }
 
 /// Reads the job's spec from `stdin` to its end, checks the SHA-256 of those bytes against the
@@ -119,7 +118,7 @@ pub fn read_spec(job_dir: &Path, mut stdin: impl Read) -> Result<JobSpec, Runtim
     let record_bytes = std::fs::read(&record_path).map_err(|e| refused(e.to_string()))?;
     let record: JobRecord =
         serde_json::from_slice(&record_bytes).map_err(|e| refused(e.to_string()))?;
-    let digest = digest_of(&bytes)?;
+    let digest = Digest::of_bytes(&bytes);
     if &digest != record.spec_digest() {
         return Err(refused(format!(
             "the spec's digest is {digest}, the job records {}",
