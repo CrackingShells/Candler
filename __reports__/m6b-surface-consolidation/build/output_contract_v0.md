@@ -1,6 +1,6 @@
 # Output contract: build report (v0)
 
-Branch `claude/m6b-build-output_contract`, branch point `e016b320`. The leaf stopped short of two of its rows (C1's printed summary and the `resolve_counts_equal_the_plan` guard); see Follow-ups.
+Branch `claude/m6b-build-output_contract`, branch point `e016b320`. C1 (the printed plan summary and `resolve_counts_equal_the_plan`) is out of this leaf by ruling; see Follow-ups.
 
 ## First reads
 
@@ -11,18 +11,18 @@ Branch `claude/m6b-build-output_contract`, branch point `e016b320`. The leaf sto
 | `inspect` run, job | `json!` documents | new `inspect-run/1`, `inspect-job/1` (`spent` is `analysis_core`'s keys) | JSON; `--format text` lines |
 | `diff` | core `DiffReport` JSON, or text, required `--format` | new `diff-report/1` | JSON; `--format text` lines |
 | `show --rates` | `json!` `{cell: ...}`, or TOML, required `--format` | new `rates/1` | JSON; `text`, `toml` |
-| `show` (counts) | `json!({"counts": ...})` | none: a hand shape R16 did not list, not built | JSON as before; `text`, `toml` |
+| `show` (counts) | `json!({"counts": ...})` | new `show-counts/1` | JSON; `text`, `toml` (TOML carries `schema`) |
 | `watch` | `EventEnvelope` lines (already the schema type), `--json` or `--live` | `event-envelope` (existing) | JSON events; `--format text` draws the `--live` progress |
 | `resolve` | tab-separated rows, or the core `Resolution` as JSON with `--json` | core `Resolution` (record deferred by R16) | JSON; `--format text` rows |
 | `run` | the job id, one line | none (an id, not a document) | unchanged |
 | `kill` | text lines | none | unchanged |
-| `ingest` | `json!({runs, records})` or `json!({runs, created, existing, skipped})` | none: a hand shape R16 did not list, not built | unchanged |
+| `ingest` | `json!({runs, records})` or `json!({runs, created, existing, skipped})` | new `ingest-report/1` | JSON with `schema` |
 | `evaluate` | the job's report file as read | none: its shape is the report file's, not built | unchanged |
 | `analyze` | JSON (`json!`) or CSV | `analysis_record`'s, L2 | unchanged here; keeps its own `--format json\|csv` |
 
 `--error-format` covered: the refusal of a verb that ran (`CliError`, written by `refusal::render`) and the clap usage errors raised before the parse (`usage_failure`, which read `--error-format json` from the words of the call). Both are kept: `--format text` is read from the words of the call for both paths.
 
-Stop points (step 1.2): `show` counts, `ingest` and `evaluate` print data documents in hand shapes R16 did not list. They received the option only where they already had one (`show`), or the stderr-only option (`ingest`, `evaluate`, `run`, `kill`, which take `--format text` so their refusals can be asked for as text). The coordinator decides whether to build their records.
+Stop points (step 1.2): `show` counts and `ingest` printed hand shapes R16 did not list; the coordinator ruled them built as records. `evaluate` stays a hand shape (Follow-ups). `ingest`, `evaluate`, `run` and `kill` take `--format text` so their refusals can be asked for as text.
 
 N8: probe red on the tip (the printed `store.root` named the default as its source and the default path, not `CANDLER_STORE`). It became a guard (`resolve_names_the_store_source`) and `fix(cli): name the explicit store root in what resolve prints` makes it pass: `resolve` adds the explicit root as an explicit argument, as `store_root` does.
 
@@ -60,7 +60,7 @@ Each bite was made, seen red and reverted (`git status` clean after each).
 | `refusals_print_json_by_default` | guard | is stderr JSON by default and text only with `--format text`, usage errors included? | the old guards passed the retired flag | two calls, two forms each |
 | `resolve_names_the_store_source` | guard (was a probe, red on the tip) | does the printed `store.root` name the explicit source? | no test read the source column of `store.root` | one fake-docker `resolve` |
 
-`resolve_counts_equal_the_plan` is not written; see Follow-ups.
+`resolve_counts_equal_the_plan` is out with C1; see Follow-ups.
 
 ## Migration
 
@@ -69,7 +69,7 @@ For the HTN lane's coordinator; ships in the release after the supervisor's PR m
 | Verb | Before | After |
 |:--|:--|:--|
 | `ps`, `ls` | TSV | JSON (`job-list/1`, `experiment-list/1`); `--format text` for TSV |
-| `resolve` | TSV; `--json` for JSON | JSON with a `plan` key; `--format text` for TSV plus `plan.*` lines; `--json` removed |
+| `resolve` | TSV; `--json` for JSON | JSON; `--format text` for TSV; `--json` removed; still read-only, no plan counts |
 | `watch` | JSON events; `--json` accepted | JSON events; `--json` removed; `--live` or `--format text` draws progress |
 | `inspect` | JSON | JSON with a `schema` key; `--format text` lines |
 | `show`, `ingest` | JSON, no marker | JSON with `schema: show-counts/1` or `ingest-report/1` |
@@ -82,7 +82,7 @@ One pass (no re-check; call cap). Dispositions:
 
 | # | Finding | Disposition |
 |:--|:--|:--|
-| 1 | C1 not built | fixed: built |
+| 1 | C1 not built | withdrawn by ruling (see Follow-ups) |
 | 2 | `analyze` keeps `json` value, has no `text`, so `analyze --format text` fails to parse | open, `analysis_record`'s; R01 row says "every verb" |
 | 3 | `schema/README.md:39` names `--error-format` | fixed |
 | 4 | stale `--json` prose in `guard_cli_observe` | fixed |
@@ -93,23 +93,27 @@ One pass (no re-check; call cap). Dispositions:
 | 9 | history wording in comments | fixed |
 | 10 | step 3 commit not green alone | accepted |
 
-Re-check: sent to the same verifier for the fixes and the new C1 and record code; its answer, not fixed (call cap reached):
+### Re-check
 
-- R1 `resolve` resolves twice (its own pass for the printed values, `prepare` for the plan, with declared inputs and ground truth); the two can disagree.
-- R2 `resolve` now initialises the store, declares inputs and builds the sidecar: it is no longer read-only.
-- R3 `plan_outcome` with `force=false` can refuse where `resolve` used to succeed; untested on an edited experiment with a sealed store.
-- R4 `reused 0` after a sealed run is a likely wrong count (run keys from `prepare` differ from `run`'s, or the Check plan misses sealed runs); the guard's oracle is the store's sealed count and its bite cannot go red.
-- R5 text mode now sorts the value lines.
-- R6 `PlanCounts` has no schema file or marker; the `plan` key is merged into the core `Resolution` value; `plan.<cap>` text lines could collide.
-- R7 `show` text and TOML are not rendered from the record; TOML gains `schema`.
-- R8 `line_of` prints a blank line for an unknown variant. R10 nits (long doc line, split `use` block).
+First re-check (tip e16e5e2d), on C1 as then built:
 
+| # | Finding | Disposition |
+|:--|:--|:--|
+| R1 | `resolve` resolved twice | withdrawn with C1 |
+| R2 | `resolve` initialised the store, declared inputs, built the sidecar | withdrawn with C1 |
+| R3 | planning with `force=false` could refuse in `resolve` | withdrawn with C1 |
+| R4 | `reused 0` after a sealed run, guard could not go red | withdrawn with C1; kept as a finding for the C1 re-plan |
+| R5 | `plan.*` lines and sorted text | withdrawn with C1 |
+| R6 | `lines.sort()` reordered the value lines; it came with C1 | withdrawn with C1 (`resolve` text is as before) |
+| R6b | `PlanCounts` had no schema file or marker | withdrawn: the record is removed (it was never a root, so no schema file existed) |
+| R7 | `show` text and TOML not rendered from the record | fixed: both render from `show-counts/1`; TOML carries `schema` as JSON does, being the same record in another syntax |
+| R8 | `ls` printed a blank line for an unknown variant; long doc line; split `use` block | fixed (the split `use` block went with `resolve.rs`) |
+
+Second re-check (tip 8149ba8d), on the withdrawal and R7, R8: code held; it found this report stale, which this edit corrects. Commit e16e5e2d is a `!` commit whose `resolve` text (the `plan` key and `plan.*` lines) is void: 7e08e01f withdraws it, and `resolve` is as at eed30d8f.
 
 ## Follow-ups
 
-- Open: verifier re-check findings R1 to R8 above.
-- C1 reuse: after a job sealed its runs, `resolve` with the same settings still counts them as new (reused 0), so `resolve_counts_equal_the_plan` asserts new plus reused equals the sealed runs, and the bite that adds the reused runs to the new count does not go red. Why the fake-docker job's runs are not matched is not known and needs a ruling.
-- `resolve` now declares inputs, builds the gateway sidecar and initialises the store before printing, as `run` does (`run::prepare`, `run::plan_outcome`).
+- C1 (plan counts) is out of M6b by Eliott's ruling; needs a read-only run-key count in candler-core first; the first attempt reported sealed runs as new (reused 0 after the job sealed them, with the same settings). `resolve_counts_equal_the_plan` and its bite are not delivered; the leaf Goal's C1 clause is open for the coordinator.
 - `evaluate` (the report file as read) and `resolve`'s failure document (unversioned) print hand shapes with no record.
 - `watch`: `--live` and `--format text` mean the same; one can retire.
 - `analyze` keeps `--format json|csv`; its `text` and record are `analysis_record`'s.
