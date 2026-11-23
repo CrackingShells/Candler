@@ -44,7 +44,13 @@ The brief says `analyze` already takes `OutputArgs`; on the tip it does not (it 
 
 ## Bites
 
-Not made: the leaf stopped at its call cap before step 5.1. Left: drop one event kind or sort by kind in `render_transcript` (expect red on `transcript_lists_every_event_in_order`); print one key with `json!` beside the record (red on the `analyze` row); rename a block-sense identifier too (nothing in the targeted tests names `Stratum`, so likely nothing turns red). The step 1 guards were seen red on the tip (the core guard did not compile for want of `render_transcript`; the surface row failed on the missing `schema` marker).
+Each made, seen, reverted (`git checkout`).
+
+1. `render_transcript` drops the event with `seq` 4: `transcript_lists_every_event_in_order` red on the JSON row (the rendered lines differ from the stored ones).
+2. `analyze` prints a hand-built `json!({"evaluator": ...})` instead of the record: the `analyze` row of `every_data_verb_prints_its_record` red (`left: Null`, `right: "analysis-report/1"`).
+3. The block-sense `Stratum` renamed everywhere in core's sources and tests: nothing turned red (74 targeted tests pass). Nothing in the tests asserts the name; only a compile error or review catches a wrong rename, so the verifier checks the diff for it.
+
+The step 1 guards were seen red on the tip: the core guard did not compile for want of `render_transcript`; the surface row failed on the missing `schema` marker.
 
 ## D3
 
@@ -61,5 +67,4 @@ Not dispatched: the leaf reached its 77-call cap. The coordinator dispatches it 
 - No CLI test of `inspect --transcript` (JSON, text, the `analysis.no_stored_trace` refusal for a run without a trace and for a job); the core guard covers the rendering only.
 - No test of `--format text` content beyond exit 0 and not-JSON.
 - The refusal for a missing trace lives in `ReportError` (`analysis.no_stored_trace`) because `core/src/refusal.rs` and `commands/refusal.rs` are not OWNED; a trace-specific error type may be preferred.
-- `crates/candler-schemas/schema/README.md` has no row for `analysis-report.schema.json`; it is not OWNED and no test checks it.
 - The record's role, cell, id and factor fields are strings, not the primitive types.
