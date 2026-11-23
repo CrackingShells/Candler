@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0](https://github.com/CrackingShells/Candler/compare/v0.13.0...v0.14.0) - 2026-11-23
+
+### Documentation
+
+- *(isolation)* keep the agent path comment on its constant
+
+### Features
+
+- *(resolve)* refuse names in the env table that are not variable names
+- *(resolve)* refuse reserved names in the experiment env table
+- *(isolation)* pass the experiment env table to the harness
+- *(cli)* [**breaking**] print the analysis report record and a run's transcript
+- *(resolve)* read the configuration paths from one table
+- *(jobs)* probe a server in a container staged as a run's
+- *(jobs)* refuse a job whose declared server exits at start
+- *(runner)* bound a plan by its caps
+- *(runner)* count the cells and runs of a plan
+- *(resolve)* refuse a pinned commit that lacks the skill tree
+- *(analysis)* derive a decision summary and a spend from the report
+
+### Fixes
+
+- *(resolve)* refuse env given outside the env table
+- *(resolve)* word the reserved env row without a name list
+- *(analysis)* fail on an event that cannot be rendered
+- *(resolve)* drop an unused import from the path table test
+- *(resolve)* keep a misspelt per-run cap out of the known paths
+- *(jobs)* code the server start refusals
+- *(jobs)* drop an unused import from the start check
+- *(jobs)* give a probed server its env apart from the container's
+- *(runner)* bound a plan by the wall cap its runs get
+- *(runner)* take the plan caps from the experiment file
+- *(resolve)* keep the cause in a skill tree refusal
+- *(runner)* honour replicates set on the command line
+- *(analysis)* reflow the level order doc comment
+- *(analysis)* break level ties by JSON text and pin decision fields
+- *(analysis)* order compared levels by their values, not cell digests
+
+### Refactoring
+
+- *(analysis)* name the comparability class apart from a block
+- *(runner)* extract the staging of a cell's files from drive
+- *(runner)* extract the cell container composition from drive
+
 ## [0.13.0](https://github.com/CrackingShells/Candler/compare/v0.12.5...v0.13.0) - 2026-11-18
 
 ### Documentation

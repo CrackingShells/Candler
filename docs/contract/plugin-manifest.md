@@ -10,7 +10,7 @@ The manifest a plug-in author writes beside a plug-in so that Candler can read i
 Wire tag: `plugin-manifest/1`.
 
 <!-- versions -->
-Wire line: `schemas@0.11.3`.
+Wire line: `schemas@0.12.0`.
 <!-- /versions -->
 <!-- /generated:version -->
 

@@ -33,8 +33,8 @@ Every row of a Fields table has one class. A `required` followed by a variant in
 <!-- versions -->
 | Line | Version | Manifest |
 |---|---|---|
-| core | `v0.13.0` | `Cargo.toml` |
-| wire schemas | `schemas@0.11.3` | `crates/candler-schemas/Cargo.toml` |
+| core | `v0.14.0` | `Cargo.toml` |
+| wire schemas | `schemas@0.12.0` | `crates/candler-schemas/Cargo.toml` |
 | evaluator helper | `candler-evaluator@0.1.0` | `python/candler-evaluator/pyproject.toml` |
 <!-- /versions -->
 

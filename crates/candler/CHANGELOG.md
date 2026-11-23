@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0](https://github.com/CrackingShells/Candler/compare/v0.13.0...v0.14.0) - 2026-11-23
+
+### Documentation
+
+- *(cli)* generate the configuration file page from the reader's keys
+- *(isolation)* keep the agent path comment on its constant
+
+### Features
+
+- *(resolve)* refuse reserved names in the experiment env table
+- *(cli)* [**breaking**] print the analysis report record and a run's transcript
+- *(cli)* print exit codes in help from one constant
+- *(resolve)* read the configuration paths from one table
+- *(cli)* [**breaking**] print plan counts, and records for show and ingest
+- *(cli)* [**breaking**] print refusals as json by default and retire --error-format
+- *(cli)* [**breaking**] print every data verb's record as json by default
+- *(resolve)* refuse a pinned commit that lacks the skill tree
+- *(cli)* print the summary and the spend in analyze and inspect
+- *(resolve)* refuse names in the env table that are not variable names
+- *(isolation)* pass the experiment env table to the harness
+- *(jobs)* probe a server in a container staged as a run's
+- *(jobs)* refuse a job whose declared server exits at start
+- *(runner)* bound a plan by its caps
+- *(runner)* count the cells and runs of a plan
+- *(analysis)* derive a decision summary and a spend from the report
+
+### Fixes
+
+- *(resolve)* refuse env given outside the env table
+- *(analysis)* fail on an event that cannot be rendered
+- *(resolve)* keep a misspelt per-run cap out of the known paths
+- *(cli)* say when the no-store refusal is raised
+- *(cli)* render show and ls text from their record
+- *(cli)* withdraw the resolve plan counts
+- *(cli)* drop retired-flag prose and history wording
+- *(cli)* name the explicit store root in what resolve prints
+- *(resolve)* check a replicates value of the file and of --set once
+- *(resolve)* refuse a replicates setting that is not a count
+- *(resolve)* word the reserved env row without a name list
+- *(resolve)* drop an unused import from the path table test
+- *(jobs)* code the server start refusals
+- *(jobs)* drop an unused import from the start check
+- *(jobs)* give a probed server its env apart from the container's
+- *(runner)* bound a plan by the wall cap its runs get
+- *(runner)* take the plan caps from the experiment file
+- *(resolve)* keep the cause in a skill tree refusal
+- *(runner)* honour replicates set on the command line
+- *(analysis)* reflow the level order doc comment
+- *(analysis)* break level ties by JSON text and pin decision fields
+- *(analysis)* order compared levels by their values, not cell digests
+
+### Refactoring
+
+- *(analysis)* name the comparability class apart from a block
+- *(runner)* extract the staging of a cell's files from drive
+- *(runner)* extract the cell container composition from drive
+
 ## [0.13.0](https://github.com/CrackingShells/Candler/compare/v0.12.5...v0.13.0) - 2026-11-18
 
 ### Documentation

@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0](https://github.com/CrackingShells/Candler/compare/schemas@0.11.3...schemas@0.12.0) - 2026-11-23
+
+### Documentation
+
+- *(schemas)* list the analysis report schema file
+- *(schemas)* name the refusal output without the retired flag
+
+### Features
+
+- *(schemas)* name the env path of the harness environment
+- *(schemas)* add an env table to the experiment file
+- *(schemas)* add the analysis report record
+- *(schemas)* add the show counts, ingest and plan records
+- *(schemas)* add the inspect and listing output records
+
+### Fixes
+
+- *(schemas)* drop the plan counts record
+- *(schemas)* carry both sides of a diff change
+- *(schemas)* let a treatment factor stand without a treatment table
+- *(schemas)* report a JSON suite entry fault as a JSON fault
+- *(schemas)* name the entry of a refused input or suite entry
+- *(schemas)* [**breaking**] print the inner code for a value-invalid file
+
 ## [0.11.3](https://github.com/CrackingShells/Candler/compare/schemas@0.11.2...schemas@0.11.3) - 2026-11-17
 
 ### Refactoring
