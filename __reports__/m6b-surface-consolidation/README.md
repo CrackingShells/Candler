@@ -89,6 +89,7 @@ Eliott's rulings on the verdicts report, one row per question and round.
 | 07 | N6 | Reject: no slash-prompt rule exists on the tip, so none moves into `resolve` |
 | 07 | S1, S2 | Not in M6b: a separate PR and a dedicated report set |
 | 07 | Build budget | Cap raised from $55 to $90; proceed |
+| 08 | C1 (plan counts in `resolve`) | Out of M6b, a follow-up. Printing the counts from `resolve` needed `run`'s setup (store init, input declaration, sidecar build), so `resolve` would stop being read-only, and the first build reported sealed runs as new. The follow-up first designs a read-only run-key count in `candler-core`. This supersedes Q5's option A for M6b |
 
 ## Status
 
