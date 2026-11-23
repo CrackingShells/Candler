@@ -25,7 +25,7 @@ Every data verb prints its record as JSON by default with one `--format` option,
 graph TD
     output_contract[One output contract]:::done
     knowledge_pages[Knowledge pages]:::done
-    records[Records, docs and env]:::amendment
+    records[Records, docs and env]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -38,7 +38,7 @@ graph TD
 |:-----|:-----|:-------|
 | `output_contract.md` | 📄 Leaf Task | ✅ Done |
 | `knowledge_pages.md` | 📄 Leaf Task | ✅ Done |
-| `records/` | 📁 Directory | 🔵 Amendment |
+| `records/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

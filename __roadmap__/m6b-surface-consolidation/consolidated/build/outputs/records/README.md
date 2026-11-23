@@ -28,7 +28,7 @@ graph TD
     analysis_record[Analysis record]:::done
     docs_chores[Docs chores]:::done
     experiment_env[Experiment env table]:::done
-    close[Close]:::amendment
+    close[Close]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -42,7 +42,7 @@ graph TD
 | `analysis_record.md` | 📄 Leaf Task | ✅ Done |
 | `docs_chores.md` | 📄 Leaf Task | ✅ Done |
 | `experiment_env.md` | 📄 Leaf Task | ✅ Done |
-| `close/` | 📁 Directory | 🔵 Amendment |
+| `close/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
