@@ -34,4 +34,4 @@ No new report; these rulings override v1 where they disagree.
 
 ## Status
 
-Next: name the new milestone and insert it before M7 in `__roadmap__/candler-v1/` (an amendment, on Eliott's yes), then plan it in a plan-mode session.
+M6b "Surface consolidation" is inserted before M7 by amendment A11 (`__roadmap__/candler-v1/…/m5b/stats/surface/m6b_surface_consolidation.md`). Next: its plan-mode planning session.
