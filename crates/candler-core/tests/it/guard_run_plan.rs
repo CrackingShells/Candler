@@ -1158,7 +1158,7 @@ fn set_replicates_is_honoured() {
     );
     let replicates =
         |count: u32| candler_schemas::values::JsonValue::new(json!(count)).expect("a JSON value");
-    let input = ResolveInput::default()
+    let input = ResolveInput::new(Vec::new())
         .explicit("replicates".parse().expect("a field path"), replicates(1))
         .file(FileValues::new(vec![(
             "replicates".parse().expect("a field path"),

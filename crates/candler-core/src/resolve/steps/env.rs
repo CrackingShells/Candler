@@ -31,6 +31,12 @@ pub enum EnvRefusal {
         /// The path, as written.
         path: String,
     },
+    /// The name is the secret that holds the gateway token, `model.token_secret`.
+    #[error("`env.{name}` names `model.token_secret`, whose value reaches the gateway only")]
+    TokenSecret {
+        /// The variable name.
+        name: String,
+    },
     /// The name is one of the declared secrets.
     #[error("`env.{name}` names a declared secret, whose value reaches the gateway only")]
     Secret {
@@ -54,9 +60,10 @@ impl EnvRefusal {
     #[must_use]
     pub fn name<'a>(&'a self) -> &'a str {
         match self {
-            Self::Reserved { name } | Self::Invalid { name } | Self::Secret { name } => {
-                name.as_str()
-            }
+            Self::Reserved { name }
+            | Self::Invalid { name }
+            | Self::Secret { name }
+            | Self::TokenSecret { name } => name.as_str(),
             Self::Source { path } => path.as_str(),
         }
     }
@@ -71,13 +78,15 @@ fn is_variable_name(name: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-/// Refuses the first name of the `env` table among `entries` that is reserved or one of `secrets`.
+/// Refuses the first name of the `env` table among `entries` that is reserved, one of `secrets` or
+/// the `token_secret` of the model.
 ///
 /// # Errors
 /// [`EnvRefusal`] naming the variable.
 pub fn check<'a>(
     entries: impl IntoIterator<Item = (&'a FieldPath, &'a JsonValue)>,
     secrets: &[String],
+    token_secret: Option<&str>,
 ) -> Result<(), EnvRefusal> {
     for (path, value) in entries {
         if path.as_str() != paths::ENV {
@@ -94,6 +103,11 @@ pub fn check<'a>(
             }
             if PLAN_ENV_NAMES.contains(&name.as_str()) {
                 return Err(EnvRefusal::Reserved {
+                    name: name.clone(), // BORROW: the refusal owns the name
+                });
+            }
+            if token_secret == Some(name.as_str()) {
+                return Err(EnvRefusal::TokenSecret {
                     name: name.clone(), // BORROW: the refusal owns the name
                 });
             }

@@ -73,7 +73,7 @@ pub async fn resolve(
     config: &Config,
     resolver: &Resolver,
 ) -> Result<Resolution, CliError> {
-    let mut input = ResolveInput::default();
+    let mut input = ResolveInput::new(Vec::new());
     if let Some(store) = explicit {
         let path: FieldPath = STORE_ROOT.parse().map_err(|e| CliError::failed(verb, e))?;
         input = input

@@ -99,7 +99,7 @@ async fn resolve(file: &[(&str, Value)], flip: Option<&'static str>) -> Resoluti
     Resolver::new(config(&cwd))
         .register(Box::new(step))
         .expect("registers")
-        .resolve(ResolveInput::default().file(FileValues::new(values)))
+        .resolve(ResolveInput::new(Vec::new()).file(FileValues::new(values)))
         .await
         .expect("resolves")
 }

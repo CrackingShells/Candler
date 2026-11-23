@@ -1963,3 +1963,18 @@ variant = "Invalid"
 side = "experiment"
 enum = "EnvRefusal"
 variant = "Source"
+
+[resolve."experiment.env_token_secret"]
+side = "experiment"
+enum = "EnvRefusal"
+variant = "TokenSecret"
+
+[resolve."experiment.replicates_path"]
+side = "experiment"
+enum = "ResolveError"
+variant = "ReplicatesPath"
+
+[resolve."experiment.replicates_not_integer"]
+side = "experiment"
+enum = "ResolveError"
+variant = "ReplicatesNotInteger"

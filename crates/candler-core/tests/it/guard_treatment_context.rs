@@ -248,7 +248,7 @@ async fn resolve(
         .expect("registers")
         .register(Box::new(image))
         .expect("registers")
-        .resolve(ResolveInput::default().file(layer))
+        .resolve(ResolveInput::new(Vec::new()).file(layer))
         .await
         .map(|_| ());
     (outcome, built)

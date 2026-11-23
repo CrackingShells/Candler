@@ -460,7 +460,7 @@ async fn image_step_refusal(rig: &Rig, values: &[(&str, serde_json::Value)]) -> 
     Resolver::new(config)
         .register(Box::new(step))
         .expect("registers")
-        .resolve(ResolveInput::default().file(file))
+        .resolve(ResolveInput::new(Vec::new()).file(file))
         .await
         .err()
         .map(|error| error.to_string())
@@ -566,7 +566,7 @@ async fn level_image(rig: &Rig, tag: &str, text: &str) -> (String, String) {
     let resolution = Resolver::new(config)
         .register(Box::new(step))
         .expect("registers")
-        .resolve(ResolveInput::default().file(file))
+        .resolve(ResolveInput::new(Vec::new()).file(file))
         .await
         .expect("a resolution");
     let at = |path: &str| {
