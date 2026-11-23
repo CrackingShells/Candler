@@ -28,7 +28,7 @@ graph TD
     cull_stats_analyze[cull_stats_analyze]:::done
     cull_import_eval[cull_import_eval]:::done
     cull_cli_harness[cull_cli_harness]:::done
-    shed[Shed and audit]:::planned
+    shed[Shed and audit]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -47,7 +47,7 @@ graph TD
 | `cull_stats_analyze.md` | 📄 Leaf Task | ✅ Done |
 | `cull_import_eval.md` | 📄 Leaf Task | ✅ Done |
 | `cull_cli_harness.md` | 📄 Leaf Task | ✅ Done |
-| `shed/` | 📁 Directory | ⬜ Planned |
+| `shed/` | 📁 Directory | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
