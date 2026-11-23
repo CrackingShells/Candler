@@ -25,6 +25,7 @@ use tokio::sync::watch;
 struct Probed {
     inner: Arc<FakeHost>,
     answers: Vec<(String, StartProbe)>,
+    eof_exits: Vec<String>,
     probing: Mutex<Option<Arc<ProbingIsolation>>>,
 }
 
@@ -59,6 +60,9 @@ impl JobHost for Probed {
         for (program, answer) in &self.answers {
             probing.answer(program, answer.clone()); // BORROW: the double owns its answers
         }
+        for program in &self.eof_exits {
+            probing.exit_at_eof(program, "stdin closed");
+        }
         *self.probing.lock().expect("the double") = Some(Arc::clone(&probing)); // BORROW: the test reads the same double
         probing
     }
@@ -91,11 +95,16 @@ fn job_with(servers: &[(&str, Value)]) -> JobSpec {
 
 /// Runs `job` to its end over a probing host; returns the outcome, the commands probed and the
 /// number of run requests made.
-fn run(job: JobSpec, answers: Vec<(String, StartProbe)>) -> (JobOutcome, Vec<Vec<String>>, usize) {
+fn run(
+    job: JobSpec,
+    answers: Vec<(String, StartProbe)>,
+    eof_exits: Vec<String>,
+) -> (JobOutcome, Vec<Vec<String>>, usize) {
     let rig = Rig::new(0);
     let host = Arc::new(Probed {
         inner: rig.host(),
         answers,
+        eof_exits,
         probing: Mutex::new(None),
     });
     let (cancel, _keep) = watch::channel::<Option<JobCause>>(None);
@@ -115,29 +124,48 @@ fn run(job: JobSpec, answers: Vec<(String, StartProbe)>) -> (JobOutcome, Vec<Vec
 }
 
 /// Guards: a declared server that exits at start refuses the job before any run, and the refusal
-/// names the server and carries what it printed.
-/// Oracle: the literal `boom: no module named x` the scripted server prints.
+/// line names the server and carries what it printed.
+/// Oracle: the literal `boom: no module named x` the scripted server prints. The job runs in a
+/// child of this test binary, so its stderr line can be read.
+/// Bite: the refusal drops the server's output.
 #[test]
 fn server_that_exits_refuses_the_job_with_its_stderr() {
-    let job = job_with(&[("alpha", json!({"command": "badserver", "args": ["--x"]}))]);
-    let answers = vec![(
-        String::from("badserver"),
-        StartProbe::Exited {
-            output: String::from("boom: no module named x"),
-        },
-    )];
-    let (outcome, probed, runs) = run(job, answers);
-    assert_eq!(probed, vec![vec!["badserver".to_owned(), "--x".to_owned()]]);
-    assert_eq!(runs, 0, "no run starts");
-    assert!(outcome.runs.is_empty(), "no run is recorded");
+    const NAME: &str = "guard_server_check::server_that_exits_refuses_the_job_with_its_stderr";
+    if std::env::var_os("CANDLER_SERVER_CHECK_CHILD").is_some() {
+        let job = job_with(&[("alpha", json!({"command": "badserver", "args": ["--x"]}))]);
+        let answers = vec![(
+            String::from("badserver"),
+            StartProbe::Exited {
+                output: String::from("boom: no module named x"),
+            },
+        )];
+        let (outcome, probed, runs) = run(job, answers, Vec::new());
+        assert_eq!(probed, vec![vec!["badserver".to_owned(), "--x".to_owned()]]);
+        assert_eq!(runs, 0, "no run starts");
+        assert!(outcome.runs.is_empty(), "no run is recorded");
+        return;
+    }
+    let child = std::process::Command::new(std::env::current_exe().expect("the test binary"))
+        .args([NAME, "--exact", "--nocapture", "--test-threads=1"])
+        .env("CANDLER_SERVER_CHECK_CHILD", "1")
+        .output()
+        .expect("the child ran");
+    let stderr = String::from_utf8_lossy(&child.stderr);
+    assert!(child.status.success(), "the child's guards held: {stderr}");
+    assert!(
+        stderr.contains("the server `alpha` exited at start: boom: no module named x"),
+        "the refusal line: {stderr}"
+    );
 }
 
-/// Guards: a declared server that is still running after the wait lets the job start.
+/// Guards: a declared server that is still running after the wait lets the job start, with its
+/// standard input held open (the scripted server exits at end of input).
 /// Oracle: the one probed command and the run request that follows it.
+/// Bite: close standard input at start.
 #[test]
 fn server_that_stays_up_lets_the_job_start() {
     let job = job_with(&[("alpha", json!({"command": "goodserver"}))]);
-    let (outcome, probed, runs) = run(job, Vec::new());
+    let (outcome, probed, runs) = run(job, Vec::new(), vec![String::from("goodserver")]);
     assert_eq!(probed, vec![vec!["goodserver".to_owned()]]);
     assert_eq!(runs, 1, "the run starts");
     assert_eq!(outcome.runs.len(), 1);
@@ -145,10 +173,11 @@ fn server_that_stays_up_lets_the_job_start() {
 
 /// Guards: a server declared by `url` is not started.
 /// Oracle: no probed command; the run starts.
+/// Bite: start the servers that have a `url`.
 #[test]
 fn remote_server_is_skipped() {
     let job = job_with(&[("remote", json!({"url": "https://example.test/mcp"}))]);
-    let (_, probed, runs) = run(job, Vec::new());
+    let (_, probed, runs) = run(job, Vec::new(), Vec::new());
     assert!(
         probed.is_empty(),
         "no container is started for a url server"
@@ -160,7 +189,7 @@ fn remote_server_is_skipped() {
 /// Oracle: no probed command; the run starts.
 #[test]
 fn job_without_stdio_servers_starts_no_check() {
-    let (_, probed, runs) = run(job_with(&[]), Vec::new());
+    let (_, probed, runs) = run(job_with(&[]), Vec::new(), Vec::new());
     assert_eq!(probed, Vec::<Vec<String>>::new());
     assert_eq!(runs, 1);
 }

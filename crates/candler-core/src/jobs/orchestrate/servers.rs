@@ -163,7 +163,7 @@ async fn probe_group(
     fs::create_dir_all(&workspace).map_err(|e| failed(&e))?;
     let home = agent_home(root);
     fs::create_dir_all(&home).map_err(|e| failed(&e))?;
-    let container = compose_container(
+    let mut container = compose_container(
         rt,
         isolation,
         &Cell::new(comparable.values()),
@@ -172,6 +172,8 @@ async fn probe_group(
         &cell.inputs,
     )
     .map_err(|e| failed(&e))?;
+    // Standard input stays open, as a server's own would while the agent runs.
+    container.interactive = true;
     for server in stdio {
         let mut builder = CommandSpec::builder().argv(server.argv.clone()); // BORROW: the command owns its words
         for (name, value) in &server.env {

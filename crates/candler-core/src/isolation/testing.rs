@@ -474,6 +474,7 @@ pub struct ProbingIsolation {
     answers: Mutex<BTreeMap<String, super::StartProbe>>,
     probed: Mutex<Vec<Vec<String>>>,
     runs: Mutex<usize>,
+    eof_exits: Mutex<BTreeMap<String, String>>,
 }
 
 impl ProbingIsolation {
@@ -486,12 +487,19 @@ impl ProbingIsolation {
             answers: Mutex::new(BTreeMap::new()),
             probed: Mutex::new(Vec::new()),
             runs: Mutex::new(0),
+            eof_exits: Mutex::new(BTreeMap::new()),
         }
     }
 
     /// Answers a probe whose command starts with the program `program` with `answer`.
     pub fn answer(&self, program: &str, answer: super::StartProbe) {
         held(&self.answers).insert(program.to_owned(), answer);
+    }
+
+    /// Makes a probed command whose program is `program` exit with `output` when its container
+    /// does not hold standard input open, as a server that stops at end of input does.
+    pub fn exit_at_eof(&self, program: &str, output: &str) {
+        held(&self.eof_exits).insert(program.to_owned(), output.to_owned());
     }
 
     /// The commands probed so far, as their words.
@@ -540,16 +548,21 @@ impl super::Isolation for ProbingIsolation {
 
     fn start_probe<'a>(
         &'a self,
-        _plan: &'a super::model::ContainerPlan,
+        plan: &'a super::model::ContainerPlan,
         command: &'a candler_harness::spec::CommandSpec,
         _key: candler_schemas::primitives::RunKey,
         _wait: std::time::Duration,
     ) -> BoxFuture<'a, Result<super::StartProbe, super::IsolationError>> {
         held(&self.probed).push(command.argv().to_vec()); // BORROW: the log owns the words
-        let answer = command
-            .argv()
-            .first()
-            .and_then(|program| held(&self.answers).get(program).cloned()) // BORROW: the caller owns the answer
+        let program = command.argv().first();
+        let at_eof = program
+            .filter(|_| !plan.interactive)
+            .and_then(|program| held(&self.eof_exits).get(program).cloned()) // BORROW: the caller owns the output
+            .map(|output| super::StartProbe::Exited { output });
+        let answer = at_eof
+            .or_else(|| {
+                program.and_then(|program| held(&self.answers).get(program).cloned()) // BORROW: the caller owns the answer
+            })
             .unwrap_or(super::StartProbe::Running);
         Box::pin(async move { Ok(answer) })
     }
