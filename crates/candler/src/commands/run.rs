@@ -82,6 +82,8 @@ pub struct Args {
     /// to accept differences is the caller's decision, taken after the plan has shown them.
     #[arg(long)]
     pub force: bool,
+    #[command(flatten)]
+    pub output: super::OutputArgs,
 }
 
 /// Reads `PATH=VALUE` from the command line.
@@ -153,6 +155,7 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
         experiment,
         fields,
         force,
+        ..
     } = args;
     let cwd = std::env::current_dir().map_err(|e| refused(format!("no working directory: {e}")))?;
     let file = read_experiment(&experiment)?;

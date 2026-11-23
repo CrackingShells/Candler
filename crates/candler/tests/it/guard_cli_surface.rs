@@ -681,12 +681,8 @@ fn u5_diff_takes_bare_versions() {
         ("ev@2.0.0", &[("A1", "pass"), ("A2", "pass")]),
     ];
     let store = Seeded::with(rows);
-    let bare = store.candler(&[
-        "diff", "--from", "1.0.0", "--to", "2.0.0", "--format", "json",
-    ]);
-    let named = store.candler(&[
-        "diff", "--from", "ev@1.0.0", "--to", "ev@2.0.0", "--format", "json",
-    ]);
+    let bare = store.candler(&["diff", "--from", "1.0.0", "--to", "2.0.0"]);
+    let named = store.candler(&["diff", "--from", "ev@1.0.0", "--to", "ev@2.0.0"]);
     assert_eq!(named.status.code(), Some(1), "{}", text_of(&named.stderr));
     assert_eq!(
         bare.status.code(),
@@ -703,9 +699,7 @@ fn u5_diff_takes_bare_versions() {
         ("ev@2.0.0", &[("A1", "pass")]),
     ];
     let store = Seeded::with(held_twice);
-    let out = store.candler(&[
-        "diff", "--from", "1.0.0", "--to", "2.0.0", "--format", "json",
-    ]);
+    let out = store.candler(&["diff", "--from", "1.0.0", "--to", "2.0.0"]);
     assert_eq!(out.status.code(), Some(2));
     let stderr = text_of(&out.stderr);
     assert!(
@@ -771,8 +765,8 @@ fn u5_show_takes_a_bare_version() {
         ("ev@2.0.0", &[("A1", "pass")]),
     ];
     let store = Seeded::with(rows);
-    let bare = store.candler(&["show", "--evaluator", "1.0.0", "--format", "json"]);
-    let named = store.candler(&["show", "--evaluator", "ev@1.0.0", "--format", "json"]);
+    let bare = store.candler(&["show", "--evaluator", "1.0.0"]);
+    let named = store.candler(&["show", "--evaluator", "ev@1.0.0"]);
     assert_eq!(named.status.code(), Some(0), "{}", text_of(&named.stderr));
     assert_eq!(bare.status.code(), Some(0), "{}", text_of(&bare.stderr));
     assert_eq!(bare.stdout, named.stdout, "the same counts");
@@ -913,6 +907,8 @@ fn row_resolve(env: &Env) {
             &models.setting(),
             "--set",
             &format!("model.token_secret={SECRET_NAME}"),
+            "--format",
+            "text",
         ])
         .output()
         .expect("the binary runs"),
@@ -945,7 +941,11 @@ fn row_ls(env: &Env) {
 fn row_ps(env: &Env) {
     let launched = env.run();
     let id = text_of(&launched.stdout).trim().to_owned();
-    let out = succeeded(env.command(&["ps"]).output().expect("the binary runs"));
+    let out = succeeded(
+        env.command(&["ps", "--format", "text"])
+            .output()
+            .expect("the binary runs"),
+    );
     assert!(
         stdout_of(&out).lines().any(|line| line.starts_with(&id)),
         "the job just started is listed: {}",
@@ -1078,11 +1078,7 @@ fn row_evaluate(env: &Env) {
 
 fn row_show(env: &Env) {
     seed_default_store(env, TWO_EVALUATORS);
-    let out = succeeded(
-        env.command(&["show", "--format", "json"])
-            .output()
-            .expect("the binary runs"),
-    );
+    let out = succeeded(env.command(&["show"]).output().expect("the binary runs"));
     let counts: Value = serde_json::from_slice(&out.stdout).expect("JSON counts");
     assert_eq!(
         counts,
@@ -1096,11 +1092,9 @@ fn row_show(env: &Env) {
 fn row_diff(env: &Env) {
     seed_default_store(env, TWO_EVALUATORS);
     let out = succeeded(
-        env.command(&[
-            "diff", "--from", "1.0.0", "--to", "2.0.0", "--format", "json",
-        ])
-        .output()
-        .expect("the binary runs"),
+        env.command(&["diff", "--from", "1.0.0", "--to", "2.0.0"])
+            .output()
+            .expect("the binary runs"),
     );
     let report: Value = serde_json::from_slice(&out.stdout).expect("a JSON report");
     assert_eq!(report["compared"], 2, "{report}");
@@ -1373,7 +1367,7 @@ const SITES: &[Site] = &[
     },
     Site {
         name: "show of an evaluator that is not name@version",
-        args: &["show", "--evaluator", "bad@x", "--format", "json"],
+        args: &["show", "--evaluator", "bad@x"],
         setup: nothing,
         code: "config.evaluator_invalid",
         side: "config",
@@ -1381,9 +1375,7 @@ const SITES: &[Site] = &[
     },
     Site {
         name: "diff from a name@version whose version is not SemVer",
-        args: &[
-            "diff", "--from", "a@1", "--to", "b@1.0.0", "--format", "json",
-        ],
+        args: &["diff", "--from", "a@1", "--to", "b@1.0.0"],
         setup: nothing,
         code: "config.evaluator_invalid",
         side: "config",
@@ -1391,7 +1383,7 @@ const SITES: &[Site] = &[
     },
     Site {
         name: "show of a name@version whose version is not SemVer",
-        args: &["show", "--evaluator", "a@1", "--format", "json"],
+        args: &["show", "--evaluator", "a@1"],
         setup: nothing,
         code: "config.evaluator_invalid",
         side: "config",
@@ -1399,7 +1391,7 @@ const SITES: &[Site] = &[
     },
     Site {
         name: "show of a bare version no evaluator holds",
-        args: &["show", "--evaluator", "9.9.9", "--format", "json"],
+        args: &["show", "--evaluator", "9.9.9"],
         setup: nothing,
         code: "analysis.unknown_evaluator",
         side: "config",
@@ -1407,9 +1399,7 @@ const SITES: &[Site] = &[
     },
     Site {
         name: "diff from an evaluator that is not name@version",
-        args: &[
-            "diff", "--from", "bad@x", "--to", "ev@1.0.0", "--format", "json",
-        ],
+        args: &["diff", "--from", "bad@x", "--to", "ev@1.0.0"],
         setup: nothing,
         code: "config.evaluator_invalid",
         side: "config",
@@ -1417,9 +1407,7 @@ const SITES: &[Site] = &[
     },
     Site {
         name: "diff from an evaluator the store lacks",
-        args: &[
-            "diff", "--from", "ev@9.0.0", "--to", "ev@1.0.0", "--format", "json",
-        ],
+        args: &["diff", "--from", "ev@9.0.0", "--to", "ev@1.0.0"],
         setup: nothing,
         code: "config.nothing_compared",
         side: "config",
@@ -1460,7 +1448,7 @@ const SITES: &[Site] = &[
 ];
 
 /// Guards: U6 — each refusal that a caller causes in a verb's own checks prints, under
-/// `--error-format json`, one `refusal/1` record whose code and side are the row's and not
+/// the default JSON form, one `refusal/1` record whose code and side are the row's and not
 /// `candler.internal`: a missing experiment file, `kill` without `-y` and of a missing job,
 /// `ps` over an unreadable job, `inspect` of a selector that is invalid, unknown or ambiguous,
 /// an evaluator that is malformed, unknown or compares nothing, and clap's usage errors, whose
@@ -1481,7 +1469,7 @@ fn u6_each_caller_mistake_carries_a_code() {
             .chars()
             .take(8)
             .collect::<String>();
-        let mut args = vec!["--error-format".to_owned(), "json".to_owned()];
+        let mut args: Vec<String> = Vec::new();
         args.extend(site.args.iter().map(|arg| arg.replace("{key8}", &key8)));
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         let out = store.candler(&args);
@@ -1515,17 +1503,17 @@ fn u6_each_caller_mistake_carries_a_code() {
 
 /// Guards: U6 — a missing experiment file is named in the record's `file`, and clap's usage
 /// errors keep their text and exit status when no JSON is asked for, while `--help` still
-/// prints its text on stdout and exits 0 under `--error-format json`.
-/// Oracle: the text clap writes for the same arguments with no `--error-format`, and the status
+/// prints its text on stdout and exits 0 with no option.
+/// Oracle: the text clap writes for the same arguments with no `--format text`, and the status
 /// of `--help`.
 /// Bite: the usage error printed as a record in the text form, or `--help` taken for an error.
 #[test]
 fn u6_usage_text_and_help_are_unchanged_and_the_file_is_named() {
     let store = Seeded::with(TWO_EVALUATORS);
-    let out = store.candler(&["--error-format", "json", "resolve", "nope.toml"]);
+    let out = store.candler(&["resolve", "nope.toml"]);
     assert_eq!(record_on(&out)["file"], "nope.toml");
 
-    let out = store.candler(&["--bogus"]);
+    let out = store.candler(&["--bogus", "--format", "text"]);
     assert_eq!(out.status.code(), Some(2));
     let stderr = text_of(&out.stderr);
     assert!(
@@ -1534,7 +1522,7 @@ fn u6_usage_text_and_help_are_unchanged_and_the_file_is_named() {
     );
     assert!(out.stdout.is_empty(), "nothing on stdout");
 
-    let out = store.candler(&["--error-format", "json", "--help"]);
+    let out = store.candler(&["--help"]);
     assert_eq!(out.status.code(), Some(0));
     assert!(
         text_of(&out.stdout).contains("Commands:"),
@@ -1553,7 +1541,10 @@ fn document_of(out: &Output) -> Value {
 fn assert_record(verb: &str, document: &Value, schema: &str, keys: &[&str]) {
     assert_eq!(document["schema"], schema, "{verb}: the version marker");
     for key in keys {
-        assert!(document.get(*key).is_some(), "{verb}: key `{key}` in {document}");
+        assert!(
+            document.get(*key).is_some(),
+            "{verb}: key `{key}` in {document}"
+        );
     }
 }
 
@@ -1569,23 +1560,38 @@ fn every_data_verb_prints_its_record() {
     let rows: [(&[&str], &str, &[&str]); 6] = [
         (&["ps"], "job-list/1", &["store", "jobs"]),
         (&["ls"], "experiment-list/1", &["store", "experiments"]),
-        (&["inspect", run.as_str()], "inspect-run/1", &["run", "sealed", "outcomes"]),
+        (
+            &["inspect", run.as_str()],
+            "inspect-run/1",
+            &["run", "sealed", "outcomes"],
+        ),
         (
             &["diff", "--from", "1.0.0", "--to", "2.0.0"],
             "diff-report/1",
             &["compared", "changed", "changes"],
         ),
-        (&["show", "--rates"], "rates/1", &["cell"]),
+        (
+            &["show", "--rates", "--evaluator", "ev@1.0.0"],
+            "rates/1",
+            &["cell"],
+        ),
         (&["show"], "", &["counts"]),
     ];
     for (args, schema, keys) in rows {
         let verb = args.join(" ");
         let out = store.candler(args);
-        assert!(out.status.code().is_some_and(|code| code <= 1), "{verb}: {}", text_of(&out.stderr));
+        assert!(
+            out.status.code().is_some_and(|code| code <= 1),
+            "{verb}: {}",
+            text_of(&out.stderr)
+        );
         let document = document_of(&out);
         if schema.is_empty() {
             for key in keys {
-                assert!(document.get(*key).is_some(), "{verb}: key `{key}` in {document}");
+                assert!(
+                    document.get(*key).is_some(),
+                    "{verb}: key `{key}` in {document}"
+                );
             }
         } else {
             assert_record(&verb, &document, schema, keys);
@@ -1612,7 +1618,12 @@ fn every_data_verb_prints_its_record() {
             .output()
             .expect("the binary runs"),
     );
-    assert_record("inspect job", &document_of(&job), "inspect-job/1", &["id", "state", "runs", "spent"]);
+    assert_record(
+        "inspect job",
+        &document_of(&job),
+        "inspect-job/1",
+        &["id", "state", "runs", "spent"],
+    );
     let watched = succeeded(
         env.command(&["watch", &id.to_string(), "--format", "text"])
             .output()
@@ -1641,7 +1652,10 @@ fn store_run_key(store: &Seeded) -> String {
 #[test]
 fn refusals_print_json_by_default() {
     let store = Seeded::with(TWO_EVALUATORS);
-    let calls: [&[&str]; 2] = [&["diff", "--from", "9.9.9", "--to", "2.0.0"], &["ps", "--no-such-flag"]];
+    let calls: [&[&str]; 2] = [
+        &["diff", "--from", "9.9.9", "--to", "2.0.0"],
+        &["ps", "--no-such-flag"],
+    ];
     for args in calls {
         let out = store.candler(args);
         assert_eq!(out.status.code(), Some(2), "{args:?}");
@@ -1683,13 +1697,41 @@ fn resolve_names_the_store_source() {
         .output()
         .expect("the binary runs"),
     );
-    let text = stdout_of(&out);
-    let store_lines: Vec<&str> = text.lines().filter(|line| line.contains("store.root")).collect();
-    assert!(!store_lines.is_empty(), "the store root is printed: {text}");
+    let document = document_of(&out);
+    let mut found = Vec::new();
+    entries_at(&document, "store.root", &mut found);
+    assert!(!found.is_empty(), "the store root is printed: {document}");
+    let texts: Vec<String> = found.iter().map(Value::to_string).collect();
     assert!(
-        store_lines
-            .iter()
-            .all(|line| line.contains("named-store") && !line.contains("core_default")),
-        "the root and its source are the explicit ones: {store_lines:?}"
+        texts.iter().any(|text| text.contains("explicit_argument")),
+        "the source is the explicit one: {texts:?}"
     );
+    assert!(
+        texts.iter().any(|text| text.contains("named-store")),
+        "the root is the named one: {texts:?}"
+    );
+    assert!(
+        texts.iter().all(|text| !text.contains("core_default")),
+        "the default is not the source: {texts:?}"
+    );
+}
+
+/// Every object of `document` whose `path` is `path`.
+fn entries_at(document: &Value, path: &str, found: &mut Vec<Value>) {
+    match document {
+        Value::Object(map) => {
+            if map.get("path").and_then(Value::as_str) == Some(path) {
+                found.push(document.clone()); // BORROW: the list owns its entries
+            }
+            for child in map.values() {
+                entries_at(child, path, found);
+            }
+        }
+        Value::Array(items) => {
+            for child in items {
+                entries_at(child, path, found);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+    }
 }

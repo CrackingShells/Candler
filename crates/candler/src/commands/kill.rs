@@ -27,6 +27,8 @@ use super::{CliError, Exit, common};
 /// The arguments of `candler kill`.
 #[derive(Debug, clap::Args)]
 pub struct Args {
+    #[command(flatten)]
+    pub output: super::OutputArgs,
     /// The job to stop.
     #[arg(required_unless_present = "all", conflicts_with = "all")]
     pub id: Option<JobId>,

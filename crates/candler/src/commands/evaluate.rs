@@ -51,6 +51,8 @@ const LOG_LINES: usize = 5;
 /// The arguments of `candler evaluate`.
 #[derive(Debug, clap::Args)]
 pub struct EvaluateArgs {
+    #[command(flatten)]
+    pub output: super::OutputArgs,
     /// The suite file.
     pub suite: PathBuf,
     /// Grade the runs that this job started, in place of the runs with no complete outcome set.

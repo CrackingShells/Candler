@@ -25,6 +25,8 @@ use crate::drivers::Registry;
 /// The arguments of `candler ingest`.
 #[derive(Debug, clap::Args)]
 pub struct IngestArgs {
+    #[command(flatten)]
+    pub output: super::OutputArgs,
     /// A raw trace directory, or a results folder when `--rules` is given.
     #[arg(required = true)]
     pub paths: Vec<PathBuf>,
