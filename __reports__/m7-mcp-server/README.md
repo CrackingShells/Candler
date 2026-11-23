@@ -18,6 +18,20 @@ The HTN Phase coordinator, Candler's only consumer today, sent its lane's view a
 - `01-input_htn_lane_v0.md`: evidence: how HTN sessions use Candler, what they want computed, the form they prefer (condensed).
 - `01-findings_agent_consumability_v1.md` (latest): the briefing, revised. It corrects v0 on current consumers, adds patterns P0, P8, P9, gotchas G18–G21, the probe and five other chores, and a section reconciling CLI, skill and MCP with the M7 gates.
 
+## Round 02: Eliott's rulings on v1 (2026-11-23)
+
+No new report; these rulings override v1 where they disagree.
+
+| v1 question | Ruling |
+|:--|:--|
+| Scope | A **milestone of its own, before M7**, to sanitise Candler's surface. The gotchas, the chores and the HTN asks are inputs, not a backlog. For each one: is it Candler's responsibility, given why the repo exists (README: a domain-agnostic core for evaluating LLM agents, execution and evaluation behind one operation API)? What is its refactoring blast radius? Does it consolidate the triad (sustainable, scalable, efficient: `AGENTS.md`)? Stick to Candler's idioms; no melting pot of dangling features. Everything raised may still land, but the decision must be explicit. |
+| The container probe | Questioned. The container is a consequence of the experiment files and parameters, like a prepared well plate. An agent inspecting it is a bad usage pattern. If Candler can build a box that differs from what its files say, that is a Candler defect, caught by Candler's own guards and preflight (I8 already has `i8_canary_never_reaches_the_agent`). |
+| MCP shape | Not decided: v1 did not explain it. It belongs to M7's planning, after the new milestone. |
+| Baseline | **Rejected.** No user-behaviour baseline: it cannot be controlled, and product studies come after the product is designed. The evidence is our own team of agents using Candler, plus engineering judgement. |
+| Registry | Not a question for Eliott: `codes.toml` already appends keys to existing rows (`retired`, `lifted`), so a `remedy` key follows the same rule. |
+| Docs before 1.0 | **Rejected**, and with it v1's "skills link the contract pages". Docs are the web-wide surface: they tell a visiting agent what Candler is and whether it fits its work, like a product specification. Skills and the MCP server are the interactive surfaces and must be self-contained: an agent in an isolated environment without internet must be able to use Candler. |
+| F2, F4, F5 | Fold into the new milestone. |
+
 ## Status
 
-The pre-study awaits Eliott's answers to the v1 steering questions. The M7 planning session (plan mode) starts after that.
+Next: name the new milestone and insert it before M7 in `__roadmap__/candler-v1/` (an amendment, on Eliott's yes), then plan it in a plan-mode session.
