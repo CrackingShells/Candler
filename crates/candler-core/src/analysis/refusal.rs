@@ -66,6 +66,12 @@ pub enum ReportError {
     /// The store holds no outcome to analyse.
     #[error("the store holds no outcome to analyse")]
     NoOutcomes,
+    /// The run or job named for a transcript has no stored normalised trace.
+    #[error("`{target}` has no stored trace: a transcript is read from a run's normalised trace")]
+    NoStoredTrace {
+        /// The target as the caller gave it.
+        target: String,
+    },
 }
 
 /// The place of a refusal in a parsed document: none of these sits in one.
@@ -115,6 +121,12 @@ refusal_table! {
         "analysis.no_outcomes",
         Side::Environment,
         "The store holds no outcome record, so there is nothing to analyse; run `evaluate` first.",
+        "-",
+    ),
+    NoStoredTrace { .. } => row(
+        "analysis.no_stored_trace",
+        Side::Config,
+        "The run given to `inspect --transcript` has no stored normalised trace, or the target is a job, which holds none.",
         "-",
     ),
 }

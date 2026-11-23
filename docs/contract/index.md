@@ -63,6 +63,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `analysis.factor_broader_than_variation` | A comparability class's manifests record a factor that is a strict prefix of a path where its cells differ, so the record cannot be trusted to declare the variation. | - | environment |
 | `analysis.mixed_evaluator_versions` | The store holds outcomes of several evaluator versions and the request names none; name one with `--evaluator`. | - | config |
 | `analysis.no_outcomes` | The store holds no outcome record, so there is nothing to analyse; run `evaluate` first. | - | environment |
+| `analysis.no_stored_trace` | The run given to `inspect --transcript` has no stored normalised trace, or the target is a job, which holds none. | - | config |
 | `analysis.unknown_evaluator` | The evaluator, or the version, named has no outcome in the store. | - | config |
 | `catalog.name_empty` | A server or tool name in the catalog an image prints is empty. | - | environment |
 | `catalog.name_repeated` | A server or tool name in the catalog an image prints is repeated within its scope. | - | environment |

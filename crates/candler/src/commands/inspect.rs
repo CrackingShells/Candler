@@ -8,14 +8,17 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Write as _;
 use std::path::Path;
 use std::str::FromStr as _;
 
+use candler_core::analysis::refusal::ReportError;
 use candler_core::analysis::spend::spend_of;
 use candler_core::evaluation::selection::select::select;
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::lost::{JobLiveness, classify};
 use candler_core::store::Store;
+use candler_core::trace::{TranscriptForm, render_transcript};
 use candler_schemas::inspect::{
     InspectJob, InspectJobRun, InspectJobTag, InspectOutcome, InspectRun, InspectRunTag, Spent,
 };
@@ -41,6 +44,11 @@ pub(crate) const FORMS: &str = "a run directory (`<store>/runs/<key>`), a prefix
 pub struct InspectArgs {
     /// A run directory, a prefix of a run key, or a job id. cannot be derived: it names what to look at.
     pub target: String,
+    /// Print the run's stored trace, one event per line, instead of its record: each event as
+    /// stored with JSON, one line of text per event with `--format text`. cannot be derived: it
+    /// names what to show of the run, which no format or target says.
+    #[arg(long)]
+    pub transcript: bool,
     #[command(flatten)]
     pub output: OutputArgs,
 }
@@ -382,6 +390,28 @@ fn text_of_job(job: &InspectJob) -> String {
     lines.join("\n")
 }
 
+/// The lines of the transcript of the run `key`: its stored trace, one line per event.
+///
+/// # Errors
+/// Returns [`ReportError::NoStoredTrace`] when the run has no stored trace and
+/// [`CliError::Failed`] when the stored file cannot be read as a trace.
+fn transcript_lines(
+    store: &Store,
+    key: &RunKey,
+    target: &str,
+    form: TranscriptForm,
+) -> Result<Vec<String>, CliError> {
+    if !store.layout().trace(key).is_file() {
+        return Err(CliError::refused_by(ReportError::NoStoredTrace {
+            target: target.to_owned(), // BORROW: the refusal owns the text
+        }));
+    }
+    let trace = store
+        .read_trace(key)
+        .map_err(|e| CliError::failed("inspect", e))?;
+    Ok(render_transcript(&trace, form))
+}
+
 /// Prints what the store holds of the run, or the job, that the target names.
 ///
 /// # Errors
@@ -390,6 +420,22 @@ pub async fn run(cli: &Cli, args: &InspectArgs) -> Result<Exit, CliError> {
     let mut stdout = std::io::stdout().lock();
     match resolve_target(cli, args.target.as_str()).await? {
         // BORROW: explicit .as_str()
+        Target::Run { store, key } if args.transcript => {
+            let form = if args.output.text() {
+                TranscriptForm::Text
+            } else {
+                TranscriptForm::Json
+            };
+            let lines = transcript_lines(&store, &key, args.target.as_str(), form)?;
+            for line in lines {
+                writeln!(stdout, "{line}").map_err(|e| CliError::failed("inspect", e))?;
+            }
+        }
+        Target::Job { .. } if args.transcript => {
+            return Err(CliError::refused_by(ReportError::NoStoredTrace {
+                target: args.target.clone(), // BORROW: the refusal owns the text
+            }));
+        }
         Target::Run { store, key } => {
             let record = render_run(&store, &key)?;
             if args.output.text() {

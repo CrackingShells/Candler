@@ -561,7 +561,7 @@ fn a1_the_json_equals_the_hand_counts() {
     for pair in pairs {
         assert_eq!(pair["factor"], "plan.model");
         assert_eq!(
-            pair["stratum"],
+            pair["comparability_class"],
             json!({"verdict": "comparable", "causes": []})
         );
         let (ca, cb) = (
@@ -699,7 +699,7 @@ fn a1_the_csv_tables_equal_the_hand_counts() {
     );
     assert_eq!(
         pairs[0].join(","),
-        "a,b,factor,verdict,expectation,role,a_k,a_n,b_k,b_n,p,p_holm,reject,diff,diff_lo,diff_hi,omitted,experiment,causes,level_a,level_b,battery,fallback,blocks,reading,or_mh,or_lo,or_hi,homogeneity_p,per_block"
+        "a,b,factor,verdict,expectation,role,a_k,a_n,b_k,b_n,p,p_holm,reject,diff,diff_lo,diff_hi,omitted,experiment,causes,level_a,level_b,battery,fallback,blocks,interval_reading,or_mh,or_lo,or_hi,homogeneity_p,per_block"
     );
     assert_eq!(pairs.len(), 1 + 9, "three pairs of three expectations");
     let tested: Vec<&Vec<String>> = pairs[1..].iter().filter(|r| r[16].is_empty()).collect();
@@ -827,7 +827,7 @@ fn a2_a_refused_pair_is_reported_through_the_binary() {
         let pairs = report["comparisons"].as_array().expect("comparisons");
         assert_eq!(pairs.len(), 1, "{label}");
         assert_eq!(
-            pairs[0]["stratum"],
+            pairs[0]["comparability_class"],
             json!({"verdict": "refused", "causes": [cause]}),
             "{label}"
         );
@@ -1245,7 +1245,7 @@ fn c6_one_factor_store_keeps_todays_output() {
 /// comparisons, each entry naming its battery, the number of blocks, whether the exact test
 /// replaced CMH, its reading and each block's key and risk difference; the CSV `comparisons` table
 /// keeps today's nineteen columns first and appends `level_a`, `level_b`, `battery`, `fallback`,
-/// `blocks`, `reading`, `or_mh`, `or_lo`, `or_hi`, `homogeneity_p` and `per_block`.
+/// `blocks`, `interval_reading`, `or_mh`, `or_lo`, `or_hi`, `homogeneity_p` and `per_block`.
 /// Oracle: the layout written by `two_by_two` and the column names of the leaf.
 /// Bite: drop a block key, or insert the new columns before the old ones, and this turns red.
 #[test]
@@ -1270,7 +1270,7 @@ fn c6_json_and_csv_name_the_test_and_blocks() {
         assert_eq!(entry["blocks"], 2);
         assert!(entry["fallback"].is_boolean());
         assert!(matches!(
-            entry["reading"].as_str(),
+            entry["interval_reading"].as_str(),
             Some("effect" | "inconclusive")
         ));
         let other = if comparison["factor"] == "plan.model" {
@@ -1292,7 +1292,7 @@ fn c6_json_and_csv_name_the_test_and_blocks() {
         "{header}"
     );
     assert!(
-        header.ends_with(",level_a,level_b,battery,fallback,blocks,reading,or_mh,or_lo,or_hi,homogeneity_p,per_block"),
+        header.ends_with(",level_a,level_b,battery,fallback,blocks,interval_reading,or_mh,or_lo,or_hi,homogeneity_p,per_block"),
         "{header}"
     );
     assert_eq!(table.len(), 3);
@@ -1354,7 +1354,7 @@ fn c6_one_factor_binary_store_keeps_todays_literals() {
     let a_is_alpha = comparison["a"] == alpha.as_str();
     assert_eq!(comparison["factor"], "plan.model");
     assert_eq!(
-        comparison["stratum"],
+        comparison["comparability_class"],
         json!({"verdict": "comparable", "causes": []})
     );
     let [entry] = comparison["entries"]

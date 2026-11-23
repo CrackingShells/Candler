@@ -7,10 +7,10 @@ use candler_schemas::trace::TraceFile;
 /// a kind this version does not know, interleaved across the two sessions.
 const STORED: [&str; 10] = [
     r#"{"kind":"header","schema":"normalised-trace/1","reader":"claude-code-reader@0.1.0","raw":[{"stream":"stdout","digest":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}]}"#,
-    r#"{"kind":"session","id":"root-1","source":{"harness":"claude-code","harness_version":"2.1.0","reader":"claude-code-reader","reader_version":"0.1.0"},"raw_ref":{"stream":"stdout","frame":0}}"#,
-    r#"{"kind":"session","id":"root-1/toolu_01","source":{"harness":"claude-code","harness_version":"2.1.0","reader":"claude-code-reader","reader_version":"0.1.0"},"parent_session":"root-1","raw_ref":{"stream":"stdout","frame":3}}"#,
+    r#"{"kind":"session","id":"root-1","source":{"harness":"claude-code","harness_version":"2.1.0","reader":"claude-code-reader","reader_version":"0.1.0"},"ended_by":{"kind":"cap","cap":"turns"},"raw_ref":{"stream":"stdout","frame":0}}"#,
+    r#"{"kind":"session","id":"root-1/toolu_01","source":{"harness":"claude-code","harness_version":"2.1.0","reader":"claude-code-reader","reader_version":"0.1.0"},"ended_by":{"kind":"agent_error","reason":"tool_failed"},"parent_session":"root-1","raw_ref":{"stream":"stdout","frame":3}}"#,
     r#"{"kind":"event","session":"root-1","event":{"seq":0,"kind":{"kind":"user_message","text":"hi"},"raw_ref":{"stream":"stdout","frame":0},"ext":{}}}"#,
-    r#"{"kind":"event","session":"root-1","event":{"seq":1,"at":"2026-11-05T10:00:01Z","kind":{"kind":"tool_call","name":"Bash","origin":{"kind":"builtin"},"argv":["ls","-l"]},"span":"toolu_01","raw_ref":{"stream":"stdout","frame":1},"ext":{}}}"#,
+    r#"{"kind":"event","session":"root-1","event":{"seq":1,"at":"2026-11-05T10:00:01Z","kind":{"kind":"tool_call","name":"Bash","origin":{"kind":"builtin"},"argv":["ls","-l"],"wrapped_calls":[]},"span":"toolu_01","raw_ref":{"stream":"stdout","frame":1},"ext":{}}}"#,
     r#"{"kind":"event","session":"root-1","event":{"seq":2,"kind":{"kind":"hologram","depth":3},"raw_ref":{"stream":"stdout","frame":2},"ext":{}}}"#,
     r#"{"kind":"event","session":"root-1/toolu_01","event":{"seq":0,"kind":{"kind":"tool_result","is_error":true},"span":"toolu_01","raw_ref":{"stream":"stdout","frame":3},"ext":{}}}"#,
     r#"{"kind":"event","session":"root-1","event":{"seq":3,"kind":{"kind":"usage","scope":"session_total","input_tokens":120,"output_tokens":45,"cache_read_tokens":0,"cache_creation_tokens":7,"cost_usd":0.0123},"raw_ref":{"stream":"stdout","frame":4},"ext":{}}}"#,
