@@ -9,3 +9,17 @@ The architecture diet between M6b (surface consolidation) and M7 (MCP server): f
 
 ## Status
 Planned on 2026-11-24 from the M6b tip `1002cb82`. Waiting for approval of K1 to K6. Nothing is built.
+
+## Round 01: coordinator rulings on the plan (2026-11-24, 01:55 JST)
+
+Eliott delegated the diet overnight; the milestone coordinator ruled in his stead. He reviews these in the morning briefing.
+
+| Decision | Ruling |
+|:--|:--|
+| K1 test policy (six consumer interfaces; every deletion cites its guard or "structure") | Approved |
+| K2 S1 fix (seal stores tree blobs; `workspace/` removed after the seal) | Approved. `workspace/` goes only if neither Candler nor the HTN consumer (read-only check) reads it; otherwise it stays and the piece says so |
+| K3 restore the founding purpose paragraph in `README.md` | **Deferred to Eliott.** The store-window README was an M6b item he accepted. The yardstick is still the paragraph as written at `254ff4a0` |
+| K4 refusal codes: retire only rows a probe proves unemitted | Approved |
+| K5 silent acceptance becomes refusals | Approved. The `resolve` failure record replaces `print_failures`' hand-built JSON; it adds no second shape |
+| K6 one capped `audit_fixes` piece | Approved |
+| Parallelism | At most three implementers building at once (each worktree has its own target dir; the machine is shared) |
