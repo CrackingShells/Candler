@@ -1,0 +1,134 @@
+{
+  "$defs": {
+    "DiffChange": {
+      "additionalProperties": false,
+      "description": "One change of a [`DiffReport`].",
+      "properties": {
+        "class": {
+          "description": "The class of the change, as the core names it.",
+          "type": "string"
+        },
+        "expectation": {
+          "description": "The expectation that changed.",
+          "type": "string"
+        },
+        "run": {
+          "description": "The run the change is in.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "class",
+        "run",
+        "expectation"
+      ],
+      "type": "object"
+    },
+    "DiffEquivalence": {
+      "additionalProperties": false,
+      "description": "The equivalence file a [`DiffReport`] was made with.",
+      "properties": {
+        "rows": {
+          "description": "How many rows it names.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sha256": {
+          "description": "The digest of the file.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sha256",
+        "rows"
+      ],
+      "type": "object"
+    },
+    "DiffUncompared": {
+      "additionalProperties": false,
+      "description": "An expectation of a [`DiffReport`] that only one side holds.",
+      "properties": {
+        "count": {
+          "description": "How many rows it has.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expectation": {
+          "description": "The expectation.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "expectation",
+        "count"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:candler:schemas:diff-report",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The comparison of two evaluator versions over the stored outcomes: what `candler diff` prints.",
+  "properties": {
+    "changed": {
+      "description": "How many changes are not excused.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "changes": {
+      "description": "Each change that is not excused.",
+      "items": {
+        "$ref": "#/$defs/DiffChange"
+      },
+      "type": "array"
+    },
+    "compared": {
+      "description": "How many expectations were compared.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "equivalence": {
+      "$ref": "#/$defs/DiffEquivalence",
+      "description": "The equivalence file the comparison was made with, when there is one."
+    },
+    "excused": {
+      "description": "How many changes the equivalence file excuses.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "schema": {
+      "const": "diff-report/1",
+      "description": "The version marker of the document: always `diff-report/1`.",
+      "type": "string"
+    },
+    "unchanged": {
+      "description": "How many of them are unchanged.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "uncompared": {
+      "description": "The expectations of one side that the other lacks, with how many rows each.",
+      "items": {
+        "$ref": "#/$defs/DiffUncompared"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema",
+    "compared",
+    "unchanged",
+    "excused",
+    "changed",
+    "changes",
+    "uncompared"
+  ],
+  "title": "DiffReport",
+  "type": "object"
+}

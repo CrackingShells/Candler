@@ -1,0 +1,72 @@
+{
+  "$defs": {
+    "JobRow": {
+      "additionalProperties": false,
+      "description": "One job of a [`JobList`].",
+      "properties": {
+        "failed": {
+          "description": "Whether the row reports a failure.",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "The job id, or the directory name when the directory cannot be read.",
+          "type": "string"
+        },
+        "progress": {
+          "description": "`<runs ended>/<runs started>`, `?` when the event log cannot be read.",
+          "type": "string"
+        },
+        "spec": {
+          "description": "The digest of the job's spec, or `-` when it cannot be read.",
+          "type": "string"
+        },
+        "state": {
+          "description": "`running`, `starting`, `ended (<reason>)`, `unreadable <path>: <detail>` or a `lost: ...`\nline.",
+          "type": "string"
+        },
+        "what": {
+          "description": "What the job runs: `experiment:<12 hex of the experiment digest>`, `suite:<file name>`, or\n`-` when the job has no readable spec file.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "spec",
+        "state",
+        "progress",
+        "what",
+        "failed"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:candler:schemas:job-list",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The jobs of a store and the state of each: what `candler ps` prints.",
+  "properties": {
+    "jobs": {
+      "description": "One row per job directory, in the order of their names.",
+      "items": {
+        "$ref": "#/$defs/JobRow"
+      },
+      "type": "array"
+    },
+    "schema": {
+      "const": "job-list/1",
+      "description": "The version marker of the document: always `job-list/1`.",
+      "type": "string"
+    },
+    "store": {
+      "description": "The root of the store the jobs were read from.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "store",
+    "jobs"
+  ],
+  "title": "JobList",
+  "type": "object"
+}

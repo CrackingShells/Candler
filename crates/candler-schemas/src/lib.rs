@@ -18,6 +18,8 @@ pub mod distinct;
 pub mod evaluation;
 pub mod execution;
 pub mod generate;
+pub mod inspect;
+pub mod listing;
 mod map_only;
 pub mod outcome;
 pub mod primitives;

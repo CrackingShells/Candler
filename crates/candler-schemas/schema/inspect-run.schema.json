@@ -1,0 +1,105 @@
+{
+  "$defs": {
+    "InspectOutcome": {
+      "additionalProperties": false,
+      "description": "One outcome of an [`InspectRun`].",
+      "properties": {
+        "cause": {
+          "description": "The cause of a status that is not a verdict."
+        },
+        "evaluator": {
+          "description": "The evaluator that graded."
+        },
+        "evidence": {
+          "description": "The evidence the grading kept."
+        },
+        "expectation": {
+          "description": "The expectation graded."
+        },
+        "request": {
+          "description": "The request that graded it."
+        },
+        "role": {
+          "description": "The role of the expectation."
+        },
+        "status": {
+          "description": "The status."
+        },
+        "value": {
+          "description": "The measured value, when there is one."
+        },
+        "weight": {
+          "description": "The weight of the outcome."
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$id": "urn:candler:schemas:inspect-run",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One run: whether it is sealed, what it was read from, the provenance and the other values it\nmeasured, and its outcomes with their evidence.",
+  "properties": {
+    "ended_at": {
+      "description": "When the run ended."
+    },
+    "experiment": {
+      "description": "The digest of the experiment the run belongs to."
+    },
+    "host": {
+      "description": "The host the run was made on."
+    },
+    "import": {
+      "description": "What the run was imported from, for an imported run."
+    },
+    "integrity": {
+      "description": "The integrity verdict of the manifest."
+    },
+    "job": {
+      "description": "The job that made the run."
+    },
+    "measured": {
+      "additionalProperties": true,
+      "description": "The other measured values, by path.",
+      "type": "object"
+    },
+    "outcomes": {
+      "description": "The outcomes of the run, ordered by evaluator, then expectation, then newest request.",
+      "items": {
+        "$ref": "#/$defs/InspectOutcome"
+      },
+      "type": "array"
+    },
+    "provenance": {
+      "additionalProperties": true,
+      "description": "The measured values under `provenance.`, by path.",
+      "type": "object"
+    },
+    "run": {
+      "description": "The run key.",
+      "type": "string"
+    },
+    "schema": {
+      "const": "inspect-run/1",
+      "description": "The version marker of the document: always `inspect-run/1`.",
+      "type": "string"
+    },
+    "sealed": {
+      "description": "Whether the run is sealed.",
+      "type": "boolean"
+    },
+    "started_at": {
+      "description": "When the run started."
+    }
+  },
+  "required": [
+    "schema",
+    "run",
+    "sealed",
+    "provenance",
+    "measured",
+    "outcomes"
+  ],
+  "title": "InspectRun",
+  "type": "object"
+}
