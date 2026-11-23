@@ -13,7 +13,7 @@ Six read-only leaves judged the 63 inputs raised by the M7 pre-study, one report
 
 ## Round 01: the verdicts report (2026-11-23)
 
-- `01-findings_verdicts_v0.md` (latest): one verdict row per id, the seams, the triad, the blast radius, D1 to D3, the codes review, the responsibility record draft, design suggestions and the steering questions.
+- `01-findings_verdicts_v0.md`: one verdict row per id, the seams, the triad, the blast radius, D1 to D3, the codes review, the responsibility record draft, design suggestions and the steering questions.
 - `leaves/verdicts_v0.md`: the verifier's findings and their dispositions.
 
 ## Round 02: candidate inputs from HTN Phase 6 run 2 (2026-11-23)
@@ -34,13 +34,26 @@ Six read-only leaves judged the 63 inputs raised by the M7 pre-study, one report
 | N9a | Stored workspaces keep 0-byte placeholders for mounted server files | New observation |
 | N9b | No way found to set the harness's maximum output tokens | New observation |
 
+## Round 03: Eliott's rulings on the steering questions (2026-11-23)
+
+- `01-findings_verdicts_v1.md` (latest): v0 with the rulings below applied. G11 and C2 (with H1) move to `accept`; the build leaves grow to about 272 calls. Open: Q3 (answered with Eliott's question), the Q4 border, the round 02 candidates.
+
 ## Rulings
 
-Eliott's rulings on the verdicts report, one row per discussion round. Empty until the first round.
+Eliott's rulings on the verdicts report, one row per question and round.
 
 | Round | Question | Ruling |
 |:--|:--|:--|
+| 03 | Q1 default output format | JSON is the default for every data command |
+| 03 | Q2 `--format json` and errors | Errors are JSON by default too; `--format json` has no meaning; only a text option, a pretty print of the JSON |
+| 03 | Q3 samples and the five-section rule | Open: Eliott asked why a generated page needs a sample; answered in v1 |
+| 03 | Q4 guard for a box lacking a declared server | The box is the author's, but a check after the image build that the box holds what the experiment declares is wanted; fix the border of Candler's responsibility (drafted in v1, to confirm) |
+| 03 | Q5 where the estimate prints | Option A: in `resolve` |
+| 03 | Q6 Docker cause in `jobs.session_controls_failed` | Defer |
+| 03 | Q7 two senses of "stratum" | Align to the standard meaning (option A) |
+| 03 | Q8 name of the interval's reading | Option B |
+| 03 | Q9 path vocabulary offline | Option A: offline delivery is M7's responsibility |
 
 ## Status
 
-Verdict study, discussion not started. Round 02's candidates wait for Eliott to take them in or leave them out. The build session starts only after Eliott says Go, recorded in the rulings table.
+Verdict study, discussion round 03 ruled Q1, Q2 and Q4 to Q9. Q3, the Q4 border and round 02's candidates wait for Eliott. The build session starts only after Eliott says Go, recorded in the rulings table.
