@@ -44,7 +44,7 @@ Wire line: `schemas@0.11.3`.
 | `replicates` | `integer` | required | - |
 | `schema` | `"experiment/1"` | required | - |
 | `secrets` | `array of SecretName` | optional | `[]` |
-| `treatment` | `TreatmentSpec` | required | - |
+| `treatment` | `TreatmentSpec` | optional | - |
 | `treatment.commit` | `GitCommit` | optional | - |
 | `treatment.name` | `Name` | required | - |
 | `treatment.source` | `string` | optional | - |
