@@ -22,6 +22,7 @@ or file, or a message of the evaluator protocol.
 
 | File | Root type | Wire tag | R01 section |
 |---|---|---|---|
+| `analysis-report.schema.json` | `AnalysisReport` | `analysis-report/1` | Analysis statistics |
 | `catalog-snapshot.schema.json` | `CatalogSnapshot` | `tool-catalog-snapshot/1` | Wire schema: tool-catalog snapshot |
 | `child-record.schema.json` | `ChildRecord` | `child-record/1` | Process supervision |
 | `container-record.schema.json` | `ContainerRecord` | `container-record/1` | Process supervision (job dir) |
@@ -36,7 +37,7 @@ or file, or a message of the evaluator protocol.
 | `outcome-record.schema.json` | `OutcomeRecord` | none | Wire schema: outcome record |
 | `plugin-manifest.schema.json` | `PluginManifest` | `plugin-manifest/1` | Plug-in manifest |
 | `raw-frames.schema.json` | `RawRecord` | `raw-frames/1`, in the `header` record | Raw traces |
-| `refusal-record.schema.json` | `RefusalRecord` | `refusal/1` | Refusals (`--error-format json`) |
+| `refusal-record.schema.json` | `RefusalRecord` | `refusal/1` | Refusals (stderr, `--format text` for text) |
 | `run-manifest.schema.json` | `RunManifest` | `run-manifest/1` | Run manifest |
 | `run-tree.schema.json` | `RunTree` | `run-tree/1` | Run store (`tree.json`) |
 | `suite.schema.json` | `SuiteFile` | `suite/1` | Suite file |

@@ -787,6 +787,16 @@ fn wrapped_cases() -> Vec<Wrapped> {
         ),
         case(
             "ResolveError",
+            "Env",
+            Box::new(ResolveError::Env(
+                candler_core::resolve::steps::env::EnvRefusal::Reserved {
+                    name: "PATH".to_owned(),
+                },
+            )),
+            "experiment.env_reserved",
+        ),
+        case(
+            "ResolveError",
             "Format",
             Box::new(ResolveError::Format(format())),
             "resolve.value_invalid",
@@ -952,6 +962,7 @@ fn wrapped_cases() -> Vec<Wrapped> {
                 path: "s.toml".into(),
                 source: EvaluationError::EmptyList {
                     field: "expectations",
+                    entry: None,
                 },
             }),
             "suite.list_empty",
@@ -992,7 +1003,10 @@ fn wrapped_cases() -> Vec<Wrapped> {
             "Manifest",
             Box::new(RegistryError::Manifest {
                 path: "m.toml".into(),
-                source: EvaluationError::EmptyList { field: "f" },
+                source: EvaluationError::EmptyList {
+                    field: "f",
+                    entry: None,
+                },
             }),
             "suite.list_empty",
         ),

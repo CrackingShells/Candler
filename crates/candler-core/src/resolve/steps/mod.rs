@@ -3,6 +3,7 @@
 
 pub mod catalog;
 pub mod egress;
+pub mod env;
 pub mod gateway;
 pub mod ground_truth;
 pub mod identity;
@@ -23,6 +24,7 @@ use super::preflight::{ResolveError, Resolver};
 use crate::isolation::image::ImageService;
 use crate::runner::evidence::catalog::CatalogProvider;
 use crate::supervise::Supervisor;
+use candler_harness::skills::SkillTree;
 
 /// What the image, harness, treatment and catalog steps need from the outside.
 pub struct M2bServices {
@@ -38,6 +40,8 @@ pub struct M2bServices {
     pub harness_supported: semver::VersionReq,
     /// Whether the harness's driver runs sessions.
     pub session_capable: bool,
+    /// Where the harness reads the treatment's skills.
+    pub skills: SkillTree,
 }
 
 /// Registers the preflight steps on `resolver`, in the order their values depend on one another:
@@ -64,7 +68,7 @@ pub fn register_m2b_steps(
         Arc::clone(&services.images),
         services.harness_supported.clone(), // BORROW: the step owns its requirement
     )?;
-    let treatment = TreatmentIdentityStep::new(Arc::clone(&services.supervisor))?;
+    let treatment = TreatmentIdentityStep::new(Arc::clone(&services.supervisor), services.skills)?;
     let catalog = CatalogStep::new(Arc::clone(&services.catalog))?;
     let session = SessionModeStep::new(services.session_capable)?;
     let plugin_environment = PluginEnvironmentStep::new()?;

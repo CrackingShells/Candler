@@ -1,7 +1,7 @@
 # Second plug-in
 
 ## Context
-Depth 9, last. The second plug-in (M8, renamed from the old M6) against the core as it stands, in its own repository. M8 adds no core feature: a gap goes to "Future features" in `__design__/architecture.md`, and a blocking gap gets its own core milestone, decided then. Added by amendment A6 of `../../../../README.md`; nothing freezes here.
+Depth 10, last. The second plug-in (M8, renamed from the old M6) against the core as it stands, in its own repository. M8 adds no core feature: a gap goes to "Future features" in `__design__/architecture.md`, and a blocking gap gets its own core milestone, decided then. Added by amendment A6 of `../../../../../README.md`; nothing freezes here.
 
 ## Goal
 A second, unrelated plug-in has exercised the contract, and the gaps it found are on record.

@@ -77,7 +77,7 @@ chi-square test and the z test for two proportions, whose approximations are inv
 
 **Stops being valid.** When the runs within an arm are not independent draws with one pass
 probability; when the two arms were not run under comparable conditions (Candler compares cells only
-inside one comparable stratum, and reports a refused stratum as refused); and when the outcomes are
+inside one comparability class, and reports a refused comparison as refused); and when the outcomes are
 weighted, where the permutation test below applies.
 
 **Candler does not claim.** That a p-value above alpha shows the arms are equal: with a few runs
@@ -162,9 +162,9 @@ that Holm keeps.
 - **Adjustment across calls.** Each `analyze` call is its own family.
 - **Equality.** A non-rejection is not evidence of equality. Showing equivalence takes a different
   test.
-- **Paired tests.** The tests here are for independent arms. Paired tests are not offered yet.
-- **Comparisons outside a comparable stratum.** Comparisons exist only between cells in one
-  comparable stratum. A pair the stratum check refuses is reported as refused, with its cause, and
+- **Paired tests.** The runs are not paired, so a paired test does not apply. The tests here are for independent arms.
+- **Comparisons outside a comparability class.** Comparisons exist only between cells in one
+  comparability class. A pair the comparability check refuses is reported as refused, with its cause, and
   the rates of each of its cells are still reported.
 - **Independence.** The statistics treat the runs of an arm as independent. Candler cannot check
   that for you.

@@ -1021,6 +1021,16 @@ side = "environment"
 enum = "JobViewError"
 variant = "Read"
 
+[jobs."jobs.server_exited_at_start"]
+side = "experiment"
+enum = "ServerCheckError"
+variant = "Server"
+
+[jobs."jobs.server_check_failed"]
+side = "environment"
+enum = "ServerCheckError"
+variant = "ServerCheck"
+
 [evaluation]
 
 [evaluation."outcome.value_invalid"]
@@ -1360,6 +1370,11 @@ variant = "FactorBroaderThanVariation"
 side = "environment"
 enum = "ReportError"
 variant = "NoOutcomes"
+
+[analysis."analysis.no_stored_trace"]
+side = "config"
+enum = "ReportError"
+variant = "NoStoredTrace"
 
 [internal]
 
@@ -1928,3 +1943,23 @@ side = "experiment"
 enum = "EgressRefusal"
 variant = "Unsupported"
 lifted = "`isolation.egress` is accepted and enforced by the egress proxy."
+
+[resolve."experiment.env_reserved"]
+side = "experiment"
+enum = "EnvRefusal"
+variant = "Reserved"
+
+[resolve."experiment.env_secret"]
+side = "experiment"
+enum = "EnvRefusal"
+variant = "Secret"
+
+[resolve."experiment.env_name_invalid"]
+side = "experiment"
+enum = "EnvRefusal"
+variant = "Invalid"
+
+[resolve."experiment.env_source"]
+side = "experiment"
+enum = "EnvRefusal"
+variant = "Source"

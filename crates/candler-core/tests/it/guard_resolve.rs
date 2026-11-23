@@ -822,3 +822,136 @@ async fn value_at_refuses_a_bad_path_as_failed() -> Result<(), Box<dyn std::erro
     assert!(ctx.value_at("model.id")?.is_none());
     Ok(())
 }
+
+/// Guards: I12 — an experiment whose `request.treatment` factor gives each level its source and
+/// tag needs no `[treatment]` table; one with neither a table nor that factor is refused for the
+/// missing treatment; and a level that names no source is still refused by the treatment step.
+/// Oracle: the files and the level written below; the refusal words are the step's own.
+/// Bite: demand the `[treatment]` table again when the factor holds the treatment.
+#[tokio::test]
+async fn treatment_factor_needs_no_default() {
+    struct Silent;
+    impl candler_core::supervise::EventSink for Silent {
+        fn emit(
+            &self,
+            _run: Option<&candler_schemas::primitives::RunKey>,
+            _payload: candler_schemas::execution::EventPayload,
+        ) {
+        }
+    }
+    let file = |factors: &str| {
+        let text = format!(
+            "schema = \"experiment/1\"\nreplicates = 1\n\n[[factors]]\npath = \"model.id\"\nlevels = [\"m1\"]\n{factors}\n[budget.per_run]\nwall_s = 3600\n\n[harness]\nname = \"claude-code\"\n"
+        );
+        candler_schemas::execution::ExperimentFile::from_toml_str(&text)
+    };
+    let factor = "\n[[factors]]\npath = \"request.treatment\"\nlevels = [{ name = \"a\", tag = \"v1\", source = \"/a\" }, { name = \"b\", tag = \"v2\", source = \"/b\" }]\n";
+    let parsed = file(factor);
+    assert!(parsed.is_ok(), "{:?}", parsed.err().map(|e| e.to_string()));
+    let refused = file("").err().map(|e| e.to_string()).unwrap_or_default();
+    assert!(refused.contains("treatment"), "{refused}");
+
+    let root = tempfile::tempdir().expect("a temp dir");
+    // TRAIT_OBJECT: the supervisor reports to no job
+    let sink: Arc<dyn candler_core::supervise::EventSink> = Arc::new(Silent);
+    let supervisor = Arc::new(candler_core::supervise::Supervisor::new(sink));
+    let step = candler_core::resolve::steps::identity::TreatmentIdentityStep::new(
+        supervisor,
+        candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills"),
+    )
+    .expect("a step");
+    let level = FileValues::new(vec![(
+        fp("request.treatment"),
+        JsonValue::new(json!({"name": "a", "tag": "v1"})).expect("a JSON value"),
+    )]);
+    let error = Resolver::new(Arc::new(empty_config(root.path())))
+        .register(Box::new(step))
+        .expect("registers")
+        .resolve(ResolveInput::default().file(level))
+        .await
+        .expect_err("a level with no source is refused");
+    assert!(error.to_string().contains("names no source"), "{error}");
+}
+
+fn table(pairs: &[(&str, &str)]) -> JsonValue {
+    let map: serde_json::Map<String, serde_json::Value> = pairs
+        .iter()
+        .map(|(name, text)| ((*name).to_owned(), json!(text)))
+        .collect();
+    JsonValue::new(serde_json::Value::Object(map)).expect("a JSON value")
+}
+
+/// Guards: an `env` entry of the experiment file is a cell value: it resolves into the values,
+/// never into the settings, with its text as written, and two files that differ in one value
+/// resolve to different values, which is what the cell digest hashes.
+/// Oracle: the class of a path is `Value` when the path table says so; the paths and texts are
+/// written by hand.
+/// Bite: treating `env` as an operational setting, which keeps it out of the cell digest.
+#[test]
+fn env_enters_the_cell_digest() {
+    let root = tempfile::tempdir().expect("a temp dir");
+    let config = empty_config(root.path());
+    let resolve = |value: &str| {
+        let input = ResolveInput::default().file(FileValues::new(vec![
+            (fp("env"), table(&[("TOOL_MODE", value)])),
+            (fp("run.seed"), num(7)),
+        ]));
+        Layered::new(&config, input).expect("layers").resolve()
+    };
+    let first = resolve("fast");
+    let second = resolve("slow");
+    assert_eq!(value_paths(&first), vec!["env", "run.seed"]);
+    assert!(!setting_paths(&first).contains(&"env"));
+    let entry = first
+        .values
+        .iter()
+        .find(|v| v.path() == &fp("env"))
+        .expect("a value");
+    assert_eq!(
+        entry.value().map(JsonValue::as_value),
+        Some(&json!({"TOOL_MODE": "fast"}))
+    );
+    assert_ne!(first.values, second.values);
+}
+
+/// Guards: the names Candler sets and a declared secret's name are refused before any value
+/// resolves, and the refusal names the key `env.<NAME>`.
+/// Oracle: the four names the container plan sets and the secret's name, written by hand.
+/// Bite: dropping a name from the reserved list, or checking only the file layer.
+#[test]
+fn reserved_env_names_are_refused() {
+    let root = tempfile::tempdir().expect("a temp dir");
+    let config = empty_config(root.path());
+    let cases = [
+        ("PATH", "Reserved"),
+        ("HOME", "Reserved"),
+        ("VIRTUAL_ENV", "Reserved"),
+        ("LANG", "Reserved"),
+        ("OPENAI_API_KEY", "Secret"),
+        ("A=B", "Invalid"),
+        ("A B", "Invalid"),
+        ("1ST", "Invalid"),
+    ];
+    for (name, kind) in cases {
+        let input = ResolveInput::default()
+            .file(FileValues::new(vec![(fp("env"), table(&[(name, "x")]))]))
+            .secret_names(vec![String::from("OPENAI_API_KEY")]);
+        let error = Layered::new(&config, input).expect_err("a refusal");
+        assert!(matches!(error, ResolveError::Env(_)), "{name}: {error}");
+        let text = error.to_string();
+        assert!(text.contains(&format!("`env.{name}`")), "{text}");
+        let refused = format!("{error:?}");
+        assert!(refused.contains(kind), "{name}: {refused}");
+    }
+    let explicit = ResolveInput::default().explicit(fp("env"), js("x"));
+    let error = Layered::new(&config, explicit).expect_err("a refusal");
+    assert!(matches!(error, ResolveError::Env(_)), "{error}");
+    assert!(error.to_string().contains("`env`"), "{error}");
+    let allowed = ResolveInput::default()
+        .file(FileValues::new(vec![(
+            fp("env"),
+            table(&[("TOOL_MODE", "x")]),
+        )]))
+        .secret_names(vec![String::from("OPENAI_API_KEY")]);
+    assert!(Layered::new(&config, allowed).is_ok());
+}

@@ -114,6 +114,29 @@ graph TD
 | Evaluators (plug-in) | Domain science over trace + artifacts + snapshots + inputs + metadata | Layout, statistics, which runs an expectation applies to |
 | Analysis | The selection rule, rates, tests, intervals, multiplicity; JSON or CSV tables | Re-deciding any outcome; drawing figures |
 
+### Documents and surfaces
+
+**Four audiences, one source per fact.** Candler's text is written for four audiences. Each fact has one source, and every other place that shows it is generated from that source or does not show it.
+
+| Audience | Serves | Files | May hold | May not hold | Source of truth |
+|:--|:--|:--|:--|:--|:--|
+| Store window | a person or agent deciding whether Candler fits | `README.md` | what Candler is and is not, its main features, a quick start, the way to more | crate or verb inventories, version numbers, plans, anything a code fact owns | hand-written, short, with no copy of a code fact |
+| Web-wide | a visitor who reads, with internet, what Candler specifies | `docs/` (contract pages, statistics, config pages), `crates/candler-schemas/schema/` | reference: fields, rules, refusals, versions, method and caveats | design rationale, roadmap, contributor rules | tables and samples generated from schemas, manifests, `codes.toml`, the path table and fixtures that tests parse, under a drift test; hand text only where generation cannot speak (Surface, Notes, method prose) |
+| Interactive | an agent or person using Candler in an isolated environment, offline | the CLI (`--help`, refusals, JSON), the MCP server, the skills, the package docstrings | everything the caller needs to act: values, domains, exit codes, the same facts the web pages show | a link to `docs/`, a URL, a pointer that needs a network; a hand copy of a fact | the binary and the package: the same schemas, registry and tables the pages are generated from |
+| Development | an agent or person who changes Candler | `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `__design__/`, `__reports__/`, `__roadmap__/` | rules, rationale, plans, history | a consumer entry point; a claim a consumer relies on and no guard checks | hand-written; a rule a test can hold is held by a guard |
+
+**The offline rule.** The interactive surfaces (CLI, MCP, skills) are self-contained and work with no network: they never link to `docs/` and never need it. What a page of `docs/` says that an interactive caller needs must reach that caller from the same source, through the binary or the package. The rule requires of the MCP server only that its content is served from what it ships; the shape of its tools and resources is decided when the server is planned. The generator of the config pages is test code, so offline delivery of the path vocabulary and the config keys is not built yet.
+
+**Consequences.**
+1. A hand copy of a code fact, in any audience, is a second source: remove it or generate it.
+2. A page never says in prose what a guard or a refusal already says.
+3. Web pages may link each other and the repository; interactive text may not link them.
+4. A fact two items would both own gets one owner in the owning crate; pages are slices of it.
+
+One named exception to (1): an example a test imports may repeat a signature (the helper's author page).
+
+**The box border.** The experiment file declares what the box must hold: its servers, the treatment's skill, its read-only mounts. Candler builds the box from those declarations and the author's build context. Software the agent uses at run time, MCP servers included, belongs in the image build; read-only mounts are for the files the agent works on (data, or code it analyses, even when that code is an MCP server). Candler is responsible that each declared stdio server starts in the box it built: once per job, before the first run, in a container set up as a run's, each server's start command must start and stay up, or the job is refused. Whether a server answers MCP correctly once started is recorded by the harness's census at each run; what the author's build context adds beyond the declarations is the author's.
+
 ### Workspace
 
 crates.io has one flat namespace without organisation scopes, so crates carry the project prefix
@@ -321,29 +344,29 @@ field path is dotted: `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`.
 | `candler ls` | Lists experiment files under `<project root>/experiments/`, recursively, plus any path given; with no project, under `./experiments/`. A TOML file that does not parse as `experiment/1` is listed as skipped, with the reason |
 | `candler ps` | Lists jobs with id, experiment, state, progress |
 | `candler kill <id> \| --all` | Stops jobs; asks for confirmation unless `--yes` / `-y` |
-| `candler watch <id> [--json \| --live]` | Follows a job's events: `--json` (default) prints event records, `--live` draws progress |
+| `candler watch <id> [--live]` | Follows a job's events: it prints event records by default; `--live` or `--format text` draws progress |
 | `candler ingest <path>...` | Turns raw harness trace directories (one run per stream; the registry's drivers recognise the stream and supply the reader) into runs; with `--rules <file>`, imports a legacy results folder under the import rules the TOML file states. It runs to completion in the caller, repeats to the same store and is safe to interrupt; `candler import` stays as a hidden alias for a results folder |
-| `candler resolve <experiment \| suite>` | Prints every resolved value with its source and runs the preflight; starts no job |
+| `candler resolve <experiment>` | Prints every resolved value with its source and runs the preflight; starts no job |
 | `candler inspect <run dir \| key prefix \| job id>` | Shows the run, or the job's runs, with outcomes, evidence, provenance and integrity, deriving the store from a run directory |
-| `candler analyze [--evaluator <name@version \| version>] [--experiment <file>] [--format json\|csv]` | Reports rates, Wilson intervals and pairwise tests (§Analysis statistics). It finds the experiment file by the digest the runs' manifests name, under `<project root>/experiments/`; `--experiment` names it when it lives elsewhere |
+| `candler analyze [--evaluator <name@version \| version>] [--experiment <file>] [--format json\|csv]` | Reports rates, Wilson intervals and pairwise tests (§Analysis statistics). It reads the experiment file `--experiment` names |
 | `candler evaluate <suite> [<job-id> \| --runs <glob>]` | Starts the evaluate job, prints its id on stderr, follows it and prints the report; Ctrl-C cancels it. With no selection it grades the runs with no complete outcome set for the suite's evaluator versions |
-| `--error-format text\|json` | Global option: the form of a refusal on stderr (below) |
+| `--format text` | On every verb: the text rendering of the output, and of a refusal on stderr (below); without it a data verb prints its JSON record and a refusal prints one `refusal/1` record |
 | `candler show`, `diff` | The other operations |
 
 Every verb reads one store root: `--store <dir>`, given anywhere on the line, else `CANDLER_STORE`,
 else the configuration's `store.root`, else the default above, as `resolve` layers them. A verb
 that finds none refuses, naming the three ways to give one.
 
-**Terminals.** `watch` prints event records (`--json`) by default, and `--live` draws progress.
+**Terminals.** `watch` prints event records by default, and `--live` draws progress.
 Colour is on only when stdout is a terminal and `NO_COLOR` is unset; there is no `--no-color`. The
 binary embeds the container assets with `include_bytes!` and writes them to a cache keyed by their
 digest, so it runs from any directory.
 
-The global option `--error-format text|json` defaults to `text`; `json` writes one `refusal/1`
-record per line on stderr. It is neither derived nor a file setting: what parses the caller's
-stderr is not visible from the terminal, and a refusal can come before any file is read. Deriving
-it from whether stderr is a terminal would hand JSON to a human who pipes and text to an agent
-behind a pty.
+Every data verb prints its record as JSON on stdout, and a refusal prints one `refusal/1` record
+per line on stderr. The option `--format text` asks for the text rendering of both. It is neither
+derived nor a file setting: what parses the caller's output is not visible from the terminal, and a
+refusal can come before any file is read. Deriving it from whether a stream is a terminal would hand
+JSON to a human who pipes and text to an agent behind a pty.
 
 "Experiment" names the file that declares factors, levels, replicates and budget (today's
 `run_config` YAML). The experiment is never called a plan, which collides with HTN planning: the
@@ -381,7 +404,7 @@ names.
   the job running, as it does for any job. Two evaluations over the same runs at once may grade a
   run twice; the readers (`show`, `analyze`, `diff`, the pending selection) take the current
   record under each I4 key, so the run counts once. A claim per run is not in place.
-- **Order of delivery:** `run` + events + `ps` + `kill` → `watch --json` → `ls` + `watch --live`.
+- **Order of delivery:** `run` + events + `ps` + `kill` → `watch` → `ls` + `watch --live`.
 
 ### Run identity and resume
 
@@ -915,8 +938,8 @@ through stdin and stdin stays open, so a notification starts a further turn.
   control. Every session run records `session.control` (the record's path and digest) in
   `measured[]`, outside the cell digest. A model's behaviour never refuses a run.
 - **Tool inventory.** The census (`census.tools`, `census.init_tools`) is captured per run; when
-  `census.init_tools` differs between arms of one stratum that no declared `tools.*` or `mcp.*`
-  factor explains, that stratum is refused (I7). Claude Code reports the list at each turn's start
+  `census.init_tools` differs between arms of one comparability class that no declared `tools.*` or `mcp.*`
+  factor explains, that comparability class is refused (I7). Claude Code reports the list at each turn's start
   (`init` is emitted again every turn), so the core takes the first init that lists tools.
 
 ## Plug-ins
@@ -1157,7 +1180,7 @@ host?, job?, integrity, import?, evaluation_inputs[]?}`.
 `provenance.`. A value the build or the run cannot know is left out, never recorded as `false` or
 as an empty string. A verdict reads three of them (the gated paths); the rest describe the run.
 
-| Path | Meaning | Gates a stratum |
+| Path | Meaning | Gates a comparability class |
 |---|---|---|
 | `provenance.eval_infra.commit` | The commit the binary was built from, 40 hexadecimal digits | Yes: every arm records it as a non-empty string, and the arms agree |
 | `provenance.eval_infra.dirty` | Whether the sources the binary is built from differed from that commit | Yes: every arm records it, and it is `false` |
@@ -1184,19 +1207,19 @@ and the analysis reads them. The build's identity comes from the first origin th
    tag defaults to `v<version>`;
 4. otherwise the tag `v<version>` alone, with `commit` and `dirty` unrecorded.
 
-**Imported strata.** An arm is imported if and only if its manifest holds `import`. A stratum that
-mixes imported and live arms is refused, naming `import`. A stratum of imported arms swaps the
+**Imported comparability classes.** An arm is imported if and only if its manifest holds `import`. A comparability class that
+mixes imported and live arms is refused, naming `import`. A class of imported arms swaps the
 gate on `measured[]` provenance for the import's own record, since the legacy folder recorded the
-build in `comparable.values` and no run measured it. The stratum is refused unless every arm
+build in `comparable.values` and no run measured it. The class is refused unless every arm
 records the digest of its import rules and the arms agree (`import.rules`; an import without
 rules is refused), and every arm records `provenance.eval_infra.commit` (a non-empty string),
 `provenance.eval_infra.dirty` and `provenance.sandbox_contract` in `comparable.values` with equal
 values. The verdict compares these three itself, so no declared factor pools arms of two legacy
 builds. A dirty legacy build does not refuse: arms that agree on commit, flag, contract and rules
-pool, on the assumption that one legacy launch is one checkout. Live strata keep the gate above. Among
+pool, on the assumption that one legacy launch is one checkout. Live classes keep the gate above. Among
 imported arms only, an undeclared value path that differs is also dropped when `request.treatment`
 is declared, the arms' treatments differ and the path's levels map one to one onto the treatment
-levels over every arm of the stratum; a live stratum gets no such exemption.
+levels over every arm of the class; a live class gets no such exemption.
 
 **Session and census measures.** A session run records the `session.*` values of §Session runner
 and `session.control`. A census whose source is not the harness's own init event also records
@@ -1400,6 +1423,8 @@ block with cells at both levels; `Comparison.a` and `.b` are the first cell of e
 
 ### Readings
 
+The analysis record names an interval's reading `interval_reading`; its values are below.
+
 - "effect": the interval excludes 0 (for CMH and the exact conditional test, the odds-ratio interval
   excludes 1, and the risk-difference fields are empty).
 - "inconclusive": the interval spans 0, or has no width (a flat bootstrap).
@@ -1410,7 +1435,7 @@ block with cells at both levels; `Comparison.a` and `.b` are the first cell of e
 - **Holm** runs over one comparison's gate expectations, and separately over its quality
   expectations: one family per comparison and role. A descriptive entry is never rejected.
 - **What a run counts for.** An invalid run is in neither k nor n; it is reported per arm with its
-  reason, and an end the experimenter caused is never charged to an arm. A pair the stratum verdict
+  reason, and an end the experimenter caused is never charged to an arm. A pair the comparability verdict
   refuses is reported as refused, with its cause and its rates.
 - **Constants.** α is 0.05, recorded with the source `core_default`; there is no option.
 - **I5.** Only gate and quality outcomes are tested, and no model call is made.
@@ -1418,7 +1443,7 @@ block with cells at both levels; `Comparison.a` and `.b` are the first cell of e
 ### The treatment as a factor, and the importer
 
 The factor path is `request.treatment`. Its levels are tables (§Experiment file), each resolved
-once at plan time, and each cell runs with its own level. The stratum verdict explains a difference
+once at plan time, and each cell runs with its own level. The comparability verdict explains a difference
 in env lock, image or build inputs only when `request.treatment` is declared and the levels differ.
 An import declares `request.treatment` when the imported cells' typed treatments differ, and drops
 a value path whose levels map one to one onto the treatment's levels, so an imported store and its
@@ -1577,7 +1602,7 @@ request files under the new evaluator version; `diff` compares versions.
 | Per-run cap reached | Valid run; `ended_by = cap` |
 | Job budget, kill, supervisor lost | Run `invalid` (`budget_stop` / `killed` / `interrupted`) |
 | Resume finds a re-checked value changed | Refused unless forced; a forced deviation is recorded per run |
-| Arms differ outside declared factors | The stratum is invalid; comparisons are refused |
+| Arms differ outside declared factors | The comparability class is invalid; comparisons are refused |
 | Dirty instrument asked to grade a gate or quality expectation | `resolve` fails |
 | An input that would put ground truth inside the isolation boundary | `resolve` refuses with `isolation.ground_truth_exposed` (side `experiment`); no run starts |
 
@@ -1754,8 +1779,8 @@ by the original artifact commit `36290ab`, and is imported under `measured`. At 
 What is not built, and what would make us build it. An item is built when its trigger is met by
 evidence, not by a date, and no milestone builds one on spec: a milestone needs an item's trigger
 first. Candler stays at `0.y.z` through a long dogfooding period, so no item here waits on a freeze.
-Decided and scheduled work is not listed: M6a builds the paired tests and settles the pairing keys, the
-execution order and the blocking factor (recorded in §Analysis statistics); M7 builds the MCP tool
+Decided and scheduled work is not listed: M6a settles the execution order and the blocking factor
+(recorded in §Analysis statistics); M7 builds the MCP tool
 shapes and the agent skills; M8 builds the second plug-in and adds its gaps to this list. The
 container backend is decided (M2b): Docker through its CLI, one `docker run` per run; `Isolation`
 turns a plan into a spawn request, then collects and destroys.
@@ -1767,7 +1792,7 @@ turns a plan into a spawn request, then collects and destroys.
 | Plug-in sidecar services | A service the plug-in starts beside the agent container, such as a server stub the agent talks to; its second consumer is an MCP server that reaches a real system with a secret (HTN's rikyu servers), run on the runner side as the model gateway holds its key, never in the agent container | An eval's hidden state cannot sit in the workspace or the plug-in's own process | An eval whose hidden state can't live outside the agent container |
 | Pre-destroy collection from the agent container | A hook that copies named files or process facts out of the container before `destroy` | The in-workspace process record may miss what ran in the container | M8's in-workspace process record proves insufficient |
 | Whole-container census and the long-lived handle | `create`, `exec`, `inject` and a whole-container `census` on one container handle | A process the agent starts outside the workspace tree, visible only from inside the container | M8's gap report names a stray that the in-workspace record missed |
-| macOS host backend | An `Isolation` that runs the agent on the host, as its own stratum | Behaviour that differs between BSD and GNU tools | An eval comparing BSD and GNU behaviour |
+| macOS host backend | An `Isolation` that runs the agent on the host, as its own comparability class | Behaviour that differs between BSD and GNU tools | An eval comparing BSD and GNU behaviour |
 | Environment kinds | A declared kind for the agent environment, with the Python venv as the first kind | Agents whose environment is not a Python venv | A second agent environment that isn't Python |
 | Outcome injection | The core acts inside a running container at a time the agent does not see | A hidden event the eval must deliver mid-run | An eval that must act inside the container at a hidden time |
 | `isolation.image` content identity | A comparable identity for the image a cell ran in; with it, collection of orphaned env images | Two runs on rebuilt images cannot be told apart or compared | Eliott's decision on comparable identity |
@@ -1787,6 +1812,7 @@ turns a plan into a spawn request, then collects and destroys.
 | Proxy denial record | A job-level record of the connections the egress proxy refuses, written the way the model gateway logs: a stream `log_format` (`escape=json`, `key=value`, the agent-written SNI last and quoted) on a refusal-only `access_log`, with `egress.js` closing a refusal with `s.done(403)` instead of a bare `s.done()`; read at teardown by `GatewayLogs::read_since` on the proxy container with a parser beside `census_of`; one raw JSONL per proxy, keyed by allowlist digest; `inspect` shows one job-level line, zero included. Best-effort: a failed read never invalidates a run, and the record stays out of `measured[]`, the cell digest and `classify_end` (I5, I7). About 6 files, with no `codes.toml`, schema or wire change | Only a listed name misused reaches the proxy (a wrong or missing SNI on a listed port, or a name resolving to loopback or link-local); an unlisted name fails DNS in the agent, an unlisted port is reset, a literal IP has no route, so no record ever means "no attempt". One proxy serves every cell of an allowlist concurrently and the agent IP is not stored, so the record is per job, not per run. Untested: the `$status` njs sets, the nginx text of a wrong-SNI close (it may need `error_log`), Docker Desktop vs Linux. Study: 2026-11-17, deferred by Eliott | An eval that must count or explain denied hosts |
 | Gateway image tag as a content key | `SIDECAR_TAG` (`candler-gateway:latest`) replaced by a content key, with the product building the image | The tag is not a content key and the product never builds it | A product path that builds or pulls the gateway image |
 | Parallel container e2e (D4) | Run the container end-to-end tests in parallel | Shorter CI | A per-test analysis of sweep scope shows no overlap |
+| `env` across cells | A factor over the experiment's `env` table, so one job varies an environment variable | Today `env` has one source, the `[env]` table, and `resolve` refuses it as a factor | An experiment that needs two values of one variable in one job: a user running two jobs only to change a variable, or a request for a factor over `env` |
 
 ### Experiments and analysis
 
@@ -1797,16 +1823,25 @@ turns a plan into a spawn request, then collects and destroys.
 | Event kinds beyond the first set | New kinds in the event log | A harness fact the first set cannot carry | A driver or surface that needs one |
 | Slot count and store root defaults | Better defaults for both | The first values were chosen before real use | Dogfooding shows a default that users override |
 | `snapshots[]` and `inputs[]` | Needs the registry refuses today (unimplemented) | An eval that declares them | The first eval that declares one |
-| Two counts and a regrade gap | `show` without `--rates` and `inspect` count every current record, and `--pending` does not regrade a run after its suite entry's params change | One count per fact | A user-visible mismatch in a report |
+| Two counts, a regrade gap and double grading | `show` without `--rates` and `inspect` count every current record; `--pending` does not regrade a run after its suite entry's params change; two concurrent evaluations can grade one run twice | One count per fact, and a regrade that follows params | A user-visible mismatch in a report, or a double-graded run seen in a store |
 | One sealing step for importers (B4) | An importer whose trace reader fails seals the run invalid, as raw ingest does | One integrity rule for every import | Eliott's ruling; no external user depends on today's behaviour |
-| One `Comparable` diff (B10) | One diff for the stratum verdict | Fewer copies | A change to the shape of recorded deviations |
+| One `Comparable` diff (B10) | One diff for the comparability verdict | Fewer copies | A change to the shape of recorded deviations |
 | fsync budget and streaming import (B6, B8) | A bounded fsync cost and an import that streams | Crash guards cost time, and a large import peaks in memory | A measured cost or memory peak that hurts |
-| Static tool catalog, `as_bytes`, schemas for CLI outputs, refusal codes, shared outcome vectors (C5, C9, C10–C12) | Small consistency work | Fewer drifting copies | The next change that touches one of them |
+| Static tool catalog, `as_bytes`, refusal codes, shared outcome vectors (C5, C9, C10–C12) | Small consistency work | Fewer drifting copies | The next change that touches one of them |
 | `lock_split` | `lock_split` reads the plug-in's requirements from the fragment and the experiment's from the resolved value | The two sources can disagree | A plug-in whose fragment and resolved requirements differ |
 | Paired designs | McNemar for designs that pair runs | Runs are unpaired today (§Analysis statistics) | A design that pairs replicates |
 | Declared margin | A margin declared in the experiment, read with TOST | "No difference" is never stated today | An experimenter who needs equivalence |
 | Remaining digest copies | Jobs and isolation still hand-roll digests (`controls.rs`, `runtime/session.rs`, `runtime/launch.rs`, `image.rs`); with `Digest::of_bytes` in use, `import::digest_of` and its re-export go too | One digest constructor | The next change to one of them |
 | Dead public API | `supervise::platform::parse_proc_stat` has no user outside its module | Less surface | The next change to the module |
+| Declared-versus-census check | The run compares the cell's declared MCP servers and tools with the census the harness reports at start, and flags a run whose box lacks one | A box can differ from its files and only a census read shows it | A run on the tip, or a model-free test, whose census differs from the cell's declared servers or tools after `1e6dc91a` (an earlier defect predates that fix and is not counted). A start-command check before each job's first run is built; this row is the run-time comparison, which also catches a server that starts but does not answer MCP |
+| Bind-mount probe on the store root | A resolve step that mounts the store root into a throwaway container and refuses with the Docker error named | A store on a path the Docker host cannot share fails every run late | A second bind-mount failure of a run or control. Naming the Docker cause in `jobs.session_controls_failed` waits with it |
+| Docker lock and `candler gc` | A lock the call holds around image builds, and a verb that lists, with a dry run, then removes a store's own images, containers and networks | Concurrent builds of one tag, and env images that pile up per store | Two concurrent resolves or runs that fail or build twice on one tag. (Deciding the `isolation.image` content identity row unblocks `gc` but is a decision, not evidence.) |
+| Reported model and errata | Record the model the endpoint reports as a `provenance.*` value, only as the stream or gateway gives it; an errata file of commit ranges known to give invalid runs, with a `check` | A run's validity depends on a Candler commit and the alias hides which model answered | (a) a captured live stream or gateway log of a real run that carries a model field; (b) a second defect after `1e6dc91a` that invalidates stored runs and that the recorded commit does not already let `compare` refuse |
+| Check a plug-in and a suite without a job | Expose `check_suite` and `describe` as one operation | Fewer wasted job starts for plug-in authors | A plug-in author (or the HTN lane) loses a job start to a fault `check_suite` would have reported, shown in a report |
+| Glossary page | One page of the terms the contract pages use, each entry quoting its owner's doc comment | A consumer reads cell, arm, stratum or block in the wrong sense, or the MCP server needs an undefined term | A recorded misreading by a consumer agent, or the MCP planning names the term. "Stratum" means a block; the comparability sense is "comparability class" |
+| Token sums in reports | `analyze` and `inspect <job>` sum tokens beside cost | `run.usage` is the harness's own shape, so sums differ by harness | A second harness whose usage shape the first sum cannot read, or a report that needs tokens |
+| Treatment layer in a plug-in's build context | Accept `treatment:` in a plug-in fragment's `isolation.build.context`, so a plug-in ships one "install the skill's own package" layer | Each experiment declares the dockerfile and `treatment:` context pair itself today | A second plug-in needs the same layer, or two experiments of one plug-in diverge in that pair; first read why `plugin_environment.rs:310-322` takes the value as a path |
+| Merge of the dependency-code twins | Retire `suite.dependency_*` or `evaluation.dependency_*` into one | One fault at two stages | An MCP client matches on one and not the other |
 
 ### Tests, CI and the harness trait
 

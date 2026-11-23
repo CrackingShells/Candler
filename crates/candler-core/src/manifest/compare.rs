@@ -1,4 +1,4 @@
-//! Whether two runs may be compared: their comparable records and the verdict per stratum.
+//! Whether two runs may be compared: their comparable records and the verdict per comparability class.
 //!
 //! Paths are compared by whole segments, never by characters: `model.id` covers `model.id.x` and
 //! never `model.idx`. A value's path is its own dotted path; the harness contributes
@@ -23,20 +23,20 @@ const INIT_TOOLS_PATH: &str = "census.init_tools";
 const INIT_SOURCE_PATH: &str = "census.source";
 
 /// The measured path of the commit the evaluation infrastructure was built from. A verdict needs
-/// it recorded, and equal across the runs of a stratum.
+/// it recorded, and equal across the runs of a comparability class.
 const EVAL_INFRA_COMMIT_PATH: &str = "provenance.eval_infra.commit";
 
 /// The measured path that says whether the evaluation infrastructure had uncommitted changes. A
 /// verdict needs it recorded, and false in every run.
 const EVAL_INFRA_DIRTY_PATH: &str = "provenance.eval_infra.dirty";
 
-/// The measured path of the sandbox contract, which must agree across the runs of a stratum.
+/// The measured path of the sandbox contract, which must agree across the runs of a comparability class.
 const SANDBOX_CONTRACT_PATH: &str = "provenance.sandbox_contract";
 
-/// The path an imported stratum is refused at when it mixes imported and live arms.
+/// The path an imported comparability class is refused at when it mixes imported and live arms.
 const IMPORT_PATH: &str = "import";
 
-/// The path an imported stratum is refused at when the arms were not read with one set of import
+/// The path an imported comparability class is refused at when the arms were not read with one set of import
 /// rules, or an arm does not record them.
 const IMPORT_RULES_PATH: &str = "import.rules";
 
@@ -61,17 +61,17 @@ const TYPED_ROOTS: &[&str] = &[
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum VerdictError {
-    /// An arm whose record cannot be compared; the stratum has no verdict.
+    /// An arm whose record cannot be compared; the comparability class has no verdict.
     #[error("malformed arm: {problem} ({path})")]
     Malformed {
         /// What is wrong.
         problem: &'static str,
-        /// The list, path or manifest field it concerns; empty when it concerns the stratum.
+        /// The list, path or manifest field it concerns; empty when it concerns the comparability class.
         path: String,
     },
 }
 
-/// Whether the arms of a stratum are comparable.
+/// Whether the arms of a comparability class are comparable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Verdict {
@@ -79,7 +79,7 @@ pub enum Verdict {
     Comparable,
     /// The arms differ elsewhere, at these paths, sorted and without duplicates.
     Refused(Vec<FieldPath>),
-    /// An arm could not be read; no verdict was computed for the stratum.
+    /// An arm could not be read; no verdict was computed for the comparability class.
     Malformed(Vec<VerdictError>),
 }
 
@@ -411,7 +411,7 @@ fn tools_unexplained(one: &ArmView, other: &ArmView, declared: &[FieldPath]) -> 
     differ && !factor_varies
 }
 
-/// The provenance paths that keep a stratum from a verdict, each named by the path that refused.
+/// The provenance paths that keep a comparability class from a verdict, each named by the path that refused.
 /// A gated path never counts as equal when it is unrecorded: an arm that did not record it
 /// identifies nothing, so it matches no other arm, itself included.
 /// - `provenance.eval_infra.commit` when any arm did not record it (an empty string or a value that
@@ -457,8 +457,8 @@ fn provenance_refused(views: &[&ArmView]) -> Vec<FieldPath> {
         .collect()
 }
 
-/// The paths that keep a stratum of imported arms from a verdict, each named by the path that
-/// refused. The import recorded its own identity, so the stratum is gated on that instead of on
+/// The paths that keep a comparability class of imported arms from a verdict, each named by the path that
+/// refused. The import recorded its own identity, so the comparability class is gated on that instead of on
 /// the measured provenance:
 /// - `import.rules` when any arm did not record the digest of its import rules, or the arms
 ///   record different ones;
@@ -535,7 +535,7 @@ pub fn maps_one_to_one(cells: &[(String, Option<String>)]) -> bool {
 
 /// Whether a value path that differs between imported arms is the declared treatment's own
 /// doing: `request.treatment` is declared, the arms' typed treatments differ, and the levels of
-/// the path map one to one onto the treatments over every arm of the stratum.
+/// the path map one to one onto the treatments over every arm of the comparability class.
 fn tracks_treatment(views: &[&ArmView], declared: &[FieldPath], path: &FieldPath) -> bool {
     if !declared
         .iter()
@@ -564,18 +564,18 @@ fn tracks_treatment(views: &[&ArmView], declared: &[FieldPath], path: &FieldPath
     differ && maps_one_to_one(cells.as_slice())
 }
 
-/// Whether the arms of a stratum are comparable, given the factors the experiment declares.
+/// Whether the arms of a comparability class are comparable, given the factors the experiment declares.
 ///
 /// Every arm is diffed against the first. A deviation is dropped when a declared factor covers
 /// it; the arms' own `factors[]` is never read. `census.init_tools` differing between any two
 /// arms is a deviation unless a declared `tools.*` or `mcp.*` factor itself differs between those
 /// two arms, so two arms that agree on every such factor must agree on the tool list. The check
-/// always runs. A stratum of live arms is also refused on the provenance that says whether the
+/// always runs. A comparability class of live arms is also refused on the provenance that says whether the
 /// runs came from the same Candler: see `provenance_refused`. An arm that could not be read gives
-/// no verdict, whatever the other arms hold, and a stratum with no arm has none either.
+/// no verdict, whatever the other arms hold, and a comparability class with no arm has none either.
 ///
-/// An arm is imported if and only if its manifest holds an import record. A stratum that mixes
-/// imported and live arms is refused, naming `import`. A stratum of imported arms is gated by
+/// An arm is imported if and only if its manifest holds an import record. A comparability class that mixes
+/// imported and live arms is refused, naming `import`. A comparability class of imported arms is gated by
 /// `imported_refused` in place of the provenance gate: the import rules recorded and equal, and
 /// the legacy commit, dirty flag and sandbox contract recorded. The dirty flag of a legacy build
 /// does not refuse: arms that agree on commit, flag, contract and rules pool, on the assumption
@@ -585,7 +585,7 @@ fn tracks_treatment(views: &[&ArmView], declared: &[FieldPath], path: &FieldPath
 /// one onto the treatments over every arm (`maps_one_to_one`): the importer files the skill
 /// version under such paths and declares the treatment instead. Live arms get no such exemption.
 #[must_use]
-pub fn stratum_verdict(arms: &[Result<ArmView, VerdictError>], declared: &[FieldPath]) -> Verdict {
+pub fn class_verdict(arms: &[Result<ArmView, VerdictError>], declared: &[FieldPath]) -> Verdict {
     let errors: Vec<VerdictError> = arms
         .iter()
         .filter_map(|arm| arm.as_ref().err())
@@ -597,7 +597,7 @@ pub fn stratum_verdict(arms: &[Result<ArmView, VerdictError>], declared: &[Field
     let views: Vec<&ArmView> = arms.iter().filter_map(|arm| arm.as_ref().ok()).collect();
     let Some((first, rest)) = views.split_first() else {
         return Verdict::Malformed(vec![VerdictError::Malformed {
-            problem: "the stratum has no arm",
+            problem: "the comparability class has no arm",
             path: String::new(),
         }]);
     };

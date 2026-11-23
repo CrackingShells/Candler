@@ -173,6 +173,8 @@ pub enum ExecutionError {
         kind: String,
         /// What is wrong with it.
         problem: &'static str,
+        /// The place of the input in the file's list, when the declaration is read from one.
+        entry: Option<usize>,
     },
     /// A list that holds the same entry twice.
     #[error("{list} repeats an entry (got {value:?})")]
@@ -1035,6 +1037,7 @@ impl ExperimentInput {
         let refuse = |problem| ExecutionError::InputDeclaration {
             kind: kind.to_string(),
             problem,
+            entry: None,
         };
         if kind.as_str() == RESERVED_INPUT_KIND {
             return Err(refuse("has a kind the wire reserves for build inputs"));
@@ -1096,6 +1099,23 @@ struct Plan {
     caps: Vec<ResolvedValue>,
 }
 
+/// The replicates `count` stands for: at least 1 and at most [`u32::MAX`].
+///
+/// # Errors
+/// [`ExecutionError::Zero`] when `count` is 0, and [`ExecutionError::NotPositive`] when it does
+/// not fit in 32 bits.
+pub fn check_replicates(count: u64) -> Result<u32, ExecutionError> {
+    match u32::try_from(count) {
+        Ok(0) => Err(ExecutionError::Zero {
+            field: "replicates",
+        }),
+        Ok(replicates) => Ok(replicates),
+        Err(_) => Err(ExecutionError::NotPositive {
+            field: "replicates",
+        }),
+    }
+}
+
 /// An experiment file: the values fixed in every cell, the factors whose levels make the cells, the replicates, the budget, the harness, the treatment and the names of the secrets the runs need.
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -1119,17 +1139,25 @@ struct RawExperimentFile {
     budget: Budget,
     /// The harness the runs use.
     harness: HarnessRequest,
-    /// The treatment the runs apply, and where its files are.
-    treatment: TreatmentSpec,
-    /// The names of the environment variables the runs need; their values are never written.
+    /// The treatment the runs apply, and where its files are. It may be absent when a factor of
+    /// `request.treatment` gives each level its own.
+    #[serde(default)]
+    treatment: Option<TreatmentSpec>,
+    /// The names of the secrets the model gateway needs; their values reach the gateway only and
+    /// are never written.
     #[serde(default)]
     secrets: Vec<SecretName>,
+    /// The environment of the harness process, by variable name. The values are cell values: they
+    /// are recorded with the cell and enter its digest, and they reach the harness process only.
+    #[serde(default)]
+    env: BTreeMap<String, String>,
     /// The files and directories the runs read, with who sees each.
     #[serde(default)]
     #[schemars(extend(
         "$comment" = "The kinds are unique and none is `build_inputs`; the Rust reader refuses a repeated or reserved kind."
     ))]
-    inputs: Vec<ExperimentInput>,
+    #[schemars(with = "Vec<ExperimentInput>", extend("default" = []))]
+    inputs: Vec<RawExperimentInput>,
 }
 
 impl TryFrom<MapOnly<RawExperimentFile>> for ExperimentFile {
@@ -1145,11 +1173,30 @@ impl TryFrom<MapOnly<RawExperimentFile>> for ExperimentFile {
             harness,
             treatment,
             secrets,
+            env,
             inputs,
         } = raw.0;
-        Self::new(
+        let inputs = inputs
+            .into_iter()
+            .enumerate()
+            .map(|(index, input)| {
+                ExperimentInput::try_from(MapOnly(input)).map_err(|error| {
+                    if let ExecutionError::InputDeclaration { kind, problem, .. } = error {
+                        ExecutionError::InputDeclaration {
+                            kind,
+                            problem,
+                            entry: Some(index),
+                        }
+                    } else {
+                        error
+                    }
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Self::build(
             fixed, factors, replicates, budget, harness, treatment, secrets,
         )?
+        .with_env(env)
         .with_inputs(inputs)
     }
 }
@@ -1165,8 +1212,11 @@ pub struct ExperimentFile {
     replicates: u32,
     budget: Budget,
     harness: HarnessRequest,
-    treatment: TreatmentSpec,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    treatment: Option<TreatmentSpec>,
     secrets: Vec<SecretName>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    env: BTreeMap<String, String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     inputs: Vec<ExperimentInput>,
     #[serde(skip)]
@@ -1192,11 +1242,40 @@ impl ExperimentFile {
         treatment: impl Into<TreatmentSpec>,
         secrets: Vec<SecretName>,
     ) -> Result<Self, ExecutionError> {
-        if replicates == 0 {
-            return Err(ExecutionError::Zero {
-                field: "replicates",
-            });
+        Self::build(
+            fixed,
+            factors,
+            replicates,
+            budget,
+            harness,
+            Some(treatment.into()),
+            secrets,
+        )
+    }
+
+    /// Builds an experiment file whose treatment may be absent: a factor of `request.treatment`
+    /// then gives it.
+    ///
+    /// # Errors
+    /// [`ExecutionError::MissingField`] when there is neither a treatment nor a factor of
+    /// `request.treatment`, and the errors of [`ExperimentFile::new`].
+    fn build(
+        fixed: BTreeMap<FieldPath, JsonValue>,
+        factors: Vec<Factor>,
+        replicates: u32,
+        budget: Budget,
+        harness: HarnessRequest,
+        treatment: Option<TreatmentSpec>,
+        secrets: Vec<SecretName>,
+    ) -> Result<Self, ExecutionError> {
+        if treatment.is_none()
+            && !factors
+                .iter()
+                .any(|factor| factor.path.as_str() == "request.treatment")
+        {
+            return Err(ExecutionError::MissingField { field: "treatment" });
         }
+        check_replicates(u64::from(replicates))?;
         budget.check()?;
         let fixed = fold_fixed(fixed)?;
         let mut levels = Vec::with_capacity(factors.len());
@@ -1239,11 +1318,25 @@ impl ExperimentFile {
             replicates,
             budget,
             harness,
-            treatment: treatment.into(),
+            treatment,
             secrets,
+            env: BTreeMap::new(),
             inputs: Vec::new(),
             plan,
         })
+    }
+
+    /// Sets the environment of the harness process, by variable name.
+    #[must_use]
+    pub fn with_env(mut self, env: BTreeMap<String, String>) -> Self {
+        self.env = env;
+        self
+    }
+
+    /// The environment of the harness process, by variable name.
+    #[must_use]
+    pub const fn env(&self) -> &BTreeMap<String, String> {
+        &self.env
     }
 
     /// Declares the inputs of the runs.
@@ -1287,7 +1380,7 @@ impl ExperimentFile {
             };
             document.insert(key, converted);
         }
-        read_value(Value::Object(document)).map_err(|e| {
+        let raw: RawExperimentFile = read_value(Value::Object(document)).map_err(|e| {
             if e.unknown_field {
                 ExecutionError::UnknownField {
                     detail: e.detail,
@@ -1298,6 +1391,22 @@ impl ExperimentFile {
                     detail: e.detail,
                     path: e.path,
                 }
+            }
+        })?;
+        Self::try_from(MapOnly(raw)).map_err(|error| {
+            // A format, value or canonical fault is a fault of the document's shape.
+            if matches!(
+                error,
+                ExecutionError::Format(_)
+                    | ExecutionError::Values(_)
+                    | ExecutionError::Canonical(_)
+            ) {
+                ExecutionError::Document {
+                    detail: error.to_string(),
+                    path: String::new(),
+                }
+            } else {
+                error
             }
         })
     }
@@ -1333,10 +1442,10 @@ impl ExperimentFile {
         &self.harness
     }
 
-    /// The treatment the runs apply.
+    /// The treatment the runs apply; absent when a factor of `request.treatment` gives it.
     #[must_use]
-    pub const fn treatment<'a>(&'a self) -> &'a TreatmentSpec {
-        &self.treatment
+    pub const fn treatment<'a>(&'a self) -> Option<&'a TreatmentSpec> {
+        self.treatment.as_ref()
     }
 
     /// The inputs the runs read, in written order.

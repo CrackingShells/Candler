@@ -5,6 +5,7 @@ use std::fmt::Write;
 use std::fs;
 
 use super::capabilities::CAPABILITY_PAGE;
+use super::config_pages::{FILE_PAGE, PATHS_PAGE};
 use syn::spanned::Spanned as _;
 
 use super::hand::section;
@@ -30,7 +31,8 @@ pub const DRIVER_PAGE: HarnessPage = HarnessPage {
 };
 
 /// The pages of the harness surface, in the order of the index.
-pub const HARNESS_PAGES: [&HarnessPage; 2] = [&DRIVER_PAGE, &CAPABILITY_PAGE];
+pub const HARNESS_PAGES: [&HarnessPage; 4] =
+    [&DRIVER_PAGE, &CAPABILITY_PAGE, &PATHS_PAGE, &FILE_PAGE];
 
 const DRIVER_SURFACE: &str = "The traits a harness driver crate implements: `HarnessDriver` describes how to prepare, launch, stop and collect one harness as data, and `TraceReader` turns its output into sessions; the core calls them and runs what they describe.";
 

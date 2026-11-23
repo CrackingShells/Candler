@@ -1,4 +1,5 @@
-//! Candler wire schemas: the string formats every record shares in [`primitives`], the outcome
+//! Candler wire schemas: the string formats every record shares in [`primitives`], the analysis
+//! report in [`analysis`], the outcome
 //! record in [`outcome`], the tool-catalog snapshot in [`catalog`], resolved values in [`values`],
 //! canonical JSON in [`canonical`], process records in [`process`], container records in
 //! [`container`], raw frames in [`raw`], the normalised trace in [`trace`], execution records in
@@ -11,6 +12,7 @@
 
 #![deny(clippy::allow_attributes)]
 
+pub mod analysis;
 pub mod canonical;
 pub mod catalog;
 pub mod container;
@@ -18,6 +20,8 @@ pub mod distinct;
 pub mod evaluation;
 pub mod execution;
 pub mod generate;
+pub mod inspect;
+pub mod listing;
 mod map_only;
 pub mod outcome;
 pub mod primitives;

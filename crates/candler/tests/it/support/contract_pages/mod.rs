@@ -4,6 +4,7 @@
 //! are read from the trait definitions and the binary's driver registry.
 
 pub mod capabilities;
+pub mod config_pages;
 pub mod frame;
 pub mod hand;
 pub mod harness;

@@ -1,6 +1,6 @@
 # Contract pages
 
-One page per surface an author writes or a plug-in speaks. Each page holds the sections Surface, Version, Fields, Refusals and Notes, in that order. Version and Fields are generated from the committed schema files in `crates/candler-schemas/schema/`; the two harness pages are generated from the driver traits and the registered drivers.
+One page per surface an author writes or a plug-in speaks. Each page holds the sections Surface, Version, Fields, Refusals and Notes, in that order. Version and Fields are generated from the committed schema files in `crates/candler-schemas/schema/`; the two harness pages are generated from the driver traits and the registered drivers, and the two configuration pages from the path table that the resolver reads.
 
 ## Pages
 
@@ -14,6 +14,8 @@ One page per surface an author writes or a plug-in speaks. Each page holds the s
 | [evaluator-helper.md](evaluator-helper.md) | Evaluator helper | evaluator kind author | none |
 | [driver-traits.md](driver-traits.md) | Driver traits | driver author | none |
 | [harness-capabilities.md](harness-capabilities.md) | Harness capabilities | experimenter, reading | none |
+| [configuration-paths.md](configuration-paths.md) | Configuration paths | experimenter | none |
+| [config-file.md](config-file.md) | Configuration files | project owner, user | none |
 
 ## Field classes
 
@@ -36,6 +38,18 @@ Every row of a Fields table has one class. A `required` followed by a variant in
 | evaluator helper | `candler-evaluator@0.1.0` | `python/candler-evaluator/pyproject.toml` |
 <!-- /versions -->
 
+## Exit codes
+
+The status the `candler` process returns.
+
+<!-- generated:exit-codes -->
+| Code | Meaning |
+|---|---|
+| 0 | the verb did its work and found nothing to report |
+| 1 | `diff` found changed rows |
+| 2 | the verb was refused or failed |
+<!-- /generated:exit-codes -->
+
 ## Other refusals
 
 Surfaces that name no page of their own: configuration, resolving, running, isolation, the store, jobs, evaluation and importing. The path is an RFC 6901 pointer into the document at fault, or a file.
@@ -44,11 +58,12 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | Code | When | Path at fault | Side to fix |
 |---|---|---|---|
 | `analysis.ambiguous_evaluator_name` | A bare version is held by several evaluators; write `name@version`. | - | config |
-| `analysis.experiment_disagrees` | The factors of the file given with `--experiment` differ from the factors the manifests of a stratum record, so the file is not the one that made these runs. | - | experiment |
+| `analysis.experiment_disagrees` | The factors of the file given with `--experiment` differ from the factors the manifests of a comparability class record, so the file is not the one that made these runs. | - | experiment |
 | `analysis.experiment_unreadable` | The file given with `--experiment` cannot be read as an experiment file. | - | experiment |
-| `analysis.factor_broader_than_variation` | A stratum's manifests record a factor that is a strict prefix of a path where its cells differ, so the record cannot be trusted to declare the variation. | - | environment |
+| `analysis.factor_broader_than_variation` | A comparability class's manifests record a factor that is a strict prefix of a path where its cells differ, so the record cannot be trusted to declare the variation. | - | environment |
 | `analysis.mixed_evaluator_versions` | The store holds outcomes of several evaluator versions and the request names none; name one with `--evaluator`. | - | config |
 | `analysis.no_outcomes` | The store holds no outcome record, so there is nothing to analyse; run `evaluate` first. | - | environment |
+| `analysis.no_stored_trace` | The run given to `inspect --transcript` has no stored normalised trace, or the target is a job, which holds none. | - | config |
 | `analysis.unknown_evaluator` | The evaluator, or the version, named has no outcome in the store. | - | config |
 | `catalog.name_empty` | A server or tool name in the catalog an image prints is empty. | - | environment |
 | `catalog.name_repeated` | A server or tool name in the catalog an image prints is repeated within its scope. | - | environment |
@@ -67,7 +82,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `config.machine_wide_key` | A project configuration sets a machine-wide key, which only the user configuration may set. | The key in the project configuration file named in the message. | config |
 | `config.no_evaluator_slots` | `slots.evaluators` is 0 in the user configuration, so the pool that evaluators draw from has no slot. | - | config |
 | `config.no_plugin_dirs` | `evaluate` is run where no `candler.toml` at or above the working directory lists a plug-in directory under `plugins.dirs`. | - | config |
-| `config.no_store` | Not raised today: a verb that is given no store root takes the default store, and a store that is missing prints `store.not_a_store`. | - | config |
+| `config.no_store` | No store root resolves at all: neither `--store` nor `CANDLER_STORE` is given, no `candler.toml` is found at or above the working directory, and the user has no state home (`$XDG_STATE_HOME`, else `~/.local/state`), so there is no default store either. | - | config |
 | `config.no_such_run` | No run of the store has a key that starts with the prefix given to `inspect`. | - | config |
 | `config.nothing_compared` | `diff` found no expectation that both evaluators graded in the same run, such as an evaluator version the store lacks. | - | config |
 | `config.plugin_dir_no_manifest` | A directory of `plugins.dirs` does not exist or holds neither `plugin.toml` nor `candler-plugin.toml`. | - | config |
@@ -167,6 +182,8 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `jobs.job_not_found` | No directory of the store holds the job whose id was given. | - | config |
 | `jobs.job_unreadable` | The files of a job's directory cannot be read. | - | environment |
 | `jobs.recovery_store_failed` | The store could not be read or written while a lost job was recovered. | - | environment |
+| `jobs.server_check_failed` | The start check of the declared servers could not run, for example because a probe container could not be started. | - | environment |
+| `jobs.server_exited_at_start` | A server that the experiment declares under `mcp.servers` exited when it was started in the run's image before the job's first run. | - | experiment |
 | `jobs.session_controls_failed` | A session control (C1: the agent must wait for a background job; C2: the agent must stop once it has answered) did not pass for the harness version in the base image, or could not run, so session mode is refused for that harness version. No model's behaviour causes this. | - | environment |
 | `jobs.slot_io_failed` | A file system call on the slots directory failed, such as opening or locking a slot file. | - | environment |
 | `jobs.supervisor_did_not_start` | The detached supervisor did not take the job's lock by the deadline, or exited first; its log says why. | - | environment |

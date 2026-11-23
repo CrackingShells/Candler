@@ -1,0 +1,1031 @@
+{
+  "$defs": {
+    "Alpha": {
+      "additionalProperties": false,
+      "description": "The significance level with the place it comes from.",
+      "properties": {
+        "source": {
+          "description": "The kind of source the level comes from.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The level.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "value",
+        "source"
+      ],
+      "type": "object"
+    },
+    "Arm": {
+      "additionalProperties": false,
+      "description": "One arm: a cell within a comparability class, with its tally.",
+      "properties": {
+        "cell": {
+          "description": "The cell.",
+          "type": "string"
+        },
+        "expectations": {
+          "description": "Its expectations, by id.",
+          "items": {
+            "$ref": "#/$defs/ArmExpectation"
+          },
+          "type": "array"
+        },
+        "experiment": {
+          "description": "The experiment digest of the comparability class the arm belongs to.",
+          "type": "string"
+        },
+        "instrument_error": {
+          "$ref": "#/$defs/InstrumentError",
+          "description": "What the instrument cost it."
+        },
+        "rates": {
+          "$ref": "#/$defs/Rates",
+          "description": "Its gate and quality rates."
+        },
+        "runs": {
+          "$ref": "#/$defs/ArmRuns",
+          "description": "Its runs."
+        },
+        "spent": {
+          "$ref": "#/$defs/Spent",
+          "description": "The cost its sealed runs recorded."
+        },
+        "status": {
+          "$ref": "#/$defs/Status",
+          "description": "Its status totals."
+        }
+      },
+      "required": [
+        "experiment",
+        "cell",
+        "runs",
+        "rates",
+        "status",
+        "instrument_error",
+        "expectations",
+        "spent"
+      ],
+      "type": "object"
+    },
+    "ArmExpectation": {
+      "additionalProperties": false,
+      "description": "One expectation in one arm.",
+      "properties": {
+        "blocked": {
+          "description": "Outcomes blocked for want of an input.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fail": {
+          "description": "Failures.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "description": "The expectation id.",
+          "type": "string"
+        },
+        "not_applicable": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Outcomes that do not apply, by cause.",
+          "type": "object"
+        },
+        "not_measured": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Outcomes not measured, by cause.",
+          "type": "object"
+        },
+        "omitted": {
+          "description": "Why there is no Wilson interval; null when there is one.",
+          "type": "string"
+        },
+        "pass": {
+          "description": "Passes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "role": {
+          "description": "Its role: `gate`, `quality` or `descriptive`.",
+          "type": "string"
+        },
+        "weight": {
+          "$ref": "#/$defs/Fraction",
+          "description": "The weighted passes over the weight."
+        },
+        "wilson": {
+          "$ref": "#/$defs/Interval",
+          "description": "The Wilson interval of the pass proportion; null when there is none."
+        },
+        "zero_weight": {
+          "description": "Passes of weight 0/0.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "role",
+        "pass",
+        "fail",
+        "blocked",
+        "not_measured",
+        "not_applicable",
+        "zero_weight",
+        "weight"
+      ],
+      "type": "object"
+    },
+    "ArmRuns": {
+      "additionalProperties": false,
+      "description": "The runs of an arm by what became of them.",
+      "properties": {
+        "experimenter_ends": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "The runs the experimenter ended, by cause.",
+          "type": "object"
+        },
+        "invalid": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "The invalid runs, by cause.",
+          "type": "object"
+        },
+        "unsealed": {
+          "description": "The runs that have no seal yet, counted in no rate and no verdict.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "valid": {
+          "description": "The valid sealed runs.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "valid",
+        "unsealed",
+        "invalid",
+        "experimenter_ends"
+      ],
+      "type": "object"
+    },
+    "BlockEffect": {
+      "additionalProperties": false,
+      "description": "The effect of arm B over arm A in one block of a tested entry.",
+      "properties": {
+        "a": {
+          "$ref": "#/$defs/Counts",
+          "description": "Arm A's weighted passes and runs in the block."
+        },
+        "b": {
+          "$ref": "#/$defs/Counts",
+          "description": "Arm B's, in the same terms."
+        },
+        "diff": {
+          "description": "The rate of arm B minus the rate of arm A in the block.",
+          "format": "double",
+          "type": "number"
+        },
+        "key": {
+          "description": "The block's key: each blocking factor with its level, in the order of the declared factors.",
+          "items": {
+            "$ref": "#/$defs/BlockLevel"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "key",
+        "a",
+        "b",
+        "diff"
+      ],
+      "type": "object"
+    },
+    "BlockLevel": {
+      "additionalProperties": false,
+      "description": "A blocking factor and the level a block holds it at.",
+      "properties": {
+        "factor": {
+          "description": "The factor, as a field path.",
+          "type": "string"
+        },
+        "level": {
+          "description": "The level."
+        }
+      },
+      "required": [
+        "factor",
+        "level"
+      ],
+      "type": "object"
+    },
+    "ComparabilityClass": {
+      "additionalProperties": false,
+      "description": "What the verdict said of the two arms of a pair.",
+      "properties": {
+        "causes": {
+          "description": "The paths or reasons that keep the pair from a verdict; empty for a comparable pair.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "verdict": {
+          "description": "`comparable`, `refused` or `malformed`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "verdict",
+        "causes"
+      ],
+      "type": "object"
+    },
+    "Comparison": {
+      "additionalProperties": false,
+      "description": "One pair of arms that differ in exactly one declared factor.",
+      "properties": {
+        "a": {
+          "description": "The first arm's cell.",
+          "type": "string"
+        },
+        "b": {
+          "description": "The second arm's cell.",
+          "type": "string"
+        },
+        "comparability_class": {
+          "$ref": "#/$defs/ComparabilityClass",
+          "description": "What the verdict said of the pair."
+        },
+        "entries": {
+          "description": "The expectations graded in both arms; empty unless the pair is comparable.",
+          "items": {
+            "$ref": "#/$defs/Entry"
+          },
+          "type": "array"
+        },
+        "experiment": {
+          "description": "The experiment digest of the comparability class the pair is compared in.",
+          "type": "string"
+        },
+        "factor": {
+          "description": "The declared factor the arms differ in.",
+          "type": "string"
+        },
+        "levels": {
+          "description": "The levels of the factor the two arms are at; null when the comparison does not state them.",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            true,
+            true
+          ],
+          "type": "array"
+        }
+      },
+      "required": [
+        "experiment",
+        "a",
+        "b",
+        "factor",
+        "comparability_class",
+        "entries"
+      ],
+      "type": "object"
+    },
+    "Counts": {
+      "additionalProperties": false,
+      "description": "Passes in graded runs.",
+      "properties": {
+        "k": {
+          "description": "The passes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n": {
+          "description": "The graded runs.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "k",
+        "n"
+      ],
+      "type": "object"
+    },
+    "Decision": {
+      "additionalProperties": false,
+      "description": "One expectation of a comparison that was tested, with what it came to.",
+      "properties": {
+        "diff": {
+          "description": "The difference, arm B minus arm A; null when the test gives none.",
+          "format": "double",
+          "type": "number"
+        },
+        "diff_hi": {
+          "description": "The upper limit of the interval of `diff`.",
+          "format": "double",
+          "type": "number"
+        },
+        "diff_lo": {
+          "description": "The lower limit of the interval of `diff`.",
+          "format": "double",
+          "type": "number"
+        },
+        "experiment": {
+          "description": "The experiment digest of the comparability class of the comparison.",
+          "type": "string"
+        },
+        "factor": {
+          "description": "The declared factor the arms differ in.",
+          "type": "string"
+        },
+        "family": {
+          "description": "The number of tests in the Holm family.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "description": "The expectation id.",
+          "type": "string"
+        },
+        "levels": {
+          "description": "The levels that label arm A and arm B; null when the comparison does not state them.",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            true,
+            true
+          ],
+          "type": "array"
+        },
+        "p_holm": {
+          "description": "The Holm-adjusted p over the family of the role.",
+          "format": "double",
+          "type": "number"
+        },
+        "reject": {
+          "description": "Whether the adjusted p is below alpha.",
+          "type": "boolean"
+        },
+        "role": {
+          "description": "Its role.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "experiment",
+        "factor",
+        "id",
+        "role",
+        "p_holm",
+        "reject",
+        "family"
+      ],
+      "type": "object"
+    },
+    "Entry": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Tested",
+          "description": "Both arms hold plain counts: the expectation was tested."
+        },
+        {
+          "$ref": "#/$defs/OmittedEntry",
+          "description": "No test was made."
+        }
+      ],
+      "description": "An expectation of a pair, tested or left out."
+    },
+    "Family": {
+      "additionalProperties": false,
+      "description": "The tests of one role that Holm's adjustment covers together.",
+      "properties": {
+        "m": {
+          "description": "The number of tests in the family.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "role": {
+          "description": "The role.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "m"
+      ],
+      "type": "object"
+    },
+    "Fraction": {
+      "additionalProperties": false,
+      "description": "A count and the total it is out of.",
+      "properties": {
+        "den": {
+          "description": "The denominator.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "num": {
+          "description": "The numerator.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "num",
+        "den"
+      ],
+      "type": "object"
+    },
+    "InstrumentError": {
+      "additionalProperties": false,
+      "description": "What an arm lost to the instrument.",
+      "properties": {
+        "outcomes": {
+          "description": "The outcomes not measured because of the instrument.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "runs": {
+          "description": "Valid runs with at least one outcome not measured because of the instrument.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "runs",
+        "outcomes"
+      ],
+      "type": "object"
+    },
+    "Integrity": {
+      "description": "Whether a run counts: `valid`, or `invalid` with the reason it does not.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The run counts.",
+          "properties": {
+            "kind": {
+              "const": "valid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The run does not count, and the reason says why.",
+          "properties": {
+            "kind": {
+              "const": "invalid",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/$defs/InvalidReason",
+              "description": "Why the run is invalid."
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Interval": {
+      "additionalProperties": false,
+      "description": "An interval with its two limits.",
+      "properties": {
+        "hi": {
+          "description": "The upper limit.",
+          "format": "double",
+          "type": "number"
+        },
+        "lo": {
+          "description": "The lower limit.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "lo",
+        "hi"
+      ],
+      "type": "object"
+    },
+    "InvalidReason": {
+      "description": "Why a run is invalid: a cause that is not the arm's doing.",
+      "oneOf": [
+        {
+          "const": "gateway",
+          "description": "The gateway or the provider failed.",
+          "type": "string"
+        },
+        {
+          "const": "budget_stop",
+          "description": "The job budget stopped the run.",
+          "type": "string"
+        },
+        {
+          "const": "killed",
+          "description": "The run was killed.",
+          "type": "string"
+        },
+        {
+          "const": "interrupted",
+          "description": "The supervisor was lost while the run ran.",
+          "type": "string"
+        },
+        {
+          "const": "input_leak",
+          "description": "A secret or ground truth reached the run's isolation boundary.",
+          "type": "string"
+        },
+        {
+          "const": "collection_error",
+          "description": "The collection of the run's files failed.",
+          "type": "string"
+        },
+        {
+          "const": "reader_error",
+          "description": "A reader of the run's output failed.",
+          "type": "string"
+        },
+        {
+          "const": "format_unknown",
+          "description": "The format of the run's output is not one a reader knows.",
+          "type": "string"
+        },
+        {
+          "const": "infrastructure",
+          "description": "The container engine or the machine failed the run: the engine reported an error or no start, the container ran out of memory, or something else killed it.",
+          "type": "string"
+        }
+      ]
+    },
+    "Omitted": {
+      "additionalProperties": false,
+      "description": "One expectation of a comparison that was left out of the tests.",
+      "properties": {
+        "experiment": {
+          "description": "The experiment digest of the comparability class of the comparison.",
+          "type": "string"
+        },
+        "factor": {
+          "description": "The declared factor the arms differ in.",
+          "type": "string"
+        },
+        "id": {
+          "description": "The expectation id.",
+          "type": "string"
+        },
+        "levels": {
+          "description": "The levels that label arm A and arm B; null when the comparison does not state them.",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            true,
+            true
+          ],
+          "type": "array"
+        },
+        "reason": {
+          "description": "Why it was left out.",
+          "type": "string"
+        },
+        "role": {
+          "description": "Its role.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "experiment",
+        "factor",
+        "id",
+        "role",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "OmittedEntry": {
+      "additionalProperties": false,
+      "description": "An expectation of a comparable pair that was not tested.",
+      "properties": {
+        "id": {
+          "description": "The expectation id.",
+          "type": "string"
+        },
+        "omitted": {
+          "description": "Why no test was made.",
+          "type": "string"
+        },
+        "role": {
+          "description": "Its role.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "role",
+        "omitted"
+      ],
+      "type": "object"
+    },
+    "Rates": {
+      "additionalProperties": false,
+      "description": "The gate rate and the quality rate of an arm.",
+      "properties": {
+        "gate": {
+          "$ref": "#/$defs/Fraction",
+          "description": "The weighted pass rate of the gate expectations."
+        },
+        "quality": {
+          "$ref": "#/$defs/Fraction",
+          "description": "The weighted pass rate of the quality expectations."
+        }
+      },
+      "required": [
+        "gate",
+        "quality"
+      ],
+      "type": "object"
+    },
+    "Reading": {
+      "description": "What the interval of a test says: never that there is no difference.",
+      "oneOf": [
+        {
+          "const": "effect",
+          "description": "The interval excludes the null value: 0 for a difference, 1 for an odds ratio.",
+          "type": "string"
+        },
+        {
+          "const": "inconclusive",
+          "description": "The interval spans the null value, or the test gives none.",
+          "type": "string"
+        }
+      ]
+    },
+    "RunRow": {
+      "additionalProperties": false,
+      "description": "One run: the values it recorded, by path.",
+      "properties": {
+        "cell": {
+          "description": "Its cell.",
+          "type": "string"
+        },
+        "comparable": {
+          "additionalProperties": true,
+          "description": "Every recorded value of the cell, by path.",
+          "type": "object"
+        },
+        "integrity": {
+          "$ref": "#/$defs/Integrity",
+          "description": "Whether it counts, and why not."
+        },
+        "measured": {
+          "additionalProperties": true,
+          "description": "Every measured value, by path.",
+          "type": "object"
+        },
+        "run": {
+          "description": "The run key.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run",
+        "cell",
+        "integrity",
+        "comparable",
+        "measured"
+      ],
+      "type": "object"
+    },
+    "Spent": {
+      "additionalProperties": false,
+      "description": "What the sealed runs of an arm recorded as cost.",
+      "properties": {
+        "cost_usd": {
+          "description": "The sum of the recorded costs, in dollars.",
+          "format": "double",
+          "type": "number"
+        },
+        "runs_counted": {
+          "description": "The runs whose cost is in the sum.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "runs_without_total": {
+          "description": "The runs that recorded no cost, which the sum does not cover.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cost_usd",
+        "runs_counted",
+        "runs_without_total"
+      ],
+      "type": "object"
+    },
+    "Status": {
+      "additionalProperties": false,
+      "description": "The status totals of an arm over its gate and quality expectations.",
+      "properties": {
+        "blocked": {
+          "description": "Outcomes blocked for want of an input.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fail": {
+          "description": "Failures.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "not_applicable": {
+          "description": "Outcomes that do not apply, whatever the cause.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "not_measured": {
+          "description": "Outcomes not measured, whatever the cause.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pass": {
+          "description": "Passes, with the passes of weight 0/0.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pass",
+        "fail",
+        "blocked",
+        "not_measured",
+        "not_applicable"
+      ],
+      "type": "object"
+    },
+    "Summary": {
+      "additionalProperties": false,
+      "description": "What a report decided.",
+      "properties": {
+        "decisions": {
+          "description": "One decision per tested entry, in the order of the comparisons.",
+          "items": {
+            "$ref": "#/$defs/Decision"
+          },
+          "type": "array"
+        },
+        "omitted": {
+          "description": "The entries left out, with their reasons.",
+          "items": {
+            "$ref": "#/$defs/Omitted"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "decisions",
+        "omitted"
+      ],
+      "type": "object"
+    },
+    "Tested": {
+      "additionalProperties": false,
+      "description": "An expectation tested between the two arms of a comparable pair.",
+      "properties": {
+        "a": {
+          "$ref": "#/$defs/Counts",
+          "description": "Passes and graded runs of arm A."
+        },
+        "b": {
+          "$ref": "#/$defs/Counts",
+          "description": "Passes and graded runs of arm B."
+        },
+        "battery": {
+          "description": "The test that produced `p`: `mid_p`, `cmh`, `exact_strata` or `permutation`; null for the\none-factor Fisher test.",
+          "type": "string"
+        },
+        "blocks": {
+          "description": "The number of blocks the test ran over.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "diff": {
+          "description": "The difference of arm B's rate over arm A's; null when the test gives none.",
+          "format": "double",
+          "type": "number"
+        },
+        "diff_hi": {
+          "description": "The upper limit of the interval of `diff`.",
+          "format": "double",
+          "type": "number"
+        },
+        "diff_lo": {
+          "description": "The lower limit of the interval of `diff`.",
+          "format": "double",
+          "type": "number"
+        },
+        "fallback": {
+          "description": "Whether the exact conditional test replaced a CMH test whose criterion failed.",
+          "type": "boolean"
+        },
+        "homogeneity_p": {
+          "description": "The p-value of the Breslow-Day homogeneity test: shown, never used to choose.",
+          "format": "double",
+          "type": "number"
+        },
+        "id": {
+          "description": "The expectation id.",
+          "type": "string"
+        },
+        "interval_reading": {
+          "$ref": "#/$defs/Reading",
+          "description": "What the interval says: it never reads as \"no difference\"."
+        },
+        "or_hi": {
+          "description": "The upper limit of the odds ratio's interval.",
+          "format": "double",
+          "type": "number"
+        },
+        "or_lo": {
+          "description": "The lower limit of the odds ratio's interval.",
+          "format": "double",
+          "type": "number"
+        },
+        "or_mh": {
+          "description": "The Mantel-Haenszel odds ratio of arm B over arm A.",
+          "format": "double",
+          "type": "number"
+        },
+        "p": {
+          "description": "The two-sided p-value of the test.",
+          "format": "double",
+          "type": "number"
+        },
+        "p_holm": {
+          "description": "The Holm-adjusted p over the family of the role.",
+          "format": "double",
+          "type": "number"
+        },
+        "per_block": {
+          "description": "The effect of arm B over arm A in each block.",
+          "items": {
+            "$ref": "#/$defs/BlockEffect"
+          },
+          "type": "array"
+        },
+        "reject": {
+          "description": "Whether the adjusted p is below alpha.",
+          "type": "boolean"
+        },
+        "role": {
+          "description": "Its role.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "role",
+        "a",
+        "b",
+        "p",
+        "p_holm",
+        "reject",
+        "fallback",
+        "blocks",
+        "interval_reading",
+        "per_block"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:candler:schemas:analysis-report",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The report of one evaluator over a store: what `candler analyze` prints.",
+  "properties": {
+    "alpha": {
+      "$ref": "#/$defs/Alpha",
+      "description": "The significance level of every test and where it comes from."
+    },
+    "arms": {
+      "description": "The arms: one per cell within a comparability class.",
+      "items": {
+        "$ref": "#/$defs/Arm"
+      },
+      "type": "array"
+    },
+    "comparisons": {
+      "description": "The pairs of arms that differ in exactly one declared factor.",
+      "items": {
+        "$ref": "#/$defs/Comparison"
+      },
+      "type": "array"
+    },
+    "evaluator": {
+      "description": "The evaluator, as `name@version`.",
+      "type": "string"
+    },
+    "families": {
+      "description": "The tests each Holm adjustment covers together, by role.",
+      "items": {
+        "$ref": "#/$defs/Family"
+      },
+      "type": "array"
+    },
+    "i4_violations": {
+      "description": "How many records of the evaluator break the rule that a run holds one current outcome per\nexpectation.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "pairs_not_one_factor": {
+      "description": "The pairs of one comparability class that differ in no declared factor or in several, and\nare not compared.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "runs": {
+      "description": "Every run, by run key.",
+      "items": {
+        "$ref": "#/$defs/RunRow"
+      },
+      "type": "array"
+    },
+    "schema": {
+      "const": "analysis-report/1",
+      "description": "The version marker of the document: always `analysis-report/1`.",
+      "type": "string"
+    },
+    "summary": {
+      "$ref": "#/$defs/Summary",
+      "description": "One decision per tested entry and one line per entry left out."
+    }
+  },
+  "required": [
+    "schema",
+    "evaluator",
+    "alpha",
+    "i4_violations",
+    "arms",
+    "comparisons",
+    "families",
+    "pairs_not_one_factor",
+    "runs",
+    "summary"
+  ],
+  "title": "AnalysisReport",
+  "type": "object"
+}

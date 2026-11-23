@@ -165,6 +165,19 @@ impl IsolatedRequest {
     }
 }
 
+/// What a command started in a cell's container was doing when the wait ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum StartProbe {
+    /// The command was still running.
+    Running,
+    /// The command had exited; `output` is the tail of what it printed, bounded.
+    Exited {
+        /// The tail of the command's output.
+        output: String,
+    },
+}
+
 /// How a run's agent is placed in a container and taken out of it.
 pub trait Isolation: Send + Sync {
     /// Decides the container of one cell.
@@ -227,6 +240,30 @@ pub trait Isolation: Send + Sync {
         Box::pin(async {
             Err(IsolationError::Unavailable {
                 detail: String::from("collect_exec"),
+            })
+        })
+    }
+
+    /// Starts `command` in the container `plan` describes (its image, mounts, environment and
+    /// networks) with standard input held open, waits `wait`, and says whether it still runs or
+    /// has exited with the tail of its output. The container is removed by its id before this
+    /// returns, whichever way it ended. `key` labels the container as the run it stands in for.
+    ///
+    /// # Errors
+    /// [`IsolationError::Plan`] when the command cannot be wrapped over the plan,
+    /// [`IsolationError::Docker`] when docker fails, and [`IsolationError::Unavailable`] for an
+    /// isolation that runs no containers.
+    fn start_probe<'a>(
+        &'a self,
+        plan: &'a ContainerPlan,
+        command: &'a CommandSpec,
+        key: RunKey,
+        wait: std::time::Duration,
+    ) -> BoxFuture<'a, Result<StartProbe, IsolationError>> {
+        let _ = (plan, command, key, wait);
+        Box::pin(async {
+            Err(IsolationError::Unavailable {
+                detail: String::from("start_probe"),
             })
         })
     }

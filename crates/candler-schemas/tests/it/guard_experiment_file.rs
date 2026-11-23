@@ -106,26 +106,26 @@ fn overlapping_or_empty_experiments_are_refused() {
     let fixed_overlap = "[fixed]\n\"plan.a\" = 1\n[[factors]]\npath = \"plan\"\nlevels = [1, 2]\n";
     assert!(matches!(
         read(fixed_overlap),
-        Err(ExecutionError::Document { .. })
+        Err(ExecutionError::PathOverlap { .. })
     ));
 
     let factors_overlap = "[[factors]]\npath = \"plan.a\"\nlevels = [1]\n[[factors]]\npath = \"plan.a\"\nlevels = [2]\n";
     assert!(matches!(
         read(factors_overlap),
-        Err(ExecutionError::Document { .. })
+        Err(ExecutionError::PathOverlap { .. })
     ));
 
     let no_levels = "[[factors]]\npath = \"plan.a\"\nlevels = []\n";
     assert!(matches!(
         read(no_levels),
-        Err(ExecutionError::Document { .. })
+        Err(ExecutionError::NoLevels { .. })
     ));
 
     let fill_overlap =
         "[fixed]\n\"plan.a.x\" = 1\n[[factors]]\npath = \"plan.a\"\nlevels = [{ x = 1 }]\n";
     assert!(matches!(
         read(fill_overlap),
-        Err(ExecutionError::Document { .. })
+        Err(ExecutionError::PathOverlap { .. })
     ));
 }
 
@@ -290,13 +290,13 @@ fn table_value_empty_and_overlapping_tables_are_refused() {
         read(
             "[fixed.prompt.values]\na = 1\n[[factors]]\npath = \"prompt.values\"\nlevels = [{ a = { x = 1 } }]\n"
         ),
-        Err(ExecutionError::Document { .. })
+        Err(ExecutionError::PathOverlap { .. })
     ));
     assert!(matches!(
         read(
             "[fixed.prompt.values]\na = 1\n[[factors]]\npath = \"prompt.values.a\"\nlevels = [2]\n"
         ),
-        Err(ExecutionError::Document { .. })
+        Err(ExecutionError::PathOverlap { .. })
     ));
     for disjoint in [
         "[fixed.prompt.values]\na = 1\n[[factors]]\npath = \"prompt.values.b\"\nlevels = [2]\n",

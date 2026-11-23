@@ -31,32 +31,32 @@ fn digest_text(c: char) -> String {
 
 /// What one fabricated run holds besides its model.
 #[derive(Clone)]
-struct Spec {
-    model: &'static str,
-    replicate: u32,
-    integrity: Value,
+pub(super) struct Spec {
+    pub(super) model: &'static str,
+    pub(super) replicate: u32,
+    pub(super) integrity: Value,
     /// Further `comparable` values, `(path, value)`.
-    extra: Vec<(&'static str, Value)>,
+    pub(super) extra: Vec<(&'static str, Value)>,
     /// Further measured values, `(path, value)`.
-    measured: Vec<(&'static str, Value)>,
+    pub(super) measured: Vec<(&'static str, Value)>,
     /// Overrides of the clean provenance block; `null` drops the path.
-    provenance: Vec<(&'static str, Value)>,
+    pub(super) provenance: Vec<(&'static str, Value)>,
     /// Paths of the cell whose value was not recorded.
-    unrecorded: Vec<&'static str>,
+    pub(super) unrecorded: Vec<&'static str>,
     /// The factors the manifest records.
-    factors: Vec<&'static str>,
+    pub(super) factors: Vec<&'static str>,
     /// The character the experiment digest is made of.
-    experiment: char,
+    pub(super) experiment: char,
     /// The typed treatment of the cell.
-    treatment: Value,
+    pub(super) treatment: Value,
     /// The build inputs of the cell.
-    inputs: Value,
+    pub(super) inputs: Value,
     /// The plug-in environment locks of the cell.
-    environments: Value,
+    pub(super) environments: Value,
 }
 
 impl Spec {
-    fn new(model: &'static str, replicate: u32) -> Self {
+    pub(super) fn new(model: &'static str, replicate: u32) -> Self {
         Self {
             model,
             replicate,
@@ -152,7 +152,7 @@ fn manifest(spec: &Spec) -> RunManifest {
     serde_json::from_value(body(cell.as_str())).expect("a manifest") // BORROW: explicit .as_str()
 }
 
-fn view(spec: &Spec) -> RunView {
+pub(super) fn view(spec: &Spec) -> RunView {
     let manifest = manifest(spec);
     RunView {
         facts: RunFacts::new(manifest.run().clone(), manifest.integrity().clone()),
@@ -162,7 +162,7 @@ fn view(spec: &Spec) -> RunView {
 
 /// One outcome record. `weight` is `(num, den)`, absent for the default of the status; `cause` is
 /// the reason code of a `blocked`, `not_measured` or `not_applicable`.
-fn record(
+pub(super) fn record(
     run: &RunView,
     n: usize,
     expectation: &str,
@@ -293,7 +293,7 @@ fn layout(with_invalid: bool) -> (Selection, Vec<RunView>) {
     (select(records), runs)
 }
 
-fn evaluator() -> NameVersion {
+pub(super) fn evaluator() -> NameVersion {
     EVALUATOR.parse().expect("name@version")
 }
 
@@ -959,16 +959,16 @@ fn a2_only_one_factor_pairs_are_compared() {
     assert_eq!(report.pairs_not_one_factor, 1);
 }
 
-/// Guards: A2 — a cell that sits in two strata is two arms: alpha and beta each have three runs
+/// Guards: A2 — a cell that sits in two comparability classes is two arms: alpha and beta each have three runs
 /// under one experiment digest and three under another, so the report holds four arms of three
-/// runs each, one comparison per stratum on that stratum's own runs (3 of 3 against 0 of 3), and
+/// runs each, one comparison per comparability class on that comparability class's own runs (3 of 3 against 0 of 3), and
 /// one Holm family of one test in each.
 /// Oracle: the mid-p row of `midp.toml` for 3 of 3 against 0 of 3, which a family of one leaves
 /// as it is.
 /// Bite: key the tally by cell alone, and each arm pools six runs; compare each pair once on the
 /// pooled arms, and the count of comparisons or the p-value turns red.
 #[test]
-fn a2_a_cell_in_two_strata_is_tallied_per_stratum() {
+fn a2_a_cell_in_two_classes_is_tallied_per_class() {
     let mut runs: Vec<RunView> = Vec::new();
     let mut records = Vec::new();
     for (at, experiment) in ['0', '1'].into_iter().enumerate() {
@@ -991,17 +991,23 @@ fn a2_a_cell_in_two_strata_is_tallied_per_stratum() {
         }
     }
     let report = report(&select(records), runs);
-    assert_eq!(report.arms.len(), 4, "a cell is an arm in each stratum");
+    assert_eq!(report.arms.len(), 4, "a cell is an arm in each class");
     for arm in &report.arms {
         assert_eq!(arm.tally.valid_runs, 3, "{}", arm.experiment);
         let counts = arm.expectations[0].tally.counts().expect("binary");
         let alpha = counts.k() == 3;
         assert_eq!((counts.k(), counts.n()), (if alpha { 3 } else { 0 }, 3));
     }
-    let strata: Vec<&str> = report.arms.iter().map(|a| a.experiment.as_str()).collect();
-    assert_eq!(strata.iter().filter(|s| **s == digest_text('0')).count(), 2);
-    assert_eq!(strata.iter().filter(|s| **s == digest_text('1')).count(), 2);
-    assert_eq!(report.comparisons.len(), 2, "one comparison per stratum");
+    let classes: Vec<&str> = report.arms.iter().map(|a| a.experiment.as_str()).collect();
+    assert_eq!(
+        classes.iter().filter(|s| **s == digest_text('0')).count(),
+        2
+    );
+    assert_eq!(
+        classes.iter().filter(|s| **s == digest_text('1')).count(),
+        2
+    );
+    assert_eq!(report.comparisons.len(), 2, "one comparison per class");
     assert_eq!(
         report
             .comparisons
@@ -1058,7 +1064,7 @@ fn two_by_two(factors: &[&'static str]) -> (Selection, Vec<RunView>) {
     (select(records), runs)
 }
 
-/// Guards: A2 — the factors of a stratum come from its manifests, and an experiment file is a
+/// Guards: A2 — the factors of a comparability class come from its manifests, and an experiment file is a
 /// cross-check: on a 2 by 2 store whose manifests record `plan.model` and `plan.other`, two
 /// comparisons are made, one per factor, and the two cell pairs that differ in both are counted
 /// and not compared; a file that
@@ -1108,7 +1114,7 @@ fn a2_a_wrong_experiment_is_refused() {
 
 /// Guards: A1 — a run without a seal is counted apart: with the layout and two unsealed runs, one
 /// whose manifest names the experiment of an arm and one whose manifest is unreadable, the call
-/// succeeds, the arm shows `unsealed` 1, a stratum `unknown` holds the other, and every count,
+/// succeeds, the arm shows `unsealed` 1, a comparability class `unknown` holds the other, and every count,
 /// rate and verdict equals the report without them although the unsealed run has a pass on the
 /// store.
 /// Oracle: the layout's hand counts.
@@ -1158,7 +1164,7 @@ fn a1_an_unsealed_run_is_counted_apart() {
         .arms
         .iter()
         .find(|a| a.experiment == "unknown")
-        .expect("the unknown stratum");
+        .expect("the unknown class");
     assert_eq!((unknown.unsealed, unknown.tally.valid_runs), (1, 0));
     assert_eq!(held.comparisons, baseline.comparisons);
 }
@@ -1373,7 +1379,7 @@ fn midp_p(a: (u64, u64), b: (u64, u64)) -> f64 {
 }
 
 /// A store of cells, each `(spec, passes, runs)`: the first `passes` runs pass `E1`.
-fn store_of(cells: &[(Spec, u64, u64)]) -> (Selection, Vec<RunView>) {
+pub(super) fn store_of(cells: &[(Spec, u64, u64)]) -> (Selection, Vec<RunView>) {
     let mut runs: Vec<RunView> = Vec::new();
     let mut records = Vec::new();
     for (base, passes, count) in cells {
@@ -1876,5 +1882,56 @@ fn c6_cmh_reading_follows_the_odds_ratio_interval() {
             "inconclusive"
         };
         assert_eq!(tested.reading.as_str(), want, "{label}");
+    }
+}
+
+/// Guards: the levels of a comparison, and with them which arm is A and which is B, follow the
+/// values of the levels and nothing else: two stores of the same two models, whose cell digests
+/// sort in opposite order because a setting that is no factor differs, name the same levels in
+/// the same order and give B minus A the same sign.
+/// Oracle: "alpha" sorts before "beta"; alpha passes 4 of 5 runs and beta 1 of 5, so B minus A is
+/// 1/5 - 4/5 = -0.6, counted by hand.
+/// Bite: order the levels by the digests of their cells, and the store whose digests sort the
+/// other way names beta as A and this turns red.
+#[test]
+fn orientation_ignores_cell_digests() {
+    let settings = ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8"];
+    let store_with = |setting: &'static str| {
+        let cells: Vec<(Spec, u64, u64)> = [("alpha", 4), ("beta", 1)]
+            .into_iter()
+            .map(|(model, passes)| {
+                let mut spec = Spec::new(model, 1);
+                spec.extra = vec![("plan.other", json!(setting))];
+                (spec, passes, 5)
+            })
+            .collect();
+        store_of(&cells)
+    };
+    let alpha_first = |setting: &'static str| {
+        let (_, runs) = store_with(setting);
+        cell_of(&runs, "alpha") < cell_of(&runs, "beta")
+    };
+    let first = settings
+        .into_iter()
+        .find(|setting| alpha_first(setting))
+        .expect("a setting whose digests put alpha first");
+    let second = settings
+        .into_iter()
+        .find(|setting| !alpha_first(setting))
+        .expect("a setting whose digests put beta first");
+    for setting in [first, second] {
+        let (selection, runs) = store_with(setting);
+        let report = report(&selection, runs);
+        let comparison = comparison_of(&report, "plan.model");
+        assert_eq!(
+            comparison.levels,
+            Some((json!("alpha"), json!("beta"))),
+            "{setting}"
+        );
+        close(
+            setting,
+            tested_of(comparison).diff.expect("a difference"),
+            -0.6,
+        );
     }
 }

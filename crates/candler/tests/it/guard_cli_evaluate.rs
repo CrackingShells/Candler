@@ -451,7 +451,10 @@ fn e1_evaluate_prints_the_job_id_on_stderr_and_the_report_on_stdout() {
         ),
         "the log ends in job.ended(completed): {events:?}"
     );
-    let ps = candler(&world, &project).arg("ps").output().unwrap();
+    let ps = candler(&world, &project)
+        .args(["ps", "--format", "text"])
+        .output()
+        .unwrap();
     let listing = String::from_utf8_lossy(&ps.stdout).into_owned();
     let row = listing
         .lines()
@@ -671,7 +674,10 @@ fn e1_evaluate_of_a_failed_job_prints_no_report_and_says_why() {
     assert!(out.stdout.is_empty(), "no report on stdout");
     assert!(stderr.contains("absent"), "{stderr}");
     let id: JobId = stderr.lines().next().unwrap().parse().unwrap();
-    let ps = candler(&world, &project).arg("ps").output().unwrap();
+    let ps = candler(&world, &project)
+        .args(["ps", "--format", "text"])
+        .output()
+        .unwrap();
     let listing = String::from_utf8_lossy(&ps.stdout).into_owned();
     let row = listing
         .lines()
@@ -905,7 +911,7 @@ fn e5_the_callers_environment_is_written_nowhere() {
 }
 
 /// Guards: R2 — a suite that changed after the job was started prints as the record of
-/// `evaluation.suite_changed`, side `suite`, under `--error-format json`. The test writes the job
+/// `evaluation.suite_changed`, side `suite`, with no option. The test writes the job
 /// by hand with the digest of the suite as it was, changes the suite, and starts the hidden
 /// `supervise` verb; the job ends `failed`.
 ///
@@ -938,13 +944,7 @@ fn r2_a_suite_changed_after_the_job_started_prints_as_a_suite_record() {
         .unwrap();
     JobDir::create(&StoreLayout::new(&world.store()), id.clone(), &record).unwrap();
     let mut child = Command::new(env!("CARGO_BIN_EXE_candler"))
-        .args([
-            "--error-format",
-            "json",
-            "supervise",
-            "--job",
-            &id.to_string(),
-        ])
+        .args(["supervise", "--job", &id.to_string()])
         .env_clear()
         .env("PATH", std::env::var_os("PATH").unwrap_or_default())
         .env("HOME", world.root.join("home"))
@@ -978,12 +978,12 @@ fn r2_a_suite_changed_after_the_job_started_prints_as_a_suite_record() {
     world.remove();
 }
 
-/// Starts `evaluate` over the world with `suite` and `--error-format json`, from the project, and
+/// Starts `evaluate` over the world with `suite` and the default JSON form, from the project, and
 /// returns the output with its stderr cut to the last line, where the record is: the preflight
 /// and the job's id come before it.
 fn evaluate_json(world: &World, project: &Path, suite: &Path) -> Output {
     let out = candler(world, project)
-        .args(["--error-format", "json", "evaluate"])
+        .args(["evaluate"])
         .arg(suite)
         .output()
         .unwrap();
@@ -1058,7 +1058,7 @@ fn r2_a_changed_suite_keeps_its_code_through_the_verb() {
     let suite = suite_of(&world, "suite_pool_ok.toml", &[]);
     let project = project(&world, "project", &["../plugin"]);
     let mut child = candler(&world, &project)
-        .args(["--error-format", "json", "evaluate"])
+        .args(["evaluate"])
         .arg(&suite)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1259,10 +1259,7 @@ fn e1_a_run_graded_twice_counts_once_for_every_reader() {
         assert_eq!(out.status.code(), Some(0), "{}", stderr_of(&out));
     };
     let read = |verb: &str| {
-        let out = candler(&world, &project)
-            .args([verb, "--format", "json"])
-            .output()
-            .unwrap();
+        let out = candler(&world, &project).args([verb]).output().unwrap();
         assert_eq!(out.status.code(), Some(0), "{verb}: {}", stderr_of(&out));
         out.stdout
     };

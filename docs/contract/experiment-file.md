@@ -29,6 +29,7 @@ Wire line: `schemas@0.11.3`.
 | `budget.per_run.turns` | `integer` | optional | - |
 | `budget.per_run.wall_s` | `integer` | required | - |
 | `budget.wall_s` | `integer` | optional | - |
+| `env` | `map of string` | optional | `{}` |
 | `factors` | `array of Factor` | optional | `[]` |
 | `factors[].levels` | `array of any` | required | - |
 | `factors[].path` | `FieldPath` | required | - |
@@ -44,7 +45,7 @@ Wire line: `schemas@0.11.3`.
 | `replicates` | `integer` | required | - |
 | `schema` | `"experiment/1"` | required | - |
 | `secrets` | `array of SecretName` | optional | `[]` |
-| `treatment` | `TreatmentSpec` | required | - |
+| `treatment` | `TreatmentSpec` | optional | - |
 | `treatment.commit` | `GitCommit` | optional | - |
 | `treatment.name` | `Name` | required | - |
 | `treatment.source` | `string` | optional | - |
@@ -69,6 +70,10 @@ Wire line: `schemas@0.11.3`.
 | `experiment.count_zero` | A count, duration or process id that must be at least 1 is 0. | The field when it is `replicates` or one under `budget`; none otherwise. | experiment |
 | `experiment.document_invalid` | The TOML is not an experiment file: a field is missing, has the wrong type or breaks the format of its own. | The field at fault, or its parent table when a field is missing; none at the root. | experiment |
 | `experiment.entry_repeated` | A list holds the same entry twice: a fixed path, a factor path or an input kind. | - | experiment |
+| `experiment.env_name_invalid` | An entry of the `env` table has a name that is not a variable name: it must match `[A-Za-z_][A-Za-z0-9_]*`. | The key of the entry in the `env` table. | experiment |
+| `experiment.env_reserved` | An entry of the `env` table names a variable Candler sets for the harness process itself. | The key of the entry in the `env` table. | experiment |
+| `experiment.env_secret` | An entry of the `env` table names a secret the experiment declares; a secret's value reaches the gateway only. | The key of the entry in the `env` table. | experiment |
+| `experiment.env_source` | A `[fixed]` key, a factor or a `--set` names the path `env`; the `[env]` table is its only source. | The path that was written. | experiment |
 | `experiment.factor_without_levels` | A factor has no level, so the experiment would have no cell. | - | experiment |
 | `experiment.input_invalid` | An input declaration uses the kind the wire reserves, or mounts under an empty, absolute or escaping directory. | `/inputs`, the list that holds the declaration. | experiment |
 | `experiment.input_not_stored` | A declared input file or list could not be copied into the store. | The `inputs` array of the experiment file. | experiment |
@@ -105,6 +110,6 @@ Wire line: `schemas@0.11.3`.
 
 - The document has no `free` fields. An unknown key outside `[fixed]` and the `levels` of a factor is `experiment.unknown_field`; a key under `[fixed]` or in a level table that is no setting path is `experiment.unknown_path`. [checked: v@0.7.0]
 - A TOML date or time among the values is refused with `experiment.value_unrepresentable`. [checked: v@0.7.0]
-- A name, secret name or `schema` marker of the wrong form, a factor with no level, a `replicates`, `wall_s` or cost cap of 0, an absolute `inputs[].at`, a repeated input kind, an integer out of range and overlapping paths print `experiment.document_invalid`, never `format.*`. [checked: v@0.7.0]
+- A name, secret name or `schema` marker of the wrong form, an integer out of range and a value that breaks its field's format print `experiment.document_invalid`, never `format.*`. Any other value-invalid file prints its own code, such as `experiment.factor_without_levels` or `experiment.path_overlap`. [checked: v@0.13.0]
 - `canonical.integer_out_of_range` and `values.null` print only for a value given with `--set`. [checked: v@0.7.0]
 - `mcp.servers.<key>.name` names a server (default the key); a driver refuses a name with `__` or one two servers share. [checked: v@0.7.0]

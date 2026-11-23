@@ -8,19 +8,26 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Write as _;
 use std::path::Path;
 use std::str::FromStr as _;
 
+use candler_core::analysis::refusal::ReportError;
+use candler_core::analysis::spend::spend_of;
 use candler_core::evaluation::selection::select::select;
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::lost::{JobLiveness, classify};
 use candler_core::store::Store;
+use candler_core::trace::{TranscriptForm, render_transcript};
+use candler_schemas::inspect::{
+    InspectJob, InspectJobRun, InspectJobTag, InspectOutcome, InspectRun, InspectRunTag, Spent,
+};
 use candler_schemas::outcome::OutcomeRecord;
 use candler_schemas::primitives::{JobId, RunKey};
-use serde_json::{Map, Value, json};
+use serde_json::Value;
 
 use super::refusal::CliRefusal;
-use super::{CliError, Exit, common, ps};
+use super::{CliError, Exit, OutputArgs, common, ps, write_record};
 use crate::Cli;
 
 /// How many candidates an ambiguous key prefix lists.
@@ -37,6 +44,13 @@ pub(crate) const FORMS: &str = "a run directory (`<store>/runs/<key>`), a prefix
 pub struct InspectArgs {
     /// A run directory, a prefix of a run key, or a job id. cannot be derived: it names what to look at.
     pub target: String,
+    /// Print the run's stored trace, one event per line, instead of its record: each event as
+    /// stored with JSON, one line of text per event with `--format text`. cannot be derived: it
+    /// names what to show of the run, which no format or target says.
+    #[arg(long)]
+    pub transcript: bool,
+    #[command(flatten)]
+    pub output: OutputArgs,
 }
 
 /// What a target names.
@@ -180,59 +194,36 @@ fn records_of(store: &Store, key: &RunKey) -> Result<Vec<OutcomeRecord>, CliErro
     Ok(records)
 }
 
-/// The JSON of one outcome record as `inspect` shows it.
-fn outcome_json(record: &OutcomeRecord) -> Result<Value, CliError> {
+/// The outcome record as `inspect` shows it.
+fn outcome_of(record: &OutcomeRecord) -> Result<InspectOutcome, CliError> {
     let whole = serde_json::to_value(record).map_err(|e| CliError::failed("inspect", e))?;
-    let mut shown = Map::new();
-    for (from, to) in [
-        ("evaluator", "evaluator"),
-        ("expectation_id", "expectation"),
-        ("role", "role"),
-        ("status", "status"),
-        ("value", "value"),
-        ("weight", "weight"),
-        ("cause", "cause"),
-        ("evidence", "evidence"),
-        ("request_id", "request"),
-    ] {
-        if let Some(found) = whole.get(from) {
-            shown.insert(to.to_owned(), found.clone()); // BORROW: the document owns its copy
-        }
-    }
-    Ok(Value::Object(shown))
+    let field = |name: &str| whole.get(name).cloned(); // BORROW: the record owns its copy
+    Ok(InspectOutcome {
+        evaluator: field("evaluator"),
+        expectation: field("expectation_id"),
+        role: field("role"),
+        status: field("status"),
+        value: field("value"),
+        weight: field("weight"),
+        cause: field("cause"),
+        evidence: field("evidence"),
+        request: field("request_id"),
+    })
 }
 
-/// The document of the run `key`: whether it is sealed and counts, what it was read from, the
+/// The record of the run `key`: whether it is sealed and counts, what it was read from, the
 /// provenance and the other values it measured, and its outcomes with their evidence.
 ///
 /// # Errors
 /// Returns [`CliError::Failed`] when the manifest or an outcome file cannot be read.
-pub fn render_run(store: &Store, key: &RunKey) -> Result<Value, CliError> {
+pub fn render_run(store: &Store, key: &RunKey) -> Result<InspectRun, CliError> {
     let manifest = store
         .read_manifest(key)
         .map_err(|e| CliError::failed("inspect", e))?;
     let whole = serde_json::to_value(&manifest).map_err(|e| CliError::failed("inspect", e))?;
-    let mut doc = Map::new();
-    doc.insert("run".to_owned(), json!(key.to_string())); // BORROW: the document owns its key text
-    doc.insert(
-        "sealed".to_owned(),
-        json!(store.layout().done(key).exists()),
-    );
-    for name in [
-        "integrity",
-        "experiment",
-        "job",
-        "started_at",
-        "ended_at",
-        "host",
-        "import",
-    ] {
-        if let Some(found) = whole.get(name) {
-            doc.insert(name.to_owned(), found.clone()); // BORROW: the document owns its copy
-        }
-    }
-    let mut provenance = Map::new();
-    let mut measured = Map::new();
+    let field = |name: &str| whole.get(name).cloned(); // BORROW: the record owns its copy
+    let mut provenance = BTreeMap::new();
+    let mut measured = BTreeMap::new();
     for entry in whole
         .get("measured")
         .and_then(Value::as_array)
@@ -250,10 +241,8 @@ pub fn render_run(store: &Store, key: &RunKey) -> Result<Value, CliError> {
         } else {
             &mut measured
         };
-        into.insert(path.to_owned(), value.clone()); // BORROW: the document owns its copy
+        into.insert(path.to_owned(), value.clone()); // BORROW: the record owns its copy
     }
-    doc.insert("provenance".to_owned(), Value::Object(provenance));
-    doc.insert("measured".to_owned(), Value::Object(measured));
     let mut records = records_of(store, key)?;
     records.sort_by(|a, b| {
         a.evaluator()
@@ -268,14 +257,27 @@ pub fn render_run(store: &Store, key: &RunKey) -> Result<Value, CliError> {
     });
     let outcomes = records
         .iter()
-        .map(outcome_json)
+        .map(outcome_of)
         .collect::<Result<Vec<_>, _>>()?;
-    doc.insert("outcomes".to_owned(), Value::Array(outcomes));
-    Ok(Value::Object(doc))
+    Ok(InspectRun {
+        schema: InspectRunTag,
+        run: key.to_string(),
+        sealed: store.layout().done(key).exists(),
+        integrity: field("integrity"),
+        experiment: field("experiment"),
+        job: field("job"),
+        started_at: field("started_at"),
+        ended_at: field("ended_at"),
+        host: field("host"),
+        import: field("import"),
+        provenance,
+        measured,
+        outcomes,
+    })
 }
 
 /// How many current outcomes of `key` have each status.
-fn status_counts(store: &Store, key: &RunKey) -> Result<Value, CliError> {
+fn status_counts(store: &Store, key: &RunKey) -> Result<BTreeMap<String, u64>, CliError> {
     let mut counts: BTreeMap<String, u64> =
         ["pass", "fail", "blocked", "not_measured", "not_applicable"]
             .iter()
@@ -289,7 +291,7 @@ fn status_counts(store: &Store, key: &RunKey) -> Result<Value, CliError> {
             *count = count.saturating_add(1);
         }
     }
-    Ok(json!(counts))
+    Ok(counts)
 }
 
 /// The state of the job of `dir`, as `ps` words it, without recovering a lost one. A job whose
@@ -308,15 +310,16 @@ fn job_state(dir: &JobDir) -> Result<String, CliError> {
     })
 }
 
-/// The document of the job `id`: its state and the runs whose manifest names it.
+/// The record of the job `id`: its state and the runs whose manifest names it.
 ///
 /// # Errors
 /// Returns [`CliError::Failed`] when the job record, the runs or their outcomes cannot be read.
-pub fn render_job(store: &Store, id: &JobId) -> Result<Value, CliError> {
+pub fn render_job(store: &Store, id: &JobId) -> Result<InspectJob, CliError> {
     let dir = JobDir::open(store.layout(), id).map_err(|e| CliError::failed("inspect", e))?;
     let record = dir.record().map_err(|e| CliError::failed("inspect", e))?;
     let state = job_state(&dir)?;
     let mut runs = Vec::new();
+    let mut sealed = Vec::new();
     for entry in store.runs().map_err(|e| CliError::failed("inspect", e))? {
         // EXPLICIT: a run whose manifest cannot be read names no job
         let Ok(manifest) = store.read_manifest(&entry.key) else {
@@ -327,13 +330,86 @@ pub fn render_job(store: &Store, id: &JobId) -> Result<Value, CliError> {
         }
         let integrity = serde_json::to_value(manifest.integrity())
             .map_err(|e| CliError::failed("inspect", e))?;
-        runs.push(json!({
-            "key": entry.key.to_string(),
-            "integrity": integrity,
-            "outcomes": status_counts(store, &entry.key)?,
+        runs.push(InspectJobRun {
+            key: entry.key.to_string(),
+            integrity,
+            outcomes: status_counts(store, &entry.key)?,
+        });
+        if entry.done {
+            sealed.push(manifest);
+        }
+    }
+    let spend = spend_of(sealed.iter());
+    Ok(InspectJob {
+        schema: InspectJobTag,
+        id: record.id().to_string(),
+        state,
+        runs,
+        spent: Spent {
+            cost_usd: spend.cost_usd,
+            runs_counted: spend.runs_counted,
+            runs_without_total: spend.runs_without_total,
+        },
+    })
+}
+
+/// The run record as lines: the run, its seal, what it measured and each outcome.
+fn text_of_run(run: &InspectRun) -> String {
+    let mut lines = vec![format!("run {}", run.run), format!("sealed {}", run.sealed)];
+    for (path, value) in run.provenance.iter().chain(run.measured.iter()) {
+        lines.push(format!("{path}\t{value}"));
+    }
+    for outcome in &run.outcomes {
+        let word =
+            |value: &Option<Value>| value.as_ref().map_or_else(String::new, ToString::to_string);
+        lines.push(format!(
+            "outcome {} {} {}",
+            word(&outcome.evaluator),
+            word(&outcome.expectation),
+            word(&outcome.status)
+        ));
+    }
+    lines.join("\n")
+}
+
+/// The job record as lines: the job, its state, each run's outcome counts and what it spent.
+fn text_of_job(job: &InspectJob) -> String {
+    let mut lines = vec![format!("job {} {}", job.id, job.state)];
+    for run in &job.runs {
+        let counts: Vec<String> = run
+            .outcomes
+            .iter()
+            .map(|(status, count)| format!("{status}={count}"))
+            .collect();
+        lines.push(format!("run {} {}", run.key, counts.join(" ")));
+    }
+    lines.push(format!(
+        "spent {} usd over {} run(s), {} without a total",
+        job.spent.cost_usd, job.spent.runs_counted, job.spent.runs_without_total
+    ));
+    lines.join("\n")
+}
+
+/// The lines of the transcript of the run `key`: its stored trace, one line per event.
+///
+/// # Errors
+/// Returns [`ReportError::NoStoredTrace`] when the run has no stored trace and
+/// [`CliError::Failed`] when the stored file cannot be read as a trace.
+fn transcript_lines(
+    store: &Store,
+    key: &RunKey,
+    target: &str,
+    form: TranscriptForm,
+) -> Result<Vec<String>, CliError> {
+    if !store.layout().trace(key).is_file() {
+        return Err(CliError::refused_by(ReportError::NoStoredTrace {
+            target: target.to_owned(), // BORROW: the refusal owns the text
         }));
     }
-    Ok(json!({"id": record.id().to_string(), "state": state, "runs": runs}))
+    let trace = store
+        .read_trace(key)
+        .map_err(|e| CliError::failed("inspect", e))?;
+    render_transcript(&trace, form).map_err(|e| CliError::failed("inspect", e))
 }
 
 /// Prints what the store holds of the run, or the job, that the target names.
@@ -341,11 +417,41 @@ pub fn render_job(store: &Store, id: &JobId) -> Result<Value, CliError> {
 /// # Errors
 /// Returns the errors of [`resolve_target`], [`render_run`] and [`render_job`].
 pub async fn run(cli: &Cli, args: &InspectArgs) -> Result<Exit, CliError> {
-    let doc = match resolve_target(cli, args.target.as_str()).await? {
+    let mut stdout = std::io::stdout().lock();
+    match resolve_target(cli, args.target.as_str()).await? {
         // BORROW: explicit .as_str()
-        Target::Run { store, key } => render_run(&store, &key)?,
-        Target::Job { store, id } => render_job(&store, &id)?,
-    };
-    println!("{doc}");
+        Target::Run { store, key } if args.transcript => {
+            let form = if args.output.text() {
+                TranscriptForm::Text
+            } else {
+                TranscriptForm::Json
+            };
+            let lines = transcript_lines(&store, &key, args.target.as_str(), form)?;
+            for line in lines {
+                writeln!(stdout, "{line}").map_err(|e| CliError::failed("inspect", e))?;
+            }
+        }
+        Target::Job { .. } if args.transcript => {
+            return Err(CliError::refused_by(ReportError::NoStoredTrace {
+                target: args.target.clone(), // BORROW: the refusal owns the text
+            }));
+        }
+        Target::Run { store, key } => {
+            let record = render_run(&store, &key)?;
+            if args.output.text() {
+                println!("{}", text_of_run(&record));
+            } else {
+                write_record("inspect", &mut stdout, &record)?;
+            }
+        }
+        Target::Job { store, id } => {
+            let record = render_job(&store, &id)?;
+            if args.output.text() {
+                println!("{}", text_of_job(&record));
+            } else {
+                write_record("inspect", &mut stdout, &record)?;
+            }
+        }
+    }
     Ok(Exit::Success)
 }

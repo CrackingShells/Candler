@@ -34,13 +34,19 @@ use super::model::{
     ContainerOutcome, ContainerPlan, ContainerRef, ContainerSweep, GatewayHandle, ImageId,
     ImageRef, Inspect, LabelSel, Limits, Refusal, SweepScope, UserSpec,
 };
-use super::{EndFacts, IsolatedRequest, Isolation, IsolationError, RunOutputs};
+use super::{EndFacts, IsolatedRequest, Isolation, IsolationError, RunOutputs, StartProbe};
 use crate::supervise::hook::{HookError, StopHook};
 use crate::supervise::stop::Exit;
 use candler_schemas::execution::paths;
 
 /// How long a collect command may run in its throwaway container.
 const COLLECT_WALL: Duration = Duration::from_secs(120);
+
+/// How long each docker call of a start probe may take.
+const PROBE_CALL: Duration = Duration::from_secs(60);
+
+/// The most bytes of a probed command's output a refusal keeps, taken from the end.
+const PROBE_OUTPUT_LIMIT: usize = 4096;
 
 /// The process limit of a container whose cell sets none.
 const DEFAULT_PIDS: u32 = 512;
@@ -50,6 +56,18 @@ const DEFAULT_MEMORY: &str = "4g";
 
 /// The cpu limit of a container whose cell sets none.
 const DEFAULT_CPUS: f64 = 2.0;
+
+/// The name of the search path the plan sets.
+pub const ENV_PATH: &str = "PATH";
+/// The name of the home directory variable the plan sets.
+pub const ENV_HOME: &str = "HOME";
+/// The name of the virtual environment variable the plan sets.
+pub const ENV_VIRTUAL_ENV: &str = "VIRTUAL_ENV";
+/// The name of the locale variable the plan sets.
+pub const ENV_LANG: &str = "LANG";
+/// The names of the variables the plan sets itself, which an experiment's `env` table may not
+/// name.
+pub const PLAN_ENV_NAMES: [&str; 4] = [ENV_PATH, ENV_HOME, ENV_VIRTUAL_ENV, ENV_LANG];
 
 /// The `PATH` of the agent: the environment layer first.
 const AGENT_PATH: &str = "/opt/env/bin:/usr/local/bin:/usr/bin:/bin";
@@ -353,10 +371,10 @@ impl Isolation for DockerIsolation {
                 },
             ],
             env: vec![
-                (String::from("PATH"), String::from(AGENT_PATH)),
-                (String::from("HOME"), String::from(CONTAINER_HOME)),
-                (String::from("VIRTUAL_ENV"), String::from(AGENT_VENV)),
-                (String::from("LANG"), String::from(AGENT_LANG)),
+                (String::from(ENV_PATH), String::from(AGENT_PATH)),
+                (String::from(ENV_HOME), String::from(CONTAINER_HOME)),
+                (String::from(ENV_VIRTUAL_ENV), String::from(AGENT_VENV)),
+                (String::from(ENV_LANG), String::from(AGENT_LANG)),
             ],
             gateway: None,
             state: Vec::new(),
@@ -379,6 +397,23 @@ impl Isolation for DockerIsolation {
                 .and_then(serde_json::Value::as_str)
                 == Some(crate::resolve::steps::session::MODE_SESSION),
         };
+        let env_root: candler_schemas::primitives::FieldPath =
+            paths::ENV
+                .parse()
+                .map_err(|error: candler_schemas::primitives::FormatError| {
+                    plan_error(&error.to_string())
+                })?;
+        if let Some(table) = cell
+            .table_at(&env_root)
+            .map_err(|error| plan_error(&error.to_string()))?
+        {
+            for (name, value) in table {
+                let text = value
+                    .as_str()
+                    .ok_or_else(|| plan_error(&format!("env.{name} is not a string")))?;
+                plan.env.push((name, text.to_owned())); // BORROW: the plan owns its values
+            }
+        }
         plan.mounts = mounts(&plan, &MountRoots::from_plan(&plan)).map_err(|source| {
             IsolationError::Plan {
                 detail: source.to_string(),
@@ -515,6 +550,90 @@ impl Isolation for DockerIsolation {
                 .map_err(|source| IsolationError::Docker {
                     detail: source.to_string(),
                 })
+        })
+    }
+
+    fn start_probe<'a>(
+        &'a self,
+        plan: &'a ContainerPlan,
+        command: &'a CommandSpec,
+        key: RunKey,
+        wait: Duration,
+    ) -> BoxFuture<'a, Result<StartProbe, IsolationError>> {
+        Box::pin(async move {
+            let docker_error =
+                |source: crate::isolation::docker::DockerError| IsolationError::Docker {
+                    detail: source.to_string(),
+                };
+            // The output of the command is read from the engine's log, which keeps standard
+            // output only for this client: the command's error stream is folded into it.
+            let mut argv = vec![
+                String::from("sh"),
+                String::from("-c"),
+                String::from("exec \"$@\" 2>&1"),
+                String::from("sh"),
+            ];
+            argv.extend(command.argv().iter().cloned()); // BORROW: the wrapped command owns its words
+            let mut builder = CommandSpec::builder().argv(argv);
+            for entry in command.env_overlay() {
+                builder = builder.env(entry.clone()); // BORROW: the wrapped command owns its entries
+            }
+            let wrapped = builder.build().map_err(|source| IsolationError::Plan {
+                detail: source.to_string(),
+            })?;
+            let mut held_open = plan.clone(); // BORROW: the probe's plan keeps its own `-i`
+            held_open.interactive = true;
+            let base_url = self.gateway.run_base_url(&key);
+            let create = agent_argv(
+                &held_open,
+                &wrapped,
+                &key,
+                &base_url,
+                &self.gateway.dummy_token,
+            )
+            .map_err(|source| IsolationError::Plan {
+                detail: source.to_string(),
+            })?;
+            let cid = self
+                .docker
+                .create(create.into_iter().skip(2).collect())
+                .await
+                .map_err(docker_error)?;
+            let id = cid.as_str().to_owned(); // BORROW: the docker calls take the id as text
+            let seen = async {
+                self.docker
+                    .capture(vec![String::from("start"), id.clone()], PROBE_CALL) // BORROW: the call owns its id
+                    .await?;
+                tokio::time::sleep(wait).await;
+                let state = self
+                    .docker
+                    .capture(
+                        vec![
+                            String::from("inspect"),
+                            String::from("--format"),
+                            String::from("{{.State.Running}}"),
+                            id.clone(), // BORROW: the call owns its id
+                        ],
+                        PROBE_CALL,
+                    )
+                    .await?;
+                if String::from_utf8_lossy(&state).trim() == "true" {
+                    return Ok(StartProbe::Running);
+                }
+                let logs = self
+                    .docker
+                    .capture(vec![String::from("logs"), id.clone()], PROBE_CALL) // BORROW: the call owns its id
+                    .await?;
+                let tail = logs.len().saturating_sub(PROBE_OUTPUT_LIMIT);
+                let text = String::from_utf8_lossy(logs.get(tail..).unwrap_or_default());
+                Ok(StartProbe::Exited {
+                    output: text.into_owned(),
+                })
+            }
+            .await;
+            // The container is removed by its id whichever way the reads ended.
+            let _ = self.destroy_cid(plan, &key, &cid).await; // EXPLICIT: a refusal of the destroy stays in the guard's record and the job-close sweep
+            seen.map_err(docker_error)
         })
     }
 }

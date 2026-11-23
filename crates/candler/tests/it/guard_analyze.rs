@@ -561,7 +561,7 @@ fn a1_the_json_equals_the_hand_counts() {
     for pair in pairs {
         assert_eq!(pair["factor"], "plan.model");
         assert_eq!(
-            pair["stratum"],
+            pair["comparability_class"],
             json!({"verdict": "comparable", "causes": []})
         );
         let (ca, cb) = (
@@ -699,7 +699,7 @@ fn a1_the_csv_tables_equal_the_hand_counts() {
     );
     assert_eq!(
         pairs[0].join(","),
-        "a,b,factor,verdict,expectation,role,a_k,a_n,b_k,b_n,p,p_holm,reject,diff,diff_lo,diff_hi,omitted,experiment,causes,level_a,level_b,battery,fallback,blocks,reading,or_mh,or_lo,or_hi,homogeneity_p,per_block"
+        "a,b,factor,verdict,expectation,role,a_k,a_n,b_k,b_n,p,p_holm,reject,diff,diff_lo,diff_hi,omitted,experiment,causes,level_a,level_b,battery,fallback,blocks,interval_reading,or_mh,or_lo,or_hi,homogeneity_p,per_block"
     );
     assert_eq!(pairs.len(), 1 + 9, "three pairs of three expectations");
     let tested: Vec<&Vec<String>> = pairs[1..].iter().filter(|r| r[16].is_empty()).collect();
@@ -827,7 +827,7 @@ fn a2_a_refused_pair_is_reported_through_the_binary() {
         let pairs = report["comparisons"].as_array().expect("comparisons");
         assert_eq!(pairs.len(), 1, "{label}");
         assert_eq!(
-            pairs[0]["stratum"],
+            pairs[0]["comparability_class"],
             json!({"verdict": "refused", "causes": [cause]}),
             "{label}"
         );
@@ -937,7 +937,7 @@ fn a3_a_bare_version_is_accepted_through_the_binary() {
     assert_eq!(out.stdout, Vec::<u8>::new());
 }
 
-/// The one record on stderr of a refused call under `--error-format json`.
+/// The one record on stderr of a refused call with no option.
 fn record_of(out: &Output) -> Value {
     assert_eq!(out.status.code(), Some(2));
     assert_eq!(
@@ -951,7 +951,7 @@ fn record_of(out: &Output) -> Value {
 }
 
 /// Guards: R2 — a store with two evaluator versions prints as one `refusal/1` record under
-/// `--error-format json`, with the code `analysis.mixed_evaluator_versions`, the side `config`
+/// the default JSON form, with the code `analysis.mixed_evaluator_versions`, the side `config`
 /// (the fix is a setting of the command line, `--evaluator`) and both versions in the message.
 /// Oracle: a record written by hand from the contract.
 /// Bite: route the refusal through `CliError::refused`, and the record's code becomes
@@ -960,7 +960,7 @@ fn record_of(out: &Output) -> Value {
 fn r2_a_mixed_store_prints_as_a_record() {
     let runs = layout(&["suite-eval@1.0.0", "suite-eval@2.0.0"], false);
     let (dir, store) = fixture(&runs);
-    let out = analyze(dir.path(), &store, &["--error-format", "json"]);
+    let out = analyze(dir.path(), &store, &[]);
     let record = record_of(&out);
     assert_eq!(record["schema"], "refusal/1", "{record}");
     assert_eq!(
@@ -985,11 +985,7 @@ fn r2_an_unreadable_experiment_names_the_file() {
     let file = dir.path().join("broken.toml");
     fs::write(&file, "replicates = [\n").expect("the file writes");
     let file_arg = file.to_str().expect("a UTF-8 path");
-    let out = analyze(
-        dir.path(),
-        &store,
-        &["--error-format", "json", "--experiment", file_arg],
-    );
+    let out = analyze(dir.path(), &store, &["--experiment", file_arg]);
     let record = record_of(&out);
     assert_eq!(record["code"], "analysis.experiment_unreadable", "{record}");
     assert_eq!(record["side"], "experiment", "{record}");
@@ -1063,11 +1059,7 @@ fn a2_a_wrong_experiment_is_refused_through_the_binary() {
         ),
     ] {
         let wrong_arg = wrong.to_str().expect("a UTF-8 path");
-        let out = analyze(
-            dir.path(),
-            &store,
-            &["--error-format", "json", "--experiment", wrong_arg],
-        );
+        let out = analyze(dir.path(), &store, &["--experiment", wrong_arg]);
         let record = record_of(&out);
         assert_eq!(
             record["code"], "analysis.experiment_disagrees",
@@ -1076,7 +1068,7 @@ fn a2_a_wrong_experiment_is_refused_through_the_binary() {
         assert_eq!(record["side"], "experiment", "{label}: {record}");
     }
     let (dir, store) = fixture(&two_by_two(&["plan"]));
-    let out = analyze(dir.path(), &store, &["--error-format", "json"]);
+    let out = analyze(dir.path(), &store, &[]);
     let record = record_of(&out);
     assert_eq!(
         record["code"], "analysis.factor_broader_than_variation",
@@ -1084,13 +1076,13 @@ fn a2_a_wrong_experiment_is_refused_through_the_binary() {
     );
 }
 
-/// Guards: A1 — a cell in two strata is two arms through the binary: each arm names its
-/// experiment digest, the counts are per stratum, there is one comparison per stratum and one
+/// Guards: A1 — a cell in two comparability classes is two arms through the binary: each arm names its
+/// experiment digest, the counts are per comparability class, there is one comparison per comparability class and one
 /// Holm family of two tests.
-/// Oracle: the runs written into the store, three per cell and stratum.
+/// Oracle: the runs written into the store, three per cell and comparability class.
 /// Bite: key the tally by cell alone, and the arms pool six runs.
 #[test]
-fn a1_a_cell_in_two_strata_is_two_arms() {
+fn a1_a_cell_in_two_classes_is_two_arms() {
     let mut seeded = Vec::new();
     let mut n = 0_usize;
     for (at, experiment) in ['0', '1'].into_iter().enumerate() {
@@ -1140,7 +1132,7 @@ fn a1_a_cell_in_two_strata_is_two_arms() {
 
 /// Guards: A1 — a run without a seal does not fail the call through the binary: with the layout
 /// and two unsealed runs, one whose manifest was written and one with none, the call exits 0, the
-/// arm of the first shows `runs.unsealed` 1, a stratum `unknown` holds the second, and the counts
+/// arm of the first shows `runs.unsealed` 1, a comparability class `unknown` holds the second, and the counts
 /// of the sealed runs are the hand counts.
 /// Oracle: the layout's hand counts.
 /// Bite: list only the sealed runs while the unsealed one has records, and the call fails with a
@@ -1170,7 +1162,7 @@ fn a1_an_unsealed_run_does_not_fail_the_call() {
         .expect("arms")
         .iter()
         .find(|a| a["experiment"] == "unknown")
-        .expect("the unknown stratum");
+        .expect("the unknown class");
     assert_eq!(unknown["runs"]["unsealed"], 1);
     assert_eq!(unknown["runs"]["valid"], 0);
 }
@@ -1253,7 +1245,7 @@ fn c6_one_factor_store_keeps_todays_output() {
 /// comparisons, each entry naming its battery, the number of blocks, whether the exact test
 /// replaced CMH, its reading and each block's key and risk difference; the CSV `comparisons` table
 /// keeps today's nineteen columns first and appends `level_a`, `level_b`, `battery`, `fallback`,
-/// `blocks`, `reading`, `or_mh`, `or_lo`, `or_hi`, `homogeneity_p` and `per_block`.
+/// `blocks`, `interval_reading`, `or_mh`, `or_lo`, `or_hi`, `homogeneity_p` and `per_block`.
 /// Oracle: the layout written by `two_by_two` and the column names of the leaf.
 /// Bite: drop a block key, or insert the new columns before the old ones, and this turns red.
 #[test]
@@ -1278,7 +1270,7 @@ fn c6_json_and_csv_name_the_test_and_blocks() {
         assert_eq!(entry["blocks"], 2);
         assert!(entry["fallback"].is_boolean());
         assert!(matches!(
-            entry["reading"].as_str(),
+            entry["interval_reading"].as_str(),
             Some("effect" | "inconclusive")
         ));
         let other = if comparison["factor"] == "plan.model" {
@@ -1300,7 +1292,7 @@ fn c6_json_and_csv_name_the_test_and_blocks() {
         "{header}"
     );
     assert!(
-        header.ends_with(",level_a,level_b,battery,fallback,blocks,reading,or_mh,or_lo,or_hi,homogeneity_p,per_block"),
+        header.ends_with(",level_a,level_b,battery,fallback,blocks,interval_reading,or_mh,or_lo,or_hi,homogeneity_p,per_block"),
         "{header}"
     );
     assert_eq!(table.len(), 3);
@@ -1362,7 +1354,7 @@ fn c6_one_factor_binary_store_keeps_todays_literals() {
     let a_is_alpha = comparison["a"] == alpha.as_str();
     assert_eq!(comparison["factor"], "plan.model");
     assert_eq!(
-        comparison["stratum"],
+        comparison["comparability_class"],
         json!({"verdict": "comparable", "causes": []})
     );
     let [entry] = comparison["entries"]
