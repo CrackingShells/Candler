@@ -830,3 +830,164 @@ fn c3_an_unknown_key_in_every_closed_table_is_refused_at_its_pointer() {
         }
     }
 }
+
+/// An experiment file whose `replicates`, `fixed`/factor head and `budget.per_run` extra are given.
+fn experiment_file(replicates: u32, head: &str, per_run: &str, tail: &str) -> String {
+    format!(
+        "schema = \"experiment/1\"\nreplicates = {replicates}\n{head}\n[budget.per_run]\nwall_s = 5\n{per_run}\n[harness]\nname = \"h\"\n[treatment]\nname = \"t\"\n{tail}"
+    )
+}
+
+/// A suite whose entries are the given TOML blocks.
+fn suite_file(entries: &[&str]) -> String {
+    format!("schema = \"suite/1\"\n{}", entries.concat())
+}
+
+/// One suite entry; `extra` is added to its top-level keys.
+fn suite_entry(id: &str, depends_on: &str, extra: &str) -> String {
+    format!(
+        "[[expectations]]\nid = \"{id}\"\nrole = \"gate\"\nkind = \"file_exists\"\ndepends_on = [{depends_on}]\n{extra}\n[expectations.evaluator]\nname = \"e\"\nrange = \"^1\"\n[expectations.params]\n"
+    )
+}
+
+/// A value-invalid experiment or suite file prints the code of the fault, with the side and the
+/// pointer the registry and the document give, and a pure shape error prints `document_invalid`.
+/// Guards: the inner codes — a file with a factor without a level prints
+/// `experiment.factor_without_levels` and a suite with a repeated id `suite.id_repeated`, one row
+/// per fault; a fault that sits in a list entry keeps the document's code and the entry's pointer.
+/// Oracle: each expected code and side is the `codes.toml` row of the (enum, variant) the row
+/// names; the files and the pointers are written by hand.
+/// Bite: a variant mapped back to `Document` (its row goes red); a variant that drops its pointer
+/// (the path check of its row goes red); an expectation read from the code under test (a row
+/// whose key is renamed locally goes red).
+#[test]
+fn inner_codes_print_as_code() {
+    let registry = codes_registry();
+    let rows = registry["schemas"]
+        .as_table()
+        .expect("the [schemas] section");
+    let code_of = |enum_name: &str, variant: &str| -> (String, String) {
+        let mut found = rows.iter().filter(|(_, row)| {
+            row["enum"].as_str() == Some(enum_name) && row["variant"].as_str() == Some(variant)
+        });
+        let (code, row) = found.next().expect("a registry row for the variant");
+        assert!(found.next().is_none(), "one row for {enum_name}::{variant}");
+        (
+            code.clone(),
+            row["side"].as_str().expect("a side").to_owned(),
+        )
+    };
+    let valid_tail = "";
+    let two_cycle = suite_file(&[
+        suite_entry("a", "\"b\"", "").as_str(),
+        suite_entry("b", "\"a\"", "").as_str(),
+    ]);
+    let repeated = suite_file(&[
+        suite_entry("a", "", "").as_str(),
+        suite_entry("a", "", "").as_str(),
+    ]);
+    let unknown = suite_file(&[suite_entry("a", "\"zz\"", "").as_str()]);
+    let empty_applies = suite_file(&[suite_entry("a", "", "applies_to = []").as_str()]);
+    // (error enum, variant, file, pointer, true for a suite file)
+    let table: Vec<(&str, &str, String, Option<&str>, bool)> = vec![
+        (
+            "ExecutionError",
+            "Zero",
+            experiment_file(0, "", "", valid_tail),
+            Some("/replicates"),
+            false,
+        ),
+        (
+            "ExecutionError",
+            "NotPositive",
+            experiment_file(1, "", "max_cost_usd = 0", valid_tail),
+            Some("/budget/per_run/max_cost_usd"),
+            false,
+        ),
+        (
+            "ExecutionError",
+            "NoLevels",
+            experiment_file(
+                1,
+                "[[factors]]\npath = \"plan.a\"\nlevels = []",
+                "",
+                valid_tail,
+            ),
+            None,
+            false,
+        ),
+        (
+            "ExecutionError",
+            "EmptyTable",
+            experiment_file(1, "[fixed.prompt.values]", "", valid_tail),
+            None,
+            false,
+        ),
+        (
+            "ExecutionError",
+            "PathOverlap",
+            experiment_file(
+                1,
+                "[fixed]\n\"plan.a\" = 1\n[[factors]]\npath = \"plan\"\nlevels = [1, 2]",
+                "",
+                valid_tail,
+            ),
+            None,
+            false,
+        ),
+        (
+            "ExecutionError",
+            "Duplicate",
+            experiment_file(
+                1,
+                "[fixed]\n\"prompt.values.a\" = 1\n[fixed.prompt.values]\na = 2",
+                "",
+                valid_tail,
+            ),
+            None,
+            false,
+        ),
+        (
+            "ExecutionError",
+            "InputDeclaration",
+            experiment_file(
+                1,
+                "",
+                "",
+                "[[inputs]]\nkind = \"data\"\npath = \"p\"\nat = \"/abs\"\n",
+            ),
+            Some("/inputs"),
+            false,
+        ),
+        ("EvaluationError", "DuplicateId", repeated, None, true),
+        ("EvaluationError", "UnknownDependency", unknown, None, true),
+        ("EvaluationError", "Cycle", two_cycle, None, true),
+        // The entry's own validator runs inside the list's reader: the document's code and the
+        // entry's pointer stay.
+        (
+            "EvaluationError",
+            "Toml",
+            empty_applies,
+            Some("/expectations/0"),
+            true,
+        ),
+    ];
+    for (enum_name, variant, text, pointer, is_suite) in table {
+        let (code, side) = code_of(enum_name, variant);
+        let error: Box<dyn Refusal> = if is_suite {
+            Box::new(SuiteFile::from_toml_str(text.as_str()).expect_err("a value-invalid suite"))
+        } else {
+            Box::new(
+                ExperimentFile::from_toml_str(text.as_str())
+                    .expect_err("a value-invalid experiment file"),
+            )
+        };
+        assert_eq!(error.code().as_str(), code, "{enum_name}::{variant}");
+        assert_eq!(error.side().as_str(), side, "{enum_name}::{variant}");
+        assert_eq!(
+            error.path().as_deref(),
+            pointer,
+            "pointer of {enum_name}::{variant}"
+        );
+    }
+}
