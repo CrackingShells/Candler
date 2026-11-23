@@ -25,18 +25,18 @@ Every accepted input of R16 is built as its row says, with its tests designed pe
 
 ## Pre-conditions
 - [x] [nl] Eliott said Go on verdicts v3 (2026-11-23), recorded in the rulings table of `__reports__/m6b-surface-consolidation/README.md`
-- [ ] [cmd] `$BUILD_BASE` is the commit that added this directory, `BUILD_BASE=$(git log --diff-filter=A --format=%H -1 -- __roadmap__/m6b-surface-consolidation/consolidated/build/README.md)`, and the integration branch contains it: `git merge-base --is-ancestor $BUILD_BASE HEAD`
-- [ ] [cmd] The disk has room: `df -h /System/Volumes/Data` shows at least 40 GiB available
+- [x] [cmd] `$BUILD_BASE` is the commit that added this directory, `BUILD_BASE=$(git log --diff-filter=A --format=%H -1 -- __roadmap__/m6b-surface-consolidation/consolidated/build/README.md)`, and the integration branch contains it: `git merge-base --is-ancestor $BUILD_BASE HEAD`
+- [x] [cmd] The disk has room: `df -h /System/Volumes/Data` shows at least 40 GiB available
 
 ## Success Gates
-- ⬜ [cmd] STD, LINUX and SUBJ pass on the integration tip (Gotchas, Standard gates)
-- ⬜ [cmd] DIGEST passes: no cell, run or golden digest moved
-- ⬜ [cmd] GOLDEN passes: the 240-run golden parity still holds
-- ⬜ [cmd] No remedy key was added: `! grep -Eq '^remedy *=' docs/contract/codes.toml`
-- ⬜ [cmd] Every leaf's report exists: `for l in analysis_core codes_inner preflight_checks server_check output_contract knowledge_pages analysis_record docs_chores experiment_env; do test -f __reports__/m6b-surface-consolidation/build/${l}_v0.md || exit 1; done`
-- ⬜ [nl] Every accepted id of R16 is built or carries a ruled reason in its leaf report; no leaf built a `defer`, `m7`, `owner:` or `reject` row
-- ⬜ [nl] The supervisor's conditions on `output_contract` hold (that leaf's Success Gates), and the HTN migration note is in the knowledge-transfer report
-- ⬜ [nl] Every verifier closed with no open finding
+- ✅ [cmd] STD, LINUX and SUBJ pass on the integration tip (Gotchas, Standard gates)
+- ✅ [cmd] DIGEST passes: no cell, run or golden digest moved
+- ✅ [cmd] GOLDEN passes: the 240-run golden parity still holds
+- ✅ [cmd] No remedy key was added: `! grep -Eq '^remedy *=' docs/contract/codes.toml`
+- ✅ [cmd] Every leaf's report exists: `for l in analysis_core codes_inner preflight_checks server_check output_contract knowledge_pages analysis_record docs_chores experiment_env; do test -f __reports__/m6b-surface-consolidation/build/${l}_v0.md || exit 1; done`
+- ✅ [nl] Every accepted id of R16 is built or carries a ruled reason in its leaf report; no leaf built a `defer`, `m7`, `owner:` or `reject` row
+- ✅ [nl] The supervisor's conditions on `output_contract` hold (that leaf's Success Gates), and the HTN migration note is in the knowledge-transfer report
+- ✅ [nl] Every verifier closed with no open finding
 
 ## Gotchas
 - **What binds.** R16's `accept` rows, as worded there, and Eliott's rulings (R17); D1 to D3 of R16; the round 02 rulings of the M7 pre-study (campaign README, Gotchas). A leaf builds its own rows and nothing else: never a `defer`, `m7`, `owner:` or `reject` row, never a fix spotted in passing (it goes in the leaf report as a follow-up).
