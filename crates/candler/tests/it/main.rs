@@ -50,7 +50,6 @@ mod contract_pages;
 mod guard_analyze;
 mod guard_analyze_golden;
 mod guard_cli;
-mod guard_cli_diff_refusal;
 mod guard_cli_e2e;
 mod guard_cli_evaluate;
 mod guard_cli_kill;

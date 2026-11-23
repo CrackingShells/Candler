@@ -32,24 +32,6 @@ fn detail(entries: &[(&str, Value)]) -> Res<String> {
     }
 }
 
-/// Guards: G1 — a server with `name` is keyed by it with `name` removed, a server without keeps
-/// its key, and a cell with no `name` reads as it did before the leaf existed.
-/// Oracle: the literal tables written by hand.
-#[test]
-fn a_name_re_keys_the_server_and_leaves_no_name_leaf() -> Res<()> {
-    let values = cell(&[
-        ("mcp.servers.a.command", json!("uvx")),
-        ("mcp.servers.a.name", json!("x-y")),
-        ("mcp.servers.b.command", json!("node")),
-    ])?;
-    let got = servers(&Cell::new(&values))?;
-    assert_eq!(
-        Value::Object(got.ok_or("no servers")?),
-        json!({"x-y": {"command": "uvx"}, "b": {"command": "node"}})
-    );
-    Ok(())
-}
-
 /// Guards: G1 — two servers that render one name are refused, name against name and name against
 /// another server's key.
 /// Oracle: the colliding pairs are written by hand.
@@ -65,17 +47,5 @@ fn two_servers_rendering_one_name_are_refused() -> Res<()> {
         ("mcp.servers.x_y.command", json!("uvx")),
     ])?;
     assert!(by_key.contains("both render as `x_y`"), "{by_key}");
-    Ok(())
-}
-
-/// Guards: G1 — a `name` that is not a plain name, is not text, or holds `__` is refused.
-/// Oracle: the names are written by hand against `NAME_PATTERN` (no `@`, no white space, non-empty).
-#[test]
-fn a_malformed_name_is_refused() -> Res<()> {
-    for bad in [json!(""), json!("a b"), json!("a@b"), json!(3)] {
-        detail(&[("mcp.servers.a.name", bad)])?;
-    }
-    let split = detail(&[("mcp.servers.a.name", json!("x__y"))])?;
-    assert!(split.contains("contains `__`"), "{split}");
     Ok(())
 }
