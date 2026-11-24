@@ -588,8 +588,12 @@ impl HarnessDriver for Collecting {
     fn live_reader(&self) -> Option<Box<dyn TraceReader>> {
         self.0.live_reader()
     }
-    fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {
-        self.0.offline_reader(stream)
+    fn offline_reader(
+        &self,
+        stream: &StreamName,
+        servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
+        self.0.offline_reader(stream, servers)
     }
     fn classify_exit(&self, exit: &ProcessExit, sessions: &[Session]) -> EndedBy {
         self.0.classify_exit(exit, sessions)

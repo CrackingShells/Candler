@@ -19,7 +19,7 @@ use candler_harness_opencode::driver::OpenCodeDriver;
 use candler_schemas::primitives::{FieldPath, ReasonCode};
 use candler_schemas::process::ExitStatus;
 use candler_schemas::raw::StreamName;
-use candler_schemas::trace::{EndedBy, SessionId};
+use candler_schemas::trace::{EndedBy, SessionId, ToolOrigin};
 use candler_schemas::values::{JsonValue, ResolvedValue};
 use serde_json::json;
 
@@ -264,6 +264,33 @@ fn cases() -> Res<Vec<Case>> {
                 b"skill".to_vec(),
                 false,
             )],
+        ),
+    );
+    // A call to the tool `t` of the declared server `s` is the tool `s_t` in the export.
+    let mut document: serde_json::Value =
+        serde_json::from_slice(&read("completed_o1", "export.json")?)?;
+    for message in document["messages"].as_array_mut().into_iter().flatten() {
+        for block in message["content"].as_array_mut().into_iter().flatten() {
+            if block["type"] == "tool" {
+                block["name"] = json!("s_t");
+            }
+        }
+    }
+    let id = sid(&note("completed_o1", "expected.toml", "session_id")?)?;
+    cases.push(
+        Case::new(
+            "export_mcp_call".to_owned(), // BORROW: .to_owned() makes the owned name
+            ReaderSource::Offline(stream("export")?),
+            stream("export")?,
+            serde_json::to_vec(&document)?,
+        )
+        .with_sessions(
+            vec![ExpectedSession::new(id.clone(), None, EndedBy::Completed)], // BORROW: .clone() copies the id
+            vec![id],
+        )
+        .with_mcp_call(
+            vec!["s".to_owned()], // BORROW: .to_owned() makes the owned name
+            ToolOrigin::mcp_tool("s".to_owned(), "t".to_owned()), // BORROW: .to_owned() makes the owned names
         ),
     );
     Ok(cases)

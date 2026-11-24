@@ -157,7 +157,27 @@ impl Draft {
     }
 }
 
-fn tool_drafts(block: &Value, message_at: Option<&Timestamp>) -> Vec<Draft> {
+/// The origin of the tool `name`: the tool `<tool>` of the declared server `<server>` when the
+/// name is `<server>_<tool>`, trying the longest server name first, otherwise a tool the harness
+/// offers itself, otherwise another source. A name is never taken for a server's by its spelling
+/// alone: only a server the cell declares matches.
+fn origin_of(name: &str, servers: &[String]) -> ToolOrigin {
+    servers
+        .iter()
+        .find_map(|server| {
+            let tool = name.strip_prefix(server.as_str())?.strip_prefix('_')?;
+            (!tool.is_empty()).then(|| ToolOrigin::mcp_tool(server.clone(), tool.to_owned())) // BORROW: .clone() and .to_owned() make the owned names the origin keeps
+        })
+        .unwrap_or_else(|| {
+            if BUILTIN_TOOLS.contains(&name) {
+                ToolOrigin::Builtin
+            } else {
+                ToolOrigin::Other
+            }
+        })
+}
+
+fn tool_drafts(block: &Value, message_at: Option<&Timestamp>, servers: &[String]) -> Vec<Draft> {
     let name = text(block, "name").unwrap_or_default();
     let state = field(block, "state");
     let input = state.and_then(|state| field(state, "input"));
@@ -168,11 +188,7 @@ fn tool_drafts(block: &Value, message_at: Option<&Timestamp>) -> Vec<Draft> {
                 .map(|command| vec![command.to_owned()]) // BORROW: .to_owned() makes owned text
         })
         .flatten();
-    let origin = if BUILTIN_TOOLS.contains(&name) {
-        ToolOrigin::Builtin
-    } else {
-        ToolOrigin::Other
-    };
+    let origin = origin_of(name, servers);
     let time = |key: &str| timestamp(block.get("time").and_then(|t| millis(t, &[key])));
     let mut call = Draft::new(
         // BORROW: .to_owned() makes the owned name the event keeps
@@ -202,7 +218,7 @@ fn tool_drafts(block: &Value, message_at: Option<&Timestamp>) -> Vec<Draft> {
     drafts
 }
 
-fn assistant_drafts(message: &Value, error_seen: &mut bool) -> Vec<Draft> {
+fn assistant_drafts(message: &Value, error_seen: &mut bool, servers: &[String]) -> Vec<Draft> {
     let at = timestamp(
         message
             .get("time")
@@ -220,7 +236,7 @@ fn assistant_drafts(message: &Value, error_seen: &mut bool) -> Vec<Draft> {
                 EventKind::assistant_message(text(block, "text").map(str::to_owned)),
                 at.clone(), // BORROW: .clone() copies the time
             )),
-            Some("tool") => drafts.extend(tool_drafts(block, at.as_ref())),
+            Some("tool") => drafts.extend(tool_drafts(block, at.as_ref(), servers)),
             Some("reasoning") => {
                 let mut body = Map::new();
                 // BORROW: .to_owned() makes the owned key and text
@@ -289,21 +305,22 @@ fn ended_by_of_outcome(outcome: Option<&str>, error: Option<&str>) -> EndedBy {
 pub struct OpenCodeExportReader {
     identity: NameVersion,
     read: Option<(Session, SessionId)>,
-}
-
-impl Default for OpenCodeExportReader {
-    fn default() -> Self {
-        Self::new()
-    }
+    servers: Vec<String>,
 }
 
 impl OpenCodeExportReader {
-    /// A reader of the export.
+    /// A reader of the export of a run that declared the MCP servers `servers`: a call to the tool
+    /// `<tool>` of the server `<server>` is the tool `<server>_<tool>` in the export, and only a
+    /// declared server's name makes a call an MCP call.
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(servers: &[String]) -> Self {
+        let mut servers = servers.to_vec();
+        // The longest name first, so that `a_b` is tried before `a` for the tool `a_b_c`.
+        servers.sort_by_key(|server| std::cmp::Reverse(server.len()));
         Self {
             identity: NameVersion::of(&name!("opencode-export"), semver::Version::new(0, 1, 0)),
             read: None,
+            servers,
         }
     }
 
@@ -363,7 +380,9 @@ impl OpenCodeExportReader {
                         text(message, "id").map_or(Value::Null, |i| Value::String(i.to_owned())),
                     ), // BORROW: .to_owned() makes owned text
                 ),
-                Some("assistant") => drafts.extend(assistant_drafts(message, &mut error_seen)),
+                Some("assistant") => {
+                    drafts.extend(assistant_drafts(message, &mut error_seen, &self.servers));
+                }
                 Some("idle") => {
                     if let (Some(error), false) = (field(message, "error"), error_seen) {
                         drafts.push(

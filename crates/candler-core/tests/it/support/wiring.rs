@@ -202,8 +202,12 @@ impl HarnessDriver for WiringDriver {
     }
 
     // TRAIT_OBJECT: the host hands out its trace reader as a trait object
-    fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {
-        self.0.offline_reader(stream)
+    fn offline_reader(
+        &self,
+        stream: &StreamName,
+        servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
+        self.0.offline_reader(stream, servers)
     }
 
     fn classify_exit(&self, exit: &ProcessExit, sessions: &[Session]) -> EndedBy {

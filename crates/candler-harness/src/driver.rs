@@ -35,6 +35,15 @@ pub enum DriverError {
         /// What is wrong with it.
         detail: String,
     },
+    /// Two MCP servers whose names make a tool name read two ways: `<first>_` begins the name of
+    /// `second`.
+    #[error("servers `{first}` and `{second}` are ambiguous: a tool name that begins `{first}_{rest}` could belong to either", rest = second.strip_prefix(format!("{first}_").as_str()).unwrap_or_default())]
+    AmbiguousServers {
+        /// The shorter name.
+        first: String,
+        /// The longer name, which begins with the shorter one and `_`.
+        second: String,
+    },
     /// A setting the harness has no way to honour, refused rather than dropped.
     #[error("{harness} cannot honour {path}: {detail}")]
     Unsupported {
@@ -228,8 +237,14 @@ pub trait HarnessDriver: Send + Sync {
     fn live_reader(&self) -> Option<Box<dyn TraceReader>>; // TRAIT_OBJECT: the core selects drivers and readers at runtime
 
     /// The reader of a stream the core collected after the run, such as an export, or `None` if
-    /// the driver reads no such stream.
-    fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>>; // TRAIT_OBJECT: the core selects drivers and readers at runtime
+    /// the driver reads no such stream. `servers` are the names of the MCP servers the run's cell
+    /// declared, which a harness that spells a call `<server>_<tool>` needs to tell a server's tool
+    /// from another one; a stream read with no cell (an ingested trace) is given none.
+    fn offline_reader(
+        &self,
+        stream: &StreamName,
+        servers: &[String],
+    ) -> Option<Box<dyn TraceReader>>; // TRAIT_OBJECT: the core selects drivers and readers at runtime
 
     /// How the run ended, read from the exit and the parsed sessions rather than from the exit
     /// status alone: an exit 0 with an error result is an agent error. A run the experimenter

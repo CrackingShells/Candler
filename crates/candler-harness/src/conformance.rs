@@ -10,7 +10,7 @@
 use std::fmt;
 
 use candler_schemas::raw::{FrameData, RawFrame, RawRef, StreamName};
-use candler_schemas::trace::{EndedBy, Session, SessionId};
+use candler_schemas::trace::{EndedBy, EventKind, Session, SessionId, ToolOrigin};
 
 use crate::driver::{DriverError, HarnessDriver, Plan};
 use crate::reader::{FrameIn, TraceReader};
@@ -132,6 +132,9 @@ pub struct Case {
     pub harness_wrote: Vec<PreparedFile>,
     /// Records for the session tracker, in the order the core reads them.
     pub track: Vec<TrackStep>,
+    /// The MCP servers the run declared, and the origin that the stream's one tool call must
+    /// have in the events the reader emits: the stream is read for that server list.
+    pub mcp_call: Option<(Vec<String>, ToolOrigin)>,
 }
 
 impl Case {
@@ -160,7 +163,16 @@ impl Case {
             agent_wrote: Vec::new(),
             harness_wrote: Vec::new(),
             track: Vec::new(),
+            mcp_call: None,
         }
+    }
+
+    /// The stream holds one call to a tool of the servers `servers`, and the reader must give it
+    /// the origin `origin`.
+    #[must_use]
+    pub fn with_mcp_call(mut self, servers: Vec<String>, origin: ToolOrigin) -> Self {
+        self.mcp_call = Some((servers, origin));
+        self
     }
 
     /// The sessions the reader must finish with, and the ids it must have observed.
@@ -871,6 +883,13 @@ fn frames(framing: Framing, stream: &StreamName, bytes: &[u8]) -> Vec<(RawRef, R
         .collect()
 }
 
+/// The MCP servers the case's run declared.
+fn declared(case: &Case) -> &[String] {
+    case.mcp_call
+        .as_ref()
+        .map_or(&[][..], |(servers, _)| servers.as_slice())
+}
+
 /// The reader of a case, or the failure that the driver has none.
 fn reader_of(
     driver: &dyn HarnessDriver, // TRAIT_OBJECT: the suite checks any driver
@@ -879,7 +898,7 @@ fn reader_of(
     // TRAIT_OBJECT: the driver's reader is chosen at runtime
     let reader = match &case.reader {
         ReaderSource::Live => driver.live_reader(),
-        ReaderSource::Offline(stream) => driver.offline_reader(stream),
+        ReaderSource::Offline(stream) => driver.offline_reader(stream, declared(case)),
     };
     reader.ok_or_else(|| {
         case_failure(
@@ -985,7 +1004,7 @@ fn read_export(
     stream: &StreamName,
     bytes: &[u8],
 ) -> Result<Vec<Session>, Failure> {
-    let Some(mut reader) = driver.offline_reader(stream) else {
+    let Some(mut reader) = driver.offline_reader(stream, &[]) else {
         return Err(case_failure(
             case,
             "export",
@@ -1115,11 +1134,35 @@ fn check_case(
             "the reader does not recognise the start of the recorded stream".to_owned(), // BORROW: .to_owned() makes the owned text
         ));
     }
+    let mut events = Vec::new();
     for (raw_ref, frame) in frames(reader.framing(), &case.stream, &case.bytes) {
         let frame_in = FrameIn::new(raw_ref, None, &frame);
-        reader
-            .feed(frame_in)
-            .map_err(|error| case_failure(case, "feed", error.to_string()))?; // BORROW: .to_string() gives owned text
+        events.extend(
+            reader
+                .feed(frame_in)
+                .map_err(|error| case_failure(case, "feed", error.to_string()))?, // BORROW: .to_string() gives owned text
+        );
+    }
+    if let Some((_, want)) = &case.mcp_call {
+        let got: Vec<&ToolOrigin> = events
+            .iter()
+            .filter_map(|entry| {
+                if let EventKind::ToolCall { origin, .. } = &entry.event.kind {
+                    Some(origin)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if got != [want] {
+            return Err(case_failure(
+                case,
+                "origin",
+                format!(
+                    "expected the one call to have the origin {want:?}, the reader gave {got:?}"
+                ),
+            ));
+        }
     }
     let observed: Observed = reader.observed();
     if observed.session_ids != case.observed_ids {

@@ -701,9 +701,16 @@ fn opencode_live_reader_reports_id_and_last_word() -> Res<()> {
 
 /// What the export reader makes of `bytes`: its events and sessions.
 fn read_export(bytes: &[u8]) -> Res<(Vec<SessionEvent>, Vec<Session>)> {
+    read_export_for(bytes, &[])
+}
+
+/// What the export reader makes of `bytes` for a run that declared the MCP servers `servers`.
+fn read_export_for(bytes: &[u8], servers: &[String]) -> Res<(Vec<SessionEvent>, Vec<Session>)> {
     let driver = OpenCodeDriver::new();
     let export: StreamName = "export".parse()?;
-    let mut reader = driver.offline_reader(&export).ok_or("no export reader")?;
+    let mut reader = driver
+        .offline_reader(&export, servers)
+        .ok_or("no export reader")?;
     let frame = RawFrame::new(None, FrameData::from_bytes(bytes));
     let events = reader.feed(FrameIn::new(RawRef::new(export, 0), None, &frame))?;
     Ok((events, reader.finish()?))
@@ -1233,7 +1240,7 @@ fn opencode_detect_recognises_only_what_it_reads() -> Res<()> {
     let live = driver.live_reader().ok_or("no live reader")?;
     let export_stream: StreamName = "export".parse()?;
     let export = driver
-        .offline_reader(&export_stream)
+        .offline_reader(&export_stream, &[])
         .ok_or("no export reader")?;
     let recorded = stream_file("completed_o1", "stdout.jsonl")?;
     assert!(live.detect(&recorded).is_some());
@@ -1432,5 +1439,104 @@ fn opencode_a_server_name_renders_the_server_under_it() -> Res<()> {
         parsed["permissions"],
         json!([{"action": "x-y_t", "effect": "allow", "resource": "*"}])
     );
+    Ok(())
+}
+
+/// The export of `completed_o1` with its tool call replaced by one call to each of `names`.
+fn export_calling(names: &[&str]) -> Res<Vec<u8>> {
+    let mut document: Value = serde_json::from_slice(&stream_file("completed_o1", "export.json")?)?;
+    for message in document["messages"].as_array_mut().into_iter().flatten() {
+        let Some(blocks) = message.get_mut("content").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        if let Some(at) = blocks.iter().position(|block| block["type"] == "tool") {
+            let template = blocks.remove(at);
+            for (index, name) in names.iter().enumerate() {
+                let mut call = template.clone();
+                call["name"] = json!(name);
+                call["id"] = json!(format!("toolu_call_{index}"));
+                blocks.insert(at + index, call);
+            }
+        }
+    }
+    Ok(serde_json::to_vec(&document)?)
+}
+
+/// The `origin` and `wrapped_calls` of each tool call among `events`, in order.
+fn call_origins(events: &[SessionEvent]) -> Res<Vec<(Value, Value)>> {
+    let mut found = Vec::new();
+    for kind in kinds(events)? {
+        if kind["kind"] == "tool_call" {
+            found.push((kind["origin"].clone(), kind["wrapped_calls"].clone()));
+        }
+    }
+    Ok(found)
+}
+
+/// Guards: R01 §Normalised trace — a call to `<server>_<tool>` is the tool `<tool>` of a server the
+/// cell declares, the longest declared name first; a name no declared server begins is never
+/// taken for a server's by its spelling; a built-in stays built in; and an `execute` call (code
+/// mode) is a built-in call that wraps no call.
+/// Oracle: the literal origins written by hand from the trace schema.
+/// Bite: a reader that takes the text before the first `_` for the server, matches the shortest
+/// name first, matches an undeclared server, or lists a `wrapped_calls` entry for `execute`.
+#[test]
+fn opencode_export_reader_attributes_calls_to_the_declared_servers_only() -> Res<()> {
+    let servers = strings(&["s", "a", "a_b"]);
+    let names = ["s_t", "a_b_c", "a_x", "x_t", "s", "s_", "shell", "execute"];
+    let (events, _) = read_export_for(&export_calling(&names)?, &servers)?;
+    let mcp = |server: &str, tool: &str| json!({"kind": "mcp", "server": server, "tool": tool});
+    let none = json!([]);
+    assert_eq!(
+        call_origins(&events)?,
+        vec![
+            (mcp("s", "t"), none.clone()),
+            (mcp("a_b", "c"), none.clone()),
+            (mcp("a", "x"), none.clone()),
+            (json!({"kind": "other"}), none.clone()),
+            (json!({"kind": "other"}), none.clone()),
+            (json!({"kind": "other"}), none.clone()),
+            (json!({"kind": "builtin"}), none.clone()),
+            (json!({"kind": "builtin"}), none),
+        ]
+    );
+    let (events, _) = read_export_for(&export_calling(&["s_t"])?, &[])?;
+    assert_eq!(
+        call_origins(&events)?.first().map(|(origin, _)| origin),
+        Some(&json!({"kind": "other"})),
+        "a run that declared no server has no MCP call"
+    );
+    Ok(())
+}
+
+/// Guards: R01 §Harness drivers (`check_settings`) — two servers where one name, then `_`, begins the
+/// other are refused at resolve with `AmbiguousServers` naming both, whatever the order of the
+/// keys; servers that merely share a prefix with no `_` after it are accepted.
+/// Oracle: `OpenCode` names a tool `<server>_<tool>` (v2.2.7), so `a_b_c` reads two ways with `a`
+/// and `a_b`; the two names and the pairs that do not collide are written by hand.
+/// Bite: no check, a check on the bare prefix (`a` against `ab`), or one that looks only at the
+/// first key.
+#[test]
+fn opencode_refuses_servers_whose_tool_prefixes_are_ambiguous() -> Res<()> {
+    let driver = OpenCodeDriver::new();
+    let check = |keys: &[&str]| -> Res<Result<(), DriverError>> {
+        let table: serde_json::Map<String, Value> = keys
+            .iter()
+            .map(|key| ((*key).to_owned(), json!({"command": "uvx", "args": []})))
+            .collect();
+        let values = values(&[("mcp", Value::Object(table))])?;
+        Ok(driver.check_settings(&Cell::new(&values)))
+    };
+    for keys in [["a", "a_b"], ["a_b", "a"]] {
+        match check(&keys)? {
+            Err(DriverError::AmbiguousServers { first, second }) => {
+                assert_eq!((first.as_str(), second.as_str()), ("a", "a_b"));
+            }
+            other => return Err(format!("{keys:?} gave {other:?}").into()),
+        }
+    }
+    for keys in [vec!["a", "ab"], vec!["a_b", "ab", "b"], vec!["a"]] {
+        assert!(check(&keys)?.is_ok(), "{keys:?} are not ambiguous");
+    }
     Ok(())
 }

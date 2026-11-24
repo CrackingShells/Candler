@@ -798,7 +798,8 @@ fn harness_census_and_end_come_from_the_drivers_live_reader() {
     );
     assert_eq!(
         measured("census.mcp_servers"),
-        Some(json!([{"name": "s", "status": "connected"}]))
+        None,
+        "the census names no server"
     );
     assert_eq!(measured("run.num_turns"), Some(json!(2)));
     assert_eq!(measured("run.cost_usd"), Some(json!(0.25)));

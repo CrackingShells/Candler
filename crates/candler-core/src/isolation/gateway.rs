@@ -1276,7 +1276,7 @@ pub fn census_init(stream: &[u8]) -> Option<InitReport> {
         .filter_map(|line| serde_json::from_slice::<Request>(line).ok())
         .filter(|request| !request.tools.is_empty())
         .min_by_key(|request| request.seq)?;
-    InitReport::new(serde_json::json!(first.tools), None, CensusSource::Gateway).ok()
+    InitReport::new(serde_json::json!(first.tools), CensusSource::Gateway).ok()
 }
 
 /// 128 random bits as hex, from the operating system.

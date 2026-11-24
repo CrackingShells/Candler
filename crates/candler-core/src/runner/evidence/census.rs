@@ -1,5 +1,4 @@
-//! The census of a run: the tools and MCP servers the agent saw at its start, as the harness's
-//! driver reports them.
+//! The census of a run: the tools the agent saw at its start, as the harness's driver reports them.
 
 use candler_harness::spec::{CensusSource, InitReport};
 use candler_schemas::primitives::{FieldPath, NameToken};
@@ -16,12 +15,9 @@ pub enum CensusError {
     /// The harness reported no inventory.
     #[error("the harness reported no inventory")]
     NoInit,
-    /// The inventory's tool list is not a list of names, or its server list is not a list.
-    #[error("the inventory has no usable `{key}`")]
-    Malformed {
-        /// The name of the list.
-        key: &'static str,
-    },
+    /// The inventory's tool list is not a list of names.
+    #[error("the inventory has no usable `tools`")]
+    Malformed,
     /// A census value could not be built.
     #[error("a census value is not valid: {detail}")]
     Value {
@@ -55,39 +51,26 @@ const fn source_label(source: CensusSource) -> Option<&'static str> {
     }
 }
 
-/// The census values of a run, from the inventory its harness reported: `census.tools` and, when
-/// the source sees servers, `census.mcp_servers`, as the harness lists them, and
-/// `census.init_tools`, the tool names sorted and deduplicated. The server list never enters
-/// `census.init_tools`. An inventory the gateway or a collected command observed also records
-/// `census.source`, so that the verdict never takes it for the harness's own.
+/// The census values of a run, from the inventory its harness reported: `census.tools`, as the
+/// harness lists them, and `census.init_tools`, the tool names sorted and deduplicated. An
+/// inventory the gateway or a collected command observed also records `census.source`, so that the
+/// verdict never takes it for the harness's own.
 ///
 /// # Errors
 /// [`CensusError::NoInit`] when the harness reported no inventory, which records nothing, and
-/// [`CensusError::Malformed`] when the inventory's `tools` is not a list of names or its
-/// `mcp_servers` is not a list.
+/// [`CensusError::Malformed`] when the inventory's `tools` is not a list of names.
 pub fn census(init: Option<&InitReport>) -> Result<Vec<MeasuredValue>, CensusError> {
     let init = init.ok_or(CensusError::NoInit)?;
-    let tools = init
-        .tools
-        .as_array()
-        .ok_or(CensusError::Malformed { key: "tools" })?;
+    let tools = init.tools.as_array().ok_or(CensusError::Malformed)?;
     let mut names: Vec<String> = Vec::new();
     for tool in tools {
         // BORROW: `.as_str()` borrows the text of the JSON string
-        let name = tool
-            .as_str()
-            .ok_or(CensusError::Malformed { key: "tools" })?;
+        let name = tool.as_str().ok_or(CensusError::Malformed)?;
         names.push(name.to_owned()); // BORROW: .to_owned() gives the sorted list its own names
     }
     names.sort();
     names.dedup();
     let mut values = vec![measured("census.tools", init.tools.clone())?]; // BORROW: .clone() keeps the harness's list
-    if let Some(servers) = &init.mcp_servers {
-        if !servers.is_array() {
-            return Err(CensusError::Malformed { key: "mcp_servers" });
-        }
-        values.push(measured("census.mcp_servers", servers.clone())?); // BORROW: .clone() keeps the harness's list
-    }
     values.push(measured(
         "census.init_tools",
         Value::Array(names.into_iter().map(Value::String).collect()),

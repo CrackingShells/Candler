@@ -135,11 +135,7 @@ fn lines_cases() -> Result<Vec<Case>, TestError> {
     ]
     .join("\n")
         + "\n";
-    let init = InitReport::new(
-        json!(["Bash", "Read"]),
-        Some(json!([])),
-        CensusSource::Harness,
-    )?;
+    let init = InitReport::new(json!(["Bash", "Read"]), CensusSource::Harness)?;
     Ok(vec![
         Case::new(
             String::from("lines_with_init"),
@@ -266,7 +262,6 @@ fn open_cases() -> Result<Vec<Case>, TestError> {
             "write",
             "execute"
         ]),
-        None,
         CensusSource::Gateway,
     )?;
     let exit_of = |case: &str| -> Result<ProcessExit, TestError> {
@@ -511,7 +506,7 @@ impl TraceReader for EagerCensus {
     }
     fn observed(&self) -> Observed {
         // A phantom inventory, whatever the record holds.
-        let init = InitReport::new(json!(["shell"]), None, CensusSource::Gateway)
+        let init = InitReport::new(json!(["shell"]), CensusSource::Gateway)
             .unwrap_or_else(|_| unreachable!());
         Observed::new(Vec::new()).with_init(init)
     }
@@ -601,12 +596,16 @@ impl HarnessDriver for Patched {
     fn live_reader(&self) -> Option<Box<dyn TraceReader>> {
         self.inner.live_reader()
     }
-    fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {
+    fn offline_reader(
+        &self,
+        stream: &StreamName,
+        servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
         // BORROW: explicit .as_str() instead of Deref coercion
         if self.eager_census && stream.as_str() == "model_requests" {
             return Some(Box::new(EagerCensus)); // TRAIT_OBJECT: the trait returns readers as objects
         }
-        self.inner.offline_reader(stream)
+        self.inner.offline_reader(stream, servers)
     }
     fn classify_exit(&self, exit: &ProcessExit, sessions: &[Session]) -> EndedBy {
         self.inner.classify_exit(exit, sessions)
@@ -767,7 +766,11 @@ impl HarnessDriver for Keeps {
             init: None,
         }))
     }
-    fn offline_reader(&self, _stream: &StreamName) -> Option<Box<dyn TraceReader>> {
+    fn offline_reader(
+        &self,
+        _stream: &StreamName,
+        _servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
         // TRAIT_OBJECT: the trait returns readers as objects
         Some(Box::new(LinesReader {
             pending: Vec::new(),
@@ -1100,23 +1103,23 @@ fn conformance_refuses_a_broken_driver() -> TestResult {
     // own empty init list is a recorded one, and the three sources never compare equal.
     for source in [CensusSource::Gateway, CensusSource::Collected] {
         assert_eq!(
-            InitReport::new(json!([]), None, source),
+            InitReport::new(json!([]), source),
             Err(InitReportError::NoTools)
         );
     }
-    assert!(InitReport::new(json!([]), Some(json!([])), CensusSource::Harness).is_ok());
+    assert!(InitReport::new(json!([]), CensusSource::Harness).is_ok());
     for source in [
         CensusSource::Harness,
         CensusSource::Gateway,
         CensusSource::Collected,
     ] {
         assert_eq!(
-            InitReport::new(json!(["read", ""]), None, source),
+            InitReport::new(json!(["read", ""]), source),
             Err(InitReportError::EmptyToolName)
         );
     }
     let tools = || json!(["read"]);
-    let by = |source| InitReport::new(tools(), None, source);
+    let by = |source| InitReport::new(tools(), source);
     assert_ne!(by(CensusSource::Harness)?, by(CensusSource::Gateway)?);
     assert_ne!(by(CensusSource::Gateway)?, by(CensusSource::Collected)?);
     assert_ne!(by(CensusSource::Harness)?, by(CensusSource::Collected)?);
@@ -1167,8 +1170,12 @@ impl HarnessDriver for Silent {
     fn live_reader(&self) -> Option<Box<dyn TraceReader>> {
         self.0.live_reader()
     }
-    fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {
-        self.0.offline_reader(stream)
+    fn offline_reader(
+        &self,
+        stream: &StreamName,
+        servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
+        self.0.offline_reader(stream, servers)
     }
     fn classify_exit(&self, exit: &ProcessExit, sessions: &[Session]) -> EndedBy {
         self.0.classify_exit(exit, sessions)
@@ -1317,8 +1324,12 @@ fn conformance_session_surface_on_a_fake() -> TestResult {
         fn live_reader(&self) -> Option<Box<dyn TraceReader>> {
             self.0.live_reader()
         }
-        fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {
-            self.0.offline_reader(stream)
+        fn offline_reader(
+            &self,
+            stream: &StreamName,
+            servers: &[String],
+        ) -> Option<Box<dyn TraceReader>> {
+            self.0.offline_reader(stream, servers)
         }
         fn classify_exit(&self, exit: &ProcessExit, sessions: &[Session]) -> EndedBy {
             self.0.classify_exit(exit, sessions)

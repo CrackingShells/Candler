@@ -81,7 +81,10 @@ fn opencode() -> Res<Vec<SessionEvent>> {
         .driver("opencode")
         .map_err(|_| "no driver")?;
     let export: StreamName = "export".parse()?;
-    let reader = driver.offline_reader(&export).ok_or("no export reader")?;
+    let servers = vec!["s".to_owned()];
+    let reader = driver
+        .offline_reader(&export, &servers)
+        .ok_or("no export reader")?;
     read_frames(reader, "export", &[&bytes])
 }
 

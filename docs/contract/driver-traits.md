@@ -37,7 +37,7 @@ Core line: `v0.15.0`; the `candler-harness` crate has the same version.
 | `HarnessDriver::session_tracker` | `(&self) -> Option<Box<dyn SessionTracker>>` | optional | `None` |
 | `HarnessDriver::stop` | `(&self) -> StopSpec` | required | - |
 | `HarnessDriver::live_reader` | `(&self) -> Option<Box<dyn TraceReader>>` | required | - |
-| `HarnessDriver::offline_reader` | `(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>>` | required | - |
+| `HarnessDriver::offline_reader` | `(&self, stream: &StreamName, servers: &[String]) -> Option<Box<dyn TraceReader>>` | required | - |
 | `HarnessDriver::classify_exit` | `(&self, exit: &ProcessExit, sessions: &[Session]) -> EndedBy` | required | - |
 | `HarnessDriver::classify_end` | `(&self, exit: &ProcessExit, sessions: &[Session], observed: &Observed) -> EndedBy` | optional | `self.classify_exit(exit, sessions)` |
 | `HarnessDriver::collect` | `(&self, workspace: &Workspace<'_>, observed: &Observed) -> Vec<CollectSpec>` | required | - |
@@ -62,6 +62,7 @@ Core line: `v0.15.0`; the `candler-harness` crate has the same version.
 |---|---|---|---|
 | `experiment.cell_value_invalid` | A cell value cannot be used by the harness driver. | The field of the value, such as `/mcp/servers/fs/command`. | experiment |
 | `experiment.cell_value_missing` | A cell lacks a value that the harness driver needs. | - | experiment |
+| `experiment.mcp_server_prefix_ambiguous` | Two MCP servers of a cell have names that make one tool name read two ways: the name of one, then `_`, is a prefix of the other's name, so a tool of the longer-named server cannot be told from a tool of the shorter-named one. | The table of servers, `/mcp/servers`. | experiment |
 | `experiment.setting_unsupported` | The experiment sets a setting that the harness has no way to honour, such as a turn cap for a harness with no turn limit; the run is refused rather than the setting dropped. | The setting in the experiment file: a field under `/budget`, or the key of `[fixed]` that holds it, such as `/fixed/model.effort`. | experiment |
 | `harness.session_record_unreadable` | A session record that the harness wrote, such as a hook payload or a stream event, cannot be read by the driver's tracker. | - | environment |
 | `harness.version_unreadable` | The output of the harness version probe names no version. | - | environment |

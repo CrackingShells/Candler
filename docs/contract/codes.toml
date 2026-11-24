@@ -807,6 +807,11 @@ side = "experiment"
 enum = "DriverError"
 variant = "InvalidValue"
 
+[harness."experiment.mcp_server_prefix_ambiguous"]
+side = "experiment"
+enum = "DriverError"
+variant = "AmbiguousServers"
+
 [harness."harness.version_unreadable"]
 side = "environment"
 enum = "DriverError"
@@ -831,6 +836,7 @@ variant = "EmptyToolName"
 side = "environment"
 enum = "InitReportError"
 variant = "ServersNotList"
+lifted = "No harness's server list is read: the census records tools only, and a server's status stays in the harness's own raw output."
 
 [harness."harness.inventory_unrecorded"]
 side = "environment"

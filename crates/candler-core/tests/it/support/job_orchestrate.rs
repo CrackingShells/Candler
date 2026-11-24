@@ -405,7 +405,11 @@ impl HarnessDriver for QuietDriver {
     }
 
     // TRAIT_OBJECT: the host hands out its trace reader as a trait object
-    fn offline_reader(&self, _stream: &StreamName) -> Option<Box<dyn TraceReader>> {
+    fn offline_reader(
+        &self,
+        _stream: &StreamName,
+        _servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
         None
     }
 
@@ -480,7 +484,11 @@ impl HarnessDriver for ObservingDriver {
     }
 
     // TRAIT_OBJECT: the host hands out its trace reader as a trait object
-    fn offline_reader(&self, _stream: &StreamName) -> Option<Box<dyn TraceReader>> {
+    fn offline_reader(
+        &self,
+        _stream: &StreamName,
+        _servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
         None
     }
 
