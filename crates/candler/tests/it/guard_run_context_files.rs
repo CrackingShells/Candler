@@ -110,46 +110,40 @@ fn context_of(store: &Store, run: &RunKey, needs: &Needs, workspace: &Path) -> R
 /// Guards: R9 — the paths of a materialised context and the paths its digest covers are exactly the files the file rule keeps: a nested match counts, `._*` and `.DS_Store` are dropped unless a glob names them, and an empty `outputs/` gives no artifact and no error. Each run is made by `candler run` over a fake agent that leaves the case's files. Oracle: hand-listed path sets, and the digest of a context built from the listed paths and the literal bytes.
 #[test]
 fn the_file_rule_decides_the_paths_and_the_digest() {
-    std::thread::scope(|scope| {
-        let runs: Vec<_> = CASES
+    for case in CASES {
+        let (_world, store, run) = sealed_run_with(case.stored);
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let context = context_of(&store, &run, &needs_of(case.globs), workspace.path());
+        let expected: BTreeSet<String> = case.kept.iter().map(|p| (*p).to_owned()).collect();
+        assert_eq!(
+            file_set(&workspace.path().join("outputs")),
+            expected,
+            "materialised files: {}",
+            case.name
+        );
+        let artifacts: BTreeSet<String> = context
+            .artifacts()
             .iter()
-            .map(|case| scope.spawn(move || (case, sealed_run_with(case.stored))))
+            .map(|a| a.path.to_string())
             .collect();
-        for handle in runs {
-            let (case, (_world, store, run)) = handle.join().expect("a case runs");
-            let workspace = tempfile::tempdir().expect("a workspace");
-            let context = context_of(&store, &run, &needs_of(case.globs), workspace.path());
-            let expected: BTreeSet<String> = case.kept.iter().map(|p| (*p).to_owned()).collect();
-            assert_eq!(
-                file_set(&workspace.path().join("outputs")),
-                expected,
-                "materialised files: {}",
-                case.name
-            );
-            let artifacts: BTreeSet<String> = context
-                .artifacts()
-                .iter()
-                .map(|a| a.path.to_string())
-                .collect();
-            assert_eq!(artifacts, expected, "digest path list: {}", case.name);
-            let mut builder = RunContext::builder()
-                .run(run.clone())
-                .root("/unused".into());
-            for path in case.kept {
-                builder = builder.artifact(ContextArtifact::new(
-                    RelPath::from_str(path).expect("a path"),
-                    String::from("/unused"),
-                    Digest::of_bytes(path.as_bytes()),
-                ));
-            }
-            assert_eq!(
-                context.context_digest(),
-                builder.build().expect("a context").context_digest(),
-                "digest: {}",
-                case.name
-            );
+        assert_eq!(artifacts, expected, "digest path list: {}", case.name);
+        let mut builder = RunContext::builder()
+            .run(run.clone())
+            .root("/unused".into());
+        for path in case.kept {
+            builder = builder.artifact(ContextArtifact::new(
+                RelPath::from_str(path).expect("a path"),
+                String::from("/unused"),
+                Digest::of_bytes(path.as_bytes()),
+            ));
         }
-    });
+        assert_eq!(
+            context.context_digest(),
+            builder.build().expect("a context").context_digest(),
+            "digest: {}",
+            case.name
+        );
+    }
 }
 
 /// Guards: R9 and I11 — a file the agent left is materialised as a private read-only copy, not a link: a fresh inode with one link and mode `0444`, while the store blob keeps its own inode and mode `0444`. The run is made by `candler run`. Oracle: `stat` of the copy and of the blob.

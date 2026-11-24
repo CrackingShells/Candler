@@ -37,7 +37,7 @@ set into its workspace (by default it writes `answer.txt`). The runner collects,
 and seals them. No evaluator is scripted: these guards read outputs, not outcomes.
 
 Moved to the real runner, in `crates/candler/tests/it/guard_run_context_files.rs`:
-`the_file_rule_decides_the_paths_and_the_digest` (six cases, one run each, in parallel) and
+`the_file_rule_decides_the_paths_and_the_digest` (six cases, one run each, one after another) and
 `a_materialised_file_is_a_private_read_only_copy` (the 0444 half).
 
 Kept on the fallback, `seal_workspace` (crates/candler-core/tests/it/support/sealed_run.rs, which
@@ -87,6 +87,22 @@ Leaf target dir, machine loaded by other builds: `cargo fmt --check` exit 0; cli
 `guard_wiring::wiring_stop_execs_in_the_container_with_the_observed_id`, 56 s). An earlier run failed
 `guard_container_record::stopped_run_has_its_agent_recorded_before_the_hook_sweeps` instead, at 72 s. All three
 pass alone (0.7 s, 12.7 s, 130 s), touch nothing this leaf changed, and look like timing under load.
+
+## CI failure of 299469f9
+
+`Gates` failed on `guard_run_context_files::the_file_rule_decides_the_paths_and_the_digest` (4.06 s): two of
+the six case threads panicked at `support/cli_run.rs:331`, "no run sealed: 0 sealed, 1 expected". The fake
+client's call log showed a job that built the gateway and the networks, started (or not even started) the
+egress proxy, then tore down (`container stop`, `rm`, `network rm`) with no agent container ever created, while
+`finish` saw `job.ended`. `container-e2e` was green. The log holds no job events, so the reason the two jobs
+ended is not recorded; `assert_sealed` now prints the jobs' `events.jsonl` so the next occurrence names it.
+
+Cause, as far as it was shown: the six `candler run` worlds were started at once by threads inside one test, on
+a two-core runner that also runs the other tests of the binary. Every other guard in the binary runs one world.
+Locally the same test started eight times at once (48 worlds) failed in two copies, there in world setup
+(`git commit` of the skills repository failed, `cli_run.rs:221`), so concurrency among worlds is what breaks;
+the two symptoms differ, and the CI one was not reproduced. The cases now run one after another, about 4.5 s each;
+four copies of both guards at once (28 worlds) then all passed. No retry and no longer timeout was added.
 
 ## Verifier
 

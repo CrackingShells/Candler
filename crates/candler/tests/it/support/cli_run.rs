@@ -330,9 +330,24 @@ impl World {
         let sealed = self.sealed_runs();
         assert!(
             sealed >= at_least,
-            "no run sealed: {sealed} sealed, {at_least} expected\ncalls:\n{}",
-            self.calls()
+            "no run sealed: {sealed} sealed, {at_least} expected\ncalls:\n{}\nevents:\n{}",
+            self.calls(),
+            self.job_events()
         );
+    }
+
+    /// The events of every job of the store, as the supervisor wrote them.
+    fn job_events(&self) -> String {
+        let mut text = String::new();
+        let Ok(jobs) = fs::read_dir(self.store().join("jobs")) else {
+            return text;
+        };
+        for job in jobs.flatten() {
+            if let Ok(events) = fs::read_to_string(job.path().join("events.jsonl")) {
+                text.push_str(&events);
+            }
+        }
+        text
     }
 
     /// What the fake client was asked, one call per line.
