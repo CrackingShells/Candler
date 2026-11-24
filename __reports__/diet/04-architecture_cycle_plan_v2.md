@@ -499,23 +499,26 @@ The coordinator's row is inside the $100. All spend is measured from transcripts
 | P7 (RiVault agents; one Claude reader) | $7 | $14 |
 | **Total** | **$69** | **$138** |
 
-The full plan does not fit $100 at the expected spend. **The cut order brings the caps to $100:**
+The full plan does not fit $100 at the expected spend. Two rows wait:
 
 | Cut | What is lost | Caps after |
 |---|---|---|
-| 1. P3 waits, while `main` keeps no required checks | the stand-in stays unchecked against the daemon, recorded as an open cause. If Eliott makes the checks required, P3 comes back and cut 4 is taken instead | $126 |
+| 1. P3 waits, while `main` keeps no required checks | the stand-in stays unchecked against the daemon, recorded as an open cause. If Eliott makes the checks required, P3 comes back under the same checkpoint | $126 |
 | 2. P4·S waits | two instances of "one source" stay. The pattern is already shown by A1 and A2 | $120 |
-| 3. The two seam reviews become one, after level 2 | seams are reviewed later, so a level-1 mistake costs more to fix | $112 |
-| 4. P5 waits, with option (b) recorded | the "per-run tool-catalog snapshots" claim stays unmet for one more milestone | $100 |
 
-What is never cut: the coordinator's row, R, P0, P1, P2, P4·B, A1 and A2, one seam review, P6 (it
-costs almost nothing on RiVault) and P7. Each one either removes a cause or tells the milestone whether
-it worked.
+**Never cut:** both seam reviews, which are the D3 remedy and the cheapest place to catch the next S1,
+and every row that carries a ruling or removes a cause: the coordinator's row, R, P0, P1, P2, P4·B,
+A1 and A2, P6 and P7.
 
-**Spend checkpoints.** The planned order runs the never-cut pieces first. At seam review 1, the spend
-of level 1, measured from transcripts, is set against its caps. If it is over, the next cut is taken
-before level 2 starts, not at the end. A row that reaches its cap stops, commits what is green, and
-reports what is left.
+**P5 is decided at the checkpoint.** It carries Eliott's B2 ruling, so it is not cut in advance. At
+seam review 1, the spend of level 1, measured from transcripts, is set against its caps. If level 1 is
+over its caps, P5 waits, with option (b) recorded. Otherwise it runs in level 2.
+
+**How the $100 holds.** The remaining rows estimate at about $60, which is $90–180 at M6b's measured
+1.5–3×, and their caps total $120. The sum of caps is a set of ceilings, not the budget. **The $100 is
+enforced by the checkpoint plus the per-row caps, not by the sum of caps.** A row that reaches its cap
+stops, commits what is green, and reports what is left. The checkpoint after seam review 1 decides P5
+against the measured spend before level 2 starts.
 
 **Wall clock:** about two working days, bound by the two seam reviews and the P7 runs rather than by
 the leaves.
