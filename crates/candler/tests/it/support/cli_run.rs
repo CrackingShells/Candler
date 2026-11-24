@@ -132,7 +132,11 @@ start)
     *" -a "*)
         id=$(last "$@")
         if [ -f "$st/c/$id.work" ]; then
-            printf 'graded from the store\n' > "$(cat "$st/c/$id.work")/answer.txt"
+            if [ -d "$here/agent-files" ]; then
+                cp -Rp "$here/agent-files/." "$(cat "$st/c/$id.work")/"
+            else
+                printf 'graded from the store\n' > "$(cat "$st/c/$id.work")/answer.txt"
+            fi
         fi
         sleep 1
         echo exited > "$st/c/$(last "$@").state"
@@ -399,6 +403,18 @@ impl World {
         git(&self.skills, &["commit", "-q", "-a", "-m", "moved"]);
         git(&self.skills, &["tag", "-f", "v1"]);
         (before, rev_parse(&self.skills, "v1^{commit}"))
+    }
+
+    /// Makes the fake agent leave exactly `files` in its workspace, as `(path, bytes)`, in place
+    /// of the file it writes by default; no file at all when `files` is empty.
+    pub fn agent_leaves(&self, files: &[(&str, &[u8])]) {
+        let dir = self.bin.join("agent-files");
+        fs::create_dir_all(&dir).unwrap();
+        for (path, bytes) in files {
+            let at = dir.join(path);
+            fs::create_dir_all(at.parent().unwrap()).unwrap();
+            fs::write(at, bytes).unwrap();
+        }
     }
 
     /// Removes the world's directory.
