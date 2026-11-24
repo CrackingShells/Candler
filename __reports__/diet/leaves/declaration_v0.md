@@ -46,3 +46,16 @@ Claude Code used to pass any effort or permission-mode text through to the comma
 ## Not run
 
 The Step 3 verifier (a fresh agent over the leaf, this report and the diff).
+
+## Verifier round
+
+| Finding | Result |
+|---|---|
+| B1 stale prose (`settings_table`, `SettingRow`, `Capabilities`, `BudgetCaps`) | Fixed in the two contract-page notes (the pages carry their Notes over, so the page text is the source), the harness crate README, the OpenCode guard's doc comment and the architecture document, which now name `answer`, `fact` and `SessionMode`. History under `__reports__/` and `__roadmap__/` is untouched. |
+| B2 path-to-key mapping stated three times | Handled in a separate round that reshapes `reach`, `AgentSetting::path()` and `set_by`. Only the two small parts of it that touch no `reach` data were done here: `set_by` reads `mcp.servers` through `mcp::SERVERS`, and the repeated "a `url` means `Remote`" default is gone; `mcp::kind` is the one place that resolves a server's transport, used by `mcp::read` and by `set_by`. |
+| N1 one check before any job | Claude Code's `check_settings` now refuses a bad turn or cost cap as `plan` does, and `plan` runs `check_settings` first, so `check_answers` runs in both drivers' plans. No new validator. |
+| N2 value typing of the budgets | Left: it is the resolve step's. |
+| N3 OpenCode effort answers say `Mapped` unconditionally | The `Mapped` construct now states the condition (a Claude opus, sonnet, fable or mythos of 4.6 or later, `xhigh` from 4.7, refused for other models). `effort_variant` no longer re-reads effort as text: `set_by` has already validated it. |
+| N4 census wording on the page | Left: goes to the pages leaf. |
+| N5 OpenCode case table | Left: a deliberate cross-check. |
+| N6 OpenCode prose | The doc comment above `FAMILIES` now describes the families; the `ULTRACODE` text and the doc above it no longer say what the Claude Code driver does. |
