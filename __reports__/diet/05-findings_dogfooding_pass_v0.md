@@ -160,3 +160,67 @@ The three `guard_golden_parity` failures of the first attempt come from `candler
 - Not removable: `candler-gateway:latest` existed before the pass (image `6902eef07d3f`); Candler rebuilt and re-tagged it during the pass (now a different id), so the earlier image is untagged. Not restored.
 - Consumer A may have created further Docker objects of its own through its six runs; at the end the image and network lists differ from the "before" lists only by the two lines above, and containers are back to the 3 arangodb ones.
 - Removed: the consumers' `.target` directories. Kept for the reader: transcripts, consumer directories, `f34/`.
+
+---
+
+# Reader: finding (1)
+
+Read by the Claude reader from A's store (`.../p7/rerun/consumer-a/state/store2/`) and the tip's code at `aaf08f16`. Nothing was fixed.
+
+**Verdict: confirmed. The empty `servers` list is not a fault of A's setup and not a fault of what the container reports. Candler's catalog step never asks the image about MCP servers: the command it runs prints a fixed empty list.**
+
+| Check | Result |
+|---|---|
+| a. Digest and blob | Run `7673d039...b-r1-a1` (and the other five runs): `manifest.json` `comparable.snapshots` = `[{"kind":"catalog","digest":"sha256:02083e4fd7977a4a9e9aa1f8ec9f4a23624f73f73dd338a27c8de958edad42d8"}]`. The blob `blobs/02083e4f...42d8` reads `{"provider":"candler-image@1","schema":"tool-catalog-snapshot/1","servers":[]}`. All six runs name the same digest (one resolve per job; it is in `jobs/01a20cf4-.../spec.json`). |
+| b. Experiment | `experiment/kitchen.toml` declares `[fixed.mcp.servers.converter]` (`python3 converter/unit-converter.py`) and an `[[inputs]]` entry of kind `converter`, `at = "converter"`. Each run manifest lists `mcp.servers.converter.command` and `.args` as experiment-file values. The OpenCode config Candler wrote (`raw/resolved.jsonl.gz`) holds `mcp.servers.converter` with `codemode: true`. |
+| b. Use | The three runs of the metric-prompt arm (`7673d039...`) each call `tools.converter.convert(...)` inside an `execute` call (trace: 2 matching events per run; A's transcript shows 24 such calls in all). The three plain-prompt runs (`a16eaf29...`) call it 0 times, which is the arm's design. The gateway census lists only OpenCode's own tools plus `execute`, because the MCP tool is wrapped by code mode; so the census cannot name the server either. |
+
+## Where the gap is
+
+1. **Capture asks the image nothing about the cell.** `CatalogStep::run` (`crates/candler-core/src/resolve/steps/catalog.rs:73-76`) calls `provider.capture(&image, &Cell::new(&ctx.values))`. `CommandCatalogProvider::capture` (`crates/candler-core/src/runner/evidence/catalog.rs:305-311`) names the cell parameter `_cell` and drops it; `capture_one` (line 285) runs only `self.command.argv` in a control container of the image.
+2. **That command is a constant.** `crates/candler/src/commands/preflight.rs:42` defines `CATALOG_PROGRAM` as a `printf` of `"servers":[]` plus the date; line 427 builds the argv `sh -c CATALOG_PROGRAM`; line 433 passes it to `CatalogCommand::new`. Its doc comment (lines 39-41) says it is "the catalog of an image that offers no MCP server". So the stored catalog for any experiment is a snapshot of an empty server list. The server is delivered as an input at run time, not in the image, so even a real listing command run in the image would not see it.
+3. **The gap is known and unlisted in the contract.** `__reports__/m7-mcp-server/00-inventory_gotchas_v0.md:163`: "Catalog capture of input-delivered servers is still a Future features item."
+4. **No test could see it.** The fake docker of the CLI tests prints the same `servers:[]` (`crates/candler/tests/it/support/cli_run.rs:168`). `guard_catalog_snapshot.rs` checks that the manifest digest names a blob whose bytes hash to it and that `inspect` shows what the fake printed; it never has a server in the catalog. Hash-matching passes on an empty catalog.
+5. **What the consumer sees.** `inspect --format text` prints `catalog candler-image@1` only (A, step 408), with no server count. The README promises "per-run tool-catalog snapshots, provenance" (`README.md:7`), and the Tier D grading in the architecture note depends on the catalog listing the servers a run targeted. The snapshot is stored and sealed, and it says nothing about the MCP server.
+
+Cause in plan v2's terms: D1 (a fake and the production constant produce the same state by hand, so the guard agrees with the code on the wrong value). The missing capability itself is class 4 below.
+
+# Reader: classification
+
+Classes follow plan v2: **1** the agent's (documented and reachable; one model hit it); **2** both models missed it (documentation or surface); **3** exists but not documented or not reachable (Candler's; D1 to D5 named where one applies); **4** missing capability (a finding for the maintainer); **H** harness or runner setup, not Candler. Each class 3 and 4 row was checked against `docs/` and the code; a sample of the 1 rows was reread. Rows from the first attempt are kept where the rerun settled them.
+
+| # | Friction | Evidence | Class | Owner |
+|---|---|---|---|---|
+| 1 | The stored catalog cannot be found from the documentation: no contract page, README line or `docs/` page says where the snapshot lives or how the manifest names it (`docs/contract` has only the `catalog.*` and `runner.catalog_*` refusal codes). A reached it by hashing `blobs/` (step 309-310) and `inspect` (408), after rustdoc pointed at the catalog module (209-212). B asked the question repeatedly (about 6 of its notes) and never reached an answer. | A 209-212, 309, 408; B text notes; `grep catalog` over `docs/` and README | 3 (no D cause; a documentation gap) | Candler |
+| 2 | The catalog of a run with an MCP server lists no server (finding (1) above). B also noticed the preflight catalog is empty for an image with no MCP server. | `preflight.rs:42,427,433`; `catalog.rs:305-311`; blob `02083e4f...` | 4 (missing capability), with D1 behind the unseen value | Eliott (maintainer) |
+| 3 | `treatment` is `optional` in `experiment-file.md:48-52`, yet `resolve` refuses an experiment with no `treatment.source` ("names no source", A 186, 191); the README (line 66) says a real experiment names a treatment repository. A treatment also needs a skill tree in the repository (runner, F3/F4 pass). | A 185-191; B (looked for whether it is required); `experiment-file.md` | 3 (D5: one input, readers of different strictness) | Candler |
+| 4 | `model.endpoint` must be the API root without `/v1`; with it the model-list probe answers 404 and `resolve` fails in `gateway.gateway_token`. `configuration-paths.md:21` says only "the endpoint the gateway forwards model requests to". Hit by A (194), by B, and by the runner's F3/F4 run. | A 194; B text; F3/F4 section | 3 (D5 candidate: the probe appends `/v1`, the doc does not say so) | Candler |
+| 5 | The evaluator outcome record's `evaluator` field is typed `NameVersion` (`outcome-record.md:28`) and no page in `docs/` states its text form (`name@version`); a wrong form gave `not_measured` instead of a refusal (A 347-374, then fixed). The `not_measured` record does carry a reason, which `evaluator-helper.md:101` documents for the helper. | A 347-374 and A's RESULT | 3 | Candler |
+| 6 | The helper package `candler-evaluator@0.1.0` is documented (`evaluator-helper.md`) and shipped nowhere in the consumer material, so A rebuilt the protocol by hand (inline manifest `protocol`, `describe` without `lock_digest: null`, notification then response). Whether an outside consumer can obtain the package is not settled here: the consumer directory had none, and I did not check a package index. | A RESULT, A 347-374 | 3, reachability to be confirmed | Candler |
+| 7 | The operation API cannot be reached by an outside consumer: no crate to depend on (`cargo fetch`: no matching package `candler-core`; a git dependency is out of bounds). A could only sketch `lib-attempt/src/main.rs` from rustdoc. This is **finding (2)**, a consumer finding. | A RESULT "Library redo" | 3 (no D cause: distribution, not code) | Candler |
+| 8 | A's first-try refusals, each stating its fix in its own message: `--set run.mode` is not a path (183), `request.treatment` shape (185-186), `model.token_secret` not set (192), absolute path in `mcp.servers.converter.args` (197), input path leaves the experiment directory (228), `candler show <file>` takes no file (400). The codes are in `contract/index.md`. B read the same rules in rustdoc and avoided the two path refusals. | A steps as listed | 1 | Agent (A) |
+| 9 | No `answer.md` until `inputs.recipe` was added: A's own experiment did not give the agent the recipe. Then `runner.fact_changed` (272) and replay under `--force` with 0 plans; `--force` is documented as accepting the difference (`contract/index.md:204`). A used a fresh store. | A 272, A RESULT | 1 | Agent (A) |
+| 10 | B declared "prompt injection" in tool results and refused to continue several times (fake timestamps, a "Kiro" role, a request to rewrite `NOTES.md`). The word `kiro` occurs once in the whole transcript, in B's own text; none of its tool outputs holds such text. Model fault, not a Candler surface. | `grep -ci kiro transcript-b.jsonl` = 1 and no tool output | 1 (one model only) | Agent (B) |
+| 11 | A used about half of its 390 steps reading rustdoc through `pandoc` (steps 15-136) to learn what the contract pages do not state. Taken with row 1, the contract pages are not enough for an outside consumer to run an experiment; this is a signal, not a separate defect. | A step count | folded into rows 1, 3, 4 | - |
+| 12 | B stopped at 101 steps, killed at 1480 s by the runner's cost cap; no run, so no run time. | B meta | H | Runner |
+| 13 | First attempt: rustdoc source pages let both agents read source; the 150-step cap ended A. Both removed in the rerun. | First attempt, setup faults 1 and 2 | H (both) | Runner |
+| 14 | Plug-in path layout (`context.root/path` meeting `outputs/outputs/...`) | `outputs/outputs` occurs 0 times in either transcript; A's evaluator ran and read `answer.md` from its own plug-in with no path complaint recorded | not reached | - |
+| 15 | audit-1 (the cell count in `resolve`) | No step of either transcript looks at the count. A's job had 6 cells and 6 runs, but nothing tests the count | not reached | - |
+
+## S6
+
+Neither agent found the stored catalog from the documentation alone. A reached the blob by reading the rustdoc catalog module, listing `blobs/`, and hashing candidates against the digest it had seen in `inspect` output; it then read the blob and reported the empty list as the resolve-time catalog. B did not reach a stored catalog. The first attempt's S6 line stands, and the finding is the same: row 1.
+
+## Count per class
+
+| Class | Rows | Count |
+|---|---|---|
+| 1 the agent's | 8, 9, 10 | 3 |
+| 2 both missed it | none | 0 |
+| 3 not documented or not reachable | 1, 3, 4, 5, 6, 7 | 6 |
+| 4 missing | 2 | 1 |
+| H harness or runner | 12, 13 | 2 |
+| Not reached | 14, 15 | 2 |
+| Folded | 11 | 1 |
+
+The first pass's rows 1 to 3 are replaced by rows 1 and 13; its class 3 for the catalog rests on the checked absence of any storage description in `docs/` and README, and stands. Note that row 2 was not a friction either agent could have worked around: both declared the MCP server correctly.
