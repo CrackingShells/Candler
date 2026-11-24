@@ -93,3 +93,33 @@ the file or the origin that differs.
 - The leaf and the lead's reading assumed the OpenCode image has no `python3` and that `node` is on
   both images. Probed on the local images: both have `python3`, neither has `node`.
 - On the merge of #74 `candler inspect` shows no `mcp` member; it arrived with #77.
+
+## Review
+
+A fresh verifier read PR 79. Five findings, each fixed in a new commit (`a3884e78`, `f3c86903`).
+
+1. **Leak on failure.** `run_once` never gave `Made` the job id, so a timeout or a failed assertion
+   left the job's containers, sidecar and network. It takes `&mut Made` and sets `made.job` right
+   after parsing the launcher's output. Shown with a scratch edit that panics just after the id is
+   known (`leak probe job 01a20f97-f87b-79c0-96b5-1bcf4481c3a7`): after the test, `docker ps -a` and
+   `docker network ls`, filtered by `label=candler.job=<that id>`, print nothing, and no candler
+   container or network exists. The probe panics at the first moment after launch, so it shows the
+   cleanup runs, not what a later phase would hold.
+2. **Reachability.** The origin alone is read by name, so a rendered but broken server passed. The
+   guard now also requires that the fake model received, in the request that follows its call
+   (`tool_use_id` `toolu_fake_stamp`), a tool result that is not an error and holds the fixture's
+   stamp `parity-stamp-5c1e`. The stored trace keeps no tool-result content (`tool_result` has
+   `is_error` and `denied` only), so the text is read from the fake model's recorded requests, the
+   record of what the model was handed; each run reads only the requests recorded during it.
+   Bite, the fixture returns `parity-stamp-0000` with the server still rendered and the call still
+   attributed: `claude-code: the model never received the stamp from the tool: [(false,
+   "[{\"text\":\"parity-stamp-0000\",...}]")]` and `opencode: ... [(false, "parity-stamp-0000")]`.
+   Second bite, the args name a file that is not there: Candler's own job ends with no sealed run,
+   and the guard fails with `a sealed run` followed by the job's events.
+3. **Rendered file.** The file is now the one below the run's `workspace` (`.mcp.json`, Claude Code)
+   or `home` (`opencode/opencode.json`, OpenCode), where each driver writes it, and its program and
+   arguments must equal the resolved `mcp.servers.parity.command` and `.args`.
+4. **Identity.** The two experiment files are compared as whole strings with the harness name
+   replaced by one placeholder, not line by line.
+5. **Oracle.** The expected origin is the literal `{"kind":"mcp","server":"parity","tool":"stamp"}`,
+   the stored trace's form, not the type's constructor.
