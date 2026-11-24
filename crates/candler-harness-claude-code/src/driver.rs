@@ -223,7 +223,9 @@ impl HarnessDriver for ClaudeCodeDriver {
                 PermissionMode::Default
                 | PermissionMode::AcceptEdits
                 | PermissionMode::Plan
-                | PermissionMode::BypassPermissions,
+                | PermissionMode::BypassPermissions
+                | PermissionMode::Auto
+                | PermissionMode::DontAsk,
             ) => Answer::Mapped {
                 construct: "`--permission-mode <mode>` on the command line",
             },

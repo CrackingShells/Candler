@@ -54,6 +54,19 @@ const ACCEPT_EDITS_MODE: &str = "Claude Code's acceptEdits mode also allows edit
          is the command's text, which knows no working directory, so \"inside it\" cannot be \
          written as a rule";
 
+/// Why the `auto` permission mode is refused. Claude Code's own documentation (permission modes)
+/// is the source of what the mode does.
+const AUTO_MODE: &str = "Claude Code's auto mode has a model classifier review each action, such as a shell \
+         command or a network request, before it runs. OpenCode has no classifier, and a ruleset \
+         decides by the action's text alone";
+
+/// Why the `dontAsk` permission mode is refused. Claude Code's own documentation (permission modes;
+/// permissions, read-only commands) is the source of what the mode allows.
+const DONT_ASK_MODE: &str = "Claude Code's dontAsk mode denies every call that would prompt, so it allows the allow \
+         rules plus reads and the built-in, non-configurable set of read-only shell commands its own \
+         parser decides. OpenCode's shell rows are wildcards on the text of each parsed command, \
+         which approximate that set without being it";
+
 /// The reason the turn cap is refused: what `agents.<id>.steps` does is not `--max-turns`.
 const TURNS_REFUSAL: &str = "`agents.<id>.steps` makes the last request a tool-less one with an \
      injected prompt and ends the run as completed (the `oc_step_cap` fixture), where Claude Code \
@@ -129,6 +142,10 @@ pub(crate) const fn answer(setting: AgentSetting) -> Answer {
         },
         AgentSetting::PermissionMode(PermissionMode::AcceptEdits) => Answer::Refused {
             reason: ACCEPT_EDITS_MODE,
+        },
+        AgentSetting::PermissionMode(PermissionMode::Auto) => Answer::Refused { reason: AUTO_MODE },
+        AgentSetting::PermissionMode(PermissionMode::DontAsk) => Answer::Refused {
+            reason: DONT_ASK_MODE,
         },
         AgentSetting::ToolsAllowed => Answer::Mapped {
             construct: "a permission row {action, *, allow} per name, a no-op over the baseline",

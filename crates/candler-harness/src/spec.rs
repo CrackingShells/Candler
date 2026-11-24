@@ -600,20 +600,30 @@ pub enum PermissionMode {
     Plan,
     /// `bypassPermissions`.
     BypassPermissions,
+    /// `auto`.
+    Auto,
+    /// `dontAsk`.
+    DontAsk,
 }
 
 impl PermissionMode {
     /// Every mode.
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 6] = [
         Self::Default,
         Self::AcceptEdits,
         Self::Plan,
         Self::BypassPermissions,
+        Self::Auto,
+        Self::DontAsk,
     ];
 
-    /// The mode a cell's text names, or `None` for any other text.
+    /// The mode a cell's text names, or `None` for any other text. `manual` names
+    /// [`Self::Default`], as Claude Code reads it.
     #[must_use]
     pub fn from_text(text: &str) -> Option<Self> {
+        if text == "manual" {
+            return Some(Self::Default);
+        }
         Self::ALL.into_iter().find(|mode| mode.as_str() == text)
     }
 
@@ -625,6 +635,8 @@ impl PermissionMode {
             Self::AcceptEdits => "acceptEdits",
             Self::Plan => "plan",
             Self::BypassPermissions => "bypassPermissions",
+            Self::Auto => "auto",
+            Self::DontAsk => "dontAsk",
         }
     }
 }
@@ -673,7 +685,7 @@ pub enum AgentSetting {
 
 impl AgentSetting {
     /// Every key, each closed value once.
-    pub const ALL: [Self; 29] = [
+    pub const ALL: [Self; 31] = [
         Self::ModelId,
         Self::ModelEndpoint,
         Self::Effort(EffortLevel::Low),
@@ -686,6 +698,8 @@ impl AgentSetting {
         Self::PermissionMode(PermissionMode::AcceptEdits),
         Self::PermissionMode(PermissionMode::Plan),
         Self::PermissionMode(PermissionMode::BypassPermissions),
+        Self::PermissionMode(PermissionMode::Auto),
+        Self::PermissionMode(PermissionMode::DontAsk),
         Self::ToolsAllowed,
         Self::ToolsDisallowed,
         Self::Env,
