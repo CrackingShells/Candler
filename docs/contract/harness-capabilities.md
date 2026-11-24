@@ -25,6 +25,7 @@ Core line: `v0.15.0`; the `candler-harness` crate has the same version.
 | stop | yes | Candler: interrupt command in the container, then SIGTERM |
 | authoritative trace | yes | Candler: collects `export` after the run |
 | skills layout | yes | Candler: places the tree at `.opencode/skills/<name>` |
+| permission mode when none is set | `--permission-mode default` on the command line, which in a headless run denies every tool call that needs approval unless an allow rule or a hook approves it | Candler: the run is under `--auto` and the baseline ruleset {*, *, allow}, so every tool is allowed: OpenCode has no headless ask mode |
 <!-- /generated:fields -->
 
 ## Refusals
