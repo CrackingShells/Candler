@@ -8,7 +8,7 @@ The keys of the project configuration `candler.toml` and of the user configurati
 
 <!-- generated:version -->
 <!-- versions -->
-Core line: `v0.14.0`.
+Core line: `v0.15.0`.
 <!-- /versions -->
 <!-- /generated:version -->
 

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0](https://github.com/CrackingShells/Candler/compare/v0.14.0...v0.15.0) - 2026-11-24
+
+### Features
+
+- *(resolve)* [**breaking**] refuse inputs that were silently accepted
+
+### Fixes
+
+- *(adapter-opencode)* collect the files an OpenCode run wrote
+- *(runner)* keep workspace/ after the seal for its test readers
+- *(runner)* store each output's bytes as a blob when the run is sealed
+
+### Refactoring
+
+- *(runner)* remove the unused plan summary and duplicate mappers
+
 ## [0.14.0](https://github.com/CrackingShells/Candler/compare/v0.13.0...v0.14.0) - 2026-11-23
 
 ### Documentation
