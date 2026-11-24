@@ -178,7 +178,8 @@ fn run_once(
     assert!(ended, "the job ends\n{log}");
 
     let run_dir = fs::read_dir(store.join("runs"))
-        .unwrap()
+        .into_iter()
+        .flatten()
         .flatten()
         .map(|entry| entry.path())
         .find(|path| path.join("run.done").is_file())
