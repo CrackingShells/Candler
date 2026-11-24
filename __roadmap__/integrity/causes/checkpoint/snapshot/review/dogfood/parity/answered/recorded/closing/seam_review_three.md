@@ -3,7 +3,7 @@
 **Goal**: One review across the level's pull requests finds what no leaf verifier was placed to see, starting with what the level left behind, and the knowledge-transfer report records the level.
 **Estimate**: Sonnet, $3, cap $6. At the cap, stop and list what is left.
 **Pre-conditions**:
-- [ ] `[nl]` `../snapshot_out.md` and `../parity_run.md` are `done`
+- [x] `[nl]` `../snapshot_out.md` and `../parity_run.md` are `done`
 **Success Gates**:
 - ⬜ The review answers three questions first: did any leaf add where it should have replaced (a second producer, a second reader, a passthrough, a shim with no reader); does every setting that reaches the agent have one answer per driver and one statement on the pages; does one cell on both harnesses install the same servers and trace each MCP call in the same form
 - ⬜ The review judges two silent `other` readings that P10 left: an ingested OpenCode export has no cell, so its MCP calls read `origin: other`, and a server the cell does not declare reads `other` on OpenCode but `mcp` on Claude Code. It says whether the trace reader or the page tells the reader when this happens, since a trace that reads `other` without saying why is the kind of silent gap the level closes
