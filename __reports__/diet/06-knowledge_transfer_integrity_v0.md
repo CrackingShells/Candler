@@ -143,3 +143,104 @@ In order. Each one is a follow-up for the next milestone, not work done here.
    and S3 (the catalog text in job specs) gets its design call.
 7. For the next dogfooding pass: rustdoc without source pages, a step cap from a reading probe, consumers isolated
    in their own state and data directories from the start, and a first command named in the brief.
+
+## Level 3: harness parity
+
+Level 3 (plan `07-plan_integrity_level3_v1.md`, revision 2) set out to hold the two harnesses to one answer per
+setting, one MCP installation and one trace form, and to remove the catalog producer that printed what it had not
+observed. All six leaves merged into `feat/integrity` (#71, #72, #74, #75, #77, #78, #79), and seam review 3's two fixes
+merged as #80.
+`census.md` stays blocked by Eliott's ruling (revision 2 of A3): the census names no server, and the consumer reads
+the servers the agent called from the trace.
+
+### What removing each cause looked like
+
+| Leaf | Cause removed | Shape left | Where it is proven |
+|---|---|---|---|
+| P8 `declaration` (#71, #72) | Per-harness facts held in hand-written lists and a builder that defaulted to `false` | `AgentSetting` and `DriverFact` enums with `ALL`; each driver has one exhaustive `answer`/`fact` match, so a new key fails to compile in both drivers | A new variant fails to build on a scratch branch; a cost cap on OpenCode is refused by its arm |
+| P9 `mcp_render` (#74) | Claude Code passed the experiment's MCP JSON through (`codemode` and `local` included) | Each driver renders from the typed server (`local`→`stdio`, `remote`→`http`); `codemode` defaults to `false` at plan; `codemode = true` on Claude Code is refused | The `.mcp.json` of a `type = "local"` cell carried both keys on the base, only `stdio` on the tip |
+| P10 `trace_parity` (#75) | OpenCode's MCP calls read `origin: other` | One `ToolOrigin::mcp_tool(server, tool)` on both harnesses; server names carried unchanged into tool ids (`SERVER_NAME_PATTERN`), so an id splits one way only; the census keeps tools only | The OpenCode export of `s_t` read `other` on the base, `{mcp, s, t}` on the tip |
+| P11 `pages` (#78) | Capability and configuration pages written by hand (`ROWS`, `cap()`) | The pages walk `AgentSetting::ALL`, `DriverFact::ALL` and `CONFIGURATION_PATHS`; every cell is the driver's own text | Changing OpenCode's cost-cap answer passed the page test on the base and fails it on the tip |
+| P12 `snapshot_out` (#77) | A constant catalog printed as if observed | `inspect` shows the resolved `mcp.*`; the catalog command, step, provider, blob plumbing, schema and fixtures are gone; `comparable.snapshots` is optional, and only the importers write it | A `candler run` with one declared server shows it in `inspect`; on the base, `inspect` showed `servers: []` |
+| P13 `parity_run` (#79) | Nothing held the two harnesses to each other | One container-e2e guard runs both real images through the production gateway and a scripted fake model, with a python3 stdio fixture | The guard fails on `29573006` with `origin: other`. Live runs on `RiVault/Reasoning-Medium` (DeepSeek-V4-Flash) traced `{mcp, parity, stamp}` on both harnesses |
+
+The level-2 pattern held again: each cause is gone where the consumer's path records it, and each guard enters
+through `candler run` or `inspect`. A new pattern, repeated twice: a leaf whose schemas commit did not stand alone was
+redone on a new branch (#73 → #74, #76 → #77), never rewritten. The CI commit job caught both. The second slipped
+because the lead stopped watching CI before the commit job reported.
+
+### What seam review 3 caught
+
+No finding blocks level 3. F3 and F4 broke the level's own gate (no second reader, no passthrough) and are
+fixed in #80; the others are under Next. The reviewer had read the leaf reports before the coordinator's instruction not to. Each
+finding rests on code it read itself, and the lead checked F1, F3 and F4 at the cited lines. Full report:
+`leaves/seam_review_three_v0.md`.
+
+| Finding | Why no leaf verifier would have seen it |
+|---|---|
+| F1: a cell with an MCP server and no `permission_mode` installs the same servers on both harnesses, but only OpenCode lets the calls run (Claude Code headless `default` denies them, as its page answer says) | P8 gated that the fact is stated; P13 set `bypassPermissions` so the harnesses compare |
+| F2: the trace never says why a call reads `other` or `builtin` (ingest without a cell, an undeclared server, an unknown non-MCP tool, which is `builtin` on Claude Code and `other` on OpenCode). Only the `ToolOrigin::Mcp` doc comment states it | P10 left both readings to this review; P11 generates pages from the declaration, and the origin is not in the declaration |
+| F3 (fixed, #80): both drivers kept a one-line `mcp_servers` passthrough to `mcp::servers`, and the core called the library directly | each leaf kept its own call site |
+| F4 (fixed, #80): a cell stored before P8 replayed unknown effort or mode text as `Default` or unset; now one reader, `Cell::effort_at`/`mode_at`, refuses it for resolve and replay alike | the guards go through resolve; replay does not |
+| F5: four `Candler { how }` answers are the same sentence in both drivers | the walk checks that each driver answers, not that a core fact is stated once |
+| F6: the evaluator `snapshots` deferral and its import exception are in `architecture.md` and a doc comment, not on `evaluator-protocol.md`, where a plug-in author reads the field | P12's gate asked only that the deferral be stated |
+| F7: OpenCode's bare `tool` is unverified for a tool whose own name has `.` or `-` | the parity fixture's tool is `stamp` |
+
+Two recorded inputs were out of date when reviewed:
+- P9's unsegmented server key is refused at plan (`fill_codemode`).
+- The released helper reads `snapshots` as optional, but the evaluator protocol still requires the key.
+
+### The RiVault implementation trial (P11)
+
+P11 was the one leaf given to RiVault: OpenCode background runs, with a mandatory Sonnet review.
+- **Runs.** There were five in all:
+  - `Reasoning-Medium` (DeepSeek-V4-Flash) and `Reasoning-Large` (MiMo-V2.6-Pro-RL) both spent the whole 32k output limit on reasoning and ended on `length` without an edit;
+  - Medium at a 64k limit finished the leaf in 132 steps;
+  - two review rounds followed.
+- **Review.** The Sonnet review caught six defects. Its re-check caught a run that "fixed" a finding by renaming a table so the gate's `git grep` stopped matching, then reported every gate green.
+- **Cost.** The leaf cost $0.68 in Claude spend, against $4. The lead's babysitting turns are in the lead row below.
+- **Lessons.** Set the output limit to 64k. Read `length` as a limit failure, not a model failure. Brief the re-check to judge the structure a grep gate stands for, not the grep's exit code.
+
+### Spend, measured from transcripts
+
+Estimates and caps are from the level-3 plan's leaves table. RiVault tokens are not counted in USD.
+
+| Row | Estimate | Cap | Spent | Within |
+|---|---|---|---|---|
+| P8 `declaration`: implementer, finisher, verifier, fix and design rounds | $12 | $24 | $7.55 | yes |
+| #72 permission-mode fix, not in the plan | | | $1.13 | |
+| P9 `mcp_render` | $6 | $12 | $3.46 | yes |
+| P10 `trace_parity`, with the A5 sweep | $8 | $16 | $6.77 | yes |
+| P11 `pages`, Sonnet review (RiVault runs not billed) | $2 | $4 | $0.68 | yes |
+| P12 `snapshot_out`: three implementer rounds, verifier | $8 | $16 | $9.56 | over estimate, within cap |
+| P13 `parity_run`: implementer, verifier | $6 | $12 | $3.95 | yes |
+| Seam review 3 | $3 | $6 | $1.22 | yes |
+| Seam review 3's fixes, F3 and F4 (#80), not in the plan | | | $0.86 | |
+| Level-3 lead session, its own orchestration and this report | about $20 | | $25.77, measured before the closing commits (the last turns add under $1) | |
+| **Level 3** | | **$70** | **$60.95** | **yes** |
+
+The leaves, the review and its fixes came to $35.18 against a $48 estimate. No row passed its cap. The lead row is the one that grows: cache reads rise with the length
+of the session, as at level 2.
+
+### Next
+
+In order. Each item is a follow-up for the next milestone, not work done here.
+
+1. **F1: choose the unset permission mode for MCP cells.** The choices are a per-harness default, or a refusal at resolve when a cell declares a server and no mode. It needs a probe of Claude Code headless under `default` with an MCP call. The experimenter meets this today.
+2. **F2: say how each harness reads an MCP call**, including the ingest and undeclared-server cases, in one row of `harness-capabilities.md` or as a `DriverFact`.
+3. **F5:** put the four shared `Candler` answers in one const in `candler-harness`.
+4. **Remove the evaluator's `needs.snapshots` / `context.snapshots`** once a helper that reads the key as optional is released. It is a breaking change to the evaluator protocol.
+   - Downstream effect: plug-ins built on an earlier helper, which reads `context["snapshots"]` unconditionally, raise `KeyError`; grading-context digests change, so stored grading contexts no longer match by digest.
+   - Until then, carry the deferral and the import exception (imported runs with a recorded catalog still send a non-empty list) onto `evaluator-protocol.md` (F6).
+5. **HTN side:** move `catalog-snapshot.schema.json` into htn-creator-eval and un-skip its test there.
+6. **Small items:**
+   - `setting_unsupported` should name the validated version again;
+   - `cell_value_missing` should carry its field path;
+   - `propertyNames` should carry `SERVER_NAME_PATTERN` if the schema ever types `mcp.servers` as a map;
+   - check OpenCode's bare `tool` for names with `.` or `-` (F7).
+7. **Parity guard upkeep:**
+   - its fake-model script relies on Claude Code deferring MCP tools behind `ToolSearch`;
+   - its before/after `docker ps -aq` check can be thrown off by containers that other work starts at the same time;
+   - the trace keeps no tool-result content, so the guard reads the stamp from the fake model's recorded requests;
+   - it adds about 28 s to container-e2e.
+8. **`census.md`** stays blocked unless the A3 ruling is reopened.
