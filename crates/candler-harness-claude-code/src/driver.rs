@@ -244,17 +244,24 @@ impl HarnessDriver for ClaudeCodeDriver {
             AgentSetting::Skills => Answer::Mapped {
                 construct: "the project skill directory",
             },
-            AgentSetting::McpTransport(
-                McpServerKind::Stdio
-                | McpServerKind::Local
-                | McpServerKind::Http
-                | McpServerKind::Sse
-                | McpServerKind::Remote,
-            ) => Answer::Mapped {
-                construct: "an entry of `mcpServers` in `.mcp.json`",
+            AgentSetting::McpTransport(McpServerKind::Stdio | McpServerKind::Local) => {
+                Answer::Mapped {
+                    construct: "an entry of `mcpServers` in `.mcp.json`, of type `stdio`",
+                }
+            }
+            AgentSetting::McpTransport(McpServerKind::Http | McpServerKind::Remote) => {
+                Answer::Mapped {
+                    construct: "an entry of `mcpServers` in `.mcp.json`, of type `http`",
+                }
+            }
+            AgentSetting::McpTransport(McpServerKind::Sse) => Answer::Mapped {
+                construct: "an entry of `mcpServers` in `.mcp.json`, of type `sse`",
             },
-            AgentSetting::Codemode(true | false) => Answer::Mapped {
-                construct: "the `codemode` key of the server's `.mcp.json` entry, passed through",
+            AgentSetting::Codemode(true) => Answer::Refused {
+                reason: "Claude Code offers MCP tools directly; it has no code mode",
+            },
+            AgentSetting::Codemode(false) => Answer::Mapped {
+                construct: "no key: Claude Code offers the server's tools directly",
             },
             AgentSetting::McpName => Answer::Mapped {
                 construct: "the key of the server's `.mcp.json` entry",
