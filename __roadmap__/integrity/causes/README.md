@@ -7,7 +7,7 @@ Level 1 of M6c Integrity, after `../conventions.md`. Four independent concepts r
 The causes D1 and D5 are removed where S1, B1 and the silent acceptances came from, each shown by an observation that fails on the base.
 
 ## Pre-conditions
-- [ ] `[cmd]` `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.3.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh status __roadmap__/integrity/conventions.md` prints `done`
+- [x] `[cmd]` `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.3.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh status __roadmap__/integrity/conventions.md` prints `done`
 
 ## Success Gates
 - ⬜ `sealed_run_producer.md`, `collect_oracle.md`, `one_reader.md` and `kill_off_tty.md` are `done`, each with its observation seen failing on the base
@@ -17,10 +17,10 @@ The causes D1 and D5 are removed where S1, B1 and the silent acceptances came fr
 ## Status
 ```mermaid
 graph TD
-    sealed_run_producer[Sealed run producer]:::planned
-    collect_oracle[Collect oracle]:::planned
-    one_reader[One reader]:::planned
-    kill_off_tty[Kill off a TTY]:::planned
+    sealed_run_producer[Sealed run producer]:::inprogress
+    collect_oracle[Collect oracle]:::inprogress
+    one_reader[One reader]:::inprogress
+    kill_off_tty[Kill off a TTY]:::inprogress
     checkpoint[Seam review 1 and checkpoint]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -32,10 +32,10 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `sealed_run_producer.md` | 📄 Leaf Task | ⬜ Planned |
-| `collect_oracle.md` | 📄 Leaf Task | ⬜ Planned |
-| `one_reader.md` | 📄 Leaf Task | ⬜ Planned |
-| `kill_off_tty.md` | 📄 Leaf Task | ⬜ Planned |
+| `sealed_run_producer.md` | 📄 Leaf Task | 🔄 In Progress |
+| `collect_oracle.md` | 📄 Leaf Task | 🔄 In Progress |
+| `one_reader.md` | 📄 Leaf Task | 🔄 In Progress |
+| `kill_off_tty.md` | 📄 Leaf Task | 🔄 In Progress |
 | `checkpoint/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log

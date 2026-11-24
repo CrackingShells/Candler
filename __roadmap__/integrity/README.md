@@ -9,7 +9,7 @@ Each kind of state Candler stores has one producer, each consumer input has one 
 ## Pre-conditions
 - [x] `[cmd]` `git merge-base --is-ancestor 70d4c3bf origin/main` succeeds (PR #57 landed)
 - [x] `[nl]` The coordinator accepted plan v2 with its cut order, and Eliott's rulings are applied in it
-- [ ] `[cmd]` `git merge-base --is-ancestor 70d4c3bf feat/integrity` succeeds
+- [x] `[cmd]` `git merge-base --is-ancestor 70d4c3bf feat/integrity` succeeds
 
 ## Success Gates
 - ⬜ `conventions.md` and `causes/` are `done`
@@ -19,8 +19,8 @@ Each kind of state Candler stores has one producer, each consumer input has one 
 ## Status
 ```mermaid
 graph TD
-    conventions[Conventions]:::planned
-    causes[Causes]:::planned
+    conventions[Conventions]:::done
+    causes[Causes]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -31,8 +31,8 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `conventions.md` | 📄 Leaf Task | ⬜ Planned |
-| `causes/` | 📁 Directory | ⬜ Planned |
+| `conventions.md` | 📄 Leaf Task | ✅ Done |
+| `causes/` | 📁 Directory | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
