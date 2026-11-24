@@ -265,8 +265,12 @@ impl HarnessDriver for Driver {
     fn live_reader(&self) -> Option<Box<dyn TraceReader>> {
         self.inner.live_reader()
     }
-    fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {
-        self.inner.offline_reader(stream)
+    fn offline_reader(
+        &self,
+        stream: &StreamName,
+        servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
+        self.inner.offline_reader(stream, servers)
     }
     fn classify_exit(&self, exit: &ProcessExit, sessions: &[Session]) -> EndedBy {
         self.inner.classify_exit(exit, sessions)

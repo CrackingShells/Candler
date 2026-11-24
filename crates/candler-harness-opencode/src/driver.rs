@@ -205,7 +205,10 @@ impl HarnessDriver for OpenCodeDriver {
 
     fn check_settings(&self, cell: &Cell<'_>) -> Result<(), DriverError> {
         prepare::settings(cell)?;
-        prepare::mcp_servers(cell).map(|_| ())
+        let names: Vec<String> = prepare::mcp_servers(cell)?
+            .map(|servers| servers.into_keys().collect())
+            .unwrap_or_default();
+        ambiguous_prefixes(&names)
     }
 
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
@@ -254,9 +257,13 @@ impl HarnessDriver for OpenCodeDriver {
         census_stream()
     }
 
-    fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {
+    fn offline_reader(
+        &self,
+        stream: &StreamName,
+        servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
         if export_stream().as_ref() == Some(stream) {
-            return Some(Box::new(OpenCodeExportReader::new())); // TRAIT_OBJECT: the core selects readers at runtime
+            return Some(Box::new(OpenCodeExportReader::new(servers))); // TRAIT_OBJECT: the core selects readers at runtime
         }
         None
     }
@@ -313,6 +320,21 @@ impl HarnessDriver for OpenCodeDriver {
         }
         specs
     }
+}
+
+/// Refuses two server names where one, then `_`, begins the other: `OpenCode` names a tool
+/// `<server>_<tool>`, so `a_b_c` would be the tool `b_c` of `a` or the tool `c` of `a_b`.
+fn ambiguous_prefixes(names: &[String]) -> Result<(), DriverError> {
+    for first in names {
+        let prefix = format!("{first}_");
+        if let Some(second) = names.iter().find(|name| name.starts_with(prefix.as_str())) {
+            return Err(DriverError::AmbiguousServers {
+                first: first.clone(),   // BORROW: .clone() makes the owned name the error keeps
+                second: second.clone(), // BORROW: .clone() makes the owned name the error keeps
+            });
+        }
+    }
+    Ok(())
 }
 
 /// The stream the gateway's census is stored as.

@@ -862,8 +862,7 @@ version and by the sha256 of the release archive of each architecture.
 - **Census.** No event, command or export lists OpenCode's tools. The tool names in the request the
   agent sends to the model are the inventory, so the gateway sidecar records the names of each
   request, and the core takes the first request that carries tools (`census_stream`,
-  `census.source = gateway`). Servers are not seen, so `census.mcp_servers` is unrecorded for this
-  source, and a run whose requests carry no tools records no inventory. The verdict never takes a
+  `census.source = gateway`). A run whose requests carry no tools records no inventory. The verdict never takes a
   gateway inventory for a harness's own.
 - **Facts.** `graceful_stop`, `census` and `execution_outside_child`. Not `SessionMode`.
 - **Not exercised.** Reasoning events (`--thinking`), a code-mode `execute` call in a recorded run,
@@ -1225,8 +1224,7 @@ levels over every arm of the class; a live class gets no such exemption.
 **Session and census measures.** A session run records the `session.*` values of §Session runner
 and `session.control`. A census whose source is not the harness's own init event also records
 `census.source` (`gateway` or `collected`); a record without it is the harness's own, and a verdict
-never compares an inventory with one of another source. `census.mcp_servers` is recorded only when
-the source sees servers.
+never compares an inventory with one of another source. The census names no server.
 
 ### Normalised trace model (`normalised-trace/1`, on the `schemas@` line)
 

@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use std::str::FromStr as _;
 
 use candler_schemas::field_path;
-use candler_schemas::primitives::{FieldPath, Name};
+use candler_schemas::primitives::FieldPath;
 use candler_schemas::servers::{McpServer, McpServerKind};
 use serde_json::Value;
 
@@ -100,32 +100,35 @@ pub(crate) fn read(key: &str, entry: Value) -> Result<McpServer, DriverError> {
     Ok(server)
 }
 
+/// Whether `name` matches `candler_schemas::servers::SERVER_NAME_PATTERN`: the names that both
+/// harnesses carry into a tool id unchanged and that cannot be split two ways
+/// (`mcp__<server>__<tool>`, `<server>_<tool>`). The pattern uses an end anchor the `regex` crate
+/// does not read, so the check is written out; `guard_mcp_server` holds the published schema to it.
+fn plain_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.split('_').all(|part| {
+            !part.is_empty() && part.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        })
+}
+
 /// `servers` re-keyed by rendered name, with `name` removed from each server.
 ///
 /// # Errors
-/// [`DriverError::InvalidValue`] when a `name` is not a plain name (non-empty, with neither `@` nor
-/// white space), contains `__` (which would split `mcp__<server>__<tool>`), or when two servers
-/// render the same name, by name or by key.
+/// [`DriverError::InvalidValue`] when a name, given by `name` or by the key, is not made of ASCII
+/// letters, digits and `-` joined by single `_` (so none holds `__`, `@`, white space or a
+/// character a harness rewrites in a tool id), or when two servers render the same name.
 pub fn by_name(
     servers: BTreeMap<String, McpServer>,
 ) -> Result<BTreeMap<String, McpServer>, DriverError> {
     let mut rendered: BTreeMap<String, McpServer> = BTreeMap::new();
     let mut keys: BTreeMap<String, String> = BTreeMap::new();
     for (key, mut server) in servers {
-        let name = match server.name.take() {
-            None => key.clone(), // BORROW: .clone() copies the key
-            Some(name) => {
-                if let Err(error) = Name::from_str(&name) {
-                    return Err(invalid(format!("the name of server `{key}` {error}")));
-                }
-                if name.contains("__") {
-                    return Err(invalid(format!(
-                        "the name `{name}` of server `{key}` contains `__`, which splits `mcp__<server>__<tool>`"
-                    )));
-                }
-                name
-            }
-        };
+        let name = server.name.take().unwrap_or_else(|| key.clone()); // BORROW: .clone() copies the key
+        if !plain_name(&name) {
+            return Err(invalid(format!(
+                "the name `{name}` of server `{key}` is not made of ASCII letters, digits and `-` joined by single `_`"
+            )));
+        }
         if let Some(first) = keys.get(&name) {
             return Err(invalid(format!(
                 "servers `{first}` and `{key}` both render as `{name}`"

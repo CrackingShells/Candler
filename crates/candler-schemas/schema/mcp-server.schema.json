@@ -101,7 +101,8 @@
       "type": "object"
     },
     "name": {
-      "description": "The name the server renders under, when its key would not do.",
+      "description": "The name the server renders under, when its key would not do; a key\nmatches the same pattern.",
+      "pattern": "^[A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*(?![\\s\\S])",
       "type": "string"
     },
     "type": {

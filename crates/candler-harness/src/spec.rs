@@ -898,25 +898,19 @@ pub enum InitReportError {
     /// A tool list that holds an empty name.
     #[error("the tool list holds an empty name")]
     EmptyToolName,
-    /// A server list that is not a list.
-    #[error("the server list is not a list")]
-    ServersNotList,
     /// An empty tool list from a source other than the harness's own init event. Such a source
     /// that saw no tool has seen nothing: the census is unrecorded, not empty.
     #[error("a collected or gateway source saw no tool, which is an unrecorded inventory")]
     NoTools,
 }
 
-/// The tools and MCP servers an agent had at its start, as the raw JSON the census reads, and the
-/// source that observed them.
+/// The tools an agent had at its start, as the raw JSON the census reads, and the source that
+/// observed them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct InitReport {
     /// The tool names, a JSON list of strings.
     pub tools: serde_json::Value,
-    /// The MCP servers, a JSON list, or `None` when the source cannot see servers: that is
-    /// unrecorded, not an empty list.
-    pub mcp_servers: Option<serde_json::Value>,
     /// Who observed the inventory.
     pub source: CensusSource,
 }
@@ -926,15 +920,10 @@ impl InitReport {
     ///
     /// # Errors
     /// Returns [`InitReportError::ToolsNotNames`] if `tools` is not a list of strings.
-    /// Returns [`InitReportError::ServersNotList`] if `mcp_servers` is given and is not a list.
     /// Returns [`InitReportError::EmptyToolName`] if a tool name is empty.
     /// Returns [`InitReportError::NoTools`] if `source` is not [`CensusSource::Harness`] and
     /// `tools` is empty.
-    pub fn new(
-        tools: serde_json::Value,
-        mcp_servers: Option<serde_json::Value>,
-        source: CensusSource,
-    ) -> Result<Self, InitReportError> {
+    pub fn new(tools: serde_json::Value, source: CensusSource) -> Result<Self, InitReportError> {
         let names = tools
             .as_array()
             .is_some_and(|list| list.iter().all(serde_json::Value::is_string));
@@ -950,17 +939,7 @@ impl InitReport {
         if source != CensusSource::Harness && tools.as_array().is_some_and(Vec::is_empty) {
             return Err(InitReportError::NoTools);
         }
-        if mcp_servers
-            .as_ref()
-            .is_some_and(|servers| !servers.is_array())
-        {
-            return Err(InitReportError::ServersNotList);
-        }
-        Ok(Self {
-            tools,
-            mcp_servers,
-            source,
-        })
+        Ok(Self { tools, source })
     }
 }
 

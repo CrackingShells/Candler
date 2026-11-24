@@ -110,10 +110,10 @@ fn value_at(values: &[MeasuredValue], path: &str) -> Value {
         .clone() // BORROW: .clone() releases the borrow of the values
 }
 
-/// Guards: I10 — the census records the tools and servers the agent saw, and `census.init_tools`
-/// holds the sorted tool names only.
+/// Guards: I10 — the census records the tools the agent saw and no server, however the init
+/// lists them, and `census.init_tools` holds the sorted tool names only.
 /// Oracle: jq over the fixture stream.
-/// Bite: write `mcp_servers` into `census.init_tools`.
+/// Bite: record `mcp_servers` as a census value, or write it into `census.init_tools`.
 #[test]
 fn b25_census_from_a_real_init() {
     // Provenance: from the stream above, whose first init opens the first session and whose
@@ -121,19 +121,17 @@ fn b25_census_from_a_real_init() {
     //   gzcat <stream> | jq -c 'select(.type=="system" and .subtype=="init")' | head -1 | jq -c .tools
     //     -> ["Bash","Agent"]
     //   ... | jq -c '.tools|sort'  -> ["Agent","Bash"]
-    //   ... | jq -c .mcp_servers   -> []
     let lines = stream_lines();
     let values = census_of(lines.as_slice()); // BORROW: explicit .as_slice()
-    assert_eq!(values.len(), 3);
+    assert_eq!(values.len(), 2);
     assert_eq!(value_at(&values, "census.tools"), json!(["Bash", "Agent"]));
-    assert_eq!(value_at(&values, "census.mcp_servers"), json!([]));
     assert_eq!(
         value_at(&values, "census.init_tools"),
         json!(["Agent", "Bash"])
     );
 
     // The recorded init lists no MCP server, so the same stream with two servers listed in its
-    // first init is the control that tells the server list from the tool list.
+    // first init is the control that shows the server list is not read.
     let servers = json!([
         {"name": "rikyu-hpc", "status": "connected"},
         {"name": "aaa-first", "status": "failed"}
@@ -149,7 +147,7 @@ fn b25_census_from_a_real_init() {
     }
     *first = frame.to_string();
     let with_servers = census_of(edited.as_slice()); // BORROW: explicit .as_slice()
-    assert_eq!(value_at(&with_servers, "census.mcp_servers"), servers);
+    assert_eq!(with_servers.len(), 2);
     assert_eq!(
         value_at(&with_servers, "census.init_tools"),
         json!(["Agent", "Bash"])

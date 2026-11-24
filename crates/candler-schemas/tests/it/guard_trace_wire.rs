@@ -393,3 +393,32 @@ fn frames_of_awkward_streams_have_the_json_lines_the_test_states() {
         r#"{"kind":"header","schema":"raw-frames/1","stream":"legacy.log","clock":{"kind":"unrecorded"},"source":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}"#
     );
 }
+
+/// Guards: normalised-trace/1 — the `tool` of an MCP origin is optional: an origin stored without
+/// it (as the hand-written trace file's wrapped call is) still reads and is written back without
+/// it, and one with it round-trips. Oracle: the two origin literals, written by hand from the
+/// schema.
+#[test]
+fn an_mcp_origin_without_a_tool_still_reads_and_one_with_it_round_trips() {
+    use candler_schemas::trace::ToolOrigin;
+
+    let old = r#"{"kind":"mcp","server":"docs"}"#;
+    let read: ToolOrigin =
+        serde_json::from_str(old).expect("an origin stored before the field reads");
+    assert!(matches!(&read, ToolOrigin::Mcp { server, tool: None, .. } if server == "docs"));
+    assert_eq!(
+        serde_json::to_string(&read).expect("the origin writes"),
+        old
+    );
+
+    let new = r#"{"kind":"mcp","server":"docs","tool":"search"}"#;
+    let read: ToolOrigin = serde_json::from_str(new).expect("an origin with a tool reads");
+    assert_eq!(
+        read,
+        ToolOrigin::mcp_tool("docs".to_owned(), "search".to_owned())
+    );
+    assert_eq!(
+        serde_json::to_string(&read).expect("the origin writes"),
+        new
+    );
+}

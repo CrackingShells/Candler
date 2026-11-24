@@ -22,8 +22,7 @@ use crate::runner::plan::RunPlan;
 /// How long a server's start command is given before it must still be running.
 ///
 /// The wait catches a server that crashes as it starts: an import error, a missing file, a missing
-/// variable. It does not catch a server that starts and never answers MCP; the census of each run
-/// records which servers the harness saw.
+/// variable. It does not catch a server that starts and never answers MCP.
 pub const SERVER_START_WAIT: Duration = Duration::from_secs(3);
 
 /// Why the start check refused the job.

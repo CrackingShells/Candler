@@ -3,8 +3,8 @@
 //! recorded sessions.
 //!
 //! Every expectation is read from the fixtures' hand-written `expected.toml` facts or from the raw
-//! lines with `serde_json`, never from the driver. The inventory a case expects is the `tools` and
-//! `mcp_servers` of the first init line, taken from the raw line.
+//! lines with `serde_json`, never from the driver. The inventory a case expects is the `tools` of
+//! the first init line, taken from the raw line.
 
 use std::error::Error;
 use std::fs;
@@ -26,7 +26,7 @@ use candler_schemas::execution::{GitCommit, TreatmentRef};
 use candler_schemas::primitives::{FieldPath, ReasonCode};
 use candler_schemas::process::ExitStatus;
 use candler_schemas::raw::StreamName;
-use candler_schemas::trace::{EndedBy, SessionId};
+use candler_schemas::trace::{EndedBy, SessionId, ToolOrigin};
 use candler_schemas::values::{JsonValue, ResolvedValue};
 use serde_json::{Value, json};
 
@@ -84,7 +84,6 @@ fn first_init(bytes: &[u8]) -> Res<InitReport> {
             let tools = object.get("tools").ok_or("the init line has no tools")?;
             return Ok(InitReport::new(
                 tools.clone(), // BORROW: .clone() copies the list out of the line
-                object.get("mcp_servers").cloned(),
                 CensusSource::Harness,
             )?);
         }
@@ -292,7 +291,41 @@ fn cases() -> Res<Vec<Case>> {
                 false,
             )],
         ),
+        mcp_call_case()?,
     ])
+}
+
+/// A stream with one call to the tool `t` of the server `s`, spelled `mcp__s__t`.
+fn mcp_call_case() -> Res<Case> {
+    let session = "33333333-3333-4333-8333-333333333333";
+    let lines = [
+        json!({"type": "system", "subtype": "init", "model": "m", "claude_code_version": "2.1.230",
+               "tools": ["Bash", "mcp__s__t"], "session_id": session}),
+        json!({"type": "assistant", "parent_tool_use_id": null, "session_id": session,
+               "message": {"id": "msg_1", "role": "assistant", "model": "m", "content": [
+                   {"type": "tool_use", "id": "toolu_1", "name": "mcp__s__t", "input": {}}]}}),
+    ];
+    let bytes = lines
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    Ok(Case::new(
+        "mcp_call".to_owned(), // BORROW: .to_owned() makes the owned case name
+        ReaderSource::Live,
+        stdout()?,
+        bytes.into_bytes(),
+    )
+    .with_observed_ids(vec![sid(session)?])
+    .with_init(InitReport::new(
+        json!(["Bash", "mcp__s__t"]),
+        CensusSource::Harness,
+    )?)
+    .with_mcp_call(
+        vec!["s".to_owned()], // BORROW: .to_owned() makes the owned name
+        ToolOrigin::mcp_tool("s".to_owned(), "t".to_owned()), // BORROW: .to_owned() makes the owned names
+    ))
 }
 
 /// Guards: R01 §Harness drivers, §Session runner — the Claude Code driver passes the shared suite

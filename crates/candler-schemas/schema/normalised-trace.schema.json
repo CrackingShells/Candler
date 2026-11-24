@@ -518,7 +518,7 @@
       "type": "string"
     },
     "ToolOrigin": {
-      "description": "Where a tool call is served from: an object whose `kind` is `builtin`, `mcp`, with the `server` that offers the tool, or `other`.",
+      "description": "Where a tool call is served from: an object whose `kind` is `builtin`, `mcp`, with the `server` that offers the tool and the server's own name for it, or `other`.",
       "oneOf": [
         {
           "additionalProperties": false,
@@ -536,7 +536,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "A tool an MCP server offers.",
+          "description": "A tool an MCP server offers. Claude Code's reader takes any `mcp__<server>__<tool>` for the\ntool of `<server>`, declared or not; `OpenCode`'s takes only a declared server, because its\nspelling `<server>_<tool>` cannot be split without the server names.",
           "properties": {
             "kind": {
               "const": "mcp",
@@ -544,6 +544,10 @@
             },
             "server": {
               "description": "The name of the MCP server.",
+              "type": "string"
+            },
+            "tool": {
+              "description": "The tool's name at the server, without the harness's prefix. A trace written before the\nfield existed has none.",
               "type": "string"
             }
           },

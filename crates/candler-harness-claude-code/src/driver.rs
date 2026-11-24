@@ -344,8 +344,12 @@ impl HarnessDriver for ClaudeCodeDriver {
         Some(Box::new(ClaudeCodeReader::new())) // TRAIT_OBJECT: the core selects readers at runtime
     }
 
-    fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {
-        let _ = stream;
+    fn offline_reader(
+        &self,
+        stream: &StreamName,
+        servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
+        let _ = (stream, servers);
         None
     }
 

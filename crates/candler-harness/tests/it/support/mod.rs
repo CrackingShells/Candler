@@ -144,12 +144,7 @@ impl TraceReader for LinesReader {
                     && let Some(tools) = value.get("tools")
                 {
                     // BORROW: .cloned() copies the lists out of the frame
-                    self.init = InitReport::new(
-                        tools.clone(),
-                        value.get("mcp_servers").cloned(),
-                        CensusSource::Harness,
-                    )
-                    .ok();
+                    self.init = InitReport::new(tools.clone(), CensusSource::Harness).ok();
                 }
                 // BORROW: .clone() copies the frame time into the session
                 pending.started_at = at.clone();
@@ -331,7 +326,11 @@ impl HarnessDriver for LinesDriver {
         }))
     }
 
-    fn offline_reader(&self, _stream: &StreamName) -> Option<Box<dyn TraceReader>> {
+    fn offline_reader(
+        &self,
+        _stream: &StreamName,
+        _servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
         // TRAIT_OBJECT: the trait returns readers as objects
         Some(Box::new(LinesReader {
             pending: Vec::new(),
@@ -593,7 +592,11 @@ impl HarnessDriver for DocumentDriver {
         None
     }
 
-    fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {
+    fn offline_reader(
+        &self,
+        stream: &StreamName,
+        _servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
         // BORROW: explicit .as_str() instead of Deref coercion
         if stream.as_str() == "export" {
             // TRAIT_OBJECT: the trait returns readers as objects
@@ -779,7 +782,7 @@ impl TraceReader for CensusReader {
         match self
             .tools
             .clone() // BORROW: .clone() copies the tools out of the reader
-            .and_then(|tools| InitReport::new(tools, None, CensusSource::Gateway).ok())
+            .and_then(|tools| InitReport::new(tools, CensusSource::Gateway).ok())
         {
             Some(init) => observed.with_init(init),
             None => observed,
@@ -953,12 +956,16 @@ impl HarnessDriver for OpenShapedDriver {
         Some(Box::new(IdsReader::new()))
     }
 
-    fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {
+    fn offline_reader(
+        &self,
+        stream: &StreamName,
+        servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
         // BORROW: explicit .as_str() instead of Deref coercion
         match stream.as_str() {
             "model_requests" => Some(Box::new(CensusReader { tools: None })), // TRAIT_OBJECT: the trait returns readers as objects
             "export" => Some(Box::new(ExportReader { session: None })), // TRAIT_OBJECT: the trait returns readers as objects
-            _ => self.0.offline_reader(stream),
+            _ => self.0.offline_reader(stream, servers),
         }
     }
 

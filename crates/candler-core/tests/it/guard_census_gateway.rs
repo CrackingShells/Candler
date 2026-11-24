@@ -163,12 +163,7 @@ fn census_gateway_run_records_the_first_request_with_tools_or_nothing() {
         .replace(NO_TOOLS_RUN, LOG_RUN)
         .replace("swap", NO_TOOLS_RUN);
     let none = run(&bare, |_, _| {});
-    for path in [
-        "census.tools",
-        "census.init_tools",
-        "census.source",
-        "census.mcp_servers",
-    ] {
+    for path in ["census.tools", "census.init_tools", "census.source"] {
         assert_eq!(none.measured(path), None, "{path} of a run with no tools");
     }
     assert!(none.raw("gateway_census").is_some(), "the stream is kept");
