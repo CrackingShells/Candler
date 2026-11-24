@@ -72,3 +72,42 @@ fn inspect_shows_the_mcp_server_a_run_was_launched_with() {
         "the text shows the declared server:\n{text}"
     );
 }
+
+/// Guards: a cell Candler resolves and runs carries no `snapshots` key, and its digest, which
+/// names the run, is the digest of the cell written without it.
+///
+/// Oracle: the run's key names the cell digest the runner computed; the test recomputes it from
+/// the stored `comparable` text with `Digest::of_canonical`, so a key written or hashed but not
+/// stored (or the other way round) moves one side only.
+///
+/// Bite: have resolve fill `comparable.snapshots` with an empty list (the key appears in the
+/// stored cell and the digest changes).
+#[test]
+fn a_cell_from_resolve_is_stored_and_hashed_without_snapshots() {
+    let world = world();
+    let launched = world.launch();
+    finish(&world, &launched);
+    world.assert_sealed(1);
+
+    let runs = world.store().join("runs");
+    let run_dir = fs::read_dir(&runs)
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| path.join("run.done").is_file())
+        .expect("a sealed run");
+    let manifest: Value =
+        serde_json::from_slice(&fs::read(run_dir.join("manifest.json")).unwrap()).unwrap();
+    let comparable = manifest["comparable"].as_object().expect("a stored cell");
+    assert!(
+        !comparable.contains_key("snapshots"),
+        "a new cell carries no snapshots key: {comparable:?}"
+    );
+    let recomputed = candler_schemas::primitives::Digest::of_canonical(&manifest["comparable"])
+        .expect("the cell has a canonical form");
+    assert_eq!(
+        manifest["run"]["cell"].as_str(),
+        Some(recomputed.as_str()),
+        "the run is keyed by the digest of the cell as stored"
+    );
+}
