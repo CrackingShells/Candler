@@ -525,11 +525,11 @@ async fn an_unnamed_effort_or_mode_is_refused_at_its_field_for_each_driver() {
 
 /// Guards: every permission-mode spelling Claude Code reads plans on Claude Code and reaches
 /// `--permission-mode` as Claude Code's own word, `manual` as `default`; `OpenCode` refuses `auto`
-/// and `dontAsk` as `experiment.setting_unsupported`; a cell without a mode is in Claude Code's
-/// `default` mode, which `OpenCode` refuses rather than run under its allow-all baseline.
+/// and `dontAsk` as `experiment.setting_unsupported`, and so does an explicit `default`, with
+/// `OpenCode`'s reason; a cell without a mode asks the driver nothing, so both drivers plan it.
 /// Oracle: the modes of the Claude Code CLI reference (`--permission-mode`), written by hand.
-/// Bite: drop `Auto` or `DontAsk` from `PermissionMode`, or the `manual` alias, or read an absent
-/// mode as `default`.
+/// Bite: drop `Auto` or `DontAsk` from `PermissionMode`, or the `manual` alias, or ask the driver
+/// about `default` for an absent mode.
 #[tokio::test]
 async fn every_claude_code_permission_mode_plans_and_opencode_refuses_what_it_cannot_carry() {
     let file = experiment_with("");
@@ -579,12 +579,22 @@ async fn every_claude_code_permission_mode_plans_and_opencode_refuses_what_it_ca
         planned(&file, &[], true).await.is_ok(),
         "a Claude Code cell without a mode"
     );
-    match planned(&file, &[], false).await {
-        Err(error) => assert_eq!(
-            Refusal::code(&error).as_str(),
-            "experiment.setting_unsupported"
-        ),
-        Ok(_) => panic!("an OpenCode cell without a mode planned"),
+    assert!(
+        planned(&file, &[], false).await.is_ok(),
+        "an OpenCode cell without a mode"
+    );
+    match planned(&file, &[("permission_mode", json!("default"))], false).await {
+        Err(error) => {
+            assert_eq!(
+                Refusal::code(&error).as_str(),
+                "experiment.setting_unsupported"
+            );
+            assert!(
+                error.to_string().contains("Claude Code's default mode"),
+                "OpenCode's reason for `default`: {error}"
+            );
+        }
+        Ok(_) => panic!("an OpenCode cell in default mode planned"),
     }
 }
 

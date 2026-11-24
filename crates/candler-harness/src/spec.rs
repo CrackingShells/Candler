@@ -737,16 +737,19 @@ pub enum DriverFact {
     ExecutionOutsideChild,
     /// The driver reports the tool inventory the agent had.
     Census,
+    /// What the harness does when the experiment sets no permission mode.
+    UnsetPermissionMode,
 }
 
 impl DriverFact {
     /// Every fact.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::GracefulStop,
         Self::LiveEvents,
         Self::InHarnessGuard,
         Self::ExecutionOutsideChild,
         Self::Census,
+        Self::UnsetPermissionMode,
     ];
 }
 
@@ -1514,10 +1517,11 @@ impl<'a> Cell<'a> {
         self.required_text(&field_path!(paths::MODEL_ID))
     }
 
-    /// The permission mode the cell sets, or [`PermissionMode::Default`], Claude Code's own mode
-    /// when no flag is given, when it sets none. The cell holds the text; resolve refuses text that
-    /// names no mode, and this maps the text it checked. Text that never went through resolve and
-    /// names no mode reads as [`PermissionMode::Default`].
+    /// The permission mode the cell sets, or [`PermissionMode::Default`] when it sets none, which
+    /// is the mode Claude Code's command line carries for a cell without one. The cell holds the
+    /// text; resolve refuses text that names no mode, and this maps the text it checked. Text that
+    /// never went through resolve and names no mode reads as [`PermissionMode::Default`]. No driver
+    /// is asked about an unset mode: [`DriverFact::UnsetPermissionMode`] states it.
     #[must_use]
     pub fn permission_mode(&self) -> PermissionMode {
         self.value(&field_path!(paths::PERMISSION_MODE))
