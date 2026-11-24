@@ -50,10 +50,10 @@ fn stamp_answers(records: &str, skip: usize) -> Vec<(bool, String)> {
             .and_then(|message| message["content"].as_array());
         for block in blocks.into_iter().flatten() {
             if block["type"] == "tool_result" && block["tool_use_id"] == CALL_ID {
-                let text = match &block["content"] {
-                    Value::String(text) => text.clone(), // BORROW: .clone() copies the text
-                    other => other.to_string(),
-                };
+                let text = block["content"].as_str().map_or_else(
+                    || block["content"].to_string(),
+                    str::to_owned, // BORROW: .to_owned() makes the owned text
+                );
                 found.push((block["is_error"] == true, text));
             }
         }
@@ -70,12 +70,12 @@ fn records(real: &Path, fake: &str) -> String {
 /// The program and arguments of a rendered server entry, whether the file keeps them as a command
 /// and its arguments or as one list.
 fn argv_of(entry: &Value) -> Vec<Value> {
-    match &entry["command"] {
-        Value::Array(list) => list.clone(), // BORROW: .clone() copies the list
-        command => std::iter::once(command.clone()) // BORROW: .clone() copies the program
-            .chain(entry["args"].as_array().into_iter().flatten().cloned()) // BORROW: .cloned() copies the arguments
-            .collect(),
+    if let Some(list) = entry["command"].as_array() {
+        return list.clone(); // BORROW: .clone() copies the list
     }
+    std::iter::once(entry["command"].clone()) // BORROW: .clone() copies the program
+        .chain(entry["args"].as_array().into_iter().flatten().cloned()) // BORROW: .cloned() copies the arguments
+        .collect()
 }
 
 /// What a run of one harness stored: the resolved `mcp.*` values `candler inspect` shows, the
