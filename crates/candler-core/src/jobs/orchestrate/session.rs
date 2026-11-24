@@ -46,11 +46,11 @@ use crate::runner::{JobGateway, Runtime};
 use crate::supervise::{EventSink, Supervisor};
 use candler_schemas::execution::paths::{
     ENVIRONMENTS, HARNESS, INPUTS, ISOLATION_EGRESS, ISOLATION_IMAGE, ISOLATION_RECORD_PACKAGES,
-    MODEL_ENDPOINT, MODEL_TOKEN_SECRET, REQUEST_TREATMENT, RUNNER_IDLE_S, SNAPSHOTS, TREATMENT,
+    MODEL_ENDPOINT, MODEL_TOKEN_SECRET, REQUEST_TREATMENT, RUNNER_IDLE_S, TREATMENT,
 };
 
 /// The roots of a cell that hold typed records; their sources are not value paths.
-const TYPED_ROOTS: [&str; 5] = [HARNESS, TREATMENT, SNAPSHOTS, INPUTS, ENVIRONMENTS];
+const TYPED_ROOTS: [&str; 4] = [HARNESS, TREATMENT, INPUTS, ENVIRONMENTS];
 
 /// The tag the gateway's sidecar image is looked up by.
 pub(super) const SIDECAR_TAG: &str = "candler-gateway:latest";
@@ -590,14 +590,6 @@ pub fn cells_of(
         )
         // BORROW: the cell owns the evaluator-only inputs
         .with_evaluation_inputs(spec.evaluation_inputs.clone())
-        // BORROW: the cell owns the blob texts its level's steps reported
-        .with_blobs(
-            level
-                .preflight
-                .iter()
-                .flat_map(|report| report.blobs.iter().cloned())
-                .collect(),
-        )
         // BORROW: the cell owns the package readings of its image
         .with_packages(
             image_of(comparable)

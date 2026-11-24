@@ -146,7 +146,6 @@ fn manifest_json(run: &Run<'_>, cell: &str) -> Value {
             "values": values,
             "harness": {"name": "claude-code", "version": run.facts.version},
             "treatment": treatment(run.facts),
-            "snapshots": [],
             "inputs": inputs_json(run.facts),
             "environments": [],
         },

@@ -440,7 +440,7 @@ pub fn find_streams(path: &Path, recognise: &Recogniser) -> Result<Streams, RawI
     Ok(Streams { found, skipped })
 }
 
-/// The cell of a stream: the harness it names under the unrecorded treatment, and nothing else.
+/// The cell of a stream: the harness it names under the unrecorded treatment, and an empty `snapshots` list, as an imported run's cell carries one.
 fn comparable_of(found: &Found) -> Result<Comparable, RawIngestError> {
     let manifest_error = |detail: String| RawIngestError::Manifest {
         stream: found.rel.to_string(),
@@ -454,6 +454,7 @@ fn comparable_of(found: &Found) -> Result<Comparable, RawIngestError> {
             found.recognised.version.clone(),
         ))
         .treatment(TreatmentRef::new(treatment))
+        .snapshots(Vec::new())
         .build()
         .map_err(|e| manifest_error(e.to_string()))
 }

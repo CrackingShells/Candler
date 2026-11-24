@@ -1,5 +1,5 @@
 //! The one builder of a control container: a throwaway container Candler runs to read or prepare
-//! something, such as a version probe, a package probe, a lock compile, a catalog capture, a
+//! something, such as a version probe, a package probe, a lock compile, a
 //! collect of a run's sessions or the fake model.
 //!
 //! A [`ControlSpec`] is every control container's flags in one place: it removes itself, wears the

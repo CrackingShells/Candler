@@ -8,7 +8,6 @@
 use std::error::Error;
 
 use crate::refusal::wrapper_table;
-use crate::runner::evidence::catalog::CatalogError;
 use crate::runner::evidence::census::CensusError;
 use crate::runner::evidence::tree::EvidenceError;
 use crate::runner::exec::cell::ExecError;
@@ -131,46 +130,6 @@ wrapper_table! {
 }
 
 refusal_table! {
-    CatalogError, path = no_path;
-    Unavailable { .. } => row(
-        "candler.internal",
-        Side::Candler,
-        "Catalog capture is not wired in this build.",
-        "-",
-    ),
-    Command { .. } => row(
-        "runner.catalog_command_failed",
-        Side::Environment,
-        "The command that prints the tool catalog exited non-zero or was ended by a signal.",
-        "-",
-    ),
-    Timeout { .. } => row(
-        "runner.catalog_timeout",
-        Side::Environment,
-        "The command that prints the tool catalog overran its time.",
-        "-",
-    ),
-    Parse { .. } => row(
-        "runner.catalog_unreadable",
-        Side::Environment,
-        "The output of the catalog command is not a tool catalog.",
-        "-",
-    ),
-    AbsolutePath { .. } => row(
-        "candler.internal",
-        Side::Candler,
-        "The catalog holds a path from the host or the image's file system.",
-        "-",
-    ),
-    Digest { .. } => row(
-        "candler.internal",
-        Side::Candler,
-        "The catalog has no canonical form.",
-        "-",
-    ),
-}
-
-refusal_table! {
     CensusError, path = no_path;
     NoInit { .. } => row(
         "runner.census_no_init",
@@ -211,10 +170,9 @@ refusal_table! {
 /// The rows of every coded error of this module, in the order of the types.
 #[must_use]
 pub(crate) fn catalog() -> Vec<CatalogRow> {
-    let tables: [&'static [CatalogRow]; 5] = [
+    let tables: [&'static [CatalogRow]; 4] = [
         <PlanError as Catalogued>::rows(),
         <ExecError as Catalogued>::rows(),
-        <CatalogError as Catalogued>::rows(),
         <CensusError as Catalogued>::rows(),
         <EvidenceError as Catalogued>::rows(),
     ];
@@ -276,14 +234,9 @@ pub(crate) fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refu
                 .map(exec_answer)
                 .or_else(|| {
                     error
-                        .downcast_ref::<CatalogError>()
+                        .downcast_ref::<CensusError>()
                         .map(as_refusal)
-                        .or_else(|| {
-                            error
-                                .downcast_ref::<CensusError>()
-                                .map(as_refusal)
-                                .or_else(|| error.downcast_ref::<EvidenceError>().map(as_refusal))
-                        })
+                        .or_else(|| error.downcast_ref::<EvidenceError>().map(as_refusal))
                 })
         })
 }

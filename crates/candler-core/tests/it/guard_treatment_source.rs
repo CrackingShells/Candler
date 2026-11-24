@@ -60,10 +60,6 @@ impl PreflightStep for OtherRoots {
                 js(json!([{"kind": "build_inputs", "digest": digest}])),
             )
             .derive(
-                fp("snapshots"),
-                js(json!([{"kind": "catalog", "digest": digest}])),
-            )
-            .derive(
                 fp("environments"),
                 js(json!([{"plugin": "p@1.0.0", "lock_digest": digest}])),
             );

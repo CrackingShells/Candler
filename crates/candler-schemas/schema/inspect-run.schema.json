@@ -40,9 +40,6 @@
   "additionalProperties": false,
   "description": "One run: whether it is sealed, what it was read from, the provenance and the other values it\nmeasured, and its outcomes with their evidence.",
   "properties": {
-    "catalog": {
-      "description": "The tool catalog the run ran with, as the run stored it: the canonical form of the\nsnapshot without `captured_at`. Absent when the run has no stored snapshot."
-    },
     "ended_at": {
       "description": "When the run ended."
     },
@@ -60,6 +57,11 @@
     },
     "job": {
       "description": "The job that made the run."
+    },
+    "mcp": {
+      "additionalProperties": true,
+      "description": "The resolved `mcp.*` values the cell hashes, by path: the MCP configuration the run was\ninstalled with.",
+      "type": "object"
     },
     "measured": {
       "additionalProperties": true,
@@ -99,6 +101,7 @@
     "schema",
     "run",
     "sealed",
+    "mcp",
     "provenance",
     "measured",
     "outcomes"

@@ -6,7 +6,6 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use candler_core::isolation::docker::{ClientEnv, DockerCli};
 use candler_core::isolation::image::{DockerImageService, ImageAssets};
@@ -17,7 +16,6 @@ use candler_core::resolve::preflight::{ResolveError, Resolver};
 use candler_core::resolve::steps::env::EnvRefusal;
 use candler_core::resolve::steps::ground_truth::{GroundTruth, GroundTruthStep};
 use candler_core::resolve::steps::{M2bServices, register_m2b_steps};
-use candler_core::runner::evidence::catalog::{CatalogCommand, CommandCatalogProvider};
 use candler_core::runner::plan::{PlanError, experiment_of};
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_schemas::execution::paths;
@@ -34,13 +32,6 @@ use candler_harness::spec::AgentSetting;
 
 /// The path of the setting `[treatment] source` replaces; `--set` refuses it by name.
 const RETIRED_TREATMENT_SOURCE: &str = concat!("request.", "treatment_source");
-
-/// The time the catalog command gets inside the image.
-const CATALOG_TIMEOUT: Duration = Duration::from_secs(60);
-
-/// The program that prints the catalog of an image that offers no MCP server: a snapshot with no
-/// server in it, captured now.
-const CATALOG_PROGRAM: &str = "printf '{\"schema\":\"tool-catalog-snapshot/1\",\"captured_at\":\"%s\",\"provider\":\"candler-image@1\",\"servers\":[]}' \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"";
 
 /// The places the sources of the images are.
 pub(crate) struct AssetPaths {
@@ -93,8 +84,8 @@ pub(crate) fn refused(reason: impl Into<String>) -> CliError {
     }
 }
 
-/// The resolver with the preflight steps of the image, the harness, the treatment, the catalog
-/// and the ground truth registered; the services say where the harness reads its skills.
+/// The resolver with the preflight steps of the image, the harness, the treatment and the ground
+/// truth registered; the services say where the harness reads its skills.
 ///
 /// # Errors
 /// [`ResolveError`] when a step name is registered twice or malformed.
@@ -394,7 +385,7 @@ pub(crate) fn requested_harness(input: &ResolveInput) -> Result<String, CliError
     name.ok_or_else(|| refused("`request.harness` names no harness"))
 }
 
-/// Builds the docker client, the image service and the catalog provider over one supervisor, and
+/// Builds the docker client and the image service over one supervisor, and
 /// composes the resolver on them. The harness is the registry's `driver`: it reads the
 /// image's version and says which versions are supported, and its base context builds the base
 /// image.
@@ -420,23 +411,13 @@ pub(crate) fn foreground(
     let images = DockerImageService::new(
         Arc::clone(&supervisor),
         cli.clone(), // BORROW: the service owns its client
-        env.clone(), // BORROW: the service owns its env
+        env,
         assets.images,
         Arc::clone(&driver),
-    );
-    // BORROW: .to_owned() gives the command its own words
-    let argv = vec!["sh".to_owned(), "-c".to_owned(), CATALOG_PROGRAM.to_owned()];
-    let catalog = CommandCatalogProvider::new(
-        Arc::clone(&supervisor),
-        cli.clone(), // BORROW: the provider owns its client
-        env,
-        root.to_path_buf(), // BORROW: the provider owns its root
-        CatalogCommand::new(argv, CATALOG_TIMEOUT),
     );
     let services = M2bServices {
         supervisor,
         images: Arc::new(images),
-        catalog: Arc::new(catalog),
         harness_supported: driver.supported(),
         session_capable: !driver.answer(AgentSetting::SessionMode).is_refused(),
         skills: driver.skills(),

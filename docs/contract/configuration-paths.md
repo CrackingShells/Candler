@@ -58,7 +58,6 @@ Core line: `v0.15.0`.
 | `harness` | the path and every path below it | experiment value | The harness table; the names below belong to the harness. |
 | `treatment` | the path and every path below it | experiment value | The treatment table. |
 | `inputs` | the path and every path below it | experiment value | The inputs table. |
-| `snapshots` | the path and every path below it | experiment value | The snapshots table. |
 | `environments` | the path and every path below it | experiment value | The environments table. |
 | `treatment:` | text that is not a field path | experiment value | The prefix of a value that names a treatment source; the rest is the path. |
 | `store.root` | the path | configuration key | The store root; a relative path is read from the project root. |

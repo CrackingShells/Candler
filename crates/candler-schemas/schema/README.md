@@ -23,7 +23,6 @@ or file, or a message of the evaluator protocol.
 | File | Root type | Wire tag | R01 section |
 |---|---|---|---|
 | `analysis-report.schema.json` | `AnalysisReport` | `analysis-report/1` | Analysis statistics |
-| `catalog-snapshot.schema.json` | `CatalogSnapshot` | `tool-catalog-snapshot/1` | Wire schema: tool-catalog snapshot |
 | `child-record.schema.json` | `ChildRecord` | `child-record/1` | Process supervision |
 | `container-record.schema.json` | `ContainerRecord` | `container-record/1` | Process supervision (job dir) |
 | `evaluator-describe-result.schema.json` | `DescribeResult` | none; `protocol` is `{major, minor}` | Evaluator protocol (`describe` result) |

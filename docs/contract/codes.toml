@@ -400,36 +400,6 @@ side = "plugin"
 enum = "EvaluationError"
 variant = "ManifestToml"
 
-[schemas."catalog.schema_tag_mismatch"]
-side = "environment"
-enum = "CatalogError"
-variant = "SchemaTag"
-
-[schemas."catalog.field_unset"]
-side = "candler"
-enum = "CatalogError"
-variant = "MissingField"
-
-[schemas."catalog.extra_key_reserved"]
-side = "candler"
-enum = "CatalogError"
-variant = "ReservedKey"
-
-[schemas."catalog.field_null"]
-side = "candler"
-enum = "CatalogError"
-variant = "Null"
-
-[schemas."catalog.name_empty"]
-side = "environment"
-enum = "CatalogError"
-variant = "EmptyName"
-
-[schemas."catalog.name_repeated"]
-side = "environment"
-enum = "CatalogError"
-variant = "DuplicateName"
-
 [schemas."experiment.unknown_field"]
 side = "experiment"
 enum = "ExecutionError"
@@ -555,21 +525,6 @@ variant = "ReplicatesConflict"
 side = "experiment"
 enum = "PlanError"
 variant = "SettingAsFactor"
-
-[runner."runner.catalog_command_failed"]
-side = "environment"
-enum = "CatalogError"
-variant = "Command"
-
-[runner."runner.catalog_timeout"]
-side = "environment"
-enum = "CatalogError"
-variant = "Timeout"
-
-[runner."runner.catalog_unreadable"]
-side = "environment"
-enum = "CatalogError"
-variant = "Parse"
 
 [runner."runner.census_no_init"]
 side = "environment"
@@ -1428,21 +1383,6 @@ reason = "a store fault met while planning is reported through the store's own e
 enum = "PlanError"
 variant = "Lock"
 reason = "a lock that cannot be tried is an operating-system fault, not an input of the author"
-
-[internal."candler_core::runner::evidence::catalog::CatalogError::Unavailable"]
-enum = "CatalogError"
-variant = "Unavailable"
-reason = "an unwired capture port is a fault of the binary, not an input of the author"
-
-[internal."candler_core::runner::evidence::catalog::CatalogError::AbsolutePath"]
-enum = "CatalogError"
-variant = "AbsolutePath"
-reason = "the catalog is captured by Candler's own command, so an absolute path is Candler's fault"
-
-[internal."candler_core::runner::evidence::catalog::CatalogError::Digest"]
-enum = "CatalogError"
-variant = "Digest"
-reason = "a catalog with no canonical form is a fault of the capture, not an input of the author"
 
 [internal."candler_core::runner::evidence::census::CensusError::Value"]
 enum = "CensusError"

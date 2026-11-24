@@ -2,7 +2,7 @@
   "$defs": {
     "Comparable": {
       "additionalProperties": false,
-      "description": "What the cell digest hashes: every resolved value, the harness, the treatment, the catalog snapshots, the inputs and the plug-in environments of a run, each list sorted and without duplicates.",
+      "description": "What the cell digest hashes: every resolved value, the harness, the treatment, the catalog digests an imported run recorded, the inputs and the plug-in environments of a run, each list sorted and without duplicates.",
       "properties": {
         "environments": {
           "$comment": "Sorted by the text of the plug-in then the lock digest in code point order, without a repeated entry; the Rust reader refuses a list that is not.",
@@ -26,7 +26,7 @@
         },
         "snapshots": {
           "$comment": "Sorted by kind then digest in code point order, without a repeated entry; the Rust reader refuses a list that is not.",
-          "description": "The digests of the catalog snapshots, sorted by kind and digest.",
+          "description": "The digests of the catalog snapshots an imported run recorded, sorted by kind and digest.\nThe key is absent for a run Candler made. It is present, possibly empty, only for an\nimported run: the manifest importer and the raw-stream importer write it, and the cell\nhashes with it when present and without it when absent.",
           "items": {
             "$ref": "#/$defs/DigestRef"
           },
@@ -49,7 +49,6 @@
         "values",
         "harness",
         "treatment",
-        "snapshots",
         "inputs",
         "environments"
       ],
@@ -98,7 +97,7 @@
     },
     "DigestRef": {
       "additionalProperties": false,
-      "description": "A digest and the kind of thing it identifies: a catalog snapshot or an input.",
+      "description": "A digest and the kind of thing it identifies: a catalog an imported run recorded, or an input.",
       "properties": {
         "digest": {
           "$ref": "#/$defs/Digest",
@@ -385,7 +384,7 @@
       "type": "string"
     },
     "NameToken": {
-      "description": "A catalog provider reference, `name@token`, split at the last `@`: the name is non-empty and holds neither `@` nor white space, and the token matches `[0-9A-Za-z.+-]+`.",
+      "description": "A name and a version token, `name@token`, split at the last `@`: the name is non-empty and holds neither `@` nor white space, and the token matches `[0-9A-Za-z.+-]+`.",
       "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+@[0-9A-Za-z.+-]+(?![\\s\\S])",
       "type": "string"
     },
@@ -743,7 +742,7 @@
       "type": "array"
     },
     "sources": {
-      "$comment": "Each path of `comparable.values` has exactly one entry, and each of `harness`, `treatment` and the non-empty lists `snapshots`, `inputs` and `environments` has an entry at the root path or at a path under it; no other path appears and no path repeats. JSON Schema cannot state this, and the Rust reader refuses a list that differs.",
+      "$comment": "Each path of `comparable.values` has exactly one entry, and each of `harness`, `treatment` and the non-empty lists `snapshots` (present only in an imported run), `inputs` and `environments` has an entry at the root path or at a path under it; no other path appears and no path repeats. JSON Schema cannot state this, and the Rust reader refuses a list that differs.",
       "description": "Where each value came from: one entry per value, and one or more entries under each typed root the cell holds; never an entry for a setting.",
       "items": {
         "$ref": "#/$defs/SourceEntry"
