@@ -1,7 +1,7 @@
 # Dogfooding pass
 
 **Goal**: Two RiVault models, with only what an outside consumer has, use Candler on the after tip for what its README claims, and every friction they meet is attributed to the agent or to Candler; the milestone's knowledge transfer follows (P7).
-**Estimate**: RiVault agents and a RiVault first classification, one Claude reader: $7, cap $14. Each model gets one attempt, with a turn cap and a wall-clock cap set from P1's probe times; no rerun unless a fix reopens a piece.
+**Estimate**: RiVault agents and a RiVault first classification, one Claude reader: $7, cap $14. Each model gets one attempt, with a turn cap and a wall-clock cap set from P1's probe times; no rerun unless a fix reopens a piece. Builds use the target dir the campaign README names, removed at the leaf's end. At the cap, stop, commit what is green, and list what is left.
 **Pre-conditions**:
 - [ ] `[nl]` `../seam_review_two.md` is `done`, and `feat/integrity` is green
 - [ ] `[cmd]` the RiVault check script of the `using-rivault` skill reports the VPN and keys working

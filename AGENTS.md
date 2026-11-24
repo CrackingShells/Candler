@@ -3,38 +3,20 @@
 Candler is a Rust workspace (`crates/`). These rules apply to every `.rs` file and every
 document an agent writes here. Humans follow them too.
 
-## Sustainable, scalable, efficient
+## What sane work means in Candler
 
-Everything produced or run here passes three tests. That covers the code, its tests and CI, every
-script and document, and the work itself: each build, test run, model call and agent run. Nothing
-runs in a silo. All of it shares the hardware, the quotas and the energy with other software and
-other people.
-
-- **Sustainable:** a small RSS, CPU and GPU footprint, and with it disk, tokens and energy. What is
-  created has an owner that removes it.
-- **Scalable:** code design patterns, known algorithms, easy-to-use scripts, DRY. One owner per
-  invariant, and one source per fact.
-- **Efficient:** the smallest wall time. Think about how to be fast by default and how to use what
-  the hardware offers, in the spirit of Casey Muratori's Better Software manifesto. Don't
-  over-optimise.
-
-Before writing, running, reviewing or dispatching anything, answer:
-1. What does it cost the shared machine and its energy?
-2. Is it built from known patterns, algorithms and scripts, with nothing duplicated?
-3. Is it fast by default here?
-
-A review checks these three alongside correctness.
-
-Cheap is not a reason to pay. A cost that looks negligible still counts: a free model call, an
-extra agent, a rerun, one more check. Such flaws compound across the whole environment, and taking
-the trouble to find the sustainable, scalable and efficient way is part of the work.
-
-These fail the tests:
-- band-aids;
-- defensive checks against the repository's own code;
-- the same validation at a second layer;
-- a special case kept for a fixture;
-- a test added per incident instead of a fix at the root.
+The README promises provenance, per-run tool-catalog snapshots, and grading of artifacts "already on
+disk". Those promises hold only if each kind of state Candler stores (a sealed run, its outputs, an
+outcome, a catalog snapshot) has one producer, and that producer is Candler's own code. A test that
+needs such a state asks Candler to make it, under a scripted agent if it must; it does not assemble
+the state by hand, because a second producer can only agree with the first by luck. Where Candler
+leans on something it does not own (a container daemon, a harness binary, a model), a stand-in is
+fine for as long as a test that runs in CI holds it to the real thing. The README also promises
+"thin surfaces over that API", so each input a consumer writes has one reader, below every surface,
+and that reader refuses what it does not understand: a second, more lenient reading of the same
+declaration is a defect even when nothing reaches it yet. A change is done when a consumer's path
+through it has been seen working, and seen failing without it; how many tests or lines it moved says
+nothing either way.
 
 ## Rust: Grit
 
@@ -102,3 +84,5 @@ files are regenerated with `CANDLER_BLESS_SCHEMAS=1 cargo nextest run -p candler
   and integration.
 - [__design__/architecture.md](__design__/architecture.md): the architecture, the crate layout
   (§Workspace) and the wire encodings (§Wire encodings).
+- [__roadmap__/leaf_template.md](__roadmap__/leaf_template.md): the shape of a roadmap leaf and the
+  conventions behind it.
