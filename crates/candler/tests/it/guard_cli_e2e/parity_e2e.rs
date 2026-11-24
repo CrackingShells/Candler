@@ -12,8 +12,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use candler_schemas::trace::ToolOrigin;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::i8_e2e::{Made, fake_host, must};
 use super::{docker, real_docker};
@@ -23,21 +22,66 @@ use crate::support::seam::entries_under;
 /// The credential the fake model demands and the experiment's secret supplies.
 const TOKEN: &str = "parity-fixture-token-0123456789";
 
-/// The server the cell declares, and the tool of it the fake model calls.
+/// The server the cell declares.
 const SERVER: &str = "parity";
-const TOOL: &str = "stamp";
+
+/// The text the fixture's tool returns.
+const STAMP: &str = "parity-stamp-5c1e";
+
+/// The id the fake model gives its call to the tool, which the answer to the call carries back.
+const CALL_ID: &str = "toolu_fake_stamp";
 
 /// The experiment of one cell, with the harness the one line `[harness]` names.
 fn experiment(base: &str, harness: &str) -> String {
-    base.replace(
-        "[harness]\nname = \"claude-code\"",
-        &format!("[harness]\nname = \"{harness}\""),
-    )
+    base.replace("@HARNESS@", harness)
+}
+
+/// The answers to the stamp call among the requests the fake model recorded after the first
+/// `skip`: whether each is an error, and its text.
+fn stamp_answers(records: &str, skip: usize) -> Vec<(bool, String)> {
+    let mut found = Vec::new();
+    for line in records.lines().skip(skip) {
+        let Ok(record) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        let blocks = record["body"]["messages"]
+            .as_array()
+            .and_then(|messages| messages.last())
+            .and_then(|message| message["content"].as_array());
+        for block in blocks.into_iter().flatten() {
+            if block["type"] == "tool_result" && block["tool_use_id"] == CALL_ID {
+                let text = match &block["content"] {
+                    Value::String(text) => text.clone(), // BORROW: .clone() copies the text
+                    other => other.to_string(),
+                };
+                found.push((block["is_error"] == true, text));
+            }
+        }
+    }
+    found
+}
+
+/// What the fake model has recorded so far: nothing before its first request.
+fn records(real: &Path, fake: &str) -> String {
+    let out = docker(real, &["exec", fake, "cat", "/tmp/fake/records.jsonl"]);
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+/// The program and arguments of a rendered server entry, whether the file keeps them as a command
+/// and its arguments or as one list.
+fn argv_of(entry: &Value) -> Vec<Value> {
+    match &entry["command"] {
+        Value::Array(list) => list.clone(), // BORROW: .clone() copies the list
+        command => std::iter::once(command.clone()) // BORROW: .clone() copies the program
+            .chain(entry["args"].as_array().into_iter().flatten().cloned()) // BORROW: .cloned() copies the arguments
+            .collect(),
+    }
 }
 
 /// What a run of one harness stored: the resolved `mcp.*` values `candler inspect` shows, the
-/// MCP file its driver rendered (one parsed file per file of that name in the run), and the origin
-/// of each tool call of the stored trace.
+/// MCP files its driver rendered at the place the harness reads (the parsed files below the
+/// run's workspace or home that end in the path), and the origin of each tool call of the stored
+/// trace.
 struct Observed {
     mcp: Value,
     rendered: Vec<Value>,
@@ -70,8 +114,15 @@ fn call_origins(text: &str) -> Vec<Value> {
 }
 
 /// Runs the experiment `text` with the real `candler run` against the fake model at `endpoint`
-/// and reads back what the sealed run stored, the MCP file being the one named `file`.
-fn run_once(text: &str, endpoint: &str, ca: &Path, file: &str) -> Observed {
+/// and reads back what the sealed run stored, the MCP file being the one `place` names:
+/// the directory of the run it is written under and the path it ends in.
+fn run_once(
+    text: &str,
+    endpoint: &str,
+    ca: &Path,
+    place: (&str, &str),
+    made: &mut Made,
+) -> Observed {
     let world = world();
     let inputs = world.root.join("inputs").join("servers");
     fs::create_dir_all(&inputs).unwrap();
@@ -117,6 +168,7 @@ fn run_once(text: &str, endpoint: &str, ca: &Path, file: &str) -> Observed {
         String::from_utf8_lossy(&launched.stderr)
     );
     let job = stdout.trim().to_owned();
+    made.job = Some(job.clone()); // BORROW: the cleanup owns the job id
     let store = world.store();
     let events = store.join("jobs").join(&job).join("events.jsonl");
     let ended = wait_for(Duration::from_secs(600), || {
@@ -142,9 +194,9 @@ fn run_once(text: &str, endpoint: &str, ca: &Path, file: &str) -> Observed {
     assert!(inspected.status.success(), "inspect exits 0: {inspected:?}");
     let record: Value = serde_json::from_slice(&inspected.stdout).unwrap();
     let trace = fs::read_to_string(run_dir.join("trace.jsonl")).unwrap_or_default();
-    let rendered = entries_under(&run_dir)
+    let rendered = entries_under(&run_dir.join(place.0))
         .into_iter()
-        .filter(|path| path.file_name().is_some_and(|name| name == file))
+        .filter(|path| path.ends_with(place.1))
         .filter_map(|path| serde_json::from_slice(&fs::read(path).ok()?).ok())
         .collect();
     Observed {
@@ -261,6 +313,11 @@ fn parity_one_installed_server_one_traced_call() {
                 "Call the MCP tool stamp of the server parity once, then reply done.",
             )
             .replace("wall_s = 30", "wall_s = 300")
+            .replacen(
+                "[harness]\nname = \"claude-code\"",
+                "[harness]\nname = \"@HARNESS@\"",
+                1,
+            )
             + &format!(
                 "\n[fixed.mcp.servers.{SERVER}]\ncommand = \"python3\"\nargs = [\"servers/parity/parity_mcp.py\"]\n\n\
                  [[inputs]]\nkind = \"servers\"\npath = \"inputs/servers\"\nat = \"servers/parity\"\n"
@@ -268,26 +325,30 @@ fn parity_one_installed_server_one_traced_call() {
     };
     let claude = experiment(&base, "claude-code");
     let opencode = experiment(&base, "opencode");
-    let differing: Vec<(&str, &str)> = claude
-        .lines()
-        .zip(opencode.lines())
-        .filter(|(left, right)| left != right)
-        .collect();
     assert_eq!(
-        differing,
-        [("name = \"claude-code\"", "name = \"opencode\"")],
-        "the harness is the only line that differs"
+        claude.replace("claude-code", "@HARNESS@"),
+        opencode.replace("opencode", "@HARNESS@"),
+        "the harness is the only thing that differs between the two files"
     );
 
-    let expected =
-        serde_json::to_value(ToolOrigin::mcp_tool(SERVER.to_owned(), TOOL.to_owned())).unwrap(); // BORROW: .to_owned() makes the owned names
+    let expected = json!({"kind": "mcp", "server": "parity", "tool": "stamp"});
     let mut failures = Vec::new();
-    // each driver's MCP file: its name in the run, and the object that holds the servers
-    for (harness, text, file, holder) in [
-        ("claude-code", &claude, ".mcp.json", "/mcpServers"),
-        ("opencode", &opencode, "opencode.json", "/mcp/servers"),
+    // each driver's MCP file: the directory of the run it is written under, and its path there
+    for (harness, text, place) in [
+        ("claude-code", &claude, ("workspace", ".mcp.json")),
+        ("opencode", &opencode, ("home", "opencode/opencode.json")),
     ] {
-        let seen = run_once(text, &endpoint, &ca, file);
+        let skip = records(&real, &fake).lines().count();
+        let seen = run_once(text, &endpoint, &ca, place, &mut made);
+        let answers = stamp_answers(&records(&real, &fake), skip);
+        if !answers
+            .iter()
+            .any(|(error, text)| !error && text.contains(STAMP))
+        {
+            failures.push(format!(
+                "{harness}: the model never received the stamp from the tool: {answers:?}"
+            ));
+        }
         let installed = seen
             .mcp
             .get(format!("mcp.servers.{SERVER}.command"))
@@ -298,20 +359,31 @@ fn parity_one_installed_server_one_traced_call() {
                 seen.mcp
             ));
         }
-        let rendered = seen
+        let resolved: Vec<Value> =
+            std::iter::once(seen.mcp[format!("mcp.servers.{SERVER}.command")].clone())
+                .chain(
+                    seen.mcp[format!("mcp.servers.{SERVER}.args")]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .cloned(),
+                )
+                .collect(); // BORROW: .clone() and .cloned() copy the resolved values
+        let rendered: Vec<Vec<Value>> = seen
             .rendered
             .iter()
-            .filter(|config| {
-                config
-                    .pointer(holder)
-                    .and_then(|held| held.get(SERVER))
-                    .is_some()
+            .map(|config| {
+                argv_of(
+                    config
+                        .pointer("/mcpServers")
+                        .or_else(|| config.pointer("/mcp/servers"))
+                        .map_or(&Value::Null, |held| &held[SERVER]),
+                )
             })
-            .count();
-        if rendered != 1 {
+            .collect();
+        if rendered != [resolved.clone()] {
             failures.push(format!(
-                "{harness}: {rendered} {file} files hold the server under {holder}: {:?}",
-                seen.rendered
+                "{harness}: the rendered file(s) at {place:?} hold {rendered:?}, the resolved command is {resolved:?}"
             ));
         }
         let mcp_calls: Vec<&Value> = seen
