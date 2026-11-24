@@ -195,6 +195,39 @@ fn container_calls(world: &World) -> Vec<String> {
         .collect()
 }
 
+/// Guards: `resolve` refuses a replicate count the plan refuses, with the same record: `0` from
+/// `--set` and from `[fixed]` is `experiment.count_zero` at `/replicates`, and a `[fixed]` count
+/// that differs from the file's own is `experiment.replicates_conflict`.
+///
+/// Oracle: the codes and the pointer, written by hand.
+///
+/// Bite: leave the cell check without the replicate count.
+#[test]
+fn o1_resolve_refuses_a_replicate_count_the_plan_refuses() {
+    let world = world();
+    let models = Models::start(TOKEN);
+    let out = resolve(
+        &world,
+        &models.url(),
+        &["--set", "replicates=0"],
+        Some(TOKEN),
+    );
+    let record: serde_json::Value = serde_json::from_str(text(&out.stderr).trim_end()).unwrap();
+    assert_eq!(record["code"], "experiment.count_zero", "{record}");
+    assert_eq!(record["path"], "/replicates", "{record}");
+    let original = fs::read_to_string(&world.experiment).unwrap();
+    fs::write(
+        &world.experiment,
+        original.replace("[fixed]\n", "[fixed]\nreplicates = 4\n"),
+    )
+    .unwrap();
+    let out = resolve(&world, &models.url(), &[], Some(TOKEN));
+    let record: serde_json::Value = serde_json::from_str(text(&out.stderr).trim_end()).unwrap();
+    assert_eq!(record["code"], "experiment.replicates_conflict", "{record}");
+    assert_eq!(record["path"], "/replicates", "{record}");
+    world.remove();
+}
+
 /// Guards: `resolve` accepts a valid experiment whose `request.treatment` factor has two table
 /// levels, each its own skills commit: every level has a resolution, so no level is reported
 /// unresolved.

@@ -164,7 +164,9 @@ pub fn check_cells<'a>(
     levels: impl Into<Levels<'a>>,
     driver: &dyn HarnessDriver, // TRAIT_OBJECT: the registry's driver, selected at run time
 ) -> Result<(), PlanError> {
-    fresh_cells(file, &levels.into(), Some(driver)).map(drop)
+    let levels = levels.into();
+    levels.replicates(file)?;
+    fresh_cells(file, &levels, Some(driver)).map(drop)
 }
 
 /// A deviation as `path {stored: <value>, observed: <value>}`, for a message; a value that was
@@ -255,6 +257,22 @@ pub enum PlanError {
     SettingAsFactor {
         /// The path of the setting the factor varies.
         path: String,
+    },
+    /// The count of replicates is not a count the runner can run.
+    #[error("{source}")]
+    Replicates {
+        /// Why the count is refused.
+        #[source]
+        source: ExecutionError,
+    },
+    /// The setting `replicates` that the experiment file's `[fixed]` gives differs from the file's
+    /// own `replicates`.
+    #[error("replicates is {fixed} in [fixed] and {file} in the experiment file; write it once")]
+    ReplicatesConflict {
+        /// The count `[fixed]` gives.
+        fixed: u32,
+        /// The count the file's own `replicates` gives.
+        file: u32,
     },
     /// A cell of the experiment cannot be built from the resolution.
     #[error("a cell cannot be built: {source}")]
@@ -367,19 +385,43 @@ impl<'a> Levels<'a> {
 
     /// The replicates of each cell: the setting `replicates` of the first level when the
     /// resolution holds one, else `file`'s own count. A setting is no part of a cell, so the
-    /// levels agree on it.
-    fn replicates(&self, file: &ExperimentFile) -> u32 {
-        self.get(0)
-            .and_then(|resolution| {
-                resolution
-                    .settings
-                    .iter()
-                    .find(|setting| setting.path().as_str() == "replicates") // BORROW: explicit .as_str()
-            })
-            .and_then(|setting| setting.value())
+    /// levels agree on it. A setting that is no count, or that the file's `[fixed]` gives and
+    /// differs from the file's own count, is refused.
+    ///
+    /// # Errors
+    /// [`PlanError::Replicates`] when the setting is not a positive whole count that fits, and
+    /// [`PlanError::ReplicatesConflict`] when `[fixed]` and the file's own count differ.
+    fn replicates(&self, file: &ExperimentFile) -> Result<u32, PlanError> {
+        let Some(resolution) = self.get(0) else {
+            return Ok(file.replicates());
+        };
+        let Some(setting) = resolution
+            .settings
+            .iter()
+            .find(|setting| setting.path().as_str() == "replicates")
+        // BORROW: explicit .as_str()
+        else {
+            return Ok(file.replicates());
+        };
+        let count = setting
+            .value()
             .and_then(|value| value.as_value().as_u64())
-            .and_then(|count| check_replicates(count).ok())
-            .unwrap_or_else(|| file.replicates())
+            .ok_or(PlanError::Replicates {
+                source: ExecutionError::NotPositive {
+                    field: "replicates",
+                },
+            })?;
+        let count = check_replicates(count).map_err(|source| PlanError::Replicates { source })?;
+        let from_file = resolution.sources.iter().any(|entry| {
+            entry.path() == setting.path() && matches!(entry.source(), ValueSource::ExperimentFile)
+        });
+        if from_file && count != file.replicates() {
+            return Err(PlanError::ReplicatesConflict {
+                fixed: count,
+                file: file.replicates(),
+            });
+        }
+        Ok(count)
     }
 }
 
@@ -1199,7 +1241,7 @@ pub fn plan_runs<'a>(
     let mut sealed = Vec::new();
     for (cell, replicate) in run_order(
         per_cell.len(),
-        levels.replicates(file),
+        levels.replicates(file)?,
         seed_of(&experiment),
     ) {
         let Some((digest, pinned, deviations)) = per_cell.get(cell) else {

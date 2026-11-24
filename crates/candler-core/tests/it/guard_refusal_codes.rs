@@ -859,6 +859,16 @@ fn wrapped_cases() -> Vec<Wrapped> {
         ),
         case(
             "PlanError",
+            "Replicates",
+            Box::new(PlanError::Replicates {
+                source: ExecutionError::Zero {
+                    field: "replicates",
+                },
+            }),
+            "experiment.count_zero",
+        ),
+        case(
+            "PlanError",
             "Cell",
             Box::new(PlanError::Cell { source: git() }),
             "manifest.git_commit_invalid",
