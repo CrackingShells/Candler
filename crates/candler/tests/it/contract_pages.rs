@@ -29,6 +29,68 @@ fn versions() -> Versions {
     Versions::read(&repo_root()).expect("the manifests are readable")
 }
 
+/// One line on which a page differs from its generated text.
+#[derive(Debug, PartialEq, Eq)]
+struct Diff {
+    /// The 1-based line number.
+    line: usize,
+    /// The committed line.
+    current: String,
+    /// The generated line.
+    generated: String,
+}
+
+/// The first line where `current` and `generated` differ; `None` when they are equal.
+fn first_diff(current: &str, generated: &str) -> Option<Diff> {
+    current
+        .lines()
+        .zip(generated.lines())
+        .enumerate()
+        .find_map(|(at, (committed, made))| {
+            if committed == made {
+                return None;
+            }
+            Some(Diff {
+                line: at + 1,
+                current: committed.to_owned(),
+                generated: made.to_owned(),
+            })
+        })
+        .or_else(
+            || match current.lines().count().cmp(&generated.lines().count()) {
+                std::cmp::Ordering::Equal => None,
+                std::cmp::Ordering::Greater => Some(Diff {
+                    line: generated.lines().count() + 1,
+                    current: current
+                        .lines()
+                        .nth(generated.lines().count())
+                        .unwrap_or_default()
+                        .to_owned(),
+                    generated: String::new(),
+                }),
+                std::cmp::Ordering::Less => Some(Diff {
+                    line: current.lines().count() + 1,
+                    current: String::new(),
+                    generated: generated
+                        .lines()
+                        .nth(current.lines().count())
+                        .unwrap_or_default()
+                        .to_owned(),
+                }),
+            },
+        )
+}
+
+/// The label of the first cell of a table row: the label of the line `line` of the capability
+/// table, when the line is a row of it.
+fn row_named(line: &str) -> Option<String> {
+    line.strip_prefix("| ")
+        .and_then(|rest| rest.split(" | ").next())
+        .map(|label| label.trim_end_matches(' '))
+        .filter(|label| !label.is_empty() && *label != "Capability")
+        .map(str::to_owned)
+}
+
 /// Compares a file with its generated text, or writes it when blessing.
 fn settle(name: &str, generated: &str) {
     let path = docs_dir().join(name);
@@ -53,6 +115,43 @@ fn settle(name: &str, generated: &str) {
             panic!(
                 "docs/contract/{name} differs from the generated page at line {}; regenerate with CANDLER_BLESS_CONTRACT=1",
                 at + 1
+            );
+        }
+    }
+}
+
+/// Compares the capability page with its generated text, or writes it when blessing. The panic
+/// names the row of the capability table that differs, so a driver whose answer changed is
+/// followed to the cell at fault.
+fn settle_capabilities(name: &str, generated: &str) {
+    let path = docs_dir().join(name);
+    let current = fs::read_to_string(&path).ok();
+    if current.as_deref() == Some(generated) {
+        return;
+    }
+    if blessing() {
+        write_atomically(&path, generated).expect("the page is written");
+        return;
+    }
+    match current {
+        None => {
+            panic!("docs/contract/{name} does not exist; regenerate with CANDLER_BLESS_CONTRACT=1")
+        }
+        Some(current) => {
+            let diff = first_diff(&current, generated)
+                .unwrap_or_else(|| panic!("{name} differs, but no line does"));
+            let where_ = diff
+                .current
+                .starts_with("| ")
+                .then(|| row_named(&diff.current))
+                .flatten()
+                .map_or_else(
+                    || "a line of the surface outside the table".to_owned(),
+                    |row| format!("the `{row}` row"),
+                );
+            panic!(
+                "docs/contract/{name} differs at line {} in {where_}: committed `{}` vs generated `{}`; regenerate with CANDLER_BLESS_CONTRACT=1",
+                diff.line, diff.current, diff.generated
             );
         }
     }
@@ -97,7 +196,7 @@ fn d1_regenerating_the_pages_changes_nothing() {
         existing("harness-capabilities.md").as_deref(),
     )
     .expect("the capability page is rendered");
-    settle("harness-capabilities.md", &capabilities);
+    settle_capabilities("harness-capabilities.md", &capabilities);
     let paths = render_paths(&versions, existing("configuration-paths.md").as_deref())
         .expect("the configuration paths page is rendered");
     settle("configuration-paths.md", &paths);
@@ -386,4 +485,33 @@ fn d3_every_author_code_has_a_page() {
         checked += 1;
     }
     assert!(checked > 150, "{checked} codes are checked");
+}
+
+/// Guards: D1 — a capability-cell change is reported with the row that differs, so a driver whose
+/// answer text changed without regenerating is found at the row of its setting or fact.
+/// Oracle: the row labels of the capability table, written by the declaration walk.
+/// Bite: the comparison naming a line number alone, or a generic line.
+#[test]
+fn d1_a_driver_answer_change_names_the_differing_row() {
+    assert_eq!(
+        row_named("| cost cap | yes | no (refused) |").as_deref(),
+        Some("cost cap")
+    );
+    assert_eq!(
+        row_named("| Capability | `claude-code` | `opencode` |").as_deref(),
+        None
+    );
+    assert_eq!(row_named("## Fields"), None);
+    let old = "| cost cap | yes | no (refused) |\n";
+    let new = "| cost cap | yes | no (refused), and nothing else |\n";
+    // First, show the page differs at the `cost cap` cell only when the change is real: an equal
+    // page never reaches the panic.
+    assert_eq!(first_diff(old, old), None, "an unchanged cell is no diff");
+    let diff = first_diff(old, new).expect("the changed line differs");
+    assert_eq!(diff.line, 1);
+    assert_eq!(diff.current, "| cost cap | yes | no (refused) |");
+    assert_eq!(
+        diff.generated,
+        "| cost cap | yes | no (refused), and nothing else |"
+    );
 }
