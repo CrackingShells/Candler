@@ -17,6 +17,24 @@ rescue (P6's b40, P2's oracle).
 - P6 (RiVault Agentic-Medium, OpenCode): wall 906 s, rc 0, one attempt. One commit 974ed5ed (kill.rs +5, new guard, b41 dry-run assertion replaced, report). Self-reported all gates PASS; base failure taken on the worktree's own base HEAD, not a scratch worktree. Dropped b41's 'would stop' scoping assertion. PR #61. Reviewer: base→tip real on fresh compile; caught that the report claimed b40 ran green locally (no Docker here, it is #[ignore]) while b40 still asserted the dry-run listing, so container-e2e would go red; scoping guard moved to the -y run line count by the lead.
 - P2 attempt 2 (continued session): wall 1474 s, rc 0. Commits d39e367f test(library) + e3e230c0 report; self-reported all gates PASS; leaf scope harness rejected by hook, used library. Reviewer: B1 bite real on fresh compile (46 Compiling lines), but gate 2 FAILS: oracle is a hand-typed list (3 copies), no scripted agent, and a hand-written glob matcher instead of the real collector (D5), checks kept not exactly. Gate counted PASS by the run. Sonnet fallback dispatched.
 
+## Level 2 attempts (under the trial ruling)
+- mcp_schema, the MCP server schema refusing what `mcp::read` refuses (alias `RiVault/Reasoning-Medium`, backing
+  `deepseek-ai/DeepSeek-V4-Flash`, proxy effort high, OpenCode `--format json`): wall 1358 s, rc 0, 122 steps;
+  reasoning 101,898, output 26,263, input 168,129, cache read 10,372,096 tokens. One attempt, no resume. Three
+  commits (schemas, docs page, report). It reported all three gates as passing, with the base failure taken in a scratch
+  worktree.
+  - The Sonnet review ($0.29, 5 tool calls) did not see the run's summary. Its verdict was merge.
+    - It reproduced base red and tip green on a fresh compile. `mcp::read` is untouched, no serde attribute
+      changed, and no layer was added.
+    - It found that the docs commit had also reworded three unrelated bullets, which nobody asked for.
+    - It found that the table had no rows for a `type` marker that disagrees with the fields. An outside validator
+      showed the schema refusing those shapes, but no row guarded it.
+    - Its claim that `{command, url}` without a `type` had no row was wrong: that row exists.
+  - The lead fixed both points in two commits (3 tool calls; about $0.6 of lead turns in all, launch included).
+  - Claude-side cost was about $0.9, against $3–5 for a Sonnet implementer, so the saving holds for this piece.
+  - The claim and the review agree on every gate. This is the first attempt to hold up under review.
+  - Unchanged friction: the run cannot push, so the lead opens the PR.
+
 ## Driving the CLI from Claude Code: friction seen
 - An attempt can end its turn mid-work with rc 0 (P2 attempt 1): rc says nothing about completion; check commits and the build.
 - Self-reported gate verdicts were not evidence: an `#[ignore]` test reported as "ran green" (P6), a hand-typed oracle reported as D1 PASS (P2), base evidence without a fresh compile (P4·B). A separate review on a fresh compile is what caught each.
