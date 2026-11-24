@@ -17,7 +17,7 @@ Nothing merged since seam review 1 reopens a cause, and the snapshot holds at it
 ```mermaid
 graph TD
     seam_review_two[Seam review 2]:::done
-    dogfood[Dogfooding pass]:::planned
+    dogfood[Dogfooding pass]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -29,7 +29,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `seam_review_two.md` | 📄 Leaf Task | ✅ Done |
-| `dogfood/` | 📁 Directory | ⬜ Planned |
+| `dogfood/` | 📁 Directory | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
