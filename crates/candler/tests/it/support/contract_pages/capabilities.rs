@@ -45,25 +45,11 @@ const fn fact_label(fact: DriverFact) -> &'static str {
     }
 }
 
-/// The cell of one driver for a row read from a typed spec.
-type SpecCell = fn(&str, &Arc<dyn HarnessDriver>, &Registry) -> Result<String, String>;
-
-/// The rows of the capability table outside the declaration: the capabilities a driver does not
-/// word through `answer` or `fact`, read from its typed specs.
-///
-/// # Errors
-/// `Err` with a message about the wording when a driver's spec has no cell for the row; no
-/// registered driver fails this.
-const SPEC_ITEMS: [(&str, SpecCell); 2] = [
-    ("gateway route", gateway_route),
-    ("authoritative trace", authoritative_trace),
-];
-
 /// The cell of one driver for its gateway variables.
 ///
 /// # Errors
 /// `Err` when the driver names no gateway variables; no registered driver fails this.
-fn gateway_route(_: &str, driver: &Arc<dyn HarnessDriver>, _: &Registry) -> Result<String, String> {
+fn gateway_route(driver: &Arc<dyn HarnessDriver>) -> Result<String, String> {
     let env = driver
         .gateway()
         .ok_or("a registered driver names its gateway variables")?;
@@ -135,11 +121,16 @@ fn fields_table(registry: &Registry) -> Result<String, String> {
             |_, driver| Ok(answer_words(driver.answer(setting))),
         )?;
     }
-    for (label, cells) in SPEC_ITEMS {
-        write_row(&mut out, label, &names, registry, |name, driver| {
-            cells(name, driver, registry)
-        })?;
-    }
+    write_row(&mut out, "gateway route", &names, registry, |_, driver| {
+        gateway_route(driver)
+    })?;
+    write_row(
+        &mut out,
+        "authoritative trace",
+        &names,
+        registry,
+        |name, driver| authoritative_trace(name, driver, registry),
+    )?;
     for fact in DriverFact::ALL {
         write_row(&mut out, fact_label(fact), &names, registry, |_, driver| {
             Ok(answer_words(driver.fact(fact)))
