@@ -1041,6 +1041,10 @@ the evaluators see never enters the isolation, I8); `metadata` (the declared man
 evaluator runs (host or container) and exist only in requests. `scratch` is the evaluator's; the run
 store is read-only to it.
 
+`needs.snapshots` and `context.snapshots` are always empty for runs Candler makes. They are kept so
+the released helper and stored grading contexts stay valid, and they go once a helper that treats
+them as optional is released.
+
 **Digests of a request.** Both are `sha256` over RFC 8785 JSON, so any language recomputes them.
 
 - `context_digest` covers the projection `{artifacts: [{path, sha256}], snapshots: [{kind,
