@@ -54,7 +54,7 @@ type SpecCell = fn(&str, &Arc<dyn HarnessDriver>, &Registry) -> Result<String, S
 /// # Errors
 /// `Err` with a message about the wording when a driver's spec has no cell for the row; no
 /// registered driver fails this.
-const SPEC_ROWS: [(&str, SpecCell); 2] = [
+const SPEC_ITEMS: [(&str, SpecCell); 2] = [
     ("gateway route", gateway_route),
     ("authoritative trace", authoritative_trace),
 ];
@@ -135,7 +135,7 @@ fn fields_table(registry: &Registry) -> Result<String, String> {
             |_, driver| Ok(answer_words(driver.answer(setting))),
         )?;
     }
-    for (label, cells) in SPEC_ROWS {
+    for (label, cells) in SPEC_ITEMS {
         write_row(&mut out, label, &names, registry, |name, driver| {
             cells(name, driver, registry)
         })?;
