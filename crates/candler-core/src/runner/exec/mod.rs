@@ -930,11 +930,7 @@ async fn drive(
     // The seal syncs every file and directory it writes, so it runs off the async workers.
     let tree = evidence.tree;
     let outputs_root = workspace_dir.clone(); // BORROW: the seal task owns its copy of the root
-    let blobs = cell.blobs.clone(); // BORROW: the seal task owns its copy of the blob texts
     tokio::task::spawn_blocking(move || {
-        for text in &blobs {
-            writer.blob(text.as_bytes())?; // BORROW: the store hashes and writes the text's bytes
-        }
         seal_run(writer, &outputs_root, &last, &tree, &raw_files, &trace)
     })
     .await

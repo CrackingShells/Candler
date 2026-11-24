@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use candler_core::isolation::container::exec::collect_spec;
 use candler_core::isolation::container::mounts::{MountMode, MountSpec};
-use candler_core::isolation::container::run::catalog_spec;
 use candler_core::isolation::control::outcome;
 use candler_core::isolation::docker::{ClientEnv, DockerCli};
 use candler_core::isolation::driver::DockerDriver as _;
@@ -42,7 +41,7 @@ fn command(argv: &[&str]) -> CommandSpec {
 }
 
 /// Guards: R01 §Process supervision (control containers) — each kind of control container the
-/// core builds, the harness version probe, the package probe, the catalog capture and the collect
+/// core builds, the harness version probe, the package probe and the collect
 /// of a run's files, runs on the real agent base image, built through `DockerImageService::base`,
 /// reads what its caller put there, and gets a home the read-only root leaves writable.
 /// Oracle: the image's own `candler.cc_version` label as docker reports it, the distribution
@@ -140,21 +139,11 @@ async fn control_each_kind_runs_on_the_real_base() {
         "the distribution that provides `pip`"
     );
 
-    // The catalog capture, over the limits its caller gives.
     let limits = Limits {
         pids_limit: 64,
         memory: String::from("512m"),
         cpus: 1.0,
     };
-    let spec = catalog_spec(
-        &base.id,
-        &limits,
-        Duration::from_secs(20),
-        &command(&["sh", "-c", "echo catalog-ran"]),
-    )
-    .expect("a catalog spec");
-    let printed = outcome_of(cli.control(&spec, deadline, 4096).await).expect("the capture ran");
-    assert_eq!(String::from_utf8_lossy(&printed).trim(), "catalog-ran");
 
     // The collect reads what the run's mounts hold, as the engine's user.
     let project = scratch.path().join("project");

@@ -590,14 +590,6 @@ pub fn cells_of(
         )
         // BORROW: the cell owns the evaluator-only inputs
         .with_evaluation_inputs(spec.evaluation_inputs.clone())
-        // BORROW: the cell owns the blob texts its level's steps reported
-        .with_blobs(
-            level
-                .preflight
-                .iter()
-                .flat_map(|report| report.blobs.iter().cloned())
-                .collect(),
-        )
         // BORROW: the cell owns the package readings of its image
         .with_packages(
             image_of(comparable)

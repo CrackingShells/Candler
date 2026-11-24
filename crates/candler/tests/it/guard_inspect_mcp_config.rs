@@ -54,13 +54,15 @@ fn inspect_shows_the_mcp_server_a_run_was_launched_with() {
     let shown = record["mcp"]
         .as_object()
         .unwrap_or_else(|| panic!("the record shows the mcp values: {record}"));
-    let server = shown
-        .iter()
-        .find(|(path, _)| path.starts_with("mcp.servers.fs"))
-        .unwrap_or_else(|| panic!("the declared server is shown: {record}"));
-    assert!(
-        server.1.to_string().contains("mcp-fs"),
-        "the shown value is the declared command: {record}"
+    assert_eq!(
+        shown.get("mcp.servers.fs.command"),
+        Some(&Value::from("mcp-fs")),
+        "the declared command is shown: {record}"
+    );
+    assert_eq!(
+        shown.get("mcp.servers.fs.args"),
+        Some(&serde_json::json!(["data"])),
+        "the declared arguments are shown: {record}"
     );
 
     let text = inspect(&["--format", "text"]);

@@ -39,9 +39,6 @@ pub struct CellRun {
     /// The evaluator-only inputs the cell declares, as `{kind, digest}`: the manifest lists them,
     /// and no run is given their content.
     pub evaluation_inputs: Vec<DigestRef>,
-    /// The texts stored as blobs when a run of the cell is sealed: the canonical catalog snapshot
-    /// each `snapshots` digest names.
-    pub blobs: Vec<String>,
     /// The record of the session controls the cell's runs rely on; none for a cell that is not a
     /// session.
     pub control: Option<ControlRef>,
@@ -69,7 +66,6 @@ impl CellRun {
             inputs,
             packages: PackageReadings::new(),
             evaluation_inputs: Vec::new(),
-            blobs: Vec::new(),
             control: None,
         }
     }
@@ -85,13 +81,6 @@ impl CellRun {
     #[must_use]
     pub fn with_evaluation_inputs(mut self, evaluation_inputs: Vec<DigestRef>) -> Self {
         self.evaluation_inputs = evaluation_inputs;
-        self
-    }
-
-    /// The record with the texts its runs store as blobs when they seal.
-    #[must_use]
-    pub fn with_blobs(mut self, blobs: Vec<String>) -> Self {
-        self.blobs = blobs;
         self
     }
 

@@ -4,7 +4,7 @@ A domain-agnostic core for evaluating LLM-based agents. Candler has two equal ha
 operation API:
 
 - **Execution:** run agents under controlled conditions (experiment matrix, runners, isolation,
-  per-run tool-catalog snapshots, provenance).
+  per-run tool census, provenance).
 - **Evaluation:** grade traces and artifacts, fresh or already on disk, through pluggable
   evaluators that emit one outcome record format.
 

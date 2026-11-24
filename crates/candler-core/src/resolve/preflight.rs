@@ -53,10 +53,6 @@ pub struct StepReport {
     /// The location each derived value was read from, by path, for the values that have one.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub origins: Vec<(FieldPath, String)>,
-    /// The texts the runner stores as blobs when it seals a run of the cell: evidence that is no
-    /// part of any cell value, so no digest of a cell reads it.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub blobs: Vec<String>,
     /// The checks the step ran.
     pub checks: Vec<CheckResult>,
 }
@@ -69,7 +65,6 @@ impl StepReport {
             step,
             derived: Vec::new(),
             origins: Vec::new(),
-            blobs: Vec::new(),
             checks: Vec::new(),
         }
     }
@@ -88,13 +83,6 @@ impl StepReport {
         // BORROW: `.clone()` gives the origin its own path
         self.origins.push((path.clone(), from));
         self.derived.push((path, value));
-        self
-    }
-
-    /// Adds a text the runner stores as a blob when it seals a run.
-    #[must_use]
-    pub fn blob(mut self, text: String) -> Self {
-        self.blobs.push(text);
         self
     }
 
