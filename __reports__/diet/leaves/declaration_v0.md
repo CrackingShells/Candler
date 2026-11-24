@@ -84,7 +84,7 @@ Base `e8786036`. Finding B2: each setting's path was stated in `PathRow.reach`, 
 
 - **Slice.** `Reach::Agent` still takes a slice, used by more than one entry only on the `mcp` row: `CONFIGURATION_PATHS` has no per-field mcp rows, and the three keys of a server are read together from the transport entry.
 - **Two readers of the spelling.** `EffortLevel::from_text` and `PermissionMode::from_text` stay beside the enums, in `candler-harness`, and are called from `settings_set_by` (the refusing read) and from `Cell::effort`/`Cell::permission_mode` (the typed read, which cannot fail). The `Cell` is a view over the resolved values that many sites build, so holding typed fields in it would have meant parsing at each constructor. A cell with unnamed text never reaches a driver through the core; a hand-built cell reads as unset (effort) or `Default` (mode).
-- `permission_mode` absent now reads as `Default` where it used to be `cell_value_missing`. After the round, the walk also yields `PermissionMode(Default)` for an absent mode, so the driver is asked about it. In the round as first committed, an OpenCode cell with no mode was never asked about one. OpenCode's plan does not read the mode, so the cell ran under the allow-all baseline. Now it is refused with `DEFAULT_MODE`, while Claude Code runs in its own mode for no flag. The wiring double, whose preparation is fixed, answers the mode by that preparation. The walk also reads each row's path through `field_path` instead of mapping a parse error to `VersionOutput`.
+- `permission_mode` absent reads as `Default` through `Cell::permission_mode`, and the walk yields no `PermissionMode` for it, so no driver is asked. What the harness does for a cell with no mode is `DriverFact::UnsetPermissionMode` (see Absent mode below). An explicit `default` or `manual` is still asked, and OpenCode refuses it with `DEFAULT_MODE`. The walk also reads each row's path through `field_path` instead of mapping a parse error to `VersionOutput`.
 - `SessionMode` and `Skills` are not yielded by the walk (the plan's session refuses the first, the treatment holds the second).
 
 ### Digest
@@ -108,3 +108,25 @@ Claude Code docs through context7 (`/websites/code_claude`, CLI reference): `--e
 - Test rigs build cells by hand or from `ExperimentFile::cells()`: `guard_session`, `guard_container_record`, `guard_plugin_environment`, `plugin_env_e2e`, `support/harness_facts`, `guard_silent_acceptance`, and Claude Code's `conformance` and `prepare` tests.
 
 Whether a resolved cell should hold typed values goes to seam review 3.
+
+### Absent mode
+
+Base `21d8486c`. A cell that sets no `permission_mode` asks nothing of the driver. The walk yields a `PermissionMode` only for text the cell holds, and `PERMISSION_MODE` has no special case in it. An explicit `default` or `manual` is still asked, and OpenCode still refuses it with its reason. What a harness does for a cell with no mode is `DriverFact::UnsetPermissionMode`, answered in both drivers' exhaustive `fact` match and shown as a row of `docs/contract/harness-capabilities.md`.
+
+- Claude Code: the command line carries `--permission-mode default` for such a cell (`Cell::permission_mode` reads absent as `Default`), unchanged from before. Context7 (`/websites/code_claude`, permission modes and headless): with no mode set, a `claude -p` run starts in Manual mode, shown as `default`, and denies a tool call that needs approval unless an allow rule, hook, callback or prompt tool approves it.
+- OpenCode: the command line always carries `--auto` over the baseline ruleset `{*, *, allow}` and its plan never reads the mode, so the run has every tool allowed. The fact says so.
+
+| Gate | Verdict | Evidence |
+|---|---|---|
+| G1 OpenCode cell without a mode plans through `resolve` and `plan_runs` | PASS | `guard_session::every_claude_code_permission_mode_plans_and_opencode_refuses_what_it_cannot_carry` ends with `planned(&file, &[], false)` is `Ok`. On a scratch worktree at `21d8486c` with only that test file copied in it fails: `an OpenCode cell without a mode` (the base refuses it as `experiment.setting_unsupported`). It passes on the tip |
+| G2 explicit `default`, `auto`, `dontAsk` on OpenCode stay refused | PASS | same test: `auto` and `dontAsk` give `experiment.setting_unsupported`; `default` gives it with the reason containing `Claude Code's default mode` |
+| G3 the fact is answered by both drivers, no wildcard | PASS | `DriverFact::UnsetPermissionMode` is an arm in `ClaudeCodeDriver::fact` and `OpenCodeDriver::fact`; both matches are exhaustive. `d1_regenerating_the_pages_changes_nothing` holds the generated row |
+| G4 fmt, clippy `-D warnings`, doc `-D warnings`, nextest | PASS | `758 tests run: 758 passed (6 slow), 31 skipped` (the container-gated tests, as on the base) |
+
+`WiringDriver::answer` no longer special-cases `PermissionMode(_)`: it existed so that an absent mode would plan, and the wiring tests pass without it.
+
+#### What it leaves
+
+- **How it was developed.** One build slot (`l3-3`), one scratch build for G1, removed with its worktree, branch and target dir; one full workspace run after the last edit.
+- **What it leaves in the code.** One reader of the mode text (`mode_at`, now `Option`), no special row in the walk, one statement of what an unset mode means per harness, in the driver that acts on it. A wrapper special case in the test double is gone.
+- **How it is consumed.** An OpenCode experiment that sets no mode runs, as most do. The capability page says what each harness does for it: Claude Code denies what needs approval, OpenCode allows every tool.

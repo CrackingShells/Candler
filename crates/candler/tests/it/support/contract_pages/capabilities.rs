@@ -38,7 +38,7 @@ const CAPABILITY_CODES: [&str; 2] = [
 type Mapping = fn(&str, &Arc<dyn HarnessDriver>, &Registry) -> Result<String, String>;
 
 /// The rows of the capability table: the row's name and the one mapping that words its cells.
-const ROWS: [(&str, Mapping); 8] = [
+const ROWS: [(&str, Mapping); 9] = [
     ("gateway route", gateway_route),
     ("census source", census_source),
     ("session mode", session_mode),
@@ -47,6 +47,7 @@ const ROWS: [(&str, Mapping); 8] = [
     ("stop", stop),
     ("authoritative trace", authoritative_trace),
     ("skills layout", skills_layout),
+    ("permission mode when none is set", unset_permission_mode),
 ];
 
 fn gateway_route(_: &str, driver: &Arc<dyn HarnessDriver>, _: &Registry) -> Result<String, String> {
@@ -98,6 +99,20 @@ fn turn_cap(_: &str, driver: &Arc<dyn HarnessDriver>, _: &Registry) -> Result<St
 )]
 fn cost_cap(_: &str, driver: &Arc<dyn HarnessDriver>, _: &Registry) -> Result<String, String> {
     Ok(cap(driver.answer(AgentSetting::CostBudget)))
+}
+
+fn unset_permission_mode(
+    _: &str,
+    driver: &Arc<dyn HarnessDriver>,
+    _: &Registry,
+) -> Result<String, String> {
+    match driver.fact(DriverFact::UnsetPermissionMode) {
+        Answer::Mapped { construct } => Ok(construct.to_owned()), // BORROW: .to_owned() makes the owned cell text
+        Answer::Candler { how } => Ok(format!("Candler: {how}")),
+        Answer::Refused { .. } => {
+            Err("a registered driver has a mode for a cell that sets none".to_owned())
+        }
+    }
 }
 
 fn signal(spec: &StopSpec) -> Result<&'static str, String> {

@@ -140,14 +140,7 @@ impl HarnessDriver for WiringDriver {
         self.0.parse_version(output)
     }
 
-    /// The permission mode is the fixed preparation's, whatever the cell sets; every other
-    /// setting is answered by the driver.
     fn answer(&self, setting: AgentSetting) -> Answer {
-        if matches!(setting, AgentSetting::PermissionMode(_)) {
-            return Answer::Mapped {
-                construct: "the fixed preparation",
-            };
-        }
         self.0.answer(setting)
     }
 

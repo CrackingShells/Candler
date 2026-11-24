@@ -165,13 +165,17 @@ pub(crate) const fn answer(setting: AgentSetting) -> Answer {
         AgentSetting::McpTransport(McpServerKind::Stdio | McpServerKind::Local) => Answer::Mapped {
             construct: "an `mcp` entry of type `local`",
         },
-        AgentSetting::McpTransport(
-            McpServerKind::Http | McpServerKind::Sse | McpServerKind::Remote,
-        ) => Answer::Mapped {
+        AgentSetting::McpTransport(McpServerKind::Sse) => Answer::Refused {
+            reason: "OpenCode documents no SSE transport; its `remote` is Streamable HTTP",
+        },
+        AgentSetting::McpTransport(McpServerKind::Http | McpServerKind::Remote) => Answer::Mapped {
             construct: "an `mcp` entry of type `remote`",
         },
-        AgentSetting::Codemode(true | false) => Answer::Mapped {
-            construct: "the `codemode` key of the `mcp` entry, written for every server",
+        AgentSetting::Codemode(true) => Answer::Mapped {
+            construct: "the `codemode` key of the `mcp` entry, `true`: the server's tools are reached through `execute`, whose calls the trace records with empty `wrapped_calls`, so MCP calls made inside `execute` are not attributed and do not compare with Claude Code",
+        },
+        AgentSetting::Codemode(false) => Answer::Mapped {
+            construct: "the `codemode` key of the `mcp` entry, `false`: the server's tools are direct tools",
         },
         AgentSetting::McpName => Answer::Mapped {
             construct: "the key of the `mcp` entry",
@@ -239,25 +243,30 @@ fn strings(path: &str, what: &str, value: &Value) -> Result<Vec<String>, DriverE
 /// command list, or a `remote` one with a url.
 fn server(server: &McpServer) -> Value {
     let mut out = Map::new();
-    if let Some(command) = &server.command {
-        let mut argv = vec![command.clone()]; // BORROW: .clone() copies the program into the list
-        argv.extend(server.args.iter().flatten().cloned()); // BORROW: .cloned() copies the arguments
-        out.insert("type".to_owned(), json!("local")); // BORROW: .to_owned() makes the owned key
-        out.insert("command".to_owned(), json!(argv)); // BORROW: .to_owned() makes the owned key
-        if let Some(env) = &server.env {
-            out.insert("environment".to_owned(), json!(env)); // BORROW: .to_owned() makes the owned key
+    match candler_harness::mcp::kind(server) {
+        McpServerKind::Stdio | McpServerKind::Local => {
+            if let Some(command) = &server.command {
+                let mut argv = vec![command.clone()]; // BORROW: .clone() copies the program into the list
+                argv.extend(server.args.iter().flatten().cloned()); // BORROW: .cloned() copies the arguments
+                out.insert("type".to_owned(), json!("local")); // BORROW: .to_owned() makes the owned key
+                out.insert("command".to_owned(), json!(argv)); // BORROW: .to_owned() makes the owned key
+                if let Some(env) = &server.env {
+                    out.insert("environment".to_owned(), json!(env)); // BORROW: .to_owned() makes the owned key
+                }
+            }
         }
-    } else if let Some(url) = &server.url {
-        out.insert("type".to_owned(), json!("remote")); // BORROW: .to_owned() makes the owned key
-        out.insert("url".to_owned(), json!(url)); // BORROW: .to_owned() makes the owned key
-        if let Some(headers) = &server.headers {
-            out.insert("headers".to_owned(), json!(headers)); // BORROW: .to_owned() makes the owned key
+        // `sse` is refused by `answer` before a file is written.
+        McpServerKind::Http | McpServerKind::Sse | McpServerKind::Remote => {
+            if let Some(url) = &server.url {
+                out.insert("type".to_owned(), json!("remote")); // BORROW: .to_owned() makes the owned key
+                out.insert("url".to_owned(), json!(url)); // BORROW: .to_owned() makes the owned key
+                if let Some(headers) = &server.headers {
+                    out.insert("headers".to_owned(), json!(headers)); // BORROW: .to_owned() makes the owned key
+                }
+            }
         }
     }
-    out.insert(
-        "codemode".to_owned(), // BORROW: .to_owned() makes the owned key
-        Value::Bool(server.codemode.unwrap_or(true)),
-    );
+    out.insert("codemode".to_owned(), Value::Bool(server.codemode)); // BORROW: .to_owned() makes the owned key
     Value::Object(out)
 }
 

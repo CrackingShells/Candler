@@ -561,16 +561,18 @@ fn effort_at(cell: &Cell<'_>, path: &FieldPath) -> Result<Option<EffortLevel>, D
         .transpose()
 }
 
-/// The permission mode the cell holds at `path`, refusing text that names no mode. The cell keeps
-/// the text; [`Cell::permission_mode`] maps the text checked here. A cell that names none runs in Claude Code's own mode when no flag is
-/// given, [`PermissionMode::Default`], and the driver is asked about that mode like any other.
-fn mode_at(cell: &Cell<'_>, path: &FieldPath) -> Result<PermissionMode, DriverError> {
+/// The permission mode the cell holds at `path`, refusing text that names no mode, or `None` when
+/// the cell sets none. The cell keeps the text; [`Cell::permission_mode`] maps the text checked
+/// here. A cell that sets no mode asks nothing of the driver: what the harness does then is its
+/// [`candler_harness::spec::DriverFact::UnsetPermissionMode`].
+fn mode_at(cell: &Cell<'_>, path: &FieldPath) -> Result<Option<PermissionMode>, DriverError> {
     cell.text(path)?
-        .map_or(Ok(PermissionMode::Default), |text| {
+        .map(|text| {
             PermissionMode::from_text(text).ok_or_else(|| {
                 unnamed(path, text, &PermissionMode::ALL.map(PermissionMode::as_str))
             })
         })
+        .transpose()
 }
 
 /// The settings `cell` sets, each with the path of the row that reaches it and with the value the
@@ -590,7 +592,7 @@ pub fn settings_set_by(cell: &Cell<'_>) -> Result<Vec<(AgentSetting, FieldPath)>
         let Some(path) = field_path(row) else {
             continue;
         };
-        if cell.below(&path).is_empty() && row.path != PERMISSION_MODE {
+        if cell.below(&path).is_empty() {
             continue;
         }
         let mut found: Vec<AgentSetting> = Vec::new();
@@ -600,13 +602,13 @@ pub fn settings_set_by(cell: &Cell<'_>) -> Result<Vec<(AgentSetting, FieldPath)>
                     found.extend(effort_at(cell, &path)?.map(AgentSetting::Effort));
                 }
                 AgentSetting::PermissionMode(_) => {
-                    found.push(AgentSetting::PermissionMode(mode_at(cell, &path)?));
+                    found.extend(mode_at(cell, &path)?.map(AgentSetting::PermissionMode));
                 }
                 // The three keys of a server are read together, from the transport's entry.
                 AgentSetting::McpTransport(_) => {
                     for server in mcp::servers(cell)?.unwrap_or_default().into_values() {
                         found.push(AgentSetting::McpTransport(mcp::kind(&server)));
-                        found.extend(server.codemode.map(AgentSetting::Codemode));
+                        found.push(AgentSetting::Codemode(server.codemode));
                         if server.name.is_some() {
                             found.push(AgentSetting::McpName);
                         }
