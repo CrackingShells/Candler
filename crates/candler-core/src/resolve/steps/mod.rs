@@ -1,7 +1,5 @@
-//! The preflight steps that resolve the identity of the harness and the treatment, the image and
-//! the command catalog.
+//! The preflight steps that resolve the identity of the harness and the treatment and the image.
 
-pub mod catalog;
 pub mod egress;
 pub mod env;
 pub mod gateway;
@@ -14,7 +12,6 @@ pub mod session;
 
 use std::sync::Arc;
 
-use self::catalog::CatalogStep;
 use self::egress::EgressStep;
 use self::identity::{HarnessIdentityStep, TreatmentIdentityStep};
 use self::image::ImageIdStep;
@@ -22,20 +19,16 @@ use self::plugin_environment::PluginEnvironmentStep;
 use self::session::SessionModeStep;
 use super::preflight::{ResolveError, Resolver};
 use crate::isolation::image::ImageService;
-use crate::runner::evidence::catalog::CatalogProvider;
 use crate::supervise::Supervisor;
 use candler_harness::skills::SkillTree;
 
-/// What the image, harness, treatment and catalog steps need from the outside.
+/// What the image, harness and treatment steps need from the outside.
 pub struct M2bServices {
     /// The supervisor that runs the version probes.
     pub supervisor: Arc<Supervisor>,
     // TRAIT_OBJECT: the service is docker, or a fake in tests
     /// Provides the image.
     pub images: Arc<dyn ImageService>,
-    // TRAIT_OBJECT: the provider lists commands in the image, or is a fake in tests
-    /// Captures the command catalog.
-    pub catalog: Arc<dyn CatalogProvider>,
     /// The harness versions the driver supports.
     pub harness_supported: semver::VersionReq,
     /// Whether the harness's driver runs sessions.
@@ -48,8 +41,7 @@ pub struct M2bServices {
 /// the treatment first (its pinned commit is where requirement sources are read), then the plug-in
 /// environment (it supplies the image step's values), then the ground truth (a gate: an image
 /// that would hold evaluator-only bytes is never built), then the image,
-/// then the harness (it reads the image), then the catalog, then the session mode, then the egress
-/// allowlist.
+/// then the harness (it reads the image), then the session mode, then the egress allowlist.
 ///
 /// Each step clones the services it holds, so `services` stays with the caller.
 ///
@@ -69,7 +61,6 @@ pub fn register_m2b_steps(
         services.harness_supported.clone(), // BORROW: the step owns its requirement
     )?;
     let treatment = TreatmentIdentityStep::new(Arc::clone(&services.supervisor), services.skills)?;
-    let catalog = CatalogStep::new(Arc::clone(&services.catalog))?;
     let session = SessionModeStep::new(services.session_capable)?;
     let plugin_environment = PluginEnvironmentStep::new()?;
     let egress = EgressStep::new()?;
@@ -79,7 +70,6 @@ pub fn register_m2b_steps(
         .register(Box::new(ground_truth))? // TRAIT_OBJECT: steps of different types are registered side by side
         .register(Box::new(image))? // TRAIT_OBJECT: steps of different types are registered side by side
         .register(Box::new(harness))? // TRAIT_OBJECT: steps of different types are registered side by side
-        .register(Box::new(catalog))? // TRAIT_OBJECT: steps of different types are registered side by side
         .register(Box::new(session))? // TRAIT_OBJECT: steps of different types are registered side by side
         .register(Box::new(egress)) // TRAIT_OBJECT: steps of different types are registered side by side
 }

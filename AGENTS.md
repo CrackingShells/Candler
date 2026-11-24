@@ -5,9 +5,9 @@ document an agent writes here. Humans follow them too.
 
 ## What sane work means in Candler
 
-The README promises provenance, per-run tool-catalog snapshots, and grading of artifacts "already on
+The README promises provenance, per-run tool census, and grading of artifacts "already on
 disk". Those promises hold only if each kind of state Candler stores (a sealed run, its outputs, an
-outcome, a catalog snapshot) has one producer, and that producer is Candler's own code. A test that
+outcome, a tool census) has one producer, and that producer is Candler's own code. A test that
 needs such a state asks Candler to make it, under a scripted agent if it must; it does not assemble
 the state by hand, because a second producer can only agree with the first by luck. Where Candler
 leans on something it does not own (a container daemon, a harness binary, a model), a stand-in is

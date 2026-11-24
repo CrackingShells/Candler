@@ -8,9 +8,7 @@ use std::time::Duration;
 
 use candler_core::isolation::container::exec::collect_spec;
 use candler_core::isolation::container::mounts::{MountMode, MountSpec};
-use candler_core::isolation::container::run::{
-    RunArgvError, build_start_request, catalog_spec, create_argv,
-};
+use candler_core::isolation::container::run::{RunArgvError, build_start_request, create_argv};
 use candler_core::isolation::control::ControlSpec;
 use candler_core::isolation::docker::{Call, ClientEnv, DockerCli};
 use candler_core::isolation::driver::DockerDriver as _;
@@ -158,7 +156,7 @@ fn plan_under(root: &std::path::Path) -> ContainerPlan {
     planned
 }
 
-/// The six control kinds, each built the way its caller builds it.
+/// The five control kinds, each built the way its caller builds it.
 fn kinds(root: &std::path::Path) -> Vec<Kind> {
     let image = ImageRef {
         id: ImageId(String::from("sha256:abc")),
@@ -166,11 +164,6 @@ fn kinds(root: &std::path::Path) -> Vec<Kind> {
     };
     let env = [(String::from("HOME"), String::from("/tmp/home"))];
     let probe = vec![String::from("claude"), String::from("--version")];
-    let limits = Limits {
-        pids_limit: 64,
-        memory: String::from("512m"),
-        cpus: 1.0,
-    };
     let args = |spec: ControlSpec| spec.args();
     vec![
         Kind {
@@ -212,24 +205,6 @@ fn kinds(root: &std::path::Path) -> Vec<Kind> {
             detached: false,
         },
         Kind {
-            name: "catalog capture",
-            args: args(
-                catalog_spec(
-                    &image.id,
-                    &limits,
-                    Duration::from_secs(5),
-                    &command(Vec::new()),
-                )
-                .expect("a catalog spec"),
-            ),
-            network: Some("none"),
-            tmpfs: &["/tmp:rw,noexec,nosuid,size=256m"],
-            pids: "64",
-            memory: "512m",
-            cpus: Some("1"),
-            detached: false,
-        },
-        Kind {
             name: "collect",
             args: args(
                 collect_spec(
@@ -262,7 +237,7 @@ fn kinds(root: &std::path::Path) -> Vec<Kind> {
 /// Guards: R01 §Process supervision (control containers) — every control container removes
 /// itself, wears `candler.role=control` and no job label, has a read-only root, no capabilities
 /// and no new privileges, and keeps its own network and limits: the probes 64 pids and 256m, the
-/// compile 256 pids and 2g on the bridge, the catalog and the collect their caller's limits with a
+/// compile 256 pids and 2g on the bridge, the collect its caller's limits with a
 /// cpu cap, and the fake model no network flag.
 /// Oracle: the flags of each kind's argv at 18142ec, typed here by hand.
 /// Bite: a flag dropped from the shared builder (`--cap-drop`, `--read-only`, the label, `--rm`),

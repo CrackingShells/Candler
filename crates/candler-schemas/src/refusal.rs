@@ -418,13 +418,12 @@ macro_rules! refusal_table {
 /// The rows of every refusal of this crate, in the order of the types.
 #[must_use]
 pub fn catalog() -> Vec<CatalogRow> {
-    let tables: [&'static [CatalogRow]; 9] = [
+    let tables: [&'static [CatalogRow]; 8] = [
         <crate::execution::ExecutionError as Catalogued>::rows(),
         <crate::evaluation::EvaluationError as Catalogued>::rows(),
         <crate::outcome::OutcomeError as Catalogued>::rows(),
         <crate::primitives::FormatError as Catalogued>::rows(),
         <crate::canonical::CanonicalError as Catalogued>::rows(),
-        <crate::catalog::CatalogError as Catalogued>::rows(),
         <crate::values::ValuesError as Catalogued>::rows(),
         <SchemaTagError as Catalogued>::rows(),
         <VersionMismatch as Catalogued>::rows(),

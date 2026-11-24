@@ -161,12 +161,12 @@ exec)
     esac
     ;;
 logs) ;;
+inspect)
+    # The start probe of a declared MCP server asks whether the container is still running.
+    echo true
+    ;;
 run)
-    if case " $* " in *" --version "*) true;; *) false;; esac; then
-        echo "2.1.311 (Claude Code)"
-    else
-        printf '{"schema":"tool-catalog-snapshot/1","captured_at":"2024-01-01T00:00:00Z","provider":"candler-image@1","servers":[]}'
-    fi
+    case " $* " in *" --version "*) echo "2.1.311 (Claude Code)" ;; esac
     ;;
 *)
     echo "UNHANDLED: $*" >> "$here/docker.log"

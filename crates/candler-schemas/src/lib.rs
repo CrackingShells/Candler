@@ -1,6 +1,6 @@
 //! Candler wire schemas: the string formats every record shares in [`primitives`], the analysis
 //! report in [`analysis`], the outcome
-//! record in [`outcome`], the tool-catalog snapshot in [`catalog`], resolved values in [`values`],
+//! record in [`outcome`], resolved values in [`values`],
 //! canonical JSON in [`canonical`], process records in [`process`], container records in
 //! [`container`], raw frames in [`raw`], the normalised trace in [`trace`], execution records in
 //! [`execution`], the MCP servers in [`servers`], evaluator protocol records in [`evaluation`], stable refusal codes in [`refusal`], and in [`generate`] the JSON Schema
@@ -14,7 +14,6 @@
 
 pub mod analysis;
 pub mod canonical;
-pub mod catalog;
 pub mod container;
 pub mod distinct;
 pub mod evaluation;

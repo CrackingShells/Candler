@@ -484,10 +484,10 @@ fn egress_of(values: &[(String, Value)]) -> Option<Value> {
 
 /// The digest of the cell whose egress is `["a.org:443", "pypi.org:443"]`.
 const LISTED_DIGEST: &str =
-    "sha256:9a1cd9a1ee0c360c0dde88f8b50418136d40a56c301bd0a6a39110787ec5a33f";
+    "sha256:7170d82c4a0f432e5dc8cd1af3cec9add7d9ed6b47af5b2b3aa37b0229cccdb8";
 
 /// The digest of the cell of the plain experiment (no egress value).
-const BASE_DIGEST: &str = "sha256:ea0e539ae84ca8476df9f8f73b3dbbb90ef2c7f173a4f636fb5e752b785254cf";
+const BASE_DIGEST: &str = "sha256:1dfb579fae92eccda7769a2dae62bea2e444db760a33cea1db92867e7bd05129";
 
 /// Guards: R06 D3 — a cell with no egress value keeps its digest, and an empty list is an absent
 /// value (no allowlist, no proxy), so it digests as one.

@@ -58,7 +58,6 @@ Core line: `v0.15.0`.
 | `harness` | the path and every path below it | experiment value | The harness table; the names below belong to the harness. | Candler only | Candler only |
 | `treatment` | the path and every path below it | experiment value | The treatment table. | Candler only | Candler only |
 | `inputs` | the path and every path below it | experiment value | The inputs table. | inputs: Candler: the core places the inputs in the workspace | inputs: Candler: the core places the inputs in the workspace |
-| `snapshots` | the path and every path below it | experiment value | The snapshots table. | Candler only | Candler only |
 | `environments` | the path and every path below it | experiment value | The environments table. | Candler only | Candler only |
 | `treatment:` | text that is not a field path | experiment value | The prefix of a value that names a treatment source; the rest is the path. | Candler only | Candler only |
 | `store.root` | the path | configuration key | The store root; a relative path is read from the project root. | Candler only | Candler only |

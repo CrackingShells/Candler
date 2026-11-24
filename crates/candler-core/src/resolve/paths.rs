@@ -13,8 +13,8 @@ use candler_schemas::execution::paths::{
     ISOLATION_LIMITS_MEMORY, ISOLATION_LIMITS_PIDS, ISOLATION_NETWORK, ISOLATION_RECORD_PACKAGES,
     MCP, MODEL_EFFORT, MODEL_ENDPOINT, MODEL_ID, MODEL_TOKEN_SECRET, PERMISSION_MODE, PLUGINS_DIRS,
     PROMPT_TEMPLATE, PROMPT_VALUES, REQUEST_HARNESS, REQUEST_INPUTS, REQUEST_TREATMENT,
-    RUNNER_IDLE_S, RUNNER_MODE, SLOTS_COUNT, SLOTS_EVALUATORS, SNAPSHOTS, STORE_ROOT,
-    TOOLS_ALLOWED, TOOLS_DISALLOWED, TREATMENT, TREATMENT_SOURCE_PREFIX,
+    RUNNER_IDLE_S, RUNNER_MODE, SLOTS_COUNT, SLOTS_EVALUATORS, STORE_ROOT, TOOLS_ALLOWED,
+    TOOLS_DISALLOWED, TREATMENT, TREATMENT_SOURCE_PREFIX,
 };
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::servers::McpServerKind;
@@ -152,7 +152,7 @@ const fn key(path: &'static str, kind: Kind, file: ConfigFile, meaning: &'static
 }
 
 /// Every path the configuration surface names.
-pub const CONFIGURATION_PATHS: [PathRow; 49] = [
+pub const CONFIGURATION_PATHS: [PathRow; 48] = [
     row(
         MODEL_ID,
         Kind::Leaf,
@@ -443,13 +443,6 @@ pub const CONFIGURATION_PATHS: [PathRow; 49] = [
         Class::Value,
         Reach::Agent(&[AgentSetting::Inputs]),
         "The inputs table.",
-    ),
-    row(
-        SNAPSHOTS,
-        Kind::Subtree,
-        Class::Value,
-        Reach::CandlerOnly,
-        "The snapshots table.",
     ),
     row(
         ENVIRONMENTS,

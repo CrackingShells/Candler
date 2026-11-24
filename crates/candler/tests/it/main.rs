@@ -49,7 +49,6 @@ mod commands {
 mod contract_pages;
 mod guard_analyze;
 mod guard_analyze_golden;
-mod guard_catalog_snapshot;
 mod guard_cli;
 mod guard_cli_e2e;
 mod guard_cli_evaluate;
@@ -67,6 +66,7 @@ mod guard_ground_truth_cli;
 mod guard_ingest;
 mod guard_input_seam;
 mod guard_inspect;
+mod guard_inspect_mcp_config;
 mod guard_mcp_origin;
 mod guard_registry;
 mod guard_run_context_files;

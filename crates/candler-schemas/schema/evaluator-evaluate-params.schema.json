@@ -658,7 +658,7 @@
           "description": "The key of the run."
         },
         "snapshots": {
-          "description": "The snapshots the run was made against.",
+          "description": "The snapshots the run was made against. Always empty for a run Candler made; the field is\nkept so a released helper and stored grading contexts stay valid, and it is removed once a\nhelper that treats it as optional is released.",
           "items": {
             "$ref": "#/$defs/ContextRef"
           },

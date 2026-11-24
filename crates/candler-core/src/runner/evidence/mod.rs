@@ -1,7 +1,6 @@
-//! The evidence a run leaves: its catalog, its census, the leak check, its session measures and
+//! The evidence a run leaves: its census, the leak check, its session measures and
 //! its tree.
 
-pub mod catalog;
 pub mod census;
 pub mod leak;
 mod measure;

@@ -69,7 +69,6 @@ graph TD
   subgraph EXE [Execution]
     ORCH[orchestrator: matrix, run identity, resume, budgets] --> HD{harness driver: Claude Code, OpenCode v2, ...}
     ORCH --> ISO{isolation: host or container}
-    ORCH --> CAT[catalog providers: snapshot per run]
     HD -.describes.-> SUP
   end
   subgraph ING [Ingestion]
@@ -95,7 +94,7 @@ graph TD
     MAN[plug-in manifest] --> REG
     SS[suite file] --> REG
     EV[evaluator command + pinned checker library + Python helper] -.declared by.-> MAN
-    FX[fixtures, inputs, catalog providers] --> ORCH
+    FX[fixtures, inputs] --> ORCH
   end
 ```
 
@@ -106,7 +105,7 @@ graph TD
 | Operation API | The operation set, argument resolution with the source of every value, jobs, budgets, confirmations | Any domain notion |
 | Job supervisor | Job identity, the job directory, the event stream, cancellation | What a run or an outcome means |
 | Process supervisor | Every process Candler starts (agents, evaluators): spawn into its own process group, child records, deadlines, stop escalation, stray sweep, machine-wide slots | Harness or evaluator semantics |
-| Execution | Experiment matrix, run identity, resume, isolation, catalog snapshots, artifact collection | What the artifacts mean |
+| Execution | Experiment matrix, run identity, resume, isolation, the resolved MCP configuration, artifact collection | What the artifacts mean |
 | Harness drivers | Harness-specific data: config files, command line, stop action and signal, exit classification, what to collect, version detection | Starting, timing or killing processes |
 | Ingestion | Trace readers, the normalised trace model, the legacy importer | Judgement |
 | Run store | Run identity, content-addressed artifacts, the workspace view, manifest, integrity, the invalid-run ledger | Grades |
@@ -479,7 +478,7 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
   (`container-record/1`: `{cid, labels {job, run, experiment}, created_at, image_id, role:
   agent|gateway, spawned_at}`) and the labels `candler.job`, `candler.run`, `candler.experiment`
   and `candler.role` (`agent` or `gateway`, which the destroy guard reads). A control container
-  (a version readout, a catalog capture, the image build) is the exception: `--rm`, only the label
+  (a version readout, the image build) is the exception: `--rm`, only the label
   `candler.role=control`, and no network except for the image build, which reaches the package
   index over the default bridge; no sweep meets it and the guard never destroys it.
   The entrypoint runs under `timeout <wall_s + 60 s>`, so an orphaned container expires by itself
@@ -621,7 +620,7 @@ the gateway, the reader, the trace's gateway signals, collection, input leak, th
   | `isolation.record_packages` (read from the env image, recorded in `measured[]`, never in the cell) | setting |
   | `isolation.build.plugin` (`<plugin>/<env>`: the plug-in agent environment the experiment selects; §Plug-ins) | setting |
   | `request.harness`, `request.treatment`, `request.inputs`, `model.token_secret` | setting |
-  | `harness`, `treatment`, `inputs[]`, `snapshots`, `environments` (reserved) | typed root |
+  | `harness`, `treatment`, `inputs[]`, `snapshots` (an imported run's cell only), `environments` (reserved) | typed root |
 
   A CLI path resolves against the caller's cwd, a path in the experiment file against that
   file's directory (I14).
@@ -688,7 +687,7 @@ I3, so event times are reproducible even where the harness emits none.
 | Classify the exit | Exit status, output tail and the parsed sessions → `ended_by` | Codes, messages, error results |
 | Collect | Files, or the output of an export command | Home-dir transcripts, stdout, a SQLite store |
 | Read offline | Parse a trace on disk, no process | Line streams or whole documents; format versions |
-| Census | The tool catalog the agent actually had | How to list built-in and MCP tools |
+| Census | The tools the agent actually had | How to list built-in and MCP tools |
 
 ### Traits (signatures only)
 
@@ -1042,6 +1041,10 @@ the evaluators see never enters the isolation, I8); `metadata` (the declared man
 evaluator runs (host or container) and exist only in requests. `scratch` is the evaluator's; the run
 store is read-only to it.
 
+`needs.snapshots` and `context.snapshots` are always empty for runs Candler makes. They are kept so
+the released helper and stored grading contexts stay valid, and they go once a helper that treats
+them as optional is released.
+
 **Digests of a request.** Both are `sha256` over RFC 8785 JSON, so any language recomputes them.
 
 - `context_digest` covers the projection `{artifacts: [{path, sha256}], snapshots: [{kind,
@@ -1090,7 +1093,6 @@ erDiagram
   SESSION ||--o{ EVENT : ordered
   SESSION ||--o{ SESSION : "spawned (subagents)"
   RUN ||--o{ ARTIFACT : "left behind"
-  RUN ||--o{ CATALOG_SNAPSHOT : targeted
   RUN ||--|| MANIFEST : provenance
   PLUGIN ||--o{ EVALUATOR_VERSION : provides
   SUITE ||--o{ EXPECTATION : declares
@@ -1130,8 +1132,8 @@ host?, job?, integrity, import?, evaluation_inputs[]?}`.
 
 - **`comparable`** `{values[] {path, value?}, harness {name, version, driver?}, treatment,
   snapshots[], inputs[], environments[]}`: every resolved value by field path (isolation under
-  `isolation.*`), the harness, the treatment reference (name, tag and commit), the catalog snapshot
-  and input digests, and the plug-in environment lock digests. A value without `value` was
+  `isolation.*`), the harness, the treatment reference (name, tag and commit), the input digests, the
+  plug-in environment lock digests and, for an imported run, the catalog digests it recorded. A value without `value` was
   `unrecorded`. Every list rises strictly by its key, so it is sorted and holds no duplicate:
   `values` by path, `snapshots` and `inputs` by kind then digest, `environments` by plug-in then
   lock digest. A reader refuses a list that does not.
@@ -1141,8 +1143,10 @@ host?, job?, integrity, import?, evaluation_inputs[]?}`.
   it, and a string value that is an absolute path is refused: a file enters a cell as an `inputs[]`
   digest. The per-run caps are cell values under `budget.per_run.*`; the job caps (every other
   `budget.*` path) and `replicates` are operational settings, which `resolve` classifies by path. A
-  snapshot's digest is that of its RFC 8785 form without `captured_at`; an imported snapshot's
-  digest is the bare sha256 its legacy provenance recorded, which a live snapshot's never equals.
+  `snapshots` is the imported old shape: an imported run's cell lists the bare sha256 its legacy
+  provenance recorded, and the cell hashes it with the list, empty or not. A cell Candler makes
+  carries no `snapshots` key and hashes without it. A run's MCP servers are its resolved `mcp.*`
+  values.
 - **The treatment reference** `{name, tag?, commit?}` holds no source. A live run's carries the
   commit its source resolved to whenever the treatment names a tag or a commit; an imported run's
   carries none, since the legacy folder records none.
@@ -1283,26 +1287,12 @@ the latest complete request wins. Differing outcomes under one key, other than a
 `instrument_error` or `deadline` replaced by a measured one, are reported as I4 violations. Roles
 and weights are read from the outcomes, never from today's suite.
 
-### Wire schema: tool-catalog snapshot
+### The MCP configuration of a run
 
-What the MCP servers a run targets actually offered, captured per run by a catalog provider. HTN's
-Tier D grades a mapping against it, the run manifest records its digest as a comparability field
-(I7), and evaluators receive it through `needs.snapshots[]`.
-
-`schema: "tool-catalog-snapshot/1"`, `captured_at`, `provider@version`, `environment?` (string →
-string: versions the capture depended on), `ext?` (opaque, provider-specific), `servers[] {name,
-source_path, source_digest, transport (stdio / http / sse), tools[]}`. Tools are in MCP
-`tools/list` shape, camelCase kept: `name`, `inputSchema`, `title?`, `description?`,
-`outputSchema?`, `annotations?`, and every other key preserved as given. HTN's
-`tool-catalog-snapshot/0` is this shape with `servers_dir` and `stubbed_modules` at the top level;
-its capture script and loader move them under `ext`.
-
-Server names are unique within a snapshot and tool names within a server, compared byte for
-byte; both are non-empty. A reader keeps every key of a tool, `ext` and `environment`, and every
-value, except: keys not defined for a snapshot or a server are dropped; of repeated keys the last
-is kept; object keys are sorted; numbers are held as `i64`, `u64` or `f64`, so an integer beyond
-the 64-bit range becomes a float, a decimal beyond `f64` precision is rounded and a magnitude
-beyond `f64` is refused; and text nested deeper than about 120 levels is refused.
+A run's MCP servers are the resolved `mcp.*` values in `comparable.values`, which the cell digest
+hashes and `inspect` shows. Candler stores no capture of what a server offered: the tools the
+harness had are the census's list, and the calls are in the trace. `tool-catalog-snapshot/1` is
+the HTN consumer's own schema, not Candler's.
 
 ### Wire encodings
 
@@ -1317,10 +1307,10 @@ The rules every wire type of the `schemas@` line follows.
 | Unknown fields | Schemas are strict (`additionalProperties: false`): they define what a writer at that version emits. Readers of the records Candler writes ignore unknown fields, so that an older reader reads a newer record. Readers of the three author documents (experiment, suite, plug-in manifest) refuse an unknown field with `<surface>.unknown_field` and its pointer (§Refusals). Every reader reads objects only, never a struct written as an array. MCP tool objects, `inputSchema`, `outputSchema` and `ext` are open. |
 | Run key | `{"cell": "sha256:<hex>", "replicate": n, "attempt": m}` in records, both counters from 1. Paths and `CANDLER_RUN` use `<cell hex>-r<n>-a<m>`. |
 | Digests | `sha256:` + 64 lowercase hex; blob paths use the bare hex. An instrument digest may also be `git:<40 or 64 hex>`, a commit of a clean tree, valid only with `dirty: false`. Digests of JSON values (`suite_entry_digest`, `context_digest`, the cell digest) are taken over RFC 8785 canonical JSON. |
-| `name@version` | Split at the last `@`; the name has no `@` or whitespace. Evaluator and instrument versions are SemVer 2.0; a catalog provider's version is a free token `[0-9A-Za-z.+-]+`. |
+| `name@version` | Split at the last `@`; the name has no `@` or whitespace. Evaluator and instrument versions are SemVer 2.0; a step name's version is a free token `[0-9A-Za-z.+-]+`. |
 | Ids, paths, times | `request_id`: UUIDv7, lowercase hyphenated. `expectation_id`: `^[A-Za-z0-9][A-Za-z0-9._-]*$`. Run-relative paths: POSIX, non-empty, no leading `/`, no empty, `.` or `..` segment, no `\`. Timestamps: RFC 3339 with an uppercase `T`, and `Z` or a `±HH:MM` offset, naming a real instant, kept as written. |
 | Evidence refs | `event:<session-id>#<seq>`: the session id is non-empty, without `#` or white space; `seq` is a decimal without leading zeros (`0` allowed). `path:<relpath>` optionally followed by `#L<n>` or `#L<n>-<m>`: lines count from 1, `n ≤ m`, and the path holds no `#`. |
-| Version marker | A standalone document (the catalog snapshot) carries its `schema` tag. Records that travel inside versioned messages or files (the outcome record) carry none. |
+| Version marker | A standalone document (the `inspect` record) carries its `schema` tag. Records that travel inside versioned messages or files (the outcome record) carry none. |
 | Schema files | JSON Schema 2020-12, generated by `schemars` from the structs, one self-contained file per root in `crates/candler-schemas/schema/<name>.schema.json`, `$id` `urn:candler:schemas:<name>`, no crate version inside. Cross-field rules are `if`/`then` clauses; rules JSON Schema cannot state (`num ≤ den`, the pass and fail weight rules, unique names, 64- and 32-bit integer limits) are enforced in Rust and stated in a `$comment`. Patterns end with `(?![\s\S])` in place of `$`, and spell white space as Unicode's `White_Space` set plus the byte-order mark in place of `\s`: Python's `re`, which Python `jsonschema` uses, lets `$` match before a final newline and gives `\s` a different set, so only this form reads alike under ECMA 262, Rust and Python. The regexes this document writes with `$` (reason codes, ids, field paths) are published in this form. A test refuses any published pattern that uses `$` or `.` outside a character class, or a shorthand class or assertion (`\s`, `\d`, `\w`, `\b`, `\A`, `\Z`, `\p` and their negations) anywhere but in the end anchor, and requires every pattern to end with the anchor except one inside an `if`, such as the prefix `^git:`, which only tells variants apart; the other refusals still apply to it. `///` docs become `description`s, so a doc edit on a wire type is a schema patch. |
 | Drift check | `tests/schema_drift.rs` compares every root in `generated_schemas()` byte for byte with its committed file; `CANDLER_BLESS_SCHEMAS=1` rewrites them. |
 | Rust shape | Wire structs are `#[non_exhaustive]`, built through validating builders and deserialised through `try_from` from a JSON object only (never an array), so a record is valid however it was made and a new optional field is a minor in Rust as in the schema. Evolving enums are `#[non_exhaustive]`; `Status` and `Role` are closed. `serde_json` has `float_roundtrip`. JSON text holding an unpaired surrogate escape is refused by the Rust reader. |
@@ -1328,7 +1318,7 @@ The rules every wire type of the `schemas@` line follows.
 
 ### The `schemas@` line holds
 
-Outcome record · catalog snapshot · raw frames · normalised trace (header, session, event records)
+Outcome record · raw frames · normalised trace (header, session, event records)
 · workspace tree (`run-tree/1`) · child record · evaluator messages (`describe` result, `evaluate`
 params, notifications, and the request side: method names, `{reported}` and `-32800`) · plug-in manifest · suite file · run manifest · job record, event envelope
 and event payloads · experiment file. All are generated from `candler-schemas`.
@@ -1551,7 +1541,6 @@ request files under the new evaluator version; `diff` compares versions.
 
 ### Other interfaces (signatures only)
 
-- `CatalogProvider.snapshot(cell) -> catalog_snapshot`
 - `Isolation`, one container per run: `plan(cell, workspace) -> ContainerPlan`;
   `run_request(plan, command, marker, run key, outputs) -> IsolatedRequest` (the spawn request,
   with the run's stop hook attached, and the handle that reports the end facts);
@@ -1653,7 +1642,7 @@ lists it in the index and leaves its file alone.
 
 **Reference, done 2026-10-28.** The 240 runs of 2026-08-06 (12 cells: Haiku 4.5, Sonnet 4.6, Sonnet
 5 × skill v0.2.3–0.2.6, 20 runs each, rikyu domain), regraded by `htn-creator-eval@0.4.2`
-(mcp-python-ingestion `28be2c15`, clean tree) against rikyu's own catalog snapshot. Frozen in
+(mcp-python-ingestion `28be2c15`, clean tree) against the HTN's own committed tool catalog for the rikyu domain. Frozen in
 `agenticai4hpc26-artifact` on branch `regrade/htn-creator-eval-0.4.2`, commit `7efa1b7`, tag
 `candler-m2a-golden`; the published `main` is untouched. `expectations.jsonl` holds one row per
 `(run, expectation)`: 10,320 rows.
@@ -1705,7 +1694,7 @@ input the legacy importer reconstructed (importer defect) → anything left is a
 | `comparable.values` | `experiment.json` `plan.*`, `provenance.*`, and the top-level key the import rules name for the version the treatment resolved to (`resolved_skill_version` here) | Each JSON leaf becomes a dotted field path with source `imported{experiment.json}`; a `null` leaf has no value and is `unrecorded`. `plan.out_dir` goes to `import`. |
 | `comparable.harness` | the harness name the import rules give, and the version at their JSON pointer into the stream's first line (`claude_code_version` here) | Must agree across a cell, else the import is refused |
 | `comparable.treatment` | `experiment.json`, at the JSON pointer the import rules name | A string written `<name>@<tag>`, else the import is refused; it gives the name and tag, and no commit, which the legacy folder does not record |
-| `comparable.snapshots[]` | `PROVENANCE.json`, at the JSON pointers the import rules name | One entry per snapshot rule: the rule's kind and the bare sha256 the legacy provenance recorded at its pointer, not the RFC 8785 form a live snapshot's digest is taken over |
+| `comparable.snapshots[]` | `PROVENANCE.json`, at the JSON pointers the import rules name | The imported old shape, and only an import writes it: one entry per snapshot rule, with the rule's kind and the bare sha256 the legacy provenance recorded at its pointer |
 | `comparable.inputs[]` | each run's `timing.json` `copied_inputs[] {role, sha256}` | `role` is the kind; the lists must agree across a cell, else the import is refused |
 | `comparable.environments[]` | — | Empty: the legacy folder records no plug-in environment |
 | `measured` | each run's `eval_metadata.json` `provenance.*`, where the cell-level value is `null` | Source `imported{<run-relative path>}`; the copies within one run must agree, else the import is refused |
@@ -1800,7 +1789,6 @@ turns a plan into a spawn request, then collects and destroys.
 | SIGCHLD-driven reaping (A3) | Reap children on signal instead of by polling | Less polling, faster exit facts | A measured reap delay or a missed exit |
 | Long-lived workers | A worker that serves many runs | Start-up cost per run | A measured start-up cost that dominates a run |
 | Signals error versus census | One ruling for `runner/exec/mod.rs:777`, which reads a signals error as "gateway did not fail" while the census reads it as "not collected" | The two readings can disagree on the same fact | The next change to either reader |
-| Catalog capture of input-delivered servers | A mount seam in `catalog_spec` and an inputs-aware provider | The per-run catalog cannot see servers delivered through inputs | An eval that must grade against the run's own captured catalog of input-delivered servers, or an automated snapshot-versus-live check |
 | URL-path allowlist | An allowlist that admits part of a host, through TLS interception at the proxy | The proxy reads only the SNI, so it cannot tell two paths of one host apart | An eval that must allow part of a host |
 | Domain fronting | Closing the residual that a listed host behind a shared CDN front is reachable under another name | The SNI rule trusts the name the client presents | A listed host behind a shared CDN front |
 | Transformed copy of ground truth | Detection of ground truth that was encoded or reformatted before it reached the boundary | Digests of the original miss a transformed copy | A leak that digests missed |
@@ -1826,7 +1814,7 @@ turns a plan into a spawn request, then collects and destroys.
 | One sealing step for importers (B4) | An importer whose trace reader fails seals the run invalid, as raw ingest does | One integrity rule for every import | Eliott's ruling; no external user depends on today's behaviour |
 | One `Comparable` diff (B10) | One diff for the comparability verdict | Fewer copies | A change to the shape of recorded deviations |
 | fsync budget and streaming import (B6, B8) | A bounded fsync cost and an import that streams | Crash guards cost time, and a large import peaks in memory | A measured cost or memory peak that hurts |
-| Static tool catalog, `as_bytes`, refusal codes, shared outcome vectors (C5, C9, C10–C12) | Small consistency work | Fewer drifting copies | The next change that touches one of them |
+| `as_bytes`, refusal codes, shared outcome vectors (C5, C9, C10–C12) | Small consistency work | Fewer drifting copies | The next change that touches one of them |
 | `lock_split` | `lock_split` reads the plug-in's requirements from the fragment and the experiment's from the resolved value | The two sources can disagree | A plug-in whose fragment and resolved requirements differ |
 | Paired designs | McNemar for designs that pair runs | Runs are unpaired today (§Analysis statistics) | A design that pairs replicates |
 | Declared margin | A margin declared in the experiment, read with TOST | "No difference" is never stated today | An experimenter who needs equivalence |
@@ -1863,7 +1851,7 @@ The milestones, their order, exit gates and scope are in the meta-roadmap
 [`__roadmap__/candler-v1/`](../__roadmap__/candler-v1/README.md). Each milestone is planned in
 detail by its own session, as its own campaign under `__roadmap__/`.
 
-HTN lane: HTN Phase 4.5 reads the catalog snapshot; Phase 7 writes its Tier C logic as library
+HTN lane: HTN Phase 4.5 reads its own catalog snapshot; Phase 7 writes its Tier C logic as library
 functions; after M2a the checker library becomes the plug-in and `eval.json` becomes a suite file
 (no templates); Phase 8 waits for M5. The reasoning is in
 `/Users/hacker/Documents/src/External/PCfVW/mcp-python-ingestion/__reports__/candler_core/02-findings_lane_overlap_v0.md`.

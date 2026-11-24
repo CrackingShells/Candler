@@ -116,7 +116,7 @@ class RunContext:
             raw=tuple(context["raw"]),
             trace=None if trace is None else Path(trace),
             artifact_files=files,
-            snapshots=tuple(context["snapshots"]),
+            snapshots=tuple(context.get("snapshots", [])),
             inputs=tuple(context["inputs"]),
         )
 

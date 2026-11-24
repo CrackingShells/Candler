@@ -22,7 +22,7 @@ pub enum Home {
 
 /// The surface of a code is the part before its dot. Every surface the catalogue and the helper's
 /// section hold is named here; a surface that is not named fails the guard with its name.
-pub const SURFACES: [(&str, Home); 24] = [
+pub const SURFACES: [(&str, Home); 23] = [
     ("plugin", Home::Page("plugin-manifest.md")),
     ("suite", Home::Page("suite-file.md")),
     ("protocol", Home::Page("evaluator-protocol.md")),
@@ -38,7 +38,6 @@ pub const SURFACES: [(&str, Home); 24] = [
     ("candler", Home::Index),
     ("analysis", Home::Index),
     ("cli", Home::Index),
-    ("catalog", Home::Index),
     ("config", Home::Index),
     ("evaluation", Home::Index),
     ("harness", Home::Index),
