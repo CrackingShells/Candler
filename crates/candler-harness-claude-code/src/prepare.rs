@@ -3,12 +3,15 @@
 //!
 //! Nothing here touches the file system or runs a process.
 
+use std::collections::BTreeMap;
 use std::str::FromStr as _;
 
 use candler_harness::driver::DriverError;
 use candler_harness::spec::{Cell, PreparedFile};
 use candler_schemas::execution::paths::{TOOLS_ALLOWED, TOOLS_DISALLOWED};
+use candler_schemas::field_path;
 use candler_schemas::primitives::RelPath;
+use candler_schemas::servers::McpServer;
 use serde_json::{Map, Value, json};
 
 use crate::driver::invalid;
@@ -89,7 +92,7 @@ pub(crate) const MCP_FILE: &str = ".mcp.json";
 ///
 /// # Errors
 /// [`DriverError`] when a value of the cell cannot be used, or a server name is refused.
-pub fn mcp_servers(cell: &Cell<'_>) -> Result<Option<Map<String, Value>>, DriverError> {
+pub fn mcp_servers(cell: &Cell<'_>) -> Result<Option<BTreeMap<String, McpServer>>, DriverError> {
     candler_harness::mcp::servers(cell)
 }
 
@@ -103,7 +106,11 @@ pub fn render_mcp(cell: &Cell<'_>) -> Result<Option<PreparedFile>, DriverError> 
         return Ok(None);
     };
     let mut root = Map::new();
-    root.insert("mcpServers".to_owned(), Value::Object(servers)); // BORROW: .to_owned() makes the owned key
+    let servers = serde_json::to_value(servers).map_err(|error| DriverError::InvalidValue {
+        path: field_path!("mcp.servers"),
+        detail: error.to_string(), // BORROW: .to_string() gives owned text
+    })?;
+    root.insert("mcpServers".to_owned(), servers); // BORROW: .to_owned() makes the owned key
     json_file(MCP_FILE, &Value::Object(root)).map(Some)
 }
 

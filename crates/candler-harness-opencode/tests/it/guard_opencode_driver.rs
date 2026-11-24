@@ -602,7 +602,10 @@ fn opencode_prepare_writes_the_provider_mcp_codemode_and_gateway_names() -> Res<
         json!({"s": {"type": "http", "url": "http://h", "env": {"K": "v"}}}),
         json!({"s": "uvx"}),
     ] {
-        assert!(prepared_config(&[("mcp", servers)]).is_err());
+        assert!(
+            prepared_config(&[("mcp", servers.clone())]).is_err(), // BORROW: the message names the servers
+            "accepted: {servers}"
+        );
     }
     Ok(())
 }

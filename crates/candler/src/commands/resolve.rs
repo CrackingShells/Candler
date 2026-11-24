@@ -25,6 +25,7 @@ use candler_core::resolve::layers::Resolution;
 use candler_core::resolve::preflight::{ResolveError, StepError, StepReport};
 use candler_core::resolve::steps::gateway::register_gateway_step;
 use candler_core::resolve::steps::secrets::register_secret_step;
+use candler_core::runner::plan::check_cells;
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_schemas::execution::{EventPayload, ExperimentFile};
 use candler_schemas::primitives::{FieldPath, RunKey};
@@ -293,6 +294,7 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let Some(resolution) = resolution else {
         return Ok(Exit::Success);
     };
+    check_cells(&file, &resolution, driver.as_ref()).map_err(CliError::refused_by)?;
     if text {
         for line in render_values(&resolution, Paint::detect()) {
             writeln!(stdout, "{line}").map_err(failed_here)?;

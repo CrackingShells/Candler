@@ -16,7 +16,9 @@ use candler_schemas::execution::paths::{
     PERMISSION_MODE, TOOLS_ALLOWED, TOOLS_DISALLOWED,
 };
 use candler_schemas::primitives::{FieldPath, RelPath};
+use candler_schemas::servers::McpServer;
 use serde_json::{Map, Value, json};
+use std::collections::BTreeMap;
 
 /// The provider's id in the configuration and in `-m <provider>/<model>`.
 pub(crate) const PROVIDER: &str = "candler";
@@ -258,100 +260,30 @@ fn strings(path: &str, what: &str, value: &Value) -> Result<Vec<String>, DriverE
         .collect()
 }
 
-fn text_map(path: &str, what: &str, value: &Value) -> Result<Map<String, Value>, DriverError> {
-    let map = value
-        .as_object()
-        .ok_or_else(|| invalid(path, format!("{what} is not an object")))?;
-    if map.values().any(|v| !v.is_string()) {
-        return Err(invalid(
-            path,
-            format!("{what} holds a value that is not text"),
-        ));
-    }
-    Ok(map.clone()) // BORROW: .clone() copies the map out of the cell
-}
-
-/// The keys a stdio server may carry, and a remote one. Any other key would be dropped, so it is
-/// refused.
-const LOCAL_KEYS: [&str; 5] = ["type", "command", "args", "env", "codemode"];
-const REMOTE_KEYS: [&str; 4] = ["type", "url", "headers", "codemode"];
-
-fn only_keys(at: &str, object: &Map<String, Value>, allowed: &[&str]) -> Result<(), DriverError> {
-    match object.keys().find(|key| !allowed.contains(&key.as_str())) {
-        // BORROW: explicit .as_str()
-        Some(key) => Err(invalid(
-            &format!("{at}.{key}"),
-            format!(
-                "is not a key OpenCode takes for this server (allowed: {})",
-                allowed.join(", ")
-            ),
-        )),
-        None => Ok(()),
-    }
-}
-
 /// One server of the cell's `mcp` value, in the shape `OpenCode` V2 prints: a `local` server with a
-/// command list, or a `remote` one with a url. Anything else is refused.
-fn server(name: &str, entry: &Value) -> Result<Value, DriverError> {
-    let at = format!("{}.{name}", candler_harness::mcp::SERVERS);
-    let object = entry
-        .as_object()
-        .ok_or_else(|| invalid(&at, "is not an object".to_owned()))?; // BORROW: .to_owned() makes the owned text
-    let codemode = match object.get("codemode") {
-        None => true,
-        Some(Value::Bool(flag)) => *flag,
-        Some(_) => {
-            return Err(invalid(
-                &format!("{at}.codemode"),
-                "is not a boolean".to_owned(), // BORROW: .to_owned() makes the owned text
-            ));
-        }
-    };
-    let kind = object.get("type").and_then(Value::as_str);
+/// command list, or a `remote` one with a url.
+fn server(server: &McpServer) -> Value {
     let mut out = Map::new();
-    match (kind, object.get("command"), object.get("url")) {
-        (None | Some("stdio" | "local"), Some(command), None) => {
-            only_keys(&at, object, &LOCAL_KEYS)?;
-            let program = command
-                .as_str()
-                .ok_or_else(|| invalid(&at, "`command` is not text".to_owned()))?; // BORROW: .to_owned() makes the owned text
-            let mut argv = vec![program.to_owned()]; // BORROW: .to_owned() makes owned text
-            if let Some(args) = object.get("args") {
-                argv.extend(strings(&at, "`args`", args)?);
-            }
-            out.insert("type".to_owned(), json!("local")); // BORROW: .to_owned() makes the owned key
-            out.insert("command".to_owned(), json!(argv)); // BORROW: .to_owned() makes the owned key
-            if let Some(env) = object.get("env") {
-                out.insert(
-                    "environment".to_owned(), // BORROW: .to_owned() makes the owned key
-                    Value::Object(text_map(&at, "`env`", env)?),
-                );
-            }
+    if let Some(command) = &server.command {
+        let mut argv = vec![command.clone()]; // BORROW: .clone() copies the program into the list
+        argv.extend(server.args.iter().flatten().cloned()); // BORROW: .cloned() copies the arguments
+        out.insert("type".to_owned(), json!("local")); // BORROW: .to_owned() makes the owned key
+        out.insert("command".to_owned(), json!(argv)); // BORROW: .to_owned() makes the owned key
+        if let Some(env) = &server.env {
+            out.insert("environment".to_owned(), json!(env)); // BORROW: .to_owned() makes the owned key
         }
-        (Some("http" | "sse" | "remote"), None, Some(url)) => {
-            only_keys(&at, object, &REMOTE_KEYS)?;
-            let url = url
-                .as_str()
-                .ok_or_else(|| invalid(&at, "`url` is not text".to_owned()))?; // BORROW: .to_owned() makes the owned text
-            out.insert("type".to_owned(), json!("remote")); // BORROW: .to_owned() makes the owned key
-            out.insert("url".to_owned(), json!(url)); // BORROW: .to_owned() makes the owned key
-            if let Some(headers) = object.get("headers") {
-                out.insert(
-                    "headers".to_owned(), // BORROW: .to_owned() makes the owned key
-                    Value::Object(text_map(&at, "`headers`", headers)?),
-                );
-            }
-        }
-        _ => {
-            return Err(invalid(
-                &at,
-                "is neither a stdio server (`command`) nor a remote one (`type` http, sse or remote, and `url`)"
-                    .to_owned(), // BORROW: .to_owned() makes the owned text
-            ));
+    } else if let Some(url) = &server.url {
+        out.insert("type".to_owned(), json!("remote")); // BORROW: .to_owned() makes the owned key
+        out.insert("url".to_owned(), json!(url)); // BORROW: .to_owned() makes the owned key
+        if let Some(headers) = &server.headers {
+            out.insert("headers".to_owned(), json!(headers)); // BORROW: .to_owned() makes the owned key
         }
     }
-    out.insert("codemode".to_owned(), Value::Bool(codemode)); // BORROW: .to_owned() makes the owned key
-    Ok(Value::Object(out))
+    out.insert(
+        "codemode".to_owned(), // BORROW: .to_owned() makes the owned key
+        Value::Bool(server.codemode.unwrap_or(true)),
+    );
+    Value::Object(out)
 }
 
 /// `text` with every character outside `[A-Za-z0-9_-]` replaced by `_`, as `OpenCode` spells an
@@ -619,7 +551,9 @@ pub(crate) fn settings(
 ///
 /// # Errors
 /// [`DriverError::InvalidValue`] when a value cannot be used or a server name is refused.
-pub(crate) fn mcp_servers(cell: &Cell<'_>) -> Result<Option<Map<String, Value>>, DriverError> {
+pub(crate) fn mcp_servers(
+    cell: &Cell<'_>,
+) -> Result<Option<BTreeMap<String, McpServer>>, DriverError> {
     candler_harness::mcp::servers(cell)
 }
 
@@ -659,7 +593,7 @@ pub(crate) fn render_config(
     if let Some(servers) = mcp_servers(cell)? {
         let mut translated = Map::new();
         for (name, entry) in &servers {
-            translated.insert(name.clone(), server(name, entry)?); // BORROW: .clone() copies the name
+            translated.insert(name.clone(), server(entry)); // BORROW: .clone() copies the name
         }
         root.insert(
             MCP.to_owned(), // BORROW: .to_owned() makes the owned key

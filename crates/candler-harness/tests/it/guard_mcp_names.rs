@@ -39,11 +39,14 @@ fn detail(entries: &[(&str, Value)]) -> Res<String> {
 fn two_servers_rendering_one_name_are_refused() -> Res<()> {
     let by_name = detail(&[
         ("mcp.servers.a.name", json!("x-y")),
+        ("mcp.servers.a.command", json!("uvx")),
         ("mcp.servers.b.name", json!("x-y")),
+        ("mcp.servers.b.command", json!("uvx")),
     ])?;
     assert!(by_name.contains("both render as `x-y`"), "{by_name}");
     let by_key = detail(&[
         ("mcp.servers.a.name", json!("x_y")),
+        ("mcp.servers.a.command", json!("uvx")),
         ("mcp.servers.x_y.command", json!("uvx")),
     ])?;
     assert!(by_key.contains("both render as `x_y`"), "{by_key}");

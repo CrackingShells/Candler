@@ -153,6 +153,20 @@ pub fn experiment_of<'a>(
     Ok(experiment_digest(digests.as_slice()))
 }
 
+/// Builds every cell of `file` under `levels` and has `driver` check each one, so a value a cell
+/// cannot hold (an absolute path, a malformed MCP server, a setting the harness cannot honour) is
+/// refused before any run.
+///
+/// # Errors
+/// The [`PlanError`] of the first cell that cannot be built or that the driver refuses.
+pub fn check_cells<'a>(
+    file: &ExperimentFile,
+    levels: impl Into<Levels<'a>>,
+    driver: &dyn HarnessDriver, // TRAIT_OBJECT: the registry's driver, selected at run time
+) -> Result<(), PlanError> {
+    fresh_cells(file, &levels.into(), Some(driver)).map(drop)
+}
+
 /// A deviation as `path {stored: <value>, observed: <value>}`, for a message; a value that was
 /// not recorded reads `absent`. A deviation holds names and digests, never a secret.
 fn describe(deviation: &Deviation) -> String {

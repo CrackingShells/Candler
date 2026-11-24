@@ -2,25 +2,26 @@
 //!
 //! A server key under `mcp.servers.<key>` is a field-path segment, so it cannot hold a production
 //! name such as `movement-server`. A server may therefore carry an optional `name` leaf: the name
-//! the server renders under (default: the key). Both drivers read the servers through here, so the
-//! rule lives once: `name` is removed from the server object, the server is keyed by its rendered
-//! name, and a name the agent could not address, or that two servers share, is refused.
+//! the server renders under (default: the key). Both drivers and the core read the servers through
+//! [`servers`], the one reader of `mcp.servers`: each entry is read as an
+//! [`McpServer`], launched from a `command` or reached at a
+//! `url` and never both. `name` is removed from the
+//! server, the server is keyed by its rendered name, and a name the agent could not address, or
+//! that two servers share, is refused.
 
 use std::collections::BTreeMap;
 use std::str::FromStr as _;
 
 use candler_schemas::field_path;
-use candler_schemas::primitives::Name;
-use serde_json::{Map, Value};
+use candler_schemas::primitives::{FieldPath, Name};
+use candler_schemas::servers::{McpServer, McpServerKind};
+use serde_json::Value;
 
 use crate::driver::DriverError;
 use crate::spec::Cell;
 
 /// The path whose table holds the servers, one table per server key.
 pub const SERVERS: &str = "mcp.servers";
-
-/// The leaf of a server that names it.
-const NAME: &str = "name";
 
 fn invalid(detail: String) -> DriverError {
     DriverError::InvalidValue {
@@ -29,21 +30,61 @@ fn invalid(detail: String) -> DriverError {
     }
 }
 
-/// `servers`, a table of server objects by key, re-keyed by rendered name with `name` removed from
-/// each object.
+/// The entry `key` of `mcp.servers` read as a server.
+fn read(key: &str, entry: Value) -> Result<McpServer, DriverError> {
+    let path = FieldPath::from_str(&format!("{SERVERS}.{key}"))
+        .unwrap_or_else(|_| field_path!("mcp.servers"));
+    let refused = |detail: String| DriverError::InvalidValue {
+        path: path.clone(), // BORROW: the error owns the path
+        detail,
+    };
+    let server: McpServer =
+        serde_json::from_value(entry).map_err(|error| refused(error.to_string()))?; // BORROW: .to_string() gives owned text
+    let remote = match server.kind {
+        Some(McpServerKind::Http | McpServerKind::Sse | McpServerKind::Remote) => true,
+        Some(_) => false,
+        None => server.command.is_none() && server.url.is_some(),
+    };
+    if remote {
+        if server.url.is_none() {
+            return Err(refused("is a remote server and has no `url`".to_owned())); // BORROW: .to_owned() makes the owned text
+        }
+        if server.command.is_some() || server.args.is_some() || server.env.is_some() {
+            return Err(refused(
+                "is a remote server and sets `command`, `args` or `env`".to_owned(), // BORROW: .to_owned() makes the owned text
+            ));
+        }
+    } else {
+        if server.command.is_none() {
+            return Err(refused(
+                "has neither a `command` nor a `url`; a server is launched from a `command` or reached at a `url` with `type` http, sse or remote"
+                    .to_owned(), // BORROW: .to_owned() makes the owned text
+            ));
+        }
+        if server.url.is_some() || server.headers.is_some() {
+            return Err(refused(
+                "is a launched server and sets `url` or `headers`".to_owned(),
+            )); // BORROW: .to_owned() makes the owned text
+        }
+    }
+    Ok(server)
+}
+
+/// `servers` re-keyed by rendered name, with `name` removed from each server.
 ///
 /// # Errors
-/// [`DriverError::InvalidValue`] when a `name` is not text, is not a plain name (non-empty, with
-/// neither `@` nor white space), contains `__` (which would split `mcp__<server>__<tool>`), or when
-/// two servers render the same name, by name or by key.
-pub fn by_name(servers: &Map<String, Value>) -> Result<Map<String, Value>, DriverError> {
-    let mut rendered: Map<String, Value> = Map::new();
+/// [`DriverError::InvalidValue`] when a `name` is not a plain name (non-empty, with neither `@` nor
+/// white space), contains `__` (which would split `mcp__<server>__<tool>`), or when two servers
+/// render the same name, by name or by key.
+pub fn by_name(
+    servers: BTreeMap<String, McpServer>,
+) -> Result<BTreeMap<String, McpServer>, DriverError> {
+    let mut rendered: BTreeMap<String, McpServer> = BTreeMap::new();
     let mut keys: BTreeMap<String, String> = BTreeMap::new();
-    for (key, entry) in servers {
-        let mut entry = entry.clone(); // BORROW: .clone() copies the server out of the cell
-        let name = match entry.as_object_mut().and_then(|object| object.remove(NAME)) {
+    for (key, mut server) in servers {
+        let name = match server.name.take() {
             None => key.clone(), // BORROW: .clone() copies the key
-            Some(Value::String(name)) => {
+            Some(name) => {
                 if let Err(error) = Name::from_str(&name) {
                     return Err(invalid(format!("the name of server `{key}` {error}")));
                 }
@@ -54,28 +95,32 @@ pub fn by_name(servers: &Map<String, Value>) -> Result<Map<String, Value>, Drive
                 }
                 name
             }
-            Some(_) => {
-                return Err(invalid(format!("the name of server `{key}` is not text")));
-            }
         };
         if let Some(first) = keys.get(&name) {
             return Err(invalid(format!(
                 "servers `{first}` and `{key}` both render as `{name}`"
             )));
         }
-        keys.insert(name.clone(), key.clone()); // BORROW: the map owns both
-        rendered.insert(name, entry);
+        keys.insert(name.clone(), key); // BORROW: the map owns both
+        rendered.insert(name, server);
     }
     Ok(rendered)
 }
 
 /// The servers of a cell by rendered name: the values at and below `mcp.servers`, each leaf placed
-/// at its path under its key, then [`by_name`]. `None` when the cell sets no server.
+/// at its path under its key, each entry read as an [`McpServer`], then [`by_name`]. `None` when
+/// the cell sets no server.
 ///
 /// # Errors
-/// [`DriverError`] when a value of the cell cannot be used, or [`by_name`] refuses a name.
-pub fn servers(cell: &Cell<'_>) -> Result<Option<Map<String, Value>>, DriverError> {
-    cell.table_at(&field_path!("mcp.servers"))?
-        .map(|table| by_name(&table))
-        .transpose()
+/// [`DriverError`] when a value of the cell cannot be used, an entry is not a server (a field that
+/// is not typed or not known, neither a `command` nor a `url`, or both families at once), or [`by_name`] refuses a name.
+pub fn servers(cell: &Cell<'_>) -> Result<Option<BTreeMap<String, McpServer>>, DriverError> {
+    let Some(table) = cell.table_at(&field_path!("mcp.servers"))? else {
+        return Ok(None);
+    };
+    let read_all: Result<BTreeMap<String, McpServer>, DriverError> = table
+        .into_iter()
+        .map(|(key, entry)| read(&key, entry).map(|server| (key, server)))
+        .collect();
+    by_name(read_all?).map(Some)
 }
