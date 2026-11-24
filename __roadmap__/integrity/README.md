@@ -13,7 +13,7 @@ Each kind of state Candler stores has one producer, each consumer input has one 
 
 ## Success Gates
 - ⬜ `conventions.md` and `causes/` are `done`
-- ⬜ Every merge into `feat/integrity` waited for a green `container-e2e` on its pull request
+- ⬜ Every merge into `feat/integrity` that touches the paths `container-e2e` watches waited for it to be green on its pull request, and every other merge says it touched none of them
 - ⬜ Spend is measured from transcripts per row, no row passed its cap without stopping, and the whole milestone, coordinator included, stays within $100
 
 ## Status

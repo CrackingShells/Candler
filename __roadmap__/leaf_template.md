@@ -38,8 +38,11 @@ in the leaf report. Builds use the target dir the campaign README names; the lea
    input they need set, and require the output to list them as passed, not skipped.
 4. **A seam review on the whole diff follows each merge level.** The reviewer gets the milestone's
    diff so far and the consumer interface, not one leaf, because defects live where two leaves meet.
-5. **A roadmap merge waits for a green `container-e2e`.** The check that runs the real container
-   path runs in CI on the pull request, so a merge without it has not met that path.
+5. **A roadmap merge that touches what the container path depends on waits for a green
+   `container-e2e`; a merge that touches none of it says so.** The check runs the real container
+   path in CI, and it starts only on pull requests that touch those paths (the `paths` list of
+   `.github/workflows/container-e2e.yml`), so a merge that needed it and went without it has not
+   met that path, and a merge that never triggers it records why it did not wait.
 6. **Each leaf states its estimate, its cap as a stop action, the target dir the campaign README
    names, and their cleanup.** The cap says what to do on reaching it (stop, commit what is green,
    list what is left), so overrun ends work instead of growing it. Builds on a shared machine use a
