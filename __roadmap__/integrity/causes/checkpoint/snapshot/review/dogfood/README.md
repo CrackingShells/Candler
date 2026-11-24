@@ -15,7 +15,7 @@ Whose failure each friction is, Candler's or the agent's, is known from the tran
 ## Status
 ```mermaid
 graph TD
-    dogfooding_pass[Dogfooding pass]:::planned
+    dogfooding_pass[Dogfooding pass]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -26,7 +26,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `dogfooding_pass.md` | 📄 Leaf Task | ⬜ Planned |
+| `dogfooding_pass.md` | 📄 Leaf Task | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
