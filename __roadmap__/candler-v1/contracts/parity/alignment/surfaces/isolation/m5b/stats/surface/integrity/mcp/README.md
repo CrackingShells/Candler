@@ -1,13 +1,13 @@
 # MCP server
 
 ## Context
-Depth 10. The MCP server (M7) and the agent skills that let agents use it, one level below M6c and above the second plug-in. M7 needs only M3; the tree also makes it wait for M5a, M5b, M6a, M6b and M6c. Moved here by amendment A6 of `../../../../../README.md`; amendment A11 moved it one level down, under `surface/`, and amendment A12 one more, under `diet/`.
+Depth 10. The MCP server (M7) and the agent skills that let agents use it, one level below M6c and above the second plug-in. M7 needs only M3; the tree also makes it wait for M5a, M5b, M6a, M6b and M6c. Moved here by amendment A6 of `../../../../../README.md`; amendment A11 moved it one level down, under `surface/`, and amendment A12 one more, under `diet/`, which amendment A13 renamed `integrity/`.
 
 ## Goal
 Agents drive Candler through MCP, and skills teach them to author plug-ins, drive runs and compute evals with it.
 
 ## Pre-conditions
-- [ ] `../m6c_diet.md` is `done`
+- [ ] `../m6c_integrity.md` is `done`
 
 ## Success Gates
 - ⬜ `m7_mcp_server.md` and `plugin/` are `done`
