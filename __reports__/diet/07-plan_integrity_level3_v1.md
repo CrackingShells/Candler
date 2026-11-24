@@ -72,7 +72,7 @@ The rows are `Copy` and hold `&'static str`. Every key is a fieldless enum with 
 
 ### The census, reduced
 
-- The census keeps `census.tools`, `census.init_tools` and `census.source`, with one producer per harness: Claude Code's `system/init`, and OpenCode's gateway.
+- The census keeps `census.tools` and `census.init_tools`, and on both harnesses it comes from the harness's own report: Claude Code's `system/init`, and OpenCode's `serve` child at `GET /experimental/tool?provider=<p>&model=<m>` (documented in the OpenCode server API). Candler's gateway stops recording a census, and `CensusSource` and `census.source` go, since every census is the harness's own (revision 3).
 - `census.mcp_servers` is removed, and with it Claude Code's status reading.
 - `SERVER_START_WAIT`'s doc (`jobs/orchestrate/servers.rs:22`) stops claiming the census records servers.
 - No `mcp.list` or `debug config` collection is added.
@@ -112,7 +112,7 @@ The rows are `Copy` and hold `&'static str`. Every key is a fieldless enum with 
 
 Writers never share files within a level:
 - P9 owns both drivers' `prepare.rs` MCP renderers and `servers.rs`.
-- P10 owns `export.rs`, `parse.rs`, `census.rs`, `gateway.rs`'s census, and the resolve name check.
+- P10 owns `export.rs`, `parse.rs`, `census.rs`, `gateway.rs`'s census (removed), the OpenCode census reader, and the resolve name check.
 - P11 owns `contract_pages/`.
 
 P8 touches both drivers' `driver.rs` and the `prepare.rs` refusals before level 3.2 starts. P9 and P10 then rebase onto it.
