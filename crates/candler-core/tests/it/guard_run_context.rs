@@ -264,7 +264,6 @@ fn the_file_rule_treats_a_stored_dot_claude_by_its_glob() {
     let plain = |path: &'static str| File {
         path,
         bytes: path.as_bytes(),
-        executable: false,
     };
     let cases: [(&str, Vec<File>, &str, &[&str]); 2] = [
         (
@@ -302,32 +301,45 @@ fn the_file_rule_treats_a_stored_dot_claude_by_its_glob() {
     }
 }
 
-/// Guards: R9 and I11 — a file the tree marks executable materialises as `0555`, a private copy
-/// with one link, while the store blob keeps its own inode and mode `0444`. The runner's tree never
-/// marks a file executable, so this run is sealed through the runner's `seal_run` over a workspace
-/// made here. Oracle: `stat` of the copy and of the blob, and the executable bit given to the file here.
+/// Guards: R9 and I11 — a file of an imported folder that has an execute bit materialises as `0555`
+/// and one that has none as `0444`, each a private copy with one link. Oracle: `stat` of the
+/// copies, and the mode given here to a copy of the corpus before it is imported.
 #[test]
-fn an_executable_entry_materialises_as_a_private_0555_copy() {
-    let (_keep, store) = mini_store(&mini());
-    let template = key_of(&store, 12);
-    let stored = [File {
-        path: "run.sh",
-        bytes: b"#!/bin/sh\n",
-        executable: true,
-    }];
-    let run = seal_workspace(&store, &template, 2, &stored);
+fn an_imported_executable_materialises_as_a_private_0555_copy() {
+    let copy = tempfile::tempdir().expect("a corpus copy");
+    copy_tree(&mini(), copy.path());
+    let outputs = copy
+        .path()
+        .join(cell_of(12))
+        .join("_run_cache/with_skill/run-12/outputs");
+    let (script, plain) = (outputs.join("run.sh"), outputs.join("note.txt"));
+    fs::write(&script, b"#!/bin/sh\n").expect("a script writes");
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("a mode");
+    fs::write(&plain, b"note\n").expect("a note writes");
+    fs::set_permissions(&plain, fs::Permissions::from_mode(0o644)).expect("a mode");
+    let (_keep, store) = mini_store(copy.path());
     let workspace = tempfile::tempdir().expect("a workspace");
-    context_of(&store, &run, &needs_of(&["outputs/**"]), workspace.path());
+    context_of(
+        &store,
+        &key_of(&store, 12),
+        &needs_of(&["outputs/**"]),
+        workspace.path(),
+    );
 
-    let path = workspace.path().join("outputs").join("run.sh");
-    let copy = fs::metadata(&path).expect("a copy");
-    let blob = fs::metadata(store.blob_path(&sha256_of(&fs::read(&path).expect("reads"))))
-        .expect("a blob");
-    assert_eq!(copy.mode() & 0o777, 0o555, "the mode of the copy");
-    assert_eq!(copy.nlink(), 1, "the copy has one link");
-    assert_ne!(copy.ino(), blob.ino(), "the copy is not the blob");
-    assert_eq!(blob.nlink(), 1, "the blob gained no link");
-    assert_eq!(blob.mode() & 0o777, 0o444, "the mode of the blob");
+    let modes =
+        |name: &str| fs::metadata(workspace.path().join("outputs").join(name)).expect("a copy");
+    assert_eq!(
+        modes("run.sh").mode() & 0o777,
+        0o555,
+        "the mode of the script"
+    );
+    assert_eq!(modes("run.sh").nlink(), 1, "the script has one link");
+    assert_eq!(
+        modes("note.txt").mode() & 0o777,
+        0o444,
+        "the mode of the note"
+    );
+    assert_eq!(modes("note.txt").nlink(), 1, "the note has one link");
 }
 
 /// Guards: I11 — a workspace that is, or lies above, the store root is refused before any directory is made, so a plug-in cannot reach the store through its own workspace. Oracle: the parent of the store root, and the store root itself, handed in as workspaces.

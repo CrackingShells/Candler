@@ -43,6 +43,7 @@ fn evidence(path: &str, sha: &str) -> Evidence {
         outputs: vec![OutputDigest {
             path: path.to_owned(), // BORROW: the evidence owns its path
             digest: digest(sha),
+            executable: false,
         }],
         tree: RunTree::builder().build().expect("an empty tree"),
     }
@@ -170,6 +171,7 @@ fn outputs_of(paths: &[&str]) -> Evidence {
             .map(|path| OutputDigest {
                 path: (*path).to_owned(), // BORROW: the evidence owns its path
                 digest: digest(INPUT_SHA),
+                executable: false,
             })
             .collect(),
         ..evidence("unused", INPUT_SHA)

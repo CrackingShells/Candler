@@ -23,6 +23,8 @@ pub struct OutputDigest {
     pub path: String,
     /// The digest of the content.
     pub digest: Digest,
+    /// Whether the file has an execute bit for the owner, the group or others.
+    pub executable: bool,
 }
 
 /// A file the run was given and its digest.

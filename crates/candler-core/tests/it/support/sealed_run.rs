@@ -3,7 +3,6 @@
 //! so a gap in that step shows in every guard that reads outputs.
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt as _;
 use std::str::FromStr as _;
 
 use candler_core::runner::exec::seal::seal_run;
@@ -17,7 +16,6 @@ use candler_schemas::trace::TraceFile;
 pub struct File {
     pub path: &'static str,
     pub bytes: &'static [u8],
-    pub executable: bool,
 }
 
 /// A trace of no session: the header alone.
@@ -43,12 +41,10 @@ pub fn seal_workspace(store: &Store, template: &RunKey, attempt: u32, files: &[F
         let at = workspace.path().join(file.path);
         fs::create_dir_all(at.parent().expect("a parent")).expect("a directory");
         fs::write(&at, file.bytes).expect("a file writes");
-        let mode = if file.executable { 0o755 } else { 0o644 };
-        fs::set_permissions(&at, fs::Permissions::from_mode(mode)).expect("a mode");
         tree = tree.entry(TreeEntry::file(
             RelPath::from_str(file.path).expect("a path"),
             Digest::of_bytes(file.bytes),
-            file.executable,
+            false,
         ));
     }
     let key = manifest.run().clone();
