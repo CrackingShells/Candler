@@ -87,3 +87,76 @@ Runner's note on that first pass: row 3 says B did not hit the step cap, which i
 - Docker images, containers, networks created by the pass: none (before and after listings in `docker-*-before.txt` match). Nothing removed, nothing stopped, nothing pruned.
 - Removed at the end: `integrity-target/p7`, `integrity-target/p7-main`, the `main-tree` detached worktree (`scratch/p7/main-tree`), `consumer-a/.target`, `consumer-b/.target` if present.
 - Kept in scratch for the reader: transcripts, consumer directories, classification files, `golden*.log`, `htn-0.5.2/`, `main-bin/`.
+
+---
+
+# Rerun (maintainer's one rerun with the setup fixed)
+
+The sections above are the first attempt and are unchanged. The rerun stopped at its cost cap (.5 of the runner's side) before the first classification and before the gates that need a reader; what was not reached is marked.
+
+## Rerun: F3/F4 (done first, before the consumers)
+
+One real run through `candler run`, harness `opencode` 2.2.7, container isolation, `RiVault/Agentic-Small`, a prompt that asks for three files (`a.txt`, `b.txt`, `notes/c.txt`). Experiment, treatment repository and store: `/Users/hacker/Documents/tmp/claude-worktrees/Candler/integrity-scratch/p7/f34/` (`exp.toml`, `skills/`, `store/`). The experiment needed a treatment, `permission_mode`, a `.claude/skills/<name>` tree in the treatment repository (the first refusal named it), and a `model.endpoint` without `/v1` (with it the model-list read answered 404).
+
+| List | Files |
+|---|---|
+| Written by the agent in its workspace (`runs/<run>/workspace`) | `.opencode/skills/demo/SKILL.md`, `a.txt`, `b.txt`, `notes/c.txt` |
+| Stored outputs (`runs/<run>/tree.json`, 3 entries, blobs in `blobs/`) | `a.txt`, `b.txt`, `notes/c.txt` |
+| Difference | `.opencode/skills/demo/SKILL.md` only |
+
+The collect rule of the OpenCode driver (`crates/candler-harness-opencode/src/driver.rs:281`) excludes `.opencode/**` and `**/.opencode/**`; the one file is the treatment's skill, placed by Candler and not written by the agent. After that exclusion the lists are equal. **F3/F4: PASS** for OpenCode: nothing the agent wrote was dropped, and nothing was stored that it did not write.
+
+**Measured OpenCode-in-container run:** job 09:32:26.97Z to 09:32:38.50Z, **11.5 s**; `candler run` returned its job id in 2 s. The image build (a new `candler-env` image) had happened at the earlier `resolve` and is not in that figure.
+
+## Rerun: setup
+
+| Item | Value |
+|---|---|
+| Consumers | A: `RiVault/Reasoning-Medium`; B: `RiVault/Reasoning-Large` with OpenCode `--variant low` |
+| Aliases read live | `/Users/hacker/Documents/tmp/claude-worktrees/Candler/integrity-scratch/p7/alias-rerun.txt`: unchanged since the first attempt (Reasoning-Large = MiMo-V2.6-Pro-RL, levels low, high, max) |
+| Reasoning-Large effort probe | one short call each at low, high and max: all three answered coherently ("360 grams") with reasoning tokens 29, 29 and 42. `low` chosen: coherent and cheaper, and the first attempt's high-effort default ended incoherently. |
+| Rustdoc sources removed | `rm -r rustdoc/src` and the `src-files*.js` index, in each consumer. Checked with `find`: 0 directories named `src`, 0 files named `*.rs.html`, 0 files with `.rs` in the name, under each rerun consumer directory. Rendered pages still hold dead links to `src/`; the target files do not exist. |
+| Step cap | 400 (`agent.build.steps`) |
+| Wall cap | 2400 s for both. Derivation: a consumer needs about 12 runs (2 experiments by 6) at 11.5 s = 138 s; 4 x 138 s = 552 s for Candler's share, plus a margin of 1848 s for the agent's own reading and writing. This is shorter than the first attempt's 5400 s because B's first attempt used 3926 s and produced nothing; the margin is the runner's choice. |
+| Isolation of the consumers | each has its own `XDG_STATE_HOME` (Candler's default store) and, for B, its own `XDG_DATA_HOME`: the first launch of B failed in 1 s with OpenCode's "database is locked" because A held the shared OpenCode database (`transcript-b-launchfail.*`; no model call was made, so it is not an attempt) |
+| Transcripts | A: `/Users/hacker/Documents/tmp/claude-worktrees/Candler/integrity-scratch/p7/rerun/transcript-a.jsonl`; B: `/Users/hacker/Documents/tmp/claude-worktrees/Candler/integrity-scratch/p7/rerun/transcript-b.jsonl`; workspaces `/Users/hacker/Documents/tmp/claude-worktrees/Candler/integrity-scratch/p7/rerun/consumer-a/`, `consumer-b/`; launcher `/Users/hacker/Documents/tmp/claude-worktrees/Candler/integrity-scratch/p7/run_rerun.sh` |
+
+## Rerun: runs
+
+| | A (Reasoning-Medium) | B (Reasoning-Large, low) |
+|---|---|---|
+| End | finished itself, rc 0, 1421 s (under the cap), 390 steps | killed by the runner at 1480 s (rc 143) because of the rerun's cost cap, not the wall cap; 101 steps |
+| Tokens: new input / output / reasoning | 642,865 / 83,590 / 74,569 | 123,089 / 23,072 / 172,817 |
+| Tokens: cache read | 49,385,984 | 8,281,664 |
+| Reasoning above 0 | yes | yes |
+| Step latency | about 3.6 s | about 14.6 s |
+| Experiment written and run | yes: 2 arms x 3 replicates, one MCP unit-converter server, OpenCode on `RiVault/Agentic-Small`, job 6/6 completed, 6 sealed runs | no run: it was still planning (plug-in, suites, experiment directories; 3 run directories in its workspace are not candler runs) |
+| Snapshot and provenance checked | yes, with `inspect`; its RESULT says the stored catalog snapshot is the resolve-time catalog `{"provider":"candler-image@1","servers":[]}` (empty `servers` although a live MCP tool was used) | no |
+| Graded fresh and on disk | yes: 3 pass, 3 fail; the second grading made 0 new requests and gave the same split | no |
+| `analyze` | arms valid 3/3, decision keep (its own addition) | no |
+| Op API step | not done: no Candler crate to depend on from the directory (`cargo fetch`: no matching package `candler-core`); a sketch only in `lib-attempt/src/main.rs` | not reached |
+| Crate source in cargo's dependency directory / any source | none seen in the digest (no path outside its own directory); `rustdoc/src` no longer exists | none seen |
+| Candler's own run times | 6 runs in one job; per-run times not extracted (cost cap) | none |
+
+Docker objects the rerun left: see Rerun: cleanup.
+
+## Rerun: S6
+
+A did read the stored snapshot of its runs and reports it as the resolve-time catalog with an empty server list; whether it found it **from documentation alone** was not judged (the transcript was not read past its digest, cost cap). B did not reach the question; its notes say it could not find where the MCP tool-catalog snapshot command lives, and noticed that the preflight catalog is empty for an image with no MCP server.
+
+## Rerun: first classification, before tip, golden
+
+- **Frictions, RiVault first pass:** NOT REACHED (cost cap). The material is ready (`/Users/hacker/Documents/tmp/claude-worktrees/Candler/integrity-scratch/p7/classify-rerun.sh`, `/Users/hacker/Documents/tmp/claude-worktrees/Candler/integrity-scratch/p7/digest-rerun.py`); A's own list in its `RESULT.md` is: no `answer.md` until an input was added, the evaluator protocol without the helper package (inline `protocol` table, `describe` without `lock_digest`, the outcome `record` as a full OutcomeRecord with `evaluator` as `name@version`), the stored run replay under `--force`, and the library redo impossible because no crate exists to depend on. These are A's words, not a classification.
+- **Before tip:** unchanged from the first attempt (malformed MCP server PASS; S1 and B1 cited; plug-in path layout and audit-1 not judged: A's evaluator ran, so its transcript can settle the plug-in path layout, but it was not read).
+- **Golden:** not rerun, as ruled.
+
+## Cross-repo finding: golden parity (not an M6c regression)
+
+The three `guard_golden_parity` failures of the first attempt come from `candler-plugin/import/htn-results-rules.toml` of htn-creator-eval 0.5.2 lacking `entry_params`, which Candler's importer has required since `7872a22d feat(importer)!`, already on `main`. The plug-in's rules file (or the parity corpus) belongs to the mcp-python-ingestion repository. Nothing is fixed here; `htn-creator-eval@0.5.3` was not tried.
+
+## Rerun: cleanup
+
+- Docker, created by the rerun and removed by name: image `candler-env:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855-src-b062c666af0a-env-e7ca5eaba54a` (made by the F3/F4 run's build; the run's container was removed by Candler).
+- Not removable: `candler-gateway:latest` existed before the pass (image `6902eef07d3f`); Candler rebuilt and re-tagged it during the pass (now a different id), so the earlier image is untagged. Not restored.
+- Consumer A may have created further Docker objects of its own through its six runs; at the end the image and network lists differ from the "before" lists only by the two lines above, and containers are back to the 3 arangodb ones.
+- Removed: the consumers' `.target` directories. Kept for the reader: transcripts, consumer directories, `f34/`.
