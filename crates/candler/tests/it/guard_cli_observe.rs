@@ -195,6 +195,48 @@ fn container_calls(world: &World) -> Vec<String> {
         .collect()
 }
 
+/// Guards: `resolve` accepts a valid experiment whose `request.treatment` factor has two table
+/// levels, each its own skills commit: every level has a resolution, so no level is reported
+/// unresolved.
+///
+/// Oracle: the exit code and the two tags, written here; `run` plans the same file to two cells.
+///
+/// Bite: give the cell check one resolution for every level.
+#[test]
+fn o1_resolve_accepts_an_experiment_with_two_treatment_levels() {
+    let world = world();
+    let models = Models::start(TOKEN);
+    let skill = world.skills.join(".claude").join("skills").join("demo");
+    write(&skill.join("SKILL.md"), "# second\n");
+    for args in [
+        &["commit", "-q", "-a", "-m", "second"][..],
+        &["tag", "v2"][..],
+    ] {
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(&world.skills)
+            .args(args)
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {args:?} failed");
+    }
+    let source = world.skills.display().to_string();
+    let text_of = fs::read_to_string(&world.experiment).unwrap();
+    let factor = format!(
+        "[[factors]]\npath = \"request.treatment\"\nlevels = [{{name = \"demo\", tag = \"v1\", source = \"{source}\"}}, {{name = \"demo\", tag = \"v2\", source = \"{source}\"}}]\n\n[budget.per_run]"
+    );
+    fs::write(
+        &world.experiment,
+        text_of.replace("[budget.per_run]", &factor),
+    )
+    .unwrap();
+    let out = resolve(&world, &models.url(), &[], Some(TOKEN));
+    let stderr = text(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "stderr: {stderr}");
+    assert!(!stderr.contains("has no resolution"), "{stderr}");
+    world.remove();
+}
+
 /// Guards: `resolve` builds each cell, so an absolute path in the `args` of a server (which `run`
 /// refuses as `experiment.absolute_path`) and a malformed server written in a factor level are
 /// refused by `resolve` too.

@@ -296,6 +296,25 @@ fn check_env_source<'a>(paths: impl IntoIterator<Item = &'a FieldPath>) -> Resul
         })
 }
 
+/// The input with `level` as the setting `request.treatment`, its `source` relative to the
+/// experiment file's directory `dir` as the file writes it.
+pub(crate) fn input_for_level(
+    input: &ResolveInput,
+    level: &serde_json::Value,
+    dir: &Path,
+) -> Result<ResolveInput, CliError> {
+    let path = path_of(paths::REQUEST_TREATMENT)?;
+    let given = FileValues::new(vec![(path.clone(), json_of(level)?)]) // BORROW: the values own the path
+        .relative_to(dir)
+        .map_err(CliError::refused_by)?;
+    let mut input = input.clone(); // BORROW: each level resolves its own copy
+    if let (Some(file), Some((_, value))) = (input.file.as_mut(), given.values.into_iter().next()) {
+        file.values.retain(|(held, _)| *held != path);
+        file.values.push((path, value));
+    }
+    Ok(input)
+}
+
 /// What the experiment file and the command line ask for, as the input of a resolution: the
 /// file's fixed values, the settings `request.harness` and `request.treatment` it names, and the
 /// arguments of `--set` as explicit values. A location setting (the treatment's source, the build

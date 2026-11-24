@@ -25,13 +25,15 @@ use candler_core::resolve::layers::Resolution;
 use candler_core::resolve::preflight::{ResolveError, StepError, StepReport};
 use candler_core::resolve::steps::gateway::register_gateway_step;
 use candler_core::resolve::steps::secrets::register_secret_step;
-use candler_core::runner::plan::check_cells;
+use candler_core::runner::plan::{check_cells, treatment_levels};
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_schemas::execution::{EventPayload, ExperimentFile};
 use candler_schemas::primitives::{FieldPath, RunKey};
 use candler_schemas::values::{SourceEntry, ValueSource};
 
-use super::preflight::{check_factors, foreground, request_settings, requested_harness};
+use super::preflight::{
+    check_factors, foreground, input_for_level, request_settings, requested_harness,
+};
 use super::refusal::CliRefusal;
 use super::term::Paint;
 use super::{CliError, Exit, OutputArgs, common};
@@ -271,7 +273,12 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let mut failures = plugin_dir_failures(&config);
     let mut resolution = None;
     let mut summary = None;
-    match resolver.resolve(input).await {
+    let declared_levels = treatment_levels(&file);
+    let first = match declared_levels.first() {
+        Some(level) => input_for_level(&input, level, experiment_dir.as_path())?,
+        None => input.clone(), // BORROW: the later levels resolve from the same input
+    };
+    match resolver.resolve(first).await {
         Ok(found) => resolution = Some(found),
         Err(ResolveError::Preflight { reports, errors }) => {
             failures.extend(render_failures(&reports, &errors));
@@ -294,7 +301,17 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let Some(resolution) = resolution else {
         return Ok(Exit::Success);
     };
-    check_cells(&file, &resolution, driver.as_ref()).map_err(CliError::refused_by)?;
+    let mut levels = vec![resolution.clone()]; // BORROW: the levels own their resolutions
+    for level in declared_levels.iter().skip(1) {
+        let given = input_for_level(&input, level, experiment_dir.as_path())?;
+        levels.push(
+            resolver
+                .resolve(given)
+                .await
+                .map_err(CliError::refused_by)?,
+        );
+    }
+    check_cells(&file, levels.as_slice(), driver.as_ref()).map_err(CliError::refused_by)?; // BORROW: explicit .as_slice()
     if text {
         for line in render_values(&resolution, Paint::detect()) {
             writeln!(stdout, "{line}").map_err(failed_here)?;
