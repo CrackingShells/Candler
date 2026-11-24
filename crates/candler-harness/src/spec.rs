@@ -1356,6 +1356,17 @@ pub struct Cell<'a> {
     values: &'a [ResolvedValue],
 }
 
+/// A text no variant names, refused at `path` with the accepted spellings.
+fn unnamed(path: &FieldPath, text: &str, accepted: &[&str]) -> DriverError {
+    DriverError::InvalidValue {
+        path: path.clone(), // BORROW: the error owns the path
+        detail: format!(
+            "is `{text}`; the accepted texts are {}",
+            accepted.join(", ")
+        ),
+    }
+}
+
 impl<'a> Cell<'a> {
     /// A view of the resolved values of a cell.
     #[must_use]
@@ -1496,27 +1507,58 @@ impl<'a> Cell<'a> {
         self.required_text(&field_path!(paths::MODEL_ID))
     }
 
-    /// The permission mode the cell sets, or [`PermissionMode::Default`] when it sets none, which
-    /// is the mode Claude Code's command line carries for a cell without one. The cell holds the
-    /// text; resolve refuses text that names no mode, and this maps the text it checked. Text that
-    /// never went through resolve and names no mode reads as [`PermissionMode::Default`]. No driver
-    /// is asked about an unset mode: [`DriverFact::UnsetPermissionMode`] states it.
-    #[must_use]
-    pub fn permission_mode(&self) -> PermissionMode {
-        self.value(&field_path!(paths::PERMISSION_MODE))
-            .and_then(Value::as_str)
-            .and_then(PermissionMode::from_text)
-            .unwrap_or(PermissionMode::Default)
+    /// The effort level the cell holds at `path`, or `None` when the cell sets none. The one place
+    /// effort text becomes a level: resolve and [`Cell::effort`] both read it here, so a stored cell
+    /// that replays without resolve is refused as a fresh one is.
+    ///
+    /// # Errors
+    /// [`DriverError::InvalidValue`] at `path` when the value is not text or names no level.
+    pub fn effort_at(&self, path: &FieldPath) -> Result<Option<EffortLevel>, DriverError> {
+        self.text(path)?
+            .map(|text| {
+                EffortLevel::from_text(text)
+                    .ok_or_else(|| unnamed(path, text, &EffortLevel::ALL.map(EffortLevel::as_str)))
+            })
+            .transpose()
     }
 
-    /// The reasoning effort, if the cell sets one. The cell holds the text; resolve refuses text
-    /// that names no level, and this maps the text it checked. Text that never went through resolve
-    /// and names no level reads as unset.
-    #[must_use]
-    pub fn effort(&self) -> Option<EffortLevel> {
-        self.value(&field_path!(paths::MODEL_EFFORT))
-            .and_then(Value::as_str)
-            .and_then(EffortLevel::from_text)
+    /// The permission mode the cell holds at `path`, or `None` when the cell sets none. The one
+    /// place mode text becomes a mode: resolve and [`Cell::permission_mode`] both read it here. A
+    /// cell that sets no mode asks nothing of the driver: what the harness does then is its
+    /// [`DriverFact::UnsetPermissionMode`].
+    ///
+    /// # Errors
+    /// [`DriverError::InvalidValue`] at `path` when the value is not text or names no mode.
+    pub fn mode_at(&self, path: &FieldPath) -> Result<Option<PermissionMode>, DriverError> {
+        self.text(path)?
+            .map(|text| {
+                PermissionMode::from_text(text).ok_or_else(|| {
+                    unnamed(path, text, &PermissionMode::ALL.map(PermissionMode::as_str))
+                })
+            })
+            .transpose()
+    }
+
+    /// The permission mode the cell sets, or [`PermissionMode::Default`] when it sets none, which
+    /// is the mode Claude Code's command line carries for a cell without one. No driver is asked
+    /// about an unset mode: [`DriverFact::UnsetPermissionMode`] states it.
+    ///
+    /// # Errors
+    /// [`DriverError::InvalidValue`] at `permission_mode` when the value is not text or names no
+    /// mode, as [`Cell::mode_at`] returns it.
+    pub fn permission_mode(&self) -> Result<PermissionMode, DriverError> {
+        Ok(self
+            .mode_at(&field_path!(paths::PERMISSION_MODE))?
+            .unwrap_or(PermissionMode::Default))
+    }
+
+    /// The reasoning effort, if the cell sets one.
+    ///
+    /// # Errors
+    /// [`DriverError::InvalidValue`] at `model.effort` when the value is not text or names no
+    /// level, as [`Cell::effort_at`] returns it.
+    pub fn effort(&self) -> Result<Option<EffortLevel>, DriverError> {
+        self.effort_at(&field_path!(paths::MODEL_EFFORT))
     }
 
     /// The prompt: the cell's template, filled by [`render_prompt`] from its values.
