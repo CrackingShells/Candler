@@ -3,15 +3,17 @@
 
 use std::fmt::Write;
 use std::fs;
+use std::mem;
 
 use candler_core::resolve::paths::{CONFIGURATION_PATHS, ConfigFile, Kind, Reach};
-use candler_harness::spec::Answer;
+use candler_harness::spec::AgentSetting;
 use syn::{Expr, ExprArray, ExprLit, Item, Lit};
 
 use super::harness::{HarnessPage, assemble, cell};
 use super::refusals::{Entry, all_entries};
 use super::repo_root;
 use super::versions::{CLOSE, OPEN, Versions};
+use super::{answer_words, setting_label};
 use crate::drivers::Registry;
 
 /// The page of the configuration paths.
@@ -81,29 +83,39 @@ fn names(kind: Kind) -> &'static str {
     }
 }
 
-/// The words of a driver's answer to one setting: the cell an experimenter reads.
-fn answer_of(answer: Answer) -> String {
-    match answer {
-        Answer::Mapped { construct } => construct.to_owned(), // BORROW: .to_owned() makes the owned cell text
-        Answer::Candler { how } => format!("Candler: {how}"),
-        Answer::Refused { reason } => format!("no ({reason})"),
-    }
+/// The settings of the same family as `sample`: every `AgentSetting` whose variant is the sample's,
+/// so a path that holds one value of a closed family shows every value the cell could hold.
+#[must_use]
+pub fn family_of(sample: AgentSetting) -> Vec<AgentSetting> {
+    AgentSetting::ALL
+        .into_iter()
+        .filter(|setting| mem::discriminant(setting) == mem::discriminant(&sample))
+        .collect()
 }
 
-/// The cell of one driver for the agent setting a path reaches.
+/// The cell of one driver for the agent settings a path reaches: each family of the row's keys,
+/// every value of the family labelled with its setting, joined by `; `.
 ///
 /// # Errors
 /// `Err` naming the driver when the registry has no driver for `name`; never otherwise, as every
 /// registered driver answers every setting.
-fn driver_cell(
+fn driver_cells(
     name: &str,
     registry: &Registry,
-    setting: candler_harness::spec::AgentSetting,
+    settings: &[AgentSetting],
 ) -> Result<String, String> {
     let driver = registry
         .driver(name)
         .map_err(|_| format!("no driver for `{name}`"))?;
-    Ok(answer_of(driver.answer(setting)))
+    let mut fragments: Vec<String> = Vec::new();
+    for sample in settings {
+        let values = family_of(*sample);
+        for setting in values {
+            let text = answer_words(driver.answer(setting));
+            fragments.push(format!("{}: {text}", setting_label(setting)));
+        }
+    }
+    Ok(fragments.join("; "))
 }
 
 fn paths_fields(registry: &Registry) -> Result<String, String> {
@@ -134,11 +146,7 @@ fn paths_fields(registry: &Registry) -> Result<String, String> {
             }
             Reach::Agent(settings) => {
                 for driver in &registered {
-                    let text = settings
-                        .iter()
-                        .map(|setting| driver_cell(driver, registry, *setting))
-                        .collect::<Result<Vec<_>, _>>()?
-                        .join("; ");
+                    let text = driver_cells(driver, registry, settings)?;
                     let _ = write!(out, " {} |", cell(&text));
                 }
             }

@@ -49,9 +49,7 @@ Core line: `v0.15.0`; the `candler-harness` crate has the same version.
 | cost cap | `--max-budget-usd` on the command line | no (OpenCode has no cost cap) |
 | session mode | stream-json over an open stdin, one turn per message | no (OpenCode runs no session: its trace comes from the export after the run) |
 | gateway route | Candler: gateway, address in `ANTHROPIC_BASE_URL` | Candler: gateway, address in `CANDLER_GATEWAY_URL` |
-| stop | yes | Candler: interrupt command in the container, then SIGTERM |
 | authoritative trace | yes | Candler: collects `export` after the run |
-| skills layout | yes | Candler: places the tree at `.opencode/skills/<name>` |
 | graceful stop | SIGTERM ends the sessions cleanly | an interrupt request to the `serve` child, then SIGTERM to the client |
 | live events | stream-json events on stdout while the run lasts | no (the live reader emits no event: the trace comes from the export) |
 | in-harness guard | no (the driver configures no Claude Code hook) | no (the driver configures no OpenCode guard) |
