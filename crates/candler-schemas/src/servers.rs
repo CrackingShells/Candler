@@ -46,11 +46,12 @@ pub enum McpServerKind {
 /// One entry of an experiment's `mcp.servers`, as the drivers read it.
 ///
 /// A server is launched from a `command` (with optional `args` and `env`) or reached at a `url`
-/// (with optional `headers`); exactly one of `command` and `url` is required. `codemode` selects
-/// the prompts the agent sees, and defaults to `true` when absent. A `name` leaf names the server
-/// under a key; without it the key names it. Every field the drivers read is typed here, so a
-/// non-text `command`, a non-list `args` or a non-text environment value fails validation rather
-/// than being read leniently.
+/// (with optional `headers`); exactly one of `command` and `url` is required, and a `type` marker
+/// agrees with it: `stdio` or `local` with `command`, `http`, `sse` or `remote` with `url`.
+/// `codemode` selects the prompts the agent sees, and defaults to `true` when absent. A `name`
+/// leaf names the server under a key; without it the key names it. Every field the drivers read
+/// is typed here, so a non-text `command`, a non-list `args` or a non-text environment value fails
+/// validation rather than being read leniently.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]

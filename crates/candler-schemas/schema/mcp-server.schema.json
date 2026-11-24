@@ -34,7 +34,7 @@
   "$id": "urn:candler:schemas:mcp-server",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "One entry of an experiment's `mcp.servers`, as the drivers read it.\n\nA server is launched from a `command` (with optional `args` and `env`) or reached at a `url`\n(with optional `headers`); exactly one of `command` and `url` is required. `codemode` selects\nthe prompts the agent sees, and defaults to `true` when absent. A `name` leaf names the server\nunder a key; without it the key names it. Every field the drivers read is typed here, so a\nnon-text `command`, a non-list `args` or a non-text environment value fails validation rather\nthan being read leniently.",
+  "description": "One entry of an experiment's `mcp.servers`, as the drivers read it.\n\nA server is launched from a `command` (with optional `args` and `env`) or reached at a `url`\n(with optional `headers`); exactly one of `command` and `url` is required, and a `type` marker\nagrees with it: `stdio` or `local` with `command`, `http`, `sse` or `remote` with `url`.\n`codemode` selects the prompts the agent sees, and defaults to `true` when absent. A `name`\nleaf names the server under a key; without it the key names it. Every field the drivers read\nis typed here, so a non-text `command`, a non-list `args` or a non-text environment value fails\nvalidation rather than being read leniently.",
   "oneOf": [
     {
       "properties": {

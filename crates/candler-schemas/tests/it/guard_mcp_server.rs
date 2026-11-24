@@ -55,6 +55,14 @@ fn mcp_server_refusal_rows() -> Vec<(&'static str, Value)> {
             serde_json::json!({ "type": "remote" }),
         ),
         (
+            "a `command` under a URL type",
+            serde_json::json!({ "command": "x", "type": "http" }),
+        ),
+        (
+            "a `url` under a launched type",
+            serde_json::json!({ "url": "http://h", "type": "stdio" }),
+        ),
+        (
             "both `command` and `url`",
             serde_json::json!({ "command": "x", "url": "http://h" }),
         ),
