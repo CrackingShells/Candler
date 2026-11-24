@@ -5,8 +5,8 @@ census names no server. The OpenCode endpoint the leaf was to read the census fr
 in the pinned binary; the coordinator kept the gateway census (amendment A5), so each census names
 its source.
 
-Base `21d8486c` (`origin/feat/integrity` at the branch point). Tip: the `fix(library)` commit of the
-branch `leaf/l3-trace-parity`.
+Base `21d8486c` (`origin/feat/integrity` at the branch point). Tip: the tip of the
+branch `leaf/l3-trace-parity`, which also merges `feat/integrity` at 29573006 (P9).
 
 ## What changed
 
@@ -42,6 +42,7 @@ branch `leaf/l3-trace-parity`.
 | Each census names its source: Claude Code's is its `system/init`; OpenCode's is the tools its model was offered at the gateway (A5) | PASS | `CensusSource` and `census.source` stay: `guard_harness_facts::harness_census_records_what_the_source_saw` records no `census.source` for the harness's own init and `"gateway"` for the gateway's; `guard_census_gateway` holds the gateway run's `census.source`. The original endpoint does not exist: see Probe |
 | Trace and census schemas regenerated; conformance checks the MCP origin for every driver | PASS | the trace schema regenerated (`drift` passes); no census schema names the field; `conformance_opencode_recorded_runs` and the Claude Code suite run `mcp_call` cases |
 | A server name is letters, digits, `-` and single `_`, by `name` or by key | PASS | `guard_mcp_names::a_server_name_is_letters_digits_and_dashes_joined_by_single_underscores`: `s_`, `_s`, `a__b`, `a.b`, `my srv` refused, by name and by key; `a-b`, `a_b` accepted |
+| The published schema refuses what the name rule refuses | PASS | `fix(schemas)!`: `McpServer.name` carries `SERVER_NAME_PATTERN` (`^[A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*(?![\s\S])`, the end anchor the schemas use); `guard_mcp_server::the_mcp_server_schema_refuses_what_the_reader_refuses` has the rows `a.b` and `s_`. No published schema types the server map, so the keys are checked by the reader only |
 | Report's "What it leaves" | PASS | below |
 | fmt, clippy `-D warnings`, nextest, doc `-D warnings` | PASS | all clean. `guard_wiring::wiring_stop_execs...` and `guard_known_truth::kt_two_levels...` each failed once in a loaded full run and passed alone (89 s and 2 s) |
 | container-e2e | not run locally | runs on the PR |
@@ -80,5 +81,6 @@ Left by this leaf, judged at seam review 3:
 - `offline_reader`'s `servers` argument is unused by the Claude Code driver, and `Registry::offline`
   and the ingest path pass `&[]`. It is the shape a harness that spells calls `<server>_<tool>` needs,
   not a second producer.
+- The reader of server names (`candler_harness::mcp::by_name`) is written out, not compiled from `SERVER_NAME_PATTERN`: the pattern ends with the lookahead `(?![\s\S])`, which the `regex` crate does not read, and no other runtime dependency does. The string is in the tree once; the drift test is the `guard_mcp_server` rows above, which check the schema's side.
 - The `feat(schemas)` commit removes `ToolOrigin::mcp`, so the workspace builds again only at the
   `fix(library)` commit after it.
