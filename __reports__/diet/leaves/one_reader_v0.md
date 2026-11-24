@@ -112,7 +112,107 @@ refusal comes from the same predicate; the reader has no absolute-path check of 
 - OpenCode now accepts a `url` server without `type`, read as remote.
 - The library lost `stdio_servers` and `Stdio`; `mcp::servers` returns typed servers.
 
+## Multi-level resolve guard (commit `fix(resolve): check each cell against its own level`)
+
+Risk A1 left untested: `check_cells` received one resolution, so `candler resolve` on an experiment
+whose `request.treatment` factor has several levels could fail with "a treatment level has no
+resolution".
+- Guard: `guard_cli_observe::o1_resolve_accepts_an_experiment_with_two_treatment_levels` (two table
+  levels, tags `v1` and `v2` of two commits of the skills repository, `resolve` must exit 0).
+- RED on the A1 tip (`51a4dc9d`): exit 2, `experiment.document_invalid` at `/factors`, "the treatment
+  level {...\"tag\":\"v2\"} has no resolution". A1 had broken valid experiments.
+- Fix: `resolve` resolves each declared level with `input_for_level` (moved from `run.rs` to
+  `preflight.rs`, shared by both verbs) and hands `check_cells` one resolution per level, as `run` does.
+- GREEN after the fix: the guard, and the 24 tests of `guard_cli_observe` and `guard_cli_run`.
+
+## A2: one reader of replicates, and the silent inputs left (commit `feat(resolve)!: read replicates once and refuse the silent inputs left`; the leaf's subject is 78 characters and `cog verify` allows 72, so `in one place` became `once`)
+
+- `Levels::replicates` (`runner/plan.rs`) returns `Result<u32, PlanError>`. A `replicates` setting that is
+  no count, zero, or beyond 32 bits is `PlanError::Replicates` (the code and pointer of the schema
+  validator that the CLI's `check_replicate_count` raised: `experiment.count_zero` at `/replicates`). A
+  `[fixed]` count that differs from the file's own `replicates` is `PlanError::ReplicatesConflict`,
+  code `experiment.replicates_conflict`, pointer `/replicates`. A setting that came from `--set` still
+  wins over the file's count; with no setting the file's own count is the count.
+- `check_cells` calls it, so `resolve` refuses what `plan_runs` refuses, with the same record.
+- `check_replicate_count` and its two calls in the CLI preflight are gone; its unit test moved to the
+  guard rows below.
+- `model.token_secret` is read from every layer (file, explicit, project and user configuration, core
+  defaults) before the `env` table is checked (`resolve/layers.rs`).
+- The leaf's other silent cases (non-text server `command`, `args`, `env`) were closed by A1.
+- The three per-case codes of PR #57 stay: their refusals sit in other readers (`ResolveError` for the
+  path and not-integer cases, `EnvRefusal` for the env names), whose messages name what to fix.
+- Registry: `experiment.replicates_conflict` added to `docs/contract/codes.toml`; the contract page
+  regenerated (`CANDLER_BLESS_CONTRACT=1`).
+- Un-ignored: `deferred_silent_cases_are_refused_with_a_code_and_a_pointer` and `DEFERRED` are gone; the
+  `replicates_conflict` row sits in `ROWS` (now 11 rows). No `#[ignore]` with an OWNED reason is left.
+
+### Gates (A2)
+- PASS `guard_silent_acceptance::silent_cases_are_refused_with_a_code_and_a_pointer` (rows: token_secret
+  from a core default, `replicates_conflict`, count zero). Base red: scratch `one_reader-a2` at
+  `1a1d7433` with the test files copied in, target dir `one_reader-a2`, line `Compiling candler-core v0.15.0
+  (.../integrity-scratch/one_reader-a2/crates/candler-core)`: `2 tests run: 0 passed, 2 failed`; the rows read
+  `got None` for all three (the library fell back to the file's count).
+- PASS `guard_cli_observe::o1_resolve_refuses_a_replicate_count_the_plan_refuses` (same base run, red).
+- PASS `guard_refusal_codes` (a case for `PlanError::Replicates`; the registry row).
+- fmt, clippy `-D warnings`, `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps`: PASS.
+- `cargo nextest run --workspace`: `747 tests run: 747 passed (6 slow), 31 skipped`.
+
+## HTN migration note
+
+For the HTN lane. This repository has no external users; this is a note, not a shim.
+
+Experiment files now refused, each by `resolve` and `run` with one record:
+| input | refusal |
+|---|---|
+| an `mcp.servers` entry with a `command`, `args` or `env` value that is not text, an unknown key, neither `command` nor `url`, or both families | `experiment.cell_value_invalid`, naming `mcp.servers.<key>` |
+| an absolute path in the `args` of a server | `experiment.absolute_path` (`run` refused it before; `resolve` now does) |
+| `[fixed] replicates` that differs from the file's own `replicates` | `experiment.replicates_conflict` at `/replicates` |
+| `replicates` of 0 or beyond 32 bits, from `--set` or `[fixed]` | `experiment.count_zero` or `experiment.cost_not_positive` at `/replicates`, now also from the library |
+| an `env` name equal to a `model.token_secret` that a configuration layer or a default sets | `experiment.env_token_secret` |
+
+Library break: `candler_harness::mcp::stdio_servers` and `Stdio` are gone, and
+`candler_harness::mcp::servers` returns `Option<BTreeMap<String, McpServer>>` (`candler_schemas::servers`).
+`PlanError` gained `Replicates` and `ReplicatesConflict` (the enum is `non_exhaustive`).
+`candler resolve` on a file with several `request.treatment` levels now resolves each level.
+The HTN golden design (`guard_golden_design`) passes unchanged.
+
+## Bites
+- Lenient reader restored (scratch `one_reader-b1`, `mcp::servers` drops an entry that fails to read; target
+  dir `one_reader-b1`, line `Compiling candler-harness v0.15.0 (.../integrity-scratch/one_reader-b1/crates/candler-harness)`):
+  `3 tests run: 0 passed, 3 failed` (`silent_cases_are_refused_with_a_code_and_a_pointer`,
+  `o1_resolve_and_run_refuse_a_malformed_mcp_server_with_one_record`, `o1_resolve_refuses_what_a_cell_holds`).
+- Replicate fallback restored (scratch `one_reader-b2`; `check_replicates(..).unwrap_or(file count)` and the
+  conflict test disabled; line `Compiling candler-core v0.15.0 (.../integrity-scratch/one_reader-b2/crates/candler-core)`):
+  `2 tests run: 0 passed, 2 failed` (`silent_cases_are_refused_with_a_code_and_a_pointer`,
+  `o1_resolve_refuses_a_replicate_count_the_plan_refuses`).
+- Scratch worktrees, branches and target dirs removed.
+
+## Breaking changes (approved)
+- Claude Code now refuses an unknown key, non-text `args`/`env` values, and a server with neither
+  `command` nor `url`.
+- OpenCode now accepts a `url` server without `type`, read as remote.
+- The library lost `stdio_servers` and `Stdio`; `mcp::servers` returns typed servers.
+
+## Breaking changes (from A2, not yet decided)
+- `[fixed] replicates` that differs from the file's own `replicates` is refused
+  (`experiment.replicates_conflict`); it was silently read as the `[fixed]` value.
+- `Levels::replicates` and `plan_runs` refuse an invalid count where the library fell back to the file's.
+- `resolve` now refuses an invalid count and, with a `request.treatment` factor, resolves every level.
+- An `env` name equal to a `model.token_secret` that a core default or a configuration layer sets is refused.
+
+## Verifier
+A fresh Sonnet verifier read the leaf, this report and the diff of `crates/` (no build).
+- New types and modules: only `McpServer`, `McpServerKind` (with their module `candler_schemas::servers`)
+  and the two `PlanError` variants. No trait, no wrapper. `Stdio` and `stdio_servers` are gone;
+  `check_replicate_count` is gone.
+- Readers: `candler_harness::mcp::servers` is the one reader of `mcp.servers`
+  (`cell.table_at(&field_path!("mcp.servers"))`, `mcp.rs:118`); `Levels::replicates` is the one count reader.
+- New function with a call hop: `check_cells` (two steps: the count, then the cells), the one entry `resolve` uses.
+  `mcp_servers(cell)` in each driver's `prepare.rs` forwards to `mcp::servers`; they pre-date this leaf.
+- Residuals, not changed here: `check_replicates_input` (`resolve/layers.rs`) is a strict second read of
+  `replicates` with its own codes (`ReplicatesNotInteger`, `ReplicatesPath`); a non-text `model.token_secret`
+  yields no name for the env check, so the check is skipped (the gateway step and the session refuse it later).
+
 ## Left
 
-A2 (`Levels::replicates` strict, delete `check_replicate_count`, `token_secret` from defaults or config,
-`replicates_conflict`) and step 4 (HTN note, bites, verifier) are not done.
+Nothing of A2 or step 4. `container-e2e` runs on the pull request.
