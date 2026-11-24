@@ -20,7 +20,7 @@ graph TD
     sealed_run_producer[Sealed run producer]:::inprogress
     collect_oracle[Collect oracle]:::inprogress
     one_reader[One reader]:::inprogress
-    kill_off_tty[Kill off a TTY]:::inprogress
+    kill_off_tty[Kill off a TTY]:::done
     checkpoint[Seam review 1 and checkpoint]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -35,7 +35,7 @@ graph TD
 | `sealed_run_producer.md` | 📄 Leaf Task | 🔄 In Progress |
 | `collect_oracle.md` | 📄 Leaf Task | 🔄 In Progress |
 | `one_reader.md` | 📄 Leaf Task | 🔄 In Progress |
-| `kill_off_tty.md` | 📄 Leaf Task | 🔄 In Progress |
+| `kill_off_tty.md` | 📄 Leaf Task | ✅ Done |
 | `checkpoint/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
