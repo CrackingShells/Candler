@@ -89,3 +89,14 @@ fn the_mcp_server_schema_accepts_what_a_driver_writes() {
         "a well-formed stdio server validates: {wellformed}"
     );
 }
+
+/// Guards: serde refuses a key a server does not have, and reads the keys it has.
+/// Oracle: the two entries are written by hand.
+/// Bite: drop `deny_unknown_fields` from the type; the entry with `timeout` then reads.
+#[test]
+fn serde_refuses_an_unknown_key_in_a_server_entry() {
+    let unknown = serde_json::json!({ "command": "uvx", "timeout": 5 });
+    assert!(serde_json::from_value::<candler_schemas::servers::McpServer>(unknown).is_err());
+    let known = serde_json::json!({ "command": "uvx", "args": ["x"], "codemode": false });
+    assert!(serde_json::from_value::<candler_schemas::servers::McpServer>(known).is_ok());
+}

@@ -51,7 +51,7 @@ pub enum McpServerKind {
 /// field the drivers read is typed here, so a non-text `command`, a non-list `args` or a non-text
 /// environment value fails validation rather than being read leniently.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[schemars(deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct McpServer {
     /// The transport marker: `stdio` or `local` for a launched command, `http`, `sse` or `remote`
