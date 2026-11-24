@@ -1,8 +1,9 @@
 # Trace parity leaf, v0
 
 An MCP call reads the same in the trace of either harness: `origin: {mcp: {server, tool}}`. The
-census names no server. The leaf is only partly done: the OpenCode endpoint it was to read the
-census from does not exist in the pinned binary, so the gateway census stays.
+census names no server. The OpenCode endpoint the leaf was to read the census from does not exist
+in the pinned binary; the coordinator kept the gateway census (amendment A5), so each census names
+its source.
 
 Base `21d8486c` (`origin/feat/integrity` at the branch point). Tip: the `fix(library)` commit of the
 branch `leaf/l3-trace-parity`.
@@ -38,8 +39,9 @@ branch `leaf/l3-trace-parity`.
 | Resolve refuses ambiguous prefixes, with a code | PASS | `opencode_refuses_servers_whose_tool_prefixes_are_ambiguous`; `contract_pages` d1 and d3 pass |
 | Code mode: `execute` calls, empty `wrapped_calls` | PASS | same reader test: `execute` is `builtin`, `wrapped_calls: []` |
 | `census.mcp_servers` and Claude Code's server-status reading gone; `init_tools` stays | PASS | `guard_run_evidence::b25_census_from_a_real_init` (2 values), `guard_container_record` (`census.mcp_servers` is `None`); `harness_baseline/census.json` loses the key |
-| OpenCode census from `GET /experimental/tool`; gateway census, `CensusSource`, `census.source` gone | BLOCKED | the stop written into the leaf: see Probe. Not done |
+| Each census names its source: Claude Code's is its `system/init`; OpenCode's is the tools its model was offered at the gateway (A5) | PASS | `CensusSource` and `census.source` stay: `guard_harness_facts::harness_census_records_what_the_source_saw` records no `census.source` for the harness's own init and `"gateway"` for the gateway's; `guard_census_gateway` holds the gateway run's `census.source`. The original endpoint does not exist: see Probe |
 | Trace and census schemas regenerated; conformance checks the MCP origin for every driver | PASS | the trace schema regenerated (`drift` passes); no census schema names the field; `conformance_opencode_recorded_runs` and the Claude Code suite run `mcp_call` cases |
+| A server name is letters, digits, `-` and single `_`, by `name` or by key | PASS | `guard_mcp_names::a_server_name_is_letters_digits_and_dashes_joined_by_single_underscores`: `s_`, `_s`, `a__b`, `a.b`, `my srv` refused, by name and by key; `a-b`, `a_b` accepted |
 | Report's "What it leaves" | PASS | below |
 | fmt, clippy `-D warnings`, nextest, doc `-D warnings` | PASS | all clean. `guard_wiring::wiring_stop_execs...` and `guard_known_truth::kt_two_levels...` each failed once in a loaded full run and passed alone (89 s and 2 s) |
 | container-e2e | not run locally | runs on the PR |
@@ -53,16 +55,30 @@ run as `l3-trace-probe-1`, both removed) served `opencode serve` with a config d
 server. Its `/openapi.json` lists 139 paths, all under `/api`; `GET /experimental/tool?provider=..&model=..`
 and `/experimental/tool/ids` return the web app's HTML page, not a tool list, and no path lists tools.
 `/api/mcp` answered `{"data":[]}` for the declared server; `/api/config` showed the config loaded. No
-model call was made. The leaf's second check fails, so the gateway census stays.
+model call was made. The docs expose the tool list only to plugins as `ctx.tool.list()`. The leaf's second
+check fails, so the gateway census stays (A5).
 
 ## What it leaves
 
 - **Developed:** one probe image and container, removed; one scratch build for the bite, removed.
   Builds shared the `l3-2` target dir.
 - **In the code:** one origin function per harness, one constructor, one reader of `mcp.servers`.
-  The server-list census value and its error are deleted. Not left clean: the gateway census,
-  `CensusSource` and `census.source` stay because their replacement does not exist. A server whose
-  name has a character OpenCode rewrites in a tool id (`.`) reads `other`, not a server. An ingested
-  OpenCode export reads MCP calls as `other`: ingest has no cell.
+  The server-list census value and its error are deleted. The gateway census,
+  `CensusSource` and `census.source` stay by A5. A server name is one both harnesses carry into a tool
+  id unchanged, so a call splits one way only.
 - **Consumed:** the experimenter reads `origin.mcp.server` and `tool` the same on either harness; a
   server's status is in Claude Code's raw init line, which the trace keeps.
+
+## Not covered
+
+Left by this leaf, judged at seam review 3:
+
+- An OpenCode export ingested without its cell reads its MCP calls as `other`.
+- A server the cell does not declare reads as `other` on OpenCode and as `mcp` on Claude Code: Claude
+  Code's `origin_of` takes any `mcp__x__t`, OpenCode's reader only declared servers (stated on
+  `ToolOrigin::Mcp`).
+- `offline_reader`'s `servers` argument is unused by the Claude Code driver, and `Registry::offline`
+  and the ingest path pass `&[]`. It is the shape a harness that spells calls `<server>_<tool>` needs,
+  not a second producer.
+- The `feat(schemas)` commit removes `ToolOrigin::mcp`, so the workspace builds again only at the
+  `fix(library)` commit after it.
