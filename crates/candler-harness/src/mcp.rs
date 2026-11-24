@@ -48,7 +48,8 @@ fn field_at_fault(entry: &FieldPath, path: &serde_path_to_error::Path) -> FieldP
 
 /// The transport of a read server: the `type` it names, otherwise remote for a `url` without a
 /// `command`, otherwise a launched one.
-pub(crate) const fn kind(server: &McpServer) -> McpServerKind {
+#[must_use]
+pub const fn kind(server: &McpServer) -> McpServerKind {
     match server.kind {
         Some(kind) => kind,
         None if server.command.is_none() && server.url.is_some() => McpServerKind::Remote,

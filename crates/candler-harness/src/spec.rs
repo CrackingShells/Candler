@@ -704,114 +704,6 @@ impl AgentSetting {
         Self::CostBudget,
         Self::SessionMode,
     ];
-
-    /// The cell path the key is set at; the skills come from the treatment.
-    #[must_use]
-    pub const fn path(self) -> &'static str {
-        match self {
-            Self::ModelId => paths::MODEL_ID,
-            Self::ModelEndpoint => paths::MODEL_ENDPOINT,
-            Self::Effort(_) => paths::MODEL_EFFORT,
-            Self::PermissionMode(_) => paths::PERMISSION_MODE,
-            Self::ToolsAllowed => paths::TOOLS_ALLOWED,
-            Self::ToolsDisallowed => paths::TOOLS_DISALLOWED,
-            Self::Env => paths::ENV,
-            Self::Inputs => paths::INPUTS,
-            Self::Skills => paths::TREATMENT,
-            Self::McpTransport(_) | Self::Codemode(_) | Self::McpName => paths::MCP,
-            Self::WallBudget => paths::BUDGET_PER_RUN_WALL_S,
-            Self::TurnBudget => paths::BUDGET_PER_RUN_TURNS,
-            Self::CostBudget => paths::BUDGET_PER_RUN_MAX_COST_USD,
-            Self::SessionMode => paths::RUNNER_MODE,
-        }
-    }
-
-    /// The keys `cell` sets, in the order of [`AgentSetting::ALL`]'s families, each once. The
-    /// skills and the session mode are not read here: the treatment holds the first, and the core
-    /// refuses the second by the plan's session.
-    ///
-    /// # Errors
-    /// [`DriverError::InvalidValue`] when the effort or the permission mode is text no level or
-    /// mode names, naming the accepted texts, and the error of [`Cell::text`],
-    /// [`Cell::table_at`] and of the reader of `mcp.servers`.
-    pub fn set_by(cell: &Cell<'_>) -> Result<Vec<Self>, DriverError> {
-        let mut set: Vec<Self> = Vec::new();
-        let mut add = |setting: Self| {
-            if !set.contains(&setting) {
-                set.push(setting);
-            }
-        };
-        let plain = |rows: &[(FieldPath, Self)], add: &mut dyn FnMut(Self)| {
-            for (path, setting) in rows {
-                if cell.value(path).is_some() {
-                    add(*setting);
-                }
-            }
-        };
-        plain(
-            &[
-                (field_path!(paths::MODEL_ID), Self::ModelId),
-                (field_path!(paths::MODEL_ENDPOINT), Self::ModelEndpoint),
-            ],
-            &mut add,
-        );
-        let effort_path = field_path!(paths::MODEL_EFFORT);
-        if let Some(text) = cell.text(&effort_path)? {
-            let level = EffortLevel::from_text(text).ok_or_else(|| DriverError::InvalidValue {
-                path: effort_path.clone(), // BORROW: the error owns the path
-                detail: format!(
-                    "is `{text}`; the accepted levels are {}",
-                    EffortLevel::ALL.map(EffortLevel::as_str).join(", ")
-                ),
-            })?;
-            add(Self::Effort(level));
-        }
-        let mode_path = field_path!(paths::PERMISSION_MODE);
-        if let Some(text) = cell.text(&mode_path)? {
-            let mode =
-                PermissionMode::from_text(text).ok_or_else(|| DriverError::InvalidValue {
-                    path: mode_path.clone(), // BORROW: the error owns the path
-                    detail: format!(
-                        "is `{text}`; the accepted modes are {}",
-                        PermissionMode::ALL.map(PermissionMode::as_str).join(", ")
-                    ),
-                })?;
-            add(Self::PermissionMode(mode));
-        }
-        plain(
-            &[
-                (field_path!(paths::TOOLS_ALLOWED), Self::ToolsAllowed),
-                (field_path!(paths::TOOLS_DISALLOWED), Self::ToolsDisallowed),
-                (field_path!(paths::ENV), Self::Env),
-                (field_path!(paths::INPUTS), Self::Inputs),
-            ],
-            &mut add,
-        );
-        if let Some(table) = cell.table_at(&field_path!(crate::mcp::SERVERS))? {
-            for (key, entry) in table {
-                let server = crate::mcp::read(&key, entry)?;
-                add(Self::McpTransport(crate::mcp::kind(&server)));
-                if let Some(on) = server.codemode {
-                    add(Self::Codemode(on));
-                }
-                if server.name.is_some() {
-                    add(Self::McpName);
-                }
-            }
-        }
-        plain(
-            &[
-                (field_path!(paths::BUDGET_PER_RUN_WALL_S), Self::WallBudget),
-                (field_path!(paths::BUDGET_PER_RUN_TURNS), Self::TurnBudget),
-                (
-                    field_path!(paths::BUDGET_PER_RUN_MAX_COST_USD),
-                    Self::CostBudget,
-                ),
-            ],
-            &mut add,
-        );
-        Ok(set)
-    }
 }
 
 /// What a driver does on its own.
@@ -1608,20 +1500,23 @@ impl<'a> Cell<'a> {
         self.required_text(&field_path!(paths::MODEL_ID))
     }
 
-    /// The permission mode, which the cell must have.
-    ///
-    /// # Errors
-    /// [`DriverError`] as [`Cell::required_text`] returns it.
-    pub fn permission_mode(&self) -> Result<&'a str, DriverError> {
-        self.required_text(&field_path!(paths::PERMISSION_MODE))
+    /// The permission mode the cell sets, or [`PermissionMode::Default`] when it sets none. Resolve
+    /// refuses text that names no mode, so a driver reads a mode here and never a spelling.
+    #[must_use]
+    pub fn permission_mode(&self) -> PermissionMode {
+        self.value(&field_path!(paths::PERMISSION_MODE))
+            .and_then(Value::as_str)
+            .and_then(PermissionMode::from_text)
+            .unwrap_or(PermissionMode::Default)
     }
 
-    /// The reasoning effort, if the cell sets one.
-    ///
-    /// # Errors
-    /// [`DriverError::InvalidValue`] when the value is not text.
-    pub fn effort(&self) -> Result<Option<&'a str>, DriverError> {
-        self.text(&field_path!(paths::MODEL_EFFORT))
+    /// The reasoning effort, if the cell sets one. Resolve refuses text that names no level, so a
+    /// driver reads a level here and never a spelling.
+    #[must_use]
+    pub fn effort(&self) -> Option<EffortLevel> {
+        self.value(&field_path!(paths::MODEL_EFFORT))
+            .and_then(Value::as_str)
+            .and_then(EffortLevel::from_text)
     }
 
     /// The prompt: the cell's template, filled by [`render_prompt`] from its values.

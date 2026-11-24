@@ -186,10 +186,10 @@ pub(crate) fn invalid(path: &str, detail: String) -> DriverError {
 /// How the harness is named in a refusal, as its users write it.
 pub(crate) const DISPLAY_NAME: &str = "OpenCode";
 
-/// The refusal of the setting at `path`, which `OpenCode` cannot honour at `version`.
-pub(crate) fn unsupported(path: &str, version: &semver::Version, why: &str) -> DriverError {
+/// The refusal of the setting at `path`, which `OpenCode` cannot honour.
+pub(crate) fn unsupported(path: &str, why: &str) -> DriverError {
     match FieldPath::from_str(path) {
-        Ok(setting) => DriverError::unsupported(&setting, DISPLAY_NAME, version, why),
+        Ok(setting) => DriverError::unsupported(&setting, DISPLAY_NAME, why),
         Err(error) => DriverError::VersionOutput {
             detail: error.to_string(), // BORROW: .to_string() gives owned text
         },
@@ -300,7 +300,6 @@ fn tool_permission_rows(
     cell: &Cell<'_>,
     path: &str,
     effect: &str,
-    version: &semver::Version,
 ) -> Result<Vec<Value>, DriverError> {
     let Some(value) = cell
         .value_str(path)
@@ -312,7 +311,7 @@ fn tool_permission_rows(
     if path == TOOLS_DISALLOWED {
         let has = |wanted: &str| names.iter().any(|name| name == wanted);
         if has("Edit") != has("Write") {
-            return Err(unsupported(path, version, EDIT_WRITE_PAIR));
+            return Err(unsupported(path, EDIT_WRITE_PAIR));
         }
     }
     names
@@ -322,7 +321,6 @@ fn tool_permission_rows(
                 || {
                     Err(unsupported(
                         path,
-                        version,
                         &format!("`{name}` is not a tool OpenCode has an action for"),
                     ))
                 },
@@ -413,26 +411,20 @@ fn claude_info(id: &str) -> Option<ClaudeInfo> {
 /// `output_config.effort`, and a config-declared `variants` entry is used as written. A model
 /// `OpenCode` would give no such variant (see `EFFORT_MODEL`) is refused here, not left to fail
 /// or be ignored at run time.
-fn effort_variant(
-    cell: &Cell<'_>,
-    version: &semver::Version,
-) -> Result<Option<(String, Value)>, DriverError> {
-    let Some(value) = cell
-        .value_str(MODEL_EFFORT)
-        .map_err(|error| invalid(MODEL_EFFORT, error.to_string()))?
-    else {
+fn effort_variant(cell: &Cell<'_>) -> Result<Option<(String, Value)>, DriverError> {
+    let Some(level) = cell.effort() else {
         return Ok(None);
     };
-    let level = value.as_str().unwrap_or_default();
     let accepted = claude_info(model_id(cell)?).is_some_and(|info| {
-        info.takes_effort() && (level != "xhigh" || info.major > 4 || info.minor >= 7)
+        info.takes_effort() && (level != EffortLevel::Xhigh || info.major > 4 || info.minor >= 7)
     });
     if !accepted {
-        return Err(unsupported(MODEL_EFFORT, version, EFFORT_MODEL));
+        return Err(unsupported(MODEL_EFFORT, EFFORT_MODEL));
     }
+    let text = level.as_str();
     Ok(Some((
-        level.to_owned(), // BORROW: .to_owned() makes the owned variant id
-        json!({"thinking": {"type": "adaptive", "display": "summarized"}, "effort": level}),
+        text.to_owned(), // BORROW: .to_owned() makes the owned variant id
+        json!({"thinking": {"type": "adaptive", "display": "summarized"}, "effort": text}),
     )))
 }
 
@@ -448,24 +440,15 @@ pub(crate) struct Settings {
 }
 
 /// What the cell's settings resolve to once [`answer`] has accepted them: the values the driver
-/// cannot take (a mode, an effort level, a tool name) are refused here, naming `version`.
+/// cannot take (an effort level for a model, a tool name) are refused here.
 ///
 /// # Errors
 /// Returns [`DriverError::Unsupported`] for a setting `OpenCode` has no way to honour, and
 /// [`DriverError::InvalidValue`] for a value it cannot use of a setting it does honour.
-pub(crate) fn settings(
-    cell: &Cell<'_>,
-    version: &semver::Version,
-) -> Result<Settings, DriverError> {
-    cell.permission_mode()?;
-    let variant = effort_variant(cell, version)?;
-    let mut permissions = tool_permission_rows(cell, TOOLS_ALLOWED, "allow", version)?;
-    permissions.extend(tool_permission_rows(
-        cell,
-        TOOLS_DISALLOWED,
-        "deny",
-        version,
-    )?);
+pub(crate) fn settings(cell: &Cell<'_>) -> Result<Settings, DriverError> {
+    let variant = effort_variant(cell)?;
+    let mut permissions = tool_permission_rows(cell, TOOLS_ALLOWED, "allow")?;
+    permissions.extend(tool_permission_rows(cell, TOOLS_DISALLOWED, "deny")?);
     Ok(Settings {
         permissions,
         variant,

@@ -6,7 +6,7 @@
 use std::str::FromStr as _;
 use std::time::Duration;
 
-use candler_harness::driver::{DriverError, HarnessDriver, Plan, check_answers};
+use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
@@ -88,7 +88,7 @@ pub(crate) enum Launch {
 /// cell sets.
 pub(crate) fn argv(cell: &Cell<'_>, launch: Launch) -> Result<Vec<String>, DriverError> {
     let model = cell.model()?;
-    let mode = cell.permission_mode()?;
+    let mode = cell.permission_mode();
     // BORROW: .to_owned() makes the owned arguments the command keeps
     let mut argv = vec![PROGRAM.to_owned(), "--print".to_owned()];
     // Each launch keeps the order of its recorded command line.
@@ -110,12 +110,12 @@ pub(crate) fn argv(cell: &Cell<'_>, launch: Launch) -> Result<Vec<String>, Drive
             "--setting-sources",
             "project,local",
             "--permission-mode",
-            mode,
+            mode.as_str(),
         ]
         .map(str::to_owned), // BORROW: str::to_owned makes the owned arguments
     );
-    if let Some(effort) = cell.effort()? {
-        argv.extend(["--effort", effort].map(str::to_owned)); // BORROW: str::to_owned makes the owned arguments
+    if let Some(effort) = cell.effort() {
+        argv.extend(["--effort", effort.as_str()].map(str::to_owned)); // BORROW: str::to_owned makes the owned arguments
     }
     if let Some(turns) = cap_text(cell, paths::BUDGET_PER_RUN_TURNS, true)? {
         argv.push("--max-turns".to_owned()); // BORROW: .to_owned() makes the owned argument
@@ -306,7 +306,6 @@ impl HarnessDriver for ClaudeCodeDriver {
     }
 
     fn check_settings(&self, cell: &Cell<'_>) -> Result<(), DriverError> {
-        check_answers(self, cell, "Claude Code", &crate::PINNED)?;
         cap_text(cell, paths::BUDGET_PER_RUN_TURNS, true)?;
         cap_text(cell, paths::BUDGET_PER_RUN_MAX_COST_USD, false)?;
         prepare::mcp_servers(cell).map(|_| ())

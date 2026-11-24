@@ -13,8 +13,8 @@ use std::str::FromStr as _;
 use candler_harness::driver::{DriverError, HarnessDriver};
 use candler_harness::reader::FrameIn;
 use candler_harness::spec::{
-    Action, AgentSetting, Cell, CollectSpec, EffortLevel, Observed, PermissionMode, ProcessEnd,
-    ProcessExit, StopSignal, Workspace,
+    Action, AgentSetting, Answer, Cell, CollectSpec, EffortLevel, Observed, PermissionMode,
+    ProcessEnd, ProcessExit, StopSignal, Workspace,
 };
 use candler_harness_opencode::driver::OpenCodeDriver;
 use candler_schemas::execution::{GitCommit, TreatmentRef};
@@ -89,6 +89,19 @@ fn flatten(prefix: &str, servers: &Value, out: &mut Vec<(String, Value)>) {
             }
             None => out.push((format!("{prefix}.{key}"), server.clone())), // BORROW: .clone() copies the value
         }
+    }
+}
+
+/// The key a table case sets, for the cases that set a key the driver answers.
+fn key_of(setting: &str, value: &str) -> Option<AgentSetting> {
+    match (setting, value) {
+        ("permission_mode", mode) => {
+            PermissionMode::from_text(mode).map(AgentSetting::PermissionMode)
+        }
+        ("model.effort", level) => EffortLevel::from_text(level).map(AgentSetting::Effort),
+        ("budget.per_run.turns", _) => Some(AgentSetting::TurnBudget),
+        ("budget.per_run.max_cost_usd", _) => Some(AgentSetting::CostBudget),
+        _ => None,
     }
 }
 
@@ -433,15 +446,7 @@ fn opencode_command_line_maps_or_refuses_every_setting() -> Res<()> {
     let cases = table_cases();
     let driver = OpenCodeDriver::new();
     for c in &cases {
-        let key = match (c.setting, c.value) {
-            ("permission_mode", mode) => {
-                PermissionMode::from_text(mode).map(AgentSetting::PermissionMode)
-            }
-            ("model.effort", level) => EffortLevel::from_text(level).map(AgentSetting::Effort),
-            ("budget.per_run.turns", _) => Some(AgentSetting::TurnBudget),
-            ("budget.per_run.max_cost_usd", _) => Some(AgentSetting::CostBudget),
-            _ => None,
-        };
+        let key = key_of(c.setting, c.value);
         if let Some(key) = key {
             assert_eq!(
                 matches!(c.expect, Expect::Refuses { .. }),
@@ -485,11 +490,20 @@ fn opencode_command_line_maps_or_refuses_every_setting() -> Res<()> {
                 }
             }
             Expect::Refuses { pointer, needle } => {
+                if let Some(key) = key_of(c.setting, c.value) {
+                    // The core refuses what the driver answers `Refused`, before the plan; the
+                    // reason it gives is the answer's.
+                    let Answer::Refused { reason } = driver.answer(key) else {
+                        return Err(format!("{label}: the answer is not a refusal").into());
+                    };
+                    assert!(reason.contains(needle), "{label}: `{needle}` in `{reason}`");
+                    continue;
+                }
                 let (code, side, at, message) = unsupported_of_cell(&c.extra)?;
                 assert_eq!(code.as_str(), "experiment.setting_unsupported", "{label}");
                 assert_eq!(side, Side::Experiment, "{label}");
                 assert_eq!(at.as_deref(), Some(*pointer), "{label}");
-                for want in [pointer, needle, &"OpenCode", &"2.2.7"] {
+                for want in [pointer, needle, &"OpenCode"] {
                     assert!(message.contains(want), "{label}: `{want}` in `{message}`");
                 }
             }

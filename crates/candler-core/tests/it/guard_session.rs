@@ -483,6 +483,46 @@ async fn session_plan_refuses_a_setting_the_driver_cannot_honour() {
     }
 }
 
+/// Guards: an effort or a permission mode that names nothing is refused once, when the cells are
+/// planned, as `experiment.cell_value_invalid` at the field, whichever driver the cell meets, and
+/// the same cell with a level and a mode that exist plans.
+/// Oracle: the field pointers written by hand; the values go through the real resolve step and
+/// `plan_runs`.
+/// Bite: let the plan pass an unnamed text on to a driver (Claude Code would write it to its
+/// command line; `OpenCode` would answer `setting_unsupported`).
+#[tokio::test]
+async fn an_unnamed_effort_or_mode_is_refused_at_its_field_for_each_driver() {
+    let file = experiment_with("");
+    let mode = ("permission_mode", json!("bypassPermissions"));
+    for capable in [true, false] {
+        for (path, pointer) in [
+            ("model.effort", "/model/effort"),
+            ("permission_mode", "/permission_mode"),
+        ] {
+            let fixed: Vec<(&str, Value)> = if path == "permission_mode" {
+                vec![(path, json!("turbo"))]
+            } else {
+                vec![mode.clone(), (path, json!("turbo"))]
+            };
+            match planned(&file, &fixed, capable).await {
+                Err(error) => {
+                    assert_eq!(
+                        Refusal::code(&error).as_str(),
+                        "experiment.cell_value_invalid",
+                        "{path}, capable {capable}"
+                    );
+                    assert_eq!(
+                        Refusal::path(&error).as_deref(),
+                        Some(pointer),
+                        "{path}, capable {capable}"
+                    );
+                }
+                Ok(_) => panic!("{path}, capable {capable}: an unnamed text planned"),
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // P1: a model factor of tables.
 // ---------------------------------------------------------------------------------------------

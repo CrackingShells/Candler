@@ -10,9 +10,10 @@ use std::error::Error;
 
 use candler_core::resolve::config::{Config, UserConfig};
 use candler_core::resolve::layers::{FileValues, Layered, Resolution, ResolveInput};
+use candler_core::resolve::paths::settings_set_by;
 use candler_core::runner::plan::{Force, PlanMode, plan_runs};
 use candler_harness::mcp::servers;
-use candler_harness::spec::{AgentSetting, Cell};
+use candler_harness::spec::Cell;
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::values::{JsonValue, ResolvedValue};
 use serde_json::{Value, json};
@@ -120,7 +121,7 @@ fn at_set_by(entries: &[(&str, Value)]) -> Option<Refused> {
         .iter()
         .map(|(path, value)| ResolvedValue::recorded(fp(path), js(value.clone())))
         .collect();
-    AgentSetting::set_by(&Cell::new(&values))
+    settings_set_by(&Cell::new(&values))
         .err()
         .map(|error| refused_by(&error))
 }

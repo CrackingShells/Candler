@@ -28,6 +28,7 @@ use serde_json::Value;
 use crate::jobs::dir::JobDir;
 use crate::jobs::lock::{JobLock, LockState};
 use crate::resolve::layers::{Resolution, is_setting};
+use crate::resolve::paths::refuse_unanswered;
 use crate::resolve::steps::egress::{self, EgressRefusal};
 use crate::resolve::steps::plugin_environment::{plugin_egress, unite_egress};
 use crate::resolve::steps::session::{self, SessionRefusal};
@@ -727,7 +728,9 @@ fn fresh_cells<'r>(
     }
     if let Some(driver) = driver {
         for cell in &cells {
-            driver.check_settings(&Cell::new(cell.comparable.values()))?;
+            let view = Cell::new(cell.comparable.values());
+            refuse_unanswered(driver, &view)?;
+            driver.check_settings(&view)?;
         }
     }
     Ok(cells)

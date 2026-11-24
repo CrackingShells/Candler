@@ -4,8 +4,6 @@
 //! the core runs every command and HTTP call a driver describes. No method is `async`, so drivers
 //! are usable as `dyn` trait objects.
 
-use std::str::FromStr as _;
-
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::raw::StreamName;
 use candler_schemas::refusal::pointer_of;
@@ -38,14 +36,12 @@ pub enum DriverError {
         detail: String,
     },
     /// A setting the harness has no way to honour, refused rather than dropped.
-    #[error("{harness} {version} cannot honour {path}: {detail}")]
+    #[error("{harness} cannot honour {path}: {detail}")]
     Unsupported {
         /// The pointer into the experiment file of the setting.
         path: String,
         /// The harness's name, as its users write it.
         harness: String,
-        /// The harness version the driver was validated against.
-        version: semver::Version,
         /// Why the harness cannot honour it, and what it accepts instead.
         detail: String,
     },
@@ -67,18 +63,12 @@ pub enum DriverError {
 }
 
 impl DriverError {
-    /// The refusal of `setting`, which the harness `harness` at `version` cannot honour for the
-    /// reason `detail`.
+    /// The refusal of `setting`, which the harness `harness` cannot honour for the reason `detail`.
     ///
     /// The pointer is the setting's place in the experiment file: a `budget` field sits under
     /// `/budget`, and any other setting is a key of `[fixed]`, written as its dotted path.
     #[must_use]
-    pub fn unsupported(
-        setting: &FieldPath,
-        harness: &str,
-        version: &semver::Version,
-        detail: &str,
-    ) -> Self {
+    pub fn unsupported(setting: &FieldPath, harness: &str, detail: &str) -> Self {
         let text = setting.to_string(); // BORROW: .to_string() gives owned text
         let path = if setting.segments().next() == Some("budget") {
             pointer_of(setting.segments())
@@ -88,37 +78,9 @@ impl DriverError {
         Self::Unsupported {
             path,
             harness: harness.to_owned(), // BORROW: .to_owned() makes the owned text
-            version: version.clone(),    // BORROW: .clone() copies the version
             detail: detail.to_owned(),   // BORROW: .to_owned() makes the owned text
         }
     }
-}
-
-/// Refuses a cell that sets something the driver answers [`Answer::Refused`], with the
-/// [`DriverError::Unsupported`] that names the setting, `harness` and `version` and gives the
-/// answer's reason. A setting the cell sets is read by [`AgentSetting::set_by`], the one place that
-/// lists them.
-///
-/// # Errors
-/// [`DriverError::Unsupported`] for the first set setting the driver refuses, and the error of
-/// [`AgentSetting::set_by`] when a value of the cell cannot be read.
-pub fn check_answers(
-    driver: &dyn HarnessDriver, // TRAIT_OBJECT: the check reads any driver
-    cell: &Cell<'_>,
-    harness: &str,
-    version: &semver::Version,
-) -> Result<(), DriverError> {
-    for setting in AgentSetting::set_by(cell)? {
-        if let Answer::Refused { reason } = driver.answer(setting) {
-            let path = FieldPath::from_str(setting.path()).map_err(|error| {
-                DriverError::VersionOutput {
-                    detail: error.to_string(), // BORROW: .to_string() gives owned text
-                }
-            })?;
-            return Err(DriverError::unsupported(&path, harness, version, reason));
-        }
-    }
-    Ok(())
 }
 
 /// What a driver does for one cell in one workspace, built once so every part reads the same

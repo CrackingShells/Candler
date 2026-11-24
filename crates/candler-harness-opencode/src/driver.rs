@@ -7,7 +7,7 @@
 use std::str::FromStr as _;
 use std::time::Duration;
 
-use candler_harness::driver::{DriverError, HarnessDriver, Plan, check_answers};
+use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
@@ -201,15 +201,13 @@ impl HarnessDriver for OpenCodeDriver {
     }
 
     fn check_settings(&self, cell: &Cell<'_>) -> Result<(), DriverError> {
-        check_answers(self, cell, prepare::DISPLAY_NAME, &VALIDATED)?;
-        prepare::settings(cell, &VALIDATED)?;
+        prepare::settings(cell)?;
         prepare::mcp_servers(cell).map(|_| ())
     }
 
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
         let _ = workspace;
-        check_answers(self, cell, prepare::DISPLAY_NAME, &VALIDATED)?;
-        let settings = prepare::settings(cell, &VALIDATED)?;
+        let settings = prepare::settings(cell)?;
         let model = model_id(cell)?;
         let model_arg = match &settings.variant {
             Some((id, _)) => format!("{}/{model}#{id}", prepare::PROVIDER),

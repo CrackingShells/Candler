@@ -2,7 +2,11 @@
 //! names, with what it is, in one table that the resolver, the request-key check, the typed
 //! configuration readers and the contract pages all read.
 
-use candler_harness::spec::{AgentSetting, EffortLevel, PermissionMode};
+use std::str::FromStr as _;
+
+use candler_harness::driver::{DriverError, HarnessDriver};
+use candler_harness::mcp;
+use candler_harness::spec::{AgentSetting, Answer, Cell, EffortLevel, PermissionMode};
 use candler_schemas::execution::paths::{
     BUDGET_PER_RUN_MAX_COST_USD, BUDGET_PER_RUN_TURNS, BUDGET_PER_RUN_WALL_S, ENV, ENVIRONMENTS,
     HARNESS, INPUTS, ISOLATION_BUILD_CONTEXT, ISOLATION_BUILD_DOCKERFILE, ISOLATION_BUILD_LOCK,
@@ -535,6 +539,125 @@ fn covers(kind: Kind, root: &FieldPath, path: &FieldPath) -> bool {
         Kind::Below => path.starts_with(root) && path.as_str() != root.as_str(),
         Kind::NotAPath => false,
     }
+}
+
+/// A text no variant of `T` names, refused at `path` with the accepted spellings.
+fn unnamed(path: &FieldPath, text: &str, accepted: &[&str]) -> DriverError {
+    DriverError::InvalidValue {
+        path: path.clone(), // BORROW: the error owns the path
+        detail: format!(
+            "is `{text}`; the accepted texts are {}",
+            accepted.join(", ")
+        ),
+    }
+}
+
+/// The effort level the cell holds at `path`: the one place the text becomes an [`EffortLevel`].
+fn effort_at(cell: &Cell<'_>, path: &FieldPath) -> Result<Option<EffortLevel>, DriverError> {
+    cell.text(path)?
+        .map(|text| {
+            EffortLevel::from_text(text)
+                .ok_or_else(|| unnamed(path, text, &EffortLevel::ALL.map(EffortLevel::as_str)))
+        })
+        .transpose()
+}
+
+/// The permission mode the cell holds at `path`: the one place the text becomes a
+/// [`PermissionMode`].
+fn mode_at(cell: &Cell<'_>, path: &FieldPath) -> Result<Option<PermissionMode>, DriverError> {
+    cell.text(path)?
+        .map(|text| {
+            PermissionMode::from_text(text).ok_or_else(|| {
+                unnamed(path, text, &PermissionMode::ALL.map(PermissionMode::as_str))
+            })
+        })
+        .transpose()
+}
+
+/// The settings `cell` sets, each with the path of the row that reaches it and with the value the
+/// cell gives it, in the order of [`CONFIGURATION_PATHS`]. The rows are the only place a path
+/// meets a setting. The skills and the session mode are not read here: the treatment holds the
+/// first, and the plan's session refuses the second.
+///
+/// # Errors
+/// [`DriverError::InvalidValue`] when the effort or the permission mode is text no level or mode
+/// names, or the value is not text, and the error of the reader of `mcp.servers`.
+pub fn settings_set_by(cell: &Cell<'_>) -> Result<Vec<(AgentSetting, FieldPath)>, DriverError> {
+    let mut set: Vec<(AgentSetting, FieldPath)> = Vec::new();
+    for row in &CONFIGURATION_PATHS {
+        let Reach::Agent(families) = row.reach else {
+            continue;
+        };
+        let path = FieldPath::from_str(row.path).map_err(|error| DriverError::VersionOutput {
+            detail: error.to_string(), // BORROW: .to_string() gives owned text
+        })?;
+        if cell.below(&path).is_empty() {
+            continue;
+        }
+        let mut found: Vec<AgentSetting> = Vec::new();
+        for family in families {
+            match family {
+                AgentSetting::Effort(_) => {
+                    found.extend(effort_at(cell, &path)?.map(AgentSetting::Effort));
+                }
+                AgentSetting::PermissionMode(_) => {
+                    found.extend(mode_at(cell, &path)?.map(AgentSetting::PermissionMode));
+                }
+                // The three keys of a server are read together, from the transport's entry.
+                AgentSetting::McpTransport(_) => {
+                    for server in mcp::servers(cell)?.unwrap_or_default().into_values() {
+                        found.push(AgentSetting::McpTransport(mcp::kind(&server)));
+                        found.extend(server.codemode.map(AgentSetting::Codemode));
+                        if server.name.is_some() {
+                            found.push(AgentSetting::McpName);
+                        }
+                    }
+                }
+                AgentSetting::Codemode(_)
+                | AgentSetting::McpName
+                | AgentSetting::Skills
+                | AgentSetting::SessionMode => {}
+                AgentSetting::ModelId
+                | AgentSetting::ModelEndpoint
+                | AgentSetting::ToolsAllowed
+                | AgentSetting::ToolsDisallowed
+                | AgentSetting::Env
+                | AgentSetting::Inputs
+                | AgentSetting::WallBudget
+                | AgentSetting::TurnBudget
+                | AgentSetting::CostBudget => found.push(*family),
+            }
+        }
+        for setting in found {
+            if !set.iter().any(|(held, _)| *held == setting) {
+                set.push((setting, path.clone())); // BORROW: each setting keeps its row's path
+            }
+        }
+    }
+    Ok(set)
+}
+
+/// Refuses a cell that sets something the driver answers [`Answer::Refused`], with the
+/// [`DriverError::Unsupported`] that names the setting, the harness and the answer's reason. The
+/// one place a refused setting is refused, before the driver plans.
+///
+/// # Errors
+/// [`DriverError::Unsupported`] for the first set setting the driver refuses, and the error of
+/// [`settings_set_by`] when a value of the cell cannot be read.
+pub fn refuse_unanswered(
+    driver: &dyn HarnessDriver, // TRAIT_OBJECT: the check reads any driver
+    cell: &Cell<'_>,
+) -> Result<(), DriverError> {
+    for (setting, path) in settings_set_by(cell)? {
+        if let Answer::Refused { reason } = driver.answer(setting) {
+            return Err(DriverError::unsupported(
+                &path,
+                driver.id().to_string().as_str(), // BORROW: .to_string() gives owned text
+                reason,
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Reports whether the row with the most segments that names `path` is of a setting class.
