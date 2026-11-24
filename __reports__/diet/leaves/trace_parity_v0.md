@@ -81,6 +81,6 @@ Left by this leaf, judged at seam review 3:
 - `offline_reader`'s `servers` argument is unused by the Claude Code driver, and `Registry::offline`
   and the ingest path pass `&[]`. It is the shape a harness that spells calls `<server>_<tool>` needs,
   not a second producer.
-- The reader of server names (`candler_harness::mcp::by_name`) is written out, not compiled from `SERVER_NAME_PATTERN`: the pattern ends with the lookahead `(?![\s\S])`, which the `regex` crate does not read, and no other runtime dependency does. The string is in the tree once; the drift test is the `guard_mcp_server` rows above, which check the schema's side.
+- The reader of server names (`candler_harness::mcp::by_name`) is written out, not compiled from `SERVER_NAME_PATTERN`: the pattern ends with the lookahead `(?![\s\S])`, which the `regex` crate does not read, and no other runtime dependency does. The string is in the tree once, but the rule is stated twice, as that pattern and as the reader's code: a lookahead-capable regex dependency in `candler-harness`, only to state one rule once, would cost more than it saves. Two tests tie the statements together with the same names: `guard_mcp_server::the_mcp_server_schema_refuses_what_the_reader_refuses` (the schema's side, rows `a.b` and `s_`) and `guard_mcp_names::a_server_name_is_letters_digits_and_dashes_joined_by_single_underscores` (the reader's side).
 - The `feat(schemas)` commit removes `ToolOrigin::mcp`, so the workspace builds again only at the
   `fix(library)` commit after it.
