@@ -16,8 +16,8 @@ use crate::driver::{Disposition, DriverError, HarnessDriver, Plan};
 use crate::reader::{FrameIn, TraceReader};
 use crate::spec::{
     Action, Cell, CensusSource, CollectSpec, CommandSpec, EnvValue, FileRoot, Framing, HttpMethod,
-    InitReport, Observed, ObservedEnd, PendingState, ProcessExit, SessionClose, SessionRecord,
-    StateKind, StopSpec, Workspace,
+    InitReport, Observed, ObservedEnd, PendingState, PreparedFile, ProcessExit, SessionClose,
+    SessionRecord, StateKind, StopSpec, Workspace,
 };
 
 /// A session id plain enough to stand in a script, used to check that a placeholder resolves.
@@ -121,6 +121,10 @@ pub struct Case {
     /// it must give. The export is authoritative: the run is classified from its sessions, with
     /// the live reader's observed end beside them.
     pub export: Option<(StreamName, Vec<u8>, Vec<ExpectedSession>)>,
+    /// The files the scripted agent wrote into the workspace. When the case states them, the
+    /// check feeds the driver's `collect` and asserts that every one is kept. The oracle is this
+    /// set, what the agent wrote, not a list copied from the driver's own fixture.
+    pub agent_wrote: Vec<PreparedFile>,
     /// Records for the session tracker, in the order the core reads them.
     pub track: Vec<TrackStep>,
 }
@@ -147,6 +151,7 @@ impl Case {
             end: None,
             collect: None,
             export: None,
+            agent_wrote: Vec::new(),
             track: Vec::new(),
         }
     }
@@ -207,6 +212,13 @@ impl Case {
         sessions: Vec<ExpectedSession>,
     ) -> Self {
         self.export = Some((stream, bytes, sessions));
+        self
+    }
+
+    /// The files the scripted agent wrote; the check asserts the driver's `collect` keeps them.
+    #[must_use]
+    pub fn with_agent_wrote(mut self, wrote: Vec<PreparedFile>) -> Self {
+        self.agent_wrote = wrote;
         self
     }
 
@@ -991,6 +1003,134 @@ fn check_collect(
     Ok(())
 }
 
+/// Whether the path `path` matches the glob `glob`, with the semantics the core's collector
+/// reads: `**` matches anything, `**/` any directories, `*` any characters but a slash, `?` one
+/// character but a slash, and every other character matches itself. The suite's oracle applies
+/// this to the set of files the agent wrote, so it must not be more lenient than the core's
+/// `collect_files`.
+#[must_use]
+fn glob_matches(glob: &str, path: &str) -> bool {
+    let text = path.as_bytes();
+    let pattern = glob.as_bytes();
+    walk(pattern, text)
+}
+
+/// Whether `text` matches `pattern`, walking both left to right.
+fn walk(pattern: &[u8], text: &[u8]) -> bool {
+    let Some((first, rest)) = pattern.split_first() else {
+        return text.is_empty();
+    };
+    match first {
+        b'*' if rest.first() == Some(&b'*') => {
+            let after_star = rest.get(1..).unwrap_or_default();
+            // `**/`: nothing, or one or more directories. Otherwise `**`: any slice.
+            if matches!(after_star.first(), Some(b'/')) {
+                let after = after_star.get(1..).unwrap_or_default();
+                let mut at = 0;
+                loop {
+                    if walk(after, text.get(at..).unwrap_or_default()) {
+                        return true;
+                    }
+                    let Some(slash) = text
+                        .get(at..)
+                        .unwrap_or_default()
+                        .iter()
+                        .position(|&b| b == b'/')
+                    else {
+                        return false;
+                    };
+                    at += slash + 1;
+                }
+            }
+            (0..=text.len()).any(|at| walk(after_star, text.get(at..).unwrap_or_default()))
+        }
+        b'*' => {
+            // Zero or more characters that are not a slash.
+            let mut at = 0;
+            loop {
+                if walk(rest, text.get(at..).unwrap_or_default()) {
+                    return true;
+                }
+                match text.get(at) {
+                    Some(b'/') | None => return false,
+                    Some(_) => at += 1,
+                }
+            }
+        }
+        b'?' => {
+            let Some((ch, tail)) = text.split_first() else {
+                return false;
+            };
+            ch != &b'/' && walk(rest, tail)
+        }
+        other => {
+            let Some((ch, tail)) = text.split_first() else {
+                return false;
+            };
+            ch == other && walk(rest, tail)
+        }
+    }
+}
+
+/// Checks a case's oracle: feeds the agent-written files to the driver's `collect` and asserts
+/// that every one is kept by the driver's file globs, with a `!` glob leaving out what it
+/// matches. The oracle is the set the agent wrote, so it comes from the case, never from the
+/// driver's own fixture. The way each harness collects files does not depend on the sessions a
+/// stream named, so the check runs `collect` with no observed session and reads only its file
+/// specs. A file the agent wrote that the driver does not keep is named.
+fn check_collect_oracle(
+    driver: &dyn HarnessDriver, // TRAIT_OBJECT: the suite checks any driver
+    setup: &Setup<'_>,
+    case: &Case,
+) -> Result<(), Failure> {
+    if case.agent_wrote.is_empty() {
+        return Ok(());
+    }
+    let observed = Observed::new(Vec::new());
+    let file_specs = driver.collect(setup.workspace, &observed);
+    let keep: Vec<&str> = file_specs
+        .iter()
+        .filter_map(|spec| match spec {
+            CollectSpec::File { glob, .. } if !glob.starts_with('!') => Some(glob.as_str()), // BORROW: explicit .as_str()
+            CollectSpec::File { .. } | CollectSpec::Command { .. } | CollectSpec::Exec { .. } => {
+                None
+            }
+        })
+        .collect();
+    let drop: Vec<&str> = file_specs
+        .iter()
+        .filter_map(|spec| match spec {
+            CollectSpec::File { glob, .. } if glob.starts_with('!') => {
+                Some(glob.split_at(1).1) // BORROW: split_at borrows the glob text
+            }
+            CollectSpec::File { .. } | CollectSpec::Command { .. } | CollectSpec::Exec { .. } => {
+                None
+            }
+        })
+        .collect();
+    let missing: Vec<String> = case
+        .agent_wrote
+        .iter()
+        .filter(|file| !file_kept(file.path.as_str(), &keep, &drop)) // BORROW: explicit .as_str()
+        .map(|file| file.path.to_string()) // BORROW: .to_string() makes owned text
+        .collect();
+    if !missing.is_empty() {
+        return Err(case_failure(
+            case,
+            "collect",
+            format!("the collect does not keep the files the agent wrote: {missing:?}"),
+        ));
+    }
+    Ok(())
+}
+
+/// Whether `path` is kept by a set of keep globs and not dropped by a set of drop globs.
+#[must_use]
+fn file_kept(path: &str, keep: &[&str], drop: &[&str]) -> bool {
+    keep.iter().any(|glob| glob_matches(glob, path))
+        && !drop.iter().any(|glob| glob_matches(glob, path))
+}
+
 /// Runs one case.
 fn check_case(
     driver: &dyn HarnessDriver, // TRAIT_OBJECT: the suite checks any driver
@@ -1059,6 +1199,7 @@ fn check_case(
         }
     }
     check_collect(driver, setup, &observed, owned)?;
+    check_collect_oracle(driver, setup, case)?;
     let mut sessions = match &case.sessions {
         Some(expected) => {
             let sessions = reader
@@ -1132,7 +1273,7 @@ fn check_track(
 /// Returns the first [`Failure`]: a capability that the driver's specs do not back, a gateway or
 /// state name that is invalid, a command that carries a secret or sets a name the core owns, a
 /// stop that cannot work, or a case whose reader, inventory, sessions, end or tracked state is
-/// not what the case records.
+/// not what the case records, or whose collect does not keep the files the agent wrote.
 pub fn run(
     driver: &dyn HarnessDriver, // TRAIT_OBJECT: the suite checks any driver
     setup: &Setup<'_>,
@@ -1148,4 +1289,35 @@ pub fn run(
         check_case(driver, setup, case, &owned)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::glob_matches;
+
+    /// Guards: the collect oracle's glob is the grammar the core's `collect_files` reads, so a
+    /// driver whose file specs are sound keeps exactly what the core would keep. Oracle: the
+    /// glob forms of `glob_regex` in `candler-core/src/runner/exec/gather.rs`, copied by hand.
+    #[test]
+    fn collect_glob_matches_the_core_grammar() {
+        let cases: &[(&str, &str, bool)] = &[
+            ("**/*", "a", true),
+            ("**/*", "a/b/c.txt", true),
+            ("**/*", ".opencode/skills/s/SKILL.md", true),
+            ("*.txt", "a.txt", true),
+            ("*.txt", "dir/a.txt", false),
+            ("**/*.txt", "dir/a.txt", true),
+            ("dir/*", "dir/a.txt", true),
+            ("dir/*", "other/a.txt", false),
+            ("a/**/b", "a/b", true),
+            ("a/**/b", "a/x/y/b", true),
+            ("a/**/b", "a/b/x", false),
+            ("ab?d", "abcd", true),
+            ("ab?d", "ab/d", false),
+            ("ab?d", "abd", false),
+        ];
+        for (glob, path, want) in cases {
+            assert_eq!(glob_matches(glob, path), *want, "{glob} against {path}");
+        }
+    }
 }

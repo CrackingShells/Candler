@@ -18,7 +18,7 @@ use candler_harness::conformance::{
 use candler_harness::driver::HarnessDriver;
 use candler_harness::spec::{
     Cell, CensusSource, FileRoot, GatewayEnv, InitReport, PendingItem, PendingKind, PendingState,
-    ProcessEnd, ProcessExit, Workspace,
+    PreparedFile, ProcessEnd, ProcessExit, Workspace,
 };
 use candler_harness::spec::{SessionClose, SessionRecord};
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
@@ -271,6 +271,19 @@ fn cases() -> Res<Vec<Case>> {
                 ("o3", PendingState::new(1, true, true, vec![])),
             ],
         )?,
+        // The shared oracle: the scripted agent wrote these files, and `collect` must keep them,
+        // from this driver's own answer and not from a list the case copies.
+        Case::new(
+            "collect_keeps_the_files_the_agent_wrote".to_owned(),
+            ReaderSource::Live,
+            stdout()?,
+            Vec::new(),
+        )
+        .detects(false)
+        .with_agent_wrote(vec![
+            PreparedFile::new("notes.md".parse()?, b"kept".to_vec(), false),
+            PreparedFile::new("outputs/answer.txt".parse()?, b"stamp-7f3a".to_vec(), false),
+        ]),
     ])
 }
 
@@ -278,8 +291,9 @@ fn cases() -> Res<Vec<Case>> {
 /// on its recorded streams and sessions: sessions and ends as `expected.toml` lists them, the
 /// inventory of the first init line labelled as the harness's, a session spec whose command and
 /// hook files carry no secret, a tracker that follows the recorded Stop payloads and the turn ends,
-/// and the headless names the core owns. Oracle: the fixtures' hand-written `expected.toml` and the
-/// raw lines read with `serde_json`.
+/// the headless names the core owns, and the files the shared oracle's scripted agent wrote are
+/// kept. Oracle: the fixtures' hand-written `expected.toml` and the raw lines read with `serde_json`,
+/// and the agent-written files of the shared case.
 #[test]
 fn conformance_claude_code_fixtures() -> Res<()> {
     let driver = ClaudeCodeDriver::new();

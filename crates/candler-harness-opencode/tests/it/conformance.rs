@@ -13,7 +13,7 @@ use std::str::FromStr as _;
 
 use candler_harness::conformance::{Case, ExpectedSession, ReaderSource, Setup, run};
 use candler_harness::spec::{
-    Cell, CollectSpec, CommandSpec, ObservedEnd, ProcessEnd, ProcessExit, Workspace,
+    Cell, CollectSpec, CommandSpec, ObservedEnd, PreparedFile, ProcessEnd, ProcessExit, Workspace,
 };
 use candler_harness_opencode::driver::OpenCodeDriver;
 use candler_schemas::primitives::{FieldPath, ReasonCode};
@@ -248,6 +248,22 @@ fn cases() -> Res<Vec<Case>> {
         )
         .with_end(exit_of("interrupt_api")?, EndedBy::Unknown),
     );
+    // The shared oracle: the scripted agent wrote these files, and `collect` must keep them, from
+    // this driver's own answer and not from a list the case copies. The skills the harness mounts
+    // under `.opencode` are not the agent's, so they are not in the set.
+    cases.push(
+        Case::new(
+            "collect_keeps_the_files_the_agent_wrote".to_owned(),
+            ReaderSource::Live,
+            stream("stdout")?,
+            Vec::new(),
+        )
+        .detects(false)
+        .with_agent_wrote(vec![
+            PreparedFile::new("notes.md".parse()?, b"kept".to_vec(), false),
+            PreparedFile::new("outputs/answer.txt".parse()?, b"stamp-7f3a".to_vec(), false),
+        ]),
+    );
     Ok(cases)
 }
 
@@ -272,8 +288,9 @@ fn values() -> Res<Vec<ResolvedValue>> {
 
 /// Guards: R01 §Harness drivers, §`OpenCode` v2 — the recorded runs of `OpenCode` V2 read, classify and
 /// collect through the shared traits: sessions from the export, the end from the export's outcome
-/// over the stream's last error event, the collect command inside the isolation.
-/// Oracle: the fixtures' hand-written `expected.toml` and `exit.toml`, and R01 §Ends by hand.
+/// over the stream's last error event, the collect command inside the isolation, and the files the
+/// shared oracle's scripted agent wrote are kept. Oracle: the fixtures' hand-written `expected.toml`
+/// and `exit.toml`, R01 §Ends by hand, and the agent-written files of the shared case.
 #[test]
 fn conformance_opencode_recorded_runs() -> Res<()> {
     let values = values()?;
