@@ -102,7 +102,8 @@ pub struct ImportRules {
     pub treatment: TreatmentRule,
     /// The name of the instrument that graded the folder, whose version and digest come from the folder's pinned evaluator.
     pub instrument: Name,
-    /// The snapshots of a cell.
+    /// The catalog digests of a cell, written into `comparable.snapshots`. The importer is the only
+    /// writer of that list.
     pub snapshots: Vec<SnapshotRule>,
     /// The patterns tried, in order, on the evidence of a `not_measured` row.
     pub markers: Vec<MarkerRule>,

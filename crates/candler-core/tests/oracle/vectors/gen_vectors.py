@@ -164,7 +164,7 @@ def comparable(values, harness, treatment, snapshots, inputs, environments):
         "inputs": inputs,
         "environments": environments,
     }
-    if not snapshots:
+    if snapshots is None:
         del unsorted["snapshots"]
     return sort_comparable(unsorted)
 
@@ -287,7 +287,7 @@ def invented_cells():
         two["values"],
         two["harness"],
         two["treatment"],
-        [],
+        None,
         two["inputs"],
         two["environments"],
     )
@@ -331,10 +331,10 @@ def cell_vectors():
         header(
             "cell_digest.toml",
             "cell digest vectors (R01 §Run manifest, §Golden corpus).",
-            "A cell that lists `snapshots` is hashed with the list; a cell without catalog snapshots\n"
-            "is hashed without the key (`invented-1`, `invented-4`). The vectors that list `snapshots`\n"
-            "stay: the maintainer's own stores (golden and HTN runs) hold manifests of that shape, and\n"
-            "their cell digests must still verify. Do not prune them as dead.",
+            "A cell that carries `snapshots`, empty or not, is hashed with the list; a cell without\n"
+            "the key is hashed without it (`invented-4`, the shape of every new cell). The vectors that\n"
+            "carry `snapshots` stay: the maintainer's own stores (golden and HTN runs) hold manifests of\n"
+            "that shape, and their cell digests must still verify. Do not prune them as dead.",
         )
     ]
     out.append(
