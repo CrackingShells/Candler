@@ -30,6 +30,7 @@ fn execution_path(error: &ExecutionError) -> Option<String> {
         ExecutionError::Zero { field, .. } | ExecutionError::NotPositive { field } => {
             file_field(field)
         }
+        ExecutionError::ReplicatesNotCount => Some(pointer_of(["replicates"])),
         ExecutionError::Format(inner) => Refusal::path(inner),
         ExecutionError::Values(inner) => Refusal::path(inner),
         ExecutionError::Canonical(inner) => Refusal::path(inner),
@@ -113,6 +114,12 @@ refusal_table! {
         Side::Experiment,
         "A cost cap is not a finite number above 0.",
         "-",
+    ),
+    ReplicatesNotCount { .. } => row(
+        "experiment.replicates_not_count",
+        Side::Experiment,
+        "`replicates` is not a whole number from 1 to 4294967295, such as a negative number, a fraction, a count beyond 32 bits or a string.",
+        "The `replicates` key.",
     ),
     NoLevels { .. } => row(
         "experiment.factor_without_levels",

@@ -82,6 +82,7 @@ Wire line: `schemas@0.12.0`.
 | `experiment.name_collision` | Two names under one root map to the same deviation path, so a deviation there would be ambiguous. | - | experiment |
 | `experiment.path_overlap` | Two paths set by the fixed values and the factors are the same, or one lies below the other. | - | experiment |
 | `experiment.replicates_conflict` | `replicates` in `[fixed]` differs from the experiment file's own `replicates`; write the count once. | The `replicates` key. | experiment |
+| `experiment.replicates_not_count` | `replicates` is not a whole number from 1 to 4294967295, such as a negative number, a fraction, a count beyond 32 bits or a string. | The `replicates` key. | experiment |
 | `experiment.replicates_not_integer` | `replicates` in `[fixed]` or in a `--set` is not a whole number, such as a string or a fraction. | The `replicates` key. | experiment |
 | `experiment.replicates_path` | A `[fixed]` key or a `--set` names a path below `replicates`; `replicates` is one count and has no fields. | The path that was written. | experiment |
 | `experiment.reserved_root_misused` | A value at a reserved root is not the root alone, or has no value. | - | experiment |
