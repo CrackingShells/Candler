@@ -1936,8 +1936,9 @@ struct RawComparable {
     /// The treatment the run applied.
     treatment: TreatmentRef,
     /// The digests of the catalog snapshots an imported run recorded, sorted by kind and digest.
-    /// Only the importer writes it. A cell without the key hashes without it; a cell with the key,
-    /// even an empty list, hashes with it.
+    /// The key is absent for a run Candler made. It is present, possibly empty, only for an
+    /// imported run: the manifest importer and the raw-stream importer write it, and the cell
+    /// hashes with it when present and without it when absent.
     #[serde(default, deserialize_with = "present")]
     #[schemars(extend(
         "$comment" = "Sorted by kind then digest in code point order, without a repeated entry; the Rust reader refuses a list that is not."
@@ -2061,8 +2062,8 @@ impl Comparable {
 
     /// Builds a cell from resolved values.
     ///
-    /// The path `harness` fills the harness, `treatment` the treatment, `snapshots` the snapshot
-    /// digests, `inputs` the input digests and `environments` the plug-in environments; each
+    /// The path `harness` fills the harness, `treatment` the treatment, `snapshots` the catalog
+    /// digests of an imported run (no run Candler makes sets it), `inputs` the input digests and `environments` the plug-in environments; each
     /// takes one value, read as the typed field reads. Every other path goes to `values`, and a
     /// path below one of the five roots is refused. A settings path is not a value and never
     /// reaches this function.
@@ -2602,7 +2603,7 @@ struct RawRunManifest {
     comparable: Comparable,
     /// Where each value came from: one entry per value, and one or more entries under each typed root the cell holds; never an entry for a setting.
     #[schemars(extend(
-        "$comment" = "Each path of `comparable.values` has exactly one entry, and each of `harness`, `treatment` and the non-empty lists `snapshots`, `inputs` and `environments` has an entry at the root path or at a path under it; no other path appears and no path repeats. JSON Schema cannot state this, and the Rust reader refuses a list that differs."
+        "$comment" = "Each path of `comparable.values` has exactly one entry, and each of `harness`, `treatment` and the non-empty lists `snapshots` (present only in an imported run), `inputs` and `environments` has an entry at the root path or at a path under it; no other path appears and no path repeats. JSON Schema cannot state this, and the Rust reader refuses a list that differs."
     ))]
     sources: Vec<SourceEntry>,
     /// The secrets the run needed and whether each was present; never their values.
