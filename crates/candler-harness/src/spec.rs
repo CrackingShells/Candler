@@ -731,8 +731,9 @@ impl AgentSetting {
     /// refuses the second by the plan's session.
     ///
     /// # Errors
-    /// [`DriverError::InvalidValue`] when the cell's MCP servers are not a table of objects, and
-    /// the error of [`Cell::table_at`].
+    /// [`DriverError::InvalidValue`] when the effort or the permission mode is text no level or
+    /// mode names, naming the accepted texts, and the error of [`Cell::text`],
+    /// [`Cell::table_at`] and of the reader of `mcp.servers`.
     pub fn set_by(cell: &Cell<'_>) -> Result<Vec<Self>, DriverError> {
         let mut set: Vec<Self> = Vec::new();
         let mut add = |setting: Self| {
@@ -740,82 +741,81 @@ impl AgentSetting {
                 set.push(setting);
             }
         };
-        let text_at = |path: &str| -> Result<Option<&str>, DriverError> {
-            cell.value_str(path)
-                .map(|value| value.and_then(Value::as_str))
-                .map_err(|error| DriverError::VersionOutput {
-                    detail: error.to_string(), // BORROW: .to_string() gives owned text
-                })
-        };
-        let is_set = |path: &str| -> Result<bool, DriverError> {
-            cell.value_str(path)
-                .map(|value| value.is_some())
-                .map_err(|error| DriverError::VersionOutput {
-                    detail: error.to_string(), // BORROW: .to_string() gives owned text
-                })
-        };
-        for (path, setting) in [
-            (paths::MODEL_ID, Self::ModelId),
-            (paths::MODEL_ENDPOINT, Self::ModelEndpoint),
-        ] {
-            if is_set(path)? {
-                add(setting);
+        let plain = |rows: &[(FieldPath, Self)], add: &mut dyn FnMut(Self)| {
+            for (path, setting) in rows {
+                if cell.value(path).is_some() {
+                    add(*setting);
+                }
             }
-        }
-        if let Some(level) = text_at(paths::MODEL_EFFORT)?.and_then(EffortLevel::from_text) {
+        };
+        plain(
+            &[
+                (field_path!(paths::MODEL_ID), Self::ModelId),
+                (field_path!(paths::MODEL_ENDPOINT), Self::ModelEndpoint),
+            ],
+            &mut add,
+        );
+        let effort_path = field_path!(paths::MODEL_EFFORT);
+        if let Some(text) = cell.text(&effort_path)? {
+            let level = EffortLevel::from_text(text).ok_or_else(|| DriverError::InvalidValue {
+                path: effort_path.clone(), // BORROW: the error owns the path
+                detail: format!(
+                    "is `{text}`; the accepted levels are {}",
+                    EffortLevel::ALL.map(EffortLevel::as_str).join(", ")
+                ),
+            })?;
             add(Self::Effort(level));
         }
-        if let Some(mode) = text_at(paths::PERMISSION_MODE)?.and_then(PermissionMode::from_text) {
+        let mode_path = field_path!(paths::PERMISSION_MODE);
+        if let Some(text) = cell.text(&mode_path)? {
+            let mode =
+                PermissionMode::from_text(text).ok_or_else(|| DriverError::InvalidValue {
+                    path: mode_path.clone(), // BORROW: the error owns the path
+                    detail: format!(
+                        "is `{text}`; the accepted modes are {}",
+                        PermissionMode::ALL.map(PermissionMode::as_str).join(", ")
+                    ),
+                })?;
             add(Self::PermissionMode(mode));
         }
-        for (path, setting) in [
-            (paths::TOOLS_ALLOWED, Self::ToolsAllowed),
-            (paths::TOOLS_DISALLOWED, Self::ToolsDisallowed),
-            (paths::ENV, Self::Env),
-            (paths::INPUTS, Self::Inputs),
-        ] {
-            if is_set(path)? {
-                add(setting);
-            }
-        }
+        plain(
+            &[
+                (field_path!(paths::TOOLS_ALLOWED), Self::ToolsAllowed),
+                (field_path!(paths::TOOLS_DISALLOWED), Self::ToolsDisallowed),
+                (field_path!(paths::ENV), Self::Env),
+                (field_path!(paths::INPUTS), Self::Inputs),
+            ],
+            &mut add,
+        );
         if let Some(table) = cell.table_at(&field_path!("mcp.servers"))? {
-            for entry in table.values() {
-                let Value::Object(server) = entry else {
-                    continue;
-                };
-                let kind = server
-                    .get("type")
-                    .and_then(|kind| serde_json::from_value::<McpServerKind>(kind.clone()).ok()); // BORROW: .clone() copies the value out of the table
-                let kind = match (
-                    kind,
-                    server.contains_key("command"),
-                    server.contains_key("url"),
-                ) {
-                    (Some(kind), _, _) => Some(kind),
-                    (None, true, _) => Some(McpServerKind::Stdio),
-                    (None, false, true) => Some(McpServerKind::Remote),
-                    (None, false, false) => None,
-                };
-                if let Some(kind) = kind {
-                    add(Self::McpTransport(kind));
-                }
-                if let Some(on) = server.get("codemode").and_then(Value::as_bool) {
+            for (key, entry) in table {
+                let server = crate::mcp::read(&key, entry)?;
+                add(Self::McpTransport(server.kind.unwrap_or(
+                    if server.url.is_some() {
+                        McpServerKind::Remote
+                    } else {
+                        McpServerKind::Stdio
+                    },
+                )));
+                if let Some(on) = server.codemode {
                     add(Self::Codemode(on));
                 }
-                if server.contains_key("name") {
+                if server.name.is_some() {
                     add(Self::McpName);
                 }
             }
         }
-        for (path, setting) in [
-            (paths::BUDGET_PER_RUN_WALL_S, Self::WallBudget),
-            (paths::BUDGET_PER_RUN_TURNS, Self::TurnBudget),
-            (paths::BUDGET_PER_RUN_MAX_COST_USD, Self::CostBudget),
-        ] {
-            if is_set(path)? {
-                add(setting);
-            }
-        }
+        plain(
+            &[
+                (field_path!(paths::BUDGET_PER_RUN_WALL_S), Self::WallBudget),
+                (field_path!(paths::BUDGET_PER_RUN_TURNS), Self::TurnBudget),
+                (
+                    field_path!(paths::BUDGET_PER_RUN_MAX_COST_USD),
+                    Self::CostBudget,
+                ),
+            ],
+            &mut add,
+        );
         Ok(set)
     }
 }

@@ -248,12 +248,6 @@ fn table_cases() -> Vec<Case> {
             refuses("/fixed/permission_mode", "knows no working directory"),
         ),
         case(
-            mode,
-            "*",
-            vec![(mode, json!("dontAsk"))],
-            refuses("/fixed/permission_mode", "only `bypassPermissions`"),
-        ),
-        case(
             "budget.per_run.max_cost_usd",
             "*",
             vec![("budget.per_run.max_cost_usd", json!(1.5))],
@@ -265,13 +259,7 @@ fn table_cases() -> Vec<Case> {
             vec![("budget.per_run.turns", json!(5))],
             refuses("/budget/per_run/turns", "`error_max_turns`"),
         ),
-        // The models and levels the effort does not map for.
-        case(
-            "model.effort",
-            "*",
-            vec![("model.effort", json!("extreme")), opus.clone()], // BORROW: .clone() copies the value
-            refuses("/fixed/model.effort", "low, medium, high, xhigh and max"),
-        ),
+        // The models the effort does not map for.
     ];
     // `ultracode` is a Claude Code level the Claude Code driver passes through; OpenCode refuses it.
     cases.push(case(

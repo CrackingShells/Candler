@@ -12,7 +12,7 @@ use candler_core::resolve::config::{Config, UserConfig};
 use candler_core::resolve::layers::{FileValues, Layered, Resolution, ResolveInput};
 use candler_core::runner::plan::{Force, PlanMode, plan_runs};
 use candler_harness::mcp::servers;
-use candler_harness::spec::Cell;
+use candler_harness::spec::{AgentSetting, Cell};
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::values::{JsonValue, ResolvedValue};
 use serde_json::{Value, json};
@@ -114,6 +114,17 @@ fn at_servers(entries: &[(&str, Value)]) -> Option<Refused> {
         .map(|error| refused_by(&error))
 }
 
+/// The refusal of the keys a cell that sets `entries` is read as setting, if any.
+fn at_set_by(entries: &[(&str, Value)]) -> Option<Refused> {
+    let values: Vec<ResolvedValue> = entries
+        .iter()
+        .map(|(path, value)| ResolvedValue::recorded(fp(path), js(value.clone())))
+        .collect();
+    AgentSetting::set_by(&Cell::new(&values))
+        .err()
+        .map(|error| refused_by(&error))
+}
+
 struct Row {
     name: &'static str,
     code: &'static str,
@@ -121,7 +132,7 @@ struct Row {
     run: fn() -> Option<Refused>,
 }
 
-const ROWS: [Row; 13] = [
+const ROWS: [Row; 15] = [
     Row {
         name: "an env name equal to model.token_secret",
         code: "experiment.env_token_secret",
@@ -214,6 +225,18 @@ const ROWS: [Row; 13] = [
                 ("mcp.servers.fs.env.token", json!(7)),
             ])
         },
+    },
+    Row {
+        name: "an effort that names no level",
+        code: "experiment.cell_value_invalid",
+        pointer: Some("/model/effort"),
+        run: || at_set_by(&[("model.effort", json!("turbo"))]),
+    },
+    Row {
+        name: "a permission mode that names no mode",
+        code: "experiment.cell_value_invalid",
+        pointer: Some("/permission_mode"),
+        run: || at_set_by(&[("permission_mode", json!("yolo"))]),
     },
 ];
 

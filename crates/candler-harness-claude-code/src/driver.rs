@@ -212,10 +212,12 @@ impl HarnessDriver for ClaudeCodeDriver {
                 | EffortLevel::Medium
                 | EffortLevel::High
                 | EffortLevel::Xhigh
-                | EffortLevel::Max
-                | EffortLevel::Ultracode,
+                | EffortLevel::Max,
             ) => Answer::Mapped {
                 construct: "`--effort <level>` on the command line",
+            },
+            AgentSetting::Effort(EffortLevel::Ultracode) => Answer::Mapped {
+                construct: "`--effort ultracode` on the command line, which Claude Code reads as `xhigh` with its ultracode mode on",
             },
             AgentSetting::PermissionMode(
                 PermissionMode::Default

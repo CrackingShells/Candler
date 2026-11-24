@@ -47,7 +47,7 @@ fn field_at_fault(entry: &FieldPath, path: &serde_path_to_error::Path) -> FieldP
 }
 
 /// The entry `key` of `mcp.servers` read as a server.
-fn read(key: &str, entry: Value) -> Result<McpServer, DriverError> {
+pub(crate) fn read(key: &str, entry: Value) -> Result<McpServer, DriverError> {
     let entry_path = FieldPath::from_str(&format!("{SERVERS}.{key}"))
         .unwrap_or_else(|_| field_path!("mcp.servers"));
     let refused = |detail: String| DriverError::InvalidValue {

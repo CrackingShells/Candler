@@ -14,7 +14,7 @@ use candler_harness::spec::{
     AgentSetting, Answer, Cell, EffortLevel, PermissionMode, PreparedFile,
 };
 use candler_schemas::execution::paths::{
-    MCP, MODEL_EFFORT, MODEL_ID, PERMISSION_MODE, TOOLS_ALLOWED, TOOLS_DISALLOWED,
+    MCP, MODEL_EFFORT, MODEL_ID, TOOLS_ALLOWED, TOOLS_DISALLOWED,
 };
 use candler_schemas::primitives::{FieldPath, RelPath};
 use candler_schemas::servers::{McpServer, McpServerKind};
@@ -54,10 +54,6 @@ const ACCEPT_EDITS_MODE: &str = "Claude Code's acceptEdits mode also allows edit
          is the command's text, which knows no working directory, so \"inside it\" cannot be \
          written as a rule";
 
-/// The reason any other permission mode is refused.
-const OTHER_MODE: &str = "only `bypassPermissions` (`--auto`) is a mode OpenCode runs the way \
-     Claude Code does; no other mode's allowed set can be written as an OpenCode ruleset";
-
 /// The reason the turn cap is refused: what `agents.<id>.steps` does is not `--max-turns`.
 const TURNS_REFUSAL: &str = "`agents.<id>.steps` makes the last request a tool-less one with an \
      injected prompt and ends the run as completed (the `oc_step_cap` fixture), where Claude Code \
@@ -69,13 +65,11 @@ const EDIT_WRITE_PAIR: &str = "OpenCode's `edit` action covers the edit, write a
      alike, so denying `Edit` or `Write` alone would deny both; list both";
 
 /// Claude Code's own effort vocabulary (`claude --help`: `--effort <level>`), the values Candler's
-/// cell carries at `model.effort`. `OpenCode`'s `anthropicMessages` variant builder
+/// cell carries at `model.effort`, of which the answer maps all but `ultracode`. `OpenCode`'s `anthropicMessages` variant builder
 /// (`packages/core/src/variant.ts`, v2.2.7) resolves the same names to adaptive thinking plus
 /// `output_config.effort` for a Claude model of version 4.6 or later; a config-declared `variants`
 /// entry (`ModelConfig.variants`, v2.2.7) is used as written, so the driver writes that shape
 /// directly for the custom `candler` provider.
-const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
-
 /// The model families whose id `OpenCode`'s `claudeInfo` recognises (`variant.ts:68-80`).
 const FAMILIES: [&str; 5] = ["opus", "sonnet", "haiku", "fable", "mythos"];
 
@@ -84,12 +78,6 @@ const FAMILIES: [&str; 5] = ["opus", "sonnet", "haiku", "fable", "mythos"];
 /// equivalent of that mode.
 const ULTRACODE: &str = "Claude Code honours `ultracode` (`xhigh` effort with its ultracode mode on) \
      and OpenCode has no equivalent of that mode, so it is refused rather than run as `xhigh`";
-
-/// Why a level outside the variants this driver writes is refused: the cell value is opaque, and the
-/// Claude Code driver hands any level to `claude --effort` unchanged.
-const EFFORT_LEVEL: &str = "this driver writes an `OpenCode` variant only for the levels low, medium, \
-     high, xhigh and max; Claude Code receives any other level unchanged, so it is refused rather \
-     than mapped to a nearby one";
 
 /// Why an effort the model cannot take is refused.
 const EFFORT_MODEL: &str = "`OpenCode` gives a model a reasoning effort only for a Claude opus, \
@@ -426,8 +414,7 @@ fn claude_info(id: &str) -> Option<ClaudeInfo> {
 }
 
 /// The reasoning-effort variant `model.effort` compiles to: Claude Code's own vocabulary resolved
-/// to `OpenCode`'s adaptive-thinking shape (see `EFFORT_LEVELS`). A level outside the vocabulary is
-/// an invalid value; a model `OpenCode` would give no such variant (see `EFFORT_MODEL`) is refused
+/// to `OpenCode`'s adaptive-thinking shape (see the constants above). A model `OpenCode` would give no such variant (see `EFFORT_MODEL`) is refused
 /// here, not left to fail or be ignored at run time.
 fn effort_variant(
     cell: &Cell<'_>,
@@ -442,9 +429,6 @@ fn effort_variant(
     let level = value
         .as_str()
         .ok_or_else(|| invalid(MODEL_EFFORT, "is not text".to_owned()))?; // BORROW: .to_owned() makes the owned text
-    if !EFFORT_LEVELS.contains(&level) {
-        return Err(unsupported(MODEL_EFFORT, version, EFFORT_LEVEL));
-    }
     let accepted = claude_info(model_id(cell)?).is_some_and(|info| {
         info.takes_effort() && (level != "xhigh" || info.major > 4 || info.minor >= 7)
     });
@@ -478,10 +462,7 @@ pub(crate) fn settings(
     cell: &Cell<'_>,
     version: &semver::Version,
 ) -> Result<Settings, DriverError> {
-    let mode = cell.permission_mode()?;
-    if PermissionMode::from_text(mode).is_none() {
-        return Err(unsupported(PERMISSION_MODE, version, OTHER_MODE));
-    }
+    cell.permission_mode()?;
     let variant = effort_variant(cell, version)?;
     let mut permissions = tool_permission_rows(cell, TOOLS_ALLOWED, "allow", version)?;
     permissions.extend(tool_permission_rows(
