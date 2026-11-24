@@ -244,8 +244,8 @@ fn cases() -> Res<Vec<Case>> {
         .with_end(exit_of("interrupt_api")?, EndedBy::Unknown),
     );
     // The shared oracle: a scripted agent writes these files into a real workspace beside a
-    // skill file the harness leaves under `.opencode`, and the collector real runs use must store
-    // exactly the agent's files.
+    // skill file the harness leaves under `.opencode`, and the core's file collector applied to
+    // the driver's specs must store exactly the agent's files.
     cases.push(
         Case::new(
             "collect_stores_the_files_the_agent_wrote".to_owned(),
