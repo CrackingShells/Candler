@@ -43,16 +43,18 @@ So "controlled conditions" holds for one harness at a time, not across two. Leve
 |---|---|---|
 | P8 declaration | `Answer`, `AgentSetting` and `DriverFact`, each answered by every driver in an exhaustive match. Every configuration path says whether it reaches the agent. `SettingRow` and `Capabilities` are removed. | Know that no setting or harness behaviour goes unstated on either harness |
 | P9 MCP render | Each driver writes its own MCP file from types. On Claude Code, `local` becomes `stdio` and `remote` becomes `http`, and Claude Code refuses code mode, with its reason. The `codemode` default is written into the cell. | Run one MCP cell on both harnesses and have each install the same server |
-| P10 trace parity | OpenCode's trace attributes an MCP call to its server, as Claude Code's does, and resolve refuses ambiguous server prefixes. The census stops naming servers. | Parse the same MCP call the same way from either harness's trace |
+| P10 trace parity | OpenCode's trace attributes an MCP call to its server, as Claude Code's does, with an optional bare `tool` name that old traces can lack, and resolve refuses ambiguous server prefixes. The census stops naming servers, and the stored Claude Code trace keeps its raw `system/init` line. | Parse the same MCP call the same way from either harness's trace |
 | P11 pages (RiVault, with a Sonnet review) | The capability and configuration pages are walks over the declaration and the drivers | Read one page that says, per harness, what happens to each setting |
-| P12 snapshot out | The constant producer, its resolve step, `comparable.snapshots` and `InspectRun.catalog` are removed. `inspect` shows the resolved MCP config. The README and `AGENTS.md` say "census". | See in `inspect` what Candler installed, and nothing it did not observe |
+| P12 snapshot out | The constant producer, its resolve step, `comparable.snapshots` and `InspectRun.catalog` are removed. `inspect` shows the resolved MCP config, once no `inspect` caller in htn-creator-eval@0.5.3 is found reading the catalog. The README, `AGENTS.md` and the live candler-v1 M6c Goal say "census". The old oracle vectors stay, for the maintainer's own stores. | See in `inspect` what Candler installed, and nothing it did not observe |
 | P13 parity run | A container-e2e guard runs one cell on both harnesses against a real server. It asserts that the server is installed and that the call appears in the same trace form, and one live RiVault run per harness backs it. | Rely on CI to catch a harness falling out of parity |
 | Seam review 3 | A cross-leaf review that asks first what the level left behind | |
 
-Three compatibility items go to the coordinator before the leaf that needs them:
+The coordinator accepted the three compatibility items:
 - P9: the digest changes once the `codemode` default is filled.
-- P10: an optional `tool` field on the trace's MCP origin.
-- P12: a new digest version without snapshots, and `InspectRun.catalog` dropped.
+- P10: an optional `tool` field on the trace's MCP origin, holding the bare tool name.
+- P12: a new digest version without snapshots, and `InspectRun.catalog` dropped, after P12 checks that no `inspect` caller in the HTN consumer reads it.
+
+`/1` stays in `candler-schemas` for level 3. Seam review 3 records its long-term home as an open question.
 
 ## Goal check
 

@@ -66,7 +66,8 @@ The rows are `Copy` and hold `&'static str`. Every key is a fieldless enum with 
 
 - The OpenCode reader marks `<server>_<tool>` as `ToolOrigin::Mcp { server }`. It matches against the cell's resolved server names and does not guess from the spelling.
 - Resolve refuses a set of servers whose OpenCode prefixes are ambiguous, for example `a` and `a_b`.
-- The tool's own name is also spelled differently: `mcp__s__t` on Claude Code, `s_t` on OpenCode. The recommendation is an optional `tool` field on `ToolOrigin::Mcp`, so both traces carry the server's own tool name. `ToolOrigin` has `deny_unknown_fields`, so this is a compatibility item for the coordinator before P10.
+- The tool's own name is also spelled differently: `mcp__s__t` on Claude Code, `s_t` on OpenCode. So `ToolOrigin::Mcp` gets an optional `tool` field holding the bare tool name, and both traces carry one spelling. It is optional so that traces stored before the change still read, and one test parses an old trace without it. The coordinator accepted this wire change (`ToolOrigin` has `deny_unknown_fields`).
+- The stored Claude Code trace keeps the raw `system/init` line, so a consumer can recover server status by post-processing, as for calls. This was the coordinator's condition for dropping `census.mcp_servers`, and P10 holds it as a gate.
 - **Code mode, declared:** `Codemode(true)` on OpenCode is `Mapped`, and its construct says the trace records `execute` calls with empty `wrapped_calls`, so MCP calls inside them are not attributed. Nothing parses `execute`. The parity procedure runs with code mode off, the default. This is why the default is off: with code mode on, the trace shows only `execute`, and the two harnesses no longer compare.
 
 ### The census, reduced
@@ -85,7 +86,9 @@ The rows are `Copy` and hold `&'static str`. Every key is a fieldless enum with 
   - `InspectRun.catalog` and `catalog_of`;
   - the refusal codes only these emitted.
 - `inspect` and the op API show the run's resolved `mcp.*` values from `comparable`. An old sealed run still reads. Its stored blob is left in the store and not shown, with no shim.
-- **Kept:** the `/1` schema, its types and its fixture tests, for the HTN consumer.
+- **Kept:** the `/1` schema, its types and its fixture tests, for the HTN consumer. Its description is reworded to say that Candler neither writes nor reads it and that the HTN consumer produces it.
+- The old oracle vectors stay beside the new ones, because the maintainer's own stores (golden and HTN runs) hold old manifests, and their files say so.
+- Before `InspectRun.catalog` is dropped, P12 confirms that nothing in htn-creator-eval@0.5.3 reads `inspect`'s `catalog` field. If something does, the drop waits for the coordinator.
 
 ## Non-goals
 
@@ -93,7 +96,7 @@ The rows are `Copy` and hold `&'static str`. Every key is a fieldless enum with 
 - `opencode debug config` as a source of anything.
 - Reporting which servers the agent called, or their status. That is post-processing of the trace, done by the consumer.
 - Parsing OpenCode `execute`.
-- Moving `/1` out of `candler-schemas`. That is noted for the coordinator.
+- Moving `/1` out of `candler-schemas`. Seam review 3 records where it should live as an open question, which the coordinator takes to the maintainer.
 
 ## Leaves (subtree `dogfood/parity/`; depth gives order)
 
@@ -101,7 +104,7 @@ The rows are `Copy` and hold `&'static str`. Every key is a fieldless enum with 
 |---|---|---|---|---|---|
 | **P8 `declaration`** | 3.1 | `Answer`, `AgentSetting` and `DriverFact`, with required `answer`/`fact` in both drivers. `SettingRow`, `settings_table`, `Capabilities` and its builder are removed. `PathRow.reach` and the walk over all drivers. | A driver without a session answer compiles and passes on the base, through the builder's default `false`. On the tip, a new variant fails to compile in both drivers (shown on a scratch branch). A cost cap on OpenCode is refused by its match arm. | Sonnet, lead review | $12 / $24 |
 | **P9 `mcp_render`** | 3.2 | Both drivers render MCP from types. `local`→`stdio`, `remote`→`http`. Claude Code refuses `codemode = true`. The default is filled at resolve. | On the base, the `.mcp.json` of a cell with `type = "local"` and `codemode` carries both keys. On the tip it carries `stdio` and no `codemode`. | Sonnet | $6 / $12 |
-| **P10 `trace_parity`** | 3.2 | OpenCode's reader attributes MCP calls as `ToolOrigin::Mcp`, with `tool` if the coordinator agrees. Resolve refuses ambiguous prefixes. The census is reduced to tools. | On the base, the OpenCode export of a call to `s_t` with server `s` reads `origin: other`. | Sonnet | $8 / $16 |
+| **P10 `trace_parity`** | 3.2 | OpenCode's reader attributes MCP calls as `ToolOrigin::Mcp`, with the optional bare `tool` name. Resolve refuses ambiguous prefixes. The census is reduced to tools, and the stored Claude Code trace keeps its raw `system/init` line. | On the base, the OpenCode export of a call to `s_t` with server `s` reads `origin: other`. | Sonnet | $8 / $16 |
 | **P11 `pages`** | 3.2 | The capability and configuration pages are walks over `AgentSetting::ALL`, `DriverFact::ALL`, `CONFIGURATION_PATHS` and the registered drivers. `ROWS` and `cap()` go. | On the base, changing OpenCode's cost-cap answer leaves the page test passing. | **RiVault** Reasoning-Medium → Reasoning-Large → Sonnet. The Sonnet review is mandatory, and the lead checks that thinking ran. | tokens + $2 / $4 |
 | **P12 `snapshot_out`** | 3.3 | Remove the constant producer, the resolve step, `comparable.snapshots` (new digest version) and `InspectRun.catalog`. `inspect` shows the resolved `mcp.*`. README and AGENTS.md swept. | A guard on `candler run` → `inspect`, with one declared server, finds the server in the shown `mcp.*` values. On the base `inspect` shows only a catalog that says `servers: []`. | Sonnet | $8 / $16 |
 | **P13 `parity_run`** | 3.3 | One cell on both harnesses with a real stdio fixture server, code mode off. It asserts (a) the server is installed: in the resolved `mcp.*` and in each driver's rendered file; and (b) the stored trace shows the scripted call as the same `ToolOrigin::Mcp` form on both. It runs in container-e2e, and one live RiVault run per harness is the proof. | The same test on the base fails on OpenCode (`origin: other`). | Sonnet; the live runs on RiVault | $6 / $12 |
@@ -116,11 +119,11 @@ P8 touches both drivers' `driver.rs` and the `prepare.rs` refusals before level 
 
 **Spend.** The leaves are estimated at $45 with a $90 cap, and lead orchestration at about $20. The gate is unchanged: **level 3 stays within $70, measured from transcripts, and no row passes its cap without stopping.** RiVault is used only for P11: its pages are generated and the page test holds them. P8–P10, P12 and P13 decide what the record and the trace say, so they stay on Claude.
 
-**Compatibility, for the coordinator (not Eliott), before the leaf that needs it:**
-- **P9:** the digest changes when the `codemode` default is filled.
-- **P10:** the optional `tool` field on `ToolOrigin::Mcp`. It is a wire change, because of `deny_unknown_fields`.
-- **P12:** the new digest version without `snapshots`. Its vectors are added beside the old ones (`cell_digest.toml`, `catalog_content_digest.toml`). `InspectRun.catalog` leaves `inspect-run.schema.json`.
-- **Noted:** `/1` has an outside producer and reader. Whether it stays in `candler-schemas` long-term is the coordinator's call.
+**Compatibility, ruled by the coordinator:**
+- **P9, accepted:** the digest changes when the `codemode` default is filled, so the resolved cell records what Candler installs.
+- **P10, accepted:** the optional `tool` field on `ToolOrigin::Mcp`, holding the bare tool name. It is a wire change, because of `deny_unknown_fields`, and it is optional so old traces still read.
+- **P12, accepted:** the new digest version without `snapshots`. Its vectors are added beside the old ones (`cell_digest.toml`, `catalog_content_digest.toml`), which stay for the maintainer's own stores and say so. `InspectRun.catalog` leaves `inspect-run.schema.json` once P12 has confirmed that htn-creator-eval@0.5.3 has no `inspect` caller reading it.
+- **`/1`:** it stays in `candler-schemas` for level 3, with a description saying who produces it. Its long-term home is an open question that seam review 3 records.
 
 ## The principle, carried into every agent I supervise
 
@@ -134,7 +137,7 @@ Level 3 is one pass of the alignment work. If an implementer makes its gate pass
   - `integrity-level3-implementer-brief.md` adds the machine rules: one target dir per leaf, removed at merge; at most 3 builds; containers named and removed by name, never pruned; scratch deleted at each step.
 - **Joints.** I talk with each implementer when its guard first fails on the base, and before its PR. I ask what the change leaves at each level, and I read the diff for a second producer, a second reader, a passthrough or a shim. Examples: `Capabilities` kept beside `DriverFact`; `settings_table` kept "for the pages"; a census field kept with no reader.
 - **Acceptance.** A leaf that adds where it should replace is re-briefed, not merged. Each leaf report has a "What it leaves" section, which seam review 3 reads first.
-- **Sweep.** P12 rewords the README phrase and `AGENTS.md`'s stored-state list in one change.
+- **Sweep.** P12 rewords the README phrase, `AGENTS.md`'s stored-state list and the live candler-v1 M6c Goal that quotes the phrase, in one change. Done leaves keep their words as history.
 - **My own work.** The same rules apply to how I lead: subagents only where a brief can be written, no polling, spend measured from transcripts at each joint.
 
 ## Judged on three levels
@@ -145,10 +148,10 @@ Level 3 is one pass of the alignment work. If an implementer makes its gate pass
   - Added: `Answer`, two key enums of one shape, a `reach` column, and one name check at resolve.
   - Kept: `CONFIGURATION_PATHS` (extended), `refusal_table!`, the `/1` schema (outside producer and reader), and `census.tools` (one reader).
 - **How it is consumed.** One generated page says, per harness, what happens to each setting and fact. `inspect` shows the MCP config Candler installed. The trace of one cell attributes the same MCP call the same way on both harnesses, which is what a consumer parses. Code mode's limit is stated where it is chosen.
-- **Trades, sent to the coordinator before ExitPlanMode:**
+- **Trades, accepted by the coordinator:**
   - P8 grows, which costs more to develop and buys one shape to leave.
-  - Claude Code's record loses its server status, which costs the consumer something and buys one fewer producer. The trace keeps the calls.
-  - `/1` stays with no Candler producer or reader. That leaves something in the code, but the consumer still uses it.
+  - Claude Code's record loses its server status, which buys one fewer producer. The trace keeps the calls and the raw `system/init` line, so the consumer can still recover the status (a P10 gate).
+  - `/1` stays with no Candler producer or reader. That leaves something in the code, but the consumer still uses it, and its description says so.
 
 ## After approval (in this session)
 
