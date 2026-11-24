@@ -18,6 +18,7 @@ pub mod plugin_env;
 pub mod run_evidence;
 pub mod run_exec;
 pub mod run_plan;
+pub mod sealed_run;
 pub mod session_rig;
 pub mod supervision_gates;
 pub mod test_image;

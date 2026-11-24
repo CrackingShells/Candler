@@ -5,6 +5,7 @@
 #![cfg(test)]
 
 use crate::support::legacy_import;
+use crate::support::sealed_run::{File, seal_workspace};
 use candler_testkit::file_set;
 
 use std::collections::BTreeSet;
@@ -17,7 +18,7 @@ use std::str::FromStr as _;
 use candler_core::evaluation::context::{ContextError, assemble, materialise};
 use candler_core::store::Store;
 use candler_core::store::run::{Existing, RunWriter};
-use candler_schemas::evaluation::{ContextArtifact, Needs, RunContext};
+use candler_schemas::evaluation::{Needs, RunContext};
 use candler_schemas::execution::{RunManifest, RunTree, TreeEntry};
 use candler_schemas::primitives::{Digest, FieldPath, RelPath, RunKey};
 use legacy_import::{cell_of, copy_tree, import_with_reader, mini};
@@ -68,49 +69,6 @@ fn sha256_of(bytes: &[u8]) -> Digest {
         hex.extend(char::from_digit(u32::from(byte & 0xf), 16));
     }
     Digest::from_hex(&hex).expect("a digest")
-}
-
-/// One file of a synthetic `outputs/` tree.
-struct File {
-    path: &'static str,
-    bytes: &'static [u8],
-    executable: bool,
-}
-
-/// Seals a new run beside `template`, which is the manifest it copies, with exactly the files
-/// `files` under `outputs/`, and returns its key. The store holds each file as a blob.
-fn seal_synthetic(store: &Store, template: &RunKey, attempt: u32, files: &[File]) -> RunKey {
-    let mut manifest = serde_json::to_value(store.read_manifest(template).expect("the manifest"))
-        .expect("a manifest serialises");
-    *manifest
-        .pointer_mut("/run/attempt")
-        .expect("the manifest names an attempt") = attempt.into();
-    let manifest: RunManifest = serde_json::from_value(manifest).expect("a manifest reads");
-    let mut tree = RunTree::builder();
-    for file in files {
-        let digest = store.put_blob(file.bytes, None).expect("a blob stores");
-        tree = tree.entry(TreeEntry::file(
-            RelPath::from_str(file.path).expect("a path"),
-            digest,
-            file.executable,
-        ));
-    }
-    let key = manifest.run().clone();
-    let mut writer = RunWriter::create(store, &manifest, Existing::Refuse).expect("a run starts");
-    writer
-        .tree(&tree.build().expect("a tree"))
-        .expect("the tree writes");
-    writer.done().expect("the run seals");
-    key
-}
-
-/// The string `path` of every artifact of a context.
-fn artifact_paths(context: &RunContext) -> BTreeSet<String> {
-    context
-        .artifacts()
-        .iter()
-        .map(|a| a.path.to_string())
-        .collect()
 }
 
 /// The vector table, as `toml::Table`.
@@ -211,138 +169,6 @@ fn the_live_context_digest_is_the_independent_vector() {
     );
 }
 
-/// One row of the file-rule table: artifact globs, the files the run stored, and the hand-listed
-/// set of paths that the context carries.
-struct Case {
-    name: &'static str,
-    globs: &'static [&'static str],
-    stored: &'static [File],
-    kept: &'static [&'static str],
-}
-
-/// Shorthand for a stored file whose bytes are its own path.
-const fn file(path: &'static str) -> File {
-    File {
-        path,
-        bytes: path.as_bytes(),
-        executable: false,
-    }
-}
-
-/// The file-rule table; the sets in `kept` are written by hand from R03's file rule.
-const CASES: &[Case] = &[
-    Case {
-        name: "a nested match counts",
-        globs: &["outputs/**"],
-        stored: &[file("a.py"), file("sub/deep/b.py"), file("sub/c.json")],
-        kept: &["a.py", "sub/c.json", "sub/deep/b.py"],
-    },
-    Case {
-        name: ".claude is dropped, at any depth",
-        globs: &["outputs/**"],
-        stored: &[
-            file("domain.py"),
-            file(".claude/x.py"),
-            file(".claude/deep/y.py"),
-            file("sub/.claude/z.py"),
-        ],
-        kept: &["domain.py"],
-    },
-    Case {
-        name: "AppleDouble files are dropped",
-        globs: &["outputs/**"],
-        stored: &[
-            file("domain.py"),
-            file("._domain.py"),
-            file("sub/._b.py"),
-            file("sub/b.py"),
-        ],
-        kept: &["domain.py", "sub/b.py"],
-    },
-    Case {
-        name: ".DS_Store is dropped",
-        globs: &["outputs/**"],
-        stored: &[file("x.py"), file(".DS_Store"), file("sub/.DS_Store")],
-        kept: &["x.py"],
-    },
-    Case {
-        name: "a hidden directory below a nested path is dropped",
-        globs: &["outputs/**"],
-        stored: &[file("sub/.hidden/y.py"), file("sub/z.py")],
-        kept: &["sub/z.py"],
-    },
-    Case {
-        name: "an empty outputs gives no artifact and no error",
-        globs: &["outputs/**"],
-        stored: &[],
-        kept: &[],
-    },
-    Case {
-        name: "a glob that names the component keeps it, and only what it names",
-        globs: &["outputs/.claude/**"],
-        stored: &[
-            file("domain.py"),
-            file(".claude/x.py"),
-            file(".claude/.hid"),
-        ],
-        kept: &[".claude/x.py"],
-    },
-    Case {
-        name: "a literal dot file is kept by its own glob and not by another",
-        globs: &["outputs/**", "outputs/.env"],
-        stored: &[file(".env"), file("a/.env"), file("x")],
-        kept: &[".env", "x"],
-    },
-    Case {
-        name: "a glob keeps only what it matches",
-        globs: &["outputs/*.py"],
-        stored: &[file("a.py"), file("sub/b.py"), file("c.json")],
-        kept: &["a.py"],
-    },
-];
-
-/// Guards: R9 — the paths of a materialised context and the paths its digest covers are exactly the files the file rule keeps: a nested match counts, `.claude/`, `._*` and `.DS_Store` are dropped unless a glob names them, and an empty `outputs/` gives no artifact and no error. Oracle: hand-listed path sets, and the digest of a context built from the listed paths and the literal bytes.
-#[test]
-fn the_file_rule_decides_the_paths_and_the_digest() {
-    let (_keep, store) = mini_store(&mini());
-    let template = key_of(&store, 12);
-    for (n, case) in (2_u32..).zip(CASES) {
-        let run = seal_synthetic(&store, &template, n, case.stored);
-        let workspace = tempfile::tempdir().expect("a workspace");
-        let context = context_of(&store, &run, &needs_of(case.globs), workspace.path());
-        let expected: BTreeSet<String> = case.kept.iter().map(|p| (*p).to_owned()).collect();
-        assert_eq!(
-            file_set(&workspace.path().join("outputs")),
-            expected,
-            "materialised files: {}",
-            case.name
-        );
-        assert_eq!(
-            artifact_paths(&context),
-            expected,
-            "digest path list: {}",
-            case.name
-        );
-        // The digest is that of exactly the listed paths with the hashes of their literal bytes.
-        let mut builder = RunContext::builder()
-            .run(run.clone())
-            .root("/unused".into());
-        for path in case.kept {
-            builder = builder.artifact(ContextArtifact::new(
-                RelPath::from_str(path).expect("a path"),
-                String::from("/unused"),
-                sha256_of(path.as_bytes()),
-            ));
-        }
-        assert_eq!(
-            context.context_digest(),
-            builder.build().expect("a context").context_digest(),
-            "digest: {}",
-            case.name
-        );
-    }
-}
-
 /// Guards: R9 and I11 — a plug-in that appends to, or overwrites, a materialised file, after making it writable as a careless one would, leaves every blob of the store with its recorded sha256. Oracle: the sha256 the store's tree records for each blob, and a read of the blob's bytes taken here.
 #[test]
 fn a_plug_in_cannot_write_through_to_the_store() {
@@ -426,34 +252,82 @@ fn a_corrupt_blob_is_refused_and_not_digested() {
     );
 }
 
-/// Guards: R9 and I11 — every materialised file is a private copy, not a link: a fresh inode with one link, mode `0444`, or `0555` when the tree marks it executable, while the store blob keeps its own inode and mode. Oracle: `stat` of the copy and of the blob, and the executable bit written into the synthetic tree here.
+/// Guards: R9 — the file rule drops `.claude/` at any depth unless a glob names it: `outputs/**`
+/// keeps `domain.py` only, and `outputs/.claude/**` keeps `.claude/x.py` and not `.claude/.hid`.
+/// The runner never collects `.claude` (`EXCLUDED_DIRS`, `discovery.rs` of the Claude Code driver), so
+/// these runs are sealed through the runner's `seal_run` over a workspace made here. Oracle: hand-listed
+/// path sets from R03's file rule.
 #[test]
-fn a_materialised_file_is_a_private_read_only_copy() {
+fn the_file_rule_treats_a_stored_dot_claude_by_its_glob() {
     let (_keep, store) = mini_store(&mini());
     let template = key_of(&store, 12);
-    let stored = [
-        file("plain.py"),
-        File {
-            path: "run.sh",
-            bytes: b"#!/bin/sh\n",
-            executable: true,
-        },
+    let plain = |path: &'static str| File {
+        path,
+        bytes: path.as_bytes(),
+        executable: false,
+    };
+    let cases: [(&str, Vec<File>, &str, &[&str]); 2] = [
+        (
+            "dropped at any depth",
+            vec![
+                plain("domain.py"),
+                plain(".claude/x.py"),
+                plain(".claude/deep/y.py"),
+                plain("sub/.claude/z.py"),
+            ],
+            "outputs/**",
+            &["domain.py"],
+        ),
+        (
+            "kept when a glob names it",
+            vec![
+                plain("domain.py"),
+                plain(".claude/x.py"),
+                plain(".claude/.hid"),
+            ],
+            "outputs/.claude/**",
+            &[".claude/x.py"],
+        ),
     ];
-    let run = seal_synthetic(&store, &template, 2, &stored);
+    for (n, (name, stored, glob, kept)) in (2_u32..).zip(cases) {
+        let run = seal_workspace(&store, &template, n, &stored);
+        let workspace = tempfile::tempdir().expect("a workspace");
+        context_of(&store, &run, &needs_of(&[glob]), workspace.path());
+        let expected: BTreeSet<String> = kept.iter().map(|p| (*p).to_owned()).collect();
+        assert_eq!(
+            file_set(&workspace.path().join("outputs")),
+            expected,
+            "materialised files: {name}"
+        );
+    }
+}
+
+/// Guards: R9 and I11 — a file the tree marks executable materialises as `0555`, a private copy
+/// with one link, while the store blob keeps its own inode and mode `0444`. The runner's tree never
+/// marks a file executable, so this run is sealed through the runner's `seal_run` over a workspace
+/// made here. Oracle: `stat` of the copy and of the blob, and the executable bit given to the file here.
+#[test]
+fn an_executable_entry_materialises_as_a_private_0555_copy() {
+    let (_keep, store) = mini_store(&mini());
+    let template = key_of(&store, 12);
+    let stored = [File {
+        path: "run.sh",
+        bytes: b"#!/bin/sh\n",
+        executable: true,
+    }];
+    let run = seal_workspace(&store, &template, 2, &stored);
     let workspace = tempfile::tempdir().expect("a workspace");
     context_of(&store, &run, &needs_of(&["outputs/**"]), workspace.path());
 
-    for (name, mode) in [("plain.py", 0o444_u32), ("run.sh", 0o555_u32)] {
-        let copy = fs::metadata(workspace.path().join("outputs").join(name)).expect("a copy");
-        let digest =
-            sha256_of(&fs::read(workspace.path().join("outputs").join(name)).expect("reads"));
-        let blob = fs::metadata(store.blob_path(&digest)).expect("a blob");
-        assert_eq!(copy.mode() & 0o777, mode, "the mode of {name}");
-        assert_eq!(copy.nlink(), 1, "the copy of {name} has one link");
-        assert_ne!(copy.ino(), blob.ino(), "the copy of {name} is not the blob");
-        assert_eq!(blob.nlink(), 1, "the blob of {name} gained no link");
-        assert_eq!(blob.mode() & 0o777, 0o444, "the mode of the blob of {name}");
-    }
+    let path = workspace.path().join("outputs").join("run.sh");
+    let copy = fs::metadata(&path).expect("a copy");
+    let blob = fs::metadata(store.blob_path(&sha256_of(&fs::read(&path).expect("reads"))))
+        .expect("a blob");
+    assert_eq!(copy.mode() & 0o777, 0o555, "the mode of the copy");
+    assert_eq!(copy.nlink(), 1, "the copy has one link");
+    assert_ne!(copy.ino(), blob.ino(), "the copy is not the blob");
+    assert_eq!(blob.nlink(), 1, "the blob gained no link");
+    assert_eq!(blob.mode() & 0o777, 0o444, "the mode of the blob");
 }
 
 /// Guards: I11 — a workspace that is, or lies above, the store root is refused before any directory is made, so a plug-in cannot reach the store through its own workspace. Oracle: the parent of the store root, and the store root itself, handed in as workspaces.
