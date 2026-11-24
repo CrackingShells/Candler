@@ -1515,8 +1515,9 @@ impl<'a> Cell<'a> {
     }
 
     /// The permission mode the cell sets, or [`PermissionMode::Default`], Claude Code's own mode
-    /// when no flag is given, when it sets none. Resolve refuses text that names no mode and asks
-    /// the driver about the mode read here, so a driver reads a mode and never a spelling.
+    /// when no flag is given, when it sets none. The cell holds the text; resolve refuses text that
+    /// names no mode, and this maps the text it checked. Text that never went through resolve and
+    /// names no mode reads as [`PermissionMode::Default`].
     #[must_use]
     pub fn permission_mode(&self) -> PermissionMode {
         self.value(&field_path!(paths::PERMISSION_MODE))
@@ -1525,8 +1526,9 @@ impl<'a> Cell<'a> {
             .unwrap_or(PermissionMode::Default)
     }
 
-    /// The reasoning effort, if the cell sets one. Resolve refuses text that names no level, so a
-    /// driver reads a level here and never a spelling.
+    /// The reasoning effort, if the cell sets one. The cell holds the text; resolve refuses text
+    /// that names no level, and this maps the text it checked. Text that never went through resolve
+    /// and names no level reads as unset.
     #[must_use]
     pub fn effort(&self) -> Option<EffortLevel> {
         self.value(&field_path!(paths::MODEL_EFFORT))

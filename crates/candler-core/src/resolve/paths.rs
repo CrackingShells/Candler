@@ -550,7 +550,8 @@ fn unnamed(path: &FieldPath, text: &str, accepted: &[&str]) -> DriverError {
     }
 }
 
-/// The effort level the cell holds at `path`: the one place the text becomes an [`EffortLevel`].
+/// The effort level the cell holds at `path`, refusing text that names no level. The cell keeps
+/// the text; [`Cell::effort`] maps the text checked here.
 fn effort_at(cell: &Cell<'_>, path: &FieldPath) -> Result<Option<EffortLevel>, DriverError> {
     cell.text(path)?
         .map(|text| {
@@ -560,8 +561,8 @@ fn effort_at(cell: &Cell<'_>, path: &FieldPath) -> Result<Option<EffortLevel>, D
         .transpose()
 }
 
-/// The permission mode the cell holds at `path`: the one place the text becomes a
-/// [`PermissionMode`]. A cell that names none runs in Claude Code's own mode when no flag is
+/// The permission mode the cell holds at `path`, refusing text that names no mode. The cell keeps
+/// the text; [`Cell::permission_mode`] maps the text checked here. A cell that names none runs in Claude Code's own mode when no flag is
 /// given, [`PermissionMode::Default`], and the driver is asked about that mode like any other.
 fn mode_at(cell: &Cell<'_>, path: &FieldPath) -> Result<PermissionMode, DriverError> {
     cell.text(path)?
