@@ -235,12 +235,6 @@ pub enum ResolveError {
         /// The path, as written.
         path: String,
     },
-    /// The `replicates` count is not a whole number.
-    #[error("`replicates` is {value}, which is not a whole number")]
-    ReplicatesNotInteger {
-        /// The value, as JSON text.
-        value: String,
-    },
     /// At least one step failed; every step ran.
     #[error(
         "preflight failed: {} failed step report(s), {} step error(s){}",

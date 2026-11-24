@@ -256,7 +256,7 @@ global file, which this text neither restates nor paraphrases.
 - **audit-2.** `resolve` accepts an absolute path in mcp args, which `run` refuses. It is the same
   cause: two readers.
 - **The three per-case codes PR #57 adds** (`experiment.env_token_secret`,
-  `experiment.replicates_path`, `experiment.replicates_not_integer`) are honest refusals. But each
+  `experiment.replicates_path`, `experiment.replicates_not_count`) are honest refusals. But each
   exists because a reader had to be patched case by case.
 
 ### Change that removes the cause: a pattern, not two fixes

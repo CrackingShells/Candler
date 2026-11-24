@@ -241,7 +241,7 @@ global file, which this text neither restates nor paraphrases.
 - **audit-2.** `resolve` accepts an absolute path in mcp args, which `run` refuses. It is the same
   cause: two readers.
 - **The three per-case codes PR #57 adds** (`experiment.env_token_secret`,
-  `experiment.replicates_path`, `experiment.replicates_not_integer`) are honest refusals. But each
+  `experiment.replicates_path`, `experiment.replicates_not_count`) are honest refusals. But each
   exists because a reader had to be patched case by case.
 
 ### Change that removes the cause
@@ -387,7 +387,7 @@ plug-in's layout surprise), and audit-1 (does `resolve` need to print the cell c
 > - `stdio_servers` and `Stdio` are now public.
 > - OpenCode runs now store the workspace files as artifacts, except `.opencode/`.
 > - `resolve` refuses the three inputs above, with three new refusal codes:
->   `experiment.env_token_secret`, `experiment.replicates_path` and `experiment.replicates_not_integer`.
+>   `experiment.env_token_secret`, `experiment.replicates_path` and `experiment.replicates_not_count`.
 >
 > **Removed**
 > - Tests in seven areas (CLI and harness, isolation, supervision, plan and store, stats and analyze,

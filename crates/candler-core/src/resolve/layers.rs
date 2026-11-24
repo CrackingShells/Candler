@@ -386,10 +386,10 @@ impl Layered {
 /// The path of the secret that holds the gateway token.
 const TOKEN_SECRET: &str = "model.token_secret";
 
-/// Refuses a `replicates.<x>` path, which names no setting, and a `replicates` count that is not a
-/// whole number: either would be read as no value at all.
+/// Refuses a `replicates.<x>` path, which names no setting and would be read as no value at all.
+/// Whether the `replicates` value is a count is decided where the plan reads it.
 fn check_replicates_input(written: &[(&FieldPath, &JsonValue)]) -> Result<(), ResolveError> {
-    for (path, value) in written {
+    for (path, _value) in written {
         if path
             .as_str()
             .strip_prefix(REPLICATES)
@@ -397,11 +397,6 @@ fn check_replicates_input(written: &[(&FieldPath, &JsonValue)]) -> Result<(), Re
         {
             return Err(ResolveError::ReplicatesPath {
                 path: path.to_string(),
-            });
-        }
-        if path.as_str() == REPLICATES && value.as_value().as_u64().is_none() {
-            return Err(ResolveError::ReplicatesNotInteger {
-                value: value.as_value().to_string(),
             });
         }
     }

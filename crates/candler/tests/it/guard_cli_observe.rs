@@ -228,6 +228,33 @@ fn o1_resolve_refuses_a_replicate_count_the_plan_refuses() {
     world.remove();
 }
 
+/// Guards: `resolve --set replicates=<v>` refuses a value that is no count with the record the
+/// op API's planning gives it (`guard_silent_acceptance`, the rows of the same three values): the
+/// code `experiment.replicates_not_count` at `/replicates`, and a message that gives the range.
+///
+/// Oracle: the code, the pointer and the range, written by hand.
+///
+/// Bite: `resolve` reads the count in its own layer, so `-1` is refused as "not a whole number"
+/// under a code of its own and `5000000000` as a cost cap that is not positive.
+#[test]
+fn o1_resolve_refuses_what_is_no_replicate_count_as_the_plan_does() {
+    let world = world();
+    let models = Models::start(TOKEN);
+    for value in ["-1", "2.5", "5000000000"] {
+        let set = format!("replicates={value}");
+        let out = resolve(&world, &models.url(), &["--set", set.as_str()], Some(TOKEN));
+        let record: serde_json::Value = serde_json::from_str(text(&out.stderr).trim_end()).unwrap();
+        assert_eq!(
+            record["code"], "experiment.replicates_not_count",
+            "{value}: {record}"
+        );
+        assert_eq!(record["path"], "/replicates", "{value}: {record}");
+        let message = record["message"].as_str().unwrap_or_default();
+        assert!(message.contains("1 to 4294967295"), "{value}: {message}");
+    }
+    world.remove();
+}
+
 /// Guards: `resolve` accepts a valid experiment whose `request.treatment` factor has two table
 /// levels, each its own skills commit: every level has a resolution, so no level is reported
 /// unresolved.

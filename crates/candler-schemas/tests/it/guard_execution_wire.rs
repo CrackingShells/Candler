@@ -788,10 +788,7 @@ fn replicates_are_checked_once() {
         candler_schemas::refusal::Refusal::path(&beyond).as_deref(),
         Some("/replicates")
     );
-    assert!(
-        beyond.to_string().contains("1 to 4294967295"),
-        "{beyond}"
-    );
+    assert!(beyond.to_string().contains("1 to 4294967295"), "{beyond}");
     assert_eq!(check_replicates(1).ok(), Some(1));
     assert_eq!(check_replicates(u64::from(u32::MAX)).ok(), Some(u32::MAX));
 }

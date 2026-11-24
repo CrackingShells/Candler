@@ -15,7 +15,7 @@ Guard: `crates/candler-core/tests/it/guard_silent_acceptance.rs`, seven rows. Th
 |:--|:--|:--|:--|:--|:--|
 | `env` name equals `model.token_secret` | yes | yes | `experiment.env_token_secret` | `/env/<NAME>` | `resolve/steps/env.rs::check`, called from `Layered::new` |
 | `replicates.<x>` path | yes | yes | `experiment.replicates_path` | `/replicates/x` | `resolve/layers.rs::check_replicates_input` |
-| replicate count is a string | yes | yes | `experiment.replicates_not_integer` | `/replicates` | same |
+| replicate count is a string | yes | yes | `experiment.replicates_not_count` | `/replicates` | same |
 | replicate count is a fraction | yes | yes | same | `/replicates` | same |
 | `[fixed] replicates` differs from the file's count | yes | still red, `#[ignore]` | `experiment.replicates_conflict` (planned) | `/replicates` | planned: `Levels::replicates` in `runner/plan.rs` |
 | MCP server `command` not a string | yes | still red, `#[ignore]` | `jobs.server_command_not_string` (planned) | `/mcp/servers/<key>/command` | planned: `stdio_servers` in `servers.rs` |
@@ -46,7 +46,7 @@ Guard: `crates/candler-core/tests/it/guard_silent_acceptance.rs`, seven rows. Th
 ## Verifier
 
 A fresh Sonnet verifier given the leaf, this report and the diff: **PASS with follow-ups**, no dishonest claim. Confirmed: `codes.toml` only appends (3 rows, 0 lines removed), each new code is emitted in `resolve/refusal.rs` and pinned by a guard row that runs; the `#[ignore]`d `DEFERRED` rows are counted as cover nowhere and their codes are not in `codes.toml`; the ownership deviations are the mechanical `ResolveInput::new(..)` swap only; no commit touches `crates/candler-schemas/`; no existing fixture is newly refused (495 passed; DIGEST 20, GOLDEN 10). Unmet, disclosed: the replicates conflict and non-string server `command`/`args` (blocked because `runner/refusal.rs` and `jobs/refusal.rs` fall outside the leaf's OWNED regex); the ownership grep prints the 18 deviation files. New follow-ups it found:
-- The replicate count is now checked twice: the CLI's `check_replicate_count` (`crates/candler/src/commands/preflight.rs:269-283`) refuses non-integers first as `NotPositive`, so `experiment.replicates_not_integer` is reachable only through the core API.
+- The replicate count is now checked twice: the CLI's `check_replicate_count` (`crates/candler/src/commands/preflight.rs:269-283`) refuses non-integers first as `NotPositive`, so `experiment.replicates_not_count` is reachable only through the core API.
 - `Layered::new` finds `model.token_secret` only among the file and explicit layers; a value from defaults or config would not be compared with `env` names.
 - Non-string server `env` values are dropped silently too, a sibling case the leaf does not list.
 No fix round: the remaining cases need files outside OWNED, which the permission system refused the implementer; they go to a follow-up piece that owns `runner/refusal.rs`, `jobs/refusal.rs` and the CLI preflight.
