@@ -59,3 +59,44 @@ The Step 3 verifier (a fresh agent over the leaf, this report and the diff).
 | N4 census wording on the page | Left: goes to the pages leaf. |
 | N5 OpenCode case table | Left: a deliberate cross-check. |
 | N6 OpenCode prose | The doc comment above `FAMILIES` now describes the families; the `ULTRACODE` text and the doc above it no longer say what the Claude Code driver does. |
+
+## B2 round
+
+Base `e8786036`. Finding B2: each setting's path was stated in `PathRow.reach`, `AgentSetting::path()` and `AgentSetting::set_by`, and effort and permission mode were parsed in `set_by` and again in the drivers.
+
+| Gate | Verdict | Evidence |
+|---|---|---|
+| G-B2a only `CONFIGURATION_PATHS` maps a path to a setting | PASS | `AgentSetting::path`, `AgentSetting::set_by` and their path lists are deleted; `git grep -E "fn set_by\|AgentSetting::set_by\|fn path\(self\)" -- crates/candler-harness*/src` returns nothing. The walk is `resolve::paths::settings_set_by`, over the rows whose reach is `Agent(..)` |
+| G-B2b unknown effort and mode text give one `cell_value_invalid` at the field, both drivers | PASS | `guard_session::an_unnamed_effort_or_mode_is_refused_at_its_field_for_each_driver` goes through the real `resolve` and `plan_runs` for Claude Code and OpenCode, and checks `experiment.cell_value_invalid` at `/model/effort` and `/permission_mode`. The two `guard_silent_acceptance` rows read `settings_set_by` and still pass |
+| G-B2c a refused setting is refused once, from core, before `plan` | PASS | `refuse_unanswered` is called in `fresh_cells` beside `check_settings`; `check_answers` is deleted with its two driver calls (`git grep check_answers` finds only the unrelated conformance function). `guard_session::session_plan_refuses_a_setting_the_driver_cannot_honour` stays green. `guard_opencode_driver`'s case loop now checks the driver's answer and reason for the cases the core refuses, and still checks the plan for the value refusals the driver keeps (an effort for a model that takes none, a tool name) |
+| G-B2d completeness walk bites | PASS | `guard_driver_answers::every_agent_setting_is_reached_by_a_path_or_has_no_path` already held the walk (reach and `NO_PATH` over `AgentSetting::ALL`), so no second one was added. Scratch worktree off `e8786036` with `model.endpoint` moved to `Reach::CandlerOnly`: `FAIL ... reached by no path: [ModelEndpoint]`. It passes on the tip in the full run. The scratch worktree, branch and target dir are removed |
+| fmt, clippy `-D warnings`, doc `-D warnings` | PASS | all clean |
+| nextest workspace | PASS | `757 tests run: 757 passed (6 slow), 31 skipped` (the skipped are the container-gated tests, as on the base) |
+
+### What changed
+
+- `Cell::effort()` returns `Option<EffortLevel>` and `Cell::permission_mode()` returns `PermissionMode`; neither fails. Both drivers read them typed (`--effort` and `--permission-mode` take `as_str()`; OpenCode's `effort_variant` takes the level). OpenCode's own `settings` no longer re-reads the mode.
+- `settings_set_by` is the one reader that refuses unknown text, with `DriverError::InvalidValue` at the field, which the refusal table maps to `experiment.cell_value_invalid`.
+- MCP kind, `codemode` and `name` come from `mcp::servers` and `mcp::kind` (now `pub`).
+- `DriverError::Unsupported` loses its `version` field, because the core, which now raises the refusal, knows the harness id and not the version a driver was validated against.
+
+### Deviations
+
+- **Slice.** `Reach::Agent` still takes a slice, used by more than one entry only on the `mcp` row: `CONFIGURATION_PATHS` has no per-field mcp rows, and the three keys of a server are read together from the transport entry.
+- **Two readers of the spelling.** `EffortLevel::from_text` and `PermissionMode::from_text` stay beside the enums, in `candler-harness`, and are called from `settings_set_by` (the refusing read) and from `Cell::effort`/`Cell::permission_mode` (the typed read, which cannot fail). The `Cell` is a view over the resolved values that many sites build, so holding typed fields in it would have meant parsing at each constructor. A cell with unnamed text never reaches a driver through the core; a hand-built cell reads as unset (effort) or `Default` (mode).
+- `permission_mode` absent now reads as `Default` where it used to be `cell_value_missing`.
+- `SessionMode` and `Skills` are not yielded by the walk (the plan's session refuses the first, the treatment holds the second).
+
+### Digest
+
+The serialised cell does not change. The values stay the strings the experiment wrote; `from_text` and `as_str` are inverses, and nothing rewrites the text on its way into the cell. The digest holds.
+
+### Vocabulary
+
+Claude Code docs through context7 (`/websites/code_claude`, CLI reference): `--effort` accepts `low`, `medium`, `high`, `xhigh`, `max`, `ultracode`; that matches `EffortLevel`. `--permission-mode` accepts `default`, `acceptEdits`, `plan`, `auto`, `dontAsk`, `bypassPermissions` and `manual` (an alias for `default`). **Gap:** `PermissionMode` has no `auto`, `dontAsk` or `manual`; the variants were kept as the brief said and no variant was invented. `claude --version` here is 2.1.316; its `--help` lists the flags without the values.
+
+### What it leaves
+
+- **How it was developed.** One build slot (`l3-1`), one scratch build for the bite, removed with its worktree, branch and target dir; three full workspace runs.
+- **What it leaves in the code.** One statement of each path (the table), one walk, one refusal site, one refusing reader of each spelling. Open points: the second `from_text` call in `Cell`; `PermissionMode` lacks Claude Code's `auto`, `dontAsk` and `manual`; the message of `setting_unsupported` no longer names the validated version.
+- **How it is consumed.** The experimenter sees one `cell_value_invalid` at the field for unknown effort or mode text on either harness, and `setting_unsupported` for a setting the harness has no way to honour, raised before any job starts.
