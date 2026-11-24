@@ -84,7 +84,7 @@ Base `e8786036`. Finding B2: each setting's path was stated in `PathRow.reach`, 
 
 - **Slice.** `Reach::Agent` still takes a slice, used by more than one entry only on the `mcp` row: `CONFIGURATION_PATHS` has no per-field mcp rows, and the three keys of a server are read together from the transport entry.
 - **Two readers of the spelling.** `EffortLevel::from_text` and `PermissionMode::from_text` stay beside the enums, in `candler-harness`, and are called from `settings_set_by` (the refusing read) and from `Cell::effort`/`Cell::permission_mode` (the typed read, which cannot fail). The `Cell` is a view over the resolved values that many sites build, so holding typed fields in it would have meant parsing at each constructor. A cell with unnamed text never reaches a driver through the core; a hand-built cell reads as unset (effort) or `Default` (mode).
-- `permission_mode` absent now reads as `Default` where it used to be `cell_value_missing`.
+- `permission_mode` absent now reads as `Default` where it used to be `cell_value_missing`. After the round, the walk also yields `PermissionMode(Default)` for an absent mode, so the driver is asked about it. In the round as first committed, an OpenCode cell with no mode was never asked about one. OpenCode's plan does not read the mode, so the cell ran under the allow-all baseline. Now it is refused with `DEFAULT_MODE`, while Claude Code runs in its own mode for no flag. The wiring double, whose preparation is fixed, answers the mode by that preparation. The walk also reads each row's path through `field_path` instead of mapping a parse error to `VersionOutput`.
 - `SessionMode` and `Skills` are not yielded by the walk (the plan's session refuses the first, the treatment holds the second).
 
 ### Digest

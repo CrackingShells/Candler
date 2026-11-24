@@ -525,9 +525,11 @@ async fn an_unnamed_effort_or_mode_is_refused_at_its_field_for_each_driver() {
 
 /// Guards: every permission-mode spelling Claude Code reads plans on Claude Code and reaches
 /// `--permission-mode` as Claude Code's own word, `manual` as `default`; `OpenCode` refuses `auto`
-/// and `dontAsk` as `experiment.setting_unsupported`.
+/// and `dontAsk` as `experiment.setting_unsupported`; a cell without a mode is in Claude Code's
+/// `default` mode, which `OpenCode` refuses rather than run under its allow-all baseline.
 /// Oracle: the modes of the Claude Code CLI reference (`--permission-mode`), written by hand.
-/// Bite: drop `Auto` or `DontAsk` from `PermissionMode`, or the `manual` alias.
+/// Bite: drop `Auto` or `DontAsk` from `PermissionMode`, or the `manual` alias, or read an absent
+/// mode as `default`.
 #[tokio::test]
 async fn every_claude_code_permission_mode_plans_and_opencode_refuses_what_it_cannot_carry() {
     let file = experiment_with("");
@@ -572,6 +574,17 @@ async fn every_claude_code_permission_mode_plans_and_opencode_refuses_what_it_ca
             ),
             Ok(_) => panic!("an OpenCode cell in {text} mode planned"),
         }
+    }
+    assert!(
+        planned(&file, &[], true).await.is_ok(),
+        "a Claude Code cell without a mode"
+    );
+    match planned(&file, &[], false).await {
+        Err(error) => assert_eq!(
+            Refusal::code(&error).as_str(),
+            "experiment.setting_unsupported"
+        ),
+        Ok(_) => panic!("an OpenCode cell without a mode planned"),
     }
 }
 

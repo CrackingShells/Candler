@@ -1514,8 +1514,9 @@ impl<'a> Cell<'a> {
         self.required_text(&field_path!(paths::MODEL_ID))
     }
 
-    /// The permission mode the cell sets, or [`PermissionMode::Default`] when it sets none. Resolve
-    /// refuses text that names no mode, so a driver reads a mode here and never a spelling.
+    /// The permission mode the cell sets, or [`PermissionMode::Default`], Claude Code's own mode
+    /// when no flag is given, when it sets none. Resolve refuses text that names no mode and asks
+    /// the driver about the mode read here, so a driver reads a mode and never a spelling.
     #[must_use]
     pub fn permission_mode(&self) -> PermissionMode {
         self.value(&field_path!(paths::PERMISSION_MODE))
