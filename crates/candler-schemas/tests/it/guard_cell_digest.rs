@@ -54,7 +54,7 @@ struct Parts {
     values: Vec<ResolvedValue>,
     harness: HarnessIdentity,
     treatment: TreatmentRef,
-    snapshots: Vec<DigestRef>,
+    snapshots: Option<Vec<DigestRef>>,
     inputs: Vec<DigestRef>,
     environments: Vec<EnvironmentRef>,
 }
@@ -70,9 +70,7 @@ fn parts(text: &str) -> Parts {
         values: field(&doc, "values"),
         harness: field(&doc, "harness"),
         treatment: field(&doc, "treatment"),
-        snapshots: doc
-            .get("snapshots")
-            .map_or_else(Vec::new, |_| field(&doc, "snapshots")),
+        snapshots: doc.get("snapshots").map(|_| field(&doc, "snapshots")),
         inputs: field(&doc, "inputs"),
         environments: field(&doc, "environments"),
     }
@@ -86,8 +84,8 @@ fn rebuild(parts: Parts) -> Comparable {
     for value in parts.values {
         builder = builder.value(value);
     }
-    for entry in parts.snapshots {
-        builder = builder.snapshot(entry);
+    if let Some(list) = parts.snapshots {
+        builder = builder.snapshots(list);
     }
     for entry in parts.inputs {
         builder = builder.input(entry);
@@ -280,10 +278,14 @@ fn every_manifest_path_is_classified_and_hashed_parts_move_the_digest() {
                 cell.harness.name = Name::from_str("another-harness").expect("name");
             }
             "comparable.treatment" => cell.treatment.tag = Some(String::from("changed")),
-            "comparable.snapshots" => cell.snapshots.push(DigestRef::new(
-                Name::from_str("catalog").expect("name"),
-                digest('e'),
-            )),
+            "comparable.snapshots" => {
+                cell.snapshots
+                    .get_or_insert_with(Vec::new)
+                    .push(DigestRef::new(
+                        Name::from_str("catalog").expect("name"),
+                        digest('e'),
+                    ))
+            }
             "comparable.inputs" => cell.inputs.push(DigestRef::new(
                 Name::from_str("script").expect("name"),
                 digest('e'),
@@ -691,14 +693,10 @@ fn reserved_roots_fill_the_typed_fields_and_absolute_paths_are_refused() {
         .treatment(treatment)
         .value(resolved("plan.a", &json!(1)))
         .value(resolved("plan.b", &json!("relative/dir/file.txt")))
-        .snapshot(DigestRef::new(
-            Name::from_str("catalog").expect("name"),
-            digest('a'),
-        ))
-        .snapshot(DigestRef::new(
-            Name::from_str("catalog").expect("name"),
-            digest('b'),
-        ))
+        .snapshots(vec![
+            DigestRef::new(Name::from_str("catalog").expect("name"), digest('a')),
+            DigestRef::new(Name::from_str("catalog").expect("name"), digest('b')),
+        ])
         .build()
         .expect("expected cell");
     let built = Comparable::from_resolved(&resolved_values).expect("from resolved");
