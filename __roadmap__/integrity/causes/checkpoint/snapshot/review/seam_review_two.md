@@ -1,7 +1,7 @@
 # Seam review 2
 
 **Goal**: Everything merged since seam review 1 is read across its seams before an outside consumer uses the tip (D3 remedy).
-**Estimate**: one fresh Claude reviewer, $4, cap $8. At the cap, stop, commit what is green, and list what is left.
+**Estimate**: one fresh Claude reviewer, $4, cap $8. Builds use the target dir the campaign README names, removed at the leaf's end. At the cap, stop, commit what is green, and list what is left.
 **Pre-conditions**:
 - [ ] `[nl]` `../catalog_snapshot.md` is `done` or `blocked`, and every fix from seam review 1 is merged into `feat/integrity`
 **Success Gates**:

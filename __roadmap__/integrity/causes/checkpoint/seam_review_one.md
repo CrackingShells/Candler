@@ -1,7 +1,7 @@
 # Seam review 1
 
 **Goal**: A reviewer who wrote none of level 1 reads its whole merged diff across the seams, and level 1's measured spend decides whether P5 runs (D3 remedy).
-**Estimate**: one fresh Claude reviewer, $4, cap $8, plus the coordinator's spend measurement. At the cap, stop, commit what is green, and list what is left.
+**Estimate**: one fresh Claude reviewer, $4, cap $8, plus the coordinator's spend measurement. Builds use the target dir the campaign README names, removed at the leaf's end. At the cap, stop, commit what is green, and list what is left.
 **Pre-conditions**:
 - [ ] `[nl]` Level 1 (`sealed_run_producer`, `collect_oracle`, `one_reader`, `kill_off_tty`) is merged into `feat/integrity`
 **Success Gates**:
