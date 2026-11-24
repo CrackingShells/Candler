@@ -19,5 +19,8 @@ thiserror.workspace = true
 # The shared fixture suite every driver crate runs on its recorded fixtures.
 conformance = []
 
+[dev-dependencies]
+candler-core.workspace = true
+
 [lints]
 workspace = true

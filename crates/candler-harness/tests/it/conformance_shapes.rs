@@ -107,7 +107,21 @@ fn run_suite(
     let cell = Cell::new(&values);
     let workspace = Workspace::new(Path::new("."));
     let canaries = [String::from(CANARY)];
-    run(driver, &Setup::new(&cell, &workspace, &canaries), cases)
+    run(
+        driver,
+        &Setup::new(&cell, &workspace, &canaries).with_collector(stored_paths),
+        cases,
+    )
+}
+
+/// What a run stores of a tree: the core's collector over the driver's file specs, as paths.
+fn stored_paths(root: &Path, specs: &[CollectSpec]) -> std::io::Result<Vec<String>> {
+    Ok(
+        candler_core::runner::exec::gather::collect_files(root, specs)?
+            .into_iter()
+            .map(|output| output.path)
+            .collect(),
+    )
 }
 
 /// The Lines-shaped case: the sessions of `guard_two_shapes`, with an init event naming the tools.
@@ -620,14 +634,18 @@ impl HarnessDriver for Patched {
 }
 
 /// The failure the suite gives a broken driver, or an error when it passes.
-fn refusal(driver: &Patched, cases: &[Case]) -> Result<String, TestError> {
+fn refusal(
+    driver: &dyn HarnessDriver, // TRAIT_OBJECT: the suite checks any driver
+    cases: &[Case],
+) -> Result<String, TestError> {
     match run_suite(driver, cases) {
         Err(failure) => Ok(failure.to_string()),
         Ok(()) => Err("the suite passed a broken driver".into()),
     }
 }
 
-/// A self-contained case that names the files a scripted agent wrote into the workspace.
+/// A self-contained case: a scripted agent writes files into a workspace beside a skill file the
+/// harness left in a private directory.
 fn oracle_case() -> Result<Case, TestError> {
     Ok(Case::new(
         String::from("collect_keeps_the_files_the_agent_wrote"),
@@ -636,14 +654,24 @@ fn oracle_case() -> Result<Case, TestError> {
         Vec::new(),
     )
     .detects(false)
-    .with_agent_wrote(vec![
-        PreparedFile::new("notes.md".parse()?, b"kept".to_vec(), false),
-        PreparedFile::new("outputs/answer.txt".parse()?, b"stamp".to_vec(), false),
-    ]))
+    .with_workspace(
+        vec![
+            PreparedFile::new("notes.md".parse()?, b"kept".to_vec(), false),
+            PreparedFile::new("outputs/answer.txt".parse()?, b"stamp".to_vec(), false),
+        ],
+        vec![PreparedFile::new(
+            ".claude/skills/s/SKILL.md".parse()?,
+            b"skill".to_vec(),
+            false,
+        )],
+    ))
 }
 
-/// A working driver whose `collect` keeps every file of the workspace.
-struct Keeps;
+/// A working driver whose `collect` keeps every file of the workspace, except the private
+/// directory when `leaves_out` is set.
+struct Keeps {
+    leaves_out: bool,
+}
 
 impl HarnessDriver for Keeps {
     fn skills(&self) -> candler_harness::skills::SkillTree {
@@ -718,7 +746,11 @@ impl HarnessDriver for Keeps {
         EndedBy::Unknown
     }
     fn collect(&self, _workspace: &Workspace<'_>, _observed: &Observed) -> Vec<CollectSpec> {
-        vec![CollectSpec::file(String::from("**/*"))]
+        let mut specs = vec![CollectSpec::file(String::from("**/*"))];
+        if self.leaves_out {
+            specs.push(CollectSpec::file(String::from("!.claude/**")));
+        }
+        specs
     }
 }
 
@@ -865,20 +897,28 @@ fn conformance_refuses_a_broken_driver() -> TestResult {
     let message = refusal(&broken, &cases)?;
     assert!(message.contains("host command"), "{message}");
 
-    // A driver whose `collect` does not keep the files the scripted agent wrote is refused, and the
-    // refusal names them. The OpenCode-shaped fake collects only the export command (no file glob),
-    // so nothing it keeps buys the files.
+    // A driver whose `collect` stores no file of the workspace is refused, and the refusal names the
+    // files the agent wrote that are missing. The OpenCode-shaped fake collects only the export
+    // command (no file glob).
     let oracle = oracle_case()?;
     let message = refusal(&Patched::new(), std::slice::from_ref(&oracle))?;
     assert!(
-        message.contains("does not keep the files the agent wrote")
+        message.contains("missing")
             && message.contains("notes.md")
             && message.contains("outputs/answer.txt"),
         "{message}"
     );
 
-    // A driver whose collect keeps every file the agent wrote passes the same case.
-    assert!(run_suite(&Keeps, std::slice::from_ref(&oracle)).is_ok());
+    // A driver that stores the harness's private file too is refused, and the refusal names it
+    // as extra.
+    let message = refusal(&Keeps { leaves_out: false }, std::slice::from_ref(&oracle))?;
+    assert!(
+        message.contains("extra") && message.contains(".claude/skills/s/SKILL.md"),
+        "{message}"
+    );
+
+    // A driver that stores exactly what the agent wrote passes the same case.
+    assert!(run_suite(&Keeps { leaves_out: true }, std::slice::from_ref(&oracle)).is_ok());
 
     // Two state paths that are one path, or a file that is another path's parent, are refused; a
     // file inside a directory the driver also lists, and sibling paths, pass.

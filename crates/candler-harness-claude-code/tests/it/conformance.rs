@@ -17,8 +17,8 @@ use candler_harness::conformance::{
 };
 use candler_harness::driver::HarnessDriver;
 use candler_harness::spec::{
-    Cell, CensusSource, FileRoot, GatewayEnv, InitReport, PendingItem, PendingKind, PendingState,
-    PreparedFile, ProcessEnd, ProcessExit, Workspace,
+    Cell, CensusSource, CollectSpec, FileRoot, GatewayEnv, InitReport, PendingItem, PendingKind,
+    PendingState, PreparedFile, ProcessEnd, ProcessExit, Workspace,
 };
 use candler_harness::spec::{SessionClose, SessionRecord};
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
@@ -271,19 +271,27 @@ fn cases() -> Res<Vec<Case>> {
                 ("o3", PendingState::new(1, true, true, vec![])),
             ],
         )?,
-        // The shared oracle: the scripted agent wrote these files, and `collect` must keep them,
-        // from this driver's own answer and not from a list the case copies.
+        // The shared oracle: a scripted agent writes these files into a real workspace beside a
+        // skill file the harness leaves under `.claude`, and the collector real runs use must store
+        // exactly the agent's files.
         Case::new(
-            "collect_keeps_the_files_the_agent_wrote".to_owned(),
+            "collect_stores_the_files_the_agent_wrote".to_owned(),
             ReaderSource::Live,
             stdout()?,
             Vec::new(),
         )
         .detects(false)
-        .with_agent_wrote(vec![
-            PreparedFile::new("notes.md".parse()?, b"kept".to_vec(), false),
-            PreparedFile::new("outputs/answer.txt".parse()?, b"stamp-7f3a".to_vec(), false),
-        ]),
+        .with_workspace(
+            vec![
+                PreparedFile::new("notes.md".parse()?, b"kept".to_vec(), false),
+                PreparedFile::new("outputs/answer.txt".parse()?, b"stamp-7f3a".to_vec(), false),
+            ],
+            vec![PreparedFile::new(
+                ".claude/skills/s/SKILL.md".parse()?,
+                b"skill".to_vec(),
+                false,
+            )],
+        ),
     ])
 }
 
@@ -303,7 +311,7 @@ fn conformance_claude_code_fixtures() -> Res<()> {
     let canaries = [CANARY.to_owned()]; // BORROW: .to_owned() makes the owned canary
     run(
         &driver,
-        &Setup::new(&cell, &workspace, &canaries),
+        &Setup::new(&cell, &workspace, &canaries).with_collector(stored_paths),
         &cases()?,
     )?;
     Ok(())
@@ -700,4 +708,14 @@ fn conformance_claude_session_command_keeps_the_headless_arguments() -> Res<()> 
         ]
     );
     Ok(())
+}
+
+/// The paths a run stores of a tree: the core's collector over the driver's file specs.
+fn stored_paths(root: &Path, specs: &[CollectSpec]) -> std::io::Result<Vec<String>> {
+    Ok(
+        candler_core::runner::exec::gather::collect_files(root, specs)?
+            .into_iter()
+            .map(|output| output.path)
+            .collect(),
+    )
 }
