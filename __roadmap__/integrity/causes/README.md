@@ -10,9 +10,9 @@ The causes D1 and D5 are removed where S1, B1 and the silent acceptances came fr
 - [x] `[cmd]` `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.3.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh status __roadmap__/integrity/conventions.md` prints `done`
 
 ## Success Gates
-- ⬜ `sealed_run_producer.md`, `collect_oracle.md`, `one_reader.md` and `kill_off_tty.md` are `done`, each with its observation seen failing on the base
-- ⬜ `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace` and `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` pass on the merged level
-- ⬜ `checkpoint/` is `done`
+- ✅ `sealed_run_producer.md`, `collect_oracle.md`, `one_reader.md` and `kill_off_tty.md` are `done`, each with its observation seen failing on the base
+- ✅ `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace` and `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` pass on the merged level (the last merge, #80 at `0825782c`: CI run 45504233235, jobs Format, Gates (Lint, Test, Document), green on `dfb9a177`)
+- ✅ `checkpoint/` is `done`
 
 ## Status
 ```mermaid
@@ -21,7 +21,7 @@ graph TD
     collect_oracle[Collect oracle]:::done
     one_reader[One reader]:::done
     kill_off_tty[Kill off a TTY]:::done
-    checkpoint[Seam review 1 and checkpoint]:::inprogress
+    checkpoint[Seam review 1 and checkpoint]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -36,7 +36,7 @@ graph TD
 | `collect_oracle.md` | 📄 Leaf Task | ✅ Done |
 | `one_reader.md` | 📄 Leaf Task | ✅ Done |
 | `kill_off_tty.md` | 📄 Leaf Task | ✅ Done |
-| `checkpoint/` | 📁 Directory | 🔄 In Progress |
+| `checkpoint/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

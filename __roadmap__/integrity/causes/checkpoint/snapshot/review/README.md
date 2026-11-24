@@ -10,14 +10,14 @@ Nothing merged since seam review 1 reopens a cause, and the snapshot holds at it
 - [ ] `[nl]` `../catalog_snapshot.md` is `done` or `blocked`, and its merge (if any) is in `feat/integrity`
 
 ## Success Gates
-- ⬜ `seam_review_two.md` is `done`, with its findings fixed or recorded
-- ⬜ `dogfood/` is `done`
+- ✅ `seam_review_two.md` is `done`, with its findings fixed or recorded
+- ✅ `dogfood/` is `done`
 
 ## Status
 ```mermaid
 graph TD
     seam_review_two[Seam review 2]:::done
-    dogfood[Dogfooding pass]:::inprogress
+    dogfood[Dogfooding pass]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -29,7 +29,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `seam_review_two.md` | 📄 Leaf Task | ✅ Done |
-| `dogfood/` | 📁 Directory | 🔄 In Progress |
+| `dogfood/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

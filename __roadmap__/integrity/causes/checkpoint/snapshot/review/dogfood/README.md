@@ -10,8 +10,8 @@ Whose failure each friction is, Candler's or the agent's, is known from the tran
 - [ ] `[nl]` `../seam_review_two.md` is `done`
 
 ## Success Gates
-- ⬜ `dogfooding_pass.md` is `done`
-- ⬜ `parity/` is `done`
+- ✅ `dogfooding_pass.md` is `done`
+- ✅ `parity/` is `done`
 
 ## Status
 ```mermaid

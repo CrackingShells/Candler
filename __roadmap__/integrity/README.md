@@ -12,15 +12,15 @@ Each kind of state Candler stores has one producer, each consumer input has one 
 - [x] `[cmd]` `git merge-base --is-ancestor 70d4c3bf feat/integrity` succeeds
 
 ## Success Gates
-- ⬜ `conventions.md` and `causes/` are `done`, level 3 (`causes/checkpoint/snapshot/review/dogfood/parity/`) included
-- ⬜ Every merge into `feat/integrity` that touches the paths `container-e2e` watches waited for it to be green on its pull request, and every other merge says it touched none of them
-- ⬜ Spend is measured from transcripts per row and no row passed its cap without stopping; levels 1 and 2, coordinator included, stay within the $127 the maintainer approved, and level 3, its lead included, within $70
+- ✅ `conventions.md` and `causes/` are `done`, level 3 (`causes/checkpoint/snapshot/review/dogfood/parity/`) included
+- ✅ Every merge into `feat/integrity` that touches the paths `container-e2e` watches waited for it to be green on its pull request, and every other merge says it touched none of them (19 PRs merged into `feat/integrity`, #59 to #80: 16 touched the watched paths and each had `Container e2e (Linux)` green on its head before merge; #59, #69 and #70 touched none; the 24 direct rdm/reports pushes touched none; the paths filter did not change during the campaign)
+- ✅ Spend is measured from transcripts per row and no row passed its cap without stopping; levels 1 and 2, coordinator included, stay within the $127 the maintainer approved, and level 3, its lead included, within $70 (levels 1 and 2: "about $127", `__reports__/diet/06-knowledge_transfer_integrity_v0.md` §Spend; level 3: $61.78 measured at its close, same report §Level 3)
 
 ## Status
 ```mermaid
 graph TD
     conventions[Conventions]:::done
-    causes[Causes]:::inprogress
+    causes[Causes]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -32,7 +32,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `conventions.md` | 📄 Leaf Task | ✅ Done |
-| `causes/` | 📁 Directory | 🔄 In Progress |
+| `causes/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

@@ -10,7 +10,7 @@ What the level left behind is known from a review across its leaves, and the lev
 - [x] `[nl]` `../snapshot_out.md` and `../parity_run.md` are `done`
 
 ## Success Gates
-- ⬜ `seam_review_three.md` is `done`
+- ✅ `seam_review_three.md` is `done`
 
 ## Status
 ```mermaid

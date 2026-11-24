@@ -10,7 +10,7 @@ Each driver renders what the declaration answers, both trace readers attribute a
 - [x] `[nl]` `../declaration.md` is `done`
 
 ## Success Gates
-- ⬜ `mcp_render.md`, `trace_parity.md`, `pages.md` and `recorded/` are `done`, and `census.md` stays `blocked`
+- ✅ `mcp_render.md`, `trace_parity.md`, `pages.md` and `recorded/` are `done`, and `census.md` stays `blocked`
 
 ## Status
 ```mermaid

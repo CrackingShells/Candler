@@ -11,9 +11,9 @@ Every fact about a harness is stated in one shape, which each registered driver 
 - [x] `[nl]` Eliott approved revision 2 of the level-3 plan, with its rulings: the README says "per-run tool census"; `codemode` defaults to `false`; one shape for every per-harness list; the census keeps `census.tools` only; code mode is declared, not parsed
 
 ## Success Gates
-- ⬜ `declaration.md` and `answered/` are `done`
-- ⬜ The level's spend, measured from transcripts per row, stays within $70, and no row passed its cap without stopping
-- ⬜ Every leaf report has a "What it leaves" section judging the change at the three levels (how it was developed, what it leaves in the code, how it is consumed), and seam review 3 found no second producer, second reader or passthrough left by the level
+- ✅ `declaration.md` and `answered/` are `done`
+- ✅ The level's spend, measured from transcripts per row, stays within $70, and no row passed its cap without stopping
+- ✅ Every leaf report has a "What it leaves" section judging the change at the three levels (how it was developed, what it leaves in the code, how it is consumed), and seam review 3 found no second producer, second reader or passthrough left by the level
 
 ## Status
 ```mermaid
