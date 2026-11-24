@@ -26,6 +26,11 @@ The script is chosen by the model id of a /v1/messages request:
         is answered with text. A user message that carries a background job's completion is
         answered with a second text. Anything else is answered with text.
     c2  must stop. Every request is answered "hello".
+    p1  must call a tool. A first user prompt is answered with one call to the tool `stamp` of the
+        MCP server `parity`, under the name the request offers for it (`parity_stamp` for
+        OpenCode). A request that defers its MCP tools (Claude Code, which offers ToolSearch) is
+        answered with a ToolSearch for `mcp__parity__stamp` first, and its result with the call.
+        Anything else is answered with text.
     c3  must be slow. Every request is answered "hello" after FAKE_DELAY_SECS seconds, so that a
         run is live and its agent is mid-turn for that long.
 
@@ -50,6 +55,7 @@ PORT = int(os.environ.get("FAKE_PORT", "8443"))
 DIR = os.environ.get("FAKE_DIR", "/tmp/fake")
 OUT_TOKENS = int(os.environ.get("FAKE_OUT_TOKENS", "20"))
 DELAY_SECS = max(0, min(int(os.environ.get("FAKE_DELAY_SECS", "0")), 120))
+PARITY_TOOLS = ("mcp__parity__stamp", "parity_stamp")
 JOB_COMMAND = "sleep 20 && date +%s%N > /work/job.done && echo job-finished"
 LOCK = threading.Lock()
 COUNTER = [0]
@@ -104,8 +110,34 @@ def last_user_state(messages):
     return "prompt"
 
 
-def script_blocks(model, state):
+def stamp_call(name):
+    """A call to the stamp tool under `name`."""
+    return {"type": "tool_use", "id": "toolu_fake_stamp", "name": name, "input": {}}
+
+
+def last_tool_result(messages):
+    """The tool_use_id of the last tool result of the last user message, or None."""
+    content = messages[-1].get("content") if messages else None
+    ids = [b.get("tool_use_id") for b in content or []
+           if isinstance(b, dict) and b.get("type") == "tool_result"] if isinstance(content, list) else []
+    return ids[-1] if ids else None
+
+
+def script_blocks(model, state, tools, messages):
     """The content blocks, the stop reason and a label of the answer for one request."""
+    if model.startswith("p1"):
+        offered = [name for name in tools if name in PARITY_TOOLS]
+        if state == "prompt" and offered:
+            return [{"type": "text", "text": "I will call the stamp tool."},
+                    stamp_call(offered[0])], "tool_use", "p1-call"
+        if state == "prompt" and "ToolSearch" in tools:
+            search = {"type": "tool_use", "id": "toolu_fake_search", "name": "ToolSearch",
+                      "input": {"query": "select:" + PARITY_TOOLS[0], "max_results": 1}}
+            return [{"type": "text", "text": "I will load the stamp tool."}, search], \
+                "tool_use", "p1-search"
+        if state == "tool_result" and last_tool_result(messages) == "toolu_fake_search":
+            return [stamp_call(PARITY_TOOLS[0])], "tool_use", "p1-call"
+        return [{"type": "text", "text": "done"}], "end_turn", "p1-text"
     if model.startswith("c2"):
         return [{"type": "text", "text": "hello"}], "end_turn", "c2-hello"
     if model.startswith("c3"):
@@ -206,7 +238,8 @@ class Handler(BaseHTTPRequestHandler):
             decision, status = "unauthorised", 401
         elif path == "/v1/messages" and self.command == "POST" and isinstance(body, dict):
             state = last_user_state(messages)
-            blocks, stop, label = script_blocks(model, state)
+            tools = [t.get("name", "") for t in body.get("tools") or [] if isinstance(t, dict)]
+            blocks, stop, label = script_blocks(model, state, tools, messages)
             decision = "%s/%s" % (label, state)
             message = message_json(model, blocks, stop)
         elif path == "/v1/messages/count_tokens":
