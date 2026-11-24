@@ -6,7 +6,6 @@
 - [ ] `[nl]` `../snapshot_out.md` and `../parity_run.md` are `done`
 **Success Gates**:
 - ⬜ The review answers three questions first: did any leaf add where it should have replaced (a second producer, a second reader, a passthrough, a shim with no reader); does every setting that reaches the agent have one answer per driver and one statement on the pages; does one cell on both harnesses install the same servers and trace each MCP call in the same form
-- ⬜ The report records, as an open question for the coordinator to take to the maintainer, where `tool-catalog-snapshot/1` should live long term, now that Candler neither writes nor reads it. The level does not decide it
 - ⬜ Each finding names its cause, the leaves it crosses, and why no leaf verifier would have seen it
 - ⬜ The level's spend is measured from transcripts per row against the plan's estimates and caps
 - ⬜ `__reports__/diet/06-knowledge_transfer_integrity_v0.md` gains a level-3 section, or a v1 supersedes it, with the findings, the spend and what comes next
