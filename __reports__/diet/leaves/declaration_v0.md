@@ -100,3 +100,11 @@ Claude Code docs through context7 (`/websites/code_claude`, CLI reference): `--e
 - **How it was developed.** One build slot (`l3-1`), one scratch build for the bite, removed with its worktree, branch and target dir; three full workspace runs.
 - **What it leaves in the code.** One statement of each path (the table), one walk, one refusal site, one refusing reader of each spelling. Open points: the second `from_text` call in `Cell`; the message of `setting_unsupported` no longer names the validated version.
 - **How it is consumed.** The experimenter sees one `cell_value_invalid` at the field for unknown effort or mode text on either harness, and `setting_unsupported` for a setting the harness has no way to honour, raised before any job starts.
+
+### Cells built without resolve
+`Cell` is a view over resolved JSON values. `effort_at` and `mode_at` refuse unknown text at resolve, and `Cell::effort` and `Cell::permission_mode` parse the checked text again. Their fallback (unset, `Default`) is right only while the text went through resolve. These places build a `Cell` from values that have not passed `settings_set_by` in that call:
+- `runner/exec/mod.rs` (the run's view) and `jobs/orchestrate/servers.rs` (both views) read `plan.stored`, a cell read back from its stored record when a run resumes, when there is one. The text was checked when it was first resolved.
+- `resolve/steps/catalog.rs` builds `Cell::new(&ctx.values)` for the catalog capture during resolve.
+- Test rigs build cells by hand or from `ExperimentFile::cells()`: `guard_session`, `guard_container_record`, `guard_plugin_environment`, `plugin_env_e2e`, `support/harness_facts`, `guard_silent_acceptance`, and Claude Code's `conformance` and `prepare` tests.
+
+Whether a resolved cell should hold typed values goes to seam review 3.
