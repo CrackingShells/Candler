@@ -64,7 +64,7 @@ Wire line: `schemas@0.12.0`.
 | `canonical.number_not_finite` | A number is not finite. | - | experiment |
 | `canonical.syntax_invalid` | A text is not valid JSON. | - | experiment |
 | `experiment.absolute_path` | A value holds an absolute path as a string, and a file enters a cell as an input digest. | - | experiment |
-| `experiment.cell_value_invalid` | A cell value cannot be used by the harness driver. | - | experiment |
+| `experiment.cell_value_invalid` | A cell value cannot be used by the harness driver. | The field of the value, such as `/mcp/servers/fs/command`. | experiment |
 | `experiment.cell_value_missing` | A cell lacks a value that the harness driver needs. | - | experiment |
 | `experiment.cost_not_positive` | A cost cap is not a finite number above 0. | - | experiment |
 | `experiment.count_zero` | A count, duration or process id that must be at least 1 is 0. | The field when it is `replicates` or one under `budget`; none otherwise. | experiment |
