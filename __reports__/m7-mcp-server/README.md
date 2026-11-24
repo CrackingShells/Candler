@@ -34,4 +34,6 @@ No new report; these rulings override v1 where they disagree.
 
 ## Status
 
-M6b "Surface consolidation" is inserted before M7 by amendment A11 (`__roadmap__/candler-v1/…/m5b/stats/surface/m6b_surface_consolidation.md`). M6c follows it by amendment A12, renamed "Integrity" by amendment A13 (`__roadmap__/candler-v1/…/m5b/stats/surface/integrity/m6c_integrity.md`). Next: the M6c build (`__roadmap__/integrity/`), then M7's plan-mode planning session.
+M6b "Surface consolidation" is inserted before M7 by amendment A11 (`__roadmap__/candler-v1/…/m5b/stats/surface/m6b_surface_consolidation.md`). M6c follows it by amendment A12, renamed "Integrity" by amendment A13 (`__roadmap__/candler-v1/…/m5b/stats/surface/integrity/m6c_integrity.md`). Next: the M6c build (`__roadmap__/integrity/`).
+
+**Deprecated (amendment A14, 2026-11-24).** This pre-study and its rulings are deprecated pending a re-evaluation of M7 after M6c Integrity, once its dogfooding pass has shown what an agent consuming Candler actually lacks. The M7 leaf is blocked until then.
