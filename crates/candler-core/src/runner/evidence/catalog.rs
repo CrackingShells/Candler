@@ -125,6 +125,19 @@ pub fn catalog_digest(catalog: &Catalog) -> Result<Digest, CatalogError> {
         })
 }
 
+/// The text of a catalog that [`catalog_digest`] hashes.
+///
+/// # Errors
+/// [`CatalogError::Digest`] when the catalog cannot be written canonically.
+pub fn catalog_text(catalog: &Catalog) -> Result<String, CatalogError> {
+    catalog
+        .content_text()
+        .map_err(|error| CatalogError::Digest {
+            // BORROW: .to_string() gives the error its own text
+            detail: error.to_string(),
+        })
+}
+
 /// The catalog a finished command printed.
 ///
 /// # Errors

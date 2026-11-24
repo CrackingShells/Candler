@@ -19,6 +19,7 @@ use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::lost::{JobLiveness, classify};
 use candler_core::store::Store;
 use candler_core::trace::{TranscriptForm, render_transcript};
+use candler_schemas::execution::RunManifest;
 use candler_schemas::inspect::{
     InspectJob, InspectJobRun, InspectJobTag, InspectOutcome, InspectRun, InspectRunTag, Spent,
 };
@@ -211,6 +212,19 @@ fn outcome_of(record: &OutcomeRecord) -> Result<InspectOutcome, CliError> {
     })
 }
 
+/// The catalog the run ran with, read from the blob its `snapshots` digest names; `None` when the
+/// run names no catalog or the store holds no blob for it, as a run sealed before snapshots were
+/// stored.
+fn catalog_of(store: &Store, manifest: &RunManifest) -> Option<Value> {
+    let snapshot = manifest
+        .comparable()
+        .snapshots()
+        .iter()
+        .find(|entry| entry.kind.as_str() == "catalog")?; // BORROW: explicit .as_str()
+    let bytes = fs::read(store.blob_path(&snapshot.digest)).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
 /// The record of the run `key`: whether it is sealed and counts, what it was read from, the
 /// provenance and the other values it measured, and its outcomes with their evidence.
 ///
@@ -270,6 +284,7 @@ pub fn render_run(store: &Store, key: &RunKey) -> Result<InspectRun, CliError> {
         ended_at: field("ended_at"),
         host: field("host"),
         import: field("import"),
+        catalog: catalog_of(store, &manifest),
         provenance,
         measured,
         outcomes,
@@ -356,6 +371,23 @@ pub fn render_job(store: &Store, id: &JobId) -> Result<InspectJob, CliError> {
 /// The run record as lines: the run, its seal, what it measured and each outcome.
 fn text_of_run(run: &InspectRun) -> String {
     let mut lines = vec![format!("run {}", run.run), format!("sealed {}", run.sealed)];
+    match &run.catalog {
+        Some(catalog) => {
+            let provider = catalog.get("provider").and_then(Value::as_str);
+            lines.push(format!("catalog {}", provider.unwrap_or_default()));
+            let servers = catalog.get("servers").and_then(Value::as_array);
+            for server in servers.into_iter().flatten() {
+                let name = server.get("name").and_then(Value::as_str);
+                lines.push(format!("server {}", name.unwrap_or_default()));
+                let tools = server.get("tools").and_then(Value::as_array);
+                for tool in tools.into_iter().flatten() {
+                    let name = tool.get("name").and_then(Value::as_str);
+                    lines.push(format!("tool {}", name.unwrap_or_default()));
+                }
+            }
+        }
+        None => lines.push(String::from("catalog not stored")),
+    }
     for (path, value) in run.provenance.iter().chain(run.measured.iter()) {
         lines.push(format!("{path}\t{value}"));
     }

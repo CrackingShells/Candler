@@ -163,6 +163,14 @@ impl RunWriter {
         self.sync_run_dir()
     }
 
+    /// Stores `bytes` as a blob under their own digest, which the run's manifest already names.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Io`] when a write fails.
+    pub fn blob(&self, bytes: &[u8]) -> Result<(), StoreError> {
+        self.store.put_blob(bytes, None).map(|_| ())
+    }
+
     /// Stores the bytes of the output file at `path` as the blob of `sha256`, the digest its
     /// tree entry names.
     ///
