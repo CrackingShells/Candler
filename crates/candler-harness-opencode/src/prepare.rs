@@ -19,7 +19,6 @@ use candler_schemas::execution::paths::{
 use candler_schemas::primitives::{FieldPath, RelPath};
 use candler_schemas::servers::{McpServer, McpServerKind};
 use serde_json::{Map, Value, json};
-use std::collections::BTreeMap;
 
 /// The provider's id in the configuration and in `-m <provider>/<model>`.
 pub(crate) const PROVIDER: &str = "candler";
@@ -481,17 +480,6 @@ pub(crate) fn settings(cell: &Cell<'_>) -> Result<Settings, DriverError> {
     })
 }
 
-/// The servers of the cell by the name the agent sees, read from the `mcp.servers.*` leaves as the
-/// resolver gives them (see [`candler_harness::mcp::servers`]). `None` when the cell sets no server.
-///
-/// # Errors
-/// [`DriverError::InvalidValue`] when a value cannot be used or a server name is refused.
-pub(crate) fn mcp_servers(
-    cell: &Cell<'_>,
-) -> Result<Option<BTreeMap<String, McpServer>>, DriverError> {
-    candler_harness::mcp::servers(cell)
-}
-
 /// The `opencode.json` of the run: the provider, the model, the effort variant and the
 /// permission rows of `settings`, and the MCP servers. `config_dir` is the home-relative directory
 /// that `XDG_CONFIG_HOME` names.
@@ -525,7 +513,7 @@ pub(crate) fn render_config(
             "models": models,
         } }),
     );
-    if let Some(servers) = mcp_servers(cell)? {
+    if let Some(servers) = candler_harness::mcp::servers(cell)? {
         let mut translated = Map::new();
         for (name, entry) in &servers {
             translated.insert(name.clone(), server(entry)); // BORROW: .clone() copies the name

@@ -205,7 +205,7 @@ impl HarnessDriver for OpenCodeDriver {
 
     fn check_settings(&self, cell: &Cell<'_>) -> Result<(), DriverError> {
         prepare::settings(cell)?;
-        let names: Vec<String> = prepare::mcp_servers(cell)?
+        let names: Vec<String> = candler_harness::mcp::servers(cell)?
             .map(|servers| servers.into_keys().collect())
             .unwrap_or_default();
         ambiguous_prefixes(&names)

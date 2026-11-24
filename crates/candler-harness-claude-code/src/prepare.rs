@@ -3,7 +3,6 @@
 //!
 //! Nothing here touches the file system or runs a process.
 
-use std::collections::BTreeMap;
 use std::str::FromStr as _;
 
 use candler_harness::driver::DriverError;
@@ -88,14 +87,6 @@ pub fn render_settings(cell: &Cell<'_>) -> Result<PreparedFile, DriverError> {
 /// The file the MCP configuration is written to, and that the agent command names.
 pub(crate) const MCP_FILE: &str = ".mcp.json";
 
-/// The servers of a cell, by the name the agent sees: see [`candler_harness::mcp::servers`].
-///
-/// # Errors
-/// [`DriverError`] when a value of the cell cannot be used, or a server name is refused.
-pub fn mcp_servers(cell: &Cell<'_>) -> Result<Option<BTreeMap<String, McpServer>>, DriverError> {
-    candler_harness::mcp::servers(cell)
-}
-
 /// One server as Claude Code's `.mcp.json` documents it: `stdio` with `command`, `args` and `env`,
 /// `http` or `sse` with `url` and `headers`. A `local` server is written as `stdio` and a `remote`
 /// one as `http`.
@@ -143,7 +134,7 @@ fn mcp_entry(name: &str, server: &McpServer) -> Result<Value, DriverError> {
 /// # Errors
 /// [`DriverError`] when a value of the cell cannot be used.
 pub fn render_mcp(cell: &Cell<'_>) -> Result<Option<PreparedFile>, DriverError> {
-    let Some(servers) = mcp_servers(cell)? else {
+    let Some(servers) = candler_harness::mcp::servers(cell)? else {
         return Ok(None);
     };
     let entries = servers

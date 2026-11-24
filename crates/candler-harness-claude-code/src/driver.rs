@@ -125,7 +125,7 @@ pub(crate) fn argv(cell: &Cell<'_>, launch: Launch) -> Result<Vec<String>, Drive
         argv.push("--max-budget-usd".to_owned()); // BORROW: .to_owned() makes the owned argument
         argv.push(cost);
     }
-    if prepare::mcp_servers(cell)?.is_some() {
+    if candler_harness::mcp::servers(cell)?.is_some() {
         // Only the servers of the cell: no other MCP configuration reaches the agent.
         argv.extend(["--mcp-config", prepare::MCP_FILE, "--strict-mcp-config"].map(str::to_owned)); // BORROW: str::to_owned makes the owned arguments
     }
@@ -320,7 +320,7 @@ impl HarnessDriver for ClaudeCodeDriver {
     fn check_settings(&self, cell: &Cell<'_>) -> Result<(), DriverError> {
         cap_text(cell, paths::BUDGET_PER_RUN_TURNS, true)?;
         cap_text(cell, paths::BUDGET_PER_RUN_MAX_COST_USD, false)?;
-        prepare::mcp_servers(cell).map(|_| ())
+        candler_harness::mcp::servers(cell).map(|_| ())
     }
 
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
