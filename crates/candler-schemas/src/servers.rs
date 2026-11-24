@@ -46,6 +46,10 @@ pub enum McpServerKind {
     Remote,
 }
 
+/// The names a server may render under, by `name` or by its key: ASCII letters, digits and `-`
+/// joined by single `_`, so that no harness rewrites or splits the name in a tool id.
+pub const SERVER_NAME_PATTERN: &str = r"^[A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*(?![\s\S])";
+
 /// One entry of an experiment's `mcp.servers`, as the drivers read it.
 ///
 /// A server is launched from a `command` (with optional `args` and `env`) or reached at a `url`
@@ -102,7 +106,9 @@ pub struct McpServer {
     /// Whether the server's tools show in the agent's codemode prompts; false when absent.
     #[serde(default)]
     pub codemode: bool,
-    /// The name the server renders under, when its key would not do.
+    /// The name the server renders under, when its key would not do; a key
+    /// matches the same pattern.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(regex(pattern = SERVER_NAME_PATTERN))]
     pub name: Option<String>,
 }

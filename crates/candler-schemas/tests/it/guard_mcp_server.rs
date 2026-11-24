@@ -87,6 +87,14 @@ fn mcp_server_refusal_rows() -> Vec<(&'static str, Value)> {
             serde_json::json!({ "url": "http://h", "args": ["run"], "type": "remote" }),
         ),
         (
+            "a `name` with a `.`",
+            serde_json::json!({ "command": "x", "name": "a.b" }),
+        ),
+        (
+            "a `name` with a trailing `_`",
+            serde_json::json!({ "command": "x", "name": "s_" }),
+        ),
+        (
             "a launched entry with `headers`",
             serde_json::json!({ "command": "x", "headers": { "K": "v" } }),
         ),
