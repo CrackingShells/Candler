@@ -71,6 +71,36 @@ revert is invisible.
   expected); it passed when run alone and on the final full `nextest run --workspace`, and this leaf
   touches none of its code.
 
+## Sonnet fallback
+
+The RiVault attempt (`d39e367f`) failed the second gate as the leaf writes it. This section
+supersedes its Oracle, `with_collect` and Bites sections and the gate rows above that rest on them.
+
+| What the RiVault attempt did | Why it failed | Superseded by |
+|---|---|---|
+| A hand-typed `agent_wrote` list, copied in three tests, with no workspace | No scripted agent wrote the files | The case writes `agent_wrote` into a real temp workspace, beside `harness_wrote` (a driver-private skill file) |
+| `glob_matches`/`walk`, a hand copy of the core glob grammar | A second reader of the same input (D5) | Deleted, with its unit test; the setup's `collector` runs `candler_core::runner::exec::gather::collect_files`, the code real runs use |
+| Asserted only that every file is kept | "Exactly" unchecked | The stored set must equal `agent_wrote`; the failure names `missing` and `extra` paths |
+| OpenCode `with_collect` carried `**/*` and `!.opencode/**` globs | A second hand-typed collect spec | Replaced by `Case::with_collect_commands`, which compares only the command and exec specs (the export command); file specs are checked by the workspace case |
+
+Placement: `candler-harness` cannot depend on `candler-core` (core depends on it). The collector is
+passed in as `Setup::with_collector(fn(&Path, &[CollectSpec]) -> io::Result<Vec<String>>)`; each
+test that calls `run` gives a three-line adapter over `collect_files`, with `candler-core` as a
+dev-dependency of `candler-harness`, `candler-harness-claude-code` and `candler-harness-opencode`.
+A case that names `agent_wrote` with no collector fails. Claude Code, OpenCode and the shape suite
+run the case; the shape suite also shows a driver that stores nothing (names `missing`), one that
+stores the private file (names `extra`), and one that stores exactly the agent's files (passes).
+
+Bites, on scratch worktrees with their own target dirs, `git revert 8d88cb50` with
+`guard_build_context.rs` reset to HEAD (the revert of the opencode `conformance.rs` was resolved to the
+tip's file on the tip; it applied on the base):
+
+| Tree | Result |
+|---|---|
+| Tip + revert (`Compiling candler-schemas, candler-testkit, candler-harness, candler-core, candler-harness-opencode, candler-harness-claude-code`) | 14 run, 13 passed, 1 failed: `candler-harness-opencode conformance_opencode_recorded_runs`: `the collect does not store exactly the files the agent wrote: missing ["notes.md", "outputs/answer.txt"], extra []`; Claude Code passes |
+| Base + revert, fresh compile of the same crates | 14 run, 14 passed |
+| Tip | fmt clean, clippy `-D warnings` clean, `cargo doc -D warnings` clean, 14 conformance tests pass |
+
 ## Verifier
 
 Left for the lead's fresh Sonnet verifier, with this leaf, this report and the diff.
