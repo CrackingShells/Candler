@@ -2,7 +2,7 @@
 
 **Goal**: Agents can design and drive experiments through an MCP server over the same operation API the CLI uses.
 **Pre-conditions**:
-- [ ] `../m6c_diet.md` is `done` (the reminder needs only M3; the tree also waits for M4, M5a, M5b, M6a, M6b and M6c)
+- [ ] `../m6c_integrity.md` is `done` (the reminder needs only M3; the tree also waits for M4, M5a, M5b, M6a, M6b and M6c)
 - [ ] Reminder `candler-M7` read
 **Success Gates**:
 - ⬜ The read-only operations (`resolve`, `jobs`, `events`, `show`, `inspect`, `analyze`, `diff`) are exposed, and results come back as ids plus compact summaries

@@ -1,7 +1,7 @@
 # Architecture diet
 
 ## Context
-The build of candler-v1's M6c leaf (`__roadmap__/candler-v1/.../surface/diet/m6c_diet.md`), between M6b (surface consolidation) and M7 (MCP server). It works from the plan in [`__reports__/diet/00-architecture_diet_plan_v0.md`](../../__reports__/diet/00-architecture_diet_plan_v0.md) and is judged against the README purpose paragraph as written in `254ff4a0`. This level fixes S1 and cuts the suite family by family; `shed/` removes dead and duplicated code and audits every claim end to end; `shed/fix/` repairs what the audit finds; `shed/fix/close/` closes out. Each leaf runs in its own worktree made by `scripts/worktree.py add` from the `feat/diet` tip, and is removed at merge. At most three leaves build at once (each worktree has its own `target/`); check `df -h /System/Volumes/Data` before each wave.
+**Superseded by `__roadmap__/integrity/`.** Its first half landed as PR #57 (`70d4c3bf`); its open nodes are blocked and taken over by M6c Integrity (amendment A13). The build of candler-v1's M6c leaf (`__roadmap__/candler-v1/.../surface/integrity/m6c_integrity.md`), between M6b (surface consolidation) and M7 (MCP server). It works from the plan in [`__reports__/diet/00-architecture_diet_plan_v0.md`](../../__reports__/diet/00-architecture_diet_plan_v0.md) and is judged against the README purpose paragraph as written in `254ff4a0`. This level fixes S1 and cuts the suite family by family; `shed/` removes dead and duplicated code and audits every claim end to end; `shed/fix/` repairs what the audit finds; `shed/fix/close/` closes out. Each leaf runs in its own worktree made by `scripts/worktree.py add` from the `feat/diet` tip, and is removed at merge. At most three leaves build at once (each worktree has its own `target/`); check `df -h /System/Volumes/Data` before each wave.
 
 ## Goal
 A sealed run holds the bytes it names, and the suite is about 525 guards at the consumer interfaces instead of 836 tests.
@@ -28,7 +28,7 @@ graph TD
     cull_stats_analyze[cull_stats_analyze]:::done
     cull_import_eval[cull_import_eval]:::done
     cull_cli_harness[cull_cli_harness]:::done
-    shed[Shed and audit]:::inprogress
+    shed[Shed and audit]:::blocked
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -47,7 +47,7 @@ graph TD
 | `cull_stats_analyze.md` | 📄 Leaf Task | ✅ Done |
 | `cull_import_eval.md` | 📄 Leaf Task | ✅ Done |
 | `cull_cli_harness.md` | 📄 Leaf Task | ✅ Done |
-| `shed/` | 📁 Directory | 🔄 In Progress |
+| `shed/` | 📁 Directory | 🚫 Blocked |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
@@ -56,3 +56,4 @@ graph TD
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| `shed/` | -- | -- | blocked, superseded: its done leaves stand; its open nodes moved to `__roadmap__/integrity/` (P4, P4·S, P7) |

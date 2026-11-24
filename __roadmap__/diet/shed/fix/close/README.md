@@ -16,7 +16,7 @@ The diet is recorded where the next agent will read it.
 ## Status
 ```mermaid
 graph TD
-    close_out[close_out]:::planned
+    close_out[close_out]:::blocked
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -27,7 +27,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `close_out.md` | 📄 Leaf Task | ⬜ Planned |
+| `close_out.md` | 📄 Leaf Task | 🚫 Blocked |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
@@ -36,3 +36,4 @@ graph TD
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| `close_out.md` | -- | -- | blocked, superseded: the dogfooding pass and the knowledge transfer in `__roadmap__/integrity/causes/checkpoint/snapshot/review/dogfood/dogfooding_pass.md` (P7) replace it |
