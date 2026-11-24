@@ -100,9 +100,10 @@ pub(crate) fn read(key: &str, entry: Value) -> Result<McpServer, DriverError> {
     Ok(server)
 }
 
-/// Whether `name` is `^[A-Za-z0-9-]+(_[A-Za-z0-9-]+)*$`: the names that both harnesses carry into a
-/// tool id unchanged and that cannot be split two ways (`mcp__<server>__<tool>`,
-/// `<server>_<tool>`).
+/// Whether `name` matches `candler_schemas::servers::SERVER_NAME_PATTERN`: the names that both
+/// harnesses carry into a tool id unchanged and that cannot be split two ways
+/// (`mcp__<server>__<tool>`, `<server>_<tool>`). The pattern uses an end anchor the `regex` crate
+/// does not read, so the check is written out; `guard_mcp_server` holds the published schema to it.
 fn plain_name(name: &str) -> bool {
     !name.is_empty()
         && name.split('_').all(|part| {

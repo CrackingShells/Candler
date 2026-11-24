@@ -56,7 +56,7 @@ fn two_servers_rendering_one_name_are_refused() -> Res<()> {
 /// Guards: R01 §Agent environment — a server name, given by `name` or by the key, is ASCII letters,
 /// digits and `-` joined by single `_`: `s_`, `_s`, `a__b`, `a.b` and `my srv` are refused, and
 /// `a-b` and `a_b` are accepted. A key goes through the same check as a `name`.
-/// Oracle: the names are written by hand from `^[A-Za-z0-9-]+(_[A-Za-z0-9-]+)*$`.
+/// Oracle: the names are written by hand from `SERVER_NAME_PATTERN` of `candler_schemas::servers`.
 /// Bite: a check that applies to `name` only, or one that lets a trailing `_`, a `.` or a space by.
 #[test]
 fn a_server_name_is_letters_digits_and_dashes_joined_by_single_underscores() -> Res<()> {
