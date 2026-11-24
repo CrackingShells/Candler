@@ -15,8 +15,6 @@ use schemars::transform::{Transform, transform_subschemas};
 use schemars::{JsonSchema, Schema};
 use serde_json::{Map, Value, json};
 
-use crate::catalog::CatalogSnapshot;
-
 /// The extension every generated schema file carries.
 const FILE_SUFFIX: &str = ".schema.json";
 
@@ -62,10 +60,9 @@ impl GeneratedSchema {
 #[must_use]
 pub fn generated_schemas() -> Vec<GeneratedSchema> {
     let modules = [
-        vec![
-            GeneratedSchema::of::<CatalogSnapshot>("catalog-snapshot"),
-            GeneratedSchema::of::<crate::outcome::OutcomeRecord>("outcome-record"),
-        ],
+        vec![GeneratedSchema::of::<crate::outcome::OutcomeRecord>(
+            "outcome-record",
+        )],
         crate::values::roots(),
         crate::canonical::roots(),
         crate::container::roots(),

@@ -155,7 +155,7 @@ fn c1_the_record_of_an_error_carries_its_code_side_path_and_message() {
 
 /// The hand list of the codes whose side is `candler`: errors only Candler can raise. No other row
 /// may be `candler`; an author's error is never blamed on Candler (A5).
-const INTERNAL_CODES: [&str; 24] = [
+const INTERNAL_CODES: [&str; 21] = [
     "manifest.git_commit_invalid",
     "manifest.field_unset",
     "manifest.list_unsorted",
@@ -177,20 +177,16 @@ const INTERNAL_CODES: [&str; 24] = [
     "format.job_id_invalid",
     "format.boot_id_invalid",
     "format.container_id_invalid",
-    "catalog.field_unset",
-    "catalog.extra_key_reserved",
-    "catalog.field_null",
 ];
 
 /// The variants of each error type the registry covers, counted by hand from the enums: each
 /// variant has a row, and the wrapping ones are marked as delegating.
-const VARIANT_COUNTS: [(&str, usize); 9] = [
+const VARIANT_COUNTS: [(&str, usize); 8] = [
     ("ExecutionError", 26),
     ("EvaluationError", 14),
     ("OutcomeError", 16),
     ("FormatError", 19),
     ("CanonicalError", 5),
-    ("CatalogError", 6),
     ("ValuesError", 2),
     ("SchemaTagError", 1),
     ("VersionMismatch", 1),

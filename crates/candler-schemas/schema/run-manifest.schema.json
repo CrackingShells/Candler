@@ -26,7 +26,8 @@
         },
         "snapshots": {
           "$comment": "Sorted by kind then digest in code point order, without a repeated entry; the Rust reader refuses a list that is not.",
-          "description": "The digests of the catalog snapshots, sorted by kind and digest.",
+          "default": [],
+          "description": "The digests of the catalog snapshots, sorted by kind and digest. A cell without catalog\nsnapshots leaves the list out, and the hash leaves it out too.",
           "items": {
             "$ref": "#/$defs/DigestRef"
           },
@@ -49,7 +50,6 @@
         "values",
         "harness",
         "treatment",
-        "snapshots",
         "inputs",
         "environments"
       ],
@@ -385,7 +385,7 @@
       "type": "string"
     },
     "NameToken": {
-      "description": "A catalog provider reference, `name@token`, split at the last `@`: the name is non-empty and holds neither `@` nor white space, and the token matches `[0-9A-Za-z.+-]+`.",
+      "description": "A name and a version token, `name@token`, split at the last `@`: the name is non-empty and holds neither `@` nor white space, and the token matches `[0-9A-Za-z.+-]+`.",
       "pattern": "^[^@\\t\\n\\v\\f\\r\\x20\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+@[0-9A-Za-z.+-]+(?![\\s\\S])",
       "type": "string"
     },

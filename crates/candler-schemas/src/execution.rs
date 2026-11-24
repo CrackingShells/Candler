@@ -1883,9 +1883,15 @@ struct ComparableBody<'a> {
     values: &'a [ResolvedValue],
     harness: &'a HarnessIdentity,
     treatment: &'a TreatmentRef,
+    #[serde(skip_serializing_if = "no_digests")]
     snapshots: &'a [DigestRef],
     inputs: &'a [DigestRef],
     environments: &'a [EnvironmentRef],
+}
+
+/// Reports whether `list` holds no digest: an empty list is left out of the hash and of the record.
+fn no_digests(list: &&[DigestRef]) -> bool {
+    list.is_empty()
 }
 
 /// Checks that `items` rise strictly by `key`: an equal neighbour is a duplicate, a lower one is out of order.
@@ -1934,7 +1940,9 @@ struct RawComparable {
     harness: HarnessIdentity,
     /// The treatment the run applied.
     treatment: TreatmentRef,
-    /// The digests of the catalog snapshots, sorted by kind and digest.
+    /// The digests of the catalog snapshots, sorted by kind and digest. A cell without catalog
+    /// snapshots leaves the list out, and the hash leaves it out too.
+    #[serde(default)]
     #[schemars(extend(
         "$comment" = "Sorted by kind then digest in code point order, without a repeated entry; the Rust reader refuses a list that is not."
     ))]
@@ -1975,6 +1983,7 @@ pub struct Comparable {
     values: Vec<ResolvedValue>,
     harness: HarnessIdentity,
     treatment: TreatmentRef,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     snapshots: Vec<DigestRef>,
     inputs: Vec<DigestRef>,
     environments: Vec<EnvironmentRef>,

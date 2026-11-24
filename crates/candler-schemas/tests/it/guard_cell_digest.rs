@@ -7,7 +7,6 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::str::FromStr;
 
-use candler_schemas::catalog::CatalogSnapshot;
 use candler_schemas::execution::{
     Comparable, Deviation, DigestRef, EnvironmentRef, GitCommit, HarnessIdentity, ImportRecord,
     Integrity, RunManifest, SecretPresence, TreatmentRef,
@@ -71,7 +70,9 @@ fn parts(text: &str) -> Parts {
         values: field(&doc, "values"),
         harness: field(&doc, "harness"),
         treatment: field(&doc, "treatment"),
-        snapshots: field(&doc, "snapshots"),
+        snapshots: doc
+            .get("snapshots")
+            .map_or_else(Vec::new, |_| field(&doc, "snapshots")),
         inputs: field(&doc, "inputs"),
         environments: field(&doc, "environments"),
     }
@@ -304,7 +305,7 @@ fn every_manifest_path_is_classified_and_hashed_parts_move_the_digest() {
 #[test]
 fn digests_equal_the_oracle() {
     let all = vectors();
-    assert_eq!(all.len(), 6, "three corpus cells and three invented ones");
+    assert_eq!(all.len(), 7, "three corpus cells and four invented ones");
     for vector in &all {
         // BORROW: explicit .as_str() instead of Deref coercion
         let read: Comparable = serde_json::from_str(vector.comparable.as_str()).expect("reads");
@@ -749,58 +750,6 @@ fn reserved_roots_fill_the_typed_fields_and_absolute_paths_are_refused() {
     assert!(Comparable::from_resolved(&below).is_err());
     // INDEX: the list holds six values
     assert!(Comparable::from_resolved(&resolved_values[..2]).is_err());
-}
-
-#[derive(Deserialize)]
-struct CatalogFile {
-    vector: Vec<CatalogVector>,
-}
-
-#[derive(Deserialize)]
-struct CatalogVector {
-    document_a: String,
-    document_b: String,
-    document_c: String,
-    digest_ab: String,
-    digest_c: String,
-}
-
-/// Guards: Cond 1 — the digest of a catalog snapshot equals the independent one and does not change when only `captured_at` does, so a capture time never splits a cell. Oracle: `catalog_content_digest.toml` (Python `rfc8785`; A and B differ only in `captured_at`, C in a tool description).
-#[test]
-fn catalog_content_digest_ignores_the_capture_time() {
-    // BORROW: explicit .as_str() instead of Deref coercion
-    let file: CatalogFile =
-        toml::from_str(oracle("catalog_content_digest.toml").as_str()).expect("toml");
-    let vector = file.vector.first().expect("a vector");
-    // BORROW: explicit .as_str() instead of Deref coercion
-    let read = |text: &str| serde_json::from_str::<CatalogSnapshot>(text).expect("snapshot");
-    // BORROW: explicit .as_str() instead of Deref coercion
-    let a = read(vector.document_a.as_str());
-    // BORROW: explicit .as_str() instead of Deref coercion
-    let b = read(vector.document_b.as_str());
-    // BORROW: explicit .as_str() instead of Deref coercion
-    let c = read(vector.document_c.as_str());
-    assert_ne!(
-        a.captured_at(),
-        b.captured_at(),
-        "the captures differ in time"
-    );
-    assert_eq!(
-        // BORROW: explicit .as_str() instead of Deref coercion
-        a.content_digest().expect("digest").as_str(),
-        vector.digest_ab
-    );
-    assert_eq!(
-        // BORROW: explicit .as_str() instead of Deref coercion
-        b.content_digest().expect("digest").as_str(),
-        vector.digest_ab
-    );
-    assert_eq!(
-        // BORROW: explicit .as_str() instead of Deref coercion
-        c.content_digest().expect("digest").as_str(),
-        vector.digest_c
-    );
-    assert_ne!(vector.digest_ab, vector.digest_c);
 }
 
 /// Guards: Wire rule — an import record keeps the legacy integrity block it was given as a JSON value and reads it back, and `null` is refused where the record is read; the three reader causes are invalid reasons by their snake-case names. Oracle: README §Gotchas wire rules ("`null` is never written"), with the expected texts written by hand.
