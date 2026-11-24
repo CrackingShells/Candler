@@ -265,8 +265,8 @@ pub struct Setup<'a> {
     /// values of the secrets the core holds.
     pub canaries: &'a [String],
     /// What a run stores of a workspace: the file specs applied to the tree, as the paths kept.
-    /// The driver crates' tests give the core's collector here, so the case reads the code real
-    /// runs use.
+    /// The driver crates' tests give the core's file collector here, applied to the driver's
+    /// specs.
     pub collector: Option<Collector>,
 }
 

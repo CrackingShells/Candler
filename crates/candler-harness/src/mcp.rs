@@ -30,16 +30,36 @@ fn invalid(detail: String) -> DriverError {
     }
 }
 
+/// The field `path` leads to inside the server at `entry`: the entry's own path extended by every
+/// key of `path` that is a field-path segment, up to the first step that is not one (an index).
+fn field_at_fault(entry: &FieldPath, path: &serde_path_to_error::Path) -> FieldPath {
+    use serde_path_to_error::Segment;
+    let mut text = entry.to_string(); // BORROW: .to_string() gives owned text
+    for segment in path {
+        let Segment::Map { key } = segment else { break };
+        let longer = format!("{text}.{key}");
+        if FieldPath::from_str(&longer).is_err() {
+            break;
+        }
+        text = longer;
+    }
+    FieldPath::from_str(&text).unwrap_or_else(|_| entry.clone()) // BORROW: the error owns the path
+}
+
 /// The entry `key` of `mcp.servers` read as a server.
 fn read(key: &str, entry: Value) -> Result<McpServer, DriverError> {
-    let path = FieldPath::from_str(&format!("{SERVERS}.{key}"))
+    let entry_path = FieldPath::from_str(&format!("{SERVERS}.{key}"))
         .unwrap_or_else(|_| field_path!("mcp.servers"));
     let refused = |detail: String| DriverError::InvalidValue {
-        path: path.clone(), // BORROW: the error owns the path
+        path: entry_path.clone(), // BORROW: the error owns the path
         detail,
     };
-    let server: McpServer =
-        serde_json::from_value(entry).map_err(|error| refused(error.to_string()))?; // BORROW: .to_string() gives owned text
+    let server: McpServer = serde_path_to_error::deserialize(entry).map_err(|error| {
+        DriverError::InvalidValue {
+            path: field_at_fault(&entry_path, error.path()),
+            detail: error.inner().to_string(), // BORROW: .to_string() gives owned text
+        }
+    })?;
     let remote = match server.kind {
         Some(McpServerKind::Http | McpServerKind::Sse | McpServerKind::Remote) => true,
         Some(_) => false,

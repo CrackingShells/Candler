@@ -172,13 +172,13 @@ const ROWS: [Row; 11] = [
     Row {
         name: "an MCP server command that is not a string",
         code: "experiment.cell_value_invalid",
-        pointer: None,
+        pointer: Some("/mcp/servers/fs/command"),
         run: || at_servers(&[("mcp.servers.fs.command", json!(7))]),
     },
     Row {
         name: "MCP server args that are not all strings",
         code: "experiment.cell_value_invalid",
-        pointer: None,
+        pointer: Some("/mcp/servers/fs/args"),
         run: || {
             at_servers(&[
                 ("mcp.servers.fs.command", json!("mcp-fs")),
@@ -189,13 +189,13 @@ const ROWS: [Row; 11] = [
     Row {
         name: "an MCP server with neither a command nor a url",
         code: "experiment.cell_value_invalid",
-        pointer: None,
+        pointer: Some("/mcp/servers/fs"),
         run: || at_servers(&[("mcp.servers.fs.codemode", json!(true))]),
     },
     Row {
         name: "an MCP server whose env holds a value that is not text",
         code: "experiment.cell_value_invalid",
-        pointer: None,
+        pointer: Some("/mcp/servers/fs/env/token"),
         run: || {
             at_servers(&[
                 ("mcp.servers.fs.command", json!("mcp-fs")),

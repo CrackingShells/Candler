@@ -10,7 +10,7 @@ use std::error::Error;
 use crate::driver::DriverError;
 use crate::reader::ReaderError;
 use crate::spec::{CommandSpecError, InitReportError};
-use candler_schemas::refusal::{CatalogRow, Catalogued, Refusal, Side};
+use candler_schemas::refusal::{CatalogRow, Catalogued, Refusal, Side, pointer_of};
 use candler_schemas::refusal_table;
 
 /// The path of an error that names no place in a document.
@@ -23,8 +23,8 @@ fn driver_error_path(error: &DriverError) -> Option<String> {
     match error {
         DriverError::Command(inner) => Refusal::path(inner),
         DriverError::Unsupported { path, .. } => Some(path.clone()), // BORROW: the path owns its text
+        DriverError::InvalidValue { path, .. } => Some(pointer_of(path.segments())),
         DriverError::MissingValue { .. }
-        | DriverError::InvalidValue { .. }
         | DriverError::VersionOutput { .. }
         | DriverError::Record { .. } => None,
     }
@@ -42,7 +42,7 @@ refusal_table! {
         "experiment.cell_value_invalid",
         Side::Experiment,
         "A cell value cannot be used by the harness driver.",
-        "-",
+        "The field of the value, such as `/mcp/servers/fs/command`.",
     ),
     Unsupported { .. } => row(
         "experiment.setting_unsupported",
