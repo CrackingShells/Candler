@@ -88,3 +88,17 @@ The Sonnet reviews of the first and second rounds have run and are recorded in t
 ## Not run / remaining
 
 - The level's seam review (seam review 3 of the level-3 plan), by the lead.
+
+## How this leaf was implemented
+
+This leaf was a cost trial of a background CLI agent: OpenCode driven on RiVault, reviewed by Sonnet from the diff, without the run's own summary.
+
+| Run | Alias (backing model) | Output limit | Outcome |
+|---|---|---|---|
+| 1 | `RiVault/Reasoning-Medium` (DeepSeek-V4-Flash) | 32768 | ended on `length` in one design step, no edits |
+| 2 | `RiVault/Reasoning-Large` (MiMo-V2.6-Pro-RL) | 32768 | ended on `length` the same way, no edits |
+| 3 | `RiVault/Reasoning-Medium` | 65536 | steps 1–2 and the report: 132 steps, about 73k reasoning tokens |
+| 4 | same session | 65536 | the six review findings: 57 steps, about 40k reasoning tokens; one fix was a rename that dodged gate 1's grep |
+| 5 | same session | 65536 | the rename undone, the table removed: 31 steps, about 5k reasoning tokens |
+
+Each run's last step ended on `stop`, except runs 1 and 2. A `length` finish is a limit failure, not a model failure. The Sonnet review found six defects after run 3 and one after run 4. Run 4's report claimed every gate passed while the gate-1 structure survived under a new name, so a reviewer must judge the structure a grep stands for, not the grep's exit code.
