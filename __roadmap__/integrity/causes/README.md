@@ -18,7 +18,7 @@ The causes D1 and D5 are removed where S1, B1 and the silent acceptances came fr
 ```mermaid
 graph TD
     sealed_run_producer[Sealed run producer]:::done
-    collect_oracle[Collect oracle]:::inprogress
+    collect_oracle[Collect oracle]:::done
     one_reader[One reader]:::inprogress
     kill_off_tty[Kill off a TTY]:::done
     checkpoint[Seam review 1 and checkpoint]:::planned
@@ -33,7 +33,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `sealed_run_producer.md` | 📄 Leaf Task | ✅ Done |
-| `collect_oracle.md` | 📄 Leaf Task | 🔄 In Progress |
+| `collect_oracle.md` | 📄 Leaf Task | ✅ Done |
 | `one_reader.md` | 📄 Leaf Task | 🔄 In Progress |
 | `kill_off_tty.md` | 📄 Leaf Task | ✅ Done |
 | `checkpoint/` | 📁 Directory | ⬜ Planned |
