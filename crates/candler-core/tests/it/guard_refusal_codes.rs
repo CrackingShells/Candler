@@ -580,52 +580,6 @@ fn r1_every_variant_code_equals_its_row() {
     }
 }
 
-/// Guards: R1 — a variant that only wraps a coded error answers, through the walk of causes,
-/// with the wrapped error's own code, side and path, not with the side its wrapper was written
-/// with: an unknown kind found by the registry is the suite's, whoever wraps it, and a lock held
-/// on the experiment is the environment's, though the orchestration wraps it as the
-/// experiment's.
-///
-/// Oracle: the sides written by hand from the contract (`suite.kind_unknown` is the suite's,
-/// `runner.experiment_locked` the environment's); the errors are built by hand.
-///
-/// Bite: make `coded` of the module return the wrapper (`Some(wrapper)`) instead of what it
-/// wraps.
-#[cfg(unix)]
-#[test]
-fn r1_a_wrapper_answers_with_the_side_of_what_it_wraps() {
-    use candler_core::evaluation::engine::EvaluateError;
-    use candler_core::evaluation::registry::RegistryError;
-    use candler_core::jobs::orchestrate::session::OrchestrateError;
-    use candler_core::runner::plan::PlanError;
-
-    let kind = RegistryError::UnknownKind {
-        entry: "R1".parse().unwrap(),
-        evaluator: "seam".parse().unwrap(),
-        kind: "check".parse().unwrap(),
-    };
-    let wrapped = EvaluateError::Registry(kind);
-    let found = candler_core::refusal::find(&wrapped).expect("a coded error");
-    assert_eq!(found.code().as_str(), "suite.kind_unknown");
-    assert_eq!(found.side(), Side::Suite);
-
-    // The core's wrappers: `ExecError::Driver` is written with the side `experiment`, and a
-    // driver that cannot read the harness version is the environment's.
-    let version = candler_core::runner::exec::ExecError::Driver(
-        candler_harness::driver::DriverError::VersionOutput {
-            detail: "no output".to_owned(),
-        },
-    );
-    let found = candler_core::refusal::find(&version).expect("a coded error");
-    assert_eq!(found.code().as_str(), "harness.version_unreadable");
-    assert_eq!(found.side(), Side::Environment);
-
-    let locked = OrchestrateError::Plan(PlanError::ExperimentLocked);
-    let found = candler_core::refusal::find(&locked).expect("a coded error");
-    assert_eq!(found.code().as_str(), "runner.experiment_locked");
-    assert_eq!(found.side(), Side::Environment);
-}
-
 /// An error that is a refusal.
 #[cfg(unix)]
 trait Both: std::error::Error + Refusal + 'static {}

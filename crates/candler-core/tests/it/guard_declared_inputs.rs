@@ -265,7 +265,7 @@ async fn resolved_inputs(
     let resolution = Resolver::new(config)
         .register(Box::new(step))
         .expect("registers")
-        .resolve(ResolveInput::default().file(FileValues::new(values)))
+        .resolve(ResolveInput::new(Vec::new()).file(FileValues::new(values)))
         .await
         .expect("resolves with no step deriving a path twice");
     resolution

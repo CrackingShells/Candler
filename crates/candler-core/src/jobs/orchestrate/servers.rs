@@ -27,14 +27,14 @@ use crate::runner::plan::RunPlan;
 pub const SERVER_START_WAIT: Duration = Duration::from_secs(3);
 
 /// One stdio server to start: its key, its command words and its literal environment.
-struct Stdio {
+pub struct Stdio {
     key: String,
     argv: Vec<String>,
     env: Vec<(String, String)>,
 }
 
 /// The stdio servers of `declared`; a server with a `url`, or without a `command`, is skipped.
-fn stdio_servers(declared: &Map<String, Value>) -> Vec<Stdio> {
+pub fn stdio_servers(declared: &Map<String, Value>) -> Vec<Stdio> {
     let mut found = Vec::new();
     for (key, server) in declared {
         if server.get("url").is_some() {

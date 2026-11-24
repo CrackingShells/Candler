@@ -1,0 +1,1 @@
+{"schema":"job-list/1","store":"/Users/hacker/candler-diet-audit-store/store","jobs":[{"id":"01a209d5-9326-7c2a-94ed-9aa9cf7ae483","spec":"sha256:c29aeea45cdb1ba3bfb3ee5a1477390cd8fa116c08321dbbf4b38b1fc4927283","state":"ended (completed)","progress":"8/8","what":"experiment:9ecba0406797","failed":false}]}

@@ -115,7 +115,7 @@ async fn resolve(request: Value, cwd: &Path) -> Result<Resolution, String> {
         .expect("registers")
         .register(Box::new(others))
         .expect("registers")
-        .resolve(ResolveInput::default().file(values))
+        .resolve(ResolveInput::new(Vec::new()).file(values))
         .await
         .map_err(|e| e.to_string())
 }
@@ -261,7 +261,7 @@ async fn source_only_is_recorded_when_there_is_one() {
         name: "plain@1".parse().expect("a name@token"),
     }))
     .expect("registers")
-    .resolve(ResolveInput::default())
+    .resolve(ResolveInput::new(Vec::new()))
     .await
     .expect("resolves");
     assert_eq!(

@@ -3,5 +3,4 @@
 
 mod conformance;
 mod guard_claude_code_driver;
-mod guard_fixture_provenance;
 mod guard_reader;

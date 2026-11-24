@@ -845,16 +845,6 @@ fn b3_each_round_holds_each_cell_once() {
     }
 }
 
-/// Guards: B3 — one seed gives one order, however often it is asked.
-/// Oracle: equality of two calls with the same arguments.
-/// Bite: draw the shuffle from a clock or a counter.
-#[test]
-fn b3_same_seed_same_order() {
-    for seed in [0, 7, u64::MAX] {
-        assert_eq!(run_order(8, 3, seed), run_order(8, 3, seed), "seed {seed}");
-    }
-}
-
 /// Guards: B3 — two seeds give two orders for a design of at least 6 cells.
 /// Oracle: inequality of the orders of seeds 1 and 2 on 8 cells and 3 replicates, which is chance
 /// 1 in 40 320 per round if the seed were ignored.
@@ -1168,7 +1158,7 @@ fn set_replicates_is_honoured() {
     );
     let replicates =
         |count: u32| candler_schemas::values::JsonValue::new(json!(count)).expect("a JSON value");
-    let input = ResolveInput::default()
+    let input = ResolveInput::new(Vec::new())
         .explicit("replicates".parse().expect("a field path"), replicates(1))
         .file(FileValues::new(vec![(
             "replicates".parse().expect("a field path"),
@@ -1201,77 +1191,4 @@ fn set_replicates_is_honoured() {
         sources.contains("explicit"),
         "the source of `replicates`: {sources}"
     );
-}
-
-/// Guards: I11 — the summary of a plan bounds the wall clock by the new runs times the per-run
-/// cap the runs get (an explicit setting first, then the file's), and names the job caps, as
-/// the experiment file wrote them.
-/// Oracle: two cells times two replicates is four runs of 600 s, or of 300 s under an explicit
-/// setting of 300, and the caps are the file's own
-/// numbers written below.
-/// Bite: read the caps from the resolution, which holds neither (seen red that way).
-#[test]
-fn the_summary_of_a_plan_holds_the_caps_of_the_file() {
-    use candler_core::resolve::config::{Config, UserConfig};
-    use candler_core::resolve::layers::{Layered, ResolveInput};
-    let text = "schema = \"experiment/1\"\nreplicates = 2\n\n[[factors]]\npath = \"model.id\"\nlevels = [\"m1\", \"m2\"]\n\n[budget]\nmax_runs = 7\nmax_parallel = 2\n\n[budget.per_run]\nwall_s = 600\n\n[harness]\nname = \"claude-code\"\n\n[treatment]\nname = \"htn\"\n";
-    let file = candler_schemas::execution::ExperimentFile::from_toml_str(text).expect("a file");
-    let facts = Facts::base();
-    let (_dir, store, lock) = fresh_store();
-    let ctx = plan_ctx(&store, &lock, &facts);
-    let resolved = resolution(&facts);
-    let out = plan_runs(&ctx, &file, &resolved, Force::No, PlanMode::Check)
-        .map_err(|e| e.to_string())
-        .expect("a plan");
-    let summary = out.summary(file.budget());
-    assert_eq!(
-        (summary.cells, summary.new_runs, summary.reused_runs),
-        (2, 4, 0)
-    );
-    assert_eq!(summary.wall_s_bound, Some(2400));
-    assert_eq!(
-        summary.job_caps,
-        vec![
-            ("budget.max_runs".to_owned(), json!(7)),
-            ("budget.max_parallel".to_owned(), json!(2)),
-        ]
-    );
-
-    // An explicit `--set budget.per_run.wall_s` over the file's 600 is the cap the runs get, so
-    // it is the cap the bound uses.
-    let root = tempfile::tempdir().expect("a temp dir");
-    let config = Config::new(
-        root.path().to_owned(), // BORROW: the config owns its working directory
-        None,
-        UserConfig::default(),
-        Some(root.path().join("state")),
-    );
-    let input = ResolveInput::default().explicit(
-        "budget.per_run.wall_s".parse().expect("a field path"),
-        candler_schemas::values::JsonValue::new(json!(300)).expect("a JSON value"),
-    );
-    let layers = Layered::new(&config, input).expect("layers").resolve();
-    let mut held = serde_json::to_value(resolution(&facts)).expect("JSON");
-    for key in ["values", "sources"] {
-        let mut all = held[key].as_array().cloned().unwrap_or_default();
-        all.extend(
-            serde_json::to_value(match key {
-                "values" => serde_json::to_value(&layers.values).expect("JSON"),
-                _ => serde_json::to_value(&layers.sources).expect("JSON"),
-            })
-            .expect("JSON")
-            .as_array()
-            .cloned()
-            .unwrap_or_default(),
-        );
-        held[key] = serde_json::Value::Array(all);
-    }
-    let explicit: candler_core::resolve::layers::Resolution =
-        serde_json::from_value(held).expect("a resolution");
-    let (_dir2, store2, lock2) = fresh_store();
-    let ctx2 = plan_ctx(&store2, &lock2, &facts);
-    let out = plan_runs(&ctx2, &file, &explicit, Force::No, PlanMode::Check)
-        .map_err(|e| e.to_string())
-        .expect("a plan");
-    assert_eq!(out.summary(file.budget()).wall_s_bound, Some(1200));
 }

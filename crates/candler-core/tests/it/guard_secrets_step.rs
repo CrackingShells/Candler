@@ -40,7 +40,7 @@ async fn o1_the_secrets_step_derives_presence_and_fails_each_missing_secret() {
 
     let partial = resolver(dir.path(), &declared, &["PATH"]);
     let error = partial
-        .resolve(ResolveInput::default())
+        .resolve(ResolveInput::new(Vec::new()))
         .await
         .expect_err("two secrets are missing");
     let ResolveError::Preflight { reports, errors } = error else {
@@ -77,7 +77,7 @@ async fn o1_the_secrets_step_derives_presence_and_fails_each_missing_secret() {
 
     let full = resolver(dir.path(), &declared, &declared);
     let resolution = full
-        .resolve(ResolveInput::default())
+        .resolve(ResolveInput::new(Vec::new()))
         .await
         .expect("every secret is present");
     let report = resolution.preflight.first().expect("the step reported");

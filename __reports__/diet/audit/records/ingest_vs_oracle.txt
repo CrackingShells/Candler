@@ -1,0 +1,6 @@
+oracle rows 138 distinct (run,id) 138
+store records 136 distinct 136
+only in oracle 2 [((1, 'A1', 'pass'), 1), ((1, 'A3', 'pass'), 1)]
+only in store 0 []
+status counts oracle Counter({'pass': 107, 'blocked': 13, 'not_measured': 10, 'fail': 7, 'not_applicable': 1}) store Counter({'pass': 105, 'blocked': 13, 'not_measured': 10, 'fail': 7, 'not_applicable': 1})
+repeated oracle keys []

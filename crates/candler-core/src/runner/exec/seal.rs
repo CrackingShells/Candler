@@ -1,9 +1,9 @@
 //! Sealing a run: its files go in one order and `run.done` goes last.
 
 use std::ops::ControlFlow;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use candler_schemas::execution::{RunManifest, RunTree};
+use candler_schemas::execution::{RunManifest, RunTree, TreeEntry};
 use candler_schemas::primitives::Digest;
 use candler_schemas::raw::StreamName;
 use candler_schemas::trace::TraceFile;
@@ -35,6 +35,8 @@ impl RawStreamFile {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SealStep {
+    /// The bytes of one file entry of the tree were stored as its blob.
+    Blob,
     /// The manifest was written.
     Manifest,
     /// The tree was written.
@@ -57,20 +59,26 @@ pub enum SealProgress {
     Halted(SealStep),
 }
 
-/// Seals a run: manifest, tree, each raw stream, trace, and `run.done` last.
+/// Seals a run: the blob of each file of the tree, then the manifest, the tree, each raw stream,
+/// the trace, and `run.done` last.
 ///
-/// A failure before `run.done` leaves the run unsealed, and nothing is deleted.
+/// Each file entry of `tree` is read at its path below `workspace` and stored as the blob of the
+/// digest the entry names, so a sealed run never names a blob the store lacks. A failure before
+/// `run.done` leaves the run unsealed, and nothing is deleted; a blob already stored is
+/// content-addressed and is not a record of the run.
 ///
 /// # Errors
-/// Returns the store's error of the first step that fails.
+/// Returns the store's error of the first step that fails:
+/// [`StoreError::DigestMismatch`] when a file's bytes are no longer those its entry names.
 pub fn seal_run(
     writer: RunWriter,
+    workspace: &Path,
     manifest: &RunManifest,
     tree: &RunTree,
     raw: &[RawStreamFile],
     trace: &TraceFile,
 ) -> Result<(), StoreError> {
-    seal_run_observed(writer, manifest, tree, raw, trace, |_| {
+    seal_run_observed(writer, workspace, manifest, tree, raw, trace, |_| {
         ControlFlow::Continue(())
     })
     .map(|_| ())
@@ -82,12 +90,21 @@ pub fn seal_run(
 /// Returns the store's error of the first step that fails.
 pub fn seal_run_observed(
     mut writer: RunWriter,
+    workspace: &Path,
     manifest: &RunManifest,
     tree: &RunTree,
     raw: &[RawStreamFile],
     trace: &TraceFile,
     mut after: impl FnMut(SealStep) -> ControlFlow<()>,
 ) -> Result<SealProgress, StoreError> {
+    for entry in tree.entries() {
+        if let TreeEntry::File { path, sha256, .. } = entry {
+            writer.output(&workspace.join(path.as_str()), sha256)?; // BORROW: explicit .as_str()
+            if after(SealStep::Blob).is_break() {
+                return Ok(SealProgress::Halted(SealStep::Blob));
+            }
+        }
+    }
     writer.manifest(manifest)?;
     if after(SealStep::Manifest).is_break() {
         return Ok(SealProgress::Halted(SealStep::Manifest));

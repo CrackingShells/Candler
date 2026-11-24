@@ -1,0 +1,28 @@
+3036d0 -r1-a1 01a209d5-9326 ion-Small Ignore 600 {'kind': 'completed'} 0 {'kind': 'valid'} True
+3036d0 -r2-a1 01a209d5-9326 ion-Small Ignore 600 {'kind': 'completed'} 0 {'kind': 'valid'} True
+3036d0 -r3-a1 01a209d6-b58a ion-Small Ignore 600 {'kind': 'completed'} 0 {'kind': 'valid'} True
+37c0d4 -r1-a1 01a209d5-9326 ion-Small Follow 600 {'kind': 'completed'} 0 {'kind': 'valid'} True
+37c0d4 -r2-a1 01a209d5-9326 ion-Small Follow 600 {'kind': 'completed'} 0 {'kind': 'valid'} True
+37c0d4 -r3-a1 01a209d7-09e5 ion-Small Follow 600 {'kind': 'completed'} 0 {'kind': 'valid'} True
+40dcb4 -r1-a1 01a209d9-0200 ing-Small Ignore 601 {'kind': 'completed'} 0 {'kind': 'valid'} True
+604588 -r1-a1 01a209d9-0200 ion-Small Ignore 601 {'kind': 'completed'} 0 {'kind': 'valid'} True
+93cb22 -r1-a1 01a209d5-9326 ing-Small Ignore 600 {'kind': 'completed'} 0 {'kind': 'valid'} True
+93cb22 -r2-a1 01a209d5-9326 ing-Small Ignore 600 {'kind': 'completed'} 0 {'kind': 'valid'} True
+93cb22 -r3-a1 01a209d6-b58a ing-Small Ignore 600 {'kind': 'killed'} 143 {'kind': 'invalid', 'reason': 'killed'} True
+93cb22 -r3-a2 01a209d7-09e5 ing-Small Ignore 600 {'kind': 'completed'} 0 {'kind': 'valid'} True
+94a583 -r1-a1 01a209d9-0200 ing-Small Follow 601 {'kind': 'completed'} 0 {'kind': 'valid'} True
+bbc08f -r1-a1 01a209d5-9326 ing-Small Follow 600 {'kind': 'completed'} 0 {'kind': 'valid'} True
+bbc08f -r2-a1 01a209d5-9326 ing-Small Follow 600 {'kind': 'completed'} 0 {'kind': 'valid'} True
+bbc08f -r3-a1 01a209d6-b58a ing-Small Follow 600 {'kind': 'killed'} 143 {'kind': 'invalid', 'reason': 'killed'} True
+bbc08f -r3-a2 01a209d7-09e5 ing-Small Follow 600 {'kind': 'completed'} 0 {'kind': 'valid'} True
+d57108 -r1-a1 01a209d9-0200 ion-Small Follow 601 {'kind': 'completed'} 0 {'kind': 'valid'} True
+
+01a209d5-9326 {'job.started': 1, 'container.created': 9, 'container.destroyed': 10, 'run.started': 8, 'run.ended': 8, 'job.ended': 1}
+01a209d6-b58a {'job.started': 1, 'container.created': 4, 'container.destroyed': 5, 'run.started': 3, 'run.ended': 3, 'job.ended': 1}
+01a209d7-09e5 {'job.started': 1, 'container.created': 4, 'container.destroyed': 5, 'run.started': 3, 'run.ended': 3, 'job.ended': 1}
+01a209d7-7367 {'job.started': 1, 'job.ended': 1}
+01a209d7-e736 {'job.started': 1, 'job.ended': 1}
+01a209d9-0200 {'job.started': 1, 'container.created': 5, 'container.destroyed': 6, 'run.started': 4, 'run.ended': 4, 'job.ended': 1}
+01a209d9-4da7 {'job.started': 1, 'job.ended': 1}
+01a209d9-52c3 {'job.started': 1, 'job.ended': 1}
+01a209d9-57dd {'job.started': 1, 'job.ended': 1}

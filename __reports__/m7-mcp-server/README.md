@@ -34,4 +34,4 @@ No new report; these rulings override v1 where they disagree.
 
 ## Status
 
-M6b "Surface consolidation" is inserted before M7 by amendment A11 (`__roadmap__/candler-v1/…/m5b/stats/surface/m6b_surface_consolidation.md`). Next: its plan-mode planning session.
+M6b "Surface consolidation" is inserted before M7 by amendment A11 (`__roadmap__/candler-v1/…/m5b/stats/surface/m6b_surface_consolidation.md`). M6c "Architecture diet" follows it by amendment A12 (`__roadmap__/candler-v1/…/m5b/stats/surface/diet/m6c_diet.md`). Next: the M6c build, then M7's plan-mode planning session.

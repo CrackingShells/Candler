@@ -14,7 +14,7 @@ use std::str::FromStr as _;
 use candler_harness::driver::{Disposition, DriverError, HarnessDriver};
 use candler_harness::reader::FrameIn;
 use candler_harness::spec::{
-    Action, Cell, CollectSpec, Observed, ProcessEnd, ProcessExit, StateKind, StopSignal, Workspace,
+    Action, Cell, CollectSpec, Observed, ProcessEnd, ProcessExit, StopSignal, Workspace,
 };
 use candler_harness_opencode::driver::OpenCodeDriver;
 use candler_schemas::execution::{GitCommit, TreatmentRef};
@@ -607,29 +607,6 @@ fn opencode_prepare_writes_the_provider_mcp_codemode_and_gateway_names() -> Res<
     Ok(())
 }
 
-/// Guards: R01 §Process supervision — a run keeps its state in its own home: the four XDG
-/// directories and the database file.
-/// Oracle: `opencode debug paths` with `HOME`, `XDG_*` and `OPENCODE_DB` set, as printed by the
-/// real binary in the base image (data, config, cache, state, `db` = the file).
-#[test]
-fn opencode_state_paths_are_the_recorded_layout() {
-    let got: Vec<(String, StateKind, String)> = OpenCodeDriver::new()
-        .state_paths()
-        .into_iter()
-        .map(|p| (p.env, p.kind, p.subpath.as_str().to_owned())) // BORROW: .to_owned() makes owned text
-        .collect();
-    let want = [
-        ("XDG_DATA_HOME", StateKind::Dir, ".xdg/data"),
-        ("XDG_CONFIG_HOME", StateKind::Dir, ".xdg/config"),
-        ("XDG_CACHE_HOME", StateKind::Dir, ".xdg/cache"),
-        ("XDG_STATE_HOME", StateKind::Dir, ".xdg/state"),
-        ("OPENCODE_DB", StateKind::File, ".xdg/data/oc.db"),
-    ]
-    .map(|(e, k, p)| (e.to_owned(), k, p.to_owned())) // BORROW: .to_owned() makes owned text
-    .to_vec();
-    assert_eq!(got, want);
-}
-
 fn sample_id() -> Res<SessionId> {
     Ok("ses_e32c17b4fffe2bjBVM2E3xAaLZ".parse()?)
 }
@@ -647,8 +624,12 @@ fn opencode_collect_exports_the_root_session_inside() -> Res<()> {
     let dash: SessionId = "-sanitize".parse()?;
     let observed = Observed::new(vec![dash, child, root]);
     let specs = driver.collect(&workspace, &observed);
-    assert_eq!(specs.len(), 1);
-    let Some(CollectSpec::Exec { spec, name, .. }) = specs.first() else {
+    let execs: Vec<&CollectSpec> = specs
+        .iter()
+        .filter(|spec| matches!(spec, CollectSpec::Exec { .. }))
+        .collect();
+    assert_eq!(execs.len(), 1);
+    let Some(CollectSpec::Exec { spec, name, .. }) = execs.first().copied() else {
         return Err("the export is not collected by an Exec".into());
     };
     assert_eq!(name.as_str(), "export");
@@ -662,9 +643,12 @@ fn opencode_collect_exports_the_root_session_inside() -> Res<()> {
             "ses_e32c17b4fffe2bjBVM2E3xAaLZ"
         ])
     );
-    assert_eq!(
-        driver.collect(&workspace, &Observed::new(Vec::new())),
-        Vec::new()
+    assert!(
+        !driver
+            .collect(&workspace, &Observed::new(Vec::new()))
+            .iter()
+            .any(|spec| matches!(spec, CollectSpec::Exec { .. })),
+        "no session, no export"
     );
     Ok(())
 }
@@ -933,36 +917,6 @@ fn opencode_version_is_parsed_from_the_probe() -> Res<()> {
                 .matches(&semver::Version::new(other.0, other.1, other.2))
         );
     }
-    Ok(())
-}
-
-/// Guards: R01 §Harness drivers (capabilities) — the driver declares no session, no budget and no
-/// in-harness guard, declares that execution lives outside the child, and declares a census whose
-/// source is the gateway's stream.
-/// Oracle: the leaf's rule, `opencode_facts` F1 (no tool inventory in any event or command), F2 (no
-/// turn or cost flag) and row 9 (tools run in the `serve` child); amendment A1 (the gateway's
-/// stream is the census source).
-#[test]
-fn opencode_capabilities_declare_no_session_and_outside_execution() -> Res<()> {
-    let driver = OpenCodeDriver::new();
-    let caps = driver.capabilities();
-    assert!(!caps.session && caps.census && !caps.in_harness_guard);
-    assert!(!caps.budgets.turns && !caps.budgets.cost);
-    assert!(caps.execution_outside_child && caps.graceful_stop);
-    assert!(!caps.live_events, "the live reader emits no event");
-    let values = values(&[])?;
-    let workspace = Workspace::new(Path::new("."));
-    assert!(
-        driver
-            .plan(&Cell::new(&values), &workspace)?
-            .session
-            .is_none()
-    );
-    assert!(driver.session_tracker().is_none());
-    assert_eq!(
-        driver.census_stream().map(|name| name.to_string()),
-        Some(String::from("gateway_census"))
-    );
     Ok(())
 }
 

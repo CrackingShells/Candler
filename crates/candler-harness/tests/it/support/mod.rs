@@ -20,7 +20,7 @@ use candler_harness::spec::{
     Workspace,
 };
 use candler_schemas::primitives::{FieldPath, Name, NameVersion, Timestamp};
-use candler_schemas::raw::{FrameData, RawFrame, RawRef, StreamName};
+use candler_schemas::raw::{RawFrame, RawRef, StreamName};
 use candler_schemas::trace::{
     Cap, EndedBy, Event, EventKind, Session, SessionEvent, SessionId, SessionSource,
 };
@@ -30,18 +30,6 @@ use serde_json::Value;
 pub type TestError = Box<dyn std::error::Error>; // TRAIT_OBJECT: helpers return the error of whichever call failed
 
 pub type TestResult = Result<(), TestError>;
-
-pub fn sid(text: &str) -> Result<SessionId, TestError> {
-    Ok(text.parse()?)
-}
-
-pub fn ts(text: &str) -> Result<Timestamp, TestError> {
-    Ok(text.parse()?)
-}
-
-pub fn stream(text: &str) -> Result<StreamName, TestError> {
-    Ok(text.parse()?)
-}
 
 pub fn source(
     harness: &str,
@@ -602,25 +590,6 @@ impl HarnessDriver for DocumentDriver {
             })
             .collect()
     }
-}
-
-/// What a reader gave back for one document: events, observed sessions, sessions.
-pub type Export = (Vec<SessionEvent>, Observed, Vec<Session>);
-
-/// Feeds one whole document to the driver's offline reader for the export stream.
-pub fn read_export(
-    driver: &dyn HarnessDriver, // TRAIT_OBJECT: the core selects drivers at runtime
-    document: &str,
-) -> Result<Export, TestError> {
-    let export = stream("export")?;
-    let Some(mut reader) = driver.offline_reader(&export) else {
-        return Err("the OpenCode-shaped driver reads the export stream".into());
-    };
-    assert_eq!(reader.framing(), Framing::Document);
-    let frame = RawFrame::new(None, FrameData::from_bytes(document.as_bytes()));
-    let events = reader.feed(FrameIn::new(RawRef::new(export, 0), None, &frame))?;
-    let observed = reader.observed();
-    Ok((events, observed, reader.finish()?))
 }
 
 // ---------------------------------------------------------------------------------------------

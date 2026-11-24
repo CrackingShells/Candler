@@ -274,6 +274,13 @@ impl HarnessDriver for OpenCodeDriver {
 
     fn collect(&self, workspace: &Workspace<'_>, observed: &Observed) -> Vec<CollectSpec> {
         let _ = workspace;
+        // The files the agent wrote: everything in the workspace but the skills the harness
+        // mounts. A glob that starts with `!` leaves out the paths it matches.
+        let mut specs = vec![CollectSpec::file("**/*".to_owned())]; // BORROW: .to_owned() makes the owned glob
+        specs.extend(
+            [".opencode/**", "**/.opencode/**"]
+                .map(|pattern| CollectSpec::file(format!("!{pattern}"))),
+        );
         // The export needs `--standalone` and the run's own database and XDG variables, which only
         // a command inside the isolation has. One export, for the first root session the stream
         // named; an id that could pass as an option is not exported.
@@ -283,15 +290,15 @@ impl HarnessDriver for OpenCodeDriver {
             .map(candler_schemas::trace::SessionId::as_str) // BORROW: explicit .as_str()
             .find(|id| plain_arg(id))
         else {
-            return Vec::new();
+            return specs;
         };
         let mut line = argv(&[PROGRAM, "session", "export", "--standalone"]);
         line.push(id.to_owned()); // BORROW: .to_owned() makes owned text
-        let (Ok(spec), Some(name)) = (CommandSpec::builder().argv(line).build(), export_stream())
-        else {
-            return Vec::new();
-        };
-        vec![CollectSpec::exec(spec, name)]
+        if let (Ok(spec), Some(name)) = (CommandSpec::builder().argv(line).build(), export_stream())
+        {
+            specs.push(CollectSpec::exec(spec, name));
+        }
+        specs
     }
 }
 

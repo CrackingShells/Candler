@@ -1,0 +1,13 @@
+schema = "suite/1"
+
+[[expectations]]
+id = "F1"
+role = "gate"
+kind = "file_says"
+depends_on = []
+
+[expectations.evaluator]
+name = "audit-file"
+range = "^0.1"
+
+[expectations.params]

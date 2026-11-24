@@ -1,14 +1,16 @@
 //! Guards for the signal guard: what it refuses, what it lets through and what it reports. This
 //! binary never spawns a process: no test here calls `Command` or `Supervisor::spawn`, and the
 //! only signaller is a recording fake, so a mutated guard cannot signal anything. Mutations of the
-//! guard or of a process or group number are run against this binary alone.
+//! guard or of a process or group number are run against this binary alone. The reader of
+//! `/proc/<pid>/stat` and `/proc/<pid>/status` is held here too: which fields it reads whatever
+//! the command name holds, and that it refuses files that name another process.
 #![cfg(test)]
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use candler_core::jobs::runtime::sweep::ProcMarkerSweeper;
-use candler_core::supervise::platform::process_start;
+use candler_core::supervise::platform::{ProcFile, ProcStat, process_start, read_proc_checked};
 use candler_core::supervise::signal::{
     Guard, Inspector, ProcFacts, SignalError, Signaller, control_marker,
 };
@@ -843,4 +845,98 @@ fn no_control_call_parses_a_shared_marker_literal() {
         }
     }
     assert_eq!(offending, Vec::<String>::new());
+}
+
+/// The 20 fields that follow the command name (fields 3 to 22), from the state to `start`.
+fn tail(state: &str, parent: u32, group: u32, start: u64) -> String {
+    format!(
+        "{state} {parent} {group} 4242 0 -1 4194560 100 0 0 0 1 2 0 0 20 0 1 0 {start} 1048576 256 18446744073709551615"
+    )
+}
+
+/// The two files of a process as `read_proc_checked` asks for them: `stat` of process `stat_pid`
+/// with its parent and group, and `status` of process `status_pid` with its parent and group.
+fn pair(
+    (stat_pid, stat_group): (u32, u32),
+    (status_pid, status_group): (u32, u32),
+    parent: u32,
+    file: ProcFile,
+) -> String {
+    match file {
+        ProcFile::Stat => format!("{stat_pid} (sleep) {}", tail("S", parent, stat_group, 5)),
+        ProcFile::Status => {
+            format!("Pid:\t{status_pid}\nPPid:\t{parent}\nNSpgid:\t{status_group}\n")
+        }
+    }
+}
+
+/// Guards: I22 — the parent, the group and the state of a process are read from the right
+/// fields whatever its command name holds. Oracle: literal lines, each row's pid, state, parent,
+/// group and start ticks chosen before the line was built.
+/// Bite: `find(')')` in place of `rfind(')')`; a field index off by one.
+#[test]
+fn s4_proc_stat_reads_every_field_for_any_command_name() {
+    let names: [(&str, &str); 7] = [
+        ("plain", "sleep"),
+        ("close then fields", "a) S 1 1 (b"),
+        ("spaces", "tmux: server"),
+        ("open parens", "(("),
+        ("close parens", "))"),
+        ("fifteen bytes", "abcdefghijklmno"),
+        ("empty", ""),
+    ];
+    // (state, parent, group, start): distinct numbers, so a field read from the wrong place shows.
+    let facts: [(char, u32, u32, u64); 3] = [
+        ('S', 4_111, 4_222, 123_456),
+        ('R', 7, 9, 0),
+        ('Z', 1, 1, 18_446_744_073_709_551_615),
+    ];
+    for (label, name) in names {
+        for (state, parent, group, start) in facts {
+            let line = format!(
+                "4242 ({name}) {}",
+                tail(&state.to_string(), parent, group, start)
+            );
+            let stat = ProcStat::parse(&line).unwrap_or_else(|error| panic!("{label}: {error}"));
+            assert_eq!(
+                stat,
+                ProcStat {
+                    pid: 4242,
+                    state,
+                    parent,
+                    group,
+                    start_ticks: start
+                },
+                "{label}: {line}"
+            );
+        }
+    }
+    // A command name that holds a newline: the kernel escapes few bytes, so it is read as given.
+    let line = format!("4242 (a\nb) {}", tail("S", 11, 12, 13));
+    let stat = ProcStat::parse(&line).expect("a name with a newline");
+    assert_eq!((stat.parent, stat.group, stat.start_ticks), (11, 12, 13));
+}
+
+/// Guards: I22 — files that name another process than the one asked for are refused, not read.
+/// Oracle: readers whose `stat` names pid 4243, or whose `status` does, for the pid 4242 asked,
+/// every other field agreeing.
+/// Bite: replace the pid check (`stat.pid != pid || status.pid != pid`) with `if false`.
+#[test]
+fn s4_cross_check_refuses_files_that_name_another_pid() {
+    let wrong_stat = read_proc_checked(4242, &|_, file| {
+        Some(pair((4243, 4242), (4242, 4242), 5, file))
+    });
+    assert_eq!(wrong_stat, None, "stat of another pid");
+    let wrong_status = read_proc_checked(4242, &|_, file| {
+        Some(pair((4242, 4242), (4243, 4242), 5, file))
+    });
+    assert_eq!(wrong_status, None, "status of another pid");
+    let right = read_proc_checked(4242, &|_, file| {
+        Some(pair((4242, 4242), (4242, 4242), 5, file))
+    });
+    assert_eq!(
+        right.map(|stat| stat.pid),
+        Some(4242),
+        "the control: both name 4242"
+    );
 }

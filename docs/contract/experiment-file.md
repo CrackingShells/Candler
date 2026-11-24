@@ -74,12 +74,15 @@ Wire line: `schemas@0.12.0`.
 | `experiment.env_reserved` | An entry of the `env` table names a variable Candler sets for the harness process itself. | The key of the entry in the `env` table. | experiment |
 | `experiment.env_secret` | An entry of the `env` table names a secret the experiment declares; a secret's value reaches the gateway only. | The key of the entry in the `env` table. | experiment |
 | `experiment.env_source` | A `[fixed]` key, a factor or a `--set` names the path `env`; the `[env]` table is its only source. | The path that was written. | experiment |
+| `experiment.env_token_secret` | An entry of the `env` table is named like `model.token_secret`, the secret that holds the gateway token, whose value reaches the gateway only. | The key of the entry in the `env` table. | experiment |
 | `experiment.factor_without_levels` | A factor has no level, so the experiment would have no cell. | - | experiment |
 | `experiment.input_invalid` | An input declaration uses the kind the wire reserves, or mounts under an empty, absolute or escaping directory. | `/inputs`, the list that holds the declaration. | experiment |
 | `experiment.input_not_stored` | A declared input file or list could not be copied into the store. | The `inputs` array of the experiment file. | experiment |
 | `experiment.input_unusable` | A declared input cannot be used as written, for example a missing file or a directory where a file is needed. | The `inputs` array of the experiment file. | experiment |
 | `experiment.name_collision` | Two names under one root map to the same deviation path, so a deviation there would be ambiguous. | - | experiment |
 | `experiment.path_overlap` | Two paths set by the fixed values and the factors are the same, or one lies below the other. | - | experiment |
+| `experiment.replicates_not_integer` | `replicates` in `[fixed]` or in a `--set` is not a whole number, such as a string or a fraction. | The `replicates` key. | experiment |
+| `experiment.replicates_path` | A `[fixed]` key or a `--set` names a path below `replicates`; `replicates` is one count and has no fields. | The path that was written. | experiment |
 | `experiment.reserved_root_misused` | A value at a reserved root is not the root alone, or has no value. | - | experiment |
 | `experiment.reserved_value_malformed` | The value of a reserved root is not the shape the root takes. | - | experiment |
 | `experiment.session_refused` | A cell's session settings are refused: `runner.mode` is not `headless` or `session`, `runner.idle_s` is not whole seconds or `none`, `runner.idle_s` is set on a cell that is not a session, or the harness's driver cannot run a session. | - | experiment |

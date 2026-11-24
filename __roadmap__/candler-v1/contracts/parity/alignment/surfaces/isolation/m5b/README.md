@@ -1,7 +1,7 @@
 # M5b Egress proxy and ground-truth guard
 
 ## Context
-Depth 6. M5b, split from M5 by amendment A8 of `../README.md`: it follows M5a (`../m5_container_isolation.md`) and holds the rest of container isolation, planned with a fresh budget and step-sized leaves. `stats/` (M6a, M6b, M7, M8) sits one level below it. Its plan is a campaign `__roadmap__/m5b-egress-proxy/` that M5b's own session writes.
+Depth 6. M5b, split from M5 by amendment A8 of `../README.md`: it follows M5a (`../m5_container_isolation.md`) and holds the rest of container isolation, planned with a fresh budget and step-sized leaves. `stats/` (M6a, M6b, M6c, M7, M8) sits one level below it. Its plan is a campaign `__roadmap__/m5b-egress-proxy/` that M5b's own session writes.
 
 ## Goal
 An agent's container reaches only its listed hosts and the model gateway, a real container is shown never to hold ground truth, and the destroy guard re-uses its verification.

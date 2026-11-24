@@ -9,12 +9,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Arc;
 
+use candler_core::isolation::gateway::render_egress;
 use candler_core::jobs::model::JobSpec;
 use candler_core::jobs::orchestrate::session::cells_of;
 use candler_core::resolve::config::{Config, UserConfig};
 use candler_core::resolve::layers::{FileValues, Resolution, ResolveInput};
 use candler_core::resolve::preflight::{ResolveError, Resolver};
-use candler_core::resolve::steps::egress::{EgressRefusal, EgressStep, settle};
+use candler_core::resolve::steps::egress::{EgressRefusal, EgressStep, HostPort, settle};
 use candler_core::runner::plan::{Force, PlanCtx, PlanError, PlanMode, plan_runs};
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_schemas::execution::ExperimentFile;
@@ -328,7 +329,7 @@ async fn resolve(fixed: &[(&str, Value)]) -> Result<Resolution, ResolveError> {
     Resolver::new(config)
         .register(Box::new(EgressStep::new().expect("a step")))
         .expect("registers")
-        .resolve(ResolveInput::default().file(FileValues::new(values)))
+        .resolve(ResolveInput::new(Vec::new()).file(FileValues::new(values)))
         .await
 }
 
@@ -578,4 +579,34 @@ async fn egress_checked_per_cell() {
         .await
         .expect("plans");
     assert_ne!(other[0].0, sorted[0].0, "another list is another cell");
+}
+
+/// The parsed allowlist of `entries`.
+fn allowlist(entries: &[&str]) -> Vec<HostPort> {
+    settle(Some(&json!(entries)), None)
+        .expect("a list")
+        .expect("not empty")
+}
+
+/// Guards: D2 — one host on a port gets everything, plain or with its own SNI.
+/// Oracle: the rule, written by hand.
+/// Bite: the proxy's server block rendered without `ssl_preread` or with the wrong upstream.
+#[test]
+fn plan_render_one_host_per_port() {
+    let expected = "  map $ssl_preread_server_name $egress_up_443 {\n    hostnames;\n    default \"\";\n    \"\" a.test:443;\n    a.test a.test:443;\n  }\n  server {\n    listen 443;\n    ssl_preread on;\n    proxy_pass $egress_up_443;\n    proxy_connect_timeout 10s;\n    js_filter egress.guard;\n  }\n";
+    assert_eq!(render_egress(&allowlist(&["a.test:443"])), expected);
+}
+
+/// Guards: D2 — hosts sharing a port need a matching SNI; a plain connection is closed.
+/// Oracle: the rule, written by hand.
+/// Bite: the plain-connection row rendered for a port that several hosts share.
+#[test]
+fn plan_render_shared_port_needs_sni() {
+    let out = render_egress(&allowlist(&["a.test:443", "b.test:443", "c.test:8443"]));
+    assert!(out.contains(
+        "$egress_up_443 {\n    hostnames;\n    default \"\";\n    a.test a.test:443;\n    b.test b.test:443;\n  }"
+    ));
+    assert!(!out.contains("\"\" a.test:443"));
+    assert!(out.contains("\"\" c.test:8443;"));
+    assert!(out.contains("listen 8443;"));
 }

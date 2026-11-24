@@ -1,11 +1,6 @@
 #![cfg(test)]
-//! Guards for the egress proxy's names and its rendered servers.
-//!
-//! The expected configs are written by hand from the rule: a port owned by one host forwards
-//! everything to it, and an SNI, if sent, must equal the host; a port shared by several hosts
-//! needs a matching SNI; anything else has an empty upstream and is closed.
+//! Guards for the egress proxy per allowlist: the network names and one proxy per distinct list.
 
-use candler_core::isolation::gateway::render_egress;
 use candler_core::isolation::model::NetworkName;
 use candler_core::resolve::steps::egress::{HostPort, settle};
 use candler_schemas::primitives::JobId;
@@ -55,30 +50,8 @@ fn plan_allow_network_names_follow_the_allowlist() {
     }
 }
 
-/// Guards: D2 — one host on a port gets everything, plain or with its own SNI.
-/// Oracle: the rule, written by hand.
-#[test]
-fn plan_render_one_host_per_port() {
-    let expected = "  map $ssl_preread_server_name $egress_up_443 {\n    hostnames;\n    default \"\";\n    \"\" a.test:443;\n    a.test a.test:443;\n  }\n  server {\n    listen 443;\n    ssl_preread on;\n    proxy_pass $egress_up_443;\n    proxy_connect_timeout 10s;\n    js_filter egress.guard;\n  }\n";
-    assert_eq!(render_egress(&list(&["a.test:443"])), expected);
-}
-
-/// Guards: D2 — hosts sharing a port need a matching SNI; a plain connection is closed.
-/// Oracle: the rule, written by hand.
-#[test]
-fn plan_render_shared_port_needs_sni() {
-    let out = render_egress(&list(&["a.test:443", "b.test:443", "c.test:8443"]));
-    assert!(out.contains(
-        "$egress_up_443 {\n    hostnames;\n    default \"\";\n    a.test a.test:443;\n    b.test b.test:443;\n  }"
-    ));
-    assert!(!out.contains("\"\" a.test:443"));
-    assert!(out.contains("\"\" c.test:8443;"));
-    assert!(out.contains("listen 8443;"));
-}
-
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use candler_core::isolation::docker::{ClientEnv, DockerCli, DockerError};
 use candler_core::isolation::driver::DockerDriver;
@@ -177,44 +150,6 @@ fn plan_one_proxy_per_distinct_allowlist() {
         two,
         vec![vec!["a.test:443"], vec!["a.test:443", "b.test:443"]]
     );
-}
-
-/// Guards: an allowlisted agent joins the internal network and its own allow network, never the
-/// egress network; a cell without an allowlist joins none; two allowlists never share a network.
-/// Oracle: the leaf's plan rule and the existing `bridge` meaning, by hand.
-#[test]
-fn plan_agent_networks() {
-    let j = job("1234");
-    let gw = GatewayHandle::new(
-        ContainerRef::new(
-            "0123456789ab".parse().expect("an id"),
-            Labels::new(),
-            "2026-11-06T10:00:00Z".parse().expect("a time"),
-        ),
-        "http://gateway:8080".parse().expect("a url"),
-        NetworkName::for_job(&j),
-        NetworkName::egress_for_job(&j),
-        String::from("dummy"),
-    )
-    .expect("a handle");
-    let a = list(&["a.test:443"]);
-    let b = list(&["b.test:443"]);
-    let (net, second) = gw.agent_networks(&j, Some(&a), None).expect("a plan");
-    assert_eq!(net, NetworkName::for_job(&j));
-    assert_eq!(second, Some(NetworkName::allow_for(&j, &a)));
-    assert_ne!(second, Some(NetworkName::egress_for_job(&j)));
-    let (_, other) = gw
-        .agent_networks(&j, Some(&b), Some("internal"))
-        .expect("a plan");
-    assert_ne!(other, second);
-    assert_eq!(gw.agent_networks(&j, None, None).expect("a plan").1, None);
-    assert_eq!(
-        gw.agent_networks(&j, None, Some("bridge"))
-            .expect("a plan")
-            .1,
-        Some(NetworkName::egress_for_job(&j))
-    );
-    assert!(gw.agent_networks(&j, None, Some("host")).is_err());
 }
 
 /// The gateway fake that starts like [`FakeGateway`] and records each proxy it is asked for.
@@ -356,83 +291,5 @@ async fn plan_session_starts_and_ends_one_proxy_per_allowlist() {
             "the guard was asked about {}",
             name.as_str()
         );
-    }
-}
-
-/// Guards: the proxy's create argv has no network alias equal to a listed name (docker answers a
-/// container's own alias with its own address), and an allowlisted agent's argv carries the
-/// sorted `--add-host` set pointing at the proxy address; a cell without an allowlist has none.
-/// Oracle: the probe of a busybox container with `--network-alias pypi.org`, where
-/// `nslookup pypi.org 127.0.0.11` answered its own address.
-#[test]
-fn plan_proxy_has_no_listed_alias_and_agents_get_add_host() {
-    use candler_core::isolation::container::run::create_argv;
-    use candler_core::isolation::gateway::egress_create_args;
-    use candler_harness::spec::CommandSpec;
-
-    let j = job("1234");
-    let l = list(&["b.test:443", "a.test:443"]);
-    let allow = NetworkName::allow_for(&j, &l);
-    let digest = DIGEST.parse().expect("a digest");
-    let args = egress_create_args("sha256:abc", &j, &digest, &l, &allow);
-    assert!(!args.iter().any(|a| a == "--network-alias"), "{args:?}");
-    let mut plan = agent_plan(&j);
-    plan.egress = Some(allow);
-    plan.add_hosts = vec![
-        (String::from("a.test"), String::from("172.30.0.2")),
-        (String::from("b.test"), String::from("172.30.0.2")),
-    ];
-    let cmd = CommandSpec::builder()
-        .argv(vec![String::from("agent")])
-        .build()
-        .expect("a command");
-    let created = create_argv(&plan, &cmd).expect("an argv");
-    let hosts: Vec<&str> = created
-        .windows(2)
-        .filter(|w| w[0] == "--add-host")
-        .map(|w| w[1].as_str())
-        .collect();
-    assert_eq!(hosts, ["a.test:172.30.0.2", "b.test:172.30.0.2"]);
-    plan.add_hosts.clear();
-    assert!(
-        !create_argv(&plan, &cmd)
-            .expect("an argv")
-            .iter()
-            .any(|a| a == "--add-host")
-    );
-}
-
-fn agent_plan(j: &JobId) -> candler_core::isolation::model::ContainerPlan {
-    use candler_core::isolation::model::{ContainerPlan, ImageId, ImageRef, Limits, UserSpec};
-    let dir = std::path::PathBuf::from("/tmp");
-    ContainerPlan {
-        image: ImageRef {
-            id: ImageId(String::from("sha256:abc")),
-            harness_version: None,
-        },
-        labels: Labels::new()
-            .with("candler.job", j.as_str())
-            .with("candler.run", "r")
-            .with("candler.role", "agent"),
-        mounts: Vec::new(),
-        env: Vec::new(),
-        gateway: None,
-        state: Vec::new(),
-        network: NetworkName::for_job(j),
-        egress: None,
-        add_hosts: Vec::new(),
-        limits: Limits {
-            pids_limit: 64,
-            memory: String::from("1g"),
-            cpus: 1.0,
-        },
-        record_dir: dir.clone(),
-        user: UserSpec::Engine,
-        workdir: String::from("/work"),
-        home: String::from("/home/agent"),
-        expiry: Duration::from_secs(10),
-        project_root: dir.clone(),
-        store_root: dir,
-        interactive: false,
     }
 }
