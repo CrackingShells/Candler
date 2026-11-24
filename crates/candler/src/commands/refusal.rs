@@ -76,8 +76,10 @@ pub enum CliRefusal {
         /// What the operating system reported.
         detail: String,
     },
-    /// `kill` asked for a confirmation and was not given one.
-    #[error("pass -y to confirm")]
+    /// `kill` was not confirmed: stdin is not a terminal, or the question was not answered yes.
+    #[error(
+        "nothing was stopped: pass -y to confirm; `candler ps` lists the jobs that would be stopped"
+    )]
     KillNotConfirmed,
     /// `inspect` was given a target that is none of its three forms.
     #[error("`{target}` is none of: {}", super::inspect::FORMS)]
@@ -283,7 +285,7 @@ refusal_table! {
     KillNotConfirmed { .. } => row(
         "config.kill_not_confirmed",
         Side::Config,
-        "`kill` asked for a confirmation and was not answered `y` or `yes`; `-y` skips the question.",
+        "`kill` stopped nothing because it was not confirmed: stdin is not a terminal, or the question was not answered `y` or `yes`; `-y` confirms, and `candler ps` lists the jobs that would be stopped.",
         "-",
     ),
     InspectTargetInvalid { .. } => row(

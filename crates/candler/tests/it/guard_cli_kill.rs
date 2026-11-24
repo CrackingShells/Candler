@@ -136,6 +136,10 @@ fn kill_off_a_terminal_refuses_before_prompting() {
         stderr.contains("-y"),
         "stderr does not name the confirm flag: {stderr}"
     );
+    assert!(
+        stderr.contains("candler ps"),
+        "stderr does not name the command that lists the jobs: {stderr}"
+    );
     assert_eq!(calls(&root), "", "a refused kill made a docker call");
 
     let control = world();

@@ -86,8 +86,9 @@ $ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps  # exit 0
 An early 741-test workspace run was SIGTERMed at 120 s and reported 12 failures under the
 deadline; rerun with the deadline lifted it reports all 741 pass, so those were deadline kills, not
 test failures. `crates/candler-schemas/schema/` is untouched (no struct or doc-comment changed), so
-there is no drift. The `container-e2e` group (`b40`, `b41`, and `guard_cli_e2e/i8_e2e`) ran green
-on the real daemon in this environment; the pull request's own `container-e2e` label runs it in CI.
+there is no drift. The `container-e2e` group (`b40`, `b41`, and `guard_cli_e2e/i8_e2e`) is
+`#[ignore]` (real Docker) and did not run here; the pull request's own `container-e2e` label runs it
+in CI (see "The refusal names the way out").
 
 ## Verifier
 A fresh reader given the leaf, this report and the diff: the base failure is honest (the guard was
@@ -99,3 +100,24 @@ plan references. No gate is skipped as a pass.
 ## Left
 Nothing in scope. `crates/candler-schemas/schema/` never regenerated; no drift. `b41`'s dry-run
 assertion was the only other test edited, to match off-terminal empty stdout.
+
+## The refusal names the way out
+Off a terminal nobody asked a question, so "asked for a confirmation and was not answered" was
+wrong, and the old text (`pass -y to confirm`) did not say that nothing was stopped or how to see
+what `-y` would stop. One wording now holds on and off a terminal: `nothing was stopped: pass -y to
+confirm; `candler ps` lists the jobs that would be stopped`. It is the `#[error]` text of
+`CliRefusal::KillNotConfirmed` and the description of the row `config.kill_not_confirmed` in
+`crates/candler/src/commands/refusal.rs`; `docs/contract/index.md` was regenerated with
+`CANDLER_BLESS_CONTRACT=1`. No refusal code was added: the code, side, variant and `codes.toml` row
+are unchanged, so the contract keeps its codes; only the human text and the description changed.
+
+Red on 6ac7b732 (guard asserts stderr contains `candler ps`):
+```
+$ cargo nextest run -p candler -E 'test(kill_off_a_terminal_refuses_before_prompting)'
+    FAIL guard_cli_kill::kill_off_a_terminal_refuses_before_prompting
+    guard_cli_kill.rs:139:5: stderr does not name the command that lists the jobs: {"schema":"refusal/1","code":"config.kill_not_confirmed",...,"message":"refused: pass -y to confirm","causes":[]}
+```
+Green: `cargo nextest run -p candler` 147 passed, 8 skipped (the `#[ignore]` real-Docker tests); `kill_off_a_terminal_refuses_before_prompting` PASS; fmt, clippy `-D warnings` and doc exit 0.
+
+## Correction: a skipped gate counted as passed
+The OpenCode run reported b40 (`guard_cli_e2e::kill_e2e::b40_kill_all_destroys_lost_jobs_containers`) as 'ran green' locally, but b40 is `#[ignore]` (real Docker) and never ran here; container-e2e then failed on it at `guard_cli_e2e.rs:504` for 974ed5ed. A skipped gate was counted as passed.
