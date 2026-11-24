@@ -432,6 +432,15 @@ impl World {
         }
     }
 
+    /// Makes a new commit in the skills repository and tags it `tag`, leaving the earlier tags
+    /// where they are.
+    pub fn tag_new_commit(&self, tag: &str) {
+        let skill = self.skills.join(".claude").join("skills").join("demo");
+        fs::write(skill.join("SKILL.md"), format!("# {tag}\n")).unwrap();
+        git(&self.skills, &["commit", "-q", "-a", "-m", tag]);
+        git(&self.skills, &["tag", tag]);
+    }
+
     /// Removes the world's directory.
     pub fn remove(&self) {
         drop(fs::remove_dir_all(&self.root));

@@ -541,6 +541,11 @@ side = "experiment"
 enum = "PlanError"
 variant = "StoredCellUnknown"
 
+[runner."experiment.replicates_conflict"]
+side = "experiment"
+enum = "PlanError"
+variant = "ReplicatesConflict"
+
 [runner."experiment.setting_as_factor"]
 side = "experiment"
 enum = "PlanError"

@@ -21,9 +21,7 @@ use candler_core::runner::evidence::catalog::{CatalogCommand, CommandCatalogProv
 use candler_core::runner::plan::{PlanError, experiment_of};
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_schemas::execution::paths;
-use candler_schemas::execution::{
-    EventPayload, ExecutionError, ExperimentFile, Level, check_replicates,
-};
+use candler_schemas::execution::{EventPayload, ExperimentFile, Level};
 use candler_schemas::primitives::{FieldPath, RunKey};
 use candler_schemas::refusal::pointer_of;
 use candler_schemas::values::JsonValue;
@@ -266,22 +264,6 @@ fn check_set_paths(fields: &[(FieldPath, String)]) -> Result<(), CliError> {
     Ok(())
 }
 
-/// Refuses a `replicates` value that is not a count: an integer is checked by
-/// [`check_replicates`], the validator of the experiment file, and anything else is refused as
-/// not positive.
-fn check_replicate_count(value: &JsonValue) -> Result<(), CliError> {
-    let count = value
-        .as_value()
-        .as_u64()
-        .ok_or(ExecutionError::NotPositive {
-            field: "replicates",
-        })
-        .map_err(CliError::refused_by)?;
-    check_replicates(count)
-        .map(drop)
-        .map_err(CliError::refused_by)
-}
-
 /// Refuses the first of `paths` that names `env`, which only the `[env]` table sets.
 fn check_env_source<'a>(paths: impl IntoIterator<Item = &'a FieldPath>) -> Result<(), CliError> {
     paths
@@ -294,6 +276,25 @@ fn check_env_source<'a>(paths: impl IntoIterator<Item = &'a FieldPath>) -> Resul
                 },
             )))
         })
+}
+
+/// The input with `level` as the setting `request.treatment`, its `source` relative to the
+/// experiment file's directory `dir` as the file writes it.
+pub(crate) fn input_for_level(
+    input: &ResolveInput,
+    level: &serde_json::Value,
+    dir: &Path,
+) -> Result<ResolveInput, CliError> {
+    let path = path_of(paths::REQUEST_TREATMENT)?;
+    let given = FileValues::new(vec![(path.clone(), json_of(level)?)]) // BORROW: the values own the path
+        .relative_to(dir)
+        .map_err(CliError::refused_by)?;
+    let mut input = input.clone(); // BORROW: each level resolves its own copy
+    if let (Some(file), Some((_, value))) = (input.file.as_mut(), given.values.into_iter().next()) {
+        file.values.retain(|(held, _)| *held != path);
+        file.values.push((path, value));
+    }
+    Ok(input)
 }
 
 /// What the experiment file and the command line ask for, as the input of a resolution: the
@@ -331,9 +332,6 @@ pub fn request_settings(
     if let Some(treatment) = file.treatment() {
         values.insert(path_of(paths::REQUEST_TREATMENT)?, json_of(treatment)?);
     }
-    if let Some(count) = values.get(&path_of("replicates")?) {
-        check_replicate_count(count)?;
-    }
     let file_values = FileValues::new(values.into_iter().collect())
         .relative_to(experiment_dir)
         .map_err(CliError::refused_by)?;
@@ -343,9 +341,6 @@ pub fn request_settings(
     check_set_paths(fields)?;
     for (path, text) in fields {
         let mut value = value_of(text)?;
-        if path.as_str() == "replicates" {
-            check_replicate_count(&value)?;
-        }
         if path.as_str() == paths::REQUEST_TREATMENT {
             // BORROW: .clone() gives the file values their own path
             let given = FileValues::new(vec![(path.clone(), value.clone())])
@@ -474,20 +469,6 @@ mod tests {
             })
             .collect();
         request_settings(file, Path::new("/work"), &fields, Path::new("/work"))
-    }
-
-    /// Guards: I12 — a replicate count of `--set` or of `[fixed]` goes through the validator of
-    /// the experiment file: 0 and a value that is no integer are refused, a count is kept.
-    /// Oracle: the values written below.
-    /// Bite: skip the check for `--set` (the first rows go red), or for `[fixed]` (the last).
-    #[test]
-    fn a_replicates_value_that_is_not_a_count_is_refused() {
-        let plain = file("");
-        assert!(settings(&plain, &["replicates=3"]).is_ok());
-        for bad in ["replicates=0", "replicates=abc", "replicates=2.5"] {
-            assert!(settings(&plain, &[bad]).is_err(), "{bad}");
-        }
-        assert!(settings(&file("\n[fixed]\nreplicates = 0\n"), &[]).is_err());
     }
 
     /// Guards: an experiment file without an `env` table gives the resolution no `env` value, so

@@ -42,8 +42,8 @@ use candler_schemas::execution::{ExperimentFile, JobRecord, JobState};
 use candler_schemas::primitives::FieldPath;
 
 use super::preflight::{
-    check_factors, failed, foreground, json_of, path_of, refuse_plan, refused, request_settings,
-    requested_harness,
+    check_factors, failed, foreground, input_for_level, json_of, path_of, refuse_plan, refused,
+    request_settings, requested_harness,
 };
 use super::refusal::CliRefusal;
 use super::{CliError, Exit, common};
@@ -245,25 +245,6 @@ fn with_declared_inputs(
     match input.file.as_mut() {
         Some(file) => file.values.push((path, value)),
         None => input = input.file(FileValues::new(vec![(path, value)])),
-    }
-    Ok(input)
-}
-
-/// The input with `level` as the setting `request.treatment`, its `source` relative to the
-/// experiment file's directory `dir` as the file writes it.
-fn input_for_level(
-    input: &ResolveInput,
-    level: &serde_json::Value,
-    dir: &Path,
-) -> Result<ResolveInput, CliError> {
-    let path = path_of(paths::REQUEST_TREATMENT)?;
-    let given = FileValues::new(vec![(path.clone(), json_of(level)?)]) // BORROW: the values own the path
-        .relative_to(dir)
-        .map_err(CliError::refused_by)?;
-    let mut input = input.clone(); // BORROW: each level resolves its own copy
-    if let (Some(file), Some((_, value))) = (input.file.as_mut(), given.values.into_iter().next()) {
-        file.values.retain(|(held, _)| *held != path);
-        file.values.push((path, value));
     }
     Ok(input)
 }

@@ -242,12 +242,6 @@ impl Layered {
             }
             .into());
         }
-        let token_secret = written
-            .iter()
-            .rev()
-            .find(|(path, _)| path.as_str() == TOKEN_SECRET)
-            .and_then(|(_, value)| value.as_value().as_str());
-        super::steps::env::check(written.iter().copied(), &input.secret_names, token_secret)?;
         check_replicates_input(&written)?;
         let store_root: FieldPath = STORE_ROOT.parse()?;
         let plugins_dirs: FieldPath = PLUGINS_DIRS.parse()?;
@@ -290,6 +284,20 @@ impl Layered {
             core_defaults.push((store_root, path_json(default_root.as_path())?));
         }
         core_defaults.extend(input.core_defaults);
+        let token_secret = written
+            .iter()
+            .rev()
+            .map(|(path, value)| (*path, *value))
+            .chain(
+                project
+                    .iter()
+                    .chain(user.iter())
+                    .chain(core_defaults.iter())
+                    .map(|(path, value)| (path, value)),
+            )
+            .find(|(path, _)| path.as_str() == TOKEN_SECRET)
+            .and_then(|(_, value)| value.as_value().as_str());
+        super::steps::env::check(written.iter().copied(), &input.secret_names, token_secret)?;
 
         Ok(Self {
             explicit: input.explicit,

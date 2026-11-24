@@ -1,0 +1,84 @@
+{
+  "$defs": {
+    "McpServerKind": {
+      "description": "The transport family a server speaks: a locally-started command or a remote URL.\n\nA `stdio` (or `local`) server starts a command and is the default when an entry sets no `type`;\na remote one is reached at a URL. The renderer reads `http`, `sse` and `remote` alike.",
+      "oneOf": [
+        {
+          "const": "stdio",
+          "description": "A server that prints the MCP protocol over a child process's standard streams.",
+          "type": "string"
+        },
+        {
+          "const": "local",
+          "description": "A local server the drivers treat as a stdio one.",
+          "type": "string"
+        },
+        {
+          "const": "http",
+          "description": "A server reached over HTTP.",
+          "type": "string"
+        },
+        {
+          "const": "sse",
+          "description": "A server reached over a Server-Sent Events stream.",
+          "type": "string"
+        },
+        {
+          "const": "remote",
+          "description": "A server reached at a URL.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$id": "urn:candler:schemas:mcp-server",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One entry of an experiment's `mcp.servers`, as the drivers read it.\n\nA server is launched from a `command` (with optional `args` and `env`) or reached at a `url`\n(with optional `headers`). `codemode` selects the prompts the agent sees, and defaults to `true`\nwhen absent. A `name` leaf names the server under a key; without it the key names it. Every\nfield the drivers read is typed here, so a non-text `command`, a non-list `args` or a non-text\nenvironment value fails validation rather than being read leniently.",
+  "properties": {
+    "args": {
+      "description": "The arguments the launched command receives, one per list item.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "codemode": {
+      "default": true,
+      "description": "Whether the server's tools show in the agent's codemode prompts; true when absent.",
+      "type": "boolean"
+    },
+    "command": {
+      "description": "The launched command, as a program name or path; required of an entry with no URL.",
+      "type": "string"
+    },
+    "env": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "The environment of the launched command, by variable name.",
+      "type": "object"
+    },
+    "headers": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "The headers a remote server is called with.",
+      "type": "object"
+    },
+    "name": {
+      "description": "The name the server renders under, when its key would not do.",
+      "type": "string"
+    },
+    "type": {
+      "$ref": "#/$defs/McpServerKind",
+      "description": "The transport marker: `stdio` or `local` for a launched command, `http`, `sse` or `remote`\nfor a URL; absent when the driver would launch a command."
+    },
+    "url": {
+      "description": "The URL a remote server is reached at.",
+      "type": "string"
+    }
+  },
+  "title": "McpServer",
+  "type": "object"
+}
