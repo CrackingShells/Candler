@@ -1,7 +1,7 @@
 # One reader
 
 **Goal**: Each consumer input has one reader, below every surface, that refuses what it does not understand: MCP servers and replicates first, then the rest of silent_acceptance, with no new layer (P4, cause D5).
-**Estimate**: B on RiVault first, $1, cap $2; A1 Sonnet, $6, cap $12; A2 Sonnet with the HTN note, $5, cap $10. One worktree for the chain. At a cap, stop, commit what is green, and list what is left.
+**Estimate**: B on RiVault first, $1, cap $2; A1 Sonnet, $6, cap $12; A2 Sonnet with the HTN note, $5, cap $10. One worktree for the chain. At a cap, stop, commit what is green, and list what is left. Builds use the target dir the campaign README names, removed at the leaf's merge.
 **Pre-conditions**:
 - [ ] `[cmd]` `git -C <worktree> merge-base --is-ancestor feat/integrity HEAD` succeeds
 **Success Gates**:
@@ -12,7 +12,7 @@
 - ⬜ No `#[ignore]` whose reason names an OWNED set is left, and the silent_acceptance rows it hid pass
 - ⬜ Each of the three commits builds and passes alone (`git rebase -x 'cargo nextest run --workspace' feat/integrity`), and B touches only `crates/candler-schemas/` with its schema drift check passing
 - ⬜ The HTN migration note is in the leaf report and handed to the milestone coordinator for the HTN lane
-- `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace` and `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` pass, with `CARGO_TARGET_DIR=/Users/hacker/Documents/tmp/claude-worktrees/Candler/candler-diet/target`, and `container-e2e` is green on the pull request
+- `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace` and `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` pass, with the target dir the campaign README names, and `container-e2e` is green on the pull request
 **References**: [Cycle plan v2 §D5, §Proof](../../../__reports__/diet/04-architecture_cycle_plan_v2.md) — the readers, the commit order and the observations; [CONTRIBUTING.md](../../../CONTRIBUTING.md) — the schemas-release gate
 
 ## Step 1: Type mcp.servers (B)

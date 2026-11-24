@@ -1,13 +1,13 @@
 # Collect oracle
 
 **Goal**: Conformance checks every driver's `collect` against what the agent wrote, not against the driver's own fixture (P2, cause D1, defect B1).
-**Estimate**: RiVault first, $4 with the Sonnet fallback, cap $8. If the RiVault attempt fails its gates, one Sonnet attempt follows. At the cap, stop, commit what is green, and list what is left.
+**Estimate**: RiVault first, $4 with the Sonnet fallback, cap $8. If the RiVault attempt fails its gates, one Sonnet attempt follows. At the cap, stop, commit what is green, and list what is left. Builds use the target dir the campaign README names, removed at the leaf's merge.
 **Pre-conditions**:
 - [ ] `[cmd]` `git -C <worktree> merge-base --is-ancestor feat/integrity HEAD` succeeds
 **Success Gates**:
 - ⬜ With B1's fix reverted on a scratch branch, the shared conformance case fails for OpenCode only, naming the files the agent wrote; on the base, the same revert passes conformance
 - ⬜ The oracle is the set of files the scripted agent wrote; `Case::with_collect` stays only where it checks something the shared case does not
-- `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace` and `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` pass, with `CARGO_TARGET_DIR=/Users/hacker/Documents/tmp/claude-worktrees/Candler/candler-diet/target`, and `container-e2e` is green on the pull request
+- `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace` and `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` pass, with the target dir the campaign README names, and `container-e2e` is green on the pull request
 **References**: [Cycle plan v2 §D1, §Proof](../../../__reports__/diet/04-architecture_cycle_plan_v2.md) — B1's mechanism and the observation; `crates/candler-harness/src/conformance.rs` — `Case::with_collect`, `check_collect`
 
 ## Step 1: Add the shared case

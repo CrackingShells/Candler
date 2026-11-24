@@ -1,7 +1,7 @@
 # Sealed run producer
 
 **Goal**: Sealed runs have one test producer, Candler's own runner under a scripted agent, and the guards on S1's path get their runs from it (P1, cause D1).
-**Estimate**: Sonnet, $10 with its probe, cap $20. At the cap, stop, commit what is green, and list what is left in the leaf report.
+**Estimate**: Sonnet, $10 with its probe, cap $20. At the cap, stop, commit what is green, and list what is left in the leaf report. Builds use the target dir the campaign README names, removed at the leaf's merge.
 **Pre-conditions**:
 - [ ] `[cmd]` `git -C <worktree> merge-base --is-ancestor feat/integrity HEAD` succeeds
 **Success Gates**:
@@ -9,7 +9,7 @@
 - ⬜ The probe's wall times (one analyze guard on the real runner, and a scripted native run) are in the leaf report, for the dogfooding pass's caps
 - ⬜ No guard on S1's path calls `seal_synthetic`; it is deleted if no caller is left, and no new hand-made seeder is added
 - ⬜ No digest or golden vector is edited
-- `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace` and `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` pass, with `CARGO_TARGET_DIR=/Users/hacker/Documents/tmp/claude-worktrees/Candler/candler-diet/target`, and `container-e2e` is green on the pull request
+- `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace` and `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` pass, with the target dir the campaign README names, and `container-e2e` is green on the pull request
 **References**: [Cycle plan v2 §D1, §Proof](../../../__reports__/diet/04-architecture_cycle_plan_v2.md) — the mechanism, the "who produces this state" table and the observation
 
 ## Step 1: Probe the real runner
