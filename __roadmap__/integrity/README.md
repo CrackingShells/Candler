@@ -37,6 +37,7 @@ graph TD
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
 |:---|:-----|:-------|:------------|:----------|
+| A1 | 2026-11-24 | seam review 1 (F3/F4) | none; one gate added to `dogfooding_pass.md` | OpenCode has no agent-to-sealed-run chain in CI; the pass's real OpenCode run is where its stored outputs are compared with what the agent wrote, before any follow-up builds that chain |
 
 ## Progress
 | Node | Branch | Commits | Notes |
