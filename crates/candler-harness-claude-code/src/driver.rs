@@ -88,7 +88,7 @@ pub(crate) enum Launch {
 /// cell sets.
 pub(crate) fn argv(cell: &Cell<'_>, launch: Launch) -> Result<Vec<String>, DriverError> {
     let model = cell.model()?;
-    let mode = cell.permission_mode();
+    let mode = cell.permission_mode()?;
     // BORROW: .to_owned() makes the owned arguments the command keeps
     let mut argv = vec![PROGRAM.to_owned(), "--print".to_owned()];
     // Each launch keeps the order of its recorded command line.
@@ -114,7 +114,7 @@ pub(crate) fn argv(cell: &Cell<'_>, launch: Launch) -> Result<Vec<String>, Drive
         ]
         .map(str::to_owned), // BORROW: str::to_owned makes the owned arguments
     );
-    if let Some(effort) = cell.effort() {
+    if let Some(effort) = cell.effort()? {
         argv.extend(["--effort", effort.as_str()].map(str::to_owned)); // BORROW: str::to_owned makes the owned arguments
     }
     if let Some(turns) = cap_text(cell, paths::BUDGET_PER_RUN_TURNS, true)? {

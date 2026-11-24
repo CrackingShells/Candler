@@ -437,7 +437,7 @@ fn claude_info(id: &str) -> Option<ClaudeInfo> {
 /// `OpenCode` would give no such variant (see `EFFORT_MODEL`) is refused here, not left to fail
 /// or be ignored at run time.
 fn effort_variant(cell: &Cell<'_>) -> Result<Option<(String, Value)>, DriverError> {
-    let Some(level) = cell.effort() else {
+    let Some(level) = cell.effort()? else {
         return Ok(None);
     };
     let accepted = claude_info(model_id(cell)?).is_some_and(|info| {

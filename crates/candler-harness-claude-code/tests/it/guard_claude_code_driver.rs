@@ -14,6 +14,7 @@ use candler_harness::spec::{Cell, CollectSpec, EnvValue, Observed, StopSignal, W
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_schemas::execution::{GitCommit, TreatmentRef};
 use candler_schemas::primitives::{FieldPath, Name};
+use candler_schemas::refusal::Refusal;
 use candler_schemas::values::{JsonValue, ResolvedValue};
 use serde_json::json;
 
@@ -137,6 +138,38 @@ fn b21_reference_command_line() -> Res<()> {
         .command;
     // BORROW: `.as_slice()` views the expected arguments as a slice
     assert_eq!(command.argv(), expected("plan")?.as_slice());
+    Ok(())
+}
+
+/// Guards: a stored cell, which replays without going through resolve, that holds a permission mode
+/// or an effort no mode or level names is refused by the driver with `experiment.cell_value_invalid`
+/// at the field, as a fresh cell is, and is not run as the default mode or without an effort.
+/// Oracle: the code and the field pointers written by hand.
+/// Bite: read the text with a `from_text` that falls back to the default or to unset.
+#[test]
+fn a_stored_cell_with_an_unnamed_mode_or_effort_is_refused_at_its_field() -> Res<()> {
+    let driver = ClaudeCodeDriver::new();
+    let root = Path::new("/work/run");
+    for (path, pointer) in [
+        ("permission_mode", "/permission_mode"),
+        ("model.effort", "/model/effort"),
+    ] {
+        let mut stored = values("plan")?;
+        stored.retain(|value| value.path().as_str() != path);
+        stored.push(ResolvedValue::recorded(
+            FieldPath::from_str(path)?,
+            JsonValue::new(json!("nonsense"))?,
+        ));
+        let Err(error) = driver.plan(&Cell::new(&stored), &Workspace::new(root)) else {
+            return Err(format!("{path}: an unnamed text planned").into());
+        };
+        assert_eq!(
+            Refusal::code(&error).as_str(),
+            "experiment.cell_value_invalid",
+            "{path}"
+        );
+        assert_eq!(Refusal::path(&error).as_deref(), Some(pointer), "{path}");
+    }
     Ok(())
 }
 

@@ -532,42 +532,6 @@ fn covers(kind: Kind, root: &FieldPath, path: &FieldPath) -> bool {
     }
 }
 
-/// A text no variant of `T` names, refused at `path` with the accepted spellings.
-fn unnamed(path: &FieldPath, text: &str, accepted: &[&str]) -> DriverError {
-    DriverError::InvalidValue {
-        path: path.clone(), // BORROW: the error owns the path
-        detail: format!(
-            "is `{text}`; the accepted texts are {}",
-            accepted.join(", ")
-        ),
-    }
-}
-
-/// The effort level the cell holds at `path`, refusing text that names no level. The cell keeps
-/// the text; [`Cell::effort`] maps the text checked here.
-fn effort_at(cell: &Cell<'_>, path: &FieldPath) -> Result<Option<EffortLevel>, DriverError> {
-    cell.text(path)?
-        .map(|text| {
-            EffortLevel::from_text(text)
-                .ok_or_else(|| unnamed(path, text, &EffortLevel::ALL.map(EffortLevel::as_str)))
-        })
-        .transpose()
-}
-
-/// The permission mode the cell holds at `path`, refusing text that names no mode, or `None` when
-/// the cell sets none. The cell keeps the text; [`Cell::permission_mode`] maps the text checked
-/// here. A cell that sets no mode asks nothing of the driver: what the harness does then is its
-/// [`candler_harness::spec::DriverFact::UnsetPermissionMode`].
-fn mode_at(cell: &Cell<'_>, path: &FieldPath) -> Result<Option<PermissionMode>, DriverError> {
-    cell.text(path)?
-        .map(|text| {
-            PermissionMode::from_text(text).ok_or_else(|| {
-                unnamed(path, text, &PermissionMode::ALL.map(PermissionMode::as_str))
-            })
-        })
-        .transpose()
-}
-
 /// The settings `cell` sets, each with the path of the row that reaches it and with the value the
 /// cell gives it, in the order of [`CONFIGURATION_PATHS`]. The rows are the only place a path
 /// meets a setting. The skills and the session mode are not read here: the treatment holds the
@@ -592,10 +556,10 @@ pub fn settings_set_by(cell: &Cell<'_>) -> Result<Vec<(AgentSetting, FieldPath)>
         for family in families {
             match family {
                 AgentSetting::Effort(_) => {
-                    found.extend(effort_at(cell, &path)?.map(AgentSetting::Effort));
+                    found.extend(cell.effort_at(&path)?.map(AgentSetting::Effort));
                 }
                 AgentSetting::PermissionMode(_) => {
-                    found.extend(mode_at(cell, &path)?.map(AgentSetting::PermissionMode));
+                    found.extend(cell.mode_at(&path)?.map(AgentSetting::PermissionMode));
                 }
                 // The three keys of a server are read together, from the transport's entry.
                 AgentSetting::McpTransport(_) => {
