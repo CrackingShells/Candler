@@ -307,11 +307,14 @@ impl HarnessDriver for ClaudeCodeDriver {
 
     fn check_settings(&self, cell: &Cell<'_>) -> Result<(), DriverError> {
         check_answers(self, cell, "Claude Code", &crate::PINNED)?;
+        cap_text(cell, paths::BUDGET_PER_RUN_TURNS, true)?;
+        cap_text(cell, paths::BUDGET_PER_RUN_MAX_COST_USD, false)?;
         prepare::mcp_servers(cell).map(|_| ())
     }
 
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
         let _ = workspace;
+        self.check_settings(cell)?;
         let mut files = vec![prepare::render_settings(cell)?];
         files.extend(prepare::render_mcp(cell)?);
         let argv = argv(cell, Launch::Headless(cell.prompt()?))?;

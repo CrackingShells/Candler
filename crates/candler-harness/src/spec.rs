@@ -787,16 +787,10 @@ impl AgentSetting {
             ],
             &mut add,
         );
-        if let Some(table) = cell.table_at(&field_path!("mcp.servers"))? {
+        if let Some(table) = cell.table_at(&field_path!(crate::mcp::SERVERS))? {
             for (key, entry) in table {
                 let server = crate::mcp::read(&key, entry)?;
-                add(Self::McpTransport(server.kind.unwrap_or(
-                    if server.url.is_some() {
-                        McpServerKind::Remote
-                    } else {
-                        McpServerKind::Stdio
-                    },
-                )));
+                add(Self::McpTransport(crate::mcp::kind(&server)));
                 if let Some(on) = server.codemode {
                     add(Self::Codemode(on));
                 }

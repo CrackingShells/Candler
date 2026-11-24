@@ -72,4 +72,4 @@ Core line: `v0.15.0`; the `candler-harness` crate has the same version.
 - Drivers never act on a process: they return commands, specs and readers, and the core runs them. [checked: v@0.7.0]
 - A reader is synchronous and holds no clock; the core supplies each frame's place and wall time. [checked: v@0.7.0]
 - `census_stream()` names the raw stream the gateway's census is stored under; the core reads the gateway census itself and reports it as the inventory. [checked: v@0.7.0]
-- A driver that sets `Capabilities::session` also gives its `plan` a `session` and returns a `session_tracker`. [checked: v@0.7.0]
+- A driver that does not refuse `AgentSetting::SessionMode` also gives its `plan` a `session` and returns a `session_tracker`. [checked: v@0.7.0]

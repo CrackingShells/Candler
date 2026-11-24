@@ -46,6 +46,16 @@ fn field_at_fault(entry: &FieldPath, path: &serde_path_to_error::Path) -> FieldP
     FieldPath::from_str(&text).unwrap_or_else(|_| entry.clone()) // BORROW: the error owns the path
 }
 
+/// The transport of a read server: the `type` it names, otherwise remote for a `url` without a
+/// `command`, otherwise a launched one.
+pub(crate) const fn kind(server: &McpServer) -> McpServerKind {
+    match server.kind {
+        Some(kind) => kind,
+        None if server.command.is_none() && server.url.is_some() => McpServerKind::Remote,
+        None => McpServerKind::Stdio,
+    }
+}
+
 /// The entry `key` of `mcp.servers` read as a server.
 pub(crate) fn read(key: &str, entry: Value) -> Result<McpServer, DriverError> {
     let entry_path = FieldPath::from_str(&format!("{SERVERS}.{key}"))
@@ -60,11 +70,10 @@ pub(crate) fn read(key: &str, entry: Value) -> Result<McpServer, DriverError> {
             detail: error.inner().to_string(), // BORROW: .to_string() gives owned text
         }
     })?;
-    let remote = match server.kind {
-        Some(McpServerKind::Http | McpServerKind::Sse | McpServerKind::Remote) => true,
-        Some(_) => false,
-        None => server.command.is_none() && server.url.is_some(),
-    };
+    let remote = matches!(
+        kind(&server),
+        McpServerKind::Http | McpServerKind::Sse | McpServerKind::Remote
+    );
     if remote {
         if server.url.is_none() {
             return Err(refused("is a remote server and has no `url`".to_owned())); // BORROW: .to_owned() makes the owned text

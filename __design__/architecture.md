@@ -692,7 +692,7 @@ I3, so event times are reproducible even where the harness emits none.
 
 ### Traits (signatures only)
 
-Every item added for the second harness (`settings_table`, `check_settings`, `gateway`,
+Every item added for the second harness (`answer`, `fact`, `check_settings`, `gateway`,
 `state_paths`, `census_stream`, `session`, `session_tracker`, `classify_end`) has a default body, so a driver
 implements only what its harness has.
 
@@ -700,11 +700,11 @@ implements only what its harness has.
   - `id() -> HarnessId`; `supported() -> VersionReq`
   - `version_probe() -> CommandSpec`; `parse_version(output) -> Version`; the core runs the probe
     in a control container of the base image
-  - `capabilities() -> Capabilities { graceful_stop, live_events, budgets{turns, cost}, in_harness_guard, census, execution_outside_child, session }`
+  - `fact(DriverFact) -> Answer`: what the harness does about each of its own facts, such as the graceful stop, the census and the session
   - `prepare(cell, workspace) -> Prepared { files[], env_overlay }`, where a file is rooted in the
     workspace or in the agent's home (`FileRoot`)
   - `command(cell, workspace) -> CommandSpec { argv, env_overlay, cwd }`
-  - `settings_table() -> SettingRow[]`: one row per cell setting, value or name the driver knows,
+  - `answer(AgentSetting) -> Answer`: one answer per setting family, value or name the driver knows,
     `Mapped` (with the harness construct it writes) or `Refused` (with the reason). The driver
     builds its command and files from the same rows. A setting the harness cannot honour is
     refused with `experiment.setting_unsupported`, naming the setting's pointer, never dropped
@@ -864,7 +864,7 @@ version and by the sha256 of the release archive of each architecture.
   `census.source = gateway`). Servers are not seen, so `census.mcp_servers` is unrecorded for this
   source, and a run whose requests carry no tools records no inventory. The verdict never takes a
   gateway inventory for a harness's own.
-- **Capabilities.** `graceful_stop`, `census` and `execution_outside_child`. Not `session`.
+- **Facts.** `graceful_stop`, `census` and `execution_outside_child`. Not `SessionMode`.
 - **Not exercised.** Reasoning events (`--thinking`), a code-mode `execute` call in a recorded run,
   permission prompts without `--auto`, resume, and the interrupt and a mid-tool SIGTERM against a
   real model: the recorded cases come from the scripted fake model.

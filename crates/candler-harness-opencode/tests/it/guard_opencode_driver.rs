@@ -390,7 +390,7 @@ fn table_cases() -> Vec<Case> {
 }
 
 /// Guards: R01 §`OpenCode` v2, §Run manifest — the declared settings table and what the driver does
-/// are one set. Every row of `settings_table()` has a case below and every case answers a row
+/// are one set. Every `AgentSetting` family has a case below and every case answers a family
 /// (dropping either side turns this red), a mapped row's case maps and a refused row's is refused,
 /// at the setting's pointer in the experiment file, in a message naming the setting, the harness
 /// and its version. Mapped: the run is

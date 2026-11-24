@@ -64,20 +64,12 @@ const TURNS_REFUSAL: &str = "`agents.<id>.steps` makes the last request a tool-l
 const EDIT_WRITE_PAIR: &str = "OpenCode's `edit` action covers the edit, write and patch tools \
      alike, so denying `Edit` or `Write` alone would deny both; list both";
 
-/// Claude Code's own effort vocabulary (`claude --help`: `--effort <level>`), the values Candler's
-/// cell carries at `model.effort`, of which the answer maps all but `ultracode`. `OpenCode`'s `anthropicMessages` variant builder
-/// (`packages/core/src/variant.ts`, v2.2.7) resolves the same names to adaptive thinking plus
-/// `output_config.effort` for a Claude model of version 4.6 or later; a config-declared `variants`
-/// entry (`ModelConfig.variants`, v2.2.7) is used as written, so the driver writes that shape
-/// directly for the custom `candler` provider.
 /// The model families whose id `OpenCode`'s `claudeInfo` recognises (`variant.ts:68-80`).
 const FAMILIES: [&str; 5] = ["opus", "sonnet", "haiku", "fable", "mythos"];
 
-/// Why `ultracode` is refused: Claude Code's `--effort` takes it (CLI reference: `xhigh` with its
-/// ultracode workflow turned on), the Claude Code driver passes it through, and `OpenCode` has no
-/// equivalent of that mode.
-const ULTRACODE: &str = "Claude Code honours `ultracode` (`xhigh` effort with its ultracode mode on) \
-     and OpenCode has no equivalent of that mode, so it is refused rather than run as `xhigh`";
+/// Why `ultracode` is refused.
+const ULTRACODE: &str = "`ultracode` is `xhigh` effort with an ultracode mode on, and OpenCode has \
+     no equivalent of that mode, so it is refused rather than run as `xhigh`";
 
 /// Why an effort the model cannot take is refused.
 const EFFORT_MODEL: &str = "`OpenCode` gives a model a reasoning effort only for a Claude opus, \
@@ -124,7 +116,9 @@ pub(crate) const fn answer(setting: AgentSetting) -> Answer {
             | EffortLevel::Xhigh
             | EffortLevel::Max,
         ) => Answer::Mapped {
-            construct: "a `variants` entry on the model, selected by `-m <model>#<level>`",
+            construct: "a `variants` entry on the model, selected by `-m <model>#<level>`, for a Claude \
+                 opus, sonnet, fable or mythos of 4.6 or later (`xhigh` from 4.7); refused for any \
+                 other model",
         },
         AgentSetting::PermissionMode(PermissionMode::BypassPermissions) => Answer::Mapped {
             construct: BASELINE,
@@ -414,8 +408,11 @@ fn claude_info(id: &str) -> Option<ClaudeInfo> {
 }
 
 /// The reasoning-effort variant `model.effort` compiles to: Claude Code's own vocabulary resolved
-/// to `OpenCode`'s adaptive-thinking shape (see the constants above). A model `OpenCode` would give no such variant (see `EFFORT_MODEL`) is refused
-/// here, not left to fail or be ignored at run time.
+/// to `OpenCode`'s adaptive-thinking shape: `OpenCode`'s `anthropicMessages` variant builder
+/// (`packages/core/src/variant.ts`, v2.2.7) resolves the same names to adaptive thinking plus
+/// `output_config.effort`, and a config-declared `variants` entry is used as written. A model
+/// `OpenCode` would give no such variant (see `EFFORT_MODEL`) is refused here, not left to fail
+/// or be ignored at run time.
 fn effort_variant(
     cell: &Cell<'_>,
     version: &semver::Version,
@@ -426,9 +423,7 @@ fn effort_variant(
     else {
         return Ok(None);
     };
-    let level = value
-        .as_str()
-        .ok_or_else(|| invalid(MODEL_EFFORT, "is not text".to_owned()))?; // BORROW: .to_owned() makes the owned text
+    let level = value.as_str().unwrap_or_default();
     let accepted = claude_info(model_id(cell)?).is_some_and(|info| {
         info.takes_effort() && (level != "xhigh" || info.major > 4 || info.minor >= 7)
     });
