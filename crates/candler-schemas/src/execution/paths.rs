@@ -130,9 +130,6 @@ pub const TREATMENT: &str = "treatment";
 /// A typed root, derived: the digests of the server sources and the Dockerfile.
 pub const INPUTS: &str = "inputs";
 
-/// A typed root, derived: the catalog digest.
-pub const SNAPSHOTS: &str = "snapshots";
-
 /// A typed root, reserved for plug-in environments: no preflight step of the runner derives it.
 pub const ENVIRONMENTS: &str = "environments";
 
@@ -192,7 +189,6 @@ const _: () = {
     assert!(crate::primitives::is_field_path(SECRETS));
     assert!(crate::primitives::is_field_path(TREATMENT));
     assert!(crate::primitives::is_field_path(INPUTS));
-    assert!(crate::primitives::is_field_path(SNAPSHOTS));
     assert!(crate::primitives::is_field_path(ENVIRONMENTS));
     assert!(crate::primitives::is_field_path(STORE_ROOT));
     assert!(crate::primitives::is_field_path(PLUGINS_DIRS));

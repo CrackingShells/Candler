@@ -26,7 +26,7 @@
         },
         "snapshots": {
           "$comment": "Sorted by kind then digest in code point order, without a repeated entry; the Rust reader refuses a list that is not.",
-          "description": "The digests of the catalog snapshots an imported run recorded, sorted by kind and digest.\nOnly the importer writes it. A cell without the key hashes without it; a cell with the key,\neven an empty list, hashes with it.",
+          "description": "The digests of the catalog snapshots an imported run recorded, sorted by kind and digest.\nThe key is absent for a run Candler made. It is present, possibly empty, only for an\nimported run: the manifest importer and the raw-stream importer write it, and the cell\nhashes with it when present and without it when absent.",
           "items": {
             "$ref": "#/$defs/DigestRef"
           },
@@ -742,7 +742,7 @@
       "type": "array"
     },
     "sources": {
-      "$comment": "Each path of `comparable.values` has exactly one entry, and each of `harness`, `treatment` and the non-empty lists `snapshots`, `inputs` and `environments` has an entry at the root path or at a path under it; no other path appears and no path repeats. JSON Schema cannot state this, and the Rust reader refuses a list that differs.",
+      "$comment": "Each path of `comparable.values` has exactly one entry, and each of `harness`, `treatment` and the non-empty lists `snapshots` (present only in an imported run), `inputs` and `environments` has an entry at the root path or at a path under it; no other path appears and no path repeats. JSON Schema cannot state this, and the Rust reader refuses a list that differs.",
       "description": "Where each value came from: one entry per value, and one or more entries under each typed root the cell holds; never an entry for a setting.",
       "items": {
         "$ref": "#/$defs/SourceEntry"
