@@ -15,8 +15,8 @@ The census is the only record of the tools a run had, and a parity guard holds b
 ## Status
 ```mermaid
 graph TD
-    snapshot_out[Snapshot out]:::amendment
-    parity_run[Parity run]:::amendment
+    snapshot_out[Snapshot out]:::done
+    parity_run[Parity run]:::inprogress
     closing[Closing]:::amendment
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -28,8 +28,8 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `snapshot_out.md` | 📄 Leaf Task | 🔵 Amendment |
-| `parity_run.md` | 📄 Leaf Task | 🔵 Amendment |
+| `snapshot_out.md` | 📄 Leaf Task | ✅ Done |
+| `parity_run.md` | 📄 Leaf Task | 🔄 In Progress |
 | `closing/` | 📁 Directory | 🔵 Amendment |
 
 ## Amendment Log

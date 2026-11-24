@@ -17,8 +17,8 @@ Each driver renders what the declaration answers, both trace readers attribute a
 graph TD
     mcp_render[MCP render]:::done
     census[Census]:::blocked
-    pages[Generated pages]:::inprogress
-    recorded[Recorded]:::amendment
+    pages[Generated pages]:::done
+    recorded[Recorded]:::inprogress
     trace_parity[Trace parity]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -32,8 +32,8 @@ graph TD
 |:-----|:-----|:-------|
 | `mcp_render.md` | 📄 Leaf Task | ✅ Done |
 | `census.md` | 📄 Leaf Task | 🚫 Blocked |
-| `pages.md` | 📄 Leaf Task | 🔄 In Progress |
-| `recorded/` | 📁 Directory | 🔵 Amendment |
+| `pages.md` | 📄 Leaf Task | ✅ Done |
+| `recorded/` | 📁 Directory | 🔄 In Progress |
 | `trace_parity.md` | 📄 Leaf Task | ✅ Done |
 
 ## Amendment Log

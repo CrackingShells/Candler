@@ -3,8 +3,8 @@
 **Goal**: One cell with a real MCP server, run on Claude Code and on OpenCode with code mode off, shows two things on each harness: (a) the server is installed, and (b) the stored trace records the agent's call to the server's tool in the same normalised form. A container-e2e guard fails when either harness falls out of parity (P13).
 **Estimate**: Sonnet, $6, cap $12. The two live runs go to RiVault. At the cap, stop, commit what is green, and list what is left. Builds use the target dir the campaign README names, which is removed when the leaf merges.
 **Pre-conditions**:
-- [ ] `[cmd]` `git -C <worktree> merge-base --is-ancestor origin/feat/integrity HEAD` succeeds
-- [ ] `[nl]` `../mcp_render.md` and `../trace_parity.md` are `done`
+- [x] `[cmd]` `git -C <worktree> merge-base --is-ancestor origin/feat/integrity HEAD` succeeds
+- [x] `[nl]` `../mcp_render.md` and `../trace_parity.md` are `done`
 **Success Gates**:
 - ⬜ The parity guard runs in the `container-e2e` group with the real harness images, the production gateway and the scripted fake model. It passes only when, for each harness:
   - the fixture server is in the run's resolved `mcp.*` values and in the MCP file its driver rendered;
