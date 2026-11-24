@@ -1,8 +1,6 @@
 //! The integration tests of this crate, one binary: one module per former test file.
 #![cfg(test)]
 
-mod catalog_fixtures;
-mod catalog_properties;
 mod guard_cell_digest;
 mod guard_context_digest;
 mod guard_evaluator_protocol;

@@ -153,7 +153,6 @@ fn comparable() -> Value {
         "values": [{"path": "plan.a", "value": 1}],
         "harness": {"name": "h", "version": "1.0.0"},
         "treatment": {"name": "t"},
-        "snapshots": [],
         "inputs": [],
         "environments": []
     })
