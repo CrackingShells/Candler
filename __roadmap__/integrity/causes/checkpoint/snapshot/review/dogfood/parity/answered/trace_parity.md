@@ -5,10 +5,12 @@
 **Pre-conditions**:
 - [ ] `[cmd]` `git -C <worktree> merge-base --is-ancestor origin/feat/integrity HEAD` succeeds
 - [ ] `[nl]` `../declaration.md` is `done`
-- [ ] `[nl]` The coordinator ruled on the optional `tool` field of `ToolOrigin::Mcp`. It is a change to `normalised-trace/1`, and `ToolOrigin` has `deny_unknown_fields`
+- [x] `[nl]` The coordinator ruled on the optional `tool` field of `ToolOrigin::Mcp`. It is a change to `normalised-trace/1`, and `ToolOrigin` has `deny_unknown_fields`. Accepted: `tool` holds the bare tool name, so a consumer compares one spelling across both harnesses, and it is optional so that traces stored before the change still read
 **Success Gates**:
 - ⬜ The OpenCode export of a call to `s_t`, in a cell that declares server `s`, reads `origin: {mcp: {server: "s", tool: "t"}}`. On the base it reads `origin: other`
 - ⬜ The Claude Code trace of a call to `mcp__s__t` reads the same origin, so the two harnesses' traces of one call compare field by field
+- ⬜ `tool` is optional on `ToolOrigin::Mcp`. One test parses a trace stored before the change, with no `tool` field, and it still reads
+- ⬜ The stored Claude Code trace still holds the raw `system/init` line, so a consumer can recover server status by post-processing the trace, as it does for calls. If the stored trace drops that line, the status is lost for good: the lead takes this to the coordinator before the leaf lands
 - ⬜ The OpenCode reader takes the server names from the cell's resolved `mcp.*` values and never guesses a server from the spelling of a name
 - ⬜ Resolving refuses a set of servers whose OpenCode tool prefixes are ambiguous (for example `a` and `a_b`), beside the existing server-name check, with a code in `codes.toml`
 - ⬜ Under OpenCode code mode the trace records `execute` calls with empty `wrapped_calls`. That is what OpenCode's `Codemode(true)` answer declares, and nothing parses `execute`
@@ -27,7 +29,7 @@
 ## Step 1: Guard on the base
 **Goal**: The origin guard fails on the base for OpenCode.
 **Implementation Logic**:
-Write the guard as one table over both readers' fixtures. For each harness it takes the recorded output of one call to the same tool of the same declared server, and expects one origin. Extend the OpenCode export fixture with that call if it has none. Run it on the base and record the OpenCode `origin: other`. No live run is needed: the readers are pure.
+Write the guard as one table over both readers' fixtures. For each harness it takes the recorded output of one call to the same tool of the same declared server, and expects one origin. Extend the OpenCode export fixture with that call if it has none. Run it on the base and record the OpenCode `origin: other`. No live run is needed: the readers are pure. Check also that the stored Claude Code trace keeps the raw `system/init` line; if it does not, stop and tell the lead.
 **Deliverables**: the guard in `crates/candler/tests/it/` (it sees both drivers); the OpenCode export fixture
 **Consistency Checks**: the origin guard on the base (expected: FAIL)
 **Commit**: `test(library): hold both trace readers to one MCP origin`
@@ -36,7 +38,7 @@ Write the guard as one table over both readers' fixtures. For each harness it ta
 **Goal**: Both readers attribute MCP calls the same way, and the census names no server.
 **Implementation Logic**:
 - Pass the cell's resolved server names to OpenCode's export reader. Match `<server>_<tool>` against them, longest name first, and fall back to the built-in list or `Other` only when no server matches.
-- Add `tool` to `ToolOrigin::Mcp` if the coordinator agreed, and fill it in both readers.
+- Add the optional `tool` to `ToolOrigin::Mcp`, fill it with the bare tool name in both readers, and add the test that an old trace without it still parses.
 - Add the ambiguous-prefix refusal at resolve.
 - Remove `census.mcp_servers`, its schema field and its producer, and reword `SERVER_START_WAIT`'s doc.
 

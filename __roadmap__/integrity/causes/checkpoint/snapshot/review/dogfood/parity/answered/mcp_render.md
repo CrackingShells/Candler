@@ -5,7 +5,7 @@
 **Pre-conditions**:
 - [ ] `[cmd]` `git -C <worktree> merge-base --is-ancestor origin/feat/integrity HEAD` succeeds
 - [ ] `[nl]` `../declaration.md` is `done`
-- [ ] `[nl]` The coordinator ruled on the digest change: filling the `codemode` default at resolve changes the cell digest of every cell that declares a server without it
+- [x] `[nl]` The coordinator ruled on the digest change: filling the `codemode` default at resolve changes the cell digest of every cell that declares a server without it. Accepted: the resolved cell records what Candler installs
 **Success Gates**:
 - ⬜ The `.mcp.json` Claude Code gets for a server with `type = "local"`, `codemode` and `name` carries `type: "stdio"`, the name as its key, and no `codemode` or `name` key; on the base it carries all three as given
 - ⬜ A Claude Code cell that sets `codemode = true` is refused through its `Codemode(true)` arm, with the reason "Claude Code offers MCP tools directly; it has no code mode". A cell that leaves it unset or sets `false` runs
