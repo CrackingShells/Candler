@@ -5,6 +5,7 @@
 #![cfg(test)]
 
 use crate::support::legacy_import;
+use crate::support::sealed_run::{File, seal_workspace};
 use candler_testkit::file_set;
 
 use std::collections::BTreeSet;
@@ -68,40 +69,6 @@ fn sha256_of(bytes: &[u8]) -> Digest {
         hex.extend(char::from_digit(u32::from(byte & 0xf), 16));
     }
     Digest::from_hex(&hex).expect("a digest")
-}
-
-/// One file of a synthetic `outputs/` tree.
-struct File {
-    path: &'static str,
-    bytes: &'static [u8],
-    executable: bool,
-}
-
-/// Seals a new run beside `template`, which is the manifest it copies, with exactly the files
-/// `files` under `outputs/`, and returns its key. The store holds each file as a blob.
-fn seal_synthetic(store: &Store, template: &RunKey, attempt: u32, files: &[File]) -> RunKey {
-    let mut manifest = serde_json::to_value(store.read_manifest(template).expect("the manifest"))
-        .expect("a manifest serialises");
-    *manifest
-        .pointer_mut("/run/attempt")
-        .expect("the manifest names an attempt") = attempt.into();
-    let manifest: RunManifest = serde_json::from_value(manifest).expect("a manifest reads");
-    let mut tree = RunTree::builder();
-    for file in files {
-        let digest = store.put_blob(file.bytes, None).expect("a blob stores");
-        tree = tree.entry(TreeEntry::file(
-            RelPath::from_str(file.path).expect("a path"),
-            digest,
-            file.executable,
-        ));
-    }
-    let key = manifest.run().clone();
-    let mut writer = RunWriter::create(store, &manifest, Existing::Refuse).expect("a run starts");
-    writer
-        .tree(&tree.build().expect("a tree"))
-        .expect("the tree writes");
-    writer.done().expect("the run seals");
-    key
 }
 
 /// The string `path` of every artifact of a context.
@@ -307,7 +274,7 @@ fn the_file_rule_decides_the_paths_and_the_digest() {
     let (_keep, store) = mini_store(&mini());
     let template = key_of(&store, 12);
     for (n, case) in (2_u32..).zip(CASES) {
-        let run = seal_synthetic(&store, &template, n, case.stored);
+        let run = seal_workspace(&store, &template, n, case.stored);
         let workspace = tempfile::tempdir().expect("a workspace");
         let context = context_of(&store, &run, &needs_of(case.globs), workspace.path());
         let expected: BTreeSet<String> = case.kept.iter().map(|p| (*p).to_owned()).collect();
@@ -426,7 +393,7 @@ fn a_corrupt_blob_is_refused_and_not_digested() {
     );
 }
 
-/// Guards: R9 and I11 — every materialised file is a private copy, not a link: a fresh inode with one link, mode `0444`, or `0555` when the tree marks it executable, while the store blob keeps its own inode and mode. Oracle: `stat` of the copy and of the blob, and the executable bit written into the synthetic tree here.
+/// Guards: R9 and I11 — every materialised file is a private copy, not a link: a fresh inode with one link, mode `0444`, or `0555` when the tree marks it executable, while the store blob keeps its own inode and mode. Oracle: `stat` of the copy and of the blob, and the executable bit given to the file here.
 #[test]
 fn a_materialised_file_is_a_private_read_only_copy() {
     let (_keep, store) = mini_store(&mini());
@@ -439,7 +406,7 @@ fn a_materialised_file_is_a_private_read_only_copy() {
             executable: true,
         },
     ];
-    let run = seal_synthetic(&store, &template, 2, &stored);
+    let run = seal_workspace(&store, &template, 2, &stored);
     let workspace = tempfile::tempdir().expect("a workspace");
     context_of(&store, &run, &needs_of(&["outputs/**"]), workspace.path());
 
