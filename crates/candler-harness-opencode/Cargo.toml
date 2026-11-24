@@ -17,6 +17,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+candler-core.workspace = true
 candler-harness = { workspace = true, features = ["conformance"] }
 
 [lints]

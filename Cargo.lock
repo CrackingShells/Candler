@@ -300,6 +300,7 @@ dependencies = [
 name = "candler-harness"
 version = "0.15.0"
 dependencies = [
+ "candler-core",
  "candler-schemas",
  "semver",
  "serde",
@@ -311,6 +312,7 @@ dependencies = [
 name = "candler-harness-claude-code"
 version = "0.15.0"
 dependencies = [
+ "candler-core",
  "candler-harness",
  "candler-schemas",
  "candler-testkit",
@@ -327,6 +329,7 @@ dependencies = [
 name = "candler-harness-opencode"
 version = "0.15.0"
 dependencies = [
+ "candler-core",
  "candler-harness",
  "candler-schemas",
  "jiff",

@@ -13,7 +13,7 @@ use std::str::FromStr as _;
 
 use candler_harness::conformance::{Case, ExpectedSession, ReaderSource, Setup, run};
 use candler_harness::spec::{
-    Cell, CollectSpec, CommandSpec, ObservedEnd, ProcessEnd, ProcessExit, Workspace,
+    Cell, CollectSpec, CommandSpec, ObservedEnd, PreparedFile, ProcessEnd, ProcessExit, Workspace,
 };
 use candler_harness_opencode::driver::OpenCodeDriver;
 use candler_schemas::primitives::{FieldPath, ReasonCode};
@@ -187,12 +187,7 @@ fn cases() -> Res<Vec<Case>> {
                 read(run.case, "stdout.jsonl")?,
             )
             .with_observed_ids(vec![id.clone()]) // BORROW: .clone() copies the id
-            .with_collect(vec![
-                CollectSpec::file("**/*".to_owned()),
-                CollectSpec::file("!.opencode/**".to_owned()),
-                CollectSpec::file("!**/.opencode/**".to_owned()),
-                export_collect(&id, &export)?,
-            ]);
+            .with_collect_commands(vec![export_collect(&id, &export)?]);
             Ok(match &run.live_end {
                 Some(end) => case.with_observed_end(end.clone()), // BORROW: .clone() copies the end
                 None => case,
@@ -248,6 +243,29 @@ fn cases() -> Res<Vec<Case>> {
         )
         .with_end(exit_of("interrupt_api")?, EndedBy::Unknown),
     );
+    // The shared oracle: a scripted agent writes these files into a real workspace beside a
+    // skill file the harness leaves under `.opencode`, and the collector real runs use must store
+    // exactly the agent's files.
+    cases.push(
+        Case::new(
+            "collect_stores_the_files_the_agent_wrote".to_owned(),
+            ReaderSource::Live,
+            stream("stdout")?,
+            Vec::new(),
+        )
+        .detects(false)
+        .with_workspace(
+            vec![
+                PreparedFile::new("notes.md".parse()?, b"kept".to_vec(), false),
+                PreparedFile::new("outputs/answer.txt".parse()?, b"stamp-7f3a".to_vec(), false),
+            ],
+            vec![PreparedFile::new(
+                ".opencode/skills/s/SKILL.md".parse()?,
+                b"skill".to_vec(),
+                false,
+            )],
+        ),
+    );
     Ok(cases)
 }
 
@@ -272,8 +290,9 @@ fn values() -> Res<Vec<ResolvedValue>> {
 
 /// Guards: R01 §Harness drivers, §`OpenCode` v2 — the recorded runs of `OpenCode` V2 read, classify and
 /// collect through the shared traits: sessions from the export, the end from the export's outcome
-/// over the stream's last error event, the collect command inside the isolation.
-/// Oracle: the fixtures' hand-written `expected.toml` and `exit.toml`, and R01 §Ends by hand.
+/// over the stream's last error event, the collect command inside the isolation, and the files the
+/// shared oracle's scripted agent wrote are kept. Oracle: the fixtures' hand-written `expected.toml`
+/// and `exit.toml`, R01 §Ends by hand, and the agent-written files of the shared case.
 #[test]
 fn conformance_opencode_recorded_runs() -> Res<()> {
     let values = values()?;
@@ -283,8 +302,18 @@ fn conformance_opencode_recorded_runs() -> Res<()> {
     let driver = OpenCodeDriver::new();
     run(
         &driver,
-        &Setup::new(&cell, &workspace, &canaries),
+        &Setup::new(&cell, &workspace, &canaries).with_collector(stored_paths),
         &cases()?,
     )?;
     Ok(())
+}
+
+/// The paths a run stores of a tree: the core's collector over the driver's file specs.
+fn stored_paths(root: &Path, specs: &[CollectSpec]) -> std::io::Result<Vec<String>> {
+    Ok(
+        candler_core::runner::exec::gather::collect_files(root, specs)?
+            .into_iter()
+            .map(|output| output.path)
+            .collect(),
+    )
 }
