@@ -43,9 +43,9 @@ Every guard was run on the base of its commit and failed there, then passed on t
   beyond 32 bits returns it. Its registry row and the contract page row are in the same commit,
   because the registry test needs them.
 - Core commit: `check_replicates_input` keeps only the path refusal; `ReplicatesNotInteger` and
-  `experiment.replicates_not_integer` are gone from code, `codes.toml`, the contract page and the
-  reports (`git grep` prints nothing); `Levels::replicates` refuses any non-`u64` value with the
-  new code.
+  `experiment.replicates_not_integer` are gone from code, `codes.toml` and the contract page
+  (`git grep` over `crates/` and `docs/` prints nothing); earlier reports keep the code they
+  recorded. `Levels::replicates` refuses any non-`u64` value with the new code.
 - Gates. **PASS** each.
   - `replicates_are_checked_once` (schemas): base `experiment.cost_not_positive`, tip the new code,
     pointer and range.
