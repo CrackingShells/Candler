@@ -112,10 +112,6 @@ impl PreflightStep for OtherRoots {
                 js(json!({"name": "htn", "commit": "1".repeat(40)})),
             )
             .derive(
-                fp("snapshots"),
-                js(json!([{"kind": "catalog", "digest": digest}])),
-            )
-            .derive(
                 fp("environments"),
                 js(json!([{"plugin": "p@1.0.0", "lock_digest": digest}])),
             );
