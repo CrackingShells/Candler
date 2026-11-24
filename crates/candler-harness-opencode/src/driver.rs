@@ -174,7 +174,7 @@ impl HarnessDriver for OpenCodeDriver {
                 construct: "tools run in the `serve` child, which the stop interrupts first",
             },
             DriverFact::Census => Answer::Candler {
-                how: "the gateway's first model request with tools",
+                how: "the tools the gateway offered the model in its first request",
             },
             DriverFact::UnsetPermissionMode => Answer::Candler {
                 how: "the run is under `--auto` and the baseline ruleset {*, *, allow}, so every tool is allowed: OpenCode has no headless ask mode",
