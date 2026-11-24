@@ -161,6 +161,10 @@ exec)
     esac
     ;;
 logs) ;;
+inspect)
+    # The start probe of a declared MCP server asks whether the container is still running.
+    echo true
+    ;;
 run)
     if case " $* " in *" --version "*) true;; *) false;; esac; then
         echo "2.1.311 (Claude Code)"
