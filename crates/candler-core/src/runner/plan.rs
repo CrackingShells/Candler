@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use candler_harness::driver::{DriverError, HarnessDriver};
-use candler_harness::spec::Cell;
+use candler_harness::spec::{AgentSetting, Cell};
 
 use candler_schemas::distinct::first_clash;
 use candler_schemas::execution::check_replicates;
@@ -591,7 +591,8 @@ fn fresh_cells<'r>(
     levels: &Levels<'r>,
     driver: Option<&dyn HarnessDriver>,
 ) -> Result<Vec<FreshCell<'r>>, PlanError> {
-    let session_capable = driver.map(|driver| driver.capabilities().session);
+    let session_capable =
+        driver.map(|driver| !driver.answer(AgentSetting::SessionMode).is_refused());
     if let Some(path) = file.factors().iter().find_map(setting_of_factor) {
         return Err(PlanError::SettingAsFactor { path });
     }

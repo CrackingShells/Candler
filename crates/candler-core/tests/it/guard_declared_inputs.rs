@@ -370,8 +370,8 @@ use candler_core::supervise::stop::Exit;
 use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
-    Capabilities, Cell, CollectSpec, CommandSpec, HarnessId, Observed, ProcessExit, StopSpec,
-    Workspace,
+    AgentSetting, Answer, Cell, CollectSpec, CommandSpec, DriverFact, HarnessId, Observed,
+    ProcessExit, StopSpec, Workspace,
 };
 use candler_schemas::primitives::{ContainerId, Marker, Timestamp};
 use candler_schemas::raw::StreamName;
@@ -566,8 +566,12 @@ impl HarnessDriver for Collecting {
     fn parse_version(&self, output: &[u8]) -> Result<semver::Version, DriverError> {
         self.0.parse_version(output)
     }
-    fn capabilities(&self) -> Capabilities {
-        self.0.capabilities()
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        self.0.answer(setting)
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        self.0.fact(fact)
     }
     fn gateway(&self) -> Option<candler_harness::spec::GatewayEnv> {
         self.0.gateway()

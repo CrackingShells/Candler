@@ -5,16 +5,16 @@
 //! Each expectation is a literal written by hand from `opencode_facts`, from the recorded fixtures,
 //! or from what the real binary printed for the same file (`tests/fixtures/config`).
 
-use std::collections::BTreeSet;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr as _;
 
-use candler_harness::driver::{Disposition, DriverError, HarnessDriver};
+use candler_harness::driver::{DriverError, HarnessDriver};
 use candler_harness::reader::FrameIn;
 use candler_harness::spec::{
-    Action, Cell, CollectSpec, Observed, ProcessEnd, ProcessExit, StopSignal, Workspace,
+    Action, AgentSetting, Cell, CollectSpec, EffortLevel, Observed, PermissionMode, ProcessEnd,
+    ProcessExit, StopSignal, Workspace,
 };
 use candler_harness_opencode::driver::OpenCodeDriver;
 use candler_schemas::execution::{GitCommit, TreatmentRef};
@@ -444,31 +444,23 @@ fn opencode_command_line_maps_or_refuses_every_setting() -> Res<()> {
 
     let cases = table_cases();
     let driver = OpenCodeDriver::new();
-    let rows = driver.settings_table();
-    let declared: BTreeSet<(String, String)> = rows
-        .iter()
-        .map(|row| (row.setting.clone(), row.value.clone())) // BORROW: .clone() copies the key out of the row
-        .collect();
-    let covered: BTreeSet<(String, String)> = cases
-        .iter()
-        .map(|c| (c.setting.to_owned(), c.value.to_owned())) // BORROW: .to_owned() makes the owned key
-        .collect();
-    assert_eq!(
-        declared, covered,
-        "the declared rows and the cases are one set"
-    );
-    for row in &rows {
-        for c in cases
-            .iter()
-            .filter(|c| c.setting == row.setting && c.value == row.value)
-        {
-            let mapped = matches!(c.expect, Expect::Maps { .. });
+    for c in &cases {
+        let key = match (c.setting, c.value) {
+            ("permission_mode", mode) => {
+                PermissionMode::from_text(mode).map(AgentSetting::PermissionMode)
+            }
+            ("model.effort", level) => EffortLevel::from_text(level).map(AgentSetting::Effort),
+            ("budget.per_run.turns", _) => Some(AgentSetting::TurnBudget),
+            ("budget.per_run.max_cost_usd", _) => Some(AgentSetting::CostBudget),
+            _ => None,
+        };
+        if let Some(key) = key {
             assert_eq!(
-                mapped,
-                row.disposition == Disposition::Mapped,
-                "{} {}: the case and the row disagree",
-                row.setting,
-                row.value
+                matches!(c.expect, Expect::Refuses { .. }),
+                driver.answer(key).is_refused(),
+                "{} {}: the case and the answer disagree",
+                c.setting,
+                c.value
             );
         }
     }

@@ -6,17 +6,19 @@
 use std::str::FromStr as _;
 use std::time::Duration;
 
-use candler_harness::driver::{DriverError, HarnessDriver, Plan};
+use candler_harness::driver::{DriverError, HarnessDriver, Plan, check_answers};
 use candler_harness::reader::TraceReader;
 use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
-    BaseImage, BudgetCaps, Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId,
-    Observed, Prepared, ProcessExit, SessionTracker, StopSignal, StopSpec, Workspace,
+    AgentSetting, Answer, BaseImage, Cell, CollectSpec, CommandSpec, DriverFact, EffortLevel,
+    GatewayEnv, HarnessId, Observed, PermissionMode, Prepared, ProcessExit, SessionTracker,
+    StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::execution::paths;
 use candler_schemas::name;
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::raw::StreamName;
+use candler_schemas::servers::McpServerKind;
 use candler_schemas::trace::{EndedBy, Session};
 use semver::{Version, VersionReq};
 use serde_json::Value;
@@ -197,14 +199,95 @@ impl HarnessDriver for ClaudeCodeDriver {
         })
     }
 
-    fn capabilities(&self) -> Capabilities {
-        Capabilities::builder()
-            .graceful_stop(true)
-            .live_events(true)
-            .budgets(BudgetCaps::new(true, true))
-            .census(true)
-            .session(true)
-            .build()
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        match setting {
+            AgentSetting::ModelId => Answer::Mapped {
+                construct: "`--model` on the command line",
+            },
+            AgentSetting::ModelEndpoint => Answer::Candler {
+                how: "the gateway forwards model requests to the endpoint",
+            },
+            AgentSetting::Effort(
+                EffortLevel::Low
+                | EffortLevel::Medium
+                | EffortLevel::High
+                | EffortLevel::Xhigh
+                | EffortLevel::Max
+                | EffortLevel::Ultracode,
+            ) => Answer::Mapped {
+                construct: "`--effort <level>` on the command line",
+            },
+            AgentSetting::PermissionMode(
+                PermissionMode::Default
+                | PermissionMode::AcceptEdits
+                | PermissionMode::Plan
+                | PermissionMode::BypassPermissions,
+            ) => Answer::Mapped {
+                construct: "`--permission-mode <mode>` on the command line",
+            },
+            AgentSetting::ToolsAllowed => Answer::Mapped {
+                construct: "`permissions.allow` of `.claude/settings.json`",
+            },
+            AgentSetting::ToolsDisallowed => Answer::Mapped {
+                construct: "`permissions.deny` of `.claude/settings.json`",
+            },
+            AgentSetting::Env => Answer::Candler {
+                how: "the core sets the cell's variables on the agent's process",
+            },
+            AgentSetting::Inputs => Answer::Candler {
+                how: "the core places the inputs in the workspace",
+            },
+            AgentSetting::Skills => Answer::Mapped {
+                construct: "the project skill directory",
+            },
+            AgentSetting::McpTransport(
+                McpServerKind::Stdio
+                | McpServerKind::Local
+                | McpServerKind::Http
+                | McpServerKind::Sse
+                | McpServerKind::Remote,
+            ) => Answer::Mapped {
+                construct: "an entry of `mcpServers` in `.mcp.json`",
+            },
+            AgentSetting::Codemode(true | false) => Answer::Mapped {
+                construct: "the `codemode` key of the server's `.mcp.json` entry, passed through",
+            },
+            AgentSetting::McpName => Answer::Mapped {
+                construct: "the key of the server's `.mcp.json` entry",
+            },
+            AgentSetting::WallBudget => Answer::Candler {
+                how: "the core ends the run at the wall budget",
+            },
+            AgentSetting::TurnBudget => Answer::Mapped {
+                construct: "`--max-turns` on the command line",
+            },
+            AgentSetting::CostBudget => Answer::Mapped {
+                construct: "`--max-budget-usd` on the command line",
+            },
+            AgentSetting::SessionMode => Answer::Mapped {
+                construct: "stream-json over an open stdin, one turn per message",
+            },
+        }
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        match fact {
+            DriverFact::GracefulStop => Answer::Mapped {
+                construct: "SIGTERM ends the sessions cleanly",
+            },
+            DriverFact::LiveEvents => Answer::Mapped {
+                construct: "stream-json events on stdout while the run lasts",
+            },
+            DriverFact::InHarnessGuard => Answer::Refused {
+                reason: "the driver configures no Claude Code hook",
+            },
+            DriverFact::ExecutionOutsideChild => Answer::Refused {
+                reason: "tools run in the child process",
+            },
+            DriverFact::Census => Answer::Mapped {
+                construct: "the tool list of the `system/init` event",
+            },
+        }
     }
 
     fn gateway(&self) -> Option<GatewayEnv> {
@@ -221,6 +304,7 @@ impl HarnessDriver for ClaudeCodeDriver {
     }
 
     fn check_settings(&self, cell: &Cell<'_>) -> Result<(), DriverError> {
+        check_answers(self, cell, "Claude Code", &crate::PINNED)?;
         prepare::mcp_servers(cell).map(|_| ())
     }
 

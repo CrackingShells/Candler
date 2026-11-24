@@ -17,6 +17,7 @@ use candler_schemas::primitives::{
 };
 use candler_schemas::process::ExitStatus;
 use candler_schemas::raw::StreamName;
+use candler_schemas::servers::McpServerKind;
 use candler_schemas::trace::SessionId;
 use candler_schemas::values::{JsonValue, ResolvedValue};
 use serde_json::{Map, Value};
@@ -490,120 +491,363 @@ impl CollectSpec {
     }
 }
 
-/// Which per-run budgets a harness can enforce itself.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[non_exhaustive]
-pub struct BudgetCaps {
-    /// The harness can cap the number of turns.
-    pub turns: bool,
-    /// The harness can cap the cost.
-    pub cost: bool,
-}
-
-impl BudgetCaps {
-    /// Budget capabilities.
-    #[must_use]
-    pub const fn new(turns: bool, cost: bool) -> Self {
-        Self { turns, cost }
-    }
-}
-
-/// What a harness can do; the core refuses an experiment that needs a capability the harness lacks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[non_exhaustive]
+/// How a driver meets one key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[expect(
-    clippy::struct_excessive_bools,
-    reason = "INDEPENDENT: the capabilities are independent flags, not the states of one value"
+    clippy::exhaustive_enums,
+    reason = "EXHAUSTIVE: the drivers live in other crates and match on every answer; a variant added here must break each of them."
 )]
-pub struct Capabilities {
+pub enum Answer {
+    /// The harness has a construct with the key's meaning, and the driver writes it.
+    Mapped {
+        /// The harness construct, in a few words.
+        construct: &'static str,
+    },
+    /// Candler does it itself, as the core's enforcement of a budget does.
+    Candler {
+        /// What Candler does, in a few words.
+        how: &'static str,
+    },
+    /// Nobody does it: the harness has no construct for it and Candler does not stand in.
+    Refused {
+        /// Why, in a few words.
+        reason: &'static str,
+    },
+}
+
+impl Answer {
+    /// Whether the answer is a refusal.
+    #[must_use]
+    pub const fn is_refused(self) -> bool {
+        matches!(self, Self::Refused { .. })
+    }
+
+    /// The words of the answer: the construct, the Candler action or the reason.
+    #[must_use]
+    pub const fn text(self) -> &'static str {
+        match self {
+            Self::Mapped { construct } => construct,
+            Self::Candler { how } => how,
+            Self::Refused { reason } => reason,
+        }
+    }
+}
+
+/// The effort levels of `model.effort`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "EXHAUSTIVE: the drivers live in other crates and answer each level; a new level must break each of them."
+)]
+pub enum EffortLevel {
+    /// `low`.
+    Low,
+    /// `medium`.
+    Medium,
+    /// `high`.
+    High,
+    /// `xhigh`.
+    Xhigh,
+    /// `max`.
+    Max,
+    /// `ultracode`: `xhigh` with Claude Code's ultracode mode on.
+    Ultracode,
+}
+
+impl EffortLevel {
+    /// Every level.
+    pub const ALL: [Self; 6] = [
+        Self::Low,
+        Self::Medium,
+        Self::High,
+        Self::Xhigh,
+        Self::Max,
+        Self::Ultracode,
+    ];
+
+    /// The level a cell's text names, or `None` for any other text.
+    #[must_use]
+    pub fn from_text(text: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|level| level.as_str() == text)
+    }
+
+    /// The text a cell writes for the level.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Xhigh => "xhigh",
+            Self::Max => "max",
+            Self::Ultracode => "ultracode",
+        }
+    }
+}
+
+/// The permission modes of `permission_mode`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "EXHAUSTIVE: the drivers live in other crates and answer each mode; a new mode must break each of them."
+)]
+pub enum PermissionMode {
+    /// `default`.
+    Default,
+    /// `acceptEdits`.
+    AcceptEdits,
+    /// `plan`.
+    Plan,
+    /// `bypassPermissions`.
+    BypassPermissions,
+}
+
+impl PermissionMode {
+    /// Every mode.
+    pub const ALL: [Self; 4] = [
+        Self::Default,
+        Self::AcceptEdits,
+        Self::Plan,
+        Self::BypassPermissions,
+    ];
+
+    /// The mode a cell's text names, or `None` for any other text.
+    #[must_use]
+    pub fn from_text(text: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|mode| mode.as_str() == text)
+    }
+
+    /// The text a cell writes for the mode.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::AcceptEdits => "acceptEdits",
+            Self::Plan => "plan",
+            Self::BypassPermissions => "bypassPermissions",
+        }
+    }
+}
+
+/// What an experiment sets that reaches the agent. A key whose values form a closed set carries
+/// the value, so a new value is a compile error in every driver.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "EXHAUSTIVE: the drivers live in other crates and answer each key with one exhaustive match; a wildcard arm would let a new key go unanswered."
+)]
+pub enum AgentSetting {
+    /// `model.id`.
+    ModelId,
+    /// `model.endpoint`.
+    ModelEndpoint,
+    /// `model.effort`, at one level.
+    Effort(EffortLevel),
+    /// `permission_mode`, at one mode.
+    PermissionMode(PermissionMode),
+    /// `tools.allowed`.
+    ToolsAllowed,
+    /// `tools.disallowed`.
+    ToolsDisallowed,
+    /// `env`.
+    Env,
+    /// `inputs`.
+    Inputs,
+    /// The skills of the treatment.
+    Skills,
+    /// The transport of an MCP server.
+    McpTransport(McpServerKind),
+    /// The `codemode` of an MCP server, at one value.
+    Codemode(bool),
+    /// The `name` of an MCP server.
+    McpName,
+    /// `budget.per_run.wall_s`.
+    WallBudget,
+    /// `budget.per_run.turns`.
+    TurnBudget,
+    /// `budget.per_run.max_cost_usd`.
+    CostBudget,
+    /// `runner.mode`.
+    SessionMode,
+}
+
+impl AgentSetting {
+    /// Every key, each closed value once.
+    pub const ALL: [Self; 29] = [
+        Self::ModelId,
+        Self::ModelEndpoint,
+        Self::Effort(EffortLevel::Low),
+        Self::Effort(EffortLevel::Medium),
+        Self::Effort(EffortLevel::High),
+        Self::Effort(EffortLevel::Xhigh),
+        Self::Effort(EffortLevel::Max),
+        Self::Effort(EffortLevel::Ultracode),
+        Self::PermissionMode(PermissionMode::Default),
+        Self::PermissionMode(PermissionMode::AcceptEdits),
+        Self::PermissionMode(PermissionMode::Plan),
+        Self::PermissionMode(PermissionMode::BypassPermissions),
+        Self::ToolsAllowed,
+        Self::ToolsDisallowed,
+        Self::Env,
+        Self::Inputs,
+        Self::Skills,
+        Self::McpTransport(McpServerKind::Stdio),
+        Self::McpTransport(McpServerKind::Local),
+        Self::McpTransport(McpServerKind::Http),
+        Self::McpTransport(McpServerKind::Sse),
+        Self::McpTransport(McpServerKind::Remote),
+        Self::Codemode(false),
+        Self::Codemode(true),
+        Self::McpName,
+        Self::WallBudget,
+        Self::TurnBudget,
+        Self::CostBudget,
+        Self::SessionMode,
+    ];
+
+    /// The cell path the key is set at; the skills come from the treatment.
+    #[must_use]
+    pub const fn path(self) -> &'static str {
+        match self {
+            Self::ModelId => paths::MODEL_ID,
+            Self::ModelEndpoint => paths::MODEL_ENDPOINT,
+            Self::Effort(_) => paths::MODEL_EFFORT,
+            Self::PermissionMode(_) => paths::PERMISSION_MODE,
+            Self::ToolsAllowed => paths::TOOLS_ALLOWED,
+            Self::ToolsDisallowed => paths::TOOLS_DISALLOWED,
+            Self::Env => paths::ENV,
+            Self::Inputs => paths::INPUTS,
+            Self::Skills => paths::TREATMENT,
+            Self::McpTransport(_) | Self::Codemode(_) | Self::McpName => paths::MCP,
+            Self::WallBudget => paths::BUDGET_PER_RUN_WALL_S,
+            Self::TurnBudget => paths::BUDGET_PER_RUN_TURNS,
+            Self::CostBudget => paths::BUDGET_PER_RUN_MAX_COST_USD,
+            Self::SessionMode => paths::RUNNER_MODE,
+        }
+    }
+
+    /// The keys `cell` sets, in the order of [`AgentSetting::ALL`]'s families, each once. The
+    /// skills and the session mode are not read here: the treatment holds the first, and the core
+    /// refuses the second by the plan's session.
+    ///
+    /// # Errors
+    /// [`DriverError::InvalidValue`] when the cell's MCP servers are not a table of objects, and
+    /// the error of [`Cell::table_at`].
+    pub fn set_by(cell: &Cell<'_>) -> Result<Vec<Self>, DriverError> {
+        let mut set: Vec<Self> = Vec::new();
+        let mut add = |setting: Self| {
+            if !set.contains(&setting) {
+                set.push(setting);
+            }
+        };
+        let text_at = |path: &str| -> Result<Option<&str>, DriverError> {
+            cell.value_str(path)
+                .map(|value| value.and_then(Value::as_str))
+                .map_err(|error| DriverError::VersionOutput {
+                    detail: error.to_string(), // BORROW: .to_string() gives owned text
+                })
+        };
+        let is_set = |path: &str| -> Result<bool, DriverError> {
+            cell.value_str(path)
+                .map(|value| value.is_some())
+                .map_err(|error| DriverError::VersionOutput {
+                    detail: error.to_string(), // BORROW: .to_string() gives owned text
+                })
+        };
+        for (path, setting) in [
+            (paths::MODEL_ID, Self::ModelId),
+            (paths::MODEL_ENDPOINT, Self::ModelEndpoint),
+        ] {
+            if is_set(path)? {
+                add(setting);
+            }
+        }
+        if let Some(level) = text_at(paths::MODEL_EFFORT)?.and_then(EffortLevel::from_text) {
+            add(Self::Effort(level));
+        }
+        if let Some(mode) = text_at(paths::PERMISSION_MODE)?.and_then(PermissionMode::from_text) {
+            add(Self::PermissionMode(mode));
+        }
+        for (path, setting) in [
+            (paths::TOOLS_ALLOWED, Self::ToolsAllowed),
+            (paths::TOOLS_DISALLOWED, Self::ToolsDisallowed),
+            (paths::ENV, Self::Env),
+            (paths::INPUTS, Self::Inputs),
+        ] {
+            if is_set(path)? {
+                add(setting);
+            }
+        }
+        if let Some(table) = cell.table_at(&field_path!("mcp.servers"))? {
+            for entry in table.values() {
+                let Value::Object(server) = entry else {
+                    continue;
+                };
+                let kind = server
+                    .get("type")
+                    .and_then(|kind| serde_json::from_value::<McpServerKind>(kind.clone()).ok()); // BORROW: .clone() copies the value out of the table
+                let kind = match (
+                    kind,
+                    server.contains_key("command"),
+                    server.contains_key("url"),
+                ) {
+                    (Some(kind), _, _) => Some(kind),
+                    (None, true, _) => Some(McpServerKind::Stdio),
+                    (None, false, true) => Some(McpServerKind::Remote),
+                    (None, false, false) => None,
+                };
+                if let Some(kind) = kind {
+                    add(Self::McpTransport(kind));
+                }
+                if let Some(on) = server.get("codemode").and_then(Value::as_bool) {
+                    add(Self::Codemode(on));
+                }
+                if server.contains_key("name") {
+                    add(Self::McpName);
+                }
+            }
+        }
+        for (path, setting) in [
+            (paths::BUDGET_PER_RUN_WALL_S, Self::WallBudget),
+            (paths::BUDGET_PER_RUN_TURNS, Self::TurnBudget),
+            (paths::BUDGET_PER_RUN_MAX_COST_USD, Self::CostBudget),
+        ] {
+            if is_set(path)? {
+                add(setting);
+            }
+        }
+        Ok(set)
+    }
+}
+
+/// What a driver does on its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "EXHAUSTIVE: the drivers live in other crates and answer each fact with one exhaustive match; a wildcard arm would let a new fact go unanswered."
+)]
+pub enum DriverFact {
     /// The harness stops on a signal and ends its sessions cleanly.
-    pub graceful_stop: bool,
+    GracefulStop,
     /// The harness streams events while it runs.
-    pub live_events: bool,
-    /// The budgets the harness enforces.
-    pub budgets: BudgetCaps,
+    LiveEvents,
     /// The harness has a guard of its own that can confine tool calls.
-    pub in_harness_guard: bool,
-    /// The driver can report the tool catalog the agent had.
-    pub census: bool,
+    InHarnessGuard,
     /// Execution lives in a server outside the child process.
-    pub execution_outside_child: bool,
-    /// The harness runs a session: its prompt goes through stdin, stdin stays open and a
-    /// background job's notification can start a further turn. A driver that sets it also
-    /// returns a [`SessionSpec`] and a [`SessionTracker`].
-    pub session: bool,
+    ExecutionOutsideChild,
+    /// The driver reports the tool inventory the agent had.
+    Census,
 }
 
-impl Capabilities {
-    /// Starts a builder with every capability off.
-    #[must_use]
-    pub fn builder() -> CapabilitiesBuilder {
-        CapabilitiesBuilder::default()
-    }
-}
-
-/// Builds [`Capabilities`]; every capability is off until set.
-#[derive(Debug, Clone, Copy, Default)]
-#[non_exhaustive]
-pub struct CapabilitiesBuilder {
-    caps: Capabilities,
-}
-
-impl CapabilitiesBuilder {
-    /// Sets `graceful_stop`.
-    #[must_use]
-    pub const fn graceful_stop(mut self, on: bool) -> Self {
-        self.caps.graceful_stop = on;
-        self
-    }
-
-    /// Sets `live_events`.
-    #[must_use]
-    pub const fn live_events(mut self, on: bool) -> Self {
-        self.caps.live_events = on;
-        self
-    }
-
-    /// Sets the budgets the harness enforces.
-    #[must_use]
-    pub const fn budgets(mut self, budgets: BudgetCaps) -> Self {
-        self.caps.budgets = budgets;
-        self
-    }
-
-    /// Sets `in_harness_guard`.
-    #[must_use]
-    pub const fn in_harness_guard(mut self, on: bool) -> Self {
-        self.caps.in_harness_guard = on;
-        self
-    }
-
-    /// Sets `census`.
-    #[must_use]
-    pub const fn census(mut self, on: bool) -> Self {
-        self.caps.census = on;
-        self
-    }
-
-    /// Sets `execution_outside_child`.
-    #[must_use]
-    pub const fn execution_outside_child(mut self, on: bool) -> Self {
-        self.caps.execution_outside_child = on;
-        self
-    }
-
-    /// Sets `session`.
-    #[must_use]
-    pub const fn session(mut self, on: bool) -> Self {
-        self.caps.session = on;
-        self
-    }
-
-    /// The capabilities set so far.
-    #[must_use]
-    pub const fn build(self) -> Capabilities {
-        self.caps
-    }
+impl DriverFact {
+    /// Every fact.
+    pub const ALL: [Self; 5] = [
+        Self::GracefulStop,
+        Self::LiveEvents,
+        Self::InHarnessGuard,
+        Self::ExecutionOutsideChild,
+        Self::Census,
+    ];
 }
 
 /// How a supervised process came to an end, as the supervisor saw it.

@@ -4,6 +4,8 @@
 //! the core runs every command and HTTP call a driver describes. No method is `async`, so drivers
 //! are usable as `dyn` trait objects.
 
+use std::str::FromStr as _;
+
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::raw::StreamName;
 use candler_schemas::refusal::pointer_of;
@@ -12,9 +14,9 @@ use candler_schemas::trace::{EndedBy, Session};
 use crate::reader::TraceReader;
 use crate::skills::SkillTree;
 use crate::spec::{
-    BaseImage, Capabilities, Cell, CollectSpec, CommandSpec, CommandSpecError, GatewayEnv,
-    HarnessId, Observed, Prepared, ProcessExit, SessionSpec, SessionTracker, StatePath, StopSpec,
-    Workspace,
+    AgentSetting, Answer, BaseImage, Cell, CollectSpec, CommandSpec, CommandSpecError, DriverFact,
+    GatewayEnv, HarnessId, Observed, Prepared, ProcessExit, SessionSpec, SessionTracker, StatePath,
+    StopSpec, Workspace,
 };
 
 /// Why a driver could not answer.
@@ -92,62 +94,31 @@ impl DriverError {
     }
 }
 
-/// Whether a driver honours one cell setting.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Disposition {
-    /// The harness has a construct with the setting's meaning, and the driver writes it.
-    Mapped,
-    /// The harness has no construct with the setting's meaning; the driver refuses the setting
-    /// with [`DriverError::Unsupported`].
-    Refused,
-}
-
-/// One row of a driver's settings table: a cell setting (or one value or name of it), whether the
-/// driver honours it, and in either case the harness construct or the reason, in a few words.
+/// Refuses a cell that sets something the driver answers [`Answer::Refused`], with the
+/// [`DriverError::Unsupported`] that names the setting, `harness` and `version` and gives the
+/// answer's reason. A setting the cell sets is read by [`AgentSetting::set_by`], the one place that
+/// lists them.
 ///
-/// The table is data a capability page can read; the driver builds its command and its files from
-/// the same rows, so a row and what the driver does cannot differ.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct SettingRow {
-    /// The cell path, such as `permission_mode` or `tools.allowed`.
-    pub setting: String,
-    /// The value or name the row is about (`bypassPermissions`, `Bash`, `high`), or `*` when the
-    /// row covers the whole setting.
-    pub value: String,
-    /// Whether the driver honours the setting.
-    pub disposition: Disposition,
-    /// The harness construct a mapped row writes (empty for a refused row).
-    pub construct: String,
-    /// How a mapped row maps, or why a refused row is refused.
-    pub detail: String,
-}
-
-impl SettingRow {
-    /// A row the driver honours, writing `construct`.
-    #[must_use]
-    pub fn mapped(setting: &str, value: &str, construct: &str, detail: &str) -> Self {
-        Self {
-            setting: setting.to_owned(), // BORROW: .to_owned() makes the owned text the row keeps
-            value: value.to_owned(),     // BORROW: .to_owned() makes the owned text the row keeps
-            disposition: Disposition::Mapped,
-            construct: construct.to_owned(), // BORROW: .to_owned() makes the owned text the row keeps
-            detail: detail.to_owned(), // BORROW: .to_owned() makes the owned text the row keeps
+/// # Errors
+/// [`DriverError::Unsupported`] for the first set setting the driver refuses, and the error of
+/// [`AgentSetting::set_by`] when a value of the cell cannot be read.
+pub fn check_answers(
+    driver: &dyn HarnessDriver, // TRAIT_OBJECT: the check reads any driver
+    cell: &Cell<'_>,
+    harness: &str,
+    version: &semver::Version,
+) -> Result<(), DriverError> {
+    for setting in AgentSetting::set_by(cell)? {
+        if let Answer::Refused { reason } = driver.answer(setting) {
+            let path = FieldPath::from_str(setting.path()).map_err(|error| {
+                DriverError::VersionOutput {
+                    detail: error.to_string(), // BORROW: .to_string() gives owned text
+                }
+            })?;
+            return Err(DriverError::unsupported(&path, harness, version, reason));
         }
     }
-
-    /// A row the driver refuses, for `why`.
-    #[must_use]
-    pub fn refused(setting: &str, value: &str, why: &str) -> Self {
-        Self {
-            setting: setting.to_owned(), // BORROW: .to_owned() makes the owned text the row keeps
-            value: value.to_owned(),     // BORROW: .to_owned() makes the owned text the row keeps
-            disposition: Disposition::Refused,
-            construct: String::new(),
-            detail: why.to_owned(), // BORROW: .to_owned() makes the owned text the row keeps
-        }
-    }
+    Ok(())
 }
 
 /// What a driver does for one cell in one workspace, built once so every part reads the same
@@ -201,8 +172,13 @@ pub trait HarnessDriver: Send + Sync {
     /// Returns [`DriverError::VersionOutput`] if `output` names no version.
     fn parse_version(&self, output: &[u8]) -> Result<semver::Version, DriverError>;
 
-    /// What the harness can do.
-    fn capabilities(&self) -> Capabilities;
+    /// How the driver meets `setting`: what the harness does for it, what Candler does in its
+    /// place, or why nobody does. Every key has an answer; there is no default.
+    fn answer(&self, setting: AgentSetting) -> Answer;
+
+    /// What the driver does on its own, as `fact` asks. Every key has an answer; there is no
+    /// default.
+    fn fact(&self, fact: DriverFact) -> Answer;
 
     /// What the driver does for `cell` in `workspace`: the files and the environment it adds
     /// before the launch, the headless command, and the session, if the harness runs one. The core
@@ -214,16 +190,6 @@ pub trait HarnessDriver: Send + Sync {
     /// Returns [`DriverError::Unsupported`] for a setting the harness cannot honour.
     /// Returns [`DriverError::Command`] if a command cannot be built.
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError>;
-
-    /// The settings table: one row per cell setting, value or name the driver knows, mapped or
-    /// refused. A driver that declares nothing keeps the default, an empty table, and answers
-    /// each setting in [`HarnessDriver::plan`].
-    ///
-    /// No two rows name the same `(setting, value)`, a refused row says why, and a mapped row
-    /// says what it writes.
-    fn settings_table(&self) -> Vec<SettingRow> {
-        Vec::new()
-    }
 
     /// Refuses a cell that sets something the driver cannot honour, with the error
     /// [`HarnessDriver::plan`] gives for it, so the core can refuse the cell before any job

@@ -38,8 +38,8 @@ use candler_core::supervise::{EventSink, Supervisor};
 use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
-    BudgetCaps, Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId, Observed,
-    Prepared, ProcessExit, StopSignal, StopSpec, Workspace,
+    AgentSetting, Answer, Cell, CollectSpec, CommandSpec, DriverFact, GatewayEnv, HarnessId,
+    Observed, Prepared, ProcessExit, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::execution::{Budget, EventPayload, ExperimentFile, JobState};
 use candler_schemas::primitives::{ContainerId, JobId, Marker, RunKey};
@@ -356,11 +356,30 @@ impl HarnessDriver for QuietDriver {
         Ok(semver::Version::new(2, 1, 0))
     }
 
-    fn capabilities(&self) -> Capabilities {
-        Capabilities::builder()
-            .graceful_stop(true)
-            .budgets(BudgetCaps::new(true, true))
-            .build()
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        let refused: &[AgentSetting] = &[AgentSetting::SessionMode];
+        if refused.contains(&setting) {
+            Answer::Refused {
+                reason: "test stand-in",
+            }
+        } else {
+            Answer::Mapped {
+                construct: "test stand-in",
+            }
+        }
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        let held: &[DriverFact] = &[DriverFact::GracefulStop];
+        if held.contains(&fact) {
+            Answer::Mapped {
+                construct: "test stand-in",
+            }
+        } else {
+            Answer::Refused {
+                reason: "test stand-in",
+            }
+        }
     }
 
     fn gateway(&self) -> Option<GatewayEnv> {
@@ -433,8 +452,12 @@ impl HarnessDriver for ObservingDriver {
         self.0.parse_version(output)
     }
 
-    fn capabilities(&self) -> Capabilities {
-        self.0.capabilities()
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        self.0.answer(setting)
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        self.0.fact(fact)
     }
 
     fn gateway(&self) -> Option<GatewayEnv> {

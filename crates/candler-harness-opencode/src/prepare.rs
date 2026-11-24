@@ -9,57 +9,50 @@
 
 use std::str::FromStr as _;
 
-use candler_harness::driver::{DriverError, SettingRow};
-use candler_harness::spec::{Cell, PreparedFile};
+use candler_harness::driver::DriverError;
+use candler_harness::spec::{
+    AgentSetting, Answer, Cell, EffortLevel, PermissionMode, PreparedFile,
+};
 use candler_schemas::execution::paths::{
-    BUDGET_PER_RUN_MAX_COST_USD, BUDGET_PER_RUN_TURNS, MCP, MODEL_EFFORT, MODEL_ID,
-    PERMISSION_MODE, TOOLS_ALLOWED, TOOLS_DISALLOWED,
+    MCP, MODEL_EFFORT, MODEL_ID, PERMISSION_MODE, TOOLS_ALLOWED, TOOLS_DISALLOWED,
 };
 use candler_schemas::primitives::{FieldPath, RelPath};
-use candler_schemas::servers::McpServer;
+use candler_schemas::servers::{McpServer, McpServerKind};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 
 /// The provider's id in the configuration and in `-m <provider>/<model>`.
 pub(crate) const PROVIDER: &str = "candler";
 
-/// The one permission mode `--auto` implements.
-const ACCEPTED_MODE: &str = "bypassPermissions";
-
 /// The baseline every `OpenCode` agent starts from (`packages/schema/src/agent.ts`, v2.2.7): the
 /// ruleset `{*, *, allow}` plus an ask on `.env` reads. The configuration's top-level `permissions`
 /// are appended after it and the last matching row wins, so an `allow` row restates the baseline
 /// and a `deny` row, written last, overrides it.
-const BASELINE: &str = "every tool call is allowed by the baseline ruleset {*, *, allow}; `--auto` \
+const BASELINE: &str = "`--auto` on the command line: every tool call is allowed by the baseline ruleset {*, *, allow}; `--auto` \
      answers the one pending ask (`.env` reads) with once, which a headless run needs";
 
-/// The permission modes that are refused, each with the reason. Claude Code's own documentation
-/// (permission modes; permissions, read-only commands) is the source of what each mode allows.
-const MODE_REFUSALS: [(&str, &str); 3] = [
-    (
-        "plan",
-        "Claude Code's plan mode reads and runs read-only shell commands (a built-in, \
+/// Why the `plan` permission mode is refused. Claude Code's own documentation (permission modes;
+/// permissions, read-only commands) is the source of what each mode allows.
+const PLAN_MODE: &str = "Claude Code's plan mode reads and runs read-only shell commands (a built-in, \
          non-configurable set its own parser decides). The OpenCode ruleset that is certainly \
          read-only (the `explore` agent's: deny everything, allow read, glob, grep, webfetch, \
          websearch, skill) denies the shell altogether, and a wildcard on command text cannot \
          express the read-only set; the stock `plan` agent is not read-only once a global rule \
-         follows it (the last match wins) and its `subagent` child can edit",
-    ),
-    (
-        "default",
-        "Claude Code's default mode allows reads and a built-in, non-configurable set of read-only \
+         follows it (the last match wins) and its `subagent` child can edit";
+
+/// Why the `default` permission mode is refused. Claude Code's own documentation (permission modes;
+/// permissions, read-only commands) is the source of what each mode allows.
+const DEFAULT_MODE: &str = "Claude Code's default mode allows reads and a built-in, non-configurable set of read-only \
          shell commands that its own parser decides, and denies the rest in a headless run. \
          OpenCode without `--auto` also rejects what no rule allows, but its shell rows are \
-         wildcards on the text of each parsed command, which approximate that set without being it",
-    ),
-    (
-        "acceptEdits",
-        "Claude Code's acceptEdits mode also allows edits and the filesystem commands mkdir, touch, \
+         wildcards on the text of each parsed command, which approximate that set without being it";
+
+/// Why the `acceptEdits` permission mode is refused. Claude Code's own documentation (permission modes;
+/// permissions, read-only commands) is the source of what each mode allows.
+const ACCEPT_EDITS_MODE: &str = "Claude Code's acceptEdits mode also allows edits and the filesystem commands mkdir, touch, \
          rm, rmdir, mv, cp and sed, inside the working directory only. OpenCode's shell resource \
          is the command's text, which knows no working directory, so \"inside it\" cannot be \
-         written as a rule",
-    ),
-];
+         written as a rule";
 
 /// The reason any other permission mode is refused.
 const OTHER_MODE: &str = "only `bypassPermissions` (`--auto`) is a mode OpenCode runs the way \
@@ -74,9 +67,6 @@ const TURNS_REFUSAL: &str = "`agents.<id>.steps` makes the last request a tool-l
 /// The reason a lone `Edit` or `Write` in `tools.disallowed` is refused.
 const EDIT_WRITE_PAIR: &str = "OpenCode's `edit` action covers the edit, write and patch tools \
      alike, so denying `Edit` or `Write` alone would deny both; list both";
-
-/// The reason a name with no row is refused.
-const NO_ACTION: &str = "a name that is not a tool OpenCode has an action for";
 
 /// Claude Code's own effort vocabulary (`claude --help`: `--effort <level>`), the values Candler's
 /// cell carries at `model.effort`. `OpenCode`'s `anthropicMessages` variant builder
@@ -127,92 +117,78 @@ const TOOLS: [(&str, &str); 11] = [
     ("TodoWrite", "todowrite"),
 ];
 
-/// The value of the table's row for an MCP tool name, `mcp__<server>__<tool>`.
-const MCP_ROW: &str = "mcp__<server>__<tool>";
-
-/// The declared settings table: the rows [`settings`] answers, one per cell setting, value or
-/// tool name the driver knows, mapped or refused. The driver builds its command and its files from
-/// the same constants these rows read, and the guard asserts the rows and its cases are one set.
-pub(crate) fn table() -> Vec<SettingRow> {
-    let mut rows = vec![SettingRow::mapped(
-        PERMISSION_MODE,
-        ACCEPTED_MODE,
-        "`--auto` on the command line",
-        BASELINE,
-    )];
-    for (mode, why) in MODE_REFUSALS {
-        rows.push(SettingRow::refused(PERMISSION_MODE, mode, why));
-    }
-    rows.push(SettingRow::refused(PERMISSION_MODE, "*", OTHER_MODE));
-    rows.push(SettingRow::refused(
-        BUDGET_PER_RUN_MAX_COST_USD,
-        "*",
-        "OpenCode has no cost cap",
-    ));
-    rows.push(SettingRow::refused(
-        BUDGET_PER_RUN_TURNS,
-        "*",
-        TURNS_REFUSAL,
-    ));
-    for level in EFFORT_LEVELS {
-        rows.push(SettingRow::mapped(
-            MODEL_EFFORT,
-            level,
-            "a `variants` entry on the model, selected by `-m <model>#<level>`",
-            "adaptive thinking and `output_config.effort` on every request, as recorded on the wire; only for a model the `<model>` row accepts",
-        ));
-    }
-    rows.push(SettingRow::refused(MODEL_EFFORT, "<model>", EFFORT_MODEL));
-    rows.push(SettingRow::refused(MODEL_EFFORT, "*", EFFORT_LEVEL));
-    rows.push(SettingRow::refused(MODEL_EFFORT, "ultracode", ULTRACODE));
-    for path in [TOOLS_ALLOWED, TOOLS_DISALLOWED] {
-        let allowed = path == TOOLS_ALLOWED;
-        for (name, action) in TOOLS {
-            if !allowed && (name == "Edit" || name == "Write") {
-                rows.push(SettingRow::refused(path, name, EDIT_WRITE_PAIR));
-                continue;
-            }
-            rows.push(tool_row(path, name, action));
-        }
-        rows.push(tool_row(
-            path,
-            MCP_ROW,
-            "<server>_<tool>, each part normalised to [A-Za-z0-9_-]",
-        ));
-        rows.push(SettingRow::refused(path, "*", NO_ACTION));
-    }
-    rows.push(SettingRow::mapped(
-        TOOLS_DISALLOWED,
-        "Edit+Write",
-        "one `edit` deny row per name",
-        "both names together: the `edit` action covers both tools",
-    ));
-    rows.push(SettingRow::mapped(
-        TOOLS_DISALLOWED,
-        "with tools.allowed",
-        "the deny rows after the allow rows",
-        "the last matching row wins, so a name in both lists is denied",
-    ));
-    rows
-}
-
-/// The row of one tool name (or the MCP pattern) in `path`, mapped to `action`.
-fn tool_row(path: &str, name: &str, action: &str) -> SettingRow {
-    if path == TOOLS_ALLOWED {
-        SettingRow::mapped(
-            path,
-            name,
-            &format!("a permission row {{{action}, *, allow}}"),
-            "restates the baseline: a no-op, as Claude Code's `--allowedTools` only auto-approves \
-             and leaves every other tool available",
-        )
-    } else {
-        SettingRow::mapped(
-            path,
-            name,
-            &format!("a permission row {{{action}, *, deny}}"),
-            "overrides the baseline; written after the allow rows",
-        )
+/// How `OpenCode` meets one key. The driver builds its command and its files from the same
+/// constants these answers read.
+#[must_use]
+pub(crate) const fn answer(setting: AgentSetting) -> Answer {
+    match setting {
+        AgentSetting::ModelId => Answer::Mapped {
+            construct: "`-m candler/<model>` on the command line",
+        },
+        AgentSetting::ModelEndpoint => Answer::Candler {
+            how: "the gateway forwards model requests to the endpoint",
+        },
+        AgentSetting::Effort(EffortLevel::Ultracode) => Answer::Refused { reason: ULTRACODE },
+        AgentSetting::Effort(
+            EffortLevel::Low
+            | EffortLevel::Medium
+            | EffortLevel::High
+            | EffortLevel::Xhigh
+            | EffortLevel::Max,
+        ) => Answer::Mapped {
+            construct: "a `variants` entry on the model, selected by `-m <model>#<level>`",
+        },
+        AgentSetting::PermissionMode(PermissionMode::BypassPermissions) => Answer::Mapped {
+            construct: BASELINE,
+        },
+        AgentSetting::PermissionMode(PermissionMode::Plan) => Answer::Refused { reason: PLAN_MODE },
+        AgentSetting::PermissionMode(PermissionMode::Default) => Answer::Refused {
+            reason: DEFAULT_MODE,
+        },
+        AgentSetting::PermissionMode(PermissionMode::AcceptEdits) => Answer::Refused {
+            reason: ACCEPT_EDITS_MODE,
+        },
+        AgentSetting::ToolsAllowed => Answer::Mapped {
+            construct: "a permission row {action, *, allow} per name, a no-op over the baseline",
+        },
+        AgentSetting::ToolsDisallowed => Answer::Mapped {
+            construct: "a permission row {action, *, deny} per name, written after the allow rows",
+        },
+        AgentSetting::Env => Answer::Candler {
+            how: "the core sets the cell's variables on the agent's process",
+        },
+        AgentSetting::Inputs => Answer::Candler {
+            how: "the core places the inputs in the workspace",
+        },
+        AgentSetting::Skills => Answer::Mapped {
+            construct: "the project skill directory",
+        },
+        AgentSetting::McpTransport(McpServerKind::Stdio | McpServerKind::Local) => Answer::Mapped {
+            construct: "an `mcp` entry of type `local`",
+        },
+        AgentSetting::McpTransport(
+            McpServerKind::Http | McpServerKind::Sse | McpServerKind::Remote,
+        ) => Answer::Mapped {
+            construct: "an `mcp` entry of type `remote`",
+        },
+        AgentSetting::Codemode(true | false) => Answer::Mapped {
+            construct: "the `codemode` key of the `mcp` entry, written for every server",
+        },
+        AgentSetting::McpName => Answer::Mapped {
+            construct: "the key of the `mcp` entry",
+        },
+        AgentSetting::WallBudget => Answer::Candler {
+            how: "the core ends the run at the wall budget",
+        },
+        AgentSetting::TurnBudget => Answer::Refused {
+            reason: TURNS_REFUSAL,
+        },
+        AgentSetting::CostBudget => Answer::Refused {
+            reason: "OpenCode has no cost cap",
+        },
+        AgentSetting::SessionMode => Answer::Refused {
+            reason: "OpenCode runs no session: its trace comes from the export after the run",
+        },
     }
 }
 
@@ -226,7 +202,7 @@ pub(crate) fn invalid(path: &str, detail: String) -> DriverError {
 }
 
 /// How the harness is named in a refusal, as its users write it.
-const DISPLAY_NAME: &str = "OpenCode";
+pub(crate) const DISPLAY_NAME: &str = "OpenCode";
 
 /// The refusal of the setting at `path`, which `OpenCode` cannot honour at `version`.
 pub(crate) fn unsupported(path: &str, version: &semver::Version, why: &str) -> DriverError {
@@ -466,9 +442,6 @@ fn effort_variant(
     let level = value
         .as_str()
         .ok_or_else(|| invalid(MODEL_EFFORT, "is not text".to_owned()))?; // BORROW: .to_owned() makes the owned text
-    if level == "ultracode" {
-        return Err(unsupported(MODEL_EFFORT, version, ULTRACODE));
-    }
     if !EFFORT_LEVELS.contains(&level) {
         return Err(unsupported(MODEL_EFFORT, version, EFFORT_LEVEL));
     }
@@ -495,9 +468,8 @@ pub(crate) struct Settings {
     pub(crate) variant: Option<(String, Value)>,
 }
 
-/// What the declared [`table`] says of the cell: every setting this driver can honour mapped to
-/// what it does, and every other one refused naming why. `version` is the validated version the
-/// refusal names.
+/// What the cell's settings resolve to once [`answer`] has accepted them: the values the driver
+/// cannot take (a mode, an effort level, a tool name) are refused here, naming `version`.
 ///
 /// # Errors
 /// Returns [`DriverError::Unsupported`] for a setting `OpenCode` has no way to honour, and
@@ -507,30 +479,8 @@ pub(crate) fn settings(
     version: &semver::Version,
 ) -> Result<Settings, DriverError> {
     let mode = cell.permission_mode()?;
-    if mode != ACCEPTED_MODE {
-        let why = MODE_REFUSALS
-            .iter()
-            .find(|(refused, _)| *refused == mode)
-            .map_or(OTHER_MODE, |(_, why)| *why);
-        return Err(unsupported(PERMISSION_MODE, version, why));
-    }
-    if cell
-        .value_str(BUDGET_PER_RUN_MAX_COST_USD)
-        .map_err(|error| invalid(BUDGET_PER_RUN_MAX_COST_USD, error.to_string()))?
-        .is_some()
-    {
-        return Err(unsupported(
-            BUDGET_PER_RUN_MAX_COST_USD,
-            version,
-            "OpenCode has no cost cap",
-        ));
-    }
-    if cell
-        .value_str(BUDGET_PER_RUN_TURNS)
-        .map_err(|error| invalid(BUDGET_PER_RUN_TURNS, error.to_string()))?
-        .is_some()
-    {
-        return Err(unsupported(BUDGET_PER_RUN_TURNS, version, TURNS_REFUSAL));
+    if PermissionMode::from_text(mode).is_none() {
+        return Err(unsupported(PERMISSION_MODE, version, OTHER_MODE));
     }
     let variant = effort_variant(cell, version)?;
     let mut permissions = tool_permission_rows(cell, TOOLS_ALLOWED, "allow", version)?;

@@ -59,6 +59,7 @@ mod guard_cli_observe;
 mod guard_cli_refusal;
 mod guard_cli_run;
 mod guard_cli_surface;
+mod guard_driver_answers;
 mod guard_eval_infra;
 mod guard_golden_design;
 mod guard_golden_parity;

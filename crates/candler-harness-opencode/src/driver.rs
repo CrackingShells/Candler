@@ -7,12 +7,13 @@
 use std::str::FromStr as _;
 use std::time::Duration;
 
-use candler_harness::driver::{DriverError, HarnessDriver, Plan, SettingRow};
+use candler_harness::driver::{DriverError, HarnessDriver, Plan, check_answers};
 use candler_harness::reader::TraceReader;
 use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
-    Action, BaseImage, Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId,
-    Observed, Prepared, ProcessExit, StateKind, StatePath, StopSignal, StopSpec, Workspace,
+    Action, AgentSetting, Answer, BaseImage, Cell, CollectSpec, CommandSpec, DriverFact,
+    GatewayEnv, HarnessId, Observed, Prepared, ProcessExit, StateKind, StatePath, StopSignal,
+    StopSpec, Workspace,
 };
 use candler_schemas::name;
 use candler_schemas::primitives::{RelPath, plain_arg};
@@ -154,15 +155,28 @@ impl HarnessDriver for OpenCodeDriver {
         Ok(version)
     }
 
-    fn capabilities(&self) -> Capabilities {
-        // Tools run in the `serve` child, so a signal to the client alone does not stop them. There
-        // is no turn or cost cap and no session mode, and the live reader emits no event: the trace
-        // comes from the export. The tool inventory is what the gateway saw in the model requests.
-        Capabilities::builder()
-            .graceful_stop(true)
-            .census(true)
-            .execution_outside_child(true)
-            .build()
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        prepare::answer(setting)
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        match fact {
+            DriverFact::GracefulStop => Answer::Mapped {
+                construct: "an interrupt request to the `serve` child, then SIGTERM to the client",
+            },
+            DriverFact::LiveEvents => Answer::Refused {
+                reason: "the live reader emits no event: the trace comes from the export",
+            },
+            DriverFact::InHarnessGuard => Answer::Refused {
+                reason: "the driver configures no OpenCode guard",
+            },
+            DriverFact::ExecutionOutsideChild => Answer::Mapped {
+                construct: "tools run in the `serve` child, which the stop interrupts first",
+            },
+            DriverFact::Census => Answer::Candler {
+                how: "the gateway's first model request with tools",
+            },
+        }
     }
 
     fn gateway(&self) -> Option<GatewayEnv> {
@@ -186,17 +200,15 @@ impl HarnessDriver for OpenCodeDriver {
             .collect()
     }
 
-    fn settings_table(&self) -> Vec<SettingRow> {
-        prepare::table()
-    }
-
     fn check_settings(&self, cell: &Cell<'_>) -> Result<(), DriverError> {
+        check_answers(self, cell, prepare::DISPLAY_NAME, &VALIDATED)?;
         prepare::settings(cell, &VALIDATED)?;
         prepare::mcp_servers(cell).map(|_| ())
     }
 
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
         let _ = workspace;
+        check_answers(self, cell, prepare::DISPLAY_NAME, &VALIDATED)?;
         let settings = prepare::settings(cell, &VALIDATED)?;
         let model = model_id(cell)?;
         let model_arg = match &settings.variant {

@@ -2,6 +2,7 @@
 //! names, with what it is, in one table that the resolver, the request-key check, the typed
 //! configuration readers and the contract pages all read.
 
+use candler_harness::spec::{AgentSetting, EffortLevel, PermissionMode};
 use candler_schemas::execution::paths::{
     BUDGET_PER_RUN_MAX_COST_USD, BUDGET_PER_RUN_TURNS, BUDGET_PER_RUN_WALL_S, ENV, ENVIRONMENTS,
     HARNESS, INPUTS, ISOLATION_BUILD_CONTEXT, ISOLATION_BUILD_DOCKERFILE, ISOLATION_BUILD_LOCK,
@@ -14,6 +15,7 @@ use candler_schemas::execution::paths::{
     TOOLS_ALLOWED, TOOLS_DISALLOWED, TREATMENT, TREATMENT_SOURCE_PREFIX,
 };
 use candler_schemas::primitives::FieldPath;
+use candler_schemas::servers::McpServerKind;
 
 const BUDGET: &str = "budget";
 const BUDGET_PER_RUN: &str = "budget.per_run";
@@ -82,6 +84,26 @@ pub enum ConfigFile {
     User,
 }
 
+/// Whether a path reaches the agent.
+#[derive(Debug, Clone, Copy)]
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "EXHAUSTIVE: a row states one or the other; a reader must handle both."
+)]
+pub enum Reach {
+    /// The path is read by the harness's driver, as the keys listed (one value of each key the
+    /// path carries).
+    Agent(&'static [AgentSetting]),
+    /// Candler reads the path itself; no driver sees it.
+    CandlerOnly,
+}
+
+/// The agent settings no configuration path reaches, each with where it comes from.
+pub const NO_PATH: [(AgentSetting, &str); 1] = [(
+    AgentSetting::Skills,
+    "the skills are the treatment's skill tree, not a configuration path",
+)];
+
 /// One row of [`CONFIGURATION_PATHS`].
 #[derive(Debug, Clone, Copy)]
 pub struct PathRow {
@@ -91,17 +113,26 @@ pub struct PathRow {
     pub kind: Kind,
     /// What the path is.
     pub class: Class,
+    /// Whether the path reaches the agent, and as which keys.
+    pub reach: Reach,
     /// The configuration file the key belongs to, for a configuration key.
     pub file: ConfigFile,
     /// The one line the contract page prints.
     pub meaning: &'static str,
 }
 
-const fn row(path: &'static str, kind: Kind, class: Class, meaning: &'static str) -> PathRow {
+const fn row(
+    path: &'static str,
+    kind: Kind,
+    class: Class,
+    reach: Reach,
+    meaning: &'static str,
+) -> PathRow {
     PathRow {
         path,
         kind,
         class,
+        reach,
         file: ConfigFile::None,
         meaning,
     }
@@ -112,6 +143,7 @@ const fn key(path: &'static str, kind: Kind, file: ConfigFile, meaning: &'static
         path,
         kind,
         class: Class::ConfigKey,
+        reach: Reach::CandlerOnly,
         file,
         meaning,
     }
@@ -123,259 +155,312 @@ pub const CONFIGURATION_PATHS: [PathRow; 49] = [
         MODEL_ID,
         Kind::Leaf,
         Class::Value,
+        Reach::Agent(&[AgentSetting::ModelId]),
         "The model the harness runs.",
     ),
     row(
         MODEL_ENDPOINT,
         Kind::Leaf,
         Class::Value,
+        Reach::Agent(&[AgentSetting::ModelEndpoint]),
         "The endpoint the gateway forwards model requests to.",
     ),
     row(
         MODEL_EFFORT,
         Kind::Leaf,
         Class::Value,
+        Reach::Agent(&[AgentSetting::Effort(EffortLevel::Low)]),
         "The effort level the harness asks of the model.",
     ),
     row(
         MODEL_TOKEN_SECRET,
         Kind::Leaf,
         Class::Setting,
+        Reach::CandlerOnly,
         "The name of the secret that holds the gateway's token.",
     ),
     row(
         TOOLS_ALLOWED,
         Kind::Leaf,
         Class::Value,
+        Reach::Agent(&[AgentSetting::ToolsAllowed]),
         "The tools the harness may use.",
     ),
     row(
         TOOLS_DISALLOWED,
         Kind::Leaf,
         Class::Value,
+        Reach::Agent(&[AgentSetting::ToolsDisallowed]),
         "The tools the harness may not use.",
     ),
     row(
         ENV,
         Kind::Leaf,
         Class::Value,
+        Reach::Agent(&[AgentSetting::Env]),
         "The environment of the harness process: a table of variable name to text.",
     ),
     row(
         MCP,
         Kind::Subtree,
         Class::Value,
+        Reach::Agent(&[
+            AgentSetting::McpTransport(McpServerKind::Stdio),
+            AgentSetting::Codemode(true),
+            AgentSetting::McpName,
+        ]),
         "The MCP servers of a run; the names below are free.",
     ),
     row(
         PERMISSION_MODE,
         Kind::Leaf,
         Class::Value,
+        Reach::Agent(&[AgentSetting::PermissionMode(PermissionMode::Default)]),
         "The permission mode the harness runs in.",
     ),
     row(
         REQUEST_HARNESS,
         Kind::Leaf,
         Class::Request,
+        Reach::CandlerOnly,
         "The harness the run uses.",
     ),
     row(
         REQUEST_TREATMENT,
         Kind::Leaf,
         Class::Request,
+        Reach::CandlerOnly,
         "The treatment the run applies.",
     ),
     row(
         REQUEST_INPUTS,
         Kind::Leaf,
         Class::Request,
+        Reach::CandlerOnly,
         "The inputs the run is given.",
     ),
     row(
         PROMPT_TEMPLATE,
         Kind::Leaf,
         Class::Value,
+        Reach::CandlerOnly,
         "The prompt template.",
     ),
     row(
         PROMPT_VALUES,
         Kind::Subtree,
         Class::Value,
+        Reach::CandlerOnly,
         "The values the prompt template fills in; the names below are free.",
     ),
     row(
         ISOLATION_IMAGE,
         Kind::Leaf,
         Class::Value,
+        Reach::CandlerOnly,
         "The container image a run starts in.",
     ),
     row(
         ISOLATION_NETWORK,
         Kind::Leaf,
         Class::Value,
+        Reach::CandlerOnly,
         "The network mode of the container.",
     ),
     row(
         ISOLATION_ENV_LOCK,
         Kind::Leaf,
         Class::Value,
+        Reach::CandlerOnly,
         "The environment lock the image must match.",
     ),
     row(
         ISOLATION_LIMITS,
         Kind::Leaf,
         Class::Value,
+        Reach::CandlerOnly,
         "The resource limits of the container; the limits are below.",
     ),
     row(
         ISOLATION_LIMITS_PIDS,
         Kind::Leaf,
         Class::Value,
+        Reach::CandlerOnly,
         "The process limit of the container.",
     ),
     row(
         ISOLATION_LIMITS_MEMORY,
         Kind::Leaf,
         Class::Value,
+        Reach::CandlerOnly,
         "The memory limit of the container.",
     ),
     row(
         ISOLATION_LIMITS_CPUS,
         Kind::Leaf,
         Class::Value,
+        Reach::CandlerOnly,
         "The CPU limit of the container.",
     ),
     row(
         ISOLATION_EGRESS,
         Kind::Leaf,
         Class::Value,
+        Reach::CandlerOnly,
         "The hosts the container may reach.",
     ),
     row(
         ISOLATION_RECORD_PACKAGES,
         Kind::Leaf,
         Class::Setting,
+        Reach::CandlerOnly,
         "Whether a run records the packages of its image.",
     ),
     row(
         ISOLATION_BUILD,
         Kind::Below,
         Class::Setting,
+        Reach::CandlerOnly,
         "Every path below it is a request to build an image.",
     ),
     row(
         ISOLATION_BUILD_PLUGIN,
         Kind::Leaf,
         Class::Setting,
+        Reach::CandlerOnly,
         "The image build plug-in.",
     ),
     row(
         ISOLATION_BUILD_DOCKERFILE,
         Kind::Leaf,
         Class::Setting,
+        Reach::CandlerOnly,
         "The Dockerfile of an image build.",
     ),
     row(
         ISOLATION_BUILD_CONTEXT,
         Kind::Leaf,
         Class::Setting,
+        Reach::CandlerOnly,
         "The build context directory of an image build.",
     ),
     row(
         ISOLATION_BUILD_REQUIREMENTS,
         Kind::Leaf,
         Class::Setting,
+        Reach::CandlerOnly,
         "The requirements file of an image build.",
     ),
     row(
         ISOLATION_BUILD_PRUNE,
         Kind::Leaf,
         Class::Setting,
+        Reach::CandlerOnly,
         "Whether an image build prunes what it leaves.",
     ),
     row(
         ISOLATION_BUILD_LOCK,
         Kind::Leaf,
         Class::Setting,
+        Reach::CandlerOnly,
         "The lock file of an image build.",
     ),
     row(
         BUDGET,
         Kind::Subtree,
         Class::Setting,
+        Reach::CandlerOnly,
         "A job cap: every path below it, except the per-run caps.",
     ),
     row(
         BUDGET_PER_RUN,
         Kind::Carveout,
         Class::Value,
+        Reach::CandlerOnly,
         "The per-run caps are experiment values.",
     ),
     row(
         BUDGET_PER_RUN_WALL_S,
         Kind::Leaf,
         Class::Value,
+        Reach::Agent(&[AgentSetting::WallBudget]),
         "The wall-clock cap of one run, in seconds.",
     ),
     row(
         BUDGET_PER_RUN_TURNS,
         Kind::Leaf,
         Class::Value,
+        Reach::Agent(&[AgentSetting::TurnBudget]),
         "The turn cap of one run.",
     ),
     row(
         BUDGET_PER_RUN_MAX_COST_USD,
         Kind::Leaf,
         Class::Value,
+        Reach::Agent(&[AgentSetting::CostBudget]),
         "The cost cap of one run, in US dollars.",
     ),
     row(
         REPLICATES,
         Kind::Subtree,
         Class::Setting,
+        Reach::CandlerOnly,
         "How many runs each cell gets.",
     ),
     row(
         RUNNER_MODE,
         Kind::Leaf,
         Class::Value,
+        Reach::Agent(&[AgentSetting::SessionMode]),
         "`headless` or `session`.",
     ),
     row(
         RUNNER_IDLE_S,
         Kind::Leaf,
         Class::Value,
+        Reach::CandlerOnly,
         "The idle time that ends a session, in whole seconds, or `none`.",
     ),
     row(
         HARNESS,
         Kind::Subtree,
         Class::Value,
+        Reach::CandlerOnly,
         "The harness table; the names below belong to the harness.",
     ),
     row(
         TREATMENT,
         Kind::Subtree,
         Class::Value,
+        Reach::CandlerOnly,
         "The treatment table.",
     ),
-    row(INPUTS, Kind::Subtree, Class::Value, "The inputs table."),
+    row(
+        INPUTS,
+        Kind::Subtree,
+        Class::Value,
+        Reach::Agent(&[AgentSetting::Inputs]),
+        "The inputs table.",
+    ),
     row(
         SNAPSHOTS,
         Kind::Subtree,
         Class::Value,
+        Reach::CandlerOnly,
         "The snapshots table.",
     ),
     row(
         ENVIRONMENTS,
         Kind::Subtree,
         Class::Value,
+        Reach::CandlerOnly,
         "The environments table.",
     ),
     row(
         TREATMENT_SOURCE_PREFIX,
         Kind::NotAPath,
         Class::Value,
+        Reach::CandlerOnly,
         "The prefix of a value that names a treatment source; the rest is the path.",
     ),
     key(

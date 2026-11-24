@@ -12,12 +12,12 @@ use std::fmt;
 use candler_schemas::raw::{FrameData, RawFrame, RawRef, StreamName};
 use candler_schemas::trace::{EndedBy, Session, SessionId};
 
-use crate::driver::{Disposition, DriverError, HarnessDriver, Plan};
+use crate::driver::{DriverError, HarnessDriver, Plan};
 use crate::reader::{FrameIn, TraceReader};
 use crate::spec::{
-    Action, Cell, CensusSource, CollectSpec, CommandSpec, EnvValue, FileRoot, Framing, HttpMethod,
-    InitReport, Observed, ObservedEnd, PendingState, PreparedFile, ProcessExit, SessionClose,
-    SessionRecord, StateKind, StopSpec, Workspace,
+    Action, AgentSetting, Cell, CensusSource, CollectSpec, CommandSpec, DriverFact, EnvValue,
+    FileRoot, Framing, HttpMethod, InitReport, Observed, ObservedEnd, PendingState, PreparedFile,
+    ProcessExit, SessionClose, SessionRecord, StateKind, StopSpec, Workspace,
 };
 
 /// A session id plain enough to stand in a script, used to check that a placeholder resolves.
@@ -649,31 +649,24 @@ fn check_names(driver: &dyn HarnessDriver) -> Result<(), Failure> {
     Ok(())
 }
 
-/// Checks the settings table: no two rows name the same setting and value, a refused row says
-/// why, and a mapped row says what it writes.
-fn check_settings_table(
+/// Checks the answers: every key has one, and an answer says what it writes, what Candler does or
+/// why it is refused.
+fn check_answers(
     driver: &dyn HarnessDriver, // TRAIT_OBJECT: the suite checks any driver
 ) -> Result<(), Failure> {
-    let rows = driver.settings_table();
-    for (index, row) in rows.iter().enumerate() {
-        if rows
-            .iter()
-            .skip(index.saturating_add(1))
-            .any(|other| other.setting == row.setting && other.value == row.value)
-        {
+    let words = AgentSetting::ALL
+        .into_iter()
+        .map(|setting| (format!("{setting:?}"), driver.answer(setting)))
+        .chain(
+            DriverFact::ALL
+                .into_iter()
+                .map(|fact| (format!("{fact:?}"), driver.fact(fact))),
+        );
+    for (key, answer) in words {
+        if answer.text().is_empty() {
             return Err(driver_failure(
-                "settings_table",
-                format!("two rows name {} {}", row.setting, row.value),
-            ));
-        }
-        let (empty, what) = match row.disposition {
-            Disposition::Mapped => (row.construct.is_empty(), "names no construct"),
-            Disposition::Refused => (row.detail.is_empty(), "gives no reason"),
-        };
-        if empty {
-            return Err(driver_failure(
-                "settings_table",
-                format!("the row {} {} {what}", row.setting, row.value),
+                "answers",
+                format!("the answer to {key} has no words"),
             ));
         }
     }
@@ -688,21 +681,21 @@ fn check_capabilities(
     cases: &[Case],
     owned: &[String],
 ) -> Result<(), Failure> {
-    let caps = driver.capabilities();
+    let session = !driver.answer(AgentSetting::SessionMode).is_refused();
     let spec = &plan.session;
-    if caps.session && spec.is_none() {
+    if session && spec.is_none() {
         return Err(driver_failure(
             "session",
             "the session capability is declared and the driver returns no session spec".to_owned(), // BORROW: .to_owned() makes the owned text
         ));
     }
-    if caps.session && driver.session_tracker().is_none() {
+    if session && driver.session_tracker().is_none() {
         return Err(driver_failure(
             "session",
             "the session capability is declared and the driver returns no tracker".to_owned(), // BORROW: .to_owned() makes the owned text
         ));
     }
-    if !caps.session && spec.is_some() {
+    if !session && spec.is_some() {
         return Err(driver_failure(
             "session",
             "the driver returns a session spec without the session capability".to_owned(), // BORROW: .to_owned() makes the owned text
@@ -743,7 +736,7 @@ fn check_capabilities(
             }
         }
     }
-    if caps.census {
+    if !driver.fact(DriverFact::Census).is_refused() {
         let from_stream = driver.census_stream().is_some();
         let from_init = cases.iter().any(|case| case.init.is_some());
         if !from_stream && !from_init {
@@ -759,7 +752,9 @@ fn check_capabilities(
             "the case expects an inventory and the census capability is off".to_owned(), // BORROW: .to_owned() makes the owned text
         ));
     }
-    if caps.execution_outside_child && driver.stop().pre_stop.is_none() {
+    if !driver.fact(DriverFact::ExecutionOutsideChild).is_refused()
+        && driver.stop().pre_stop.is_none()
+    {
         return Err(driver_failure(
             "stop",
             "execution lives outside the child and the stop has no pre-stop".to_owned(), // BORROW: .to_owned() makes the owned text
@@ -1264,7 +1259,7 @@ pub fn run(
 ) -> Result<(), Failure> {
     let owned = owned_names(driver);
     check_names(driver)?;
-    check_settings_table(driver)?;
+    check_answers(driver)?;
     let plan = driven("plan", driver.plan(setup.cell, setup.workspace))?;
     check_capabilities(driver, &plan, setup, cases, &owned)?;
     check_builds(driver, &plan, setup, &owned)?;

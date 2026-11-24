@@ -15,13 +15,13 @@ use std::time::Duration;
 use candler_harness::conformance::{
     Case, ExpectedSession, ReaderSource, RecordBytes, Setup, TrackStep, run,
 };
-use candler_harness::driver::{DriverError, HarnessDriver, Plan, SettingRow};
+use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
-    Action, Capabilities, Cell, CensusSource, CollectSpec, CommandSpec, CommandSpecError, EnvEntry,
-    GatewayEnv, HarnessId, InitReport, Observed, ObservedEnd, PendingItem, PendingKind,
-    PendingState, PreparedFile, ProcessEnd, ProcessExit, SessionClose, SessionSpec, SessionTracker,
-    StateKind, StatePath, StopSignal, StopSpec, Workspace,
+    Action, AgentSetting, Answer, Cell, CensusSource, CollectSpec, CommandSpec, CommandSpecError,
+    DriverFact, EnvEntry, GatewayEnv, HarnessId, InitReport, Observed, ObservedEnd, PendingItem,
+    PendingKind, PendingState, PreparedFile, ProcessEnd, ProcessExit, SessionClose, SessionSpec,
+    SessionTracker, StateKind, StatePath, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::process::ExitStatus;
@@ -449,7 +449,8 @@ fn conformance_opencode_facts_shape() -> TestResult {
 /// A working driver with one thing changed.
 struct Patched {
     inner: OpenShapedDriver,
-    capabilities: Option<Capabilities>,
+    session_answer: Option<Answer>,
+    wordless: Option<AgentSetting>,
     stop: Option<StopSpec>,
     extra_arg: Option<String>,
     census_stream_removed: bool,
@@ -459,14 +460,14 @@ struct Patched {
     host_collect: bool,
     state_override: Option<Vec<StatePath>>,
     gateway_override: Option<GatewayEnv>,
-    settings_override: Option<Vec<SettingRow>>,
 }
 
 impl Patched {
     fn new() -> Self {
         Self {
             inner: OpenShapedDriver(DocumentDriver),
-            capabilities: None,
+            session_answer: None,
+            wordless: None,
             stop: None,
             extra_arg: None,
             census_stream_removed: false,
@@ -476,7 +477,6 @@ impl Patched {
             host_collect: false,
             state_override: None,
             gateway_override: None,
-            settings_override: None,
         }
     }
 }
@@ -547,19 +547,25 @@ impl HarnessDriver for Patched {
     fn parse_version(&self, output: &[u8]) -> Result<semver::Version, DriverError> {
         self.inner.parse_version(output)
     }
-    fn capabilities(&self) -> Capabilities {
-        self.capabilities
-            .unwrap_or_else(|| self.inner.capabilities())
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        if self.wordless == Some(setting) {
+            return Answer::Mapped { construct: "" };
+        }
+        if let Some(answer) = self.session_answer
+            && setting == AgentSetting::SessionMode
+        {
+            return answer;
+        }
+        self.inner.answer(setting)
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        self.inner.fact(fact)
     }
     fn gateway(&self) -> Option<GatewayEnv> {
         self.gateway_override
             .clone() // BORROW: .clone() copies the override
             .or_else(|| self.inner.gateway())
-    }
-    fn settings_table(&self) -> Vec<SettingRow> {
-        self.settings_override
-            .clone() // BORROW: .clone() copies the override
-            .unwrap_or_else(|| self.inner.settings_table())
     }
     fn state_paths(&self) -> Vec<StatePath> {
         self.state_override
@@ -703,8 +709,34 @@ impl HarnessDriver for Keeps {
                 detail: String::from("no version"),
             })
     }
-    fn capabilities(&self) -> candler_harness::spec::Capabilities {
-        candler_harness::spec::Capabilities::builder().build()
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        let refused: &[AgentSetting] = &[
+            AgentSetting::SessionMode,
+            AgentSetting::TurnBudget,
+            AgentSetting::CostBudget,
+        ];
+        if refused.contains(&setting) {
+            Answer::Refused {
+                reason: "test stand-in",
+            }
+        } else {
+            Answer::Mapped {
+                construct: "test stand-in",
+            }
+        }
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        let held: &[DriverFact] = &[];
+        if held.contains(&fact) {
+            Answer::Mapped {
+                construct: "test stand-in",
+            }
+        } else {
+            Answer::Refused {
+                reason: "test stand-in",
+            }
+        }
     }
     fn gateway(&self) -> Option<candler_harness::spec::GatewayEnv> {
         Some(candler_harness::spec::GatewayEnv::new(
@@ -782,15 +814,9 @@ fn conformance_refuses_a_broken_driver() -> TestResult {
     let cases = open_cases()?;
     assert!(run_suite(&Patched::new(), &cases).is_ok());
     let mut broken = Patched::new();
-    broken.capabilities = Some(
-        Capabilities::builder()
-            .graceful_stop(true)
-            .live_events(true)
-            .execution_outside_child(true)
-            .census(true)
-            .session(true)
-            .build(),
-    );
+    broken.session_answer = Some(Answer::Mapped {
+        construct: "test stand-in",
+    });
     let message = refusal(&broken, &cases)?;
     assert!(
         message.contains("session capability is declared and the driver returns no session spec"),
@@ -1006,29 +1032,10 @@ fn conformance_refuses_a_broken_driver() -> TestResult {
     );
     assert!(refusal(&twice, &cases)?.contains("a reserved name is listed twice"));
 
-    // A settings table that names a setting and value twice, a refused row that gives no reason
-    // and a mapped row that names no construct are refused; a sound table passes.
-    let table = |rows: Vec<SettingRow>| {
-        let mut driver = Patched::new();
-        driver.settings_override = Some(rows);
-        driver
-    };
-    let mapped = SettingRow::mapped("permission_mode", "bypassPermissions", "`--auto`", "all");
-    let refused = SettingRow::refused("permission_mode", "plan", "reads and read-only shell");
-    assert!(run_suite(&table(vec![mapped.clone(), refused.clone()]), &cases).is_ok()); // BORROW: .clone() copies the row
-    let duplicate = table(vec![mapped.clone(), mapped.clone()]); // BORROW: .clone() copies the row
-    assert!(
-        refusal(&duplicate, &cases)?.contains("two rows name permission_mode bypassPermissions")
-    );
-    let no_reason = table(vec![SettingRow::refused("permission_mode", "plan", "")]);
-    assert!(refusal(&no_reason, &cases)?.contains("gives no reason"));
-    let no_construct = table(vec![SettingRow::mapped(
-        "permission_mode",
-        "plan",
-        "",
-        "all",
-    )]);
-    assert!(refusal(&no_construct, &cases)?.contains("names no construct"));
+    // An answer that has no words is refused.
+    let mut wordless = Patched::new();
+    wordless.wordless = Some(AgentSetting::CostBudget);
+    assert!(refusal(&wordless, &cases)?.contains("has no words"));
 
     // An in-container script that finds a process with the full-command-line option of `pgrep`
     // or `pkill` is refused, in any option cluster; exact-name and `/proc` forms pass.
@@ -1144,8 +1151,12 @@ impl HarnessDriver for Silent {
     fn parse_version(&self, output: &[u8]) -> Result<semver::Version, DriverError> {
         self.0.parse_version(output)
     }
-    fn capabilities(&self) -> Capabilities {
-        self.0.capabilities()
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        self.0.answer(setting)
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        self.0.fact(fact)
     }
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
         self.0.plan(cell, workspace)
@@ -1237,14 +1248,35 @@ fn conformance_session_surface_on_a_fake() -> TestResult {
         fn parse_version(&self, output: &[u8]) -> Result<semver::Version, DriverError> {
             self.0.parse_version(output)
         }
-        fn capabilities(&self) -> Capabilities {
-            Capabilities::builder()
-                .graceful_stop(true)
-                .live_events(true)
-                .execution_outside_child(true)
-                .census(true)
-                .session(true)
-                .build()
+        fn answer(&self, setting: AgentSetting) -> Answer {
+            let refused: &[AgentSetting] = &[AgentSetting::TurnBudget, AgentSetting::CostBudget];
+            if refused.contains(&setting) {
+                Answer::Refused {
+                    reason: "test stand-in",
+                }
+            } else {
+                Answer::Mapped {
+                    construct: "test stand-in",
+                }
+            }
+        }
+
+        fn fact(&self, fact: DriverFact) -> Answer {
+            let held: &[DriverFact] = &[
+                DriverFact::GracefulStop,
+                DriverFact::LiveEvents,
+                DriverFact::Census,
+                DriverFact::ExecutionOutsideChild,
+            ];
+            if held.contains(&fact) {
+                Answer::Mapped {
+                    construct: "test stand-in",
+                }
+            } else {
+                Answer::Refused {
+                    reason: "test stand-in",
+                }
+            }
         }
         fn gateway(&self) -> Option<GatewayEnv> {
             self.0.gateway()

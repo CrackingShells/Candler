@@ -23,9 +23,9 @@ Core line: `v0.15.0`; the `candler-harness` crate has the same version.
 | `HarnessDriver::supported` | `(&self) -> semver::VersionReq` | required | - |
 | `HarnessDriver::version_probe` | `(&self) -> CommandSpec` | required | - |
 | `HarnessDriver::parse_version` | `(&self, output: &[u8]) -> Result<semver::Version, DriverError>` | required | - |
-| `HarnessDriver::capabilities` | `(&self) -> Capabilities` | required | - |
+| `HarnessDriver::answer` | `(&self, setting: AgentSetting) -> Answer` | required | - |
+| `HarnessDriver::fact` | `(&self, fact: DriverFact) -> Answer` | required | - |
 | `HarnessDriver::plan` | `(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError>` | required | - |
-| `HarnessDriver::settings_table` | `(&self) -> Vec<SettingRow>` | optional | `Vec::new()` |
 | `HarnessDriver::check_settings` | `(&self, cell: &Cell<'_>) -> Result<(), DriverError>` | optional | `Ok(())` |
 | `HarnessDriver::gateway` | `(&self) -> Option<GatewayEnv>` | optional | `None` |
 | `HarnessDriver::state_paths` | `(&self) -> Vec<StatePath>` | optional | `Vec::new()` |
