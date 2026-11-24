@@ -137,20 +137,28 @@ pub fn by_name(
     Ok(rendered)
 }
 
-/// The servers of a cell by rendered name: the values at and below `mcp.servers`, each leaf placed
-/// at its path under its key, each entry read as an [`McpServer`], then [`by_name`]. `None` when
-/// the cell sets no server.
+/// The servers of a cell by key, each read as an [`McpServer`]: the values at and below
+/// `mcp.servers`, each leaf placed at its path under its key. `None` when the cell sets no server.
 ///
 /// # Errors
-/// [`DriverError`] when a value of the cell cannot be used, an entry is not a server (a field that
-/// is not typed or not known, neither a `command` nor a `url`, or both families at once), or [`by_name`] refuses a name.
-pub fn servers(cell: &Cell<'_>) -> Result<Option<BTreeMap<String, McpServer>>, DriverError> {
+/// [`DriverError`] when a value of the cell cannot be used, or an entry is not a server (a field
+/// that is not typed or not known, neither a `command` nor a `url`, or both families at once).
+pub fn by_key(cell: &Cell<'_>) -> Result<Option<BTreeMap<String, McpServer>>, DriverError> {
     let Some(table) = cell.table_at(&field_path!("mcp.servers"))? else {
         return Ok(None);
     };
-    let read_all: Result<BTreeMap<String, McpServer>, DriverError> = table
+    table
         .into_iter()
         .map(|(key, entry)| read(&key, entry).map(|server| (key, server)))
-        .collect();
-    by_name(read_all?).map(Some)
+        .collect::<Result<BTreeMap<String, McpServer>, DriverError>>()
+        .map(Some)
+}
+
+/// The servers of a cell by rendered name: [`by_key`], then [`by_name`]. `None` when the cell sets
+/// no server.
+///
+/// # Errors
+/// [`DriverError`] when [`by_key`] refuses the cell, or [`by_name`] refuses a name.
+pub fn servers(cell: &Cell<'_>) -> Result<Option<BTreeMap<String, McpServer>>, DriverError> {
+    by_key(cell)?.map(by_name).transpose()
 }

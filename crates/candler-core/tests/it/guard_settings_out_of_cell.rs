@@ -503,3 +503,38 @@ async fn t2_other_settings_stay_refused() {
         );
     }
 }
+
+/// Guards: the resolved cell records what Candler installs for a server: `codemode` is `false`
+/// where the file leaves it out, so a server that leaves it out and one that sets it to `false`
+/// are one cell, and `codemode = true` is another.
+/// Oracle: the hand-written files below; the value is read from the cell.
+/// Bite: drop `fill_codemode` from `fresh_cells`.
+#[tokio::test]
+async fn a_server_without_codemode_is_the_cell_with_codemode_off() {
+    let root = tempfile::tempdir().expect("a directory");
+    let dir = root.path();
+    let server = "\"mcp.servers.a.command\" = \"uvx\"\n";
+    let left_out = plan(&file_with(server, ""), dir).await;
+    let off = plan(
+        &file_with(&format!("{server}\"mcp.servers.a.codemode\" = false\n"), ""),
+        dir,
+    )
+    .await;
+    let on = plan(
+        &file_with(&format!("{server}\"mcp.servers.a.codemode\" = true\n"), ""),
+        dir,
+    )
+    .await;
+    let digest = |planned: &Planned| planned.cells.first().map(Comparable::digest);
+    assert!(digest(&left_out).is_some());
+    assert_eq!(digest(&left_out), digest(&off));
+    assert_ne!(digest(&left_out), digest(&on));
+    let held = left_out.cells.first().and_then(|cell| {
+        cell.values()
+            .iter()
+            .find(|value| value.path().as_str() == "mcp.servers.a.codemode")
+            .and_then(|value| value.value())
+            .map(JsonValue::as_value)
+    });
+    assert_eq!(held, Some(&json!(false)));
+}

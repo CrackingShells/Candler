@@ -19,6 +19,7 @@ use candler_schemas::execution::{
     Comparable, Deviation, ExecutionError, ExperimentFile, Factor, Integrity, Level, RunManifest,
     SecretPresence, TreatmentRef, experiment_digest,
 };
+use candler_schemas::field_path;
 use candler_schemas::primitives::{Digest, FieldPath, JobId, RunKey, SecretName};
 use candler_schemas::values::{JsonValue, ResolvedValue, SourceEntry, ValueSource};
 use rustix::fs::{FlockOperation, flock};
@@ -578,6 +579,37 @@ fn setting_in(prefix: &str, table: &serde_json::Map<String, Value>) -> Option<St
     })
 }
 
+/// The values of `values` with `codemode` written for each server of `mcp.servers` that does not
+/// set it, as the value [`McpServer`](candler_schemas::servers::McpServer) reads: the cell records
+/// what Candler installs, so a server that leaves `codemode` out and one that sets it to `false`
+/// are one cell.
+///
+/// # Errors
+/// [`PlanError::Driver`] when the reader of `mcp.servers` refuses an entry, or a server key is no
+/// field-path segment and so cannot hold a value.
+fn fill_codemode(values: &mut Vec<ResolvedValue>) -> Result<(), PlanError> {
+    let Some(servers) = candler_harness::mcp::by_key(&Cell::new(values.as_slice()))? else {
+        return Ok(());
+    };
+    for (key, server) in servers {
+        let path = format!("{}.{key}.codemode", candler_harness::mcp::SERVERS)
+            .parse::<FieldPath>()
+            .map_err(|error| DriverError::InvalidValue {
+                path: field_path!("mcp.servers"),
+                detail: format!("the key `{key}` {error}"),
+            })?;
+        if values.iter().any(|held| *held.path() == path) {
+            continue;
+        }
+        let held =
+            JsonValue::new(Value::Bool(server.codemode)).map_err(|error| PlanError::Cell {
+                source: error.into(),
+            })?;
+        values.push(ResolvedValue::recorded(path, held));
+    }
+    Ok(())
+}
+
 /// Builds every cell of `file`, each under the resolution of its treatment level. A path the file
 /// writes that [`is_setting`] names is a setting of the run, which the resolution holds, and no
 /// value of a cell; the treatment level reaches the cell through its resolution.
@@ -683,6 +715,7 @@ fn fresh_cells<'r>(
             })?;
             values.push(ResolvedValue::recorded(path, value));
         }
+        fill_codemode(&mut values)?;
         let canonical = {
             let at = |path: &str| {
                 values

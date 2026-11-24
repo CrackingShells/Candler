@@ -11,7 +11,7 @@ use candler_harness::spec::{Cell, PreparedFile};
 use candler_schemas::execution::paths::{TOOLS_ALLOWED, TOOLS_DISALLOWED};
 use candler_schemas::field_path;
 use candler_schemas::primitives::RelPath;
-use candler_schemas::servers::McpServer;
+use candler_schemas::servers::{McpServer, McpServerKind};
 use serde_json::{Map, Value, json};
 
 use crate::driver::invalid;
@@ -96,8 +96,49 @@ pub fn mcp_servers(cell: &Cell<'_>) -> Result<Option<BTreeMap<String, McpServer>
     candler_harness::mcp::servers(cell)
 }
 
+/// One server as Claude Code's `.mcp.json` documents it: `stdio` with `command`, `args` and `env`,
+/// `http` or `sse` with `url` and `headers`. A `local` server is written as `stdio` and a `remote`
+/// one as `http`.
+fn mcp_entry(name: &str, server: &McpServer) -> Result<Value, DriverError> {
+    let refused = |what: &str| DriverError::InvalidValue {
+        path: field_path!("mcp.servers"),
+        detail: format!("the server `{name}` {what}"),
+    };
+    let mut out = Map::new();
+    match candler_harness::mcp::kind(server) {
+        McpServerKind::Stdio | McpServerKind::Local => {
+            let command = server
+                .command
+                .as_ref()
+                .ok_or_else(|| refused("has no `command`"))?;
+            out.insert("type".to_owned(), json!("stdio")); // BORROW: .to_owned() makes the owned key
+            out.insert("command".to_owned(), json!(command)); // BORROW: .to_owned() makes the owned key
+            if let Some(args) = &server.args {
+                out.insert("args".to_owned(), json!(args)); // BORROW: .to_owned() makes the owned key
+            }
+            if let Some(env) = &server.env {
+                out.insert("env".to_owned(), json!(env)); // BORROW: .to_owned() makes the owned key
+            }
+        }
+        kind @ (McpServerKind::Http | McpServerKind::Sse | McpServerKind::Remote) => {
+            let url = server.url.as_ref().ok_or_else(|| refused("has no `url`"))?;
+            let transport = if kind == McpServerKind::Sse {
+                "sse"
+            } else {
+                "http"
+            };
+            out.insert("type".to_owned(), json!(transport)); // BORROW: .to_owned() makes the owned key
+            out.insert("url".to_owned(), json!(url)); // BORROW: .to_owned() makes the owned key
+            if let Some(headers) = &server.headers {
+                out.insert("headers".to_owned(), json!(headers)); // BORROW: .to_owned() makes the owned key
+            }
+        }
+    }
+    Ok(Value::Object(out))
+}
+
 /// The `.mcp.json` file of a cell: the servers of `mcp.servers` as `mcpServers`, each under its
-/// name. `None` when the cell sets no server.
+/// name and written in Claude Code's own shape. `None` when the cell sets no server.
 ///
 /// # Errors
 /// [`DriverError`] when a value of the cell cannot be used.
@@ -105,12 +146,12 @@ pub fn render_mcp(cell: &Cell<'_>) -> Result<Option<PreparedFile>, DriverError> 
     let Some(servers) = mcp_servers(cell)? else {
         return Ok(None);
     };
+    let entries = servers
+        .iter()
+        .map(|(name, server)| Ok((name.clone(), mcp_entry(name, server)?))) // BORROW: .clone() copies the name into the key
+        .collect::<Result<Map<String, Value>, DriverError>>()?;
     let mut root = Map::new();
-    let servers = serde_json::to_value(servers).map_err(|error| DriverError::InvalidValue {
-        path: field_path!("mcp.servers"),
-        detail: error.to_string(), // BORROW: .to_string() gives owned text
-    })?;
-    root.insert("mcpServers".to_owned(), servers); // BORROW: .to_owned() makes the owned key
+    root.insert("mcpServers".to_owned(), Value::Object(entries)); // BORROW: .to_owned() makes the owned key
     json_file(MCP_FILE, &Value::Object(root)).map(Some)
 }
 
