@@ -183,7 +183,6 @@ fn comparable_of(values: &[(String, Value)]) -> Comparable {
         "values": entries,
         "harness": {"name": "claude-code", "version": "2.1.311"},
         "treatment": {"name": "htn"},
-        "snapshots": [],
         "inputs": [],
         "environments": [],
     }))
