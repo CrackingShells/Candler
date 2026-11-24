@@ -113,8 +113,8 @@ Wire line: `schemas@0.12.0`.
 ## Notes
 
 - The document has no `free` fields. An unknown key outside `[fixed]` and the `levels` of a factor is `experiment.unknown_field`; a key under `[fixed]` or in a level table that is no setting path is `experiment.unknown_path`. [checked: v@0.7.0]
-- A TOML date or time is refused with `experiment.value_unrepresentable`. [checked: v@0.7.0]
-- A name, secret name or `schema` marker of the wrong form, an integer out of range and a value that breaks its field's format print `experiment.document_invalid`, never `format.*`. Any other value-invalid file prints its own code. [checked: v@0.13.0]
-- `canonical.integer_out_of_range` and `values.null` print only with `--set`. [checked: v@0.7.0]
+- A TOML date or time among the values is refused with `experiment.value_unrepresentable`. [checked: v@0.7.0]
+- A name, secret name or `schema` marker of the wrong form, an integer out of range and a value that breaks its field's format print `experiment.document_invalid`, never `format.*`. Any other value-invalid file prints its own code, such as `experiment.factor_without_levels` or `experiment.path_overlap`. [checked: v@0.13.0]
+- `canonical.integer_out_of_range` and `values.null` print only for a value given with `--set`. [checked: v@0.7.0]
 - `mcp.servers.<key>.name` names a server (default the key); a driver refuses a name with `__` or one two servers share. [checked: v@0.7.0]
 - `experiment.schema.json` does not check the entries of `mcp.servers`; `mcp-server.schema.json` checks one entry. [checked: schemas@0.12.0]
