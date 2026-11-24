@@ -16,7 +16,7 @@ A sealed run holds the bytes of the tool catalog it ran with, or the checkpoint'
 ## Status
 ```mermaid
 graph TD
-    catalog_snapshot[Catalog snapshot]:::planned
+    catalog_snapshot[Catalog snapshot]:::done
     review[Seam review 2]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -28,7 +28,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `catalog_snapshot.md` | 📄 Leaf Task | ⬜ Planned |
+| `catalog_snapshot.md` | 📄 Leaf Task | ✅ Done |
 | `review/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log

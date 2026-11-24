@@ -16,7 +16,7 @@ Level 1's seams are reviewed and P5 is decided from measured spend.
 ## Status
 ```mermaid
 graph TD
-    seam_review_one[Seam review 1]:::planned
+    seam_review_one[Seam review 1]:::done
     snapshot[Catalog snapshot]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -28,7 +28,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `seam_review_one.md` | 📄 Leaf Task | ⬜ Planned |
+| `seam_review_one.md` | 📄 Leaf Task | ✅ Done |
 | `snapshot/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
