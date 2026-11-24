@@ -239,20 +239,7 @@ fn o1_resolve_refuses_a_replicate_count_the_plan_refuses() {
 fn o1_resolve_accepts_an_experiment_with_two_treatment_levels() {
     let world = world();
     let models = Models::start(TOKEN);
-    let skill = world.skills.join(".claude").join("skills").join("demo");
-    write(&skill.join("SKILL.md"), "# second\n");
-    for args in [
-        &["commit", "-q", "-a", "-m", "second"][..],
-        &["tag", "v2"][..],
-    ] {
-        let status = Command::new("git")
-            .arg("-C")
-            .arg(&world.skills)
-            .args(args)
-            .status()
-            .unwrap();
-        assert!(status.success(), "git {args:?} failed");
-    }
+    world.tag_new_commit("v2");
     let source = world.skills.display().to_string();
     let text_of = fs::read_to_string(&world.experiment).unwrap();
     let factor = format!(
