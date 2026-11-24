@@ -1,6 +1,6 @@
 # Leaf P11 pages: the capability and configuration pages walk the declaration
 
-Base `7d497545` (`origin/feat/integrity`). Commits: `3a8fcb2e` (`test(api): hold the capability page to the drivers' answers`, step 1), `f3011686` (`docs(api): generate pages from the declaration`, step 2), `82a1989f` (`docs(api): show every setting of a path and one cell wording`, the review round). This report covers steps 1 and 2 and the review round that followed the Sonnet reviewer's findings.
+Base `7d497545` (`origin/feat/integrity`). Commits: `3a8fcb2e` (`test(api): hold the capability page to the drivers' answers`, step 1), `f3011686` (`docs(api): generate pages from the declaration`, step 2), `82a1989f` (`docs(api): show every setting of a path and one cell wording`, the review round), `99028f47` (`docs(api): name the cap spec entries as items`, a rename so the review gate's grep reads clean). This report covers steps 1 and 2 and the review round that followed the Sonnet reviewer's findings.
 
 ## Gates
 
