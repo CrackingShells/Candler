@@ -28,10 +28,10 @@
 #  9. Sorting by `path`, `(kind, digest)` and `(plugin, lock_digest)` is by Unicode code point
 #     (the order of UTF-8 bytes); the vectors keep their sort keys ASCII.
 # 10. The `cell` key of a vector is the mini-corpus cell directory name, or `invented-<n>`.
-# A cell that lists `snapshots` is hashed with the list; a cell without catalog snapshots
-# is hashed without the key (`invented-1`, `invented-4`). The vectors that list `snapshots`
-# stay: the maintainer's own stores (golden and HTN runs) hold manifests of that shape, and
-# their cell digests must still verify. Do not prune them as dead.
+# A cell that carries `snapshots`, empty or not, is hashed with the list; a cell without
+# the key is hashed without it (`invented-4`, the shape of every new cell). The vectors that
+# carry `snapshots` stay: the maintainer's own stores (golden and HTN runs) hold manifests of
+# that shape, and their cell digests must still verify. Do not prune them as dead.
 
 
 # `comparable` is sorted and unique; `shuffled` has the same content with every list in
@@ -64,9 +64,9 @@ outside_twin = "{\"sources\":[{\"path\":\"plan.model\",\"source\":{\"kind\":\"ex
 
 [[vector]]
 cell = "invented-1"
-comparable = "{\"values\":[],\"harness\":{\"name\":\"scripted\",\"version\":\"0.1.0\",\"driver\":\"pty-driver@1.0.0\"},\"treatment\":{\"name\":\"bare-skill\"},\"inputs\":[],\"environments\":[]}"
-digest = "sha256:6457b5734cd352b35a3ae1b5a1f446c7eb700b2450a5ba46ee738696eb3917b5"
-shuffled = "{\"values\":[],\"harness\":{\"name\":\"scripted\",\"version\":\"0.1.0\",\"driver\":\"pty-driver@1.0.0\"},\"treatment\":{\"name\":\"bare-skill\"},\"inputs\":[],\"environments\":[]}"
+comparable = "{\"values\":[],\"harness\":{\"name\":\"scripted\",\"version\":\"0.1.0\",\"driver\":\"pty-driver@1.0.0\"},\"treatment\":{\"name\":\"bare-skill\"},\"snapshots\":[],\"inputs\":[],\"environments\":[]}"
+digest = "sha256:4a5670ce3ee6403bb679546e49d2a573852868941bfe26cf81725a926ab6435d"
+shuffled = "{\"values\":[],\"harness\":{\"name\":\"scripted\",\"version\":\"0.1.0\",\"driver\":\"pty-driver@1.0.0\"},\"treatment\":{\"name\":\"bare-skill\"},\"snapshots\":[],\"inputs\":[],\"environments\":[]}"
 outside = "{\"sources\":[{\"path\":\"plan.model\",\"source\":{\"kind\":\"experiment_file\"}}],\"secrets\":[{\"name\":\"ANTHROPIC_API_KEY\",\"present\":true}],\"measured\":[{\"path\":\"run.exit\",\"value\":{\"code\":0},\"source\":{\"kind\":\"core_default\"}}],\"started_at\":\"2026-08-06T03:59:40Z\",\"ended_at\":\"2026-08-06T04:10:00Z\",\"host\":\"host-a-4\"}"
 outside_twin = "{\"sources\":[{\"path\":\"plan.model\",\"source\":{\"kind\":\"explicit_argument\"}},{\"path\":\"plan.runs\",\"source\":{\"kind\":\"user_config\"}}],\"secrets\":[],\"measured\":[],\"started_at\":\"2027-01-02T10:00:00+09:00\",\"ended_at\":\"2027-01-02T11:30:15.250+09:00\",\"host\":\"other-host-4\"}"
 
