@@ -9,8 +9,8 @@ operation API:
   evaluators that emit one outcome record format.
 
 A library, a lean CLI and an MCP server are thin surfaces over that API. Domain science (for
-example the HTN-creator evaluation) plugs in as evaluators, suite specs, fixtures and catalog
-providers. The core names no domain.
+example the HTN-creator evaluation) plugs in as evaluators, suite specs and fixtures. The core
+names no domain.
 
 Candler runs and grades LLM-based agents under controlled conditions, and compares the results
 with statistics that say what they can and cannot support.
