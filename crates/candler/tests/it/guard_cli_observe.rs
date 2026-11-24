@@ -257,6 +257,49 @@ fn o1_resolve_accepts_an_experiment_with_two_treatment_levels() {
     world.remove();
 }
 
+/// Guards: a treatment level that cannot be resolved is reported the same way whether it is the
+/// first level or a later one: the failed check goes through the failure lines on stdout, and the
+/// refusal on stderr is the preflight's.
+///
+/// Oracle: the exit code and the stdout and stderr of two real runs, one with the missing tag in
+/// the first level and one with it in the second; the tags are written here.
+///
+/// Bite: a later level's preflight failure is returned as the refusal alone, so stdout stays
+/// empty and the failed check is not listed.
+#[test]
+fn o1_resolve_reports_a_later_level_failure_like_a_first_one() {
+    let world = world();
+    let models = Models::start(TOKEN);
+    let source = world.skills.display().to_string();
+    let original = fs::read_to_string(&world.experiment).unwrap();
+    let outputs: Vec<Output> = [("nope", "v1"), ("v1", "nope")]
+        .iter()
+        .map(|(first, second)| {
+            let factor = format!(
+                "[[factors]]\npath = \"request.treatment\"\nlevels = [{{name = \"demo\", tag = \"{first}\", source = \"{source}\"}}, {{name = \"demo\", tag = \"{second}\", source = \"{source}\"}}]\n\n[budget.per_run]"
+            );
+            fs::write(
+                &world.experiment,
+                original.replace("[budget.per_run]", &factor),
+            )
+            .unwrap();
+            resolve(&world, &models.url(), &[], Some(TOKEN))
+        })
+        .collect();
+    let [first, later] = outputs.as_slice() else {
+        unreachable!("two runs")
+    };
+    assert_eq!(first.status.code(), Some(2), "{}", text(&first.stderr));
+    assert!(
+        !first.stdout.is_empty(),
+        "no failure line for the first level: {}",
+        text(&first.stderr)
+    );
+    assert_eq!(text(&later.stdout), text(&first.stdout));
+    assert_eq!(text(&later.stderr), text(&first.stderr));
+    world.remove();
+}
+
 /// Guards: `resolve` builds each cell, so an absolute path in the `args` of a server (which `run`
 /// refuses as `experiment.absolute_path`) and a malformed server written in a factor level are
 /// refused by `resolve` too.

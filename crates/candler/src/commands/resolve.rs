@@ -271,20 +271,27 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
         .map_err(failed_here)?;
 
     let mut failures = plugin_dir_failures(&config);
-    let mut resolution = None;
     let mut summary = None;
     let declared_levels = treatment_levels(&file);
-    let first = match declared_levels.first() {
-        Some(level) => input_for_level(&input, level, experiment_dir.as_path())?,
-        None => input.clone(), // BORROW: the later levels resolve from the same input
+    let given = if declared_levels.is_empty() {
+        vec![input.clone()] // BORROW: the single resolution starts from the same input
+    } else {
+        declared_levels
+            .iter()
+            .map(|level| input_for_level(&input, level, experiment_dir.as_path()))
+            .collect::<Result<Vec<_>, _>>()?
     };
-    match resolver.resolve(first).await {
-        Ok(found) => resolution = Some(found),
-        Err(ResolveError::Preflight { reports, errors }) => {
-            failures.extend(render_failures(&reports, &errors));
-            summary = Some(ResolveError::Preflight { reports, errors });
+    let mut levels = Vec::with_capacity(given.len());
+    for level in given {
+        match resolver.resolve(level).await {
+            Ok(found) => levels.push(found),
+            Err(ResolveError::Preflight { reports, errors }) => {
+                failures.extend(render_failures(&reports, &errors));
+                summary = Some(ResolveError::Preflight { reports, errors });
+                break;
+            }
+            Err(other) => return Err(CliError::refused_by(other)),
         }
-        Err(other) => return Err(CliError::refused_by(other)),
     }
 
     let mut stdout = std::io::stdout().lock();
@@ -298,19 +305,10 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
             )),
         });
     }
-    let Some(resolution) = resolution else {
+    // BORROW: the levels own their resolutions
+    let Some(resolution) = levels.first().cloned() else {
         return Ok(Exit::Success);
     };
-    let mut levels = vec![resolution.clone()]; // BORROW: the levels own their resolutions
-    for level in declared_levels.iter().skip(1) {
-        let given = input_for_level(&input, level, experiment_dir.as_path())?;
-        levels.push(
-            resolver
-                .resolve(given)
-                .await
-                .map_err(CliError::refused_by)?,
-        );
-    }
     check_cells(&file, levels.as_slice(), driver.as_ref()).map_err(CliError::refused_by)?; // BORROW: explicit .as_slice()
     if text {
         for line in render_values(&resolution, Paint::detect()) {
