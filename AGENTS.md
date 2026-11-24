@@ -84,3 +84,5 @@ files are regenerated with `CANDLER_BLESS_SCHEMAS=1 cargo nextest run -p candler
   and integration.
 - [__design__/architecture.md](__design__/architecture.md): the architecture, the crate layout
   (§Workspace) and the wire encodings (§Wire encodings).
+- [__roadmap__/leaf_template.md](__roadmap__/leaf_template.md): the shape of a roadmap leaf and the
+  conventions behind it.
