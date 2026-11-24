@@ -27,7 +27,7 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 
-use crate::canonical::CanonicalError;
+use crate::canonical::{CanonicalError, to_jcs};
 use crate::distinct::first_repeat;
 use crate::map_only::MapOnly;
 use crate::primitives::{Digest, NameToken, RelPath, Timestamp, object_only};
@@ -483,21 +483,29 @@ impl CatalogSnapshot {
         self.servers.as_slice()
     }
 
-    /// The digest of the snapshot's content: `sha256` of the RFC 8785 form of the snapshot
-    /// without `captured_at`, so that a capture time never splits a cell.
+    /// The content of the snapshot as RFC 8785 text, without `captured_at`, so that a capture
+    /// time never splits a cell. These are the bytes [`CatalogSnapshot::content_digest`] hashes.
     ///
     /// # Errors
-    /// Returns the [`CanonicalError`] of [`Digest::of_canonical`] if the snapshot has no canonical
-    /// form, which an integer outside ±(2^53 − 1) in `ext` causes: the snapshot reader does not
-    /// check numbers.
-    pub fn content_digest(&self) -> Result<Digest, CanonicalError> {
+    /// Returns the [`CanonicalError`] of [`to_jcs`] if the snapshot has no canonical form, which an
+    /// integer outside ±(2^53 − 1) in `ext` causes: the snapshot reader does not check numbers.
+    pub fn content_text(&self) -> Result<String, CanonicalError> {
         let mut json = serde_json::to_value(self).map_err(|e| CanonicalError::Syntax {
             detail: e.to_string(),
         })?;
         if let Value::Object(fields) = &mut json {
             fields.remove("captured_at");
         }
-        Digest::of_canonical(&json)
+        to_jcs(&json)
+    }
+
+    /// The digest of the snapshot's content: `sha256` of [`CatalogSnapshot::content_text`].
+    ///
+    /// # Errors
+    /// Returns the [`CanonicalError`] of [`CatalogSnapshot::content_text`].
+    pub fn content_digest(&self) -> Result<Digest, CanonicalError> {
+        // BORROW: explicit .as_bytes() of the canonical text, the bytes the digest hashes
+        Ok(Digest::of_bytes(self.content_text()?.as_bytes()))
     }
 }
 

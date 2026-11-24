@@ -70,6 +70,10 @@ pub struct InspectRun {
     /// What the run was imported from, for an imported run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub import: Option<Value>,
+    /// The tool catalog the run ran with, as the run stored it: the canonical form of the
+    /// snapshot without `captured_at`. Absent when the run has no stored snapshot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catalog: Option<Value>,
     /// The measured values under `provenance.`, by path.
     pub provenance: BTreeMap<String, Value>,
     /// The other measured values, by path.
