@@ -17,7 +17,7 @@ The census is the only record of the tools a run had, and a parity guard holds b
 graph TD
     snapshot_out[Snapshot out]:::done
     parity_run[Parity run]:::done
-    closing[Closing]:::inprogress
+    closing[Closing]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -30,7 +30,7 @@ graph TD
 |:-----|:-----|:-------|
 | `snapshot_out.md` | 📄 Leaf Task | ✅ Done |
 | `parity_run.md` | 📄 Leaf Task | ✅ Done |
-| `closing/` | 📁 Directory | 🔄 In Progress |
+| `closing/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

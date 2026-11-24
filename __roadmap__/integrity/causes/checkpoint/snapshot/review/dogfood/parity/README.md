@@ -19,7 +19,7 @@ Every fact about a harness is stated in one shape, which each registered driver 
 ```mermaid
 graph TD
     declaration[Settings declaration]:::done
-    answered[Answered]:::inprogress
+    answered[Answered]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -31,7 +31,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `declaration.md` | 📄 Leaf Task | ✅ Done |
-| `answered/` | 📁 Directory | 🔄 In Progress |
+| `answered/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

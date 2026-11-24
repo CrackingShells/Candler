@@ -17,7 +17,7 @@ Whose failure each friction is, Candler's or the agent's, is known from the tran
 ```mermaid
 graph TD
     dogfooding_pass[Dogfooding pass]:::done
-    parity[Harness parity]:::amendment
+    parity[Harness parity]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -29,7 +29,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `dogfooding_pass.md` | 📄 Leaf Task | ✅ Done |
-| `parity/` | 📁 Directory | 🔵 Amendment |
+| `parity/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

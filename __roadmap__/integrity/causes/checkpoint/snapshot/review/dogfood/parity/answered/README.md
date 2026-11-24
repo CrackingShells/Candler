@@ -18,7 +18,7 @@ graph TD
     mcp_render[MCP render]:::done
     census[Census]:::blocked
     pages[Generated pages]:::done
-    recorded[Recorded]:::inprogress
+    recorded[Recorded]:::done
     trace_parity[Trace parity]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -33,7 +33,7 @@ graph TD
 | `mcp_render.md` | 📄 Leaf Task | ✅ Done |
 | `census.md` | 📄 Leaf Task | 🚫 Blocked |
 | `pages.md` | 📄 Leaf Task | ✅ Done |
-| `recorded/` | 📁 Directory | 🔄 In Progress |
+| `recorded/` | 📁 Directory | ✅ Done |
 | `trace_parity.md` | 📄 Leaf Task | ✅ Done |
 
 ## Amendment Log
