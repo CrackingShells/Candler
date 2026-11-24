@@ -18,8 +18,8 @@ Every fact about a harness is stated in one shape, which each registered driver 
 ## Status
 ```mermaid
 graph TD
-    declaration[Settings declaration]:::amendment
-    answered[Answered]:::amendment
+    declaration[Settings declaration]:::done
+    answered[Answered]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -30,8 +30,8 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `declaration.md` | 📄 Leaf Task | 🔵 Amendment |
-| `answered/` | 📁 Directory | 🔵 Amendment |
+| `declaration.md` | 📄 Leaf Task | ✅ Done |
+| `answered/` | 📁 Directory | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
@@ -40,3 +40,4 @@ graph TD
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| `declaration.md` | `leaf/l3-declaration` | merged at `4a0dcada` (#71) | Report `__reports__/diet/leaves/declaration_v0.md`. Implementer, finisher, verifier, fix round and one design round (B2): $7.55 of the $24 cap. Inputs for seam review 3 noted. |

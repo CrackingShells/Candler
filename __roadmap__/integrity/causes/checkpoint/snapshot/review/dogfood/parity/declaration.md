@@ -3,8 +3,8 @@
 **Goal**: Every per-harness list has one shape: a fieldless key enum with a `const ALL`, a `Copy` answer of `&'static str`, and one exhaustive `match` per driver. `AgentSetting` holds what an experiment sets that reaches the agent. `DriverFact` holds what a driver does on its own and replaces `Capabilities`. Every `CONFIGURATION_PATHS` row says whether it reaches the agent (P8).
 **Estimate**: Sonnet, $12, cap $24, with the lead reviewing at each joint. At the cap, stop, commit what is green, and list what is left. Builds use the target dir the campaign README names, which is removed when the leaf merges.
 **Pre-conditions**:
-- [ ] `[cmd]` `git -C <worktree> merge-base --is-ancestor origin/feat/integrity HEAD` succeeds
-- [ ] `[nl]` The level-3 plan, revision 2, is approved (A3)
+- [x] `[cmd]` `git -C <worktree> merge-base --is-ancestor origin/feat/integrity HEAD` succeeds
+- [x] `[nl]` The level-3 plan, revision 2, is approved (A3)
 **Success Gates**:
 - ⬜ `SettingRow`, `HarnessDriver::settings_table`, `Capabilities`, `CapabilitiesBuilder` and `BudgetCaps` are gone from the tree, and nothing replaces them with a second table
 - ⬜ A test driver that omits its session-mode answer compiles and passes conformance on the base, through the builder's default `false`. On the tip, a scratch branch that adds one variant to `AgentSetting` and one to `DriverFact` fails to compile in both drivers until each answers it. The failure is recorded in the report and not committed

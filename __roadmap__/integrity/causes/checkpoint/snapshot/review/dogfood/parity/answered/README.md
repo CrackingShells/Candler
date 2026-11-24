@@ -7,7 +7,7 @@ The second level of harness parity. It needs `../declaration.md`'s `AgentSetting
 Each driver renders what the declaration answers, both trace readers attribute an MCP call the same way, and the pages are generated from the declaration.
 
 ## Pre-conditions
-- [ ] `[nl]` `../declaration.md` is `done`
+- [x] `[nl]` `../declaration.md` is `done`
 
 ## Success Gates
 - ⬜ `mcp_render.md`, `trace_parity.md`, `pages.md` and `recorded/` are `done`, and `census.md` stays `blocked`
