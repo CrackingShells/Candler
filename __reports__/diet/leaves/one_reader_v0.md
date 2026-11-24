@@ -157,6 +157,14 @@ resolution".
 - fmt, clippy `-D warnings`, `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps`: PASS.
 - `cargo nextest run --workspace`: `747 tests run: 747 passed (6 slow), 31 skipped`.
 
+## Who produces the state (lead review, for seam review 1)
+
+Three places in this leaf where a test or a reader does not take its state from the one producer:
+
+1. **The two-level resolve guard failed on CI** (`guard_cli_observe::o1_resolve_accepts_an_experiment_with_two_treatment_levels`, panic at `guard_cli_observe.rs:254`, "Author identity unknown"). The cause is the git identity, not the fixture: the guard ran `git commit` itself and inherited the machine's identity, while every other commit in the world goes through `support::cli_run`'s `git`, which pins the author and blanks the global and system config. Locally it passed because macOS git guesses an identity from the host. Red reproduced with `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1` and `user.useConfigOnly=true`: `1 test run: 0 passed, 1 failed`, same panic line. Fix: `World::tag_new_commit` makes the commit and tag through the fixture's `git`; under the same environment `guard_cli_observe` and `guard_cli_run` give `25 tests run: 25 passed`. The experiment shape is one a user writes: two tagged versions of one skill from one source, as two `request.treatment` levels; the test writes that experiment file itself (a consumer input) and the skills repository comes from the world's fixture.
+2. **`check_replicates_input`** (`crates/candler-core/src/resolve/layers.rs:389-409`) still reads `replicates` itself, with its own codes (`ReplicatesNotInteger`, `ReplicatesPath`), next to `Levels::replicates`. The leaf names only the CLI's `check_replicate_count` for deletion, so this is not required by the leaf, but "one reader" is not strictly met for `replicates`, and a non-integer and a zero count get codes from two readers.
+3. **`at_plan_fixed`** in `guard_silent_acceptance.rs` builds the resolution from `Facts::base()` and edits `resolved["settings"]` by hand; the settings come from the real `Layered`, the resolution around them does not.
+
 ## HTN migration note
 
 For the HTN lane. This repository has no external users; this is a note, not a shim.
