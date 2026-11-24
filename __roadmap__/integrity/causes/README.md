@@ -21,7 +21,7 @@ graph TD
     collect_oracle[Collect oracle]:::done
     one_reader[One reader]:::done
     kill_off_tty[Kill off a TTY]:::done
-    checkpoint[Seam review 1 and checkpoint]:::planned
+    checkpoint[Seam review 1 and checkpoint]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -36,7 +36,7 @@ graph TD
 | `collect_oracle.md` | 📄 Leaf Task | ✅ Done |
 | `one_reader.md` | 📄 Leaf Task | ✅ Done |
 | `kill_off_tty.md` | 📄 Leaf Task | ✅ Done |
-| `checkpoint/` | 📁 Directory | ⬜ Planned |
+| `checkpoint/` | 📁 Directory | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

@@ -10,10 +10,10 @@
 - ⬜ Collect has an oracle outside the driver: with B1's fix reverted on a scratch branch, the shared conformance case fails for OpenCode only, naming the files the agent wrote
 - ⬜ One reader per input: an experiment with a malformed MCP server is refused by `resolve` with the field path, with the same record from the CLI and the op API, where the base ran it with the server silently absent; the diff adds no trait, wrapper type or module between an input and its use
 - ⬜ The `AGENTS.md` section "Sustainable, scalable, efficient" is replaced by the approved paragraph, and the leaf template carries the conventions of D3
-- ⬜ Both seam reviews ran on the whole diff since the base and their findings are resolved or recorded
-- ⬜ The catalog snapshot is stored (option (b)) and `inspect` shows the catalog a sealed run ran with, or the spend checkpoint recorded that P5 waits
+- ⬜ The three seam reviews ran, each on its levels' whole diff, and their findings are resolved or recorded
+- ⬜ `inspect` shows the census and the resolved `mcp.*` values a sealed run ran with, and no catalog snapshot that Candler did not observe
 - ⬜ The dogfooding pass ran on the after tip with two RiVault models under OpenCode, every friction is classified by whose failure it is, the golden covers are listed as passed with the corpus set, and latency and USD are reported
-- ⬜ Spend is measured from transcripts and stays within the fresh $100, coordinator included, enforced by the checkpoint after seam review 1 and the per-row caps
+- ⬜ Spend is measured from transcripts per row and no row passed its cap without stopping; levels 1 and 2, coordinator included, stay within the $127 the maintainer approved, and level 3, its lead included, within $70
 **References**: [Cycle plan v2](../../../../../../../../../../../__reports__/diet/04-architecture_cycle_plan_v2.md) — causes, proof, pieces, order and cost; [AGENTS.md](../../../../../../../../../../../AGENTS.md) — where the D4 paragraph lands; [README.md](../../../../../../../../../../../README.md) — the purpose paragraph, the yardstick
 
 ## Step 1: Plan the rest of the milestone
