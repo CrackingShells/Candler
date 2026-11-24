@@ -7,7 +7,7 @@ The third level of harness parity. It needs the census reduced to tools by `../t
 The census is the only record of the tools a run had, and a parity guard holds both harnesses to it.
 
 ## Pre-conditions
-- [ ] `[nl]` `../mcp_render.md` and `../trace_parity.md` are `done` (`../census.md` stays `blocked`)
+- [x] `[nl]` `../mcp_render.md` and `../trace_parity.md` are `done` (`../census.md` stays `blocked`)
 
 ## Success Gates
 - ⬜ `snapshot_out.md`, `parity_run.md` and `closing/` are `done`

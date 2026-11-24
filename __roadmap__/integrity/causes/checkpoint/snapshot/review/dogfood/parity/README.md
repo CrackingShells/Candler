@@ -41,3 +41,5 @@ graph TD
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
 | `declaration.md` | `leaf/l3-declaration` | merged at `4a0dcada` (#71) | Report `__reports__/diet/leaves/declaration_v0.md`. Implementer, finisher, verifier, fix round and one design round (B2): $7.55 of the $24 cap. Inputs for seam review 3 noted. |
+| `answered/mcp_render.md` | `leaf/l3-mcp-render-b` | merged at `29573006` (#74) | Report `__reports__/diet/leaves/mcp_render_v0.md`. Redone on a second branch so the schemas commit stands alone (#73 closed). Implementer and verifier: $3.46 of the $12 cap. |
+| `answered/trace_parity.md` | `leaf/l3-trace-parity` | merged at `cca93ab4` (#75) | Report `__reports__/diet/leaves/trace_parity_v0.md`. Census gate reworded by A5. Adds the server-name rule and `fix(schemas)!` `SERVER_NAME_PATTERN`. Implementer, verifier and A5 sweep: $6.77 of the $16 cap. |

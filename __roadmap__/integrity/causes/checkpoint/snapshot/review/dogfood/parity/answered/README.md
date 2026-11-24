@@ -15,11 +15,11 @@ Each driver renders what the declaration answers, both trace readers attribute a
 ## Status
 ```mermaid
 graph TD
-    mcp_render[MCP render]:::amendment
+    mcp_render[MCP render]:::done
     census[Census]:::blocked
-    pages[Generated pages]:::amendment
+    pages[Generated pages]:::inprogress
     recorded[Recorded]:::amendment
-    trace_parity[Trace parity]:::amendment
+    trace_parity[Trace parity]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -30,11 +30,11 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `mcp_render.md` | 📄 Leaf Task | 🔵 Amendment |
+| `mcp_render.md` | 📄 Leaf Task | ✅ Done |
 | `census.md` | 📄 Leaf Task | 🚫 Blocked |
-| `pages.md` | 📄 Leaf Task | 🔵 Amendment |
+| `pages.md` | 📄 Leaf Task | 🔄 In Progress |
 | `recorded/` | 📁 Directory | 🔵 Amendment |
-| `trace_parity.md` | 📄 Leaf Task | 🔵 Amendment |
+| `trace_parity.md` | 📄 Leaf Task | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

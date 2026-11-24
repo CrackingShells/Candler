@@ -3,8 +3,8 @@
 **Goal**: The capability page and the configuration contract page are walks over `AgentSetting::ALL`, `DriverFact::ALL`, `CONFIGURATION_PATHS` and the registered drivers, so an experimenter reads per harness what happens to each setting and fact (P11).
 **Estimate**: RiVault, Reasoning-Medium first, then Reasoning-Large, then Sonnet if both fail; the Sonnet review is mandatory, $2, cap $4. Check that thinking ran on each RiVault model before trusting its output. At the cap, stop, commit what is green, and list what is left. Builds use the target dir the campaign README names, removed at the leaf's merge.
 **Pre-conditions**:
-- [ ] `[cmd]` `git -C <worktree> merge-base --is-ancestor origin/feat/integrity HEAD` succeeds
-- [ ] `[nl]` `../declaration.md` is `done`
+- [x] `[cmd]` `git -C <worktree> merge-base --is-ancestor origin/feat/integrity HEAD` succeeds
+- [x] `[nl]` `../declaration.md` is `done`
 **Success Gates**:
 - ⬜ The capability page's rows come from `AgentSetting::ALL` and `DriverFact::ALL` for each registered driver. `ROWS`, the `Mapping` fn pointers and `cap()`'s string match on `budget.per_run.turns` are gone. The rows built from typed specs (stop signal, gateway route, trace) read `fact` and the driver's specs, and nothing else
 - ⬜ Changing one driver's answer without regenerating fails the page test; on the base, changing OpenCode's cost-cap row leaves the page test passing as long as the hand-written row still finds a refused row
