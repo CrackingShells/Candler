@@ -148,6 +148,44 @@ fn kill_off_a_terminal_refuses_before_prompting() {
     assert_eq!(out.status.code(), Some(0), "{stderr}");
 }
 
+/// Guards: a store that cannot be read is reported as such, whether or not stdin is a terminal:
+/// `candler kill --all --store <a regular file>` with stdin closed and no `-y` gives the store's
+/// failure and not the "not confirmed" refusal.
+///
+/// Oracle: the exit status and stderr of the real binary; the control run on the same line with
+/// the store that exists gives the "not confirmed" refusal, so the two texts differ by cause.
+///
+/// Bite: the terminal test runs before the store and the targets are resolved, so the refusal to
+/// confirm hides the store's.
+#[test]
+fn kill_off_a_terminal_reports_the_store_before_the_confirmation() {
+    let root = world();
+    let missing = root.join("a-file");
+    fs::write(&missing, "").unwrap();
+    let run = |store: &Path| {
+        Command::new(env!("CARGO_BIN_EXE_candler"))
+            .args(["kill", "--all", "--store"])
+            .arg(store)
+            .env(
+                "PATH",
+                format!("{}:/usr/bin:/bin", root.join("bin").display()),
+            )
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    let out = run(&missing);
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert!(!out.status.success(), "{stderr}");
+    assert!(
+        !stderr.contains("pass -y"),
+        "the store's failure was hidden behind the confirmation: {stderr}"
+    );
+    let control = run(&root.join("store"));
+    let stderr = String::from_utf8_lossy(&control.stderr).into_owned();
+    assert!(stderr.contains("pass -y"), "{stderr}");
+}
+
 /// Runs the real binary on the world, naming its store as `how` says: `CANDLER_STORE` alone,
 /// or `--store` before the verb. The working directory and the state home name no store.
 fn candler_naming(root: &Path, how: &str, args: &[&str]) -> Output {
