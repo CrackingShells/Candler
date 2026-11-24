@@ -220,6 +220,11 @@ pub async fn kill(
     let root = common::store_root("kill", store).await?;
     let names = targets(args, &root.join("jobs"))?;
     if !args.yes {
+        // Off a terminal the question cannot be answered, so the verb is refused before any line
+        // of the prompt is emitted.
+        if !io::stdin().is_terminal() {
+            return Err(CliError::refused_by(CliRefusal::KillNotConfirmed));
+        }
         writeln!(out, "would stop: {}", names.join(" ")).map_err(fail)?;
         write!(out, "stop them? [y/N] ").map_err(fail)?;
         out.flush().map_err(fail)?;
@@ -267,11 +272,6 @@ pub async fn kill(
 /// [`CliError`] when the confirmation is refused or a job could not be stopped.
 pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let stdin = io::stdin();
-    // Off a terminal and without `--yes` the question the prompt asks cannot be answered, so the
-    // verb is refused before any line of the prompt is emitted.
-    if !stdin.is_terminal() && !args.yes {
-        return Err(CliError::refused_by(CliRefusal::KillNotConfirmed));
-    }
     let mut input = stdin.lock();
     let mut stdout = io::stdout().lock();
     kill(&args, store, &mut input, &mut stdout).await?;

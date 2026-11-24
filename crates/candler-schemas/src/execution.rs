@@ -132,6 +132,9 @@ pub enum ExecutionError {
         /// The name of the field.
         field: &'static str,
     },
+    /// A `replicates` value that is not a whole number from 1 to 4294967295.
+    #[error("`replicates` must be a whole number from 1 to 4294967295")]
+    ReplicatesNotCount,
     /// A factor with no level, which would leave the experiment with no cell.
     #[error("factor `{factor}` has no level")]
     NoLevels {
@@ -1102,17 +1105,15 @@ struct Plan {
 /// The replicates `count` stands for: at least 1 and at most [`u32::MAX`].
 ///
 /// # Errors
-/// [`ExecutionError::Zero`] when `count` is 0, and [`ExecutionError::NotPositive`] when it does
-/// not fit in 32 bits.
+/// [`ExecutionError::Zero`] when `count` is 0, and [`ExecutionError::ReplicatesNotCount`] when it
+/// does not fit in 32 bits.
 pub fn check_replicates(count: u64) -> Result<u32, ExecutionError> {
     match u32::try_from(count) {
         Ok(0) => Err(ExecutionError::Zero {
             field: "replicates",
         }),
         Ok(replicates) => Ok(replicates),
-        Err(_) => Err(ExecutionError::NotPositive {
-            field: "replicates",
-        }),
+        Err(_) => Err(ExecutionError::ReplicatesNotCount),
     }
 }
 

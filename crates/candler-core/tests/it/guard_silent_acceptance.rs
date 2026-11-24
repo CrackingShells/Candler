@@ -121,7 +121,7 @@ struct Row {
     run: fn() -> Option<Refused>,
 }
 
-const ROWS: [Row; 11] = [
+const ROWS: [Row; 13] = [
     Row {
         name: "an env name equal to model.token_secret",
         code: "experiment.env_token_secret",
@@ -159,26 +159,38 @@ const ROWS: [Row; 11] = [
     },
     Row {
         name: "a replicate count that is a string",
-        code: "experiment.replicates_not_integer",
+        code: "experiment.replicates_not_count",
         pointer: Some("/replicates"),
-        run: || at_resolve(&[("replicates", json!("three"))]),
+        run: || at_plan_fixed(json!("three")),
     },
     Row {
         name: "a replicate count that is a fraction",
-        code: "experiment.replicates_not_integer",
+        code: "experiment.replicates_not_count",
         pointer: Some("/replicates"),
-        run: || at_resolve(&[("replicates", json!(2.5))]),
+        run: || at_plan_fixed(json!(2.5)),
+    },
+    Row {
+        name: "a negative replicate count",
+        code: "experiment.replicates_not_count",
+        pointer: Some("/replicates"),
+        run: || at_plan_fixed(json!(-1)),
+    },
+    Row {
+        name: "a replicate count beyond 32 bits",
+        code: "experiment.replicates_not_count",
+        pointer: Some("/replicates"),
+        run: || at_plan_fixed(json!(5_000_000_000_u64)),
     },
     Row {
         name: "an MCP server command that is not a string",
         code: "experiment.cell_value_invalid",
-        pointer: None,
+        pointer: Some("/mcp/servers/fs/command"),
         run: || at_servers(&[("mcp.servers.fs.command", json!(7))]),
     },
     Row {
         name: "MCP server args that are not all strings",
         code: "experiment.cell_value_invalid",
-        pointer: None,
+        pointer: Some("/mcp/servers/fs/args"),
         run: || {
             at_servers(&[
                 ("mcp.servers.fs.command", json!("mcp-fs")),
@@ -189,13 +201,13 @@ const ROWS: [Row; 11] = [
     Row {
         name: "an MCP server with neither a command nor a url",
         code: "experiment.cell_value_invalid",
-        pointer: None,
+        pointer: Some("/mcp/servers/fs"),
         run: || at_servers(&[("mcp.servers.fs.codemode", json!(true))]),
     },
     Row {
         name: "an MCP server whose env holds a value that is not text",
         code: "experiment.cell_value_invalid",
-        pointer: None,
+        pointer: Some("/mcp/servers/fs/env/token"),
         run: || {
             at_servers(&[
                 ("mcp.servers.fs.command", json!("mcp-fs")),

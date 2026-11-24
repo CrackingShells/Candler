@@ -65,6 +65,11 @@ side = "experiment"
 enum = "ExecutionError"
 variant = "NotPositive"
 
+[schemas."experiment.replicates_not_count"]
+side = "experiment"
+enum = "ExecutionError"
+variant = "ReplicatesNotCount"
+
 [schemas."experiment.factor_without_levels"]
 side = "experiment"
 enum = "ExecutionError"
@@ -1978,8 +1983,3 @@ variant = "TokenSecret"
 side = "experiment"
 enum = "ResolveError"
 variant = "ReplicatesPath"
-
-[resolve."experiment.replicates_not_integer"]
-side = "experiment"
-enum = "ResolveError"
-variant = "ReplicatesNotInteger"

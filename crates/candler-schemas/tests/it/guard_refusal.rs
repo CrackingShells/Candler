@@ -185,7 +185,7 @@ const INTERNAL_CODES: [&str; 24] = [
 /// The variants of each error type the registry covers, counted by hand from the enums: each
 /// variant has a row, and the wrapping ones are marked as delegating.
 const VARIANT_COUNTS: [(&str, usize); 9] = [
-    ("ExecutionError", 25),
+    ("ExecutionError", 26),
     ("EvaluationError", 14),
     ("OutcomeError", 16),
     ("FormatError", 19),
