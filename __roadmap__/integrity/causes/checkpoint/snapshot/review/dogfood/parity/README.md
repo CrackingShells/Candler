@@ -1,14 +1,14 @@
 # Harness parity
 
 ## Context
-Level 3 of M6c, opened by amendment A3 after the dogfooding pass found that a run's record names no MCP server under OpenCode and that the stored catalog always says `servers: []` (`__reports__/diet/05-findings_dogfooding_pass_v0.md`, finding (1)). The plan is `__reports__/diet/07-plan_integrity_level3_v0.md`. Claude Code is the reference harness: OpenCode is aligned to it, and a defect found on the Claude Code side is fixed in both drivers. Depth gives the order: `declaration.md` first; `answered/` renders, records and documents from the declaration; `answered/recorded/` removes the second catalog producer and proves parity; `closing/` holds seam review 3.
+Level 3 of M6c, opened by amendment A3 after the dogfooding pass found that a run's record names no MCP server under OpenCode and that the stored catalog always says `servers: []` (`__reports__/diet/05-findings_dogfooding_pass_v0.md`, finding (1)). The plan is `__reports__/diet/07-plan_integrity_level3_v1.md`. Claude Code is the reference harness: OpenCode is aligned to it, and a defect found on the Claude Code side is fixed in both drivers. Depth gives the order: `declaration.md` first; `answered/` renders, traces and documents from the declaration; `answered/recorded/` removes the second catalog producer and proves parity; `closing/` holds seam review 3.
 
 ## Goal
-Every setting that reaches the agent is answered by each registered driver from one typed declaration, and one cell run on either harness records the MCP servers and tools its agent had.
+Every fact about a harness is stated in one shape, which each registered driver must answer. One cell run on either harness installs the same MCP servers, and its stored trace records each MCP call in the same normalised form. Non-goals: hooks an experiment can set, and CLAUDE.md/AGENTS.md.
 
 ## Pre-conditions
 - [x] `[cmd]` `git merge-base --is-ancestor 27d1d1dd origin/feat/integrity` succeeds (the dogfooding pass is merged)
-- [x] `[nl]` Eliott approved the level-3 plan, with its rulings: the README says "per-run tool census", and `codemode` defaults to `false`
+- [x] `[nl]` Eliott approved revision 2 of the level-3 plan, with its rulings: the README says "per-run tool census"; `codemode` defaults to `false`; one shape for every per-harness list; the census keeps `census.tools` only; code mode is declared, not parsed
 
 ## Success Gates
 - ⬜ `declaration.md` and `answered/` are `done`

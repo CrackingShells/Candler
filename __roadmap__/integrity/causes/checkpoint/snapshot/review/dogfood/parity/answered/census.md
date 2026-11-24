@@ -1,6 +1,6 @@
 # Census
 
-**Goal**: The census records, on both harnesses, each MCP server the agent had with its status and its tools, from what the harness itself reports (P10).
+**Goal**: Blocked by revision 2 of A3: Eliott ruled that the census names no server, and that which servers the agent called is for the consumer to parse from the trace; `trace_parity.md` carries what remains. As first planned: the census records, on both harnesses, each MCP server the agent had with its status and its tools, from what the harness itself reports (P10).
 **Estimate**: Sonnet, $12, cap $24; the lead takes the probe fork of Step 1. At the cap, stop, commit what is green, and list what is left. Builds use the target dir the campaign README names, removed at the leaf's merge.
 **Pre-conditions**:
 - [ ] `[cmd]` `git -C <worktree> merge-base --is-ancestor origin/feat/integrity HEAD` succeeds
