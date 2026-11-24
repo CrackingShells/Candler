@@ -1,6 +1,6 @@
 # Trace parity
 
-**Goal**: An MCP call made by the agent reads the same way in the normalised trace of either harness: as `ToolOrigin::Mcp { server }`, with the server's own tool name. The census keeps `census.tools` as the comparability verdict's input and names no server (P10).
+**Goal**: An MCP call made by the agent reads the same way in the normalised trace of either harness: as `ToolOrigin::Mcp { server }`, with the server's own tool name. The census keeps `census.tools` as the comparability verdict's input, names no server, and comes from each harness's own report: Claude Code's `system/init`, and OpenCode's own server. Candler's gateway records no census (P10).
 **Estimate**: Sonnet, $8, cap $16. At the cap, stop, commit what is green, and list what is left. Builds use the target dir the campaign README names, which is removed when the leaf merges.
 **Pre-conditions**:
 - [ ] `[cmd]` `git -C <worktree> merge-base --is-ancestor origin/feat/integrity HEAD` succeeds
@@ -14,7 +14,8 @@
 - ⬜ The OpenCode reader takes the server names from the cell's resolved `mcp.*` values and never guesses a server from the spelling of a name
 - ⬜ Resolving refuses a set of servers whose OpenCode tool prefixes are ambiguous (for example `a` and `a_b`), beside the existing server-name check, with a code in `codes.toml`
 - ⬜ Under OpenCode code mode the trace records `execute` calls with empty `wrapped_calls`. That is what OpenCode's `Codemode(true)` answer declares, and nothing parses `execute`
-- ⬜ `census.mcp_servers`, and Claude Code's reading of server status from `system/init`, are gone. `census.tools`, `census.init_tools` and `census.source` stay, and `manifest/compare.rs`'s verdict still reads `init_tools`. `SERVER_START_WAIT`'s doc no longer says that the census records servers
+- ⬜ `census.mcp_servers`, and Claude Code's reading of server status from `system/init`, are gone. `census.tools` and `census.init_tools` stay, and `manifest/compare.rs`'s verdict still reads `init_tools`. `SERVER_START_WAIT`'s doc no longer says that the census records servers
+- ⬜ OpenCode's census comes from OpenCode itself: the driver reads `GET /experimental/tool?provider=<p>&model=<m>` from the `serve` child it already runs, at session start, as Claude Code's comes from `system/init` (OpenCode server docs, cited in the report). The gateway's census recording (`census_init` and its log), `CensusSource` and `census.source` are gone, since every census is now the harness's own, and the verdict stops reading the source. The gateway keeps routing model traffic
 - ⬜ The trace and census schemas are regenerated, and the conformance suite checks the MCP origin for every driver
 - ⬜ The report's "What it leaves" section judges the change at the three levels
 - `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace` and `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` pass, with the target dir the campaign README names, and `container-e2e` is green on the pull request
@@ -22,14 +23,15 @@
 - `crates/candler-schemas/src/trace.rs`: `ToolOrigin`, `WrappedCall`;
 - `crates/candler-harness-opencode/src/export.rs`: `tool_drafts`;
 - `crates/candler-harness-claude-code/src/parse.rs`: `tool_call`, `origin_of`, `init_report`;
-- `crates/candler-core/src/runner/evidence/census.rs`: `census`;
+- `crates/candler-core/src/runner/evidence/census.rs`: `census`, `source_label`;
+- `crates/candler-core/src/isolation/gateway.rs`: `census_init`;
 - `crates/candler-core/src/manifest/compare.rs`: `class_verdict`;
 - `crates/candler-core/src/jobs/orchestrate/servers.rs`: `SERVER_START_WAIT`.
 
 ## Step 1: Guard on the base
 **Goal**: The origin guard fails on the base for OpenCode.
 **Implementation Logic**:
-Write the guard as one table over both readers' fixtures. For each harness it takes the recorded output of one call to the same tool of the same declared server, and expects one origin. Extend the OpenCode export fixture with that call if it has none. Run it on the base and record the OpenCode `origin: other`. No live run is needed: the readers are pure. Check also that the stored Claude Code trace keeps the raw `system/init` line; if it does not, stop and tell the lead.
+Write the guard as one table over both readers' fixtures. For each harness it takes the recorded output of one call to the same tool of the same declared server, and expects one origin. Extend the OpenCode export fixture with that call if it has none. Run it on the base and record the OpenCode `origin: other`. No live run is needed: the readers are pure. Check also that the stored Claude Code trace keeps the raw `system/init` line, and that OpenCode's `GET /experimental/tool` lists the declared server's tools in the pinned OpenCode image. If either fails, stop and tell the lead.
 **Deliverables**: the guard in `crates/candler/tests/it/` (it sees both drivers); the OpenCode export fixture
 **Consistency Checks**: the origin guard on the base (expected: FAIL)
 **Commit**: `test(library): hold both trace readers to one MCP origin`
@@ -41,9 +43,10 @@ Write the guard as one table over both readers' fixtures. For each harness it ta
 - Add the optional `tool` to `ToolOrigin::Mcp`, fill it with the bare tool name in both readers, and add the test that an old trace without it still parses.
 - Add the ambiguous-prefix refusal at resolve.
 - Remove `census.mcp_servers`, its schema field and its producer, and reword `SERVER_START_WAIT`'s doc.
+- Read OpenCode's census from its `serve` child's `GET /experimental/tool`. Remove the gateway's census recording, `CensusSource` and `census.source`.
 
 Do not add any collection of server status: which servers the agent called is for the consumer to parse from the trace.
-**Deliverables**: `crates/candler-schemas/src/trace.rs` and its generated schema; `crates/candler-harness-opencode/src/export.rs` and its caller; `crates/candler-harness-claude-code/src/parse.rs`; `crates/candler-core/src/runner/evidence/census.rs` and the census schema; the resolve server-name step; `crates/candler-core/src/jobs/orchestrate/servers.rs`; `docs/contract/codes.toml`
+**Deliverables**: `crates/candler-schemas/src/trace.rs` and its generated schema; `crates/candler-harness-opencode/src/export.rs` and its caller; `crates/candler-harness-claude-code/src/parse.rs`; `crates/candler-core/src/runner/evidence/census.rs` and the census schema; `crates/candler-core/src/isolation/gateway.rs`'s census; `crates/candler-core/src/manifest/compare.rs`; the OpenCode driver's census reader; the resolve server-name step; `crates/candler-core/src/jobs/orchestrate/servers.rs`; `docs/contract/codes.toml`
 **Consistency Checks**: the origin guard on the tip (expected: PASS)
 **Commit**: `fix(library): attribute MCP calls the same way on both harnesses`
 
