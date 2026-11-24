@@ -14,10 +14,10 @@ use std::time::Duration;
 use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::{FrameIn, ReaderError, TraceReader};
 use candler_harness::spec::{
-    Action, BudgetCaps, Capabilities, Cell, CensusSource, CollectSpec, CommandSpec, Confidence,
-    FormatVersion, Framing, GatewayEnv, HarnessId, HttpMethod, InitReport, Observed, ObservedEnd,
-    Prepared, PreparedFile, ProcessEnd, ProcessExit, StateKind, StatePath, StopSignal, StopSpec,
-    Workspace,
+    Action, AgentSetting, Answer, Cell, CensusSource, CollectSpec, CommandSpec, Confidence,
+    DriverFact, FormatVersion, Framing, GatewayEnv, HarnessId, HttpMethod, InitReport, Observed,
+    ObservedEnd, Prepared, PreparedFile, ProcessEnd, ProcessExit, StateKind, StatePath, StopSignal,
+    StopSpec, Workspace,
 };
 use candler_schemas::primitives::{FieldPath, Name, NameVersion, Timestamp};
 use candler_schemas::raw::{RawFrame, RawRef, StreamName};
@@ -262,14 +262,35 @@ impl HarnessDriver for LinesDriver {
             })
     }
 
-    fn capabilities(&self) -> Capabilities {
-        Capabilities::builder()
-            .graceful_stop(true)
-            .live_events(true)
-            .budgets(BudgetCaps::new(true, true))
-            .in_harness_guard(true)
-            .census(true)
-            .build()
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        let refused: &[AgentSetting] = &[AgentSetting::SessionMode];
+        if refused.contains(&setting) {
+            Answer::Refused {
+                reason: "test stand-in",
+            }
+        } else {
+            Answer::Mapped {
+                construct: "test stand-in",
+            }
+        }
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        let held: &[DriverFact] = &[
+            DriverFact::GracefulStop,
+            DriverFact::LiveEvents,
+            DriverFact::InHarnessGuard,
+            DriverFact::Census,
+        ];
+        if held.contains(&fact) {
+            Answer::Mapped {
+                construct: "test stand-in",
+            }
+        } else {
+            Answer::Refused {
+                reason: "test stand-in",
+            }
+        }
     }
 
     fn gateway(&self) -> Option<GatewayEnv> {
@@ -486,11 +507,34 @@ impl HarnessDriver for DocumentDriver {
             })
     }
 
-    fn capabilities(&self) -> Capabilities {
-        Capabilities::builder()
-            .graceful_stop(true)
-            .execution_outside_child(true)
-            .build()
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        let refused: &[AgentSetting] = &[
+            AgentSetting::SessionMode,
+            AgentSetting::TurnBudget,
+            AgentSetting::CostBudget,
+        ];
+        if refused.contains(&setting) {
+            Answer::Refused {
+                reason: "test stand-in",
+            }
+        } else {
+            Answer::Mapped {
+                construct: "test stand-in",
+            }
+        }
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        let held: &[DriverFact] = &[DriverFact::GracefulStop, DriverFact::ExecutionOutsideChild];
+        if held.contains(&fact) {
+            Answer::Mapped {
+                construct: "test stand-in",
+            }
+        } else {
+            Answer::Refused {
+                reason: "test stand-in",
+            }
+        }
     }
 
     fn gateway(&self) -> Option<GatewayEnv> {
@@ -790,13 +834,39 @@ impl HarnessDriver for OpenShapedDriver {
         self.0.parse_version(output)
     }
 
-    fn capabilities(&self) -> Capabilities {
-        Capabilities::builder()
-            .graceful_stop(true)
-            .live_events(true)
-            .execution_outside_child(true)
-            .census(true)
-            .build()
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        let refused: &[AgentSetting] = &[
+            AgentSetting::SessionMode,
+            AgentSetting::TurnBudget,
+            AgentSetting::CostBudget,
+        ];
+        if refused.contains(&setting) {
+            Answer::Refused {
+                reason: "test stand-in",
+            }
+        } else {
+            Answer::Mapped {
+                construct: "test stand-in",
+            }
+        }
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        let held: &[DriverFact] = &[
+            DriverFact::GracefulStop,
+            DriverFact::LiveEvents,
+            DriverFact::Census,
+            DriverFact::ExecutionOutsideChild,
+        ];
+        if held.contains(&fact) {
+            Answer::Mapped {
+                construct: "test stand-in",
+            }
+        } else {
+            Answer::Refused {
+                reason: "test stand-in",
+            }
+        }
     }
 
     fn gateway(&self) -> Option<GatewayEnv> {

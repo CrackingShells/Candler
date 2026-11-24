@@ -30,6 +30,7 @@ use super::CliError;
 use super::assets;
 use super::refusal::{CliRefusal, FieldLocation, REQUEST_KEYS};
 use candler_harness::driver::HarnessDriver;
+use candler_harness::spec::AgentSetting;
 
 /// The path of the setting `[treatment] source` replaces; `--set` refuses it by name.
 const RETIRED_TREATMENT_SOURCE: &str = concat!("request.", "treatment_source");
@@ -437,7 +438,7 @@ pub(crate) fn foreground(
         images: Arc::new(images),
         catalog: Arc::new(catalog),
         harness_supported: driver.supported(),
-        session_capable: driver.capabilities().session,
+        session_capable: !driver.answer(AgentSetting::SessionMode).is_refused(),
         skills: driver.skills(),
     };
     let resolver = compose_resolver(config, &services, truth).map_err(failed)?;

@@ -23,9 +23,9 @@ Core line: `v0.15.0`; the `candler-harness` crate has the same version.
 | `HarnessDriver::supported` | `(&self) -> semver::VersionReq` | required | - |
 | `HarnessDriver::version_probe` | `(&self) -> CommandSpec` | required | - |
 | `HarnessDriver::parse_version` | `(&self, output: &[u8]) -> Result<semver::Version, DriverError>` | required | - |
-| `HarnessDriver::capabilities` | `(&self) -> Capabilities` | required | - |
+| `HarnessDriver::answer` | `(&self, setting: AgentSetting) -> Answer` | required | - |
+| `HarnessDriver::fact` | `(&self, fact: DriverFact) -> Answer` | required | - |
 | `HarnessDriver::plan` | `(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError>` | required | - |
-| `HarnessDriver::settings_table` | `(&self) -> Vec<SettingRow>` | optional | `Vec::new()` |
 | `HarnessDriver::check_settings` | `(&self, cell: &Cell<'_>) -> Result<(), DriverError>` | optional | `Ok(())` |
 | `HarnessDriver::gateway` | `(&self) -> Option<GatewayEnv>` | optional | `None` |
 | `HarnessDriver::state_paths` | `(&self) -> Vec<StatePath>` | optional | `Vec::new()` |
@@ -72,4 +72,4 @@ Core line: `v0.15.0`; the `candler-harness` crate has the same version.
 - Drivers never act on a process: they return commands, specs and readers, and the core runs them. [checked: v@0.7.0]
 - A reader is synchronous and holds no clock; the core supplies each frame's place and wall time. [checked: v@0.7.0]
 - `census_stream()` names the raw stream the gateway's census is stored under; the core reads the gateway census itself and reports it as the inventory. [checked: v@0.7.0]
-- A driver that sets `Capabilities::session` also gives its `plan` a `session` and returns a `session_tracker`. [checked: v@0.7.0]
+- A driver that does not refuse `AgentSetting::SessionMode` also gives its `plan` a `session` and returns a `session_tracker`. [checked: v@0.7.0]

@@ -10,13 +10,15 @@ use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
-    BaseImage, BudgetCaps, Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId,
-    Observed, Prepared, ProcessExit, SessionTracker, StopSignal, StopSpec, Workspace,
+    AgentSetting, Answer, BaseImage, Cell, CollectSpec, CommandSpec, DriverFact, EffortLevel,
+    GatewayEnv, HarnessId, Observed, PermissionMode, Prepared, ProcessExit, SessionTracker,
+    StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::execution::paths;
 use candler_schemas::name;
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::raw::StreamName;
+use candler_schemas::servers::McpServerKind;
 use candler_schemas::trace::{EndedBy, Session};
 use semver::{Version, VersionReq};
 use serde_json::Value;
@@ -86,7 +88,7 @@ pub(crate) enum Launch {
 /// cell sets.
 pub(crate) fn argv(cell: &Cell<'_>, launch: Launch) -> Result<Vec<String>, DriverError> {
     let model = cell.model()?;
-    let mode = cell.permission_mode()?;
+    let mode = cell.permission_mode();
     // BORROW: .to_owned() makes the owned arguments the command keeps
     let mut argv = vec![PROGRAM.to_owned(), "--print".to_owned()];
     // Each launch keeps the order of its recorded command line.
@@ -108,12 +110,12 @@ pub(crate) fn argv(cell: &Cell<'_>, launch: Launch) -> Result<Vec<String>, Drive
             "--setting-sources",
             "project,local",
             "--permission-mode",
-            mode,
+            mode.as_str(),
         ]
         .map(str::to_owned), // BORROW: str::to_owned makes the owned arguments
     );
-    if let Some(effort) = cell.effort()? {
-        argv.extend(["--effort", effort].map(str::to_owned)); // BORROW: str::to_owned makes the owned arguments
+    if let Some(effort) = cell.effort() {
+        argv.extend(["--effort", effort.as_str()].map(str::to_owned)); // BORROW: str::to_owned makes the owned arguments
     }
     if let Some(turns) = cap_text(cell, paths::BUDGET_PER_RUN_TURNS, true)? {
         argv.push("--max-turns".to_owned()); // BORROW: .to_owned() makes the owned argument
@@ -197,14 +199,99 @@ impl HarnessDriver for ClaudeCodeDriver {
         })
     }
 
-    fn capabilities(&self) -> Capabilities {
-        Capabilities::builder()
-            .graceful_stop(true)
-            .live_events(true)
-            .budgets(BudgetCaps::new(true, true))
-            .census(true)
-            .session(true)
-            .build()
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        match setting {
+            AgentSetting::ModelId => Answer::Mapped {
+                construct: "`--model` on the command line",
+            },
+            AgentSetting::ModelEndpoint => Answer::Candler {
+                how: "the gateway forwards model requests to the endpoint",
+            },
+            AgentSetting::Effort(
+                EffortLevel::Low
+                | EffortLevel::Medium
+                | EffortLevel::High
+                | EffortLevel::Xhigh
+                | EffortLevel::Max,
+            ) => Answer::Mapped {
+                construct: "`--effort <level>` on the command line",
+            },
+            AgentSetting::Effort(EffortLevel::Ultracode) => Answer::Mapped {
+                construct: "`--effort ultracode` on the command line, which Claude Code reads as `xhigh` with its ultracode mode on",
+            },
+            AgentSetting::PermissionMode(
+                PermissionMode::Default
+                | PermissionMode::AcceptEdits
+                | PermissionMode::Plan
+                | PermissionMode::BypassPermissions
+                | PermissionMode::Auto
+                | PermissionMode::DontAsk,
+            ) => Answer::Mapped {
+                construct: "`--permission-mode <mode>` on the command line",
+            },
+            AgentSetting::ToolsAllowed => Answer::Mapped {
+                construct: "`permissions.allow` of `.claude/settings.json`",
+            },
+            AgentSetting::ToolsDisallowed => Answer::Mapped {
+                construct: "`permissions.deny` of `.claude/settings.json`",
+            },
+            AgentSetting::Env => Answer::Candler {
+                how: "the core sets the cell's variables on the agent's process",
+            },
+            AgentSetting::Inputs => Answer::Candler {
+                how: "the core places the inputs in the workspace",
+            },
+            AgentSetting::Skills => Answer::Mapped {
+                construct: "the project skill directory",
+            },
+            AgentSetting::McpTransport(
+                McpServerKind::Stdio
+                | McpServerKind::Local
+                | McpServerKind::Http
+                | McpServerKind::Sse
+                | McpServerKind::Remote,
+            ) => Answer::Mapped {
+                construct: "an entry of `mcpServers` in `.mcp.json`",
+            },
+            AgentSetting::Codemode(true | false) => Answer::Mapped {
+                construct: "the `codemode` key of the server's `.mcp.json` entry, passed through",
+            },
+            AgentSetting::McpName => Answer::Mapped {
+                construct: "the key of the server's `.mcp.json` entry",
+            },
+            AgentSetting::WallBudget => Answer::Candler {
+                how: "the core ends the run at the wall budget",
+            },
+            AgentSetting::TurnBudget => Answer::Mapped {
+                construct: "`--max-turns` on the command line",
+            },
+            AgentSetting::CostBudget => Answer::Mapped {
+                construct: "`--max-budget-usd` on the command line",
+            },
+            AgentSetting::SessionMode => Answer::Mapped {
+                construct: "stream-json over an open stdin, one turn per message",
+            },
+        }
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        match fact {
+            DriverFact::GracefulStop => Answer::Mapped {
+                construct: "SIGTERM ends the sessions cleanly",
+            },
+            DriverFact::LiveEvents => Answer::Mapped {
+                construct: "stream-json events on stdout while the run lasts",
+            },
+            DriverFact::InHarnessGuard => Answer::Refused {
+                reason: "the driver configures no Claude Code hook",
+            },
+            DriverFact::ExecutionOutsideChild => Answer::Refused {
+                reason: "tools run in the child process",
+            },
+            DriverFact::Census => Answer::Mapped {
+                construct: "the tool list of the `system/init` event",
+            },
+        }
     }
 
     fn gateway(&self) -> Option<GatewayEnv> {
@@ -221,11 +308,14 @@ impl HarnessDriver for ClaudeCodeDriver {
     }
 
     fn check_settings(&self, cell: &Cell<'_>) -> Result<(), DriverError> {
+        cap_text(cell, paths::BUDGET_PER_RUN_TURNS, true)?;
+        cap_text(cell, paths::BUDGET_PER_RUN_MAX_COST_USD, false)?;
         prepare::mcp_servers(cell).map(|_| ())
     }
 
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
         let _ = workspace;
+        self.check_settings(cell)?;
         let mut files = vec![prepare::render_settings(cell)?];
         files.extend(prepare::render_mcp(cell)?);
         let argv = argv(cell, Launch::Headless(cell.prompt()?))?;

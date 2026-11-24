@@ -25,8 +25,8 @@ use candler_core::supervise::{EventSink, Supervisor};
 use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
-    Capabilities, Cell, CollectSpec, CommandSpec, EnvEntry, GatewayEnv, HarnessId, Observed,
-    Prepared, PreparedFile, ProcessExit, StatePath, StopSpec, Workspace,
+    AgentSetting, Answer, Cell, CollectSpec, CommandSpec, DriverFact, EnvEntry, GatewayEnv,
+    HarnessId, Observed, Prepared, PreparedFile, ProcessExit, StatePath, StopSpec, Workspace,
 };
 use candler_harness_opencode::driver::OpenCodeDriver;
 use candler_schemas::execution::EventPayload;
@@ -140,8 +140,19 @@ impl HarnessDriver for WiringDriver {
         self.0.parse_version(output)
     }
 
-    fn capabilities(&self) -> Capabilities {
-        self.0.capabilities()
+    /// The permission mode is the fixed preparation's, whatever the cell sets; every other
+    /// setting is answered by the driver.
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        if matches!(setting, AgentSetting::PermissionMode(_)) {
+            return Answer::Mapped {
+                construct: "the fixed preparation",
+            };
+        }
+        self.0.answer(setting)
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        self.0.fact(fact)
     }
 
     fn plan(&self, _cell: &Cell<'_>, _workspace: &Workspace<'_>) -> Result<Plan, DriverError> {

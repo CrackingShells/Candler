@@ -9,8 +9,8 @@ use std::path::Path;
 use std::str::FromStr as _;
 use std::sync::Arc;
 
-use candler_harness::driver::{Disposition, HarnessDriver};
-use candler_harness::spec::{Action, StopSignal, StopSpec};
+use candler_harness::driver::HarnessDriver;
+use candler_harness::spec::{Action, AgentSetting, Answer, DriverFact, StopSignal, StopSpec};
 use candler_schemas::execution::{GitCommit, TreatmentRef};
 use candler_schemas::primitives::Name;
 
@@ -57,7 +57,10 @@ fn gateway_route(_: &str, driver: &Arc<dyn HarnessDriver>, _: &Registry) -> Resu
 }
 
 fn census_source(_: &str, driver: &Arc<dyn HarnessDriver>, _: &Registry) -> Result<String, String> {
-    match (driver.capabilities().census, driver.census_stream()) {
+    match (
+        !driver.fact(DriverFact::Census).is_refused(),
+        driver.census_stream(),
+    ) {
         (true, Some(_)) => Ok("Candler: gateway, first request with tools".to_owned()),
         (true, None) => Ok("yes".to_owned()),
         (false, _) => Err("a registered driver without a census has no cell wording".to_owned()),
@@ -69,45 +72,32 @@ fn census_source(_: &str, driver: &Arc<dyn HarnessDriver>, _: &Registry) -> Resu
     reason = "every row of the table has the one mapping type"
 )]
 fn session_mode(_: &str, driver: &Arc<dyn HarnessDriver>, _: &Registry) -> Result<String, String> {
-    Ok(if driver.capabilities().session {
-        "yes".to_owned()
-    } else {
+    Ok(cap(driver.answer(AgentSetting::SessionMode)))
+}
+
+/// A cap the harness or Candler enforces is `yes`; one nobody enforces is refused.
+fn cap(answer: Answer) -> String {
+    if answer.is_refused() {
         "no (refused)".to_owned()
-    })
-}
-
-/// A cap the harness enforces is `yes`; one it lacks must be a refused row of its settings table.
-fn cap(driver: &Arc<dyn HarnessDriver>, enforced: bool, setting: &str) -> Result<String, String> {
-    if enforced {
-        return Ok("yes".to_owned());
-    }
-    let refused = driver
-        .settings_table()
-        .iter()
-        .any(|row| row.setting == setting && row.disposition == Disposition::Refused);
-    if refused {
-        Ok("no (refused)".to_owned())
     } else {
-        Err(format!(
-            "a driver that lacks `{setting}` declares a refused row for it"
-        ))
+        "yes".to_owned()
     }
 }
 
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "every row of the table has the one mapping type"
+)]
 fn turn_cap(_: &str, driver: &Arc<dyn HarnessDriver>, _: &Registry) -> Result<String, String> {
-    cap(
-        driver,
-        driver.capabilities().budgets.turns,
-        "budget.per_run.turns",
-    )
+    Ok(cap(driver.answer(AgentSetting::TurnBudget)))
 }
 
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "every row of the table has the one mapping type"
+)]
 fn cost_cap(_: &str, driver: &Arc<dyn HarnessDriver>, _: &Registry) -> Result<String, String> {
-    cap(
-        driver,
-        driver.capabilities().budgets.cost,
-        "budget.per_run.max_cost_usd",
-    )
+    Ok(cap(driver.answer(AgentSetting::CostBudget)))
 }
 
 fn signal(spec: &StopSpec) -> Result<&'static str, String> {
@@ -122,7 +112,10 @@ fn signal(spec: &StopSpec) -> Result<&'static str, String> {
 fn stop(_: &str, driver: &Arc<dyn HarnessDriver>, _: &Registry) -> Result<String, String> {
     let spec = driver.stop();
     let signal = signal(&spec)?;
-    match (&spec.pre_stop, driver.capabilities().graceful_stop) {
+    match (
+        &spec.pre_stop,
+        !driver.fact(DriverFact::GracefulStop).is_refused(),
+    ) {
         (None, true) => Ok("yes".to_owned()),
         (Some(Action::Exec(_)), _) => Ok(format!(
             "Candler: interrupt command in the container, then {signal}"
@@ -145,7 +138,7 @@ fn authoritative_trace(
     if let Some((stream, _)) = registry.offline(name).first() {
         return Ok(format!("Candler: collects `{stream}` after the run"));
     }
-    if driver.live_reader().is_some() && driver.capabilities().live_events {
+    if driver.live_reader().is_some() && !driver.fact(DriverFact::LiveEvents).is_refused() {
         return Ok("yes".to_owned());
     }
     Err("a registered driver's trace has no cell wording".to_owned())

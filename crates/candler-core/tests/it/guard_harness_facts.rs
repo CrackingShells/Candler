@@ -21,9 +21,9 @@ use candler_core::supervise::spawn::FrameObserver as _;
 use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
-    BudgetCaps, Capabilities, Cell, CensusSource, CollectSpec, CommandSpec, EnvEntry, GatewayEnv,
-    HarnessId, InitReport, Observed, Prepared, ProcessExit, StateKind, StatePath, StopSignal,
-    StopSpec, Workspace,
+    AgentSetting, Answer, Cell, CensusSource, CollectSpec, CommandSpec, DriverFact, EnvEntry,
+    GatewayEnv, HarnessId, InitReport, Observed, Prepared, ProcessExit, StateKind, StatePath,
+    StopSignal, StopSpec, Workspace,
 };
 use candler_harness_claude_code::ClaudeCodeReader;
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
@@ -141,11 +141,34 @@ impl HarnessDriver for FakeHarness {
         })
     }
 
-    fn capabilities(&self) -> Capabilities {
-        Capabilities::builder()
-            .graceful_stop(true)
-            .budgets(BudgetCaps::new(false, false))
-            .build()
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        let refused: &[AgentSetting] = &[
+            AgentSetting::SessionMode,
+            AgentSetting::TurnBudget,
+            AgentSetting::CostBudget,
+        ];
+        if refused.contains(&setting) {
+            Answer::Refused {
+                reason: "test stand-in",
+            }
+        } else {
+            Answer::Mapped {
+                construct: "test stand-in",
+            }
+        }
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        let held: &[DriverFact] = &[DriverFact::GracefulStop];
+        if held.contains(&fact) {
+            Answer::Mapped {
+                construct: "test stand-in",
+            }
+        } else {
+            Answer::Refused {
+                reason: "test stand-in",
+            }
+        }
     }
 
     fn gateway(&self) -> Option<GatewayEnv> {

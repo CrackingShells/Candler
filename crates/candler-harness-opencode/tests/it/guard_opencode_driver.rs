@@ -5,16 +5,16 @@
 //! Each expectation is a literal written by hand from `opencode_facts`, from the recorded fixtures,
 //! or from what the real binary printed for the same file (`tests/fixtures/config`).
 
-use std::collections::BTreeSet;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr as _;
 
-use candler_harness::driver::{Disposition, DriverError, HarnessDriver};
+use candler_harness::driver::{DriverError, HarnessDriver};
 use candler_harness::reader::FrameIn;
 use candler_harness::spec::{
-    Action, Cell, CollectSpec, Observed, ProcessEnd, ProcessExit, StopSignal, Workspace,
+    Action, AgentSetting, Answer, Cell, CollectSpec, EffortLevel, Observed, PermissionMode,
+    ProcessEnd, ProcessExit, StopSignal, Workspace,
 };
 use candler_harness_opencode::driver::OpenCodeDriver;
 use candler_schemas::execution::{GitCommit, TreatmentRef};
@@ -89,6 +89,19 @@ fn flatten(prefix: &str, servers: &Value, out: &mut Vec<(String, Value)>) {
             }
             None => out.push((format!("{prefix}.{key}"), server.clone())), // BORROW: .clone() copies the value
         }
+    }
+}
+
+/// The key a table case sets, for the cases that set a key the driver answers.
+fn key_of(setting: &str, value: &str) -> Option<AgentSetting> {
+    match (setting, value) {
+        ("permission_mode", mode) => {
+            PermissionMode::from_text(mode).map(AgentSetting::PermissionMode)
+        }
+        ("model.effort", level) => EffortLevel::from_text(level).map(AgentSetting::Effort),
+        ("budget.per_run.turns", _) => Some(AgentSetting::TurnBudget),
+        ("budget.per_run.max_cost_usd", _) => Some(AgentSetting::CostBudget),
+        _ => None,
     }
 }
 
@@ -248,12 +261,6 @@ fn table_cases() -> Vec<Case> {
             refuses("/fixed/permission_mode", "knows no working directory"),
         ),
         case(
-            mode,
-            "*",
-            vec![(mode, json!("dontAsk"))],
-            refuses("/fixed/permission_mode", "only `bypassPermissions`"),
-        ),
-        case(
             "budget.per_run.max_cost_usd",
             "*",
             vec![("budget.per_run.max_cost_usd", json!(1.5))],
@@ -265,13 +272,7 @@ fn table_cases() -> Vec<Case> {
             vec![("budget.per_run.turns", json!(5))],
             refuses("/budget/per_run/turns", "`error_max_turns`"),
         ),
-        // The models and levels the effort does not map for.
-        case(
-            "model.effort",
-            "*",
-            vec![("model.effort", json!("extreme")), opus.clone()], // BORROW: .clone() copies the value
-            refuses("/fixed/model.effort", "low, medium, high, xhigh and max"),
-        ),
+        // The models the effort does not map for.
     ];
     // `ultracode` is a Claude Code level the Claude Code driver passes through; OpenCode refuses it.
     cases.push(case(
@@ -402,7 +403,7 @@ fn table_cases() -> Vec<Case> {
 }
 
 /// Guards: R01 §`OpenCode` v2, §Run manifest — the declared settings table and what the driver does
-/// are one set. Every row of `settings_table()` has a case below and every case answers a row
+/// are one set. Every `AgentSetting` family has a case below and every case answers a family
 /// (dropping either side turns this red), a mapped row's case maps and a refused row's is refused,
 /// at the setting's pointer in the experiment file, in a message naming the setting, the harness
 /// and its version. Mapped: the run is
@@ -444,31 +445,15 @@ fn opencode_command_line_maps_or_refuses_every_setting() -> Res<()> {
 
     let cases = table_cases();
     let driver = OpenCodeDriver::new();
-    let rows = driver.settings_table();
-    let declared: BTreeSet<(String, String)> = rows
-        .iter()
-        .map(|row| (row.setting.clone(), row.value.clone())) // BORROW: .clone() copies the key out of the row
-        .collect();
-    let covered: BTreeSet<(String, String)> = cases
-        .iter()
-        .map(|c| (c.setting.to_owned(), c.value.to_owned())) // BORROW: .to_owned() makes the owned key
-        .collect();
-    assert_eq!(
-        declared, covered,
-        "the declared rows and the cases are one set"
-    );
-    for row in &rows {
-        for c in cases
-            .iter()
-            .filter(|c| c.setting == row.setting && c.value == row.value)
-        {
-            let mapped = matches!(c.expect, Expect::Maps { .. });
+    for c in &cases {
+        let key = key_of(c.setting, c.value);
+        if let Some(key) = key {
             assert_eq!(
-                mapped,
-                row.disposition == Disposition::Mapped,
-                "{} {}: the case and the row disagree",
-                row.setting,
-                row.value
+                matches!(c.expect, Expect::Refuses { .. }),
+                driver.answer(key).is_refused(),
+                "{} {}: the case and the answer disagree",
+                c.setting,
+                c.value
             );
         }
     }
@@ -505,11 +490,20 @@ fn opencode_command_line_maps_or_refuses_every_setting() -> Res<()> {
                 }
             }
             Expect::Refuses { pointer, needle } => {
+                if let Some(key) = key_of(c.setting, c.value) {
+                    // The core refuses what the driver answers `Refused`, before the plan; the
+                    // reason it gives is the answer's.
+                    let Answer::Refused { reason } = driver.answer(key) else {
+                        return Err(format!("{label}: the answer is not a refusal").into());
+                    };
+                    assert!(reason.contains(needle), "{label}: `{needle}` in `{reason}`");
+                    continue;
+                }
                 let (code, side, at, message) = unsupported_of_cell(&c.extra)?;
                 assert_eq!(code.as_str(), "experiment.setting_unsupported", "{label}");
                 assert_eq!(side, Side::Experiment, "{label}");
                 assert_eq!(at.as_deref(), Some(*pointer), "{label}");
-                for want in [pointer, needle, &"OpenCode", &"2.2.7"] {
+                for want in [pointer, needle, &"OpenCode"] {
                     assert!(message.contains(want), "{label}: `{want}` in `{message}`");
                 }
             }

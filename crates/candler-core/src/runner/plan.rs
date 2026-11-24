@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use candler_harness::driver::{DriverError, HarnessDriver};
-use candler_harness::spec::Cell;
+use candler_harness::spec::{AgentSetting, Cell};
 
 use candler_schemas::distinct::first_clash;
 use candler_schemas::execution::check_replicates;
@@ -28,6 +28,7 @@ use serde_json::Value;
 use crate::jobs::dir::JobDir;
 use crate::jobs::lock::{JobLock, LockState};
 use crate::resolve::layers::{Resolution, is_setting};
+use crate::resolve::paths::refuse_unanswered;
 use crate::resolve::steps::egress::{self, EgressRefusal};
 use crate::resolve::steps::plugin_environment::{plugin_egress, unite_egress};
 use crate::resolve::steps::session::{self, SessionRefusal};
@@ -591,7 +592,8 @@ fn fresh_cells<'r>(
     levels: &Levels<'r>,
     driver: Option<&dyn HarnessDriver>,
 ) -> Result<Vec<FreshCell<'r>>, PlanError> {
-    let session_capable = driver.map(|driver| driver.capabilities().session);
+    let session_capable =
+        driver.map(|driver| !driver.answer(AgentSetting::SessionMode).is_refused());
     if let Some(path) = file.factors().iter().find_map(setting_of_factor) {
         return Err(PlanError::SettingAsFactor { path });
     }
@@ -726,7 +728,9 @@ fn fresh_cells<'r>(
     }
     if let Some(driver) = driver {
         for cell in &cells {
-            driver.check_settings(&Cell::new(cell.comparable.values()))?;
+            let view = Cell::new(cell.comparable.values());
+            refuse_unanswered(driver, &view)?;
+            driver.check_settings(&view)?;
         }
     }
     Ok(cells)

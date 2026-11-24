@@ -29,7 +29,10 @@ pub(crate) fn roots() -> Vec<GeneratedSchema> {
 /// a remote one is reached at a URL. The renderer reads `http`, `sse` and `remote` alike.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-#[non_exhaustive]
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "EXHAUSTIVE: the drivers live in other crates and answer each transport; a new one must break each of them."
+)]
 pub enum McpServerKind {
     /// A server that prints the MCP protocol over a child process's standard streams.
     Stdio,
