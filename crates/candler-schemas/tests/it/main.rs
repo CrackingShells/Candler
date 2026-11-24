@@ -11,6 +11,7 @@ mod guard_execution_wire;
 mod guard_experiment_file;
 mod guard_import_origin;
 mod guard_jcs;
+mod guard_mcp_server;
 mod guard_pattern_vectors;
 mod guard_refusal;
 mod guard_rpc_wire;
