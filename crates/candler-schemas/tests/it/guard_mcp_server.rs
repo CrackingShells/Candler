@@ -1,30 +1,22 @@
-//! Guards: the experiment schema cannot type the `mcp.servers` path, so a malformed server entry
-//! still validates against it; the published mcp-server schema is the one reader that refuses it.
+//! Guards: the experiment schema cannot type the `mcp.servers` path, so it holds the entries as
+//! generic JSON; the published mcp-server schema is the typed reader for the one entry, and it
+//! refuses every shape `candler_harness::mcp::read` refuses.
 //!
 //! The experiment schema types every `fixed` value and every factor level as the same generic JSON
-//! value, so a server whose `command` is not text (here `123`) passes where `mcp.servers` sits.
-//! The mcp-server schema is the typed reader for the one path, and it refuses the same entry.
+//! value, so it does not check the fields of an entry that sits under `mcp.servers`. The mcp-server
+//! schema is the typed reader for the one entry: it requires exactly one of `command` and `url`
+//! and keeps the two families apart, matching the reader.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::OnceLock;
 
 use jsonschema::{Validator, validator_for};
 use serde_json::Value;
 
-fn schema_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("schema")
-}
-
-fn schema<'a>(name: &'static str) -> &'a Validator {
-    static EXPERIMENT: OnceLock<Validator> = OnceLock::new();
+fn mcp_server_schema<'a>() -> &'a Validator {
     static MCP_SERVER: OnceLock<Validator> = OnceLock::new();
-    let cell = match name {
-        "experiment.schema.json" => &EXPERIMENT,
-        "mcp-server.schema.json" => &MCP_SERVER,
-        _ => panic!("unknown schema {name}"),
-    };
-    cell.get_or_init(|| {
-        let path = schema_dir().join(name);
+    MCP_SERVER.get_or_init(|| {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("schema/mcp-server.schema.json");
         let text =
             std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         let value: Value = serde_json::from_str(&text).expect("committed schema JSON");
@@ -32,58 +24,95 @@ fn schema<'a>(name: &'static str) -> &'a Validator {
     })
 }
 
-/// A server entry with a non-text `command`, the malformed shape this guard refuses.
-fn malformed_server() -> Value {
-    serde_json::json!({ "type": "stdio", "command": 123 })
-}
-
-/// The malformed server as a driver reads it: the value of the dotted path `mcp.servers` under
-/// `fixed`, holding one server by key, within an otherwise valid experiment file.
-fn malformed_experiment() -> Value {
+/// The entry under `mcp.servers` that `mcp::read` accepts without launching anything.
+fn valid_launched_entry() -> Value {
     serde_json::json!({
-        "schema": "experiment/1",
-        "replicates": 1,
-        "budget": { "max_runs": 1, "per_run": { "wall_s": 60 } },
-        "harness": { "name": "opencode" },
-        "fixed": { "mcp.servers": { "docker": malformed_server() } }
-    })
-}
-
-/// The committed experiment schema still accepts a server whose `command` is not text, because it
-/// reads every `fixed` path (including `mcp.servers`) as the same generic JSON value.
-#[test]
-fn the_experiment_schema_cannot_type_the_mcp_servers_path() {
-    let experiment = schema("experiment.schema.json");
-    let malformed = malformed_experiment();
-    assert!(
-        experiment.is_valid(&malformed),
-        "experiment schema must hold `mcp.servers` as generic JSON; it validated: {malformed}"
-    );
-}
-
-/// The published mcp-server schema refuses the same malformed entry.
-#[test]
-fn the_mcp_server_schema_refuses_a_non_text_command() {
-    let mcp_server = schema("mcp-server.schema.json");
-    let malformed = malformed_server();
-    assert!(
-        !mcp_server.is_valid(&malformed),
-        "mcp-server schema must refuse a non-text command: {malformed}"
-    );
-}
-
-/// The well-formed entry a driver writes validates against the mcp-server schema.
-#[test]
-fn the_mcp_server_schema_accepts_what_a_driver_writes() {
-    let mcp_server = schema("mcp-server.schema.json");
-    let wellformed = serde_json::json!({
         "type": "stdio",
         "command": "docker",
         "args": ["run", "-v"],
         "env": { "KEY": "value" },
         "codemode": false,
         "name": "movement"
-    });
+    })
+}
+
+/// The entry under `mcp.servers` that `mcp::read` accepts as reachable at a URL.
+fn valid_remote_entry() -> Value {
+    serde_json::json!({ "type": "sse", "url": "http://h" })
+}
+
+/// Every entry `candler_harness::mcp::read` refuses for its shape is refused by the published
+/// mcp-server schema, and the two valid entries are accepted.
+fn mcp_server_refusal_rows() -> Vec<(&'static str, Value)> {
+    vec![
+        ("neither `command` nor `url`", serde_json::json!({})),
+        (
+            "a launched entry with no `command`",
+            serde_json::json!({ "type": "stdio", "name": "n" }),
+        ),
+        (
+            "a remote entry with no `url`",
+            serde_json::json!({ "type": "remote" }),
+        ),
+        (
+            "both `command` and `url`",
+            serde_json::json!({ "command": "x", "url": "http://h" }),
+        ),
+        (
+            "both, under a stdio type",
+            serde_json::json!({ "command": "x", "url": "http://h", "type": "stdio" }),
+        ),
+        (
+            "both, under a remote type",
+            serde_json::json!({ "command": "x", "url": "http://h", "type": "remote" }),
+        ),
+        (
+            "a remote entry inferred from `url` alone, with `env`",
+            serde_json::json!({ "url": "http://h", "env": { "K": "v" } }),
+        ),
+        (
+            "a remote entry with `env`",
+            serde_json::json!({ "url": "http://h", "env": { "K": "v" }, "type": "remote" }),
+        ),
+        (
+            "a remote entry with `args`",
+            serde_json::json!({ "url": "http://h", "args": ["run"], "type": "remote" }),
+        ),
+        (
+            "a launched entry with `headers`",
+            serde_json::json!({ "command": "x", "headers": { "K": "v" } }),
+        ),
+    ]
+}
+
+/// Every entry `candler_harness::mcp::read` refuses for its shape is refused by the published
+/// mcp-server schema, and the two valid entries are accepted.
+#[test]
+fn the_mcp_server_schema_refuses_what_the_reader_refuses() {
+    let mcp_server = mcp_server_schema();
+    for (shape, entry) in mcp_server_refusal_rows() {
+        assert!(
+            !mcp_server.is_valid(&entry),
+            "mcp-server schema must refuse a server `{shape}`: {entry}"
+        );
+    }
+    assert!(
+        mcp_server.is_valid(&valid_launched_entry()),
+        "the launched entry the reader accepts must validate: {}",
+        valid_launched_entry()
+    );
+    assert!(
+        mcp_server.is_valid(&valid_remote_entry()),
+        "the remote entry the reader accepts must validate: {}",
+        valid_remote_entry()
+    );
+}
+
+/// The well-formed entry a driver writes validates against the mcp-server schema.
+#[test]
+fn the_mcp_server_schema_accepts_what_a_driver_writes() {
+    let mcp_server = mcp_server_schema();
+    let wellformed = valid_launched_entry();
     assert!(
         mcp_server.is_valid(&wellformed),
         "a well-formed stdio server validates: {wellformed}"
