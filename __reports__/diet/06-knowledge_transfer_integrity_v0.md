@@ -83,6 +83,8 @@ What the numbers say: no row reached its cap. The rows that ran over their estim
 found more than the brief named (P1's call count; P7's rerun). The milestone ended near the maintainer's approved
 $127, against plan v2's $100 fit; the difference is P7's rerun and the P7 reader, both approved before they ran.
 
+**Correction (level-3 close):** "about $127" quoted the approved ceiling as spend. Measured from every host transcript since the 2026-11-24T02:17:27Z reset to 13:10Z, coordinator included, levels 1 and 2 cost $90.93, or at most about $99 if P7's container runs, which leave no host transcript, are added.
+
 ## P7, what the consumers met
 
 - The first attempt gave no signal. Its two setup faults were the runner's: the rendered rustdoc carried source

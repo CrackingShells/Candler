@@ -14,7 +14,7 @@ Each kind of state Candler stores has one producer, each consumer input has one 
 ## Success Gates
 - ✅ `conventions.md` and `causes/` are `done`, level 3 (`causes/checkpoint/snapshot/review/dogfood/parity/`) included
 - ✅ Every merge into `feat/integrity` that touches the paths `container-e2e` watches waited for it to be green on its pull request, and every other merge says it touched none of them (19 PRs merged into `feat/integrity`, #59 to #80: 16 touched the watched paths and each had `Container e2e (Linux)` green on its head before merge; #59, #69 and #70 touched none; the 24 direct rdm/reports pushes touched none; the paths filter did not change during the campaign)
-- ✅ Spend is measured from transcripts per row and no row passed its cap without stopping; levels 1 and 2, coordinator included, stay within the $127 the maintainer approved, and level 3, its lead included, within $70 (levels 1 and 2: "about $127", `__reports__/diet/06-knowledge_transfer_integrity_v0.md` §Spend; level 3: $61.78 measured at its close, same report §Level 3)
+- ✅ Spend is measured from transcripts per row and no row passed its cap without stopping; levels 1 and 2, coordinator included, stay within the $127 the maintainer approved, and level 3, its lead included, within $70 (levels 1 and 2: $90.93 measured from host transcripts since the 02:17:27Z reset, coordinator included (at most about $99 if P7's container runs are added), under $127; level 3: $61.78 measured at its close, same report §Level 3)
 
 ## Status
 ```mermaid
