@@ -49,6 +49,7 @@ mod commands {
 mod contract_pages;
 mod guard_analyze;
 mod guard_analyze_golden;
+mod guard_catalog_snapshot;
 mod guard_cli;
 mod guard_cli_e2e;
 mod guard_cli_evaluate;

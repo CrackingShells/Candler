@@ -1,7 +1,7 @@
 //! The catalog step: the commands the agent can run in the image, as the cell configures it.
 //!
-//! The cell holds only the digest of the catalog, in `snapshots`. The catalog itself belongs to
-//! the run evidence.
+//! The cell holds only the digest of the catalog, in `snapshots`. The catalog itself travels in
+//! the step's report as a blob text, which the runner stores when it seals a run.
 
 use std::str::FromStr;
 use std::sync::Arc;
@@ -14,7 +14,7 @@ use futures::future::BoxFuture;
 
 use crate::isolation::model::{ImageId, ImageRef};
 use crate::resolve::preflight::{PreflightError, PreflightStep, ResolveContext, StepReport};
-use crate::runner::evidence::catalog::{CatalogProvider, catalog_digest};
+use crate::runner::evidence::catalog::{CatalogProvider, catalog_digest, catalog_text};
 use candler_schemas::execution::paths;
 
 fn failed(detail: String) -> PreflightError {
@@ -75,13 +75,16 @@ impl PreflightStep for CatalogStep {
                 .await
                 .map_err(|e| failed(e.to_string()))?;
             let digest = catalog_digest(&catalog).map_err(|e| failed(e.to_string()))?;
+            let text = catalog_text(&catalog).map_err(|e| failed(e.to_string()))?;
             let kind = Name::from_str("catalog").map_err(|e| failed(e.to_string()))?;
             let entry = serde_json::to_value([DigestRef::new(kind, digest)])
                 .map_err(|e| failed(e.to_string()))?;
-            Ok(StepReport::new(step).derive(
-                path_of(paths::SNAPSHOTS)?,
-                JsonValue::new(entry).map_err(|e| failed(e.to_string()))?,
-            ))
+            Ok(StepReport::new(step)
+                .derive(
+                    path_of(paths::SNAPSHOTS)?,
+                    JsonValue::new(entry).map_err(|e| failed(e.to_string()))?,
+                )
+                .blob(text))
         })
     }
 }
