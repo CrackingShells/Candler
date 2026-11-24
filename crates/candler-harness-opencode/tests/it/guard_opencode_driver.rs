@@ -516,12 +516,12 @@ fn opencode_command_line_maps_or_refuses_every_setting() -> Res<()> {
 /// provider's address and key are references to the variables the core sets, in a home-rooted
 /// file inside the config directory the state paths name, and the file is the one the real binary
 /// accepted; the gateway is named by two variables and nothing else of the configuration is a
-/// value; `codemode` is a cell value read per server, absent written as on, `false` making the
-/// server's tools direct tools; an MCP server shape the driver cannot translate is refused, not
+/// value; `codemode` is a cell value read per server, absent written as off, `true` making the
+/// server's tools reached through `execute`; an MCP server shape the driver cannot translate is refused, not
 /// guessed.
 /// Oracle: `tests/fixtures/config/opencode.json`, run through `opencode debug config` in the base
 /// image (`debug_config.out`: `{env:…}/v1` expanded to `http://gateway:8080/r/tag/run/key/v1`);
-/// the names are the ones that fixture refers to; `opencode_facts` row 17 (omitted is on, `false`
+/// the names are the ones that fixture refers to; `opencode_facts` row 17 (omitted is off here, `false`
 /// is direct) and the V2 shape the real binary printed for `mcp.servers.<name>.codemode`; the
 /// shapes the real binary printed (`local` with a command list, `remote` with a url) are the only
 /// ones recorded.
@@ -532,7 +532,7 @@ fn opencode_prepare_writes_the_provider_mcp_codemode_and_gateway_names() -> Res<
         "mcp",
         json!({
             "loc": {"command": "uvx", "args": ["srv"], "env": {"K": "v"}, "codemode": false},
-            "rem": {"type": "http", "url": "http://h/mcp", "headers": {"X": "y"}}
+            "rem": {"type": "http", "url": "http://h/mcp", "headers": {"X": "y"}, "codemode": true}
         }),
     )])?;
     assert_eq!(file.root, candler_harness::spec::FileRoot::Home);
@@ -551,7 +551,7 @@ fn opencode_prepare_writes_the_provider_mcp_codemode_and_gateway_names() -> Res<
     assert!(config.contains(&format!("{{env:{}}}", gateway.auth_token)));
     assert_eq!(gateway.reserved, vec![gateway.base_url, gateway.auth_token]);
 
-    // `codemode` is read from the cell, absent written as on.
+    // `codemode` is read from the cell, absent written as off.
     let servers = |codemode: Option<Value>| {
         let mut server = json!({"command": "uvx", "args": []});
         if let (Some(value), Some(map)) = (codemode, server.as_object_mut()) {
@@ -564,7 +564,7 @@ fn opencode_prepare_writes_the_provider_mcp_codemode_and_gateway_names() -> Res<
         let (_, parsed) = prepared_config(&[("mcp", servers(codemode))])?;
         written.push(parsed["mcp"]["servers"]["s"]["codemode"].clone()); // BORROW: .clone() copies the value
     }
-    assert_eq!(written, [json!(true), json!(true), json!(false)]);
+    assert_eq!(written, [json!(false), json!(true), json!(false)]);
     assert!(
         prepared_config(&[("mcp", servers(Some(json!("no"))))]).is_err(),
         "a codemode that is not a boolean is refused"
@@ -581,7 +581,7 @@ fn opencode_prepare_writes_the_provider_mcp_codemode_and_gateway_names() -> Res<
     prepared_config(&[(
         "mcp",
         json!({"a": {"type": "stdio", "command": "uvx", "args": ["x"], "env": {"K": "v"}, "codemode": true},
-               "b": {"type": "sse", "url": "http://h", "headers": {"X": "y"}, "codemode": false}}),
+               "b": {"type": "http", "url": "http://h", "headers": {"X": "y"}, "codemode": false}}),
     )])?;
     for servers in [
         json!({"s": {"type": "websocket", "url": "ws://h"}}),
@@ -1426,11 +1426,77 @@ fn opencode_a_server_name_renders_the_server_under_it() -> Res<()> {
     ])?;
     assert_eq!(
         parsed["mcp"],
-        json!({"servers": {"x-y": {"type": "local", "command": ["uvx"], "codemode": true}}})
+        json!({"servers": {"x-y": {"type": "local", "command": ["uvx"], "codemode": false}}})
     );
     assert_eq!(
         parsed["permissions"],
         json!([{"action": "x-y_t", "effect": "allow", "resource": "*"}])
+    );
+    Ok(())
+}
+
+/// Guards: the `mcp` entries of `opencode.json` hold, for each server, the keys `OpenCode` documents
+/// for its `type` and no other: `local` takes `type`, `command`, `environment` and `codemode`,
+/// `remote` takes `type`, `url`, `headers` and `codemode`; a server that sets no `codemode` is
+/// written with `codemode: false`.
+/// Oracle: the `OpenCode` MCP servers documentation, `opencode.ai/docs/mcp-servers`, the `Local` and
+/// `Remote` field tables, read through Context7 `/websites/opencode_ai`; the literal JSON below.
+/// Bite: `#[serde(default)]` of `McpServer::codemode` replaced by a default of `true`, or a key
+/// outside the tables written by `server`.
+#[test]
+fn the_config_holds_the_keys_opencode_documents() -> Res<()> {
+    let documented = |kind: &str| -> &'static [&'static str] {
+        match kind {
+            "local" => &["type", "command", "environment", "codemode"],
+            "remote" => &["type", "url", "headers", "codemode"],
+            _ => &[],
+        }
+    };
+    let (_, parsed) = prepared_config(&[(
+        "mcp",
+        json!({
+            "a": {"command": "uvx", "args": ["srv"], "env": {"K": "v"}},
+            "b": {"type": "remote", "url": "http://h/mcp", "headers": {"X": "y"}, "codemode": true},
+            "c": {"type": "stdio", "command": "uvx", "codemode": false, "name": "x-y"}
+        }),
+    )])?;
+    assert_eq!(
+        parsed["mcp"]["servers"],
+        json!({
+            "a": {"type": "local", "command": ["uvx", "srv"], "environment": {"K": "v"}, "codemode": false},
+            "b": {"type": "remote", "url": "http://h/mcp", "headers": {"X": "y"}, "codemode": true},
+            "x-y": {"type": "local", "command": ["uvx"], "codemode": false}
+        })
+    );
+    for (name, entry) in parsed["mcp"]["servers"].as_object().ok_or("no servers")? {
+        let kind = entry["type"].as_str().ok_or("no type")?;
+        let allowed = documented(kind);
+        assert!(
+            !allowed.is_empty(),
+            "{name}: `{kind}` is no documented type"
+        );
+        for key in entry.as_object().ok_or("no entry")?.keys() {
+            assert!(
+                allowed.contains(&key.as_str()),
+                "{name}: `{key}` is no documented key of `{kind}`"
+            );
+        }
+    }
+    // The documentation lists no SSE transport: an `sse` server is refused, not mapped to `remote`.
+    let cell = values(&[("mcp", json!({"s": {"type": "sse", "url": "http://h"}}))])?;
+    let error =
+        candler_core::resolve::paths::refuse_unanswered(&OpenCodeDriver::new(), &Cell::new(&cell))
+            .err()
+            .ok_or("an sse server ran")?;
+    assert_eq!(
+        Refusal::code(&error).as_str(),
+        "experiment.setting_unsupported"
+    );
+    assert!(
+        error
+            .to_string()
+            .contains("OpenCode documents no SSE transport; its `remote` is Streamable HTTP"),
+        "{error}"
     );
     Ok(())
 }
