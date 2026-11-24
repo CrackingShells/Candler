@@ -424,20 +424,14 @@ exit 1
             );
         }
 
-        // The dry run: without `-y` and with stdin closed the binary refuses, and what it would
-        // stop is exactly the test's own jobs.
+        // The dry run: without `-y` and with stdin closed the binary refuses on stderr and keeps
+        // stdout empty, so no job is stopped or even listed to a stream no one reads.
         let mut dry = Command::new(env!("CARGO_BIN_EXE_candler"));
         dry.args(["kill", "--all", "--store"]).arg(&root);
         confine(&mut dry, tmp.path(), &path);
         let (dry, said) = bounded(&mut dry);
         assert_eq!(dry.code(), Some(2), "the dry run was not refused: {said}");
-        let mut wanted: Vec<String> = rigs.iter().map(|rig| rig.id.to_string()).collect();
-        wanted.sort();
-        assert_eq!(
-            said.lines().next().map(str::to_owned),
-            Some(format!("would stop: {}", wanted.join(" "))),
-            "the dry run would stop other jobs than the test's own: {said}"
-        );
+        assert_eq!(said, "", "the dry run printed to stdout: {said:?}");
 
         // The real binary, stdin closed. The test reaps its own supervisors while it waits, as
         // their parent would: a zombie is not a process that is gone.

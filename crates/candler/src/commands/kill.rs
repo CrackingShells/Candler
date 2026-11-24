@@ -5,7 +5,7 @@
 //! A job whose supervisor is gone, or still has not ended the job after the grace, is recovered.
 
 use std::error::Error;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, IsTerminal as _, Write};
 use std::path::Path;
 
 use candler_core::jobs::dir::JobDir;
@@ -267,6 +267,11 @@ pub async fn kill(
 /// [`CliError`] when the confirmation is refused or a job could not be stopped.
 pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let stdin = io::stdin();
+    // Off a terminal and without `--yes` the question the prompt asks cannot be answered, so the
+    // verb is refused before any line of the prompt is emitted.
+    if !stdin.is_terminal() && !args.yes {
+        return Err(CliError::refused_by(CliRefusal::KillNotConfirmed));
+    }
     let mut input = stdin.lock();
     let mut stdout = io::stdout().lock();
     kill(&args, store, &mut input, &mut stdout).await?;
