@@ -38,6 +38,7 @@ graph TD
 | ID | Date | Source | Nodes Added | Rationale |
 |:---|:-----|:-------|:------------|:----------|
 | A1 | 2026-11-24 | seam review 1 (F3/F4) | none; one gate added to `dogfooding_pass.md` | OpenCode has no agent-to-sealed-run chain in CI; the pass's real OpenCode run is where its stored outputs are compared with what the agent wrote, before any follow-up builds that chain |
+| A2 | 2026-11-24 | maintainer ruling on seam review 1 (R1) | none; fixed under seam review 1 as leaf `exec_bit` | Every stored output keeps its execute bit, whatever produced it, so an evaluation plugin can run an output; the runner records the bit as import does, the 0555 materialise path stays, and the tree digest of a new run with an executable output changes |
 
 ## Progress
 | Node | Branch | Commits | Notes |
