@@ -51,7 +51,7 @@ pub enum McpServerKind {
 /// A server is launched from a `command` (with optional `args` and `env`) or reached at a `url`
 /// (with optional `headers`); exactly one of `command` and `url` is required, and a `type` marker
 /// agrees with it: `stdio` or `local` with `command`, `http`, `sse` or `remote` with `url`.
-/// `codemode` selects the prompts the agent sees, and defaults to `true` when absent. A `name`
+/// `codemode` selects the prompts the agent sees, and is `false` when absent. A `name`
 /// leaf names the server under a key; without it the key names it. Every field the drivers read
 /// is typed here, so a non-text `command`, a non-list `args` or a non-text environment value fails
 /// validation rather than being read leniently.
@@ -99,10 +99,9 @@ pub struct McpServer {
     /// The headers a remote server is called with.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub headers: Option<BTreeMap<String, String>>,
-    /// Whether the server's tools show in the agent's codemode prompts; true when absent.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("default" = true))]
-    pub codemode: Option<bool>,
+    /// Whether the server's tools show in the agent's codemode prompts; false when absent.
+    #[serde(default)]
+    pub codemode: bool,
     /// The name the server renders under, when its key would not do.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,

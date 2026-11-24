@@ -816,8 +816,9 @@ version and by the sha256 of the release archive of each architecture.
   `{env:CANDLER_GATEWAY_URL}/v1` and `{env:CANDLER_GATEWAY_TOKEN}`, which the core sets, so the
   token never enters a file. Each MCP server is written in the V2 shape `mcp.servers.<name>` with
   `codemode` always explicit: MCP code mode is on by default in OpenCode and bundles a server's
-  tools into one `execute` tool, so an absent cell value is written as on, and `codemode` is a cell
-  value under `mcp.*`, a treatment factor (I7). A server shape the driver cannot translate is
+  tools into one `execute` tool, so the resolved cell holds `codemode = false` for a server that
+  leaves it out, and `codemode` is a cell value under `mcp.*`, a treatment factor (I7). Claude Code
+  has no code mode and refuses `codemode = true`. A server shape the driver cannot translate is
   refused.
 - **State.** `XDG_DATA_HOME`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_STATE_HOME` are
   directories under the agent's home and `OPENCODE_DB` is the file `.xdg/data/oc.db` (SQLite in WAL

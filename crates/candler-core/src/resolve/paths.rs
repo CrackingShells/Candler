@@ -606,7 +606,7 @@ pub fn settings_set_by(cell: &Cell<'_>) -> Result<Vec<(AgentSetting, FieldPath)>
                 AgentSetting::McpTransport(_) => {
                     for server in mcp::servers(cell)?.unwrap_or_default().into_values() {
                         found.push(AgentSetting::McpTransport(mcp::kind(&server)));
-                        found.extend(server.codemode.map(AgentSetting::Codemode));
+                        found.push(AgentSetting::Codemode(server.codemode));
                         if server.name.is_some() {
                             found.push(AgentSetting::McpName);
                         }

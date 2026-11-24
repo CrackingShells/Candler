@@ -170,8 +170,11 @@ pub(crate) const fn answer(setting: AgentSetting) -> Answer {
         ) => Answer::Mapped {
             construct: "an `mcp` entry of type `remote`",
         },
-        AgentSetting::Codemode(true | false) => Answer::Mapped {
-            construct: "the `codemode` key of the `mcp` entry, written for every server",
+        AgentSetting::Codemode(true) => Answer::Mapped {
+            construct: "the `codemode` key of the `mcp` entry, `true`: the server's tools are reached through `execute`, whose calls the trace records with empty `wrapped_calls`, so MCP calls made inside `execute` are not attributed and do not compare with Claude Code",
+        },
+        AgentSetting::Codemode(false) => Answer::Mapped {
+            construct: "the `codemode` key of the `mcp` entry, `false`: the server's tools are direct tools",
         },
         AgentSetting::McpName => Answer::Mapped {
             construct: "the key of the `mcp` entry",
@@ -254,10 +257,7 @@ fn server(server: &McpServer) -> Value {
             out.insert("headers".to_owned(), json!(headers)); // BORROW: .to_owned() makes the owned key
         }
     }
-    out.insert(
-        "codemode".to_owned(), // BORROW: .to_owned() makes the owned key
-        Value::Bool(server.codemode.unwrap_or(true)),
-    );
+    out.insert("codemode".to_owned(), Value::Bool(server.codemode)); // BORROW: .to_owned() makes the owned key
     Value::Object(out)
 }
 

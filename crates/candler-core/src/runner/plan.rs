@@ -19,6 +19,7 @@ use candler_schemas::execution::{
     Comparable, Deviation, ExecutionError, ExperimentFile, Factor, Integrity, Level, RunManifest,
     SecretPresence, TreatmentRef, experiment_digest,
 };
+use candler_schemas::field_path;
 use candler_schemas::primitives::{Digest, FieldPath, JobId, RunKey, SecretName};
 use candler_schemas::values::{JsonValue, ResolvedValue, SourceEntry, ValueSource};
 use rustix::fs::{FlockOperation, flock};
@@ -578,6 +579,37 @@ fn setting_in(prefix: &str, table: &serde_json::Map<String, Value>) -> Option<St
     })
 }
 
+/// The values of `values` with `codemode` written for each server of `mcp.servers` that does not
+/// set it, as `false`, the schema's default: the cell records what Candler installs, so a server
+/// that leaves `codemode` out and one that sets it to `false` are one cell. An entry the reader of
+/// `mcp.servers` refuses is left alone, and so is a key that is no field-path segment: the reader
+/// gives both their `false`.
+///
+/// # Errors
+/// [`PlanError::Cell`] when the default cannot be built as a value.
+fn fill_codemode(values: &mut Vec<ResolvedValue>) -> Result<(), PlanError> {
+    let servers = field_path!("mcp.servers");
+    let Ok(Some(table)) = Cell::new(values.as_slice()).table_at(&servers) else {
+        return Ok(());
+    };
+    for (key, entry) in table {
+        let Value::Object(fields) = entry else {
+            continue;
+        };
+        if fields.contains_key("codemode") {
+            continue;
+        }
+        let Ok(path) = format!("{servers}.{key}.codemode").parse::<FieldPath>() else {
+            continue;
+        };
+        let off = JsonValue::new(Value::Bool(false)).map_err(|error| PlanError::Cell {
+            source: error.into(),
+        })?;
+        values.push(ResolvedValue::recorded(path, off));
+    }
+    Ok(())
+}
+
 /// Builds every cell of `file`, each under the resolution of its treatment level. A path the file
 /// writes that [`is_setting`] names is a setting of the run, which the resolution holds, and no
 /// value of a cell; the treatment level reaches the cell through its resolution.
@@ -683,6 +715,7 @@ fn fresh_cells<'r>(
             })?;
             values.push(ResolvedValue::recorded(path, value));
         }
+        fill_codemode(&mut values)?;
         let canonical = {
             let at = |path: &str| {
                 values
