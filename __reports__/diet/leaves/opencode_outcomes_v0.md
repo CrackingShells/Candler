@@ -26,12 +26,15 @@ rescue (P6's b40, P2's oracle).
   - The Sonnet review ($0.29, 5 tool calls) did not see the run's summary. Its verdict was merge.
     - It reproduced base red and tip green on a fresh compile. `mcp::read` is untouched, no serde attribute
       changed, and no layer was added.
-    - It found that the docs commit had also reworded three unrelated bullets, which nobody asked for.
+    - It flagged that the docs commit had also reworded three unrelated bullets, which nobody asked for. That was
+      wrong: the page's Notes are capped at 120 words, and the shorter wording made room for the new sentence.
+      The lead undid the rewording, `contract_pages` failed in CI at 130 words, and the lead restored the run's
+      wording. The run had the cap right, and the review and the lead did not.
     - It found that the table had no rows for a `type` marker that disagrees with the fields. An outside validator
       showed the schema refusing those shapes, but no row guarded it.
     - Its claim that `{command, url}` without a `type` had no row was wrong: that row exists.
-  - The lead fixed both points in two commits (3 tool calls; about $0.6 of lead turns in all, launch included).
-  - Claude-side cost was about $0.9, against $3–5 for a Sonnet implementer, so the saving holds for this piece.
+  - The lead added the marker rows and a doc sentence, and spent a CI round on the rewording (about $0.8 of lead turns in all, launch included).
+  - Claude-side cost was about $1.1, against $3–5 for a Sonnet implementer, so the saving holds for this piece.
   - The claim and the review agree on every gate. This is the first attempt to hold up under review.
   - Unchanged friction: the run cannot push, so the lead opens the PR.
 
