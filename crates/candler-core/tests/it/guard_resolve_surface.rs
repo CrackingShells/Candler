@@ -57,10 +57,6 @@ impl PreflightStep for Roots {
                 json!([{"kind": "build_inputs", "digest": digest("inputs")}]),
             ),
             (
-                "snapshots",
-                json!([{"kind": "catalog", "digest": digest("snapshots")}]),
-            ),
-            (
                 "environments",
                 json!([{"plugin": "p@1.0.0", "lock_digest": digest("environments")}]),
             ),
