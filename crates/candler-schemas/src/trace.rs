@@ -645,7 +645,9 @@ impl SessionBuilder {
 pub enum ToolOrigin {
     /// A tool the harness itself provides.
     Builtin,
-    /// A tool an MCP server offers.
+    /// A tool an MCP server offers. Claude Code's reader takes any `mcp__<server>__<tool>` for the
+    /// tool of `<server>`, declared or not; `OpenCode`'s takes only a declared server, because its
+    /// spelling `<server>_<tool>` cannot be split without the server names.
     #[non_exhaustive]
     Mcp {
         /// The name of the MCP server.

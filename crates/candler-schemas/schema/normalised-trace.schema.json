@@ -536,7 +536,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "A tool an MCP server offers.",
+          "description": "A tool an MCP server offers. Claude Code's reader takes any `mcp__<server>__<tool>` for the\ntool of `<server>`, declared or not; `OpenCode`'s takes only a declared server, because its\nspelling `<server>_<tool>` cannot be split without the server names.",
           "properties": {
             "kind": {
               "const": "mcp",
