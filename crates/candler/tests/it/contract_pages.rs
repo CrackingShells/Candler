@@ -197,8 +197,12 @@ fn d1_regenerating_the_pages_changes_nothing() {
     )
     .expect("the capability page is rendered");
     settle_capabilities("harness-capabilities.md", &capabilities);
-    let paths = render_paths(&versions, existing("configuration-paths.md").as_deref())
-        .expect("the configuration paths page is rendered");
+    let paths = render_paths(
+        registry,
+        &versions,
+        existing("configuration-paths.md").as_deref(),
+    )
+    .expect("the configuration paths page is rendered");
     settle("configuration-paths.md", &paths);
     let file_page = render_file_page(&versions, existing("config-file.md").as_deref())
         .expect("the configuration file page is rendered");

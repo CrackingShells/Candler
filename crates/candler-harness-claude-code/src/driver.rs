@@ -296,7 +296,7 @@ impl HarnessDriver for ClaudeCodeDriver {
                 reason: "tools run in the child process",
             },
             DriverFact::Census => Answer::Mapped {
-                construct: "the tool list of the `system/init` event",
+                construct: "Claude Code's `system/init` event lists the tools",
             },
             DriverFact::UnsetPermissionMode => Answer::Mapped {
                 construct: "`--permission-mode default` on the command line, which in a headless run denies every tool call that needs approval unless an allow rule or a hook approves it",

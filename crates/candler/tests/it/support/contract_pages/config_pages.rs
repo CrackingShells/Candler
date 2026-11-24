@@ -4,13 +4,15 @@
 use std::fmt::Write;
 use std::fs;
 
-use candler_core::resolve::paths::{CONFIGURATION_PATHS, ConfigFile, Kind};
+use candler_core::resolve::paths::{CONFIGURATION_PATHS, ConfigFile, Kind, Reach};
+use candler_harness::spec::Answer;
 use syn::{Expr, ExprArray, ExprLit, Item, Lit};
 
 use super::harness::{HarnessPage, assemble, cell};
 use super::refusals::{Entry, all_entries};
 use super::repo_root;
 use super::versions::{CLOSE, OPEN, Versions};
+use crate::drivers::Registry;
 
 /// The page of the configuration paths.
 pub const PATHS_PAGE: HarnessPage = HarnessPage {
@@ -79,10 +81,44 @@ fn names(kind: Kind) -> &'static str {
     }
 }
 
-fn paths_fields() -> String {
-    let mut out = String::from("| Path | Names | Class | Meaning |\n|---|---|---|---|\n");
+/// The words of a driver's answer to one setting: the cell an experimenter reads.
+fn answer_of(answer: Answer) -> String {
+    match answer {
+        Answer::Mapped { construct } => construct.to_owned(), // BORROW: .to_owned() makes the owned cell text
+        Answer::Candler { how } => format!("Candler: {how}"),
+        Answer::Refused { reason } => format!("no ({reason})"),
+    }
+}
+
+/// The cell of one driver for the agent setting a path reaches.
+///
+/// # Errors
+/// `Err` naming the driver when the registry has no driver for `name`; never otherwise, as every
+/// registered driver answers every setting.
+fn driver_cell(
+    name: &str,
+    registry: &Registry,
+    setting: candler_harness::spec::AgentSetting,
+) -> Result<String, String> {
+    let driver = registry
+        .driver(name)
+        .map_err(|_| format!("no driver for `{name}`"))?;
+    Ok(answer_of(driver.answer(setting)))
+}
+
+fn paths_fields(registry: &Registry) -> Result<String, String> {
+    let registered = registry.names();
+    let mut out = String::from("| Path | Names | Class | Meaning |");
+    for driver in &registered {
+        let _ = write!(out, " {driver} |");
+    }
+    out.push_str("\n|---|---|---|---|");
+    for _ in &registered {
+        out.push_str("---|");
+    }
+    out.push('\n');
     for row in &CONFIGURATION_PATHS {
-        let _ = writeln!(
+        let _ = write!(
             out,
             "| `{}` | {} | {} | {} |",
             cell(row.path),
@@ -90,8 +126,26 @@ fn paths_fields() -> String {
             row.class.text(),
             cell(row.meaning)
         );
+        match &row.reach {
+            Reach::CandlerOnly => {
+                for _ in &registered {
+                    out.push_str(" Candler only |");
+                }
+            }
+            Reach::Agent(settings) => {
+                for driver in &registered {
+                    let text = settings
+                        .iter()
+                        .map(|setting| driver_cell(driver, registry, *setting))
+                        .collect::<Result<Vec<_>, _>>()?
+                        .join("; ");
+                    let _ = write!(out, " {} |", cell(&text));
+                }
+            }
+        }
+        out.push('\n');
     }
-    out
+    Ok(out)
 }
 
 fn file_fields() -> String {
@@ -114,12 +168,16 @@ fn file_fields() -> String {
 }
 
 /// The page of the configuration paths.
-pub fn render_paths(versions: &Versions, existing: Option<&str>) -> Result<String, String> {
+pub fn render_paths(
+    registry: &Registry,
+    versions: &Versions,
+    existing: Option<&str>,
+) -> Result<String, String> {
     Ok(assemble(
         &PATHS_PAGE,
         PATHS_SURFACE,
         &version_block(versions)?,
-        &paths_fields(),
+        &paths_fields(registry)?,
         &entries(&PATHS_CODES)?,
         existing,
     ))
