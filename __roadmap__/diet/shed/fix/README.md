@@ -17,7 +17,7 @@ Every claim the audit found broken is fixed or moved to Next with its evidence.
 ```mermaid
 graph TD
     audit_fixes[audit_fixes]:::done
-    close[Close out]:::planned
+    close[Close out]:::blocked
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -29,7 +29,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `audit_fixes.md` | 📄 Leaf Task | ✅ Done |
-| `close/` | 📁 Directory | ⬜ Planned |
+| `close/` | 📁 Directory | 🚫 Blocked |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
@@ -38,3 +38,4 @@ graph TD
 ## Progress
 | Node | Branch | Commits | Notes |
 |:-----|:-------|:--------|:------|
+| `close/` | -- | -- | blocked, superseded by `__roadmap__/integrity/causes/checkpoint/snapshot/review/dogfood/dogfooding_pass.md` (P7) |
