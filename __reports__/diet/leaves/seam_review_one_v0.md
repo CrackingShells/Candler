@@ -69,3 +69,24 @@ The fixes left these points behind. Each is recorded, and none needs an action.
 
 Consistency check: `cargo nextest run --workspace` on the `feat/integrity` tip after the merges (`5b850c56`): 754
 run, 754 passed, 31 skipped.
+
+## Checkpoint
+
+The spend below is measured from transcripts, not from usage notes. Each cap is the leaf's own.
+
+| Level-1 row | USD | Cap | Within |
+|---|---|---|---|
+| P0 | 1.75 | 2 | yes |
+| P1 | 7.82 | 20 | yes (about 81 tool calls against about 60: a call overrun, not a dollar one) |
+| P2 | 2.38 | 8 | yes |
+| P4 | 11.79 | 24 | yes |
+| P6 | 1.17 | 2 | yes |
+| Seam reviewer | 4.87 | 8 | yes |
+
+The RiVault runs of level 1 are unmeasured on the RiVault side, because their logs were plain text.
+
+**Decision on P5.** Level 1 is within its caps, so P5 runs, as the maintainer had also ruled. It is merged as #64.
+
+Milestone spend so far is about $108.5 against a cap of about $120. That is about $82 at the level-1 handoff, this
+level's lead session at $24.0, and the coordinator's spend since handoff. The lead session's $24.0 splits as the lead
+$14.6, `seam_fixes` $3.9 against a $5 estimate, P5 $3.0 against $6, `exec_bit` $2.2 against $4, and reviews $0.3.
