@@ -221,6 +221,56 @@ fn i1_each_stream_becomes_one_run() {
     assert_eq!(seen, expected);
 }
 
+/// Guards: a raw-ingested cell is keyed as it was before the cell's `snapshots` became optional:
+/// it carries an empty list, and its run key names the digest of the cell written with that list.
+/// Without it a stream ingested earlier would find its held run keyed by another cell.
+///
+/// Oracle: the sha256 of the cell text written by hand, with the sorted keys and `"snapshots":[]`,
+/// computed with `Digest::of_bytes`; the harness and treatment members are copied from the stored
+/// manifest.
+///
+/// Bite: leave `.snapshots(vec![])` out of the raw cell (the key vanishes and the key's cell
+/// digest differs).
+#[test]
+fn i1_a_raw_cell_keeps_the_digest_it_had_with_an_empty_snapshots_list() {
+    let dir = TempDir::new().expect("a directory");
+    let traces = fixture_directory(dir.path());
+    let store = Store::init(&dir.path().join("store")).expect("a store");
+    ingest_raw(&store, &traces, &recognise, readers().as_ref()).expect("the ingest runs");
+    for (name, manifest) in manifests(&dir.path().join("store")) {
+        let cell = &manifest["comparable"];
+        assert_eq!(
+            cell["snapshots"],
+            json!([]),
+            "{name}: the empty list is kept"
+        );
+        let text = format!(
+            "{{\"environments\":[],\"harness\":{},\"inputs\":[],\"snapshots\":[],\"treatment\":{},\"values\":[]}}",
+            canonical(&cell["harness"]),
+            canonical(&cell["treatment"]),
+        );
+        let expected = candler_schemas::primitives::Digest::of_bytes(text.as_bytes());
+        assert_eq!(
+            manifest["run"]["cell"].as_str(),
+            Some(expected.as_str()),
+            "{name}: the run key names the old cell digest"
+        );
+    }
+}
+
+/// A JSON object as compact text with its keys in code point order, as the members of a
+/// canonical cell are written.
+fn canonical(value: &Value) -> String {
+    let object = value.as_object().expect("an object");
+    let mut keys: Vec<&String> = object.keys().collect();
+    keys.sort();
+    let members: Vec<String> = keys
+        .iter()
+        .map(|key| format!("{}:{}", Value::from((*key).as_str()), object[*key]))
+        .collect();
+    format!("{{{}}}", members.join(","))
+}
+
 /// Guards: I1, I17 — no field of a stored manifest or tree, and no source path, starts with `/` or
 /// holds the temporary directory's text.
 /// Oracle: the temporary directory's own path, which the test created, and the rule that a stored
