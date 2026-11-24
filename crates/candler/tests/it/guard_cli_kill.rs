@@ -111,6 +111,43 @@ fn kill_all_without_confirmation_makes_no_docker_call() {
     );
 }
 
+/// Guards: B42 — `candler kill <job>` with stdin not a terminal and no `-y` prints nothing on
+/// stdout, names the confirm flag on stderr, and reaches no docker client, so the job stays as it
+/// was. On a terminal, or with `-y`, the confirmation is unchanged and the stop proceeds.
+///
+/// Oracle: the fake client's call log (empty), the exit status (2), and the absent stdout. The
+/// command prints nothing while it is refused, so a runner that cannot see a prompt is not left
+/// waiting on one.
+///
+/// Bite: `kill` writes the prompt to stdout and reads stdin, so off a terminal the prompt reaches
+/// the pipe unchanged.
+#[test]
+fn kill_off_a_terminal_refuses_before_prompting() {
+    let root = world();
+    let out = candler(&root, &["kill", JOB]);
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert_eq!(out.status.code(), Some(2), "{stdout}{stderr}");
+    assert_eq!(
+        stdout, "",
+        "stdout carried the prompt or the plan: {stdout:?}"
+    );
+    assert!(
+        stderr.contains("-y"),
+        "stderr does not name the confirm flag: {stderr}"
+    );
+    assert!(
+        stderr.contains("candler ps"),
+        "stderr does not name the command that lists the jobs: {stderr}"
+    );
+    assert_eq!(calls(&root), "", "a refused kill made a docker call");
+
+    let control = world();
+    let out = candler(&control, &["kill", JOB, "-y"]);
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert_eq!(out.status.code(), Some(0), "{stderr}");
+}
+
 /// Runs the real binary on the world, naming its store as `how` says: `CANDLER_STORE` alone,
 /// or `--store` before the verb. The working directory and the state home name no store.
 fn candler_naming(root: &Path, how: &str, args: &[&str]) -> Output {

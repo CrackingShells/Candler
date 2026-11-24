@@ -78,7 +78,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `config.import_rule_invalid` | A rule of the import rules is not valid. | - | config |
 | `config.import_rules_invalid` | The import rules file given to `ingest --rules` is not the rules format: it is not TOML, a field is missing, or a field is not one the format has. | - | config |
 | `config.inspect_target_invalid` | The target given to `inspect` is none of a run directory, a prefix of a run key of at least 6 characters, or a job id. | - | config |
-| `config.kill_not_confirmed` | `kill` asked for a confirmation and was not answered `y` or `yes`; `-y` skips the question. | - | config |
+| `config.kill_not_confirmed` | `kill` stopped nothing because it was not confirmed: stdin is not a terminal, or the question was not answered `y` or `yes`; `-y` confirms, and `candler ps` lists the jobs that would be stopped. | - | config |
 | `config.machine_wide_key` | A project configuration sets a machine-wide key, which only the user configuration may set. | The key in the project configuration file named in the message. | config |
 | `config.no_evaluator_slots` | `slots.evaluators` is 0 in the user configuration, so the pool that evaluators draw from has no slot. | - | config |
 | `config.no_plugin_dirs` | `evaluate` is run where no `candler.toml` at or above the working directory lists a plug-in directory under `plugins.dirs`. | - | config |

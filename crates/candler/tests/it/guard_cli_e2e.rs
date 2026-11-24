@@ -496,16 +496,7 @@ mod kill_e2e {
         let shim = Shim::install(&scratch.path().join("bin"), &real, &[]);
         let dry = candler(&["kill", "--all"], &shim);
         let dry_out = String::from_utf8_lossy(&dry.stdout).into_owned();
-        let mut own: Vec<String> = [&first_lost, &second_lost, &ended]
-            .iter()
-            .map(ToString::to_string)
-            .collect();
-        own.sort();
-        assert_eq!(
-            dry_out.lines().next(),
-            Some(format!("would stop: {}", own.join(" ")).as_str()),
-            "the store holds jobs the test did not make: {dry_out}"
-        );
+        assert_eq!(dry_out, "", "the refusal off a terminal printed to stdout");
         assert_eq!(dry.status.code(), Some(2), "the dry run was not refused");
         assert_eq!(shim.log(), "", "the dry run made a docker call");
 
@@ -547,6 +538,11 @@ mod kill_e2e {
         let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
         let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
         assert_eq!(out.status.code(), Some(0), "{stdout}{stderr}");
+        assert_eq!(
+            stdout.lines().count(),
+            3,
+            "kill --all reported other jobs than the test's own three: {stdout}"
+        );
 
         for job in [&first_lost, &second_lost] {
             let wanted = format!("{job}: recovered (1 containers destroyed)");
