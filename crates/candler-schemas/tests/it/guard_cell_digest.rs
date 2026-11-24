@@ -284,7 +284,7 @@ fn every_manifest_path_is_classified_and_hashed_parts_move_the_digest() {
                     .push(DigestRef::new(
                         Name::from_str("catalog").expect("name"),
                         digest('e'),
-                    ))
+                    ));
             }
             "comparable.inputs" => cell.inputs.push(DigestRef::new(
                 Name::from_str("script").expect("name"),
