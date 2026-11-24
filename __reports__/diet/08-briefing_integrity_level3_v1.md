@@ -33,7 +33,7 @@ So "controlled conditions" holds for one harness at a time, not across two. Leve
   - **One shape for every per-harness list.** The codebase's best list idiom is `CONFIGURATION_PATHS`'s const array of `Copy` rows. Its completeness check is the exhaustive match that `refusal_table!` uses. `SettingRow`, `Capabilities` and the capability page's hand-written rows fold into it. A missing answer is a compile error, not a default `false`.
   - **What the agent called is the consumer's to parse from the trace.** Candler owes a truthful record of what it installed and a trace that compares across harnesses. The census therefore keeps `census.tools` only, as the comparability verdict's input. The leaf that was to collect server status (`census.md`) is blocked, and `trace_parity.md` aligns both trace readers on one MCP origin instead.
   - **Code mode is declared, not parsed.** With code mode on, OpenCode's trace shows only `execute`. That is why the default is off, and OpenCode's answer says so.
-  - **`tool-catalog-snapshot/1` stays.** The HTN consumer's capture script writes it and its grader reads it (htn-creator-eval@0.5.3). Only Candler's constant producer and the level-2 surface that showed its output go.
+  - **`tool-catalog-snapshot/1` leaves Candler.** Its only producer and reader are the HTN consumer's capture script and grader (htn-creator-eval@0.5.3), and Candler neither writes nor reads it. That release keeps grading, and an HTN-side follow-up takes the schema file.
   - **Non-goals:** hooks an experiment can set, and CLAUDE.md/AGENTS.md. Both are left to a later feature round.
 - The level's spend gate is unchanged at $70, and the leaves are now estimated at $45, with $90 in caps.
 
@@ -45,7 +45,7 @@ So "controlled conditions" holds for one harness at a time, not across two. Leve
 | P9 MCP render | Each driver writes its own MCP file from types. On Claude Code, `local` becomes `stdio` and `remote` becomes `http`, and Claude Code refuses code mode, with its reason. The `codemode` default is written into the cell. | Run one MCP cell on both harnesses and have each install the same server |
 | P10 trace parity | OpenCode's trace attributes an MCP call to its server, as Claude Code's does, with an optional bare `tool` name that old traces can lack, and resolve refuses ambiguous server prefixes. The census stops naming servers, and the stored Claude Code trace keeps its raw `system/init` line. | Parse the same MCP call the same way from either harness's trace |
 | P11 pages (RiVault, with a Sonnet review) | The capability and configuration pages are walks over the declaration and the drivers | Read one page that says, per harness, what happens to each setting |
-| P12 snapshot out | The constant producer, its resolve step, `comparable.snapshots` and `InspectRun.catalog` are removed. `inspect` shows the resolved MCP config, once no `inspect` caller in htn-creator-eval@0.5.3 is found reading the catalog. The README, `AGENTS.md` and the live candler-v1 M6c Goal say "census". The old oracle vectors stay, for the maintainer's own stores. | See in `inspect` what Candler installed, and nothing it did not observe |
+| P12 snapshot out | The constant producer, its resolve step, `comparable.snapshots` and `InspectRun.catalog` are removed. `inspect` shows the resolved MCP config, once no `inspect` caller in htn-creator-eval@0.5.3 is found reading the catalog. The README, `AGENTS.md` and the live candler-v1 M6c Goal say "census". The old oracle vectors stay, for the maintainer's own stores. `/1` leaves Candler. | See in `inspect` what Candler installed, and nothing it did not observe |
 | P13 parity run | A container-e2e guard runs one cell on both harnesses against a real server. It asserts that the server is installed and that the call appears in the same trace form, and one live RiVault run per harness backs it. | Rely on CI to catch a harness falling out of parity |
 | Seam review 3 | A cross-leaf review that asks first what the level left behind | |
 
@@ -54,7 +54,7 @@ The coordinator accepted the three compatibility items:
 - P10: an optional `tool` field on the trace's MCP origin, holding the bare tool name.
 - P12: a new digest version without snapshots, and `InspectRun.catalog` dropped, after P12 checks that no `inspect` caller in the HTN consumer reads it.
 
-`/1` stays in `candler-schemas` for level 3. Seam review 3 records its long-term home as an open question.
+`/1` leaves Candler in P12. The HTN consumer gets a follow-up to hold its schema file.
 
 ## Goal check
 

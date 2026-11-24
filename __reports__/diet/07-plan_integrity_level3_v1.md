@@ -36,7 +36,7 @@ The yardstick, from the README purpose paragraph:
 | Who produces `tool-catalog-snapshot/1` in real use? | **The HTN consumer.** Its `scripts/capture_catalog_snapshot.py` writes `/1`, and its Tier D (`_catalog_snapshot.py`) reads `/1` and refuses anything else. Both were released in htn-creator-eval@0.5.3 (commit 11212ea1). They name Candler's `catalog-snapshot.schema.json` as the definition. Inside Candler only the constant and the tests produce it. | consumer repo |
 | What did level 2 add for the consumer? | `InspectRun.catalog`, filled by `inspect.rs` `catalog_of`. It reads the blob behind `comparable.snapshots`, and it is in `inspect-run.schema.json`. | `inspect.rs:215-292` |
 
-So `/1` stays. It is a wire format Candler publishes and an outside tool writes and reads. Candler's own producer, its resolve step and its level-2 consumer surface go.
+So `/1` leaves Candler with its own producer, its resolve step and its level-2 consumer surface: a schema Candler neither writes nor reads is not Candler's. The HTN consumer keeps grading, since Tier D checks only the schema marker of its own committed file, and an HTN-side follow-up takes the schema file into that repository.
 
 ## Design
 
@@ -86,7 +86,7 @@ The rows are `Copy` and hold `&'static str`. Every key is a fieldless enum with 
   - `InspectRun.catalog` and `catalog_of`;
   - the refusal codes only these emitted.
 - `inspect` and the op API show the run's resolved `mcp.*` values from `comparable`. An old sealed run still reads. Its stored blob is left in the store and not shown, with no shim.
-- **Kept:** the `/1` schema, its types and its fixture tests, for the HTN consumer. Its description is reworded to say that Candler neither writes nor reads it and that the HTN consumer produces it.
+- **Also removed:** `tool-catalog-snapshot/1`, with its types, generated schema and fixtures. Its only producer and reader are the HTN consumer's, which gets a follow-up to hold the schema file itself.
 - The old oracle vectors stay beside the new ones, because the maintainer's own stores (golden and HTN runs) hold old manifests, and their files say so.
 - Before `InspectRun.catalog` is dropped, P12 confirms that nothing in htn-creator-eval@0.5.3 reads `inspect`'s `catalog` field. If something does, the drop waits for the coordinator.
 
@@ -96,7 +96,7 @@ The rows are `Copy` and hold `&'static str`. Every key is a fieldless enum with 
 - `opencode debug config` as a source of anything.
 - Reporting which servers the agent called, or their status. That is post-processing of the trace, done by the consumer.
 - Parsing OpenCode `execute`.
-- Moving `/1` out of `candler-schemas`. Seam review 3 records where it should live as an open question, which the coordinator takes to the maintainer.
+- The HTN-side change that takes the `/1` schema file into that repository. It is a follow-up there.
 
 ## Leaves (subtree `dogfood/parity/`; depth gives order)
 
@@ -123,7 +123,7 @@ P8 touches both drivers' `driver.rs` and the `prepare.rs` refusals before level 
 - **P9, accepted:** the digest changes when the `codemode` default is filled, so the resolved cell records what Candler installs.
 - **P10, accepted:** the optional `tool` field on `ToolOrigin::Mcp`, holding the bare tool name. It is a wire change, because of `deny_unknown_fields`, and it is optional so old traces still read.
 - **P12, accepted:** the new digest version without `snapshots`. Its vectors are added beside the old ones (`cell_digest.toml`, `catalog_content_digest.toml`), which stay for the maintainer's own stores and say so. `InspectRun.catalog` leaves `inspect-run.schema.json` once P12 has confirmed that htn-creator-eval@0.5.3 has no `inspect` caller reading it.
-- **`/1`:** it stays in `candler-schemas` for level 3, with a description saying who produces it. Its long-term home is an open question that seam review 3 records.
+- **`/1`:** it leaves Candler in P12 (revision 3). htn-creator-eval@0.5.3 keeps grading; an HTN-side follow-up takes the schema file.
 
 ## The principle, carried into every agent I supervise
 
@@ -146,12 +146,12 @@ Level 3 is one pass of the alignment work. If an implementer makes its gate pass
 - **What it leaves.**
   - Removed: `SettingRow`, `settings_table`, `Capabilities` and its builder, `ROWS` and `cap()`, the serde passthrough, OpenCode's hand-written refusal lists, the constant producer and its resolve step, `comparable.snapshots`, `InspectRun.catalog`, and `census.mcp_servers`.
   - Added: `Answer`, two key enums of one shape, a `reach` column, and one name check at resolve.
-  - Kept: `CONFIGURATION_PATHS` (extended), `refusal_table!`, the `/1` schema (outside producer and reader), and `census.tools` (one reader).
+  - Kept: `CONFIGURATION_PATHS` (extended), `refusal_table!` and `census.tools` (one reader). `/1` is removed with the producer.
 - **How it is consumed.** One generated page says, per harness, what happens to each setting and fact. `inspect` shows the MCP config Candler installed. The trace of one cell attributes the same MCP call the same way on both harnesses, which is what a consumer parses. Code mode's limit is stated where it is chosen.
 - **Trades, accepted by the coordinator:**
   - P8 grows, which costs more to develop and buys one shape to leave.
   - Claude Code's record loses its server status, which buys one fewer producer. The trace keeps the calls and the raw `system/init` line, so the consumer can still recover the status (a P10 gate).
-  - `/1` stays with no Candler producer or reader. That leaves something in the code, but the consumer still uses it, and its description says so.
+  - `/1` leaves Candler, which costs the HTN consumer one follow-up and leaves Candler no schema it does not use.
 
 ## After approval (in this session)
 
