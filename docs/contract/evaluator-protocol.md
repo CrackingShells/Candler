@@ -509,3 +509,4 @@ Wire line: `schemas@0.12.0`.
 - A request with a valid `id` and a method other than `describe` or `evaluate` is answered with error -32601; `evaluate` params that break the schema, with error -32602. [checked: candler-evaluator@0.1.0]
 - An `evaluate` request ends with the result `{"reported": n}`, after its `n` outcome notifications. [checked: candler-evaluator@0.1.0]
 - Candler does not compare protocol versions: any `describe` protocol is accepted. [checked: v@0.6.0]
+- Each output keeps its execute bit; its copy at `context.artifacts[].abs` is read-only, `0555` for an executable and `0444` otherwise. [checked: schemas@0.12.0]
