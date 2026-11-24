@@ -65,9 +65,6 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `analysis.no_outcomes` | The store holds no outcome record, so there is nothing to analyse; run `evaluate` first. | - | environment |
 | `analysis.no_stored_trace` | The run given to `inspect --transcript` has no stored normalised trace, or the target is a job, which holds none. | - | config |
 | `analysis.unknown_evaluator` | The evaluator, or the version, named has no outcome in the store. | - | config |
-| `catalog.name_empty` | A server or tool name in the catalog an image prints is empty. | - | environment |
-| `catalog.name_repeated` | A server or tool name in the catalog an image prints is repeated within its scope. | - | environment |
-| `catalog.schema_tag_mismatch` | The tool catalog an image prints carries another `schema` marker than `tool-catalog-snapshot/1`. | `/schema` | environment |
 | `cli.usage_invalid` | The command line is not one the parser accepts: an unknown option, a missing argument, or a value such as a `--set` without `=`. | - | config |
 | `config.ambiguous_run` | More than one run of the store has a key that starts with the prefix given to `inspect`. | - | config |
 | `config.cwd_not_absolute` | The working directory is not an absolute path, so no ancestor can be searched for a configuration. | - | config |
@@ -195,9 +192,6 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `resolve.preflight_failed` | At least one preflight step failed; every step ran and the message lists the failures. | - | environment |
 | `resolve.preflight_step_failed` | A preflight step failed before it could report, for example a missing directory or program. | - | environment |
 | `resolve.value_invalid` | A value of the resolution has the wrong form for what it names, such as a name with a space. | - | config |
-| `runner.catalog_command_failed` | The command that prints the tool catalog exited non-zero or was ended by a signal. | - | environment |
-| `runner.catalog_timeout` | The command that prints the tool catalog overran its time. | - | environment |
-| `runner.catalog_unreadable` | The output of the catalog command is not a tool catalog. | - | environment |
 | `runner.census_malformed` | The tool inventory lacks a list the census needs, or the list holds an entry of the wrong kind. | - | environment |
 | `runner.census_no_init` | The harness reported no tool inventory, so it did not run usably. | - | environment |
 | `runner.experiment_locked` | Another supervisor holds the experiment, or a job that owns an unfinished attempt is alive. | - | environment |
