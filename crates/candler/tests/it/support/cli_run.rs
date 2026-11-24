@@ -432,6 +432,13 @@ impl World {
         }
     }
 
+    /// Gives the file the fake agent leaves at `path` the execute bit; the fake's copy keeps the
+    /// mode of the file as a real agent's workspace does.
+    pub fn agent_leaves_executable(&self, path: &str) {
+        let at = self.bin.join("agent-files").join(path);
+        fs::set_permissions(at, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
     /// Makes a new commit in the skills repository and tags it `tag`, leaving the earlier tags
     /// where they are.
     pub fn tag_new_commit(&self, tag: &str) {

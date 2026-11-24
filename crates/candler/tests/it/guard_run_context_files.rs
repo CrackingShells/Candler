@@ -161,3 +161,36 @@ fn a_materialised_file_is_a_private_read_only_copy() {
     assert_eq!(blob.nlink(), 1, "the blob gained no link");
     assert_eq!(blob.mode() & 0o777, 0o444, "the mode of the blob");
 }
+
+/// Guards: R9 and I11 — an output the agent left with an execute bit materialises as `0555` and
+/// one without as `0444`: the run stores the bit it collected. The run is made by `candler run`
+/// over a fake agent whose `run.sh` is executable. Oracle: `stat` of the copies, and the mode given
+/// to the file the agent leaves.
+#[test]
+fn an_executable_output_materialises_as_0555_and_a_plain_one_as_0444() {
+    let world = world();
+    world.agent_leaves(&[("run.sh", b"#!/bin/sh\n"), ("note.txt", b"note\n")]);
+    world.agent_leaves_executable("run.sh");
+    let launched = world.launch();
+    finish(&world, &launched);
+    world.assert_sealed(1);
+    let store = Store::open(&world.store()).expect("the store opens");
+    let run = store
+        .runs()
+        .expect("the runs list")
+        .into_iter()
+        .next()
+        .expect("a run")
+        .key;
+    let workspace = tempfile::tempdir().expect("a workspace");
+    context_of(&store, &run, &needs_of(&["outputs/**"]), workspace.path());
+
+    let mode = |name: &str| {
+        std::fs::metadata(workspace.path().join("outputs").join(name))
+            .expect("a copy")
+            .mode()
+            & 0o777
+    };
+    assert_eq!(mode("run.sh"), 0o555, "the mode of the executable");
+    assert_eq!(mode("note.txt"), 0o444, "the mode of the plain file");
+}

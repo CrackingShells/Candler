@@ -1097,6 +1097,7 @@ fn declared_input_empty_match_is_no_leak_and_a_real_copy_is() {
         outputs: vec![OutputDigest {
             path: "copy.txt".to_owned(),
             digest: sha.parse().expect("a digest"),
+            executable: false,
         }],
         tree: candler_schemas::execution::RunTree::builder()
             .build()

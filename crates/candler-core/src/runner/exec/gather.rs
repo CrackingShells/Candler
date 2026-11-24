@@ -2,7 +2,9 @@
 //! spent, and what the reader made of its output.
 
 use std::collections::BTreeMap;
+use std::fs;
 use std::io;
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::Path;
 
 use candler_harness::reader::{FrameIn, ReaderError, TraceReader};
@@ -312,9 +314,10 @@ pub fn glob_regex(glob: &str) -> Result<Regex, regex::Error> {
     Regex::new(&pattern)
 }
 
-/// The files under `root` that the file specs pick, by relative path, each with its digest. A
-/// spec whose glob starts with `!` leaves out what it matches. Links are not followed. Command
-/// specs name streams the harness collects itself and pick no file.
+/// The files under `root` that the file specs pick, by relative path, each with its digest and
+/// whether it has an execute bit. A spec whose glob starts with `!` leaves out what it matches.
+/// Links are not followed. Command specs name streams the harness collects itself and pick no
+/// file.
 ///
 /// # Errors
 /// An I/O error when the tree cannot be read, and an invalid-input error for a bad glob or a
@@ -336,9 +339,11 @@ pub fn collect_files(root: &Path, specs: &[CollectSpec]) -> io::Result<Vec<Outpu
         let path = entry.rel.as_str();
         if keep.iter().any(|re| re.is_match(path)) && !drop.iter().any(|re| re.is_match(path)) {
             let digest = digest_of_file(&entry.abs).map_err(|e| io::Error::other(e.to_string()))?;
+            let executable = fs::metadata(&entry.abs)?.permissions().mode() & 0o111 != 0;
             found.push(OutputDigest {
                 path: path.to_owned(), // BORROW: the list owns its paths
                 digest,
+                executable,
             });
         }
     }
