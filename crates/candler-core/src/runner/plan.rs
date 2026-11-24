@@ -389,7 +389,7 @@ impl<'a> Levels<'a> {
     /// differs from the file's own count, is refused.
     ///
     /// # Errors
-    /// [`PlanError::Replicates`] when the setting is not a positive whole count that fits, and
+    /// [`PlanError::Replicates`] when the setting is not a whole count from 1 to 4294967295, and
     /// [`PlanError::ReplicatesConflict`] when `[fixed]` and the file's own count differ.
     fn replicates(&self, file: &ExperimentFile) -> Result<u32, PlanError> {
         let Some(resolution) = self.get(0) else {
@@ -407,9 +407,7 @@ impl<'a> Levels<'a> {
             .value()
             .and_then(|value| value.as_value().as_u64())
             .ok_or(PlanError::Replicates {
-                source: ExecutionError::NotPositive {
-                    field: "replicates",
-                },
+                source: ExecutionError::ReplicatesNotCount,
             })?;
         let count = check_replicates(count).map_err(|source| PlanError::Replicates { source })?;
         let from_file = resolution.sources.iter().any(|entry| {

@@ -1983,8 +1983,3 @@ variant = "TokenSecret"
 side = "experiment"
 enum = "ResolveError"
 variant = "ReplicatesPath"
-
-[resolve."experiment.replicates_not_integer"]
-side = "experiment"
-enum = "ResolveError"
-variant = "ReplicatesNotInteger"
