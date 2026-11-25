@@ -743,13 +743,19 @@ fn usage(scope: &str, input: u64, output: u64) -> Value {
 /// reads and writes in their own fields, the cost as a number, reasoning tokens kept beside the
 /// usage, a reasoning block as its own event, and a tool with no recorded origin as `other`); a
 /// child session (`info.parentID`) is never a root, its id its parent's, `/`, its own; a document
-/// that is not an export is refused, and one that names no outcome ends `unknown`.
+/// that is not an export is refused, and one that names no outcome ends `unknown`; exit (a
+/// completed `shell` call carries the code of `state.metadata.exit`; an error state, a call with
+/// no `metadata.exit` such as the timeout, and a tool that is not `shell` carry none).
 /// Oracle: `completed_o1/export.json`, read by hand: two assistant messages of 100/20 tokens, one
 /// `shell` call that completed, `info.tokens` 300/60; `interrupt_api/export.json` (`state.status`
 /// is `error`, outcome `interrupted`) and `unknown_model_local/export.json` (no assistant message,
 /// `idle.error`), read by hand; a document written by hand in the recorded shape, with the numbers
 /// `opencode_facts` reports for the real-model run (cost 0.00054, 4704 cached tokens); the schema's
-/// rule that a child's id is its parent's id, `/`, a call id; hand-written documents.
+/// rule that a child's id is its parent's id, `/`, a call id; hand-written documents; for the
+/// exit, `jq` over the named exports reading `state.status`, `state.metadata.exit` and
+/// `state.error`, and a hand-written document whose non-`shell` `read` tool holds `exit: 7`.
+/// Bite: no `shell` gate, so the `read` tool with exit 7 carries 7; a missing exit taken as 0, so
+/// the timeout row reads 0; the exit read only on error states, so `completed_o1` fails.
 #[test]
 fn opencode_export_reader_covers_trace_errors_cache_cost_and_child_sessions() -> Res<()> {
     let (events, sessions) = read_export(&stream_file("completed_o1", "export.json")?)?;

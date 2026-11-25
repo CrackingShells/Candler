@@ -189,20 +189,21 @@ fn tool_drafts(block: &Value, message_at: Option<&Timestamp>, servers: &[String]
                 .map(|command| vec![command.to_owned()]) // BORROW: .to_owned() makes owned text
         })
         .flatten();
+    let status = state.and_then(|state| text(state, "status"));
     // The code OpenCode reports for a `shell` call in `state.metadata.exit`. A call that ended in
     // an error state, that reported none (a timeout reports a signal name and no code), or that is
-    // not `shell` has none.
-    let exit = (name == "shell"
-        && state.and_then(|state| text(state, "status")) == Some("completed"))
-    .then(|| {
-        state
-            .and_then(|state| field(state, "metadata"))
-            .and_then(|metadata| metadata.get("exit"))
-            .and_then(Value::as_i64)
-            .and_then(|code| i32::try_from(code).ok())
-            .map(|code| ExitStatus::Code { code })
-    })
-    .flatten();
+    // not `shell` has none; so has one whose `exit` is not an `i32`, dropped as the reader drops
+    // any other malformed harness field.
+    let exit = (name == "shell" && status == Some("completed"))
+        .then(|| {
+            state
+                .and_then(|state| field(state, "metadata"))
+                .and_then(|metadata| metadata.get("exit"))
+                .and_then(Value::as_i64)
+                .and_then(|code| i32::try_from(code).ok())
+                .map(|code| ExitStatus::Code { code })
+        })
+        .flatten();
     let origin = origin_of(name, servers);
     let time = |key: &str| timestamp(block.get("time").and_then(|t| millis(t, &[key])));
     let mut call = Draft::new(
@@ -221,7 +222,6 @@ fn tool_drafts(block: &Value, message_at: Option<&Timestamp>, servers: &[String]
         call = call.with("input", input.clone()); // BORROW: .clone() keeps the input in the event
     }
     let mut drafts = vec![call];
-    let status = state.and_then(|state| text(state, "status"));
     if matches!(status, Some("completed" | "error")) {
         let mut result = Draft::new(
             EventKind::tool_result(status == Some("error"), None, exit),
