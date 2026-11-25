@@ -13,7 +13,10 @@ Instruction files and hooks as per-arm experiment data (M6.5).
 - [01-notice_consumer_requirements_v1.md](01-notice_consumer_requirements_v1.md) — **latest**. The HTN lane's four requirements against v1: three met, evaluator access (d) deferred.
 
 ### Round 02
-- [02-architecture_agent_config_v2.md](02-architecture_agent_config_v2.md) — **latest**. v1 plus Eliott's ruling that the proof is live and read from the trace: a new `context_start` trace event from the gateway's first request, a new L1 leaf `trace_context`, a session-start hook marker, and a live RiVault confirmation run. Gates G1–G13, cap $85.
+- [02-architecture_agent_config_v2.md](02-architecture_agent_config_v2.md) — latest architecture. v1 plus Eliott's ruling that the proof is live and read from the trace: a new `context_start` trace event from the gateway's first request, a new L1 leaf `trace_context`, a session-start hook marker, and a live RiVault confirmation run. Gates G1–G13, cap $85.
+
+### Round 03
+- [03-findings_probe_harness_checks_v0.md](03-findings_probe_harness_checks_v0.md) — **latest**. The level-1 probe, measured in the real images: the check command for each harness, where Claude Code's global file loads, the order and place (system or first message) in which instructions and session-start hooks reach the model. Two points amend v2's proof wording.
 
 ## Status
 
