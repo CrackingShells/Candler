@@ -10,9 +10,9 @@ use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
-    AgentSetting, Answer, BaseImage, CLAUDE_CODE, Cell, CollectSpec, CommandSpec, DriverFact,
-    EffortLevel, GatewayEnv, HarnessId, Observed, PermissionMode, Prepared, ProcessExit,
-    SessionTracker, StopSignal, StopSpec, Workspace,
+    AgentSetting, Answer, BaseImage, CLAUDE_CODE, Cell, CheckVerdict, CollectSpec, CommandSpec,
+    DriverFact, EffortLevel, GatewayEnv, HarnessId, Observed, PermissionMode, Prepared,
+    ProcessExit, SessionTracker, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::execution::paths;
 use candler_schemas::primitives::FieldPath;
@@ -307,6 +307,16 @@ impl HarnessDriver for ClaudeCodeDriver {
                 construct: "`--permission-mode default` on the command line, which in a headless run denies every tool call that needs approval unless an allow rule or a hook approves it",
             },
         }
+    }
+
+    fn config_check(&self, plan: &Plan) -> Option<CommandSpec> {
+        let _ = plan;
+        None
+    }
+
+    fn read_config_check(&self, output: &[u8]) -> CheckVerdict {
+        let _ = output;
+        CheckVerdict::Clean
     }
 
     fn workspace_instruction_file(&self) -> &'static str {

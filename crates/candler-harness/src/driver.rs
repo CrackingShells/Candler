@@ -172,24 +172,17 @@ pub trait HarnessDriver: Send + Sync {
     fn parse_version(&self, output: &[u8]) -> Result<semver::Version, DriverError>;
 
     /// The command that has the harness check the configuration files `plan` installs, run in the
-    /// cell's image without network. The default is `None`, for a harness with no check.
-    fn config_check(&self, plan: &Plan) -> Option<CommandSpec> {
-        let _ = plan;
-        None
-    }
+    /// cell's image without network, or `None` for a harness with no check. The answer agrees
+    /// with [`DriverFact::ConfigCheck`]: a driver that states the fact refused returns `None`,
+    /// and one that states it mapped returns a command.
+    fn config_check(&self, plan: &Plan) -> Option<CommandSpec>;
 
-    /// What the output of [`HarnessDriver::config_check`] says of the files. The default reads
-    /// every output as clean, for a harness with no check.
-    fn read_config_check(&self, output: &[u8]) -> CheckVerdict {
-        let _ = output;
-        CheckVerdict::Clean
-    }
+    /// What the output of [`HarnessDriver::config_check`] says of the files; a driver with no
+    /// check reads every output as clean.
+    fn read_config_check(&self, output: &[u8]) -> CheckVerdict;
 
-    /// The name of the file the harness reads at the root of the workspace as instructions. The
-    /// default is `AGENTS.md`, the name shared by the harnesses that have none of their own.
-    fn workspace_instruction_file(&self) -> &'static str {
-        "AGENTS.md"
-    }
+    /// The name of the file the harness reads at the root of the workspace as instructions.
+    fn workspace_instruction_file(&self) -> &'static str;
 
     /// How the driver meets `setting`: what the harness does for it, what Candler does in its
     /// place, or why nobody does. Every key has an answer; there is no default.

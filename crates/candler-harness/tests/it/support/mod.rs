@@ -218,6 +218,25 @@ impl TraceReader for LinesReader {
 pub struct LinesDriver;
 
 impl HarnessDriver for LinesDriver {
+    fn config_check(
+        &self,
+
+        plan: &candler_harness::driver::Plan,
+    ) -> Option<candler_harness::spec::CommandSpec> {
+        let _ = plan;
+
+        None
+    }
+
+    fn read_config_check(&self, output: &[u8]) -> candler_harness::spec::CheckVerdict {
+        let _ = output;
+
+        candler_harness::spec::CheckVerdict::Clean
+    }
+
+    fn workspace_instruction_file(&self) -> &'static str {
+        "AGENTS.md"
+    }
     fn skills(&self) -> candler_harness::skills::SkillTree {
         candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
     }
@@ -468,6 +487,25 @@ impl TraceReader for DocumentReader {
 pub struct DocumentDriver;
 
 impl HarnessDriver for DocumentDriver {
+    fn config_check(
+        &self,
+
+        plan: &candler_harness::driver::Plan,
+    ) -> Option<candler_harness::spec::CommandSpec> {
+        let _ = plan;
+
+        None
+    }
+
+    fn read_config_check(&self, output: &[u8]) -> candler_harness::spec::CheckVerdict {
+        let _ = output;
+
+        candler_harness::spec::CheckVerdict::Clean
+    }
+
+    fn workspace_instruction_file(&self) -> &'static str {
+        "AGENTS.md"
+    }
     fn skills(&self) -> candler_harness::skills::SkillTree {
         candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
     }
@@ -809,6 +847,25 @@ session.interrupt --param sessionID={session_id}";
 pub struct OpenShapedDriver(pub DocumentDriver);
 
 impl HarnessDriver for OpenShapedDriver {
+    fn config_check(
+        &self,
+
+        plan: &candler_harness::driver::Plan,
+    ) -> Option<candler_harness::spec::CommandSpec> {
+        let _ = plan;
+
+        None
+    }
+
+    fn read_config_check(&self, output: &[u8]) -> candler_harness::spec::CheckVerdict {
+        let _ = output;
+
+        candler_harness::spec::CheckVerdict::Clean
+    }
+
+    fn workspace_instruction_file(&self) -> &'static str {
+        "AGENTS.md"
+    }
     fn skills(&self) -> candler_harness::skills::SkillTree {
         candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
     }

@@ -23,9 +23,9 @@ Core line: `v0.16.0`; the `candler-harness` crate has the same version.
 | `HarnessDriver::supported` | `(&self) -> semver::VersionReq` | required | - |
 | `HarnessDriver::version_probe` | `(&self) -> CommandSpec` | required | - |
 | `HarnessDriver::parse_version` | `(&self, output: &[u8]) -> Result<semver::Version, DriverError>` | required | - |
-| `HarnessDriver::config_check` | `(&self, plan: &Plan) -> Option<CommandSpec>` | optional | `None` |
-| `HarnessDriver::read_config_check` | `(&self, output: &[u8]) -> CheckVerdict` | optional | `CheckVerdict::Clean` |
-| `HarnessDriver::workspace_instruction_file` | `(&self) -> &'static str` | optional | `"AGENTS.md"` |
+| `HarnessDriver::config_check` | `(&self, plan: &Plan) -> Option<CommandSpec>` | required | - |
+| `HarnessDriver::read_config_check` | `(&self, output: &[u8]) -> CheckVerdict` | required | - |
+| `HarnessDriver::workspace_instruction_file` | `(&self) -> &'static str` | required | - |
 | `HarnessDriver::answer` | `(&self, setting: AgentSetting) -> Answer` | required | - |
 | `HarnessDriver::fact` | `(&self, fact: DriverFact) -> Answer` | required | - |
 | `HarnessDriver::plan` | `(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError>` | required | - |
