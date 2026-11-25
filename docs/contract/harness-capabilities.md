@@ -48,6 +48,9 @@ Core line: `v0.16.0`; the `candler-harness` crate has the same version.
 | turn cap | `--max-turns` on the command line | no (`agents.<id>.steps` makes the last request a tool-less one with an injected prompt and ends the run as completed (the `oc_step_cap` fixture), where Claude Code ends the run with `error_max_turns`, so the cap class would be lost and the model's last turn changed) |
 | cost cap | `--max-budget-usd` on the command line | no (OpenCode has no cost cap) |
 | session mode | stream-json over an open stdin, one turn per message | no (OpenCode runs no session: its trace comes from the export after the run) |
+| instructions: global | no (this driver installs no instruction text or hook) | no (this driver installs no instruction text or hook) |
+| instructions: workspace | no (this driver installs no instruction text or hook) | no (this driver installs no instruction text or hook) |
+| hooks | no (this driver installs no instruction text or hook) | no (this driver installs no instruction text or hook) |
 | gateway route | Candler: gateway, address in `ANTHROPIC_BASE_URL` | Candler: gateway, address in `CANDLER_GATEWAY_URL` |
 | authoritative trace | yes | Candler: collects `export` after the run |
 | graceful stop | SIGTERM ends the sessions cleanly | an interrupt request to the `serve` child, then SIGTERM to the client |
@@ -56,6 +59,7 @@ Core line: `v0.16.0`; the `candler-harness` crate has the same version.
 | execution outside the child | no (tools run in the child process) | tools run in the `serve` child, which the stop interrupts first |
 | census source | Claude Code's `system/init` event lists the tools | Candler: the tools the gateway offered the model in its first request |
 | permission mode when none is set | `--permission-mode default` on the command line, which in a headless run denies every tool call that needs approval unless an allow rule or a hook approves it | Candler: the run is under `--auto` and the baseline ruleset {*, *, allow}, so every tool is allowed: OpenCode has no headless ask mode |
+| config check | no (this driver installs no configuration file to check) | no (this driver installs no configuration file to check) |
 <!-- /generated:fields -->
 
 ## Refusals

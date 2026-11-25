@@ -174,6 +174,7 @@ pub fn instructions(
     let mut shaped = Map::new();
     for (member, value) in &table {
         match member.as_str() {
+            // BORROW: explicit .as_str() instead of Deref coercion
             "global" => {
                 let mut by_id = Map::new();
                 for (key, text_value) in object(value, &global_path)? {

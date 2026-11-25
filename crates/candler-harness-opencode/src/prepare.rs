@@ -191,6 +191,9 @@ pub(crate) const fn answer(setting: AgentSetting) -> Answer {
         AgentSetting::SessionMode => Answer::Refused {
             reason: "OpenCode runs no session: its trace comes from the export after the run",
         },
+        AgentSetting::Instructions(_) | AgentSetting::Hooks => Answer::Refused {
+            reason: "this driver installs no instruction text or hook",
+        },
     }
 }
 

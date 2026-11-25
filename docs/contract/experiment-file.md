@@ -76,9 +76,11 @@ Wire line: `schemas@0.13.0`.
 | `experiment.env_source` | A `[fixed]` key, a factor or a `--set` names the path `env`; the `[env]` table is its only source. | The path that was written. | experiment |
 | `experiment.env_token_secret` | An entry of the `env` table is named like `model.token_secret`, the secret that holds the gateway token, whose value reaches the gateway only. | The key of the entry in the `env` table. | experiment |
 | `experiment.factor_without_levels` | A factor has no level, so the experiment would have no cell. | - | experiment |
+| `experiment.harness_rejected_input` | The harness's own check reports an error or a warning for a file Candler installed for the cell, such as a hook configuration the harness cannot read. | The setting in the experiment file that the file comes from, such as `/fixed/hooks`. | experiment |
 | `experiment.input_invalid` | An input declaration uses the kind the wire reserves, or mounts under an empty, absolute or escaping directory. | `/inputs`, the list that holds the declaration. | experiment |
 | `experiment.input_not_stored` | A declared input file or list could not be copied into the store. | The `inputs` array of the experiment file. | experiment |
 | `experiment.input_unusable` | A declared input cannot be used as written, for example a missing file or a directory where a file is needed. | The `inputs` array of the experiment file. | experiment |
+| `experiment.instructions_collide` | The workspace instruction text and a declared input mount a file at the same path, the harness's workspace instruction file; the text is refused, never shadowed. | The workspace instruction text in the experiment file, `/fixed/instructions.workspace` or the factor that sets it. | experiment |
 | `experiment.mcp_server_prefix_ambiguous` | Two MCP servers of a cell have names that make one tool name read two ways: the name of one, then `_`, is a prefix of the other's name, so a tool of the longer-named server cannot be told from a tool of the shorter-named one. | The table of servers, `/mcp/servers`. | experiment |
 | `experiment.name_collision` | Two names under one root map to the same deviation path, so a deviation there would be ambiguous. | - | experiment |
 | `experiment.path_overlap` | Two paths set by the fixed values and the factors are the same, or one lies below the other. | - | experiment |

@@ -23,9 +23,12 @@ fn driver_error_path(error: &DriverError) -> Option<String> {
     match error {
         DriverError::Command(inner) => Refusal::path(inner),
         DriverError::MissingValue { path } => {
-            Some(pointer_of(["fixed", path.to_string().as_str()]))
-        } // BORROW: .to_string() gives owned text
-        DriverError::Unsupported { path, .. } => Some(path.clone()), // BORROW: the path owns its text
+            let text = path.to_string(); // BORROW: .to_string() gives owned text
+            Some(pointer_of(["fixed", text.as_str()])) // BORROW: explicit .as_str() instead of Deref coercion
+        }
+        DriverError::Unsupported { path, .. }
+        | DriverError::HarnessRejectedInput { path, .. }
+        | DriverError::InstructionsCollide { path, .. } => Some(path.clone()), // BORROW: the path owns its text
         DriverError::InvalidValue { path, .. } => Some(pointer_of(path.segments())),
         DriverError::AmbiguousServers { .. } => Some("/mcp/servers".to_owned()), // BORROW: .to_owned() makes the owned pointer
         DriverError::VersionOutput { .. } | DriverError::Record { .. } => None,
@@ -51,6 +54,18 @@ refusal_table! {
         Side::Experiment,
         "The experiment sets a setting that the harness has no way to honour, such as a turn cap for a harness with no turn limit; the run is refused rather than the setting dropped.",
         "The setting in the experiment file: a field under `/budget`, or the key of `[fixed]` that holds it, such as `/fixed/model.effort`.",
+    ),
+    HarnessRejectedInput { .. } => row(
+        "experiment.harness_rejected_input",
+        Side::Experiment,
+        "The harness's own check reports an error or a warning for a file Candler installed for the cell, such as a hook configuration the harness cannot read.",
+        "The setting in the experiment file that the file comes from, such as `/fixed/hooks`.",
+    ),
+    InstructionsCollide { .. } => row(
+        "experiment.instructions_collide",
+        Side::Experiment,
+        "The workspace instruction text and a declared input mount a file at the same path, the harness's workspace instruction file; the text is refused, never shadowed.",
+        "The workspace instruction text in the experiment file, `/fixed/instructions.workspace` or the factor that sets it.",
     ),
     AmbiguousServers { .. } => row(
         "experiment.mcp_server_prefix_ambiguous",

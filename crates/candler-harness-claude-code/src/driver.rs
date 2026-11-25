@@ -278,6 +278,9 @@ impl HarnessDriver for ClaudeCodeDriver {
             AgentSetting::SessionMode => Answer::Mapped {
                 construct: "stream-json over an open stdin, one turn per message",
             },
+            AgentSetting::Instructions(_) | AgentSetting::Hooks => Answer::Refused {
+                reason: "this driver installs no instruction text or hook",
+            },
         }
     }
 
@@ -298,10 +301,17 @@ impl HarnessDriver for ClaudeCodeDriver {
             DriverFact::Census => Answer::Mapped {
                 construct: "Claude Code's `system/init` event lists the tools",
             },
+            DriverFact::ConfigCheck => Answer::Refused {
+                reason: "this driver installs no configuration file to check",
+            },
             DriverFact::UnsetPermissionMode => Answer::Mapped {
                 construct: "`--permission-mode default` on the command line, which in a headless run denies every tool call that needs approval unless an allow rule or a hook approves it",
             },
         }
+    }
+
+    fn workspace_instruction_file(&self) -> &'static str {
+        "CLAUDE.md"
     }
 
     fn gateway(&self) -> Option<GatewayEnv> {

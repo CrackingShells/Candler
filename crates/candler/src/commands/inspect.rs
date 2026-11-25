@@ -211,9 +211,9 @@ fn outcome_of(record: &OutcomeRecord) -> Result<InspectOutcome, CliError> {
     })
 }
 
-/// The resolved `mcp.*` values of the cell, by path: the MCP configuration the run was installed
-/// with.
-fn mcp_of(whole: &Value) -> BTreeMap<String, Value> {
+/// The resolved values of the cell at `root` or below it, by path: the configuration of that
+/// family the run was installed with.
+fn values_under(whole: &Value, root: &str) -> BTreeMap<String, Value> {
     whole
         .pointer("/comparable/values")
         .and_then(Value::as_array)
@@ -222,7 +222,10 @@ fn mcp_of(whole: &Value) -> BTreeMap<String, Value> {
         .filter_map(|entry| {
             let path = entry.get("path").and_then(Value::as_str)?;
             let value = entry.get("value")?;
-            (path == "mcp" || path.starts_with("mcp.")).then(|| (path.to_owned(), value.clone())) // BORROW: the record owns its copy
+            let below = path
+                .strip_prefix(root)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'));
+            below.then(|| (path.to_owned(), value.clone())) // BORROW: the record owns its copy
         })
         .collect()
 }
@@ -286,7 +289,9 @@ pub fn render_run(store: &Store, key: &RunKey) -> Result<InspectRun, CliError> {
         ended_at: field("ended_at"),
         host: field("host"),
         import: field("import"),
-        mcp: mcp_of(&whole),
+        mcp: values_under(&whole, "mcp"),
+        instructions: values_under(&whole, "instructions"),
+        hooks: values_under(&whole, "hooks"),
         provenance,
         measured,
         outcomes,
@@ -376,6 +381,8 @@ fn text_of_run(run: &InspectRun) -> String {
     for (path, value) in run
         .mcp
         .iter()
+        .chain(run.instructions.iter())
+        .chain(run.hooks.iter())
         .chain(run.provenance.iter())
         .chain(run.measured.iter())
     {

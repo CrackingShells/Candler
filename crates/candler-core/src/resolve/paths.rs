@@ -4,7 +4,9 @@
 
 use candler_harness::driver::{DriverError, HarnessDriver};
 use candler_harness::mcp;
-use candler_harness::spec::{AgentSetting, Answer, Cell, EffortLevel, PermissionMode};
+use candler_harness::spec::{
+    AgentSetting, Answer, Cell, EffortLevel, InstructionScope, PermissionMode,
+};
 use candler_schemas::execution::paths::{
     BUDGET_PER_RUN_MAX_COST_USD, BUDGET_PER_RUN_TURNS, BUDGET_PER_RUN_WALL_S, ENV, ENVIRONMENTS,
     HARNESS, HOOKS, INPUTS, INSTRUCTIONS_GLOBAL, INSTRUCTIONS_WORKSPACE, ISOLATION_BUILD_CONTEXT,
@@ -218,21 +220,21 @@ pub const CONFIGURATION_PATHS: [PathRow; 51] = [
         INSTRUCTIONS_GLOBAL,
         Kind::Subtree,
         Class::Value,
-        Reach::CandlerOnly,
+        Reach::Agent(&[AgentSetting::Instructions(InstructionScope::Global)]),
         "The global instruction text of each harness: a table of harness id (written with `_` for `-`) to text.",
     ),
     row(
         INSTRUCTIONS_WORKSPACE,
         Kind::Leaf,
         Class::Value,
-        Reach::CandlerOnly,
+        Reach::Agent(&[AgentSetting::Instructions(InstructionScope::Workspace)]),
         "The instruction text at the root of the workspace.",
     ),
     row(
         HOOKS,
         Kind::Subtree,
         Class::Value,
-        Reach::CandlerOnly,
+        Reach::Agent(&[AgentSetting::Hooks]),
         "The hooks of each harness: a table of harness id (written with `_` for `-`) to its `settings` or `files`, or its `plugins`.",
     ),
     row(
@@ -603,6 +605,8 @@ pub fn settings_set_by(cell: &Cell<'_>) -> Result<Vec<(AgentSetting, FieldPath)>
                 | AgentSetting::ToolsDisallowed
                 | AgentSetting::Env
                 | AgentSetting::Inputs
+                | AgentSetting::Instructions(_)
+                | AgentSetting::Hooks
                 | AgentSetting::WallBudget
                 | AgentSetting::TurnBudget
                 | AgentSetting::CostBudget => found.push(*family),

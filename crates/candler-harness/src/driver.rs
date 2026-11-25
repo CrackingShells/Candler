@@ -12,9 +12,9 @@ use candler_schemas::trace::{EndedBy, Session};
 use crate::reader::TraceReader;
 use crate::skills::SkillTree;
 use crate::spec::{
-    AgentSetting, Answer, BaseImage, Cell, CollectSpec, CommandSpec, CommandSpecError, DriverFact,
-    GatewayEnv, HarnessId, Observed, Prepared, ProcessExit, SessionSpec, SessionTracker, StatePath,
-    StopSpec, Workspace,
+    AgentSetting, Answer, BaseImage, Cell, CheckVerdict, CollectSpec, CommandSpec,
+    CommandSpecError, DriverFact, GatewayEnv, HarnessId, Observed, Prepared, PreparedFile,
+    ProcessExit, SessionSpec, SessionTracker, StatePath, StopSpec, Workspace,
 };
 
 /// Why a driver could not answer.
@@ -63,6 +63,30 @@ pub enum DriverError {
     /// A command the driver could not build.
     #[error(transparent)]
     Command(#[from] CommandSpecError),
+    /// The harness's own check rejects a file Candler installed for the cell.
+    #[error("Candler installed {installed} at {at}; {harness} rejects it: {output}")]
+    HarnessRejectedInput {
+        /// The pointer into the experiment file of the setting the file comes from.
+        path: String,
+        /// What Candler installed.
+        installed: String,
+        /// Where Candler installed it.
+        at: String,
+        /// The harness's name, as its users write it.
+        harness: String,
+        /// What the harness's check printed.
+        output: String,
+    },
+    /// The workspace instruction text and a declared input mount a file at one path.
+    #[error("`{path}` and the input `{input}` both mount a file at `{file}`")]
+    InstructionsCollide {
+        /// The pointer into the experiment file of the instruction text.
+        path: String,
+        /// The input that mounts the same path.
+        input: String,
+        /// The path both mount.
+        file: String,
+    },
     /// A record of a session that a tracker cannot read.
     #[error("session record cannot be read: {detail}")]
     Record {
@@ -103,6 +127,9 @@ pub struct Plan {
     pub command: CommandSpec,
     /// How the harness runs the cell as a session, or `None` for a harness that runs none.
     pub session: Option<SessionSpec>,
+    /// The files the core mounts read-only at the workspace root, each by name: the instruction
+    /// text of the workspace. Empty when the cell sets none.
+    pub workspace_files: Vec<PreparedFile>,
 }
 
 impl Plan {
@@ -113,6 +140,7 @@ impl Plan {
             prepared,
             command,
             session: None,
+            workspace_files: Vec::new(),
         }
     }
 
@@ -142,6 +170,26 @@ pub trait HarnessDriver: Send + Sync {
     /// # Errors
     /// Returns [`DriverError::VersionOutput`] if `output` names no version.
     fn parse_version(&self, output: &[u8]) -> Result<semver::Version, DriverError>;
+
+    /// The command that has the harness check the configuration files `plan` installs, run in the
+    /// cell's image without network. The default is `None`, for a harness with no check.
+    fn config_check(&self, plan: &Plan) -> Option<CommandSpec> {
+        let _ = plan;
+        None
+    }
+
+    /// What the output of [`HarnessDriver::config_check`] says of the files. The default reads
+    /// every output as clean, for a harness with no check.
+    fn read_config_check(&self, output: &[u8]) -> CheckVerdict {
+        let _ = output;
+        CheckVerdict::Clean
+    }
+
+    /// The name of the file the harness reads at the root of the workspace as instructions. The
+    /// default is `AGENTS.md`, the name shared by the harnesses that have none of their own.
+    fn workspace_instruction_file(&self) -> &'static str {
+        "AGENTS.md"
+    }
 
     /// How the driver meets `setting`: what the harness does for it, what Candler does in its
     /// place, or why nobody does. Every key has an answer; there is no default.
