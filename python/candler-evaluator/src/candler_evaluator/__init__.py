@@ -5,13 +5,14 @@ from typing import Any
 from .frames import FrameWriter
 from .loop import main, serve
 from .plugin import Outcome, Plugin, ServedFile
-from .trace import read_trace
+from .trace import TraceOrderError, read_trace
 
 __all__ = [
     "FrameWriter",
     "Outcome",
     "Plugin",
     "ServedFile",
+    "TraceOrderError",
     "__version__",
     "main",
     "read_trace",

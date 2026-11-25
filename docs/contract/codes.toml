@@ -1871,6 +1871,11 @@ side = "suite"
 when = "A suite entry has a deadline_ms above 2**53 - 1, which Candler passes on and the helper refuses with error -32602."
 at = "-"
 
+[helper."helper.trace_out_of_order"]
+side = "plugin"
+when = "A trace file read by a kind is empty, has a record before its header, a second header, a session after an event or a session declared twice."
+at = "-"
+
 [resolve."isolation.egress_invalid"]
 side = "experiment"
 enum = "EgressRefusal"
