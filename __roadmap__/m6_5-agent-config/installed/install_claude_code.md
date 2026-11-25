@@ -11,7 +11,7 @@
 - ⬜ A cell without these values renders the same `.claude/settings.json` as on the base. Only the home observers file is added.
 - ⬜ The census of a run that recorded `InstructionsLoaded` lists the global file (User, or Project for the parent directory) and `{path: CLAUDE.md, scope: Project}`, read from a recorded `.candler/hooks.jsonl` fixture.
 - ⬜ An adversarial Sonnet review finds no way for a payload to disable Candler's observers, or to write outside `.claude/`.
-**References**: [Architecture report, v1](../../../__reports__/agent_config/01-architecture_agent_config_v1.md) — the shapes, the error model, the invariants and §Execution model; `crates/candler-harness-claude-code/src/prepare.rs` (`render_settings`), `session.rs` (`HOOK_EVENTS`, `hooks()`), `discovery.rs` (`EXCLUDED_DIRS`); the probe report
+**References**: [Architecture report, v2](../../../__reports__/agent_config/02-architecture_agent_config_v2.md) — the shapes, the error model, the invariants and §Execution model; `crates/candler-harness-claude-code/src/prepare.rs` (`render_settings`), `session.rs` (`HOOK_EVENTS`, `hooks()`), `discovery.rs` (`EXCLUDED_DIRS`); the probe report
 
 ## Step 1: Render and install
 **Goal**: The driver writes the values where Claude Code reads them.

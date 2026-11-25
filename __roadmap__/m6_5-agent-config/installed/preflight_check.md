@@ -11,7 +11,7 @@
 - ⬜ G9 (core half). With a fake driver whose plan lists a read-only workspace file, the run's workspace holds it at the root, a write to it fails, it is not among the collected outputs, and the run is not sealed `input_leak`. On the base, `Plan` has no such field.
 - ⬜ G10. With `instructions.workspace` set, an input declared at the workspace instruction file's path is refused at `resolve` with `experiment.instructions_collide`, naming the input. On the base, the experiment is refused earlier with `unknown_path`.
 - ⬜ An adversarial Sonnet review finds no path where a finding lets the cell run, and no check container that outlives the step.
-**References**: [Architecture report, v1](../../../__reports__/agent_config/01-architecture_agent_config_v1.md) — the shapes, the error model, the invariants and §Execution model; `crates/candler-core/src/resolve/steps/` (`HarnessIdentityStep`, the precedent); `ImageService`
+**References**: [Architecture report, v2](../../../__reports__/agent_config/02-architecture_agent_config_v2.md) — the shapes, the error model, the invariants and §Execution model; `crates/candler-core/src/resolve/steps/` (`HarnessIdentityStep`, the precedent); `ImageService`
 
 ## Step 1: The step
 **Goal**: A preflight step that asks the harness and refuses on its answer.
