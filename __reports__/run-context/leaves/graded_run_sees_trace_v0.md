@@ -22,7 +22,7 @@ Each applied on a scratch branch from the guard's commit, one at a time, run wit
 
 | Bite | Result | Failing message |
 |---|---|---|
-| (a) `assemble` serves no trace (`if needs.trace` made never true, `assemble.rs`) | both rows red | `claude-code: the kind did not pass once: [{... "evidence": [{"note": "the context serves no trace"}], "status": "fail" ...}]`, and the same line for `opencode` |
+| (a) `assemble` serves no trace (`if needs.trace` made never true, `assemble.rs`); applied twice, again after the fix round with the same result | both rows red | `claude-code: the kind did not pass once: [{... "evidence": [{"note": "the context serves no trace"}], "status": "fail" ...}]`, and the same line for `opencode` |
 | (b) the OpenCode reader writes no `exit` (`export.rs`, `exit` replaced by none on the result) | OpenCode row red, Claude Code's green | `opencode: the kind did not pass once: [{... "note": "([\"printf 'graded-answer-3f9a\\n' > answer.txt\"], {'kind': 'code', 'code': 0}) is held 0 times among []; (['exit 3'], {'kind': 'code', 'code': 3}) is held 0 times among []" ... "status": "fail"}]`; no `claude-code:` line |
 
 ## Local run
@@ -47,10 +47,16 @@ The guard asks P0's question: does a kind that needs an artifact and the trace s
 
 ## Spec defects met
 
-- The leaf says `needs.artifacts = ["answer.txt"]`. The registry refuses it: `plugin.need_glob_outside_outputs`, "artifact glob `answer.txt` is not under `outputs/`". The kind declares `outputs/answer.txt`; the served path is `answer.txt`. The `Needs.artifacts` doc ("globs, relative to the run's outputs") says the opposite of the check.
+- The leaf says `needs.artifacts = ["answer.txt"]`. The registry refuses it: `plugin.need_glob_outside_outputs`, "artifact glob `answer.txt` is not under `outputs/`". The kind declares `outputs/answer.txt`; the served path is `answer.txt`. The `Needs.artifacts` doc said the globs were relative to the run's outputs; it now says each starts with `outputs/`, and the schemas, the helper's models, `architecture.md` and the leaf's gate follow (`docs(schemas)` commit).
 - OpenCode's shell tool is `shell`, takes no `description` and refuses extra keys, so the script sends `{command}` alone to both harnesses.
 - The parity guard's `ps -aq` equality is false on a machine other sessions share, and under parallel nextest threads. The new guard checks leftovers by its own labels and job ids instead; the parity guard is unchanged in that respect.
-- Not run: the `rust-conventions` reviewer agent on the new Rust.
+
+## Not covered
+
+- A `seal` panic in the first harness's row stops the second row; the guard is red either way.
+- The per-job `candler-env` images are not removed: they are content-addressed and reused across runs by design, as the parity guard does. The guard removes the fake model's image and container by id, and the jobs' containers and networks by label (`Made` holds every job id).
+- The guard checks that the product left no container or network of its jobs, before `Made` cleans up. Parity's full `ps -aq` equality stays, since CI runs the group serially.
+- A scratch root under `$HOME` that is freshly created may not be mounted in time by Docker Desktop: a run then fails at the start check of the declared servers (`bind source path does not exist`). It passes once the root has been mounted, for instance after a `docker run -v` of it.
 
 ## Left
 
