@@ -21,7 +21,7 @@ A consumer gives the experiment a global instruction file per harness, each arm 
 ```mermaid
 graph TD
     probe_harness_checks[Probe harness checks]:::done
-    declaration[Declaration]:::inprogress
+    declaration[Declaration]:::done
     installed[Installed]:::planned
     trace_context[trace_context]:::done
     classDef done       fill:#166534,color:#bbf7d0
@@ -35,7 +35,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `probe_harness_checks.md` | 📄 Leaf Task | ✅ Done |
-| `declaration.md` | 📄 Leaf Task | 🔄 In Progress |
+| `declaration.md` | 📄 Leaf Task | ✅ Done |
 | `installed/` | 📁 Directory | ⬜ Planned |
 | `trace_context.md` | 📄 Leaf Task | ✅ Done |
 
