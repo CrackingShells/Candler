@@ -33,11 +33,21 @@ pub const VALIDATED: semver::Version = semver::Version::new(2, 2, 7);
 /// The reader of the live NDJSON, as the trace header names it, `opencode-ndjson@<reader version>`; the version changes whenever the reader's output does.
 pub const LIVE_READER: &str = "opencode-ndjson@0.1.0";
 
-/// The reader of the session export, as the trace header names it, `opencode-export@<reader version>`; the version changes whenever the reader's output does.
-pub const EXPORT_READER: &str = "opencode-export@0.2.0";
+/// Defines [`EXPORT_READER`] and its version from the one spelling of the version, so the two
+/// cannot differ.
+macro_rules! export_reader {
+    ($major:literal, $minor:literal, $patch:literal) => {
+        /// The reader of the session export, as the trace header names it,
+        /// `opencode-export@<reader version>`; the version changes whenever the reader's output does.
+        pub const EXPORT_READER: &str =
+            concat!("opencode-export@", $major, ".", $minor, ".", $patch);
 
-/// The version of [`EXPORT_READER`].
-const EXPORT_READER_VERSION: semver::Version = semver::Version::new(0, 2, 0);
+        /// The version of [`EXPORT_READER`].
+        const EXPORT_READER_VERSION: semver::Version = semver::Version::new($major, $minor, $patch);
+    };
+}
+
+export_reader!(0, 2, 0);
 
 /// The stream name under which the gateway's census is stored.
 pub const CENSUS_STREAM: &str = "gateway_census";
