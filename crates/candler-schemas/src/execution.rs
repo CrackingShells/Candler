@@ -884,17 +884,27 @@ impl Level {
     }
 }
 
-/// A fault of a level's keys or values, as a fault of the document at the level's pointer; any
-/// other error is returned as it is.
-fn level_fault(error: ExecutionError, factor: usize, level: usize) -> ExecutionError {
-    if matches!(
+/// Whether `error` is a fault of a document's shape: a format, value or canonical fault.
+fn is_shape_fault(error: &ExecutionError) -> bool {
+    matches!(
         error,
         ExecutionError::Format(_) | ExecutionError::Values(_) | ExecutionError::Canonical(_)
-    ) {
-        ExecutionError::Document {
-            detail: error.to_string(),
-            path: format!("/factors/{factor}/levels/{level}"),
-        }
+    )
+}
+
+/// `error` as a fault of the document at the pointer `path`.
+fn document_fault(error: &ExecutionError, path: String) -> ExecutionError {
+    ExecutionError::Document {
+        detail: error.to_string(),
+        path,
+    }
+}
+
+/// A fault of a level's keys or values, or an empty table in it, as a fault of the document at
+/// the level's pointer; any other error is returned as it is.
+fn level_fault(error: ExecutionError, factor: usize, level: usize) -> ExecutionError {
+    if is_shape_fault(&error) || matches!(error, ExecutionError::EmptyTable { .. }) {
+        document_fault(&error, format!("/factors/{factor}/levels/{level}"))
     } else {
         error
     }
@@ -1442,16 +1452,8 @@ impl ExperimentFile {
         })?;
         Self::try_from(MapOnly(raw)).map_err(|error| {
             // A format, value or canonical fault is a fault of the document's shape.
-            if matches!(
-                error,
-                ExecutionError::Format(_)
-                    | ExecutionError::Values(_)
-                    | ExecutionError::Canonical(_)
-            ) {
-                ExecutionError::Document {
-                    detail: error.to_string(),
-                    path: String::new(),
-                }
+            if is_shape_fault(&error) {
+                document_fault(&error, String::new())
             } else {
                 error
             }

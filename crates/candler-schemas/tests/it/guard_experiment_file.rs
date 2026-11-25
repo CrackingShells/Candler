@@ -364,15 +364,32 @@ fn free_key_tables_reach_the_cell_whole() {
     );
 }
 
-/// Guards: a key of a factor level that breaks the key rule is refused as a fault of the document
-/// at the level's own pointer, as a table elsewhere is, and the same key below `hooks` is not.
-/// Oracle: the pointer is written by hand from the factor and level indices.
-/// Bite: leave the pointer out of the refusal (the path is empty).
+/// Guards: a key of a factor level that breaks the key rule, and an empty table inside a level,
+/// are refused as faults of the document at the level's own pointer, and the same key below
+/// `hooks` is not refused.
+/// Oracle: the pointers are written by hand from the factor and level indices.
+/// Bite: leave the pointer out of the refusal (the path is empty), or apply the key rule below
+/// `hooks`.
 #[test]
 fn a_level_key_that_breaks_the_rule_is_refused_at_the_level() {
-    let factors = "[[factors]]\npath = \"model.id\"\nlevels = [\"m\"]\n[[factors]]\npath = \"env\"\nlevels = [{Odd-Var = \"x\"}]\n";
-    match ExperimentFile::from_toml_str(&with_tables("", factors)) {
-        Err(ExecutionError::Document { path, .. }) => assert_eq!(path, "/factors/1/levels/0"),
-        other => panic!("expected a document fault at the level, got {other:?}"),
-    }
+    let refused = |level: &str| {
+        let factors = format!(
+            "[[factors]]\npath = \"model.id\"\nlevels = [\"m\"]\n[[factors]]\npath = \"env\"\nlevels = [{level}]\n"
+        );
+        match ExperimentFile::from_toml_str(&with_tables("", &factors)) {
+            Err(ExecutionError::Document { path, .. }) => path,
+            other => panic!("expected a document fault at the level, got {other:?}"),
+        }
+    };
+    assert_eq!(refused("{Odd-Var = \"x\"}"), "/factors/1/levels/0");
+    assert_eq!(refused("{x = {}}"), "/factors/1/levels/0");
+
+    let free = with_tables(
+        "",
+        "[[factors]]\npath = \"hooks\"\nlevels = [{Odd-Key = {Event = \"x\"}}]\n",
+    );
+    assert!(
+        ExperimentFile::from_toml_str(&free).is_ok(),
+        "the same key below hooks is free"
+    );
 }
