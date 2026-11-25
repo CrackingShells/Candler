@@ -4,15 +4,17 @@ Branch `leaf/run-context/schema_exit_needs`, cut from `feat/run-context` at `abd
 
 ## Spec defects, first
 
-1. **`exit` on a `tool_call` line is not refused by the Rust reader, and the base does not refuse a `tool_result` with `exit` either.** The leaf says both are refused as an unknown field. `__design__/architecture.md` §Wire encodings, row "Unknown fields", says readers of the records Candler writes ignore unknown fields so an older reader reads a newer record, and `KnownKind` has no serde `deny_unknown_fields` (only the schema has `additionalProperties: false`). On the base the line with `exit` reads and the `exit` is dropped; the guard failed there as "not written back as read" and, in its final order, as "`{"code":3}` is accepted". The guard therefore asserts the refusals that hold (a bare `{code}`, a string, `null`) and omits the `tool_call` row. Meeting the row would mean refusing unknown keys on every event, which reverses that rule; it is the lead's call.
-2. **`Needs` now refuses an unknown key in serde** (`deny_unknown_fields`), which the gate "needs that carry an unknown key are invalid, both readers alike" requires: on the base the Rust reader ignored an unknown key in `needs` (`needs_unknown_key.json` was accepted), so a plug-in's misspelt need would be silently unserved. This departs from the blanket "Unknown fields" sentence for a describe result; AGENTS.md's one-reader rule supports it. Removing the attribute is one line if the lead rules otherwise.
+Both were ruled on by the coordinator (gate amended on `feat/run-context` at `69da51c0`).
+
+1. **`exit` on a `tool_call` line is not refused by the Rust reader, and the base does not refuse a `tool_result` with `exit` either.** `__design__/architecture.md` §Wire encodings, row "Unknown fields", says readers of the records Candler writes ignore unknown fields, and `KnownKind` has no serde `deny_unknown_fields` (only the schema has `additionalProperties: false`). Ruling: the reader ignores it, only the schema refuses it, and the base evidence is "reads and loses `exit` on write-back". The guard asserts the refusals that hold (a bare `{code}`, a string, `null`) and the round trip; no `tool_call` row. No code change.
+2. **`Needs` ignores an unknown key in serde**, as `KindSpec` and `DescribeResult` do, while the schema refuses it. I had made `Needs` alone strict; the coordinator ruled that this left one message with two rules, so it is reverted (`fix(schemas): read an unknown key in needs as its siblings do`) and the `needs_unknown_key.json` vector is deleted. Whether the whole describe result should refuse unknown keys goes to the maintainer separately.
 
 ## Guards, each seen red on the base and under its bite
 
 | Guard | Base failing message | Bite and its failing message |
 |---|---|---|
 | `guard_trace_wire::a_tool_result_carries_its_exit_as_the_process_exit_object_and_nothing_else` | `{"kind":"tool_result","is_error":true,"exit":{"code":3}} is accepted` (first version of the test: `...exit":{"kind":"code","code":3}} is not written back as read`) | `exit` typed `Option<Value>`: `{"kind":"tool_result","is_error":true,"exit":{"code":3}} is accepted` |
-| `guard_rpc_wire::the_envelope_accepts_valid_messages_and_refuses_single_faults` (vectors `response_describe_needs_raw_manifest`, `needs_raw_not_boolean`, `needs_unknown_key`) and `test_guard_wire_vectors.py` | Rust: `needs_raw_not_boolean.json is accepted`; Python: `response_describe_needs_raw_manifest.json` refused (assert `[...] == []`) | `raw` with a deserialiser that takes any value: `needs_raw_not_boolean.json is accepted`; no `deny_unknown_fields`: `needs_unknown_key.json is accepted` |
+| `guard_rpc_wire::the_envelope_accepts_valid_messages_and_refuses_single_faults` (vectors `response_describe_needs_raw_manifest` and `needs_raw_not_boolean`) and `test_guard_wire_vectors.py` | Rust: `needs_raw_not_boolean.json is accepted`; Python: `response_describe_needs_raw_manifest.json` refused (assert `[...] == []`) | `raw` with a deserialiser that takes any value: `needs_raw_not_boolean.json is accepted` |
 | `guard_context_digest::the_digest_of_a_context_adds_a_key_for_each_served_part_and_only_for_those` (rows of the new `context_digest_served.toml`) | `a context: Error("invalid type: map, expected a string")` | trace key left out when served: `assertion left == right failed: a served trace (input)` |
 | `guard_context_digest::context_digest_follows_the_oracle_and_ignores_paths` (the four existing rows, unchanged) | passes on the base | trace key always added: `empty lists and empty metadata (input)` fails (the new rows fail too) |
 
@@ -40,6 +42,8 @@ Existing digest rows: `context_digest.toml`, `context_digest_runs.toml` and the 
 | `feat(evaluator-helper): read the trace of a context as the object it is` | yes |
 | `docs(evaluator-protocol): regenerate the needs and the context sections` | yes |
 | `test(schemas): check the refused exit rows before the kept ones` | yes |
+| `fix(schemas): read an unknown key in needs as its siblings do` | yes |
+| `fix(evaluator-helper): regenerate the models for the needs description` | yes |
 | this report | yes |
 
 ## Checks on the tip
