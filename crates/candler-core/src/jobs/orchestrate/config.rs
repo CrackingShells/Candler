@@ -21,6 +21,7 @@ use super::session::image_of;
 use crate::isolation::model::ContainerPlan;
 use crate::isolation::{ExecOutput, Isolation};
 use crate::runner::Runtime;
+use crate::runner::evidence::Inputs;
 use crate::runner::plan::{CellId, RunPlan};
 
 /// Why the check refused the job.
@@ -125,9 +126,11 @@ fn add_files(bytes: &mut Vec<u8>, tag: &str, files: &[PreparedFile]) {
 /// with its root, path, mode and bytes; the check command's words, working directory and
 /// environment overlay; the treatment; and the environment the check container is given.
 ///
-/// The cell's declared inputs are not mounted in the check container, so they are not in the key.
+/// The cell's declared inputs are mounted in the check container as in a run, so each one's
+/// workspace path and content digest is in the key.
 fn files_digest(
     plan: &Plan,
+    inputs: &Inputs,
     container: &ContainerPlan,
     command: &CommandSpec,
     treatment: &str,
@@ -135,6 +138,10 @@ fn files_digest(
     let mut bytes = Vec::new();
     add_files(&mut bytes, "home", &plan.prepared.files);
     add_files(&mut bytes, "workspace", &plan.workspace_files);
+    bytes.extend_from_slice(format!("inputs\0{}\0", inputs.digests.len()).as_bytes());
+    for input in &inputs.digests {
+        bytes.extend_from_slice(format!("{}\0{:?}\0", input.path, input.digest).as_bytes());
+    }
     for word in command.argv() {
         bytes.extend_from_slice(word.as_bytes());
         bytes.push(0);
@@ -265,7 +272,7 @@ async fn grouped<'a>(
             continue;
         }
         let root = scratch.join(seen.len().to_string()); // BORROW: .to_string() gives owned text
-        let (staged, mut container) = stage_container(rt, isolation, plan, &root, false)
+        let (staged, mut container) = stage_container(rt, isolation, plan, &root, true)
             .await
             .map_err(|e| failed(&e))?;
         let Some(command) = rt.driver.config_check(&staged) else {
@@ -318,7 +325,7 @@ fn group_key(
     Ok((
         rt.driver.id().to_string(), // BORROW: .to_string() gives owned text
         image_of(comparable),
-        files_digest(staged, container, command, &treatment),
+        files_digest(staged, &cell.inputs, container, command, &treatment),
     ))
 }
 
