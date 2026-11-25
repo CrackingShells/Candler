@@ -16,10 +16,10 @@ Both trace readers record the harness's exit status, `assemble`/`materialise` se
 ## Status
 ```mermaid
 graph TD
-    cc_reader_exit[Claude Code exit]:::planned
-    oc_reader_exit[OpenCode exit]:::planned
-    serve_context[Serve the run]:::planned
-    helper_context[Helper context]:::planned
+    cc_reader_exit[Claude Code exit]:::inprogress
+    oc_reader_exit[OpenCode exit]:::inprogress
+    serve_context[Serve the run]:::inprogress
+    helper_context[Helper context]:::inprogress
     e2e[Consumer path]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -31,10 +31,10 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `cc_reader_exit.md` | 📄 Leaf Task | ⬜ Planned |
-| `oc_reader_exit.md` | 📄 Leaf Task | ⬜ Planned |
-| `serve_context.md` | 📄 Leaf Task | ⬜ Planned |
-| `helper_context.md` | 📄 Leaf Task | ⬜ Planned |
+| `cc_reader_exit.md` | 📄 Leaf Task | 🔄 In Progress |
+| `oc_reader_exit.md` | 📄 Leaf Task | 🔄 In Progress |
+| `serve_context.md` | 📄 Leaf Task | 🔄 In Progress |
+| `helper_context.md` | 📄 Leaf Task | 🔄 In Progress |
 | `e2e/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
