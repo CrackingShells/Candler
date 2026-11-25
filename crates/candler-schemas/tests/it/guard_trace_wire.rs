@@ -422,3 +422,43 @@ fn an_mcp_origin_without_a_tool_still_reads_and_one_with_it_round_trips() {
         new
     );
 }
+
+/// Guards: normalised-trace/1 — a `tool_result` carries an optional `exit`, the process exit
+/// object `{kind, code}`: a line with one reads and is written back as it was, a result without
+/// one still reads, and an `exit` that is not that object (a bare `{code}`, a string, `null`) is
+/// refused, so the wire has one reading of it. Oracle: the event lines below, written by hand from the architecture's
+/// §Normalised trace model and §Wire encodings; the line without `exit` is the positive control.
+#[test]
+fn a_tool_result_carries_its_exit_as_the_process_exit_object_and_nothing_else() {
+    let file_with = |event: &str| {
+        let line = format!(
+            r#"{{"kind":"event","session":"root-1","event":{{"seq":0,"kind":{event},"raw_ref":{{"stream":"stdout","frame":0}},"ext":{{}}}}}}"#
+        );
+        let mut text = [TRACE_LINES[0], TRACE_LINES[1], line.as_str()].join("\n");
+        text.push('\n');
+        text.into_bytes()
+    };
+
+    let kept = [
+        r#"{"kind":"tool_result","is_error":false}"#,
+        r#"{"kind":"tool_result","is_error":true,"exit":{"kind":"code","code":3}}"#,
+        r#"{"kind":"tool_result","is_error":false,"exit":{"kind":"code","code":0}}"#,
+    ];
+    for event in kept {
+        let literal = file_with(event);
+        let file = TraceFile::read(&literal).unwrap_or_else(|e| panic!("{event} is refused: {e}"));
+        assert_eq!(file.write(), literal, "{event} is not written back as read");
+    }
+
+    let refused = [
+        r#"{"kind":"tool_result","is_error":true,"exit":{"code":3}}"#,
+        r#"{"kind":"tool_result","is_error":true,"exit":"3"}"#,
+        r#"{"kind":"tool_result","is_error":true,"exit":null}"#,
+    ];
+    for event in refused {
+        assert!(
+            TraceFile::read(&file_with(event)).is_err(),
+            "{event} is accepted"
+        );
+    }
+}
