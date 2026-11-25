@@ -1,0 +1,378 @@
+{
+  "info": {
+    "id": "ses_ded715479ffe1zKO0tdgszEa2J",
+    "projectID": "bc7447dce6aa45fd13129230dddc6abeb62cb974",
+    "model": {
+      "id": "g1",
+      "providerID": "candler",
+      "variant": "default"
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 700,
+      "output": 140,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "outcome": "succeeded",
+    "time": {
+      "created": 1795607669644,
+      "updated": 1795607672199,
+      "busy": 1795607669977,
+      "idle": 1795607672201
+    },
+    "title": "done",
+    "location": {
+      "directory": "/work"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_2128eac64001kh6eiXI837fMUO",
+      "time": {
+        "created": 1795607670057
+      },
+      "text": "Run the commands you are given, call the MCP tool stamp of the server parity, then reply done.",
+      "files": [],
+      "type": "user"
+    },
+    {
+      "id": "msg_2128ead33001P8Wcr3Ax2B3CvN",
+      "time": {
+        "created": 1795607671814,
+        "streamed": 1795607671870,
+        "completed": 1795607671880
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "g1",
+        "providerID": "candler",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "tool",
+          "id": "toolu_fake_g1_0",
+          "name": "shell",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "echo hello | grep zzz"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "(no output)"
+              },
+              {
+                "type": "text",
+                "text": "Exit code: 1"
+              }
+            ],
+            "metadata": {
+              "status": "completed",
+              "truncated": false,
+              "exit": 1
+            }
+          },
+          "time": {
+            "created": 1795607671863,
+            "ran": 1795607671866,
+            "completed": 1795607671878
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0,
+      "tokens": {
+        "input": 100,
+        "output": 20,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_2128eb44c001AGVUJIuFCpqLWF",
+      "time": {
+        "created": 1795607671887,
+        "streamed": 1795607671939,
+        "completed": 1795607671948
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "g1",
+        "providerID": "candler",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "tool",
+          "id": "toolu_fake_g1_1",
+          "name": "shell",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "printf a > a.txt; printf b > b.txt; diff a.txt b.txt"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "1c1\n< a\n\\ No newline at end of file\n---\n> b\n\\ No newline at end of file\n"
+              },
+              {
+                "type": "text",
+                "text": "Exit code: 1"
+              }
+            ],
+            "metadata": {
+              "status": "completed",
+              "truncated": false,
+              "exit": 1
+            }
+          },
+          "time": {
+            "created": 1795607671934,
+            "ran": 1795607671937,
+            "completed": 1795607671947
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0,
+      "tokens": {
+        "input": 100,
+        "output": 20,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_2128eb48f001HN2q3FjCZeyPKy",
+      "time": {
+        "created": 1795607671953,
+        "streamed": 1795607672007,
+        "completed": 1795607672013
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "g1",
+        "providerID": "candler",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "tool",
+          "id": "toolu_fake_g1_2",
+          "name": "shell",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "test -f /missing"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "(no output)"
+              },
+              {
+                "type": "text",
+                "text": "Exit code: 1"
+              }
+            ],
+            "metadata": {
+              "status": "completed",
+              "truncated": false,
+              "exit": 1
+            }
+          },
+          "time": {
+            "created": 1795607672001,
+            "ran": 1795607672004,
+            "completed": 1795607672012
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0,
+      "tokens": {
+        "input": 100,
+        "output": 20,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_2128eb4d1002SEtzE35EpMYHBa",
+      "time": {
+        "created": 1795607672019,
+        "streamed": 1795607672072,
+        "completed": 1795607672077
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "g1",
+        "providerID": "candler",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "tool",
+          "id": "toolu_fake_g1_3",
+          "name": "shell",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "echo fine"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "fine\n"
+              }
+            ],
+            "metadata": {
+              "status": "completed",
+              "truncated": false,
+              "exit": 0
+            }
+          },
+          "time": {
+            "created": 1795607672067,
+            "ran": 1795607672069,
+            "completed": 1795607672076
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0,
+      "tokens": {
+        "input": 100,
+        "output": 20,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_2128eb511001tcCwqlR3x3loiT",
+      "time": {
+        "created": 1795607672083,
+        "streamed": 1795607672138,
+        "completed": 1795607672141
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "g1",
+        "providerID": "candler",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "tool",
+          "id": "toolu_fake_stamp",
+          "name": "parity_stamp",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {},
+            "content": [
+              {
+                "type": "text",
+                "text": "parity-stamp-5c1e"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1795607672130,
+            "ran": 1795607672134,
+            "completed": 1795607672140
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0,
+      "tokens": {
+        "input": 100,
+        "output": 20,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_2128eb551001u68lTSO4U7SujS",
+      "time": {
+        "created": 1795607672147,
+        "streamed": 1795607672198,
+        "completed": 1795607672199
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "g1",
+        "providerID": "candler",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "done"
+        }
+      ],
+      "finish": "stop",
+      "rawFinish": "end_turn",
+      "cost": 0,
+      "tokens": {
+        "input": 100,
+        "output": 20,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_2128eb5890027Hl9vaDahovXwa",
+      "time": {
+        "created": 1795607672201
+      },
+      "type": "idle",
+      "outcome": "succeeded"
+    }
+  ]
+}
+

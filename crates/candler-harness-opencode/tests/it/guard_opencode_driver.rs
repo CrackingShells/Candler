@@ -809,12 +809,25 @@ fn opencode_export_reader_covers_trace_errors_cache_cost_and_child_sessions() ->
     // state is an error, or that reported none (the timed-out call is `completed` with a signal
     // name and no code), carries none. Expected values come from
     // `jq -c '[.messages[].content[]? | select(.type == "tool") | .state.metadata.exit]'`.
-    let exit_rows: [(&str, Vec<Value>); 4] = [
+    let exit_rows: [(&str, Vec<Value>); 5] = [
         (
             "shell_exit_stderr_timeout",
             vec![
                 json!({"kind": "tool_result", "is_error": false, "exit": {"kind": "code", "code": 3}}),
                 json!({"kind": "tool_result", "is_error": false, "exit": {"kind": "code", "code": 2}}),
+                json!({"kind": "tool_result", "is_error": false}),
+            ],
+        ),
+        (
+            // `jq -c '[.. | objects | select(.type? == "tool") | [.name, .state.metadata.exit]]'` gives
+            // shell 1, 1, 1, 0 and parity_stamp null;
+            // the fifth result is the MCP `stamp` call.
+            "shell_exit_semantics",
+            vec![
+                json!({"kind": "tool_result", "is_error": false, "exit": {"kind": "code", "code": 1}}),
+                json!({"kind": "tool_result", "is_error": false, "exit": {"kind": "code", "code": 1}}),
+                json!({"kind": "tool_result", "is_error": false, "exit": {"kind": "code", "code": 1}}),
+                json!({"kind": "tool_result", "is_error": false, "exit": {"kind": "code", "code": 0}}),
                 json!({"kind": "tool_result", "is_error": false}),
             ],
         ),
