@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0](https://github.com/CrackingShells/Candler/compare/v0.16.0...v0.17.0) - 2026-11-25
+
+### Documentation
+
+- *(api)* say what mount_inputs assumes of its workspace
+
+### Features
+
+- *(api)* install instructions and plugins on OpenCode
+- *(api)* mount the workspace instruction file read-only
+- *(api)* refuse a cell its harness rejects
+- *(api)* record loaded memory files on Claude Code
+- *(api)* install instructions and hooks on Claude Code
+- *(api)* drop the harness-id scaffolding and forward the check
+- *(api)* make every driver state its harness check
+- *(api)* read hooks and instructions as the harness writes them
+- *(api)* declare instructions, hooks and the harness check
+- *(runner)* record each run's starting context in the trace
+- *(api)* take instructions and hooks as cell values
+
+### Fixes
+
+- *(api)* fix the CI rustdoc and read-only mount guards
+- *(api)* mount the declared inputs in the harness check
+- *(api)* refuse only OpenCode check warnings, census path from workdir
+- *(api)* let the check's own variables win over the run's
+- *(api)* refuse an input at the instruction file in core planning
+- *(api)* key the config check on all it reads, and plan each cell once
+- *(api)* read a harness check's findings whatever its exit
+- *(api)* name the hooks type the check reads for its pointer
+- *(api)* fail the collection on a census error, fix a stream doc
+- *(api)* read the hook log without following links
+- *(runner)* drop the dead sidecar and prompt-only branches
+- *(runner)* tag the sidecar image by its sources, keep one stream
+
+### Refactoring
+
+- *(api)* share one gateway stream reader, ask the census as a bool
+
 ## [0.16.0](https://github.com/CrackingShells/Candler/compare/v0.15.0...v0.16.0) - 2026-11-25
 
 ### Documentation

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0](https://github.com/CrackingShells/Candler/compare/schemas@0.13.0...schemas@0.14.0) - 2026-11-25
+
+### Documentation
+
+- *(schemas)* say what context_start holds
+
+### Features
+
+- *(schemas)* one document fault for a bad level and a bad file
+- *(schemas)* hold the free-key fact in one list
+- *(schemas)* keep the keys of the hooks and global instruction tables
+- *(schemas)* show the instructions and hooks of an inspected run
+- *(schemas)* type the instructions and hooks of a cell
+- *(schemas)* add the context_start trace event
+
 ## [0.13.0](https://github.com/CrackingShells/Candler/compare/schemas@0.12.0...schemas@0.13.0) - 2026-11-25
 
 ### Documentation
