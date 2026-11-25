@@ -1,0 +1,17 @@
+# Hand-written from the raw lines with jq. Recorded by real Claude Code on the parity rig: one turn
+# of three Bash calls (`exit 3`; `echo oops >&2; exit 2`; a Python sleep with `timeout: 1000`),
+# then a second turn that starts when the backgrounded sleep ends. No denial, no subagent.
+stream = "agent_stream.jsonl.gz"
+frames = 18
+blank_frames = []
+non_json_frames = []
+subagent_ids = []
+denials = []
+mcp_calls = []
+frame_sessions = []
+cost_reporting = "running"
+tokens_reporting = "per_turn"
+
+[[sessions]]
+id = "d5ff5efc-d943-44df-a357-f087b8668786"
+ended_by = "completed"

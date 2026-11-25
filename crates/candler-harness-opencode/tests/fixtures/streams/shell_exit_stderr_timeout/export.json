@@ -1,0 +1,219 @@
+{
+  "info": {
+    "id": "ses_dee27c7a8ffe6tHUOiSdJDTWaO",
+    "projectID": "bc7447dce6aa45fd13129230dddc6abeb62cb974",
+    "model": {
+      "id": "sh1",
+      "providerID": "candler",
+      "variant": "default"
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 300,
+      "output": 60,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "outcome": "succeeded",
+    "time": {
+      "created": 1795595712887,
+      "updated": 1795595716486,
+      "busy": 1795595713150,
+      "idle": 1795595716491
+    },
+    "title": "done",
+    "location": {
+      "directory": "/work"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_211d8399900101Y00e0pzrSXwG",
+      "time": {
+        "created": 1795595713171
+      },
+      "text": "Run the three shell calls, then reply done.",
+      "files": [],
+      "type": "user"
+    },
+    {
+      "id": "msg_211d83aae001AL9qnBRsPxMIyk",
+      "time": {
+        "created": 1795595715251,
+        "streamed": 1795595715354,
+        "completed": 1795595716394
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "sh1",
+        "providerID": "candler",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "I will run three shell calls."
+        },
+        {
+          "type": "tool",
+          "id": "toolu_fake_sh_exit3",
+          "name": "shell",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "exit 3",
+              "description": "exit 3"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "(no output)"
+              },
+              {
+                "type": "text",
+                "text": "Exit code: 3"
+              }
+            ],
+            "metadata": {
+              "status": "completed",
+              "truncated": false,
+              "exit": 3
+            }
+          },
+          "time": {
+            "created": 1795595715316,
+            "ran": 1795595715324,
+            "completed": 1795595715373
+          }
+        },
+        {
+          "type": "tool",
+          "id": "toolu_fake_sh_stderr",
+          "name": "shell",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "echo oops >&2; exit 2",
+              "description": "stderr only"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "oops\n"
+              },
+              {
+                "type": "text",
+                "text": "Exit code: 2"
+              }
+            ],
+            "metadata": {
+              "status": "completed",
+              "truncated": false,
+              "exit": 2
+            }
+          },
+          "time": {
+            "created": 1795595715326,
+            "ran": 1795595715333,
+            "completed": 1795595715383
+          }
+        },
+        {
+          "type": "tool",
+          "id": "toolu_fake_sh_timeout",
+          "name": "shell",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "python3 -c 'import time; time.sleep(30)'",
+              "description": "outlives timeout",
+              "timeout": 1000
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "(no output)"
+              },
+              {
+                "type": "text",
+                "text": "Command timed out after 1 seconds. If it needs longer and isn't waiting for input, rerun with a larger timeout.\nExit code: 143 (SIGTERM)"
+              }
+            ],
+            "metadata": {
+              "status": "completed",
+              "truncated": false,
+              "signal": "SIGTERM",
+              "timeout": true
+            }
+          },
+          "time": {
+            "created": 1795595715336,
+            "ran": 1795595715350,
+            "completed": 1795595716390
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0,
+      "tokens": {
+        "input": 100,
+        "output": 20,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_211d8473c001mKKMTC6sFSMc9e",
+      "time": {
+        "created": 1795595716420,
+        "streamed": 1795595716484,
+        "completed": 1795595716486
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "sh1",
+        "providerID": "candler",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "done"
+        }
+      ],
+      "finish": "stop",
+      "rawFinish": "end_turn",
+      "cost": 0,
+      "tokens": {
+        "input": 100,
+        "output": 20,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_211d8478b00142ClyXBTwu684i",
+      "time": {
+        "created": 1795595716491
+      },
+      "type": "idle",
+      "outcome": "succeeded"
+    }
+  ]
+}
+
