@@ -363,3 +363,16 @@ fn free_key_tables_reach_the_cell_whole() {
         "a table elsewhere keeps the key rule"
     );
 }
+
+/// Guards: a key of a factor level that breaks the key rule is refused as a fault of the document
+/// at the level's own pointer, as a table elsewhere is, and the same key below `hooks` is not.
+/// Oracle: the pointer is written by hand from the factor and level indices.
+/// Bite: leave the pointer out of the refusal (the path is empty).
+#[test]
+fn a_level_key_that_breaks_the_rule_is_refused_at_the_level() {
+    let factors = "[[factors]]\npath = \"model.id\"\nlevels = [\"m\"]\n[[factors]]\npath = \"env\"\nlevels = [{Odd-Var = \"x\"}]\n";
+    match ExperimentFile::from_toml_str(&with_tables("", factors)) {
+        Err(ExecutionError::Document { path, .. }) => assert_eq!(path, "/factors/1/levels/0"),
+        other => panic!("expected a document fault at the level, got {other:?}"),
+    }
+}

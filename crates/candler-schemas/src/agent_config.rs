@@ -4,7 +4,7 @@
 //! An experiment writes them as tables at `instructions.global` and `hooks`, in `[fixed]` or as
 //! factor levels, and the keys below those two paths are the harness's own words: a harness id
 //! such as `claude-code`, a hook event such as `SessionStart`, a file name such as `start.sh`
-//! (see [`crate::execution::FREE_KEY_PATHS`]). The reader (`candler_harness::agent_config`)
+//! (see [`crate::execution::TABLE_VALUED_PATHS`]). The reader (`candler_harness::agent_config`)
 //! reads the tables as the types of this module, each published as its own schema as
 //! `mcp-server` is, and refuses what does not fit them.
 

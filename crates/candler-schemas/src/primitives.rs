@@ -1122,11 +1122,11 @@ impl Name {
     }
 }
 
-/// A [`Name`] from a literal, which the compiler rejects when it is empty or holds `@`, white
+/// A [`Name`] from a constant text, which the compiler rejects when it is empty or holds `@`, white
 /// space or a byte outside ASCII. The value cannot fail at run time.
 #[macro_export]
 macro_rules! name {
-    ($text:literal) => {{
+    ($text:expr) => {{
         const { assert!($crate::primitives::is_ascii_name($text)) };
         $crate::primitives::Name::from_checked_literal($text)
     }};
