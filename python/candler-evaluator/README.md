@@ -17,11 +17,16 @@ grades one item, and may expose `NAME`, `VERSION`, `DIST`, `INSTRUMENTS`, `KIND_
   `blocked`, `not_measured`, `not_applicable`) and the optional `value`, `weight`, `cause` and
   `evidence`. The helper checks the result against the outcome rules.
 - **`RunContext`** is what a kind may read of one run: `root`, `artifacts`, `metadata`,
-  `scratch`, `run`, `raw`, `trace`, `artifact_files`, `snapshots` and `inputs`. A kind never
-  imports the class; it reads the object it is given.
+  `scratch`, `run`, `raw`, `trace`, `manifest`, `artifact_files`, `snapshots` and `inputs`. A
+  kind never imports the class; it reads the object it is given. `trace` and `manifest` are a
+  `ServedFile` (`path`, `abs`, `sha256`) or `None`; `raw` is a tuple of mappings with `stream`,
+  `path` and `sha256`. `candler_evaluator.read_trace(context.trace)` yields the trace's lines as
+  models generated from `normalised-trace.schema.json` and raises `pydantic.ValidationError` at
+  a line the schema refuses.
 - **`KINDS`** maps each kind's name to its function.
 - **`needs`** says what a kind reads: `artifacts` (globs), `inputs`, `metadata` (field paths),
-  `snapshots` and `trace`. It is set per kind in `KIND_SPECS`.
+  `snapshots`, `trace`, `raw` and `manifest` (the last three are booleans). It is set per kind in
+  `KIND_SPECS`.
 - **`params_schema`** is the JSON Schema of a kind's params, also set per kind in `KIND_SPECS`.
   `default_deadline_ms` sits beside them.
 

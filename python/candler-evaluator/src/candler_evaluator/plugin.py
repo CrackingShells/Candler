@@ -18,6 +18,7 @@ __all__ = [
     "PluginError",
     "Prior",
     "RunContext",
+    "ServedFile",
     "normalise_outcome",
 ]
 
@@ -88,8 +89,31 @@ class Prior:
 
 
 @dataclass(frozen=True)
+class ServedFile:
+    """One stored file of the run: `path` relative to the run, `abs` where the kind reads it,
+    and the `sha256` digest of its bytes, written `sha256:` and 64 hex digits."""
+
+    path: str
+    abs: Path
+    sha256: str
+
+    @classmethod
+    def from_wire(cls, served: Mapping[str, Any]) -> ServedFile:
+        """Build one from a `ContextArtifact` of the wire."""
+        return cls(
+            path=served["path"], abs=Path(served["abs"]), sha256=served["sha256"]
+        )
+
+
+@dataclass(frozen=True)
 class RunContext:
-    """What a kind may read of one run; kinds never import this class, they only read it."""
+    """What a kind may read of one run; kinds never import this class, they only read it.
+
+    `trace` and `manifest` are the run's normalised trace and manifest as `ServedFile`s, each
+    `None` when no kind of the plug-in declared it in `needs`; `raw` holds one mapping per raw
+    stream, with the keys `stream`, `path` and `sha256`, and is empty when none was declared.
+    `read_trace` reads `trace`.
+    """
 
     root: Path
     artifacts: tuple[str, ...]
@@ -97,7 +121,8 @@ class RunContext:
     scratch: Path
     run: Mapping[str, Any] = field(default_factory=dict)
     raw: tuple[Mapping[str, Any], ...] = ()
-    trace: Path | None = None
+    trace: ServedFile | None = None
+    manifest: ServedFile | None = None
     artifact_files: tuple[Mapping[str, Any], ...] = ()
     snapshots: tuple[Mapping[str, Any], ...] = ()
     inputs: tuple[Mapping[str, Any], ...] = ()
@@ -107,6 +132,7 @@ class RunContext:
         """Build the duck-typed context from the `context` and `scratch` of an evaluate request."""
         files = tuple(context["artifacts"])
         trace = context.get("trace")
+        manifest = context.get("manifest")
         return cls(
             root=Path(context["root"]),
             artifacts=tuple(sorted(f["path"] for f in files)),
@@ -114,7 +140,8 @@ class RunContext:
             scratch=Path(scratch),
             run=context["run"],
             raw=tuple(context["raw"]),
-            trace=None if trace is None else Path(trace["abs"]),
+            trace=None if trace is None else ServedFile.from_wire(trace),
+            manifest=None if manifest is None else ServedFile.from_wire(manifest),
             artifact_files=files,
             snapshots=tuple(context.get("snapshots", [])),
             inputs=tuple(context["inputs"]),

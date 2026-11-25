@@ -160,16 +160,16 @@ def test_the_reader_yields_typed_records_with_exit_origin_and_argv(tmp_path):
     from candler_evaluator import read_trace
 
     path = write_trace(tmp_path, [HEADER, SESSION, CALL, RESULT])
-    records = [r.root if hasattr(r, "root") else r for r in read_trace(path)]
+    records = list(read_trace(path))
     assert [r.kind for r in records] == ["header", "session", "event", "event"]
-    call, result = records[2].event.kind, records[3].event.kind
+    call, result = records[2].event.kind.root, records[3].event.kind.root
     assert call.argv == ["cat", "a.txt"]
-    assert (call.origin.kind, call.origin.server, call.origin.tool) == (
+    assert (call.origin.root.kind, call.origin.root.server, call.origin.root.tool) == (
         "mcp",
         "fs",
         "read",
     )
-    assert (result.exit.kind, result.exit.code) == ("code", 2)
+    assert (result.exit.root.kind, result.exit.root.code) == ("code", 2)
 
 
 def test_the_reader_takes_the_served_trace_of_a_context(tmp_path):
