@@ -679,7 +679,7 @@ I3, so event times are reproducible even where the harness emits none.
 
 | Phase | Needed | Varies between harnesses |
 |---|---|---|
-| Prepare | Model, endpoint, skill or plug-in, MCP servers, permissions and instructions written into the workspace | File names and formats; model ids and provider configuration |
+| Prepare | Model, endpoint, skill or plug-in, MCP servers, permissions, and instructions written into the home (global) and mounted read-only in the workspace | File names and formats; model ids and provider configuration |
 | Confine | An in-harness guard where one exists (Claude Code's PreToolUse hook) | Some have none; the container is then the only boundary |
 | Launch | Headless command line, environment overlay, working directory | Flags; budget options |
 | Observe | Live events, normalised; the session ids seen | Streamed on stdout, or kept in a local database |

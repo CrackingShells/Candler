@@ -19,7 +19,7 @@ graph TD
     install_claude_code[Install on Claude Code]:::done
     install_opencode[Install on OpenCode]:::done
     preflight_check[Preflight check]:::done
-    proved[Proved]:::planned
+    proved[Proved]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -33,7 +33,7 @@ graph TD
 | `install_claude_code.md` | 📄 Leaf Task | ✅ Done |
 | `install_opencode.md` | 📄 Leaf Task | ✅ Done |
 | `preflight_check.md` | 📄 Leaf Task | ✅ Done |
-| `proved/` | 📁 Directory | ⬜ Planned |
+| `proved/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

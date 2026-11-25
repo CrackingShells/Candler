@@ -30,10 +30,11 @@ Instruction files and hooks as per-arm experiment data (M6.5).
 
 ### Round 07
 - [07-review_m6_5_v0.md](07-review_m6_5_v0.md) — **latest** closing review of M6.5 against G1–G13: all hold on the tip, none fails. Three small in-scope defects (the collision pointer for a factor, OpenCode's WARN-only check, a second harness id list), four debt items, four notes.
+- [07-knowledge_transfer_m6_5_v0.md](07-knowledge_transfer_m6_5_v0.md) — **latest** close of M6.5: spend $109.69 of the $125 cap, by level; the review's findings disposed (F2 refuted by a run, F5 and F6 fixed, F1 and F7 already covered, F3 a notice); what stays open.
 
 ## Status
 
-The plan is approved, and the roadmap [`__roadmap__/m6_5-agent-config/`](../../__roadmap__/m6_5-agent-config/README.md) has been authored. The plan and the roadmap were amended on 2026-11-25 for two instruction scopes (v1), then for a live, trace-read proof (v2). Level 1 is dispatched, and the probe is done.
+The plan is approved, and the roadmap [`__roadmap__/m6_5-agent-config/`](../../__roadmap__/m6_5-agent-config/README.md) has been authored. The plan and the roadmap were amended on 2026-11-25 for two instruction scopes (v1), then for a live, trace-read proof (v2). Levels 1 to 3 are done and merged locally; the closing review is round 07.
 
 On 2026-11-25 Eliott ruled on the two points that round 03 raised. The roadmap's leaves carry the amended gates:
 - The proof reads the whole starting context. `context_start` comes from the run's first request that offers tools. G4 and G11 pass when each text is found in its `system` or its `first_message`, since Claude Code puts CLAUDE.md texts and SessionStart output in the first message.

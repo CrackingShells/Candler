@@ -38,5 +38,7 @@ wall_s = 300
 [treatment]
 name = "demo"
 tag = "v1"
+# The treatment was a scratch git checkout, deleted after the run. To rerun, point `source` at a
+# treatment made as the guard `agent_config_e2e.rs` makes its own.
 source = "/Users/hacker/Documents/tmp/claude-worktrees/Candler/m6_5-scratch/live/treatment"
 
