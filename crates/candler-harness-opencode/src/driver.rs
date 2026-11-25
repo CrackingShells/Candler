@@ -11,10 +11,10 @@ use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
-    Action, AgentSetting, Answer, BaseImage, Cell, CheckVerdict, CollectSpec, CommandSpec,
-    DriverFact, EnvEntry, GATEWAY_STREAM, GatewayEnv, GatewayRecord, HarnessId, LoadedFile,
-    LoadedScope, OPENCODE, Observed, Prepared, ProcessExit, StateKind, StatePath, StopSignal,
-    StopSpec, Workspace, gateway_records,
+    AGENT_HOME, AGENT_WORKDIR, Action, AgentSetting, Answer, BaseImage, Cell, CheckVerdict,
+    CollectSpec, CommandSpec, DriverFact, EnvEntry, GATEWAY_STREAM, GatewayEnv, GatewayRecord,
+    HarnessId, LoadedFile, LoadedScope, OPENCODE, Observed, Prepared, ProcessExit, StateKind,
+    StatePath, StopSignal, StopSpec, Workspace, gateway_records,
 };
 use candler_schemas::name;
 use candler_schemas::primitives::{RelPath, plain_arg};
@@ -33,9 +33,6 @@ const PROGRAM: &str = "opencode";
 const GATEWAY_BASE_URL: &str = "CANDLER_GATEWAY_URL";
 /// The variable that holds the gateway's token; the configuration refers to it.
 const GATEWAY_AUTH_TOKEN: &str = "CANDLER_GATEWAY_TOKEN";
-
-/// The agent's home inside the container, which the state paths are relative to.
-const AGENT_HOME: &str = "/home/agent";
 
 /// The state directories and the database file, relative to the agent's home.
 const STATE: [(&str, StateKind, &str); 5] = [
@@ -83,7 +80,8 @@ fn root_end(sessions: &[Session]) -> Option<&EndedBy> {
 /// stream `stream`; any other stream lists nothing. A file under the `XDG_CONFIG_HOME` the plan sets
 /// is the user's own; any other is the workspace's. The census reads `OpenCode`'s `Instructions
 /// from:` lines, which `OpenCode` does not escape, so a line of that shape inside an instruction
-/// text counts too.
+/// text counts too. A workspace file is recorded relative to the workspace, a user file by its
+/// absolute path.
 fn loaded(stream: &StreamName, bytes: &[u8]) -> Vec<LoadedFile> {
     if stream.as_str() != GATEWAY_STREAM {
         return Vec::new();
@@ -103,6 +101,7 @@ fn loaded(stream: &StreamName, bytes: &[u8]) -> Vec<LoadedFile> {
         "{AGENT_HOME}/{}/",
         OpenCodeDriver::state_subpath("XDG_CONFIG_HOME")
     );
+    let workdir = format!("{AGENT_WORKDIR}/");
     let mut files: Vec<LoadedFile> = Vec::new();
     for path in context
         .system
@@ -113,6 +112,11 @@ fn loaded(stream: &StreamName, bytes: &[u8]) -> Vec<LoadedFile> {
             LoadedScope::User
         } else {
             LoadedScope::Project
+        };
+        let path = if matches!(scope, LoadedScope::Project) {
+            path.strip_prefix(workdir.as_str()).unwrap_or(path)
+        } else {
+            path
         };
         let file = LoadedFile::new(path.to_owned(), scope); // BORROW: .to_owned() gives the file its own path
         if !path.is_empty() && !files.contains(&file) {
@@ -240,7 +244,7 @@ impl HarnessDriver for OpenCodeDriver {
                 how: "the tools the gateway offered the model in its first request",
             },
             DriverFact::ConfigCheck => Answer::Mapped {
-                construct: "`opencode run --standalone --print-logs -m probe/none x` in the workspace, whose `level=WARN` and `level=ERROR` lines name a rejected `opencode.json` or a plugin that failed to load",
+                construct: "`opencode run --standalone --print-logs -m probe/none x` in the workspace, whose `level=WARN` lines name a rejected `opencode.json` or a plugin that failed to load",
             },
             DriverFact::UnsetPermissionMode => Answer::Candler {
                 how: "the run is under `--auto` and the baseline ruleset {*, *, allow}, so every tool is allowed: OpenCode has no headless ask mode",
@@ -288,11 +292,13 @@ impl HarnessDriver for OpenCodeDriver {
                 output: text.into_owned(),
             };
         }
+        // `OpenCode` logs a rejected `opencode.json` and a plugin that fails at `WARN`, and prints
+        // environment errors that are not about the consumer's files (a watcher that cannot
+        // start, a model list that cannot be fetched) at `ERROR`, intermittently; only `WARN`
+        // lines are findings.
         let findings: Vec<&str> = text
             .lines()
-            .filter(|line| {
-                line.contains("level=WARN") || (line.contains("level=ERROR") && !is_drain(line))
-            })
+            .filter(|line| line.contains("level=WARN"))
             .collect();
         if findings.is_empty() {
             return CheckVerdict::Clean;
@@ -307,7 +313,7 @@ impl HarnessDriver for OpenCodeDriver {
     }
 
     fn workspace_instruction_file(&self) -> &'static str {
-        "AGENTS.md"
+        prepare::INSTRUCTION_FILE
     }
 
     fn gateway(&self) -> Option<GatewayEnv> {

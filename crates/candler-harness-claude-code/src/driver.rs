@@ -365,7 +365,7 @@ impl HarnessDriver for ClaudeCodeDriver {
     }
 
     fn workspace_instruction_file(&self) -> &'static str {
-        "CLAUDE.md"
+        prepare::WORKSPACE_FILE
     }
 
     fn gateway(&self) -> Option<GatewayEnv> {

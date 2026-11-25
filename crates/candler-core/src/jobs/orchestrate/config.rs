@@ -11,6 +11,7 @@ use std::sync::Arc;
 use candler_harness::agent_config;
 use candler_harness::driver::{DriverError, Plan};
 use candler_harness::spec::{Cell, CheckVerdict, CommandSpec, EnvValue, FileRoot, PreparedFile};
+use candler_schemas::execution::paths;
 use candler_schemas::primitives::Digest;
 use candler_schemas::process::ExitStatus;
 use candler_schemas::refusal::pointer_of;
@@ -164,12 +165,13 @@ fn setting_pointer(view: &Cell<'_>, harness: &str) -> String {
         .is_some()
     {
         pointer_of(["fixed", "hooks"])
-    } else if agent_config::instructions(view, harness)
-        .ok()
-        .flatten()
-        .is_some()
-    {
-        pointer_of(["fixed", "instructions"])
+    } else if let Some(found) = agent_config::instructions(view, harness).ok().flatten() {
+        let key = if found.workspace.is_some() {
+            paths::INSTRUCTIONS_WORKSPACE
+        } else {
+            paths::INSTRUCTIONS_GLOBAL
+        };
+        pointer_of(["fixed", key])
     } else {
         pointer_of(["fixed"])
     }
@@ -355,5 +357,47 @@ async fn check_group(
         _ => Err(failed(
             &"the harness gave a verdict this build does not know",
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr as _;
+
+    use candler_schemas::primitives::FieldPath;
+    use candler_schemas::values::{JsonValue, ResolvedValue};
+    use serde_json::{Value, json};
+
+    use super::*;
+
+    fn resolved(path: &str, value: Value) -> ResolvedValue {
+        ResolvedValue::recorded(
+            FieldPath::from_str(path).expect("a field path"),
+            JsonValue::new(value).expect("a JSON value"),
+        )
+    }
+
+    /// Guards: the job-start check points at the instruction setting the way the declaration's
+    /// own refusals do, `/fixed/instructions.workspace` and `/fixed/instructions.global`, never
+    /// at `/fixed/instructions`, which is no key of the file. Oracle: the pointers the declaration
+    /// refuses with, spelled by hand. Bite: point at `/fixed/instructions`.
+    #[test]
+    fn the_instruction_setting_is_pointed_at_as_the_declaration_spells_it() {
+        let both = [
+            resolved("instructions.workspace", json!("be brief")),
+            resolved("instructions.global", json!({"claude-code": "be kind"})),
+        ];
+        assert_eq!(
+            setting_pointer(&Cell::new(&both), "claude-code"),
+            "/fixed/instructions.workspace"
+        );
+        let global = [resolved(
+            "instructions.global",
+            json!({"claude-code": "be kind"}),
+        )];
+        assert_eq!(
+            setting_pointer(&Cell::new(&global), "claude-code"),
+            "/fixed/instructions.global"
+        );
     }
 }

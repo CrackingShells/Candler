@@ -32,8 +32,9 @@ use std::str::FromStr as _;
 
 use candler_harness::driver::DriverError;
 use candler_harness::spec::{
-    CollectSpec, CommandSpec, HookSpec, LoadedFile, LoadedScope, PendingItem, PendingKind,
-    PendingState, PreparedFile, SessionClose, SessionRecord, SessionSpec, SessionTracker,
+    AGENT_HOME, CollectSpec, CommandSpec, HookSpec, LoadedFile, LoadedScope, PendingItem,
+    PendingKind, PendingState, PreparedFile, SessionClose, SessionRecord, SessionSpec,
+    SessionTracker,
 };
 use candler_schemas::primitives::RelPath;
 use candler_schemas::raw::StreamName;
@@ -41,8 +42,6 @@ use serde_json::{Map, Value, json};
 
 use crate::driver::{Launch, argv, invalid};
 
-/// The home directory the core gives every agent container.
-const AGENT_HOME: &str = "/home/agent";
 /// The settings file that installs the hooks, relative to the agent's home. It lies outside
 /// `.claude/`, which the `user` setting source reads.
 const SETTINGS: &str = ".candler/settings.json";
