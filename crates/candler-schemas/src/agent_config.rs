@@ -1,13 +1,12 @@
 //! The instruction texts and hooks an experiment declares for the agent, in the shape the drivers
 //! read them.
 //!
-//! An experiment states them as leaves of the cell, because a `[fixed]` table or a factor level
-//! is flattened to leaves whose keys are field-path segments, and a hook configuration, a file
-//! path or a harness id such as `claude-code` is not one: `instructions.global.<harness>` is a
-//! text, `hooks.<harness>.settings` is the text of a JSON object, and the files of a harness are a
-//! list of `{path, text}` entries. A harness id is written with `_` where it has `-`. The reader
-//! (`candler_harness::agent_config`) puts the leaves together as the types of this module, each
-//! published as its own schema as `mcp-server` is, and refuses what does not fit them.
+//! An experiment writes them as tables at `instructions.global` and `hooks`, in `[fixed]` or as
+//! factor levels, and the keys below those two paths are the harness's own words: a harness id
+//! such as `claude-code`, a hook event such as `SessionStart`, a file name such as `start.sh`
+//! (see [`crate::execution::FREE_KEY_PATHS`]). The reader (`candler_harness::agent_config`)
+//! reads the tables as the types of this module, each published as its own schema as
+//! `mcp-server` is, and refuses what does not fit them.
 
 use std::collections::BTreeMap;
 

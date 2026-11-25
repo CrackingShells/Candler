@@ -314,3 +314,52 @@ fn table_value_empty_and_overlapping_tables_are_refused() {
         Some(&json!({"a": 1, "b": 1}))
     );
 }
+
+/// The experiment text with `fixed` (already TOML) and `factors` (already TOML).
+fn with_tables(fixed: &str, factors: &str) -> String {
+    format!(
+        "schema = \"experiment/1\"\nreplicates = 1\n\n[fixed]\n{fixed}\n{factors}\n[budget.per_run]\nwall_s = 60\n\n[harness]\nname = \"claude-code\"\n\n[treatment]\nname = \"t\"\n"
+    )
+}
+
+/// Guards: the tables at `hooks` and `instructions.global` keep the keys the harness gives them
+/// (a harness id with `-`, a hook event, a file name) in `[fixed]` and in a factor level, and
+/// reach the cell as one table at that path; a table anywhere else keeps the key rule.
+/// Oracle: the tables are written by hand; the expected cell values are the same tables.
+/// Bite: apply the key rule below `hooks` (the document is refused).
+#[test]
+fn free_key_tables_reach_the_cell_whole() {
+    let fixed = "[fixed.instructions.global]\nclaude-code = \"Global\"\n[fixed.hooks.claude-code.settings]\nSessionStart = [1]\n[fixed.hooks.claude-code.files]\n\"start.sh\" = \"echo\"\n";
+    let text = with_tables("", "").replace("[fixed]\n", fixed);
+    let file = ExperimentFile::from_toml_str(&text).expect("free keys parse");
+    let cells = file.cells();
+    let cell = cells.first().expect("one cell");
+    let value = |path: &str| {
+        cell.iter()
+            .find(|held| held.path().as_str() == path)
+            .and_then(|held| held.value().map(|json| json.as_value().clone()))
+    };
+    assert_eq!(
+        value("hooks"),
+        Some(
+            serde_json::json!({"claude-code": {"settings": {"SessionStart": [1]}, "files": {"start.sh": "echo"}}})
+        )
+    );
+    assert_eq!(
+        value("instructions.global"),
+        Some(serde_json::json!({"claude-code": "Global"}))
+    );
+
+    let levels = with_tables(
+        "",
+        "[[factors]]\npath = \"hooks\"\nlevels = [{claude-code = {settings = {Stop = [1]}}}, {opencode = {plugins = {\"a.js\" = \"x\"}}}]\n",
+    );
+    let file = ExperimentFile::from_toml_str(&levels).expect("free keys in levels parse");
+    assert_eq!(file.cells().len(), 2);
+
+    let refused = with_tables("", "").replace("[fixed]\n", "[fixed.model.Odd]\nx = 1\n");
+    assert!(
+        ExperimentFile::from_toml_str(&refused).is_err(),
+        "a table elsewhere keeps the key rule"
+    );
+}

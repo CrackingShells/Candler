@@ -658,7 +658,21 @@ impl From<TreatmentRef> for TreatmentSpec {
 }
 
 /// The paths whose values are tables kept whole: everything written at or below one reaches a cell as one object at that path, where any other table flattens into one value per leaf.
-pub const TABLE_VALUED_PATHS: [&str; 1] = [paths::PROMPT_VALUES];
+pub const TABLE_VALUED_PATHS: [&str; 3] = [
+    paths::PROMPT_VALUES,
+    paths::HOOKS,
+    paths::INSTRUCTIONS_GLOBAL,
+];
+
+/// The table-valued paths whose keys are free: a key below one is the harness's own word (a harness id, a hook event, a file name), so the key rule of a field path does not apply to it, and a table there reaches a cell whole.
+pub const FREE_KEY_PATHS: [&str; 2] = [paths::HOOKS, paths::INSTRUCTIONS_GLOBAL];
+
+/// Whether `path` is, or lies below, a path whose keys are free.
+fn free_keys(path: &FieldPath) -> bool {
+    FREE_KEY_PATHS
+        .into_iter()
+        .any(|root| path.relative_to(root).is_some())
+}
 
 /// The table-valued path that `path` is or lies below, if any.
 fn table_root(path: &FieldPath) -> Option<&'static str> {
@@ -674,7 +688,7 @@ fn leaves_of(
     out: &mut Vec<FieldPath>,
 ) -> Result<(), ExecutionError> {
     match value {
-        Value::Object(table) if table_root(path).is_some() => {
+        Value::Object(table) if table_root(path).is_some() && !free_keys(path) => {
             if table.is_empty() {
                 return Err(ExecutionError::EmptyTable {
                     path: path.to_string(),
@@ -835,13 +849,17 @@ impl Level {
 
     /// A level that is a table whose leaves fill paths.
     ///
+    /// The keys are read against the factor's path when the factor's cells are built: below a path
+    /// of [`FREE_KEY_PATHS`] they are free, anywhere else each must be a field path segment.
+    ///
     /// # Errors
-    /// Returns [`ExecutionError::EmptyTable`] if the table, or a table inside it, holds no value;
-    /// [`ExecutionError::Format`] if a key is not a field path segment; and
-    /// [`ExecutionError::Values`] if a leaf is `null` or cannot be hashed.
+    /// Returns [`ExecutionError::EmptyTable`] if the table holds no value.
     pub fn fill(table: Map<String, Value>) -> Result<Self, ExecutionError> {
-        let probe = FieldPath::from_str("level")?;
-        fill_leaves(&table, &probe, &mut Vec::new())?;
+        if table.is_empty() {
+            return Err(ExecutionError::EmptyTable {
+                path: String::from("level"),
+            });
+        }
         Ok(Self::Fill(table))
     }
 
@@ -876,6 +894,13 @@ fn fill_leaves(
         return Err(ExecutionError::EmptyTable {
             path: base.to_string(),
         });
+    }
+    if free_keys(base) {
+        // BORROW: .clone() gives the cell its own copy of the table
+        let whole = JsonValue::new(Value::Object(table.clone()))?;
+        // BORROW: .clone() gives the cell its own path
+        out.push(ResolvedValue::recorded(base.clone(), whole));
+        return Ok(());
     }
     for (key, value) in table {
         // BORROW: explicit .as_str() instead of Deref coercion
@@ -1643,6 +1668,12 @@ fn flatten_into(
             toml::Value::Table(inner) => {
                 if inner.is_empty() {
                     return Err(ExecutionError::EmptyTable { path });
+                }
+                if FREE_KEY_PATHS.contains(&path.as_str()) {
+                    // BORROW: explicit .as_str() instead of Deref coercion
+                    let json = toml_to_json(toml::Value::Table(inner), path.as_str())?;
+                    out.push((path, json));
+                    continue;
                 }
                 // BORROW: explicit .as_str() instead of Deref coercion
                 flatten_into(inner, format!("{path}.").as_str(), out)?;
