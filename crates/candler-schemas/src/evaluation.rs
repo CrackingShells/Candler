@@ -1346,7 +1346,7 @@ pub struct Needs {
     /// Whether the check reads the run's manifest, served as `context.manifest` when a kind of the request needs it. The manifest holds the factors and provenance of the run, its usage, its tool census, how it ended and the exit of its process.
     #[serde(default)]
     pub manifest: bool,
-    /// Globs, relative to the run's outputs, of the artifacts the check reads. The artifacts are the files the run produced.
+    /// Globs, relative to the run, of the artifacts the check reads; each starts with `outputs/`. The artifacts are the files the run produced, each served at its path inside `outputs/`.
     pub artifacts: Vec<String>,
     /// The kinds of snapshot the check reads. Always empty for a run Candler made; the field is
     /// kept so a released helper and stored grading contexts stay valid, and it is removed once a

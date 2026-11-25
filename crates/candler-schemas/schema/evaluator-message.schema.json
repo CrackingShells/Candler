@@ -509,7 +509,7 @@
       "description": "What one kind of check needs from a run, written as an object: `trace`, `artifacts`, `snapshots`, `inputs` and `metadata` are present, the lists empty when the kind needs nothing of that sort, and `raw` and `manifest` are `false` when absent. A request is served the union of the needs of the kinds it sends, and a part the run does not store refuses the request.",
       "properties": {
         "artifacts": {
-          "description": "Globs, relative to the run's outputs, of the artifacts the check reads. The artifacts are the files the run produced.",
+          "description": "Globs, relative to the run, of the artifacts the check reads; each starts with `outputs/`. The artifacts are the files the run produced, each served at its path inside `outputs/`.",
           "items": {
             "type": "string"
           },
