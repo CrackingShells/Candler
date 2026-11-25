@@ -231,8 +231,32 @@
       "type": "object"
     },
     "EventKind": {
-      "description": "What happened at one point of a session: an object whose `kind` is `user_message`, `assistant_message`, `tool_call`, `tool_result`, `notification` or `usage`, with the members of that kind beside it.",
+      "description": "What happened at one point of a session: an object whose `kind` is `context_start`, `user_message`, `assistant_message`, `tool_call`, `tool_result`, `notification` or `usage`, with the members of that kind beside it.",
       "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "What the model was given at the start of the run: the system text and the first message of the run's first model request, as the gateway received them.",
+          "properties": {
+            "first_message": {
+              "description": "The first message of the request, verbatim.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "context_start",
+              "type": "string"
+            },
+            "system": {
+              "description": "The system text of the request, verbatim.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "system",
+            "first_message"
+          ],
+          "type": "object"
+        },
         {
           "additionalProperties": false,
           "description": "The user said something.",
