@@ -16,7 +16,7 @@ Each driver installs the global instruction text and hooks where its harness loo
 ## Status
 ```mermaid
 graph TD
-    install_claude_code[Install on Claude Code]:::planned
+    install_claude_code[Install on Claude Code]:::done
     install_opencode[Install on OpenCode]:::planned
     preflight_check[Preflight check]:::planned
     proved[Proved]:::planned
@@ -30,7 +30,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `install_claude_code.md` | 📄 Leaf Task | ⬜ Planned |
+| `install_claude_code.md` | 📄 Leaf Task | ✅ Done |
 | `install_opencode.md` | 📄 Leaf Task | ⬜ Planned |
 | `preflight_check.md` | 📄 Leaf Task | ⬜ Planned |
 | `proved/` | 📁 Directory | ⬜ Planned |

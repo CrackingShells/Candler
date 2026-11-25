@@ -29,7 +29,7 @@ use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
     AgentSetting, Answer, Cell, CollectSpec, CommandSpec, DriverFact, GatewayEnv, HarnessId,
-    Observed, ProcessExit, SessionTracker, StatePath, StopSpec, Workspace,
+    LoadedFile, Observed, ProcessExit, SessionTracker, StatePath, StopSpec, Workspace,
 };
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_schemas::execution::Comparable;
@@ -70,6 +70,15 @@ for step in script["steps"]:
         with open(hook, "a") as f:
             f.write(step["hook"] + "\n")
         log("hook")
+    elif "link" in step:
+        os.makedirs(os.path.dirname(hook), exist_ok=True)
+        os.symlink(step["link"], hook)
+        log("link")
+    elif "fill" in step:
+        os.makedirs(os.path.dirname(hook), exist_ok=True)
+        with open(hook, "ab") as f:
+            f.write(b"x" * step["fill"])
+        log("fill")
     elif "wait_eof" in step:
         eof.wait(step.get("timeout"))
     elif "exit" in step:
@@ -108,6 +117,16 @@ pub fn out_of(line: &str) -> Value {
 /// A hook-log line written by the stub.
 pub fn hook(line: &str) -> Value {
     json!({"hook": line})
+}
+
+/// The stub makes the hook log a link to `target`.
+pub fn link(target: &Path) -> Value {
+    json!({"link": target.to_string_lossy()})
+}
+
+/// The stub appends `bytes` bytes that are no line to the hook log.
+pub fn fill(bytes: usize) -> Value {
+    json!({"fill": bytes})
 }
 
 /// A pause of the stub.
@@ -255,10 +274,14 @@ impl HarnessDriver for Driver {
     }
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
         let mut plan = self.inner.plan(cell, workspace)?;
-        if !self.hooks
-            && let Some(found) = plan.session.as_mut()
-        {
-            found.hooks = None;
+        if !self.hooks {
+            if let Some(found) = plan.session.as_mut() {
+                found.hooks = None;
+            }
+            // The observers' settings file is part of the hooks.
+            plan.prepared
+                .files
+                .retain(|file| file.path.as_str() != ".candler/settings.json");
         }
         Ok(plan)
     }
@@ -298,6 +321,9 @@ impl HarnessDriver for Driver {
     }
     fn collect(&self, workspace: &Workspace<'_>, observed: &Observed) -> Vec<CollectSpec> {
         self.inner.collect(workspace, observed)
+    }
+    fn loaded_instructions(&self, stream: &StreamName, bytes: &[u8]) -> Vec<LoadedFile> {
+        self.inner.loaded_instructions(stream, bytes)
     }
 }
 
