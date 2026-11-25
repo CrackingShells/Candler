@@ -41,9 +41,10 @@ pub enum NeedError {
     },
 }
 
-/// Checks that the core can meet every need in `needs`: the trace and the metadata fields always
-/// can; artifact globs must lie under `outputs/`; snapshots are refused and an input need may not name `build_inputs`; whether the run holds
-/// the other kinds is checked when a run's context is assembled.
+/// Checks that the core can meet every need in `needs`: the trace, the raw streams, the manifest and
+/// the metadata fields always can; artifact globs must lie under `outputs/`; snapshots are refused
+/// and an input need may not name `build_inputs`. Whether a run holds the trace, the raw streams
+/// and the inputs is checked when its context is assembled.
 pub(super) fn check(needs: &Needs) -> Result<(), NeedError> {
     if !needs.snapshots.is_empty() {
         return Err(NeedError::Unsupported { need: "snapshots" });

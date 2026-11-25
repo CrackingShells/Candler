@@ -38,6 +38,7 @@ fn context_error_path(error: &ContextError) -> Option<String> {
         | ContextError::Glob { .. }
         | ContextError::Unsupported { .. }
         | ContextError::InputRefused { .. }
+        | ContextError::PartMissing { .. }
         | ContextError::MissingMetadata { .. }
         | ContextError::Workspace { .. }
         | ContextError::Io { .. }
@@ -149,6 +150,12 @@ wrapper_table! {
         "evaluation.input_unavailable",
         Side::Plugin,
         "A kind needs an input that the run does not hold, that is reserved for the image, or whose list is not in the store.",
+        "-",
+    ),
+    PartMissing { .. } => row(
+        "evaluation.run_part_missing",
+        Side::Plugin,
+        "A kind needs the trace or the raw streams of a run that stores none, as an imported run whose harness frames the importer could not read.",
         "-",
     ),
     MissingMetadata { .. } => row(
@@ -423,6 +430,7 @@ fn context_answer(error: &ContextError) -> &dyn Refusal {
         | ContextError::Glob { .. }
         | ContextError::Unsupported { .. }
         | ContextError::InputRefused { .. }
+        | ContextError::PartMissing { .. }
         | ContextError::MissingMetadata { .. }
         | ContextError::Workspace { .. }
         | ContextError::Io { .. }

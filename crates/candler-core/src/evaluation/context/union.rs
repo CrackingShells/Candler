@@ -12,6 +12,8 @@ where
     let mut union = Needs::default();
     for more in kinds {
         union.trace |= more.trace;
+        union.raw |= more.raw;
+        union.manifest |= more.manifest;
         for artifact in &more.artifacts {
             if !union.artifacts.contains(artifact) {
                 union.artifacts.push(artifact.clone()); // BORROW: the union owns its globs

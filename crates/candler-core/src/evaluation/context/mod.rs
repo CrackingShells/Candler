@@ -1,7 +1,8 @@
-//! The context of one run for one request: its assembly from a suite's needs in [`assemble()`]
-//! the one file rule in `rule`, and the private workspace that copies the artifacts and the
-//! digest of what was copied in [`materialise()`]. The inputs a need names are copied below
-//! `inputs/<kind>/` of the same workspace.
+//! The context of one run for one request: its assembly from a suite's needs in [`assemble()`],
+//! the one file rule in `rule`, and the private workspace that copies the chosen stored files and
+//! the digest of what was copied in [`materialise()`]. The artifacts are copied below `outputs/`,
+//! the files of each input below `inputs/<kind>/`, the trace to `trace.jsonl`, the raw streams to
+//! `raw/<stream>.jsonl.gz` and the manifest to `manifest.json` of the same workspace.
 
 use std::io;
 use std::path::PathBuf;
@@ -15,7 +16,7 @@ mod materialise;
 mod rule;
 mod union;
 
-pub use assemble::{Assembled, AssembledArtifact, AssembledInput, assemble};
+pub use assemble::{Assembled, AssembledFile, AssembledInput, Served, assemble};
 pub use materialise::{Workspace, materialise};
 pub use rule::{FileRule, file_rule_keeps};
 pub use union::union_needs;
@@ -55,6 +56,12 @@ pub enum ContextError {
         /// Why the run cannot serve it.
         reason: String,
     },
+    /// A need names a part of the run that the run does not store: its trace or its raw streams.
+    #[error("the run stores no `{part}`")]
+    PartMissing {
+        /// The part, `trace` or `raw`.
+        part: &'static str,
+    },
     /// A metadata need names a path the run manifest does not hold with a value.
     #[error("metadata path `{path}` {detail}")]
     MissingMetadata {
@@ -86,7 +93,7 @@ pub enum ContextError {
         "the blob of `{path}` is corrupt: the store records {expected} and the copy is {actual}"
     )]
     CorruptBlob {
-        /// The artifact path relative to `outputs/`.
+        /// The path of the copy relative to the workspace.
         path: String,
         /// The digest the store records.
         expected: String,

@@ -1049,6 +1049,11 @@ side = "plugin"
 enum = "ContextError"
 variant = "InputRefused"
 
+[evaluation."evaluation.run_part_missing"]
+side = "plugin"
+enum = "ContextError"
+variant = "PartMissing"
+
 [evaluation."evaluation.metadata_missing"]
 side = "plugin"
 enum = "ContextError"
