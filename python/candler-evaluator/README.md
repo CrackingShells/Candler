@@ -24,8 +24,9 @@ grades one item, and may expose `NAME`, `VERSION`, `DIST`, `INSTRUMENTS`, `KIND_
   `candler_evaluator.read_trace(context.trace)` yields the trace's records as models generated
   from `normalised-trace.schema.json` and raises `pydantic.ValidationError` at a line those
   models refuse: not JSON, an unknown field, a `null` on an optional field or a wrong type. It
-  checks each line, not the file's order; Candler checks the order when it writes the trace, and
-  the served copy is pinned by its `sha256`.
+  raises `TraceOrderError`, a `ValueError`, for a file out of order, as Candler's reader refuses it: an empty file, a
+  record before the header, a second header, a session after an event, a session declared twice.
+  It does not check the rules that relate records, such as `seq` gaps.
 - **`KINDS`** maps each kind's name to its function.
 - **`needs`** says what a kind reads: `artifacts` (globs), `inputs`, `metadata` (field paths),
   `snapshots`, `trace`, `raw` and `manifest` (the last three are booleans). It is set per kind in

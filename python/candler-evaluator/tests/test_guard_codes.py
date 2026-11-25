@@ -22,6 +22,7 @@ CODED = frozenset(
         "Refused",
         "PluginError",
         "_ParamsError",
+        "TraceOrderError",
     }
 )
 

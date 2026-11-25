@@ -218,6 +218,38 @@ def test_the_reader_refuses_a_line_with_an_unknown_field(tmp_path):
         list(read_trace(path))
 
 
+def test_the_reader_refuses_a_file_out_of_order(tmp_path):
+    """Guards: the reader refuses the order of lines that Candler's `TraceFile::read` refuses.
+
+    Oracle: the rules of `TraceFile::read` in `crates/candler-schemas/src/trace.rs`, applied by
+    hand to the lines written here: an empty file, a record before the header, a second
+    header, a session after an event and a session declared twice each name the line.
+    Bite: the reader checks each line alone; every case below is read to its end.
+    """
+    from candler_evaluator import TraceOrderError, read_trace
+
+    cases = {
+        "an empty trace file": [],
+        "line 1: session before the header": [SESSION, HEADER],
+        "line 1: event before the header": [CALL, HEADER, SESSION],
+        "line 2: a second header": [HEADER, HEADER, SESSION],
+        "line 4: session s2 after an event": [
+            HEADER,
+            SESSION,
+            CALL,
+            {**SESSION, "id": "s2"},
+        ],
+        "line 3: session s1 declared twice": [HEADER, SESSION, SESSION],
+    }
+    for message, records in cases.items():
+        path = write_trace(tmp_path, records)
+        with pytest.raises(TraceOrderError, match=message) as refused:
+            list(read_trace(path))
+        assert refused.value.refusal_code == "helper.trace_out_of_order"
+    ordered = write_trace(tmp_path, [HEADER, SESSION, {**SESSION, "id": "s2"}, CALL])
+    assert len(list(read_trace(ordered))) == 4
+
+
 DESCRIBE_PLUGIN = """
 NAME = "demo"
 VERSION = "0.1.0"

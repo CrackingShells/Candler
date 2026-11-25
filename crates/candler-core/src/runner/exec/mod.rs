@@ -58,6 +58,7 @@ use crate::jobs::model::JobCause;
 use crate::jobs::slots::Slot;
 use crate::store::StoreError;
 use crate::store::blob::digest_of_file;
+use crate::store::layout::stream_of_raw_file;
 use crate::store::run::{Existing, RunWriter};
 use crate::supervise::SuperviseError;
 use crate::supervise::git::{GitError, RecordDir, mark_executable, tree_at_commit};
@@ -414,8 +415,7 @@ async fn destroy_unstarted(
 
 /// The stream a raw file archives, from its name `<stream>.jsonl.gz`.
 fn stream_of(path: &Path) -> Option<StreamName> {
-    let name = path.file_name()?.to_str()?;
-    StreamName::from_str(name.strip_suffix(".jsonl.gz")?).ok()
+    stream_of_raw_file(path.file_name()?.to_str()?)
 }
 
 /// Millionths of a dollar in `usd`, rounded; a negative or non-finite cost counts as none.

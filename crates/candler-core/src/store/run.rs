@@ -11,7 +11,7 @@ use candler_schemas::trace::TraceFile;
 use serde_json::Value;
 
 use super::blob::{copy_synced, digest_of_file};
-use super::layout::StoreLayout;
+use super::layout::{StoreLayout, stream_of_raw_file};
 use super::sync::sync_file;
 use super::{Store, StoreError, io_error, sync_dir, temp_sibling, visible_names, write_atomic};
 
@@ -372,6 +372,26 @@ impl Store {
             path,
             detail: e.to_string(),
         })
+    }
+
+    /// The streams a run stores below `raw/`, in name order; a run with no `raw/` directory has
+    /// none. Every visible entry must be a finished raw file `<stream>.jsonl.gz`, which is all
+    /// the run writer puts there.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Io`] when the directory cannot be listed and [`StoreError::Parse`]
+    /// when an entry is not a raw file of a stream.
+    pub fn raw_streams(&self, key: &RunKey) -> Result<Vec<StreamName>, StoreError> {
+        let dir = self.layout().raw_dir(key);
+        visible_names(&dir)?
+            .iter()
+            .map(|name| {
+                stream_of_raw_file(name).ok_or_else(|| StoreError::Parse {
+                    path: dir.join(name),
+                    detail: "is not a raw file `<stream>.jsonl.gz` of a stream".to_owned(),
+                })
+            })
+            .collect()
     }
 
     /// The path of a run's finished raw file for `stream`, when it is stored.

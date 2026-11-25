@@ -17,6 +17,7 @@ use super::rule::FileRule;
 use super::{ContextError, RunPart};
 use crate::store::Store;
 use crate::store::blob::digest_of_file;
+use crate::store::layout::{MANIFEST_FILE, RAW_DIR, TRACE_FILE, raw_file_name};
 
 /// What a stored file is in the context it is served in.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,7 +138,8 @@ impl Assembled {
 /// kind the manifest holds in neither list, or a kind whose list or file blobs the store lacks,
 /// [`ContextError::PartMissing`] when the trace or the raw streams are needed and the run stores
 /// none, [`ContextError::NotSealed`] when the run has no seal, [`ContextError::Glob`] for a bad
-/// glob, [`ContextError::Store`] when the manifest or tree cannot be read,
+/// glob, [`ContextError::Store`] when the manifest or tree cannot be read or `raw/` holds an
+/// entry that is not a raw stream file,
 /// [`ContextError::Io`] when a stored file cannot be read, and
 /// [`ContextError::MissingMetadata`] when a metadata path has no value in the manifest.
 pub fn assemble(store: &Store, run: &RunKey, needs: &Needs) -> Result<Assembled, ContextError> {
@@ -217,10 +219,10 @@ pub fn assemble(store: &Store, run: &RunKey, needs: &Needs) -> Result<Assembled,
                 });
             }
         }
-        files.push(stored_file(source, "trace.jsonl", Served::Trace)?);
+        files.push(stored_file(source, TRACE_FILE, Served::Trace)?);
     }
     if needs.raw {
-        let streams = stored_streams(store, run)?;
+        let streams = store.raw_streams(run)?;
         if streams.is_empty() {
             return Err(ContextError::PartMissing {
                 run: run.clone(), // BORROW: the error owns the key
@@ -229,14 +231,14 @@ pub fn assemble(store: &Store, run: &RunKey, needs: &Needs) -> Result<Assembled,
         }
         for stream in streams {
             let source = layout.raw(run, &stream);
-            let workspace = format!("raw/{stream}.jsonl.gz");
+            let workspace = format!("{RAW_DIR}/{}", raw_file_name(&stream));
             files.push(stored_file(source, &workspace, Served::Raw(stream))?);
         }
     }
     if needs.manifest {
         files.push(stored_file(
             layout.manifest(run),
-            "manifest.json",
+            MANIFEST_FILE,
             Served::Manifest,
         )?);
     }
@@ -263,7 +265,9 @@ fn stored_path(text: &str) -> Result<RelPath, ContextError> {
 }
 
 /// A stored file that has no digest on record: its hash is taken here, at assembly, and its copy
-/// is checked against it.
+/// is checked against it. The workspace name is the file's name in the store, so an evaluator
+/// finds `trace.jsonl`, `raw/<stream>.jsonl.gz` and `manifest.json` where a run directory holds
+/// them; both take their spelling from `store::layout`.
 fn stored_file(
     source: PathBuf,
     workspace: &str,
@@ -277,42 +281,6 @@ fn stored_file(
         executable: false,
         served,
     })
-}
-
-/// The suffix of a stored raw stream's file name.
-const RAW_SUFFIX: &str = ".jsonl.gz";
-
-/// The streams the run stores below `raw/`, sorted by name. A file whose name is not
-/// `<stream>.jsonl.gz` is not a stream.
-fn stored_streams(store: &Store, run: &RunKey) -> Result<Vec<StreamName>, ContextError> {
-    let dir = store.layout().raw_dir(run);
-    let listing = match std::fs::read_dir(&dir) {
-        Ok(listing) => listing,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(source) => {
-            return Err(ContextError::Io {
-                op: "list the raw streams",
-                path: dir,
-                source,
-            });
-        }
-    };
-    let mut streams = Vec::new();
-    for entry in listing {
-        let entry = entry.map_err(|source| ContextError::Io {
-            op: "list the raw streams",
-            path: dir.clone(), // BORROW: the error owns the path
-            source,
-        })?;
-        if let Some(name) = entry.file_name().to_str()
-            && let Some(stem) = name.strip_suffix(RAW_SUFFIX)
-            && let Ok(stream) = StreamName::from_str(stem)
-        {
-            streams.push(stream);
-        }
-    }
-    streams.sort();
-    Ok(streams)
 }
 
 /// The entry of `kind` in a manifest list of inputs.
