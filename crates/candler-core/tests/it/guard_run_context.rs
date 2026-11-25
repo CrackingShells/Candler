@@ -923,3 +923,31 @@ fn needs_parts_refused_when_the_run_cannot_serve_them() {
         "the manifest copy holds the stored manifest's bytes"
     );
 }
+
+/// Guards: R9 — an entry of a run's `raw/` directory that is not a finished raw file `<stream>.jsonl.gz` of a stream (a stray note, an unfinished `.jsonl`, a `.jsonl.gz` whose stem is no stream name) refuses the context with the code `candler.internal` naming the entry, so a damaged `raw/` is never served as fewer streams under a valid-looking digest; the run without the entry is served in full. Oracle: hand-written; the entry names and the code are the ones written below, and the entries are written into a run's `raw/` here.
+#[test]
+fn a_stray_entry_in_raw_refuses_the_context() {
+    let (_keep, store) = mini_store(&mini());
+    let run = key_of(&store, 6);
+    let raw = store.layout().raw_dir(&run);
+    let stored = fs::read_dir(&raw)
+        .expect("the run stores raw streams")
+        .count();
+    assert!(stored > 0, "the run stores raw streams");
+    let needs = needs_declaring(&["raw"]);
+    assert!(
+        assemble(&store, &run, &needs).is_ok(),
+        "the run serves its streams before the stray entry is written"
+    );
+    for stray in ["notes.txt", "agent_stream.jsonl", "Bad Name.jsonl.gz"] {
+        let path = raw.join(stray);
+        fs::write(&path, b"x").expect("the stray entry is written");
+        let error = assemble(&store, &run, &needs).expect_err("a stray entry is refused");
+        assert_eq!(error.code().as_str(), "candler.internal", "{stray}");
+        assert!(
+            error.to_string().contains(stray),
+            "`{error}` names the entry `{stray}`"
+        );
+        fs::remove_file(&path).expect("the stray entry is removed");
+    }
+}

@@ -1,6 +1,7 @@
 //! Every path of a store, built in one place.
 
 use std::path::{Path, PathBuf};
+use std::str::FromStr as _;
 
 use candler_schemas::primitives::{Digest, JobId, NameVersion, RequestId, RunKey};
 use candler_schemas::raw::StreamName;
@@ -9,8 +10,27 @@ use candler_schemas::raw::StreamName;
 const MARKER: &str = "store.json";
 /// The extension of a finished outcome file.
 pub(crate) const OUTCOME_EXTENSION: &str = "jsonl";
+/// The file name of a run's manifest.
+pub(crate) const MANIFEST_FILE: &str = "manifest.json";
+/// The file name of a run's normalised trace.
+pub(crate) const TRACE_FILE: &str = "trace.jsonl";
+/// The name of the directory of a run's raw streams.
+pub(crate) const RAW_DIR: &str = "raw";
+/// The suffix of a finished raw file: `<stream>.jsonl.gz`.
+pub(crate) const RAW_SUFFIX: &str = ".jsonl.gz";
 /// The suffix of an outcome file that is still being written.
 const PARTIAL_SUFFIX: &str = ".partial";
+
+/// The file name of the finished raw file of `stream`.
+pub(crate) fn raw_file_name(stream: &StreamName) -> String {
+    format!("{stream}{RAW_SUFFIX}")
+}
+
+/// The stream a finished raw file archives, from its file name; `None` when `name` is not
+/// `<stream>.jsonl.gz` with a valid stream name. The inverse of [`raw_file_name`].
+pub(crate) fn stream_of_raw_file(name: &str) -> Option<StreamName> {
+    StreamName::from_str(name.strip_suffix(RAW_SUFFIX)?).ok()
+}
 
 /// The paths of a store rooted at one directory; it is the only code that builds a store path.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,7 +81,7 @@ impl StoreLayout {
     /// The manifest of a run.
     #[must_use]
     pub fn manifest(&self, run: &RunKey) -> PathBuf {
-        self.run_dir(run).join("manifest.json")
+        self.run_dir(run).join(MANIFEST_FILE)
     }
 
     /// The workspace tree of a run.
@@ -73,7 +93,7 @@ impl StoreLayout {
     /// The normalised trace of a run.
     #[must_use]
     pub fn trace(&self, run: &RunKey) -> PathBuf {
-        self.run_dir(run).join("trace.jsonl")
+        self.run_dir(run).join(TRACE_FILE)
     }
 
     /// The seal of a run: present once the run is complete.
@@ -85,13 +105,13 @@ impl StoreLayout {
     /// The directory of a run's raw streams.
     #[must_use]
     pub fn raw_dir(&self, run: &RunKey) -> PathBuf {
-        self.run_dir(run).join("raw")
+        self.run_dir(run).join(RAW_DIR)
     }
 
     /// The finished raw file of one stream of a run.
     #[must_use]
     pub fn raw(&self, run: &RunKey, stream: &StreamName) -> PathBuf {
-        self.raw_dir(run).join(format!("{stream}.jsonl.gz"))
+        self.raw_dir(run).join(raw_file_name(stream))
     }
 
     /// The directory that holds the blobs.
