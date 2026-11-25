@@ -754,6 +754,16 @@ pub enum UsageScope {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum EventKind {
+    /// What the model was given at the start of the run: the system text and the first user
+    /// message of the run's first model request that carries tools, as the gateway received them:
+    /// the text blocks of each, joined by a newline, with other blocks dropped.
+    #[non_exhaustive]
+    ContextStart {
+        /// The system text of the request.
+        system: String,
+        /// The first user message of the request.
+        first_message: String,
+    },
     /// The user said something.
     #[non_exhaustive]
     UserMessage {
@@ -816,7 +826,8 @@ pub enum EventKind {
 }
 
 /// The kinds this version knows, as written.
-const KNOWN_KINDS: [&str; 6] = [
+const KNOWN_KINDS: [&str; 7] = [
+    "context_start",
     "user_message",
     "assistant_message",
     "tool_call",
@@ -826,6 +837,15 @@ const KNOWN_KINDS: [&str; 6] = [
 ];
 
 impl EventKind {
+    /// The starting context of a run.
+    #[must_use]
+    pub const fn context_start(system: String, first_message: String) -> Self {
+        Self::ContextStart {
+            system,
+            first_message,
+        }
+    }
+
     /// A user message.
     #[must_use]
     pub const fn user_message(text: Option<String>) -> Self {
@@ -907,11 +927,18 @@ impl EventKind {
     }
 }
 
-/// What happened at one point of a session: an object whose `kind` is `user_message`, `assistant_message`, `tool_call`, `tool_result`, `notification` or `usage`, with the members of that kind beside it.
+/// What happened at one point of a session: an object whose `kind` is `context_start`, `user_message`, `assistant_message`, `tool_call`, `tool_result`, `notification` or `usage`, with the members of that kind beside it.
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(remote = "EventKind", tag = "kind", rename_all = "snake_case")]
 #[schemars(deny_unknown_fields, rename = "EventKind")]
 enum KnownKind {
+    /// What the model was given at the start of the run: the system text and the first user message of the run's first model request that carries tools, as the gateway received them: the text blocks of each, joined by a newline, with other blocks dropped.
+    ContextStart {
+        /// The system text of the request.
+        system: String,
+        /// The first user message of the request.
+        first_message: String,
+    },
     /// The user said something.
     UserMessage {
         /// The text, if the harness records it.
@@ -1005,7 +1032,8 @@ impl Serialize for EventKind {
                 }
                 map.end()
             }
-            Self::UserMessage { .. }
+            Self::ContextStart { .. }
+            | Self::UserMessage { .. }
             | Self::AssistantMessage { .. }
             | Self::ToolCall { .. }
             | Self::ToolResult { .. }

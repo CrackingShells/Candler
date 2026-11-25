@@ -1234,7 +1234,8 @@ never compares an inventory with one of another source. The census names no serv
 
 `Session {id, source{harness, harness_version, reader, reader_version}, model, started_at?,
 ended_at?, ended_by, parent_session?, raw_ref}`; `Event {seq, at?, kind, span?, raw_ref, ext}` with
-kinds `user_message`, `assistant_message`, `tool_call` (`origin`, `argv?`, `wrapped_calls[]?` for a
+kinds `context_start` (`system`, `first_message`: the run's first model request that carries tools, as the
+gateway received it; the root session's first event), `user_message`, `assistant_message`, `tool_call` (`origin`, `argv?`, `wrapped_calls[]?` for a
 call that bundles several MCP calls), `tool_result` (`is_error`, `denied?`), `notification`, `usage`
 (`scope: message | session_total`). `at` comes from the harness when it emits one, else from the
 frame time in the raw file, else it is absent.

@@ -10,9 +10,13 @@ http {
   js_import gw from /etc/gw/gw.js;
   # The count of model requests per run key, for the census line.
   js_shared_dict_zone zone=gwseq:256k timeout=24h type=number evict;
+  # The lowest sequence number per run key whose starting context is recorded.
+  js_shared_dict_zone zone=gwctx:256k timeout=24h type=number evict;
   # The census line of a model request: run, tag, sequence number and the names of its tools.
   js_set $gw_seq gw.seq;
   js_set $gw_census gw.census;
+  # The starting context of a run: its first request that carries tools, in full.
+  js_set $gw_context gw.context;
   # "1" when the request holds the job's dummy token and no other credential.
   js_set $gw_authentic gw.authentic;
   # The model name, unquoted-regex form of a map key.
@@ -35,6 +39,8 @@ http {
   log_format gw escape=json 'ts=$time_iso8601 run=$gw_run tag=$gw_tag method=$request_method status=$status up_status=$upstream_status req_ms=$request_time up_ms=$upstream_response_time req_bytes=$request_length resp_bytes=$bytes_sent model=$gw_model path="$uri"';
   # One line per model request, after the access log's: the tool names and nothing else of the body.
   log_format census escape=none 'census $gw_census';
+  # One line per run's first tooled request: its system text and first message, JSON-escaped.
+  log_format context escape=none 'context $gw_context';
   limit_conn_zone "all" zone=gw:1m;
   client_body_buffer_size 8m;
   client_max_body_size 64m;
@@ -42,6 +48,7 @@ http {
     listen 8080;
     access_log /dev/stdout gw;
     access_log /dev/stdout census if=$gw_census;
+    access_log /dev/stdout context if=$gw_context;
     location = /healthz {
       access_log off;
       default_type text/plain;

@@ -11,6 +11,7 @@ One page per surface an author writes or a plug-in speaks. Each page holds the s
 | [evaluator-protocol.md](evaluator-protocol.md) | Evaluator protocol | Candler and the evaluator plug-in | none |
 | [outcome-record.md](outcome-record.md) | Outcome record | evaluator plug-in; Candler fills the rest | none |
 | [experiment-file.md](experiment-file.md) | Experiment file | experimenter | `experiment/1` |
+| [trace-file.md](trace-file.md) | Normalised trace | Candler, from a harness's output | none |
 | [evaluator-helper.md](evaluator-helper.md) | Evaluator helper | evaluator kind author | none |
 | [driver-traits.md](driver-traits.md) | Driver traits | driver author | none |
 | [harness-capabilities.md](harness-capabilities.md) | Harness capabilities | experimenter, reading | none |

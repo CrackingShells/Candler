@@ -22,6 +22,7 @@ use std::sync::Arc;
 use candler_core::experiment::inputs::{ResolvedInputs, resolve_input_groups};
 use candler_core::isolation::docker::DockerCli;
 use candler_core::isolation::driver::DockerDriver as _;
+use candler_core::isolation::image::sidecar_tag;
 use candler_core::isolation::model::{BuildRequest, Labels};
 use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::model::JobSpec;
@@ -65,10 +66,6 @@ const ENV_ALLOWLIST: [&str; 6] = [
     "DOCKER_CONTEXT",
 ];
 
-/// The tag the gateway's sidecar image is looked up by. The tag is not a pin: an image another
-/// build left under it is the one the jobs use.
-const SIDECAR_TAG: &str = "candler-gateway:latest";
-
 /// The arguments of `candler run`.
 #[derive(Debug, clap::Args)]
 pub struct Args {
@@ -96,12 +93,16 @@ fn parse_field(text: &str) -> Result<(FieldPath, String), String> {
 }
 
 /// Builds the gateway's sidecar image from the gateway's assets, through the supervised docker
-/// client. Docker's layer cache makes the build a lookup when the context is unchanged, so an
-/// image another build left under the tag is never the one a job uses.
+/// client, under the tag of the assets' digest, unless docker already holds that tag: an image
+/// built from other sources is never the one a job uses.
 async fn ensure_sidecar(cli: &DockerCli, context: PathBuf) -> Result<(), CliError> {
+    let tag = sidecar_tag(&context).map_err(failed)?;
+    if cli.image_inspect(&tag).await.map_err(failed)?.is_some() {
+        return Ok(());
+    }
     let request = BuildRequest {
         context,
-        tag: SIDECAR_TAG.to_owned(), // BORROW: the request owns its tag
+        tag,
         build_args: Vec::new(),
         labels: Labels::new(),
     };

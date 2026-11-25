@@ -45,6 +45,10 @@ pub const LABEL_RUN: &str = "candler.run";
 /// The label that names the experiment digest.
 pub const LABEL_EXPERIMENT: &str = "candler.experiment";
 
+/// The label that names the job a control container runs for. It is not [`LABEL_JOB`]: no sweep
+/// selects a control container, and the guard never destroys it.
+pub const LABEL_CONTROL_JOB: &str = "candler.control_job";
+
 /// The label that names the container's role.
 pub const LABEL_ROLE: &str = "candler.role";
 

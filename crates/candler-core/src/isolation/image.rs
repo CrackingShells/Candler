@@ -43,6 +43,9 @@ const PROBE_OUTPUT_LIMIT: usize = 4 * 1024;
 /// The repository of the base image.
 const BASE_REPO: &str = "candler-base";
 
+/// The repository of the gateway's sidecar images.
+const SIDECAR_REPO: &str = "candler-gateway";
+
 /// The repository of the env images.
 const ENV_REPO: &str = "candler-env";
 
@@ -841,6 +844,18 @@ async fn off_thread(
 /// [`std::io::Error`] when a file of the context cannot be read.
 pub fn base_tag(dir: &Path, build_args: &[(String, String)]) -> Result<String, std::io::Error> {
     Ok(base_tag_of(context_digest(dir)?.as_str(), build_args)) // BORROW: explicit .as_str()
+}
+
+/// The tag of the gateway's sidecar image built from the context `dir`:
+/// `candler-gateway:src-<digits>`, the first digits of the context's digest, so the tag names the
+/// image the sources make and an image built from other sources is never found under it.
+///
+/// # Errors
+/// [`std::io::Error`] when a file of the context cannot be read.
+pub fn sidecar_tag(dir: &Path) -> Result<String, std::io::Error> {
+    let mut hex = context_digest(dir)?;
+    hex.truncate(SOURCE_DIGITS);
+    Ok(format!("{SIDECAR_REPO}:src-{hex}"))
 }
 
 /// The base tag of sources whose digest is `sources`, built with `build_args`:
