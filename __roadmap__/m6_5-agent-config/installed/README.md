@@ -4,7 +4,7 @@
 L2 of M6.5. It runs after `probe_harness_checks.md` (which harness checks are reliable) and `declaration.md` (the settings, the one reader, the refusals). Its three leaves touch three separate crates: the Claude Code driver, the OpenCode driver and core. A seam review of the whole diff follows its close.
 
 ## Goal
-Each driver installs the instruction text and hooks where its harness looks, and records which instruction files loaded. Preflight refuses a cell that a harness check rejects.
+Each driver installs the global instruction text and hooks where its harness looks, and names the workspace instruction file, which the core mounts read-only at the workspace root. Each run records which instruction files loaded. Preflight refuses a cell that a harness check rejects, or whose workspace file collides with an input.
 
 ## Pre-conditions
 - [ ] `[cmd]` `git merge-base --is-ancestor feat/m6.5-agent-config HEAD` succeeds, after L1 has merged

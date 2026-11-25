@@ -4,7 +4,7 @@
 L3 of M6.5. It runs after both drivers install the values and the preflight step refuses. It proves the feature end to end on the real harnesses, against the scripted fake model, with no RiVault run.
 
 ## Goal
-One experiment shows, on both harnesses, the arm's own instructions reaching the model, a consumer hook acting on a tool call, the census naming the loaded file, and an invalid payload refused before the run.
+One experiment shows, on both harnesses, the global and the arm's own workspace instructions reaching the model, a consumer hook acting on a tool call, the census naming both loaded files, and an invalid payload refused before the run.
 
 ## Pre-conditions
 - [ ] `[cmd]` `git merge-base --is-ancestor feat/m6.5-agent-config HEAD` succeeds, after L2 has merged

@@ -1,17 +1,18 @@
 # M6.5 Agent configuration as data
 
 ## Context
-A new root after M6c Integrity (#81, on `origin/main` at `8d82f63b`). It is independent of M7, which is blocked, and of M8, which lies below M7; M8's plugin may later use hooks. The plan is [the architecture report](../../__reports__/agent_config/00-architecture_agent_config_v0.md). Every leaf runs by its §Execution model: Sonnet implementers and verifiers, a shared codebase whose debt the leaf owns, findings kept in scope or escalated, target-dir slots `/Users/hacker/Documents/tmp/m6_5-target/slot-1..3`, and a $75 cap. The status is mirrored in macOS Reminders.
+A new root after M6c Integrity (#81, on `origin/main` at `8d82f63b`). It is independent of M7, which is blocked, and of M8, which lies below M7; M8's plugin may later use hooks. The plan is [the architecture report, v1](../../__reports__/agent_config/01-architecture_agent_config_v1.md), which applies Eliott's two rulings on the HTN lane's notice to the approved v0. Every leaf runs by its §Execution model: Sonnet implementers and verifiers, a shared codebase whose debt the leaf owns, findings kept in scope or escalated, target-dir slots `/Users/hacker/Documents/tmp/m6_5-target/slot-1..3`, and a $75 cap. The status is mirrored in macOS Reminders.
 
 ## Goal
-A consumer gives each arm its own instruction text and hooks as cell values. Candler installs them where each harness looks, and refuses a cell that the harness's own check rejects.
+A consumer gives the experiment a global instruction file per harness, each arm its own workspace instruction file and hooks, all as cell values. Candler installs them where each harness looks, the workspace file read-only at the workspace root, and refuses a cell that the harness's own check rejects.
 
 ## Pre-conditions
 - [x] `[cmd]` `git merge-base --is-ancestor 80405b5c origin/main` succeeds (M6c merged)
 - [x] `[nl]` Eliott approved the plan on 2026-11-25: refuse errors and warnings, take contents inline, and make this a new root
+- [x] `[nl]` Eliott ruled on the HTN lane's notice on 2026-11-25: instructions come in two scopes (a global file per harness, and a workspace-root file per arm on both harnesses), and evaluator access to them is deferred
 
 ## Success Gates
-- ⬜ G1–G9 of the [architecture report](../../__reports__/agent_config/00-architecture_agent_config_v0.md) hold on the tip of `feat/m6.5-agent-config`, each one seen failing on `8d82f63b`
+- ⬜ G1–G10 of the [architecture report, v1](../../__reports__/agent_config/01-architecture_agent_config_v1.md) hold on the tip of `feat/m6.5-agent-config`, each one seen failing on `8d82f63b`
 - ⬜ `probe_harness_checks.md`, `declaration.md` and `installed/` are `done`
 - ⬜ The spend measured from transcripts, coordinator included, is at most $75
 - ⬜ Every finding left out of scope is filed under `__reports__/agent_config/` and escalated
