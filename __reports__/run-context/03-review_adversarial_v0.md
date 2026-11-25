@@ -109,3 +109,21 @@ Every file below was read in the diff unless marked. "Skim" means the diff was r
 | `python/candler-evaluator/uv.lock` | skipped: lock file |
 
 Not read: the Rust workspace beyond the diff, apart from `store/layout.rs`, `store/run.rs`, `runner/exec/mod.rs`, `import/assemble.rs` and `import/raw.rs` for the trace and raw-stream rules.
+
+## Rulings
+
+Each finding was ruled after the review, and each fix landed on its own leaf with a guard seen red under a named bite. Evidence for each is in the leaf report it names.
+
+| # | Ruling | Where it landed |
+|---|---|---|
+| 1 | Confirmed by a probe on real Claude Code 2.1.311: `grep` with no match, `diff` on files that differ and `test -f /missing` each give `is_error: false` with a `returnCodeInterpretation` key that a true exit 0 lacks, and no field carries the code. The reader now gives no exit for such a result. OpenCode states `metadata.exit: 1` for all three, and its reader was already right. Reader `claude-code-stream-json@0.4.0` | `leaves/cc_exit_semantics_v0.md`; merge `b78ed3de` |
+| 2 | Fixed: `store/layout.rs` holds the trace, manifest and raw names, and `assemble`, the frame writer and the runner's `stream_of` take them from there | `leaves/review_fixes_v0.md`; merge `a612ca48` |
+| 3 | Fixed: `Store::raw_streams` is the one reader of `raw/` and refuses an entry that is not a stream it writes (`candler.internal`). Hidden and `*.partial` names are still skipped by the store's `visible_names` rule | same |
+| 4 | Fixed for the order rules of `TraceFile::read` (`helper.trace_out_of_order`). The relational rules (`seq` gaps, undeclared session, `raw_ref` stream) still pass in the helper, and its docstring, README and contract page say so | same |
+| 5 | Accepted as written. The call's tool is known only once the result is joined to its call in `Registry::emit`, which is where the gate sits; the doc on `exit_of` says so | — |
+| 6 | Fixed in part: one `artifact_of` builds a served entry. The `Input` arm drops a digest by design, because the wire carries no per-file digest for inputs; a comment says so. The `Served` tag stays mirrored | `leaves/review_fixes_v0.md` |
+| 7 | Fixed: each reader's version is spelled once, from a macro in its crate | `leaves/cc_exit_semantics_v0.md`, `leaves/review_fixes_v0.md` |
+| 8 | Fixed: the fake model's `g1` script takes two or more commands, and `tests/fixtures/README.md` says how to record a stream again from the repository | `leaves/cc_exit_semantics_v0.md` |
+| 9 | Accepted: one copy routine with its digest check is the design, and raw streams are served only to a kind that declares `raw` | — |
+
+Carried as follow-ups: hidden and `*.partial` entries in `raw/` (finding 3), and the helper's relational trace rules (finding 4).
