@@ -13,7 +13,7 @@ use candler_harness::spec::{
 };
 use candler_schemas::outcome::Finite;
 use candler_schemas::raw::{Clock, RawRef, StreamName};
-use candler_schemas::trace::{EventKind, Session, SessionEvent, SessionId, UsageScope};
+use candler_schemas::trace::{Event, EventKind, Session, SessionEvent, SessionId, UsageScope};
 use regex::Regex;
 use serde_json::{Value, json};
 
@@ -26,6 +26,32 @@ use crate::runner::evidence::{Inputs, OutputDigest};
 use crate::store::blob::digest_of_file;
 use crate::tree::{Links, Names, Walk};
 use candler_schemas::primitives::Digest;
+
+/// `events` with `kind` placed before the first event of the root session, read from the frame
+/// `raw` of a stored stream; the root session's own events follow it, counted on by one. A trace
+/// with no session is returned as it is.
+#[must_use]
+pub fn with_context_start(
+    sessions: &[Session],
+    mut events: Vec<SessionEvent>,
+    raw: RawRef,
+    kind: EventKind,
+) -> Vec<SessionEvent> {
+    let Some(root) = sessions.first() else {
+        return events;
+    };
+    let id = root.id();
+    for entry in &mut events {
+        if entry.session == *id {
+            entry.event.seq = entry.event.seq.saturating_add(1);
+        }
+    }
+    events.insert(
+        0,
+        SessionEvent::new(id.clone(), Event::new(0, kind, raw)), // BORROW: the event owns its session id
+    );
+    events
+}
 
 /// The tokens and cost a trace reports.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]

@@ -25,8 +25,8 @@ pub struct Page {
     pub helper: bool,
 }
 
-/// The six pages, in the order of the index.
-pub const PAGES: [Page; 6] = [
+/// The seven pages, in the order of the index.
+pub const PAGES: [Page; 7] = [
     Page {
         file: "plugin-manifest.md",
         title: "Plug-in manifest",
@@ -71,6 +71,14 @@ pub const PAGES: [Page; 6] = [
         writer: "experimenter",
         surface: "The experiment file an experimenter writes to fix the values, factors, replicates, budget, harness and treatment of a set of runs; Candler reads it to plan and run the cells.",
         roots: &["experiment"],
+        helper: false,
+    },
+    Page {
+        file: "trace-file.md",
+        title: "Normalised trace",
+        writer: "Candler, from a harness's output",
+        surface: "The normalised trace Candler stores for each run: a header, the sessions and their events, read from the harness's raw output and from what the gateway relayed, by an evaluator or an analyst.",
+        roots: &["normalised-trace"],
         helper: false,
     },
     Page {

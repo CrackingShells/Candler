@@ -25,7 +25,7 @@ use candler_schemas::container::ContainerRole;
 use candler_schemas::execution::{EventPayload, Integrity, InvalidReason, RunManifest, RunTree};
 use candler_schemas::primitives::{ContainerId, Digest, Marker, RunKey};
 use candler_schemas::process::ExitStatus;
-use candler_schemas::raw::StreamName;
+use candler_schemas::raw::{RawRef, StreamName};
 use candler_schemas::trace::{RawFileRef, TraceFile, TraceHeader};
 use futures::future::BoxFuture;
 use tokio::sync::watch;
@@ -35,6 +35,7 @@ use self::collect::finish_attempt;
 use self::ends::{EndInput, TraceFacts, classify_end};
 use self::gather::{
     collect_commands, collect_outputs, read_stream, resolved_record, spent, store_stream,
+    with_context_start,
 };
 use self::seal::{RawStreamFile, seal_run};
 use self::session::{SessionHandle, SessionRun, monotonic_clock, session_config};
@@ -50,7 +51,7 @@ use super::plan::RunPlan;
 use super::{RunControl, RunOutcome, RunStatus, Runtime};
 use crate::isolation::container::agent_home;
 use crate::isolation::container::mounts::{MountMode, MountRoots, MountSpec, mounts};
-use crate::isolation::gateway::census_init;
+use crate::isolation::gateway::{GATEWAY_STREAM, census_context, census_init};
 use crate::isolation::layout;
 use crate::isolation::model::ContainerPlan;
 use crate::isolation::{Isolation, IsolationError, RunOutputs};
@@ -714,24 +715,34 @@ async fn drive(
         // EXPLICIT: with no offline sessions the live reader's failure is the run's
         reader_failed = reader_failed || live_failed;
     }
-    // The census of a harness with no init event, read from what the gateway relayed.
+    // What the gateway relayed: the census of a harness with no init event, and the starting
+    // context of every run. A record that cannot be read or stored whole is a collect failure and
+    // never an absent one; a run whose requests carry no tools records neither.
     let mut gateway_init = None;
-    // A census that cannot be read or stored whole is a collect failure and never an absent
-    // census; a run whose requests carry no tools records no census value.
-    if let (Some(name), Some(gateway)) = (rt.driver.census_stream(), &rt.gateway) {
-        let stored = match gateway
+    let mut context = None;
+    if let Some(gateway) = &rt.gateway {
+        let census_stream = rt.driver.census_stream();
+        let name = census_stream
+            .clone() // BORROW: the driver's name is kept to tell whether it has a census
+            .or_else(|| GATEWAY_STREAM.parse::<StreamName>().ok());
+        let relayed = gateway
             .service
             .run_census(&gateway.handle, &plan.key, attempt_wall)
             .await
-        {
-            Ok(bytes) => store_stream(&frames, &name, Framing::Lines, &bytes)
+            .ok();
+        let stored = match (name, relayed) {
+            (Some(name), Some(bytes)) => store_stream(&frames, &name, Framing::Lines, &bytes)
                 .ok()
-                .map(|file| (census_init(&bytes), file)),
-            Err(_) => None,
+                .map(|file| (name, bytes, file)),
+            _ => None,
         };
         match stored {
-            Some((init, file)) => {
-                gateway_init = init;
+            Some((name, bytes, file)) => {
+                if census_stream.is_some() {
+                    gateway_init = census_init(&bytes);
+                }
+                context =
+                    census_context(&bytes).map(|(frame, kind)| (RawRef::new(name, frame), kind));
                 extra.push(file);
             }
             None => collect_ok = false,
@@ -758,6 +769,9 @@ async fn drive(
             },
         )?,
     };
+    if let Some((raw, kind)) = context {
+        events = with_context_start(&sessions, events, raw, kind);
+    }
     let header = TraceHeader::new(reader_name, raw_refs);
     // Records the trace rules refuse are a reader error, and the run keeps an empty trace.
     // BORROW: the header is cloned because the failure arm builds the empty trace from it

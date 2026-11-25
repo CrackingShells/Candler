@@ -615,12 +615,40 @@ impl DockerControlRunner {
             std::process::id(),
             nanos()
         ));
-        let mut world = World { work, fake: None };
         let outcome = self
-            .drive(rt, identity, harness, control, cancel, &mut world)
+            .run_in(
+                rt,
+                identity,
+                harness,
+                &Scripted {
+                    script: control.name(),
+                    idle_s: Some(control.idle_s()),
+                },
+                cancel,
+                work.clone(), // BORROW: the path is removed below
+            )
             .await;
-        drop(std::fs::remove_dir_all(&world.work));
+        drop(std::fs::remove_dir_all(&work));
         outcome
+    }
+
+    /// Runs `scripted` through the harness with its scratch store below `work`. The directory is
+    /// left in place, so that the caller can read what the run stored; the caller removes it.
+    ///
+    /// # Errors
+    /// The step that failed, in words.
+    pub async fn run_in(
+        &self,
+        rt: &Runtime,
+        identity: &Identity,
+        harness: &Value,
+        scripted: &Scripted<'_>,
+        cancel: watch::Receiver<Option<JobCause>>,
+        work: PathBuf,
+    ) -> Result<Measures, String> {
+        let mut world = World { work, fake: None };
+        self.drive(rt, identity, harness, scripted, cancel, &mut world)
+            .await
     }
 
     async fn drive(
@@ -628,7 +656,7 @@ impl DockerControlRunner {
         rt: &Runtime,
         identity: &Identity,
         harness: &Value,
-        control: Control,
+        scripted: &Scripted<'_>,
         cancel: watch::Receiver<Option<JobCause>>,
         world: &mut World,
     ) -> Result<Measures, String> {
@@ -652,7 +680,7 @@ impl DockerControlRunner {
         let docker: Arc<dyn DockerDriver> = Arc::new(docker_cli); // TRAIT_OBJECT: the runtime reads docker through the client
 
         // the control's own runtime, over a scratch store
-        let (cell, plan) = control_cell(identity, harness, control)?;
+        let (cell, plan) = control_cell(identity, harness, scripted)?;
         let mut crt = Runtime {
             supervisor: Arc::clone(&rt.supervisor),
             store: store.clone(), // BORROW: the runtime owns its handle on the store
@@ -854,22 +882,34 @@ pub fn fake_spec(image: &str, token: &str) -> ControlSpec {
         )
 }
 
-/// The cell of a control and its plan: a session over the base image with the fake model's
-/// script `control` as the model, the control's own `idle_s` and the harness `harness`.
+/// What the fake model plays for a run, and how the run is driven.
+#[derive(Debug, Clone, Copy)]
+pub struct Scripted<'a> {
+    /// The fake model's script, which is the model id of the cell.
+    pub script: &'a str,
+    /// The seconds after which a session closes; none runs a single prompt.
+    pub idle_s: Option<u64>,
+}
+
+/// The cell of a run of `scripted` and its plan: over the base image with the harness `harness`,
+/// a session when the script has an `idle_s`, a single prompt otherwise.
 fn control_cell(
     identity: &Identity,
     harness: &Value,
-    control: Control,
+    scripted: &Scripted<'_>,
 ) -> Result<(CellRun, RunPlan), String> {
-    let values: Vec<(&str, Value)> = vec![
+    let (script, idle_s) = (scripted.script, scripted.idle_s);
+    let mut values: Vec<(&str, Value)> = vec![
         ("budget.per_run.wall_s", json!(WALL_S)),
         ("isolation.image", json!(identity.base_id)),
-        ("model.id", json!(control.name())),
+        ("model.id", json!(script)),
         ("permission_mode", json!("bypassPermissions")),
         ("prompt.template", json!("go")),
-        ("runner.idle_s", json!(control.idle_s())),
-        ("runner.mode", json!("session")),
     ];
+    if let Some(idle_s) = idle_s {
+        values.push(("runner.idle_s", json!(idle_s)));
+        values.push(("runner.mode", json!("session")));
+    }
     let entries: Vec<Value> = values
         .iter()
         .map(|(path, value)| json!({"path": path, "value": value}))

@@ -14,6 +14,7 @@ use candler_harness::spec::{CensusSource, InitReport};
 use candler_schemas::container::{ContainerLabels, ContainerRecord, ContainerRole};
 use candler_schemas::primitives::{ContainerId, Digest, JobId, Marker, RunKey};
 use candler_schemas::process::ExitStatus;
+use candler_schemas::trace::EventKind;
 use futures::future::BoxFuture;
 use url::Url;
 
@@ -262,11 +263,14 @@ pub trait Gateway: Send + Sync {
         since: SystemTime,
     ) -> BoxFuture<'a, Result<Vec<GatewaySignal>, GatewayError>>;
 
-    /// The model requests the gateway relayed for the run `run`, one JSON line each:
+    /// What the gateway recorded of the model requests it relayed for the run `run`, one JSON
+    /// line each, in the order the lines were written: for each request
     /// `{"seq":<n>,"tools":["<name>",...]}`, the tool names of the request and nothing else of
-    /// it, in the order the requests began. A gateway that records none answers no bytes. Only
-    /// what the gateway wrote since `since`, the start of the run's attempt, is read; a log cut
-    /// short is an error, never an empty census.
+    /// it, and for the run's first request that carries tools,
+    /// `{"seq":<n>,"context":{"system":..,"first_message":..}}`, its system text and first
+    /// message. A gateway that records none answers no bytes. Only what the gateway wrote since
+    /// `since`, the start of the run's attempt, is read; a log cut short is an error, never an
+    /// empty census.
     ///
     /// # Errors
     /// [`GatewayError`] when the gateway cannot be asked or its log is cut short.
@@ -984,7 +988,8 @@ impl Gateway for DockerGateway {
 }
 
 /// Reads the sidecar's logs: the access log (method, path, status, model, run; never the
-/// `Authorization` header or a prompt) and nginx's error log.
+/// `Authorization` header or a prompt), the census and context lines of the model requests, and
+/// nginx's error log.
 #[derive(Clone)]
 pub struct GatewayLogs {
     runner: Runner,
@@ -1215,12 +1220,24 @@ fn signals_of(log: &str, run: &RunKey, tag: &str) -> Vec<GatewaySignal> {
     signals
 }
 
-/// The census of the run `run` under its tag `tag`, from the sidecar's log: one line
-/// `{"seq":<n>,"tools":[...]}` for each census line of the gateway whose `run=` and `tag=` fields
-/// equal these. A census line is `census run=<key> tag=<tag> seq=<n> tools=<JSON array>`; the
-/// array is the last field and must be a list of strings, so what an agent writes in a tool name
-/// cannot become a field. Only the sequence number and the names are kept: whatever else a line
-/// carries is dropped, and a line that is not exactly that shape is dropped whole.
+/// The members of a context line: the system text and the first message of a request.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ContextBody {
+    system: String,
+    first_message: String,
+}
+
+/// What the sidecar's log says of the run `run` under its tag `tag`: one JSON line for each census
+/// line and each context line of the gateway whose `run=` and `tag=` fields equal these.
+///
+/// A census line is `census run=<key> tag=<tag> seq=<n> tools=<JSON array>`, kept as
+/// `{"seq":<n>,"tools":[...]}`; the array is the last field and must be a list of strings, so what
+/// an agent writes in a tool name cannot become a field. A context line is
+/// `context run=<key> tag=<tag> seq=<n> body=<JSON object>`, kept as
+/// `{"seq":<n>,"context":{"system":..,"first_message":..}}`; the object is the last field and holds
+/// exactly those two strings. Whatever else a line carries is dropped, and a line that is not
+/// exactly one of these shapes is dropped whole.
 #[must_use]
 pub fn census_of(log: &str, run: &RunKey, tag: &str) -> Vec<u8> {
     let wanted_run = format!("run={run}");
@@ -1228,13 +1245,20 @@ pub fn census_of(log: &str, run: &RunKey, tag: &str) -> Vec<u8> {
     let mut out = Vec::new();
     for line in log.lines() {
         let mut parts = line.splitn(5, ' ');
-        let (Some("census"), Some(found_run), Some(found_tag), Some(found_seq), Some(rest)) = (
+        let (
+            Some(kind @ ("census" | "context")),
+            Some(found_run),
+            Some(found_tag),
+            Some(found_seq),
+            Some(rest),
+        ) = (
             parts.next(),
             parts.next(),
             parts.next(),
             parts.next(),
             parts.next(),
-        ) else {
+        )
+        else {
             continue;
         };
         if found_run != wanted_run || found_tag != wanted_tag {
@@ -1246,20 +1270,59 @@ pub fn census_of(log: &str, run: &RunKey, tag: &str) -> Vec<u8> {
         else {
             continue;
         };
-        let Some(tools) = rest
-            .strip_prefix("tools=")
-            .and_then(|text| serde_json::from_str::<Vec<String>>(text).ok())
-        else {
-            continue;
+        let record = if kind == "census" {
+            rest.strip_prefix("tools=")
+                .and_then(|text| serde_json::from_str::<Vec<String>>(text).ok())
+                .map(|tools| serde_json::json!({"seq": seq, "tools": tools}))
+        } else {
+            rest.strip_prefix("body=")
+                .and_then(|text| serde_json::from_str::<ContextBody>(text).ok())
+                .map(|body| {
+                    serde_json::json!({
+                        "seq": seq,
+                        "context": {"system": body.system, "first_message": body.first_message},
+                    })
+                })
         };
-        if let Ok(mut record) = serde_json::to_vec(&serde_json::json!({"seq": seq, "tools": tools}))
-        {
-            record.push(b'\n');
-            out.extend(record);
+        if let Some(mut bytes) = record.and_then(|record| serde_json::to_vec(&record).ok()) {
+            bytes.push(b'\n');
+            out.extend(bytes);
         }
     }
     out
 }
+
+/// The starting context of a census stream: the context line of the lowest sequence number, as a
+/// `context_start` event kind, with the index of its line in the stream. A run none of whose
+/// requests carried tools has none.
+#[must_use]
+pub fn census_context(stream: &[u8]) -> Option<(u64, EventKind)> {
+    #[derive(serde::Deserialize)]
+    struct Record {
+        seq: u64,
+        context: ContextBody,
+    }
+    stream
+        .split(|byte| *byte == b'\n')
+        .enumerate()
+        .filter_map(|(frame, line)| {
+            serde_json::from_slice::<Record>(line)
+                .ok()
+                .map(|record| (frame, record))
+        })
+        .min_by_key(|(_, record)| record.seq)
+        .and_then(|(frame, record)| {
+            u64::try_from(frame).ok().map(|frame| {
+                (
+                    frame,
+                    EventKind::context_start(record.context.system, record.context.first_message),
+                )
+            })
+        })
+}
+
+/// The stream name the gateway's record is stored under when the driver names none.
+pub const GATEWAY_STREAM: &str = "gateway_log";
 
 /// The tool inventory of a census stream: the names of the first request, by sequence number,
 /// that carries any, labelled as the gateway's. A request with no tools says nothing; a run none

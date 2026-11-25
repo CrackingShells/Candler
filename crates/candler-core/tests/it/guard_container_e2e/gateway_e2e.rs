@@ -19,7 +19,7 @@ use candler_core::isolation::docker::{ClientEnv, DockerCli as DockerClient, Dock
 use candler_core::isolation::driver::{DestroyDriver, DockerDriver};
 use candler_core::isolation::gateway::{
     ChildRecorder, DockerGateway, Gateway, GatewaySignal, GatewayStart, SecretError, SecretSource,
-    SecretValue, UpstreamConfig, assert_clean,
+    SecretValue, UpstreamConfig, assert_clean, census_context, census_of,
 };
 use candler_core::isolation::model::{GatewayHandle, LabelSel, NetworkName, SweepScope};
 use candler_core::isolation::testing::{AllowlistDriver, FakeJobView};
@@ -28,6 +28,7 @@ use candler_core::supervise::{EventSink, Supervisor};
 use candler_schemas::container::{ContainerRecord, ContainerRole};
 use candler_schemas::execution::EventPayload;
 use candler_schemas::primitives::{Digest, JobId, RunKey};
+use candler_schemas::trace::EventKind;
 
 // The helpers the supervision gates share.
 use crate::support::gateway as gateway_support;
@@ -1065,5 +1066,132 @@ exec sleep 600
             .count(),
         0,
         "the untrusted upstream got an Authorization header"
+    );
+}
+
+/// The agent's side of one POST through the gateway: `post <prefix> <path> <body file>`.
+const AGENT_POST: &str = r#"
+post() {
+  L=$(wc -c < "$3")
+  { printf 'POST %s HTTP/1.0\r\nHost: gateway\r\nAuthorization: Bearer %s\r\nx-api-key: %s\r\nContent-Type: application/json\r\nContent-Length: %s\r\n\r\n' "$1$2" "$ANTHROPIC_API_KEY" "$ANTHROPIC_API_KEY" "$L"; cat "$3"; sleep 2; } | nc -w 5 gateway 8080 > /dev/null
+}
+"#;
+
+/// Guards: the gateway's record of a run's starting context — of the requests a run sends, in the
+/// Anthropic form with a system list and a message of two blocks, and in the `OpenAI` form with a
+/// `system` and a `developer` message, the gateway logs for the first request that carries tools,
+/// and for no other, its system text and first message as the agent sent them, through quotes,
+/// newlines, backslashes, non-ASCII text and a 60,000-character block; the core's reader gives
+/// back exactly those texts, for the run and tag asked about only.
+/// Oracle: the request bodies the test writes, and the one rule of the texts: the text of each
+/// block, joined by a newline.
+/// Bite: record the first request instead of the first request with tools (the first is the
+/// tool-less one below); read `system` only from the top-level member; keep only the last block.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs Docker; run with --run-ignored only"]
+async fn trace_context_gateway_records_the_first_request_with_tools_verbatim() {
+    use serde_json::json;
+    let rig = Rig::new();
+    let token = canary();
+    let world = up(&rig, &token).await;
+    let handle = &world.handle;
+    let (run, other) = (run_key(1), run_key(2));
+    let tools =
+        json!([{"name": "Read", "description": "reads", "input_schema": {"type": "object"}}]);
+    let long = "A".repeat(60_000);
+    let system_blocks = [
+        format!("You are \"quoted\"\nline two \\ back \u{e9} \u{2713} \u{1f642} {long}"),
+        String::from("second block"),
+    ];
+    let first_blocks = [
+        String::from("<system-reminder>\nhook says \"hi\"\n</system-reminder>"),
+        String::from("go"),
+    ];
+    let bodies = [
+        // the title request: first, and without tools
+        json!({"model": "m", "system": "title", "messages": [{"role": "user", "content": "t"}]}),
+        // the first request with tools
+        json!({
+            "model": "m",
+            "system": [
+                {"type": "text", "text": system_blocks[0], "cache_control": {"type": "ephemeral"}},
+                {"type": "text", "text": system_blocks[1]},
+            ],
+            "messages": [
+                {"role": "user", "content": [
+                    {"type": "text", "text": first_blocks[0]},
+                    {"type": "text", "text": first_blocks[1]},
+                ]},
+                {"role": "assistant", "content": "later"},
+            ],
+            "tools": tools,
+        }),
+        // a later request with tools, which is not the starting context
+        json!({"model": "m", "system": "later", "messages": [{"role": "user", "content": "l"}], "tools": tools}),
+    ];
+    let other_body = json!({
+        "model": "m",
+        "messages": [
+            {"role": "system", "content": "Be brief \\ \"x\""},
+            {"role": "developer", "content": [{"type": "text", "text": "dev"}]},
+            {"role": "user", "content": "hi there"},
+            {"role": "user", "content": "second"},
+        ],
+        "tools": [{"type": "function", "function": {"name": "read", "parameters": {}}}],
+    });
+    let steps: Vec<String> = bodies
+        .iter()
+        .enumerate()
+        .map(|(index, body)| {
+            format!(
+                "echo '{}' | base64 -d > /workspace/b{index}\npost \"$P\" /v1/messages /workspace/b{index}\n",
+                base64_of(&body.to_string())
+            )
+        })
+        .collect();
+    let script = format!(
+        "{AGENT_POST}\nP=${{ANTHROPIC_BASE_URL#http://gateway:8080}}\nQ=${{OTHER_URL#http://gateway:8080}}\n{}echo '{}' | base64 -d > /workspace/o\npost \"$Q\" /v1/chat/completions /workspace/o\necho done > /workspace/done\nexec sleep 600\n",
+        steps.concat(),
+        base64_of(&other_body.to_string())
+    );
+    let other_url = handle.run_base_url(&other);
+    let agent = start_agent(
+        &rig,
+        handle,
+        &run,
+        &AgentSpec {
+            api_key: &handle.dummy_token,
+            extra_env: &[("OTHER_URL", other_url.as_str())],
+            extra_networks: &[],
+            script: &script,
+        },
+    );
+    wait_done(&agent);
+    let logs = world
+        .gw
+        .logs()
+        .read_since(handle, std::time::UNIX_EPOCH)
+        .await
+        .expect("the gateway logs");
+
+    let stream = census_of(&logs, &run, &handle.run_tag(&run));
+    let (_, kind) = census_context(&stream).expect("the run's starting context");
+    assert_eq!(
+        kind,
+        EventKind::context_start(system_blocks.join("\n"), first_blocks.join("\n"))
+    );
+    let contexts = String::from_utf8_lossy(&stream)
+        .lines()
+        .filter(|line| line.contains("\"context\""))
+        .count();
+    assert_eq!(contexts, 1, "one context line for the run");
+    let stream = census_of(&logs, &other, &handle.run_tag(&other));
+    let (_, kind) = census_context(&stream).expect("the other run's starting context");
+    assert_eq!(
+        kind,
+        EventKind::context_start(
+            String::from("Be brief \\ \"x\"\ndev"),
+            String::from("hi there")
+        )
     );
 }
