@@ -76,6 +76,6 @@ Core line: `v0.16.0`; the `candler-harness` crate has the same version.
 - `no (…)` is a refusal: `experiment.session_refused` while resolving, `experiment.setting_unsupported` once the cells are planned, before a job starts. [checked: v@0.15.0]
 - In session mode Candler counts turns and ends the run past `budget.per_run.turns`. [checked: v@0.7.0]
 - A driver's answers for each `AgentSetting` decide which modes, effort levels and tool names it maps or refuses. [checked: v@0.7.0]
-- Every Claude Code cell runs three hooks, headless too, logs them to stream `hooks`, and gets one `claude doctor` check per distinct (image, files, command, environment, treatment). [checked: v@0.16.0]
+- Every Claude Code cell runs three hooks, headless too, logs them to stream `hooks`, and gets one `claude doctor` check per (image, files, inputs, command, environment, treatment). [checked: v@0.16.0]
 - `census.instructions` is read from the hook log in the agent's home, which the agent can change; the trace's `context_start` shows what reached the model. [checked: v@0.16.0]
 - A plain OpenCode cell gets no instruction file or plugin; `census.instructions` is the gateway's record of the first request offering tools. [checked: v@0.16.0]

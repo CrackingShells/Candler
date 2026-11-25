@@ -261,8 +261,10 @@ fn assert_nothing_left(real: &Path, jobs: &[String], fake: &str) {
 /// arm's workspace text and not the other arm's (G4); the blocking hook's marker answers the
 /// shell call as an error (G5); the census lists the global and the workspace file with their
 /// scopes (G7); no installed file is among the collected outputs and no run is sealed
-/// `input_leak` (G9); the session-start marker is in the first message on Claude Code and in the
-/// system text on `OpenCode` (G11).
+/// `input_leak` (G9); the session-start marker is in the `system` or the `first_message` of the
+/// `context_start` (G11; measured in `system` on both harnesses under Candler: Claude Code 2.1.311
+/// writes a `SessionStart:startup hook success:` line there, while the probe's bare `--print` run
+/// had it in the first message).
 ///
 /// Oracle: the texts the experiment fixes, and where the probe measured each to land
 /// (`__reports__/agent_config/03-findings_probe_harness_checks_v0.md`).
@@ -351,15 +353,13 @@ fn guard_agent_config_e2e() {
                     "{harness}/{arm}: context_start holds the other arm"
                 ));
             }
-            // G11: the start marker is in the system text on both harnesses. The probe measured
-            // Claude Code's in the first message; Claude Code 2.1.311 writes it as a
-            // `SessionStart:startup hook success:` line of the system text.
-            let (inside, outside) = (&run.system, &run.first_message);
-            if !inside.contains(marker) || outside.contains(marker) {
+            // G11: the start marker is in the `system` or the `first_message` (measured in `system`
+            // on both harnesses under Candler; Claude Code 2.1.311 writes a
+            // `SessionStart:startup hook success:` line there, the probe's bare `--print` run had
+            // it in the first message).
+            if !reached.contains(marker) {
                 failures.push(format!(
-                    "{harness}/{arm}: start marker not only in its place (in {}, out {})",
-                    inside.contains(marker),
-                    outside.contains(marker)
+                    "{harness}/{arm}: start marker not in context_start"
                 ));
             }
             // G7: the census lists both files with their scope

@@ -780,14 +780,14 @@ run as another harness. `comparable.harness.driver` is `None` for live cells. Th
 Candler installs for a cell (`config_check(plan)`) and a reader of what it printed
 (`read_config_check(output) -> Clean | Rejected { output }`). Before the first run, the core groups
 the planned cells by everything that command reads (the harness, the image, the home and
-workspace files, the command with its cwd and overlay, the container environment and the
-treatment), runs it once per group in a container without network, and passes the reader standard
+workspace files, the declared inputs, the command with its cwd and overlay, the container
+environment and the treatment), runs it once per group in a container without network, and passes the reader standard
 output followed by standard error, whatever the exit status. A check that cannot run (the container
 does not start, the command is missing, times out or is ended by a signal, or it prints nothing or
 too much) is refused as `jobs.config_check_failed`, an environment fault; a rejection is refused as
-`experiment.harness_rejected_input`, naming the files and the setting they come from. Declared
-inputs are not mounted in the check, so it judges the files Candler installs for the harness, not
-the consumer's inputs, and a clean verdict (`provenance.harness_config_check`) says no more.
+`experiment.harness_rejected_input`, naming the files and the setting they come from. The check
+container mounts the cell's declared inputs as the run does, so the verdict
+(`provenance.harness_config_check`) covers every file the harness reads at start.
 
 **The shared fixture suite.** `candler-harness`, under the feature `conformance`, holds one suite
 that every driver crate runs over its recorded streams. It checks that gateway names, state paths,
