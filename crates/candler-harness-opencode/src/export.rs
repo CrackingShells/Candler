@@ -209,7 +209,7 @@ fn tool_drafts(block: &Value, message_at: Option<&Timestamp>, servers: &[String]
     let status = state.and_then(|state| text(state, "status"));
     if matches!(status, Some("completed" | "error")) {
         let mut result = Draft::new(
-            EventKind::tool_result(status == Some("error"), None),
+            EventKind::tool_result(status == Some("error"), None, None),
             time("completed"),
         );
         result.span = span;
