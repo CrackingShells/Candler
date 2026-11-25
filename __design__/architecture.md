@@ -692,7 +692,7 @@ I3, so event times are reproducible even where the harness emits none.
 ### Traits (signatures only)
 
 Every item added for the second harness (`answer`, `fact`, `check_settings`, `gateway`,
-`state_paths`, `census_stream`, `session`, `session_tracker`, `classify_end`) has a default body, so a driver
+`state_paths`, `census_from_gateway`, `session`, `session_tracker`, `classify_end`) has a default body, so a driver
 implements only what its harness has.
 
 - `HarnessDriver`
@@ -731,8 +731,9 @@ implements only what its harness has.
     which the core calls, defaults to `classify_exit` and lets a harness whose exit status covers
     several endings read the live reader's last word or the export
   - `collect(workspace, observed) -> CollectSpec[]`, with
-    `CollectSpec = File(glob) | Command(CommandSpec, name) | Exec(CommandSpec, name)`. The core
-    runs `Exec` after the agent exited, in a throwaway container over the run's mounts and state
+    `CollectSpec = File(glob) | Command(CommandSpec, name) | Exec(CommandSpec, name) | Home(path, name)`.
+    `Home` archives a file under the agent's home as the stream `name`, read on the host after the
+    run. The core runs `Exec` after the agent exited, in a throwaway container over the run's mounts and state
     variables (`candler.role=control`, no network, no gateway name), and archives its stdout as
     the stream `name`
 - `TraceReader`
@@ -774,6 +775,19 @@ reader and the recogniser of its raw streams. `request.harness` selects the entr
 image or resolver is built, and an unknown name is refused (`experiment.unknown_harness`), never
 run as another harness. `comparable.harness.driver` is `None` for live cells. The label
 `candler.cc_version` on a base image holds the harness version, whatever the harness.
+
+**The job-start harness check.** A driver may name a command that has its harness read the files
+Candler installs for a cell (`config_check(plan)`) and a reader of what it printed
+(`read_config_check(output) -> Clean | Rejected { output }`). Before the first run, the core groups
+the planned cells by everything that command reads (the harness, the image, the home and
+workspace files, the command with its cwd and overlay, the container environment and the
+treatment), runs it once per group in a container without network, and passes the reader standard
+output followed by standard error, whatever the exit status. A check that cannot run (the container
+does not start, the command is missing, times out or is ended by a signal, or it prints nothing or
+too much) is refused as `jobs.config_check_failed`, an environment fault; a rejection is refused as
+`experiment.harness_rejected_input`, naming the files and the setting they come from. Declared
+inputs are not mounted in the check, so it judges the files Candler installs for the harness, not
+the consumer's inputs, and a clean verdict (`provenance.harness_config_check`) says no more.
 
 **The shared fixture suite.** `candler-harness`, under the feature `conformance`, holds one suite
 that every driver crate runs over its recorded streams. It checks that gateway names, state paths,
@@ -902,10 +916,12 @@ through stdin and stdin stays open, so a notification starts a further turn.
   has one. A turn that ends with no Stop payload (a turn cap error, an API error) leaves the state
   unknown, and the session runs to its cap rather than closing.
 - **Hooks.** The driver installs observation hooks outside the workspace (a settings file in the
-  agent's home, loaded under `--setting-sources project,local`). The hook command appends the Stop
-  or SessionEnd payload with the container's clock to a log, prints nothing and always exits 0, so
-  it never blocks or decides (I9). The log is archived as the raw stream `hooks`, so the session
-  measures can be re-derived (I3). Hooks are never trusted for the turn end.
+  agent's home, passed with `--settings`; `user` joins `--setting-sources` when a global
+  instruction text is set). The hook command appends the payload of `InstructionsLoaded`, `Stop`
+  or `SessionEnd`, with the container's clock, to a log, in a headless run as in a session, prints
+  nothing and always exits 0, so it never blocks or decides (I9). The log is archived as the raw
+  stream `hooks`, so the session measures can be re-derived (I3). Hooks are never trusted for the
+  turn end.
 - **Measured, never filtered.** The agent's own stopping is recorded as `measured[]` paths:
   `session.idle_s`, `session.turns` (turns that ended), `session.yielded_at_ms` (from the runner's
   preparation of the session to the end of the last turn), `session.pending_at_end` (a list of

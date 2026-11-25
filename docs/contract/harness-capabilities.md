@@ -59,7 +59,7 @@ Core line: `v0.16.0`; the `candler-harness` crate has the same version.
 | execution outside the child | no (tools run in the child process) | tools run in the `serve` child, which the stop interrupts first |
 | census source | Claude Code's `system/init` event lists the tools | Candler: the tools the gateway offered the model in its first request |
 | permission mode when none is set | `--permission-mode default` on the command line, which in a headless run denies every tool call that needs approval unless an allow rule or a hook approves it | Candler: the run is under `--auto` and the baseline ruleset {*, *, allow}, so every tool is allowed: OpenCode has no headless ask mode |
-| config check | `claude doctor` in the workspace, whose `Invalid settings` section lists a rejected file or a skipped entry | `opencode run --standalone --print-logs -m probe/none x` in the workspace, whose `level=WARN` and `level=ERROR` lines name a rejected `opencode.json` or a plugin that failed to load |
+| config check | `claude doctor` in the workspace, whose `Invalid settings` section lists a rejected file or a skipped entry | `opencode run --standalone --print-logs -m probe/none x` in the workspace, whose `level=WARN` lines name a rejected `opencode.json` or a plugin that failed to load |
 <!-- /generated:fields -->
 
 ## Refusals
@@ -76,6 +76,6 @@ Core line: `v0.16.0`; the `candler-harness` crate has the same version.
 - `no (…)` is a refusal: `experiment.session_refused` while resolving, `experiment.setting_unsupported` once the cells are planned, before a job starts. [checked: v@0.15.0]
 - In session mode Candler counts turns and ends the run past `budget.per_run.turns`. [checked: v@0.7.0]
 - A driver's answers for each `AgentSetting` decide which modes, effort levels and tool names it maps or refuses. [checked: v@0.7.0]
-- Every Claude Code cell runs three observer hooks, headless too, archives their log as stream `hooks`, and gets one `claude doctor` check per distinct (image, prepared files). [checked: v@0.16.0]
+- Every Claude Code cell runs three hooks, headless too, logs them to stream `hooks`, and gets one `claude doctor` check per distinct (image, files, command, environment, treatment). [checked: v@0.16.0]
 - `census.instructions` is read from the hook log in the agent's home, which the agent can change; the trace's `context_start` shows what reached the model. [checked: v@0.16.0]
 - A plain OpenCode cell gets no instruction file or plugin; `census.instructions` is the gateway's record of the first request offering tools. [checked: v@0.16.0]
