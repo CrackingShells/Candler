@@ -27,6 +27,15 @@ pub const ENV: &str = "env";
 /// The root of the MCP server configuration, a cell value.
 pub const MCP: &str = "mcp";
 
+/// A cell value: the global instruction text of each harness, a table keyed by harness id.
+pub const INSTRUCTIONS_GLOBAL: &str = "instructions.global";
+
+/// A cell value: the instruction text at the root of the workspace.
+pub const INSTRUCTIONS_WORKSPACE: &str = "instructions.workspace";
+
+/// The root of the hooks of each harness, a cell value.
+pub const HOOKS: &str = "hooks";
+
 /// A cell value: the permission mode.
 pub const PERMISSION_MODE: &str = "permission_mode";
 

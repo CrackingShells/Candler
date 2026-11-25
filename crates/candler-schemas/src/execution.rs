@@ -657,13 +657,27 @@ impl From<TreatmentRef> for TreatmentSpec {
     }
 }
 
-/// The paths whose values are tables kept whole: everything written at or below one reaches a cell as one object at that path, where any other table flattens into one value per leaf.
-pub const TABLE_VALUED_PATHS: [&str; 1] = [paths::PROMPT_VALUES];
+/// The paths whose values are tables kept whole, each with whether its keys are free: everything written at or below one reaches a cell as one object at that path, where any other table flattens into one value per leaf. A key below a path with free keys is the harness's own word (a harness id, a hook event, a file name), so the key rule of a field path does not apply to it.
+pub const TABLE_VALUED_PATHS: [(&str, bool); 3] = [
+    (paths::PROMPT_VALUES, false),
+    (paths::HOOKS, true),
+    (paths::INSTRUCTIONS_GLOBAL, true),
+];
+
+/// Whether the path text `path` is, or lies below, a table-valued path whose keys are free.
+fn free_keys(path: &str) -> bool {
+    TABLE_VALUED_PATHS.into_iter().any(|(root, free)| {
+        free && path
+            .strip_prefix(root)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
+    })
+}
 
 /// The table-valued path that `path` is or lies below, if any.
 fn table_root(path: &FieldPath) -> Option<&'static str> {
     TABLE_VALUED_PATHS
         .into_iter()
+        .map(|(root, _)| root)
         .find(|root| path.relative_to(root).is_some())
 }
 
@@ -674,7 +688,7 @@ fn leaves_of(
     out: &mut Vec<FieldPath>,
 ) -> Result<(), ExecutionError> {
     match value {
-        Value::Object(table) if table_root(path).is_some() => {
+        Value::Object(table) if table_root(path).is_some() && !free_keys(path.as_str()) => {
             if table.is_empty() {
                 return Err(ExecutionError::EmptyTable {
                     path: path.to_string(),
@@ -731,7 +745,7 @@ fn fold_tables(
     list: &'static str,
 ) -> Result<Vec<ResolvedValue>, ExecutionError> {
     let mut values = values;
-    for root in TABLE_VALUED_PATHS {
+    for (root, _) in TABLE_VALUED_PATHS {
         let under: Vec<(usize, &ResolvedValue)> = values
             .iter()
             .enumerate()
@@ -835,13 +849,17 @@ impl Level {
 
     /// A level that is a table whose leaves fill paths.
     ///
+    /// The keys are read against the factor's path when the factor's cells are built: below a path
+    /// of [`TABLE_VALUED_PATHS`] with free keys they are free, anywhere else each must be a field path segment.
+    ///
     /// # Errors
-    /// Returns [`ExecutionError::EmptyTable`] if the table, or a table inside it, holds no value;
-    /// [`ExecutionError::Format`] if a key is not a field path segment; and
-    /// [`ExecutionError::Values`] if a leaf is `null` or cannot be hashed.
+    /// Returns [`ExecutionError::EmptyTable`] if the table holds no value.
     pub fn fill(table: Map<String, Value>) -> Result<Self, ExecutionError> {
-        let probe = FieldPath::from_str("level")?;
-        fill_leaves(&table, &probe, &mut Vec::new())?;
+        if table.is_empty() {
+            return Err(ExecutionError::EmptyTable {
+                path: String::from("level"),
+            });
+        }
         Ok(Self::Fill(table))
     }
 
@@ -866,6 +884,32 @@ impl Level {
     }
 }
 
+/// Whether `error` is a fault of a document's shape: a format, value or canonical fault.
+fn is_shape_fault(error: &ExecutionError) -> bool {
+    matches!(
+        error,
+        ExecutionError::Format(_) | ExecutionError::Values(_) | ExecutionError::Canonical(_)
+    )
+}
+
+/// `error` as a fault of the document at the pointer `path`.
+fn document_fault(error: &ExecutionError, path: String) -> ExecutionError {
+    ExecutionError::Document {
+        detail: error.to_string(),
+        path,
+    }
+}
+
+/// A fault of a level's keys or values, or an empty table in it, as a fault of the document at
+/// the level's pointer; any other error is returned as it is.
+fn level_fault(error: ExecutionError, factor: usize, level: usize) -> ExecutionError {
+    if is_shape_fault(&error) || matches!(error, ExecutionError::EmptyTable { .. }) {
+        document_fault(&error, format!("/factors/{factor}/levels/{level}"))
+    } else {
+        error
+    }
+}
+
 /// Collects the leaves of `table` as values at `base` followed by their keys.
 fn fill_leaves(
     table: &Map<String, Value>,
@@ -876,6 +920,13 @@ fn fill_leaves(
         return Err(ExecutionError::EmptyTable {
             path: base.to_string(),
         });
+    }
+    if free_keys(base.as_str()) {
+        // BORROW: .clone() gives the cell its own copy of the table
+        let whole = JsonValue::new(Value::Object(table.clone()))?;
+        // BORROW: .clone() gives the cell its own path
+        out.push(ResolvedValue::recorded(base.clone(), whole));
+        return Ok(());
     }
     for (key, value) in table {
         // BORROW: explicit .as_str() instead of Deref coercion
@@ -1284,7 +1335,7 @@ impl ExperimentFile {
         let mut footprints: Vec<BTreeSet<FieldPath>> = vec![footprint(
             fixed.iter().map(|(path, value)| (path, value.as_value())),
         )?];
-        for factor in &factors {
+        for (factor_at, factor) in factors.iter().enumerate() {
             if factor.levels.is_empty() {
                 return Err(ExecutionError::NoLevels {
                     // BORROW: .clone() keeps the factor's path in the error
@@ -1294,7 +1345,12 @@ impl ExperimentFile {
             let filled = factor
                 .levels
                 .iter()
-                .map(|level| level.fills(&factor.path))
+                .enumerate()
+                .map(|(at, level)| {
+                    level
+                        .fills(&factor.path)
+                        .map_err(|error| level_fault(error, factor_at, at))
+                })
                 .collect::<Result<Vec<_>, _>>()?;
             footprints.push(footprint(filled.iter().flatten().filter_map(|value| {
                 value.value().map(|json| (value.path(), json.as_value()))
@@ -1396,16 +1452,8 @@ impl ExperimentFile {
         })?;
         Self::try_from(MapOnly(raw)).map_err(|error| {
             // A format, value or canonical fault is a fault of the document's shape.
-            if matches!(
-                error,
-                ExecutionError::Format(_)
-                    | ExecutionError::Values(_)
-                    | ExecutionError::Canonical(_)
-            ) {
-                ExecutionError::Document {
-                    detail: error.to_string(),
-                    path: String::new(),
-                }
+            if is_shape_fault(&error) {
+                document_fault(&error, String::new())
             } else {
                 error
             }
@@ -1643,6 +1691,12 @@ fn flatten_into(
             toml::Value::Table(inner) => {
                 if inner.is_empty() {
                     return Err(ExecutionError::EmptyTable { path });
+                }
+                if free_keys(path.as_str()) {
+                    // BORROW: explicit .as_str() instead of Deref coercion
+                    let json = toml_to_json(toml::Value::Table(inner), path.as_str())?;
+                    out.push((path, json));
+                    continue;
                 }
                 // BORROW: explicit .as_str() instead of Deref coercion
                 flatten_into(inner, format!("{path}.").as_str(), out)?;

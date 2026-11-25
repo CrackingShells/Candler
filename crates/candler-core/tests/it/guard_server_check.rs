@@ -8,69 +8,15 @@
 use crate::support;
 
 use std::fmt::Write as _;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use candler_core::isolation::testing::ProbingIsolation;
-use candler_core::isolation::{Isolation, StartProbe};
-use candler_core::jobs::model::{JobCause, JobControl, JobOutcome, JobSpec};
-use candler_core::jobs::orchestrate::orchestrate_with;
-use candler_core::jobs::orchestrate::session::{JobHost, OrchestrateError};
+use candler_core::isolation::StartProbe;
+use candler_core::jobs::model::{JobOutcome, JobSpec};
+use candler_core::jobs::orchestrate::session::JobHost;
 use candler_schemas::execution::ExperimentFile;
 use serde_json::{Value, json};
-use support::job_orchestrate::{FakeHost, Rig, spec};
+use support::job_orchestrate::{Probed, Rig, run_to_end, spec};
 use support::run_plan::Facts;
-use tokio::sync::watch;
-
-/// The host of the job guards, whose isolation is wrapped by a [`ProbingIsolation`] the test reads.
-struct Probed {
-    inner: Arc<FakeHost>,
-    answers: Vec<(String, StartProbe)>,
-    eof_exits: Vec<String>,
-    needs: Vec<String>,
-    probing: Mutex<Option<Arc<ProbingIsolation>>>,
-}
-
-impl JobHost for Probed {
-    fn docker_cli(
-        &self,
-        supervisor: Arc<candler_core::supervise::Supervisor>,
-        record_dir: std::path::PathBuf,
-    ) -> Result<
-        candler_core::isolation::docker::DockerCli,
-        candler_core::isolation::docker::DockerError,
-    > {
-        self.inner.docker_cli(supervisor, record_dir)
-    }
-
-    fn gateway<'a>(
-        &'a self,
-        rt: &'a candler_core::runner::Runtime,
-        spec: &'a JobSpec,
-    ) -> futures::future::BoxFuture<
-        'a,
-        Result<Arc<dyn candler_core::isolation::gateway::Gateway>, OrchestrateError>,
-    > {
-        self.inner.gateway(rt, spec)
-    }
-
-    fn isolation(
-        &self,
-        isolation: candler_core::isolation::container::DockerIsolation,
-    ) -> Arc<dyn Isolation> {
-        let probing = Arc::new(ProbingIsolation::new(self.inner.isolation(isolation)));
-        for (program, answer) in &self.answers {
-            probing.answer(program, answer.clone()); // BORROW: the double owns its answers
-        }
-        for program in &self.needs {
-            probing.needs_file(program);
-        }
-        for program in &self.eof_exits {
-            probing.exit_at_eof(program, "stdin closed");
-        }
-        *self.probing.lock().expect("the double") = Some(Arc::clone(&probing)); // BORROW: the test reads the same double
-        probing
-    }
-}
 
 /// The facts of every cell: no secret is declared.
 fn facts() -> Facts {
@@ -106,26 +52,14 @@ fn run(
     needs: Vec<String>,
 ) -> (JobOutcome, Vec<Vec<String>>, usize) {
     let rig = Rig::new(0);
-    let host = Arc::new(Probed {
-        inner: rig.host(),
-        answers,
-        eof_exits,
-        needs,
-        probing: Mutex::new(None),
-    });
-    let (cancel, _keep) = watch::channel::<Option<JobCause>>(None);
-    let ctl = JobControl {
-        cancel: Arc::new(cancel),
-    };
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(2)
-        .enable_all()
-        .build()
-        .expect("a runtime");
+    let mut host = Probed::new(rig.host());
+    host.answers = answers;
+    host.eof_exits = eof_exits;
+    host.needs = needs;
+    let host = Arc::new(host);
     let shared: Arc<dyn JobHost> = host.clone();
-    let outcome = runtime.block_on(orchestrate_with(rig.runtime(), job, ctl, shared));
-    let probing = host.probing.lock().expect("the double").clone();
-    let probing = probing.expect("the job built an isolation");
+    let outcome = run_to_end(rig.runtime(), job, shared);
+    let probing = host.probing();
     (outcome, probing.probed(), probing.runs())
 }
 

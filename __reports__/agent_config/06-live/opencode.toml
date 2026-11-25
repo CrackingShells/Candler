@@ -1,0 +1,44 @@
+schema = "experiment/1"
+replicates = 1
+secrets = ["RIVAULT_LLM_INFERENCE"]
+
+[fixed]
+permission_mode = "bypassPermissions"
+"model.id" = "RiVault/Reasoning-Small"
+"model.endpoint" = "https://api.class2.llm.ai.r-ccs.riken.jp"
+"model.token_secret" = "RIVAULT_LLM_INFERENCE"
+"prompt.template" = "Say hello in one sentence."
+
+[fixed.instructions.global]
+claude-code = "GLOBAL_TEXT_CC_71a3"
+opencode = "GLOBAL_TEXT_OC_71a3"
+
+[fixed.hooks.opencode.plugins]
+"guard.ts" = '''
+export default {
+  id: "guard",
+  setup(api) {
+    api.session.hook("context", (event) => {
+      event.system.push({ type: "text", text: "SESSION_START_MARKER_OC_c40d" });
+    });
+  },
+};
+'''
+
+[harness]
+name = "opencode"
+
+[[factors]]
+path = "instructions.workspace"
+levels = ["WORKSPACE_TEXT_A_5be2", "WORKSPACE_TEXT_B_5be2"]
+
+[budget.per_run]
+wall_s = 300
+
+[treatment]
+name = "demo"
+tag = "v1"
+# The treatment was a scratch git checkout, deleted after the run. To rerun, point `source` at a
+# treatment made as the guard `agent_config_e2e.rs` makes its own.
+source = "/Users/hacker/Documents/tmp/claude-worktrees/Candler/m6_5-scratch/live/treatment"
+

@@ -73,6 +73,11 @@ pub struct InspectRun {
     /// The resolved `mcp.*` values the cell hashes, by path: the MCP configuration the run was
     /// installed with.
     pub mcp: BTreeMap<String, Value>,
+    /// The resolved `instructions.*` values the cell hashes, by path: the instruction texts the
+    /// run was given.
+    pub instructions: BTreeMap<String, Value>,
+    /// The resolved `hooks.*` values the cell hashes, by path: the hooks the run was given.
+    pub hooks: BTreeMap<String, Value>,
     /// The measured values under `provenance.`, by path.
     pub provenance: BTreeMap<String, Value>,
     /// The other measured values, by path.

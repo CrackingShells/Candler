@@ -1,0 +1,55 @@
+# agent_config
+
+Instruction files and hooks as per-arm experiment data (M6.5).
+
+## Documents
+
+### Round 00
+- [00-architecture_agent_config_v0.md](00-architecture_agent_config_v0.md) — superseded by v1. The approved plan: cause, shape, harness check, proof, risks, roadmap.
+- [00-notice_consumer_requirements_v0.md](00-notice_consumer_requirements_v0.md) — superseded by v1. The HTN eval lane's four requirements checked against the plan: three met, evaluator blinding (d) open for Eliott.
+
+### Round 01
+- [01-architecture_agent_config_v1.md](01-architecture_agent_config_v1.md) — superseded by v2. The plan with Eliott's two rulings on the notice: a global instruction file per harness plus a read-only workspace-root file per arm, and evaluator access deferred. Gates G1–G10.
+- [01-notice_consumer_requirements_v1.md](01-notice_consumer_requirements_v1.md) — **latest**. The HTN lane's four requirements against v1: three met, evaluator access (d) deferred.
+
+### Round 02
+- [02-architecture_agent_config_v2.md](02-architecture_agent_config_v2.md) — latest architecture. v1 plus Eliott's ruling that the proof is live and read from the trace: a new `context_start` trace event from the gateway's first request, a new L1 leaf `trace_context`, a session-start hook marker, and a live RiVault confirmation run. Gates G1–G13, cap $85.
+
+### Round 03
+- [03-findings_probe_harness_checks_v0.md](03-findings_probe_harness_checks_v0.md) — **latest**. The level-1 probe, measured in the real images: the check command for each harness, where Claude Code's global file loads, the order and place (system or first message) in which instructions and session-start hooks reach the model. Two points amend v2's proof wording.
+
+### Round 04
+- [04-observation_level1_out_of_scope_v0.md](04-observation_level1_out_of_scope_v0.md) — **latest** for level 1. Eight findings from level 1 that lie outside its leaves: the 4 MiB gateway log read, an unlocked image build, a commit that does not build alone, OpenCode's silence on unknown keys, `mcp.servers` names, a timing guard, an unused image, a child not identified for signalling.
+
+### Round 05
+- [05-observation_level2_out_of_scope_v0.md](05-observation_level2_out_of_scope_v0.md) — **latest** for level 2. Ten findings from level 2 and its seam review that lie outside its leaves: a broken ignored OpenCode guard on main, two link-following paths, refusal pointers chosen by presence, non-report check output blamed on the experiment, check groups that split too finely, collision targets derived twice, no cancel signal or Unicode normalisation, an unescaped census source, a second timing guard. Also two process lessons: whole-suite gates, and check rules taken from recorded output.
+
+### Round 06
+- [06-findings_live_confirmation_v0.md](06-findings_live_confirmation_v0.md) — **latest** live proof. G13 on RiVault Reasoning-Small, both harnesses, two arms each: every `context_start` holds the global text, its own arm's workspace text and the session-start marker, and never the other arm's text. Claude Code puts the two texts in `first_message` and the marker in `system`; OpenCode puts all three in `system`. The blocking hooks were left out of the live run.
+- [06-observation_level3_out_of_scope_v0.md](06-observation_level3_out_of_scope_v0.md) — **latest** O11–O15 from level 3: a job-start refusal's code reaches no place a consumer reads (medium); the parity guard's container check compares the whole daemon; the OpenCode plugin API is not on the capability page; `resolve`'s preflight cannot reach the fake model on macOS; two more timing guards fail under load.
+
+### Round 07
+- [07-review_m6_5_v0.md](07-review_m6_5_v0.md) — **latest** closing review of M6.5 against G1–G13: all hold on the tip, none fails. Three small in-scope defects (the collision pointer for a factor, OpenCode's WARN-only check, a second harness id list), four debt items, four notes.
+- [07-knowledge_transfer_m6_5_v0.md](07-knowledge_transfer_m6_5_v0.md) — **latest** close of M6.5: spend $109.69 of the $125 cap, by level; the review's findings disposed (F2 refuted by a run, F5 and F6 fixed, F1 and F7 already covered, F3 a notice); what stays open.
+
+## Status
+
+The plan is approved, and the roadmap [`__roadmap__/m6_5-agent-config/`](../../__roadmap__/m6_5-agent-config/README.md) has been authored. The plan and the roadmap were amended on 2026-11-25 for two instruction scopes (v1), then for a live, trace-read proof (v2). Levels 1 to 3 are done and merged locally; the closing review is round 07.
+
+On 2026-11-25 Eliott ruled on the two points that round 03 raised. The roadmap's leaves carry the amended gates:
+- The proof reads the whole starting context. `context_start` comes from the run's first request that offers tools. G4 and G11 pass when each text is found in its `system` or its `first_message`, since Claude Code puts CLAUDE.md texts and SessionStart output in the first message.
+- Consumers write `hooks` and `instructions.global` in the harness's own shape and keys (`claude-code`, `SessionStart`, `start.sh`). The experiment surface takes them as opaque subtrees.
+
+Level 1 is done and merged locally. On 2026-11-25 Eliott raised the cap from $85 to $125, after level 1 measured $55.40: planning $14, build $41. Level 2 runs on closed-scope briefs and a fresh agent for each fix round.
+
+On 2026-11-25 level 2 found that a resolve step cannot reach a cell's plan, which the harness check needs. The check moved beside the start check of the declared servers (`check_servers`, before the job's first run), and the collision check moved to planning. G6 and G10 are worded accordingly; the check still runs before any agent.
+
+On 2026-11-25 the M6.5 and M6d (run context) leads agreed how the two trace changes meet. Whichever lands second takes the other in, regenerates the schema and the trace page instead of merging them by hand, bumps no version by hand, and writes the `needs.trace` sentence about `context_start`. The leaf `meet_run_context` (L4) holds this for the case where M6.5 lands second. M6.5 takes `origin/main` in by a merge, since its history is not rewritten.
+
+Level 2 is done and merged locally on 2026-11-25: `install_claude_code`, `install_opencode` and `preflight_check`. A full workspace run after the third merge found 33 tests red, which no leaf's gate had run: the test fakes did not answer the new job-start check, and a level 1 guard expected the old refusal. A fix branch made them green. The seam review of the level then found that the OpenCode check refused valid cells on environment errors, and that OpenCode recorded the workspace file as an absolute path. Both are fixed, with the stale design prose. The rest is in round 05. Level 3 and 4 gates name the whole workspace suite.
+
+Spend after level 2 is $95.92 of the $125 cap: planning and level 1 $55.40, level 2 about $40.50.
+
+Level 3 is done and merged locally on 2026-11-25 (merge bfdfa010). Its guard found that the job-start harness check did not mount the cell's declared inputs, so an OpenCode MCP server taken from inputs was refused at job start; the check now mounts and keys them. G11 now accepts the marker in `system` or `first_message`: under Candler, Claude Code writes it in `system`. G6 is met on the refusal and its message; the code is not recorded where a consumer reads it (O11). G13 passed live. M6d has not landed on `origin/main`, so `meet_run_context` is owed by M6d.
+
+No decision is open.

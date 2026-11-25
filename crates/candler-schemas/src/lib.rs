@@ -3,7 +3,7 @@
 //! record in [`outcome`], resolved values in [`values`],
 //! canonical JSON in [`canonical`], process records in [`process`], container records in
 //! [`container`], raw frames in [`raw`], the normalised trace in [`trace`], execution records in
-//! [`execution`], the MCP servers in [`servers`], evaluator protocol records in [`evaluation`], stable refusal codes in [`refusal`], and in [`generate`] the JSON Schema
+//! [`execution`], the MCP servers in [`servers`], the instructions and hooks in [`agent_config`], evaluator protocol records in [`evaluation`], stable refusal codes in [`refusal`], and in [`generate`] the JSON Schema
 //! files generated from these types, committed under `schema/`, with the check that keeps them in
 //! step with the types.
 //!
@@ -12,6 +12,7 @@
 
 #![deny(clippy::allow_attributes)]
 
+pub mod agent_config;
 pub mod analysis;
 pub mod canonical;
 pub mod container;

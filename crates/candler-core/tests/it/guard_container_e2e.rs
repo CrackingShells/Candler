@@ -13,7 +13,7 @@ mod container_stop_e2e;
 #[path = "guard_container_e2e/control_e2e.rs"]
 mod control_e2e;
 #[path = "guard_container_e2e/controls_e2e.rs"]
-mod controls_e2e_runs;
+pub(crate) mod controls_e2e_runs;
 #[path = "guard_container_e2e/create_e2e.rs"]
 mod create_e2e;
 #[path = "guard_container_e2e/egress_e2e.rs"]
@@ -26,6 +26,8 @@ mod env_image_e2e;
 mod gateway_e2e;
 #[path = "guard_container_e2e/plugin_env_e2e.rs"]
 mod plugin_env_e2e;
+#[path = "guard_container_e2e/preflight_e2e.rs"]
+mod preflight_e2e;
 #[path = "guard_container_e2e/supervision_gates_e2e.rs"]
 mod supervision_gates_e2e;
 #[cfg(test)]

@@ -810,3 +810,8 @@ mod i8_e2e;
 /// Both harnesses install and trace one declared MCP server the same way.
 #[path = "guard_cli_e2e/parity_e2e.rs"]
 mod parity_e2e;
+
+/// Instructions and hooks reach both harnesses, and the harness's own check refuses what it
+/// cannot read.
+#[path = "guard_cli_e2e/agent_config_e2e.rs"]
+mod agent_config_e2e;

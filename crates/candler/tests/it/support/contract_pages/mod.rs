@@ -17,7 +17,7 @@ pub mod versions;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use candler_harness::spec::{AgentSetting, Answer, EffortLevel, PermissionMode};
+use candler_harness::spec::{AgentSetting, Answer, EffortLevel, InstructionScope, PermissionMode};
 use candler_schemas::servers::McpServerKind;
 
 /// The environment variable that makes the guards write the pages instead of comparing them.
@@ -102,5 +102,8 @@ pub const fn setting_label(setting: AgentSetting) -> &'static str {
         AgentSetting::TurnBudget => "turn cap",
         AgentSetting::CostBudget => "cost cap",
         AgentSetting::SessionMode => "session mode",
+        AgentSetting::Instructions(InstructionScope::Global) => "instructions: global",
+        AgentSetting::Instructions(InstructionScope::Workspace) => "instructions: workspace",
+        AgentSetting::Hooks => "hooks",
     }
 }

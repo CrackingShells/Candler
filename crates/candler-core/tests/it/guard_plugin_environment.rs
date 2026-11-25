@@ -924,17 +924,10 @@ async fn a_plugins_mcp_servers_reach_claude_code() {
                 text,
                 "the .mcp.json of {selector:?}"
             );
-            let tail: Vec<&str> = argv
-                .iter()
-                .rev()
-                .take(3)
-                .rev()
-                .map(String::as_str)
-                .collect();
-            assert_eq!(
-                tail,
-                ["--mcp-config", ".mcp.json", "--strict-mcp-config"],
-                "the end of the command of {selector:?}"
+            assert!(
+                argv.windows(3)
+                    .any(|run| run == ["--mcp-config", ".mcp.json", "--strict-mcp-config"]),
+                "the command of {selector:?} names no strict .mcp.json: {argv:?}"
             );
         } else {
             assert!(file.is_none(), "a cell without mcp.* prepares a .mcp.json");

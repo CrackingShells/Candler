@@ -169,6 +169,56 @@ fn census_gateway_run_records_the_first_request_with_tools_or_nothing() {
     assert!(none.raw("gateway_census").is_some(), "the stream is kept");
 }
 
+/// The gateway log that holds the lines of the recorded gateway stream of `OpenCode` (`census` and
+/// `context` lines, the shape the sidecar writes), for the run [`LOG_RUN`] under the tag [`LOG_TAG`].
+fn log_of_recorded_stream() -> String {
+    use std::fmt::Write as _;
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../candler-harness-opencode/tests/fixtures/gateway/census_instructions.jsonl");
+    let stream = std::fs::read_to_string(path).expect("the recorded gateway stream");
+    let mut log = String::new();
+    for record in stream.lines() {
+        let line: Value = serde_json::from_str(record).expect("a stream line");
+        let seq = &line["seq"];
+        if let Some(tools) = line.get("tools") {
+            writeln!(
+                log,
+                "census run={LOG_RUN} tag={LOG_TAG} seq={seq} tools={tools}"
+            )
+            .expect("a string takes text");
+        } else {
+            let body = &line["context"];
+            writeln!(
+                log,
+                "context run={LOG_RUN} tag={LOG_TAG} seq={seq} body={body}"
+            )
+            .expect("a string takes text");
+        }
+    }
+    log
+}
+
+/// Guards: the census of instruction files — a run behind the gateway records, as
+/// `census.instructions`, the `Instructions from:` blocks of the system text of the first request
+/// that offered tools, which the core hands to the driver from the stored gateway stream.
+/// Oracle: the system text of a recorded `OpenCode` 2.2.7 request (`fixtures/gateway` of
+/// `candler-harness-opencode`), and the two paths written by hand: the user file absolute, the
+/// workspace file relative to the workspace, as `LoadedFile` documents.
+/// Bite: leave the gateway stream out of the streams the driver reads, or read the title request.
+#[test]
+fn census_gateway_run_records_the_instruction_files_of_the_first_request_with_tools() {
+    let mut scenario = Scenario::exited("completed_o1");
+    scenario.log = log_of_recorded_stream();
+    let ran = run(&scenario, |_, _| {});
+    assert_eq!(
+        ran.measured("census.instructions"),
+        Some(json!([
+            {"path": "/home/agent/.xdg/config/opencode/AGENTS.md", "scope": "user"},
+            {"path": "AGENTS.md", "scope": "project"},
+        ]))
+    );
+}
+
 /// A row of the verdict guard: its name, two arms' census values and the verdict between them.
 type Row<'a> = (
     &'a str,

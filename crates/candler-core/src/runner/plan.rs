@@ -10,6 +10,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use candler_harness::agent_config;
 use candler_harness::driver::{DriverError, HarnessDriver};
 use candler_harness::spec::{AgentSetting, Cell};
 
@@ -21,6 +22,7 @@ use candler_schemas::execution::{
 };
 use candler_schemas::field_path;
 use candler_schemas::primitives::{Digest, FieldPath, JobId, RunKey, SecretName};
+use candler_schemas::refusal::pointer_of;
 use candler_schemas::values::{JsonValue, ResolvedValue, SourceEntry, ValueSource};
 use rustix::fs::{FlockOperation, flock};
 use rustix::io::Errno;
@@ -56,6 +58,10 @@ pub struct PlanCtx {
     /// it cannot honour; `None` when the caller has none, and both are then left unchecked.
     // TRAIT_OBJECT: the binary selects the driver at runtime
     pub driver: Option<Arc<dyn HarnessDriver>>,
+    /// The workspace path of each file the agent's declared inputs mount, with a name for the
+    /// input it comes from, which a refusal quotes. The workspace instruction text must not
+    /// collide with one of them.
+    pub input_targets: Vec<(String, String)>,
 }
 
 /// Whether a forced plan may accept a differing re-check.
@@ -762,11 +768,65 @@ fn fresh_cells<'r>(
     if let Some(driver) = driver {
         for cell in &cells {
             let view = Cell::new(cell.comparable.values());
+            let harness = driver.id().to_string(); // BORROW: .to_string() gives owned text
+            agent_config::instructions(&view, harness.as_str())?; // BORROW: explicit .as_str()
+            // The envelope is the driver's to read: here only the keys and the harness's entry.
+            agent_config::hooks::<serde_json::Value>(&view, harness.as_str())?; // BORROW: explicit .as_str()
             refuse_unanswered(driver, &view)?;
             driver.check_settings(&view)?;
         }
     }
     Ok(cells)
+}
+
+/// The form of a workspace path two files are compared in: without a leading `./`, in lower
+/// case. The comparison folds case but does not normalise Unicode, as the workspace holds no
+/// normalisation crate, so two spellings of one accented name stay distinct.
+fn folded(path: &str) -> String {
+    let mut rest = path;
+    while let Some(stripped) = rest.strip_prefix("./") {
+        rest = stripped;
+    }
+    rest.to_lowercase()
+}
+
+/// Refuses a cell whose workspace instruction text and a declared input mount a file at the
+/// harness's workspace instruction file, which `targets` lists as the workspace path of each
+/// input file with its input's name. Paths are compared as [`folded`] says, so `claude.md` and
+/// `./CLAUDE.md` collide with `CLAUDE.md`, as they do on a file system that ignores case.
+///
+/// # Errors
+/// [`DriverError::InstructionsCollide`] naming the input and the path when a cell sets
+/// `instructions.workspace` and an input mounts the file or a path under it, and the driver's
+/// [`DriverError`] for an instruction value it cannot read.
+fn refuse_instruction_collision<'c>(
+    driver: &dyn HarnessDriver, // TRAIT_OBJECT: the registry's driver, selected at run time
+    cells: impl IntoIterator<Item = &'c Comparable>,
+    targets: &[(String, String)],
+) -> Result<(), DriverError> {
+    let file = driver.workspace_instruction_file();
+    let held = folded(file);
+    let below = format!("{held}/");
+    let harness = driver.id().to_string(); // BORROW: .to_string() gives owned text
+    for comparable in cells {
+        let view = Cell::new(comparable.values());
+        let sets_text = agent_config::instructions(&view, harness.as_str())? // BORROW: explicit .as_str()
+            .is_some_and(|found| found.workspace.is_some());
+        if !sets_text {
+            continue;
+        }
+        if let Some((_, kind)) = targets.iter().find(|(path, _)| {
+            let path = folded(path);
+            path == held || path.starts_with(&below)
+        }) {
+            return Err(DriverError::InstructionsCollide {
+                path: pointer_of(["fixed", "instructions.workspace"]),
+                input: kind.clone(),   // BORROW: the error owns the input's kind
+                file: file.to_owned(), // BORROW: the error owns the path
+            });
+        }
+    }
+    Ok(())
 }
 
 /// What the store keeps of one stored cell: its record and the secrets any attempt saw.
@@ -1172,8 +1232,9 @@ fn seal_open(
 /// # Errors
 /// [`PlanError::ExperimentLocked`] when another supervisor holds the experiment,
 /// [`PlanError::Changed`] when a re-checked fact differs and `force` is [`Force::No`],
-/// [`PlanError::Cell`] when a treatment level has no resolution, and the other [`PlanError`]
-/// variants when the cells or the store cannot be read.
+/// [`PlanError::Cell`] when a treatment level has no resolution, [`PlanError::Driver`] when a
+/// cell sets the workspace instruction text and an input of `ctx` mounts the instruction file,
+/// and the other [`PlanError`] variants when the cells or the store cannot be read.
 pub fn plan_runs<'a>(
     ctx: &PlanCtx,
     file: &ExperimentFile,
@@ -1190,6 +1251,13 @@ pub fn plan_runs<'a>(
         }
     };
     let cells = fresh_cells(file, &levels, ctx.driver.as_deref())?;
+    if let Some(driver) = ctx.driver.as_deref() {
+        refuse_instruction_collision(
+            driver,
+            cells.iter().map(|cell| &cell.comparable),
+            ctx.input_targets.as_slice(), // BORROW: explicit .as_slice()
+        )?;
+    }
     let ledger = read_ledger(&ctx.store)?;
     // BORROW: explicit .as_slice() instead of Deref coercion
     let matched = match_stored(cells.as_slice(), ledger.groups.as_slice())?;

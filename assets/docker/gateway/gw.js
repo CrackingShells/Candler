@@ -108,4 +108,88 @@ function census(r) {
     + " seq=" + r.variables.gw_n + " tools=" + JSON.stringify(names);
 }
 
-export default { authentic, strip, seq, census };
+// The text of a message `content` or of a `system` value: the string itself, or the non-empty
+// `text` of each block of a list, joined by a newline. Anything else is "".
+function textOf(content) {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return "";
+  }
+  const parts = [];
+  for (let i = 0; i < content.length; i++) {
+    const block = content[i];
+    if (block !== null && typeof block === "object" && typeof block.text === "string"
+        && block.text !== "") {
+      parts.push(block.text);
+    }
+  }
+  return parts.join("\n");
+}
+
+// The starting context of a run: its first request that carries tools, taken in the order the
+// requests began. A request is recorded when no request of its run with a lower sequence number
+// has been recorded, so a run records the first tooled request, and one more only when a request
+// that began earlier ends later. The reader keeps the lowest.
+//
+// `system` is the system text: the top-level `system` of the Anthropic form (a string, or a list
+// of blocks) followed by the `system` and `developer` messages of the OpenAI form, the empty ones
+// left out. `first_message` is the first `user` message and no other. Of a list of blocks the text
+// blocks are kept, joined by a newline, and the others are dropped. The line is
+// `run=<key> tag=<tag> seq=<n> body=<JSON>`, with the JSON as the last field. "" for a request that
+// is not authentic, carries no tools, is not lower than one recorded, or holds neither a system
+// text nor a first message.
+function context(r) {
+  if (authentic(r) !== "1") {
+    return "";
+  }
+  let body;
+  try {
+    body = JSON.parse(r.variables.request_body);
+  } catch (e) {
+    return "";
+  }
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return "";
+  }
+  const tools = Array.isArray(body.tools) ? body.tools : [];
+  if (!tools.some((entry) => toolName(entry) !== undefined)) {
+    return "";
+  }
+  const run = r.variables.gw_run;
+  const n = Number(r.variables.gw_n);
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  const system = [];
+  if (body.system !== undefined && textOf(body.system) !== "") {
+    system.push(textOf(body.system));
+  }
+  let first = "";
+  let found = false;
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i];
+    if (message === null || typeof message !== "object") {
+      continue;
+    }
+    if (message.role === "system" || message.role === "developer") {
+      if (textOf(message.content) !== "") {
+        system.push(textOf(message.content));
+      }
+    } else if (message.role === "user" && !found) {
+      first = textOf(message.content);
+      found = true;
+    }
+  }
+  if (system.length === 0 && first === "") {
+    return "";
+  }
+  const lowest = ngx.shared.gwctx.get(run);
+  if (lowest !== undefined && lowest <= n) {
+    return "";
+  }
+  ngx.shared.gwctx.set(run, n);
+  return "run=" + run + " tag=" + r.variables.gw_tag + " seq=" + r.variables.gw_n
+    + " body=" + JSON.stringify({ system: system.join("\n"), first_message: first });
+}
+
+export default { authentic, strip, seq, census, context };

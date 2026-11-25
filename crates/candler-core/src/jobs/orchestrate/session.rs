@@ -31,7 +31,7 @@ use crate::isolation::gateway::{
     DockerGateway, EgressProxy, EgressStart, Gateway, GatewayError, GatewayStart, GatewayStatus,
     SecretError, SecretSource, SecretValue, UpstreamConfig,
 };
-use crate::isolation::image::{PackageProbe, PackageReadings};
+use crate::isolation::image::{PackageProbe, PackageReadings, sidecar_tag};
 use crate::isolation::model::{ContainerRef, ImageRef, NetworkName, SweepScope};
 use crate::jobs::dir::JobDir;
 use crate::jobs::model::JobSpec;
@@ -52,8 +52,6 @@ use candler_schemas::execution::paths::{
 /// The roots of a cell that hold typed records; their sources are not value paths.
 const TYPED_ROOTS: [&str; 4] = [HARNESS, TREATMENT, INPUTS, ENVIRONMENTS];
 
-/// The tag the gateway's sidecar image is looked up by.
-pub(super) const SIDECAR_TAG: &str = "candler-gateway:latest";
 /// The marker the gateway's docker commands carry.
 const GATEWAY_MARKER: &str = "gateway";
 /// How long a sweep of the job's containers may take.
@@ -217,10 +215,13 @@ pub trait JobHost: Send + Sync {
 }
 
 /// The host of a real job: the `docker` on `PATH` and a [`DockerGateway`] from the sidecar image
-/// docker holds under the tag `candler-gateway:latest`.
+/// docker holds under the tag of the gateway's build context. Only a host made by
+/// [`DockerHost::with_controls`] knows that context; any other refuses a job that needs a gateway
+/// with `sidecar_image_missing`.
 #[derive(Debug, Clone)]
 pub struct DockerHost {
     controls: Result<ControlContexts, String>,
+    sidecar: Option<String>,
     upstream_ca: Option<Vec<u8>>,
 }
 
@@ -235,16 +236,19 @@ impl DockerHost {
     #[must_use]
     pub fn with_controls(contexts: ControlContexts) -> Self {
         Self {
+            sidecar: sidecar_tag(&contexts.gateway).ok(),
             controls: Ok(contexts),
             upstream_ca: None,
         }
     }
 
-    /// The host that cannot run session controls, for the reason `why`.
+    /// The host that cannot run session controls, for the reason `why`. It knows no gateway build
+    /// context either, so it refuses every job that needs a gateway.
     #[must_use]
     pub fn without_controls(why: &str) -> Self {
         Self {
             controls: Err(why.to_owned()), // BORROW: the host owns its reason
+            sidecar: None,
             upstream_ca: None,
         }
     }
@@ -331,7 +335,7 @@ fn upstream_of(endpoint: &str, ca: Option<&[u8]>) -> Result<UpstreamConfig, Gate
     }
 }
 
-/// The job's gateway service over the sidecar image docker holds under [`SIDECAR_TAG`],
+/// The job's gateway service over the sidecar image docker holds under `tag`,
 /// forwarding to `upstream` with at most `max_parallel` calls at once; its docker commands carry
 /// `marker` and record under the job directory of `rt`.
 ///
@@ -340,6 +344,7 @@ fn upstream_of(endpoint: &str, ca: Option<&[u8]>) -> Result<UpstreamConfig, Gate
 /// be opened.
 pub(super) async fn sidecar_gateway(
     rt: &Runtime,
+    tag: &str,
     upstream: UpstreamConfig,
     max_parallel: u32,
     marker: Marker,
@@ -347,7 +352,7 @@ pub(super) async fn sidecar_gateway(
     let failed = |reason: String| OrchestrateError::Gateway { reason };
     let info = rt
         .docker
-        .image_inspect(SIDECAR_TAG)
+        .image_inspect(tag)
         .await
         .map_err(|e| failed(e.to_string()))?
         // BORROW: .to_owned() gives the error its own text
@@ -435,7 +440,12 @@ impl JobHost for DockerHost {
                 .parse()
                 // BORROW: .to_owned() gives the error its own text
                 .map_err(|_| failed("marker_invalid".to_owned()))?;
-            sidecar_gateway(rt, upstream, spec.budget.max_parallel, marker).await
+            let tag = self
+                .sidecar
+                .as_deref()
+                // BORROW: .to_owned() gives the error its own text
+                .ok_or_else(|| failed("sidecar_image_missing".to_owned()))?;
+            sidecar_gateway(rt, tag, upstream, spec.budget.max_parallel, marker).await
         })
     }
 }

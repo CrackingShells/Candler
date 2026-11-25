@@ -9,6 +9,8 @@
 #                     <verb>.early (stdout printed before the delay),
 #                     <verb>.delay (seconds to sleep first). <verb> is argv[1], or "<argv1>-<argv2>"
 #                     for the grouped commands image, network and container (image-inspect).
+# A `run` of a control container (`candler.role=control`) that runs `--print-logs` is the harness
+#   check and is answered from run-check.out, so run.out stays the answer of every other run.
 # State (D20): `build -t <tag>` creates $FAKE_DOCKER_DIR/built-<tag> (tag with / and : as _).
 #   `image inspect <tag>` succeeds only once that marker exists (stdout from image-inspect.out,
 #   else "[]"), and exits 1 with "No such image" before it. A test may touch a marker to preset it.
@@ -24,6 +26,11 @@ printf '[%s]\n' "$line" >> "$FAKE_DOCKER_LOG"
 verb="${1:-}"
 case "$verb" in
   image|network|container) [ -n "${2:-}" ] && verb="$1-$2" ;;
+esac
+
+# The harness check (a control container running `--print-logs`) has its own answer.
+case "$verb" in
+  run) case " $* " in *" candler.role=control "*" --print-logs "*) verb="run-check" ;; esac ;;
 esac
 
 [ -f "$FAKE_DOCKER_DIR/$verb.early" ] && cat "$FAKE_DOCKER_DIR/$verb.early"

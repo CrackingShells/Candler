@@ -26,7 +26,8 @@ use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
     AgentSetting, Answer, Cell, CollectSpec, CommandSpec, DriverFact, EnvEntry, GatewayEnv,
-    HarnessId, Observed, Prepared, PreparedFile, ProcessExit, StatePath, StopSpec, Workspace,
+    HarnessId, LoadedFile, Observed, Prepared, PreparedFile, ProcessExit, StatePath, StopSpec,
+    Workspace,
 };
 use candler_harness_opencode::driver::OpenCodeDriver;
 use candler_schemas::execution::EventPayload;
@@ -112,6 +113,20 @@ pub const CONFIG_TEXT: &str =
     r#"{"providers":{"candler":{"settings":{"apiKey":"{env:CANDLER_GATEWAY_TOKEN}"}}}}"#;
 
 impl HarnessDriver for WiringDriver {
+    fn config_check(
+        &self,
+        plan: &candler_harness::driver::Plan,
+    ) -> Option<candler_harness::spec::CommandSpec> {
+        self.0.config_check(plan)
+    }
+
+    fn read_config_check(&self, output: &[u8]) -> candler_harness::spec::CheckVerdict {
+        self.0.read_config_check(output)
+    }
+
+    fn workspace_instruction_file(&self) -> &'static str {
+        self.0.workspace_instruction_file()
+    }
     fn skills(&self) -> candler_harness::skills::SkillTree {
         candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
     }
@@ -181,8 +196,12 @@ impl HarnessDriver for WiringDriver {
         self.0.state_paths()
     }
 
-    fn census_stream(&self) -> Option<StreamName> {
-        self.0.census_stream()
+    fn census_from_gateway(&self) -> bool {
+        self.0.census_from_gateway()
+    }
+
+    fn loaded_instructions(&self, stream: &StreamName, bytes: &[u8]) -> Vec<LoadedFile> {
+        self.0.loaded_instructions(stream, bytes)
     }
 
     fn stop(&self) -> StopSpec {
@@ -440,7 +459,7 @@ pub fn planned_key() -> RunKey {
 }
 
 /// Scripts the fake client's `inspect` and `ls` answers for the agent of the run `key`, and the
-/// answer of a collect container: `export`.
+/// answer of a collect container: `export`, and the clean report of the harness check.
 fn script(rig: &Rig, key: &RunKey, export: Option<&str>) {
     let id = agent_cid();
     let labels = json!({
@@ -463,6 +482,12 @@ fn script(rig: &Rig, key: &RunKey, export: Option<&str>) {
     if let Some(text) = export {
         fs::write(canned.join("run.out"), text).expect("an export");
     }
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../candler-harness-opencode/tests/fixtures/check/valid.txt"),
+        canned.join("run-check.out"),
+    )
+    .expect("a clean check report");
 }
 
 /// Every docker call the fake client logged, in order. The client writes one JSON array of argv

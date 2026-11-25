@@ -15,9 +15,9 @@ use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::{FrameIn, ReaderError, TraceReader};
 use candler_harness::spec::{
     Action, AgentSetting, Answer, Cell, CensusSource, CollectSpec, CommandSpec, Confidence,
-    DriverFact, FormatVersion, Framing, GatewayEnv, HarnessId, HttpMethod, InitReport, Observed,
-    ObservedEnd, Prepared, PreparedFile, ProcessEnd, ProcessExit, StateKind, StatePath, StopSignal,
-    StopSpec, Workspace,
+    DriverFact, FormatVersion, Framing, GATEWAY_STREAM, GatewayEnv, HarnessId, HttpMethod,
+    InitReport, Observed, ObservedEnd, Prepared, PreparedFile, ProcessEnd, ProcessExit, StateKind,
+    StatePath, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::primitives::{FieldPath, Name, NameVersion, Timestamp};
 use candler_schemas::raw::{RawFrame, RawRef, StreamName};
@@ -218,6 +218,25 @@ impl TraceReader for LinesReader {
 pub struct LinesDriver;
 
 impl HarnessDriver for LinesDriver {
+    fn config_check(
+        &self,
+
+        plan: &candler_harness::driver::Plan,
+    ) -> Option<candler_harness::spec::CommandSpec> {
+        let _ = plan;
+
+        None
+    }
+
+    fn read_config_check(&self, output: &[u8]) -> candler_harness::spec::CheckVerdict {
+        let _ = output;
+
+        candler_harness::spec::CheckVerdict::Clean
+    }
+
+    fn workspace_instruction_file(&self) -> &'static str {
+        "AGENTS.md"
+    }
     fn skills(&self) -> candler_harness::skills::SkillTree {
         candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
     }
@@ -468,6 +487,25 @@ impl TraceReader for DocumentReader {
 pub struct DocumentDriver;
 
 impl HarnessDriver for DocumentDriver {
+    fn config_check(
+        &self,
+
+        plan: &candler_harness::driver::Plan,
+    ) -> Option<candler_harness::spec::CommandSpec> {
+        let _ = plan;
+
+        None
+    }
+
+    fn read_config_check(&self, output: &[u8]) -> candler_harness::spec::CheckVerdict {
+        let _ = output;
+
+        candler_harness::spec::CheckVerdict::Clean
+    }
+
+    fn workspace_instruction_file(&self) -> &'static str {
+        "AGENTS.md"
+    }
     fn skills(&self) -> candler_harness::skills::SkillTree {
         candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
     }
@@ -809,6 +847,20 @@ session.interrupt --param sessionID={session_id}";
 pub struct OpenShapedDriver(pub DocumentDriver);
 
 impl HarnessDriver for OpenShapedDriver {
+    fn config_check(
+        &self,
+        plan: &candler_harness::driver::Plan,
+    ) -> Option<candler_harness::spec::CommandSpec> {
+        self.0.config_check(plan)
+    }
+
+    fn read_config_check(&self, output: &[u8]) -> candler_harness::spec::CheckVerdict {
+        self.0.read_config_check(output)
+    }
+
+    fn workspace_instruction_file(&self) -> &'static str {
+        self.0.workspace_instruction_file()
+    }
     fn skills(&self) -> candler_harness::skills::SkillTree {
         candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
     }
@@ -897,8 +949,8 @@ impl HarnessDriver for OpenShapedDriver {
         ]
     }
 
-    fn census_stream(&self) -> Option<StreamName> {
-        "model_requests".parse().ok()
+    fn census_from_gateway(&self) -> bool {
+        true
     }
 
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
@@ -963,7 +1015,7 @@ impl HarnessDriver for OpenShapedDriver {
     ) -> Option<Box<dyn TraceReader>> {
         // BORROW: explicit .as_str() instead of Deref coercion
         match stream.as_str() {
-            "model_requests" => Some(Box::new(CensusReader { tools: None })), // TRAIT_OBJECT: the trait returns readers as objects
+            GATEWAY_STREAM => Some(Box::new(CensusReader { tools: None })), // TRAIT_OBJECT: the trait returns readers as objects
             "export" => Some(Box::new(ExportReader { session: None })), // TRAIT_OBJECT: the trait returns readers as objects
             _ => self.0.offline_reader(stream, servers),
         }

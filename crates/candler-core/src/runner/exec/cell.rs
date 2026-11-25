@@ -42,6 +42,9 @@ pub struct CellRun {
     /// The record of the session controls the cell's runs rely on; none for a cell that is not a
     /// session.
     pub control: Option<ControlRef>,
+    /// Whether the harness's own check found nothing in the files installed for the cell; `false`
+    /// for a cell whose harness has no check.
+    pub config_clean: bool,
 }
 
 impl CellRun {
@@ -67,6 +70,7 @@ impl CellRun {
             packages: PackageReadings::new(),
             evaluation_inputs: Vec::new(),
             control: None,
+            config_clean: false,
         }
     }
 

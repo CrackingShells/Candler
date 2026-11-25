@@ -10,9 +10,9 @@ use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
-    AgentSetting, Answer, BaseImage, Cell, CollectSpec, CommandSpec, DriverFact, EffortLevel,
-    GatewayEnv, HarnessId, Observed, PermissionMode, Prepared, ProcessExit, SessionTracker,
-    StopSignal, StopSpec, Workspace,
+    AgentSetting, Answer, BaseImage, CLAUDE_CODE, Cell, CheckVerdict, CollectSpec, CommandSpec,
+    DriverFact, EffortLevel, GatewayEnv, HarnessId, InstructionScope, LoadedFile, Observed,
+    PermissionMode, Prepared, ProcessExit, SessionTracker, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::execution::paths;
 use candler_schemas::name;
@@ -25,6 +25,8 @@ use serde_json::Value;
 
 use crate::{ClaudeCodeReader, detect, discovery, prepare, session};
 
+/// The first line of every `claude doctor` report.
+const DOCTOR_TITLE: &str = "Claude Code doctor";
 /// The program the driver runs.
 pub(crate) const PROGRAM: &str = "claude";
 /// The variable that carries the gateway's address.
@@ -84,8 +86,9 @@ pub(crate) enum Launch {
 }
 
 /// The command line of a cell: the program and `--print` with the prompt or the stdin format, the
-/// model, the stream output, the setting sources, the permission mode, and the effort and caps the
-/// cell sets.
+/// model, the stream output, the setting sources (with `user` when the cell sets a global text),
+/// the permission mode, the effort and caps the cell sets, and the observation hooks' settings
+/// file.
 pub(crate) fn argv(cell: &Cell<'_>, launch: Launch) -> Result<Vec<String>, DriverError> {
     let model = cell.model()?;
     let mode = cell.permission_mode()?;
@@ -105,10 +108,17 @@ pub(crate) fn argv(cell: &Cell<'_>, launch: Launch) -> Result<Vec<String>, Drive
             argv.extend(["--model", model].map(str::to_owned)); // BORROW: str::to_owned makes the owned arguments
         }
     }
+    // `user` also loads the home's `settings.json` and `rules/`, so only a cell that needs the
+    // home's `CLAUDE.md` adds it.
+    let sources = if prepare::has_global(cell)? {
+        "user,project,local"
+    } else {
+        "project,local"
+    };
     argv.extend(
         [
             "--setting-sources",
-            "project,local",
+            sources,
             "--permission-mode",
             mode.as_str(),
         ]
@@ -129,6 +139,8 @@ pub(crate) fn argv(cell: &Cell<'_>, launch: Launch) -> Result<Vec<String>, Drive
         // Only the servers of the cell: no other MCP configuration reaches the agent.
         argv.extend(["--mcp-config", prepare::MCP_FILE, "--strict-mcp-config"].map(str::to_owned)); // BORROW: str::to_owned makes the owned arguments
     }
+    argv.push("--settings".to_owned()); // BORROW: .to_owned() makes the owned argument
+    argv.push(session::settings_argument());
     Ok(argv)
 }
 
@@ -147,7 +159,7 @@ impl ClaudeCodeDriver {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            id: HarnessId::new(name!("claude-code")),
+            id: HarnessId::new(name!(CLAUDE_CODE)),
             // BORROW: .to_owned() makes owned arguments
             probe: CommandSpec::new(PROGRAM.to_owned(), vec!["--version".to_owned()]),
         }
@@ -278,6 +290,15 @@ impl HarnessDriver for ClaudeCodeDriver {
             AgentSetting::SessionMode => Answer::Mapped {
                 construct: "stream-json over an open stdin, one turn per message",
             },
+            AgentSetting::Instructions(InstructionScope::Global) => Answer::Mapped {
+                construct: "`.claude/CLAUDE.md` in the agent's home, read through `user` in `--setting-sources`, which also loads the home's `.claude/settings.json` and `.claude/rules/*.md` (Candler's home holds neither)",
+            },
+            AgentSetting::Instructions(InstructionScope::Workspace) => Answer::Mapped {
+                construct: "`CLAUDE.md` at the workspace root, mounted read-only",
+            },
+            AgentSetting::Hooks => Answer::Mapped {
+                construct: "the `hooks` key of `.claude/settings.json`, with the hook files under `.claude/hooks/`",
+            },
         }
     }
 
@@ -298,10 +319,53 @@ impl HarnessDriver for ClaudeCodeDriver {
             DriverFact::Census => Answer::Mapped {
                 construct: "Claude Code's `system/init` event lists the tools",
             },
+            DriverFact::ConfigCheck => Answer::Mapped {
+                construct: "`claude doctor` in the workspace, whose `Invalid settings` section lists a rejected file or a skipped entry",
+            },
             DriverFact::UnsetPermissionMode => Answer::Mapped {
                 construct: "`--permission-mode default` on the command line, which in a headless run denies every tool call that needs approval unless an allow rule or a hook approves it",
             },
         }
+    }
+
+    fn config_check(&self, plan: &Plan) -> Option<CommandSpec> {
+        let _ = plan;
+        // The exit status is 0 whatever it finds, and four install-method warnings always print:
+        // only the `Invalid settings` section of a report, which opens with its title, says something of the files.
+        Some(CommandSpec::new(
+            PROGRAM.to_owned(),
+            vec!["doctor".to_owned()],
+        )) // BORROW: .to_owned() makes the owned arguments
+    }
+
+    fn read_config_check(&self, output: &[u8]) -> CheckVerdict {
+        let text = String::from_utf8_lossy(output);
+        // Every report opens with its title; output without it is not a report, so a check that
+        // never ran (empty output, an error, a changed format) never passes.
+        if text.lines().find(|line| !line.trim().is_empty()) != Some(DOCTOR_TITLE) {
+            return CheckVerdict::Rejected {
+                output: text.into_owned(),
+            };
+        }
+        let mut section = text
+            .lines()
+            .skip_while(|line| !line.contains("Invalid settings"))
+            .take_while(|line| !line.trim().is_empty())
+            .peekable();
+        if section.peek().is_none() {
+            return CheckVerdict::Clean;
+        }
+        CheckVerdict::Rejected {
+            output: section.collect::<Vec<_>>().join("\n"),
+        }
+    }
+
+    fn loaded_instructions(&self, stream: &StreamName, bytes: &[u8]) -> Vec<LoadedFile> {
+        session::loaded(stream, bytes)
+    }
+
+    fn workspace_instruction_file(&self) -> &'static str {
+        prepare::WORKSPACE_FILE
     }
 
     fn gateway(&self) -> Option<GatewayEnv> {
@@ -320,20 +384,30 @@ impl HarnessDriver for ClaudeCodeDriver {
     fn check_settings(&self, cell: &Cell<'_>) -> Result<(), DriverError> {
         cap_text(cell, paths::BUDGET_PER_RUN_TURNS, true)?;
         cap_text(cell, paths::BUDGET_PER_RUN_MAX_COST_USD, false)?;
+        candler_harness::agent_config::hooks::<candler_schemas::agent_config::ClaudeCodeHooks>(
+            cell,
+            CLAUDE_CODE,
+        )?;
+        prepare::has_global(cell)?;
         candler_harness::mcp::servers(cell).map(|_| ())
     }
 
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
         let _ = workspace;
         self.check_settings(cell)?;
-        let mut files = vec![prepare::render_settings(cell)?];
+        let mut files = vec![prepare::render_settings(cell)?, session::observers()?];
         files.extend(prepare::render_mcp(cell)?);
+        files.extend(prepare::render_hook_files(cell)?);
+        let (global, workspace_file) = prepare::render_instructions(cell)?;
+        files.extend(global);
         let argv = argv(cell, Launch::Headless(cell.prompt()?))?;
-        Ok(Plan::new(
+        let mut plan = Plan::new(
             Prepared::new(files, Vec::new()),
             CommandSpec::builder().argv(argv).build()?,
         )
-        .with_session(session::spec(cell)?))
+        .with_session(session::spec(cell)?);
+        plan.workspace_files.extend(workspace_file);
+        Ok(plan)
     }
 
     fn stop(&self) -> StopSpec {
@@ -390,6 +464,8 @@ impl HarnessDriver for ClaudeCodeDriver {
                 .into_iter()
                 .map(|pattern| CollectSpec::file(format!("!{pattern}"))),
         );
+        // EXPLICIT: the log's path and stream name are constants that parse; were they refused, the log would go uncollected
+        specs.extend(session::log_collect().ok());
         specs
     }
 }

@@ -25,8 +25,8 @@ pub struct Page {
     pub helper: bool,
 }
 
-/// The six pages, in the order of the index.
-pub const PAGES: [Page; 6] = [
+/// The seven pages, in the order of the index.
+pub const PAGES: [Page; 7] = [
     Page {
         file: "plugin-manifest.md",
         title: "Plug-in manifest",
@@ -69,8 +69,16 @@ pub const PAGES: [Page; 6] = [
         file: "experiment-file.md",
         title: "Experiment file",
         writer: "experimenter",
-        surface: "The experiment file an experimenter writes to fix the values, factors, replicates, budget, harness and treatment of a set of runs; Candler reads it to plan and run the cells.",
+        surface: "The experiment file an experimenter writes to fix the values, factors, replicates, budget, harness and treatment of a set of runs; Candler reads it to plan and run the cells. Instruction texts and hooks are tables whose keys are the harness's own words: `instructions.global` (harness id to text), `instructions.workspace` (a text), and `hooks` (harness id to `settings` and `files` for `claude-code`, or `plugins` for `opencode`), in `[fixed]` or as factor levels. A hook a consumer gives the agent may approve tool calls, which changes what `permission_mode` means for that cell.",
         roots: &["experiment"],
+        helper: false,
+    },
+    Page {
+        file: "trace-file.md",
+        title: "Normalised trace",
+        writer: "Candler, from a harness's output",
+        surface: "The normalised trace Candler stores for each run: a header, the sessions and their events, read from the harness's raw output and from what the gateway relayed, by an evaluator or an analyst.",
+        roots: &["normalised-trace"],
         helper: false,
     },
     Page {

@@ -48,6 +48,9 @@ Core line: `v0.16.0`; the `candler-harness` crate has the same version.
 | turn cap | `--max-turns` on the command line | no (`agents.<id>.steps` makes the last request a tool-less one with an injected prompt and ends the run as completed (the `oc_step_cap` fixture), where Claude Code ends the run with `error_max_turns`, so the cap class would be lost and the model's last turn changed) |
 | cost cap | `--max-budget-usd` on the command line | no (OpenCode has no cost cap) |
 | session mode | stream-json over an open stdin, one turn per message | no (OpenCode runs no session: its trace comes from the export after the run) |
+| instructions: global | `.claude/CLAUDE.md` in the agent's home, read through `user` in `--setting-sources`, which also loads the home's `.claude/settings.json` and `.claude/rules/*.md` (Candler's home holds neither) | `AGENTS.md` in `opencode/` under `XDG_CONFIG_HOME`, which OpenCode loads ahead of the workspace file |
+| instructions: workspace | `CLAUDE.md` at the workspace root, mounted read-only | `AGENTS.md` at the workspace root, mounted read-only |
+| hooks | the `hooks` key of `.claude/settings.json`, with the hook files under `.claude/hooks/` | local plugin files in `opencode/plugins/` under `XDG_CONFIG_HOME`, which OpenCode loads with no npm install |
 | gateway route | Candler: gateway, address in `ANTHROPIC_BASE_URL` | Candler: gateway, address in `CANDLER_GATEWAY_URL` |
 | authoritative trace | yes | Candler: collects `export` after the run |
 | graceful stop | SIGTERM ends the sessions cleanly | an interrupt request to the `serve` child, then SIGTERM to the client |
@@ -56,6 +59,7 @@ Core line: `v0.16.0`; the `candler-harness` crate has the same version.
 | execution outside the child | no (tools run in the child process) | tools run in the `serve` child, which the stop interrupts first |
 | census source | Claude Code's `system/init` event lists the tools | Candler: the tools the gateway offered the model in its first request |
 | permission mode when none is set | `--permission-mode default` on the command line, which in a headless run denies every tool call that needs approval unless an allow rule or a hook approves it | Candler: the run is under `--auto` and the baseline ruleset {*, *, allow}, so every tool is allowed: OpenCode has no headless ask mode |
+| config check | `claude doctor` in the workspace, whose `Invalid settings` section lists a rejected file or a skipped entry | `opencode run --standalone --print-logs -m probe/none x` in the workspace, whose `level=WARN` lines name a rejected `opencode.json` or a plugin that failed to load |
 <!-- /generated:fields -->
 
 ## Refusals
@@ -69,6 +73,9 @@ Core line: `v0.16.0`; the `candler-harness` crate has the same version.
 
 ## Notes
 
-- `no (…)` is a refusal: `experiment.session_refused` while resolving, `experiment.setting_unsupported` when the cells are planned, before a job starts. [checked: v@0.15.0]
-- In session mode Candler also counts turns across the session and ends the run when they exceed `budget.per_run.turns`. [checked: v@0.7.0]
-- The settings a driver maps or refuses, such as permission modes, effort levels and tool names, are the answers its driver gives for each `AgentSetting`. [checked: v@0.7.0]
+- `no (…)` is a refusal: `experiment.session_refused` while resolving, `experiment.setting_unsupported` once the cells are planned, before a job starts. [checked: v@0.15.0]
+- In session mode Candler counts turns and ends the run past `budget.per_run.turns`. [checked: v@0.7.0]
+- A driver's answers for each `AgentSetting` decide which modes, effort levels and tool names it maps or refuses. [checked: v@0.7.0]
+- Every Claude Code cell runs three hooks, headless too, logs them to stream `hooks`, and gets one `claude doctor` check per (image, files, inputs, command, environment, treatment). [checked: v@0.16.0]
+- `census.instructions` is read from the hook log in the agent's home, which the agent can change; the trace's `context_start` shows what reached the model. [checked: v@0.16.0]
+- A plain OpenCode cell gets no instruction file or plugin; `census.instructions` is the gateway's record of the first request offering tools. [checked: v@0.16.0]

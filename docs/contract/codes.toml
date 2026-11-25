@@ -762,6 +762,16 @@ side = "experiment"
 enum = "DriverError"
 variant = "InvalidValue"
 
+[harness."experiment.harness_rejected_input"]
+side = "experiment"
+enum = "DriverError"
+variant = "HarnessRejectedInput"
+
+[harness."experiment.instructions_collide"]
+side = "experiment"
+enum = "DriverError"
+variant = "InstructionsCollide"
+
 [harness."experiment.mcp_server_prefix_ambiguous"]
 side = "experiment"
 enum = "DriverError"
@@ -996,6 +1006,11 @@ variant = "Read"
 side = "experiment"
 enum = "ServerCheckError"
 variant = "Server"
+
+[jobs."jobs.config_check_failed"]
+side = "environment"
+enum = "ConfigCheckError"
+variant = "Check"
 
 [jobs."jobs.server_check_failed"]
 side = "environment"
