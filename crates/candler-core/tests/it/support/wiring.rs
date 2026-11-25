@@ -459,7 +459,7 @@ pub fn planned_key() -> RunKey {
 }
 
 /// Scripts the fake client's `inspect` and `ls` answers for the agent of the run `key`, and the
-/// answer of a collect container: `export`.
+/// answer of a collect container: `export`, and the clean report of the harness check.
 fn script(rig: &Rig, key: &RunKey, export: Option<&str>) {
     let id = agent_cid();
     let labels = json!({
@@ -482,6 +482,12 @@ fn script(rig: &Rig, key: &RunKey, export: Option<&str>) {
     if let Some(text) = export {
         fs::write(canned.join("run.out"), text).expect("an export");
     }
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../candler-harness-opencode/tests/fixtures/check/valid.txt"),
+        canned.join("run-check.out"),
+    )
+    .expect("a clean check report");
 }
 
 /// Every docker call the fake client logged, in order. The client writes one JSON array of argv
