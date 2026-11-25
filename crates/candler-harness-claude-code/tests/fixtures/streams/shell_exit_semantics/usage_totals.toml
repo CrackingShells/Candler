@@ -1,0 +1,13 @@
+[message."654ac8db-b358-475c-94fc-31ff9f84be61"]
+input_tokens = 700
+output_tokens = 7
+cache_read_tokens = 0
+cache_creation_tokens = 0
+
+[session_total."654ac8db-b358-475c-94fc-31ff9f84be61"]
+input_tokens = 700
+output_tokens = 140
+cache_read_tokens = 0
+cache_creation_tokens = 0
+cost_usd = 0.005600000000000001
+
