@@ -13,17 +13,17 @@ A consumer gives the experiment a global instruction file per harness, each arm 
 
 ## Success Gates
 - ⬜ G1–G13 of the [architecture report, v2](../../__reports__/agent_config/02-architecture_agent_config_v2.md) hold on the tip of `feat/m6.5-agent-config`, each one seen failing on `8d82f63b`
-- ⬜ `probe_harness_checks.md`, `declaration.md` and `installed/` are `done`
-- ⬜ The spend measured from transcripts, coordinator included, is at most $75
+- ⬜ `probe_harness_checks.md`, `declaration.md`, `trace_context.md` and `installed/` are `done`
+- ⬜ The spend measured from transcripts, coordinator included, is at most $85
 - ⬜ Every finding left out of scope is filed under `__reports__/agent_config/` and escalated
 
 ## Status
 ```mermaid
 graph TD
-    probe_harness_checks[Probe harness checks]:::planned
-    declaration[Declaration]:::planned
+    probe_harness_checks[Probe harness checks]:::inprogress
+    declaration[Declaration]:::inprogress
     installed[Installed]:::planned
-    trace_context[trace_context]:::planned
+    trace_context[trace_context]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -34,10 +34,10 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `probe_harness_checks.md` | 📄 Leaf Task | ⬜ Planned |
-| `declaration.md` | 📄 Leaf Task | ⬜ Planned |
+| `probe_harness_checks.md` | 📄 Leaf Task | 🔄 In Progress |
+| `declaration.md` | 📄 Leaf Task | 🔄 In Progress |
 | `installed/` | 📁 Directory | ⬜ Planned |
-| `trace_context.md` | 📄 Leaf Task | ⬜ Planned |
+| `trace_context.md` | 📄 Leaf Task | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
