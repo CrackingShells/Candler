@@ -18,7 +18,7 @@ Each driver installs the global instruction text and hooks where its harness loo
 graph TD
     install_claude_code[Install on Claude Code]:::done
     install_opencode[Install on OpenCode]:::planned
-    preflight_check[Preflight check]:::planned
+    preflight_check[Preflight check]:::done
     proved[Proved]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -32,7 +32,7 @@ graph TD
 |:-----|:-----|:-------|
 | `install_claude_code.md` | 📄 Leaf Task | ✅ Done |
 | `install_opencode.md` | 📄 Leaf Task | ⬜ Planned |
-| `preflight_check.md` | 📄 Leaf Task | ⬜ Planned |
+| `preflight_check.md` | 📄 Leaf Task | ✅ Done |
 | `proved/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log

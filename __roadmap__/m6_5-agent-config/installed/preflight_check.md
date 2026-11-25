@@ -5,12 +5,12 @@
 **Pre-conditions**:
 - [ ] `[cmd]` `git -C <worktree> merge-base --is-ancestor feat/m6.5-agent-config HEAD` succeeds
 **Success Gates**:
-- ⬜ With a driver whose check reports a finding, the job is refused before its first run with `experiment.harness_rejected_input`, the way a declared server that exits at start is refused. The message names what was installed, where, the harness, and the harness's output. No run starts and no check container is left. On the base, the job runs.
-- ⬜ With a clean check, the verdict is stored beside the harness identity in the run's provenance. With a driver whose `config_check` is `None`, the cell is not refused and nothing is stored as checked.
-- ⬜ Cells that share a harness, image and prepared files run the check once, counted on the isolation the check uses.
-- ⬜ G9 (core half). With a fake driver whose plan lists a read-only workspace file, the run's workspace holds it at the root, a write to it fails, it is not among the collected outputs, and the run is not sealed `input_leak`. On the base, `Plan` has no such field.
-- ⬜ G10. With `instructions.workspace` set, an input declared at the workspace instruction file's path is refused when the runs are planned, before any container starts, with `experiment.instructions_collide`, naming the input. On the base, the job runs.
-- ⬜ An adversarial Sonnet review finds no path where a finding lets the cell run, and no check container that outlives the step.
+- ✅ With a driver whose check reports a finding, the job is refused before its first run with `experiment.harness_rejected_input`, the way a declared server that exits at start is refused. The message names what was installed, where, the harness, and the harness's output. No run starts and no check container is left. On the base, the job runs.
+- ✅ With a clean check, the verdict is stored beside the harness identity in the run's provenance. With a driver whose `config_check` is `None`, the cell is not refused and nothing is stored as checked.
+- ✅ Cells that share a harness, image and prepared files run the check once, counted on the isolation the check uses.
+- ✅ G9 (core half). With a fake driver whose plan lists a read-only workspace file, the run's workspace holds it at the root, a write to it fails, it is not among the collected outputs, and the run is not sealed `input_leak`. On the base, `Plan` has no such field.
+- ✅ G10. With `instructions.workspace` set, an input declared at the workspace instruction file's path is refused when the runs are planned, before any container starts, with `experiment.instructions_collide`, naming the input. On the base, the job runs.
+- ✅ An adversarial Sonnet review finds no path where a finding lets the cell run, and no check container that outlives the step.
 **References**: [Architecture report, v2](../../../__reports__/agent_config/02-architecture_agent_config_v2.md) — the shapes, the error model, the invariants and §Execution model; `crates/candler-core/src/jobs/orchestrate/servers.rs` (`check_servers`, the precedent, called from `run_job`); `crates/candler-core/src/runner/plan.rs` (`plan_runs`)
 
 ## Step 1: The check
