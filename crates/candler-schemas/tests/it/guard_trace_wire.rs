@@ -428,7 +428,7 @@ fn an_mcp_origin_without_a_tool_still_reads_and_one_with_it_round_trips() {
 /// one still reads, and an `exit` that is not that object (a bare `{code}`, a string, `null`) is
 /// refused, so the wire has one reading of it. Oracle: the event lines below, written by hand
 /// from the architecture's §Normalised trace model and §Wire encodings; the line without `exit`
-/// is the positive control.
+/// is the positive control. Bite: `exit` typed as a free JSON value, so the refused rows read.
 #[test]
 fn a_tool_result_carries_its_exit_as_the_process_exit_object_and_nothing_else() {
     let file_with = |event: &str| {
