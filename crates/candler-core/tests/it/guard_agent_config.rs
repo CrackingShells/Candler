@@ -126,7 +126,7 @@ struct Case {
 /// Guards: a hooks table with no entry for the cell's harness is refused as
 /// `experiment.cell_value_missing` at `/fixed/hooks`, a global instruction table with none as the
 /// same code at `/fixed/instructions.global`, a key that names no registered harness as
-/// `experiment.cell_value_invalid`, and a hook file path with `..` as the same code at the file list.
+/// `experiment.cell_value_invalid`, and a hook file path with `..` as the same code at `/hooks`, naming the member.
 /// Oracle: the codes and pointers are written by hand from the surface.
 /// Bite: skip the reader at plan time (each cell plans).
 #[tokio::test]

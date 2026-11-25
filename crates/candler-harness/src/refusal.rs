@@ -23,13 +23,8 @@ fn driver_error_path(error: &DriverError) -> Option<String> {
     match error {
         DriverError::Command(inner) => Refusal::path(inner),
         DriverError::MissingValue { path } => {
-            // A cap lives under `/budget`, every other value is a key of `[fixed]` (or a factor).
-            if path.segments().next() == Some("budget") {
-                Some(pointer_of(path.segments()))
-            } else {
-                let text = path.to_string(); // BORROW: .to_string() gives owned text
-                Some(pointer_of(["fixed", text.as_str()])) // BORROW: explicit .as_str() instead of Deref coercion
-            }
+            let text = path.to_string(); // BORROW: .to_string() gives owned text
+            Some(pointer_of(["fixed", text.as_str()])) // BORROW: explicit .as_str() instead of Deref coercion
         }
         DriverError::Unsupported { path, .. }
         | DriverError::HarnessRejectedInput { path, .. }

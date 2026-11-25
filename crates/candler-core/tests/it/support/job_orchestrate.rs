@@ -449,22 +449,17 @@ pub struct ObservingDriver(pub QuietDriver);
 impl HarnessDriver for ObservingDriver {
     fn config_check(
         &self,
-
         plan: &candler_harness::driver::Plan,
     ) -> Option<candler_harness::spec::CommandSpec> {
-        let _ = plan;
-
-        None
+        self.0.config_check(plan)
     }
 
     fn read_config_check(&self, output: &[u8]) -> candler_harness::spec::CheckVerdict {
-        let _ = output;
-
-        candler_harness::spec::CheckVerdict::Clean
+        self.0.read_config_check(output)
     }
 
     fn workspace_instruction_file(&self) -> &'static str {
-        "AGENTS.md"
+        self.0.workspace_instruction_file()
     }
     fn skills(&self) -> candler_harness::skills::SkillTree {
         candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
