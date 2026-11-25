@@ -18,7 +18,7 @@ use candler_schemas::trace::{
 };
 use serde_json::{Map, Value};
 
-use crate::{VALIDATED, session_source};
+use crate::{EXPORT_READER_VERSION, VALIDATED, session_source};
 use candler_schemas::name;
 
 /// The tools `OpenCode` offers the model by itself, as `opencode_facts` listed them.
@@ -333,7 +333,7 @@ impl OpenCodeExportReader {
         // The longest name first, so that `a_b` is tried before `a` for the tool `a_b_c`.
         servers.sort_by_key(|server| std::cmp::Reverse(server.len()));
         Self {
-            identity: NameVersion::of(&name!("opencode-export"), semver::Version::new(0, 1, 0)),
+            identity: NameVersion::of(&name!("opencode-export"), EXPORT_READER_VERSION),
             read: None,
             servers,
         }
