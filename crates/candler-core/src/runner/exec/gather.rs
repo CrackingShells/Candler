@@ -176,7 +176,11 @@ pub async fn collect_commands(
         if let CollectSpec::Exec { spec, name, .. } = spec {
             found.push(Collected {
                 name: name.clone(), // BORROW: the result owns the stream name
-                output: isolation.collect_exec(plan, spec).await,
+                output: isolation.collect_exec(plan, spec).await.and_then(|ran| {
+                    ran.into_stdout().map_err(|source| IsolationError::Docker {
+                        detail: source.to_string(),
+                    })
+                }),
             });
         }
     }

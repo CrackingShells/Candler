@@ -1007,6 +1007,11 @@ side = "experiment"
 enum = "ServerCheckError"
 variant = "Server"
 
+[jobs."jobs.config_check_failed"]
+side = "environment"
+enum = "ConfigCheckError"
+variant = "Check"
+
 [jobs."jobs.server_check_failed"]
 side = "environment"
 enum = "ServerCheckError"

@@ -67,6 +67,7 @@ mod guard_ingest;
 mod guard_input_seam;
 mod guard_inspect;
 mod guard_inspect_mcp_config;
+mod guard_instruction_collision;
 mod guard_mcp_origin;
 mod guard_registry;
 mod guard_run_context_files;

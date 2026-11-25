@@ -23,9 +23,13 @@ use candler_core::isolation::image::PackageReadings;
 use candler_core::isolation::model::{
     ContainerOutcome, ContainerPlan, ContainerRef, GatewayHandle, ImageRef, Labels, NetworkName,
 };
-use candler_core::isolation::{EndFacts, IsolatedRequest, Isolation, IsolationError, RunOutputs};
+use candler_core::isolation::testing::ProbingIsolation;
+use candler_core::isolation::{
+    EndFacts, IsolatedRequest, Isolation, IsolationError, RunOutputs, StartProbe,
+};
 use candler_core::jobs::dir::JobDir;
-use candler_core::jobs::model::JobSpec;
+use candler_core::jobs::model::{JobCause, JobControl, JobOutcome, JobSpec};
+use candler_core::jobs::orchestrate::orchestrate_with;
 use candler_core::jobs::orchestrate::schedule::{Clock, wall_clock};
 use candler_core::jobs::orchestrate::session::{JobHost, OrchestrateError};
 use candler_core::jobs::slots::Slots;
@@ -48,6 +52,7 @@ use candler_schemas::trace::{EndedBy, Session};
 use futures::future::BoxFuture;
 use serde_json::json;
 use tempfile::TempDir;
+use tokio::sync::watch;
 
 use super::job_store::{job_id, job_record};
 use super::run_plan::{Facts, fresh_store, resolution};
@@ -191,7 +196,7 @@ impl Isolation for Placed {
         &'a self,
         plan: &'a ContainerPlan,
         command: &'a CommandSpec,
-    ) -> BoxFuture<'a, Result<Vec<u8>, IsolationError>> {
+    ) -> BoxFuture<'a, Result<candler_core::isolation::ExecOutput, IsolationError>> {
         if self.agent.is_some() {
             return self.inner.collect_exec(plan, command);
         }
@@ -813,4 +818,98 @@ pub fn spec(models: &[&str], facts: &Facts, wall_s: u32, parallel: u32) -> JobSp
         inputs: Vec::new(),
         evaluation_inputs: Vec::new(),
     }
+}
+
+/// The host of a job whose isolation is wrapped by a [`ProbingIsolation`] the test reads: each
+/// probed or executed command is answered from the scripts, and nothing else is changed.
+pub struct Probed {
+    inner: Arc<FakeHost>,
+    /// What a probed command that starts with the program is answered with.
+    pub answers: Vec<(String, StartProbe)>,
+    /// The programs a probe sees exit unless standard input is held open.
+    pub eof_exits: Vec<String>,
+    /// The programs a probe sees exit unless the file exists under a mount.
+    pub needs: Vec<String>,
+    /// What a command run for its output prints, by program.
+    pub prints: Vec<(String, String)>,
+    /// How a command run for its output ends, by program, where it prints more than text.
+    pub ran: Vec<(String, candler_core::isolation::ExecOutput)>,
+    probing: Mutex<Option<Arc<ProbingIsolation>>>,
+}
+
+impl Probed {
+    /// A host over `inner` that scripts nothing.
+    pub fn new(inner: Arc<FakeHost>) -> Self {
+        Self {
+            inner,
+            answers: Vec::new(),
+            eof_exits: Vec::new(),
+            needs: Vec::new(),
+            prints: Vec::new(),
+            ran: Vec::new(),
+            probing: Mutex::new(None),
+        }
+    }
+
+    /// The isolation the job built.
+    pub fn probing(&self) -> Arc<ProbingIsolation> {
+        self.probing
+            .lock()
+            .expect("the double")
+            .clone() // BORROW: the test reads the same double
+            .expect("the job built an isolation")
+    }
+}
+
+impl JobHost for Probed {
+    fn docker_cli(
+        &self,
+        supervisor: Arc<Supervisor>,
+        record_dir: PathBuf,
+    ) -> Result<DockerCli, DockerError> {
+        self.inner.docker_cli(supervisor, record_dir)
+    }
+
+    fn gateway<'a>(
+        &'a self,
+        rt: &'a Runtime,
+        spec: &'a JobSpec,
+    ) -> BoxFuture<'a, Result<Arc<dyn Gateway>, OrchestrateError>> {
+        self.inner.gateway(rt, spec)
+    }
+
+    fn isolation(&self, isolation: DockerIsolation) -> Arc<dyn Isolation> {
+        let probing = Arc::new(ProbingIsolation::new(self.inner.isolation(isolation)));
+        for (program, answer) in &self.answers {
+            probing.answer(program, answer.clone()); // BORROW: the double owns its answers
+        }
+        for program in &self.needs {
+            probing.needs_file(program);
+        }
+        for program in &self.eof_exits {
+            probing.exit_at_eof(program, "stdin closed");
+        }
+        for (program, output) in &self.prints {
+            probing.print(program, output);
+        }
+        for (program, output) in &self.ran {
+            probing.ran(program, output.clone()); // BORROW: the double owns its answers
+        }
+        *self.probing.lock().expect("the double") = Some(Arc::clone(&probing)); // BORROW: the test reads the same double
+        probing
+    }
+}
+
+/// Runs `job` under `rt` on `host` to its end.
+pub fn run_to_end(rt: Runtime, job: JobSpec, host: Arc<dyn JobHost>) -> JobOutcome {
+    let (cancel, _keep) = watch::channel::<Option<JobCause>>(None);
+    let ctl = JobControl {
+        cancel: Arc::new(cancel),
+    };
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .expect("a runtime")
+        .block_on(orchestrate_with(rt, job, ctl, host))
 }

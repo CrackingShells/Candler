@@ -199,7 +199,7 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
             );
         }
     }
-    let spec = plan_job(&store, &file, resolutions, force, declared, driver)?;
+    let spec = plan_job(&store, &file, resolutions, force, declared, &driver)?;
     start(&store, &file, &spec, &root).await
 }
 
@@ -259,7 +259,7 @@ fn plan_job(
     force: bool,
     declared: ResolvedInputs,
     // TRAIT_OBJECT: the registry selects the driver at runtime
-    driver: Arc<dyn HarnessDriver>,
+    driver: &Arc<dyn HarnessDriver>,
 ) -> Result<JobSpec, CliError> {
     let mut levels = resolutions;
     let resolution = levels
@@ -271,7 +271,8 @@ fn plan_job(
         store: store.clone(), // BORROW: the context owns its handle on the store
         experiment_lock: store.layout().experiment_lock(&experiment),
         secrets_present: EnvSecrets::new(file.secrets()).present(),
-        driver: Some(driver),
+        driver: Some(Arc::clone(driver)), // BORROW: the context shares the driver the collision check reads
+        input_targets: declared.targets.clone(), // BORROW: the context owns the paths the inputs mount
     };
     let mode = if force { Force::Yes } else { Force::No };
     let outcome = plan_runs(&ctx, file, levels.as_slice(), mode, PlanMode::Check) // BORROW: explicit .as_slice()

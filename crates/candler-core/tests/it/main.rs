@@ -11,6 +11,7 @@ mod guard_assert_clean;
 mod guard_build_context;
 mod guard_census_gateway;
 mod guard_comparability;
+mod guard_config_check;
 mod guard_container_e2e;
 mod guard_container_guard;
 mod guard_container_record;

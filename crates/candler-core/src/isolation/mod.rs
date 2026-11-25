@@ -27,6 +27,7 @@ use crate::supervise::hook::HookError;
 use crate::supervise::spawn::{OutputSpec, SpawnRequest};
 use crate::supervise::stop::Exit;
 
+pub use self::docker::ExecOutput;
 pub use self::model::{ContainerOutcome, ContainerPlan};
 
 /// Why an isolation step failed.
@@ -223,19 +224,21 @@ pub trait Isolation: Send + Sync {
     ) -> BoxFuture<'a, Result<ContainerOutcome, IsolationError>>;
 
     /// Runs `command` in a throwaway container over the run's mounts, environment and user and
-    /// returns what it printed on standard output. The agent's container may have exited: what
-    /// the harness keeps lives in the run's mounts. The container has no network and carries
-    /// neither the gateway's address nor its token. An isolation without containers refuses.
+    /// returns how it ended with what it printed on each stream: a command that exits with a
+    /// status other than `0` is an answer, not an error. The agent's container may have exited:
+    /// what the harness keeps lives in the run's mounts. The container has no network and
+    /// carries neither the gateway's address nor its token. An isolation without containers
+    /// refuses.
     ///
     /// # Errors
     /// [`IsolationError::Plan`] when the command cannot be wrapped over the plan,
-    /// [`IsolationError::Docker`] when docker fails, and [`IsolationError::Unavailable`] for an
-    /// isolation that runs none.
+    /// [`IsolationError::Docker`] when docker cannot be run or the command outlives its wall, and
+    /// [`IsolationError::Unavailable`] for an isolation that runs none.
     fn collect_exec<'a>(
         &'a self,
         plan: &'a ContainerPlan,
         command: &'a CommandSpec,
-    ) -> BoxFuture<'a, Result<Vec<u8>, IsolationError>> {
+    ) -> BoxFuture<'a, Result<ExecOutput, IsolationError>> {
         let _ = (plan, command);
         Box::pin(async {
             Err(IsolationError::Unavailable {

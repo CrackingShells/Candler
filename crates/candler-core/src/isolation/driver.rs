@@ -6,7 +6,7 @@ use std::time::Duration;
 use candler_schemas::primitives::ContainerId;
 use futures::future::BoxFuture;
 
-use super::docker::{AttachedRun, DockerError, attached_request};
+use super::docker::{AttachedRun, DockerError, ExecOutput, attached_request};
 use super::model::{
     BuildRequest, ContainerRef, ImageInfo, Inspect, LabelSel, Labels, NetworkInfo, NetworkName,
 };
@@ -167,6 +167,22 @@ pub trait DockerDriver: Send + Sync {
                 detail: String::from("capture"),
             })
         })
+    }
+
+    /// Runs `docker <args>` as [`DockerDriver::capture`] does and returns how it ended with what
+    /// it printed on each stream, whatever the exit status. The default answers as `capture`
+    /// does, with an exit of `0`.
+    ///
+    /// # Errors
+    /// [`DockerError::Unavailable`] for a driver that runs no such call, and [`DockerError`] when
+    /// docker cannot be run or the call outlives `deadline`.
+    fn capture_exec(
+        &self,
+        args: Vec<String>,
+        deadline: Duration,
+    ) -> BoxFuture<'_, Result<ExecOutput, DockerError>> {
+        let printed = self.capture(args, deadline);
+        Box::pin(async move { printed.await.map(ExecOutput::printed) })
     }
 }
 

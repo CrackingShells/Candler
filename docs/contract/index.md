@@ -169,6 +169,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `isolation.sweep_list_failed` | Docker failed while the sweeper listed containers. | - | environment |
 | `jobs.already_supervised` | Another supervisor already holds the lock of the job. | - | environment |
 | `jobs.child_not_reaped` | A host process left behind by a lost job could not be reaped. | - | environment |
+| `jobs.config_check_failed` | The harness's own check of the files Candler installed for it could not run, or printed nothing a verdict can be read from, for example because its container could not be started, the command is missing or timed out, or its output was cut short. | - | environment |
 | `jobs.directory_exists` | The directory of a job to create already exists. | - | environment |
 | `jobs.docker_unavailable` | The docker client cannot be reached when a job's session starts. | - | environment |
 | `jobs.gateway_not_serving` | The gateway of the job does not serve, for example because it did not start or refused the token. | - | environment |

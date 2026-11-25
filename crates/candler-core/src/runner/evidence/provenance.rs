@@ -28,10 +28,15 @@ pub struct EvalInfra {
 
 /// The `provenance.*` values of a run: the evaluation infrastructure, the sandbox contract and,
 /// for each import package the experiment names, the distribution and version its env image
-/// holds, as `provenance.packages.<import name>.distribution` and `.version`. A value that is
-/// unknown is left out.
+/// holds, as `provenance.packages.<import name>.distribution` and `.version`, and
+/// `provenance.harness_config_check` as `clean` when the harness's own check found nothing in the
+/// files installed for the cell. A value that is unknown is left out.
 #[must_use]
-pub fn provenance_values(infra: &EvalInfra, packages: &PackageReadings) -> Vec<MeasuredValue> {
+pub fn provenance_values(
+    infra: &EvalInfra,
+    packages: &PackageReadings,
+    config_clean: bool,
+) -> Vec<MeasuredValue> {
     let mut entries = vec![
         (
             String::from("provenance.eval_infra.tag"),
@@ -57,6 +62,12 @@ pub fn provenance_values(infra: &EvalInfra, packages: &PackageReadings) -> Vec<M
             Some(Value::String(SANDBOX_CONTRACT.to_owned())),
         ),
     ];
+    if config_clean {
+        entries.push((
+            String::from("provenance.harness_config_check"),
+            Some(Value::String(String::from("clean"))),
+        ));
+    }
     for (name, reading) in packages {
         entries.push((
             format!("provenance.packages.{name}.distribution"),

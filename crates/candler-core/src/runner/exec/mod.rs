@@ -46,7 +46,7 @@ use super::evidence::provenance::provenance_values;
 use super::evidence::run::{RunFacts, run_values};
 use super::evidence::session::{control_values, session_values};
 use super::evidence::tree::tree_json;
-use super::evidence::{Evidence, Inputs};
+use super::evidence::{Evidence, InputDigest, Inputs};
 use super::plan::RunPlan;
 use super::{RunControl, RunOutcome, RunStatus, Runtime};
 use crate::isolation::container::agent_home;
@@ -57,9 +57,9 @@ use crate::isolation::model::ContainerPlan;
 use crate::isolation::{Isolation, IsolationError, RunOutputs};
 use crate::jobs::model::JobCause;
 use crate::jobs::slots::Slot;
-use crate::store::StoreError;
 use crate::store::blob::digest_of_file;
 use crate::store::run::{Existing, RunWriter};
+use crate::store::{Store, StoreError};
 use crate::supervise::SuperviseError;
 use crate::supervise::git::{GitError, RecordDir, mark_executable, tree_at_commit};
 use crate::supervise::now;
@@ -209,14 +209,50 @@ pub fn compose_container(
 ) -> Result<ContainerPlan, IsolationError> {
     let mut container = isolation.plan(view, &Workspace::new(workspace_dir))?;
     apply_harness_env(&mut container, rt.driver.as_ref(), home)?;
-    mount_inputs(rt, &mut container, workspace_dir, inputs)?;
+    mount_inputs(&rt.store, &mut container, workspace_dir, inputs)?;
     Ok(container)
 }
 
+/// What a run of a cell is given to read: the cell's declared inputs, and each read-only file of
+/// the driver's plan, stored as a blob so it is mounted like an input.
+///
+/// # Errors
+/// [`IsolationError::Plan`] when a file cannot be stored.
+pub fn mounted_inputs(
+    store: &Store,
+    declared: &Inputs,
+    files: &[PreparedFile],
+) -> Result<Inputs, IsolationError> {
+    let mut digests = declared.digests.clone(); // BORROW: the mounted list owns its entries
+    for file in files {
+        let digest =
+            store
+                .put_blob(&file.contents, None)
+                .map_err(|error| IsolationError::Plan {
+                    detail: format!("cannot store `{}`: {error}", file.path),
+                })?;
+        digests.push(InputDigest {
+            path: file.path.as_str().to_owned(), // BORROW: explicit .as_str() makes the owned path
+            digest,
+        });
+    }
+    Ok(Inputs { digests })
+}
+
 /// Makes the mount point of each input in the workspace, mounts each input of the cell read-only
-/// there from its blob in the store, and checks the whole mount list again.
-fn mount_inputs(
-    rt: &Runtime,
+/// there from its blob in `store`, and checks the whole mount list again.
+///
+/// The function assumes `workspace_dir` is a directory the caller has just made: empty, with no
+/// link in it, and no other writer. It makes directories and files below it without checking for
+/// links, and refuses to replace a file, so a link already in place fails the call rather than
+/// redirecting it. When a later input is refused, the mount points made for the earlier ones stay
+/// in `workspace_dir` and the mounts already added stay in `container`: the caller discards both.
+///
+/// # Errors
+/// [`IsolationError::Plan`] when an input's path leaves the workspace, its mount point cannot be
+/// made, or the mount list is refused.
+pub fn mount_inputs(
+    store: &Store,
     container: &mut ContainerPlan,
     workspace_dir: &Path,
     inputs: &Inputs,
@@ -246,7 +282,7 @@ fn mount_inputs(
             .open(&point)
             .map_err(|e| local("cannot make an input's mount point", &e))?;
         container.mounts.push(MountSpec {
-            source: rt.store.layout().blob(&input.digest),
+            source: store.layout().blob(&input.digest),
             target: format!("{}/{}", container.workdir.trim_end_matches('/'), input.path),
             mode: MountMode::ReadOnly,
         });
@@ -490,6 +526,7 @@ async fn drive(
             prepared,
             command: headless,
             session: session_spec,
+            workspace_files,
             ..
         },
         written,
@@ -532,13 +569,14 @@ async fn drive(
     // What the driver resolved from the cell, kept with the run: the argv, the variable names the
     // overlay sets and each prepared file.
     let resolved = resolved_record(&command, &prepared.files, &written);
+    let mounted = mounted_inputs(&rt.store, &cell.inputs, &workspace_files)?;
     let container = compose_container(
         rt,
         isolation.as_ref(),
         &view,
         &workspace_dir,
         &agent_home(&layout.run_dir(&plan.key)),
-        &cell.inputs,
+        &mounted,
     )?;
 
     let out_stream = stream("stdout")?;
@@ -812,7 +850,7 @@ async fn drive(
     };
 
     // What the run left in its workspace.
-    let outputs = if let Ok(mut found) = collect_outputs(&workspace_dir, &specs, &cell.inputs) {
+    let outputs = if let Ok(mut found) = collect_outputs(&workspace_dir, &specs, &mounted) {
         found.retain(|out| written.get(&out.path) != Some(&out.digest));
         found
     } else {
@@ -827,9 +865,8 @@ async fn drive(
                 detail: error.to_string(), // BORROW: .to_string() gives owned text
             })?,
     };
-    let inputs = &cell.inputs;
-    let leaked = input_leak(&evidence, inputs).is_some();
-    match tree_json(&evidence, inputs) {
+    let leaked = input_leak(&evidence, &cell.inputs).is_some();
+    match tree_json(&evidence, &mounted) {
         Ok(tree) => evidence.tree = tree,
         Err(_) => collect_ok = false,
     }
@@ -918,7 +955,11 @@ async fn drive(
         events,
         totals,
     )));
-    measured.extend(provenance_values(&rt.eval_infra, &cell.packages));
+    measured.extend(provenance_values(
+        &rt.eval_infra,
+        &cell.packages,
+        cell.config_clean,
+    ));
     if let Some(outcome) = &session_outcome {
         let own_end = end.invalid.is_none();
         measured.extend(session_values(&outcome.measures(
