@@ -77,7 +77,7 @@ fn files_digest(plan: &Plan, command_words: &[String]) -> Digest {
 /// The pointer into the experiment file of the setting the installed files come from.
 fn setting_pointer(view: &Cell<'_>, harness: &str) -> String {
     // EXPLICIT: a value the reader refuses was refused when the runs were planned
-    if agent_config::hooks(view, harness).ok().flatten().is_some() {
+    if agent_config::hooks::<serde_json::Value>(view, harness).ok().flatten().is_some() {
         pointer_of(["fixed", "hooks"])
     } else if agent_config::instructions(view, harness)
         .ok()
