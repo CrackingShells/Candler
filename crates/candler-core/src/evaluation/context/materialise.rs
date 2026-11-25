@@ -7,7 +7,7 @@ use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 
 use candler_schemas::evaluation::{ContextArtifact, ContextRaw, ContextRef, RunContext};
-use candler_schemas::primitives::Digest;
+use candler_schemas::primitives::{Digest, RelPath};
 
 use super::ContextError;
 use super::assemble::{Assembled, AssembledFile, Served};
@@ -153,6 +153,19 @@ fn copy_stored(root: &Path, file: &AssembledFile) -> Result<(PathBuf, Digest), C
     Ok((target, written))
 }
 
+/// The context's entry for the copy at `copy`, named `path` and holding `digest`.
+fn artifact_of(
+    path: &RelPath,
+    copy: &Path,
+    digest: Digest,
+) -> Result<ContextArtifact, ContextError> {
+    Ok(ContextArtifact::new(
+        path.clone(), // BORROW: the context owns its paths
+        text_of(copy)?,
+        digest,
+    ))
+}
+
 /// `path` as the text the context carries.
 fn text_of(path: &Path) -> Result<String, ContextError> {
     path.to_str()
@@ -190,27 +203,18 @@ pub fn materialise(assembled: &Assembled, workspace: &Path) -> Result<RunContext
     for file in assembled.files() {
         let (copy, digest) = copy_stored(space.root(), file)?;
         builder = match &file.served {
-            // An input's files are served through the directory of its tree, below.
+            // An input's files were copied and checked against the digest of their blob above;
+            // the context carries the directory of the input's tree and the digest of its list
+            // (below), and no digest per file.
             Served::Input => builder,
-            Served::Artifact(path) => {
-                // BORROW: the context owns its paths
-                builder.artifact(ContextArtifact::new(path.clone(), text_of(&copy)?, digest))
-            }
-            Served::Trace => builder.trace(ContextArtifact::new(
-                file.workspace.clone(), // BORROW: the context owns its paths
-                text_of(&copy)?,
-                digest,
-            )),
+            Served::Artifact(path) => builder.artifact(artifact_of(path, &copy, digest)?),
+            Served::Trace => builder.trace(artifact_of(&file.workspace, &copy, digest)?),
             Served::Raw(stream) => builder.raw(ContextRaw::new(
                 stream.clone(), // BORROW: the context owns its streams
                 text_of(&copy)?,
                 digest,
             )),
-            Served::Manifest => builder.manifest(ContextArtifact::new(
-                file.workspace.clone(), // BORROW: the context owns its paths
-                text_of(&copy)?,
-                digest,
-            )),
+            Served::Manifest => builder.manifest(artifact_of(&file.workspace, &copy, digest)?),
         };
     }
     let inputs = space.root().join("inputs");
