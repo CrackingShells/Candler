@@ -24,6 +24,9 @@ Instruction files and hooks as per-arm experiment data (M6.5).
 ### Round 05
 - [05-observation_level2_out_of_scope_v0.md](05-observation_level2_out_of_scope_v0.md) — **latest** for level 2. Ten findings from level 2 and its seam review that lie outside its leaves: a broken ignored OpenCode guard on main, two link-following paths, refusal pointers chosen by presence, non-report check output blamed on the experiment, check groups that split too finely, collision targets derived twice, no cancel signal or Unicode normalisation, an unescaped census source, a second timing guard. Also two process lessons: whole-suite gates, and check rules taken from recorded output.
 
+### Round 06
+- [06-findings_live_confirmation_v0.md](06-findings_live_confirmation_v0.md) — **latest** live proof. G13 on RiVault Reasoning-Small, both harnesses, two arms each: every `context_start` holds the global text, its own arm's workspace text and the session-start marker, and never the other arm's text. Claude Code puts the two texts in `first_message` and the marker in `system`; OpenCode puts all three in `system`. The blocking hooks were left out of the live run.
+
 ## Status
 
 The plan is approved, and the roadmap [`__roadmap__/m6_5-agent-config/`](../../__roadmap__/m6_5-agent-config/README.md) has been authored. The plan and the roadmap were amended on 2026-11-25 for two instruction scopes (v1), then for a live, trace-read proof (v2). Level 1 is dispatched, and the probe is done.
