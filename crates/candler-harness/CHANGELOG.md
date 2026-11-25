@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0](https://github.com/CrackingShells/Candler/compare/v0.15.0...v0.16.0) - 2026-11-25
+
+### Documentation
+
+- *(library)* point the name check at the published pattern
+- *(library)* say where effort and mode text is checked and mapped
+
+### Features
+
+- *(resolve)* [**breaking**] read MCP servers in one place and refuse a malformed one
+
+### Fixes
+
+- *(library)* refuse unknown effort and mode text on a stored cell
+- *(library)* accept only server names no harness rewrites or splits
+- *(library)* attribute MCP calls the same way on both harnesses
+- *(library)* render MCP servers from their type in both drivers
+- *(library)* ask nothing of a driver for a mode left unset
+- *(library)* ask the driver about the mode of a cell that names none
+- *(library)* read every permission mode Claude Code reads
+- *(library)* state each setting's path once and sweep the removed names
+- *(experiment)* point an MCP server refusal at its field
+
+### Refactoring
+
+- *(library)* state each setting's path once, parse at resolve
+- *(library)* read a cell's settings once and refuse unknown text
+- *(library)* state every per-harness fact in one shape
+
 ## [0.14.0](https://github.com/CrackingShells/Candler/compare/v0.13.0...v0.14.0) - 2026-11-23
 
 ### Features

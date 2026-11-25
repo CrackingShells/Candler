@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0](https://github.com/CrackingShells/Candler/compare/v0.15.0...v0.16.0) - 2026-11-25
+
+### Documentation
+
+- *(api)* generate pages from the declaration
+- *(library)* say what the conformance collector is in the driver tests
+
+### Features
+
+- *(resolve)* [**breaking**] read MCP servers in one place and refuse a malformed one
+
+### Fixes
+
+- *(library)* refuse unknown effort and mode text on a stored cell
+- *(library)* attribute MCP calls the same way on both harnesses
+- *(library)* render MCP servers from their type in both drivers
+- *(library)* ask nothing of a driver for a mode left unset
+- *(library)* read every permission mode Claude Code reads
+- *(library)* state each setting's path once and sweep the removed names
+
+### Refactoring
+
+- *(library)* read MCP servers through the library in both drivers
+- *(library)* state each setting's path once, parse at resolve
+- *(library)* read a cell's settings once and refuse unknown text
+- *(library)* state every per-harness fact in one shape
+
 ## [0.12.3](https://github.com/CrackingShells/Candler/compare/v0.12.2...v0.12.3) - 2026-11-17
 
 ### Refactoring

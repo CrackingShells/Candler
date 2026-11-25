@@ -8,7 +8,7 @@ The dotted paths an experiment file, a `--set` and a configuration file name: wh
 
 <!-- generated:version -->
 <!-- versions -->
-Core line: `v0.15.0`.
+Core line: `v0.16.0`.
 <!-- /versions -->
 <!-- /generated:version -->
 

@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0](https://github.com/CrackingShells/Candler/compare/v0.15.0...v0.16.0) - 2026-11-25
+
+### Documentation
+
+- *(api)* render the spec rows without a table
+- *(api)* name the cap spec entries as items
+- *(api)* show every setting of a path and one cell wording
+- *(api)* generate pages from the declaration
+- *(library)* say where effort and mode text is checked and mapped
+- *(library)* point the name check at the published pattern
+- *(library)* say what the conformance collector is in the driver tests
+
+### Features
+
+- *(runner)* store the tool-catalog snapshot when the run is sealed
+- *(resolve)* [**breaking**] read replicates once and refuse the silent inputs left
+- *(resolve)* [**breaking**] read MCP servers in one place and refuse a malformed one
+
+### Fixes
+
+- *(importer)* keep an empty snapshots list in a raw-ingested cell
+- *(library)* attribute MCP calls the same way on both harnesses
+- *(library)* ask nothing of a driver for a mode left unset
+- *(runner)* record each output's execute bit when a run is sealed
+- *(resolve)* read the replicates count in one place
+- *(cli)* render the failures of every treatment level alike
+- *(cli)* resolve the kill targets before asking for confirmation
+- *(resolve)* check each cell against its own level
+- *(cli)* tell an agent off a terminal how to confirm a kill
+- *(cli)* refuse kill without --yes off a terminal
+- *(library)* refuse unknown effort and mode text on a stored cell
+- *(importer)* write an imported cell's snapshots as a list, even empty
+- *(library)* render MCP servers from their type in both drivers
+- *(library)* ask the driver about the mode of a cell that names none
+- *(library)* read every permission mode Claude Code reads
+- *(experiment)* point an MCP server refusal at its field
+- *(library)* accept only server names no harness rewrites or splits
+- *(library)* state each setting's path once and sweep the removed names
+
+### Refactoring
+
+- *(orchestrator)* drop snapshots from the typed roots of a cell
+- *(runner)* remove the constant catalog producer, show MCP config
+- *(library)* state every per-harness fact in one shape
+- *(resolve)* [**breaking**] refuse the snapshots path in an experiment
+- *(library)* state each setting's path once, parse at resolve
+- *(library)* read a cell's settings once and refuse unknown text
+- *(library)* read MCP servers through the library in both drivers
+
 ## [0.15.0](https://github.com/CrackingShells/Candler/compare/v0.14.0...v0.15.0) - 2026-11-24
 
 ### Features

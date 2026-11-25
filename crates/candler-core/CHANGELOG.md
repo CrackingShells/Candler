@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0](https://github.com/CrackingShells/Candler/compare/v0.15.0...v0.16.0) - 2026-11-25
+
+### Documentation
+
+- *(library)* say where effort and mode text is checked and mapped
+
+### Features
+
+- *(runner)* store the tool-catalog snapshot when the run is sealed
+- *(resolve)* [**breaking**] read replicates once and refuse the silent inputs left
+- *(resolve)* [**breaking**] read MCP servers in one place and refuse a malformed one
+
+### Fixes
+
+- *(library)* refuse unknown effort and mode text on a stored cell
+- *(importer)* keep an empty snapshots list in a raw-ingested cell
+- *(importer)* write an imported cell's snapshots as a list, even empty
+- *(library)* attribute MCP calls the same way on both harnesses
+- *(library)* render MCP servers from their type in both drivers
+- *(library)* ask nothing of a driver for a mode left unset
+- *(library)* ask the driver about the mode of a cell that names none
+- *(library)* read every permission mode Claude Code reads
+- *(runner)* record each output's execute bit when a run is sealed
+- *(resolve)* read the replicates count in one place
+- *(experiment)* point an MCP server refusal at its field
+
+### Refactoring
+
+- *(orchestrator)* drop snapshots from the typed roots of a cell
+- *(resolve)* [**breaking**] refuse the snapshots path in an experiment
+- *(runner)* remove the constant catalog producer, show MCP config
+- *(library)* state each setting's path once, parse at resolve
+- *(library)* read a cell's settings once and refuse unknown text
+- *(library)* state every per-harness fact in one shape
+
 ## [0.15.0](https://github.com/CrackingShells/Candler/compare/v0.14.0...v0.15.0) - 2026-11-24
 
 ### Features

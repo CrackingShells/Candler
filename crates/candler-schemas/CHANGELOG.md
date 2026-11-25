@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0](https://github.com/CrackingShells/Candler/compare/schemas@0.12.0...schemas@0.13.0) - 2026-11-25
+
+### Documentation
+
+- *(schemas)* say how each harness reads an MCP origin
+
+### Features
+
+- *(schemas)* [**breaking**] drop the catalog snapshot and show MCP in inspect
+- *(schemas)* name the tool of an MCP origin
+- *(schemas)* add the snapshot's stored text and inspect's catalog
+- *(schemas)* [**breaking**] type the MCP servers an experiment declares
+
+### Fixes
+
+- *(schemas)* say who writes snapshots and drop the unused path constant
+- *(schemas)* keep an absent snapshots list apart from an empty one
+- *(schemas)* [**breaking**] refuse a server name the harnesses would rewrite or split
+- *(schemas)* default the codemode of an MCP server to false
+- *(schemas)* give a replicates value that is no count its own code
+- *(schemas)* say which type marker goes with each MCP server field
+- *(schemas)* refuse in the MCP server schema what its reader refuses
+- *(schemas)* refuse an unknown key in an MCP server entry
+
+### Refactoring
+
+- *(schemas)* answer every MCP transport in each driver
+
 ## [0.12.0](https://github.com/CrackingShells/Candler/compare/schemas@0.11.3...schemas@0.12.0) - 2026-11-23
 
 ### Documentation
