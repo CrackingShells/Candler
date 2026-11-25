@@ -10,7 +10,7 @@ The normalised trace Candler stores for each run: a header, the sessions and the
 Wire tag: none.
 
 <!-- versions -->
-Wire line: `schemas@0.13.0`.
+Wire line: `schemas@0.14.0`.
 <!-- /versions -->
 <!-- /generated:version -->
 
