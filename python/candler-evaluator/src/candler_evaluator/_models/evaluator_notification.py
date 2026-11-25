@@ -7,7 +7,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import MISSING, BaseModel, ConfigDict, Field, RootModel
 from typing_extensions import TypeAliasType
 
 
@@ -339,9 +339,9 @@ class Evidence1(BaseModel):
         extra="forbid",
     )
     note: Annotated[
-        str | None,
+        str | MISSING,
         Field(description="What the evidence says, a non-empty string.", min_length=1),
-    ] = None
+    ] = MISSING
     ref: Annotated[
         EvidenceRef,
         Field(
@@ -359,11 +359,11 @@ class Evidence2(BaseModel):
         Field(description="What the evidence says, a non-empty string.", min_length=1),
     ]
     ref: Annotated[
-        EvidenceRef | None,
+        EvidenceRef | MISSING,
         Field(
             description="An evidence reference string: `event:<session-id>#<seq>`, or `path:<run-relative path>` with an optional line anchor."
         ),
-    ] = None
+    ] = MISSING
 
 
 class Evidence(RootModel[Evidence1 | Evidence2]):
@@ -413,11 +413,11 @@ class OutcomeRecord(BaseModel):
         extra="forbid",
     )
     cause: Annotated[
-        Cause | None,
+        Cause | MISSING,
         Field(
             description="Why the outcome has its status; required for `blocked`, `not_measured` and `not_applicable`, absent for `pass` and `fail` unless it is the legacy cause."
         ),
-    ] = None
+    ] = MISSING
     context_digest: Annotated[
         Digest,
         Field(
@@ -449,11 +449,11 @@ class OutcomeRecord(BaseModel):
         ),
     ]
     probability: Annotated[
-        Probability | None,
+        Probability | MISSING,
         Field(
             description="A calibrated probability that the expectation holds, as an object; deterministic evaluators never set it, and it is absent when the role is `gate` or `quality`."
         ),
-    ] = None
+    ] = MISSING
     request_id: Annotated[
         RequestId,
         Field(
@@ -485,17 +485,17 @@ class OutcomeRecord(BaseModel):
         ),
     ]
     value: Annotated[
-        Value | None,
+        Value | MISSING,
         Field(
             description="What was measured, as a value object, if the evaluator reports one."
         ),
-    ] = None
+    ] = MISSING
     weight: Annotated[
-        Weight | None,
+        Weight | MISSING,
         Field(
             description="The contribution to a rate; absent means the default of the status: `pass` 1/1, `fail` 0/1, `blocked` 0/1. A `pass` has `num` equal to `den`, a `fail` has `num` below `den` and a `blocked` has `num` 0. Absent for `not_measured` and `not_applicable`."
         ),
-    ] = None
+    ] = MISSING
 
 
 class Notification4(BaseModel):

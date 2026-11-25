@@ -90,8 +90,8 @@ class Prior:
 
 @dataclass(frozen=True)
 class ServedFile:
-    """One stored file of the run: `path` relative to the run, `abs` where the kind reads it,
-    and the `sha256` digest of its bytes, written `sha256:` and 64 hex digits."""
+    """One stored file of the run: `path` relative to the run's `root`, `abs` where the kind
+    reads it, and the `sha256` digest of its bytes, written `sha256:` and 64 hex digits."""
 
     path: str
     abs: Path
@@ -110,9 +110,10 @@ class RunContext:
     """What a kind may read of one run; kinds never import this class, they only read it.
 
     `trace` and `manifest` are the run's normalised trace and manifest as `ServedFile`s, each
-    `None` when no kind of the plug-in declared it in `needs`; `raw` holds one mapping per raw
-    stream, with the keys `stream`, `path` and `sha256`, and is empty when none was declared.
-    `read_trace` reads `trace`.
+    `None` when no kind of the request declared it in `needs`; `raw` holds one mapping per raw
+    stream, with the keys `stream`, `path` and `sha256`, and is empty when no kind of the
+    request declared it. A raw `path` is absolute and names gzip-compressed JSON lines
+    (`.jsonl.gz`). `read_trace` reads `trace`.
     """
 
     root: Path

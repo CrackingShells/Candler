@@ -151,6 +151,26 @@ def write_trace(tmp_path, records):
     return path
 
 
+def test_the_reader_refuses_a_null_on_an_optional_field(tmp_path):
+    """Guards: the schema refuses `null` on an optional field, so the reader does.
+
+    Oracle: `exit` of `ToolResult` in normalised-trace.schema.json is an `ExitStatus` object
+    that is left out when there is none; the wire has no `null`, and Candler's reader refuses it.
+    Bite: the generated models read `null` as absent.
+    """
+    from candler_evaluator import read_trace
+
+    bad = json.loads(json.dumps(RESULT))
+    bad["event"]["kind"]["exit"] = None
+    path = write_trace(tmp_path, [HEADER, SESSION, bad])
+    with pytest.raises(ValidationError, match="exit"):
+        list(read_trace(path))
+    absent = json.loads(json.dumps(RESULT))
+    del absent["event"]["kind"]["exit"]
+    path = write_trace(tmp_path, [HEADER, SESSION, absent])
+    assert len(list(read_trace(path))) == 3
+
+
 def test_the_reader_yields_typed_records_with_exit_origin_and_argv(tmp_path):
     """Guards: the trace reader types each line from normalised-trace.schema.json.
 
@@ -206,7 +226,7 @@ KIND_SPECS = {"k": {"needs": NEEDS}}
 """
 
 
-def described_needs(tmp_path, needs, vectors):
+def describe_frames(tmp_path, needs, vectors):
     (tmp_path / "demo_plugin.py").write_text(f"NEEDS = {needs!r}\n" + DESCRIBE_PLUGIN)
     request = json.dumps(
         json.loads((vectors / "valid" / "request_describe.json").read_text())
@@ -220,24 +240,31 @@ def described_needs(tmp_path, needs, vectors):
         env={**os.environ, "PYTHONPATH": str(tmp_path), "PYTHONDONTWRITEBYTECODE": "1"},
         timeout=60,
     ).stdout
-    frames = [json.loads(line) for line in out.splitlines()]
-    (result,) = [f for f in frames if "result" in f]
+    return [json.loads(line) for line in out.splitlines()]
+
+
+def described_needs(tmp_path, needs, vectors):
+    (result,) = [f for f in describe_frames(tmp_path, needs, vectors) if "result" in f]
     return result["result"]["kinds"][0]["needs"]
 
 
 def test_a_describe_result_never_carries_null_for_an_unset_need(tmp_path, vectors):
-    """Guards: `raw` and `manifest` are written as booleans or left out, never `null`.
+    """Guards: `raw` and `manifest` are written as booleans or left out, never `null`; a plug-in
+    that declares `null` for one is refused with error -32000 naming it.
 
     Oracle: response_describe_needs_raw_manifest.json shows the wire form, and
     invalid/needs_raw_not_boolean.json shows the reader refusing anything but a boolean.
-    Bite: the writer emits `null` for an unset need.
+    Bite: the writer emits `null` for an unset need, or reads a declared `null` as absent.
     """
     oracle = json.loads(
         (vectors / "valid" / "response_describe_needs_raw_manifest.json").read_text()
     )["result"]["kinds"][0]["needs"]
     assert oracle["raw"] is True and oracle["manifest"] is True
-    for needs in ({}, {"raw": None, "manifest": None}, {"raw": True, "manifest": True}):
+    for needs in ({}, {"raw": True, "manifest": True}):
         wrote = described_needs(tmp_path, needs, vectors)
         assert None not in wrote.values()
         for key in ("raw", "manifest"):
             assert wrote.get(key, False) is bool(needs.get(key))
+    (refusal,) = describe_frames(tmp_path, {"raw": None}, vectors)
+    assert refusal["error"]["code"] == -32000
+    assert "needs.raw" in refusal["error"]["message"]
