@@ -20,7 +20,7 @@ A consumer gives the experiment a global instruction file per harness, each arm 
 ## Status
 ```mermaid
 graph TD
-    probe_harness_checks[Probe harness checks]:::inprogress
+    probe_harness_checks[Probe harness checks]:::done
     declaration[Declaration]:::inprogress
     installed[Installed]:::planned
     trace_context[trace_context]:::inprogress
@@ -34,7 +34,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `probe_harness_checks.md` | 📄 Leaf Task | 🔄 In Progress |
+| `probe_harness_checks.md` | 📄 Leaf Task | ✅ Done |
 | `declaration.md` | 📄 Leaf Task | 🔄 In Progress |
 | `installed/` | 📁 Directory | ⬜ Planned |
 | `trace_context.md` | 📄 Leaf Task | 🔄 In Progress |
