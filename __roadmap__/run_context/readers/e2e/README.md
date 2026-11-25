@@ -15,7 +15,7 @@ The consumer path (run, seal, evaluate with `needs.trace`) is seen working on bo
 ## Status
 ```mermaid
 graph TD
-    graded_run_sees_trace[Graded run sees trace]:::inprogress
+    graded_run_sees_trace[Graded run sees trace]:::done
     review[Review]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -27,7 +27,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `graded_run_sees_trace.md` | 📄 Leaf Task | 🔄 In Progress |
+| `graded_run_sees_trace.md` | 📄 Leaf Task | ✅ Done |
 | `review/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
