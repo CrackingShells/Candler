@@ -22,6 +22,7 @@ use candler_schemas::execution::{
 };
 use candler_schemas::field_path;
 use candler_schemas::primitives::{Digest, FieldPath, JobId, RunKey, SecretName};
+use candler_schemas::refusal::pointer_of;
 use candler_schemas::values::{JsonValue, ResolvedValue, SourceEntry, ValueSource};
 use rustix::fs::{FlockOperation, flock};
 use rustix::io::Errno;
@@ -771,6 +772,43 @@ fn fresh_cells<'r>(
         }
     }
     Ok(cells)
+}
+
+/// Refuses a cell whose workspace instruction text and a declared input mount a file at the
+/// harness's workspace instruction file, which `targets` lists as the workspace path of each
+/// input file with its input's kind.
+///
+/// # Errors
+/// [`DriverError::InstructionsCollide`] naming the input and the path when a cell sets
+/// `instructions.workspace` and an input mounts the file or a path under it, and the driver's
+/// [`DriverError`] for an instruction value it cannot read.
+pub fn refuse_instruction_collision<'c>(
+    driver: &dyn HarnessDriver, // TRAIT_OBJECT: the registry's driver, selected at run time
+    cells: impl IntoIterator<Item = &'c Comparable>,
+    targets: &[(String, String)],
+) -> Result<(), DriverError> {
+    let file = driver.workspace_instruction_file();
+    let below = format!("{file}/");
+    let harness = driver.id().to_string(); // BORROW: .to_string() gives owned text
+    for comparable in cells {
+        let view = Cell::new(comparable.values());
+        let sets_text = agent_config::instructions(&view, harness.as_str())? // BORROW: explicit .as_str()
+            .is_some_and(|found| found.workspace.is_some());
+        if !sets_text {
+            continue;
+        }
+        if let Some((_, kind)) = targets
+            .iter()
+            .find(|(path, _)| path == file || path.starts_with(&below))
+        {
+            return Err(DriverError::InstructionsCollide {
+                path: pointer_of(["fixed", "instructions.workspace"]),
+                input: kind.clone(),   // BORROW: the error owns the input's kind
+                file: file.to_owned(), // BORROW: the error owns the path
+            });
+        }
+    }
+    Ok(())
 }
 
 /// What the store keeps of one stored cell: its record and the secrets any attempt saw.

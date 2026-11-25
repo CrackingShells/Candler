@@ -18,7 +18,7 @@ use crate::isolation::container::agent_home;
 use crate::isolation::model::ContainerPlan;
 use crate::isolation::{Isolation, IsolationError, StartProbe};
 use crate::runner::Runtime;
-use crate::runner::exec::{ExecError, compose_container, stage_cell};
+use crate::runner::exec::{ExecError, compose_container, mounted_inputs, stage_cell};
 use crate::runner::plan::RunPlan;
 
 /// How long a server's start command is given before it must still be running.
@@ -151,7 +151,8 @@ pub(super) async fn stage_container(
         &root.join("scratch"),
     )
     .await?;
-    let container = compose_container(rt, isolation, &view, &workspace, &home, &cell.inputs)?;
+    let mounted = mounted_inputs(&rt.store, &cell.inputs, &staged.workspace_files)?;
+    let container = compose_container(rt, isolation, &view, &workspace, &home, &mounted)?;
     Ok((staged, container))
 }
 

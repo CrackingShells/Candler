@@ -12,17 +12,21 @@ use crate::support;
 use std::fs;
 use std::sync::Arc;
 
+use candler_core::isolation::container::mounts::{MountMode, MountSpec};
 use candler_core::jobs::model::{JobOutcome, JobSpec};
 use candler_core::jobs::orchestrate::session::JobHost;
+use candler_core::runner::plan::refuse_instruction_collision;
 use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
     AgentSetting, Answer, Cell, CheckVerdict, CollectSpec, CommandSpec, DriverFact, EnvEntry,
     HarnessId, Observed, Prepared, PreparedFile, ProcessExit, StatePath, StopSpec, Workspace,
 };
+use candler_schemas::execution::Comparable;
 use candler_schemas::primitives::RelPath;
 use candler_schemas::raw::StreamName;
 use candler_schemas::trace::{EndedBy, Session};
+use candler_schemas::values::{JsonValue, ResolvedValue};
 use serde_json::{Value, json};
 use support::job_orchestrate::{Probed, QuietDriver, Rig, run_to_end, spec};
 use support::run_plan::Facts;
@@ -236,6 +240,13 @@ fn measured_at(manifest: &Value, path: &str) -> Option<Value> {
         .map(|value| value["value"].clone()) // BORROW: .clone() owns the value
 }
 
+/// The mount in `mounts` whose target ends with `/{target}`.
+fn mount_at<'m>(mounts: &'m [MountSpec], target: &str) -> Option<&'m MountSpec> {
+    mounts
+        .iter()
+        .find(|mount| mount.target.ends_with(&format!("/{target}")))
+}
+
 /// Guards: a harness check that reports a finding refuses the job before its first run, and the
 /// refusal line names what was installed, where, the harness and the harness's output.
 /// Oracle: the literal `REJECT: unknown key hooks.Foo` the scripted check prints, and the file
@@ -290,8 +301,14 @@ fn clean_verdict_is_stored_and_a_harness_without_check_stores_none() {
         Some(json!("clean"))
     );
     let executed = checked.host.probing().executed();
-    let (argv, _) = executed.first().expect("the check ran");
+    let (argv, mounts) = executed.first().expect("the check ran");
     assert_eq!(argv, &vec![CHECK.to_owned()]);
+    let file = mount_at(mounts, "AGENTS.md").expect("the check container mounts the file");
+    assert_eq!(file.mode, MountMode::ReadOnly);
+    assert_eq!(
+        fs::read_to_string(&file.source).expect("a blob"),
+        WORKSPACE_TEXT
+    );
 
     let unchecked = run(job(&["m1"]), Checking::new(false), "ok");
     assert_eq!(unchecked.outcome.runs.len(), 1, "the run starts");
@@ -323,4 +340,75 @@ fn cells_sharing_their_files_are_checked_once() {
     let apart = run(job(&["m1", "m2"]), differing, "ok");
     assert_eq!(apart.outcome.runs.len(), 2, "both runs start");
     assert_eq!(apart.host.probing().executed().len(), 2, "one check each");
+}
+
+/// Guards: the plan's read-only workspace file reaches the run's container at the workspace root
+/// from its blob, read-only, is no output of the run, and does not make the run an input leak.
+/// Oracle: the blob's bytes, the mount's mode and path, the run's `tree.json` and integrity
+/// written by the run.
+/// Bite: leave the file out of the mount list, or out of the paths collection skips.
+#[test]
+fn workspace_file_is_mounted_read_only_and_is_no_output() {
+    let mut driver = Checking::new(false);
+    driver.collect_all = true;
+    let ran = run(job(&["m1"]), driver, "");
+    assert_eq!(ran.outcome.runs.len(), 1, "the run starts");
+    let mounts = ran.host.probing().run_mounts();
+    let file = mount_at(mounts.first().expect("a run request"), "AGENTS.md")
+        .expect("the run mounts the file");
+    assert_eq!(file.mode, MountMode::ReadOnly);
+    assert_eq!(
+        fs::read_to_string(&file.source).expect("a blob"),
+        WORKSPACE_TEXT
+    );
+    let tree = run_file(&ran, "tree.json").to_string();
+    assert!(!tree.contains("AGENTS.md"), "the file is no output: {tree}");
+    let manifest = run_file(&ran, "manifest.json");
+    assert_ne!(
+        manifest["integrity"]["reason"], "input_leak",
+        "the file is no input leak: {manifest}"
+    );
+}
+
+/// A text as a resolved value's content.
+fn json_value(text: &str) -> JsonValue {
+    JsonValue::new(json!(text)).expect("a value")
+}
+
+/// A cell of the fixture's resolution, with the workspace instruction text when `text` is set.
+fn cell_with(text: Option<&str>) -> Comparable {
+    let mut values = support::run_plan::resolution(&facts()).values;
+    if let Some(text) = text {
+        values.push(ResolvedValue::recorded(
+            "instructions.workspace".parse().expect("a path"),
+            json_value(text),
+        ));
+    }
+    Comparable::from_resolved(&values).expect("a cell")
+}
+
+/// Guards: an input declared at the harness's workspace instruction file is refused for a cell
+/// that sets the workspace instruction text, naming the input; the same input is no collision for
+/// a cell that sets none, and an input elsewhere is none for a cell that does.
+/// Oracle: the input kind `rules` and the file `AGENTS.md` written by hand.
+/// Bite: compare the path with the text's file by prefix only, or skip the cell's text.
+#[test]
+fn input_at_the_instruction_file_collides_with_the_workspace_text() {
+    let driver = Checking::new(false);
+    let at_file = [(String::from("AGENTS.md"), String::from("rules"))];
+    let elsewhere = [(String::from("docs/AGENTS.md"), String::from("rules"))];
+    let text = cell_with(Some("be brief"));
+    let none = cell_with(None);
+
+    let refused =
+        refuse_instruction_collision(&driver, [&text], &at_file).expect_err("a collision");
+    assert!(
+        matches!(
+            &refused,
+            DriverError::InstructionsCollide { input, file, .. } if input == "rules" && file == "AGENTS.md"
+        ),
+        "{refused:?}"
+    );
+    assert!(refuse_instruction_collision(&driver, [&none], &at_file).is_ok());
+    assert!(refuse_instruction_collision(&driver, [&text], &elsewhere).is_ok());
 }

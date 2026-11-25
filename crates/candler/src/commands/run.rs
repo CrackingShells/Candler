@@ -34,7 +34,8 @@ use candler_core::resolve::layers::{FileValues, Layered, Resolution, ResolveInpu
 use candler_core::resolve::steps::ground_truth::GroundTruth;
 use candler_core::resolve::steps::plugin_environment::Fragment;
 use candler_core::runner::plan::{
-    Force, PlanCtx, PlanMode, experiment_of, plan_runs, treatment_levels,
+    Force, PlanCtx, PlanMode, experiment_of, plan_runs, refuse_instruction_collision,
+    treatment_levels,
 };
 use candler_core::store::Store;
 use candler_harness::driver::HarnessDriver;
@@ -199,7 +200,7 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
             );
         }
     }
-    let spec = plan_job(&store, &file, resolutions, force, declared, driver)?;
+    let spec = plan_job(&store, &file, resolutions, force, declared, &driver)?;
     start(&store, &file, &spec, &root).await
 }
 
@@ -259,7 +260,7 @@ fn plan_job(
     force: bool,
     declared: ResolvedInputs,
     // TRAIT_OBJECT: the registry selects the driver at runtime
-    driver: Arc<dyn HarnessDriver>,
+    driver: &Arc<dyn HarnessDriver>,
 ) -> Result<JobSpec, CliError> {
     let mut levels = resolutions;
     let resolution = levels
@@ -271,11 +272,13 @@ fn plan_job(
         store: store.clone(), // BORROW: the context owns its handle on the store
         experiment_lock: store.layout().experiment_lock(&experiment),
         secrets_present: EnvSecrets::new(file.secrets()).present(),
-        driver: Some(driver),
+        driver: Some(Arc::clone(driver)), // BORROW: the context shares the driver the collision check reads
     };
     let mode = if force { Force::Yes } else { Force::No };
     let outcome = plan_runs(&ctx, file, levels.as_slice(), mode, PlanMode::Check) // BORROW: explicit .as_slice()
         .map_err(|e| refuse_plan(e, file))?;
+    refuse_instruction_collision(driver.as_ref(), outcome.fresh.values(), &declared.targets)
+        .map_err(CliError::refused_by)?;
     if levels.len() < 2 {
         levels.clear();
     }
