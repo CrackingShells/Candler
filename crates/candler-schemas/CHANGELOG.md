@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0](https://github.com/CrackingShells/Candler/compare/schemas@0.14.0...schemas@0.15.0) - 2026-11-25
+
+### Documentation
+
+- *(schemas)* say an artifact glob starts with outputs/
+- *(schemas)* say what a request is served and where a path is relative
+
+### Features
+
+- *(schemas)* [**breaking**] carry a shell call's exit and the stored run's needs
+
+### Fixes
+
+- *(schemas)* describe only what the wire carries in the needs docs
+- *(schemas)* read an unknown key in needs as its siblings do
+
 ## [0.14.0](https://github.com/CrackingShells/Candler/compare/schemas@0.13.0...schemas@0.14.0) - 2026-11-25
 
 ### Documentation

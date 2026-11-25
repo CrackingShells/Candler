@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0](https://github.com/CrackingShells/Candler/compare/v0.17.0...v0.18.0) - 2026-11-25
+
+### Features
+
+- *(adapter-claude-code)* read a Bash call's exit status
+
+### Fixes
+
+- *(adapter-claude-code)* no exit for a nonzero result it does not flag
+- *(adapter-claude-code)* clear the exit of a result that joins no call
+
+### Refactoring
+
+- *(adapter-claude-code)* pass no exit to the tool result
+
+### Style
+
+- *(adapter-claude-code)* wrap the tool result call as rustfmt does
+
 ## [0.17.0](https://github.com/CrackingShells/Candler/compare/v0.16.0...v0.17.0) - 2026-11-25
 
 ### Features

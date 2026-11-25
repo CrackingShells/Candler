@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0](https://github.com/CrackingShells/Candler/compare/v0.17.0...v0.18.0) - 2026-11-25
+
+### Documentation
+
+- *(evaluation)* say a request is served the union of its kinds' needs
+
+### Features
+
+- *(evaluation)* serve a run's trace, raw streams and manifest
+
+### Fixes
+
+- *(evaluation)* read a run's raw/ once in the store and refuse strays
+- *(adapter-claude-code)* no exit for a nonzero result it does not flag
+- *(evaluation)* copy stored parts by handle, name the file at fault
+- *(adapter-opencode)* name the export reader that writes exit status
+
+### Refactoring
+
+- *(evaluation)* build a served copy's context entry in one place
+
 ## [0.17.0](https://github.com/CrackingShells/Candler/compare/v0.16.0...v0.17.0) - 2026-11-25
 
 ### Documentation

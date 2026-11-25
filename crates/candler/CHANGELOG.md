@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0](https://github.com/CrackingShells/Candler/compare/v0.17.0...v0.18.0) - 2026-11-25
+
+### Documentation
+
+- *(evaluation)* say a request is served the union of its kinds' needs
+
+### Features
+
+- *(evaluation)* serve a run's trace, raw streams and manifest
+- *(adapter-claude-code)* read a Bash call's exit status
+- *(adapter-opencode)* read a shell call's exit status
+
+### Fixes
+
+- *(adapter-opencode)* name the export reader that writes exit status
+- *(evaluation)* read a run's raw/ once in the store and refuse strays
+- *(adapter-claude-code)* no exit for a nonzero result it does not flag
+- *(evaluation)* copy stored parts by handle, name the file at fault
+- *(adapter-claude-code)* clear the exit of a result that joins no call
+- *(adapter-opencode)* state the exit rule's guard and its lenient drop
+
+### Refactoring
+
+- *(evaluation)* build a served copy's context entry in one place
+- *(adapter-claude-code)* pass no exit to the tool result
+- *(adapter-opencode)* spell the export reader's version once
+- *(adapter-opencode)* name the shell tool once
+- *(adapter-opencode)* pass no exit to the tool result
+
+### Style
+
+- *(adapter-claude-code)* wrap the tool result call as rustfmt does
+
 ## [0.17.0](https://github.com/CrackingShells/Candler/compare/v0.16.0...v0.17.0) - 2026-11-25
 
 ### Documentation
