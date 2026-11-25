@@ -28,6 +28,9 @@ Instruction files and hooks as per-arm experiment data (M6.5).
 - [06-findings_live_confirmation_v0.md](06-findings_live_confirmation_v0.md) — **latest** live proof. G13 on RiVault Reasoning-Small, both harnesses, two arms each: every `context_start` holds the global text, its own arm's workspace text and the session-start marker, and never the other arm's text. Claude Code puts the two texts in `first_message` and the marker in `system`; OpenCode puts all three in `system`. The blocking hooks were left out of the live run.
 - [06-observation_level3_out_of_scope_v0.md](06-observation_level3_out_of_scope_v0.md) — **latest** O11–O15 from level 3: a job-start refusal's code reaches no place a consumer reads (medium); the parity guard's container check compares the whole daemon; the OpenCode plugin API is not on the capability page; `resolve`'s preflight cannot reach the fake model on macOS; two more timing guards fail under load.
 
+### Round 07
+- [07-review_m6_5_v0.md](07-review_m6_5_v0.md) — **latest** closing review of M6.5 against G1–G13: all hold on the tip, none fails. Three small in-scope defects (the collision pointer for a factor, OpenCode's WARN-only check, a second harness id list), four debt items, four notes.
+
 ## Status
 
 The plan is approved, and the roadmap [`__roadmap__/m6_5-agent-config/`](../../__roadmap__/m6_5-agent-config/README.md) has been authored. The plan and the roadmap were amended on 2026-11-25 for two instruction scopes (v1), then for a live, trace-read proof (v2). Level 1 is dispatched, and the probe is done.
