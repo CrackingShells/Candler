@@ -11,11 +11,12 @@ use candler_harness::agent_config;
 use candler_harness::driver::{DriverError, Plan};
 use candler_harness::spec::{Cell, CheckVerdict, FileRoot, PreparedFile, Workspace};
 use candler_schemas::primitives::Digest;
+use candler_schemas::process::ExitStatus;
 use candler_schemas::refusal::pointer_of;
 
-use super::servers::{ServerCheckError, stage_container};
+use super::servers::stage_container;
 use super::session::image_of;
-use crate::isolation::Isolation;
+use crate::isolation::{ExecOutput, Isolation};
 use crate::runner::Runtime;
 use crate::runner::plan::{CellId, RunPlan};
 
@@ -27,9 +28,12 @@ pub enum ConfigCheckError {
     /// describe the cell.
     #[error(transparent)]
     Driver(#[from] DriverError),
-    /// The check could not run.
-    #[error(transparent)]
-    Check(#[from] ServerCheckError),
+    /// The check could not run, or printed nothing a verdict can be read from.
+    #[error("the harness check could not run: {detail}")]
+    Check {
+        /// What went wrong.
+        detail: String,
+    },
 }
 
 /// The harness, the image and the digest of everything the check reads: the cells that share all
@@ -40,9 +44,46 @@ type GroupKey = (String, Option<String>, Digest);
 type Groups<'a> = BTreeMap<GroupKey, (&'a RunPlan, BTreeSet<CellId>)>;
 
 fn failed(detail: &impl ToString) -> ConfigCheckError {
-    ConfigCheckError::Check(ServerCheckError::ServerCheck {
+    ConfigCheckError::Check {
         detail: detail.to_string(), // BORROW: .to_string() gives owned text
-    })
+    }
+}
+
+/// The exit codes of the check's wrapper that say the command did not run: the in-container
+/// timeout, docker's own failure, a command that cannot be executed and one that is not found.
+const NOT_RUN: [i32; 4] = [124, 125, 126, 127];
+
+/// The bytes the driver reads its verdict from: standard output followed by standard error.
+///
+/// The exit status does not decide the verdict, as a harness may report a finding by exiting
+/// non-zero.
+///
+/// # Errors
+/// [`ConfigCheckError::Check`] when the command did not run (it exited with one of [`NOT_RUN`] or
+/// was ended by a signal), when either stream was cut at the capture limit, or when it printed
+/// nothing.
+fn verdict_bytes(output: ExecOutput) -> Result<Vec<u8>, ConfigCheckError> {
+    match output.status {
+        ExitStatus::Signal { signal } => {
+            return Err(failed(&format!("the check was ended by signal {signal}")));
+        }
+        ExitStatus::Code { code } if NOT_RUN.contains(&code) => {
+            return Err(failed(&format!(
+                "the check command did not run: it exited {code}: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            )));
+        }
+        ExitStatus::Code { .. } => {}
+    }
+    if output.truncated {
+        return Err(failed(&"the check printed more than the core keeps"));
+    }
+    let mut bytes = output.stdout;
+    bytes.extend_from_slice(&output.stderr);
+    if bytes.is_empty() {
+        return Err(failed(&"the check printed nothing"));
+    }
+    Ok(bytes)
 }
 
 /// The files `plan` installs, whichever root they are written under.
@@ -77,7 +118,11 @@ fn files_digest(plan: &Plan, command_words: &[String]) -> Digest {
 /// The pointer into the experiment file of the setting the installed files come from.
 fn setting_pointer(view: &Cell<'_>, harness: &str) -> String {
     // EXPLICIT: a value the reader refuses was refused when the runs were planned
-    if agent_config::hooks::<serde_json::Value>(view, harness).ok().flatten().is_some() {
+    if agent_config::hooks::<serde_json::Value>(view, harness)
+        .ok()
+        .flatten()
+        .is_some()
+    {
         pointer_of(["fixed", "hooks"])
     } else if agent_config::instructions(view, harness)
         .ok()
@@ -115,8 +160,8 @@ fn installed_at(plan: &Plan) -> (String, String) {
 /// and records a clean verdict on the cells it covered. A cell whose driver has no check is not
 /// checked and keeps no verdict.
 ///
-/// The check command prints its verdict on standard output and exits `0`: a command that exits
-/// otherwise did not run.
+/// The check command's standard output followed by its standard error is the driver's to read,
+/// whatever the exit status; see [`verdict_bytes`] for when the check did not run.
 ///
 /// # Errors
 /// [`ConfigCheckError::Driver`] with [`DriverError::HarnessRejectedInput`] when the harness
@@ -205,10 +250,11 @@ async fn check_group(
     let Some(command) = rt.driver.config_check(&staged) else {
         return Ok(());
     };
-    let output = isolation
+    let ran = isolation
         .collect_exec(&container, &command)
         .await
         .map_err(|e| failed(&e))?;
+    let output = verdict_bytes(ran)?;
     match rt.driver.read_config_check(&output) {
         CheckVerdict::Clean => Ok(()),
         CheckVerdict::Rejected { output } => {

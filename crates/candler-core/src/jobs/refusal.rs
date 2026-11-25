@@ -59,7 +59,7 @@ fn orchestrate_error_path(error: &OrchestrateError) -> Option<String> {
 fn config_check_error_path(error: &ConfigCheckError) -> Option<String> {
     match error {
         ConfigCheckError::Driver(inner) => Refusal::path(inner),
-        ConfigCheckError::Check(inner) => Refusal::path(inner),
+        ConfigCheckError::Check { .. } => None,
     }
 }
 
@@ -374,7 +374,12 @@ refusal_table! {
 wrapper_table! {
     ConfigCheckError, path = config_check_error_path;
     Driver (inner) => delegate(inner, Side::Experiment),
-    Check (inner) => delegate(inner, Side::Environment),
+    Check { .. } => row(
+        "jobs.config_check_failed",
+        Side::Environment,
+        "The harness's own check of the files Candler installed for it could not run, or printed nothing a verdict can be read from, for example because its container could not be started, the command is missing or timed out, or its output was cut short.",
+        "-",
+    ),
 }
 
 /// The rows of every coded error of this module, in the order of the types.
@@ -416,7 +421,7 @@ fn recover_answer(error: &RecoverError) -> &dyn Refusal {
 fn config_answer(error: &ConfigCheckError) -> &dyn Refusal {
     match error {
         ConfigCheckError::Driver(inner) => crate::refusal::through(inner, error),
-        ConfigCheckError::Check(inner) => crate::refusal::through(inner, error),
+        ConfigCheckError::Check { .. } => error,
     }
 }
 

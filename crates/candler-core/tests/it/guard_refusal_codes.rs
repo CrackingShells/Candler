@@ -619,7 +619,6 @@ fn wrapped_cases() -> Vec<Wrapped> {
     use candler_core::jobs::dir::JobError;
     use candler_core::jobs::lost::RecoverError;
     use candler_core::jobs::orchestrate::config::ConfigCheckError;
-    use candler_core::jobs::orchestrate::servers::ServerCheckError;
     use candler_core::jobs::orchestrate::session::OrchestrateError;
     use candler_core::jobs::slots::SlotError;
     use candler_core::resolve::preflight::ResolveError;
@@ -1036,10 +1035,10 @@ fn wrapped_cases() -> Vec<Wrapped> {
         case(
             "ConfigCheckError",
             "Check",
-            Box::new(ConfigCheckError::Check(ServerCheckError::ServerCheck {
+            Box::new(ConfigCheckError::Check {
                 detail: "no container".to_owned(),
-            })),
-            "jobs.server_check_failed",
+            }),
+            "jobs.config_check_failed",
         ),
         // The import's.
         case(

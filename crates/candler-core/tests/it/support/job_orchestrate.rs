@@ -196,7 +196,7 @@ impl Isolation for Placed {
         &'a self,
         plan: &'a ContainerPlan,
         command: &'a CommandSpec,
-    ) -> BoxFuture<'a, Result<Vec<u8>, IsolationError>> {
+    ) -> BoxFuture<'a, Result<candler_core::isolation::ExecOutput, IsolationError>> {
         if self.agent.is_some() {
             return self.inner.collect_exec(plan, command);
         }
@@ -832,6 +832,8 @@ pub struct Probed {
     pub needs: Vec<String>,
     /// What a command run for its output prints, by program.
     pub prints: Vec<(String, String)>,
+    /// How a command run for its output ends, by program, where it prints more than text.
+    pub ran: Vec<(String, candler_core::isolation::ExecOutput)>,
     probing: Mutex<Option<Arc<ProbingIsolation>>>,
 }
 
@@ -844,6 +846,7 @@ impl Probed {
             eof_exits: Vec::new(),
             needs: Vec::new(),
             prints: Vec::new(),
+            ran: Vec::new(),
             probing: Mutex::new(None),
         }
     }
@@ -888,6 +891,9 @@ impl JobHost for Probed {
         }
         for (program, output) in &self.prints {
             probing.print(program, output);
+        }
+        for (program, output) in &self.ran {
+            probing.ran(program, output.clone()); // BORROW: the double owns its answers
         }
         *self.probing.lock().expect("the double") = Some(Arc::clone(&probing)); // BORROW: the test reads the same double
         probing

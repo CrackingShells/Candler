@@ -175,10 +175,21 @@ pub trait HarnessDriver: Send + Sync {
     /// cell's image without network, or `None` for a harness with no check. The answer agrees
     /// with [`DriverFact::ConfigCheck`]: a driver that states the fact refused returns `None`,
     /// and one that states it mapped returns a command.
+    ///
+    /// The core runs the command and keeps what it printed on standard output and on standard
+    /// error. The exit status does not decide the verdict, so a command that reports a finding by
+    /// exiting non-zero, and one that reports on standard error, are read by
+    /// [`HarnessDriver::read_config_check`]. The check could not run, and the job is refused for
+    /// that, when the command cannot be started, exits `124` (the core's timeout), `125`, `126` or
+    /// `127`, is ended by a signal, prints nothing, or prints more than the core keeps.
     fn config_check(&self, plan: &Plan) -> Option<CommandSpec>;
 
     /// What the output of [`HarnessDriver::config_check`] says of the files; a driver with no
     /// check reads every output as clean.
+    ///
+    /// `output` is the command's standard output followed by its standard error, as one byte
+    /// string, whatever its exit status; it is never empty and never cut short. The driver reads
+    /// a finding wherever the harness prints one.
     fn read_config_check(&self, output: &[u8]) -> CheckVerdict;
 
     /// The name of the file the harness reads at the root of the workspace as instructions.

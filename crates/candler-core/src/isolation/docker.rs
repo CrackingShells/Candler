@@ -48,6 +48,59 @@ const BUILD_DEADLINE: Duration = Duration::from_mins(15);
 /// How many bytes of a client's output are kept.
 pub(crate) const OUTPUT_LIMIT: usize = 4 * 1024 * 1024;
 
+/// How a container call ended and what it printed: the exit status and the first bytes of each
+/// stream, whichever way the call ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ExecOutput {
+    /// What the call printed on standard output, at most the capture limit.
+    pub stdout: Vec<u8>,
+    /// What the call printed on standard error, at most the capture limit.
+    pub stderr: Vec<u8>,
+    /// How the call ended.
+    pub status: ExitStatus,
+    /// Whether either stream reached the capture limit, so that the rest of it was dropped.
+    pub truncated: bool,
+}
+
+impl ExecOutput {
+    /// A call that exited `0` and printed `stdout`.
+    #[must_use]
+    pub const fn printed(stdout: Vec<u8>) -> Self {
+        Self {
+            stdout,
+            stderr: Vec::new(),
+            status: ExitStatus::Code { code: 0 },
+            truncated: false,
+        }
+    }
+
+    /// A call that exited with `code` and printed `stderr`.
+    #[must_use]
+    pub const fn exited(code: i32, stderr: Vec<u8>) -> Self {
+        Self {
+            stdout: Vec::new(),
+            stderr,
+            status: ExitStatus::Code { code },
+            truncated: false,
+        }
+    }
+
+    /// What the call printed on standard output when it exited `0`.
+    ///
+    /// # Errors
+    /// [`DockerError::Failed`] with the first line of standard error when the call exited
+    /// otherwise.
+    pub fn into_stdout(self) -> Result<Vec<u8>, DockerError> {
+        match self.status {
+            ExitStatus::Code { code: 0 } => Ok(self.stdout),
+            ExitStatus::Code { .. } | ExitStatus::Signal { .. } => Err(DockerError::Failed {
+                detail: detail_of(&self.stderr),
+            }),
+        }
+    }
+}
+
 /// How many bytes of a captured container call's output are kept: an export of a long session.
 const CAPTURE_LIMIT: usize = 64 * 1024 * 1024;
 
@@ -821,6 +874,23 @@ impl DockerDriver for DockerCli {
         deadline: Duration,
     ) -> BoxFuture<'_, Result<Vec<u8>, DockerError>> {
         Box::pin(async move { self.runner.run_bytes(args, deadline, CAPTURE_LIMIT).await })
+    }
+
+    fn capture_exec(
+        &self,
+        args: Vec<String>,
+        deadline: Duration,
+    ) -> BoxFuture<'_, Result<ExecOutput, DockerError>> {
+        Box::pin(async move {
+            let captured = self.runner.captured(args, deadline, CAPTURE_LIMIT).await?;
+            Ok(ExecOutput {
+                truncated: captured.stdout.len() >= CAPTURE_LIMIT
+                    || captured.stderr.len() >= CAPTURE_LIMIT,
+                stdout: captured.stdout,
+                stderr: captured.stderr,
+                status: captured.exit.status,
+            })
+        })
     }
 
     fn inspect<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Inspect, DockerError>> {

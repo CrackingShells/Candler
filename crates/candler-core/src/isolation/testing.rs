@@ -388,6 +388,14 @@ impl<D: DockerDriver> DockerDriver for AllowlistDriver<D> {
     ) -> BoxFuture<'_, Result<Vec<u8>, DockerError>> {
         self.inner.capture(args, deadline)
     }
+
+    fn capture_exec(
+        &self,
+        args: Vec<String>,
+        deadline: std::time::Duration,
+    ) -> BoxFuture<'_, Result<super::docker::ExecOutput, DockerError>> {
+        self.inner.capture_exec(args, deadline)
+    }
 }
 
 impl<D: DestroyDriver> DestroyDriver for AllowlistDriver<D> {
@@ -477,7 +485,7 @@ pub struct ProbingIsolation {
     runs: Mutex<usize>,
     eof_exits: Mutex<BTreeMap<String, String>>,
     needs: Mutex<BTreeSet<String>>,
-    prints: Mutex<BTreeMap<String, String>>,
+    prints: Mutex<BTreeMap<String, super::docker::ExecOutput>>,
     executed: Mutex<Vec<(Vec<String>, Vec<super::container::mounts::MountSpec>)>>,
     run_mounts: Mutex<Vec<Vec<super::container::mounts::MountSpec>>>,
 }
@@ -503,7 +511,15 @@ impl ProbingIsolation {
     /// Makes a command run for its output whose program is `program` print `output`; one no
     /// answer names prints nothing.
     pub fn print(&self, program: &str, output: &str) {
-        held(&self.prints).insert(program.to_owned(), output.to_owned()); // BORROW: the script owns its words
+        held(&self.prints).insert(
+            program.to_owned(), // BORROW: the script owns its words
+            super::docker::ExecOutput::printed(output.as_bytes().to_vec()),
+        );
+    }
+
+    /// Makes a command run for its output whose program is `program` end as `output` says.
+    pub fn ran(&self, program: &str, output: super::docker::ExecOutput) {
+        held(&self.prints).insert(program.to_owned(), output); // BORROW: the script owns its words
     }
 
     /// The commands run for their output so far, as their words, each with the mounts of the
@@ -575,14 +591,14 @@ impl super::Isolation for ProbingIsolation {
         &'a self,
         plan: &'a super::model::ContainerPlan,
         command: &'a candler_harness::spec::CommandSpec,
-    ) -> BoxFuture<'a, Result<Vec<u8>, super::IsolationError>> {
+    ) -> BoxFuture<'a, Result<super::docker::ExecOutput, super::IsolationError>> {
         held(&self.executed).push((command.argv().to_vec(), plan.mounts.clone())); // BORROW: the log owns the words and the mounts
         let printed = command
             .argv()
             .first()
             .and_then(|program| held(&self.prints).get(program).cloned()) // BORROW: the caller owns the output
-            .unwrap_or_default();
-        Box::pin(async move { Ok(printed.into_bytes()) })
+            .unwrap_or_else(|| super::docker::ExecOutput::printed(Vec::new()));
+        Box::pin(async move { Ok(printed) })
     }
 
     fn collect_and_destroy<'a>(
