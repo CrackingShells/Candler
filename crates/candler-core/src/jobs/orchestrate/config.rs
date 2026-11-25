@@ -2,20 +2,22 @@
 //! distinct set of installed files is given to the harness's own check, in a container without
 //! network that is the one a run of the cell gets, and a finding refuses the job.
 
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use candler_harness::agent_config;
 use candler_harness::driver::{DriverError, Plan};
-use candler_harness::spec::{Cell, CheckVerdict, FileRoot, PreparedFile, Workspace};
+use candler_harness::spec::{Cell, CheckVerdict, CommandSpec, EnvValue, FileRoot, PreparedFile};
 use candler_schemas::primitives::Digest;
 use candler_schemas::process::ExitStatus;
 use candler_schemas::refusal::pointer_of;
 
-use super::servers::stage_container;
+use super::servers::{check_each, stage_container};
 use super::session::image_of;
+use crate::isolation::model::ContainerPlan;
 use crate::isolation::{ExecOutput, Isolation};
 use crate::runner::Runtime;
 use crate::runner::plan::{CellId, RunPlan};
@@ -40,8 +42,15 @@ pub enum ConfigCheckError {
 /// three share one verdict.
 type GroupKey = (String, Option<String>, Digest);
 
-/// The distinct keys, each with the first plan of such a cell and every cell that has the key.
-type Groups<'a> = BTreeMap<GroupKey, (&'a RunPlan, BTreeSet<CellId>)>;
+/// A distinct check: the cell it is run for, what that cell was staged as under its scratch root,
+/// the check command, and every cell that shares its key.
+struct Group<'a> {
+    plan: &'a RunPlan,
+    staged: Plan,
+    container: ContainerPlan,
+    command: CommandSpec,
+    cells: BTreeSet<CellId>,
+}
 
 fn failed(detail: &impl ToString) -> ConfigCheckError {
     ConfigCheckError::Check {
@@ -91,11 +100,11 @@ fn installed_files(plan: &Plan) -> impl Iterator<Item = &PreparedFile> {
     plan.prepared.files.iter().chain(&plan.workspace_files)
 }
 
-/// The digest of what the check reads in `plan`: every installed file with its root, path, mode
-/// and bytes, and the words of the check command.
-fn files_digest(plan: &Plan, command_words: &[String]) -> Digest {
-    let mut bytes = Vec::new();
-    for file in installed_files(plan) {
+/// Adds `files` to `bytes`, each with its root, path, mode and bytes, after a tag and a count so
+/// that two lists never run into each other.
+fn add_files(bytes: &mut Vec<u8>, tag: &str, files: &[PreparedFile]) {
+    bytes.extend_from_slice(format!("{tag}\0{}\0", files.len()).as_bytes());
+    for file in files {
         bytes.extend_from_slice(
             format!(
                 "{:?}\0{}\0{}\0{}\0",
@@ -108,10 +117,41 @@ fn files_digest(plan: &Plan, command_words: &[String]) -> Digest {
         );
         bytes.extend_from_slice(&file.contents);
     }
-    for word in command_words {
+}
+
+/// The digest of what the check reads, which is the one thing the cells of a group share: the
+/// files of the agent's home and, apart from them, the read-only files of the workspace, each
+/// with its root, path, mode and bytes; the check command's words, working directory and
+/// environment overlay; the treatment; and the environment the check container is given.
+///
+/// The cell's declared inputs are not mounted in the check container, so they are not in the key.
+fn files_digest(
+    plan: &Plan,
+    container: &ContainerPlan,
+    command: &CommandSpec,
+    treatment: &str,
+) -> Digest {
+    let mut bytes = Vec::new();
+    add_files(&mut bytes, "home", &plan.prepared.files);
+    add_files(&mut bytes, "workspace", &plan.workspace_files);
+    for word in command.argv() {
         bytes.extend_from_slice(word.as_bytes());
         bytes.push(0);
     }
+    bytes.extend_from_slice(format!("cwd\0{:?}\0", command.cwd()).as_bytes());
+    for entry in command.env_overlay() {
+        let value = match &entry.value {
+            EnvValue::Literal(text) => format!("literal\0{text}"),
+            EnvValue::Secret(name) => format!("secret\0{name}"),
+            // EXHAUSTIVE: the value enum is non-exhaustive; a value this core does not know is hashed by its shape
+            other => format!("{other:?}"),
+        };
+        bytes.extend_from_slice(format!("env\0{}\0{value}\0", entry.name).as_bytes());
+    }
+    for (name, value) in &container.env {
+        bytes.extend_from_slice(format!("container-env\0{name}\0{value}\0").as_bytes());
+    }
+    bytes.extend_from_slice(treatment.as_bytes());
     Digest::of_bytes(&bytes)
 }
 
@@ -177,33 +217,24 @@ pub async fn check_config(rt: &mut Runtime, plans: &[RunPlan]) -> Result<(), Con
         .job_dir(&rt.job)
         .join("scratch")
         .join("config-check");
-    let mut groups: Groups<'_> = BTreeMap::new();
-    let mut seen: BTreeSet<&CellId> = BTreeSet::new();
-    for plan in plans {
-        if !seen.insert(&plan.cell) {
-            continue;
+    let groups = match grouped(rt, isolation.as_ref(), plans, &scratch).await {
+        Ok(groups) => groups,
+        Err(error) => {
+            let _ = fs::remove_dir_all(&scratch); // EXPLICIT: the staged cells are of no use once the check is refused
+            return Err(error);
         }
-        if let Some(key) = group_key(rt, plan, &scratch.join("key"))? {
-            groups
-                .entry(key)
-                .or_insert_with(|| (plan, BTreeSet::new()))
-                .1
-                .insert(plan.cell.clone()); // BORROW: the group owns the ids of its cells
-        }
+    };
+    let mut covered: BTreeSet<CellId> = BTreeSet::new();
+    let mut ordered = Vec::with_capacity(groups.len());
+    for (root, group) in groups.into_values() {
+        covered.extend(group.cells.iter().cloned()); // BORROW: the covered set owns the ids
+        ordered.push((root, group));
     }
-    let _ = fs::remove_dir_all(&scratch); // EXPLICIT: the keys' scratch holds nothing after they are read
-    let mut verdict = Ok(());
-    for (index, (plan, _)) in groups.values().enumerate() {
-        let root = scratch.join(index.to_string()); // BORROW: .to_string() gives owned text
-        verdict = check_group(rt, isolation.as_ref(), plan, &root).await;
-        let _ = fs::remove_dir_all(&root); // EXPLICIT: the scratch is removed whether or not the check passed; a leftover is swept with the job directory
-        if verdict.is_err() {
-            break;
-        }
-    }
-    let _ = fs::remove_dir_all(&scratch); // EXPLICIT: the scratch root holds nothing once the groups are done
-    verdict?;
-    let covered: BTreeSet<CellId> = groups.into_values().flat_map(|(_, cells)| cells).collect();
+    let (reader, held) = (&*rt, isolation.as_ref()); // BORROW: the checks read the runtime
+    check_each(&scratch, ordered, |group, _root| async move {
+        check_group(reader, held, &group).await
+    })
+    .await?;
     for id in covered {
         if let Some(cell) = rt.cells.get_mut(&id) {
             Arc::make_mut(cell).config_clean = true;
@@ -212,56 +243,97 @@ pub async fn check_config(rt: &mut Runtime, plans: &[RunPlan]) -> Result<(), Con
     Ok(())
 }
 
-/// The key of `plan`'s cell, or `None` when its driver has no check.
+/// Stages each distinct cell of `plans` once, under a root of its own below `scratch`, and
+/// groups the cells whose staged files, check and container agree. The first cell of a group
+/// keeps its staging and its root; the root of any other is removed. A cell whose driver has no
+/// check is not staged further.
+///
+/// # Errors
+/// [`ConfigCheckError::Check`] when a cell cannot be staged.
+async fn grouped<'a>(
+    rt: &Runtime,
+    isolation: &dyn Isolation, // TRAIT_OBJECT: the runtime's isolation, or a fake in tests
+    plans: &'a [RunPlan],
+    scratch: &Path,
+) -> Result<BTreeMap<GroupKey, (PathBuf, Group<'a>)>, ConfigCheckError> {
+    let mut groups: BTreeMap<GroupKey, (PathBuf, Group<'a>)> = BTreeMap::new();
+    let mut seen: BTreeSet<&CellId> = BTreeSet::new();
+    for plan in plans {
+        if !seen.insert(&plan.cell) {
+            continue;
+        }
+        let root = scratch.join(seen.len().to_string()); // BORROW: .to_string() gives owned text
+        let (staged, container) = stage_container(rt, isolation, plan, &root, false)
+            .await
+            .map_err(|e| failed(&e))?;
+        let Some(command) = rt.driver.config_check(&staged) else {
+            let _ = fs::remove_dir_all(&root); // EXPLICIT: a cell with no check keeps nothing of its staging
+            continue;
+        };
+        let key = group_key(rt, plan, &staged, &container, &command)?;
+        match groups.entry(key) {
+            Entry::Occupied(mut held) => {
+                held.get_mut().1.cells.insert(plan.cell.clone()); // BORROW: the group owns the ids of its cells
+                let _ = fs::remove_dir_all(&root); // EXPLICIT: the group's first cell is the one that is checked
+            }
+            Entry::Vacant(slot) => {
+                let cells = BTreeSet::from([plan.cell.clone()]); // BORROW: the group owns the ids of its cells
+                slot.insert((
+                    root,
+                    Group {
+                        plan,
+                        staged,
+                        container,
+                        command,
+                        cells,
+                    },
+                ));
+            }
+        }
+    }
+    Ok(groups)
+}
+
+/// The key of `plan`'s cell, from what was staged for it.
 fn group_key(
     rt: &Runtime,
     plan: &RunPlan,
-    root: &Path,
-) -> Result<Option<GroupKey>, ConfigCheckError> {
+    staged: &Plan,
+    container: &ContainerPlan,
+    command: &CommandSpec,
+) -> Result<GroupKey, ConfigCheckError> {
     let cell = rt.cells.get(&plan.cell).ok_or_else(|| failed(&"no cell"))?;
     let comparable = plan.stored.as_ref().unwrap_or(&cell.comparable);
-    let driven = rt
-        .driver
-        .plan(&Cell::new(comparable.values()), &Workspace::new(root))?;
-    let Some(command) = rt.driver.config_check(&driven) else {
-        return Ok(None);
-    };
     let treatment = serde_json::to_string(comparable.treatment()).map_err(|e| failed(&e))?;
-    let mut words = command.argv().to_vec(); // BORROW: the words are hashed with the files
-    words.push(treatment);
-    Ok(Some((
+    Ok((
         rt.driver.id().to_string(), // BORROW: .to_string() gives owned text
         image_of(comparable),
-        files_digest(&driven, &words),
-    )))
+        files_digest(staged, container, command, &treatment),
+    ))
 }
 
-/// Runs the harness's check in the container of `plan`'s cell, over a scratch workspace under
-/// `root`, and reads its verdict.
+/// Runs the harness's check of `group` in the container its first cell was staged as, and reads
+/// its verdict.
 async fn check_group(
     rt: &Runtime,
     isolation: &dyn Isolation, // TRAIT_OBJECT: the runtime's isolation, or a fake in tests
-    plan: &RunPlan,
-    root: &Path,
+    group: &Group<'_>,
 ) -> Result<(), ConfigCheckError> {
-    let (staged, container) = stage_container(rt, isolation, plan, root)
-        .await
-        .map_err(|e| failed(&e))?;
-    let Some(command) = rt.driver.config_check(&staged) else {
-        return Ok(());
-    };
     let ran = isolation
-        .collect_exec(&container, &command)
+        .collect_exec(&group.container, &group.command)
         .await
         .map_err(|e| failed(&e))?;
     let output = verdict_bytes(ran)?;
     match rt.driver.read_config_check(&output) {
         CheckVerdict::Clean => Ok(()),
         CheckVerdict::Rejected { output } => {
-            let cell = rt.cells.get(&plan.cell).ok_or_else(|| failed(&"no cell"))?;
-            let comparable = plan.stored.as_ref().unwrap_or(&cell.comparable);
+            let cell = rt
+                .cells
+                .get(&group.plan.cell)
+                .ok_or_else(|| failed(&"no cell"))?;
+            let comparable = group.plan.stored.as_ref().unwrap_or(&cell.comparable);
             let harness = rt.driver.id().to_string(); // BORROW: .to_string() gives owned text
-            let (installed, at) = installed_at(&staged);
+            let (installed, at) = installed_at(&group.staged);
             Err(DriverError::HarnessRejectedInput {
                 path: setting_pointer(&Cell::new(comparable.values()), harness.as_str()), // BORROW: explicit .as_str()
                 installed,

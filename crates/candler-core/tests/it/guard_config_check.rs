@@ -11,6 +11,7 @@ use crate::support;
 
 use std::fs;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use candler_core::isolation::ExecOutput;
 use candler_core::isolation::container::mounts::{MountMode, MountSpec};
@@ -21,7 +22,8 @@ use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
     AgentSetting, Answer, Cell, CheckVerdict, CollectSpec, CommandSpec, DriverFact, EnvEntry,
-    HarnessId, Observed, Prepared, PreparedFile, ProcessExit, StatePath, StopSpec, Workspace,
+    EnvValue, HarnessId, Observed, Prepared, PreparedFile, ProcessExit, StatePath, StopSpec,
+    Workspace,
 };
 use candler_schemas::execution::Comparable;
 use candler_schemas::primitives::RelPath;
@@ -44,10 +46,27 @@ struct Checking {
     inner: QuietDriver,
     /// Whether the harness has a check.
     check: bool,
-    /// Whether the installed files name the cell's model, so cells of two models differ.
-    vary: bool,
+    /// What of the check's input names the cell's model, so cells of two models differ.
+    vary: Vary,
     /// Whether the run collects every file of the workspace as an output.
     collect_all: bool,
+    /// How many times the harness was asked to plan a cell.
+    planned: Arc<AtomicUsize>,
+}
+
+/// What differs between the cells of two models.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Vary {
+    /// Nothing: the cells share everything the check reads.
+    Nothing,
+    /// The text of an installed file in the agent's home.
+    Settings,
+    /// A variable of the check command's environment.
+    CommandEnv,
+    /// The check command's working directory.
+    CommandCwd,
+    /// Which list a workspace file is in: the writable files or the read-only ones.
+    ListOfFile,
 }
 
 impl Checking {
@@ -55,19 +74,37 @@ impl Checking {
         Self {
             inner: QuietDriver,
             check,
-            vary: false,
+            vary: Vary::Nothing,
             collect_all: false,
+            planned: Arc::new(AtomicUsize::new(0)),
         }
     }
 }
 
 impl HarnessDriver for Checking {
-    fn config_check(&self, _plan: &Plan) -> Option<CommandSpec> {
+    fn config_check(&self, plan: &Plan) -> Option<CommandSpec> {
         self.check.then(|| {
-            CommandSpec::builder()
-                .argv(vec![CHECK.to_owned()])
-                .build()
-                .expect("a command")
+            let mut builder = CommandSpec::builder().argv(vec![CHECK.to_owned()]);
+            let model = plan
+                .prepared
+                .env_overlay
+                .iter()
+                .find(|entry| entry.name == "MODEL")
+                .and_then(|entry| {
+                    if let EnvValue::Literal(text) = &entry.value {
+                        Some(text.clone())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_default();
+            if self.vary == Vary::CommandEnv {
+                builder = builder.env(EnvEntry::literal("CHECK_MODEL".to_owned(), model.clone()));
+            }
+            if self.vary == Vary::CommandCwd {
+                builder = builder.cwd(model.parse::<RelPath>().expect("a path"));
+            }
+            builder.build().expect("a command")
         })
     }
 
@@ -131,28 +168,46 @@ impl HarnessDriver for Checking {
     }
 
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
-        let model = if self.vary {
-            cell.value_str("model.id")
-                .ok()
-                .flatten()
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_owned()
+        self.planned.fetch_add(1, Ordering::SeqCst);
+        let model = cell
+            .value_str("model.id")
+            .ok()
+            .flatten()
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        let settings_text = if self.vary == Vary::Settings {
+            model.clone()
         } else {
             String::new()
         };
         let settings = PreparedFile::in_home(
             "settings.json".parse::<RelPath>().expect("a path"),
-            format!("{{\"model\":\"{model}\"}}").into_bytes(),
+            format!("{{\"model\":\"{settings_text}\"}}").into_bytes(),
+            false,
+        );
+        let notes = PreparedFile::new(
+            "notes.md".parse::<RelPath>().expect("a path"),
+            b"notes".to_vec(),
             false,
         );
         let mut plan = self.inner.plan(cell, workspace)?;
-        plan.prepared = Prepared::new(vec![settings], Vec::<EnvEntry>::new());
-        plan.workspace_files = vec![PreparedFile::new(
+        let mut files = vec![settings];
+        let mut read_only = vec![PreparedFile::new(
             "AGENTS.md".parse::<RelPath>().expect("a path"),
             WORKSPACE_TEXT.as_bytes().to_vec(),
             false,
         )];
+        if self.vary == Vary::ListOfFile && model == "m2" {
+            read_only.push(notes);
+        } else if self.vary == Vary::ListOfFile {
+            files.push(notes);
+        }
+        // The model's name rides in the plan's environment, which the check does not read, so a
+        // variant of the command can name it without the files differing.
+        let rides = vec![EnvEntry::literal("MODEL".to_owned(), model)];
+        plan.prepared = Prepared::new(files, rides);
+        plan.workspace_files = read_only;
         Ok(plan)
     }
 
@@ -286,16 +341,20 @@ fn mount_at<'m>(mounts: &'m [MountSpec], target: &str) -> Option<&'m MountSpec> 
 /// Oracle: the literal `REJECT: unknown key hooks.Foo` the scripted check prints, and the file
 /// names the stand-in driver lists. The job runs in a child of this test binary, so its stderr
 /// line can be read.
-/// Bite: the refusal drops the harness's output, or the check runs after the runs are scheduled.
+/// Bite: the refusal drops the harness's output, the check runs after the runs are scheduled, or the
+/// check plans its cell twice.
 #[test]
 fn harness_finding_refuses_the_job_before_any_run() {
     let line = refusal_of(
         "guard_config_check::harness_finding_refuses_the_job_before_any_run",
         || {
-            let ran = run(
-                job(&["m1"]),
-                Checking::new(true),
-                "REJECT: unknown key hooks.Foo",
+            let driver = Checking::new(true);
+            let planned = Arc::clone(&driver.planned);
+            let ran = run(job(&["m1"]), driver, "REJECT: unknown key hooks.Foo");
+            assert_eq!(
+                planned.load(Ordering::SeqCst),
+                1,
+                "the check plans its cell once"
             );
             let probing = ran.host.probing();
             assert_eq!(probing.executed().len(), 1, "the check ran once");
@@ -427,20 +486,28 @@ fn clean_verdict_is_stored_and_a_harness_without_check_stores_none() {
 }
 
 /// Guards: cells that share a harness, an image and the installed files are checked once, and
-/// cells whose installed files differ are each checked.
+/// cells that differ in what the check reads are each checked: an installed file, the command's
+/// environment or working directory, and which list (writable or read-only) a file is in.
 /// Oracle: the number of commands the isolation double ran for their output.
-/// Bite: key the check on the cell instead of on the installed files, or never on them.
+/// Bite: key the check on the cell instead of on what it reads, or leave one of them out of the key.
 #[test]
 fn cells_sharing_their_files_are_checked_once() {
     let shared = run(job(&["m1", "m2"]), Checking::new(true), "ok");
     assert_eq!(shared.outcome.runs.len(), 2, "both runs start");
     assert_eq!(shared.host.probing().executed().len(), 1, "one check");
 
-    let mut differing = Checking::new(true);
-    differing.vary = true;
-    let apart = run(job(&["m1", "m2"]), differing, "ok");
-    assert_eq!(apart.outcome.runs.len(), 2, "both runs start");
-    assert_eq!(apart.host.probing().executed().len(), 2, "one check each");
+    for vary in [
+        Vary::Settings,
+        Vary::CommandEnv,
+        Vary::CommandCwd,
+        Vary::ListOfFile,
+    ] {
+        let mut differing = Checking::new(true);
+        differing.vary = vary;
+        let apart = run(job(&["m1", "m2"]), differing, "ok");
+        assert_eq!(apart.outcome.runs.len(), 2, "both runs start");
+        assert_eq!(apart.host.probing().executed().len(), 2, "one check each");
+    }
 }
 
 /// Guards: the plan's read-only workspace file reaches the run's container at the workspace root

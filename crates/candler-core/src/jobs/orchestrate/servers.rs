@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use candler_harness::driver::Plan;
@@ -18,6 +18,7 @@ use crate::isolation::container::agent_home;
 use crate::isolation::model::ContainerPlan;
 use crate::isolation::{Isolation, IsolationError, StartProbe};
 use crate::runner::Runtime;
+use crate::runner::evidence::Inputs;
 use crate::runner::exec::{ExecError, compose_container, mounted_inputs, stage_cell};
 use crate::runner::plan::RunPlan;
 
@@ -100,22 +101,47 @@ pub async fn check_servers(rt: &Runtime, plans: &[RunPlan]) -> Result<(), Server
         .job_dir(&rt.job)
         .join("scratch")
         .join("server-check");
+    let mut roots = Vec::with_capacity(groups.len());
+    for (index, group) in groups.into_values().enumerate() {
+        roots.push((scratch.join(index.to_string()), group)); // BORROW: .to_string() gives owned text
+    }
+    let held = isolation.as_ref();
+    check_each(&scratch, roots, |(plan, stdio), root| async move {
+        probe_group(rt, held, plan, &stdio, &root).await
+    })
+    .await
+}
+
+/// Runs `check` on each of `groups` in turn, each over the scratch root it comes with, and stops
+/// at the first refusal. Each root is removed as soon as its check is over, whether or not it
+/// passed, and `scratch`, which holds them, is removed at the end.
+///
+/// # Errors
+/// The first error `check` gives.
+pub(super) async fn check_each<G, E, Fut>(
+    scratch: &Path,
+    groups: impl IntoIterator<Item = (PathBuf, G)>,
+    mut check: impl FnMut(G, PathBuf) -> Fut,
+) -> Result<(), E>
+where
+    Fut: Future<Output = Result<(), E>>,
+{
     let mut verdict = Ok(());
-    for (index, (plan, stdio)) in groups.values().enumerate() {
-        let root = scratch.join(index.to_string());
-        verdict = probe_group(rt, isolation.as_ref(), plan, stdio, &root).await;
-        let _ = fs::remove_dir_all(&root); // EXPLICIT: the scratch is removed whether or not the probe passed; a leftover is swept with the job directory
+    for (root, group) in groups {
+        verdict = check(group, root.clone()).await; // BORROW: the check owns its root and the loop removes it
+        let _ = fs::remove_dir_all(&root); // EXPLICIT: the scratch is removed whether or not the check passed; a leftover is swept with the job directory
         if verdict.is_err() {
             break;
         }
     }
-    let _ = fs::remove_dir_all(&scratch); // EXPLICIT: the scratch root holds nothing once the groups are done
+    let _ = fs::remove_dir_all(scratch); // EXPLICIT: the scratch root holds nothing once the groups are done
     verdict
 }
 
 /// Stages what a run of `plan`'s cell starts with under `root`, a scratch workspace and home, and
 /// composes the container such a run gets: the driver's plan for the cell and the container over
-/// it, with the cell's inputs and the plan's read-only workspace files mounted.
+/// it, with the plan's read-only workspace files mounted, and the cell's declared inputs when
+/// `inputs` says so.
 ///
 /// # Errors
 /// [`ExecError`] when the cell is unknown, a directory cannot be made, the driver refuses the cell
@@ -125,6 +151,7 @@ pub(super) async fn stage_container(
     isolation: &dyn Isolation, // TRAIT_OBJECT: the runtime's isolation, or a fake in tests
     plan: &RunPlan,
     root: &Path,
+    inputs: bool,
 ) -> Result<(Plan, ContainerPlan), ExecError> {
     let cell = rt
         .cells
@@ -151,7 +178,9 @@ pub(super) async fn stage_container(
         &root.join("scratch"),
     )
     .await?;
-    let mounted = mounted_inputs(&rt.store, &cell.inputs, &staged.workspace_files)?;
+    let none = Inputs::default();
+    let declared = if inputs { &cell.inputs } else { &none };
+    let mounted = mounted_inputs(&rt.store, declared, &staged.workspace_files)?;
     let container = compose_container(rt, isolation, &view, &workspace, &home, &mounted)?;
     Ok((staged, container))
 }
@@ -165,7 +194,7 @@ async fn probe_group(
     stdio: &[(String, McpServer)],
     root: &Path,
 ) -> Result<(), ServerCheckError> {
-    let (staged, mut container) = stage_container(rt, isolation, plan, root)
+    let (staged, mut container) = stage_container(rt, isolation, plan, root, true)
         .await
         .map_err(|e| failed(&e))?;
     // Standard input stays open, as a server's own would while the agent runs.
