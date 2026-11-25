@@ -8,7 +8,7 @@
 **Success Gates**:
 - ⬜ G3 (OpenCode). The *instructions*, *hooks* and *config check* rows show the OpenCode mapping: `$XDG_CONFIG_HOME/opencode/AGENTS.md`, and the workspace's root `AGENTS.md`, read-only; local plugins in `$XDG_CONFIG_HOME/opencode/plugins/`; and the probe's check or `no (…)`. On the base, no such rows exist.
 - ⬜ The plan of a cell with `instructions.global.opencode`, `instructions.workspace` and `hooks.opencode` places the global `AGENTS.md` and each plugin in the home, byte for byte, lists `AGENTS.md` with the workspace text among its read-only workspace files, and writes nothing in the workspace itself. On the base, the plan has none of these.
-- ⬜ The census lists each `Instructions from: <path>` block of the first request the gateway saw, read from a recorded request fixture.
+- ⬜ The census lists each `Instructions from: <path>` block of the run's first request that offers tools, read from a recorded request fixture.
 **References**: [Architecture report, v2](../../../__reports__/agent_config/02-architecture_agent_config_v2.md) — the shapes, the error model, the invariants and §Execution model; `crates/candler-harness-opencode/src/prepare.rs` (`render_config`, `PreparedFile::in_home`); the OpenCode V2 evidence in the report
 
 ## Step 1: Install, census and check

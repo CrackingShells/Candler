@@ -5,12 +5,13 @@
 **Pre-conditions**:
 - [ ] `[cmd]` `git -C <worktree> merge-base --is-ancestor feat/m6.5-agent-config HEAD` succeeds
 **Success Gates**:
-- ⬜ G4. From the trace: on each harness, the `context_start.system` of arm A's run holds the global text and workspace text A, and never workspace text B, and the reverse holds for arm B. On the base, the experiment is `unknown_path`.
+- ⬜ G4. From the trace: on each harness, the `context_start` of arm A's run holds the global text and workspace text A, verbatim, in its `system` or its `first_message`, and neither holds workspace text B, and the reverse holds for arm B. On the base, the experiment is `unknown_path`.
 - ⬜ G5. The scripted tool call is answered with an error carrying the hook's marker: a Claude Code PreToolUse script exits 2, and an OpenCode plugin throws in `execute.before`. On the base, there is no hook and the call succeeds.
 - ⬜ G6. On real images, an invalid payload (a Claude Code hooks entry on an unknown event; an OpenCode plugin with no default export) is refused at `resolve` with `experiment.harness_rejected_input`, quoting the harness, and the valid payload passes. On the base, it is `unknown_path`.
 - ⬜ G7. Each run's census lists both installed instruction files with their scope: on Claude Code the global file where the probe settled and the root `CLAUDE.md` (Project); on OpenCode the global `AGENTS.md` and the root `AGENTS.md`.
 - ⬜ G9. No installed file, the root instruction file included, is among any run's collected outputs, and no run is sealed `input_leak`.
-- ⬜ G11. From the trace: on each harness, the session-start hook's marker is in `context_start`, where the probe's question (g) says it lands. On the base, there is no such event.
+- ⬜ G1 (end to end). `candler resolve` of the guard's experiment succeeds, and the `inspect` of one of its runs shows `instructions` and `hooks` with the arm's values.
+- ⬜ G11. From the trace: on each harness, the session-start hook's marker is in `context_start`: in `first_message` on Claude Code, in `system` on OpenCode, as the probe measured. On the base, there is no such event.
 - ⬜ G13. Live on RiVault (Reasoning-Small): one experiment on both harnesses, two arms, one replicate each, shows G4 and G11 in its stored traces, and `__reports__/agent_config/04-findings_live_confirmation_v0.md` quotes the trace excerpts.
 - ⬜ The guards run in a pass that lists them as passed, not skipped (leaf template, convention 3). `docker ps -a` shows none of their containers afterwards.
 **References**: [Architecture report, v2](../../../../__reports__/agent_config/02-architecture_agent_config_v2.md) — the shapes, the error model, the invariants and §Execution model; `crates/candler/tests/it/guard_cli_e2e/parity_e2e.rs` (`parity_one_installed_server_one_traced_call`, the model to follow); `assets/docker/fakemodel`

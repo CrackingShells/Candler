@@ -20,4 +20,10 @@ Instruction files and hooks as per-arm experiment data (M6.5).
 
 ## Status
 
-The plan is approved, and the roadmap [`__roadmap__/m6_5-agent-config/`](../../__roadmap__/m6_5-agent-config/README.md) has been authored. The plan and the roadmap were amended on 2026-11-25 for two instruction scopes (v1), then for a live, trace-read proof (v2). No leaf has been dispatched, and no decision is open.
+The plan is approved, and the roadmap [`__roadmap__/m6_5-agent-config/`](../../__roadmap__/m6_5-agent-config/README.md) has been authored. The plan and the roadmap were amended on 2026-11-25 for two instruction scopes (v1), then for a live, trace-read proof (v2). Level 1 is dispatched, and the probe is done.
+
+On 2026-11-25 Eliott ruled on the two points that round 03 raised. The roadmap's leaves carry the amended gates:
+- The proof reads the whole starting context. `context_start` comes from the run's first request that offers tools. G4 and G11 pass when each text is found in its `system` or its `first_message`, since Claude Code puts CLAUDE.md texts and SessionStart output in the first message.
+- Consumers write `hooks` and `instructions.global` in the harness's own shape and keys (`claude-code`, `SessionStart`, `start.sh`). The experiment surface takes them as opaque subtrees.
+
+No decision is open.

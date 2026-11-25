@@ -12,7 +12,7 @@ A consumer gives the experiment a global instruction file per harness, each arm 
 - [x] `[nl]` Eliott ruled on the HTN lane's notice on 2026-11-25: instructions come in two scopes (a global file per harness, and a workspace-root file per arm on both harnesses), and evaluator access to them is deferred
 
 ## Success Gates
-- ⬜ G1–G13 of the [architecture report, v2](../../__reports__/agent_config/02-architecture_agent_config_v2.md) hold on the tip of `feat/m6.5-agent-config`, each one seen failing on `8d82f63b`
+- ⬜ G1–G13 of the [architecture report, v2](../../__reports__/agent_config/02-architecture_agent_config_v2.md), as the leaves word them after the 2026-11-25 amendment (G1, G4, G8, G11, G12), hold on the tip of `feat/m6.5-agent-config`, each one seen failing on `8d82f63b`
 - ⬜ `probe_harness_checks.md`, `declaration.md`, `trace_context.md` and `installed/` are `done`
 - ⬜ The spend measured from transcripts, coordinator included, is at most $85
 - ⬜ Every finding left out of scope is filed under `__reports__/agent_config/` and escalated
