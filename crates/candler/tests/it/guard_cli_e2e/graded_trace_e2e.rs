@@ -128,6 +128,7 @@ fn graded(world: &World) -> Vec<String> {
 fn graded_run_sees_trace() {
     let real = real_docker();
     let mut made = Made::default();
+    made.real.clone_from(&real); // BORROW: the cleanup owns its client path
     let script = json!([WRITE, EXIT]).to_string();
     let fake = start_fake(
         &real,
