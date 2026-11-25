@@ -90,7 +90,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `config.upstream_ca_invalid` | `gateway.upstream_ca` names a file that cannot be read or holds no PEM certificate. | The `gateway.upstream_ca` key in the user configuration file named in the message. | config |
 | `config.wrong_type` | A configuration key holds a value of the wrong type. | The key in the configuration file named in the message. | config |
 | `evaluation.artifact_glob_invalid` | An artifact glob in the needs of a kind is not a glob. | - | plugin |
-| `evaluation.blob_corrupt` | A blob of the store does not have the digest the store records for it. | - | environment |
+| `evaluation.blob_corrupt` | A stored file of a run does not have the digest recorded for it: a blob of the store, or the trace, a raw stream or the manifest. | - | environment |
 | `evaluation.cancelled` | The caller cancelled the request, for example by stopping the job; nothing is committed for it. | - | environment |
 | `evaluation.context_io_failed` | A file system call failed while the run's files were materialised for an evaluator. | - | environment |
 | `evaluation.dependency_cycle` | Entries of the suite depend on each other in a loop, so no order of requests serves them. | - | suite |

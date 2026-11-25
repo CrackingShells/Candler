@@ -1,4 +1,5 @@
-//! Step two of a context: private copies of the chosen stored files, and the digest of what was written.
+//! Step two of a context: private copies of the chosen stored files, and the digest of what was
+//! written.
 
 use std::fs::{self, OpenOptions, Permissions};
 use std::io;
@@ -113,10 +114,10 @@ impl Workspace {
 }
 
 /// Copies the stored file of `file` to its path below `root` as a new file, makes it read-only
-/// and returns the absolute path of the copy and the digest it was checked to have.
+/// and returns the path of the copy and the digest it was checked to have.
 ///
 /// This is the only routine that copies a stored file to a workspace.
-fn copy_stored(root: &Path, file: &AssembledFile) -> Result<(String, Digest), ContextError> {
+fn copy_stored(root: &Path, file: &AssembledFile) -> Result<(PathBuf, Digest), ContextError> {
     let target = root.join(file.workspace.as_str()); // BORROW: explicit .as_str()
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent).map_err(io_error("create a served directory", parent))?;
@@ -131,31 +132,35 @@ fn copy_stored(root: &Path, file: &AssembledFile) -> Result<(String, Digest), Co
         .open(&target)
         .map_err(io_error("create a served copy", &target))?;
     io::copy(&mut source, &mut copy).map_err(io_error("copy a stored file", &target))?;
-    // The copy is scratch for one request and is removed after it, so it is never synced.
-    drop(copy);
     let mode = if file.executable {
         READ_ONLY_EXEC
     } else {
         READ_ONLY
     };
-    fs::set_permissions(&target, Permissions::from_mode(mode))
+    // The mode is set on the open handle, so no name that was swapped in meanwhile is changed.
+    copy.set_permissions(Permissions::from_mode(mode))
         .map_err(io_error("make a served copy read-only", &target))?;
+    // The copy is scratch for one request and is removed after it, so it is never synced.
+    drop(copy);
     let written = digest_of_file(&target)?;
     if written != file.sha256 {
         return Err(ContextError::CorruptBlob {
-            path: file.workspace.to_string(),
+            stored: file.source.clone(), // BORROW: the error owns the path
             expected: file.sha256.to_string(),
             actual: written.to_string(),
         });
     }
-    let abs = target
-        .to_str()
+    Ok((target, written))
+}
+
+/// `path` as the text the context carries.
+fn text_of(path: &Path) -> Result<String, ContextError> {
+    path.to_str()
+        .map(str::to_owned) // BORROW: the context owns its path text
         .ok_or_else(|| ContextError::Workspace {
-            path: target.clone(), // BORROW: the error owns the path
+            path: path.to_path_buf(),
             detail: "is not valid UTF-8",
-        })?
-        .to_owned(); // BORROW: the context owns its path text
-    Ok((abs, written))
+        })
 }
 
 /// Copies every assembled file into the workspace and builds the run's context from the files as
@@ -163,7 +168,8 @@ fn copy_stored(root: &Path, file: &AssembledFile) -> Result<(String, Digest), Co
 /// `<workspace>/inputs/<kind>/`, the trace as `<workspace>/trace.jsonl`, each raw stream as
 /// `<workspace>/raw/<stream>.jsonl.gz` and the manifest as `<workspace>/manifest.json`. An
 /// input's entry in the context holds the directory of its tree and the digest of its list; every
-/// file is checked against the digest recorded when it was assembled.
+/// file is checked against the digest recorded when it was assembled: the store's record for a
+/// blob, the hash taken at assembly for the trace, a raw stream or the manifest.
 ///
 /// Each file is a fresh copy, never a hard link or a symbolic link to a stored file, and is made
 /// read-only once written. The digest of the context is computed from the hash of each written
@@ -177,47 +183,42 @@ fn copy_stored(root: &Path, file: &AssembledFile) -> Result<(String, Digest), Co
 /// [`ContextError::Build`] when the context cannot be built.
 pub fn materialise(assembled: &Assembled, workspace: &Path) -> Result<RunContext, ContextError> {
     let space = Workspace::prepare(workspace, assembled.store_root())?;
-    let root = space
-        .root()
-        .to_str()
-        .ok_or_else(|| ContextError::Workspace {
-            path: space.root().to_path_buf(), // BORROW: the error owns the path
-            detail: "is not valid UTF-8",
-        })?
-        .to_owned(); // BORROW: the context owns its root text
+    let root = text_of(space.root())?;
     let mut builder = RunContext::builder()
         .run(assembled.run().clone()) // BORROW: the context owns the key
         .root(root);
     for file in assembled.files() {
-        let (abs, digest) = copy_stored(space.root(), file)?;
+        let (copy, digest) = copy_stored(space.root(), file)?;
         builder = match &file.served {
+            // An input's files are served through the directory of its tree, below.
+            Served::Input => builder,
             Served::Artifact(path) => {
                 // BORROW: the context owns its paths
-                builder.artifact(ContextArtifact::new(path.clone(), abs, digest))
+                builder.artifact(ContextArtifact::new(path.clone(), text_of(&copy)?, digest))
             }
-            Served::Input(_) => builder,
-            Served::Trace => {
-                builder.trace(ContextArtifact::new(file.workspace.clone(), abs, digest))
-            }
-            Served::Raw(stream) => builder.raw(ContextRaw::new(stream.clone(), abs, digest)),
-            Served::Manifest => {
-                builder.manifest(ContextArtifact::new(file.workspace.clone(), abs, digest))
-            }
+            Served::Trace => builder.trace(ContextArtifact::new(
+                file.workspace.clone(), // BORROW: the context owns its paths
+                text_of(&copy)?,
+                digest,
+            )),
+            Served::Raw(stream) => builder.raw(ContextRaw::new(
+                stream.clone(), // BORROW: the context owns its streams
+                text_of(&copy)?,
+                digest,
+            )),
+            Served::Manifest => builder.manifest(ContextArtifact::new(
+                file.workspace.clone(), // BORROW: the context owns its paths
+                text_of(&copy)?,
+                digest,
+            )),
         };
     }
     let inputs = space.root().join("inputs");
     for input in assembled.inputs() {
         let tree = inputs.join(input.kind.as_str()); // BORROW: explicit .as_str()
-        let abs = tree
-            .to_str()
-            .ok_or_else(|| ContextError::Workspace {
-                path: tree.clone(), // BORROW: the error owns the path
-                detail: "is not valid UTF-8",
-            })?
-            .to_owned(); // BORROW: the context owns its path text
         builder = builder.input(ContextRef::new(
             input.kind.clone(), // BORROW: the context owns its kinds
-            abs,
+            text_of(&tree)?,
             input.digest.clone(), // BORROW: the context owns its digests
         ));
     }

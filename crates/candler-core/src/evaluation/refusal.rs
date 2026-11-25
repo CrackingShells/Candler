@@ -179,7 +179,7 @@ wrapper_table! {
     CorruptBlob { .. } => row(
         "evaluation.blob_corrupt",
         Side::Environment,
-        "A blob of the store does not have the digest the store records for it.",
+        "A stored file of a run does not have the digest recorded for it: a blob of the store, or the trace, a raw stream or the manifest.",
         "-",
     ),
     Build (..) => row(

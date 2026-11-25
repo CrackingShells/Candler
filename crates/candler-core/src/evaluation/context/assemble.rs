@@ -13,8 +13,8 @@ use candler_schemas::primitives::{Digest, FieldPath, Name, RelPath, RunKey};
 use candler_schemas::raw::StreamName;
 use candler_schemas::values::JsonValue;
 
-use super::ContextError;
 use super::rule::FileRule;
+use super::{ContextError, RunPart};
 use crate::store::Store;
 use crate::store::blob::digest_of_file;
 
@@ -24,8 +24,8 @@ use crate::store::blob::digest_of_file;
 pub enum Served {
     /// An artifact, named by its path relative to `outputs/`.
     Artifact(RelPath),
-    /// A file of an input, whose kind is named.
-    Input(Name),
+    /// A file of an input; the kind is the directory it lies in.
+    Input,
     /// The run's normalised trace, `trace.jsonl`.
     Trace,
     /// One raw stream of the run, `raw/<stream>.jsonl.gz`.
@@ -115,16 +115,18 @@ impl Assembled {
 
 /// Chooses the stored files and the metadata of the sealed run `run` that `needs` name.
 ///
-/// A context serves exactly what the needs declare. The artifacts are the files of the run's
+/// A context serves exactly what the needs declare. The engine builds one context per plug-in
+/// request from the union of its kinds' needs, so what a plug-in is served is what any of its
+/// kinds declares in `describe`. The artifacts are the files of the run's
 /// stored `outputs/` that the file rule keeps for the artifact globs, by path relative to
 /// `outputs/`. There is one metadata entry per metadata need, keyed by the dotted path, holding
 /// the JSON leaf of the manifest's `comparable.values`. There is one input per input need: the
 /// kind is looked up in the manifest's `comparable.inputs` and then in its `evaluation_inputs`,
 /// and the files are those of the input's list blob. The trace need serves the stored
 /// `trace.jsonl`, the raw need serves every stored `raw/<stream>.jsonl.gz`, and the manifest need
-/// serves the stored `manifest.json`; each is hashed once here, and its copy is checked against
-/// that hash. A need the run cannot meet is refused and is never served empty: a trace or raw
-/// need on a run that stores none, an input the run lacks, a metadata path with no value, and
+/// serves the stored `manifest.json`; each is hashed here, at assembly, and its copy is checked
+/// against that hash. A need the run cannot meet is refused and is never served empty: a trace or
+/// raw need on a run that stores none, an input the run lacks, a metadata path with no value, and
 /// snapshots. A run holds its manifest from the moment its directory exists, so that need has no
 /// refusal of its own. An `outputs/` with no files gives no artifacts and is not an error.
 ///
@@ -198,15 +200,31 @@ pub fn assemble(store: &Store, run: &RunKey, needs: &Needs) -> Result<Assembled,
     }
     if needs.trace {
         let source = layout.trace(run);
-        if !source.is_file() {
-            return Err(ContextError::PartMissing { part: "trace" });
+        match std::fs::metadata(&source) {
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Err(ContextError::PartMissing {
+                    run: run.clone(), // BORROW: the error owns the key
+                    part: RunPart::Trace,
+                });
+            }
+            Err(error) => {
+                return Err(ContextError::Io {
+                    op: "stat the trace",
+                    path: source,
+                    source: error,
+                });
+            }
         }
         files.push(stored_file(source, "trace.jsonl", Served::Trace)?);
     }
     if needs.raw {
         let streams = stored_streams(store, run)?;
         if streams.is_empty() {
-            return Err(ContextError::PartMissing { part: "raw" });
+            return Err(ContextError::PartMissing {
+                run: run.clone(), // BORROW: the error owns the key
+                part: RunPart::Raw,
+            });
         }
         for stream in streams {
             let source = layout.raw(run, &stream);
@@ -243,8 +261,8 @@ fn stored_path(text: &str) -> Result<RelPath, ContextError> {
     })
 }
 
-/// A stored file that has no digest on record: its hash is taken here, once, and its copy is
-/// checked against it.
+/// A stored file that has no digest on record: its hash is taken here, at assembly, and its copy
+/// is checked against it.
 fn stored_file(
     source: PathBuf,
     workspace: &str,
@@ -356,7 +374,7 @@ fn assemble_input(
             workspace: below(&format!("inputs/{}", kind.as_str()), entry.path.as_str())?,
             sha256: entry.sha256.clone(), // BORROW: the result owns its digests
             executable: false,
-            served: Served::Input(kind.clone()), // BORROW: the result owns the kind
+            served: Served::Input,
         });
     }
     files.sort_by(|a, b| a.workspace.cmp(&b.workspace));
