@@ -21,6 +21,9 @@ use serde_json::{Map, Value};
 use crate::{EXPORT_READER_VERSION, VALIDATED, session_source};
 use candler_schemas::name;
 
+/// The name of the shell tool, the only one whose result reports an exit.
+pub(crate) const SHELL_TOOL: &str = "shell";
+
 /// The tools `OpenCode` offers the model by itself, as `opencode_facts` listed them.
 const BUILTIN_TOOLS: [&str; 12] = [
     "edit",
@@ -28,7 +31,7 @@ const BUILTIN_TOOLS: [&str; 12] = [
     "grep",
     "question",
     "read",
-    "shell",
+    SHELL_TOOL,
     "skill",
     "subagent",
     "webfetch",
@@ -182,7 +185,7 @@ fn tool_drafts(block: &Value, message_at: Option<&Timestamp>, servers: &[String]
     let name = text(block, "name").unwrap_or_default();
     let state = field(block, "state");
     let input = state.and_then(|state| field(state, "input"));
-    let argv = (name == "shell")
+    let argv = (name == SHELL_TOOL)
         .then(|| {
             input
                 .and_then(|input| text(input, "command"))
@@ -194,7 +197,7 @@ fn tool_drafts(block: &Value, message_at: Option<&Timestamp>, servers: &[String]
     // an error state, that reported none (a timeout reports a signal name and no code), or that is
     // not `shell` has none; so has one whose `exit` is not an `i32`, dropped as the reader drops
     // any other malformed harness field.
-    let exit = (name == "shell" && status == Some("completed"))
+    let exit = (name == SHELL_TOOL && status == Some("completed"))
         .then(|| {
             state
                 .and_then(|state| field(state, "metadata"))

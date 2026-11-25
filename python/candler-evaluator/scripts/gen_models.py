@@ -19,8 +19,11 @@ HELPER = Path(__file__).resolve().parents[1]
 SCHEMAS = HELPER.parents[1] / "crates" / "candler-schemas" / "schema"
 MODELS = HELPER / "src" / "candler_evaluator" / "_models"
 
-# Options that decide the shape of the output. Formatting is ruff's, so the files pass
-# `ruff format --check` as committed.
+# Options that decide the shape of the output. `--strict-nullable` stops a field with a default
+# from admitting `null`, and `--use-missing-sentinel` types an optional field as `X | MISSING`, so
+# a model refuses `null` where the schema does and still lets the field be left out; the
+# sentinel needs pydantic 2.14 for `pydantic.MISSING`. Formatting is ruff's, so the files
+# pass `ruff format --check` as committed.
 OPTIONS = [
     "--input-file-type",
     "jsonschema",
@@ -30,6 +33,10 @@ OPTIONS = [
     "3.10",
     "--use-annotated",
     "--use-union-operator",
+    "--strict-nullable",
+    "--use-missing-sentinel",
+    "--target-pydantic-version",
+    "2.14",
     "--formatters",
     "ruff-check",
     "ruff-format",

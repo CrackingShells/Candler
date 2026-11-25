@@ -538,3 +538,4 @@ Wire line: `schemas@0.13.0`.
 - An `evaluate` request ends with the result `{"reported": n}`, after its `n` outcome notifications. [checked: candler-evaluator@0.1.0]
 - Candler does not compare protocol versions: any `describe` protocol is accepted. [checked: v@0.6.0]
 - Each output keeps its execute bit; its copy at `context.artifacts[].abs` is read-only, `0555` for an executable and `0444` otherwise. [checked: schemas@0.12.0]
+- Context and digest cover the request's kinds together; a part the run lacks refuses the request. [checked: v@0.16.0]

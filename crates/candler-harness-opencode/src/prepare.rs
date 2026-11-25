@@ -20,6 +20,8 @@ use candler_schemas::primitives::{FieldPath, RelPath};
 use candler_schemas::servers::{McpServer, McpServerKind};
 use serde_json::{Map, Value, json};
 
+use crate::export::SHELL_TOOL;
+
 /// The provider's id in the configuration and in `-m <provider>/<model>`.
 pub(crate) const PROVIDER: &str = "candler";
 
@@ -96,7 +98,7 @@ const EFFORT_MODEL: &str = "`OpenCode` gives a model a reasoning effort only for
 /// `shell.ts`, `read.ts`, `webfetch.ts`, `websearch.ts`, `subagent.ts`, `skill.ts`, `todo.ts`).
 /// A name with no row (`NotebookEdit`, `MultiEdit`, any other) is refused rather than guessed.
 const TOOLS: [(&str, &str); 11] = [
-    ("Bash", "shell"),
+    ("Bash", SHELL_TOOL),
     ("Edit", "edit"),
     ("Write", "edit"),
     ("Read", "read"),

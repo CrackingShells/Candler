@@ -155,7 +155,7 @@ wrapper_table! {
     PartMissing { .. } => row(
         "evaluation.run_part_missing",
         Side::Plugin,
-        "A kind needs the trace or the raw streams of a run that stores none, as an imported run whose harness frames the importer could not read.",
+        "A kind needs the trace or the raw streams of a run that does not store them, as an imported run whose harness frames the importer could not read, or a run sealed after an interruption.",
         "-",
     ),
     MissingMetadata { .. } => row(

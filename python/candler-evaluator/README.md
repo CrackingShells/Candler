@@ -19,14 +19,18 @@ grades one item, and may expose `NAME`, `VERSION`, `DIST`, `INSTRUMENTS`, `KIND_
 - **`RunContext`** is what a kind may read of one run: `root`, `artifacts`, `metadata`,
   `scratch`, `run`, `raw`, `trace`, `manifest`, `artifact_files`, `snapshots` and `inputs`. A
   kind never imports the class; it reads the object it is given. `trace` and `manifest` are a
-  `ServedFile` (`path`, `abs`, `sha256`) or `None`; `raw` is a tuple of mappings with `stream`,
-  `path` and `sha256`. `candler_evaluator.read_trace(context.trace)` yields the trace's lines as
-  models generated from `normalised-trace.schema.json` and raises `pydantic.ValidationError` at
-  a line the schema refuses.
+  `ServedFile` (`path` relative to `root`, `abs`, `sha256`) or `None`; `raw` is a tuple of
+  mappings with `stream`, `path` (absolute, a gzip-compressed `.jsonl.gz` file) and `sha256`.
+  `candler_evaluator.read_trace(context.trace)` yields the trace's records as models generated
+  from `normalised-trace.schema.json` and raises `pydantic.ValidationError` at a line those
+  models refuse: not JSON, an unknown field, a `null` on an optional field or a wrong type. It
+  checks each line, not the file's order; Candler checks the order when it writes the trace, and
+  the served copy is pinned by its `sha256`.
 - **`KINDS`** maps each kind's name to its function.
 - **`needs`** says what a kind reads: `artifacts` (globs), `inputs`, `metadata` (field paths),
   `snapshots`, `trace`, `raw` and `manifest` (the last three are booleans). It is set per kind in
-  `KIND_SPECS`.
+  `KIND_SPECS`. A request is served the union of the needs of the kinds it sends, so a part is
+  served when a kind of the request declares it, and every kind of the request can read it.
 - **`params_schema`** is the JSON Schema of a kind's params, also set per kind in `KIND_SPECS`.
   `default_deadline_ms` sits beside them.
 

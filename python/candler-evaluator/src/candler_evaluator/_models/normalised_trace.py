@@ -7,7 +7,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import MISSING, BaseModel, ConfigDict, Field, RootModel
 
 
 class Cap(Enum):
@@ -91,8 +91,8 @@ class EventKind1(BaseModel):
     )
     kind: Literal["user_message"]
     text: Annotated[
-        str | None, Field(description="The text, if the harness records it.")
-    ] = None
+        str | MISSING, Field(description="The text, if the harness records it.")
+    ] = MISSING
 
 
 class EventKind2(BaseModel):
@@ -101,8 +101,8 @@ class EventKind2(BaseModel):
     )
     kind: Literal["assistant_message"]
     text: Annotated[
-        str | None, Field(description="The text, if the harness records it.")
-    ] = None
+        str | MISSING, Field(description="The text, if the harness records it.")
+    ] = MISSING
 
 
 class EventKind5(BaseModel):
@@ -278,11 +278,11 @@ class ToolOrigin2(BaseModel):
     kind: Literal["mcp"]
     server: Annotated[str, Field(description="The name of the MCP server.")]
     tool: Annotated[
-        str | None,
+        str | MISSING,
         Field(
             description="The tool's name at the server, without the harness's prefix. A trace written before the\nfield existed has none."
         ),
-    ] = None
+    ] = MISSING
 
 
 class ToolOrigin3(BaseModel):
@@ -321,7 +321,9 @@ class Denial(BaseModel):
         extra="forbid",
     )
     by: Annotated[DeniedBy, Field(description="Who refused the call.")]
-    reason: Annotated[str | None, Field(description="The reason given, if any.")] = None
+    reason: Annotated[str | MISSING, Field(description="The reason given, if any.")] = (
+        MISSING
+    )
 
 
 class EndedBy2(BaseModel):
@@ -330,8 +332,8 @@ class EndedBy2(BaseModel):
     )
     kind: Literal["agent_error"]
     reason: Annotated[
-        ReasonCode | None, Field(description="Why the agent failed, when it says.")
-    ] = None
+        ReasonCode | MISSING, Field(description="Why the agent failed, when it says.")
+    ] = MISSING
 
 
 class EndedBy(
@@ -366,8 +368,9 @@ class EventKind3(BaseModel):
         extra="forbid",
     )
     argv: Annotated[
-        list[str] | None, Field(description="The command line, if the tool runs one.")
-    ] = None
+        list[str] | MISSING,
+        Field(description="The command line, if the tool runs one."),
+    ] = MISSING
     kind: Literal["tool_call"]
     name: Annotated[str, Field(description="The name of the tool.")]
     origin: Annotated[ToolOrigin, Field(description="Where the tool is served from.")]
@@ -384,14 +387,15 @@ class EventKind4(BaseModel):
         extra="forbid",
     )
     denied: Annotated[
-        Denial | None, Field(description="Who refused the call, when it was refused.")
-    ] = None
+        Denial | MISSING,
+        Field(description="Who refused the call, when it was refused."),
+    ] = MISSING
     exit: Annotated[
-        ExitStatus | None,
+        ExitStatus | MISSING,
         Field(
             description="How the shell call ended, as the harness reported it: `{kind: code, code}` or `{kind: signal, signal}`. Absent when the call is not a shell call, was denied, or came back without a code."
         ),
-    ] = None
+    ] = MISSING
     is_error: Annotated[
         bool,
         Field(
@@ -412,11 +416,11 @@ class EventKind6(BaseModel):
         int, Field(description="Input tokens served from the cache.", ge=0)
     ]
     cost_usd: Annotated[
-        Finite | None,
+        Finite | MISSING,
         Field(
             description="The cost in US dollars, a finite number, if the harness reports it."
         ),
-    ] = None
+    ] = MISSING
     input_tokens: Annotated[int, Field(description="Input tokens.", ge=0)]
     kind: Literal["usage"]
     output_tokens: Annotated[int, Field(description="Output tokens.", ge=0)]
@@ -490,11 +494,11 @@ class TraceRecord2(BaseModel):
         extra="forbid",
     )
     ended_at: Annotated[
-        Timestamp | None,
+        Timestamp | MISSING,
         Field(
             description="When the session ended, if the harness or the frame times say."
         ),
-    ] = None
+    ] = MISSING
     ended_by: Annotated[EndedBy, Field(description="How the session ended.")]
     id: Annotated[
         SessionId,
@@ -504,28 +508,28 @@ class TraceRecord2(BaseModel):
     ]
     kind: Literal["session"]
     model: Annotated[
-        str | None,
+        str | MISSING,
         Field(
             description="The model the session ran, as the harness names it, if it says."
         ),
-    ] = None
+    ] = MISSING
     parent_session: Annotated[
-        SessionId | None,
+        SessionId | MISSING,
         Field(
             description="The id of the session that started this one; the session's own id is that id, `/`, and a call id."
         ),
-    ] = None
+    ] = MISSING
     raw_ref: Annotated[RawRef, Field(description="The frame the session starts at.")]
     source: Annotated[
         SessionSource,
         Field(description="The harness and the reader that produced the session."),
     ]
     started_at: Annotated[
-        Timestamp | None,
+        Timestamp | MISSING,
         Field(
             description="When the session started, if the harness or the frame times say."
         ),
-    ] = None
+    ] = MISSING
 
 
 class Event(BaseModel):
@@ -533,11 +537,11 @@ class Event(BaseModel):
         extra="forbid",
     )
     at: Annotated[
-        Timestamp | None,
+        Timestamp | MISSING,
         Field(
             description="When the event happened, if the harness or the frame time says."
         ),
-    ] = None
+    ] = MISSING
     ext: Annotated[
         dict[str, Any],
         Field(
@@ -554,11 +558,11 @@ class Event(BaseModel):
         ),
     ]
     span: Annotated[
-        SpanId | None,
+        SpanId | MISSING,
         Field(
             description="The harness's id that pairs a call with its result, if the event has one."
         ),
-    ] = None
+    ] = MISSING
 
 
 class TraceRecord3(BaseModel):

@@ -364,6 +364,8 @@ fn read_context(wire: Value) -> RunContext {
 /// holds the contexts that serve none of the parts.
 /// Bite: the trace key added when not served turns the rows of `context_digest.toml` red; the key
 /// left out when served turns the served rows red.
+/// A relative path of the trace or the manifest added to the projection when it differs from its
+/// usual name turns the rows that vary the relative path red.
 #[test]
 fn the_digest_of_a_context_adds_a_key_for_each_served_part_and_only_for_those() {
     let cases = vectors(SERVED_VECTORS);
@@ -407,12 +409,18 @@ fn the_digest_of_a_context_adds_a_key_for_each_served_part_and_only_for_those() 
         read_context(wire).context_digest()
     };
     let base = read_context(wire_context(&all)).context_digest();
-    let keeps: [(&str, WireEdit); 4] = [
+    let keeps: [(&str, WireEdit); 6] = [
         ("trace path", |w| {
             w["trace"]["abs"] = Value::from("/elsewhere/trace.jsonl");
         }),
+        ("trace relative path", |w| {
+            w["trace"]["path"] = Value::from("elsewhere/trace.jsonl");
+        }),
         ("manifest path", |w| {
             w["manifest"]["abs"] = Value::from("/elsewhere/manifest.json");
+        }),
+        ("manifest relative path", |w| {
+            w["manifest"]["path"] = Value::from("elsewhere/manifest.json");
         }),
         ("raw path", |w| {
             w["raw"][0]["path"] = Value::from("/elsewhere/stdout.jsonl.gz");

@@ -115,9 +115,9 @@ impl Assembled {
 
 /// Chooses the stored files and the metadata of the sealed run `run` that `needs` name.
 ///
-/// A context serves exactly what the needs declare. The engine builds one context per plug-in
-/// request from the union of its kinds' needs, so what a plug-in is served is what any of its
-/// kinds declares in `describe`. The artifacts are the files of the run's
+/// A context serves exactly what the needs name. The engine builds one context per request, from
+/// the union of the needs of the kinds of the entries the request sends, so a part is served
+/// when a kind of the request needs it. The artifacts are the files of the run's
 /// stored `outputs/` that the file rule keeps for the artifact globs, by path relative to
 /// `outputs/`. There is one metadata entry per metadata need, keyed by the dotted path, holding
 /// the JSON leaf of the manifest's `comparable.values`. There is one input per input need: the
@@ -125,9 +125,10 @@ impl Assembled {
 /// and the files are those of the input's list blob. The trace need serves the stored
 /// `trace.jsonl`, the raw need serves every stored `raw/<stream>.jsonl.gz`, and the manifest need
 /// serves the stored `manifest.json`; each is hashed here, at assembly, and its copy is checked
-/// against that hash. A need the run cannot meet is refused and is never served empty: a trace or
-/// raw need on a run that stores none, an input the run lacks, a metadata path with no value, and
-/// snapshots. A run holds its manifest from the moment its directory exists, so that need has no
+/// against that hash. A need the run cannot meet is refused: a trace or raw need on a run that
+/// does not store that part, an input the run lacks, a metadata path with no value, and
+/// snapshots. A stored trace can hold its header alone, as when the reader failed or the session
+/// was silent, and it is served as stored. A run holds its manifest from the moment its directory exists, so that need has no
 /// refusal of its own. An `outputs/` with no files gives no artifacts and is not an error.
 ///
 /// # Errors

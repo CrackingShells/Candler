@@ -1332,21 +1332,21 @@ pub struct EvaluatorEnvironment {
 
 object_only!(EvaluatorEnvironment);
 
-/// What one kind of check needs from a run, written as an object: `trace`, `artifacts`, `snapshots`, `inputs` and `metadata` are present, the lists empty when the kind needs nothing of that sort, and `raw` and `manifest` are `false` when absent.
+/// What one kind of check needs from a run, written as an object: `trace`, `artifacts`, `snapshots`, `inputs` and `metadata` are present, the lists empty when the kind needs nothing of that sort, and `raw` and `manifest` are `false` when absent. A request is served the union of the needs of the kinds it sends, and a part the run does not store refuses the request.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(remote = "Self")]
 #[schemars(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct Needs {
-    /// Whether the check reads the normalised trace, served as `context.trace`. The trace shows every session of the run: the messages, each tool call with its command line or its MCP `{server, tool}`, each result with its `exit`, and the usage.
+    /// Whether the check reads the normalised trace, served as `context.trace` when a kind of the request needs it. The trace shows every session of the run: the messages, each tool call with its command line or its MCP `{server, tool}`, each result with its `exit`, and the usage. It holds its header alone when the reader failed or the session was silent.
     pub trace: bool,
-    /// Whether the check reads the raw streams, served as `context.raw`. The raw streams are the harness's frames as recorded, with everything the normalised trace does not keep.
+    /// Whether the check reads the raw streams, served as `context.raw` when a kind of the request needs it. The raw streams are the harness's frames as recorded, with everything the normalised trace does not keep, each stored as gzip-compressed JSON lines (`.jsonl.gz`).
     #[serde(default)]
     pub raw: bool,
-    /// Whether the check reads the run's manifest, served as `context.manifest`. The manifest holds the factors and provenance of the run, its usage, its tool census, how it ended and the exit of its process.
+    /// Whether the check reads the run's manifest, served as `context.manifest` when a kind of the request needs it. The manifest holds the factors and provenance of the run, its usage, its tool census, how it ended and the exit of its process.
     #[serde(default)]
     pub manifest: bool,
-    /// Globs, relative to the run, of the artifacts the check reads. The artifacts are the files the run produced.
+    /// Globs, relative to the run's outputs, of the artifacts the check reads. The artifacts are the files the run produced.
     pub artifacts: Vec<String>,
     /// The kinds of snapshot the check reads. Always empty for a run Candler made; the field is
     /// kept so a released helper and stored grading contexts stay valid, and it is removed once a
@@ -1542,7 +1542,7 @@ impl DescribeResultBuilder {
 pub struct ContextRaw {
     /// The name of the raw stream.
     pub stream: StreamName,
-    /// The absolute path of the stream, valid where the evaluator runs.
+    /// The absolute path of the stream, valid where the evaluator runs. The file is gzip-compressed JSON lines (`.jsonl.gz`).
     pub path: String,
     /// The digest of the stream's bytes.
     pub sha256: Digest,
@@ -1562,13 +1562,13 @@ impl ContextRaw {
     }
 }
 
-/// One stored file of a run that the evaluator reads: its path relative to the run, where the evaluator reads it and its digest, written as an object with the strings `path`, `abs` and `sha256`. The artifacts, `RunContext.trace` and `RunContext.manifest` have this shape.
+/// One stored file of a run that the evaluator reads: its path, where the evaluator reads it and its digest, written as an object with the strings `path`, `abs` and `sha256`. The artifacts, `RunContext.trace` and `RunContext.manifest` have this shape.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(remote = "Self")]
 #[schemars(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct ContextArtifact {
-    /// The path of the file relative to the run.
+    /// The path of the file: relative to the run's outputs for an artifact, relative to the run's `root` for the trace and the manifest.
     pub path: RelPath,
     /// The absolute path of the file, valid where the evaluator runs.
     pub abs: String,
@@ -1610,7 +1610,7 @@ impl ContextRef {
     }
 }
 
-/// What an evaluator may read of one run, written as an object: the run's key and root directory, the trace and the manifest when the run serves them, the raw streams, the artifacts, the snapshots, the inputs and the metadata. Every list and the metadata are present, empty when there is nothing of that sort.
+/// What an evaluator may read of one run, written as an object: the run's key and root directory, the trace and the manifest when a kind of the request needs them, the raw streams, the artifacts, the snapshots, the inputs and the metadata. Every list and the metadata are present, empty when there is nothing of that sort.
 #[derive(Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields, rename = "RunContext")]
 struct RawRunContext {
@@ -1618,13 +1618,13 @@ struct RawRunContext {
     run: RunKey,
     /// The absolute path of the run's directory, valid where the evaluator runs.
     root: String,
-    /// The normalised trace, served when the kind needs it; absent otherwise.
+    /// The normalised trace, served when a kind of the request needs it; absent otherwise.
     #[serde(default, deserialize_with = "present")]
     trace: Option<ContextArtifact>,
-    /// The manifest of the run, served when the kind needs it; absent otherwise.
+    /// The manifest of the run, served when a kind of the request needs it; absent otherwise.
     #[serde(default, deserialize_with = "present")]
     manifest: Option<ContextArtifact>,
-    /// The raw streams of the run, served when the kind needs them; empty otherwise.
+    /// The raw streams of the run, served when a kind of the request needs them; empty otherwise.
     raw: Vec<ContextRaw>,
     /// The artifacts of the run.
     artifacts: Vec<ContextArtifact>,
@@ -1646,7 +1646,7 @@ impl TryFrom<MapOnly<RawRunContext>> for RunContext {
     }
 }
 
-/// What an evaluator may read of one run, written as an object: the run's key and root directory, the trace and the manifest when the run serves them, the raw streams, the artifacts, the snapshots, the inputs and the metadata. Every list and the metadata are present, empty when there is nothing of that sort.
+/// What an evaluator may read of one run, written as an object: the run's key and root directory, the trace and the manifest when a kind of the request needs them, the raw streams, the artifacts, the snapshots, the inputs and the metadata. Every list and the metadata are present, empty when there is nothing of that sort.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(try_from = "MapOnly<RawRunContext>")]
 #[non_exhaustive]
@@ -1718,8 +1718,9 @@ impl RunContext {
     /// `raw` is `[{stream, sha256}]` sorted by `stream` by code point, present when there is a
     /// raw stream.
     ///
-    /// The run key, the root and the paths of every file, absolute or relative, are outside it,
-    /// so moving a run to another directory keeps its digest.
+    /// The run key, the root, every absolute path and the relative paths of the trace and the
+    /// manifest are outside it, so moving a run to another directory keeps its digest. An
+    /// artifact's `path` is inside it.
     #[must_use]
     pub fn context_digest(&self) -> Digest {
         // BORROW: .clone() hands out the digest computed when the context was built
