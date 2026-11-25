@@ -4,20 +4,17 @@
 //! image, behind the production gateway sidecar, against the scripted fake model (model `g1`).
 //! The script is two shell commands, `printf ... > answer.txt` (exit 0) and `exit 3`, then the
 //! call of the tool `stamp` of the server `parity`. `candler evaluate` grades each sealed run
-//! with a plug-in kind that declares `needs.trace` and `needs.artifacts = ["answer.txt"]`.
+//! with a plug-in kind that declares `needs.trace` and `needs.artifacts = ["outputs/answer.txt"]`,
+//! which the context serves as `answer.txt`.
 use std::fs;
-use std::os::unix::fs::symlink;
-use std::path::PathBuf;
-use std::process::{Command, Stdio};
 
-use candler_core::store::layout::StoreLayout;
 use serde_json::{Value, json};
 
 use super::i8_e2e::{Made, must};
 use super::parity_e2e::{SERVER, Sealed, base_experiment, records, seal, start_fake};
 use super::real_docker;
 use crate::support::cli_run::World;
-use crate::support::seam::{entries_under, sync_environment};
+use crate::support::seam::{self, sync_environment};
 
 /// The command that writes the answer file and exits 0.
 const WRITE: &str = "printf 'graded-answer-3f9a\\n' > answer.txt";
@@ -28,46 +25,29 @@ const ANSWER: &str = "graded-answer-3f9a\n";
 /// The command that exits 3.
 const EXIT: &str = "exit 3";
 
-/// The plug-in's directory below the fixtures.
-fn fixture() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/plugins/graded-trace")
-}
-
 /// The suite of one gate whose params are the script's: each command with the exit status it
 /// must show in the trace, the origin of the stamp call and the answer file.
 fn suite(shell: &[(&str, i32)]) -> String {
-    let mut parts = vec![format!(
-        "schema = \"suite/1\"\n\n[[expectations]]\nid = \"G1\"\nrole = \"gate\"\nkind = \"graded_run\"\n\
-         depends_on = []\n\n[expectations.evaluator]\nname = \"graded-trace\"\nrange = \"^0.1\"\n\n\
-         [expectations.params]\norigin = {{ kind = \"mcp\", server = \"{SERVER}\", tool = \"stamp\" }}\n"
-    )];
-    parts.extend(shell.iter().map(|(command, code)| {
-        format!(
-            "[[expectations.params.shell]]\nargv = {}\nexit = {code}\n",
-            json!([command])
-        )
-    }));
-    parts.push(format!(
-        "[expectations.params.artifact]\npath = \"answer.txt\"\ntext = {}\n",
-        json!(ANSWER)
-    ));
-    parts.join("\n")
-}
-
-/// Sets the plug-in up in the world, with the helper's project linked beside it, and returns its
-/// directory and the suite.
-fn plugin(world: &World) -> (PathBuf, PathBuf) {
-    let dir = world.root.join("graded-trace");
-    fs::create_dir_all(&dir).unwrap();
-    let helper = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../python/candler-evaluator");
-    symlink(helper, dir.join("env")).unwrap();
-    let manifest = fs::read_to_string(fixture().join("plugin.toml"))
-        .unwrap()
-        .replace("@KINDS@", &fixture().join("kinds").display().to_string());
-    fs::write(dir.join("plugin.toml"), manifest).unwrap();
-    let suite_file = dir.join("suite.toml");
-    fs::write(&suite_file, suite(&[(WRITE, 0), (EXIT, 3)])).unwrap();
-    (dir, suite_file)
+    let calls: Vec<Value> = shell
+        .iter()
+        .map(|(command, code)| json!({"argv": [command], "exit": code}))
+        .collect();
+    let document = json!({
+        "schema": "suite/1",
+        "expectations": [{
+            "id": "G1",
+            "role": "gate",
+            "kind": "graded_run",
+            "depends_on": [],
+            "evaluator": {"name": "graded-trace", "range": "^0.1"},
+            "params": {
+                "origin": {"kind": "mcp", "server": SERVER, "tool": "stamp"},
+                "shell": calls,
+                "artifact": {"path": "answer.txt", "text": ANSWER},
+            },
+        }],
+    });
+    toml::to_string(&document).unwrap()
 }
 
 /// The commands of the shell calls the fake model made in the requests after the first `skip`
@@ -87,7 +67,9 @@ fn scripted_commands(records: &str, skip: usize) -> Vec<String> {
             .filter(|message| message["role"] == "assistant")
             .flat_map(|message| message["content"].as_array().into_iter().flatten())
             .filter(|block| block["type"] == "tool_use" && block["input"]["command"].is_string())
-            .filter_map(|block| block["input"]["command"].as_str().map(str::to_owned))
+            .filter_map(|block| {
+                block["input"]["command"].as_str().map(str::to_owned) // BORROW: .to_owned() makes each command owned
+            })
             .collect();
         if held >= size {
             size = held;
@@ -100,28 +82,11 @@ fn scripted_commands(records: &str, skip: usize) -> Vec<String> {
 /// Grades the sealed run of `world` with the plug-in and returns what went wrong, one line each:
 /// an evaluation that fails, or an outcome that is not one pass.
 fn graded(world: &World) -> Vec<String> {
-    let (dir, suite_file) = plugin(world);
+    let manifest = seam::plugin(world, &seam::fixture("graded-trace"));
+    let suite_file = world.root.join("suite.toml");
+    fs::write(&suite_file, suite(&[(WRITE, 0), (EXIT, 3)])).unwrap();
     sync_environment(world);
-    let project = world.root.join("project");
-    fs::create_dir_all(&project).unwrap();
-    fs::write(
-        project.join("candler.toml"),
-        format!("[plugins]\ndirs = [\"{}\"]\n", dir.display()),
-    )
-    .unwrap();
-    let evaluated = Command::new(env!("CARGO_BIN_EXE_candler"))
-        .arg("--store")
-        .arg(world.store())
-        .arg("evaluate")
-        .arg(&suite_file)
-        .current_dir(&project)
-        .env_remove("CANDLER_STORE")
-        .env("HOME", world.root.join("home"))
-        .env("XDG_CONFIG_HOME", world.root.join("config"))
-        .env("XDG_STATE_HOME", &world.state)
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
+    let evaluated = seam::evaluate(world, &manifest, &suite_file);
     let stdout = String::from_utf8_lossy(&evaluated.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&evaluated.stderr).into_owned();
     if !evaluated.status.success() {
@@ -136,18 +101,8 @@ fn graded(world: &World) -> Vec<String> {
         Ok(report) => problems.push(format!("the evaluation refused a request: {report}")),
         Err(error) => problems.push(format!("the report is not JSON ({error}): {stdout}")),
     }
-    let layout = StoreLayout::new(&world.store());
-    let outcomes: Vec<Value> = entries_under(&layout.outcomes_dir())
-        .iter()
-        .filter(|path| path.extension().is_some_and(|ext| ext == "jsonl"))
-        .flat_map(|path| {
-            fs::read_to_string(path)
-                .unwrap_or_default()
-                .lines()
-                .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-                .collect::<Vec<_>>()
-        })
-        .collect();
+    let outcomes = seam::outcome_records(world);
+    // INDEX: `outcomes[0]` is read only when the length on the left of `||` is not 1
     if outcomes.len() != 1 || outcomes[0]["status"] != "pass" {
         problems.push(format!("the kind did not pass once: {outcomes:?}"));
     }
@@ -158,16 +113,16 @@ fn graded(world: &World) -> Vec<String> {
 /// needs the trace sees each shell call's command and exit status and each MCP call's server and
 /// tool, on every harness) -- one experiment, run with the real `candler run` on Claude Code and
 /// on `OpenCode` and graded with `candler evaluate`, passes a kind that declares `needs.trace`
-/// and `needs.artifacts = ["answer.txt"]` only when its trace holds, for each of the two shell
-/// commands, the pair of the command's argv and its exit status, the origin of the `stamp` call,
-/// and the served `answer.txt` holds the text the first command wrote.
+/// and `needs.artifacts = ["outputs/answer.txt"]` (served as `answer.txt`) only when its trace
+/// holds, for each of the two shell commands, the pair of the command's argv and its exit
+/// status, the origin of the `stamp` call, and the served `answer.txt` holds the text the first
+/// command wrote. The containers the job made are gone when the guard ends.
 ///
 /// Oracle: the fake model's own script: the commands it sent (read back from the requests it
 /// recorded), the exit statuses a shell gives them (0 and 3), and the server and tool it calls.
 ///
-/// Bite: `assemble` serving no trace (the kind's outcome is a fail or the evaluation a refusal),
-/// or the `OpenCode` reader writing no `exit` (the `OpenCode` row fails, the Claude Code row does
-/// not).
+/// Bite: `assemble` serving no trace (the kind's outcome is a fail), or `tool_drafts` of the
+/// `OpenCode` reader writing no `exit` (the `OpenCode` row fails, the Claude Code row does not).
 #[test]
 #[ignore = "needs Docker; run with --run-ignored only"]
 fn graded_run_sees_trace() {
@@ -185,23 +140,18 @@ fn graded_run_sees_trace() {
         "Run the commands you are given, call the MCP tool stamp of the server parity, then reply done.",
     );
     let mut failures = Vec::new();
-    let mut jobs = Vec::new();
+    let mut skip = records(&real, &fake.id).lines().count();
     for harness in ["claude-code", "opencode"] {
-        let skip = records(&real, &fake.id).lines().count();
-        let Sealed {
-            job,
-            world,
-            run_dir,
-        } = seal(
+        let Sealed { world, run_dir, .. } = seal(
             &base.replace("@HARNESS@", harness),
             &fake.endpoint,
             &fake.ca,
             &mut made,
         );
-        jobs.push(job);
-        let sent = scripted_commands(&records(&real, &fake.id), skip);
+        let recorded = records(&real, &fake.id);
+        let sent = scripted_commands(&recorded, skip);
         if sent != [WRITE, EXIT] {
-            let seen: Vec<String> = records(&real, &fake.id)
+            let requests: Vec<String> = recorded
                 .lines()
                 .skip(skip)
                 .map(|line| {
@@ -210,9 +160,10 @@ fn graded_run_sees_trace() {
                 })
                 .collect();
             failures.push(format!(
-                "{harness}: the model's commands were {sent:?}; requests: {seen:?}"
+                "{harness}: the model's commands were {sent:?}; requests: {requests:?}"
             ));
         }
+        skip = recorded.lines().count();
         if !run_dir.join("trace.jsonl").is_file() {
             failures.push(format!("{harness}: the run stored no trace"));
         }
@@ -222,16 +173,22 @@ fn graded_run_sees_trace() {
                 .map(|problem| format!("{harness}: {problem}")),
         );
     }
-    drop(made);
-    // the containers this guard started, by their labels: the machine's other containers are not
-    // this guard's to count
-    let mut labels = vec!["candler.test=graded-trace".to_owned()];
-    labels.extend(jobs.iter().map(|job| format!("candler.job={job}")));
-    for label in labels {
-        let left = must(&real, &["ps", "-aq", "--filter", &format!("label={label}")]);
-        if !left.is_empty() {
-            failures.push(format!("containers of {label} are left behind: {left}"));
+    // what the product left behind, by the labels of the jobs it ran: the machine's other
+    // containers are not this guard's to count
+    for job in &made.jobs {
+        let label = format!("label=candler.job={job}");
+        for args in [["ps", "-aq"], ["network", "ls"]] {
+            let mut words = args.to_vec();
+            if args[0] == "network" {
+                words.push("-q");
+            }
+            words.extend(["--filter", &label]);
+            let left = must(&real, &words);
+            if !left.is_empty() {
+                failures.push(format!("{} of {label} left behind: {left}", args[0]));
+            }
         }
     }
+    drop(made);
     assert!(failures.is_empty(), "{failures:#?}");
 }

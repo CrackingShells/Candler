@@ -23,7 +23,7 @@ def graded_run(params, context, prior):
     artifact `params` names is served with its text."""
     if context.trace is None:
         return _verdict(["the context serves no trace"], "")
-    argv_of = {}
+    argv_of = {}  # keyed by (session, span): a span is the harness's id within one session
     pairs = []
     origins = []
     for record in read_trace(context.trace):
@@ -31,12 +31,13 @@ def graded_run(params, context, prior):
             continue
         body = record.event.kind.root.model_dump(mode="json")
         span = record.event.span.root if hasattr(record.event.span, "root") else None
+        key = (record.session.root, span)
         if body["kind"] == "tool_call":
             origins.append(body["origin"])
             if "argv" in body:
-                argv_of[span] = body["argv"]
-        elif body["kind"] == "tool_result" and span is not None and span in argv_of and "exit" in body:
-            pairs.append((argv_of[span], body["exit"]))
+                argv_of[key] = body["argv"]
+        elif body["kind"] == "tool_result" and span is not None and key in argv_of and "exit" in body:
+            pairs.append((argv_of[key], body["exit"]))
     problems = []
     for shell in params["shell"]:
         want = (shell["argv"], {"kind": "code", "code": shell["exit"]})

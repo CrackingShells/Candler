@@ -14,8 +14,8 @@ use serde_json::Value;
 
 use cli_run::world;
 use seam::{
-    CANARY_BYTES, CANARY_NAME, declare_inputs, entries_under, evaluate, file_hashes, finish,
-    list_digest, occurrences, servers_tree, sync_environment, truth_tree,
+    CANARY_BYTES, CANARY_NAME, declare_inputs, evaluate, file_hashes, finish, list_digest,
+    occurrences, outcome_records, servers_tree, sync_environment, truth_tree,
 };
 
 /// What the plug-in reported for one input kind.
@@ -27,18 +27,7 @@ struct Seen {
 
 /// The `evidence` note of the one outcome record `evaluate` wrote, by input kind.
 fn reported(world: &cli_run::World) -> BTreeMap<String, Seen> {
-    let layout = StoreLayout::new(&world.store());
-    let records: Vec<Value> = entries_under(&layout.outcomes_dir())
-        .iter()
-        .filter(|path| path.extension().is_some_and(|ext| ext == "jsonl"))
-        .flat_map(|path| {
-            fs::read_to_string(path)
-                .unwrap()
-                .lines()
-                .map(|line| serde_json::from_str::<Value>(line).unwrap())
-                .collect::<Vec<_>>()
-        })
-        .collect();
+    let records = outcome_records(world);
     assert_eq!(records.len(), 1, "one outcome record: {records:?}");
     let record = &records[0];
     assert_eq!(record["status"], "pass", "the plug-in passed: {record}");
@@ -92,12 +81,12 @@ fn reported(world: &cli_run::World) -> BTreeMap<String, Seen> {
 fn input_seam_plugin_reads_both_trees_and_the_agent_never_held_the_canary() {
     let world = world();
     declare_inputs(&world);
-    let manifest = seam::plugin(&world);
+    let manifest = seam::plugin(&world, &seam::fixture("needs-inputs"));
     sync_environment(&world);
 
     let launched = world.launch();
     let job = finish(&world, &launched);
-    let evaluated = evaluate(&world, &manifest);
+    let evaluated = evaluate(&world, &manifest, &seam::suite());
     let stderr = String::from_utf8_lossy(&evaluated.stderr).into_owned();
     assert!(
         evaluated.status.success(),
