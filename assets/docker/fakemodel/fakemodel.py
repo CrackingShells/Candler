@@ -31,6 +31,10 @@ The script is chosen by the model id of a /v1/messages request:
         OpenCode). A request that defers its MCP tools (Claude Code, which offers ToolSearch) is
         answered with a ToolSearch for `mcp__parity__stamp` first, and its result with the call.
         Anything else is answered with text.
+    h1  must run a shell command. A first user prompt is answered with one call to the shell tool
+        (`Bash` for Claude Code, `shell` for OpenCode) that echoes `hook-not-blocked`, so that a
+        hook which blocks the call shows as an error answer and none as that text. Anything else
+        is answered with text.
     c3  must be slow. Every request is answered "hello" after FAKE_DELAY_SECS seconds, so that a
         run is live and its agent is mid-turn for that long.
 
@@ -138,6 +142,13 @@ def script_blocks(model, state, tools, messages):
         if state == "tool_result" and last_tool_result(messages) == "toolu_fake_search":
             return [stamp_call(PARITY_TOOLS[0])], "tool_use", "p1-call"
         return [{"type": "text", "text": "done"}], "end_turn", "p1-text"
+    if model.startswith("h1"):
+        shell = [name for name in tools if name in ("Bash", "bash", "shell")]
+        if state == "prompt" and shell:
+            call = {"type": "tool_use", "id": "toolu_fake_hook", "name": shell[0],
+                    "input": {"command": "echo hook-not-blocked", "description": "Echo"}}
+            return [{"type": "text", "text": "I will run a command."}, call], "tool_use", "h1-call"
+        return [{"type": "text", "text": "done"}], "end_turn", "h1-text"
     if model.startswith("c2"):
         return [{"type": "text", "text": "hello"}], "end_turn", "c2-hello"
     if model.startswith("c3"):

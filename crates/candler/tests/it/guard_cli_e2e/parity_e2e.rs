@@ -20,7 +20,7 @@ use crate::support::cli_run::{wait_for, world};
 use crate::support::seam::entries_under;
 
 /// The credential the fake model demands and the experiment's secret supplies.
-const TOKEN: &str = "parity-fixture-token-0123456789";
+pub(super) const TOKEN: &str = "parity-fixture-token-0123456789";
 
 /// The server the cell declares.
 const SERVER: &str = "parity";
@@ -36,9 +36,9 @@ fn experiment(base: &str, harness: &str) -> String {
     base.replace("@HARNESS@", harness)
 }
 
-/// The answers to the stamp call among the requests the fake model recorded after the first
+/// The answers to the call `call_id` among the requests the fake model recorded after the first
 /// `skip`: whether each is an error, and its text.
-fn stamp_answers(records: &str, skip: usize) -> Vec<(bool, String)> {
+pub(super) fn answers_to(records: &str, skip: usize, call_id: &str) -> Vec<(bool, String)> {
     let mut found = Vec::new();
     for line in records.lines().skip(skip) {
         let Ok(record) = serde_json::from_str::<Value>(line) else {
@@ -49,7 +49,7 @@ fn stamp_answers(records: &str, skip: usize) -> Vec<(bool, String)> {
             .and_then(|messages| messages.last())
             .and_then(|message| message["content"].as_array());
         for block in blocks.into_iter().flatten() {
-            if block["type"] == "tool_result" && block["tool_use_id"] == CALL_ID {
+            if block["type"] == "tool_result" && block["tool_use_id"] == call_id {
                 let text = block["content"].as_str().map_or_else(
                     || block["content"].to_string(),
                     str::to_owned, // BORROW: .to_owned() makes the owned text
@@ -61,8 +61,94 @@ fn stamp_answers(records: &str, skip: usize) -> Vec<(bool, String)> {
     found
 }
 
+/// The scripted fake model, running in a container, and what a job needs to reach it.
+pub(super) struct Fake {
+    pub(super) container: String,
+    /// The model's address as the job's containers reach it.
+    pub(super) endpoint: String,
+    /// Its CA certificate, which the machine setting `[gateway] upstream_ca` names.
+    pub(super) ca: std::path::PathBuf,
+    _dir: tempfile::TempDir,
+}
+
+/// Builds the fake model's image under a tag of `label`, starts it with the fixture's token, waits
+/// until it is ready and copies its CA out. The image and the container go to `made`.
+pub(super) fn start_fake(real: &Path, made: &mut Made, label: &str) -> Fake {
+    let host = fake_host(real);
+    let publish = format!(
+        "{}::8443",
+        if cfg!(target_os = "linux") {
+            host.as_str()
+        } else {
+            "127.0.0.1"
+        }
+    );
+    let context = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/docker/fakemodel");
+    let tag = format!("candler-fakemodel:{label}-{}", std::process::id());
+    let tagged = format!("candler.test={label}");
+    must(
+        real,
+        &["build", "-q", "--label", &tagged, "-t", &tag, context],
+    );
+    made.images.push(must(
+        real,
+        &["image", "inspect", "--format", "{{.Id}}", &tag],
+    ));
+    let fake = must(
+        real,
+        &[
+            "run",
+            "-d",
+            "--label",
+            &tagged,
+            "-p",
+            &publish,
+            "-e",
+            &format!("FAKE_TOKEN={TOKEN}"),
+            "-e",
+            &format!("FAKE_HOST={host}"),
+            &tag,
+        ],
+    );
+    made.containers.push(fake.clone()); // BORROW: the cleanup owns its ids
+    let port = must(real, &["port", &fake, "8443/tcp"])
+        .lines()
+        .next()
+        .and_then(|line| line.rsplit(':').next())
+        .expect("a host port")
+        .to_owned();
+    assert!(
+        wait_for(Duration::from_secs(30), || {
+            docker(real, &["exec", &fake, "test", "-f", "/tmp/fake/ca.pem"])
+                .status
+                .success()
+                && docker(real, &["logs", &fake])
+                    .stdout
+                    .windows(5)
+                    .any(|w| w == b"ready")
+        }),
+        "the fake model is ready"
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let ca = dir.path().join("ca.pem");
+    must(
+        real,
+        &[
+            "cp",
+            &format!("{fake}:/tmp/fake/ca.pem"),
+            &ca.display().to_string(),
+        ],
+    );
+    Fake {
+        container: fake,
+        endpoint: format!("https://{host}:{port}"),
+        ca,
+        _dir: dir,
+    }
+}
+
 /// What the fake model has recorded so far: nothing before its first request.
-fn records(real: &Path, fake: &str) -> String {
+pub(super) fn records(real: &Path, fake: &str) -> String {
     let out = docker(real, &["exec", fake, "cat", "/tmp/fake/records.jsonl"]);
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
@@ -113,24 +199,25 @@ fn call_origins(text: &str) -> Vec<Value> {
     found
 }
 
+/// A job the real `candler run` ran to its end: its world and the store its runs are sealed in.
+pub(super) struct Ran {
+    pub(super) world: crate::support::cli_run::World,
+    pub(super) store: std::path::PathBuf,
+    pub(super) log: String,
+}
+
 /// Runs the experiment `text` with the real `candler run` against the fake model at `endpoint`
-/// and reads back what the sealed run stored, the MCP file being the one `place` names:
-/// the directory of the run it is written under and the path it ends in.
-fn run_once(
+/// (`stage` puts what the experiment's inputs need in the world first), waits for the job to
+/// end, and returns where it stored its runs.
+pub(super) fn run_job(
     text: &str,
     endpoint: &str,
     ca: &Path,
-    place: (&str, &str),
     made: &mut Made,
-) -> Observed {
+    stage: impl FnOnce(&crate::support::cli_run::World),
+) -> Ran {
     let world = world();
-    let inputs = world.root.join("inputs").join("servers");
-    fs::create_dir_all(&inputs).unwrap();
-    fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parity/parity_mcp.py"),
-        inputs.join("parity_mcp.py"),
-    )
-    .unwrap();
+    stage(&world);
     let config = world.root.join("config");
     fs::create_dir_all(config.join("candler")).unwrap();
     fs::write(
@@ -174,9 +261,31 @@ fn run_once(
     let ended = wait_for(Duration::from_secs(600), || {
         fs::read_to_string(&events).is_ok_and(|log| log.contains("job.ended"))
     });
-    let log = fs::read_to_string(&events).unwrap_or_default();
+    let log = fs::read_to_string(&events).unwrap_or_default()
+        + &fs::read_to_string(events.with_file_name("supervisor.log")).unwrap_or_default();
     assert!(ended, "the job ends\n{log}");
+    Ran { world, store, log }
+}
 
+/// Runs the experiment `text` once as [`run_job`] does and reads back what the sealed run stored,
+/// the MCP file being the one `place` names: the directory of the run it is written under and
+/// the path it ends in.
+fn run_once(
+    text: &str,
+    endpoint: &str,
+    ca: &Path,
+    place: (&str, &str),
+    made: &mut Made,
+) -> Observed {
+    let Ran { world, store, log } = run_job(text, endpoint, ca, made, |world| {
+        let inputs = world.root.join("inputs").join("servers");
+        fs::create_dir_all(&inputs).unwrap();
+        fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parity/parity_mcp.py"),
+            inputs.join("parity_mcp.py"),
+        )
+        .unwrap();
+    });
     let run_dir = fs::read_dir(store.join("runs"))
         .into_iter()
         .flatten()
@@ -223,83 +332,11 @@ fn run_once(
 fn parity_one_installed_server_one_traced_call() {
     let started = Instant::now();
     let real = real_docker();
-    let host = fake_host(&real);
-    let publish = format!(
-        "{}::8443",
-        if cfg!(target_os = "linux") {
-            host.as_str()
-        } else {
-            "127.0.0.1"
-        }
-    );
     let before = must(&real, &["ps", "-aq"]);
     let mut made = Made::default();
     made.real.clone_from(&real); // BORROW: the cleanup owns its client path
-
-    let context = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/docker/fakemodel");
-    let tag = format!("candler-fakemodel:parity-{}", std::process::id());
-    must(
-        &real,
-        &[
-            "build",
-            "-q",
-            "--label",
-            "candler.test=parity",
-            "-t",
-            &tag,
-            context,
-        ],
-    );
-    made.images.push(must(
-        &real,
-        &["image", "inspect", "--format", "{{.Id}}", &tag],
-    ));
-    let fake = must(
-        &real,
-        &[
-            "run",
-            "-d",
-            "--label",
-            "candler.test=parity",
-            "-p",
-            &publish,
-            "-e",
-            &format!("FAKE_TOKEN={TOKEN}"),
-            "-e",
-            &format!("FAKE_HOST={host}"),
-            &tag,
-        ],
-    );
-    made.containers.push(fake.clone()); // BORROW: the cleanup owns its ids
-    let port = must(&real, &["port", &fake, "8443/tcp"])
-        .lines()
-        .next()
-        .and_then(|line| line.rsplit(':').next())
-        .expect("a host port")
-        .to_owned();
-    assert!(
-        wait_for(Duration::from_secs(30), || {
-            docker(&real, &["exec", &fake, "test", "-f", "/tmp/fake/ca.pem"])
-                .status
-                .success()
-                && docker(&real, &["logs", &fake])
-                    .stdout
-                    .windows(5)
-                    .any(|w| w == b"ready")
-        }),
-        "the fake model is ready"
-    );
-    let scratch = tempfile::tempdir().unwrap();
-    let ca = scratch.path().join("ca.pem");
-    must(
-        &real,
-        &[
-            "cp",
-            &format!("{fake}:/tmp/fake/ca.pem"),
-            &ca.display().to_string(),
-        ],
-    );
-    let endpoint = format!("https://{host}:{port}");
+    let model = start_fake(&real, &mut made, "parity");
+    let (fake, endpoint, ca) = (&model.container, &model.endpoint, &model.ca);
 
     // one experiment file; only the harness line differs
     let base = {
@@ -339,9 +376,9 @@ fn parity_one_installed_server_one_traced_call() {
         ("claude-code", &claude, ("workspace", ".mcp.json")),
         ("opencode", &opencode, ("home", "opencode/opencode.json")),
     ] {
-        let skip = records(&real, &fake).lines().count();
-        let seen = run_once(text, &endpoint, &ca, place, &mut made);
-        let answers = stamp_answers(&records(&real, &fake), skip);
+        let skip = records(&real, fake).lines().count();
+        let seen = run_once(text, endpoint, ca, place, &mut made);
+        let answers = answers_to(&records(&real, fake), skip, CALL_ID);
         if !answers
             .iter()
             .any(|(error, text)| !error && text.contains(STAMP))
