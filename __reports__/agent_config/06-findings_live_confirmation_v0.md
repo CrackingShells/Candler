@@ -43,7 +43,8 @@ OpenCode, arm B, `system`: `...Instructions from: /work/AGENTS.md\nWORKSPACE_TEX
 - Real model and a trivial prompt, not the fake model and the shell prompt; `wall_s = 300`; no tool call was asked for.
 - The guard's two experiments (one per harness) became two files, `claude-code.toml` and `opencode.toml`, run one after the other. They differ only in the hook block and the harness name.
 - The traces were read as the guard reads them: first event of kind `context_start` in `trace.jsonl`, `system` and `first_message` joined.
-- Claude Code puts both instruction texts in the first message and the hook output in the system text, as the probe (round 03) measured; OpenCode puts all three in the system text.
+- Claude Code puts both instruction texts in the first message, as the probe (round 03) measured, and the hook output in the system text, where the probe's bare `--print` run had it in the first message; G11 accepts either. OpenCode puts all three in the system text.
+- The two experiment files are kept beside this report, in [06-live/](06-live/).
 
 ## Not covered
 

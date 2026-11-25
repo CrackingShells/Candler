@@ -15,7 +15,7 @@ One experiment shows, on both harnesses, the global and the arm's own workspace 
 ## Status
 ```mermaid
 graph TD
-    e2e_guard[E2E guard]:::planned
+    e2e_guard[E2E guard]:::done
     reviewed[Reviewed]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -27,7 +27,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `e2e_guard.md` | 📄 Leaf Task | ⬜ Planned |
+| `e2e_guard.md` | 📄 Leaf Task | ✅ Done |
 | `reviewed/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log

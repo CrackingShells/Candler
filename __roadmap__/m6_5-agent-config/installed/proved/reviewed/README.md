@@ -16,7 +16,7 @@ A reviewer who did not build the milestone finds no gate that passes for the wro
 ```mermaid
 graph TD
     adversarial_review[Adversarial review]:::planned
-    meet_run_context[Meet run context]:::amendment
+    meet_run_context[Meet run context]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -28,7 +28,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `adversarial_review.md` | 📄 Leaf Task | ⬜ Planned |
-| `meet_run_context.md` | 📄 Leaf Task | 🔵 Amendment |
+| `meet_run_context.md` | 📄 Leaf Task | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

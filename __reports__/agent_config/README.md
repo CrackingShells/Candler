@@ -26,6 +26,7 @@ Instruction files and hooks as per-arm experiment data (M6.5).
 
 ### Round 06
 - [06-findings_live_confirmation_v0.md](06-findings_live_confirmation_v0.md) — **latest** live proof. G13 on RiVault Reasoning-Small, both harnesses, two arms each: every `context_start` holds the global text, its own arm's workspace text and the session-start marker, and never the other arm's text. Claude Code puts the two texts in `first_message` and the marker in `system`; OpenCode puts all three in `system`. The blocking hooks were left out of the live run.
+- [06-observation_level3_out_of_scope_v0.md](06-observation_level3_out_of_scope_v0.md) — **latest** O11–O15 from level 3: a job-start refusal's code reaches no place a consumer reads (medium); the parity guard's container check compares the whole daemon; the OpenCode plugin API is not on the capability page; `resolve`'s preflight cannot reach the fake model on macOS; two more timing guards fail under load.
 
 ## Status
 
@@ -44,5 +45,7 @@ On 2026-11-25 the M6.5 and M6d (run context) leads agreed how the two trace chan
 Level 2 is done and merged locally on 2026-11-25: `install_claude_code`, `install_opencode` and `preflight_check`. A full workspace run after the third merge found 33 tests red, which no leaf's gate had run: the test fakes did not answer the new job-start check, and a level 1 guard expected the old refusal. A fix branch made them green. The seam review of the level then found that the OpenCode check refused valid cells on environment errors, and that OpenCode recorded the workspace file as an absolute path. Both are fixed, with the stale design prose. The rest is in round 05. Level 3 and 4 gates name the whole workspace suite.
 
 Spend after level 2 is $95.92 of the $125 cap: planning and level 1 $55.40, level 2 about $40.50.
+
+Level 3 is done and merged locally on 2026-11-25 (merge bfdfa010). Its guard found that the job-start harness check did not mount the cell's declared inputs, so an OpenCode MCP server taken from inputs was refused at job start; the check now mounts and keys them. G11 now accepts the marker in `system` or `first_message`: under Candler, Claude Code writes it in `system`. G6 is met on the refusal and its message; the code is not recorded where a consumer reads it (O11). G13 passed live. M6d has not landed on `origin/main`, so `meet_run_context` is owed by M6d.
 
 No decision is open.

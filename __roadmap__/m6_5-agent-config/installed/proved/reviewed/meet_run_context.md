@@ -6,10 +6,11 @@
 - [ ] `[cmd]` `git merge-base --is-ancestor feat/run-context origin/main` is checked after `git fetch origin`. If it succeeds, M6d landed first and every gate below applies. If it fails, M6.5 is landing first: record that, mark the gates "owed by M6d", and stop.
 - [ ] `[nl]` `adversarial_review.md` is `done`, or runs beside this leaf on the same tip
 **Success Gates**:
-- ⬜ `feat/m6.5-agent-config` takes in `origin/main` by a merge. History is not rewritten, so the milestone branch is not rebased; that matches the leads' agreement in substance. Generated files are regenerated, not merged by hand: `KnownKind` in `crates/candler-schemas/src/trace.rs` holds both `ContextStart` and M6d's typed `tool_result.exit`. The normalised-trace schema and the trace contract page come from `CANDLER_BLESS_SCHEMAS=1 … drift` and `CANDLER_BLESS_CONTRACT=1 … contract_pages`, and both pass unblessed afterwards.
-- ⬜ No version is bumped by hand. `git diff origin/main..HEAD` shows no change to any crate's `version` or to a CHANGELOG. The `feat(schemas)` commits alone set the release's single minor bump.
-- ⬜ The merge commit, or a commit made with it, adds the sentence next to `needs.trace` in the evaluator-facing docs. It says that declaring `needs.trace` hands the evaluator kind the run's system text and first message verbatim (`context_start`), which may be the treatment under test.
-- ⬜ `cargo nextest run --workspace` passes on the merged tip, and `docker ps -a` shows none of the leaf's containers.
+- ✅ Recorded 2026-11-25: `git fetch origin`, then `feat/run-context` is not on `origin/main` (it has no remote branch, and `HEAD..origin/main` is empty), so M6.5 lands first. Every gate below is owed by M6d.
+- ⬜ (owed by M6d) `feat/m6.5-agent-config` takes in `origin/main` by a merge. History is not rewritten, so the milestone branch is not rebased; that matches the leads' agreement in substance. Generated files are regenerated, not merged by hand: `KnownKind` in `crates/candler-schemas/src/trace.rs` holds both `ContextStart` and M6d's typed `tool_result.exit`. The normalised-trace schema and the trace contract page come from `CANDLER_BLESS_SCHEMAS=1 … drift` and `CANDLER_BLESS_CONTRACT=1 … contract_pages`, and both pass unblessed afterwards.
+- ⬜ (owed by M6d) No version is bumped by hand. `git diff origin/main..HEAD` shows no change to any crate's `version` or to a CHANGELOG. The `feat(schemas)` commits alone set the release's single minor bump.
+- ⬜ (owed by M6d) The merge commit, or a commit made with it, adds the sentence next to `needs.trace` in the evaluator-facing docs. It says that declaring `needs.trace` hands the evaluator kind the run's system text and first message verbatim (`context_start`), which may be the treatment under test.
+- ⬜ (owed by M6d) `cargo nextest run --workspace` passes on the merged tip, and `docker ps -a` shows none of the leaf's containers.
 **References**: `crates/candler-schemas/src/trace.rs` (`KnownKind`); `docs/contract/trace-file.md`; M6d's `needs.trace` doc on `origin/main`; the leaf [trace_context.md](../../../trace_context.md), which added `context_start`
 
 ## Step 1: Merge and regenerate
