@@ -192,7 +192,7 @@
           "type": "array"
         },
         "trace": {
-          "description": "Whether the check reads the normalised trace, served as `context.trace`. The trace shows every session of the run: the messages, each tool call with its command line or its MCP `{server, tool}`, each result with its `exit`, and the usage. When the trace holds a `context_start` event, declaring this need hands the kind the run's system text and first message verbatim, which may be the treatment under test.",
+          "description": "Whether the check reads the normalised trace, served as `context.trace`. The trace shows every session of the run: the messages, each tool call with its command line or its MCP `{server, tool}`, each result with its `exit`, and the usage.",
           "type": "boolean"
         }
       },

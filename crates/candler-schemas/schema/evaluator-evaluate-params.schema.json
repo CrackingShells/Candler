@@ -60,7 +60,7 @@
     },
     "ContextArtifact": {
       "additionalProperties": false,
-      "description": "One stored file of a run that the evaluator reads: its path relative to the run, where the evaluator reads it and its digest, written as an object with the strings `path`, `abs` and `sha256`.",
+      "description": "One stored file of a run that the evaluator reads: its path relative to the run, where the evaluator reads it and its digest, written as an object with the strings `path`, `abs` and `sha256`. The artifacts, `RunContext.trace` and `RunContext.manifest` have this shape.",
       "properties": {
         "abs": {
           "description": "The absolute path of the file, valid where the evaluator runs.",

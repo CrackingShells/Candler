@@ -1338,7 +1338,7 @@ object_only!(EvaluatorEnvironment);
 #[schemars(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct Needs {
-    /// Whether the check reads the normalised trace, served as `context.trace`. The trace shows every session of the run: the messages, each tool call with its command line or its MCP `{server, tool}`, each result with its `exit`, and the usage. When the trace holds a `context_start` event, declaring this need hands the kind the run's system text and first message verbatim, which may be the treatment under test.
+    /// Whether the check reads the normalised trace, served as `context.trace`. The trace shows every session of the run: the messages, each tool call with its command line or its MCP `{server, tool}`, each result with its `exit`, and the usage.
     pub trace: bool,
     /// Whether the check reads the raw streams, served as `context.raw`. The raw streams are the harness's frames as recorded, with everything the normalised trace does not keep.
     #[serde(default)]
@@ -1562,7 +1562,7 @@ impl ContextRaw {
     }
 }
 
-/// One stored file of a run that the evaluator reads: its path relative to the run, where the evaluator reads it and its digest, written as an object with the strings `path`, `abs` and `sha256`.
+/// One stored file of a run that the evaluator reads: its path relative to the run, where the evaluator reads it and its digest, written as an object with the strings `path`, `abs` and `sha256`. The artifacts, `RunContext.trace` and `RunContext.manifest` have this shape.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(remote = "Self")]
 #[schemars(deny_unknown_fields)]
