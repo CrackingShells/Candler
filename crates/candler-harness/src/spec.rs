@@ -1128,6 +1128,12 @@ pub enum StateKind {
     File,
 }
 
+/// The workspace directory inside the agent's container.
+pub const AGENT_WORKDIR: &str = "/work";
+
+/// The agent's home directory inside the agent's container.
+pub const AGENT_HOME: &str = "/home/agent";
+
 /// A place a harness keeps state, inside the agent's home: the core creates it, sets `env` to its
 /// absolute path inside the container, and keeps it per run.
 #[derive(Debug, Clone, PartialEq, Eq)]
