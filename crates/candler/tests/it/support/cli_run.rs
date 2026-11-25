@@ -166,7 +166,11 @@ inspect)
     echo true
     ;;
 run)
-    case " $* " in *" --version "*) echo "2.1.311 (Claude Code)" ;; esac
+    case " $* " in
+    *" --version "*) echo "2.1.311 (Claude Code)" ;;
+    # The harness check: the control container that runs `claude doctor` prints a clean report.
+    *" candler.role=control "*" claude doctor "*) cat "$here/doctor.out" ;;
+    esac
     ;;
 *)
     echo "UNHANDLED: $*" >> "$here/docker.log"
@@ -256,6 +260,12 @@ pub fn world() -> World {
     let fake = bin.join("docker");
     fs::write(&fake, FAKE).unwrap();
     fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../candler-harness-claude-code/tests/fixtures/doctor/valid.txt"),
+        bin.join("doctor.out"),
+    )
+    .unwrap();
     fs::write(bin.join("docker.log"), "").unwrap();
     fs::write(bin.join("handed.log"), "").unwrap();
 
