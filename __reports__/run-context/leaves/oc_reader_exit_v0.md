@@ -52,10 +52,27 @@ assertion `left == right` failed
   right: ... {"exit": {"code": 0, "kind": "code"}, "is_error": false, "kind": "tool_result"} ...
 ```
 
-The rows after it (the probe's code 3 and code 2) are not reached on the base because the table
-stops at its first failure; the probe's rows were seen failing under bite (b) below, and the rows
-without an exit (aborted, rejected, `read`) pass on the base by design: they guard against reading
-too much.
+The table stops at its first failure, so the later rows were checked separately: on a scratch branch
+from the base plus the test commit (deleted), with the `completed_o1` row's exit temporarily removed
+from the expectation, the table fails at the probe's rows with the reader giving none:
+
+```
+assertion `left == right` failed: shell_exit_stderr_timeout
+  left:  [{"is_error": false, "kind": "tool_result"} x3]
+  right: [{"exit": {"code": 3, ...}, ...}, {"exit": {"code": 2, ...}, ...}, {"is_error": false, ...}]
+```
+
+So every row with a code fails on the base. The rows without an exit (aborted, rejected, `read`)
+pass on the base by design: they guard against reading too much (the `read` row bites when the
+`shell` check is dropped).
+
+## Rulings
+
+- The non-`shell` row's inline document is an accepted deviation from "written from `jq` over the
+  exports": no recorded export holds a non-`shell` tool. The hand-set `exit: 7` is an input, and the
+  row bites if the `shell` check is dropped.
+- `sigterm_mid_tool` (aborted, not in the table) also reads no exit.
+- An `exit` that is not an `i32` gives no exit, as the reader treats other malformed harness fields.
 
 ## Bites
 
