@@ -19,7 +19,10 @@ Instruction files and hooks as per-arm experiment data (M6.5).
 - [03-findings_probe_harness_checks_v0.md](03-findings_probe_harness_checks_v0.md) — **latest**. The level-1 probe, measured in the real images: the check command for each harness, where Claude Code's global file loads, the order and place (system or first message) in which instructions and session-start hooks reach the model. Two points amend v2's proof wording.
 
 ### Round 04
-- [04-observation_level1_out_of_scope_v0.md](04-observation_level1_out_of_scope_v0.md) — **latest**. Eight findings from level 1 that lie outside its leaves: the 4 MiB gateway log read, an unlocked image build, a commit that does not build alone, OpenCode's silence on unknown keys, `mcp.servers` names, a timing guard, an unused image, a child not identified for signalling.
+- [04-observation_level1_out_of_scope_v0.md](04-observation_level1_out_of_scope_v0.md) — **latest** for level 1. Eight findings from level 1 that lie outside its leaves: the 4 MiB gateway log read, an unlocked image build, a commit that does not build alone, OpenCode's silence on unknown keys, `mcp.servers` names, a timing guard, an unused image, a child not identified for signalling.
+
+### Round 05
+- [05-observation_level2_out_of_scope_v0.md](05-observation_level2_out_of_scope_v0.md) — **latest** for level 2. Ten findings from level 2 and its seam review that lie outside its leaves: a broken ignored OpenCode guard on main, two link-following paths, refusal pointers chosen by presence, non-report check output blamed on the experiment, check groups that split too finely, collision targets derived twice, no cancel signal or Unicode normalisation, an unescaped census source, a second timing guard. Also two process lessons: whole-suite gates, and check rules taken from recorded output.
 
 ## Status
 
@@ -34,5 +37,9 @@ Level 1 is done and merged locally. On 2026-11-25 Eliott raised the cap from $85
 On 2026-11-25 level 2 found that a resolve step cannot reach a cell's plan, which the harness check needs. The check moved beside the start check of the declared servers (`check_servers`, before the job's first run), and the collision check moved to planning. G6 and G10 are worded accordingly; the check still runs before any agent.
 
 On 2026-11-25 the M6.5 and M6d (run context) leads agreed how the two trace changes meet. Whichever lands second takes the other in, regenerates the schema and the trace page instead of merging them by hand, bumps no version by hand, and writes the `needs.trace` sentence about `context_start`. The leaf `meet_run_context` (L4) holds this for the case where M6.5 lands second. M6.5 takes `origin/main` in by a merge, since its history is not rewritten.
+
+Level 2 is done and merged locally on 2026-11-25: `install_claude_code`, `install_opencode` and `preflight_check`. A full workspace run after the third merge found 33 tests red, which no leaf's gate had run: the test fakes did not answer the new job-start check, and a level 1 guard expected the old refusal. A fix branch made them green. The seam review of the level then found that the OpenCode check refused valid cells on environment errors, and that OpenCode recorded the workspace file as an absolute path. Both are fixed, with the stale design prose. The rest is in round 05. Level 3 and 4 gates name the whole workspace suite.
+
+Spend after level 2 is $95.92 of the $125 cap: planning and level 1 $55.40, level 2 about $40.50.
 
 No decision is open.
