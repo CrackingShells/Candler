@@ -8,7 +8,7 @@ The Step 2 commit subject in the leaf is 76 characters and the commit hook allow
 
 ## The reader's API
 
-`RunContext` carries `trace` and `manifest` as `ServedFile(path, abs, sha256)` or `None`, and `raw` as a tuple of mappings with `stream`, `path` and `sha256` (empty when not served). `candler_evaluator.read_trace(context.trace)` (also a path) yields each line of the trace as the model of its `kind` generated from `normalised-trace.schema.json`, and raises `pydantic.ValidationError` at a line the schema refuses, an unknown field included.
+`RunContext` carries `trace` and `manifest` as `ServedFile(path, abs, sha256)` or `None`, and `raw` as a tuple of mappings with `stream`, `path` and `sha256` (empty when not served). `candler_evaluator.read_trace(context.trace)` (also a path) yields each line of the trace as the model of its `kind` generated from `normalised-trace.schema.json`, and raises `pydantic.ValidationError` at a line its models refuse (not JSON, an unknown field, a wrong type). A `null` on an optional field reads as absent. It checks lines, not the file's order.
 
 ## Guards on the base (Step 1, `9292fd6f`)
 
@@ -43,9 +43,35 @@ Removing `exclude_none` from only one of the two dumps leaves the guard green: t
 - The contract page's Notes hold 119 words (limit 120), each bullet stamped.
 - No Rust build was needed and none was run.
 
+## Review
+
+Verdict of the independent review: every gate is met; one deviation, on the adversarial question (what the helper reads differently from the Rust reader). Three findings, each with its ruling:
+
+| Finding | Ruling |
+|:--|:--|
+| `read_trace` checks each line against the generated models only. An empty file, a missing or second header, a `seq` gap, an event for an undeclared session and a `raw_ref` naming an unlisted stream pass it; `TraceFile::read` in Rust refuses each. | Not added: a second implementation of the file rules would drift from the Rust one. The docstring now says it checks lines, not the file's order, and that Candler checks the order when it writes the trace (the served copy is pinned by its sha256). |
+| The docstring and the contract Note said it refuses whatever the schema refuses. The generated optional fields are `X \| None = None`, so `"exit": null` or `"argv": null` read as absent although the schema refuses null. | Every sentence now says it raises at a line its models refuse (not JSON, an unknown field, a wrong type) and that a `null` on an optional field reads as absent. The generator is not changed in this leaf. The Note stays within 120 words (119); the detail is in the page's Surface prose and the docstring. |
+| `scripts/gen_models.py` had a docstring line of 121 characters. | Wrapped. |
+
+The empty-line question is settled. Rust strips one trailing newline, so both readers refuse a blank line, and both accept CRLF. An empty file passes `read_trace` and is refused by Rust.
+
+## Implementation trial
+
+The leaf was first run on the RiVault alias `RiVault/RiVault/Reasoning-Large` (backing model XiaomiMiMo/MiMo-V2.6-Pro-RL) through OpenCode 1.18.23.
+
+| Measure | Value |
+|:--|:--|
+| Duration | 2946 s |
+| Steps | 38 |
+| Tool calls | bash 62, read 2, todowrite 1 |
+| Tokens | input 81,996; output 7,564; reasoning 171,456; cache read 2,069,472 |
+| Result | no file written, no commit made |
+
+Its last step spent 31,995 reasoning tokens and ended with `finish=length`. Reasoning-Medium had shown 0 reasoning tokens through OpenCode earlier and was not run on the leaf. Verdict: fail. The leaf was then implemented by Claude Sonnet.
+
 ## Left
 
-- The mandatory Sonnet review (a wire context or trace line the helper reads differently from the Rust reader) is for the coordinator to dispatch.
-- Not checked against the Rust reader: an empty line in a trace file raises `ValidationError` in `read_trace`; whether the Rust reader tolerates one is not verified.
+- Generated optional fields across all helper models, `Needs.raw` and `Needs.manifest` included, accept `null`, which the schema refuses. Fixing it is a generator-wide change, out of this leaf.
+- The describe guard goes red only when both `exclude_none` dumps are removed.
 - `candler_evaluator.__init__` also exports `ServedFile` and `read_trace`; the generated `Needs.raw`/`Needs.manifest` stay `bool | None`, as the schema generator emits them.
 - The tag `candler-evaluator@0.2.0` is not cut.
