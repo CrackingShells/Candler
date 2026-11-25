@@ -5,9 +5,9 @@
 **Pre-conditions**:
 - [ ] `[cmd]` `git -C <worktree> merge-base --is-ancestor feat/m6.5-agent-config HEAD` succeeds
 **Success Gates**:
-- ⬜ `__reports__/agent_config/05-review_m6_5_v0.md` names each gate G1–G13 with the evidence that it holds on the tip and failed on `8d82f63b`, or names it as broken.
+- ⬜ `__reports__/agent_config/<NN>-review_m6_5_v0.md`, at the next free round after the live findings, names each gate G1–G13 with the evidence that it holds on the tip and failed on `8d82f63b`, or names it as broken.
 - ⬜ The report lists any debt left behind (a second reader, a duplicated helper, dead code, a leftover script), each fixed in this leaf or filed as a notice. An out-of-scope finding is filed as an observation and escalated.
-- ⬜ `__reports__/agent_config/05-knowledge_transfer_m6_5_v0.md` records the spend measured per leaf against the $85 cap.
+- ⬜ `__reports__/agent_config/<NN>-knowledge_transfer_m6_5_v0.md`, in the same round as the review, records the spend measured per leaf against the $85 cap.
 **References**: [Architecture report, v2](../../../../../__reports__/agent_config/02-architecture_agent_config_v2.md) — the shapes, the error model, the invariants and §Execution model
 
 ## Step 1: Review and close

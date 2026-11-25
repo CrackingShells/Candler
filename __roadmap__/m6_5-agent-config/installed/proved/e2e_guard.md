@@ -12,7 +12,7 @@
 - ⬜ G9. No installed file, the root instruction file included, is among any run's collected outputs, and no run is sealed `input_leak`.
 - ⬜ G1 (end to end). `candler resolve` of the guard's experiment succeeds, and the `inspect` of one of its runs shows `instructions` and `hooks` with the arm's values.
 - ⬜ G11. From the trace: on each harness, the session-start hook's marker is in `context_start`: in `first_message` on Claude Code, in `system` on OpenCode, as the probe measured. On the base, there is no such event.
-- ⬜ G13. Live on RiVault (Reasoning-Small): one experiment on both harnesses, two arms, one replicate each, shows G4 and G11 in its stored traces, and `__reports__/agent_config/04-findings_live_confirmation_v0.md` quotes the trace excerpts.
+- ⬜ G13. Live on RiVault (Reasoning-Small): one experiment on both harnesses, two arms, one replicate each, shows G4 and G11 in its stored traces, and `__reports__/agent_config/<NN>-findings_live_confirmation_v0.md` quotes the trace excerpts, where `<NN>` is the next free round.
 - ⬜ The guards run in a pass that lists them as passed, not skipped (leaf template, convention 3). `docker ps -a` shows none of their containers afterwards.
 **References**: [Architecture report, v2](../../../../__reports__/agent_config/02-architecture_agent_config_v2.md) — the shapes, the error model, the invariants and §Execution model; `crates/candler/tests/it/guard_cli_e2e/parity_e2e.rs` (`parity_one_installed_server_one_traced_call`, the model to follow); `assets/docker/fakemodel`
 
@@ -28,6 +28,6 @@
 **Goal**: The same proof on a real model.
 **Implementation Logic**:
 Run the guard's experiment once with `candler run` against RiVault's Reasoning-Small, which tests reachability, not scores, on both harnesses with two arms and one replicate each. Read G4 and G11 from the stored traces with the same reader the guard uses. Quote the `context_start` excerpts that show each text and the marker. No product code changes in this step.
-**Deliverables**: `__reports__/agent_config/04-findings_live_confirmation_v0.md`, written with `writing-reports`, type findings
-**Consistency Checks**: `test -s __reports__/agent_config/04-findings_live_confirmation_v0.md` (expected: PASS)
+**Deliverables**: `__reports__/agent_config/<NN>-findings_live_confirmation_v0.md` at the next free round, written with `writing-reports`, type findings
+**Consistency Checks**: `ls -s __reports__/agent_config/*-findings_live_confirmation_v0.md` lists one non-empty file (expected: PASS)
 **Commit**: `reports(api): confirm instructions and hooks live from the trace`
