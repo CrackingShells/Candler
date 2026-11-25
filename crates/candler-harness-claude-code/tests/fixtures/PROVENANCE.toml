@@ -240,3 +240,21 @@ path = "sessions/c2/timings.toml"
 source = "recorded: Claude Code 2.1.311 against assets/docker/fakemodel, see sessions/PROVENANCE.toml"
 sha256 = "e1fd828f6621aeb731ea1564b9dfe7a16bb2e2de7a3c31612925220c11bf4600"
 synthetic = false
+
+[[files]]
+path = "doctor/valid.txt"
+source = "recorded: `claude doctor </dev/null` (stdout; stderr empty, exit 0) as user agent, --network none, in image candler-base:src-83c18228eddb (Claude Code 2.1.311), cwd /work holding a valid .claude/settings.json (permissions.deny only), 2026-11-25"
+sha256 = "daa6d1f3644039eb6fdb94f2c2c42d274bb99218bd5edf79e8ecc28f9d083d4b"
+synthetic = false
+
+[[files]]
+path = "doctor/bad_json.txt"
+source = "recorded: `claude doctor </dev/null` (stdout; stderr empty, exit 0) as user agent, --network none, in image candler-base:src-83c18228eddb (Claude Code 2.1.311), cwd /work holding a .claude/settings.json that is not JSON, 2026-11-25"
+sha256 = "7ad0ac03475b851a82a10c742d6c1d8f26435716ddabfb5e4ac646f61053b1f2"
+synthetic = false
+
+[[files]]
+path = "doctor/unknown_event.txt"
+source = "recorded: `claude doctor </dev/null` (stdout; stderr empty, exit 0) as user agent, --network none, in image candler-base:src-83c18228eddb (Claude Code 2.1.311), cwd /work holding a .claude/settings.json with a hook on the event NoSuchEvent, 2026-11-25"
+sha256 = "6c204bcfa7ab52588315adfed388d639d1df65394780c7f78c2576df611563a2"
+synthetic = false

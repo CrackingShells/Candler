@@ -788,10 +788,12 @@ fn the_census_names_the_instruction_files_the_hook_log_shows() -> Res<()> {
 }
 
 /// Guards: the config check — `claude doctor` runs, an `Invalid settings` section with its bullets
-/// is a rejection whatever the exit status and the install-method warnings, and its absence is a
-/// clean check.
-/// Oracle: output written by hand from the lines the probe quoted.
-/// Bite: reject on the `warnings found` block, or ignore a warning under the heading.
+/// is a rejection whatever the exit status and the install-method warnings, its absence in a
+/// report is a clean check, and output that is not a report (empty, an error) is a rejection
+/// carrying that output, so a check that never ran never passes.
+/// Oracle: the recorded outputs of `claude doctor` 2.1.311 in `fixtures/doctor`.
+/// Bite: reject on the `warnings found` block, ignore a warning under the heading, or read empty
+/// output as clean.
 #[test]
 fn the_config_check_reads_the_invalid_settings_section() -> Res<()> {
     use candler_harness::spec::CheckVerdict;
@@ -802,21 +804,39 @@ fn the_config_check_reads_the_invalid_settings_section() -> Res<()> {
         driver.config_check(&plan).ok_or("no check")?.argv(),
         ["claude", "doctor"]
     );
-    let clean =
-        b"Diagnostics\n Remote Control: off\n\n 4 warnings found\n  - Multiple installations\n";
-    assert_eq!(driver.read_config_check(clean), CheckVerdict::Clean);
-    let bad = b"Diagnostics\n\nInvalid settings\n  - /work/.claude/settings.json: Invalid or malformed JSON\n\n 4 warnings found\n  - Multiple installations\n";
+    let recorded = |name: &str| {
+        fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/doctor")
+                .join(name),
+        )
+    };
     assert_eq!(
-        driver.read_config_check(bad),
+        driver.read_config_check(&recorded("valid.txt")?),
+        CheckVerdict::Clean
+    );
+    assert_eq!(
+        driver.read_config_check(&recorded("bad_json.txt")?),
         CheckVerdict::Rejected {
-            output: "Invalid settings\n  - /work/.claude/settings.json: Invalid or malformed JSON"
+            output: "Invalid settings\n- /work/.claude/settings.json: Invalid or malformed JSON"
                 .to_owned()
         }
     );
-    let warn = b"Invalid settings\n  - hooks.NoSuchEvent: Unknown hook event \"NoSuchEvent\" was ignored.\n";
-    assert!(matches!(
-        driver.read_config_check(warn),
-        CheckVerdict::Rejected { .. }
-    ));
+    let CheckVerdict::Rejected { output } =
+        driver.read_config_check(&recorded("unknown_event.txt")?)
+    else {
+        return Err("an unknown hook event is not rejected".into());
+    };
+    assert!(output.starts_with("Invalid settings\n- /work/.claude/settings.json"));
+    assert!(output.contains("hooks.NoSuchEvent: Unknown hook event"));
+    assert!(!output.contains("Remote Control"));
+    for not_a_report in [&b""[..], b"error: could not reach the server\n"] {
+        assert_eq!(
+            driver.read_config_check(not_a_report),
+            CheckVerdict::Rejected {
+                output: String::from_utf8_lossy(not_a_report).into_owned()
+            }
+        );
+    }
     Ok(())
 }

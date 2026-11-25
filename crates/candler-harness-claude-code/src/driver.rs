@@ -25,6 +25,8 @@ use serde_json::Value;
 
 use crate::{ClaudeCodeReader, detect, discovery, prepare, session};
 
+/// The first line of every `claude doctor` report.
+const DOCTOR_TITLE: &str = "Claude Code doctor";
 /// The program the driver runs.
 pub(crate) const PROGRAM: &str = "claude";
 /// The variable that carries the gateway's address.
@@ -329,7 +331,7 @@ impl HarnessDriver for ClaudeCodeDriver {
     fn config_check(&self, plan: &Plan) -> Option<CommandSpec> {
         let _ = plan;
         // The exit status is 0 whatever it finds, and four install-method warnings always print:
-        // only the `Invalid settings` section says something of the files.
+        // only the `Invalid settings` section of a report, which opens with its title, says something of the files.
         Some(CommandSpec::new(
             PROGRAM.to_owned(),
             vec!["doctor".to_owned()],
@@ -338,6 +340,13 @@ impl HarnessDriver for ClaudeCodeDriver {
 
     fn read_config_check(&self, output: &[u8]) -> CheckVerdict {
         let text = String::from_utf8_lossy(output);
+        // Every report opens with its title; output without it is not a report, so a check that
+        // never ran (empty output, an error, a changed format) never passes.
+        if text.lines().find(|line| !line.trim().is_empty()) != Some(DOCTOR_TITLE) {
+            return CheckVerdict::Rejected {
+                output: text.into_owned(),
+            };
+        }
         let mut section = text
             .lines()
             .skip_while(|line| !line.contains("Invalid settings"))
