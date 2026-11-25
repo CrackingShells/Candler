@@ -46,11 +46,21 @@
     "experiment": {
       "description": "The digest of the experiment the run belongs to."
     },
+    "hooks": {
+      "additionalProperties": true,
+      "description": "The resolved `hooks.*` values the cell hashes, by path: the hooks the run was given.",
+      "type": "object"
+    },
     "host": {
       "description": "The host the run was made on."
     },
     "import": {
       "description": "What the run was imported from, for an imported run."
+    },
+    "instructions": {
+      "additionalProperties": true,
+      "description": "The resolved `instructions.*` values the cell hashes, by path: the instruction texts the\nrun was given.",
+      "type": "object"
     },
     "integrity": {
       "description": "The integrity verdict of the manifest."
@@ -102,6 +112,8 @@
     "run",
     "sealed",
     "mcp",
+    "instructions",
+    "hooks",
     "provenance",
     "measured",
     "outcomes"
