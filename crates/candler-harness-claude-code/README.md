@@ -30,10 +30,10 @@ and how each session ended) and `usage` (token counts and their sums) are privat
 
 | File | Pins |
 |---|---|
-| `tests/guard_reader.rs` | the reader against the streams of `tests/fixtures/streams/`: facts, citation, usage, the version table, replay, and the ratchet of trace digests |
+| `tests/guard_reader.rs` | the reader against the streams of `tests/fixtures/streams/`: facts, citation, usage, the version table and replay |
 | `tests/guard_fixture_provenance.rs` | every fixture file is listed in `tests/fixtures/PROVENANCE.toml` with a hash that recomputes |
 
-`tests/fixtures/` holds the streams, `PROVENANCE.toml`, the expected digests in `digests.toml`, the
+`tests/fixtures/` holds the streams, `PROVENANCE.toml`, the
 scripts that select or write the streams, and its own README.
 
 ```sh
