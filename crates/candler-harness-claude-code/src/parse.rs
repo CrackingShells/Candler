@@ -315,7 +315,8 @@ fn block_draft(role: Role, block: &Value, line: &Map<String, Value>) -> Draft {
                     .get("is_error")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                let mut draft = Draft::new(EventKind::tool_result(is_error, denial_of(line, id), None));
+                let mut draft =
+                    Draft::new(EventKind::tool_result(is_error, denial_of(line, id), None));
                 draft.span = span_of(id, &mut draft.ext);
                 draft
             }
