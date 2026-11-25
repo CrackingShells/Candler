@@ -1,10 +1,11 @@
 """Regenerate `src/candler_evaluator/_models/` from the published wire schemas.
 
 Run from `python/candler-evaluator`: `uv run --frozen python scripts/gen_models.py`.
-One module per schema root: `evaluator-*.schema.json` and `outcome-record.schema.json` of
-`crates/candler-schemas/schema/`. Each module's header names its schema file and the file's
-sha256, so a changed schema shows as a changed header. The output is deterministic; CI
-regenerates it and fails when it differs from what is committed.
+One module per schema root: `evaluator-*.schema.json`, `outcome-record.schema.json` and
+`normalised-trace.schema.json` of `crates/candler-schemas/schema/`. Each module's header
+names its schema file and the file's sha256, so a changed schema shows as a changed
+header. The output is deterministic; CI regenerates it and fails when it differs from what
+is committed.
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ def roots() -> list[Path]:
     """The schema roots the helper's models come from, in a fixed order."""
     found = sorted(SCHEMAS.glob("evaluator-*.schema.json"))
     found.append(SCHEMAS / "outcome-record.schema.json")
+    found.append(SCHEMAS / "normalised-trace.schema.json")
     return found
 
 

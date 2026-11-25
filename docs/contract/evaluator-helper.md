@@ -6,13 +6,15 @@ The Python package `candler-evaluator`, which an author of an evaluator kind use
 
 The author API (a kind's signature, `RunContext`, `KINDS`, `needs` and `params_schema`) is in the package's docstrings and README.
 
+A kind reads the stored parts of a run from `RunContext`: `trace` and `manifest`, each a `ServedFile` with `path`, `abs` and `sha256` or `None`, and `raw`, a tuple of mappings with `stream`, `path` and `sha256`. `read_trace(context.trace)` yields the trace's records as models generated from `normalised-trace.schema.json`. It raises `ValidationError` at a line those models refuse (not JSON, an unknown field, a wrong type); a `null` on an optional field reads as absent, though the schema refuses it. It checks each line, not the file's order: Candler checks the order when it writes the trace, and the served copy is pinned by its sha256.
+
 ## Version
 
 <!-- generated:version -->
 Wire tag: none.
 
 <!-- versions -->
-Package: `candler-evaluator@0.1.0`.
+Package: `candler-evaluator@0.2.0`.
 <!-- /versions -->
 <!-- /generated:version -->
 
@@ -103,3 +105,5 @@ Package: `candler-evaluator@0.1.0`.
 - `print` in a kind goes to stderr; stdout carries the frames alone. [checked: candler-evaluator@0.1.0]
 - An instrument installed from a package index makes `describe` and `evaluate` fail with error -32000. [checked: candler-evaluator@0.1.0]
 - A module with no `KINDS` ends the process with exit 1 before it sends a frame. [checked: candler-evaluator@0.1.0]
+- A part is served when any kind of the plug-in declares it in `needs`, as its kinds share one process. [checked: candler-evaluator@0.2.0]
+- `read_trace` checks lines, not order; `null` reads as absent. [checked: candler-evaluator@0.2.0]

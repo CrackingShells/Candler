@@ -6,6 +6,10 @@ PyPI without Eliott's go. The version is bumped by hand in `pyproject.toml` from
 
 ## Unreleased
 
+- `RunContext` carries `trace` and `manifest` as `ServedFile`s (`path`, `abs`, `sha256`) and each
+  `raw` stream with its `sha256`; `trace` was a bare path and is now a `ServedFile`.
+- `read_trace` yields a trace's records as models generated from
+  `normalised-trace.schema.json`, refusing a line the schema refuses.
 - The wire models are generated from the published schemas by `scripts/gen_models.py`; the
   loop parses and builds every message through them, and the shared wire vectors decide
   what they accept.
