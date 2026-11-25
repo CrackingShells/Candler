@@ -1,0 +1,20 @@
+{
+  "$id": "urn:candler:schemas:opencode-hooks",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The hooks a cell gives `OpenCode`: its plugins, which are code.\n\nTheir contents are free; `OpenCode` judges them.",
+  "properties": {
+    "plugins": {
+      "additionalProperties": false,
+      "description": "The plugin files, each by its file name.",
+      "patternProperties": {
+        "^(?!\\.\\.?(?:/|(?![\\s\\S])))[^/\\\\\\x00]+(?:/(?!\\.\\.?(?:/|(?![\\s\\S])))[^/\\\\\\x00]+)*(?![\\s\\S])": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "title": "OpenCodeHooks",
+  "type": "object"
+}
