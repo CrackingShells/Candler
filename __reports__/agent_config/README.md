@@ -29,4 +29,6 @@ On 2026-11-25 Eliott ruled on the two points that round 03 raised. The roadmap's
 - The proof reads the whole starting context. `context_start` comes from the run's first request that offers tools. G4 and G11 pass when each text is found in its `system` or its `first_message`, since Claude Code puts CLAUDE.md texts and SessionStart output in the first message.
 - Consumers write `hooks` and `instructions.global` in the harness's own shape and keys (`claude-code`, `SessionStart`, `start.sh`). The experiment surface takes them as opaque subtrees.
 
+Level 1 is done and merged locally. On 2026-11-25 Eliott raised the cap from $85 to $125, after level 1 measured $55.40: planning $14, build $41. Level 2 runs on closed-scope briefs and a fresh agent for each fix round.
+
 No decision is open.

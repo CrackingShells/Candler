@@ -1,7 +1,7 @@
 # M6.5 Agent configuration as data
 
 ## Context
-A new root after M6c Integrity (#81, on `origin/main` at `8d82f63b`). It is independent of M7, which is blocked, and of M8, which lies below M7; M8's plugin may later use hooks. The plan is [the architecture report, v2](../../__reports__/agent_config/02-architecture_agent_config_v2.md), which adds to the approved plan Eliott's rulings on the HTN lane's notice (v1) and on a live, trace-read proof (v2). Every leaf runs by its §Execution model: Sonnet implementers and verifiers, a shared codebase whose debt the leaf owns, findings kept in scope or escalated, target-dir slots `/Users/hacker/Documents/tmp/m6_5-target/slot-1..3`, and an $85 cap. The status is mirrored in macOS Reminders.
+A new root after M6c Integrity (#81, on `origin/main` at `8d82f63b`). It is independent of M7, which is blocked, and of M8, which lies below M7; M8's plugin may later use hooks. The plan is [the architecture report, v2](../../__reports__/agent_config/02-architecture_agent_config_v2.md), which adds to the approved plan Eliott's rulings on the HTN lane's notice (v1) and on a live, trace-read proof (v2). Every leaf runs by its §Execution model: Sonnet implementers and verifiers, a shared codebase whose debt the leaf owns, findings kept in scope or escalated, target-dir slots `/Users/hacker/Documents/tmp/m6_5-target/slot-1..3`, and a $125 cap (raised from $85 by Eliott on 2026-11-25, after level 1 measured $55). The status is mirrored in macOS Reminders.
 
 ## Goal
 A consumer gives the experiment a global instruction file per harness, each arm its own workspace instruction file and hooks, all as cell values. Candler installs them where each harness looks, the workspace file read-only at the workspace root, and refuses a cell that the harness's own check rejects.
@@ -14,7 +14,7 @@ A consumer gives the experiment a global instruction file per harness, each arm 
 ## Success Gates
 - ⬜ G1–G13 of the [architecture report, v2](../../__reports__/agent_config/02-architecture_agent_config_v2.md), as the leaves word them after the 2026-11-25 amendment (G1, G4, G8, G11, G12), hold on the tip of `feat/m6.5-agent-config`, each one seen failing on `8d82f63b`
 - ⬜ `probe_harness_checks.md`, `declaration.md`, `trace_context.md` and `installed/` are `done`
-- ⬜ The spend measured from transcripts, coordinator included, is at most $85
+- ⬜ The spend measured from transcripts, coordinator included, is at most $125
 - ⬜ Every finding left out of scope is filed under `__reports__/agent_config/` and escalated
 
 ## Status
