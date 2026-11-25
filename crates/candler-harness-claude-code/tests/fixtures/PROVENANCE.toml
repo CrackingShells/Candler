@@ -240,3 +240,35 @@ path = "sessions/c2/timings.toml"
 source = "recorded: Claude Code 2.1.311 against assets/docker/fakemodel, see sessions/PROVENANCE.toml"
 sha256 = "e1fd828f6621aeb731ea1564b9dfe7a16bb2e2de7a3c31612925220c11bf4600"
 synthetic = false
+
+# Recorded on 2026-11-25 by real Claude Code 2.1.311 on the parity rig
+# (crates/candler/tests/it/guard_cli_e2e/parity_e2e.rs: the production gateway sidecar, the scripted
+# fake model, bypassPermissions, one cell), image candler-env:...-src-83c18228eddb-env-e7ca5eaba54a
+# (sha256:57f339fc3580d09e8f0c9284d2177449c476f31e8bcd092dcdc631c3b3ea2a48, on candler-base
+# candler.cc_version=2.1.311). Docker 29.9.2, Docker Desktop on macOS. No token was spent.
+# The fake model is the fakemodel.py of the repository with one extra script, model id sh1, kept
+# outside the repository: the first prompt is answered with one assistant message holding three
+# Bash calls, toolu_fake_sh_exit3 {command: "exit 3"}, toolu_fake_sh_stderr {command:
+# "echo oops >&2; exit 2"} and toolu_fake_sh_timeout {command: "python3 -c 'import time;
+# time.sleep(30)'", timeout: 1000}; any later request is answered "done". The timeout is the Bash
+# tool's own input field in milliseconds, the shortest the rig's configuration gives (the rig sets
+# no default). A bare "sleep 30" was refused by Claude Code itself ("Blocked: standalone sleep 30"),
+# hence the Python sleep. The stream is the harness's stdout, each raw frame's text as one line.
+
+[[files]]
+path = "streams/shell_exit_stderr_timeout/agent_stream.jsonl.gz"
+source = "real Claude Code 2.1.311 stream-json, probe_shell_shapes, 2026-11-25"
+sha256 = "9ac94aaf71539045fcbac4f2994df5491f9bf311137317e4a740f7f596f5a35a"
+synthetic = false
+
+[[files]]
+path = "streams/shell_exit_stderr_timeout/expected.toml"
+source = "hand-written from jq over the raw lines"
+sha256 = "fac1f66effd975731684ab68d59c8fb1b42b76e7f0a4c2b359aa7e435a7b8e55"
+synthetic = false
+
+[[files]]
+path = "streams/shell_exit_stderr_timeout/usage_totals.toml"
+source = "usage_totals.jq"
+sha256 = "df78975da8a46ba3ac67f3a6d64767bd0569846e0b65ac690177c79de9e68a0e"
+synthetic = false

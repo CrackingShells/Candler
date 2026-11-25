@@ -138,6 +138,20 @@ def script_blocks(model, state, tools, messages):
         if state == "tool_result" and last_tool_result(messages) == "toolu_fake_search":
             return [stamp_call(PARITY_TOOLS[0])], "tool_use", "p1-call"
         return [{"type": "text", "text": "done"}], "end_turn", "p1-text"
+    if model.startswith("sh1"):
+        shell = [n for n in tools if n in ("Bash", "shell", "bash")]
+        if state == "prompt" and shell:
+            calls = [
+                {"type": "tool_use", "id": "toolu_fake_sh_exit3", "name": shell[0],
+                 "input": {"command": "exit 3", "description": "exit 3"}},
+                {"type": "tool_use", "id": "toolu_fake_sh_stderr", "name": shell[0],
+                 "input": {"command": "echo oops >&2; exit 2", "description": "stderr only"}},
+                {"type": "tool_use", "id": "toolu_fake_sh_timeout", "name": shell[0],
+                 "input": {"command": "python3 -c 'import time; time.sleep(30)'", "description": "outlives timeout", "timeout": 1000}},
+            ]
+            return [{"type": "text", "text": "I will run three shell calls."}] + calls, \
+                "tool_use", "sh1-calls"
+        return [{"type": "text", "text": "done"}], "end_turn", "sh1-text"
     if model.startswith("c2"):
         return [{"type": "text", "text": "hello"}], "end_turn", "c2-hello"
     if model.startswith("c3"):
