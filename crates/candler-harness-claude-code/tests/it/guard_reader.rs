@@ -308,9 +308,12 @@ fn check_exits(name: &str, output: &Output, rows: &[ExitRow]) -> Res<()> {
             .collect();
         let called: Vec<&str> = held
             .iter()
-            .filter_map(|record| match &record.event.kind {
-                EventKind::ToolCall { name, .. } => Some(name.as_str()),
-                _ => None,
+            .filter_map(|record| {
+                if let EventKind::ToolCall { name, .. } = &record.event.kind {
+                    Some(name.as_str())
+                } else {
+                    None
+                }
             })
             .collect();
         assert_eq!(
@@ -337,8 +340,8 @@ fn check_exits(name: &str, output: &Output, rows: &[ExitRow]) -> Res<()> {
     Ok(())
 }
 
-/// Lines in which one call id names a `Read` in the root session and a `Bash` in the subagent session `S/A`: the result in each session gets the exit of its own call.
-fn shared_id_stream() -> Vec<Vec<u8>> {
+/// Lines in which one call id names a `Read` in the root session and a `Bash` in the subagent session `S/A`, so the result in each session gets the exit of its own call; and a `Bash` call whose result is not an error but reports `interrupted`.
+fn exit_join_stream() -> Vec<Vec<u8>> {
     let bash = r#"{"type":"tool_use","id":"X","name":"Bash","input":{"command":"true"}}"#;
     let read = r#"{"type":"tool_use","id":"X","name":"Read","input":{}}"#;
     let agent = r#"{"type":"tool_use","id":"A","name":"Agent","input":{}}"#;
@@ -351,12 +354,20 @@ fn shared_id_stream() -> Vec<Vec<u8>> {
         )
         .into_bytes()
     };
+    let cut = r#"{"type":"tool_use","id":"I","name":"Bash","input":{"command":"sleep 9"}}"#;
+    let cut_result = r#"{"type":"tool_result","tool_use_id":"I","content":"partial"}"#;
     let child = r#""parent_tool_use_id":"A","#;
     let mut lines = stream_with(None);
     lines.push(line("assistant", "", &[agent, read]));
     lines.push(line("assistant", child, &[bash]));
     lines.push(line("user", "", &[&result("file text")]));
     lines.push(line("user", child, &[&result("")]));
+    lines.push(line("assistant", "", &[cut]));
+    lines.push(line(
+        "user",
+        r#""tool_use_result":{"interrupted":true},"#,
+        &[cut_result],
+    ));
     lines
 }
 
@@ -519,10 +530,11 @@ fn expected_facts() -> Res<()> {
             .clone(); // BORROW: owned end to compare
         assert_eq!(got, want, "result line {result:?}");
     }
-    let shared = run(&shared_id_stream(), false)?;
-    let rows: [ExitRow; 2] = [
+    let shared = run(&exit_join_stream(), false)?;
+    let rows: [ExitRow; 3] = [
         ("S".to_owned(), "X".to_owned(), "Read".to_owned(), None), // BORROW: owned text
         ("S/A".to_owned(), "X".to_owned(), "Bash".to_owned(), Some(0)), // BORROW: owned text
+        ("S".to_owned(), "I".to_owned(), "Bash".to_owned(), None), // BORROW: owned text
     ];
     check_exits("shared call id", &shared, &rows)?;
     Ok(())

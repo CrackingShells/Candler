@@ -77,6 +77,8 @@ pub(crate) struct Registry {
     index: HashMap<SessionId, usize>,
     /// The session that holds each call, by call id.
     owner: HashMap<String, usize>,
+    /// The name of each call, by the session that holds it and the call id.
+    names: HashMap<(usize, String), String>,
     /// The ids of the calls that have a result.
     answered: HashSet<String>,
     /// The ids of the messages whose usage was counted.
@@ -224,14 +226,20 @@ impl Registry {
         target: usize,
         raw_ref: &RawRef,
         at: Option<&Timestamp>,
-        draft: Draft,
+        mut draft: Draft,
     ) -> Result<SessionEvent, ReaderError> {
         if let Some(span) = &draft.span {
             // BORROW: .as_str().to_owned() makes the owned call id the maps keep
             let call = span.as_str().to_owned();
-            if matches!(draft.kind, EventKind::ToolCall { .. }) {
+            if let EventKind::ToolCall { name, .. } = &draft.kind {
+                // BORROW: .clone() keeps the name of the call for its result
+                self.names.insert((target, call.clone()), name.clone());
                 self.owner.insert(call, target);
-            } else if matches!(draft.kind, EventKind::ToolResult { .. }) {
+            } else if let EventKind::ToolResult { exit, .. } = &mut draft.kind {
+                // Only a shell call reports an exit.
+                if self.names.get(&(target, call.clone())).map(String::as_str) != Some("Bash") {
+                    *exit = None;
+                }
                 self.answered.insert(call);
             }
         }

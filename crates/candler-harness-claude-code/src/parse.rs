@@ -3,6 +3,7 @@
 use candler_harness::spec::{CensusSource, InitReport};
 use candler_schemas::outcome::Finite;
 use candler_schemas::primitives::Timestamp;
+use candler_schemas::process::ExitStatus;
 use candler_schemas::raw::{FrameData, RawFrame};
 use candler_schemas::trace::{Denial, DeniedBy, EndedBy, EventKind, SpanId, ToolOrigin};
 use serde_json::{Map, Value};
@@ -315,8 +316,13 @@ fn block_draft(role: Role, block: &Value, line: &Map<String, Value>) -> Draft {
                     .get("is_error")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                let mut draft =
-                    Draft::new(EventKind::tool_result(is_error, denial_of(line, id), None));
+                let denied = denial_of(line, id);
+                let exit = if denied.is_some() {
+                    None
+                } else {
+                    exit_of(block, line, is_error)
+                };
+                let mut draft = Draft::new(EventKind::tool_result(is_error, denied, exit));
                 draft.span = span_of(id, &mut draft.ext);
                 draft
             }
@@ -336,6 +342,44 @@ fn denial_of(line: &Map<String, Value>, id: &str) -> Option<Denial> {
         .and_then(Value::as_str)
         // BORROW: .to_owned() makes the owned reason the denial keeps
         .map(|kind| Denial::new(DeniedBy::Harness, Some(kind.to_owned())))
+}
+
+/// The exit a shell result reports, before the call's name is known.
+///
+/// An error result whose first text line is `Exit code N` exited with `N`; any other error text gives none. A result that
+/// is not an error exited with 0, unless Claude Code moved the command to the background (`backgroundTaskId` or
+/// `timedOutAfterMs` in the line's `tool_use_result`) or it was interrupted, which give none.
+fn exit_of(block: &Value, line: &Map<String, Value>, is_error: bool) -> Option<ExitStatus> {
+    let report = line.get("tool_use_result").and_then(Value::as_object);
+    let flagged = |key: &str| report.is_some_and(|report| report.contains_key(key));
+    let interrupted = report
+        .and_then(|report| report.get("interrupted"))
+        .and_then(Value::as_bool)
+        == Some(true);
+    if flagged("backgroundTaskId") || flagged("timedOutAfterMs") || interrupted {
+        return None;
+    }
+    if !is_error {
+        return Some(ExitStatus::Code { code: 0 });
+    }
+    let content = block.get("content")?;
+    let first = match content {
+        Value::String(text) => Some(text.as_str()),
+        Value::Array(parts) => parts
+            .iter()
+            .find(|part| part.get("type").and_then(Value::as_str) == Some("text"))
+            .and_then(|part| part.get("text"))
+            .and_then(Value::as_str),
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::Object(_) => None,
+    }?;
+    let digits = first.lines().next()?.strip_prefix("Exit code ")?;
+    if !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    digits
+        .parse::<i32>()
+        .ok()
+        .map(|code| ExitStatus::Code { code })
 }
 
 /// A notification that keeps a content block this reader has no event for.
