@@ -112,28 +112,18 @@ fn a_cell_from_resolve_is_stored_and_hashed_without_snapshots() {
     );
 }
 
-/// Guards: a cell that sets an instruction text is refused by name while a driver answers it
-/// `no`, at the key of `[fixed]` that holds it and not as an unknown path; and the run of a cell
-/// that sets neither instructions nor hooks shows both members, empty, through `inspect`.
+/// Guards: the run of a cell that sets a workspace instruction text is sealed and shows the
+/// text through `inspect`, and an unset `hooks` shows as an empty member.
 ///
-/// Oracle: the code and the pointer are written by hand from the surface; the run is made by
-/// `candler run`.
+/// Oracle: the text is written by hand on the command line; the run is made by `candler run` and
+/// read back by `candler inspect`.
 ///
-/// Bite: drop the `instructions` and `hooks` members from what `inspect` shows (the record has
-/// no such member); let the driver answer `Mapped` (the run launches).
+/// Bite: drop the `instructions` or `hooks` member from what `inspect` shows (the record has no
+/// such member); let the Claude Code driver refuse `instructions.workspace` (no run is sealed).
 #[test]
-fn instructions_are_refused_by_name_and_inspect_shows_the_members() {
+fn a_workspace_instruction_text_reaches_the_record_and_inspect_shows_it() {
     let world = world();
-    let refused = world.launch_with(&["--set", "instructions.workspace=read the plan"]);
-    let stderr = String::from_utf8(refused.stderr).unwrap();
-    assert!(!refused.status.success(), "the run is refused: {stderr}");
-    assert!(
-        stderr.contains("\"code\":\"experiment.setting_unsupported\"")
-            && stderr.contains("\"path\":\"/fixed/instructions.workspace\""),
-        "refused as an unsupported setting, not an unknown path: {stderr}"
-    );
-
-    let launched = world.launch();
+    let launched = world.launch_with(&["--set", "instructions.workspace=read the plan"]);
     finish(&world, &launched);
     world.assert_sealed(1);
     let runs = world.store().join("runs");
@@ -152,11 +142,14 @@ fn instructions_are_refused_by_name_and_inspect_shows_the_members() {
         .unwrap();
     assert!(out.status.success(), "inspect exits 0: {out:?}");
     let record: Value = serde_json::from_slice(&out.stdout).unwrap();
-    for member in ["instructions", "hooks"] {
-        assert_eq!(
-            record[member],
-            serde_json::json!({}),
-            "the record shows the {member} the run was given: {record}"
-        );
-    }
+    assert_eq!(
+        record["instructions"],
+        serde_json::json!({"instructions.workspace": "read the plan"}),
+        "the record shows the instructions the run was given: {record}"
+    );
+    assert_eq!(
+        record["hooks"],
+        serde_json::json!({}),
+        "the record shows the hooks the run was given: {record}"
+    );
 }
