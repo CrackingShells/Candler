@@ -1526,4 +1526,70 @@ async fn session_census_names_the_instruction_files_the_hooks_saw() {
             {"path": "CLAUDE.md", "scope": "project"},
         ]))
     );
+    assert!(
+        ran.run_dir.join("raw/hooks.jsonl.gz").is_file(),
+        "the hook log is archived once, as `hooks`"
+    );
+    assert!(
+        std::fs::read_dir(ran.run_dir.join("raw"))
+            .expect("the raw streams")
+            .all(|entry| !entry
+                .expect("a raw stream")
+                .file_name()
+                .to_string_lossy()
+                .starts_with("instructions_loaded")),
+        "no second archive of the hook log"
+    );
+}
+
+/// The census run of the recorded log, with `refusing` steps that make the hook log one the core
+/// refuses; the log's valid lines follow, so a read that took the file would show them.
+async fn census_of_a_refused_log(refusing: Vec<serde_json::Value>) -> rig::Ran {
+    let log = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../candler-harness-claude-code/tests/fixtures/instructions/hooks.jsonl");
+    let mut steps: Vec<serde_json::Value> = std::fs::read_to_string(log)
+        .expect("the recorded hook log")
+        .lines()
+        .filter(|line| line.contains("\"hook_event_name\":\"InstructionsLoaded\""))
+        .flat_map(|line| [rig::hook(line), rig::sleep(0.01)])
+        .collect();
+    steps.splice(0..0, refusing);
+    steps.extend(rig::replay_of("c1", &BTreeMap::new()));
+    steps.push(rig::wait_eof(None));
+    let cell = rig::cell_values(&[
+        ("runner.idle_s", j!("none")),
+        ("budget.per_run.wall_s", j!(4)),
+    ]);
+    let ran = rig::run(&steps, &cell, rig::Driver::new(true), None).await;
+    let _ = ran.outcome();
+    ran
+}
+
+/// Guards: invariant 7 — a hook log the agent made a link is not read: its target's lines reach
+/// neither the archive nor the census.
+/// Oracle: the target holds `InstructionsLoaded` lines that a followed link would list.
+/// Bite: open the log by following links.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_linked_hook_log_is_not_archived() {
+    let target = std::env::temp_dir().join(format!("candler-hook-target-{}", std::process::id()));
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../candler-harness-claude-code/tests/fixtures/instructions/hooks.jsonl"),
+        &target,
+    )
+    .expect("a target");
+    let ran = census_of_a_refused_log(vec![rig::link(&target)]).await;
+    let _ = std::fs::remove_file(&target);
+    assert_eq!(ran.measured("census.instructions"), None);
+    assert!(!ran.run_dir.join("raw/hooks.jsonl.gz").exists());
+}
+
+/// Guards: invariant 7 — a hook log longer than the limit is not archived and records no census.
+/// Oracle: the log holds valid `InstructionsLoaded` lines, then more bytes than the limit.
+/// Bite: read the log whatever its length.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_oversized_hook_log_is_not_archived() {
+    let ran = census_of_a_refused_log(vec![rig::fill(5 * 1024 * 1024)]).await;
+    assert_eq!(ran.measured("census.instructions"), None);
+    assert!(!ran.run_dir.join("raw/hooks.jsonl.gz").exists());
 }

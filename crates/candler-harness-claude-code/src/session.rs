@@ -48,10 +48,8 @@ const AGENT_HOME: &str = "/home/agent";
 const SETTINGS: &str = ".candler/settings.json";
 /// The file the hooks append to, relative to the agent's home.
 const HOOK_LOG: &str = ".candler/hooks.jsonl";
-/// The name of the raw stream that archives the hook log.
+/// The name of the raw stream that archives the hook log, in a session and in a headless run.
 const HOOK_STREAM: &str = "hooks";
-/// The name of the raw stream that archives the `InstructionsLoaded` lines of the hook log.
-const LOADED_STREAM: &str = "instructions_loaded";
 /// The hook events the driver installs.
 const HOOK_EVENTS: [&str; 3] = ["InstructionsLoaded", "Stop", "SessionEnd"];
 
@@ -102,10 +100,11 @@ fn hooks() -> Result<HookSpec, DriverError> {
 }
 
 /// What the core collects of the hook log after a run, headless or session: the log, read from
-/// the agent's home and archived as the stream `instructions_loaded`.
+/// the agent's home and archived as the stream `hooks`. A session archives the same stream as it
+/// runs, and the core reads it once.
 pub(crate) fn log_collect() -> Result<CollectSpec, DriverError> {
-    let stream = StreamName::from_str(LOADED_STREAM)
-        .map_err(|error| invalid(LOADED_STREAM, error.to_string()))?; // BORROW: .to_string() gives owned text
+    let stream = StreamName::from_str(HOOK_STREAM)
+        .map_err(|error| invalid(HOOK_STREAM, error.to_string()))?; // BORROW: .to_string() gives owned text
     let log = RelPath::from_str(HOOK_LOG).map_err(|error| invalid(HOOK_LOG, error.to_string()))?; // BORROW: .to_string() gives owned text
     Ok(CollectSpec::home(log, stream))
 }
@@ -116,7 +115,7 @@ pub(crate) fn log_collect() -> Result<CollectSpec, DriverError> {
 /// `Local`) by its path from the `cwd` of the payload. A line that is not an `InstructionsLoaded`
 /// payload, or whose memory type is another one, is skipped.
 pub(crate) fn loaded(stream: &StreamName, bytes: &[u8]) -> Vec<LoadedFile> {
-    if stream.as_str() != LOADED_STREAM {
+    if stream.as_str() != HOOK_STREAM {
         return Vec::new();
     }
     let mut files: Vec<LoadedFile> = Vec::new();

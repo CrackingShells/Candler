@@ -70,6 +70,15 @@ for step in script["steps"]:
         with open(hook, "a") as f:
             f.write(step["hook"] + "\n")
         log("hook")
+    elif "link" in step:
+        os.makedirs(os.path.dirname(hook), exist_ok=True)
+        os.symlink(step["link"], hook)
+        log("link")
+    elif "fill" in step:
+        os.makedirs(os.path.dirname(hook), exist_ok=True)
+        with open(hook, "ab") as f:
+            f.write(b"x" * step["fill"])
+        log("fill")
     elif "wait_eof" in step:
         eof.wait(step.get("timeout"))
     elif "exit" in step:
@@ -108,6 +117,16 @@ pub fn out_of(line: &str) -> Value {
 /// A hook-log line written by the stub.
 pub fn hook(line: &str) -> Value {
     json!({"hook": line})
+}
+
+/// The stub makes the hook log a link to `target`.
+pub fn link(target: &Path) -> Value {
+    json!({"link": target.to_string_lossy()})
+}
+
+/// The stub appends `bytes` bytes that are no line to the hook log.
+pub fn fill(bytes: usize) -> Value {
+    json!({"fill": bytes})
 }
 
 /// A pause of the stub.

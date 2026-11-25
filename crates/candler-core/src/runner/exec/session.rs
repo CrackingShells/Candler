@@ -8,8 +8,8 @@
 //! log into it, archives the log as a raw stream and decides: wait, close the input, or end the run
 //! at the turn cap of the cell.
 
-use std::fs::File;
-use std::io::{Read as _, Seek as _, SeekFrom};
+use std::io;
+use std::mem;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -30,6 +30,7 @@ use tokio::time::MissedTickBehavior;
 
 pub use crate::runner::evidence::session::{Idle, SessionEnd, SessionMeasures};
 
+use super::gather::read_home_log;
 use super::spawn::RunStopper;
 use crate::frames::{FrameWriter, RawFileInfo};
 use crate::isolation::IsolationError;
@@ -371,6 +372,10 @@ struct HookLog {
     partial: Vec<u8>,
     writer: Option<FrameWriter>,
     began: Instant,
+    /// Every complete line read, newline included: what the run's census reads.
+    seen: Vec<u8>,
+    /// Whether the log was refused (a link, not a regular file, too long) or could not be read.
+    refused: bool,
 }
 
 impl HookLog {
@@ -381,21 +386,25 @@ impl HookLog {
             partial: Vec::new(),
             writer,
             began: Instant::now(),
+            seen: Vec::new(),
+            refused: false,
         }
     }
 
     /// The complete lines written since the last read, without their newlines.
     fn drain(&mut self) -> Vec<Vec<u8>> {
-        let Ok(mut file) = File::open(&self.path) else {
+        if self.refused {
             return Vec::new();
+        }
+        let chunk = match read_home_log(&self.path, self.offset) {
+            Ok(chunk) => chunk,
+            // The hooks have not written yet.
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Vec::new(),
+            Err(_) => {
+                self.refused = true;
+                return Vec::new();
+            }
         };
-        if file.seek(SeekFrom::Start(self.offset)).is_err() {
-            return Vec::new();
-        }
-        let mut chunk = Vec::new();
-        if file.read_to_end(&mut chunk).is_err() {
-            return Vec::new();
-        }
         self.offset = self
             .offset
             .saturating_add(u64::try_from(chunk.len()).unwrap_or(0));
@@ -403,6 +412,7 @@ impl HookLog {
         let mut lines = Vec::new();
         while let Some(end) = self.partial.iter().position(|byte| *byte == b'\n') {
             let mut line: Vec<u8> = self.partial.drain(..=end).collect();
+            self.seen.extend_from_slice(&line);
             if let Some(writer) = self.writer.as_mut() {
                 let at = u64::try_from(self.began.elapsed().as_nanos()).unwrap_or(u64::MAX);
                 if writer.write(&line, Some(at)).is_err() {
@@ -416,8 +426,11 @@ impl HookLog {
         lines
     }
 
-    /// Finishes the archive of the log.
+    /// Finishes the archive of the log. A refused log is not archived.
     fn finish(self) -> Option<RawFileInfo> {
+        if self.refused {
+            return None;
+        }
         // EXPLICIT: an archive that cannot be finished is left out of the seal
         self.writer?.finish().ok()
     }
@@ -445,6 +458,12 @@ pub struct SessionOutcome {
     pub watch: Arc<SessionWatch>,
     /// The raw stream of the hook log, when there was one and it was archived.
     pub hook_stream: Option<(StreamName, RawFileInfo)>,
+    /// The lines of the hook log the archive holds, for the driver to read; empty when the log was
+    /// not archived.
+    pub hook_bytes: Vec<u8>,
+    /// The stream of a hook log the run declared and did not archive: the log was refused (a
+    /// link, not a regular file, too long), could not be read or could not be archived.
+    pub hook_lost: Option<StreamName>,
     /// Whether the runner closed the input.
     pub closed: bool,
     /// Whether the runner stopped the harness after the input was closed.
@@ -624,9 +643,23 @@ impl SessionHandle {
     pub fn finish(self) -> SessionOutcome {
         self.task.abort();
         drain_hooks(&self.watch, &self.log);
-        let archived = locked(&self.log).take().and_then(HookLog::finish);
+        let mut log = locked(&self.log).take();
+        let seen = log.as_mut().map(|log| mem::take(&mut log.seen));
+        let archived = log.and_then(HookLog::finish);
+        let hook_bytes = if archived.is_some() {
+            seen.unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let hook_lost = if archived.is_none() {
+            self.hook_stream.clone() // BORROW: the stream name is also kept by the outcome's pair
+        } else {
+            None
+        };
         SessionOutcome {
             hook_stream: self.hook_stream.zip(archived),
+            hook_bytes,
+            hook_lost,
             closed: self.watch.closed.load(Ordering::SeqCst),
             forced: self.watch.forced.load(Ordering::SeqCst),
             capped: self.watch.capped.load(Ordering::SeqCst),

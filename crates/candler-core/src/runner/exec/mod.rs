@@ -643,7 +643,12 @@ async fn drive(
     let observed_now = live_view.clone().unwrap_or_default(); // BORROW: the view is read again after the finish
     let specs = rt.driver.collect(&workspace, &observed_now);
     let mut collected = collect_commands(isolation.as_ref(), &container, &specs).await;
-    collected.extend(collect_home(&home_dir, &specs));
+    // A session archives its hook log as it runs; the log is not read a second time.
+    let archived = session_outcome
+        .as_ref()
+        .and_then(|outcome| outcome.hook_stream.as_ref())
+        .map(|(stream, _)| stream);
+    collected.extend(collect_home(&home_dir, &specs, archived));
     let finished = finish_attempt(
         isolation.as_ref(),
         &container,
@@ -708,6 +713,14 @@ async fn drive(
                 Ok(file) => extra.push(file),
                 Err(_) => collect_ok = false,
             },
+        }
+    }
+    if let Some(outcome) = &session_outcome {
+        if let Some((stream, _)) = &outcome.hook_stream {
+            loaded.extend(rt.driver.loaded_instructions(stream, &outcome.hook_bytes));
+        }
+        if outcome.hook_lost.is_some() {
+            collect_ok = false;
         }
     }
     if let Some(identity) = offline {
