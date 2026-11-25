@@ -13,9 +13,12 @@ digest.
   disk" cannot hold while a declared need for the trace is accepted and dropped. AGENTS.md calls a
   second, more lenient reading of a declaration a defect even when nothing reaches it yet; ignoring
   a declared need is that reading.
-- **The declaration states what a kind sees.** Candler has no blinding concept. A kind lists its
-  needs in `describe`, Candler serves exactly those and refuses what it cannot serve, so what a kind
-  saw is on record in the kind itself. Serving the trace adds no hidden channel.
+- **The declaration states what a plug-in is served.** Candler has no blinding concept. A kind
+  lists its needs in `describe`, and the engine builds one context per plug-in request from the
+  union of its kinds' needs, so what a plug-in is served is the union of what its kinds declare.
+  A plug-in is one process, so its kinds share what it was served. Candler serves exactly that and
+  refuses what it cannot serve, so what a plug-in was served is on record in its kinds'
+  declarations. Serving the trace adds no hidden channel.
 - **A sealed run never changes.** "Sealed" means complete and protected from overwrite, so the
   digest taken when a stored file is chosen for a context holds for the whole evaluation, and the
   outcome-reuse key can carry it.

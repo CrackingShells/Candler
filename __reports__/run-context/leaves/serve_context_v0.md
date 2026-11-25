@@ -33,7 +33,7 @@ The refusal is `ContextError::PartMissing`, code `evaluation.run_part_missing` (
 
 ## The one copy routine
 
-`materialise.rs::copy_stored(root, &AssembledFile) -> (abs path, digest)`: create-new, `0600`, digest check, then `0444` or `0555`. Its one call site is the loop over `Assembled::files()` in `materialise`; artifacts, input files, trace, each raw stream and the manifest are entries of that list. `assemble.rs` builds the list: artifacts from the tree, input files from the list blob, and `stored_file` for the trace, each raw stream and the manifest, which hashes the file once (the store records none for them) and the copy is checked against that hash.
+`materialise.rs::copy_stored(root, &AssembledFile) -> (abs path, digest)`: create-new, `0600`, digest check, then `0444` or `0555`. Its one call site is the loop over `Assembled::files()` in `materialise`; artifacts, input files, trace, each raw stream and the manifest are entries of that list. `assemble.rs` builds the list: artifacts from the tree, input files from the list blob, and `stored_file` for the trace, each raw stream and the manifest, which hashes the file at assembly (the store records none for them); the copy is checked against that hash. Each part is read three times: hashed at assembly, copied, and hashed again as written.
 
 ## The needs union
 
@@ -47,8 +47,24 @@ The refusal is `ContextError::PartMissing`, code `evaluation.run_part_missing` (
 
 - The fresh Sonnet verifier of Step 3 is the coordinator's.
 - `container-e2e` runs on the pull request, not here.
-- A raw directory entry that is not `<stream>.jsonl.gz` is skipped, not refused; a sealed run holds none.
+- A raw directory entry that is not `<stream>.jsonl.gz` is skipped, not refused. That a sealed run holds none is not proven for an interrupted run. What holds: both producers write only `<stream>.jsonl.gz`, and a crash debris name `.tmp-...` fails `StreamName`'s pattern, so it is skipped.
+- Directory modes of the workspace stay as they were (writable directories are older than this leaf). Making them read-only once the copies are written is a follow-up.
+- The refusal code of a digest mismatch is still `evaluation.blob_corrupt`, though it now also covers the trace, a raw stream and the manifest; renaming a code is left to a decision of its own.
 
 ## Checks on the tip
 
 `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings` and `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` pass. `cargo nextest run --workspace --no-fail-fast`: 737 run, 732 passed. The known failure `guard_harness_facts::harness_census_equals_cf3de30_on_every_fixture` (no baseline for `streams/shell_exit_stderr_timeout`, fixed on its own branch) failed. Four more failed while the machine ran at a load average near 40 (`guard_opencode_driver::opencode_skills_land_in_the_project_skill_directory`, `guard_container_stop::stop_asks_the_daemon_and_falls_back_to_the_client`, `guard_claude_code_driver::b22_skill_tree_is_the_tag`, `guard_container_record::stopped_run_has_its_agent_recorded_before_the_hook_sweeps`); run alone, all four pass.
+
+## Review round
+
+| Fix | Evidence |
+|---|---|
+| Mode set on the open handle in `copy_stored` before the handle is dropped; no `fs::set_permissions` by path. | `a_plug_in_cannot_write_through_to_the_store` and `an_imported_executable_materialises_as_a_private_0555_copy` pass. Directory modes left, listed above. |
+| Digest mismatch names the stored source path and says "no longer has the digest recorded for it", true for a blob and for a stored part; code unchanged, description in `refusal.rs` and `docs/contract/index.md` widened. | `a_corrupt_blob_is_refused_and_not_digested` now checks the named path for a blob and for a trace changed after `assemble`; `guard_refusal_codes` passes. |
+| `PartMissing { run: RunKey, part: RunPart }`, `RunPart` a `#[non_exhaustive]` enum (`Trace`, `Raw`); the text names the run. | `needs_parts_refused_when_the_run_cannot_serve_them` checks the part and the run in the text. |
+| `assemble` refuses a missing trace only on `NotFound`; any other error is `ContextError::Io`, as `stored_streams` does. | Read; no guard (a non-`NotFound` error needs a file system fault). |
+| `Served::Input` carries no payload; the path text is built only for the parts that the context records; `text_of` is the one conversion. `below` stays: it joins a directory and a name, which `stored_path` does not. | Compiles clean under clippy `-D warnings`. |
+| Docs: hashed at assembly, copy checked against that hash; module line wrapped; the broken sentence of the vector guard mended. | `cargo doc` with `-D warnings`. |
+| The corrupt-blob guard extended with a stored trace; the manifest copy's hash compared with the stored `manifest.json`; the `3` replaced by a check that the `[[served]]` rows cover trace, raw and manifest. | Red first: with the copy-versus-hash check removed for stored files (scratch branch, deleted), `a_corrupt_blob_is_refused_and_not_digested` failed with `a trace changed after assembly must be refused, naming the trace, got Ok(RunContext { ... })`. |
+| Ruling note: a plug-in is served the union of what its kinds declare, and its kinds share the process. | `git grep -n -i "kind saw\|kind sees\|what a kind"` finds none in the files this leaf wrote. |
+| Report: the claim about non-stream files in `raw/` replaced by what holds. | Above, "What is left". |
