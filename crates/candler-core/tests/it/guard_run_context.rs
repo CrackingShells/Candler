@@ -15,12 +15,13 @@ use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::str::FromStr as _;
 
-use candler_core::evaluation::context::{ContextError, assemble, materialise};
+use candler_core::evaluation::context::{ContextError, assemble, materialise, union_needs};
 use candler_core::store::Store;
 use candler_core::store::run::{Existing, RunWriter};
 use candler_schemas::evaluation::{Needs, RunContext};
 use candler_schemas::execution::{RunManifest, RunTree, TreeEntry};
 use candler_schemas::primitives::{Digest, FieldPath, RelPath, RunKey};
+use candler_schemas::refusal::Refusal as _;
 use legacy_import::{cell_of, copy_tree, import_with_reader, mini};
 use sha2::{Digest as _, Sha256};
 
@@ -101,7 +102,136 @@ fn context_of(store: &Store, run: &RunKey, needs: &Needs, workspace: &Path) -> R
     materialise(&assembled, workspace).expect("the run materialises")
 }
 
-/// Guards: R9 — the digest of a materialised live context equals the independent vector of the run's raw `outputs/` files and `experiment.json`, and a twin whose `domain.py` differs by one byte has the vector of the twin, which is not the original's. Oracle: `live_context_runs.toml`, written by `gen_live_context.py` with python `rfc8785` from the raw corpus.
+/// The needs of a request that serves one kind per entry of `parts` (`trace`, `raw` or
+/// `manifest`, each declared by a kind of its own) and a kind that wants the parity suite's
+/// artifacts and metadata, folded the way the engine folds the kinds of a plug-in.
+fn needs_declaring(parts: &[&str]) -> Needs {
+    let mut kinds = vec![parity_needs()];
+    for part in parts {
+        let mut kind = Needs::default();
+        match *part {
+            "trace" => kind.trace = true,
+            "raw" => kind.raw = true,
+            "manifest" => kind.manifest = true,
+            other => panic!("`{other}` is not a part of a run"),
+        }
+        kinds.push(kind);
+    }
+    union_needs(&kinds)
+}
+
+/// The files the store holds for the trace, the raw streams and the manifest of `run`, each as
+/// its path in the store and its path below a workspace. The streams are listed from the store's
+/// `raw/` directory.
+fn stored_parts(store: &Store, run: &RunKey) -> Vec<(PathBuf, String)> {
+    let layout = store.layout();
+    let mut parts = vec![(layout.trace(run), "trace.jsonl".to_owned())];
+    let mut streams: Vec<String> = fs::read_dir(layout.raw_dir(run))
+        .expect("the raw directory lists")
+        .map(|entry| {
+            entry
+                .expect("an entry")
+                .file_name()
+                .into_string()
+                .expect("a UTF-8 name")
+        })
+        .collect();
+    streams.sort();
+    for name in streams {
+        parts.push((layout.raw_dir(run).join(&name), format!("raw/{name}")));
+    }
+    parts.push((layout.manifest(run), "manifest.json".to_owned()));
+    parts
+}
+
+/// Guards: R9 and R01 §Evaluator protocol — kinds that declare `trace`, `raw` and `manifest`, folded as the engine folds them, get `context.trace`, `context.raw[]` and `context.manifest`: each a private read-only copy (`0444`, one link, an inode of its own) of the file the store holds, whose bytes hash to the sha256 the context states; and a request that declares none of them is served none. Oracle: the sha256, bytes and inode of the store's own `trace.jsonl`, `raw/<stream>.jsonl.gz` and `manifest.json`, read here.
+#[test]
+fn kinds_that_declare_the_run_parts_are_served_their_stored_bytes() {
+    let (_keep, store) = mini_store(&mini());
+    let run = key_of(&store, 6);
+    let stored = stored_parts(&store, &run);
+    assert!(
+        stored.len() >= 3,
+        "the run stores a trace, a stream and a manifest"
+    );
+
+    let workspace = tempfile::tempdir().expect("a workspace");
+    let context = context_of(
+        &store,
+        &run,
+        &needs_declaring(&["trace", "raw", "manifest"]),
+        workspace.path(),
+    );
+    let trace = context.trace().expect("the context serves the trace");
+    let manifest = context.manifest().expect("the context serves the manifest");
+    let mut served: Vec<(String, String, Digest)> = vec![
+        (
+            "trace.jsonl".to_owned(),
+            trace.abs.clone(),
+            trace.sha256.clone(),
+        ),
+        (
+            "manifest.json".to_owned(),
+            manifest.abs.clone(),
+            manifest.sha256.clone(),
+        ),
+    ];
+    assert_eq!(trace.path.as_str(), "trace.jsonl");
+    assert_eq!(manifest.path.as_str(), "manifest.json");
+    for raw in context.raw() {
+        let name = format!("raw/{}.jsonl.gz", raw.stream);
+        served.push((name, raw.path.clone(), raw.sha256.clone()));
+    }
+    assert_eq!(
+        served.len(),
+        stored.len(),
+        "one served file per stored part"
+    );
+
+    for (in_store, below) in &stored {
+        let (_, abs, stated) = served
+            .iter()
+            .find(|(name, _, _)| name == below)
+            .unwrap_or_else(|| panic!("`{below}` is not served"));
+        let copy = Path::new(abs);
+        assert_eq!(
+            copy,
+            workspace.path().join(below),
+            "where {below} is served"
+        );
+        let bytes = fs::read(in_store).expect("a stored file reads");
+        assert_eq!(
+            fs::read(copy).expect("a copy reads"),
+            bytes,
+            "bytes of {below}"
+        );
+        assert_eq!(&sha256_of(&bytes), stated, "the digest stated for {below}");
+        let (meta, original) = (
+            fs::metadata(copy).expect("a copy"),
+            fs::metadata(in_store).expect("a stored file"),
+        );
+        assert_eq!(meta.mode() & 0o777, 0o444, "the mode of {below}");
+        assert_eq!(meta.nlink(), 1, "{below} has one link");
+        assert_ne!(
+            meta.ino(),
+            original.ino(),
+            "{below} is not the store's inode"
+        );
+    }
+
+    let bare = tempfile::tempdir().expect("a workspace");
+    let plain = context_of(&store, &run, &parity_needs(), bare.path());
+    assert!(
+        plain.trace().is_none() && plain.manifest().is_none() && plain.raw().is_empty(),
+        "a request that declares no part is served none"
+    );
+    assert!(
+        !bare.path().join("trace.jsonl").exists() && !bare.path().join("raw").exists(),
+        "no part is copied for a request that declares none"
+    );
+}
+
+/// Guards: R9 — the digest of a materialised live context equals the independent vector of the run's raw `outputs/` files and `experiment.json`, and a twin whose `domain.py` differs by one byte has the vector of the twin, which is not the original's. and a context that also serves the trace, the raw streams or the manifest has the vector of its `[[served]]` row, whose recorded hashes equal the hashes of the files the store holds. Oracle: `live_context_runs.toml`, written by `gen_live_context.py` with python `rfc8785` from the raw corpus and the stored files' hashes.
 #[test]
 fn the_live_context_digest_is_the_independent_vector() {
     let vectors = live_vectors();
@@ -167,15 +297,66 @@ fn the_live_context_digest_is_the_independent_vector() {
         base_digest,
         "one byte changes the digest"
     );
+
+    let vectors = toml::Value::Table(vectors);
+    let served = tables_at(&vectors, "served");
+    assert_eq!(served.len(), 3, "vector rows that serve parts");
+    for vector in served {
+        let run = text_at(vector, "run");
+        let parts: Vec<&str> = tables_at_str(vector, "needs");
+        let key = key_of(&store, replicate_of(run));
+        let stored = |name: &str| {
+            sha256_of(
+                &fs::read(store.layout().run_dir(&key).join(name)).expect("a stored file reads"),
+            )
+        };
+        // The hashes the row records are those of the files this store holds.
+        if parts.contains(&"trace") {
+            assert_eq!(
+                stored("trace.jsonl").to_string(),
+                text_at(vector, "trace_sha256"),
+                "trace of {run}"
+            );
+        }
+        if parts.contains(&"manifest") {
+            assert_eq!(
+                stored("manifest.json").to_string(),
+                text_at(vector, "manifest_sha256"),
+                "manifest of {run}"
+            );
+        }
+        if parts.contains(&"raw") {
+            for stream in tables_at(vector, "raw") {
+                let name = format!("raw/{}.jsonl.gz", text_at(stream, "stream"));
+                assert_eq!(
+                    stored(&name).to_string(),
+                    text_at(stream, "sha256"),
+                    "{name} of {run}"
+                );
+            }
+        }
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let context = context_of(&store, &key, &needs_declaring(&parts), workspace.path());
+        assert_eq!(
+            context.context_digest().to_string(),
+            text_at(vector, "digest"),
+            "{run} serving {parts:?}"
+        );
+    }
 }
 
-/// Guards: R9 and I11 — a plug-in that appends to, or overwrites, a materialised file, after making it writable as a careless one would, leaves every blob of the store with its recorded sha256. Oracle: the sha256 the store's tree records for each blob, and a read of the blob's bytes taken here.
+/// Guards: R9 and I11 — a plug-in that appends to, or overwrites, a materialised file (an artifact, the trace, a raw stream or the manifest), after making it writable as a careless one would, leaves every blob, the trace, the raw streams and the manifest of the store with their bytes and modes. Oracle: the sha256 the store's tree records for each blob, and a read of each stored file's bytes and mode taken here before the plug-in writes.
 #[test]
 fn a_plug_in_cannot_write_through_to_the_store() {
     let (_keep, store) = mini_store(&mini());
     let run = key_of(&store, 6);
     let workspace = tempfile::tempdir().expect("a workspace");
-    let context = context_of(&store, &run, &parity_needs(), workspace.path());
+    let context = context_of(
+        &store,
+        &run,
+        &needs_declaring(&["trace", "raw", "manifest"]),
+        workspace.path(),
+    );
     assert!(context.artifacts().len() >= 3, "the run has artifacts");
 
     let tree = store.read_tree(&run).expect("the tree reads");
@@ -192,6 +373,26 @@ fn a_plug_in_cannot_write_through_to_the_store() {
             (fs::read(blob).expect("a blob reads"), meta.mode())
         })
         .collect();
+
+    let parts = stored_parts(&store, &run);
+    let parts_before: Vec<(Vec<u8>, u32)> = parts
+        .iter()
+        .map(|(file, _)| {
+            (
+                fs::read(file).expect("a stored file reads"),
+                fs::metadata(file).expect("a stored file").mode(),
+            )
+        })
+        .collect();
+    for (_, below) in &parts {
+        let copy = workspace.path().join(below);
+        fs::set_permissions(&copy, fs::Permissions::from_mode(0o644)).expect("chmod u+w");
+        let mut append = OpenOptions::new().append(true).open(&copy).expect("opens");
+        append.write_all(b"\nTAMPERED\n").expect("appends");
+        drop(append);
+        let mut head = OpenOptions::new().write(true).open(&copy).expect("opens");
+        head.write_all(b"XXXX").expect("overwrites");
+    }
 
     for (blob, path, sha) in &recorded {
         let copy = workspace.path().join("outputs").join(path.as_str());
@@ -218,6 +419,18 @@ fn a_plug_in_cannot_write_through_to_the_store() {
             fs::metadata(blob).expect("a blob").mode(),
             *mode,
             "the mode of the store blob of {path}"
+        );
+    }
+    for ((file, below), (bytes, mode)) in parts.iter().zip(&parts_before) {
+        assert_eq!(
+            &fs::read(file).expect("a stored file reads"),
+            bytes,
+            "the stored bytes of {below}"
+        );
+        assert_eq!(
+            fs::metadata(file).expect("a stored file").mode(),
+            *mode,
+            "the stored mode of {below}"
         );
     }
 }
@@ -373,6 +586,14 @@ fn input_vectors() -> toml::Table {
     )
     .expect("the vectors read");
     text.parse().expect("the vectors parse")
+}
+
+/// The strings of the array `key` of `value`.
+fn tables_at_str<'t>(value: &'t toml::Value, key: &str) -> Vec<&'t str> {
+    tables_at(value, key)
+        .iter()
+        .map(|item| item.as_str().expect("a string"))
+        .collect()
 }
 
 /// The array of tables `key` of `value`.
@@ -637,4 +858,37 @@ fn needs_inputs_refused_when_the_list_blob_is_not_its_digests_list() {
         text.contains("`doc`") && text.contains("is not the canonical list of its digest"),
         "`{text}` names the kind and the non-canonical list"
     );
+}
+
+/// Guards: R01 §Evaluator protocol — a kind that declares the trace, or the raw streams, of a run that stores none of them is refused with the code `evaluation.run_part_missing`, naming the part, and no context is made; the same run serves its manifest. Oracle: hand-written; the parts and the code are the ones written below, and the run is sealed over a manifest alone by the store's own writer.
+#[test]
+fn needs_parts_refused_when_the_run_cannot_serve_them() {
+    let (_keep, store) = mini_store(&mini());
+    let template = key_of(&store, 6);
+    let bare = seal_with_inputs(&store, &template, 2, &[], &[]);
+    assert!(
+        !store.layout().trace(&bare).exists() && !store.layout().raw_dir(&bare).exists(),
+        "the run stores neither a trace nor a raw stream"
+    );
+    for part in ["trace", "raw"] {
+        let error = assemble(&store, &bare, &needs_declaring(&[part]))
+            .expect_err("a part the run lacks is refused");
+        assert_eq!(
+            error.code().as_str(),
+            "evaluation.run_part_missing",
+            "{part}"
+        );
+        assert!(
+            error.to_string().contains(&format!("`{part}`")),
+            "`{error}` names the part `{part}`"
+        );
+    }
+    let workspace = tempfile::tempdir().expect("a workspace");
+    let context = context_of(
+        &store,
+        &bare,
+        &needs_declaring(&["manifest"]),
+        workspace.path(),
+    );
+    assert!(context.manifest().is_some(), "the manifest is always held");
 }

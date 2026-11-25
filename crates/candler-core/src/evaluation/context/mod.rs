@@ -13,10 +13,12 @@ use crate::store::StoreError;
 mod assemble;
 mod materialise;
 mod rule;
+mod union;
 
 pub use assemble::{Assembled, AssembledArtifact, AssembledInput, assemble};
 pub use materialise::{Workspace, materialise};
 pub use rule::{FileRule, file_rule_keeps};
+pub use union::union_needs;
 
 /// Why a run's context could not be assembled or materialised.
 #[derive(Debug, thiserror::Error)]
